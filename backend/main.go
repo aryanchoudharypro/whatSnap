@@ -429,12 +429,12 @@ func populateChatsFromStore() {
 		return
 	}
 
-	now := time.Now().Unix()
 	for jid, contact := range allContacts {
 		jidStr := jid.String()
 		if jidStr == "status@broadcast" {
 			continue
 		}
+
 		name := contact.FullName
 		if name == "" {
 			name = contact.PushName
@@ -442,20 +442,41 @@ func populateChatsFromStore() {
 		if name == "" {
 			name = contact.BusinessName
 		}
-		db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, ?)
+
+		if jid.Server == "lid" {
+			if pn, pnErr := client.Store.LIDs.GetPNForLID(context.Background(), jid); pnErr == nil && !pn.IsEmpty() {
+				pnContact, pnContactErr := client.Store.Contacts.GetContact(context.Background(), pn)
+				if pnContactErr == nil && pnContact.Found {
+					if pnContact.FullName != "" {
+						name = pnContact.FullName
+					} else if pnContact.PushName != "" {
+						name = pnContact.PushName
+					}
+				}
+				if name == "" {
+					name = "+" + pn.User
+				}
+			}
+		}
+
+		if name == "" {
+			continue
+		}
+
+		db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0)
 			ON CONFLICT(jid) DO UPDATE SET
 			name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
-			jidStr, name, now)
+			jidStr, name)
 	}
 
 	groups, err := client.GetJoinedGroups(context.Background())
 	if err == nil {
 		for _, g := range groups {
 			jidStr := g.JID.String()
-			db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, ?)
+			db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0)
 				ON CONFLICT(jid) DO UPDATE SET
 				name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
-				jidStr, g.GroupName.Name, now)
+				jidStr, g.GroupName.Name)
 		}
 	}
 
