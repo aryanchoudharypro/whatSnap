@@ -1,0 +1,35 @@
+[package]
+name = "winzapp_rust"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+
+[dependencies]
+anyhow = "1.0.102"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tungstenite = { version = "0.29.0", features = ["rustls-tls-native-roots"] }
+wxdragon = { version = "0.9.16", features = ["media-ctrl", "webview"] }
+accesskit = "0.24.0"
+qrcode = "0.14.1"
+image = "0.25.10"
+base64 = "0.22.1"
+live-region = "0.2.0"
+
+[target.'cfg(windows)'.dependencies]
+accesskit_windows = "0.33.0"
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_Diagnostics_Debug", "Win32_UI_Accessibility", "Win32_UI_Controls", "Win32_UI_Input", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+panic = "abort"
+codegen-units = 1
+
+[patch.crates-io]
+wxdragon = { git = "https://github.com/AllenDang/wxDragon" }
+
+[build-dependencies]
+embed-manifest = "1.5.0"
+winres = "0.1.12"
