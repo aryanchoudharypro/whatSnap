@@ -1,5 +1,5 @@
 use std::{process::Command, time::Instant};
-use winzapp_rust::ChatMessage;
+use whantv::ChatMessage;
 
 fn run_stress_test_simulation() {
 	let backend_dir = std::path::PathBuf::from("backend");

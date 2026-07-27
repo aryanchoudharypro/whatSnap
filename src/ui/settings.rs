@@ -111,6 +111,7 @@ pub struct SettingsDialogParts {
 	pub ws_server_field: TextCtrl,
 	pub port_field: TextCtrl,
 	pub api_key_field: TextCtrl,
+	pub sync_contacts_btn: Button,
 
 	pub audio_page: Panel,
 	pub audio_speed_combo: ComboBox,
@@ -306,6 +307,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let api_key_field = TextCtrl::builder(&conn_page).build();
 	conn_sizer.add(&api_key_field, 0, SizerFlag::Expand | SizerFlag::All, 8);
 
+	let sync_contacts_btn = Button::builder(&conn_page).with_label("Force Sync Contacts & Chats").build();
+	conn_sizer.add(&sync_contacts_btn, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
 	conn_page.set_sizer(conn_sizer, true);
 	notebook.add_page(&conn_page, "Connection", false, None);
 
@@ -370,6 +374,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		ws_server_field,
 		port_field,
 		api_key_field,
+		sync_contacts_btn,
 		audio_page,
 		audio_speed_combo,
 		ok_btn,
