@@ -506,6 +506,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	let tx_play_media = ui_tx.clone();
 	let msgs_list_play = parts.conversations_parts.messages_list.clone();
 	let state_play = state.clone();
+	let play_voice_btn_space = parts.conversations_parts.play_voice_btn.clone();
 	let tx_close_list = ui_tx.clone();
 	let parent_frame = parts.frame.clone();
 	let msgs_announcer = parts.conversations_parts.messages_announcer.clone();
@@ -664,9 +665,15 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
 					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						let is_voice = msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
+						if !is_voice {
+							event.skip(true);
+							return;
+						}
 						let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
 						if is_currently_playing {
 							if s.is_audio_paused {
+								// Resume
 								if let Some(ref sink) = s.audio_sink {
 									sink.play();
 								}
@@ -675,7 +682,13 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 									let _ = stdin.flush();
 								}
 								s.is_audio_paused = false;
+								s.audio_start_instant = Some(std::time::Instant::now());
+								play_voice_btn_space.set_label("Pause voice message");
 							} else {
+								// Pause — save elapsed
+								if let Some(inst) = s.audio_start_instant.take() {
+									s.audio_elapsed_secs += inst.elapsed().as_secs_f32();
+								}
 								if let Some(ref sink) = s.audio_sink {
 									sink.pause();
 								}
@@ -684,14 +697,18 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 									let _ = stdin.flush();
 								}
 								s.is_audio_paused = true;
+								play_voice_btn_space.set_label("Play voice message");
 							}
 						} else {
 							if let Some(ref sink) = s.audio_sink {
 								sink.stop();
 							}
 							s.audio_sink = None;
+							s.audio_elapsed_secs = 0.0;
+							s.audio_start_instant = None;
 							s.is_audio_paused = false;
 							s.playing_msg_id = Some(msg.id.clone());
+							play_voice_btn_space.set_label("Loading voice message...");
 							let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id));
 						}
 					}
@@ -1085,6 +1102,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 				let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
 				if is_currently_playing {
 					if s.is_audio_paused {
+						// Resume
 						if let Some(ref sink) = s.audio_sink {
 							sink.play();
 						}
@@ -1093,9 +1111,14 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 							let _ = stdin.flush();
 						}
 						s.is_audio_paused = false;
+						s.audio_start_instant = Some(std::time::Instant::now());
 						play_voice_btn_ref.set_label("Pause voice message");
 						return;
 					} else {
+						// Pause — save elapsed time
+						if let Some(inst) = s.audio_start_instant.take() {
+							s.audio_elapsed_secs += inst.elapsed().as_secs_f32();
+						}
 						if let Some(ref sink) = s.audio_sink {
 							sink.pause();
 						}
@@ -1108,11 +1131,13 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 						return;
 					}
 				}
-				
+
 				if let Some(ref sink) = s.audio_sink {
 					sink.stop();
 				}
 				s.audio_sink = None;
+				s.audio_elapsed_secs = 0.0;
+				s.audio_start_instant = None;
 				s.is_audio_paused = false;
 				s.playing_msg_id = Some(msg.id.clone());
 				play_voice_btn_ref.set_label("Loading voice message...");
@@ -1124,6 +1149,8 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	let tx_load_more_scroll = ui_tx.clone();
 	let state_sel = state.clone();
 	let play_voice_btn_sel = parts.conversations_parts.play_voice_btn.clone();
+	let audio_slider_sel = parts.conversations_parts.audio_slider.clone();
+	let audio_progress_label_sel = parts.conversations_parts.audio_progress_label.clone();
 	parts.conversations_parts.messages_list.on_selection_changed(move |event| {
 		if let Some(idx) = event.get_selection() {
 			if idx == 0 {
@@ -1147,15 +1174,26 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 						} else {
 							play_voice_btn_sel.set_label("Play voice message");
 						}
+						audio_slider_sel.show(true);
+						audio_progress_label_sel.show(true);
 					} else {
 						play_voice_btn_sel.set_label("Play voice message");
+						audio_slider_sel.show(false);
+						audio_progress_label_sel.show(false);
 					}
+				} else {
+					audio_slider_sel.show(false);
+					audio_progress_label_sel.show(false);
 				}
 			} else {
 				play_voice_btn_sel.show(false);
+				audio_slider_sel.show(false);
+				audio_progress_label_sel.show(false);
 			}
 		} else {
 			play_voice_btn_sel.show(false);
+			audio_slider_sel.show(false);
+			audio_progress_label_sel.show(false);
 		}
 	});
 
@@ -1258,5 +1296,31 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	let tx_read_more = ui_tx.clone();
 	parts.conversations_parts.read_more_btn.on_click(move |_| {
 		let _ = tx_read_more.send(UiCommand::LoadMoreMessages);
+	});
+
+	// Wire audio slider for seeking (drag/mouse)
+	let tx_slider = ui_tx.clone();
+	parts.conversations_parts.audio_slider.on_slider(move |event| {
+		let val = event.get_value();
+		let _ = tx_slider.send(UiCommand::SeekAudioAbsolute(val));
+	});
+
+	// Wire audio slider keyboard seeking (Left/Right arrow ±5 seconds)
+	let tx_slider_key = ui_tx.clone();
+	parts.conversations_parts.audio_slider.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			let code = key.get_key_code();
+			if code == Some(314) { // Left arrow
+				let _ = tx_slider_key.send(UiCommand::SeekAudio(-5.0));
+				event.skip(false);
+			} else if code == Some(316) { // Right arrow
+				let _ = tx_slider_key.send(UiCommand::SeekAudio(5.0));
+				event.skip(false);
+			} else {
+				event.skip(true);
+			}
+		} else {
+			event.skip(true);
+		}
 	});
 }
