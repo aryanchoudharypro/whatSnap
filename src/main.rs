@@ -63,6 +63,8 @@ pub enum UiCommand {
 	MarkRead { jid: String, message_ids: Vec<String> },
 	LoadMoreMessages,
 	PlayVoiceMessage(String),
+	SeekAudio(f32),         // relative delta in seconds
+	SeekAudioAbsolute(i32), // slider value 0..1000
 	CloseConversation,
 }
 
@@ -79,6 +81,10 @@ struct AppState {
 	audio_process: Option<std::process::Child>,
 	audio_stdin: Option<std::process::ChildStdin>,
 	is_audio_paused: bool,
+	audio_path: Option<String>,
+	audio_total_secs: f32,
+	audio_elapsed_secs: f32,
+	audio_start_instant: Option<std::time::Instant>,
 	chats: Vec<String>,
 	filtered_chats: Vec<String>,
 	archived_jids: std::collections::HashSet<String>,
@@ -272,6 +278,10 @@ fn main() {
 			audio_process: None,
 			audio_stdin: None,
 			is_audio_paused: false,
+			audio_path: None,
+			audio_total_secs: 0.0,
+			audio_elapsed_secs: 0.0,
+			audio_start_instant: None,
 			chats: Vec::new(),
 			filtered_chats: Vec::new(),
 			archived_jids: std::collections::HashSet::new(),
@@ -317,6 +327,48 @@ fn main() {
 
 		bind_input_handlers(&parts_clone, ui_tx, &state);
 
+		// Setup audio progress timer
+		let audio_timer = Timer::new(&frame);
+		let state_timer = state.clone();
+		let parts_timer = parts_clone.clone();
+		audio_timer.on_tick(move |_| {
+			let mut s = state_timer.borrow_mut();
+			if s.playing_msg_id.is_none() {
+				return;
+			}
+			// Check if sink finished naturally
+			let finished = s.audio_sink.as_ref().map(|sk| sk.empty()).unwrap_or(false);
+			if finished && !s.is_audio_paused {
+				s.playing_msg_id = None;
+				s.audio_start_instant = None;
+				s.audio_elapsed_secs = 0.0;
+				parts_timer.conversations_parts.play_voice_btn.set_label("Play voice message");
+				parts_timer.conversations_parts.audio_slider.set_value(0);
+				parts_timer.conversations_parts.audio_progress_label.set_label("0:00 / 0:00");
+				parts_timer.conversations_parts.audio_slider.show(false);
+				parts_timer.conversations_parts.audio_progress_label.show(false);
+				return;
+			}
+			if !s.is_audio_paused {
+				if let Some(inst) = s.audio_start_instant {
+					let elapsed = s.audio_elapsed_secs + inst.elapsed().as_secs_f32();
+					let total = s.audio_total_secs;
+					let pos = if total > 0.0 {
+						((elapsed / total) * 1000.0).min(1000.0) as i32
+					} else {
+						0
+					};
+					parts_timer.conversations_parts.audio_slider.set_value(pos);
+					let fmt = |v: f32| format!("{}:{:02}", v as u32 / 60, v as u32 % 60);
+					parts_timer.conversations_parts.audio_progress_label.set_label(
+						&format!("{} / {}", fmt(elapsed), fmt(total))
+					);
+				}
+			}
+		});
+		audio_timer.start(500, false);
+		Box::leak(Box::new(audio_timer)); // Keep alive for app lifetime
+
 		frame.show(true);
 	});
 	if let Err(e) = res {
@@ -332,6 +384,27 @@ fn main() {
 		let _ = child.kill();
 		let _ = child.wait();
 	}
+}
+
+/// Perform a soft seek by stopping the current sink and re-opening the file
+/// from `target_secs`. Returns the new Sink if successful.
+fn do_seek(
+	stream_handle: &rodio::OutputStreamHandle,
+	path: &str,
+	target_secs: f32,
+) -> Option<Sink> {
+	use rodio::Source;
+	if let Ok(sink) = Sink::try_new(stream_handle) {
+		if let Ok(file) = File::open(path) {
+			if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+				let source = decoder.skip_duration(Duration::from_secs_f32(target_secs.max(0.0)));
+				sink.append(source);
+				sink.play();
+				return Some(sink);
+			}
+		}
+	}
+	None
 }
 
 fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -1313,16 +1386,87 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"play_audio" => {
 							if let Some(data) = val.get("data") {
 								if let Some(path) = data.get("path").and_then(|p| p.as_str()) {
-									let msg_id = data.get("id").and_then(|i| i.as_str()).map(|s| s.to_string());
+									// Backend sends "message_id", not "id"
+									let msg_id = data.get("message_id")
+										.or_else(|| data.get("id"))
+										.and_then(|i| i.as_str())
+										.map(|s| s.to_string());
 									eprintln!("[LOG UI] Playing voice note: {} from path: {}", msg_id.as_deref().unwrap_or(""), path);
 									let mut s = state.borrow_mut();
-									s.playing_msg_id = msg_id;
+									// Keep playing_msg_id from the UI-side set (which used the correct msg.id),
+									// only update it if the server echoes a non-empty id
+									if let Some(ref id) = msg_id {
+										if !id.is_empty() {
+											s.playing_msg_id = Some(id.clone());
+										}
+									}
 									s.is_audio_paused = false;
+									s.audio_elapsed_secs = 0.0;
+									s.audio_start_instant = None;
+									s.audio_path = Some(path.to_string());
 									if let Some(ref sink) = s.audio_sink {
 										sink.stop();
 									}
 									s.audio_sink = None;
-									
+
+									// Duration strategy:
+									// 1. Count samples via rodio (works for WAV/FLAC/MP3 but not opus)
+									// 2. Parse "M:SS" from the message text e.g. "[Voice Message] (0:23)"
+									// 3. Count samples by consuming the decoder (always works, small files)
+									s.audio_total_secs = 0.0;
+
+									// Try rodio total_duration first (fast, works for some formats)
+									if let Ok(probe_file) = File::open(path) {
+										if let Ok(probe_dec) = Decoder::new(BufReader::new(probe_file)) {
+											use rodio::Source;
+											if let Some(dur) = probe_dec.total_duration() {
+												s.audio_total_secs = dur.as_secs_f32();
+											}
+										}
+									}
+
+									// Parse duration from message text: "[Voice Message] (M:SS)" or "[Audio] (M:SS)"
+									if s.audio_total_secs == 0.0 {
+										let playing_id = s.playing_msg_id.clone();
+										if let Some(ref pid) = playing_id {
+											if let Some(msg) = s.messages.iter().find(|m| &m.id == pid) {
+												let text = &msg.text;
+												// Find "(M:SS)" pattern inside the tag
+												if let Some(open) = text.find('(') {
+													if let Some(close) = text[open..].find(')') {
+														let inner = &text[open+1..open+close];
+														// parse "M:SS"
+														let parts_dur: Vec<&str> = inner.split(':').collect();
+														if parts_dur.len() == 2 {
+															if let (Ok(m), Ok(ss)) = (parts_dur[0].parse::<f32>(), parts_dur[1].parse::<f32>()) {
+																s.audio_total_secs = m * 60.0 + ss;
+															}
+														}
+													}
+												}
+											}
+										}
+									}
+
+									// Last resort: count samples by consuming a second decoder pass
+									if s.audio_total_secs == 0.0 {
+										if let Ok(count_file) = File::open(path) {
+											if let Ok(count_dec) = Decoder::new(BufReader::new(count_file)) {
+												use rodio::Source;
+												let sample_rate = count_dec.sample_rate();
+												let channels = count_dec.channels() as u64;
+												let samples = count_dec.count() as u64;
+												if sample_rate > 0 && channels > 0 {
+													let total_channel_samples = samples;
+													let frames = total_channel_samples / channels.max(1);
+													s.audio_total_secs = frames as f32 / sample_rate as f32;
+												}
+											}
+										}
+									}
+
+									eprintln!("[LOG UI] Audio total duration: {}s", s.audio_total_secs);
+
 									if s.audio_stream.is_none() {
 										if let Ok((stream, stream_handle)) = OutputStream::try_default() {
 											s.audio_stream = Some((stream, stream_handle));
@@ -1337,6 +1481,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													sink.play();
 													s.audio_sink = Some(sink);
 													played = true;
+													s.audio_start_instant = Some(std::time::Instant::now());
 													parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
 												}
 											}
@@ -1367,6 +1512,7 @@ while ($true) {
 											if let Ok(mut child) = std::process::Command::new("powershell")
 												.args(&["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script])
 												.stdin(std::process::Stdio::piped())
+												.creation_flags(0x08000000) // CREATE_NO_WINDOW
 												.spawn() {
 												s.audio_stdin = child.stdin.take();
 												s.audio_process = Some(child);
@@ -1375,9 +1521,23 @@ while ($true) {
 										if let Some(ref mut stdin) = s.audio_stdin {
 											let _ = writeln!(stdin, "PLAY {}", path_escaped);
 											let _ = stdin.flush();
+											s.audio_start_instant = Some(std::time::Instant::now());
 											parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
 										}
 									}
+									// Show slider UI
+									parts.conversations_parts.audio_slider.show(true);
+									parts.conversations_parts.audio_progress_label.show(true);
+									parts.conversations_parts.audio_slider.set_value(0);
+									let total = s.audio_total_secs;
+									let fmt_dur = |v: f32| {
+										if v > 0.0 { format!("{}:{:02}", v as u32 / 60, v as u32 % 60) }
+										else { "?:??".to_string() }
+									};
+									parts.conversations_parts.audio_progress_label.set_label(
+										&format!("0:00 / {}", fmt_dur(total))
+									);
+									parts.conversations_parts.conversation_panel.layout();
 								}
 							}
 						}
@@ -1646,8 +1806,8 @@ while ($true) {
 						drop(s);
 						parts.attachment_dialog.attachment_info_label.set_label(&label_text);
 						parts.attachment_dialog.caption_field.set_value("");
-						parts.attachment_dialog.dialog.show_modal();
 						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("File attached: {}", file_names.last().unwrap_or(&String::new())));
+						parts.attachment_dialog.dialog.show_modal();
 					}
 				}
 			}
@@ -1865,6 +2025,56 @@ while ($true) {
 				"data": { "id": message_id }
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::SeekAudio(delta) => {
+			let mut s = state.borrow_mut();
+			if s.playing_msg_id.is_some() {
+				let elapsed = s.audio_elapsed_secs
+					+ s.audio_start_instant.map(|i| i.elapsed().as_secs_f32()).unwrap_or(0.0);
+				let target = (elapsed + delta).max(0.0).min(s.audio_total_secs);
+				if let Some(ref sink) = s.audio_sink {
+					sink.stop();
+				}
+				s.audio_sink = None;
+				let path = s.audio_path.clone().unwrap_or_default();
+				if let Some((_, ref stream_handle)) = s.audio_stream {
+					let new_sink = do_seek(stream_handle, &path, target);
+					s.audio_sink = new_sink;
+				}
+				s.audio_elapsed_secs = target;
+				s.audio_start_instant = Some(std::time::Instant::now());
+				s.is_audio_paused = false;
+				parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+				// update slider immediately
+				let total = s.audio_total_secs;
+				let pos = if total > 0.0 { ((target / total) * 1000.0).min(1000.0) as i32 } else { 0 };
+				parts.conversations_parts.audio_slider.set_value(pos);
+				let fmt = |v: f32| format!("{}:{:02}", v as u32 / 60, v as u32 % 60);
+				parts.conversations_parts.audio_progress_label.set_label(&format!("{} / {}", fmt(target), fmt(total)));
+			}
+		}
+		UiCommand::SeekAudioAbsolute(slider_val) => {
+			let mut s = state.borrow_mut();
+			if s.playing_msg_id.is_some() {
+				let total = s.audio_total_secs;
+				let target = (slider_val as f32 / 1000.0) * total;
+				let target = target.max(0.0).min(total);
+				if let Some(ref sink) = s.audio_sink {
+					sink.stop();
+				}
+				s.audio_sink = None;
+				let path = s.audio_path.clone().unwrap_or_default();
+				if let Some((_, ref stream_handle)) = s.audio_stream {
+					let new_sink = do_seek(stream_handle, &path, target);
+					s.audio_sink = new_sink;
+				}
+				s.audio_elapsed_secs = target;
+				s.audio_start_instant = Some(std::time::Instant::now());
+				s.is_audio_paused = false;
+				parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+				let fmt = |v: f32| format!("{}:{:02}", v as u32 / 60, v as u32 % 60);
+				parts.conversations_parts.audio_progress_label.set_label(&format!("{} / {}", fmt(target), fmt(total)));
+			}
 		}
 	}
 }
