@@ -727,7 +727,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 						}
 					}
 				}
-			} else if !key_event.meta_down() && (code == Some(349) || code == Some(393) || code == Some(93) || code == Some(0x5D) || (key_event.shift_down() && code == Some(358))) { // Context Menu key or Shift+F10
+			} else if !key_event.meta_down() && (code == Some(349) || code == Some(395) || code == Some(93) || (key_event.shift_down() && code == Some(358))) { // Context Menu key (WXK_WINDOWS_MENU=395, VK_APPS=93) or Shift+F10
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let reply_id = 3001;
 					let edit_id = 3002;
