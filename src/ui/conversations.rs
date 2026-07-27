@@ -17,9 +17,8 @@ pub struct ConversationsPanelParts {
 
 	pub search_panel: Panel,
 	pub search_close_btn: Button,
+	pub search_conv_label: StaticText,
 	pub search_conv_field: TextCtrl,
-	pub search_prev_btn: Button,
-	pub search_next_btn: Button,
 
 	pub messages_label: StaticText,
 	pub messages_list: ListBox,
@@ -42,6 +41,7 @@ pub struct ConversationsPanelParts {
 	pub send_voice_btn: Button,
 
 	pub attachment_panel: Panel,
+	pub caption_label: StaticText,
 	pub caption_field: TextCtrl,
 	pub send_attachment_btn: Button,
 	pub add_more_btn: Button,
@@ -88,14 +88,12 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let search_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let search_close_btn = Button::builder(&search_panel).with_label("Close search").build();
 	search_sizer.add(&search_close_btn, 0, SizerFlag::Right, 5);
+	let search_conv_label = StaticText::builder(&search_panel).with_label("Search conversation").build();
+	search_sizer.add(&search_conv_label, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	let search_conv_field = TextCtrl::builder(&search_panel)
 		.with_style(TextCtrlStyle::ProcessEnter)
 		.build();
 	search_sizer.add(&search_conv_field, 1, SizerFlag::Expand | SizerFlag::Right, 5);
-	let search_prev_btn = Button::builder(&search_panel).with_label("Previous result").build();
-	search_sizer.add(&search_prev_btn, 0, SizerFlag::Right, 5);
-	let search_next_btn = Button::builder(&search_panel).with_label("Next result").build();
-	search_sizer.add(&search_next_btn, 0, SizerFlag::empty(), 0);
 	search_panel.set_sizer(search_sizer, true);
 	search_panel.show(false);
 	conv_sizer.add(&search_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 5);
@@ -170,6 +168,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 
 	let attachment_panel = Panel::builder(&conversation_panel).build();
 	let attach_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let caption_label = StaticText::builder(&attachment_panel).with_label("Caption").build();
+	attach_sizer.add(&caption_label, 0, SizerFlag::Left | SizerFlag::Top, 5);
 	let caption_field = TextCtrl::builder(&attachment_panel)
 		.with_style(TextCtrlStyle::ProcessEnter)
 		.build();
@@ -215,9 +215,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		search_in_conv_btn,
 		search_panel,
 		search_close_btn,
+		search_conv_label,
 		search_conv_field,
-		search_prev_btn,
-		search_next_btn,
 		messages_label,
 		messages_list,
 		play_voice_btn,
@@ -234,6 +233,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		pause_resume_btn,
 		send_voice_btn,
 		attachment_panel,
+		caption_label,
 		caption_field,
 		send_attachment_btn,
 		add_more_btn,

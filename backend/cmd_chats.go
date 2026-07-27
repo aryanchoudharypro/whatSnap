@@ -159,7 +159,7 @@ func handleGetMessages(conn *websocket.Conn, raw json.RawMessage) {
 // is provided, otherwise it searches everything.
 func handleSearchMessages(conn *websocket.Conn, raw json.RawMessage) {
 	var data SearchMessagesData
-	if err := json.Unmarshal(raw, &data); err != nil {
+	if err := json.Unmarshal(raw, &data); err != nil || data.Query == "" {
 		return
 	}
 	go func() {
@@ -167,27 +167,57 @@ func handleSearchMessages(conn *websocket.Conn, raw json.RawMessage) {
 		var rows *sql.Rows
 		var err error
 		if data.JID != "" {
-			rows, err = db.Query(`SELECT id, jid, text, timestamp, from_me, COALESCE(sender_jid, '') FROM messages
-				WHERE jid = ? AND text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 200`, data.JID, like)
+			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
+				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
+				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
+				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0) FROM messages
+				WHERE jid = ? AND text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, data.JID, like)
 		} else {
-			rows, err = db.Query(`SELECT id, jid, text, timestamp, from_me, COALESCE(sender_jid, '') FROM messages
-				WHERE text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 200`, like)
+			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
+				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
+				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
+				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0) FROM messages
+				WHERE text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, like)
 		}
 		results := []map[string]interface{}{}
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
-				var id, jid, text, senderJID string
-				var ts int64
+				var id, jid, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath string
+				var quotedID, quotedText, quotedSender string
+				var ts, sentAt, deliveredAt, readAt, playedAt int64
 				var fromMe bool
-				if scanErr := rows.Scan(&id, &jid, &text, &ts, &fromMe, &senderJID); scanErr == nil {
-					chatName := jid
-					if parsed, perr := types.ParseJID(jid); perr == nil {
-						chatName = resolveDisplayName(parsed)
+				var isEdited, isDeleted int
+				if scanErr := rows.Scan(&id, &jid, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
+					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt); scanErr == nil {
+					senderName := ""
+					if senderJID != "" {
+						if parsed, perr := types.ParseJID(senderJID); perr == nil {
+							senderName = resolveDisplayName(parsed)
+						}
 					}
 					results = append(results, map[string]interface{}{
-						"id": id, "jid": jid, "chatName": chatName, "text": text,
-						"timestamp": ts, "fromMe": fromMe, "senderJid": senderJID,
+						"id":            id,
+						"jid":           jid,
+						"fromMe":        fromMe,
+						"text":          text,
+						"timestamp":     ts,
+						"senderJid":     senderJID,
+						"senderName":    senderName,
+						"status":        status,
+						"mediaType":     mediaType,
+						"mediaMimetype": mediaMimetype,
+						"mediaFilename": mediaFilename,
+						"mediaPath":     mediaPath,
+						"quotedId":      quotedID,
+						"quotedText":    quotedText,
+						"quotedSender":  quotedSender,
+						"isEdited":      isEdited == 1,
+						"isDeleted":     isDeleted == 1,
+						"sentAt":        sentAt,
+						"deliveredAt":   deliveredAt,
+						"readAt":        readAt,
+						"playedAt":      playedAt,
 					})
 				}
 			}

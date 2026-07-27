@@ -297,17 +297,35 @@ func eventHandler(evt interface{}) {
 								mediaType, mimetype, filename := mediaInfoFromMessage(evtMsg.Message)
 								quotedID, quotedText, quotedSender := quotedPreview(evtMsg.Message)
 								status := ""
+								var sentAt int64
 								if msgFromMe {
-									status = "sent"
+									sentAt = msgTS
+									stStr := strings.ToLower(webMsg.GetStatus().String())
+									switch {
+									case strings.Contains(stStr, "played"):
+										status = "played"
+									case strings.Contains(stStr, "read"):
+										status = "read"
+									case strings.Contains(stStr, "delivery") || strings.Contains(stStr, "delivered"):
+										status = "delivered"
+									case strings.Contains(stStr, "server") || strings.Contains(stStr, "sent"):
+										status = "sent"
+									default:
+										if webMsg.GetStatus() > 0 {
+											status = "sent"
+										}
+									}
 								}
 								_, err := tx.Exec(`INSERT INTO messages
-										(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, quoted_id, quoted_text, quoted_sender)
-									VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+										(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, quoted_id, quoted_text, quoted_sender, sent_at)
+									VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 									ON CONFLICT(id) DO UPDATE SET text=excluded.text, timestamp=excluded.timestamp, sender_jid=excluded.sender_jid, raw=excluded.raw,
+										status=CASE WHEN excluded.status != '' THEN excluded.status ELSE messages.status END,
 										media_type=excluded.media_type, media_mimetype=excluded.media_mimetype, media_filename=excluded.media_filename,
-										quoted_id=excluded.quoted_id, quoted_text=excluded.quoted_text, quoted_sender=excluded.quoted_sender`,
+										quoted_id=excluded.quoted_id, quoted_text=excluded.quoted_text, quoted_sender=excluded.quoted_sender,
+										sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END`,
 									msgID, msgJID, msgFromMe, msgText, msgTS, senderJID, rawBytes, status,
-									mediaType, mimetype, filename, quotedID, quotedText, quotedSender)
+									mediaType, mimetype, filename, quotedID, quotedText, quotedSender, sentAt)
 								if err != nil {
 									log.Println("Error inserting message from HistorySync:", err)
 								}
@@ -515,13 +533,22 @@ func eventHandler(evt interface{}) {
 			for i, id := range v.MessageIDs {
 				ids[i] = string(id)
 			}
-			updated := updateMessageStatusIfNewer(ids, status)
+			receiptTS := v.Timestamp.Unix()
+			updated := updateMessageStatusIfNewer(ids, status, receiptTS)
 			if len(updated) > 0 {
-				chatJID := v.MessageSource.Chat.ToNonAD().String()
+				chatJID := v.MessageSource.Chat.ToNonAD()
+				// Resolve LID to phone-number JID so the frontend can match it
+				// against the selected chat (which is stored as @s.whatsapp.net).
+				if chatJID.Server == "lid" {
+					if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+						chatJID = pn.ToNonAD()
+					}
+				}
 				broadcastEvent("message_status", map[string]interface{}{
-					"jid":         chatJID,
+					"jid":         chatJID.String(),
 					"message_ids": updated,
 					"status":      status,
+					"timestamp":   receiptTS,
 				})
 			}
 		}()

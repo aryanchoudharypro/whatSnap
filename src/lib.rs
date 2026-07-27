@@ -31,6 +31,14 @@ pub struct ChatMessage {
 	pub is_deleted: bool,
 	#[serde(default)]
 	pub status: String,
+	#[serde(rename = "sentAt", alias = "sent_at", default)]
+	pub sent_at: i64,
+	#[serde(rename = "deliveredAt", alias = "delivered_at", default)]
+	pub delivered_at: i64,
+	#[serde(rename = "readAt", alias = "read_at", default)]
+	pub read_at: i64,
+	#[serde(rename = "playedAt", alias = "played_at", default)]
+	pub played_at: i64,
 	#[serde(default)]
 	pub reactions: Vec<ChatReaction>,
 	#[serde(rename = "quotedId", alias = "quoted_id", default)]
@@ -233,6 +241,10 @@ mod tests {
 			is_date_divider: false,
 			is_deleted: false,
 			status: "delivered".into(),
+			sent_at: 0,
+			delivered_at: 0,
+			read_at: 0,
+			played_at: 0,
 			reactions: Vec::new(),
 			quoted_id: "".into(),
 			quoted_text: "".into(),
@@ -252,6 +264,10 @@ mod tests {
 			is_date_divider: false,
 			is_deleted: false,
 			status: "".into(),
+			sent_at: 0,
+			delivered_at: 0,
+			read_at: 0,
+			played_at: 0,
 			reactions: Vec::new(),
 			quoted_id: "".into(),
 			quoted_text: "".into(),
@@ -271,6 +287,10 @@ mod tests {
 			is_date_divider: false,
 			is_deleted: false,
 			status: "".into(),
+			sent_at: 0,
+			delivered_at: 0,
+			read_at: 0,
+			played_at: 0,
 			reactions: Vec::new(),
 			quoted_id: "q1".into(),
 			quoted_text: "[Voice Message] (0:23)".into(),

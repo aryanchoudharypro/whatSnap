@@ -311,3 +311,32 @@ func handleMarkRead(raw json.RawMessage) {
 		"unread_count": 0,
 	})
 }
+
+func handleGetMessageInfo(conn *websocket.Conn, raw json.RawMessage) {
+	var data struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" {
+		return
+	}
+	var sentAt, deliveredAt, readAt, playedAt, msgTS int64
+	var mediaType string
+	err := db.QueryRow(
+		`SELECT COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(media_type,''), COALESCE(timestamp,0) FROM messages WHERE id = ?`,
+		data.ID,
+	).Scan(&sentAt, &deliveredAt, &readAt, &playedAt, &mediaType, &msgTS)
+	if err != nil {
+		return
+	}
+	if sentAt == 0 && msgTS > 0 {
+		sentAt = msgTS
+	}
+	sendEvent(conn, "message_info", map[string]interface{}{
+		"id":           data.ID,
+		"sent_at":      sentAt,
+		"delivered_at": deliveredAt,
+		"read_at":      readAt,
+		"played_at":    playedAt,
+		"media_type":   mediaType,
+	})
+}

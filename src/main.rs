@@ -4,6 +4,7 @@ mod ui;
 mod ui_wake;
 mod countries;
 
+
 use std::{
 	cell::RefCell,
 	rc::Rc,
@@ -14,6 +15,7 @@ use std::{
 
 use tungstenite::{connect, Message, stream::MaybeTlsStream};
 use wxdragon::prelude::*;
+use chrono::TimeZone;
 
 use crate::ui::window::{bind_input_handlers, build_main_window, WindowParts};
 use crate::ui_wake::{UiCommandSender, UiWaker, ID_UI_WAKE};
@@ -35,9 +37,9 @@ pub enum UiCommand {
 	FilterConversations(String),
 	OpenConversation(usize),
 	SearchInConversation(String),
-	SearchNextResult,
-	SearchPrevResult,
 	ToggleSearchPanel,
+	CloseSearch,
+	JumpToSearchResult { message_id: String, message_text: String },
 	StartRecording,
 	TogglePauseRecording,
 	StopRecording,
@@ -47,6 +49,7 @@ pub enum UiCommand {
 	DiscardVoiceMessage,
 	AddAttachment,
 	SendAttachment { caption: String },
+	DiscardAttachment,
 	DownloadMedia,
 	OpenMedia,
 	SaveMediaAs,
@@ -54,6 +57,7 @@ pub enum UiCommand {
 	RemoveQuote,
 	EditMessage { message_id: String, new_text: String },
 	DeleteMessage { message_id: String, sender_jid: String, for_everyone: bool },
+	GetMessageInfo { message_id: String },
 	SendTyping { jid: String, state: String, media: String },
 	SubscribePresence(String),
 	MarkRead { jid: String, message_ids: Vec<String> },
@@ -96,6 +100,8 @@ struct AppState {
 	pending_reply_sender: Option<String>,
 	pending_reply_preview: Option<String>,
 	pending_receipts: std::collections::HashMap<String, String>,
+	search_target_id: Option<String>,
+	search_target_text: Option<String>,
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
@@ -292,6 +298,8 @@ fn main() {
 			pending_reply_sender: None,
 			pending_reply_preview: None,
 			pending_receipts: std::collections::HashMap::new(),
+			search_target_id: None,
+			search_target_text: None,
 		}));
 
 		let state_clone = state.clone();
@@ -638,6 +646,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												is_date_divider: true,
 												is_deleted: false,
 												status: String::new(),
+												sent_at: 0,
+												delivered_at: 0,
+												read_at: 0,
+												played_at: 0,
 												reactions: Vec::new(),
 												quoted_id: String::new(),
 												quoted_text: String::new(),
@@ -658,6 +670,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											is_date_divider: false,
 											is_deleted: false,
 											status: s.pending_receipts.remove(&msg_id).unwrap_or_else(|| "sent".to_string()),
+											sent_at: if is_from_me { ts } else { 0 },
+											delivered_at: 0,
+											read_at: 0,
+											played_at: 0,
 											reactions: Vec::new(),
 											quoted_id,
 											quoted_text,
@@ -721,8 +737,6 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							if let Some(data) = val.get("data") {
 								if let Some(status) = data.get("status").and_then(|s| s.as_str()) {
 									if status == "success" {
-										parts.new_contact_dialog.dialog.end_modal(wxdragon::id::ID_OK);
-										parts.new_conv_dialog.dialog.end_modal(wxdragon::id::ID_OK);
 										let payload = serde_json::json!({
 											"action": "get_chats"
 										});
@@ -741,8 +755,6 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							if let Some(data) = val.get("data") {
 								if let Some(status) = data.get("status").and_then(|s| s.as_str()) {
 									if status == "success" {
-										parts.new_group_dialog.dialog.end_modal(wxdragon::id::ID_OK);
-										parts.new_conv_dialog.dialog.end_modal(wxdragon::id::ID_OK);
 										let payload = serde_json::json!({
 											"action": "get_chats"
 										});
@@ -777,6 +789,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													is_date_divider: false,
 													is_deleted: false,
 													status: String::new(),
+													sent_at: 0,
+													delivered_at: 0,
+													read_at: 0,
+													played_at: 0,
 													reactions: Vec::new(),
 													quoted_id: String::new(),
 													quoted_text: String::new(),
@@ -817,6 +833,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													is_date_divider: true,
 													is_deleted: false,
 													status: String::new(),
+													sent_at: 0,
+													delivered_at: 0,
+													read_at: 0,
+													played_at: 0,
 													reactions: Vec::new(),
 													quoted_id: String::new(),
 													quoted_text: String::new(),
@@ -834,18 +854,48 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let old_count = s.prev_msg_count;
 									let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 									s.messages = with_dates;
+									// Apply any receipts that arrived before messages finished loading.
+									// Collect first to avoid simultaneous mutable borrows of s.
+									let pending_ids: Vec<(String, String)> = s.messages.iter()
+										.filter_map(|msg| s.pending_receipts.get(&msg.id).map(|st| (msg.id.clone(), st.clone())))
+										.collect();
+									for (id, st) in pending_ids {
+										s.pending_receipts.remove(&id);
+										if let Some(msg) = s.messages.iter_mut().find(|m| m.id == id) {
+											msg.status = st;
+										}
+									}
 									let new_len = s.messages.len();
 									s.prev_msg_count = new_len;
-									
+
 									parts.conversations_parts.messages_list.freeze();
 									parts.conversations_parts.messages_list.clear();
 									for msg in &s.messages {
 										parts.conversations_parts.messages_list.append(&msg.format_display(is_group));
 									}
 									parts.conversations_parts.messages_list.thaw();
-									
+
 									let count = parts.conversations_parts.messages_list.get_count();
-									if count > 0 {
+									let target_pos = if let Some(target_id) = s.search_target_id.take() {
+										s.messages.iter().position(|m| m.id == target_id)
+									} else if let Some(target_text) = s.search_target_text.take() {
+										let is_generic = target_text == "[Voice Message]"
+											|| target_text == "[Audio]"
+											|| target_text == "Voice message"
+											|| target_text == "Audio"
+											|| target_text == "[Media]";
+										if is_generic { None } else {
+											s.messages.iter().position(|m| {
+												m.text == target_text || (!m.text.is_empty() && m.text.contains(&target_text))
+											})
+										}
+									} else {
+										None
+									};
+									if let Some(pos) = target_pos {
+										parts.conversations_parts.messages_list.set_selection(pos as u32, true);
+										parts.conversations_parts.messages_list.set_focus();
+									} else if count > 0 {
 										if was_history_loading && new_len > old_count && old_count > 0 {
 											let keep_idx = (new_len - old_count) as u32;
 											if keep_idx < count {
@@ -882,6 +932,72 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							eprintln!("[LOG UI] Voice message audio failed to load or download");
 							live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Could not load voice message");
 						}
+						"message_info" => {
+							if let Some(data) = val.get("data") {
+								let fmt_ts = |ts: i64| -> String {
+									if ts == 0 { return String::new(); }
+									let dt = chrono::DateTime::from_timestamp(ts, 0)
+										.unwrap_or_default()
+										.with_timezone(&chrono::Local);
+									dt.format("%l:%M %p").to_string().trim().to_lowercase()
+								};
+								let msg_id     = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
+								let mut sent_s     = data.get("sent_at").and_then(|v| v.as_i64()).unwrap_or(0);
+								let mut delivered_s = data.get("delivered_at").and_then(|v| v.as_i64()).unwrap_or(0);
+								let mut read_s     = data.get("read_at").and_then(|v| v.as_i64()).unwrap_or(0);
+								let mut played_s   = data.get("played_at").and_then(|v| v.as_i64()).unwrap_or(0);
+								let media_type = data.get("media_type").and_then(|v| v.as_str()).unwrap_or("");
+								let is_voice   = media_type == "audio";
+
+								{
+									let s = state.borrow();
+									if let Some(msg) = s.messages.iter().find(|m| m.id == msg_id) {
+										if sent_s == 0 {
+											sent_s = if msg.sent_at > 0 { msg.sent_at } else { msg.timestamp };
+										}
+										if delivered_s == 0 && msg.delivered_at > 0 {
+											delivered_s = msg.delivered_at;
+										}
+										if read_s == 0 && msg.read_at > 0 {
+											read_s = msg.read_at;
+										}
+										if played_s == 0 && msg.played_at > 0 {
+											played_s = msg.played_at;
+										}
+									}
+								}
+
+								let mut lines = Vec::new();
+								let sent_fmt = fmt_ts(sent_s);
+								if !sent_fmt.is_empty() { lines.push(format!("Sent at {}", sent_fmt)); }
+								let del_fmt = fmt_ts(delivered_s);
+								if !del_fmt.is_empty() { lines.push(format!("Delivered at {}", del_fmt)); }
+								let read_fmt = fmt_ts(read_s);
+								if !read_fmt.is_empty() { lines.push(format!("Read at {}", read_fmt)); }
+								if is_voice {
+									let played_fmt = fmt_ts(played_s);
+									if !played_fmt.is_empty() { lines.push(format!("Played at {}", played_fmt)); }
+								}
+								if lines.is_empty() { lines.push("No receipt information available.".to_string()); }
+								let info_text = lines.join("\n");
+
+								let dlg = Dialog::builder(&parts.frame, "Message Info")
+									.with_style(DialogStyle::DefaultDialogStyle)
+									.build();
+								let sizer = BoxSizer::builder(Orientation::Vertical).build();
+								let txt = TextCtrl::builder(&dlg)
+									.with_value(&info_text)
+									.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::DontWrap)
+									.build();
+								sizer.add(&txt, 1, SizerFlag::Expand | SizerFlag::All, 10);
+								let ok_btn = Button::builder(&dlg).with_label("OK").build();
+								sizer.add(&ok_btn, 0, SizerFlag::AlignCentre | SizerFlag::Bottom | SizerFlag::All, 8);
+								dlg.set_sizer_and_fit(sizer, true);
+								let dlg_close = dlg.clone();
+								ok_btn.on_click(move |_| { dlg_close.end_modal(wxdragon::id::ID_OK); });
+								dlg.show_modal();
+							}
+						}
 						"history_updated" => {
 							eprintln!("[LOG UI] History sync completed on phone! Refreshing messages for active chat...");
 							let s = state.borrow();
@@ -897,12 +1013,59 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"search_results" => {
 							if let Some(data) = val.get("data") {
 								if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
+									let mut parsed_msgs: Vec<ChatMessage> = Vec::new();
+									for msg_val in results {
+										if let Ok(msg) = serde_json::from_value::<ChatMessage>(msg_val.clone()) {
+											parsed_msgs.push(msg);
+										}
+									}
+
+									let mut with_dates = Vec::new();
+									let mut last_date = String::new();
+									for msg in parsed_msgs {
+										if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
+											let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+											let date_str = local_datetime.format("%A, %B %e, %Y").to_string();
+											if date_str != last_date {
+												last_date = date_str.clone();
+												with_dates.push(ChatMessage {
+													id: String::new(),
+													text: date_str,
+													timestamp: msg.timestamp,
+													from_me: false,
+													sender_jid: String::new(),
+													sender_name: String::new(),
+													is_audio: false,
+													is_date_divider: true,
+													is_deleted: false,
+													status: String::new(),
+													sent_at: 0,
+													delivered_at: 0,
+													read_at: 0,
+													played_at: 0,
+													reactions: Vec::new(),
+													quoted_id: String::new(),
+													quoted_text: String::new(),
+													quoted_sender: String::new(),
+												});
+											}
+										}
+										with_dates.push(msg);
+									}
+
+									let mut s = state.borrow_mut();
+									let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+									s.messages = with_dates;
+
+									parts.conversations_parts.messages_list.freeze();
 									parts.conversations_parts.messages_list.clear();
-									for msg in results {
-										let from = msg.get("from").and_then(|f| f.as_str()).unwrap_or("");
-										let text = msg.get("text").and_then(|t| t.as_str()).unwrap_or("");
-										let formatted = format!("{}: {}", from, text);
-										parts.conversations_parts.messages_list.append(&formatted);
+									for msg in &s.messages {
+										parts.conversations_parts.messages_list.append(&msg.format_display(is_group));
+									}
+									parts.conversations_parts.messages_list.thaw();
+									let count = parts.conversations_parts.messages_list.get_count();
+									if count > 0 {
+										parts.conversations_parts.messages_list.set_selection(0, true);
 									}
 								}
 							}
@@ -973,12 +1136,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									msg_ids.push(id_str.to_string());
 								}
 
-								let clean_incoming_jid = chat_jid.split('@').next().unwrap_or(chat_jid);
+								// Normalize JID: strip :device suffix so "1234:0@s.whatsapp.net"
+								// compares equal to "1234@s.whatsapp.net".
+								let norm_jid_str = |jid: &str| -> String {
+									let no_device = jid.split(':').next().unwrap_or(jid);
+									if no_device.contains('@') { no_device.to_string() }
+									else { jid.split('@').next().unwrap_or(jid).to_string() }
+								};
+								let norm_incoming = norm_jid_str(chat_jid);
 
 								let mut s = state.borrow_mut();
 								let is_match = if let Some(ref sel) = s.selected_chat {
-									let clean_sel = sel.split('@').next().unwrap_or(sel);
-									sel == chat_jid || clean_incoming_jid == clean_sel
+									norm_incoming == norm_jid_str(sel)
 								} else {
 									false
 								};
@@ -990,15 +1159,23 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										"" => "delivered",
 										other => other,
 									};
+									let receipt_ts = data.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
 
 									for target_id in msg_ids {
 										let mut found = false;
 										for (idx, msg) in s.messages.iter_mut().enumerate() {
 											if msg.id == target_id {
 												msg.status = norm_status.to_string();
+												if receipt_ts > 0 {
+													match norm_status {
+														"delivered" => { if msg.delivered_at == 0 { msg.delivered_at = receipt_ts; } }
+														"read"      => { if msg.read_at == 0      { msg.read_at = receipt_ts; } }
+														"played"    => { if msg.played_at == 0    { msg.played_at = receipt_ts; } }
+														_ => {}
+													}
+												}
 												let updated_display = msg.format_display(is_group);
 												parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
-												live_region::announce(parts.conversations_parts.messages_announcer.clone(), &updated_display);
 												found = true;
 												break;
 											}
@@ -1016,12 +1193,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
 								let new_text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
 
-								let clean_incoming_jid = chat_jid.split('@').next().unwrap_or(chat_jid);
+								let norm_jid_edit = |jid: &str| -> String {
+									let no_device = jid.split(':').next().unwrap_or(jid);
+									if no_device.contains('@') { no_device.to_string() }
+									else { jid.split('@').next().unwrap_or(jid).to_string() }
+								};
 
 								let mut s = state.borrow_mut();
 								let is_match = if let Some(ref sel) = s.selected_chat {
-									let clean_sel = sel.split('@').next().unwrap_or(sel);
-									sel == chat_jid || clean_incoming_jid == clean_sel
+									norm_jid_edit(chat_jid) == norm_jid_edit(sel)
 								} else {
 									false
 								};
@@ -1048,12 +1228,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let emoji = data.get("emoji").and_then(|e| e.as_str()).unwrap_or("");
 								let reactor_name_val = data.get("reactor_name").and_then(|n| n.as_str()).unwrap_or("");
 
-								let clean_incoming_jid = chat_jid.split('@').next().unwrap_or(chat_jid);
+								let norm_jid_react = |jid: &str| -> String {
+									let no_device = jid.split(':').next().unwrap_or(jid);
+									if no_device.contains('@') { no_device.to_string() }
+									else { jid.split('@').next().unwrap_or(jid).to_string() }
+								};
 
 								let mut s = state.borrow_mut();
 								let is_match = if let Some(ref sel) = s.selected_chat {
-									let clean_sel = sel.split('@').next().unwrap_or(sel);
-									sel == chat_jid || clean_incoming_jid == clean_sel
+									norm_jid_react(chat_jid) == norm_jid_react(sel)
 								} else {
 									false
 								};
@@ -1068,7 +1251,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									} else if !reactor_name_val.is_empty() && !reactor_name_val.contains('@') {
 										reactor_name_val.to_string()
 									} else {
-										s.contacts.get(clean_incoming_jid)
+										s.contacts.get(norm_jid_react(chat_jid).as_str())
 											.or_else(|| s.contacts.get(chat_jid))
 											.or_else(|| s.contacts.get(reactor))
 											.cloned()
@@ -1207,7 +1390,7 @@ while ($true) {
 								} else {
 									format!("Uploading {}...", filename)
 								};
-								parts.conversations_parts.attachment_info_label.set_label(&msg);
+								parts.attachment_dialog.attachment_info_label.set_label(&msg);
 
 								let mut s = state.borrow_mut();
 								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
@@ -1240,7 +1423,7 @@ while ($true) {
 								let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("file");
 								let real_id = data.get("id").and_then(|i| i.as_str()).unwrap_or("");
 
-								parts.conversations_parts.attachment_info_label.set_label("");
+								parts.attachment_dialog.attachment_info_label.set_label("");
 
 								let mut s = state.borrow_mut();
 								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
@@ -1315,8 +1498,7 @@ while ($true) {
 				s.pending_attachments.clear();
 				parts.conversations_parts.conversation_panel.show(true);
 				parts.conversations_parts.play_voice_btn.show(false);
-				parts.conversations_parts.attachment_panel.show(false);
-				parts.conversations_parts.attachment_info_label.set_label("");
+				parts.attachment_dialog.attachment_info_label.set_label("");
 				parts.conversations_parts.messages_list.clear();
 				parts.conversations_parts.message_field.set_value("");
 				parts.conversations_parts.send_message_btn.show(true);
@@ -1363,30 +1545,48 @@ while ($true) {
 				let _ = state.borrow().ws_tx.send(payload.to_string());
 			}
 		}
-		UiCommand::SearchNextResult => {
-			if let Some(ref jid) = state.borrow().selected_chat {
-				let payload = serde_json::json!({
-					"action": "search_next",
-					"data": { "jid": jid }
-				});
-				let _ = state.borrow().ws_tx.send(payload.to_string());
-			}
-		}
-		UiCommand::SearchPrevResult => {
-			if let Some(ref jid) = state.borrow().selected_chat {
-				let payload = serde_json::json!({
-					"action": "search_prev",
-					"data": { "jid": jid }
-				});
-				let _ = state.borrow().ws_tx.send(payload.to_string());
-			}
-		}
 		UiCommand::ToggleSearchPanel => {
 			let visible = parts.conversations_parts.search_panel.is_shown();
 			parts.conversations_parts.search_panel.show(!visible);
 			if !visible {
 				parts.conversations_parts.search_conv_field.set_value("");
 				parts.conversations_parts.search_conv_field.set_focus();
+			}
+			parts.conversations_parts.conversation_panel.layout();
+		}
+		UiCommand::CloseSearch => {
+			// Hide search panel and reload the real chat messages
+			parts.conversations_parts.search_panel.show(false);
+			parts.conversations_parts.search_conv_field.set_value("");
+			if let Some(jid) = state.borrow().selected_chat.clone() {
+				let limit = 9999999;
+				let payload = serde_json::json!({
+					"action": "get_messages",
+					"data": { "jid": jid, "limit": limit, "offset": 0 }
+				});
+				let _ = state.borrow().ws_tx.send(payload.to_string());
+			}
+			parts.conversations_parts.conversation_panel.layout();
+		}
+		UiCommand::JumpToSearchResult { message_id, message_text } => {
+			// Hide search, set the target so get_messages scrolls to it, reload chat
+			parts.conversations_parts.search_panel.show(false);
+			parts.conversations_parts.search_conv_field.set_value("");
+			{
+				let mut s = state.borrow_mut();
+				if !message_id.is_empty() {
+					s.search_target_id = Some(message_id);
+				} else if !message_text.is_empty() {
+					s.search_target_text = Some(message_text);
+				}
+				if let Some(jid) = s.selected_chat.clone() {
+					let limit = 9999999;
+					let payload = serde_json::json!({
+						"action": "get_messages",
+						"data": { "jid": jid, "limit": limit, "offset": 0 }
+					});
+					let _ = s.ws_tx.send(payload.to_string());
+				}
 			}
 			parts.conversations_parts.conversation_panel.layout();
 		}
@@ -1430,12 +1630,12 @@ while ($true) {
 			parts.conversations_parts.conversation_panel.layout();
 		}
 		UiCommand::AddAttachment => {
-			let dialog = FileDialog::builder(&parts.frame)
+			let file_dialog = FileDialog::builder(&parts.frame)
 				.with_message("Choose file(s) to attach")
 				.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
 				.build();
-			if dialog.show_modal() == wxdragon::id::ID_OK {
-				if let Some(path) = dialog.get_path() {
+			if file_dialog.show_modal() == wxdragon::id::ID_OK {
+				if let Some(path) = file_dialog.get_path() {
 					if !path.is_empty() {
 						let mut s = state.borrow_mut();
 						s.pending_attachments.push(path.clone());
@@ -1444,15 +1644,22 @@ while ($true) {
 						}).collect();
 						let label_text = format!("Files: {}", file_names.join(", "));
 						drop(s);
-						parts.conversations_parts.attachment_info_label.set_label(&label_text);
-						parts.conversations_parts.attachment_panel.show(true);
-						parts.conversations_parts.caption_field.set_value("");
-						parts.conversations_parts.caption_field.set_focus();
-						parts.conversations_parts.conversation_panel.layout();
+						parts.attachment_dialog.attachment_info_label.set_label(&label_text);
+						parts.attachment_dialog.caption_field.set_value("");
+						parts.attachment_dialog.dialog.show_modal();
 						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("File attached: {}", file_names.last().unwrap_or(&String::new())));
 					}
 				}
 			}
+		}
+		UiCommand::DiscardAttachment => {
+			{
+				let mut s = state.borrow_mut();
+				s.pending_attachments.clear();
+			}
+			parts.attachment_dialog.attachment_info_label.set_label("");
+			parts.attachment_dialog.caption_field.set_value("");
+			parts.attachment_dialog.dialog.end_modal(wxdragon::id::ID_CANCEL);
 		}
 		UiCommand::SendAttachment { caption } => {
 			let jid = state.borrow().selected_chat.clone();
@@ -1499,6 +1706,10 @@ while ($true) {
 						is_date_divider: false,
 						is_deleted: false,
 						status: "uploading".to_string(),
+						sent_at: ts,
+						delivered_at: 0,
+						read_at: 0,
+						played_at: 0,
 						reactions: Vec::new(),
 						quoted_id: String::new(),
 						quoted_text: String::new(),
@@ -1530,9 +1741,9 @@ while ($true) {
 					});
 					let _ = state.borrow().ws_tx.send(payload.to_string());
 				}
-				parts.conversations_parts.attachment_panel.show(false);
-				parts.conversations_parts.attachment_info_label.set_label("");
-				parts.conversations_parts.conversation_panel.layout();
+				parts.attachment_dialog.attachment_info_label.set_label("");
+				parts.attachment_dialog.caption_field.set_value("");
+				parts.attachment_dialog.dialog.end_modal(wxdragon::id::ID_OK);
 			}
 		}
 		UiCommand::DownloadMedia => {
@@ -1647,6 +1858,13 @@ while ($true) {
 				});
 				let _ = state.borrow().ws_tx.send(payload.to_string());
 			}
+		}
+		UiCommand::GetMessageInfo { message_id } => {
+			let payload = serde_json::json!({
+				"action": "get_message_info",
+				"data": { "id": message_id }
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 	}
 }
