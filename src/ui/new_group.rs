@@ -19,19 +19,19 @@ pub struct NewGroupDialogParts {
 }
 
 pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
-	let dialog = Dialog::builder(parent, "Novo grupo").with_size(460, 560).with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder).build();
+	let dialog = Dialog::builder(parent, "New group").with_size(460, 560).with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder).build();
 	let panel = Panel::builder(&dialog).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let name_label = StaticText::builder(&panel).with_label("Nome do grupo").build();
+	let name_label = StaticText::builder(&panel).with_label("Group name").build();
 	sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let name_field = TextCtrl::builder(&panel).build();
 	sizer.add(&name_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let contacts_label = StaticText::builder(&panel).with_label("Contatos").build();
+	let contacts_label = StaticText::builder(&panel).with_label("Contacts").build();
 	sizer.add(&contacts_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let search_label = StaticText::builder(&panel).with_label("Pesquisar contatos").build();
+	let search_label = StaticText::builder(&panel).with_label("Search contacts").build();
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let search_field = TextCtrl::builder(&panel).build();
 	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
@@ -39,14 +39,14 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	let contacts_listbox = CheckListBox::builder(&panel).build();
 	sizer.add(&contacts_listbox, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let extra_label = StaticText::builder(&panel).with_label("Número extra (opcional)").build();
+	let extra_label = StaticText::builder(&panel).with_label("Extra number (optional)").build();
 	sizer.add(&extra_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let extra_number_field = TextCtrl::builder(&panel).build();
 	sizer.add(&extra_number_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Criar grupo").build();
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancelar").build();
+	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Create group").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
 	btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
 	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);

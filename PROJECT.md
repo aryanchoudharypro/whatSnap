@@ -1,4 +1,4 @@
-# Project: WinZapp Rust Migration
+# Project: whantv Migration
 
 ## Architecture
 - **Backend (Go)**: Handles WhatsApp protocol via whatsmeow, exposes WebSocket on :9000.

@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	go.mau.fi/whatsmeow v0.0.0-20260720135917-a2381054887e
+	go.mau.fi/whatsmeow v0.0.0-20260722203353-e9a033b24933
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.53.0
 )

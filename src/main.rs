@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 
 mod ui;
 mod ui_wake;
@@ -30,8 +31,6 @@ pub enum UiCommand {
 	RequestQr,
 	CancelQr,
 	CancelPairing,
-	OpenSettings,
-	SaveSettings,
 	NavSelected(usize),
 	FilterConversations(String),
 	OpenConversation(usize),
@@ -41,6 +40,9 @@ pub enum UiCommand {
 	ToggleSearchPanel,
 	StartRecording,
 	TogglePauseRecording,
+	StopRecording,
+	DiscardRecording,
+	ForceSync,
 	SendVoiceMessage,
 	DiscardVoiceMessage,
 	AddAttachment,
@@ -50,16 +52,29 @@ pub enum UiCommand {
 	SaveMediaAs,
 	CancelEdit,
 	RemoveQuote,
+	EditMessage { message_id: String, new_text: String },
+	DeleteMessage { message_id: String, sender_jid: String, for_everyone: bool },
 	SendTyping { jid: String, state: String, media: String },
 	SubscribePresence(String),
 	MarkRead { jid: String, message_ids: Vec<String> },
 	LoadMoreMessages,
+	PlayVoiceMessage(String),
+	CloseConversation,
 }
 
-use winzapp_rust::ChatMessage;
+use whantv::ChatMessage;
+use rodio::{OutputStream, Sink, Decoder};
+use std::fs::File;
+use std::io::BufReader;
 
 struct AppState {
 	ws_tx: mpsc::Sender<String>,
+	audio_stream: Option<(OutputStream, rodio::OutputStreamHandle)>,
+	audio_sink: Option<Sink>,
+	playing_msg_id: Option<String>,
+	audio_process: Option<std::process::Child>,
+	audio_stdin: Option<std::process::ChildStdin>,
+	is_audio_paused: bool,
 	chats: Vec<String>,
 	filtered_chats: Vec<String>,
 	archived_jids: std::collections::HashSet<String>,
@@ -68,13 +83,24 @@ struct AppState {
 	group_state: crate::ui::new_group::NewGroupState,
 	selected_chat: Option<String>,
 	messages: Vec<ChatMessage>,
+	loading_messages: bool,
+	no_more_messages: bool,
+	history_loading: bool,
+	completed_history_chats: std::collections::HashSet<String>,
+	prev_msg_count: usize,
 	active_tab: usize,
 	search_query: String,
 	config: crate::ui::settings::AppConfig,
+	pending_attachments: Vec<String>,
+	pending_reply_id: Option<String>,
+	pending_reply_sender: Option<String>,
+	pending_reply_preview: Option<String>,
+	pending_receipts: std::collections::HashMap<String, String>,
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	s.filtered_chats.clear();
+	parts.conversations_parts.conversations_list.freeze();
 	parts.conversations_parts.conversations_list.clear();
 	let lower_query = s.search_query.to_lowercase();
 	
@@ -97,9 +123,13 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 			}
 		}
 	}
+	parts.conversations_parts.conversations_list.thaw();
 	
 	if let Some(idx) = selected_idx_to_restore {
-		parts.conversations_parts.conversations_list.set_selection(idx as u32, false);
+		let count = parts.conversations_parts.conversations_list.get_count();
+		if count > 0 && (idx as u32) < count {
+			parts.conversations_parts.conversations_list.set_selection(idx as u32, true);
+		}
 	}
 }
 
@@ -122,8 +152,8 @@ fn main() {
 		exe_dir.join("backend/backend.exe"),
 		std::path::PathBuf::from("backend").join("backend.exe"),
 		std::path::PathBuf::from("backend/backend.exe"),
-		std::path::PathBuf::from("backend").join("winzapp_backend.exe"),
-		std::path::PathBuf::from("backend/winzapp_backend.exe"),
+		std::path::PathBuf::from("backend").join("whantv_backend.exe"),
+		std::path::PathBuf::from("backend/whantv_backend.exe"),
 	];
 
 	let mut backend_exe = None;
@@ -171,7 +201,6 @@ fn main() {
 		let parts = build_main_window();
 		let frame = parts.frame;
 		let config = crate::ui::settings::AppConfig::load();
-		parts.settings_dialog.populate(&config);
 
 		let (ui_tx_raw, ui_rx) = mpsc::channel();
 		let ui_alive = Arc::new(AtomicBool::new(true));
@@ -231,6 +260,12 @@ fn main() {
 
 		let state = Rc::new(RefCell::new(AppState {
 			ws_tx: ws_out_tx,
+			audio_stream: None,
+			audio_sink: None,
+			playing_msg_id: None,
+			audio_process: None,
+			audio_stdin: None,
+			is_audio_paused: false,
 			chats: Vec::new(),
 			filtered_chats: Vec::new(),
 			archived_jids: std::collections::HashSet::new(),
@@ -244,9 +279,19 @@ fn main() {
 			},
 			selected_chat: None,
 			messages: Vec::new(),
+			loading_messages: false,
+			no_more_messages: false,
+			history_loading: false,
+			completed_history_chats: std::collections::HashSet::new(),
+			prev_msg_count: 0,
 			active_tab: 0,
 			search_query: String::new(),
 			config,
+			pending_attachments: Vec::new(),
+			pending_reply_id: None,
+			pending_reply_sender: None,
+			pending_reply_preview: None,
+			pending_receipts: std::collections::HashMap::new(),
 		}));
 
 		let state_clone = state.clone();
@@ -271,6 +316,11 @@ fn main() {
 	}
 
 	if let Some(ref mut child) = bridge_child {
+		if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:9000") {
+			use std::io::Write;
+			let _ = stream.write_all(b"POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1:9000\r\nContent-Length: 0\r\n\r\n");
+			std::thread::sleep(std::time::Duration::from_millis(600));
+		}
 		let _ = child.kill();
 		let _ = child.wait();
 	}
@@ -358,25 +408,32 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		UiCommand::SendMessage(text) => {
-			if let Some(ref jid) = state.borrow().selected_chat {
+			let mut s = state.borrow_mut();
+			if let Some(ref jid) = s.selected_chat.clone() {
+				let reply_id = s.pending_reply_id.take().unwrap_or_default();
+				let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
+				s.pending_reply_preview = None;
+
 				let payload = serde_json::json!({
 					"action": "send",
 					"data": {
 						"to": jid,
-						"text": text
+						"text": text,
+						"reply_to_id": reply_id,
+						"reply_to_sender": reply_sender
 					}
 				});
-				let _ = state.borrow().ws_tx.send(payload.to_string());
+				let _ = s.ws_tx.send(payload.to_string());
 				parts.conversations_parts.message_field.set_value("");
 			}
 		}
 		UiCommand::ConversationSelectionChanged(idx) => {
-			let jid = state.borrow().chats.get(idx).cloned();
+			let jid = state.borrow().filtered_chats.get(idx).cloned();
 			println!("DEBUG: ConversationSelectionChanged idx={}, jid={:?}", idx, jid);
 			let mut s = state.borrow_mut();
 			s.selected_chat = jid;
 			s.messages.clear();
-			parts.conversations_parts.messages_list.update_entries(&[], None);
+// 			parts.conversations_parts.messages_list.update_entries(&[], None);
 		}
 		UiCommand::ProcessWebSocketMessage(raw) => {
 			if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
@@ -440,8 +497,25 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						}
 						"error" => {
 							if let Some(msg) = val.get("data").and_then(|d| d.get("message")).and_then(|m| m.as_str()) {
-								parts.pairing_code_display.set_value(&format!("Error: {}", msg));
-								parts.pairing_dialog.show(true);
+								let mut s = state.borrow_mut();
+								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+								let mut temp_idx = None;
+								for (idx, m) in s.messages.iter().enumerate() {
+									if m.id.starts_with("temp_upload_") {
+										temp_idx = Some(idx);
+										break;
+									}
+								}
+								if let Some(idx) = temp_idx {
+									s.messages[idx].text = format!("[Upload failed: {}]", msg);
+									parts.conversations_parts.messages_list.set_string(idx as u32, &s.messages[idx].format_display(is_group));
+									let formatted = s.messages[idx].format_display(is_group);
+									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &formatted);
+								}
+								MessageDialog::builder(&parts.frame, msg, "Error")
+									.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+									.build()
+									.show_modal();
 							}
 						}
 						"chats" => {
@@ -491,27 +565,155 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							if let Some(data) = val.get("data") {
 								let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 								let from = data.get("from").and_then(|f| f.as_str()).unwrap_or("");
-								let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+				let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+								
+								let mut s = state.borrow_mut();
+								
+								if Some(jid.to_string()) == s.selected_chat {
+									let is_from_me = data.get("from_me").and_then(|f| f.as_bool()).unwrap_or_else(|| from == "me" || from == "You");
+									let is_group = jid.ends_with("@g.us");
+									let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+									let msg_id = data.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+
+									let mut temp_idx = None;
+									if is_from_me {
+										for (idx, msg) in s.messages.iter().enumerate() {
+											if msg.id.starts_with("temp_upload_") {
+												temp_idx = Some(idx);
+												break;
+											}
+										}
+									}
+
+									if let Some(idx) = temp_idx {
+										s.messages[idx].id = msg_id;
+										s.messages[idx].text = text.to_string();
+										parts.conversations_parts.messages_list.set_string(idx as u32, &s.messages[idx].format_display(is_group));
+										let formatted = s.messages[idx].format_display(is_group);
+										live_region::announce(parts.conversations_parts.messages_announcer.clone(), &formatted);
+									} else {
+										let sender_name = if is_from_me {
+											"You".to_string()
+										} else {
+											let mut clean_jid = from.to_string();
+											if let Some(idx) = from.find(':') {
+												clean_jid = format!("{}@s.whatsapp.net", &from[..idx]);
+											}
+											s.contacts.get(&clean_jid).or_else(|| s.contacts.get(from)).cloned().unwrap_or_else(|| clean_jid)
+										};
+										
+										let mut insert_date = false;
+										let mut date_str = String::new();
+										if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
+											let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+											date_str = local_datetime.format("%A, %B %e, %Y").to_string();
+											if let Some(last_msg) = s.messages.last() {
+												if !last_msg.is_date_divider {
+													if let Some(last_dt) = chrono::DateTime::from_timestamp(last_msg.timestamp, 0) {
+														let last_local: chrono::DateTime<chrono::Local> = last_dt.into();
+														let last_date_str = last_local.format("%A, %B %e, %Y").to_string();
+														if date_str != last_date_str {
+															insert_date = true;
+														}
+													}
+												}
+											} else {
+												insert_date = true;
+											}
+										}
+										
+										let quoted_id = data.get("quoted_id").or_else(|| data.get("quotedId")).and_then(|q| q.as_str()).unwrap_or("").to_string();
+										let quoted_text = data.get("quoted_text").or_else(|| data.get("quotedText")).and_then(|q| q.as_str()).unwrap_or("").to_string();
+										let quoted_sender = data.get("quoted_sender").or_else(|| data.get("quotedSender")).and_then(|q| q.as_str()).unwrap_or("").to_string();
+
+										if insert_date && !date_str.is_empty() {
+											let divider = ChatMessage {
+												id: String::new(),
+												text: date_str,
+												timestamp: ts,
+												from_me: false,
+												sender_jid: String::new(),
+												sender_name: String::new(),
+												is_audio: false,
+												is_date_divider: true,
+												is_deleted: false,
+												status: String::new(),
+												reactions: Vec::new(),
+												quoted_id: String::new(),
+												quoted_text: String::new(),
+												quoted_sender: String::new(),
+											};
+											s.messages.push(divider.clone());
+											parts.conversations_parts.messages_list.append(&divider.format_display(is_group));
+										}
+										
+										let chat_msg = ChatMessage {
+											id: msg_id.clone(),
+											text: text.to_string(),
+											timestamp: ts,
+											from_me: is_from_me,
+											sender_jid: from.to_string(),
+											sender_name,
+											is_audio: text.starts_with("[Voice Message]") || text.starts_with("[Audio]"),
+											is_date_divider: false,
+											is_deleted: false,
+											status: s.pending_receipts.remove(&msg_id).unwrap_or_else(|| "sent".to_string()),
+											reactions: Vec::new(),
+											quoted_id,
+											quoted_text,
+											quoted_sender,
+										};
+										s.messages.push(chat_msg.clone());
+
+										let current_selection = parts.conversations_parts.messages_list.get_selection();
+										let was_at_bottom = current_selection.map(|idx| idx as usize == s.messages.len() - (if insert_date { 3 } else { 2 })).unwrap_or(true);
+										
+										parts.conversations_parts.messages_list.append(&chat_msg.format_display(is_group));
+										
+										let count = parts.conversations_parts.messages_list.get_count();
+										if count > 0 {
+											if was_at_bottom || is_from_me {
+												parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
+											}
+										}
+										let formatted = chat_msg.format_display(is_group);
+										live_region::announce(parts.conversations_parts.messages_announcer.clone(), &formatted);
+
+										if !is_from_me {
+											let mark_jid = jid.to_string();
+											let mark_msg_id = msg_id.clone();
+											let tx = s.ws_tx.clone();
+											let payload = serde_json::json!({
+												"action": "mark_read",
+												"data": { "jid": mark_jid, "message_ids": vec![mark_msg_id] }
+											});
+											let _ = tx.send(payload.to_string());
+										}
+									}
+								}
+							}
+						}
+						"message_deleted" => {
+							if let Some(data) = val.get("data") {
+								let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+								let message_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
 								
 								let mut s = state.borrow_mut();
 								if Some(jid.to_string()) == s.selected_chat {
 									let is_group = jid.ends_with("@g.us");
-									let is_from_me = from == "me" || from == "You";
-									let chat_msg = ChatMessage {
-										id: String::new(),
-										text: text.to_string(),
-										timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64,
-										from_me: is_from_me,
-										sender_jid: from.to_string(),
-										sender_name: if is_from_me { "You".to_string() } else { from.to_string() },
-									};
-									let formatted = chat_msg.format_display(is_group);
-									s.messages.push(chat_msg);
-									let entries: Vec<(accesskit::NodeId, String)> = s.messages.iter().enumerate().map(|(i, msg)| {
-										(accesskit::NodeId((i + 1000) as u64), msg.format_display(is_group))
-									}).collect();
-									parts.conversations_parts.messages_list.update_entries(&entries, None);
-									parts.conversations_parts.messages_list.announce(&formatted);
+									let mut changed = false;
+									for (i, msg) in s.messages.iter_mut().enumerate() {
+										if msg.id == message_id {
+											msg.is_deleted = true;
+											msg.text = "".to_string(); // Clear text just in case
+											parts.conversations_parts.messages_list.set_string(i as u32, &msg.format_display(is_group));
+											changed = true;
+											break;
+										}
+									}
+									if changed {
+										live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+									}
 								}
 							}
 						}
@@ -551,47 +753,157 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										unsafe {
 											let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030));
 										}
-										MessageDialog::builder(&parts.new_group_dialog.dialog, err_msg, "Erro").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build().show_modal();
+										MessageDialog::builder(&parts.new_group_dialog.dialog, err_msg, "Error").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build().show_modal();
 									}
 								}
 							}
 						}
 						"conversation_messages" => {
 							if let Some(data) = val.get("data") {
-								let before_ts = data.get("before_timestamp").and_then(|b| b.as_i64()).unwrap_or(0);
 								if let Some(messages) = data.get("messages").and_then(|m| m.as_array()) {
 									let mut parsed_msgs = Vec::new();
 									for msg in messages {
-										if let Ok(chat_msg) = serde_json::from_value::<ChatMessage>(msg.clone()) {
-											parsed_msgs.push(chat_msg);
+										match serde_json::from_value::<ChatMessage>(msg.clone()) {
+											Ok(chat_msg) => parsed_msgs.push(chat_msg),
+											Err(e) => {
+												let err_msg = ChatMessage {
+													id: String::new(),
+													text: format!("Parse error: {} for json: {}", e, msg),
+													timestamp: 0,
+													from_me: false,
+													sender_jid: String::new(),
+													sender_name: String::new(),
+													is_audio: false,
+													is_date_divider: false,
+													is_deleted: false,
+													status: String::new(),
+													reactions: Vec::new(),
+													quoted_id: String::new(),
+													quoted_text: String::new(),
+													quoted_sender: String::new(),
+												};
+												parsed_msgs.push(err_msg);
+											}
 										}
 									}
-									let mut s = state.borrow_mut();
-									let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
-									if before_ts > 0 {
-										parsed_msgs.extend(s.messages.drain(..));
-										s.messages = parsed_msgs;
-									} else {
-										s.messages = parsed_msgs;
+									let mut seen_ids = std::collections::HashSet::new();
+									let mut deduplicated = Vec::new();
+									for msg in parsed_msgs {
+										if !msg.id.is_empty() {
+											if seen_ids.insert(msg.id.clone()) {
+												deduplicated.push(msg);
+											}
+										} else {
+											deduplicated.push(msg);
+										}
 									}
-									let entries: Vec<(accesskit::NodeId, String)> = s.messages.iter().enumerate().map(|(i, msg)| {
-										(accesskit::NodeId((i + 1000) as u64), msg.format_display(is_group))
-									}).collect();
-									parts.conversations_parts.messages_list.update_entries(&entries, None);
+									
+									let mut with_dates = Vec::new();
+									let mut last_date = String::new();
+									for msg in deduplicated {
+										if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
+											let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+											let date_str = local_datetime.format("%A, %B %e, %Y").to_string();
+											if date_str != last_date {
+												last_date = date_str.clone();
+												with_dates.push(ChatMessage {
+													id: String::new(),
+													text: date_str,
+													timestamp: msg.timestamp,
+													from_me: false,
+													sender_jid: String::new(),
+													sender_name: String::new(),
+													is_audio: false,
+													is_date_divider: true,
+													is_deleted: false,
+													status: String::new(),
+													reactions: Vec::new(),
+													quoted_id: String::new(),
+													quoted_text: String::new(),
+													quoted_sender: String::new(),
+												});
+											}
+										}
+										with_dates.push(msg);
+									}
+									
+									let mut s = state.borrow_mut();
+									s.loading_messages = false;
+									let was_history_loading = s.history_loading;
+									s.history_loading = false;
+									let old_count = s.prev_msg_count;
+									let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+									s.messages = with_dates;
+									let new_len = s.messages.len();
+									s.prev_msg_count = new_len;
+									
+									parts.conversations_parts.messages_list.freeze();
+									parts.conversations_parts.messages_list.clear();
+									for msg in &s.messages {
+										parts.conversations_parts.messages_list.append(&msg.format_display(is_group));
+									}
+									parts.conversations_parts.messages_list.thaw();
+									
+									let count = parts.conversations_parts.messages_list.get_count();
+									if count > 0 {
+										if was_history_loading && new_len > old_count && old_count > 0 {
+											let keep_idx = (new_len - old_count) as u32;
+											if keep_idx < count {
+												parts.conversations_parts.messages_list.set_selection(keep_idx, true);
+											} else {
+												parts.conversations_parts.messages_list.set_selection(0, true);
+											}
+										} else if old_count == 0 {
+											parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
+											parts.conversations_parts.messages_list.set_focus();
+										}
+									}
+									
+									if was_history_loading && new_len == old_count {
+										if let Some(ref jid) = s.selected_chat.clone() {
+											eprintln!("[LOG UI] No new history messages received for {}. Marking history complete.", jid);
+											s.completed_history_chats.insert(jid.clone());
+										}
+									}
 								}
+							}
+						}
+						"no_more_history" => {
+							let mut s = state.borrow_mut();
+							s.history_loading = false;
+							if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+								if !jid.is_empty() {
+									eprintln!("[LOG UI] End of history reached on phone for chat: {}", jid);
+									s.completed_history_chats.insert(jid.to_string());
+								}
+							}
+						}
+						"play_audio_failed" => {
+							eprintln!("[LOG UI] Voice message audio failed to load or download");
+							live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Could not load voice message");
+						}
+						"history_updated" => {
+							eprintln!("[LOG UI] History sync completed on phone! Refreshing messages for active chat...");
+							let s = state.borrow();
+							if let Some(ref jid) = s.selected_chat.clone() {
+								let limit = 9999999;
+								let payload = serde_json::json!({
+									"action": "get_messages",
+									"data": { "jid": jid, "limit": limit, "offset": 0 }
+								});
+								let _ = s.ws_tx.send(payload.to_string());
 							}
 						}
 						"search_results" => {
 							if let Some(data) = val.get("data") {
 								if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
-									let mut entries = Vec::new();
-									for (i, msg) in results.iter().enumerate() {
+									parts.conversations_parts.messages_list.clear();
+									for msg in results {
 										let from = msg.get("from").and_then(|f| f.as_str()).unwrap_or("");
 										let text = msg.get("text").and_then(|t| t.as_str()).unwrap_or("");
 										let formatted = format!("{}: {}", from, text);
-										entries.push((accesskit::NodeId((i + 2000) as u64), formatted));
+										parts.conversations_parts.messages_list.append(&formatted);
 									}
-									parts.conversations_parts.messages_list.update_entries(&entries, None);
 								}
 							}
 						}
@@ -619,7 +931,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										} else {
 											format!("{} stopped typing", sender_name)
 										};
-										parts.conversations_parts.messages_list.announce(&announcement);
+// 										parts.conversations_parts.messages_list.announce(&announcement);
 									}
 								}
 							}
@@ -641,18 +953,170 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								if Some(clean_jid.clone()) == s.selected_chat || Some(jid.to_string()) == s.selected_chat {
 									let name = s.contacts.get(&clean_jid).or_else(|| s.contacts.get(jid)).cloned().unwrap_or_else(|| clean_jid.clone());
 									let status_str = if unavailable { "offline" } else { "online" };
-									parts.conversations_parts.messages_list.announce(&format!("{} is now {}", name, status_str));
+// 									parts.conversations_parts.messages_list.announce(&format!("{} is now {}", name, status_str));
 								}
 							}
 						}
-						"receipt" => {
+						"message_status" | "receipt" => {
 							if let Some(data) = val.get("data") {
-								let chat_jid = data.get("chat_jid").and_then(|j| j.as_str()).unwrap_or("");
-								let receipt_type = data.get("type").and_then(|t| t.as_str()).unwrap_or("");
-								let s = state.borrow();
-								if Some(chat_jid.to_string()) == s.selected_chat {
-									if receipt_type == "read" || receipt_type == "read-self" {
-										parts.conversations_parts.messages_list.announce("Messages read");
+								let chat_jid = data.get("jid").or_else(|| data.get("chat_jid")).and_then(|j| j.as_str()).unwrap_or("");
+								let raw_status = data.get("status").or_else(|| data.get("type")).and_then(|s| s.as_str()).unwrap_or("");
+								
+								let mut msg_ids = Vec::new();
+								if let Some(ids) = data.get("message_ids").and_then(|i| i.as_array()) {
+									for id_val in ids {
+										if let Some(id_str) = id_val.as_str() {
+											msg_ids.push(id_str.to_string());
+										}
+									}
+								} else if let Some(id_str) = data.get("message_id").and_then(|i| i.as_str()) {
+									msg_ids.push(id_str.to_string());
+								}
+
+								let clean_incoming_jid = chat_jid.split('@').next().unwrap_or(chat_jid);
+
+								let mut s = state.borrow_mut();
+								let is_match = if let Some(ref sel) = s.selected_chat {
+									let clean_sel = sel.split('@').next().unwrap_or(sel);
+									sel == chat_jid || clean_incoming_jid == clean_sel
+								} else {
+									false
+								};
+
+								if is_match {
+									let is_group = chat_jid.ends_with("@g.us");
+									let norm_status = match raw_status {
+										"read-self" => "read",
+										"" => "delivered",
+										other => other,
+									};
+
+									for target_id in msg_ids {
+										let mut found = false;
+										for (idx, msg) in s.messages.iter_mut().enumerate() {
+											if msg.id == target_id {
+												msg.status = norm_status.to_string();
+												let updated_display = msg.format_display(is_group);
+												parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
+												live_region::announce(parts.conversations_parts.messages_announcer.clone(), &updated_display);
+												found = true;
+												break;
+											}
+										}
+										if !found {
+											s.pending_receipts.insert(target_id.clone(), norm_status.to_string());
+										}
+									}
+								}
+							}
+						}
+						"message_edited" => {
+							if let Some(data) = val.get("data") {
+								let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+								let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+								let new_text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+
+								let clean_incoming_jid = chat_jid.split('@').next().unwrap_or(chat_jid);
+
+								let mut s = state.borrow_mut();
+								let is_match = if let Some(ref sel) = s.selected_chat {
+									let clean_sel = sel.split('@').next().unwrap_or(sel);
+									sel == chat_jid || clean_incoming_jid == clean_sel
+								} else {
+									false
+								};
+
+								if is_match {
+									let is_group = chat_jid.ends_with("@g.us");
+									for (idx, msg) in s.messages.iter_mut().enumerate() {
+										if msg.id == target_id {
+											msg.text = new_text.to_string();
+											let updated_display = msg.format_display(is_group);
+											parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
+											live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Message edited: {}", updated_display));
+											break;
+										}
+									}
+								}
+							}
+						}
+						"message_reaction" => {
+							if let Some(data) = val.get("data") {
+								let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+								let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+								let reactor = data.get("reactor").and_then(|r| r.as_str()).unwrap_or("");
+								let emoji = data.get("emoji").and_then(|e| e.as_str()).unwrap_or("");
+								let reactor_name_val = data.get("reactor_name").and_then(|n| n.as_str()).unwrap_or("");
+
+								let clean_incoming_jid = chat_jid.split('@').next().unwrap_or(chat_jid);
+
+								let mut s = state.borrow_mut();
+								let is_match = if let Some(ref sel) = s.selected_chat {
+									let clean_sel = sel.split('@').next().unwrap_or(sel);
+									sel == chat_jid || clean_incoming_jid == clean_sel
+								} else {
+									false
+								};
+
+								if is_match {
+									let is_group = chat_jid.ends_with("@g.us");
+
+									let is_own_reaction = reactor == "me" || reactor_name_val == "You" || reactor_name_val == "me";
+
+									let resolved_name = if is_own_reaction {
+										"You".to_string()
+									} else if !reactor_name_val.is_empty() && !reactor_name_val.contains('@') {
+										reactor_name_val.to_string()
+									} else {
+										s.contacts.get(clean_incoming_jid)
+											.or_else(|| s.contacts.get(chat_jid))
+											.or_else(|| s.contacts.get(reactor))
+											.cloned()
+											.unwrap_or_else(|| "Contact".to_string())
+									};
+
+									for (idx, msg) in s.messages.iter_mut().enumerate() {
+										if msg.id == target_id {
+											if emoji.is_empty() {
+												msg.reactions.retain(|r| {
+													if is_own_reaction {
+														r.reactor_name != "You" && r.reactor_jid != "me" && r.reactor_name != "me"
+													} else {
+														r.reactor_jid != reactor && r.reactor_name != resolved_name
+													}
+												});
+											} else {
+												let mut found = false;
+												for r in msg.reactions.iter_mut() {
+													let r_is_own = r.reactor_name == "You" || r.reactor_jid == "me";
+													if (is_own_reaction && r_is_own) || (!is_own_reaction && (r.reactor_jid == reactor || r.reactor_name == resolved_name)) {
+														r.emoji = emoji.to_string();
+														r.reactor_name = resolved_name.clone();
+														found = true;
+														break;
+													}
+												}
+												if !found {
+													msg.reactions.push(whantv::ChatReaction {
+														reactor_jid: if is_own_reaction { "me".to_string() } else { reactor.to_string() },
+														reactor_name: resolved_name.clone(),
+														emoji: emoji.to_string(),
+														timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64,
+													});
+												}
+											}
+
+											let updated_display = msg.format_display(is_group);
+											parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
+											
+											let announce_msg = if emoji.is_empty() {
+												format!("Reaction removed by {}", resolved_name)
+											} else {
+												format!("{} reacted with {}", resolved_name, emoji)
+											};
+											live_region::announce(parts.conversations_parts.messages_announcer.clone(), &announce_msg);
+											break;
+										}
 									}
 								}
 							}
@@ -660,7 +1124,153 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"media_downloaded" => {
 							if let Some(data) = val.get("data") {
 								let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("unknown path");
-								parts.conversations_parts.messages_list.announce(&format!("Media downloaded to {}", path));
+// 								parts.conversations_parts.messages_list.announce(&format!("Media downloaded to {}", path));
+							}
+						}
+						"play_audio" => {
+							if let Some(data) = val.get("data") {
+								if let Some(path) = data.get("path").and_then(|p| p.as_str()) {
+									let msg_id = data.get("id").and_then(|i| i.as_str()).map(|s| s.to_string());
+									eprintln!("[LOG UI] Playing voice note: {} from path: {}", msg_id.as_deref().unwrap_or(""), path);
+									let mut s = state.borrow_mut();
+									s.playing_msg_id = msg_id;
+									s.is_audio_paused = false;
+									if let Some(ref sink) = s.audio_sink {
+										sink.stop();
+									}
+									s.audio_sink = None;
+									
+									if s.audio_stream.is_none() {
+										if let Ok((stream, stream_handle)) = OutputStream::try_default() {
+											s.audio_stream = Some((stream, stream_handle));
+										}
+									}
+									let mut played = false;
+									if let Some((_, ref stream_handle)) = s.audio_stream {
+										if let Ok(sink) = Sink::try_new(stream_handle) {
+											if let Ok(file) = File::open(path) {
+												if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+													sink.append(decoder);
+													sink.play();
+													s.audio_sink = Some(sink);
+													played = true;
+													parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+												}
+											}
+										}
+									}
+									if !played {
+										use std::io::Write;
+										let path_escaped = path.replace("'", "''");
+										if s.audio_stdin.is_none() {
+											let ps_script = r#"
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Media.Playback.MediaPlayer, Windows.Media, ContentType=WindowsRuntime]
+$p = New-Object Windows.Media.Playback.MediaPlayer
+while ($true) {
+    $line = [System.Console]::ReadLine()
+    if ($null -eq $line -or $line -eq "EXIT") { break }
+    if ($line.StartsWith("PLAY ")) {
+        $path = $line.Substring(5)
+        $p.Source = [Windows.Media.Core.MediaSource]::CreateFromUri([Uri]$path)
+        $p.Play()
+    } elseif ($line -eq "PAUSE") {
+        $p.Pause()
+    } elseif ($line -eq "RESUME") {
+        $p.Play()
+    }
+}
+"#;
+											if let Ok(mut child) = std::process::Command::new("powershell")
+												.args(&["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script])
+												.stdin(std::process::Stdio::piped())
+												.spawn() {
+												s.audio_stdin = child.stdin.take();
+												s.audio_process = Some(child);
+											}
+										}
+										if let Some(ref mut stdin) = s.audio_stdin {
+											let _ = writeln!(stdin, "PLAY {}", path_escaped);
+											let _ = stdin.flush();
+											parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+										}
+									}
+								}
+							}
+						}
+						"attachment_uploading" => {
+							if let Some(data) = val.get("data") {
+								let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("file");
+								let percent = data.get("percent").and_then(|p| p.as_i64());
+								let msg = if let Some(p) = percent {
+									format!("Uploading {} ({}%)...", filename, p)
+								} else {
+									format!("Uploading {}...", filename)
+								};
+								parts.conversations_parts.attachment_info_label.set_label(&msg);
+
+								let mut s = state.borrow_mut();
+								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+								let mut temp_idx = None;
+								for (idx, m) in s.messages.iter().enumerate() {
+									if m.id.starts_with("temp_upload_") {
+										temp_idx = Some(idx);
+										break;
+									}
+								}
+								if let Some(idx) = temp_idx {
+									let existing_text = &s.messages[idx].text;
+									let caption_suffix = if let Some(pos) = existing_text.find("] ") {
+										existing_text[pos + 2..].to_string()
+									} else {
+										String::new()
+									};
+									s.messages[idx].text = if caption_suffix.is_empty() {
+										format!("[{}]", msg)
+									} else {
+										format!("[{}] {}", msg, caption_suffix)
+									};
+									parts.conversations_parts.messages_list.set_string(idx as u32, &s.messages[idx].format_display(is_group));
+								}
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+							}
+						}
+						"attachment_sent" => {
+							if let Some(data) = val.get("data") {
+								let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("file");
+								let real_id = data.get("id").and_then(|i| i.as_str()).unwrap_or("");
+
+								parts.conversations_parts.attachment_info_label.set_label("");
+
+								let mut s = state.borrow_mut();
+								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+
+								let mut target_idx = None;
+								for (idx, m) in s.messages.iter().enumerate() {
+									if m.id.starts_with("temp_upload_") || m.status == "uploading" || m.status == "pending" {
+										target_idx = Some(idx);
+										break;
+									}
+								}
+
+								if let Some(idx) = target_idx {
+									if !real_id.is_empty() {
+										s.messages[idx].id = real_id.to_string();
+									}
+									s.messages[idx].status = "sent".to_string();
+
+									let text = &s.messages[idx].text;
+									if let Some(pos) = text.find("] ") {
+										s.messages[idx].text = text[pos + 2..].to_string();
+									}
+
+									let updated_display = s.messages[idx].format_display(is_group);
+									parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
+									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &updated_display);
+								} else {
+									let msg = format!("{} sent successfully", filename);
+									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+								}
 							}
 						}
 						_ => {}
@@ -671,37 +1281,17 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		UiCommand::ExitApp => {
 			parts.frame.close(true);
 		}
-		UiCommand::OpenSettings => {
-			let cfg = state.borrow().config.clone();
-			parts.settings_dialog.populate(&cfg);
-			parts.settings_dialog.dialog.show_modal();
-		}
-		UiCommand::SaveSettings => {
-			let new_config = parts.settings_dialog.read_config();
-			let _ = new_config.save();
-			state.borrow_mut().config = new_config.clone();
-			let payload = serde_json::json!({
-				"action": "update_settings",
-				"data": new_config
-			});
-			let _ = state.borrow().ws_tx.send(payload.to_string());
-		}
 		UiCommand::NavSelected(idx) => {
 			match idx {
 				0 => { // Conversations
 					parts.conversations_parts.panel.show(true);
-					parts.settings_dialog.dialog.show(false);
 					state.borrow_mut().active_tab = 0;
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
 				1 => { // Archived Chats
 					parts.conversations_parts.panel.show(true);
-					parts.settings_dialog.dialog.show(false);
 					state.borrow_mut().active_tab = 1;
 					apply_chat_filter(&mut state.borrow_mut(), parts);
-				}
-				2 => { // Settings
-					parts.settings_dialog.dialog.show_modal();
 				}
 				_ => {}
 			}
@@ -718,40 +1308,50 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				let mut s = state.borrow_mut();
 				s.selected_chat = Some(jid.clone());
 				s.messages.clear();
+				s.loading_messages = false;
+				s.no_more_messages = false;
+				s.history_loading = false;
+				s.prev_msg_count = 0;
+				s.pending_attachments.clear();
 				parts.conversations_parts.conversation_panel.show(true);
-				parts.conversations_parts.messages_list.update_entries(&[], None);
+				parts.conversations_parts.play_voice_btn.show(false);
+				parts.conversations_parts.attachment_panel.show(false);
+				parts.conversations_parts.attachment_info_label.set_label("");
+				parts.conversations_parts.messages_list.clear();
 				parts.conversations_parts.message_field.set_value("");
 				parts.conversations_parts.send_message_btn.show(true);
 				parts.conversations_parts.panel.layout();
+				let limit = 9999999;
 				let payload = serde_json::json!({
 					"action": "get_messages",
-					"data": { "jid": jid, "limit": 50 }
+					"data": { "jid": jid, "limit": limit, "offset": 0 }
 				});
 				let _ = s.ws_tx.send(payload.to_string());
 				drop(s);
 				handle_ui_command(UiCommand::SubscribePresence(jid.clone()), state, parts);
 				handle_ui_command(UiCommand::MarkRead { jid: jid.clone(), message_ids: Vec::new() }, state, parts);
-				parts.conversations_parts.message_field.set_focus();
+				parts.conversations_parts.messages_list.set_focus();
 			}
 		}
 		UiCommand::LoadMoreMessages => {
-			let s = state.borrow();
-			if s.messages.is_empty() {
+			let mut s = state.borrow_mut();
+			if s.history_loading {
+				eprintln!("[LOG UI] Request already in flight for chat, skipping duplicate trigger");
 				return;
 			}
-			if let Some(ref jid) = s.selected_chat {
-				if let Some(oldest_msg) = s.messages.first() {
-					let payload = serde_json::json!({
-						"action": "get_messages",
-						"data": {
-							"jid": jid,
-							"limit": 50,
-							"before_timestamp": oldest_msg.timestamp,
-							"before_id": oldest_msg.id
-						}
-					});
-					let _ = s.ws_tx.send(payload.to_string());
+			if let Some(ref jid) = s.selected_chat.clone() {
+				if s.completed_history_chats.contains(jid) {
+					eprintln!("[LOG UI] All available history already loaded for chat {}, skipping request", jid);
+					return;
 				}
+				s.history_loading = true;
+				eprintln!("[LOG UI] Reached top of chat! Requesting older history from phone for: {}", jid);
+				let oldest_msg_id = s.messages.first().map(|m| m.id.clone()).unwrap_or_default();
+				let payload = serde_json::json!({
+					"action": "request_history_sync",
+					"data": { "jid": jid, "message_id": oldest_msg_id, "count": 50 }
+				});
+				let _ = s.ws_tx.send(payload.to_string());
 			}
 		}
 		UiCommand::SearchInConversation(query) => {
@@ -802,9 +1402,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				parts.conversations_parts.conversation_panel.layout();
 			}
 		}
+		UiCommand::StopRecording => {
+			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "stop_recording" }).to_string());
+		}
 		UiCommand::TogglePauseRecording => {
 			let payload = serde_json::json!({ "action": "toggle_pause_recording" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::ForceSync => {
+			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "force_sync" }).to_string());
 		}
 		UiCommand::SendVoiceMessage => {
 			let payload = serde_json::json!({ "action": "send_voice_message" });
@@ -812,6 +1418,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			parts.conversations_parts.voice_panel.show(false);
 			parts.conversations_parts.record_voice_btn.show(true);
 			parts.conversations_parts.conversation_panel.layout();
+		}
+		UiCommand::DiscardRecording => {
+			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "discard_recording" }).to_string());
 		}
 		UiCommand::DiscardVoiceMessage => {
 			let payload = serde_json::json!({ "action": "discard_voice_message" });
@@ -828,22 +1437,101 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			if dialog.show_modal() == wxdragon::id::ID_OK {
 				if let Some(path) = dialog.get_path() {
 					if !path.is_empty() {
+						let mut s = state.borrow_mut();
+						s.pending_attachments.push(path.clone());
+						let file_names: Vec<String> = s.pending_attachments.iter().map(|p| {
+							std::path::Path::new(p).file_name().unwrap_or_default().to_string_lossy().to_string()
+						}).collect();
+						let label_text = format!("Files: {}", file_names.join(", "));
+						drop(s);
+						parts.conversations_parts.attachment_info_label.set_label(&label_text);
 						parts.conversations_parts.attachment_panel.show(true);
 						parts.conversations_parts.caption_field.set_value("");
 						parts.conversations_parts.caption_field.set_focus();
 						parts.conversations_parts.conversation_panel.layout();
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("File attached: {}", file_names.last().unwrap_or(&String::new())));
 					}
 				}
 			}
 		}
 		UiCommand::SendAttachment { caption } => {
-			if let Some(ref jid) = state.borrow().selected_chat {
-				let payload = serde_json::json!({
-					"action": "send_attachment",
-					"data": { "jid": jid, "caption": caption }
-				});
-				let _ = state.borrow().ws_tx.send(payload.to_string());
+			let jid = state.borrow().selected_chat.clone();
+			let paths = {
+				let mut s = state.borrow_mut();
+				std::mem::take(&mut s.pending_attachments)
+			};
+			if let Some(ref jid) = jid {
+				let is_group = jid.ends_with("@g.us");
+				let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+
+				for (idx, path) in paths.iter().enumerate() {
+					let ext = std::path::Path::new(path)
+						.extension()
+						.unwrap_or_default()
+						.to_string_lossy()
+						.to_lowercase();
+					let file_type = match ext.as_str() {
+						"jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" => "image",
+						"mp4" | "avi" | "mov" | "mkv" | "webm" | "3gp" => "video",
+						_ => "document",
+					};
+					let filename = std::path::Path::new(path)
+						.file_name()
+						.unwrap_or_default()
+						.to_string_lossy()
+						.to_string();
+
+					let display_text = if caption.trim().is_empty() {
+						format!("[Uploading {}...]", filename)
+					} else {
+						format!("[Uploading {}...] {}", filename, caption)
+					};
+
+					let temp_id = format!("temp_upload_{}_{}", ts, idx);
+					let pending_msg = ChatMessage {
+						id: temp_id,
+						text: display_text,
+						timestamp: ts,
+						from_me: true,
+						sender_jid: "me".to_string(),
+						sender_name: "You".to_string(),
+						is_audio: false,
+						is_date_divider: false,
+						is_deleted: false,
+						status: "uploading".to_string(),
+						reactions: Vec::new(),
+						quoted_id: String::new(),
+						quoted_text: String::new(),
+						quoted_sender: String::new(),
+					};
+
+					{
+						let mut s = state.borrow_mut();
+						s.messages.push(pending_msg.clone());
+					}
+					parts.conversations_parts.messages_list.append(&pending_msg.format_display(is_group));
+
+					let count = parts.conversations_parts.messages_list.get_count();
+					if count > 0 {
+						parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
+						parts.conversations_parts.messages_list.set_focus();
+					}
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), &pending_msg.format_display(is_group));
+
+					let payload = serde_json::json!({
+						"action": "send_attachment",
+						"data": {
+							"jid": jid,
+							"type": file_type,
+							"path": path,
+							"filename": filename,
+							"caption": caption
+						}
+					});
+					let _ = state.borrow().ws_tx.send(payload.to_string());
+				}
 				parts.conversations_parts.attachment_panel.show(false);
+				parts.conversations_parts.attachment_info_label.set_label("");
 				parts.conversations_parts.conversation_panel.layout();
 			}
 		}
@@ -916,6 +1604,49 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				}
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::PlayVoiceMessage(msg_id) => {
+			let payload = serde_json::json!({
+				"action": "play_voice_message",
+				"data": { "id": msg_id }
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::CloseConversation => {
+			let mut s = state.borrow_mut();
+			s.selected_chat = None;
+			parts.conversations_parts.conversation_panel.show(false);
+			parts.conversations_parts.panel.layout();
+			parts.conversations_parts.conversations_list.set_focus();
+		}
+		UiCommand::EditMessage { message_id, new_text } => {
+			let jid = state.borrow().selected_chat.clone();
+			if let Some(jid) = jid {
+				let payload = serde_json::json!({
+					"action": "edit_message",
+					"data": {
+						"jid": jid,
+						"message_id": message_id,
+						"new_text": new_text
+					}
+				});
+				let _ = state.borrow().ws_tx.send(payload.to_string());
+			}
+		}
+		UiCommand::DeleteMessage { message_id, sender_jid, for_everyone } => {
+			let jid = state.borrow().selected_chat.clone();
+			if let Some(jid) = jid {
+				let payload = serde_json::json!({
+					"action": "delete_message",
+					"data": {
+						"jid": jid,
+						"message_id": message_id,
+						"sender_jid": sender_jid,
+						"for_everyone": for_everyone
+					}
+				});
+				let _ = state.borrow().ws_tx.send(payload.to_string());
+			}
 		}
 	}
 }

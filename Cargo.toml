@@ -1,5 +1,5 @@
 [package]
-name = "winzapp_rust"
+name = "whantv"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88.0"
@@ -15,6 +15,8 @@ qrcode = "0.14.1"
 image = "0.25.10"
 base64 = "0.22.1"
 live-region = "0.2.0"
+rodio = { version = "0.17.3", features = ["symphonia-all"] }
+chrono = "0.4.45"
 
 [target.'cfg(windows)'.dependencies]
 accesskit_windows = "0.33.0"

@@ -1,0 +1,160 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"go.mau.fi/whatsmeow/types"
+)
+
+func broadcastEvent(evtType string, data interface{}) {
+	wsMutex.Lock()
+	defer wsMutex.Unlock()
+
+	var raw json.RawMessage
+	if data != nil {
+		bytes, err := json.Marshal(data)
+		if err == nil {
+			raw = bytes
+		}
+	}
+	
+	if evtType == "message" {
+		log.Printf("Broadcasting 'message' event to WS: %s", string(raw))
+	}
+
+	evt := Event{
+		Type: evtType,
+		Data: raw,
+	}
+
+	bytes, err := json.Marshal(evt)
+	if err != nil {
+		return
+	}
+
+	for conn := range wsClients {
+		conn.WriteMessage(websocket.TextMessage, bytes)
+	}
+}
+
+func sendEvent(conn *websocket.Conn, evtType string, data interface{}) {
+	wsMutex.Lock()
+	defer wsMutex.Unlock()
+	var raw json.RawMessage
+	if data != nil {
+		bytes, err := json.Marshal(data)
+		if err == nil {
+			raw = bytes
+		}
+	}
+
+	evt := Event{
+		Type: evtType,
+		Data: raw,
+	}
+
+	bytes, err := json.Marshal(evt)
+	if err != nil {
+		return
+	}
+
+	conn.WriteMessage(websocket.TextMessage, bytes)
+}
+
+// broadcastChats re-reads the local chat list cache and pushes it to every
+// connected client. Display-name / pinned / muted / archived resolution is
+// centralized in resolveDisplayName and the chat-settings lookup below so
+// this and get_chats can't drift apart.
+var (
+	chatBroadcastTimer *time.Timer
+)
+
+// broadcastChats re-reads the local chat list cache and pushes it to every
+// connected client. It is debounced to avoid flooding the UI during bulk syncs.
+func broadcastChats() {
+	wsMutex.Lock()
+	defer wsMutex.Unlock()
+
+	if chatBroadcastTimer != nil {
+		chatBroadcastTimer.Stop()
+	}
+	chatBroadcastTimer = time.AfterFunc(200*time.Millisecond, func() {
+		broadcastEvent("chats", buildChatsList())
+	})
+}
+
+// buildChatsList is the shared query+formatting logic behind both
+// broadcastChats (pushed to everyone) and the get_chats command (requested
+// by one client). Keeping this in one place means the two can't drift.
+func buildChatsList() []map[string]interface{} {
+	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
+	if err != nil {
+		fmt.Println("Error querying chats:", err)
+		return []map[string]interface{}{}
+	}
+	defer rows.Close()
+
+	chats := []map[string]interface{}{}
+	for rows.Next() {
+		var jid string
+		var name sql.NullString
+		var ts int64
+		var unread int
+		var pinned int
+		var muted int
+		var preview sql.NullString
+		var archived int
+
+		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived); err != nil {
+			continue
+		}
+		n := jid
+		if name.Valid && name.String != "" {
+			n = name.String
+		}
+
+		parsedJID, errJid := types.ParseJID(jid)
+		if errJid == nil {
+			resolved := resolveDisplayName(parsedJID)
+			if resolved != parsedJID.String() {
+				n = resolved
+			} else if n == jid && parsedJID.Server != "g.us" && parsedJID.Server != "lid" {
+				n = "+" + parsedJID.User
+			}
+
+			if chatSettings, errSettings := client.Store.ChatSettings.GetChatSettings(context.Background(), parsedJID); errSettings == nil && chatSettings.Found {
+				if chatSettings.Archived {
+					archived = 1
+				}
+				if chatSettings.Pinned {
+					pinned = 1
+				}
+				if !chatSettings.MutedUntil.IsZero() && chatSettings.MutedUntil.After(time.Now()) {
+					muted = 1
+				}
+			}
+		}
+
+		p := ""
+		if preview.Valid {
+			p = preview.String
+		}
+		chats = append(chats, map[string]interface{}{
+			"JID":            jid,
+			"FullName":       n,
+			"Timestamp":      ts,
+			"UnreadCount":    unread,
+			"Pinned":         pinned == 1,
+			"Muted":          muted == 1,
+			"PreviewSnippet": p,
+			"Archived":       archived == 1,
+		})
+	}
+	return chats
+}

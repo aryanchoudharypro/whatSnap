@@ -1,4 +1,5 @@
 use wxdragon::prelude::*;
+use wxdragon::event::{WxEvtHandler, EventType};
 
 use crate::UiCommand;
 use crate::ui_wake::UiCommandSender;
@@ -24,12 +25,11 @@ pub struct WindowParts {
 	pub new_conv_dialog: crate::ui::new_conversation::NewConversationDialogParts,
 	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
 	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
-	pub settings_dialog: crate::ui::settings::SettingsDialogParts,
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
 }
 
 pub fn build_main_window() -> WindowParts {
-	let frame = Frame::builder().with_title("WinZapp Rust").with_size(Size::new(900, 600)).build();
+	let frame = Frame::builder().with_title("whantv").with_size(Size::new(900, 600)).build();
 	wxdragon::app::set_top_window(&frame);
 
 	let main_panel = Panel::builder(&frame).build();
@@ -41,7 +41,6 @@ pub fn build_main_window() -> WindowParts {
 	let nav_list = ListBox::builder(&nav_panel).with_choices(vec![
 		"Conversations".to_string(),
 		"Archived Chats".to_string(),
-		"Settings".to_string(),
 	]).build();
 	nav_list.set_selection(0_u32, true);
 	nav_sizer.add(&nav_label, 0, SizerFlag::All, 5);
@@ -118,7 +117,6 @@ pub fn build_main_window() -> WindowParts {
 	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
 	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
-	let settings_dialog = crate::ui::settings::build_settings_dialog(&frame);
 	let conversations_parts = crate::ui::conversations::build_conversations_panel(&content_panel);
 
 	content_sizer.add(&conversations_parts.panel, 1, SizerFlag::Expand, 0);
@@ -155,7 +153,6 @@ pub fn build_main_window() -> WindowParts {
 		new_conv_dialog,
 		new_contact_dialog,
 		new_group_dialog,
-		settings_dialog,
 		conversations_parts,
 	}
 }
@@ -299,7 +296,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 			unsafe {
 				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030));
 			}
-			MessageDialog::builder(&group_dialog, "Nome do grupo é obrigatório.", "Erro").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build().show_modal();
+			MessageDialog::builder(&group_dialog, "Group name is required.", "Error").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build().show_modal();
 			name_ctrl.select_all();
 			name_ctrl.set_focus();
 			return;
@@ -339,7 +336,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 			unsafe {
 				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030));
 			}
-			MessageDialog::builder(&group_dialog, "Pelo menos um participante deve ser selecionado.", "Erro").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build().show_modal();
+			MessageDialog::builder(&group_dialog, "At least one participant must be selected.", "Error").with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build().show_modal();
 			contacts_listbox_ok.set_focus();
 			return;
 		}
@@ -408,7 +405,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 					gs.checked_jids.remove(&jid);
 				}
 				let label = contacts_listbox_toggle.get_string(idx as usize).unwrap_or_default();
-				let state_str = if checked { "selecionado" } else { "não selecionado" };
+				let state_str = if checked { "selected" } else { "not selected" };
 				println!("{}: {}", label, state_str);
 			}
 		}
@@ -421,34 +418,31 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 		}
 	});
 
-	let settings_dialog_ok = parts.settings_dialog.dialog;
-	let tx_save = ui_tx.clone();
-	parts.settings_dialog.ok_btn.on_click(move |_| {
-		let _ = tx_save.send(UiCommand::SaveSettings);
-		settings_dialog_ok.end_modal(wxdragon::id::ID_OK);
-	});
 
-	let settings_dialog_cancel = parts.settings_dialog.dialog;
-	parts.settings_dialog.cancel_btn.on_click(move |_| {
-		settings_dialog_cancel.end_modal(wxdragon::id::ID_CANCEL);
-	});
 
-	let tx_apply = ui_tx.clone();
-	parts.settings_dialog.apply_btn.on_click(move |_| {
-		let _ = tx_apply.send(UiCommand::SaveSettings);
-	});
-
-	let conv_new_conv_dialog = parts.new_conv_dialog.dialog;
-	parts.conversations_parts.new_conv_btn.on_click(move |_| {
-		conv_new_conv_dialog.show_modal();
-	});
-
-	let tx_conv_send = ui_tx.clone();
-	let conv_msg_field = parts.conversations_parts.message_field;
-	parts.conversations_parts.send_message_btn.on_click(move |_| {
-		let text = conv_msg_field.get_value();
-		if !text.is_empty() {
-			let _ = tx_conv_send.send(UiCommand::SendMessage(text));
+	let tx_send_field = ui_tx.clone();
+	let conv_msg_field_esc = parts.conversations_parts.message_field;
+	conv_msg_field_esc.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if code == Some(13) || code == Some(370) { // Enter key
+				if key_event.shift_down() {
+					event.skip(true); // Shift+Enter -> insert newline in multiline text box
+				} else {
+					let text = conv_msg_field_esc.get_value();
+					if !text.is_empty() {
+						let _ = tx_send_field.send(UiCommand::SendMessage(text));
+					}
+					event.skip(false); // Suppress default Enter newline insertion
+				}
+			} else if code == Some(27) { // Escape key
+				let _ = tx_send_field.send(UiCommand::CloseConversation);
+				event.skip(false);
+			} else {
+				event.skip(true);
+			}
+		} else {
+			event.skip(true);
 		}
 	});
 
@@ -463,6 +457,583 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	parts.conversations_parts.conversations_list.on_item_double_clicked(move |event| {
 		if let Some(idx) = event.get_selection() {
 			let _ = tx_open.send(UiCommand::OpenConversation(idx as usize));
+		}
+	});
+
+	let tx_open_enter = ui_tx.clone();
+	let conv_list_enter = parts.conversations_parts.conversations_list.clone();
+	parts.conversations_parts.conversations_list.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			if key_event.get_key_code() == Some(13) {
+				if let Some(idx) = conv_list_enter.get_selection() {
+					let _ = tx_open_enter.send(UiCommand::OpenConversation(idx as usize));
+				}
+				event.skip(false);
+			} else {
+				event.skip(true);
+			}
+		} else {
+			event.skip(true);
+		}
+	});
+
+	let tx_open_enter_up = ui_tx.clone();
+	let conv_list_enter_up = parts.conversations_parts.conversations_list;
+	parts.conversations_parts.conversations_list.on_key_up(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			if key_event.get_key_code() == Some(13) || key_event.get_key_code() == Some(370) {
+				if let Some(idx) = conv_list_enter_up.get_selection() {
+					let _ = tx_open_enter_up.send(UiCommand::OpenConversation(idx as usize));
+				}
+				event.skip(false);
+			} else {
+				event.skip(true);
+			}
+		} else {
+			event.skip(true);
+		}
+	});
+
+	let tx_play_media = ui_tx.clone();
+	let msgs_list_play = parts.conversations_parts.messages_list.clone();
+	let state_play = state.clone();
+	let tx_close_list = ui_tx.clone();
+	let parent_frame = parts.frame.clone();
+	let msgs_announcer = parts.conversations_parts.messages_announcer.clone();
+	let msg_input_field = parts.conversations_parts.message_field.clone();
+	let last_left_arrow = std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
+	parts.conversations_parts.messages_list.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if code == Some(314) || code == Some(37) { // Left Arrow
+				let now = std::time::Instant::now();
+				let prev = last_left_arrow.get();
+				if now.duration_since(prev) < std::time::Duration::from_millis(600) {
+					last_left_arrow.set(now - std::time::Duration::from_secs(10));
+					if let Some(idx) = msgs_list_play.get_selection() {
+						let s = state_play.borrow();
+						if let Some(msg) = s.messages.get(idx as usize) {
+							if !msg.quoted_id.is_empty() || !msg.quoted_text.is_empty() {
+								let mut target = if !msg.quoted_id.is_empty() {
+									s.messages.iter().position(|m| m.id == msg.quoted_id)
+								} else {
+									None
+								};
+
+								if target.is_none() && !msg.quoted_text.is_empty() {
+									let is_generic = msg.quoted_text == "[Voice Message]"
+										|| msg.quoted_text == "[Audio]"
+										|| msg.quoted_text == "Voice message"
+										|| msg.quoted_text == "Audio"
+										|| msg.quoted_text == "[Media]";
+									if !is_generic && (idx as usize) < s.messages.len() {
+										target = s.messages[..idx as usize].iter().rposition(|m| {
+											m.text == msg.quoted_text || (!m.text.is_empty() && m.text.contains(&msg.quoted_text))
+										});
+									}
+								}
+
+								if let Some(target_idx) = target {
+									msgs_list_play.set_selection(target_idx as u32, true);
+									unsafe {
+										let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_OK);
+									}
+								} else {
+									unsafe {
+										let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_ICONASTERISK);
+									}
+								}
+							}
+						}
+					}
+					event.skip(false);
+				} else {
+					last_left_arrow.set(now);
+					event.skip(false); // Stay silent on single press
+				}
+			} else if key_event.get_key_code() == Some(27) { // Escape
+				let _ = tx_close_list.send(UiCommand::CloseConversation);
+				event.skip(false);
+			} else if key_event.get_key_code() == Some(313) || key_event.get_key_code() == Some(384) { // WXK_HOME (313) -> Oldest message at top
+				let count = msgs_list_play.get_count();
+				if count > 0 {
+					msgs_list_play.set_selection(0, true);
+				}
+				event.skip(false);
+			} else if key_event.get_key_code() == Some(312) || key_event.get_key_code() == Some(385) { // WXK_END (312) -> Newest message at bottom
+				let count = msgs_list_play.get_count();
+				if count > 0 {
+					msgs_list_play.set_selection((count - 1) as u32, true);
+				}
+				event.skip(false);
+			} else if key_event.get_key_code() == Some(13) { // Enter key
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let s = state_play.borrow();
+					if let Some(msg) = s.messages.get(idx as usize) {
+						let mut urls = Vec::new();
+						let text = &msg.text;
+						let mut start_idx = 0;
+						while let Some(idx) = text[start_idx..].find("http") {
+							let actual_idx = start_idx + idx;
+							if text[actual_idx..].starts_with("http://") || text[actual_idx..].starts_with("https://") {
+								let space_idx = text[actual_idx..].find(|c: char| c.is_whitespace()).unwrap_or(text.len() - actual_idx);
+								urls.push(text[actual_idx..actual_idx + space_idx].to_string());
+								start_idx = actual_idx + space_idx;
+							} else {
+								start_idx = actual_idx + 4;
+							}
+						}
+						
+						if urls.len() == 1 {
+							wxdragon::utils::launch_default_browser(&urls[0], wxdragon::utils::BrowserLaunchFlags::Default);
+						} else if urls.len() > 1 {
+							let url_strs: Vec<&str> = urls.iter().map(|s| s.as_str()).collect();
+							let dialog = wxdragon::prelude::SingleChoiceDialog::builder(
+								&msgs_list_play,
+								"Select a link to open:",
+								"Open Link",
+								&url_strs
+							).build();
+							if dialog.show_modal() == wxdragon::id::ID_OK {
+								if let Some(selection) = dialog.get_string_selection() {
+									wxdragon::utils::launch_default_browser(&selection, wxdragon::utils::BrowserLaunchFlags::Default);
+								}
+							}
+						}
+					}
+				}
+				event.skip(false);
+			} else if key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32) { // Space
+				use std::io::Write;
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let mut s = state_play.borrow_mut();
+					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
+						if is_currently_playing {
+							if s.is_audio_paused {
+								if let Some(ref sink) = s.audio_sink {
+									sink.play();
+								}
+								if let Some(ref mut stdin) = s.audio_stdin {
+									let _ = writeln!(stdin, "RESUME");
+									let _ = stdin.flush();
+								}
+								s.is_audio_paused = false;
+							} else {
+								if let Some(ref sink) = s.audio_sink {
+									sink.pause();
+								}
+								if let Some(ref mut stdin) = s.audio_stdin {
+									let _ = writeln!(stdin, "PAUSE");
+									let _ = stdin.flush();
+								}
+								s.is_audio_paused = true;
+							}
+						} else {
+							if let Some(ref sink) = s.audio_sink {
+								sink.stop();
+							}
+							s.audio_sink = None;
+							s.is_audio_paused = false;
+							s.playing_msg_id = Some(msg.id.clone());
+							let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id));
+						}
+					}
+				}
+				event.skip(false);
+			} else if code == Some('r' as i32) || code == Some('R' as i32) || code == Some(82) { // 'r' / 'R' -> Reply
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let mut s = state_play.borrow_mut();
+					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						if !msg.is_date_divider {
+							let sender = if msg.from_me {
+								"You".to_string()
+							} else if !msg.sender_name.is_empty() {
+								msg.sender_name.clone()
+							} else {
+								msg.sender_jid.clone()
+							};
+							let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
+								"Voice message".to_string()
+							} else if msg.text.is_empty() {
+								"Media".to_string()
+							} else {
+								msg.text.clone()
+							};
+
+							s.pending_reply_id = Some(msg.id.clone());
+							s.pending_reply_sender = Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
+							s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
+
+							let status_msg = format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
+							live_region::announce(msgs_announcer.clone(), &status_msg);
+							msg_input_field.set_focus();
+							unsafe {
+								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_OK);
+							}
+						}
+					}
+				}
+				event.skip(false);
+			} else if code == Some('e' as i32) || code == Some('E' as i32) || code == Some(69) { // 'e' / 'E' -> Edit
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let s = state_play.borrow();
+					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						if !msg.is_date_divider {
+							let can_edit = msg.from_me && !msg.is_deleted && !msg.is_audio && !msg.text.starts_with("[Voice Message]") && !msg.text.starts_with("[Audio]");
+							if !can_edit {
+								unsafe {
+									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND);
+								}
+								live_region::announce(msgs_announcer.clone(), "Message can't be edited.");
+							} else {
+								let dlg = TextEntryDialog::builder(&parent_frame, "Enter updated message text:", "Edit Message")
+									.with_default_value(&msg.text)
+									.build();
+								if dlg.show_modal() == wxdragon::id::ID_OK {
+									if let Some(val) = dlg.get_value() {
+										let new_text = val.trim().to_string();
+										if !new_text.is_empty() && new_text != msg.text {
+											let _ = tx_play_media.send(UiCommand::EditMessage { message_id: msg.id.clone(), new_text });
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				event.skip(false);
+			} else if code == Some(127) || code == Some(390) { // Delete key -> Delete
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let s = state_play.borrow();
+					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						if !msg.is_date_divider {
+							let prompt = if msg.from_me {
+								"Are you sure you want to delete this message for everyone?"
+							} else {
+								"Are you sure you want to delete this message from your device?"
+							};
+							let dlg = MessageDialog::builder(&parent_frame, prompt, "Confirm Delete")
+								.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+								.build();
+							if dlg.show_modal() == wxdragon::id::ID_OK {
+								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+								let _ = tx_play_media.send(UiCommand::DeleteMessage {
+									message_id: msg.id.clone(),
+									sender_jid,
+									for_everyone: msg.from_me,
+								});
+							}
+						}
+					}
+				}
+			} else if !key_event.meta_down() && (code == Some(349) || code == Some(393) || code == Some(93) || code == Some(0x5D) || (key_event.shift_down() && code == Some(358))) { // Context Menu key or Shift+F10
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let reply_id = 3001;
+					let edit_id = 3002;
+					let delete_id = 3003;
+
+					let mut popup_menu = Menu::builder()
+						.append_item(reply_id, "&Reply", "Reply to message")
+						.append_item(edit_id, "&Edit", "Edit message")
+						.append_item(delete_id, "&Delete", "Delete message")
+						.build();
+
+					let state_clone = state_play.clone();
+					let parent_frame_clone = parent_frame.clone();
+					let msgs_announcer_clone = msgs_announcer.clone();
+					let msg_input_field_clone = msg_input_field.clone();
+					let tx_play_media_clone = tx_play_media.clone();
+
+					popup_menu.on_selected(move |menu_evt| {
+						let menu_id = menu_evt.get_id();
+						if menu_id == reply_id {
+							let mut s = state_clone.borrow_mut();
+							if let Some(msg) = s.messages.get(idx as usize).cloned() {
+								if !msg.is_date_divider {
+									let sender = if msg.from_me {
+										"You".to_string()
+									} else if !msg.sender_name.is_empty() {
+										msg.sender_name.clone()
+									} else {
+										msg.sender_jid.clone()
+									};
+									let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
+										"Voice message".to_string()
+									} else if msg.text.is_empty() {
+										"Media".to_string()
+									} else {
+										msg.text.clone()
+									};
+									s.pending_reply_id = Some(msg.id.clone());
+									s.pending_reply_sender = Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
+									s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
+
+									let status_msg = format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
+									live_region::announce(msgs_announcer_clone.clone(), &status_msg);
+									msg_input_field_clone.set_focus();
+									unsafe {
+										let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_OK);
+									}
+								}
+							}
+						} else if menu_id == edit_id {
+							let s = state_clone.borrow();
+							if let Some(msg) = s.messages.get(idx as usize).cloned() {
+								if !msg.is_date_divider {
+									let can_edit = msg.from_me && !msg.is_deleted && !msg.is_audio && !msg.text.starts_with("[Voice Message]") && !msg.text.starts_with("[Audio]");
+									if !can_edit {
+										unsafe {
+											let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND);
+										}
+										live_region::announce(msgs_announcer_clone.clone(), "Message can't be edited.");
+									} else {
+										let dlg = TextEntryDialog::builder(&parent_frame_clone, "Enter updated message text:", "Edit Message")
+											.with_default_value(&msg.text)
+											.build();
+										if dlg.show_modal() == wxdragon::id::ID_OK {
+											if let Some(val) = dlg.get_value() {
+												let new_text = val.trim().to_string();
+												if !new_text.is_empty() && new_text != msg.text {
+													let _ = tx_play_media_clone.send(UiCommand::EditMessage { message_id: msg.id.clone(), new_text });
+												}
+											}
+										}
+									}
+								}
+							}
+						} else if menu_id == delete_id {
+							let s = state_clone.borrow();
+							if let Some(msg) = s.messages.get(idx as usize).cloned() {
+								if !msg.is_date_divider {
+									let prompt = if msg.from_me {
+										"Are you sure you want to delete this message for everyone?"
+									} else {
+										"Are you sure you want to delete this message from your device?"
+									};
+									let dlg = MessageDialog::builder(&parent_frame_clone, prompt, "Confirm Delete")
+										.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+										.build();
+									if dlg.show_modal() == wxdragon::id::ID_OK {
+										let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+										let _ = tx_play_media_clone.send(UiCommand::DeleteMessage {
+											message_id: msg.id.clone(),
+											sender_jid,
+											for_everyone: msg.from_me,
+										});
+									}
+								}
+							}
+						}
+					});
+
+					msgs_list_play.popup_menu(&mut popup_menu, None);
+					popup_menu.destroy_menu();
+				}
+				event.skip(false);
+			} else {
+				event.skip(true);
+			}
+		} else {
+			event.skip(true);
+		}
+	});
+
+	let msgs_list_ctx = parts.conversations_parts.messages_list.clone();
+	let state_ctx = state.clone();
+	let parent_frame_ctx = parts.frame.clone();
+	let msgs_announcer_ctx = parts.conversations_parts.messages_announcer.clone();
+	let msg_input_field_ctx = parts.conversations_parts.message_field.clone();
+	let tx_play_media_ctx = ui_tx.clone();
+
+	parts.conversations_parts.messages_list.bind_internal(EventType::CONTEXT_MENU, move |_event| {
+		if let Some(idx) = msgs_list_ctx.get_selection() {
+			let reply_id = 3001;
+			let edit_id = 3002;
+			let delete_id = 3003;
+
+			let mut popup_menu = Menu::builder()
+				.append_item(reply_id, "&Reply", "Reply to message")
+				.append_item(edit_id, "&Edit", "Edit message")
+				.append_item(delete_id, "&Delete", "Delete message")
+				.build();
+
+			let state_clone = state_ctx.clone();
+			let parent_frame_clone = parent_frame_ctx.clone();
+			let msgs_announcer_clone = msgs_announcer_ctx.clone();
+			let msg_input_field_clone = msg_input_field_ctx.clone();
+			let tx_play_media_clone = tx_play_media_ctx.clone();
+
+			popup_menu.on_selected(move |menu_evt| {
+				let id = menu_evt.get_id();
+				if id == reply_id {
+					let mut s = state_clone.borrow_mut();
+					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						if !msg.is_date_divider {
+							let sender = if msg.from_me {
+								"You".to_string()
+							} else if !msg.sender_name.is_empty() {
+								msg.sender_name.clone()
+							} else {
+								msg.sender_jid.clone()
+							};
+							let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
+								"Voice message".to_string()
+							} else if msg.text.is_empty() {
+								"Media".to_string()
+							} else {
+								msg.text.clone()
+							};
+							s.pending_reply_id = Some(msg.id.clone());
+							s.pending_reply_sender = Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
+							s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
+
+							let status_msg = format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
+							live_region::announce(msgs_announcer_clone.clone(), &status_msg);
+							msg_input_field_clone.set_focus();
+							unsafe {
+								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_OK);
+							}
+						}
+					}
+				} else if id == edit_id {
+					let s = state_clone.borrow();
+					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						if !msg.is_date_divider {
+							let can_edit = msg.from_me && !msg.is_deleted && !msg.is_audio && !msg.text.starts_with("[Voice Message]") && !msg.text.starts_with("[Audio]");
+							if !can_edit {
+								unsafe {
+									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND);
+								}
+								live_region::announce(msgs_announcer_clone.clone(), "Message can't be edited.");
+							} else {
+								let dlg = TextEntryDialog::builder(&parent_frame_clone, "Enter updated message text:", "Edit Message")
+									.with_default_value(&msg.text)
+									.build();
+								if dlg.show_modal() == wxdragon::id::ID_OK {
+									if let Some(val) = dlg.get_value() {
+										let new_text = val.trim().to_string();
+										if !new_text.is_empty() && new_text != msg.text {
+											let _ = tx_play_media_clone.send(UiCommand::EditMessage { message_id: msg.id.clone(), new_text });
+										}
+									}
+								}
+							}
+						}
+					}
+				} else if id == delete_id {
+					let s = state_clone.borrow();
+					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						if !msg.is_date_divider {
+							let prompt = if msg.from_me {
+								"Are you sure you want to delete this message for everyone?"
+							} else {
+								"Are you sure you want to delete this message from your device?"
+							};
+							let dlg = MessageDialog::builder(&parent_frame_clone, prompt, "Confirm Delete")
+								.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+								.build();
+							if dlg.show_modal() == wxdragon::id::ID_OK {
+								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+								let _ = tx_play_media_clone.send(UiCommand::DeleteMessage {
+									message_id: msg.id.clone(),
+									sender_jid,
+									for_everyone: msg.from_me,
+								});
+							}
+						}
+					}
+				}
+			});
+
+			msgs_list_ctx.popup_menu(&mut popup_menu, None);
+			popup_menu.destroy_menu();
+		}
+	});
+
+	let tx_play_btn = ui_tx.clone();
+	let msgs_list_btn = parts.conversations_parts.messages_list.clone();
+	let state_play_btn = state.clone();
+	let play_voice_btn_ref = parts.conversations_parts.play_voice_btn.clone();
+	parts.conversations_parts.play_voice_btn.on_click(move |_| {
+		use std::io::Write;
+		if let Some(idx) = msgs_list_btn.get_selection() {
+			let mut s = state_play_btn.borrow_mut();
+			if let Some(msg) = s.messages.get(idx as usize).cloned() {
+				let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
+				if is_currently_playing {
+					if s.is_audio_paused {
+						if let Some(ref sink) = s.audio_sink {
+							sink.play();
+						}
+						if let Some(ref mut stdin) = s.audio_stdin {
+							let _ = writeln!(stdin, "RESUME");
+							let _ = stdin.flush();
+						}
+						s.is_audio_paused = false;
+						play_voice_btn_ref.set_label("Pause voice message");
+						return;
+					} else {
+						if let Some(ref sink) = s.audio_sink {
+							sink.pause();
+						}
+						if let Some(ref mut stdin) = s.audio_stdin {
+							let _ = writeln!(stdin, "PAUSE");
+							let _ = stdin.flush();
+						}
+						s.is_audio_paused = true;
+						play_voice_btn_ref.set_label("Play voice message");
+						return;
+					}
+				}
+				
+				if let Some(ref sink) = s.audio_sink {
+					sink.stop();
+				}
+				s.audio_sink = None;
+				s.is_audio_paused = false;
+				s.playing_msg_id = Some(msg.id.clone());
+				play_voice_btn_ref.set_label("Loading voice message...");
+				let _ = tx_play_btn.send(UiCommand::PlayVoiceMessage(msg.id));
+			}
+		}
+	});
+
+	let tx_load_more_scroll = ui_tx.clone();
+	let state_sel = state.clone();
+	let play_voice_btn_sel = parts.conversations_parts.play_voice_btn.clone();
+	parts.conversations_parts.messages_list.on_selection_changed(move |event| {
+		if let Some(idx) = event.get_selection() {
+			if idx == 0 {
+				let _ = tx_load_more_scroll.send(UiCommand::LoadMoreMessages);
+			}
+			let s = state_sel.borrow();
+			if let Some(msg) = s.messages.get(idx as usize) {
+				let is_voice = msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
+				play_voice_btn_sel.show(is_voice);
+				if is_voice {
+					let is_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
+					if is_playing {
+						if let Some(ref sink) = s.audio_sink {
+							if !sink.is_paused() && !sink.empty() {
+								play_voice_btn_sel.set_label("Pause voice message");
+							} else {
+								play_voice_btn_sel.set_label("Play voice message");
+							}
+						} else if s.audio_process.is_some() {
+							play_voice_btn_sel.set_label("Pause voice message");
+						} else {
+							play_voice_btn_sel.set_label("Play voice message");
+						}
+					} else {
+						play_voice_btn_sel.set_label("Play voice message");
+					}
+				}
+			} else {
+				play_voice_btn_sel.show(false);
+			}
+		} else {
+			play_voice_btn_sel.show(false);
 		}
 	});
 

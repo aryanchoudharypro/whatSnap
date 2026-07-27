@@ -22,7 +22,10 @@ pub struct ConversationsPanelParts {
 	pub search_next_btn: Button,
 
 	pub messages_label: StaticText,
-	pub messages_list: crate::ui::timeline_list::TimelineList,
+	pub messages_list: ListBox,
+
+	pub play_voice_btn: Button,
+	pub messages_announcer: StaticText,
 
 	pub read_more_btn: Button,
 
@@ -42,6 +45,7 @@ pub struct ConversationsPanelParts {
 	pub caption_field: TextCtrl,
 	pub send_attachment_btn: Button,
 	pub add_more_btn: Button,
+	pub attachment_info_label: StaticText,
 
 	pub audio_speed_btn: Button,
 	pub audio_progress_label: StaticText,
@@ -77,9 +81,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let conv_data_btn = Button::builder(&conversation_panel).with_label("Conversation data").build();
 	conv_sizer.add(&conv_data_btn, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
 
-	let add_attachment_btn = Button::builder(&conversation_panel).with_label("Add attachment").build();
-	conv_sizer.add(&add_attachment_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
-
 	let search_in_conv_btn = Button::builder(&conversation_panel).with_label("Search in conversation").build();
 	conv_sizer.add(&search_in_conv_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
 
@@ -102,12 +103,21 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let messages_label = StaticText::builder(&conversation_panel).with_label("Messages").build();
 	conv_sizer.add(&messages_label, 0, SizerFlag::Left | SizerFlag::Top, 5);
 
-	let messages_list = crate::ui::timeline_list::TimelineList::new(&conversation_panel);
+	let messages_list = ListBox::builder(&conversation_panel).build();
 	conv_sizer.add(&messages_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+
+	let play_voice_btn = Button::builder(&conversation_panel).with_label("Play voice message").build();
+	conv_sizer.add(&play_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
+	play_voice_btn.show(false);
+
+	let messages_announcer = StaticText::builder(&conversation_panel).with_label("").build();
+	live_region::set_live_region(&messages_announcer);
+	conv_sizer.add(&messages_announcer, 0, SizerFlag::Left, 0);
+	messages_announcer.show(false);
 
 	let read_more_btn = Button::builder(&conversation_panel).with_label("Read more").build();
 	conv_sizer.add(&read_more_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
-	read_more_btn.show(true);
+	read_more_btn.show(false);
 
 	let action_open_btn = Button::builder(&conversation_panel).with_label("Open").build();
 	conv_sizer.add(&action_open_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
@@ -141,6 +151,9 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		.build();
 	conv_sizer.add(&message_field, 0, SizerFlag::Expand | SizerFlag::All, 5);
 
+	let add_attachment_btn = Button::builder(&conversation_panel).with_label("Add attachment").build();
+	conv_sizer.add(&add_attachment_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
+
 	let cancel_edit_btn = Button::builder(&conversation_panel).with_label("Cancel edit").build();
 	conv_sizer.add(&cancel_edit_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	cancel_edit_btn.show(false);
@@ -161,6 +174,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		.with_style(TextCtrlStyle::ProcessEnter)
 		.build();
 	attach_sizer.add(&caption_field, 0, SizerFlag::Expand | SizerFlag::All, 5);
+	let attachment_info_label = StaticText::builder(&attachment_panel).with_label("").build();
+	attach_sizer.add(&attachment_info_label, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 5);
 	let add_more_btn = Button::builder(&attachment_panel).with_label("Add more files").build();
 	attach_sizer.add(&add_more_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
 	let send_attachment_btn = Button::builder(&attachment_panel).with_label("Send attachment").build();
@@ -205,6 +220,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		search_next_btn,
 		messages_label,
 		messages_list,
+		play_voice_btn,
+		messages_announcer,
 		read_more_btn,
 		message_label,
 		message_field,
@@ -220,6 +237,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		caption_field,
 		send_attachment_btn,
 		add_more_btn,
+		attachment_info_label,
 		audio_speed_btn,
 		audio_progress_label,
 		audio_slider,
