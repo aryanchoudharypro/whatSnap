@@ -125,6 +125,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			handleGetChats(conn)
 		case "get_messages":
 			handleGetMessages(conn, cmd.Data)
+		case "get_message_info":
+			handleGetMessageInfo(conn, cmd.Data)
 		case "search_messages":
 			handleSearchMessages(conn, cmd.Data)
 		case "set_chat_pinned":

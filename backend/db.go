@@ -53,6 +53,13 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN quoted_sender TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE messages ADD COLUMN is_edited INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN sent_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN delivered_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN read_at INTEGER DEFAULT 0")
+	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
+	db.Exec("UPDATE messages SET delivered_at = 0 WHERE delivered_at = sent_at AND sent_at > 0")
+	db.Exec("UPDATE messages SET read_at = 0 WHERE read_at = sent_at AND sent_at > 0")
+	db.Exec("UPDATE messages SET played_at = 0 WHERE played_at = sent_at AND sent_at > 0")
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
@@ -116,9 +123,13 @@ func saveMessage(sm StoredMessage) error {
 	if sm.Status == "" {
 		sm.Status = "sent"
 	}
+	sentAt := int64(0)
+	if sm.FromMe {
+		sentAt = sm.Timestamp
+	}
 	_, err := db.Exec(`INSERT INTO messages
-			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, quoted_id, quoted_text, quoted_sender)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, quoted_id, quoted_text, quoted_sender, sent_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			text=excluded.text,
 			timestamp=excluded.timestamp,
@@ -130,23 +141,36 @@ func saveMessage(sm StoredMessage) error {
 			media_path=CASE WHEN excluded.media_path != '' THEN excluded.media_path ELSE messages.media_path END,
 			quoted_id=excluded.quoted_id,
 			quoted_text=excluded.quoted_text,
-			quoted_sender=excluded.quoted_sender`,
+			quoted_sender=excluded.quoted_sender,
+			sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END`,
 		sm.ID, sm.JID, sm.FromMe, sm.Text, sm.Timestamp, sm.SenderJID, sm.Raw, sm.Status,
 		sm.MediaType, sm.MediaMimetype, sm.MediaFilename, sm.MediaPath,
-		sm.QuotedID, sm.QuotedText, sm.QuotedSender)
+		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt)
 	return err
 }
 
 // updateMessageStatusIfNewer applies a status transition only if it moves the
 // message forward (sent -> delivered -> read -> played), for one chat's worth
 // of message IDs at once (receipts can cover several messages read together).
-func updateMessageStatusIfNewer(ids []string, newStatus string) []string {
+func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64) []string {
 	if len(ids) == 0 {
 		return nil
 	}
 	newRank := statusRank(newStatus)
+	var tsCol string
+	switch newStatus {
+	case "delivered":
+		tsCol = "delivered_at"
+	case "read":
+		tsCol = "read_at"
+	case "played":
+		tsCol = "played_at"
+	}
 	var updated []string
 	for _, id := range ids {
+		if tsCol != "" && receiptTS > 0 {
+			db.Exec("UPDATE messages SET "+tsCol+" = ? WHERE id = ? AND "+tsCol+" = 0", receiptTS, id)
+		}
 		var current string
 		err := db.QueryRow("SELECT status FROM messages WHERE id = ?", id).Scan(&current)
 		if err != nil {

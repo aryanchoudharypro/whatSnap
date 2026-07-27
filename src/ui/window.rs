@@ -25,6 +25,7 @@ pub struct WindowParts {
 	pub new_conv_dialog: crate::ui::new_conversation::NewConversationDialogParts,
 	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
 	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
+	pub attachment_dialog: crate::ui::attachment_dialog::AttachmentDialogParts,
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
 }
 
@@ -117,6 +118,7 @@ pub fn build_main_window() -> WindowParts {
 	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
 	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
+	let attachment_dialog = crate::ui::attachment_dialog::build_attachment_dialog(&frame);
 	let conversations_parts = crate::ui::conversations::build_conversations_panel(&content_panel);
 
 	content_sizer.add(&conversations_parts.panel, 1, SizerFlag::Expand, 0);
@@ -153,6 +155,7 @@ pub fn build_main_window() -> WindowParts {
 		new_conv_dialog,
 		new_contact_dialog,
 		new_group_dialog,
+		attachment_dialog,
 		conversations_parts,
 	}
 }
@@ -235,7 +238,9 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	});
 
 	let new_contact_dialog = parts.new_contact_dialog.dialog;
+	let new_conv_dlg_for_contact = parts.new_conv_dialog.dialog;
 	parts.new_conv_dialog.new_contact_btn.on_click(move |_| {
+		new_conv_dlg_for_contact.end_modal(0);
 		new_contact_dialog.show_modal();
 	});
 
@@ -271,6 +276,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 			return;
 		}
 		let full_name = format!("{} {}", name, surname).trim().to_string();
+		dlg.end_modal(wxdragon::id::ID_OK);
 		let _ = tx_new_contact.send(UiCommand::NewContact {
 			name: full_name,
 			phone: clean_phone,
@@ -278,7 +284,9 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	});
 
 	let tx_prepare = ui_tx.clone();
+	let new_conv_dlg_for_group = parts.new_conv_dialog.dialog;
 	parts.new_conv_dialog.new_group_btn.on_click(move |_| {
+		new_conv_dlg_for_group.end_modal(0);
 		let _ = tx_prepare.send(UiCommand::PrepareNewGroup);
 	});
 
@@ -341,6 +349,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 			return;
 		}
 		ok_btn.enable(false);
+		group_dialog.end_modal(wxdragon::id::ID_OK);
 		let _ = tx_create.send(UiCommand::CreateGroup {
 			name,
 			participants: unique_participants,
@@ -501,6 +510,8 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	let parent_frame = parts.frame.clone();
 	let msgs_announcer = parts.conversations_parts.messages_announcer.clone();
 	let msg_input_field = parts.conversations_parts.message_field.clone();
+	let search_panel_key = parts.conversations_parts.search_panel;
+	let conv_panel_key = parts.conversations_parts.conversation_panel;
 	let last_left_arrow = std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
 	parts.conversations_parts.messages_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
@@ -510,7 +521,31 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 				let prev = last_left_arrow.get();
 				if now.duration_since(prev) < std::time::Duration::from_millis(600) {
 					last_left_arrow.set(now - std::time::Duration::from_secs(10));
-					if let Some(idx) = msgs_list_play.get_selection() {
+					// If search is active, double-left-arrow behaves like normal chats:
+					// if the message is a reply, jump to the quoted message; otherwise just close search
+					if search_panel_key.is_shown() {
+						if let Some(idx) = msgs_list_play.get_selection() {
+							let s = state_play.borrow();
+							if let Some(msg) = s.messages.get(idx as usize).cloned() {
+								drop(s);
+								if !msg.is_date_divider && (!msg.quoted_id.is_empty() || !msg.quoted_text.is_empty()) {
+									// Jump to the quoted message — pass both id and text so handler can try both
+									let _ = tx_close_list.send(UiCommand::JumpToSearchResult {
+										message_id: msg.quoted_id,
+										message_text: msg.quoted_text,
+									});
+								} else {
+									let _ = tx_close_list.send(UiCommand::CloseSearch);
+								}
+							} else {
+								drop(s);
+								let _ = tx_close_list.send(UiCommand::CloseSearch);
+							}
+						} else {
+							let _ = tx_close_list.send(UiCommand::CloseSearch);
+						}
+						event.skip(false);
+					} else if let Some(idx) = msgs_list_play.get_selection() {
 						let s = state_play.borrow();
 						if let Some(msg) = s.messages.get(idx as usize) {
 							if !msg.quoted_id.is_empty() || !msg.quoted_text.is_empty() {
@@ -567,42 +602,63 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 				}
 				event.skip(false);
 			} else if key_event.get_key_code() == Some(13) { // Enter key
-				if let Some(idx) = msgs_list_play.get_selection() {
-					let s = state_play.borrow();
-					if let Some(msg) = s.messages.get(idx as usize) {
-						let mut urls = Vec::new();
-						let text = &msg.text;
-						let mut start_idx = 0;
-						while let Some(idx) = text[start_idx..].find("http") {
-							let actual_idx = start_idx + idx;
-							if text[actual_idx..].starts_with("http://") || text[actual_idx..].starts_with("https://") {
-								let space_idx = text[actual_idx..].find(|c: char| c.is_whitespace()).unwrap_or(text.len() - actual_idx);
-								urls.push(text[actual_idx..actual_idx + space_idx].to_string());
-								start_idx = actual_idx + space_idx;
+				let is_search_active = search_panel_key.is_shown();
+				if is_search_active {
+					if let Some(idx) = msgs_list_play.get_selection() {
+						let s = state_play.borrow();
+						if let Some(msg) = s.messages.get(idx as usize).cloned() {
+							drop(s);
+							if !msg.is_date_divider {
+								let _ = tx_close_list.send(UiCommand::JumpToSearchResult { message_id: msg.id, message_text: String::new() });
 							} else {
-								start_idx = actual_idx + 4;
+								let _ = tx_close_list.send(UiCommand::CloseSearch);
 							}
+						} else {
+							drop(s);
+							let _ = tx_close_list.send(UiCommand::CloseSearch);
 						}
-						
-						if urls.len() == 1 {
-							wxdragon::utils::launch_default_browser(&urls[0], wxdragon::utils::BrowserLaunchFlags::Default);
-						} else if urls.len() > 1 {
-							let url_strs: Vec<&str> = urls.iter().map(|s| s.as_str()).collect();
-							let dialog = wxdragon::prelude::SingleChoiceDialog::builder(
-								&msgs_list_play,
-								"Select a link to open:",
-								"Open Link",
-								&url_strs
-							).build();
-							if dialog.show_modal() == wxdragon::id::ID_OK {
-								if let Some(selection) = dialog.get_string_selection() {
-									wxdragon::utils::launch_default_browser(&selection, wxdragon::utils::BrowserLaunchFlags::Default);
+					} else {
+						let _ = tx_close_list.send(UiCommand::CloseSearch);
+					}
+					event.skip(false);
+				} else {
+					if let Some(idx) = msgs_list_play.get_selection() {
+						let s = state_play.borrow();
+						if let Some(msg) = s.messages.get(idx as usize) {
+							let mut urls = Vec::new();
+							let text = &msg.text;
+							let mut start_idx = 0;
+							while let Some(idx) = text[start_idx..].find("http") {
+								let actual_idx = start_idx + idx;
+								if text[actual_idx..].starts_with("http://") || text[actual_idx..].starts_with("https://") {
+									let space_idx = text[actual_idx..].find(|c: char| c.is_whitespace()).unwrap_or(text.len() - actual_idx);
+									urls.push(text[actual_idx..actual_idx + space_idx].to_string());
+									start_idx = actual_idx + space_idx;
+								} else {
+									start_idx = actual_idx + 4;
+								}
+							}
+							
+							if urls.len() == 1 {
+								wxdragon::utils::launch_default_browser(&urls[0], wxdragon::utils::BrowserLaunchFlags::Default);
+							} else if urls.len() > 1 {
+								let url_strs: Vec<&str> = urls.iter().map(|s| s.as_str()).collect();
+								let dialog = wxdragon::prelude::SingleChoiceDialog::builder(
+									&msgs_list_play,
+									"Select a link to open:",
+									"Open Link",
+									&url_strs
+								).build();
+								if dialog.show_modal() == wxdragon::id::ID_OK {
+									if let Some(selection) = dialog.get_string_selection() {
+										wxdragon::utils::launch_default_browser(&selection, wxdragon::utils::BrowserLaunchFlags::Default);
+									}
 								}
 							}
 						}
 					}
+					event.skip(false);
 				}
-				event.skip(false);
 			} else if key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32) { // Space
 				use std::io::Write;
 				if let Some(idx) = msgs_list_play.get_selection() {
@@ -732,12 +788,21 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 					let reply_id = 3001;
 					let edit_id = 3002;
 					let delete_id = 3003;
+					let info_id = 3004;
 
-					let mut popup_menu = Menu::builder()
+					let is_from_me = {
+						let s = state_play.borrow();
+						s.messages.get(idx as usize).map(|m| m.from_me && !m.is_date_divider).unwrap_or(false)
+					};
+
+					let mut menu_builder = Menu::builder()
 						.append_item(reply_id, "&Reply", "Reply to message")
 						.append_item(edit_id, "&Edit", "Edit message")
-						.append_item(delete_id, "&Delete", "Delete message")
-						.build();
+						.append_item(delete_id, "&Delete", "Delete message");
+					if is_from_me {
+						menu_builder = menu_builder.append_item(info_id, "Message &Info", "Show message delivery info");
+					}
+					let mut popup_menu = menu_builder.build();
 
 					let state_clone = state_play.clone();
 					let parent_frame_clone = parent_frame.clone();
@@ -824,6 +889,13 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 									}
 								}
 							}
+						} else if menu_id == info_id {
+							let s = state_clone.borrow();
+							if let Some(msg) = s.messages.get(idx as usize).cloned() {
+								if msg.from_me && !msg.is_date_divider {
+									let _ = tx_play_media_clone.send(UiCommand::GetMessageInfo { message_id: msg.id.clone() });
+								}
+							}
 						}
 					});
 
@@ -839,6 +911,40 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 		}
 	});
 
+	// on_key_up catches Enter on ListBox — on_key_down misses it because the OS consumes it
+	let tx_jump_enter = ui_tx.clone();
+	let msgs_list_enter = parts.conversations_parts.messages_list.clone();
+	let state_enter = state.clone();
+	let search_panel_enter = parts.conversations_parts.search_panel;
+	parts.conversations_parts.messages_list.on_key_up(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if code == Some(13) || code == Some(370) { // Enter or numpad Enter
+				if search_panel_enter.is_shown() {
+					if let Some(idx) = msgs_list_enter.get_selection() {
+						let s = state_enter.borrow();
+						if let Some(msg) = s.messages.get(idx as usize).cloned() {
+							drop(s);
+							if !msg.is_date_divider {
+								let _ = tx_jump_enter.send(UiCommand::JumpToSearchResult { message_id: msg.id, message_text: String::new() });
+							} else {
+								let _ = tx_jump_enter.send(UiCommand::CloseSearch);
+							}
+						} else {
+							drop(s);
+							let _ = tx_jump_enter.send(UiCommand::CloseSearch);
+						}
+					} else {
+						let _ = tx_jump_enter.send(UiCommand::CloseSearch);
+					}
+					event.skip(false);
+				} else {
+					event.skip(true);
+				}
+			}
+		}
+	});
+
 	let msgs_list_ctx = parts.conversations_parts.messages_list.clone();
 	let state_ctx = state.clone();
 	let parent_frame_ctx = parts.frame.clone();
@@ -851,12 +957,21 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 			let reply_id = 3001;
 			let edit_id = 3002;
 			let delete_id = 3003;
+			let info_id = 3004;
 
-			let mut popup_menu = Menu::builder()
+			let is_from_me = {
+				let s = state_ctx.borrow();
+				s.messages.get(idx as usize).map(|m| m.from_me && !m.is_date_divider).unwrap_or(false)
+			};
+
+			let mut menu_builder = Menu::builder()
 				.append_item(reply_id, "&Reply", "Reply to message")
 				.append_item(edit_id, "&Edit", "Edit message")
-				.append_item(delete_id, "&Delete", "Delete message")
-				.build();
+				.append_item(delete_id, "&Delete", "Delete message");
+			if is_from_me {
+				menu_builder = menu_builder.append_item(info_id, "Message &Info", "View message delivery info");
+			}
+			let mut popup_menu = menu_builder.build();
 
 			let state_clone = state_ctx.clone();
 			let parent_frame_clone = parent_frame_ctx.clone();
@@ -941,6 +1056,13 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 									for_everyone: msg.from_me,
 								});
 							}
+						}
+					}
+				} else if id == info_id {
+					let s = state_clone.borrow();
+					if let Some(msg) = s.messages.get(idx as usize).cloned() {
+						if msg.from_me && !msg.is_date_divider {
+							let _ = tx_play_media_clone.send(UiCommand::GetMessageInfo { message_id: msg.id.clone() });
 						}
 					}
 				}
@@ -1042,31 +1164,25 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 		let _ = tx_toggle_search.send(UiCommand::ToggleSearchPanel);
 	});
 
-	let _tx_close_search = ui_tx.clone();
-	let search_panel_ref = parts.conversations_parts.search_panel;
-	let conv_panel_ref = parts.conversations_parts.conversation_panel;
+	let tx_close_search = ui_tx.clone();
 	parts.conversations_parts.search_close_btn.on_click(move |_| {
-		search_panel_ref.show(false);
-		conv_panel_ref.layout();
+		let _ = tx_close_search.send(UiCommand::CloseSearch);
 	});
 
 	let tx_search_text = ui_tx.clone();
 	let search_field_ref = parts.conversations_parts.search_conv_field;
+	let msgs_list_search_focus = parts.conversations_parts.messages_list.clone();
 	search_field_ref.on_text_changed(move |_| {
 		let query = search_field_ref.get_value();
 		if !query.is_empty() {
 			let _ = tx_search_text.send(UiCommand::SearchInConversation(query));
 		}
 	});
-
-	let tx_search_next = ui_tx.clone();
-	parts.conversations_parts.search_next_btn.on_click(move |_| {
-		let _ = tx_search_next.send(UiCommand::SearchNextResult);
-	});
-
-	let tx_search_prev = ui_tx.clone();
-	parts.conversations_parts.search_prev_btn.on_click(move |_| {
-		let _ = tx_search_prev.send(UiCommand::SearchPrevResult);
+	search_field_ref.on_text_enter(move |_| {
+		msgs_list_search_focus.set_focus();
+		if msgs_list_search_focus.get_count() > 0 {
+			msgs_list_search_focus.set_selection(0, true);
+		}
 	});
 
 	let tx_record = ui_tx.clone();
@@ -1094,16 +1210,24 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 		let _ = tx_attach.send(UiCommand::AddAttachment);
 	});
 
+	// Attachment dialog — Send button
 	let tx_send_attach = ui_tx.clone();
-	let caption_field_ref = parts.conversations_parts.caption_field;
-	parts.conversations_parts.send_attachment_btn.on_click(move |_| {
+	let caption_field_ref = parts.attachment_dialog.caption_field;
+	parts.attachment_dialog.send_btn.on_click(move |_| {
 		let caption = caption_field_ref.get_value();
 		let _ = tx_send_attach.send(UiCommand::SendAttachment { caption });
 	});
 
+	// Attachment dialog — Add more files button
 	let tx_add_more = ui_tx.clone();
-	parts.conversations_parts.add_more_btn.on_click(move |_| {
+	parts.attachment_dialog.add_more_btn.on_click(move |_| {
 		let _ = tx_add_more.send(UiCommand::AddAttachment);
+	});
+
+	// Attachment dialog — Discard button
+	let tx_discard_attach = ui_tx.clone();
+	parts.attachment_dialog.discard_btn.on_click(move |_| {
+		let _ = tx_discard_attach.send(UiCommand::DiscardAttachment);
 	});
 
 	let tx_download = ui_tx.clone();
