@@ -16,3 +16,16 @@ func decodeBase64Loose(s string) ([]byte, error) {
 	}
 	return base64.RawStdEncoding.DecodeString(s)
 }
+
+// sanitizeFilename removes mangled MIME extensions (e.g. .x-python) and replaces them with standard ones
+func sanitizeFilename(filename string) string {
+	filename = strings.ReplaceAll(filename, ".x-python", ".py")
+	filename = strings.ReplaceAll(filename, ".x-script.python", ".py")
+	filename = strings.ReplaceAll(filename, ".x-shellscript", ".sh")
+	filename = strings.ReplaceAll(filename, ".x-csrc", ".c")
+	filename = strings.ReplaceAll(filename, ".x-c++src", ".cpp")
+	filename = strings.ReplaceAll(filename, ".x-perl", ".pl")
+	filename = strings.ReplaceAll(filename, ".x-ruby", ".rb")
+	filename = strings.ReplaceAll(filename, ".x-php", ".php")
+	return filename
+}

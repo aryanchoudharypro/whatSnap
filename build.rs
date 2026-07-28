@@ -24,9 +24,21 @@ fn main() {
 			println!("cargo:warning=Failed to embed manifest: {e}");
 		}
 		
-		let mut res = WindowsResource::new();
+		let res = WindowsResource::new();
 		if let Err(e) = res.compile() {
 			println!("cargo:warning=Failed to embed version info: {e}");
+		}
+
+		if let Ok(out_dir) = env::var("OUT_DIR") {
+			let mut current = Some(std::path::Path::new(&out_dir));
+			while let Some(dir) = current {
+				let webview_x64 = dir.join("wxwidgets_cmake_build/libs/webview/packages/Microsoft.Web.WebView2.1.0.3485.44/build/native/x64");
+				if webview_x64.exists() {
+					println!("cargo:rustc-link-search=native={}", webview_x64.display());
+					break;
+				}
+				current = dir.parent();
+			}
 		}
 	}
 }

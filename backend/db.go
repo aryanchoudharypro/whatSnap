@@ -56,10 +56,13 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN sent_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN delivered_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN read_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN played_at INTEGER DEFAULT 0")
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
-	db.Exec("UPDATE messages SET delivered_at = 0 WHERE delivered_at = sent_at AND sent_at > 0")
-	db.Exec("UPDATE messages SET read_at = 0 WHERE read_at = sent_at AND sent_at > 0")
-	db.Exec("UPDATE messages SET played_at = 0 WHERE played_at = sent_at AND sent_at > 0")
+	// Rows synced before revoked-stub handling existed: no text, no media and
+	// no raw protobuf means the message was revoked, so surface it as deleted
+	// instead of "[Media]".
+	db.Exec(`UPDATE messages SET is_deleted = 1 WHERE COALESCE(is_deleted, 0) = 0 AND COALESCE(text, '') = ''
+		AND COALESCE(media_type, '') = '' AND COALESCE(media_path, '') = '' AND (raw IS NULL OR length(raw) = 0)`)
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err

@@ -154,10 +154,14 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			handleSendVoiceMessage(conn, cmd.Data)
 		case "download_media":
 			handleDownloadMedia(conn, cmd.Data)
+		case "cancel_download":
+			handleCancelDownload(conn, cmd.Data)
 		case "open_media":
 			handleOpenMedia(conn, cmd.Data)
 		case "save_media_as":
 			handleSaveMediaAs(conn, cmd.Data)
+		case "copy_album_to_clipboard":
+			handleCopyAlbumToClipboard(conn, cmd.Data)
 		case "play_voice_message":
 			handlePlayVoiceMessage(conn, cmd.Data)
 		// Recording itself happens client-side (mic capture); these are kept

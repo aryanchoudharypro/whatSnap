@@ -1,5 +1,3 @@
-use std::rc::Rc;
-use std::cell::RefCell;
 use wxdragon::prelude::*;
 
 pub struct NewConversationDialogParts {

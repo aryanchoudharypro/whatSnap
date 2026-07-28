@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -16,24 +17,30 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 	chatJID = v.Info.Chat.ToNonAD()
 	senderJID = v.Info.Sender.ToNonAD()
 
+	if senderJID.Server == "lid" {
+		if !v.Info.SenderAlt.IsEmpty() {
+			senderJID = v.Info.SenderAlt.ToNonAD()
+		} else if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+			senderJID = pn.ToNonAD()
+		} else if v.Info.IsFromMe && client.Store.ID != nil {
+			senderJID = client.Store.ID.ToNonAD()
+		}
+	}
+
 	if chatJID.Server == "lid" {
 		if v.Info.IsFromMe {
 			if !v.Info.RecipientAlt.IsEmpty() {
 				chatJID = v.Info.RecipientAlt.ToNonAD()
+			} else if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+				chatJID = pn.ToNonAD()
 			}
 		} else {
-			if !v.Info.SenderAlt.IsEmpty() {
-				chatJID = v.Info.SenderAlt.ToNonAD()
-			}
+			chatJID = senderJID
 		}
-	}
-
-	if senderJID.Server == "lid" {
-		if !v.Info.SenderAlt.IsEmpty() {
-			senderJID = v.Info.SenderAlt.ToNonAD()
-		} else if v.Info.IsFromMe && client.Store.ID != nil {
-			senderJID = client.Store.ID.ToNonAD()
-		}
+	} else if chatJID.Server == types.BroadcastServer && chatJID.User != "status" && !v.Info.IsFromMe {
+		// Incoming broadcast-list messages belong in the sender's 1:1 chat,
+		// like official WhatsApp, not in a chat keyed by the broadcast JID.
+		chatJID = senderJID
 	}
 
 	return
@@ -190,7 +197,7 @@ func mediaInfoFromMessage(msg *waE2E.Message) (mediaType, mimetype, filename str
 		if name == "" {
 			name = msg.GetDocumentMessage().GetTitle()
 		}
-		return "document", msg.GetDocumentMessage().GetMimetype(), name
+		return "document", msg.GetDocumentMessage().GetMimetype(), sanitizeFilename(name)
 	case msg.GetStickerMessage() != nil:
 		return "sticker", msg.GetStickerMessage().GetMimetype(), ""
 	}
@@ -198,7 +205,7 @@ func mediaInfoFromMessage(msg *waE2E.Message) (mediaType, mimetype, filename str
 }
 
 func isIgnoredChatJID(jid string) bool {
-	return jid == "status@broadcast" || strings.HasSuffix(jid, "@newsletter") || strings.HasSuffix(jid, "@lid")
+	return strings.HasSuffix(jid, "@broadcast") || strings.HasSuffix(jid, "@newsletter") || strings.HasSuffix(jid, "@lid")
 }
 
 func eventHandler(evt interface{}) {
@@ -272,8 +279,36 @@ func eventHandler(evt interface{}) {
 						if webMsg == nil {
 							continue
 						}
+						if webMsg.GetMessageStubType() == waWeb.WebMessageInfo_REVOKE {
+							// Revoked messages come through history sync as a stub
+							// with no content; without this they'd be stored as
+							// empty rows and render as "[Media]".
+							stubID := webMsg.GetKey().GetID()
+							if stubID != "" {
+								stubFromMe := webMsg.GetKey().GetFromMe()
+								stubTS := int64(webMsg.GetMessageTimestamp())
+								if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
+										VALUES (?, ?, ?, '', ?, 1)
+										ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
+									stubID, chatJID.String(), stubFromMe, stubTS); err != nil {
+									log.Println("Error storing revoked stub from HistorySync:", err)
+								}
+							}
+							continue
+						}
 						evtMsg, parseEvtErr := client.ParseWebMessage(chatJID, webMsg)
 						if parseEvtErr == nil && evtMsg != nil {
+							if pm := evtMsg.Message.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_REVOKE {
+								if targetID := pm.GetKey().GetID(); targetID != "" {
+									if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
+											VALUES (?, ?, ?, '', ?, 1)
+											ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
+										targetID, chatJID.String(), evtMsg.Info.IsFromMe, evtMsg.Info.Timestamp.Unix()); err != nil {
+										log.Println("Error storing revoke from HistorySync:", err)
+									}
+								}
+								continue
+							}
 							msgText := extractText(evtMsg.Message)
 							if msgText == "[Unsupported Message]" || msgText == "[Protocol Message]" {
 								continue
@@ -297,9 +332,20 @@ func eventHandler(evt interface{}) {
 								mediaType, mimetype, filename := mediaInfoFromMessage(evtMsg.Message)
 								quotedID, quotedText, quotedSender := quotedPreview(evtMsg.Message)
 								status := ""
-								var sentAt int64
+								var sentAt, deliveredAt, readAt, playedAt int64
 								if msgFromMe {
 									sentAt = msgTS
+									for _, ur := range webMsg.GetUserReceipt() {
+										if ts := ur.GetReceiptTimestamp(); ts > deliveredAt {
+											deliveredAt = ts
+										}
+										if ts := ur.GetReadTimestamp(); ts > readAt {
+											readAt = ts
+										}
+										if ts := ur.GetPlayedTimestamp(); ts > playedAt {
+											playedAt = ts
+										}
+									}
 									stStr := strings.ToLower(webMsg.GetStatus().String())
 									switch {
 									case strings.Contains(stStr, "played"):
@@ -317,15 +363,18 @@ func eventHandler(evt interface{}) {
 									}
 								}
 								_, err := tx.Exec(`INSERT INTO messages
-										(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, quoted_id, quoted_text, quoted_sender, sent_at)
-									VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+										(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at)
+									VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 									ON CONFLICT(id) DO UPDATE SET text=excluded.text, timestamp=excluded.timestamp, sender_jid=excluded.sender_jid, raw=excluded.raw,
 										status=CASE WHEN excluded.status != '' THEN excluded.status ELSE messages.status END,
 										media_type=excluded.media_type, media_mimetype=excluded.media_mimetype, media_filename=excluded.media_filename,
 										quoted_id=excluded.quoted_id, quoted_text=excluded.quoted_text, quoted_sender=excluded.quoted_sender,
-										sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END`,
+										sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END,
+										delivered_at=CASE WHEN messages.delivered_at != 0 THEN messages.delivered_at ELSE excluded.delivered_at END,
+										read_at=CASE WHEN messages.read_at != 0 THEN messages.read_at ELSE excluded.read_at END,
+										played_at=CASE WHEN messages.played_at != 0 THEN messages.played_at ELSE excluded.played_at END`,
 									msgID, msgJID, msgFromMe, msgText, msgTS, senderJID, rawBytes, status,
-									mediaType, mimetype, filename, quotedID, quotedText, quotedSender, sentAt)
+									mediaType, mimetype, filename, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt)
 								if err != nil {
 									log.Println("Error inserting message from HistorySync:", err)
 								}
@@ -453,16 +502,18 @@ func eventHandler(evt interface{}) {
 		}()
 		if text != "" {
 			chatJID, senderJID := resolveLIDChat(v)
-			
-			
+			liveMediaType, _, liveMediaFilename := mediaInfoFromMessage(v.Message)
+
 			broadcastEvent("message", map[string]interface{}{
-				"jid":       chatJID.String(),
-				"from":      senderJID.String(),
-				"id":        v.Info.ID,
-				"text":      text,
-				"from_me":   v.Info.IsFromMe,
-				"timestamp": v.Info.Timestamp.Unix(),
-				"has_media": v.Message.GetImageMessage() != nil || v.Message.GetVideoMessage() != nil || v.Message.GetAudioMessage() != nil || v.Message.GetDocumentMessage() != nil || v.Message.GetStickerMessage() != nil,
+				"jid":           chatJID.String(),
+				"from":          senderJID.String(),
+				"id":            v.Info.ID,
+				"text":          text,
+				"from_me":       v.Info.IsFromMe,
+				"timestamp":     v.Info.Timestamp.Unix(),
+				"has_media":     v.Message.GetImageMessage() != nil || v.Message.GetVideoMessage() != nil || v.Message.GetAudioMessage() != nil || v.Message.GetDocumentMessage() != nil || v.Message.GetStickerMessage() != nil,
+				"mediaType":     liveMediaType,
+				"mediaFilename": liveMediaFilename,
 			})
 		}
 	case *events.DeleteForMe:
@@ -675,5 +726,46 @@ func populateChatsFromStore() {
 		}
 	}
 
-	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@lid'")
+	rows, err := db.Query(`SELECT DISTINCT sender_jid FROM messages
+		WHERE jid LIKE '%@broadcast' AND jid != 'status@broadcast' AND from_me = 0 AND sender_jid != ''`)
+	if err == nil {
+		var senders []string
+		for rows.Next() {
+			var s string
+			if rows.Scan(&s) == nil {
+				senders = append(senders, s)
+			}
+		}
+		rows.Close()
+		for _, s := range senders {
+			parsed, err := types.ParseJID(s)
+			if err != nil {
+				continue
+			}
+			target := parsed.ToNonAD()
+			if target.Server == "lid" {
+				pn, err := client.Store.LIDs.GetPNForLID(context.Background(), target)
+				if err != nil || pn.IsEmpty() {
+					continue
+				}
+				target = pn.ToNonAD()
+			}
+			if target.Server != types.DefaultUserServer {
+				continue
+			}
+			db.Exec(`INSERT INTO chats (jid, timestamp)
+				SELECT ?, MAX(timestamp) FROM messages
+				WHERE jid LIKE '%@broadcast' AND from_me = 0 AND sender_jid = ?
+				ON CONFLICT(jid) DO UPDATE SET timestamp = MAX(chats.timestamp, excluded.timestamp)`,
+				target.String(), s)
+			db.Exec(`UPDATE messages SET jid = ?, sender_jid = ?
+				WHERE jid LIKE '%@broadcast' AND from_me = 0 AND sender_jid = ?`,
+				target.String(), target.String(), s)
+			db.Exec(`UPDATE chats SET preview_snippet = COALESCE(
+					(SELECT NULLIF(m.text, '') FROM messages m WHERE m.jid = chats.jid ORDER BY m.timestamp DESC LIMIT 1),
+					preview_snippet)
+				WHERE jid = ?`, target.String())
+		}
+	}
+	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@lid' OR jid LIKE '%@broadcast'")
 }
