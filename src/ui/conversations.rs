@@ -52,6 +52,7 @@ pub struct ConversationsPanelParts {
 	pub audio_progress_label: StaticText,
 	pub audio_slider: Slider,
 
+	pub action_panel: Panel,
 	pub action_open_btn: Button,
 	pub action_save_as_btn: Button,
 	pub action_download_btn: Button,
@@ -105,48 +106,51 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let messages_list = ListBox::builder(&conversation_panel).build();
 	conv_sizer.add(&messages_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
+	let action_panel = Panel::builder(&conversation_panel).build();
 	let action_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let action_spacer = StaticText::builder(&conversation_panel).with_size(Size::new(1, 90)).with_label("").build();
+	let action_spacer = StaticText::builder(&action_panel).with_size(Size::new(1, 90)).with_label("").build();
 	action_sizer.add(&action_spacer, 0, SizerFlag::Left, 0);
 
-	let play_voice_btn = Button::builder(&conversation_panel).with_label("Play voice message").build();
+	let play_voice_btn = Button::builder(&action_panel).with_label("Play voice message").build();
 	action_sizer.add(&play_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	play_voice_btn.show(false);
 
-	let messages_announcer = StaticText::builder(&conversation_panel).with_label("").build();
+	let messages_announcer = StaticText::builder(&action_panel).with_label("").build();
 	live_region::set_live_region(&messages_announcer);
 	action_sizer.add(&messages_announcer, 0, SizerFlag::Left, 0);
 	messages_announcer.show(false);
 
-	let read_more_btn = Button::builder(&conversation_panel).with_label("Read more").build();
+	let read_more_btn = Button::builder(&action_panel).with_label("Read more").build();
 	action_sizer.add(&read_more_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	read_more_btn.show(false);
 
-	let action_open_btn = Button::builder(&conversation_panel).with_label("Open").build();
+	let action_open_btn = Button::builder(&action_panel).with_label("Open").build();
 	action_sizer.add(&action_open_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_open_btn.show(false);
 
-	let action_save_as_btn = Button::builder(&conversation_panel).with_label("Save as").build();
+	let action_save_as_btn = Button::builder(&action_panel).with_label("Save as").build();
 	action_sizer.add(&action_save_as_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_save_as_btn.show(false);
 
-	let action_download_btn = Button::builder(&conversation_panel).with_label("Download").build();
+	let action_download_btn = Button::builder(&action_panel).with_label("Download").build();
 	action_sizer.add(&action_download_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_download_btn.show(false);
 
-	let audio_speed_btn = Button::builder(&conversation_panel).with_label("1.0x").build();
+	let audio_speed_btn = Button::builder(&action_panel).with_label("1.0x").build();
 	action_sizer.add(&audio_speed_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	audio_speed_btn.show(false);
 
-	let audio_progress_label = StaticText::builder(&conversation_panel).with_label("Audio progress").build();
+	let audio_progress_label = StaticText::builder(&action_panel).with_label("Audio progress").build();
 	action_sizer.add(&audio_progress_label, 0, SizerFlag::Left, 5);
 	audio_progress_label.show(false);
 
-	let audio_slider = Slider::builder(&conversation_panel).with_min_value(0).with_max_value(1000).build();
+	let audio_slider = Slider::builder(&action_panel).with_min_value(0).with_max_value(1000).build();
 	action_sizer.add(&audio_slider, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 5);
 	audio_slider.show(false);
 
-	conv_sizer.add_sizer(&action_sizer, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 0);
+	action_panel.set_sizer(action_sizer, true);
+	action_panel.show(false);
+	conv_sizer.add(&action_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 0);
 
 	let message_label = StaticText::builder(&conversation_panel).with_label("Type a message").build();
 	conv_sizer.add(&message_label, 0, SizerFlag::Left | SizerFlag::Top, 5);
@@ -248,6 +252,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		audio_speed_btn,
 		audio_progress_label,
 		audio_slider,
+		action_panel,
 		action_open_btn,
 		action_save_as_btn,
 		action_download_btn,

@@ -661,13 +661,14 @@ func handleSendVoiceMessage(conn *websocket.Conn, raw json.RawMessage) {
 				localPath = cachedPath
 			}
 		}
+		voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", data.Duration/60, data.Duration%60)
 		saveMessage(StoredMessage{
 			ID: resp.ID, JID: jid.String(), SenderJID: client.Store.ID.ToNonAD().String(), FromMe: true,
-			Text: "[Voice Message]", Timestamp: resp.Timestamp.Unix(), Raw: rawBytes, Status: "sent",
+			Text: voiceText, Timestamp: resp.Timestamp.Unix(), Raw: rawBytes, Status: "sent",
 			MediaType: "voice", MediaMimetype: mimetype, MediaPath: localPath,
 		})
 		broadcastEvent("message", map[string]interface{}{
-			"jid": jid.String(), "from": "me", "id": resp.ID, "text": "[Voice Message]",
+			"jid": jid.String(), "from": "me", "id": resp.ID, "text": voiceText,
 		})
 		broadcastChats()
 	}()
