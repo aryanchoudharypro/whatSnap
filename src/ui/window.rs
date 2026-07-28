@@ -1193,9 +1193,11 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	let audio_slider_sel = parts.conversations_parts.audio_slider.clone();
 	let audio_progress_label_sel = parts.conversations_parts.audio_progress_label.clone();
 	let conv_parts_sel = parts.conversations_parts.clone();
+	let last_layout_time = std::cell::Cell::new(std::time::Instant::now());
 	parts.conversations_parts.messages_list.on_selection_changed(move |event| {
 		if let Some(idx) = event.get_selection() {
 			let s = state_sel.borrow();
+			conv_parts_sel.action_panel.freeze();
 			let mut need_layout = crate::update_action_buttons(&s, &conv_parts_sel);
 
 			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item { whantv::DisplayItem::Single(m) => Some(m.clone()), whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(), });
@@ -1245,16 +1247,47 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 				if audio_slider_sel.is_shown() { audio_slider_sel.show(false); audio_progress_label_sel.show(false); need_layout = true; }
 			}
 
+			// Show/hide action_panel based on whether any action buttons are visible
+			let any_action_visible = play_voice_btn_sel.is_shown()
+				|| conv_parts_sel.action_open_btn.is_shown()
+				|| conv_parts_sel.action_save_as_btn.is_shown()
+				|| conv_parts_sel.action_download_btn.is_shown()
+				|| audio_slider_sel.is_shown();
+			if conv_parts_sel.action_panel.is_shown() != any_action_visible {
+				conv_parts_sel.action_panel.show(any_action_visible);
+				need_layout = true;
+			}
+
+			conv_parts_sel.action_panel.thaw();
+
 			if need_layout {
-				conv_parts_sel.conversation_panel.layout();
+				let now = std::time::Instant::now();
+				if now.duration_since(last_layout_time.get()) > std::time::Duration::from_millis(100) {
+					conv_parts_sel.action_panel.layout();
+					last_layout_time.set(now);
+				}
 			}
 		} else {
 			let s = state_sel.borrow();
+			conv_parts_sel.action_panel.freeze();
 			let mut need_layout = crate::update_action_buttons(&s, &conv_parts_sel);
 			if play_voice_btn_sel.is_shown() { play_voice_btn_sel.show(false); need_layout = true; }
 			if audio_slider_sel.is_shown() { audio_slider_sel.show(false); audio_progress_label_sel.show(false); need_layout = true; }
+
+			// Hide action_panel when no buttons are visible
+			if conv_parts_sel.action_panel.is_shown() {
+				conv_parts_sel.action_panel.show(false);
+				need_layout = true;
+			}
+
+			conv_parts_sel.action_panel.thaw();
+
 			if need_layout {
-				conv_parts_sel.conversation_panel.layout();
+				let now = std::time::Instant::now();
+				if now.duration_since(last_layout_time.get()) > std::time::Duration::from_millis(100) {
+					conv_parts_sel.action_panel.layout();
+					last_layout_time.set(now);
+				}
 			}
 		}
 	});

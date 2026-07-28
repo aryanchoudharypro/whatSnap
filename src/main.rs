@@ -246,6 +246,13 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 }
 
 pub(crate) fn update_action_buttons(s: &AppState, parts: &crate::ui::conversations::ConversationsPanelParts) -> bool {
+	parts.action_panel.freeze();
+	let result = update_action_buttons_inner(s, parts);
+	parts.action_panel.thaw();
+	result
+}
+
+fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::ConversationsPanelParts) -> bool {
 	let sel = parts.messages_list.get_selection();
 	let mut need_layout = false;
 
@@ -605,7 +612,10 @@ fn main() {
 		let state_timer = state.clone();
 		let parts_timer = parts_clone.clone();
 		audio_timer.on_tick(move |_| {
-			let mut s = state_timer.borrow_mut();
+			let mut s = match state_timer.try_borrow_mut() {
+				Ok(s) => s,
+				Err(_) => return, // State already borrowed, skip this update
+			};
 			if s.playing_msg_id.is_none() {
 				return;
 			}
@@ -916,7 +926,40 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									s.contacts = contacts_map;
 									s.archived_jids = archived_jids;
 									s.display_names = display_names;
-									apply_chat_filter(&mut s, parts);
+
+									// Compute new filtered list
+									let lower_query = s.search_query.to_lowercase();
+									let mut new_filtered = Vec::new();
+									let mut new_display = Vec::new();
+									for jid in &s.chats {
+										let is_archived = s.archived_jids.contains(jid);
+										if (s.active_tab == 0 && is_archived) || (s.active_tab == 1 && !is_archived) {
+											continue;
+										}
+										let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+										if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
+											let dn = s.display_names.get(jid).cloned().unwrap_or_else(|| name);
+											new_filtered.push(jid.clone());
+											new_display.push(dn);
+										}
+									}
+
+									let structure_changed = new_filtered.len() != s.filtered_chats.len()
+										|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b);
+
+									if structure_changed {
+										s.filtered_chats = new_filtered;
+										drop(s);
+										apply_chat_filter(&mut state.borrow_mut(), parts);
+									} else {
+										// In-place update: just refresh display strings
+										parts.conversations_parts.conversations_list.freeze();
+										for (i, dn) in new_display.iter().enumerate() {
+											parts.conversations_parts.conversations_list.set_string(i as u32, dn);
+										}
+										parts.conversations_parts.conversations_list.thaw();
+										s.filtered_chats = new_filtered;
+									}
 								}
 							}
 						}
@@ -1015,17 +1058,57 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											..Default::default()
 										};
 										s.messages.push(chat_msg.clone());
-										
-										let old_display_count = s.display_items.len();
-										s.display_items = whantv::group_messages_into_display_items(&s.messages);
-										let new_display_count = s.display_items.len();
-										
-										if new_display_count == old_display_count && new_display_count > 0 {
-											let last_idx = new_display_count - 1;
-											parts.conversations_parts.messages_list.set_string(last_idx as u32, &s.display_items[last_idx].format_display(is_group));
-										} else if new_display_count > 0 {
-											let last_item = s.display_items.last().unwrap();
-											parts.conversations_parts.messages_list.append(&last_item.format_display(is_group));
+
+										// Incremental display_items update instead of full O(n) regrouping
+										let is_deleted_msg = chat_msg.is_deleted || chat_msg.text.contains("deleted");
+										let is_media_msg = !is_deleted_msg && (
+											chat_msg.media_type == "image" ||
+											chat_msg.media_type == "video" ||
+											chat_msg.text.starts_with("[Photo]") ||
+											chat_msg.text.starts_with("[Image]") ||
+											chat_msg.text.starts_with("[Video]")
+										);
+
+										let mut needs_full_rebuild = false;
+										if is_media_msg {
+											let should_merge = if let Some(last_item) = s.display_items.last() {
+												match last_item {
+													whantv::DisplayItem::Single(prev_msg) => {
+														let prev_is_media = !prev_msg.is_deleted && !prev_msg.text.contains("deleted") && (
+															prev_msg.media_type == "image" || prev_msg.media_type == "video" ||
+															prev_msg.text.starts_with("[Photo]") || prev_msg.text.starts_with("[Image]") ||
+															prev_msg.text.starts_with("[Video]")
+														);
+														prev_is_media && prev_msg.from_me == chat_msg.from_me
+															&& prev_msg.sender_jid == chat_msg.sender_jid
+															&& (chat_msg.timestamp - prev_msg.timestamp).abs() <= 10
+													}
+													whantv::DisplayItem::Album { from_me, sender_jid, messages, .. } => {
+														*from_me == chat_msg.from_me && sender_jid == &chat_msg.sender_jid
+															&& messages.last().map_or(false, |m| (chat_msg.timestamp - m.timestamp).abs() <= 10)
+													}
+												}
+											} else { false };
+
+											if should_merge {
+												needs_full_rebuild = true;
+											} else {
+												s.display_items.push(whantv::DisplayItem::Single(chat_msg.clone()));
+												parts.conversations_parts.messages_list.append(&chat_msg.format_display(is_group));
+											}
+										} else {
+											s.display_items.push(whantv::DisplayItem::Single(chat_msg.clone()));
+											parts.conversations_parts.messages_list.append(&chat_msg.format_display(is_group));
+										}
+
+										if needs_full_rebuild {
+											s.display_items = whantv::group_messages_into_display_items(&s.messages);
+											parts.conversations_parts.messages_list.freeze();
+											parts.conversations_parts.messages_list.clear();
+											for item in &s.display_items {
+												parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+											}
+											parts.conversations_parts.messages_list.thaw();
 										}
 
 										let count = parts.conversations_parts.messages_list.get_count();
@@ -1074,7 +1157,24 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 									if changed {
-										s.display_items = whantv::group_messages_into_display_items(&s.messages);
+										// Update display_items in-place instead of full O(n) regrouping
+										for item in s.display_items.iter_mut() {
+											match item {
+												whantv::DisplayItem::Single(m) if m.id == message_id => {
+													m.is_deleted = true;
+													m.text = String::new();
+													break;
+												}
+												whantv::DisplayItem::Album { messages, .. } => {
+													if let Some(am) = messages.iter_mut().find(|am| am.id == message_id) {
+														am.is_deleted = true;
+														am.text = String::new();
+														break;
+													}
+												}
+												_ => {}
+											}
+										}
 										for (di, item) in s.display_items.iter().enumerate() {
 											let contains = match item {
 												whantv::DisplayItem::Single(m) => m.id == message_id,
@@ -1505,7 +1605,35 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 									if any_updated {
-										s.display_items = whantv::group_messages_into_display_items(&s.messages);
+										// Update display items in-place instead of full O(n) regrouping
+										// Collect status updates first to avoid simultaneous borrows
+										let status_updates: Vec<(String, String, i64, i64, i64)> = s.messages.iter()
+											.filter(|msg| msg_ids.contains(&msg.id))
+											.map(|msg| (msg.id.clone(), msg.status.clone(), msg.delivered_at, msg.read_at, msg.played_at))
+											.collect();
+										for (upd_id, upd_status, upd_del, upd_read, upd_played) in &status_updates {
+											for item in s.display_items.iter_mut() {
+												match item {
+													whantv::DisplayItem::Single(m) if m.id == *upd_id => {
+														m.status = upd_status.clone();
+														m.delivered_at = *upd_del;
+														m.read_at = *upd_read;
+														m.played_at = *upd_played;
+														break;
+													}
+													whantv::DisplayItem::Album { messages, .. } => {
+														if let Some(am) = messages.iter_mut().find(|am| am.id == *upd_id) {
+															am.status = upd_status.clone();
+															am.delivered_at = *upd_del;
+															am.read_at = *upd_read;
+															am.played_at = *upd_played;
+															break;
+														}
+													}
+													_ => {}
+												}
+											}
+										}
 										for (di, item) in s.display_items.iter().enumerate() {
 											let contains = match item {
 												whantv::DisplayItem::Single(m) => msg_ids.contains(&m.id),
@@ -1560,7 +1688,22 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 									if changed {
-										s.display_items = whantv::group_messages_into_display_items(&s.messages);
+										// Update display_items in-place instead of full O(n) regrouping
+										for item in s.display_items.iter_mut() {
+											match item {
+												whantv::DisplayItem::Single(m) if m.id == target_id => {
+													m.text = new_text.to_string();
+													break;
+												}
+												whantv::DisplayItem::Album { messages, .. } => {
+													if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
+														am.text = new_text.to_string();
+														break;
+													}
+												}
+												_ => {}
+											}
+										}
 										for (di, item) in s.display_items.iter().enumerate() {
 											let contains = match item {
 												whantv::DisplayItem::Single(m) => m.id == target_id,
@@ -1649,7 +1792,25 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 
-									s.display_items = whantv::group_messages_into_display_items(&s.messages);
+									// Sync reactions into display_items in-place instead of full O(n) regrouping
+									let updated_reactions = s.messages.iter().find(|m| m.id == target_id).map(|m| m.reactions.clone());
+									if let Some(new_reactions) = updated_reactions {
+										for item in s.display_items.iter_mut() {
+											match item {
+												whantv::DisplayItem::Single(m) if m.id == target_id => {
+													m.reactions = new_reactions.clone();
+													break;
+												}
+												whantv::DisplayItem::Album { messages, .. } => {
+													if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
+														am.reactions = new_reactions.clone();
+														break;
+													}
+												}
+												_ => {}
+											}
+										}
+									}
 									for (di, item) in s.display_items.iter().enumerate() {
 										let contains = match item {
 											whantv::DisplayItem::Single(m) => m.id == target_id,
@@ -1689,17 +1850,34 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let mut s = state.borrow_mut();
 								s.downloads_in_progress.remove(&msg_id);
 								if let Some(msg) = s.messages.iter_mut().find(|m| m.id == msg_id) {
-									msg.media_path = path;
+									msg.media_path = path.clone();
 									if !clean_filename.is_empty() {
 										msg.media_filename = clean_filename.clone();
 									}
 								}
-								s.display_items = whantv::group_messages_into_display_items(&s.messages);
+								// Update display_items in-place instead of full O(n) regrouping
+								for item in s.display_items.iter_mut() {
+									match item {
+										whantv::DisplayItem::Single(m) if m.id == msg_id => {
+											m.media_path = path.clone();
+											if !clean_filename.is_empty() { m.media_filename = clean_filename.clone(); }
+											break;
+										}
+										whantv::DisplayItem::Album { messages, .. } => {
+											if let Some(am) = messages.iter_mut().find(|am| am.id == msg_id) {
+												am.media_path = path.clone();
+												if !clean_filename.is_empty() { am.media_filename = clean_filename.clone(); }
+												break;
+											}
+										}
+										_ => {}
+									}
+								}
 
 								let download_had_focus = parts.conversations_parts.action_download_btn.has_focus();
 								parts.conversations_parts.conversation_panel.freeze();
 								if update_action_buttons(&s, &parts.conversations_parts) {
-									parts.conversations_parts.conversation_panel.layout();
+									parts.conversations_parts.action_panel.layout();
 								}
 								parts.conversations_parts.conversation_panel.thaw();
 
@@ -1723,7 +1901,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let prev = s.downloads_in_progress.insert(msg_id.clone(), percent);
 								parts.conversations_parts.conversation_panel.freeze();
 								if update_action_buttons(&s, &parts.conversations_parts) {
-									parts.conversations_parts.conversation_panel.layout();
+									parts.conversations_parts.action_panel.layout();
 								}
 								parts.conversations_parts.conversation_panel.thaw();
 								for milestone in [25, 50, 75] {
@@ -1741,7 +1919,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								s.downloads_in_progress.remove(&msg_id);
 								parts.conversations_parts.conversation_panel.freeze();
 								if update_action_buttons(&s, &parts.conversations_parts) {
-									parts.conversations_parts.conversation_panel.layout();
+									parts.conversations_parts.action_panel.layout();
 								}
 								parts.conversations_parts.conversation_panel.thaw();
 								let announcement = if t == "media_download_cancelled" {
@@ -1819,23 +1997,6 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 															}
 														}
 													}
-												}
-											}
-										}
-									}
-
-									// Last resort: count samples by consuming a second decoder pass
-									if s.audio_total_secs == 0.0 {
-										if let Ok(count_file) = File::open(path) {
-											if let Ok(count_dec) = Decoder::new(BufReader::new(count_file)) {
-												use rodio::Source;
-												let sample_rate = count_dec.sample_rate();
-												let channels = count_dec.channels() as u64;
-												let samples = count_dec.count() as u64;
-												if sample_rate > 0 && channels > 0 {
-													let total_channel_samples = samples;
-													let frames = total_channel_samples / channels.max(1);
-													s.audio_total_secs = frames as f32 / sample_rate as f32;
 												}
 											}
 										}
@@ -2034,6 +2195,7 @@ while ($true) {
 				s.pending_attachments.clear();
 				parts.conversations_parts.conversation_panel.show(true);
 				parts.conversations_parts.play_voice_btn.show(false);
+				parts.conversations_parts.action_panel.show(false);
 				parts.attachment_dialog.attachment_info_label.set_label("");
 				parts.conversations_parts.messages_list.clear();
 				parts.conversations_parts.message_field.set_value("");
