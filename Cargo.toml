@@ -15,7 +15,7 @@ qrcode = "0.14.1"
 image = "0.25.10"
 base64 = "0.22.1"
 live-region = "0.2.0"
-rodio = { version = "0.17.3", features = ["symphonia-all"] }
+rodio = { version = "0.17.3", features = ["default", "vorbis", "symphonia-vorbis", "symphonia-all"] }
 chrono = "0.4.45"
 
 [target.'cfg(windows)'.dependencies]

@@ -12,7 +12,7 @@ pub struct ChatReaction {
 	pub timestamp: i64,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ChatMessage {
 	pub id: String,
 	pub text: String,
@@ -47,9 +47,50 @@ pub struct ChatMessage {
 	pub quoted_text: String,
 	#[serde(rename = "quotedSender", alias = "quoted_sender", default)]
 	pub quoted_sender: String,
+	#[serde(rename = "mediaType", alias = "media_type", default)]
+	pub media_type: String,
+	#[serde(rename = "mediaFilename", alias = "media_filename", default)]
+	pub media_filename: String,
+	#[serde(rename = "mediaPath", alias = "media_path", default)]
+	pub media_path: String,
 }
 
 impl ChatMessage {
+	pub fn is_document(&self) -> bool {
+		self.media_type == "document" || self.text.starts_with("[Document]")
+	}
+
+	pub fn is_media_downloaded(&self) -> bool {
+		!self.media_path.is_empty() && std::path::Path::new(&self.media_path).exists()
+	}
+
+	pub fn sanitize_filename(filename: &str) -> String {
+		filename.replace(".x-python", ".py")
+			.replace(".x-script.python", ".py")
+			.replace(".x-shellscript", ".sh")
+			.replace(".x-csrc", ".c")
+			.replace(".x-c++src", ".cpp")
+			.replace(".x-perl", ".pl")
+			.replace(".x-ruby", ".rb")
+			.replace(".x-php", ".php")
+	}
+
+	pub fn display_filename(&self) -> String {
+		let raw = if !self.media_filename.is_empty() {
+			self.media_filename.clone()
+		} else if let Some(rest) = self.text.strip_prefix("[Document]") {
+			let rest = rest.trim();
+			let name = rest.split(": ").next().unwrap_or(rest).trim();
+			if !name.is_empty() {
+				name.to_string()
+			} else {
+				format!("{}.bin", self.id)
+			}
+		} else {
+			format!("{}.bin", self.id)
+		};
+		Self::sanitize_filename(&raw)
+	}
 	pub fn format_display(&self, _is_group: bool) -> String {
 		if self.is_date_divider {
 			return self.text.clone();
@@ -224,6 +265,187 @@ impl ChatMessage {
 	}
 }
 
+#[derive(Clone, Debug)]
+pub enum DisplayItem {
+	Single(ChatMessage),
+	Album {
+		id: String,
+		sender_jid: String,
+		sender_name: String,
+		from_me: bool,
+		timestamp: i64,
+		messages: Vec<ChatMessage>,
+	},
+}
+
+impl DisplayItem {
+	pub fn id(&self) -> &str {
+		match self {
+			DisplayItem::Single(msg) => &msg.id,
+			DisplayItem::Album { id, .. } => id,
+		}
+	}
+
+	pub fn is_album(&self) -> bool {
+		matches!(self, DisplayItem::Album { .. })
+	}
+
+	pub fn messages(&self) -> Vec<ChatMessage> {
+		match self {
+			DisplayItem::Single(msg) => vec![msg.clone()],
+			DisplayItem::Album { messages, .. } => messages.clone(),
+		}
+	}
+
+	pub fn all_downloaded(&self) -> bool {
+		match self {
+			DisplayItem::Single(msg) => msg.is_media_downloaded(),
+			DisplayItem::Album { messages, .. } => !messages.is_empty() && messages.iter().all(|m| m.is_media_downloaded()),
+		}
+	}
+
+	pub fn is_deleted(&self) -> bool {
+		match self {
+			DisplayItem::Single(msg) => {
+				msg.is_deleted || 
+				msg.text == "[You deleted this message]" || 
+				msg.text == "[This message was deleted]" || 
+				msg.text == "You deleted this message" || 
+				msg.text == "This message was deleted" ||
+				msg.text.contains("deleted")
+			}
+			DisplayItem::Album { messages, .. } => messages.is_empty() || messages.iter().all(|m| m.is_deleted),
+		}
+	}
+
+	pub fn format_display(&self, is_group: bool) -> String {
+		match self {
+			DisplayItem::Single(msg) => msg.format_display(is_group),
+			DisplayItem::Album { from_me, sender_name, sender_jid, timestamp, messages, .. } => {
+				let formatted_time = if *timestamp > 0 {
+					if let Some(datetime) = chrono::DateTime::from_timestamp(*timestamp, 0) {
+						let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
+						local_dt.format("%l:%M %p").to_string().trim().to_string()
+					} else {
+						String::new()
+					}
+				} else {
+					String::new()
+				};
+
+				let photo_count = messages.iter().filter(|m| m.media_type == "image" || m.text.starts_with("[Photo]") || m.text.starts_with("[Image]")).count();
+				let video_count = messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
+				let total = messages.len();
+
+				let desc = if photo_count > 0 && video_count == 0 {
+					format!("{} photos", photo_count)
+				} else if video_count > 0 && photo_count == 0 {
+					format!("{} videos", video_count)
+				} else {
+					format!("{} media items", total)
+				};
+
+				if *from_me {
+					if !formatted_time.is_empty() {
+						format!("You: [Album: {}], sent at {}", desc, formatted_time)
+					} else {
+						format!("You: [Album: {}]", desc)
+					}
+				} else {
+					let name = if !sender_name.is_empty() {
+						sender_name.as_str()
+					} else if !sender_jid.is_empty() {
+						sender_jid.as_str()
+					} else {
+						"Contact"
+					};
+					if !formatted_time.is_empty() {
+						format!("{}: [Album: {}], received at {}", name, desc, formatted_time)
+					} else {
+						format!("{}: [Album: {}]", name, desc)
+					}
+				}
+			}
+		}
+	}
+}
+
+pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<DisplayItem> {
+	let mut items = Vec::new();
+	let mut current_album: Vec<ChatMessage> = Vec::new();
+
+	for msg in messages {
+		let is_deleted = msg.is_deleted || msg.text.contains("deleted") || msg.text.contains("Deleted");
+		let is_media = !is_deleted && (
+			msg.media_type == "image" || 
+			msg.media_type == "video" || 
+			msg.text.starts_with("[Photo]") || 
+			msg.text.starts_with("[Image]") || 
+			msg.text.starts_with("[Video]")
+		);
+
+		if is_media {
+			if let Some(prev) = current_album.last() {
+				let same_sender = prev.from_me == msg.from_me && prev.sender_jid == msg.sender_jid;
+				let close_time = (msg.timestamp - prev.timestamp).abs() <= 10;
+				if same_sender && close_time {
+					current_album.push(msg.clone());
+					continue;
+				} else {
+					if current_album.len() > 1 {
+						let first = current_album[0].clone();
+						items.push(DisplayItem::Album {
+							id: first.id.clone(),
+							sender_jid: first.sender_jid.clone(),
+							sender_name: first.sender_name.clone(),
+							from_me: first.from_me,
+							timestamp: first.timestamp,
+							messages: current_album.clone(),
+						});
+					} else if current_album.len() == 1 {
+						items.push(DisplayItem::Single(current_album[0].clone()));
+					}
+					current_album = vec![msg.clone()];
+				}
+			} else {
+				current_album = vec![msg.clone()];
+			}
+		} else {
+			if current_album.len() > 1 {
+				let first = current_album[0].clone();
+				items.push(DisplayItem::Album {
+					id: first.id.clone(),
+					sender_jid: first.sender_jid.clone(),
+					sender_name: first.sender_name.clone(),
+					from_me: first.from_me,
+					timestamp: first.timestamp,
+					messages: current_album.clone(),
+				});
+			} else if current_album.len() == 1 {
+				items.push(DisplayItem::Single(current_album[0].clone()));
+			}
+			current_album.clear();
+			items.push(DisplayItem::Single(msg.clone()));
+		}
+	}
+
+	if current_album.len() > 1 {
+		let first = current_album[0].clone();
+		items.push(DisplayItem::Album {
+			id: first.id.clone(),
+			sender_jid: first.sender_jid.clone(),
+			sender_name: first.sender_name.clone(),
+			from_me: first.from_me,
+			timestamp: first.timestamp,
+			messages: current_album,
+		});
+	} else if current_album.len() == 1 {
+		items.push(DisplayItem::Single(current_album[0].clone()));
+	}
+
+	items
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -249,6 +471,7 @@ mod tests {
 			quoted_id: "".into(),
 			quoted_text: "".into(),
 			quoted_sender: "".into(),
+			..Default::default()
 		};
 		assert_eq!(msg_from_me.format_display(true), "You: kya kar raha hai?, Delivered");
 		assert_eq!(msg_from_me.format_display(false), "You: kya kar raha hai?, Delivered");
@@ -272,6 +495,7 @@ mod tests {
 			quoted_id: "".into(),
 			quoted_text: "".into(),
 			quoted_sender: "".into(),
+			..Default::default()
 		};
 		assert_eq!(msg_named.format_display(true), "Alice: Hi");
 		assert_eq!(msg_named.format_display(false), "Alice: Hi");
@@ -295,6 +519,7 @@ mod tests {
 			quoted_id: "q1".into(),
 			quoted_text: "[Voice Message] (0:23)".into(),
 			quoted_sender: "boostoftech".into(),
+			..Default::default()
 		};
 		assert_eq!(voice_received.format_display(true), "Pooja: Voice message Duration: 0:10, replied to quoted message from @boostoftech: \"Voice message Duration: 0:23\"");
 	}

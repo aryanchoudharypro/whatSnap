@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -78,6 +80,7 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 		if _, statErr := os.Stat(cached); statErr == nil {
 			db.QueryRow("SELECT COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,'') FROM messages WHERE id = ?", messageID).
 				Scan(&mediaType, &mimetype, &filename)
+			filename = sanitizeFilename(filename)
 			return cached, mediaType, mimetype, filename, nil
 		}
 	}
@@ -96,18 +99,171 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 	return path, mt, mime, fn, nil
 }
 
+var (
+	activeDownloadsMu sync.Mutex
+	activeDownloads   = map[string]context.CancelFunc{}
+)
+
+// progressFile wraps the cache file handed to whatsmeow's DownloadToFile.
+// The network phase writes sequentially via Write, while the decrypt phase
+// uses Read/WriteAt, so counting only Write gives accurate download progress.
+type progressFile struct {
+	*os.File
+	total      int64
+	written    int64
+	lastReport int
+	onProgress func(percent int)
+}
+
+func (pf *progressFile) Write(p []byte) (int, error) {
+	n, err := pf.File.Write(p)
+	if n > 0 && pf.total > 0 && pf.onProgress != nil {
+		pf.written += int64(n)
+		percent := int(float64(pf.written) * 100 / float64(pf.total))
+		if percent > 99 {
+			percent = 99
+		}
+		if percent-pf.lastReport >= 5 {
+			pf.lastReport = percent
+			pf.onProgress(percent)
+		}
+	}
+	return n, err
+}
+
+// downloadMessageMediaToFile streams a message's media straight into the
+// local cache, reporting progress and honoring ctx cancellation.
+func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgress func(int)) (path, mediaType, mimetype, filename string, err error) {
+	rawBytes, _, _, _, dbErr := getMessageRaw(messageID)
+	if dbErr != nil {
+		err = dbErr
+		return
+	}
+	msg := &waE2E.Message{}
+	if perr := proto.Unmarshal(rawBytes, msg); perr != nil {
+		err = perr
+		return
+	}
+	var dl whatsmeow.DownloadableMessage
+	var total int64
+	switch {
+	case msg.GetImageMessage() != nil:
+		m := msg.GetImageMessage()
+		dl, mediaType, mimetype, total = m, "image", m.GetMimetype(), int64(m.GetFileLength())
+	case msg.GetVideoMessage() != nil:
+		m := msg.GetVideoMessage()
+		dl, mediaType, mimetype, total = m, "video", m.GetMimetype(), int64(m.GetFileLength())
+	case msg.GetAudioMessage() != nil:
+		m := msg.GetAudioMessage()
+		mediaType = "audio"
+		if m.GetPTT() {
+			mediaType = "voice"
+		}
+		dl, mimetype, total = m, m.GetMimetype(), int64(m.GetFileLength())
+	case msg.GetDocumentMessage() != nil:
+		m := msg.GetDocumentMessage()
+		filename = sanitizeFilename(m.GetFileName())
+		if filename == "" {
+			filename = sanitizeFilename(m.GetTitle())
+		}
+		dl, mediaType, mimetype, total = m, "document", m.GetMimetype(), int64(m.GetFileLength())
+	case msg.GetStickerMessage() != nil:
+		m := msg.GetStickerMessage()
+		dl, mediaType, mimetype, total = m, "sticker", m.GetMimetype(), int64(m.GetFileLength())
+	default:
+		err = fmt.Errorf("message has no downloadable media")
+		return
+	}
+	finalPath := filepath.Join(mediaDir(), sanitizeFilenameComponent(messageID)+extForMime(mimetype))
+	partPath := finalPath + ".part"
+	f, ferr := os.Create(partPath)
+	if ferr != nil {
+		err = ferr
+		return
+	}
+	dlErr := client.DownloadToFile(ctx, dl, &progressFile{File: f, total: total, onProgress: onProgress})
+	f.Close()
+	if dlErr != nil {
+		os.Remove(partPath)
+		err = dlErr
+		return
+	}
+	if rerr := os.Rename(partPath, finalPath); rerr != nil {
+		os.Remove(partPath)
+		err = rerr
+		return
+	}
+	setMessageMediaPath(messageID, finalPath)
+	if filename != "" {
+		db.Exec("UPDATE messages SET media_filename = ? WHERE id = ?", filename, messageID)
+	}
+	if mediaType != "" {
+		db.Exec("UPDATE messages SET media_type = COALESCE(NULLIF(media_type,''), ?), media_mimetype = COALESCE(NULLIF(media_mimetype,''), ?) WHERE id = ?", mediaType, mimetype, messageID)
+	}
+	path = finalPath
+	return
+}
+
 func handleDownloadMedia(conn *websocket.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	go func() {
-		path, mediaType, mimetype, filename, err := ensureMediaCached(data.MessageID)
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+	var cached, mt, mm, fn string
+	db.QueryRow("SELECT COALESCE(media_path,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,'') FROM messages WHERE id = ?", data.MessageID).
+		Scan(&cached, &mt, &mm, &fn)
+	if cached != "" {
+		if _, statErr := os.Stat(cached); statErr == nil {
+			broadcastEvent("media_downloaded", map[string]interface{}{
+				"message_id": data.MessageID,
+				"jid":        data.JID,
+				"path":       cached,
+				"mediaType":  mt,
+				"mimetype":   mm,
+				"filename":   fn,
+			})
 			return
 		}
-		sendEvent(conn, "media_downloaded", map[string]interface{}{
+	}
+	activeDownloadsMu.Lock()
+	if _, exists := activeDownloads[data.MessageID]; exists {
+		activeDownloadsMu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	activeDownloads[data.MessageID] = cancel
+	activeDownloadsMu.Unlock()
+	go func() {
+		defer func() {
+			activeDownloadsMu.Lock()
+			delete(activeDownloads, data.MessageID)
+			activeDownloadsMu.Unlock()
+			cancel()
+		}()
+		onProgress := func(percent int) {
+			broadcastEvent("media_download_progress", map[string]interface{}{
+				"message_id": data.MessageID,
+				"jid":        data.JID,
+				"percent":    percent,
+			})
+		}
+		path, mediaType, mimetype, filename, err := downloadMessageMediaToFile(ctx, data.MessageID, onProgress)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				broadcastEvent("media_download_cancelled", map[string]interface{}{
+					"message_id": data.MessageID,
+					"jid":        data.JID,
+				})
+			} else {
+				broadcastEvent("media_download_failed", map[string]interface{}{
+					"message_id": data.MessageID,
+					"jid":        data.JID,
+					"message":    err.Error(),
+				})
+			}
+			return
+		}
+		broadcastEvent("media_downloaded", map[string]interface{}{
 			"message_id": data.MessageID,
 			"jid":        data.JID,
 			"path":       path,
@@ -116,6 +272,19 @@ func handleDownloadMedia(conn *websocket.Conn, raw json.RawMessage) {
 			"filename":   filename,
 		})
 	}()
+}
+
+func handleCancelDownload(conn *websocket.Conn, raw json.RawMessage) {
+	var data MessageRefData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	activeDownloadsMu.Lock()
+	cancel := activeDownloads[data.MessageID]
+	activeDownloadsMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 func openFileInOS(path string) error {
@@ -137,12 +306,25 @@ func handleOpenMedia(conn *websocket.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		path, _, _, _, err := ensureMediaCached(data.MessageID)
+		path, _, _, filename, err := ensureMediaCached(data.MessageID)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-		if err := openFileInOS(path); err != nil {
+		
+		openPath := path
+		if filename != "" {
+			tempDir := filepath.Join(os.TempDir(), "whantv_open")
+			os.MkdirAll(tempDir, 0755)
+			tempPath := filepath.Join(tempDir, filename)
+			if bytes, err := os.ReadFile(path); err == nil {
+				if os.WriteFile(tempPath, bytes, 0644) == nil {
+					openPath = tempPath
+				}
+			}
+		}
+
+		if err := openFileInOS(openPath); err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 		}
 	}()
@@ -455,12 +637,15 @@ func handleSendVoiceMessage(conn *websocket.Conn, raw json.RawMessage) {
 			return
 		}
 
+		waveform := []byte{0, 5, 12, 25, 45, 70, 90, 100, 85, 60, 40, 20, 10, 5, 0, 10, 30, 60, 80, 95, 75, 50, 30, 15, 5, 0}
+
 		msg := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
 			Mimetype: proto.String(mimetype), PTT: proto.Bool(true),
 			Seconds: proto.Uint32(uint32(data.Duration)),
 			URL:     proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
 			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
 			FileLength: proto.Uint64(uploaded.FileLength),
+			Waveform:   waveform,
 		}}
 
 		resp, err := client.SendMessage(context.Background(), jid, msg)
@@ -532,5 +717,60 @@ func handlePlayVoiceMessage(conn *websocket.Conn, raw json.RawMessage) {
 			return
 		}
 		sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": data.ID})
+	}()
+}
+
+type CopyAlbumToClipboardData struct {
+	MessageIDs []string `json:"message_ids"`
+}
+
+func handleCopyAlbumToClipboard(conn *websocket.Conn, raw json.RawMessage) {
+	var data CopyAlbumToClipboardData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	go func() {
+		tempDir := filepath.Join(os.TempDir(), "whantv_clipboard")
+		os.MkdirAll(tempDir, 0755)
+
+		var paths []string
+		for _, msgID := range data.MessageIDs {
+			path, _, _, filename, err := ensureMediaCached(msgID)
+			if err != nil {
+				continue
+			}
+			
+			if filename != "" {
+				tempPath := filepath.Join(tempDir, filename)
+				if bytes, err := os.ReadFile(path); err == nil {
+					if os.WriteFile(tempPath, bytes, 0644) == nil {
+						paths = append(paths, tempPath)
+					}
+				}
+			} else {
+				tempPath := filepath.Join(tempDir, msgID+".jpg")
+				if bytes, err := os.ReadFile(path); err == nil {
+					if os.WriteFile(tempPath, bytes, 0644) == nil {
+						paths = append(paths, tempPath)
+					}
+				}
+			}
+		}
+
+		if len(paths) > 0 {
+			var psPaths []string
+			for _, p := range paths {
+				psPaths = append(psPaths, fmt.Sprintf("'%s'", p))
+			}
+			psPathsStr := strings.Join(psPaths, ",")
+			script := fmt.Sprintf("Add-Type -AssemblyName System.Windows.Forms; $files = @(%s); $sc = New-Object System.Collections.Specialized.StringCollection; foreach ($f in $files) { $sc.Add($f) | Out-Null }; [System.Windows.Forms.Clipboard]::SetFileDropList($sc)", psPathsStr)
+			
+			cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
+			if err := cmd.Run(); err == nil {
+				sendEvent(conn, "copied_album_to_clipboard", map[string]interface{}{})
+			} else {
+				sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			}
+		}
 	}()
 }

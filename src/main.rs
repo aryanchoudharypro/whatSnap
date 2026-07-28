@@ -15,7 +15,6 @@ use std::{
 
 use tungstenite::{connect, Message, stream::MaybeTlsStream};
 use wxdragon::prelude::*;
-use chrono::TimeZone;
 
 use crate::ui::window::{bind_input_handlers, build_main_window, WindowParts};
 use crate::ui_wake::{UiCommandSender, UiWaker, ID_UI_WAKE};
@@ -58,6 +57,7 @@ pub enum UiCommand {
 	EditMessage { message_id: String, new_text: String },
 	DeleteMessage { message_id: String, sender_jid: String, for_everyone: bool },
 	GetMessageInfo { message_id: String },
+	CopyAlbumToClipboard { message_ids: Vec<String> },
 	SendTyping { jid: String, state: String, media: String },
 	SubscribePresence(String),
 	MarkRead { jid: String, message_ids: Vec<String> },
@@ -73,6 +73,97 @@ use rodio::{OutputStream, Sink, Decoder};
 use std::fs::File;
 use std::io::BufReader;
 
+fn play_notification_sound(sound_file: &str, sounds_enabled: bool) {
+	if !sounds_enabled {
+		return;
+	}
+	let wav_file = sound_file.replace(".ogg", ".wav");
+	let path = sound_file.to_string();
+	std::thread::spawn(move || {
+		#[cfg(target_os = "windows")]
+		unsafe {
+			let _ = windows::Win32::System::Com::CoInitializeEx(
+				None,
+				windows::Win32::System::Com::COINIT_MULTITHREADED,
+			);
+		}
+
+		let find_path = |target_name: &str| -> Option<std::path::PathBuf> {
+			if let Ok(exe_path) = std::env::current_exe() {
+				if let Some(parent) = exe_path.parent() {
+					let p = parent.join(target_name);
+					if p.exists() {
+						return Some(p);
+					}
+				}
+			}
+			let p = std::path::PathBuf::from(target_name);
+			if p.exists() {
+				Some(p)
+			} else {
+				None
+			}
+		};
+
+		let resolved_path = find_path(&wav_file)
+			.or_else(|| find_path(&path))
+			.unwrap_or_else(|| std::path::PathBuf::from(&wav_file));
+
+		if !resolved_path.exists() {
+			eprintln!("[LOG SOUND] Sound file does not exist at {:?}", resolved_path);
+			return;
+		}
+
+		match OutputStream::try_default() {
+			Ok((stream, stream_handle)) => {
+				match Sink::try_new(&stream_handle) {
+					Ok(sink) => {
+						match File::open(&resolved_path) {
+							Ok(file) => {
+								match Decoder::new(BufReader::new(file)) {
+									Ok(decoder) => {
+										sink.append(decoder);
+										sink.sleep_until_end();
+									}
+									Err(e) => eprintln!("[LOG SOUND] Failed to decode audio {:?}: {:?}", resolved_path, e),
+								}
+							}
+							Err(e) => eprintln!("[LOG SOUND] Failed to open sound file {:?}: {:?}", resolved_path, e),
+						}
+					}
+					Err(e) => eprintln!("[LOG SOUND] Failed to create sink: {:?}", e),
+				}
+				let _ = stream;
+			}
+			Err(e) => eprintln!("[LOG SOUND] Failed to open default audio output stream: {:?}", e),
+		}
+	});
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" {
+	fn mciSendStringW(
+		lpstrCommand: *const u16,
+		lpstrReturnString: *mut u16,
+		uReturnLength: u32,
+		hwndCallback: isize,
+	) -> u32;
+}
+
+fn execute_mci_command(cmd: &str) -> u32 {
+	#[cfg(target_os = "windows")]
+	{
+		let wide: Vec<u16> = cmd.encode_utf16().chain(std::iter::once(0)).collect();
+		unsafe {
+			mciSendStringW(wide.as_ptr(), std::ptr::null_mut(), 0, 0)
+		}
+	}
+	#[cfg(not(target_os = "windows"))]
+	{
+		0
+	}
+}
+
 struct AppState {
 	ws_tx: mpsc::Sender<String>,
 	audio_stream: Option<(OutputStream, rodio::OutputStreamHandle)>,
@@ -85,6 +176,12 @@ struct AppState {
 	audio_total_secs: f32,
 	audio_elapsed_secs: f32,
 	audio_start_instant: Option<std::time::Instant>,
+	is_voice_recording: bool,
+	is_voice_paused: bool,
+	voice_recording_path: Option<String>,
+	voice_recording_start: Option<std::time::Instant>,
+	voice_paused_duration: std::time::Duration,
+	voice_pause_instant: Option<std::time::Instant>,
 	chats: Vec<String>,
 	filtered_chats: Vec<String>,
 	archived_jids: std::collections::HashSet<String>,
@@ -106,8 +203,11 @@ struct AppState {
 	pending_reply_sender: Option<String>,
 	pending_reply_preview: Option<String>,
 	pending_receipts: std::collections::HashMap<String, String>,
+	downloads_in_progress: std::collections::HashMap<String, i64>,
 	search_target_id: Option<String>,
 	search_target_text: Option<String>,
+	played_sent_sounds: std::collections::HashSet<String>,
+	display_items: Vec<whantv::DisplayItem>,
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
@@ -143,6 +243,170 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 			parts.conversations_parts.conversations_list.set_selection(idx as u32, true);
 		}
 	}
+}
+
+pub(crate) fn update_action_buttons(s: &AppState, parts: &crate::ui::conversations::ConversationsPanelParts) -> bool {
+	let sel = parts.messages_list.get_selection();
+	let mut need_layout = false;
+
+	if let Some(idx) = sel {
+		if let Some(item) = s.display_items.get(idx as usize) {
+			match item {
+				whantv::DisplayItem::Single(msg) => {
+					let is_deleted = msg.is_deleted || msg.text.contains("deleted");
+					let is_voice = msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
+					let is_media = !is_deleted && !is_voice && (
+						!msg.media_type.is_empty() || 
+						msg.is_document() || 
+						msg.text.starts_with("[Photo]") || 
+						msg.text.starts_with("[Image]") || 
+						msg.text.starts_with("[Video]") || 
+						msg.text.starts_with("[Document]") || 
+						msg.text.starts_with("[Media]")
+					);
+
+					if is_media {
+						if msg.is_media_downloaded() {
+							if parts.action_download_btn.is_shown() { parts.action_download_btn.show(false); need_layout = true; }
+							if !parts.action_open_btn.is_shown() { parts.action_open_btn.show(true); need_layout = true; }
+							parts.action_open_btn.set_label("Open media");
+							if !parts.action_save_as_btn.is_shown() { parts.action_save_as_btn.show(true); need_layout = true; }
+							parts.action_save_as_btn.set_label("Save media as");
+						} else {
+							if parts.action_open_btn.is_shown() { parts.action_open_btn.show(false); need_layout = true; }
+							if parts.action_save_as_btn.is_shown() { parts.action_save_as_btn.show(false); need_layout = true; }
+							if !parts.action_download_btn.is_shown() { parts.action_download_btn.show(true); need_layout = true; }
+							let label = if let Some(pct) = s.downloads_in_progress.get(&msg.id) {
+								format!("Cancel download ({}%)", pct)
+							} else {
+								"Download".to_string()
+							};
+							parts.action_download_btn.set_label(&label);
+						}
+						return need_layout;
+					}
+				}
+				whantv::DisplayItem::Album { messages, .. } => {
+					if item.all_downloaded() {
+						if parts.action_download_btn.is_shown() { parts.action_download_btn.show(false); need_layout = true; }
+						if !parts.action_open_btn.is_shown() { parts.action_open_btn.show(true); need_layout = true; }
+						parts.action_open_btn.set_label("Open album");
+
+						let photo_count = messages.iter().filter(|m| m.media_type == "image" || m.text.starts_with("[Photo]") || m.text.starts_with("[Image]")).count();
+						let video_count = messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
+						let save_label = if photo_count > 0 && video_count == 0 {
+							"Save all photos"
+						} else if video_count > 0 && photo_count == 0 {
+							"Save all videos"
+						} else {
+							"Save all media"
+						};
+						if !parts.action_save_as_btn.is_shown() { parts.action_save_as_btn.show(true); need_layout = true; }
+						parts.action_save_as_btn.set_label(save_label);
+					} else {
+						if parts.action_open_btn.is_shown() { parts.action_open_btn.show(false); need_layout = true; }
+						if parts.action_save_as_btn.is_shown() { parts.action_save_as_btn.show(false); need_layout = true; }
+						if !parts.action_download_btn.is_shown() { parts.action_download_btn.show(true); need_layout = true; }
+
+						let uncollected = messages.iter().filter(|m| !m.is_media_downloaded()).count();
+						let is_dl_in_progress = messages.iter().any(|m| s.downloads_in_progress.contains_key(&m.id));
+						let dl_label = if is_dl_in_progress {
+							format!("Downloading album ({} items remaining)", uncollected)
+						} else {
+							format!("Download album ({} items remaining)", uncollected)
+						};
+						parts.action_download_btn.set_label(&dl_label);
+					}
+					return need_layout;
+				}
+			}
+		}
+	}
+
+	if parts.action_download_btn.is_shown() { parts.action_download_btn.show(false); need_layout = true; }
+	if parts.action_open_btn.is_shown() { parts.action_open_btn.show(false); need_layout = true; }
+	if parts.action_save_as_btn.is_shown() { parts.action_save_as_btn.show(false); need_layout = true; }
+	need_layout
+}
+
+#[cfg(target_os = "windows")]
+mod win_cb {
+	#[link(name = "user32")]
+	unsafe extern "system" {
+		pub fn OpenClipboard(hwnd: *mut std::ffi::c_void) -> i32;
+		pub fn CloseClipboard() -> i32;
+		pub fn EmptyClipboard() -> i32;
+		pub fn SetClipboardData(uFormat: u32, hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+	}
+
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		pub fn GlobalAlloc(uFlags: u32, dwBytes: usize) -> *mut std::ffi::c_void;
+		pub fn GlobalLock(hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+		pub fn GlobalUnlock(hMem: *mut std::ffi::c_void) -> i32;
+	}
+}
+
+#[cfg(target_os = "windows")]
+pub fn copy_files_to_clipboard(paths: &[String]) -> bool {
+	let valid_paths: Vec<String> = paths.iter()
+		.filter(|p| !p.is_empty() && std::path::Path::new(p).exists())
+		.cloned()
+		.collect();
+
+	if valid_paths.is_empty() {
+		return false;
+	}
+
+	let mut buffer: Vec<u16> = Vec::new();
+	for p in &valid_paths {
+		if let Ok(abs_path) = std::fs::canonicalize(p) {
+			let clean = abs_path.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+			buffer.extend(clean.encode_utf16());
+			buffer.push(0);
+		} else {
+			buffer.extend(p.encode_utf16());
+			buffer.push(0);
+		}
+	}
+	buffer.push(0);
+
+	let dropfiles_size = 20;
+	let total_bytes = dropfiles_size + buffer.len() * 2;
+
+	unsafe {
+		let h_global = win_cb::GlobalAlloc(0x0042, total_bytes);
+		if h_global.is_null() {
+			return false;
+		}
+		let ptr = win_cb::GlobalLock(h_global) as *mut u8;
+		if ptr.is_null() {
+			return false;
+		}
+
+		let p_files_ptr = ptr as *mut u32;
+		*p_files_ptr = 20;
+		let f_wide_ptr = ptr.add(16) as *mut u32;
+		*f_wide_ptr = 1;
+
+		let dst_str_ptr = ptr.add(dropfiles_size) as *mut u16;
+		std::ptr::copy_nonoverlapping(buffer.as_ptr(), dst_str_ptr, buffer.len());
+
+		let _ = win_cb::GlobalUnlock(h_global);
+
+		if win_cb::OpenClipboard(std::ptr::null_mut()) != 0 {
+			let _ = win_cb::EmptyClipboard();
+			let res = win_cb::SetClipboardData(15, h_global);
+			let _ = win_cb::CloseClipboard();
+			return !res.is_null();
+		}
+	}
+	false
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn copy_files_to_clipboard(_paths: &[String]) -> bool {
+	false
 }
 
 use std::process::{Command, Stdio};
@@ -308,8 +572,17 @@ fn main() {
 			pending_reply_sender: None,
 			pending_reply_preview: None,
 			pending_receipts: std::collections::HashMap::new(),
+			downloads_in_progress: std::collections::HashMap::new(),
 			search_target_id: None,
 			search_target_text: None,
+			played_sent_sounds: std::collections::HashSet::new(),
+			is_voice_recording: false,
+			is_voice_paused: false,
+			voice_recording_path: None,
+			voice_recording_start: None,
+			voice_paused_duration: std::time::Duration::ZERO,
+			voice_pause_instant: None,
+			display_items: Vec::new(),
 		}));
 
 		let state_clone = state.clone();
@@ -358,11 +631,13 @@ fn main() {
 					} else {
 						0
 					};
-					parts_timer.conversations_parts.audio_slider.set_value(pos);
-					let fmt = |v: f32| format!("{}:{:02}", v as u32 / 60, v as u32 % 60);
-					parts_timer.conversations_parts.audio_progress_label.set_label(
-						&format!("{} / {}", fmt(elapsed), fmt(total))
-					);
+					if parts_timer.conversations_parts.audio_slider.is_shown() {
+						parts_timer.conversations_parts.audio_slider.set_value(pos);
+						let fmt = |v: f32| format!("{}:{:02}", v as u32 / 60, v as u32 % 60);
+						parts_timer.conversations_parts.audio_progress_label.set_label(
+							&format!("{} / {}", fmt(elapsed), fmt(total))
+						);
+					}
 				}
 			}
 		});
@@ -506,6 +781,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				});
 				let _ = s.ws_tx.send(payload.to_string());
 				parts.conversations_parts.message_field.set_value("");
+				parts.conversations_parts.send_message_btn.show(false);
+				parts.conversations_parts.conversation_panel.layout();
 			}
 		}
 		UiCommand::ConversationSelectionChanged(idx) => {
@@ -593,6 +870,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let formatted = s.messages[idx].format_display(is_group);
 									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &formatted);
 								}
+								drop(s);
 								MessageDialog::builder(&parts.frame, msg, "Error")
 									.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 									.build()
@@ -712,21 +990,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												id: String::new(),
 												text: date_str,
 												timestamp: ts,
-												from_me: false,
-												sender_jid: String::new(),
-												sender_name: String::new(),
-												is_audio: false,
 												is_date_divider: true,
-												is_deleted: false,
-												status: String::new(),
-												sent_at: 0,
-												delivered_at: 0,
-												read_at: 0,
-												played_at: 0,
-												reactions: Vec::new(),
-												quoted_id: String::new(),
-												quoted_text: String::new(),
-												quoted_sender: String::new(),
+												..Default::default()
 											};
 											s.messages.push(divider.clone());
 											parts.conversations_parts.messages_list.append(&divider.format_display(is_group));
@@ -740,30 +1005,32 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											sender_jid: from.to_string(),
 											sender_name,
 											is_audio: text.starts_with("[Voice Message]") || text.starts_with("[Audio]"),
-											is_date_divider: false,
-											is_deleted: false,
 											status: s.pending_receipts.remove(&msg_id).unwrap_or_else(|| "sent".to_string()),
 											sent_at: if is_from_me { ts } else { 0 },
-											delivered_at: 0,
-											read_at: 0,
-											played_at: 0,
-											reactions: Vec::new(),
 											quoted_id,
 											quoted_text,
 											quoted_sender,
+											media_type: data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("").to_string(),
+											media_filename: data.get("mediaFilename").and_then(|m| m.as_str()).unwrap_or("").to_string(),
+											..Default::default()
 										};
 										s.messages.push(chat_msg.clone());
+										
+										let old_display_count = s.display_items.len();
+										s.display_items = whantv::group_messages_into_display_items(&s.messages);
+										let new_display_count = s.display_items.len();
+										
+										if new_display_count == old_display_count && new_display_count > 0 {
+											let last_idx = new_display_count - 1;
+											parts.conversations_parts.messages_list.set_string(last_idx as u32, &s.display_items[last_idx].format_display(is_group));
+										} else if new_display_count > 0 {
+											let last_item = s.display_items.last().unwrap();
+											parts.conversations_parts.messages_list.append(&last_item.format_display(is_group));
+										}
 
-										let current_selection = parts.conversations_parts.messages_list.get_selection();
-										let was_at_bottom = current_selection.map(|idx| idx as usize == s.messages.len() - (if insert_date { 3 } else { 2 })).unwrap_or(true);
-										
-										parts.conversations_parts.messages_list.append(&chat_msg.format_display(is_group));
-										
 										let count = parts.conversations_parts.messages_list.get_count();
-										if count > 0 {
-											if was_at_bottom || is_from_me {
-												parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
-											}
+										if count > 0 && is_from_me {
+											parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
 										}
 										let formatted = chat_msg.format_display(is_group);
 										live_region::announce(parts.conversations_parts.messages_announcer.clone(), &formatted);
@@ -776,8 +1043,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												"action": "mark_read",
 												"data": { "jid": mark_jid, "message_ids": vec![mark_msg_id] }
 											});
+											let sounds_enabled = s.config.sounds_enabled;
 											let _ = tx.send(payload.to_string());
+											play_notification_sound("sounds/message_current.ogg", sounds_enabled);
 										}
+									}
+								} else {
+									let is_from_me = data.get("from_me").and_then(|f| f.as_bool()).unwrap_or_else(|| from == "me" || from == "You");
+									if !is_from_me {
+										play_notification_sound("sounds/message_background.ogg", s.config.sounds_enabled);
 									}
 								}
 							}
@@ -791,16 +1065,26 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								if Some(jid.to_string()) == s.selected_chat {
 									let is_group = jid.ends_with("@g.us");
 									let mut changed = false;
-									for (i, msg) in s.messages.iter_mut().enumerate() {
+									for msg in s.messages.iter_mut() {
 										if msg.id == message_id {
 											msg.is_deleted = true;
-											msg.text = "".to_string(); // Clear text just in case
-											parts.conversations_parts.messages_list.set_string(i as u32, &msg.format_display(is_group));
+											msg.text = "".to_string();
 											changed = true;
 											break;
 										}
 									}
 									if changed {
+										s.display_items = whantv::group_messages_into_display_items(&s.messages);
+										for (di, item) in s.display_items.iter().enumerate() {
+											let contains = match item {
+												whantv::DisplayItem::Single(m) => m.id == message_id,
+												whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == message_id),
+											};
+											if contains {
+												parts.conversations_parts.messages_list.set_string(di as u32, &item.format_display(is_group));
+												break;
+											}
+										}
 										live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
 									}
 								}
@@ -852,24 +1136,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											Ok(chat_msg) => parsed_msgs.push(chat_msg),
 											Err(e) => {
 												let err_msg = ChatMessage {
-													id: String::new(),
 													text: format!("Parse error: {} for json: {}", e, msg),
-													timestamp: 0,
-													from_me: false,
-													sender_jid: String::new(),
-													sender_name: String::new(),
-													is_audio: false,
-													is_date_divider: false,
-													is_deleted: false,
-													status: String::new(),
-													sent_at: 0,
-													delivered_at: 0,
-													read_at: 0,
-													played_at: 0,
-													reactions: Vec::new(),
-													quoted_id: String::new(),
-													quoted_text: String::new(),
-													quoted_sender: String::new(),
+													..Default::default()
 												};
 												parsed_msgs.push(err_msg);
 											}
@@ -896,24 +1164,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											if date_str != last_date {
 												last_date = date_str.clone();
 												with_dates.push(ChatMessage {
-													id: String::new(),
 													text: date_str,
 													timestamp: msg.timestamp,
-													from_me: false,
-													sender_jid: String::new(),
-													sender_name: String::new(),
-													is_audio: false,
 													is_date_divider: true,
-													is_deleted: false,
-													status: String::new(),
-													sent_at: 0,
-													delivered_at: 0,
-													read_at: 0,
-													played_at: 0,
-													reactions: Vec::new(),
-													quoted_id: String::new(),
-													quoted_text: String::new(),
-													quoted_sender: String::new(),
+													..Default::default()
 												});
 											}
 										}
@@ -938,13 +1192,14 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											msg.status = st;
 										}
 									}
-									let new_len = s.messages.len();
+									s.display_items = whantv::group_messages_into_display_items(&s.messages);
+									let new_len = s.display_items.len();
 									s.prev_msg_count = new_len;
 
 									parts.conversations_parts.messages_list.freeze();
 									parts.conversations_parts.messages_list.clear();
-									for msg in &s.messages {
-										parts.conversations_parts.messages_list.append(&msg.format_display(is_group));
+									for item in &s.display_items {
+										parts.conversations_parts.messages_list.append(&item.format_display(is_group));
 									}
 									parts.conversations_parts.messages_list.thaw();
 
@@ -981,6 +1236,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											parts.conversations_parts.messages_list.set_focus();
 										}
 									}
+									parts.conversations_parts.conversation_panel.freeze();
+									if update_action_buttons(&s, &parts.conversations_parts) {
+										parts.conversations_parts.conversation_panel.layout();
+									}
+									parts.conversations_parts.conversation_panel.thaw();
 									
 									if was_history_loading && new_len == old_count {
 										if let Some(ref jid) = s.selected_chat.clone() {
@@ -1020,7 +1280,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let mut read_s     = data.get("read_at").and_then(|v| v.as_i64()).unwrap_or(0);
 								let mut played_s   = data.get("played_at").and_then(|v| v.as_i64()).unwrap_or(0);
 								let media_type = data.get("media_type").and_then(|v| v.as_str()).unwrap_or("");
-								let is_voice   = media_type == "audio";
+								let is_voice   = media_type == "voice" || media_type == "audio";
 
 								{
 									let s = state.borrow();
@@ -1102,24 +1362,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											if date_str != last_date {
 												last_date = date_str.clone();
 												with_dates.push(ChatMessage {
-													id: String::new(),
 													text: date_str,
 													timestamp: msg.timestamp,
-													from_me: false,
-													sender_jid: String::new(),
-													sender_name: String::new(),
-													is_audio: false,
 													is_date_divider: true,
-													is_deleted: false,
-													status: String::new(),
-													sent_at: 0,
-													delivered_at: 0,
-													read_at: 0,
-													played_at: 0,
-													reactions: Vec::new(),
-													quoted_id: String::new(),
-													quoted_text: String::new(),
-													quoted_sender: String::new(),
+													..Default::default()
 												});
 											}
 										}
@@ -1129,11 +1375,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let mut s = state.borrow_mut();
 									let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 									s.messages = with_dates;
+									s.display_items = whantv::group_messages_into_display_items(&s.messages);
 
 									parts.conversations_parts.messages_list.freeze();
 									parts.conversations_parts.messages_list.clear();
-									for msg in &s.messages {
-										parts.conversations_parts.messages_list.append(&msg.format_display(is_group));
+									for item in &s.display_items {
+										parts.conversations_parts.messages_list.append(&item.format_display(is_group));
 									}
 									parts.conversations_parts.messages_list.thaw();
 									let count = parts.conversations_parts.messages_list.get_count();
@@ -1234,10 +1481,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									};
 									let receipt_ts = data.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
 
-									for target_id in msg_ids {
+									let mut any_updated = false;
+									for target_id in &msg_ids {
 										let mut found = false;
-										for (idx, msg) in s.messages.iter_mut().enumerate() {
-											if msg.id == target_id {
+										for msg in s.messages.iter_mut() {
+											if msg.id == *target_id {
 												msg.status = norm_status.to_string();
 												if receipt_ts > 0 {
 													match norm_status {
@@ -1247,14 +1495,36 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 														_ => {}
 													}
 												}
-												let updated_display = msg.format_display(is_group);
-												parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
 												found = true;
+												any_updated = true;
 												break;
 											}
 										}
 										if !found {
 											s.pending_receipts.insert(target_id.clone(), norm_status.to_string());
+										}
+									}
+									if any_updated {
+										s.display_items = whantv::group_messages_into_display_items(&s.messages);
+										for (di, item) in s.display_items.iter().enumerate() {
+											let contains = match item {
+												whantv::DisplayItem::Single(m) => msg_ids.contains(&m.id),
+												whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| msg_ids.contains(&m.id)),
+											};
+											if contains {
+												parts.conversations_parts.messages_list.set_string(di as u32, &item.format_display(is_group));
+											}
+										}
+									}
+									if any_updated && (norm_status == "sent" || norm_status == "delivered") {
+										let mut should_play = false;
+										for target_id in &msg_ids {
+											if s.played_sent_sounds.insert(target_id.clone()) {
+												should_play = true;
+											}
+										}
+										if should_play {
+											play_notification_sound("sounds/message_sent.ogg", s.config.sounds_enabled);
 										}
 									}
 								}
@@ -1281,13 +1551,27 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 
 								if is_match {
 									let is_group = chat_jid.ends_with("@g.us");
-									for (idx, msg) in s.messages.iter_mut().enumerate() {
+									let mut changed = false;
+									for msg in s.messages.iter_mut() {
 										if msg.id == target_id {
 											msg.text = new_text.to_string();
-											let updated_display = msg.format_display(is_group);
-											parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
-											live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Message edited: {}", updated_display));
+											changed = true;
 											break;
+										}
+									}
+									if changed {
+										s.display_items = whantv::group_messages_into_display_items(&s.messages);
+										for (di, item) in s.display_items.iter().enumerate() {
+											let contains = match item {
+												whantv::DisplayItem::Single(m) => m.id == target_id,
+												whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == target_id),
+											};
+											if contains {
+												let updated_display = item.format_display(is_group);
+												parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
+												live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Message edited: {}", updated_display));
+												break;
+											}
 										}
 									}
 								}
@@ -1361,10 +1645,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													});
 												}
 											}
+											break;
+										}
+									}
 
-											let updated_display = msg.format_display(is_group);
-											parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
-											
+									s.display_items = whantv::group_messages_into_display_items(&s.messages);
+									for (di, item) in s.display_items.iter().enumerate() {
+										let contains = match item {
+											whantv::DisplayItem::Single(m) => m.id == target_id,
+											whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == target_id),
+										};
+										if contains {
+											parts.conversations_parts.messages_list.set_string(di as u32, &item.format_display(is_group));
 											let announce_msg = if emoji.is_empty() {
 												format!("Reaction removed by {}", resolved_name)
 											} else {
@@ -1377,10 +1669,94 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								}
 							}
 						}
+						"copied_album_to_clipboard" => {
+							live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Photos copied to clipboard successfully.");
+						}
 						"media_downloaded" => {
 							if let Some(data) = val.get("data") {
-								let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("unknown path");
-// 								parts.conversations_parts.messages_list.announce(&format!("Media downloaded to {}", path));
+								let msg_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("").to_string();
+								let mut path = data.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+								let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("").to_string();
+								let clean_filename = ChatMessage::sanitize_filename(&filename);
+
+								let clean_path = ChatMessage::sanitize_filename(&path);
+								if clean_path != path && std::path::Path::new(&path).exists() {
+									if std::fs::rename(&path, &clean_path).is_ok() {
+										path = clean_path;
+									}
+								}
+
+								let mut s = state.borrow_mut();
+								s.downloads_in_progress.remove(&msg_id);
+								if let Some(msg) = s.messages.iter_mut().find(|m| m.id == msg_id) {
+									msg.media_path = path;
+									if !clean_filename.is_empty() {
+										msg.media_filename = clean_filename.clone();
+									}
+								}
+								s.display_items = whantv::group_messages_into_display_items(&s.messages);
+
+								let download_had_focus = parts.conversations_parts.action_download_btn.has_focus();
+								parts.conversations_parts.conversation_panel.freeze();
+								if update_action_buttons(&s, &parts.conversations_parts) {
+									parts.conversations_parts.conversation_panel.layout();
+								}
+								parts.conversations_parts.conversation_panel.thaw();
+
+								if download_had_focus && !parts.conversations_parts.action_download_btn.is_shown() {
+									if parts.conversations_parts.action_open_btn.is_shown() {
+										parts.conversations_parts.action_open_btn.set_focus();
+									} else if parts.conversations_parts.action_save_as_btn.is_shown() {
+										parts.conversations_parts.action_save_as_btn.set_focus();
+									}
+								}
+
+								let announce_name = if filename.is_empty() { "File".to_string() } else { filename };
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("{} downloaded", announce_name));
+							}
+						}
+						"media_download_progress" => {
+							if let Some(data) = val.get("data") {
+								let msg_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("").to_string();
+								let percent = data.get("percent").and_then(|p| p.as_i64()).unwrap_or(0);
+								let mut s = state.borrow_mut();
+								let prev = s.downloads_in_progress.insert(msg_id.clone(), percent);
+								parts.conversations_parts.conversation_panel.freeze();
+								if update_action_buttons(&s, &parts.conversations_parts) {
+									parts.conversations_parts.conversation_panel.layout();
+								}
+								parts.conversations_parts.conversation_panel.thaw();
+								for milestone in [25, 50, 75] {
+									if prev.unwrap_or(0) < milestone && percent >= milestone {
+										live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Download {}%", percent));
+										break;
+									}
+								}
+							}
+						}
+						"media_download_cancelled" | "media_download_failed" => {
+							if let Some(data) = val.get("data") {
+								let msg_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("").to_string();
+								let mut s = state.borrow_mut();
+								s.downloads_in_progress.remove(&msg_id);
+								parts.conversations_parts.conversation_panel.freeze();
+								if update_action_buttons(&s, &parts.conversations_parts) {
+									parts.conversations_parts.conversation_panel.layout();
+								}
+								parts.conversations_parts.conversation_panel.thaw();
+								let announcement = if t == "media_download_cancelled" {
+									"Download cancelled".to_string()
+								} else {
+									let err = data.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+									format!("Download failed: {}", err)
+								};
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &announcement);
+							}
+						}
+						"media_saved" => {
+							if let Some(data) = val.get("data") {
+								let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("File saved to {}", path));
 							}
 						}
 						"play_audio" => {
@@ -1661,7 +2037,7 @@ while ($true) {
 				parts.attachment_dialog.attachment_info_label.set_label("");
 				parts.conversations_parts.messages_list.clear();
 				parts.conversations_parts.message_field.set_value("");
-				parts.conversations_parts.send_message_btn.show(true);
+				parts.conversations_parts.send_message_btn.show(false);
 				parts.conversations_parts.panel.layout();
 				let limit = 9999999;
 				let payload = serde_json::json!({
@@ -1751,43 +2127,142 @@ while ($true) {
 			parts.conversations_parts.conversation_panel.layout();
 		}
 		UiCommand::StartRecording => {
-			if let Some(ref jid) = state.borrow().selected_chat {
-				let payload = serde_json::json!({
-					"action": "start_recording",
-					"data": { "jid": jid }
-				});
-				let _ = state.borrow().ws_tx.send(payload.to_string());
-				parts.conversations_parts.voice_panel.show(true);
-				parts.conversations_parts.record_voice_btn.show(false);
-				parts.conversations_parts.conversation_panel.layout();
+			let mut s = state.borrow_mut();
+			if s.selected_chat.is_some() {
+				execute_mci_command("close voice_rec");
+
+				let temp_dir = std::env::temp_dir();
+				let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+				let wav_path = temp_dir.join(format!("voice_rec_{}.wav", ts));
+				let wav_path_str = wav_path.to_string_lossy().to_string();
+
+				let res1 = execute_mci_command("open new type waveaudio alias voice_rec");
+				let res2 = execute_mci_command("record voice_rec");
+
+				if res1 == 0 && res2 == 0 {
+					s.is_voice_recording = true;
+					s.is_voice_paused = false;
+					s.voice_recording_path = Some(wav_path_str);
+					s.voice_recording_start = Some(std::time::Instant::now());
+					s.voice_paused_duration = std::time::Duration::ZERO;
+					s.voice_pause_instant = None;
+
+					parts.conversations_parts.message_field.show(false);
+					parts.conversations_parts.add_attachment_btn.show(false);
+					parts.conversations_parts.send_message_btn.show(false);
+					parts.conversations_parts.record_voice_btn.show(false);
+					parts.conversations_parts.voice_panel.show(true);
+					parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+					parts.conversations_parts.conversation_panel.layout();
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Recording voice message...");
+				} else {
+					eprintln!("[LOG UI] Failed to start MCI voice recording: res1={}, res2={}", res1, res2);
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Failed to start microphone recording.");
+				}
 			}
 		}
 		UiCommand::StopRecording => {
-			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "stop_recording" }).to_string());
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording stopped. Ready to send.");
 		}
 		UiCommand::TogglePauseRecording => {
-			let payload = serde_json::json!({ "action": "toggle_pause_recording" });
-			let _ = state.borrow().ws_tx.send(payload.to_string());
+			let mut s = state.borrow_mut();
+			if s.is_voice_recording {
+				if s.is_voice_paused {
+					execute_mci_command("resume voice_rec");
+					s.is_voice_paused = false;
+					if let Some(inst) = s.voice_pause_instant.take() {
+						s.voice_paused_duration += inst.elapsed();
+					}
+					parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording resumed.");
+				} else {
+					execute_mci_command("pause voice_rec");
+					s.is_voice_paused = true;
+					s.voice_pause_instant = Some(std::time::Instant::now());
+					parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording paused.");
+				}
+			}
 		}
 		UiCommand::ForceSync => {
 			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "force_sync" }).to_string());
 		}
 		UiCommand::SendVoiceMessage => {
-			let payload = serde_json::json!({ "action": "send_voice_message" });
-			let _ = state.borrow().ws_tx.send(payload.to_string());
+			let (rec_path, rec_start, paused_dur, pause_inst, is_paused, jid_opt, sounds_enabled, ws_tx) = {
+				let mut s = state.borrow_mut();
+				s.is_voice_recording = false;
+				(
+					s.voice_recording_path.take(),
+					s.voice_recording_start.take(),
+					s.voice_paused_duration,
+					s.voice_pause_instant.take(),
+					s.is_voice_paused,
+					s.selected_chat.clone(),
+					s.config.sounds_enabled,
+					s.ws_tx.clone(),
+				)
+			};
+
+			if let (Some(wav_path), Some(start_inst), Some(jid)) = (rec_path, rec_start, jid_opt) {
+				execute_mci_command(&format!("save voice_rec \"{}\"", wav_path));
+				execute_mci_command("close voice_rec");
+
+				let total_elapsed = start_inst.elapsed();
+				let total_paused = paused_dur + if is_paused { pause_inst.map(|i| i.elapsed()).unwrap_or_default() } else { std::time::Duration::ZERO };
+				let active_secs = total_elapsed.saturating_sub(total_paused).as_secs().max(1);
+
+				thread::spawn(move || {
+					let ogg_path = wav_path.replace(".wav", ".ogg");
+					let convert_res = std::process::Command::new("ffmpeg")
+						.args(&["-y", "-i", &wav_path, "-c:a", "libopus", "-b:a", "32k", "-application", "voip", &ogg_path])
+						.output();
+
+					let (final_path, mimetype) = match convert_res {
+						Ok(out) if out.status.success() => (ogg_path, "audio/ogg; codecs=opus"),
+						_ => (wav_path, "audio/wav"),
+					};
+
+					let payload = serde_json::json!({
+						"action": "send_voice_message",
+						"data": {
+							"jid": jid,
+							"path": final_path,
+							"mimetype": mimetype,
+							"duration": active_secs
+						}
+					});
+					let _ = ws_tx.send(payload.to_string());
+				});
+
+				play_notification_sound("sounds/voicemsg_send.wav", sounds_enabled);
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
+			}
+
 			parts.conversations_parts.voice_panel.show(false);
+			parts.conversations_parts.message_field.show(true);
+			parts.conversations_parts.add_attachment_btn.show(true);
 			parts.conversations_parts.record_voice_btn.show(true);
+			parts.conversations_parts.send_message_btn.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
 			parts.conversations_parts.conversation_panel.layout();
 		}
-		UiCommand::DiscardRecording => {
-			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "discard_recording" }).to_string());
-		}
-		UiCommand::DiscardVoiceMessage => {
-			let payload = serde_json::json!({ "action": "discard_voice_message" });
-			let _ = state.borrow().ws_tx.send(payload.to_string());
+		UiCommand::DiscardRecording | UiCommand::DiscardVoiceMessage => {
+			{
+				let mut s = state.borrow_mut();
+				s.is_voice_recording = false;
+				s.is_voice_paused = false;
+				if let Some(path) = s.voice_recording_path.take() {
+					let _ = std::fs::remove_file(path);
+				}
+			}
+			execute_mci_command("close voice_rec");
+
 			parts.conversations_parts.voice_panel.show(false);
+			parts.conversations_parts.message_field.show(true);
+			parts.conversations_parts.add_attachment_btn.show(true);
 			parts.conversations_parts.record_voice_btn.show(true);
+			parts.conversations_parts.send_message_btn.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
 			parts.conversations_parts.conversation_panel.layout();
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording discarded.");
 		}
 		UiCommand::AddAttachment => {
 			let file_dialog = FileDialog::builder(&parts.frame)
@@ -1862,18 +2337,9 @@ while ($true) {
 						from_me: true,
 						sender_jid: "me".to_string(),
 						sender_name: "You".to_string(),
-						is_audio: false,
-						is_date_divider: false,
-						is_deleted: false,
 						status: "uploading".to_string(),
 						sent_at: ts,
-						delivered_at: 0,
-						read_at: 0,
-						played_at: 0,
-						reactions: Vec::new(),
-						quoted_id: String::new(),
-						quoted_text: String::new(),
-						quoted_sender: String::new(),
+						..Default::default()
 					};
 
 					{
@@ -1902,30 +2368,140 @@ while ($true) {
 					let _ = state.borrow().ws_tx.send(payload.to_string());
 				}
 				parts.attachment_dialog.attachment_info_label.set_label("");
-				parts.attachment_dialog.caption_field.set_value("");
+parts.attachment_dialog.caption_field.set_value("");
 				parts.attachment_dialog.dialog.end_modal(wxdragon::id::ID_OK);
 			}
 		}
 		UiCommand::DownloadMedia => {
-			let payload = serde_json::json!({ "action": "download_media" });
-			let _ = state.borrow().ws_tx.send(payload.to_string());
-		}
-		UiCommand::OpenMedia => {
-			let payload = serde_json::json!({ "action": "open_media" });
-			let _ = state.borrow().ws_tx.send(payload.to_string());
-		}
-		UiCommand::SaveMediaAs => {
-			let dialog = FileDialog::builder(&parts.frame)
-				.with_message("Save file as")
-				.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
-				.build();
-			if dialog.show_modal() == wxdragon::id::ID_OK {
-				if let Some(path) = dialog.get_path() {
+			let (items_to_dl, jid_opt) = {
+				let s = state.borrow();
+				let sel = parts.conversations_parts.messages_list.get_selection();
+				if let Some(idx) = sel {
+					if let Some(item) = s.display_items.get(idx as usize) {
+						let to_dl: Vec<(String, String)> = item.messages()
+							.into_iter()
+							.filter(|m| !m.is_media_downloaded())
+							.map(|m| (m.id.clone(), m.display_filename()))
+							.collect();
+						(to_dl, s.selected_chat.clone())
+					} else { (Vec::new(), None) }
+				} else { (Vec::new(), None) }
+			};
+
+			if let (Some(jid), false) = (jid_opt, items_to_dl.is_empty()) {
+				let count = items_to_dl.len();
+				{
+					let mut s = state.borrow_mut();
+					for (msg_id, _) in &items_to_dl {
+						s.downloads_in_progress.insert(msg_id.clone(), 0);
+					}
+				}
+				parts.conversations_parts.conversation_panel.freeze();
+				if update_action_buttons(&state.borrow(), &parts.conversations_parts) {
+					parts.conversations_parts.conversation_panel.layout();
+				}
+				parts.conversations_parts.conversation_panel.thaw();
+
+				for (msg_id, _) in &items_to_dl {
 					let payload = serde_json::json!({
-						"action": "save_media_as",
-						"data": { "path": path }
+						"action": "download_media",
+						"data": { "jid": jid, "message_id": msg_id }
 					});
 					let _ = state.borrow().ws_tx.send(payload.to_string());
+				}
+				if count == 1 {
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Downloading {}", items_to_dl[0].1));
+				} else {
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Downloading album of {} files...", count));
+				}
+			}
+		}
+		UiCommand::OpenMedia => {
+			let s = state.borrow();
+			if let (Some(jid), Some(idx)) = (s.selected_chat.clone(), parts.conversations_parts.messages_list.get_selection()) {
+				if let Some(item) = s.display_items.get(idx as usize) {
+					if let Some(msg) = item.messages().iter().find(|m| m.is_media_downloaded()) {
+						let payload = serde_json::json!({
+							"action": "open_media",
+							"data": { "jid": jid, "message_id": msg.id }
+						});
+						let _ = s.ws_tx.send(payload.to_string());
+					}
+				}
+			}
+		}
+		UiCommand::SaveMediaAs => {
+			let item_opt = {
+				let s = state.borrow();
+				let sel = parts.conversations_parts.messages_list.get_selection();
+				sel.and_then(|idx| s.display_items.get(idx as usize).cloned())
+			};
+
+			if let Some(item) = item_opt {
+				match item {
+					whantv::DisplayItem::Single(msg) => {
+						if let Some(ref jid) = state.borrow().selected_chat {
+							let filename = msg.display_filename();
+							let dialog = FileDialog::builder(&parts.frame)
+								.with_message("Save file as")
+								.with_default_file(&filename)
+								.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+								.build();
+							if dialog.show_modal() == wxdragon::id::ID_OK {
+								if let Some(path) = dialog.get_path() {
+									if msg.is_media_downloaded() {
+										let _ = std::fs::copy(&msg.media_path, &path);
+										live_region::announce(parts.conversations_parts.messages_announcer.clone(), "File saved successfully.");
+									} else {
+										let payload = serde_json::json!({
+											"action": "save_media_as",
+											"data": { "jid": jid, "message_id": msg.id, "dest_path": path }
+										});
+										let _ = state.borrow().ws_tx.send(payload.to_string());
+									}
+								}
+							}
+						}
+					}
+					whantv::DisplayItem::Album { messages, .. } => {
+						let photo_count = messages.iter().filter(|m| m.media_type == "image" || m.text.starts_with("[Photo]") || m.text.starts_with("[Image]")).count();
+						let video_count = messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
+						let (dlg_title, noun) = if photo_count > 0 && video_count == 0 {
+							("Select folder to save all photos into", "photos")
+						} else if video_count > 0 && photo_count == 0 {
+							("Select folder to save all videos into", "videos")
+						} else {
+							("Select folder to save all media into", "media files")
+						};
+						let dir_dialog = wxdragon::DirDialog::builder(&parts.frame, dlg_title, "")
+							.build();
+						if dir_dialog.show_modal() == wxdragon::id::ID_OK {
+							if let Some(picked_path) = dir_dialog.get_path() {
+								let dest_dir = std::path::PathBuf::from(&picked_path);
+								let mut saved_count = 0;
+								for (idx, msg) in messages.iter().enumerate() {
+									if msg.is_media_downloaded() {
+										let src = std::path::Path::new(&msg.media_path);
+										let ext = src.extension().and_then(|e| e.to_str()).unwrap_or(if msg.media_type == "video" { "mp4" } else { "jpg" });
+										let fn_str = if !msg.media_filename.is_empty() {
+											msg.media_filename.clone()
+										} else {
+											let prefix = if msg.media_type == "video" { "video" } else { "photo" };
+											format!("{}_{:02}.{}", prefix, idx + 1, ext)
+										};
+										let dest_file = dest_dir.join(&fn_str);
+										if std::fs::copy(src, &dest_file).is_ok() {
+											saved_count += 1;
+										}
+									}
+								}
+								live_region::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									&format!("Saved {} {} to folder.", saved_count, noun),
+								);
+							}
+						}
+					}
 				}
 			}
 		}
@@ -2026,6 +2602,37 @@ while ($true) {
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
+		UiCommand::CopyAlbumToClipboard { message_ids } => {
+			let paths: Vec<String> = {
+				let s = state.borrow();
+				let mut p = Vec::new();
+				for id in &message_ids {
+					if let Some(msg) = s.messages.iter().find(|m| m.id == *id) {
+						if msg.is_media_downloaded() {
+							p.push(msg.media_path.clone());
+						}
+					}
+				}
+				p
+			};
+
+			if !paths.is_empty() {
+				let count = paths.len();
+				if copy_files_to_clipboard(&paths) {
+					let noun = if count == 1 { "photo" } else { "photos" };
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Copied {} {} to clipboard.", count, noun));
+				} else {
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Failed to copy photos to clipboard.");
+				}
+			} else {
+				let payload = serde_json::json!({
+					"action": "copy_album_to_clipboard",
+					"data": { "message_ids": message_ids }
+				});
+				let _ = state.borrow().ws_tx.send(payload.to_string());
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Downloading photos before copying to clipboard...");
+			}
+		}
 		UiCommand::SeekAudio(delta) => {
 			let mut s = state.borrow_mut();
 			if s.playing_msg_id.is_some() {
@@ -2078,4 +2685,5 @@ while ($true) {
 		}
 	}
 }
+
 
