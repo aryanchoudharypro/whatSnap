@@ -47,6 +47,7 @@ pub enum UiCommand {
 	SendVoiceMessage,
 	DiscardVoiceMessage,
 	AddAttachment,
+	PasteAttachment,
 	SendAttachment { caption: String },
 	DiscardAttachment,
 	DownloadMedia,
@@ -2463,13 +2464,47 @@ while ($true) {
 		UiCommand::AddAttachment => {
 			let file_dialog = FileDialog::builder(&parts.frame)
 				.with_message("Choose file(s) to attach")
-				.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
+				.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist | FileDialogStyle::Multiple)
 				.build();
 			if file_dialog.show_modal() == wxdragon::id::ID_OK {
-				if let Some(path) = file_dialog.get_path() {
-					if !path.is_empty() {
+				let paths = file_dialog.get_paths();
+				if !paths.is_empty() {
+					let mut s = state.borrow_mut();
+					for path in paths {
+						if !path.is_empty() {
+							s.pending_attachments.push(path.clone());
+						}
+					}
+					let file_names: Vec<String> = s.pending_attachments.iter().map(|p| {
+						std::path::Path::new(p).file_name().unwrap_or_default().to_string_lossy().to_string()
+					}).collect();
+					let label_text = format!("Files: {}", file_names.join(", "));
+					drop(s);
+					parts.attachment_dialog.attachment_info_label.set_label(&label_text);
+					parts.attachment_dialog.caption_field.set_value("");
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Files attached: {}", file_names.len()));
+					
+					if !parts.attachment_dialog.dialog.is_shown() {
+						parts.attachment_dialog.caption_field.set_focus();
+						parts.attachment_dialog.dialog.show_modal();
+					} else {
+						parts.attachment_dialog.caption_field.set_focus();
+					}
+				}
+			}
+		}
+		UiCommand::PasteAttachment => {
+			if let Some(_locker) = wxdragon::prelude::Clipboard::get().locker() {
+				let mut fdo = wxdragon::prelude::FileDataObject::new();
+				if wxdragon::prelude::Clipboard::get().get_data(&mut fdo) {
+					let paths = fdo.get_files();
+					if !paths.is_empty() {
 						let mut s = state.borrow_mut();
-						s.pending_attachments.push(path.clone());
+						for path in paths {
+							if !path.is_empty() {
+								s.pending_attachments.push(path.clone());
+							}
+						}
 						let file_names: Vec<String> = s.pending_attachments.iter().map(|p| {
 							std::path::Path::new(p).file_name().unwrap_or_default().to_string_lossy().to_string()
 						}).collect();
@@ -2477,8 +2512,14 @@ while ($true) {
 						drop(s);
 						parts.attachment_dialog.attachment_info_label.set_label(&label_text);
 						parts.attachment_dialog.caption_field.set_value("");
-						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("File attached: {}", file_names.last().unwrap_or(&String::new())));
-						parts.attachment_dialog.dialog.show_modal();
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Pasted files: {}", file_names.len()));
+						
+						if !parts.attachment_dialog.dialog.is_shown() {
+							parts.attachment_dialog.caption_field.set_focus();
+							parts.attachment_dialog.dialog.show_modal();
+						} else {
+							parts.attachment_dialog.caption_field.set_focus();
+						}
 					}
 				}
 			}
