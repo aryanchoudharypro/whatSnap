@@ -214,7 +214,7 @@ func eventHandler(evt interface{}) {
 	case *events.Message, *events.Receipt, *events.HistorySync:
 		log.Printf("Event received in eventHandler: %T", evt)
 	}
-	
+
 	switch v := evt.(type) {
 	case *events.HistorySync:
 		go func() {
@@ -260,8 +260,8 @@ func eventHandler(evt interface{}) {
 					archived = 1
 				}
 				_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived) VALUES (?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(jid) DO UPDATE SET 
-					timestamp=MAX(timestamp, excluded.timestamp), 
+					ON CONFLICT(jid) DO UPDATE SET
+					timestamp=MAX(timestamp, excluded.timestamp),
 					name=COALESCE(NULLIF(excluded.name, ''), chats.name),
 					unread_count=excluded.unread_count,
 					pinned=excluded.pinned,
@@ -431,7 +431,7 @@ func eventHandler(evt interface{}) {
 			chatJID, senderJID := resolveLIDChat(v)
 			jid := chatJID.ToNonAD().String()
 			emoji := reaction.GetText()
-			
+
 			reactorJID := senderJID.ToNonAD().String()
 			reactorName := resolveDisplayName(senderJID)
 			if v.Info.IsFromMe {
@@ -463,9 +463,9 @@ func eventHandler(evt interface{}) {
 
 		go func() {
 			chatJID, senderJID := resolveLIDChat(v)
-			
+
 			jid := chatJID.String()
-			
+
 			if isIgnoredChatJID(jid) {
 				return
 			}
@@ -475,8 +475,8 @@ func eventHandler(evt interface{}) {
 				increment = 0
 			}
 			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet) VALUES (?, ?, ?, ?)
-				ON CONFLICT(jid) DO UPDATE SET 
-					timestamp=MAX(timestamp, excluded.timestamp), 
+				ON CONFLICT(jid) DO UPDATE SET
+					timestamp=MAX(timestamp, excluded.timestamp),
 					unread_count=chats.unread_count + excluded.unread_count,
 					preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
 				jid, ts, increment, text)
@@ -553,26 +553,68 @@ func eventHandler(evt interface{}) {
 	case *events.LoggedOut:
 		broadcastEvent("disconnected", nil)
 	case *events.ChatPresence:
-		isTyping := v.State == types.ChatPresenceComposing
-		isRecording := v.Media == types.ChatPresenceMediaAudio
+		isComposing := v.State == types.ChatPresenceComposing
+		isRecording := isComposing && v.Media == types.ChatPresenceMediaAudio
+		isTyping := isComposing && !isRecording
+
+		chatJID := v.MessageSource.Chat.ToNonAD()
+		senderJID := v.MessageSource.Sender.ToNonAD()
+
+		if chatJID.Server == "lid" {
+			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+				chatJID = pn.ToNonAD()
+			}
+		}
+		if senderJID.Server == "lid" {
+			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+				senderJID = pn.ToNonAD()
+			}
+		}
+
 		broadcastEvent("typing", map[string]interface{}{
-			"chat_jid":   v.MessageSource.Chat.String(),
-			"sender_jid": v.MessageSource.Sender.String(),
+			"chat_jid":   chatJID.String(),
+			"sender_jid": senderJID.String(),
 			"state":      string(v.State),
 			"media":      string(v.Media),
 			"typing":     isTyping,
 			"recording":  isRecording,
 		})
 	case *events.Presence:
+		lastSeenUnix := int64(0)
+		if !v.LastSeen.IsZero() {
+			lastSeenUnix = v.LastSeen.Unix()
+		}
+
+		targetJID := v.From.ToNonAD()
+		if targetJID.Server == "lid" {
+			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), targetJID); err == nil && !pn.IsEmpty() {
+				targetJID = pn.ToNonAD()
+			}
+		}
+
 		broadcastEvent("presence", map[string]interface{}{
-			"jid":         v.From.String(),
+			"jid":         targetJID.String(),
 			"unavailable": v.Unavailable,
-			"last_seen":   v.LastSeen.Unix(),
+			"last_seen":   lastSeenUnix,
 		})
 	case *events.Receipt:
+		chatJID := v.MessageSource.Chat.ToNonAD()
+		senderJID := v.MessageSource.Sender.ToNonAD()
+
+		if chatJID.Server == "lid" {
+			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+				chatJID = pn.ToNonAD()
+			}
+		}
+		if senderJID.Server == "lid" {
+			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+				senderJID = pn.ToNonAD()
+			}
+		}
+
 		broadcastEvent("receipt", map[string]interface{}{
-			"chat_jid":    v.MessageSource.Chat.String(),
-			"sender_jid":  v.MessageSource.Sender.String(),
+			"chat_jid":    chatJID.String(),
+			"sender_jid":  senderJID.String(),
 			"message_ids": v.MessageIDs,
 			"type":        string(v.Type),
 			"timestamp":   v.Timestamp.Unix(),

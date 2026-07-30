@@ -58,7 +58,7 @@ func handleSend(conn *websocket.Conn, raw json.RawMessage) {
 	rawBytes, _ := proto.Marshal(msg)
 
 	if _, dbErr := db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
-			ON CONFLICT(jid) DO UPDATE SET 
+			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
 		jid.String(), ts, data.Text); dbErr != nil {
@@ -217,13 +217,21 @@ func handleSubscribePresence(raw json.RawMessage) {
 		JID string `json:"jid"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
+		log.Printf("Failed to unmarshal subscribe_presence: %v", err)
 		return
 	}
+	log.Printf("Received subscribe_presence for JID: %s", data.JID)
 	jid, err := types.ParseJID(data.JID)
 	if err != nil {
+		log.Printf("Failed to parse JID for subscribe_presence: %v", err)
 		return
 	}
-	go client.SubscribePresence(context.Background(), jid)
+	err = client.SubscribePresence(context.Background(), jid)
+	if err != nil {
+		log.Printf("Error subscribing to presence: %v", err)
+	} else {
+		log.Printf("Successfully subscribed to presence for JID: %s", jid.String())
+	}
 }
 
 func handleMarkRead(raw json.RawMessage) {
