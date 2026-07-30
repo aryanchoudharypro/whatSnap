@@ -504,6 +504,7 @@ func eventHandler(evt interface{}) {
 			chatJID, senderJID := resolveLIDChat(v)
 			liveMediaType, _, liveMediaFilename := mediaInfoFromMessage(v.Message)
 
+			quotedID, quotedText, quotedSender := quotedPreview(v.Message)
 			broadcastEvent("message", map[string]interface{}{
 				"jid":           chatJID.String(),
 				"from":          senderJID.String(),
@@ -514,6 +515,9 @@ func eventHandler(evt interface{}) {
 				"has_media":     v.Message.GetImageMessage() != nil || v.Message.GetVideoMessage() != nil || v.Message.GetAudioMessage() != nil || v.Message.GetDocumentMessage() != nil || v.Message.GetStickerMessage() != nil,
 				"mediaType":     liveMediaType,
 				"mediaFilename": liveMediaFilename,
+				"quotedId":      quotedID,
+				"quotedText":    quotedText,
+				"quotedSender":  quotedSender,
 			})
 		}
 	case *events.DeleteForMe:

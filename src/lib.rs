@@ -263,6 +263,18 @@ impl ChatMessage {
 			}
 		}
 	}
+
+	pub fn format_display_with_progress(&self, is_group: bool, progress: Option<&str>) -> String {
+		let orig = self.format_display(is_group);
+		if let Some(prog) = progress {
+			if orig.contains("Voice message") {
+				return orig.replace("Voice message", &format!("Voice message ({})", prog));
+			} else if orig.contains("Audio") {
+				return orig.replace("Audio", &format!("Audio ({})", prog));
+			}
+		}
+		orig
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -366,6 +378,13 @@ impl DisplayItem {
 					}
 				}
 			}
+		}
+	}
+
+	pub fn format_display_with_progress(&self, is_group: bool, progress: Option<&str>) -> String {
+		match self {
+			DisplayItem::Single(msg) => msg.format_display_with_progress(is_group, progress),
+			DisplayItem::Album { .. } => self.format_display(is_group),
 		}
 	}
 }

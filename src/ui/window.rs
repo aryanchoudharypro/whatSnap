@@ -592,7 +592,31 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 					event.skip(false);
 				} else {
 					last_left_arrow.set(now);
-					event.skip(false); // Stay silent on single press
+					if state_play.borrow().playing_msg_id.is_some() {
+						let _ = tx_close_list.send(UiCommand::SeekAudio(-5.0));
+					}
+					event.skip(false);
+				}
+			} else if code == Some(316) || code == Some(39) {
+				if state_play.borrow().playing_msg_id.is_some() {
+					let _ = tx_close_list.send(UiCommand::SeekAudio(5.0));
+					event.skip(false);
+				} else {
+					event.skip(true);
+				}
+			} else if code == Some('j' as i32) || code == Some('J' as i32) || code == Some(74) || code == Some(106) {
+				if state_play.borrow().playing_msg_id.is_some() {
+					let _ = tx_close_list.send(UiCommand::SeekAudio(-5.0));
+					event.skip(false);
+				} else {
+					event.skip(true);
+				}
+			} else if code == Some('l' as i32) || code == Some('L' as i32) || code == Some(76) || code == Some(108) {
+				if state_play.borrow().playing_msg_id.is_some() {
+					let _ = tx_close_list.send(UiCommand::SeekAudio(5.0));
+					event.skip(false);
+				} else {
+					event.skip(true);
 				}
 			} else if key_event.get_key_code() == Some(27) { // Escape
 				let _ = tx_close_list.send(UiCommand::CloseConversation);
@@ -1405,11 +1429,17 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	parts.conversations_parts.audio_slider.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key) = event {
 			let code = key.get_key_code();
-			if code == Some(314) { // Left arrow
+			if code == Some(314) || code == Some(37) || code == Some(317) || code == Some(40) {
 				let _ = tx_slider_key.send(UiCommand::SeekAudio(-5.0));
 				event.skip(false);
-			} else if code == Some(316) { // Right arrow
+			} else if code == Some(316) || code == Some(39) || code == Some(315) || code == Some(38) {
 				let _ = tx_slider_key.send(UiCommand::SeekAudio(5.0));
+				event.skip(false);
+			} else if code == Some(312) || code == Some(385) {
+				let _ = tx_slider_key.send(UiCommand::SeekAudio(5.0));
+				event.skip(false);
+			} else if code == Some(313) || code == Some(384) {
+				let _ = tx_slider_key.send(UiCommand::SeekAudio(-5.0));
 				event.skip(false);
 			} else {
 				event.skip(true);

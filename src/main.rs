@@ -627,7 +627,6 @@ fn main() {
 				s.audio_elapsed_secs = 0.0;
 				parts_timer.conversations_parts.play_voice_btn.set_label("Play voice message");
 				parts_timer.conversations_parts.audio_slider.set_value(0);
-				parts_timer.conversations_parts.audio_progress_label.set_label("0:00 / 0:00");
 				parts_timer.conversations_parts.audio_slider.show(false);
 				parts_timer.conversations_parts.audio_progress_label.show(false);
 				return;
@@ -636,17 +635,11 @@ fn main() {
 				if let Some(inst) = s.audio_start_instant {
 					let elapsed = s.audio_elapsed_secs + inst.elapsed().as_secs_f32();
 					let total = s.audio_total_secs;
-					let pos = if total > 0.0 {
-						((elapsed / total) * 1000.0).min(1000.0) as i32
-					} else {
-						0
-					};
+					let max_sec = (total as i32).max(1);
+					let pos = (elapsed as i32).max(0).min(max_sec);
 					if parts_timer.conversations_parts.audio_slider.is_shown() {
+						parts_timer.conversations_parts.audio_slider.set_range(0, max_sec);
 						parts_timer.conversations_parts.audio_slider.set_value(pos);
-						let fmt = |v: f32| format!("{}:{:02}", v as u32 / 60, v as u32 % 60);
-						parts_timer.conversations_parts.audio_progress_label.set_label(
-							&format!("{} / {}", fmt(elapsed), fmt(total))
-						);
 					}
 				}
 			}
@@ -2043,6 +2036,9 @@ while ($true) {
         $p.Pause()
     } elseif ($line -eq "RESUME") {
         $p.Play()
+    } elseif ($line.StartsWith("SEEK ")) {
+        $sec = [double]($line.Substring(5))
+        $p.PlaybackSession.Position = [TimeSpan]::FromSeconds($sec)
     }
 }
 "#;
@@ -2065,8 +2061,10 @@ while ($true) {
 									// Show slider UI
 									parts.conversations_parts.audio_slider.show(true);
 									parts.conversations_parts.audio_progress_label.show(true);
-									parts.conversations_parts.audio_slider.set_value(0);
 									let total = s.audio_total_secs;
+									let max_sec = (total as i32).max(1);
+									parts.conversations_parts.audio_slider.set_range(0, max_sec);
+									parts.conversations_parts.audio_slider.set_value(0);
 									let fmt_dur = |v: f32| {
 										if v > 0.0 { format!("{}:{:02}", v as u32 / 60, v as u32 % 60) }
 										else { "?:??".to_string() }
@@ -2798,9 +2796,18 @@ parts.attachment_dialog.caption_field.set_value("");
 		UiCommand::SeekAudio(delta) => {
 			let mut s = state.borrow_mut();
 			if s.playing_msg_id.is_some() {
-				let elapsed = s.audio_elapsed_secs
-					+ s.audio_start_instant.map(|i| i.elapsed().as_secs_f32()).unwrap_or(0.0);
-				let target = (elapsed + delta).max(0.0).min(s.audio_total_secs);
+				let elapsed = if s.is_audio_paused {
+					s.audio_elapsed_secs
+				} else {
+					s.audio_elapsed_secs
+						+ s.audio_start_instant.map(|i| i.elapsed().as_secs_f32()).unwrap_or(0.0)
+				};
+				let total = s.audio_total_secs;
+				let target = if total > 0.0 {
+					(elapsed + delta).max(0.0).min(total)
+				} else {
+					(elapsed + delta).max(0.0)
+				};
 				if let Some(ref sink) = s.audio_sink {
 					sink.stop();
 				}
@@ -2810,24 +2817,26 @@ parts.attachment_dialog.caption_field.set_value("");
 					let new_sink = do_seek(stream_handle, &path, target);
 					s.audio_sink = new_sink;
 				}
+				if let Some(ref mut stdin) = s.audio_stdin {
+					use std::io::Write;
+					let _ = writeln!(stdin, "SEEK {}", target);
+					let _ = stdin.flush();
+				}
 				s.audio_elapsed_secs = target;
 				s.audio_start_instant = Some(std::time::Instant::now());
 				s.is_audio_paused = false;
 				parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
-				// update slider immediately
-				let total = s.audio_total_secs;
-				let pos = if total > 0.0 { ((target / total) * 1000.0).min(1000.0) as i32 } else { 0 };
+				let max_sec = (total as i32).max(1);
+				let pos = (target as i32).max(0).min(max_sec);
+				parts.conversations_parts.audio_slider.set_range(0, max_sec);
 				parts.conversations_parts.audio_slider.set_value(pos);
-				let fmt = |v: f32| format!("{}:{:02}", v as u32 / 60, v as u32 % 60);
-				parts.conversations_parts.audio_progress_label.set_label(&format!("{} / {}", fmt(target), fmt(total)));
 			}
 		}
 		UiCommand::SeekAudioAbsolute(slider_val) => {
 			let mut s = state.borrow_mut();
 			if s.playing_msg_id.is_some() {
 				let total = s.audio_total_secs;
-				let target = (slider_val as f32 / 1000.0) * total;
-				let target = target.max(0.0).min(total);
+				let target = (slider_val as f32).max(0.0).min(total);
 				if let Some(ref sink) = s.audio_sink {
 					sink.stop();
 				}
@@ -2837,12 +2846,19 @@ parts.attachment_dialog.caption_field.set_value("");
 					let new_sink = do_seek(stream_handle, &path, target);
 					s.audio_sink = new_sink;
 				}
+				if let Some(ref mut stdin) = s.audio_stdin {
+					use std::io::Write;
+					let _ = writeln!(stdin, "SEEK {}", target);
+					let _ = stdin.flush();
+				}
 				s.audio_elapsed_secs = target;
 				s.audio_start_instant = Some(std::time::Instant::now());
 				s.is_audio_paused = false;
 				parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
-				let fmt = |v: f32| format!("{}:{:02}", v as u32 / 60, v as u32 % 60);
-				parts.conversations_parts.audio_progress_label.set_label(&format!("{} / {}", fmt(target), fmt(total)));
+				let max_sec = (total as i32).max(1);
+				let pos = (target as i32).max(0).min(max_sec);
+				parts.conversations_parts.audio_slider.set_range(0, max_sec);
+				parts.conversations_parts.audio_slider.set_value(pos);
 			}
 		}
 	}
