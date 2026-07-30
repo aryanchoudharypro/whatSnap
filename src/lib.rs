@@ -31,6 +31,8 @@ pub struct ChatMessage {
 	pub is_deleted: bool,
 	#[serde(default)]
 	pub status: String,
+	#[serde(rename = "editedAt", alias = "edited_at", default)]
+	pub edited_at: i64,
 	#[serde(rename = "sentAt", alias = "sent_at", default)]
 	pub sent_at: i64,
 	#[serde(rename = "deliveredAt", alias = "delivered_at", default)]

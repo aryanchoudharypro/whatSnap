@@ -47,7 +47,8 @@ func handleGetMessages(conn *websocket.Conn, raw json.RawMessage) {
 
 		rows, queryErr := db.Query(`SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 				COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
-				COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0), raw
+				COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
+				COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), raw
 			FROM messages WHERE jid = ? ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, data.JID, limit, offset)
 
 		msgs := []map[string]interface{}{}
@@ -57,12 +58,12 @@ func handleGetMessages(conn *websocket.Conn, raw json.RawMessage) {
 			for rows.Next() {
 				var id, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath string
 				var quotedID, quotedText, quotedSender string
-				var ts int64
+				var ts, sentAt, deliveredAt, readAt, playedAt, editedAt int64
 				var fromMe bool
 				var isEdited, isDeleted int
 				var rawBytes []byte
 				if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
-					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &rawBytes); err != nil {
+					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &rawBytes); err != nil {
 					log.Println("Error scanning message row:", err)
 					continue
 				}
@@ -126,6 +127,11 @@ func handleGetMessages(conn *websocket.Conn, raw json.RawMessage) {
 					"quotedSender":  qSenderName,
 					"isEdited":      isEdited == 1,
 					"isDeleted":     isDeleted == 1,
+					"sentAt":        sentAt,
+					"deliveredAt":   deliveredAt,
+					"readAt":        readAt,
+					"playedAt":      playedAt,
+					"editedAt":      editedAt,
 				})
 			}
 		} else {
@@ -170,13 +176,13 @@ func handleSearchMessages(conn *websocket.Conn, raw json.RawMessage) {
 			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
-				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0) FROM messages
+				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0) FROM messages
 				WHERE jid = ? AND text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, data.JID, like)
 		} else {
 			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
-				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0) FROM messages
+				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0) FROM messages
 				WHERE text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, like)
 		}
 		results := []map[string]interface{}{}
@@ -185,11 +191,11 @@ func handleSearchMessages(conn *websocket.Conn, raw json.RawMessage) {
 			for rows.Next() {
 				var id, jid, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath string
 				var quotedID, quotedText, quotedSender string
-				var ts, sentAt, deliveredAt, readAt, playedAt int64
+				var ts, sentAt, deliveredAt, readAt, playedAt, editedAt int64
 				var fromMe bool
 				var isEdited, isDeleted int
 				if scanErr := rows.Scan(&id, &jid, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
-					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt); scanErr == nil {
+					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt); scanErr == nil {
 					senderName := ""
 					if senderJID != "" {
 						if parsed, perr := types.ParseJID(senderJID); perr == nil {
@@ -218,6 +224,7 @@ func handleSearchMessages(conn *websocket.Conn, raw json.RawMessage) {
 						"deliveredAt":   deliveredAt,
 						"readAt":        readAt,
 						"playedAt":      playedAt,
+						"editedAt":      editedAt,
 					})
 				}
 			}

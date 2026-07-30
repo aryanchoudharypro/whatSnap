@@ -132,9 +132,10 @@ func handleEditMessage(raw json.RawMessage) {
 			return
 		}
 		rawBytes, _ := proto.Marshal(newContent)
-		markMessageEdited(data.MessageID, data.JID, data.NewText, rawBytes)
+		editTime := time.Now().Unix()
+		markMessageEdited(data.MessageID, data.JID, data.NewText, rawBytes, editTime)
 		broadcastEvent("message_edited", map[string]interface{}{
-			"jid": data.JID, "message_id": data.MessageID, "text": data.NewText,
+			"jid": data.JID, "message_id": data.MessageID, "text": data.NewText, "edited_at": editTime,
 		})
 	}()
 }
@@ -319,12 +320,12 @@ func handleGetMessageInfo(conn *websocket.Conn, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" {
 		return
 	}
-	var sentAt, deliveredAt, readAt, playedAt, msgTS int64
+	var sentAt, deliveredAt, readAt, playedAt, editedAt, msgTS int64
 	var mediaType string
 	err := db.QueryRow(
-		`SELECT COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(media_type,''), COALESCE(timestamp,0) FROM messages WHERE id = ?`,
+		`SELECT COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(media_type,''), COALESCE(timestamp,0) FROM messages WHERE id = ?`,
 		data.ID,
-	).Scan(&sentAt, &deliveredAt, &readAt, &playedAt, &mediaType, &msgTS)
+	).Scan(&sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &mediaType, &msgTS)
 	if err != nil {
 		return
 	}
@@ -337,6 +338,7 @@ func handleGetMessageInfo(conn *websocket.Conn, raw json.RawMessage) {
 		"delivered_at": deliveredAt,
 		"read_at":      readAt,
 		"played_at":    playedAt,
+		"edited_at":    editedAt,
 		"media_type":   mediaType,
 	})
 }
