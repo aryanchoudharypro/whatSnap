@@ -11,7 +11,9 @@ pub struct WindowParts {
 	pub frame: Frame,
 	pub nav_list: ListBox,
 	pub content_panel: Panel,
-	pub login_dialog: Dialog,
+	pub login_panel: Panel,
+	pub main_panel: Panel,
+	pub nav_panel: Panel,
 	pub qrcode_dialog: Dialog,
 	pub qrcode_display: StaticBitmap,
 	pub qrcode_announcer: StaticText,
@@ -54,7 +56,7 @@ pub fn build_main_window() -> WindowParts {
 	let content_panel = Panel::builder(&main_panel).build();
 	let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let login_dialog = Dialog::builder(&frame, "Connect to WhatsApp").with_size(400, 300).build();
+	let login_panel = Panel::builder(&main_panel).build();
 	let login_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let qrcode_dialog = Dialog::builder(&frame, "QR Code").with_size(550, 550).build();
@@ -78,7 +80,7 @@ pub fn build_main_window() -> WindowParts {
 	qrcode_dialog.set_sizer(qr_sizer, true);
 
 	// Phone Panel
-	let phone_panel = Panel::builder(&login_dialog).build();
+	let phone_panel = Panel::builder(&login_panel).build();
 	let phone_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let country_label = StaticText::builder(&phone_panel).with_label("Country:").build();
 	let mut choices = Vec::new();
@@ -104,7 +106,7 @@ pub fn build_main_window() -> WindowParts {
 
 	login_sizer.add(&phone_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	phone_panel.show(true);
-	login_dialog.set_sizer(login_sizer, true);
+	login_panel.set_sizer(login_sizer, true);
 
 	// Pairing Dialog
 	let pairing_dialog = Dialog::builder(&frame, "Pairing Code").with_size(300, 150).build();
@@ -135,11 +137,17 @@ pub fn build_main_window() -> WindowParts {
 
 	content_sizer.add(&conv_panel.panel, 1, SizerFlag::Expand, 0);
 	conv_panel.panel.show(true);
-	login_dialog.show(true);
+
+	// Start with login shown, main app hidden
+	nav_panel.show(false);
+	content_panel.show(false);
+	login_panel.show(true);
+
 	content_panel.set_sizer(content_sizer, true);
 
 	main_sizer.add(&nav_panel, 0, SizerFlag::Expand | SizerFlag::All, 5);
 	main_sizer.add(&content_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	main_sizer.add(&login_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	main_panel.set_sizer(main_sizer, true);
 
 	let frame_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -149,7 +157,9 @@ pub fn build_main_window() -> WindowParts {
 		frame,
 		nav_list,
 		content_panel,
-		login_dialog,
+		login_panel,
+		main_panel,
+		nav_panel,
 		qrcode_dialog,
 		qrcode_display,
 		qrcode_announcer,
@@ -1567,10 +1577,28 @@ pub fn bind_input_handlers(
 			let _ = tx_search_text.send(UiCommand::SearchInConversation(query));
 		}
 	});
+	let state_search_focus = state.clone();
 	search_field_ref.on_text_enter(move |_| {
 		msgs_list_search_focus.set_focus();
-		if msgs_list_search_focus.get_count() > 0 {
-			msgs_list_search_focus.set_selection(0, true);
+		let count = msgs_list_search_focus.get_count();
+		if count > 0 {
+			let s = state_search_focus.borrow();
+			let mut selected_idx = 0;
+			for (i, item) in s.display_items.iter().enumerate() {
+				match item {
+					whantv::DisplayItem::Single(m) => {
+						if !m.is_date_divider {
+							selected_idx = i as u32;
+							break;
+						}
+					}
+					whantv::DisplayItem::Album { .. } => {
+						selected_idx = i as u32;
+						break;
+					}
+				}
+			}
+			msgs_list_search_focus.set_selection(selected_idx, true);
 		}
 	});
 

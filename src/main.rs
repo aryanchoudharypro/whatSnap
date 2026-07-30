@@ -172,13 +172,16 @@ struct AppState {
 	voice_recording_start: Option<std::time::Instant>,
 	voice_paused_duration: std::time::Duration,
 	voice_pause_instant: Option<std::time::Instant>,
+	is_pairing_active: bool,
 	chats: Vec<String>,
 	filtered_chats: Vec<String>,
 	archived_jids: std::collections::HashSet<String>,
 	display_names: std::collections::HashMap<String, String>,
 	contacts: std::collections::HashMap<String, String>,
+	presence_labels: std::collections::HashMap<String, String>,
 	group_state: crate::ui::new_group::NewGroupState,
 	selected_chat: Option<String>,
+	initial_presence_received: bool,
 	messages: Vec<ChatMessage>,
 	loading_messages: bool,
 	no_more_messages: bool,
@@ -187,7 +190,6 @@ struct AppState {
 	prev_msg_count: usize,
 	active_tab: usize,
 	search_query: String,
-	config: crate::ui::settings::AppConfig,
 	pending_attachments: Vec<String>,
 	pending_reply_id: Option<String>,
 	pending_reply_sender: Option<String>,
@@ -531,7 +533,6 @@ fn main() {
 	let res = wxdragon::main(|_| {
 		let parts = build_main_window();
 		let frame = parts.frame;
-		let config = crate::ui::settings::AppConfig::load();
 
 		let (ui_tx_raw, ui_rx) = mpsc::channel();
 		let ui_alive = Arc::new(AtomicBool::new(true));
@@ -607,6 +608,7 @@ fn main() {
 			archived_jids: std::collections::HashSet::new(),
 			display_names: std::collections::HashMap::new(),
 			contacts: std::collections::HashMap::new(),
+			presence_labels: std::collections::HashMap::new(),
 			group_state: crate::ui::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
@@ -614,6 +616,7 @@ fn main() {
 				current_jids: Vec::new(),
 			},
 			selected_chat: None,
+			initial_presence_received: false,
 			messages: Vec::new(),
 			loading_messages: false,
 			no_more_messages: false,
@@ -622,7 +625,6 @@ fn main() {
 			prev_msg_count: 0,
 			active_tab: 0,
 			search_query: String::new(),
-			config,
 			pending_attachments: Vec::new(),
 			pending_reply_id: None,
 			pending_reply_sender: None,
@@ -638,6 +640,7 @@ fn main() {
 			voice_recording_start: None,
 			voice_paused_duration: std::time::Duration::ZERO,
 			voice_pause_instant: None,
+			is_pairing_active: false,
 			display_items: Vec::new(),
 		}));
 
@@ -791,24 +794,28 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		UiCommand::RequestQr => {
+			state.borrow_mut().is_pairing_active = false;
 			let payload = serde_json::json!({
 				"action": "get_qr"
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		UiCommand::CancelQr => {
+			state.borrow_mut().is_pairing_active = false;
 			let payload = serde_json::json!({
 				"action": "cancel_qr"
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		UiCommand::CancelPairing => {
+			state.borrow_mut().is_pairing_active = false;
 			let payload = serde_json::json!({
 				"action": "cancel_pairing"
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		UiCommand::RequestPairing(phone) => {
+			state.borrow_mut().is_pairing_active = true;
 			let payload = serde_json::json!({
 				"action": "pair",
 				"data": {
@@ -855,9 +862,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"connected" => {
 							parts.pairing_dialog.show(false);
 							parts.qrcode_dialog.show(false);
-							parts.login_dialog.show(false);
-							parts.conversations_parts.panel.show(true);
-							parts.content_panel.layout();
+							parts.login_panel.show(false);
+							parts.nav_panel.show(true);
+							parts.content_panel.show(true);
+							parts.main_panel.layout();
 							let payload = serde_json::json!({
 								"action": "get_chats"
 							});
@@ -868,6 +876,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								parts.pairing_code_display.set_value(code);
 								println!("{{'data': {{'qrcode': {{'pairingCode': '{}'}}}}}}", code);
 								parts.pairing_dialog.show(true);
+								parts.qrcode_dialog.show(false);
 								parts.pairing_code_display.select_all();
 								parts.pairing_code_display.set_focus();
 								unsafe {
@@ -882,6 +891,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							}
 						}
 						"qr" => {
+							if state.borrow().is_pairing_active {
+								return;
+							}
 							if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
 								if let Ok(qr) = qrcode::QrCode::new(code) {
 									let image =
@@ -1338,7 +1350,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												"action": "mark_read",
 												"data": { "jid": mark_jid, "message_ids": vec![mark_msg_id] }
 											});
-											let sounds_enabled = s.config.sounds_enabled;
+											let sounds_enabled = true;
 											let _ = tx.send(payload.to_string());
 											play_notification_sound("sounds/message_current.ogg", sounds_enabled);
 										}
@@ -1349,10 +1361,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										.and_then(|f| f.as_bool())
 										.unwrap_or_else(|| from == "me" || from == "You");
 									if !is_from_me {
-										play_notification_sound(
-											"sounds/message_background.ogg",
-											s.config.sounds_enabled,
-										);
+										play_notification_sound("sounds/message_background.ogg", true);
 									}
 								}
 							}
@@ -1571,7 +1580,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 
 									let count = parts.conversations_parts.messages_list.get_count();
 									let target_pos = if let Some(target_id) = s.search_target_id.take() {
-										s.messages.iter().position(|m| m.id == target_id)
+										s.display_items.iter().position(|item| match item {
+											whantv::DisplayItem::Single(m) => m.id == target_id,
+											whantv::DisplayItem::Album { messages, .. } => {
+												messages.iter().any(|m| m.id == target_id)
+											}
+										})
 									} else if let Some(target_text) = s.search_target_text.take() {
 										let is_generic = target_text == "[Voice Message]"
 											|| target_text == "[Audio]" || target_text == "Voice message"
@@ -1579,9 +1593,17 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										if is_generic {
 											None
 										} else {
-											s.messages.iter().position(|m| {
-												m.text == target_text
-													|| (!m.text.is_empty() && m.text.contains(&target_text))
+											s.display_items.iter().position(|item| match item {
+												whantv::DisplayItem::Single(m) => {
+													m.text == target_text
+														|| (!m.text.is_empty() && m.text.contains(&target_text))
+												}
+												whantv::DisplayItem::Album { messages, .. } => {
+													messages.iter().any(|m| {
+														m.text == target_text
+															|| (!m.text.is_empty() && m.text.contains(&target_text))
+													})
+												}
 											})
 										}
 									} else {
@@ -1812,7 +1834,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								if chat_jid.is_empty() || sender_jid.is_empty() {
 									return;
 								}
-								let is_typing = data.get("typing").and_then(|t| t.as_bool()).unwrap_or(true);
+								let is_typing = data.get("typing").and_then(|t| t.as_bool()).unwrap_or(false);
 								let is_recording = data.get("recording").and_then(|r| r.as_bool()).unwrap_or(false);
 
 								let s = state.borrow();
@@ -1825,16 +1847,40 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										} else if is_typing {
 											format!("{} is typing...", sender_name)
 										} else {
-											format!("{} stopped typing", sender_name)
+											let presence = s
+												.presence_labels
+												.get(chat_jid)
+												.cloned()
+												.unwrap_or_else(|| sender_name.clone());
+											// Convert format "Name (online)" to "Name is online" or just "online"
+											if presence.contains("(online)") {
+												format!("{} is online", sender_name)
+											} else if presence.contains("(last seen ") {
+												let last_seen_text = presence
+													.split("(last seen ")
+													.nth(1)
+													.unwrap_or("")
+													.trim_end_matches(')');
+												format!("{} is offline, last seen {}", sender_name, last_seen_text)
+											} else {
+												presence.clone()
+											}
 										};
 										live_region::announce(
 											parts.conversations_parts.messages_announcer.clone(),
 											&announcement,
 										);
 										let btn_label = if is_recording || is_typing {
-											announcement
+											if is_recording {
+												format!("{} is recording audio...", sender_name)
+											} else {
+												format!("{} is typing...", sender_name)
+											}
 										} else {
-											"Conversation data".to_string()
+											s.presence_labels
+												.get(chat_jid)
+												.cloned()
+												.unwrap_or_else(|| sender_name.clone())
 										};
 										parts.conversations_parts.conv_data_btn.set_label(&btn_label);
 									}
@@ -1856,20 +1902,50 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								};
 								let unavailable = data.get("unavailable").and_then(|u| u.as_bool()).unwrap_or(false);
 								let last_seen = data.get("last_seen").and_then(|l| l.as_i64()).unwrap_or(0);
-								let s = state.borrow();
+								let mut s = state.borrow_mut();
+
+								let name = s
+									.contacts
+									.get(&clean_jid)
+									.or_else(|| s.contacts.get(jid))
+									.cloned()
+									.unwrap_or_else(|| clean_jid.clone());
+
+								let btn_label = if unavailable {
+									if last_seen > 0 {
+										if let Some(datetime) = chrono::DateTime::from_timestamp(last_seen, 0) {
+											let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
+											let now = chrono::Local::now();
+											let time_str = local_dt.format("%l:%M %p").to_string().trim().to_string();
+											let date_str = if local_dt.date_naive() == now.date_naive() {
+												format!("today at {}", time_str)
+											} else {
+												local_dt.format("%b %e at %l:%M %p").to_string().replace("  ", " ")
+											};
+											format!("{} (last seen {})", name, date_str)
+										} else {
+											name.clone()
+										}
+									} else {
+										name.clone()
+									}
+								} else {
+									format!("{} (online)", name)
+								};
+
+								s.presence_labels.insert(clean_jid.clone(), btn_label.clone());
+								s.presence_labels.insert(jid.to_string(), btn_label.clone());
+
 								if Some(clean_jid.clone()) == s.selected_chat
 									|| Some(jid.to_string()) == s.selected_chat
 								{
-									let name = s
-										.contacts
-										.get(&clean_jid)
-										.or_else(|| s.contacts.get(jid))
-										.cloned()
-										.unwrap_or_else(|| clean_jid.clone());
-									let status_str = if unavailable { "offline" } else { "online" };
-									let msg = format!("{} is now {}", name, status_str);
-									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
-									let btn_label = if unavailable {
+									let mut should_announce = true;
+									if !s.initial_presence_received {
+										s.initial_presence_received = true;
+										should_announce = false;
+									}
+
+									let announcement = if unavailable {
 										if last_seen > 0 {
 											if let Some(datetime) = chrono::DateTime::from_timestamp(last_seen, 0) {
 												let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
@@ -1881,16 +1957,22 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												} else {
 													local_dt.format("%b %e at %l:%M %p").to_string().replace("  ", " ")
 												};
-												format!("{} (last seen {})", name, date_str)
+												format!("{}, last seen {}", name, date_str)
 											} else {
-												"Conversation data".to_string()
+												format!("{}, offline", name)
 											}
 										} else {
-											"Conversation data".to_string()
+											format!("{}, offline", name)
 										}
 									} else {
-										format!("{} (online)", name)
+										format!("{} is now online", name)
 									};
+									if should_announce {
+										live_region::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											&announcement,
+										);
+									}
 									parts.conversations_parts.conv_data_btn.set_label(&btn_label);
 								}
 							}
@@ -2086,7 +2168,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											}
 										}
 										if should_play {
-											play_notification_sound("sounds/message_sent.ogg", s.config.sounds_enabled);
+											play_notification_sound("sounds/message_sent.ogg", true);
 										}
 									}
 								}
@@ -2856,6 +2938,7 @@ while ($true) {
 			if let Some(ref jid) = jid {
 				let mut s = state.borrow_mut();
 				s.selected_chat = Some(jid.clone());
+				s.initial_presence_received = false;
 				s.messages.clear();
 				s.loading_messages = false;
 				s.no_more_messages = false;
@@ -2865,6 +2948,11 @@ while ($true) {
 				parts.conversations_parts.conversation_panel.show(true);
 				parts.conversations_parts.play_voice_btn.show(false);
 				parts.conversations_parts.action_panel.show(false);
+
+				let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+				let label = s.presence_labels.get(jid).cloned().unwrap_or_else(|| name.clone());
+				parts.conversations_parts.conv_data_btn.set_label(&label);
+
 				parts.attachment_dialog.attachment_info_label.set_label("");
 				parts.conversations_parts.messages_list.clear();
 				parts.conversations_parts.message_field.set_value("");
@@ -3056,7 +3144,7 @@ while ($true) {
 					s.voice_pause_instant.take(),
 					s.is_voice_paused,
 					s.selected_chat.clone(),
-					s.config.sounds_enabled,
+					true,
 					s.ws_tx.clone(),
 				)
 			};
