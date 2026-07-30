@@ -73,13 +73,16 @@ func handleSend(conn *websocket.Conn, raw json.RawMessage) {
 	}
 
 	broadcastEvent("message", map[string]interface{}{
-		"jid":       jid.String(),
-		"from":      "me",
-		"id":        resp.ID,
-		"text":      data.Text,
-		"from_me":   true,
-		"timestamp": ts,
-		"has_media": false,
+		"jid":          jid.String(),
+		"from":         "me",
+		"id":           resp.ID,
+		"text":         data.Text,
+		"from_me":      true,
+		"timestamp":    ts,
+		"has_media":    false,
+		"quotedId":     quotedID,
+		"quotedText":   quotedText,
+		"quotedSender": quotedSender,
 	})
 	broadcastChats()
 }

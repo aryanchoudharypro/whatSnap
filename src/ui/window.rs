@@ -27,6 +27,7 @@ pub struct WindowParts {
 	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
 	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
 	pub attachment_dialog: crate::ui::attachment_dialog::AttachmentDialogParts,
+	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
 }
 
@@ -120,10 +121,12 @@ pub fn build_main_window() -> WindowParts {
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
 	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
 	let attachment_dialog = crate::ui::attachment_dialog::build_attachment_dialog(&frame);
-	let conversations_parts = crate::ui::conversations::build_conversations_panel(&content_panel);
+	let conversation_data_dialog = crate::ui::conversation_data::build_conversation_data_dialog(&frame);
 
-	content_sizer.add(&conversations_parts.panel, 1, SizerFlag::Expand, 0);
-	conversations_parts.panel.show(true);
+	let conv_panel = crate::ui::conversations::build_conversations_panel(&content_panel);
+
+	content_sizer.add(&conv_panel.panel, 1, SizerFlag::Expand, 0);
+	conv_panel.panel.show(true);
 	login_dialog.show(true);
 	content_panel.set_sizer(content_sizer, true);
 
@@ -156,7 +159,8 @@ pub fn build_main_window() -> WindowParts {
 		new_contact_dialog,
 		new_group_dialog,
 		attachment_dialog,
-		conversations_parts,
+		conversation_data_dialog,
+		conversations_parts: conv_panel,
 	}
 }
 
@@ -242,6 +246,30 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	parts.new_conv_dialog.new_contact_btn.on_click(move |_| {
 		new_conv_dlg_for_contact.end_modal(0);
 		new_contact_dialog.show_modal();
+	});
+
+	let tx_conv_data = ui_tx.clone();
+	parts.conversations_parts.conv_data_btn.on_click(move |_| {
+		let _ = tx_conv_data.send(UiCommand::ShowConversationData);
+	});
+
+	let conv_data_dialog_close = parts.conversation_data_dialog.dialog.clone();
+	parts.conversation_data_dialog.close_btn.on_click(move |_| {
+		conv_data_dialog_close.end_modal(0);
+	});
+
+	let conv_data_dialog_esc = parts.conversation_data_dialog.dialog.clone();
+	parts.conversation_data_dialog.info_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			if key_event.get_key_code() == Some(27) {
+				conv_data_dialog_esc.end_modal(0);
+				event.skip(false);
+			} else {
+				event.skip(true);
+			}
+		} else {
+			event.skip(true);
+		}
 	});
 
 	let new_contact_dialog_cancel = parts.new_contact_dialog.dialog;
@@ -526,6 +554,8 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	let msgs_announcer = parts.conversations_parts.messages_announcer.clone();
 	let msg_input_field = parts.conversations_parts.message_field.clone();
 	let search_panel_key = parts.conversations_parts.search_panel;
+	let remove_quote_btn_play = parts.conversations_parts.remove_quote_btn;
+	let conv_panel_play = parts.conversations_parts.conversation_panel;
 	let _conv_panel_key = parts.conversations_parts.conversation_panel;
 	let last_left_arrow = std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
 	let msgs_list_ctx = parts.conversations_parts.messages_list.clone();
@@ -534,6 +564,8 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	let msgs_announcer_ctx = parts.conversations_parts.messages_announcer.clone();
 	let msg_input_field_ctx = parts.conversations_parts.message_field.clone();
 	let tx_play_media_ctx = ui_tx.clone();
+	let remove_quote_btn_ctx = parts.conversations_parts.remove_quote_btn;
+	let conv_panel_ctx = parts.conversations_parts.conversation_panel;
 
 	let open_msg_context_menu = Rc::new(move || {
 		if let Some(idx) = msgs_list_ctx.get_selection() {
@@ -600,6 +632,8 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 							let status_msg = format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
 							live_region::announce(msgs_announcer_clone.clone(), &status_msg);
 							msg_input_field_clone.set_focus();
+							remove_quote_btn_ctx.show(true);
+							conv_panel_ctx.layout();
 							unsafe {
 								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_OK);
 							}
@@ -787,11 +821,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 	parts.conversations_parts.messages_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			if code == Some(93) || code == Some(393) || code == Some(347) || (code == Some(350) && key_event.shift_down()) {
-				open_menu_key();
-				event.skip(false);
-				return;
-			}
+
 			if code == Some(314) || code == Some(37) { // Left Arrow
 				let now = std::time::Instant::now();
 				let prev = last_left_arrow.get();
@@ -1005,6 +1035,8 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 							let status_msg = format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
 							live_region::announce(msgs_announcer.clone(), &status_msg);
 							msg_input_field.set_focus();
+							remove_quote_btn_play.show(true);
+							conv_panel_play.layout();
 							unsafe {
 								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(windows::Win32::UI::WindowsAndMessaging::MB_OK);
 							}
@@ -1225,7 +1257,10 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item { whantv::DisplayItem::Single(m) => Some(m.clone()), whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(), });
 			if let Some(msg) = msg_opt {
 				let is_voice = match s.display_items.get(idx as usize) {
-					Some(whantv::DisplayItem::Single(m)) => m.is_audio || m.text.starts_with("[Voice Message]") || m.text.starts_with("[Audio]"),
+					Some(whantv::DisplayItem::Single(m)) => {
+						let is_deleted = m.is_deleted || m.text == "[This message was deleted]" || m.text == "[You deleted this message]";
+						!is_deleted && (m.is_audio || m.text.starts_with("[Voice Message]") || m.text.starts_with("[Audio]"))
+					},
 					_ => false,
 				};
 				if play_voice_btn_sel.is_shown() != is_voice {

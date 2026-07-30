@@ -120,10 +120,18 @@ func handleGetUserInfo(conn *websocket.Conn, raw json.RawMessage) {
 			sendEvent(conn, "error", map[string]string{"message": "user info not found"})
 			return
 		}
+		pushName := ""
+		fullName := ""
+		if contactInfo, cErr := client.Store.Contacts.GetContact(context.Background(), jid); cErr == nil && contactInfo.Found {
+			pushName = contactInfo.PushName
+			fullName = contactInfo.FullName
+		}
 		go updateContactAboutCache(data.JID, userInfo.Status)
 		sendEvent(conn, "user_info", map[string]interface{}{
 			"jid": data.JID, "status": userInfo.Status, "pictureId": userInfo.PictureID,
 			"deviceCount": len(userInfo.Devices),
+			"pushName": pushName,
+			"fullName": fullName,
 		})
 	}()
 }
