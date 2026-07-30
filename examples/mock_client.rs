@@ -1,7 +1,13 @@
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use std::thread;
-use std::time::Duration;
-use tungstenite::{connect, Message};
+use std::{
+	sync::{
+		Arc,
+		atomic::{AtomicBool, Ordering},
+	},
+	thread,
+	time::Duration,
+};
+
+use tungstenite::{Message, connect};
 
 fn main() {
 	let ui_alive = Arc::new(AtomicBool::new(true));
@@ -30,15 +36,20 @@ fn main() {
 							if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
 								match t {
 									"pairing_code" => {
-										if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
+										if let Some(code) =
+											val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str())
+										{
 											println!("{{'data': {{'qrcode': {{'pairingCode': '{}'}}}}}}", code);
 											pairing_received = true;
 										}
 									}
 									"qr" => {
-										if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
+										if let Some(code) =
+											val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str())
+										{
 											if let Ok(qr) = qrcode::QrCode::new(code) {
-												let image = qr.render::<image::Rgba<u8>>()
+												let image = qr
+													.render::<image::Rgba<u8>>()
 													.quiet_zone(false)
 													.module_dimensions(8, 8)
 													.build();
@@ -48,10 +59,16 @@ fn main() {
 												let mut png_bytes = Vec::new();
 												let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
 												use image::ImageEncoder;
-												if encoder.write_image(&data, width, height, image::ExtendedColorType::Rgba8).is_ok() {
+												if encoder
+													.write_image(&data, width, height, image::ExtendedColorType::Rgba8)
+													.is_ok()
+												{
 													use base64::{Engine as _, engine::general_purpose};
 													let b64 = general_purpose::STANDARD.encode(&png_bytes);
-													println!("{{'data': {{'qrcode': {{'base64': 'data:image/png;base64,{}'}}}}}}", b64);
+													println!(
+														"{{'data': {{'qrcode': {{'base64': 'data:image/png;base64,{}'}}}}}}",
+														b64
+													);
 													qr_received = true;
 												}
 											}

@@ -1,4 +1,5 @@
 use std::{process::Command, time::Instant};
+
 use whantv::ChatMessage;
 
 fn run_stress_test_simulation() {
@@ -21,7 +22,12 @@ fn run_stress_test_simulation() {
 			let idx = (page * page_size) + i + 1;
 			let json_str = format!(
 				r#"{{"id":"msg_{}","text":"Synthetic chat message #{} payload","timestamp":{},"fromMe":{},"senderJid":"user_{}@s.whatsapp.net","senderName":"User {}"}}"#,
-				idx, idx, 1700000000 + idx, idx % 2 == 0, idx % 50, idx % 50
+				idx,
+				idx,
+				1700000000 + idx,
+				idx % 2 == 0,
+				idx % 50,
+				idx % 50
 			);
 			current_page.push(json_str);
 		}
@@ -48,15 +54,30 @@ fn run_stress_test_simulation() {
 			max_page_duration = elapsed;
 		}
 
-		assert!(elapsed < std::time::Duration::from_millis(10), "Page {} processing time {:?} exceeded 10ms limit", page_idx, elapsed);
+		assert!(
+			elapsed < std::time::Duration::from_millis(10),
+			"Page {} processing time {:?} exceeded 10ms limit",
+			page_idx,
+			elapsed
+		);
 
 		page_msgs.extend(loaded_history.drain(..));
 		loaded_history = page_msgs;
 	}
 
-	assert_eq!(loaded_history.len(), total_messages, "Data truncation detected! Expected {} messages, got {}", total_messages, loaded_history.len());
+	assert_eq!(
+		loaded_history.len(),
+		total_messages,
+		"Data truncation detected! Expected {} messages, got {}",
+		total_messages,
+		loaded_history.len()
+	);
 	let avg_page_duration = total_duration / (all_json_pages.len() as u32);
-	println!("Rust Stress Harness Passed: {} messages processed across {} pages.", loaded_history.len(), all_json_pages.len());
+	println!(
+		"Rust Stress Harness Passed: {} messages processed across {} pages.",
+		loaded_history.len(),
+		all_json_pages.len()
+	);
 	println!("Page Processing Latency - Avg: {:?}, Max: {:?}", avg_page_duration, max_page_duration);
 }
 

@@ -11,7 +11,10 @@ pub struct NewContactDialogParts {
 }
 
 pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts {
-	let dialog = Dialog::builder(parent, "New Contact").with_size(380, 320).with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder).build();
+	let dialog = Dialog::builder(parent, "New Contact")
+		.with_size(380, 320)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
 	let panel = Panel::builder(&dialog).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
@@ -49,13 +52,5 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	NewContactDialogParts {
-		dialog,
-		name_field,
-		surname_field,
-		phone_field,
-		sync_check,
-		ok_btn,
-		cancel_btn,
-	}
+	NewContactDialogParts { dialog, name_field, surname_field, phone_field, sync_check, ok_btn, cancel_btn }
 }

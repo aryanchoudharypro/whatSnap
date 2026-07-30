@@ -36,7 +36,6 @@ pub struct ConversationsPanelParts {
 	pub send_message_btn: Button,
 	pub record_voice_btn: Button,
 
-
 	pub discard_voice_btn: Button,
 	pub pause_resume_btn: Button,
 	pub send_voice_btn: Button,
@@ -92,9 +91,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	search_sizer.add(&search_close_btn, 0, SizerFlag::Right, 5);
 	let search_conv_label = StaticText::builder(&search_panel).with_label("Search conversation").build();
 	search_sizer.add(&search_conv_label, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
-	let search_conv_field = TextCtrl::builder(&search_panel)
-		.with_style(TextCtrlStyle::ProcessEnter)
-		.build();
+	let search_conv_field = TextCtrl::builder(&search_panel).with_style(TextCtrlStyle::ProcessEnter).build();
 	search_sizer.add(&search_conv_field, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	search_panel.set_sizer(search_sizer, true);
 	search_panel.show(false);
@@ -181,9 +178,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let attach_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let caption_label = StaticText::builder(&attachment_panel).with_label("Caption").build();
 	attach_sizer.add(&caption_label, 0, SizerFlag::Left | SizerFlag::Top, 5);
-	let caption_field = TextCtrl::builder(&attachment_panel)
-		.with_style(TextCtrlStyle::ProcessEnter)
-		.build();
+	let caption_field = TextCtrl::builder(&attachment_panel).with_style(TextCtrlStyle::ProcessEnter).build();
 	attach_sizer.add(&caption_field, 0, SizerFlag::Expand | SizerFlag::All, 5);
 	let attachment_info_label = StaticText::builder(&attachment_panel).with_label("").build();
 	attach_sizer.add(&attachment_info_label, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 5);
@@ -198,11 +193,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let discard_voice_btn = Button::builder(&conversation_panel).with_label("Discard voice message").build();
 	conv_sizer.add(&discard_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	discard_voice_btn.show(false);
-	
+
 	let pause_resume_btn = Button::builder(&conversation_panel).with_label("Pause recording").build();
 	conv_sizer.add(&pause_resume_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	pause_resume_btn.show(false);
-	
+
 	let send_voice_btn = Button::builder(&conversation_panel).with_label("Send voice message").build();
 	conv_sizer.add(&send_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	send_voice_btn.show(false);

@@ -5,19 +5,12 @@ use wxdragon::prelude::*;
 
 fn main() {
 	let _ = wxdragon::main(|_| {
-		let frame = Frame::builder()
-			.with_title("AccessKit Test")
-			.with_size(Size::new(400, 300))
-			.build();
+		let frame = Frame::builder().with_title("AccessKit Test").with_size(Size::new(400, 300)).build();
 
 		let panel = Panel::builder(&frame).build();
 		let hwnd = HWND(panel.handle_ptr() as *mut std::ffi::c_void);
 
-		let _adapter = SubclassingAdapter::new(
-			hwnd,
-			NullHandler,
-			NullHandler,
-		);
+		let _adapter = SubclassingAdapter::new(hwnd, NullHandler, NullHandler);
 
 		frame.show(true);
 	});
@@ -40,5 +33,3 @@ impl ActivationHandler for NullHandler {
 		})
 	}
 }
-
-

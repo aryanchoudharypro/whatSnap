@@ -10,8 +10,11 @@ pub struct NewConversationDialogParts {
 }
 
 pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationDialogParts {
-	let dialog = Dialog::builder(parent, "New Conversation").with_size(440, 480).with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder).build();
-	
+	let dialog = Dialog::builder(parent, "New Conversation")
+		.with_size(440, 480)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+
 	let panel = Panel::builder(&dialog).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
@@ -25,34 +28,27 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 	sizer.add(&results_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	
+
 	let new_group_btn = Button::builder(&panel).with_label("New Group").build();
 	btn_sizer.add(&new_group_btn, 0, SizerFlag::Right, 8);
 
 	let new_contact_btn = Button::builder(&panel).with_label("New Contact").build();
 	btn_sizer.add(&new_contact_btn, 0, SizerFlag::Right, 8);
-	
+
 	btn_sizer.add_stretch_spacer(1);
-	
+
 	let close_btn = Button::builder(&panel).with_label("Close").build();
 	btn_sizer.add(&close_btn, 0, SizerFlag::empty(), 0);
 
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 
 	panel.set_sizer(sizer, true);
-	
+
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
 	dialog.set_sizer(outer, true);
-	
+
 	dialog.center();
-	
-	NewConversationDialogParts {
-		dialog,
-		search_field,
-		results_list,
-		new_group_btn,
-		new_contact_btn,
-		close_btn,
-	}
+
+	NewConversationDialogParts { dialog, search_field, results_list, new_group_btn, new_contact_btn, close_btn }
 }
