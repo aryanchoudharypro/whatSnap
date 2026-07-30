@@ -197,7 +197,49 @@ func markMessageEdited(id, jid, newText string, newRaw []byte, editTime int64) e
 
 func markMessageDeleted(id, jid string) error {
 	_, err := db.Exec(`UPDATE messages SET is_deleted = 1, text = '' WHERE id = ? AND jid = ?`, id, jid)
+	UpdateChatSnippet(jid)
 	return err
+}
+
+func UpdateChatSnippet(jid string) {
+	query := `
+		UPDATE chats 
+		SET preview_snippet = COALESCE(
+			(SELECT 
+				CASE 
+					WHEN is_deleted = 1 THEN 
+						CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END 
+					ELSE 
+						NULLIF(text, '')
+				END 
+			 FROM messages 
+			 WHERE messages.jid = chats.jid 
+			 ORDER BY timestamp DESC 
+			 LIMIT 1), 
+			chats.preview_snippet)
+		WHERE jid = ?
+	`
+	db.Exec(query, jid)
+}
+
+func UpdateAllChatSnippets() {
+	query := `
+		UPDATE chats 
+		SET preview_snippet = COALESCE(
+			(SELECT 
+				CASE 
+					WHEN is_deleted = 1 THEN 
+						CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END 
+					ELSE 
+						NULLIF(text, '')
+				END 
+			 FROM messages 
+			 WHERE messages.jid = chats.jid 
+			 ORDER BY timestamp DESC 
+			 LIMIT 1), 
+			chats.preview_snippet)
+	`
+	db.Exec(query)
 }
 
 func setMessageMediaPath(id, path string) error {
