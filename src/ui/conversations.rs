@@ -49,7 +49,7 @@ pub struct ConversationsPanelParts {
 	pub attachment_info_label: StaticText,
 
 	pub audio_speed_btn: Button,
-	pub audio_progress_label: StaticText,
+	pub audio_progress_label: Button,
 	pub audio_slider: Slider,
 
 	pub action_panel: Panel,
@@ -140,8 +140,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	action_sizer.add(&audio_speed_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	audio_speed_btn.show(false);
 
-	let audio_progress_label = StaticText::builder(&action_panel).with_label("Audio progress").build();
-	action_sizer.add(&audio_progress_label, 0, SizerFlag::Left, 5);
+	let audio_progress_label = Button::builder(&action_panel).with_label("0:00 / 0:00").build();
+	action_sizer.add(&audio_progress_label, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	audio_progress_label.show(false);
 
 	let audio_slider = Slider::builder(&action_panel).with_min_value(0).with_max_value(1000).build();
