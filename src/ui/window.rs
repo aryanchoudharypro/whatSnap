@@ -447,6 +447,20 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 			} else if code == Some(27) { // Escape key
 				let _ = tx_send_field.send(UiCommand::CloseConversation);
 				event.skip(false);
+			} else if code == Some(86) && key_event.control_down() { // Ctrl+V
+				let mut has_files = false;
+				if let Some(_locker) = Clipboard::get().locker() {
+					let mut fdo = FileDataObject::new();
+					if Clipboard::get().get_data(&mut fdo) && fdo.get_file_count() > 0 {
+						has_files = true;
+					}
+				}
+				if has_files {
+					let _ = tx_send_field.send(UiCommand::PasteAttachment);
+					event.skip(false);
+				} else {
+					event.skip(true);
+				}
 			} else {
 				event.skip(true);
 			}
@@ -894,6 +908,20 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 					msgs_list_play.set_selection((count - 1) as u32, true);
 				}
 				event.skip(false);
+			} else if key_event.get_key_code() == Some(86) && key_event.control_down() { // Ctrl+V
+				let mut has_files = false;
+				if let Some(_locker) = Clipboard::get().locker() {
+					let mut fdo = FileDataObject::new();
+					if Clipboard::get().get_data(&mut fdo) && fdo.get_file_count() > 0 {
+						has_files = true;
+					}
+				}
+				if has_files {
+					let _ = tx_close_list.send(UiCommand::PasteAttachment);
+					event.skip(false);
+				} else {
+					event.skip(true);
+				}
 			} else if key_event.get_key_code() == Some(13) { // Enter key
 				let is_search_active = search_panel_key.is_shown();
 				if is_search_active {
