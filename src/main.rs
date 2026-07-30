@@ -288,13 +288,16 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 					}
 				}
 				whantv::DisplayItem::Album { messages, .. } => {
-					if item.all_downloaded() {
+					let valid_messages: Vec<_> = messages.iter().filter(|m| !m.is_deleted && !m.text.contains("deleted")).collect();
+					if !valid_messages.is_empty() {
+						let all_dl = valid_messages.iter().all(|m| m.is_media_downloaded());
+						if all_dl {
 						if parts.action_download_btn.is_shown() { parts.action_download_btn.show(false); need_layout = true; }
 						if !parts.action_open_btn.is_shown() { parts.action_open_btn.show(true); need_layout = true; }
 						parts.action_open_btn.set_label("Open album");
 
-						let photo_count = messages.iter().filter(|m| m.media_type == "image" || m.text.starts_with("[Photo]") || m.text.starts_with("[Image]")).count();
-						let video_count = messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
+						let photo_count = valid_messages.iter().filter(|m| m.media_type == "image" || m.text.starts_with("[Photo]") || m.text.starts_with("[Image]")).count();
+						let video_count = valid_messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
 						let save_label = if photo_count > 0 && video_count == 0 {
 							"Save all photos"
 						} else if video_count > 0 && photo_count == 0 {
@@ -309,14 +312,15 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 						if parts.action_save_as_btn.is_shown() { parts.action_save_as_btn.show(false); need_layout = true; }
 						if !parts.action_download_btn.is_shown() { parts.action_download_btn.show(true); need_layout = true; }
 
-						let uncollected = messages.iter().filter(|m| !m.is_media_downloaded()).count();
-						let is_dl_in_progress = messages.iter().any(|m| s.downloads_in_progress.contains_key(&m.id));
+						let uncollected = valid_messages.iter().filter(|m| !m.is_media_downloaded()).count();
+						let is_dl_in_progress = valid_messages.iter().any(|m| s.downloads_in_progress.contains_key(&m.id));
 						let dl_label = if is_dl_in_progress {
 							format!("Downloading album ({} items remaining)", uncollected)
 						} else {
 							format!("Download album ({} items remaining)", uncollected)
 						};
 						parts.action_download_btn.set_label(&dl_label);
+					}
 					}
 					return need_layout;
 				}
@@ -644,6 +648,7 @@ fn main() {
 		Box::leak(Box::new(audio_timer)); // Keep alive for app lifetime
 
 		frame.show(true);
+		parts_clone.conversations_parts.search_field.set_focus();
 	});
 	if let Err(e) = res {
 		let _ = std::fs::write("main_error.log", format!("{:?}", e));
@@ -3038,6 +3043,8 @@ parts.attachment_dialog.caption_field.set_value("");
 			drop(s);
 			parts.conversations_parts.remove_quote_btn.show(false);
 			parts.conversations_parts.conversation_panel.layout();
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Quoted message removed.");
+			parts.conversations_parts.message_field.set_focus();
 		}
 		UiCommand::SendTyping { jid, state: typing_state, media } => {
 			let target_jid = if jid.is_empty() {

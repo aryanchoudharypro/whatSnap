@@ -386,6 +386,7 @@ func eventHandler(evt interface{}) {
 					log.Println("Error committing HistorySync transaction for conv:", err)
 				}
 			}
+			UpdateAllChatSnippets()
 			broadcastChats()
 		}()
 
@@ -767,10 +768,7 @@ func populateChatsFromStore() {
 			db.Exec(`UPDATE messages SET jid = ?, sender_jid = ?
 				WHERE jid LIKE '%@broadcast' AND from_me = 0 AND sender_jid = ?`,
 				target.String(), target.String(), s)
-			db.Exec(`UPDATE chats SET preview_snippet = COALESCE(
-					(SELECT NULLIF(m.text, '') FROM messages m WHERE m.jid = chats.jid ORDER BY m.timestamp DESC LIMIT 1),
-					preview_snippet)
-				WHERE jid = ?`, target.String())
+			UpdateChatSnippet(target.String())
 		}
 	}
 	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@lid' OR jid LIKE '%@broadcast'")
