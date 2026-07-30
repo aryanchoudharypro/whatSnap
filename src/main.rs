@@ -970,22 +970,65 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let ts = data.get("timestamp").and_then(|t| t.as_i64().or_else(|| t.as_f64().map(|f| f as i64))).unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64);
 									let msg_id = data.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
 
-									let mut temp_idx = None;
+									let mut temp_msg_idx = None;
 									if is_from_me {
 										for (idx, msg) in s.messages.iter().enumerate() {
 											if msg.id.starts_with("temp_upload_") {
-												temp_idx = Some(idx);
+												temp_msg_idx = Some(idx);
 												break;
 											}
 										}
 									}
 
-									if let Some(idx) = temp_idx {
-										s.messages[idx].id = msg_id;
+									if let Some(idx) = temp_msg_idx {
+										s.messages[idx].id = msg_id.clone();
 										s.messages[idx].text = text.to_string();
-										parts.conversations_parts.messages_list.set_string(idx as u32, &s.messages[idx].format_display(is_group));
-										let formatted = s.messages[idx].format_display(is_group);
-										live_region::announce(parts.conversations_parts.messages_announcer.clone(), &formatted);
+										s.messages[idx].media_type = data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("").to_string();
+										s.messages[idx].media_filename = data.get("mediaFilename").and_then(|m| m.as_str()).unwrap_or("").to_string();
+
+										let media_type = s.messages[idx].media_type.clone();
+										let media_filename = s.messages[idx].media_filename.clone();
+
+										// Update display_items and UI
+										let mut target_di = None;
+										let mut updated_display = String::new();
+										for (di, item) in s.display_items.iter_mut().enumerate() {
+											let mut matched = false;
+											match item {
+												whantv::DisplayItem::Single(m) => {
+													if m.id.starts_with("temp_upload_") {
+														m.id = msg_id.clone();
+														m.text = text.to_string();
+														m.media_type = media_type.clone();
+														m.media_filename = media_filename.clone();
+														matched = true;
+													}
+												}
+												whantv::DisplayItem::Album { messages, .. } => {
+													for m in messages.iter_mut() {
+														if m.id.starts_with("temp_upload_") {
+															m.id = msg_id.clone();
+															m.text = text.to_string();
+															m.media_type = media_type.clone();
+															m.media_filename = media_filename.clone();
+															matched = true;
+															break;
+														}
+													}
+												}
+												_ => {}
+											}
+											if matched {
+												target_di = Some(di);
+												updated_display = item.format_display(is_group);
+												break;
+											}
+										}
+
+										if let Some(di) = target_di {
+											parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
+											live_region::announce(parts.conversations_parts.messages_announcer.clone(), &updated_display);
+										}
 									} else {
 										let sender_name = if is_from_me {
 											"You".to_string()
@@ -2113,26 +2156,93 @@ while ($true) {
 
 								let mut s = state.borrow_mut();
 								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
-								let mut temp_idx = None;
+								
+								// 1. Update s.messages
+								let mut temp_msg_idx = None;
 								for (idx, m) in s.messages.iter().enumerate() {
 									if m.id.starts_with("temp_upload_") {
-										temp_idx = Some(idx);
+										temp_msg_idx = Some(idx);
 										break;
 									}
 								}
-								if let Some(idx) = temp_idx {
+								
+								if let Some(idx) = temp_msg_idx {
 									let existing_text = &s.messages[idx].text;
-									let caption_suffix = if let Some(pos) = existing_text.find("] ") {
-										existing_text[pos + 2..].to_string()
+									let caption_suffix = if existing_text.starts_with("[Uploading ") {
+										if let Some(pos) = existing_text.find("] ") {
+											existing_text[pos + 2..].to_string()
+										} else {
+											String::new()
+										}
 									} else {
-										String::new()
+										// If it already transformed to [Document] etc., just keep it as is,
+										// but actually we shouldn't really overwrite it if it's no longer Uploading,
+										// but to be safe we'll preserve the whole text as suffix if it lacks ] 
+										if let Some(pos) = existing_text.find("] ") {
+											existing_text[pos + 2..].to_string()
+										} else {
+											String::new()
+										}
 									};
 									s.messages[idx].text = if caption_suffix.is_empty() {
 										format!("[{}]", msg)
 									} else {
 										format!("[{}] {}", msg, caption_suffix)
 									};
-									parts.conversations_parts.messages_list.set_string(idx as u32, &s.messages[idx].format_display(is_group));
+								}
+
+								// 2. Update s.display_items and UI
+								let mut target_di = None;
+								let mut updated_display = String::new();
+								for (di, item) in s.display_items.iter_mut().enumerate() {
+									let mut matched = false;
+									match item {
+										whantv::DisplayItem::Single(m) => {
+											if m.id.starts_with("temp_upload_") {
+												let existing_text = &m.text;
+												let caption_suffix = if let Some(pos) = existing_text.find("] ") {
+													existing_text[pos + 2..].to_string()
+												} else {
+													String::new()
+												};
+												m.text = if caption_suffix.is_empty() {
+													format!("[{}]", msg)
+												} else {
+													format!("[{}] {}", msg, caption_suffix)
+												};
+												matched = true;
+											}
+										}
+										whantv::DisplayItem::Album { messages, .. } => {
+											for m in messages.iter_mut() {
+												if m.id.starts_with("temp_upload_") {
+													let existing_text = &m.text;
+													let caption_suffix = if let Some(pos) = existing_text.find("] ") {
+														existing_text[pos + 2..].to_string()
+													} else {
+														String::new()
+													};
+													m.text = if caption_suffix.is_empty() {
+														format!("[{}]", msg)
+													} else {
+														format!("[{}] {}", msg, caption_suffix)
+													};
+													matched = true;
+													break;
+												}
+											}
+										}
+										_ => {}
+									}
+									if matched {
+										target_di = Some(di);
+										updated_display = item.format_display(is_group);
+										break;
+									}
+								}
+
+								if let Some(di) = target_di {
+									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
 								}
 								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
 							}
@@ -2147,27 +2257,87 @@ while ($true) {
 								let mut s = state.borrow_mut();
 								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 
-								let mut target_idx = None;
+								// 1. Update s.messages
+								let mut target_msg_idx = None;
 								for (idx, m) in s.messages.iter().enumerate() {
 									if m.id.starts_with("temp_upload_") || m.status == "uploading" || m.status == "pending" {
-										target_idx = Some(idx);
+										target_msg_idx = Some(idx);
 										break;
 									}
 								}
 
-								if let Some(idx) = target_idx {
+								if let Some(idx) = target_msg_idx {
 									if !real_id.is_empty() {
 										s.messages[idx].id = real_id.to_string();
 									}
 									s.messages[idx].status = "sent".to_string();
 
 									let text = &s.messages[idx].text;
-									if let Some(pos) = text.find("] ") {
-										s.messages[idx].text = text[pos + 2..].to_string();
+									if text.starts_with("[Uploading ") {
+										if let Some(pos) = text.find("] ") {
+											s.messages[idx].text = text[pos + 2..].to_string();
+										} else if text.ends_with(']') {
+											s.messages[idx].text = String::new();
+										}
 									}
+								}
 
-									let updated_display = s.messages[idx].format_display(is_group);
-									parts.conversations_parts.messages_list.set_string(idx as u32, &updated_display);
+								// 2. Update s.display_items and UI
+								let mut target_di = None;
+								let mut updated_display = String::new();
+								for (di, item) in s.display_items.iter_mut().enumerate() {
+									let mut matched = false;
+									match item {
+										whantv::DisplayItem::Single(m) => {
+											if m.id.starts_with("temp_upload_") || m.status == "uploading" || m.status == "pending" {
+												if !real_id.is_empty() {
+													m.id = real_id.to_string();
+												}
+												m.status = "sent".to_string();
+												
+												let text = &m.text;
+												if text.starts_with("[Uploading ") {
+													if let Some(pos) = text.find("] ") {
+														m.text = text[pos + 2..].to_string();
+													} else if text.ends_with(']') {
+														m.text = String::new();
+													}
+												}
+												matched = true;
+											}
+										}
+										whantv::DisplayItem::Album { messages, .. } => {
+											for m in messages.iter_mut() {
+												if m.id.starts_with("temp_upload_") || m.status == "uploading" || m.status == "pending" {
+													if !real_id.is_empty() {
+														m.id = real_id.to_string();
+													}
+													m.status = "sent".to_string();
+													
+													let text = &m.text;
+													if text.starts_with("[Uploading ") {
+														if let Some(pos) = text.find("] ") {
+															m.text = text[pos + 2..].to_string();
+														} else if text.ends_with(']') {
+															m.text = String::new();
+														}
+													}
+													matched = true;
+													break;
+												}
+											}
+										}
+										_ => {}
+									}
+									if matched {
+										target_di = Some(di);
+										updated_display = item.format_display(is_group);
+										break;
+									}
+								}
+
+								if let Some(di) = target_di {
+									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
 									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &updated_display);
 								} else {
 									let msg = format!("{} sent successfully", filename);
@@ -2582,6 +2752,7 @@ while ($true) {
 					{
 						let mut s = state.borrow_mut();
 						s.messages.push(pending_msg.clone());
+						s.display_items.push(whantv::DisplayItem::Single(pending_msg.clone()));
 					}
 					parts.conversations_parts.messages_list.append(&pending_msg.format_display(is_group));
 
