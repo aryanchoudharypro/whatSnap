@@ -66,10 +66,13 @@ pub enum UiCommand {
 	SeekAudio(f32),         // relative delta in seconds
 	SeekAudioAbsolute(i32), // slider value 0..1000
 	CloseConversation,
+	ReactToMessage { message_id: String, emoji: String },
+	ToggleAudioSpeed,
 }
 
 use whantv::ChatMessage;
-use rodio::{OutputStream, Sink, Decoder};
+use rodio::{Player, Decoder, DeviceSinkBuilder, MixerDeviceSink};
+use rodio_wsola::WsolaSourceExt;
 use std::fs::File;
 use std::io::BufReader;
 
@@ -114,28 +117,16 @@ fn play_notification_sound(sound_file: &str, sounds_enabled: bool) {
 			return;
 		}
 
-		match OutputStream::try_default() {
-			Ok((stream, stream_handle)) => {
-				match Sink::try_new(&stream_handle) {
-					Ok(sink) => {
-						match File::open(&resolved_path) {
-							Ok(file) => {
-								match Decoder::new(BufReader::new(file)) {
-									Ok(decoder) => {
-										sink.append(decoder);
-										sink.sleep_until_end();
-									}
-									Err(e) => eprintln!("[LOG SOUND] Failed to decode audio {:?}: {:?}", resolved_path, e),
-								}
-							}
-							Err(e) => eprintln!("[LOG SOUND] Failed to open sound file {:?}: {:?}", resolved_path, e),
-						}
-					}
-					Err(e) => eprintln!("[LOG SOUND] Failed to create sink: {:?}", e),
+		if let Ok(stream_handle) = DeviceSinkBuilder::open_default_sink() {
+			let sink = Player::connect_new(&stream_handle.mixer());
+			if let Ok(file) = File::open(&resolved_path) {
+				if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+					sink.append(decoder);
+					sink.sleep_until_end();
+				} else {
+					eprintln!("[LOG SOUND] Failed to decode audio {:?}", resolved_path);
 				}
-				let _ = stream;
 			}
-			Err(e) => eprintln!("[LOG SOUND] Failed to open default audio output stream: {:?}", e),
 		}
 	});
 }
@@ -166,8 +157,8 @@ fn execute_mci_command(cmd: &str) -> u32 {
 
 struct AppState {
 	ws_tx: mpsc::Sender<String>,
-	audio_stream: Option<(OutputStream, rodio::OutputStreamHandle)>,
-	audio_sink: Option<Sink>,
+	audio_stream: Option<MixerDeviceSink>,
+	audio_sink: Option<Player>,
 	playing_msg_id: Option<String>,
 	audio_process: Option<std::process::Child>,
 	audio_stdin: Option<std::process::ChildStdin>,
@@ -175,6 +166,7 @@ struct AppState {
 	audio_path: Option<String>,
 	audio_total_secs: f32,
 	audio_elapsed_secs: f32,
+	audio_speed: f32,
 	audio_start_instant: Option<std::time::Instant>,
 	is_voice_recording: bool,
 	is_voice_paused: bool,
@@ -552,6 +544,7 @@ fn main() {
 			audio_path: None,
 			audio_total_secs: 0.0,
 			audio_elapsed_secs: 0.0,
+			audio_speed: 1.0,
 			audio_start_instant: None,
 			chats: Vec::new(),
 			filtered_chats: Vec::new(),
@@ -628,12 +621,13 @@ fn main() {
 				parts_timer.conversations_parts.play_voice_btn.set_label("Play voice message");
 				parts_timer.conversations_parts.audio_slider.set_value(0);
 				parts_timer.conversations_parts.audio_slider.show(false);
+				parts_timer.conversations_parts.audio_speed_btn.show(false);
 				parts_timer.conversations_parts.audio_progress_label.show(false);
 				return;
 			}
 			if !s.is_audio_paused {
 				if let Some(inst) = s.audio_start_instant {
-					let elapsed = s.audio_elapsed_secs + inst.elapsed().as_secs_f32();
+					let elapsed = s.audio_elapsed_secs + inst.elapsed().as_secs_f32() * s.audio_speed;
 					let total = s.audio_total_secs;
 					let max_sec = (total as i32).max(1);
 					let pos = (elapsed as i32).max(0).min(max_sec);
@@ -667,19 +661,24 @@ fn main() {
 /// Perform a soft seek by stopping the current sink and re-opening the file
 /// from `target_secs`. Returns the new Sink if successful.
 fn do_seek(
-	stream_handle: &rodio::OutputStreamHandle,
+	stream_handle: &MixerDeviceSink,
 	path: &str,
 	target_secs: f32,
-) -> Option<Sink> {
+	speed: f32,
+) -> Option<Player> {
 	use rodio::Source;
-	if let Ok(sink) = Sink::try_new(stream_handle) {
-		if let Ok(file) = File::open(path) {
-			if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-				let source = decoder.skip_duration(Duration::from_secs_f32(target_secs.max(0.0)));
-				sink.append(source);
-				sink.play();
-				return Some(sink);
-			}
+	let sink = Player::connect_new(&stream_handle.mixer());
+	if let Ok(file) = std::fs::File::open(path) {
+		if let Ok(decoder) = rodio::Decoder::new(std::io::BufReader::new(file)) {
+			let source = decoder.skip_duration(std::time::Duration::from_secs_f32(target_secs.max(0.0))).wsola(speed);
+			sink.append(source);
+			sink.play();
+			return Some(sink);
+		} else if let Some(opus_buf) = decode_opus_file(path) {
+			let source = opus_buf.skip_duration(std::time::Duration::from_secs_f32(target_secs.max(0.0))).wsola(speed);
+			sink.append(source);
+			sink.play();
+			return Some(sink);
 		}
 	}
 	None
@@ -803,7 +802,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"connected" => {
 							parts.pairing_dialog.show(false);
 							parts.qrcode_dialog.show(false);
-							parts.login_panel.show(false);
+							parts.login_dialog.show(false);
 							parts.conversations_parts.panel.show(true);
 							parts.content_panel.layout();
 							let payload = serde_json::json!({
@@ -967,7 +966,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								if Some(jid.to_string()) == s.selected_chat {
 									let is_from_me = data.get("from_me").and_then(|f| f.as_bool()).unwrap_or_else(|| from == "me" || from == "You");
 									let is_group = jid.ends_with("@g.us");
-									let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+									let ts = data.get("timestamp").and_then(|t| t.as_i64().or_else(|| t.as_f64().map(|f| f as i64))).unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64);
 									let msg_id = data.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
 
 									let mut temp_idx = None;
@@ -1372,6 +1371,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let mut delivered_s = data.get("delivered_at").and_then(|v| v.as_i64()).unwrap_or(0);
 								let mut read_s     = data.get("read_at").and_then(|v| v.as_i64()).unwrap_or(0);
 								let mut played_s   = data.get("played_at").and_then(|v| v.as_i64()).unwrap_or(0);
+								let mut edited_s   = data.get("edited_at").and_then(|v| v.as_i64()).unwrap_or(0);
 								let media_type = data.get("media_type").and_then(|v| v.as_str()).unwrap_or("");
 								let is_voice   = media_type == "voice" || media_type == "audio";
 
@@ -1390,6 +1390,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										if played_s == 0 && msg.played_at > 0 {
 											played_s = msg.played_at;
 										}
+										if edited_s == 0 && msg.edited_at > 0 {
+											edited_s = msg.edited_at;
+										}
 									}
 								}
 
@@ -1404,6 +1407,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let played_fmt = fmt_ts(played_s);
 									if !played_fmt.is_empty() { lines.push(format!("Played at {}", played_fmt)); }
 								}
+								let edited_fmt = fmt_ts(edited_s);
+								if !edited_fmt.is_empty() { lines.push(format!("Edited at {}", edited_fmt)); }
+								
 								if lines.is_empty() { lines.push("No receipt information available.".to_string()); }
 								let info_text = lines.join("\n");
 
@@ -1656,11 +1662,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 								let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
 								let new_text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+								let edited_at = data.get("edited_at").and_then(|e| e.as_i64()).unwrap_or(0);
 
 								let norm_jid_edit = |jid: &str| -> String {
-									let no_device = jid.split(':').next().unwrap_or(jid);
-									if no_device.contains('@') { no_device.to_string() }
-									else { jid.split('@').next().unwrap_or(jid).to_string() }
+									if let Some((user, server)) = jid.split_once('@') {
+										let base_user = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+										format!("{}@{}", base_user, server)
+									} else {
+										jid.to_string()
+									}
 								};
 
 								let mut s = state.borrow_mut();
@@ -1676,6 +1686,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									for msg in s.messages.iter_mut() {
 										if msg.id == target_id {
 											msg.text = new_text.to_string();
+											msg.is_edited = true;
+											msg.edited_at = edited_at;
 											changed = true;
 											break;
 										}
@@ -1686,11 +1698,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											match item {
 												whantv::DisplayItem::Single(m) if m.id == target_id => {
 													m.text = new_text.to_string();
+													m.is_edited = true;
+													m.edited_at = edited_at;
 													break;
 												}
 												whantv::DisplayItem::Album { messages, .. } => {
 													if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
 														am.text = new_text.to_string();
+														am.is_edited = true;
+														am.edited_at = edited_at;
 														break;
 													}
 												}
@@ -1998,22 +2014,28 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									eprintln!("[LOG UI] Audio total duration: {}s", s.audio_total_secs);
 
 									if s.audio_stream.is_none() {
-										if let Ok((stream, stream_handle)) = OutputStream::try_default() {
-											s.audio_stream = Some((stream, stream_handle));
+										if let Ok(stream_handle) = DeviceSinkBuilder::open_default_sink() {
+											s.audio_stream = Some(stream_handle);
 										}
 									}
 									let mut played = false;
-									if let Some((_, ref stream_handle)) = s.audio_stream {
-										if let Ok(sink) = Sink::try_new(stream_handle) {
-											if let Ok(file) = File::open(path) {
-												if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-													sink.append(decoder);
-													sink.play();
-													s.audio_sink = Some(sink);
-													played = true;
-													s.audio_start_instant = Some(std::time::Instant::now());
-													parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
-												}
+									if let Some(ref stream_handle) = s.audio_stream {
+										let sink = Player::connect_new(&stream_handle.mixer());
+										if let Ok(file) = File::open(path) {
+											if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+												sink.append(decoder.wsola(s.audio_speed));
+												sink.play();
+												s.audio_sink = Some(sink);
+												played = true;
+												s.audio_start_instant = Some(std::time::Instant::now());
+												parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+											} else if let Some(opus_buf) = decode_opus_file(path) {
+												sink.append(opus_buf.wsola(s.audio_speed));
+												sink.play();
+												s.audio_sink = Some(sink);
+												played = true;
+												s.audio_start_instant = Some(std::time::Instant::now());
+												parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
 											}
 										}
 									}
@@ -2058,9 +2080,10 @@ while ($true) {
 											parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
 										}
 									}
-									// Show slider UI
+									// Show slider UI and speed button
 									parts.conversations_parts.audio_slider.show(true);
-									parts.conversations_parts.audio_progress_label.show(true);
+									parts.conversations_parts.audio_speed_btn.show(true);
+									parts.conversations_parts.audio_progress_label.show(false);
 									let total = s.audio_total_secs;
 									let max_sec = (total as i32).max(1);
 									parts.conversations_parts.audio_slider.set_range(0, max_sec);
@@ -2311,9 +2334,12 @@ while ($true) {
 					parts.conversations_parts.add_attachment_btn.show(false);
 					parts.conversations_parts.send_message_btn.show(false);
 					parts.conversations_parts.record_voice_btn.show(false);
-					parts.conversations_parts.voice_panel.show(true);
+					parts.conversations_parts.discard_voice_btn.show(true);
+					parts.conversations_parts.pause_resume_btn.show(true);
+					parts.conversations_parts.send_voice_btn.show(true);
 					parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
 					parts.conversations_parts.conversation_panel.layout();
+					parts.conversations_parts.send_voice_btn.set_focus();
 					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Recording voice message...");
 				} else {
 					eprintln!("[LOG UI] Failed to start MCI voice recording: res1={}, res2={}", res1, res2);
@@ -2398,11 +2424,16 @@ while ($true) {
 				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
 			}
 
-			parts.conversations_parts.voice_panel.show(false);
 			parts.conversations_parts.message_field.show(true);
 			parts.conversations_parts.add_attachment_btn.show(true);
 			parts.conversations_parts.record_voice_btn.show(true);
 			parts.conversations_parts.send_message_btn.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
+			parts.conversations_parts.message_field.set_focus();
+			
+			parts.conversations_parts.discard_voice_btn.show(false);
+			parts.conversations_parts.pause_resume_btn.show(false);
+			parts.conversations_parts.send_voice_btn.show(false);
+			
 			parts.conversations_parts.conversation_panel.layout();
 		}
 		UiCommand::DiscardRecording | UiCommand::DiscardVoiceMessage => {
@@ -2416,11 +2447,16 @@ while ($true) {
 			}
 			execute_mci_command("close voice_rec");
 
-			parts.conversations_parts.voice_panel.show(false);
 			parts.conversations_parts.message_field.show(true);
 			parts.conversations_parts.add_attachment_btn.show(true);
 			parts.conversations_parts.record_voice_btn.show(true);
 			parts.conversations_parts.send_message_btn.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
+			parts.conversations_parts.message_field.set_focus();
+			
+			parts.conversations_parts.discard_voice_btn.show(false);
+			parts.conversations_parts.pause_resume_btn.show(false);
+			parts.conversations_parts.send_voice_btn.show(false);
+			
 			parts.conversations_parts.conversation_panel.layout();
 			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording discarded.");
 		}
@@ -2813,8 +2849,8 @@ parts.attachment_dialog.caption_field.set_value("");
 				}
 				s.audio_sink = None;
 				let path = s.audio_path.clone().unwrap_or_default();
-				if let Some((_, ref stream_handle)) = s.audio_stream {
-					let new_sink = do_seek(stream_handle, &path, target);
+				if let Some(ref stream_handle) = s.audio_stream {
+					let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
 					s.audio_sink = new_sink;
 				}
 				if let Some(ref mut stdin) = s.audio_stdin {
@@ -2842,8 +2878,8 @@ parts.attachment_dialog.caption_field.set_value("");
 				}
 				s.audio_sink = None;
 				let path = s.audio_path.clone().unwrap_or_default();
-				if let Some((_, ref stream_handle)) = s.audio_stream {
-					let new_sink = do_seek(stream_handle, &path, target);
+				if let Some(ref stream_handle) = s.audio_stream {
+					let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
 					s.audio_sink = new_sink;
 				}
 				if let Some(ref mut stdin) = s.audio_stdin {
@@ -2861,7 +2897,138 @@ parts.attachment_dialog.caption_field.set_value("");
 				parts.conversations_parts.audio_slider.set_value(pos);
 			}
 		}
+		UiCommand::ReactToMessage { message_id, emoji } => {
+			let s = state.borrow();
+			if let Some(ref jid) = s.selected_chat {
+				let payload = serde_json::json!({
+					"action": "react_message",
+					"data": {
+						"jid": jid,
+						"message_id": message_id,
+						"emoji": emoji
+					}
+				});
+				let _ = s.ws_tx.send(payload.to_string());
+			}
+		}
+		UiCommand::ToggleAudioSpeed => {
+			let mut s = state.borrow_mut();
+			let new_speed = if s.audio_speed >= 2.0 {
+				1.0
+			} else if s.audio_speed >= 1.5 {
+				2.0
+			} else {
+				1.5
+			};
+			s.audio_speed = new_speed;
+			parts.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", new_speed));
+			
+			// Trigger soft-seek to apply new wsola speed
+			if s.playing_msg_id.is_some() && s.audio_sink.is_some() {
+				let elapsed = s.audio_elapsed_secs + s.audio_start_instant.map(|i| i.elapsed().as_secs_f32() * s.audio_speed).unwrap_or(0.0);
+				let target = elapsed.max(0.0).min(s.audio_total_secs);
+				if let Some(ref sink) = s.audio_sink {
+					sink.stop();
+				}
+				s.audio_sink = None;
+				let path = s.audio_path.clone().unwrap_or_default();
+				if let Some(ref stream_handle) = s.audio_stream {
+					let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
+					s.audio_sink = new_sink;
+				}
+				s.audio_elapsed_secs = target;
+				s.audio_start_instant = Some(std::time::Instant::now());
+				s.is_audio_paused = false;
+				parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+			}
+		}
 	}
 }
 
+fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffer> {
+    use opus::{Decoder, Channels};
+    use ogg::PacketReader;
+    
+    let file = std::fs::File::open(path).ok()?;
+    let mut reader = PacketReader::new(file);
+    let mut decoder = Decoder::new(48000, Channels::Mono).ok()?;
+    let mut samples: Vec<f32> = Vec::new();
 
+    while let Ok(Some(packet)) = reader.read_packet() {
+        let mut pcm = vec![0i16; 5760]; // Max frame size for opus is 120ms at 48kHz = 5760 samples
+        if let Ok(len) = decoder.decode(&packet.data, &mut pcm, false) {
+            pcm.truncate(len);
+            samples.extend(pcm.into_iter().map(|s| (s as f32) / 32768.0));
+        }
+    }
+    
+    if samples.is_empty() {
+        return None;
+    }
+    
+    Some(rodio::buffer::SamplesBuffer::new(std::num::NonZeroU16::new(1).unwrap(), std::num::NonZeroU32::new(48000).unwrap(), samples))
+}
+
+fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()> {
+    use hound::WavReader;
+    use opus::{Encoder, Application, Channels};
+    use ogg::PacketWriter;
+    use std::fs::File;
+    use std::io::BufWriter;
+
+    let mut reader = WavReader::open(wav_path)?;
+    let spec = reader.spec();
+    
+    if spec.sample_rate != 48000 {
+        return Err(anyhow::anyhow!("Sample rate must be 48000"));
+    }
+    
+    let mut encoder = Encoder::new(48000, Channels::Mono, Application::Voip)?;
+    let out_file = File::create(ogg_path)?;
+    let mut writer = PacketWriter::new(BufWriter::new(out_file));
+    let serial = 12345;
+    
+    // OpusHead
+    let mut head = Vec::new();
+    head.extend_from_slice(b"OpusHead");
+    head.push(1); // Version
+    head.push(1); // Channels
+    head.extend_from_slice(&384_u16.to_le_bytes()); // Preskip
+    head.extend_from_slice(&48000_u32.to_le_bytes()); // Input sample rate
+    head.extend_from_slice(&0_u16.to_le_bytes()); // Gain
+    head.push(0); // Channel mapping family
+    writer.write_packet(head, serial, ogg::PacketWriteEndInfo::EndPage, 0)?;
+    
+    // OpusTags
+    let mut tags = Vec::new();
+    tags.extend_from_slice(b"OpusTags");
+    tags.extend_from_slice(&8_u32.to_le_bytes()); // Vendor length
+    tags.extend_from_slice(b"whaNTV  ");
+    tags.extend_from_slice(&0_u32.to_le_bytes()); // User comments list length
+    writer.write_packet(tags, serial, ogg::PacketWriteEndInfo::EndPage, 0)?;
+    
+    let mut granule = 0;
+    let mut samples = Vec::new();
+    for sample in reader.samples::<i16>() {
+        samples.push(sample?);
+        if samples.len() == 960 {
+            let mut out = vec![0u8; 1024];
+            let len = encoder.encode(&samples, &mut out)?;
+            out.truncate(len);
+            granule += 960;
+            writer.write_packet(out, serial, ogg::PacketWriteEndInfo::NormalPacket, granule)?;
+            samples.clear();
+        }
+    }
+    
+    if !samples.is_empty() {
+        samples.resize(960, 0);
+        let mut out = vec![0u8; 1024];
+        let len = encoder.encode(&samples, &mut out)?;
+        out.truncate(len);
+        granule += samples.len() as u64;
+        writer.write_packet(out, serial, ogg::PacketWriteEndInfo::EndStream, granule)?;
+    }
+    
+    Ok(())
+}

@@ -400,14 +400,16 @@ func eventHandler(evt interface{}) {
 			newText := extractText(newContent)
 			resolvedChat, _ := resolveLIDChat(v)
 			jid := resolvedChat.String()
+			editTime := v.Info.Timestamp.Unix()
 			go func() {
 				rawBytes, _ := proto.Marshal(newContent)
-				markMessageEdited(targetID, jid, newText, rawBytes)
+				markMessageEdited(targetID, jid, newText, rawBytes, editTime)
 			}()
 			broadcastEvent("message_edited", map[string]interface{}{
 				"jid":        jid,
 				"message_id": targetID,
 				"text":       newText,
+				"edited_at":  editTime,
 			})
 			return
 		}

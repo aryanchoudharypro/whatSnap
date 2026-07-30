@@ -36,7 +36,7 @@ pub struct ConversationsPanelParts {
 	pub send_message_btn: Button,
 	pub record_voice_btn: Button,
 
-	pub voice_panel: Panel,
+
 	pub discard_voice_btn: Button,
 	pub pause_resume_btn: Button,
 	pub send_voice_btn: Button,
@@ -195,17 +195,17 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	attachment_panel.show(false);
 	conv_sizer.add(&attachment_panel, 0, SizerFlag::Expand | SizerFlag::All, 5);
 
-	let voice_panel = Panel::builder(&conversation_panel).build();
-	let voice_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let discard_voice_btn = Button::builder(&voice_panel).with_label("Discard voice message").build();
-	voice_sizer.add(&discard_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
-	let pause_resume_btn = Button::builder(&voice_panel).with_label("Pause recording").build();
-	voice_sizer.add(&pause_resume_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
-	let send_voice_btn = Button::builder(&voice_panel).with_label("Send voice message").build();
-	voice_sizer.add(&send_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
-	voice_panel.set_sizer(voice_sizer, true);
-	voice_panel.show(false);
-	conv_sizer.add(&voice_panel, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
+	let discard_voice_btn = Button::builder(&conversation_panel).with_label("Discard voice message").build();
+	conv_sizer.add(&discard_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
+	discard_voice_btn.show(false);
+	
+	let pause_resume_btn = Button::builder(&conversation_panel).with_label("Pause recording").build();
+	conv_sizer.add(&pause_resume_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
+	pause_resume_btn.show(false);
+	
+	let send_voice_btn = Button::builder(&conversation_panel).with_label("Send voice message").build();
+	conv_sizer.add(&send_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
+	send_voice_btn.show(false);
 
 	conversation_panel.set_sizer(conv_sizer, true);
 	conversation_panel.show(false);
@@ -239,7 +239,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		remove_quote_btn,
 		send_message_btn,
 		record_voice_btn,
-		voice_panel,
+
 		discard_voice_btn,
 		pause_resume_btn,
 		send_voice_btn,

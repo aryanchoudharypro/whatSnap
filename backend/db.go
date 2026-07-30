@@ -57,6 +57,7 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN delivered_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN read_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN played_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN edited_at INTEGER DEFAULT 0")
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
 	// Rows synced before revoked-stub handling existed: no text, no media and
 	// no raw protobuf means the message was revoked, so surface it as deleted
@@ -189,8 +190,8 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 	return updated
 }
 
-func markMessageEdited(id, jid, newText string, newRaw []byte) error {
-	_, err := db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1 WHERE id = ? AND jid = ?`, newText, newRaw, id, jid)
+func markMessageEdited(id, jid, newText string, newRaw []byte, editTime int64) error {
+	_, err := db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, newText, newRaw, editTime, id, jid)
 	return err
 }
 
