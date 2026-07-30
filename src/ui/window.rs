@@ -923,64 +923,7 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 					event.skip(true);
 				}
 			} else if key_event.get_key_code() == Some(13) { // Enter key
-				let is_search_active = search_panel_key.is_shown();
-				if is_search_active {
-					if let Some(idx) = msgs_list_play.get_selection() {
-						let s = state_play.borrow();
-						let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item { whantv::DisplayItem::Single(m) => Some(m.clone()), whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(), }); if let Some(msg) = msg_opt {
-							drop(s);
-							if !msg.is_date_divider {
-								let _ = tx_close_list.send(UiCommand::JumpToSearchResult { message_id: msg.id, message_text: String::new() });
-							} else {
-								let _ = tx_close_list.send(UiCommand::CloseSearch);
-							}
-						} else {
-							drop(s);
-							let _ = tx_close_list.send(UiCommand::CloseSearch);
-						}
-					} else {
-						let _ = tx_close_list.send(UiCommand::CloseSearch);
-					}
-					event.skip(false);
-				} else {
-					if let Some(idx) = msgs_list_play.get_selection() {
-						let s = state_play.borrow();
-						let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item { whantv::DisplayItem::Single(m) => Some(m.clone()), whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(), });
-						if let Some(msg) = msg_opt {
-							let mut urls = Vec::new();
-							let text = &msg.text;
-							let mut start_idx = 0;
-							while let Some(idx) = text[start_idx..].find("http") {
-								let actual_idx = start_idx + idx;
-								if text[actual_idx..].starts_with("http://") || text[actual_idx..].starts_with("https://") {
-									let space_idx = text[actual_idx..].find(|c: char| c.is_whitespace()).unwrap_or(text.len() - actual_idx);
-									urls.push(text[actual_idx..actual_idx + space_idx].to_string());
-									start_idx = actual_idx + space_idx;
-								} else {
-									start_idx = actual_idx + 4;
-								}
-							}
-							
-							if urls.len() == 1 {
-								wxdragon::utils::launch_default_browser(&urls[0], wxdragon::utils::BrowserLaunchFlags::Default);
-							} else if urls.len() > 1 {
-								let url_strs: Vec<&str> = urls.iter().map(|s| s.as_str()).collect();
-								let dialog = wxdragon::prelude::SingleChoiceDialog::builder(
-									&msgs_list_play,
-									"Select a link to open:",
-									"Open Link",
-									&url_strs
-								).build();
-								if dialog.show_modal() == wxdragon::id::ID_OK {
-									if let Some(selection) = dialog.get_string_selection() {
-										wxdragon::utils::launch_default_browser(&selection, wxdragon::utils::BrowserLaunchFlags::Default);
-									}
-								}
-							}
-						}
-					}
-					event.skip(false);
-				}
+				event.skip(true);
 			} else if key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32) { // Space
 				use std::io::Write;
 				if let Some(idx) = msgs_list_play.get_selection() {
@@ -1160,7 +1103,47 @@ pub fn bind_input_handlers(parts: &WindowParts, ui_tx: UiCommandSender, state: &
 					}
 					event.skip(false);
 				} else {
-					event.skip(true);
+					if let Some(idx) = msgs_list_enter.get_selection() {
+						let s = state_enter.borrow();
+						let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item { whantv::DisplayItem::Single(m) => Some(m.clone()), whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(), });
+						if let Some(msg) = msg_opt {
+							let mut urls = Vec::new();
+							let text = &msg.text;
+							let mut start_idx = 0;
+							while let Some(idx) = text[start_idx..].find("http") {
+								let actual_idx = start_idx + idx;
+								if text[actual_idx..].starts_with("http://") || text[actual_idx..].starts_with("https://") {
+									let space_idx = text[actual_idx..].find(|c: char| c.is_whitespace()).unwrap_or(text.len() - actual_idx);
+									let mut clean_url = &text[actual_idx..actual_idx + space_idx];
+									while clean_url.ends_with(|c: char| c.is_ascii_punctuation()) {
+										clean_url = &clean_url[..clean_url.len() - 1];
+									}
+									urls.push(clean_url.to_string());
+									start_idx = actual_idx + space_idx;
+								} else {
+									start_idx = actual_idx + 4;
+								}
+							}
+							
+							if urls.len() == 1 {
+								wxdragon::utils::launch_default_browser(&urls[0], wxdragon::utils::BrowserLaunchFlags::Default);
+							} else if urls.len() > 1 {
+								let url_strs: Vec<&str> = urls.iter().map(|s| s.as_str()).collect();
+								let dialog = wxdragon::prelude::SingleChoiceDialog::builder(
+									&msgs_list_enter,
+									"Select a link to open:",
+									"Open Link",
+									&url_strs
+								).build();
+								if dialog.show_modal() == wxdragon::id::ID_OK {
+									if let Some(selection) = dialog.get_string_selection() {
+										wxdragon::utils::launch_default_browser(&selection, wxdragon::utils::BrowserLaunchFlags::Default);
+									}
+								}
+							}
+						}
+					}
+					event.skip(false);
 				}
 			}
 		}

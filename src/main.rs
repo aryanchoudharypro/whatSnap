@@ -269,9 +269,9 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 						if msg.is_media_downloaded() {
 							if parts.action_download_btn.is_shown() { parts.action_download_btn.show(false); need_layout = true; }
 							if !parts.action_open_btn.is_shown() { parts.action_open_btn.show(true); need_layout = true; }
-							parts.action_open_btn.set_label("Open media");
+							parts.action_open_btn.set_label("Open");
 							if !parts.action_save_as_btn.is_shown() { parts.action_save_as_btn.show(true); need_layout = true; }
-							parts.action_save_as_btn.set_label("Save media as");
+							parts.action_save_as_btn.set_label("Save as");
 						} else {
 							if parts.action_open_btn.is_shown() { parts.action_open_btn.show(false); need_layout = true; }
 							if parts.action_save_as_btn.is_shown() { parts.action_save_as_btn.show(false); need_layout = true; }
