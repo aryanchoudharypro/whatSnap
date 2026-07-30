@@ -69,6 +69,7 @@ pub enum UiCommand {
 	CloseConversation,
 	ReactToMessage { message_id: String, emoji: String },
 	ToggleAudioSpeed,
+	ShowConversationData,
 }
 
 use whantv::ChatMessage;
@@ -785,6 +786,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				let _ = s.ws_tx.send(payload.to_string());
 				parts.conversations_parts.message_field.set_value("");
 				parts.conversations_parts.send_message_btn.show(false);
+				parts.conversations_parts.remove_quote_btn.show(false);
 				parts.conversations_parts.conversation_panel.layout();
 			}
 		}
@@ -1218,6 +1220,26 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											};
 											if contains {
 												parts.conversations_parts.messages_list.set_string(di as u32, &item.format_display(is_group));
+												
+												if let Some(sel_idx) = parts.conversations_parts.messages_list.get_selection() {
+													if sel_idx as u32 == di as u32 {
+														let mut need_layout = crate::update_action_buttons(&s, &parts.conversations_parts);
+														if parts.conversations_parts.play_voice_btn.is_shown() {
+															parts.conversations_parts.play_voice_btn.show(false);
+															need_layout = true;
+														}
+														if parts.conversations_parts.audio_slider.is_shown() {
+															parts.conversations_parts.audio_slider.show(false);
+															parts.conversations_parts.audio_progress_label.show(false);
+															parts.conversations_parts.audio_speed_btn.show(false);
+															need_layout = true;
+														}
+														if need_layout {
+															parts.conversations_parts.action_panel.layout();
+															parts.conversations_parts.conversation_panel.layout();
+														}
+													}
+												}
 												break;
 											}
 										}
@@ -1557,7 +1579,13 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										} else {
 											format!("{} stopped typing", sender_name)
 										};
-// 										parts.conversations_parts.messages_list.announce(&announcement);
+										live_region::announce(parts.conversations_parts.messages_announcer.clone(), &announcement);
+										let btn_label = if is_recording || is_typing {
+											announcement
+										} else {
+											"Conversation data".to_string()
+										};
+										parts.conversations_parts.conv_data_btn.set_label(&btn_label);
 									}
 								}
 							}
@@ -1575,11 +1603,71 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									jid.to_string()
 								};
 								let unavailable = data.get("unavailable").and_then(|u| u.as_bool()).unwrap_or(false);
+								let last_seen = data.get("last_seen").and_then(|l| l.as_i64()).unwrap_or(0);
 								let s = state.borrow();
 								if Some(clean_jid.clone()) == s.selected_chat || Some(jid.to_string()) == s.selected_chat {
 									let name = s.contacts.get(&clean_jid).or_else(|| s.contacts.get(jid)).cloned().unwrap_or_else(|| clean_jid.clone());
 									let status_str = if unavailable { "offline" } else { "online" };
-// 									parts.conversations_parts.messages_list.announce(&format!("{} is now {}", name, status_str));
+									let msg = format!("{} is now {}", name, status_str);
+									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+									let btn_label = if unavailable {
+										if last_seen > 0 {
+											if let Some(datetime) = chrono::DateTime::from_timestamp(last_seen, 0) {
+												let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
+												let now = chrono::Local::now();
+												let time_str = local_dt.format("%l:%M %p").to_string().trim().to_string();
+												let date_str = if local_dt.date_naive() == now.date_naive() {
+													format!("today at {}", time_str)
+												} else {
+													local_dt.format("%b %e at %l:%M %p").to_string().replace("  ", " ")
+												};
+												format!("{} (last seen {})", name, date_str)
+											} else {
+												"Conversation data".to_string()
+											}
+										} else {
+											"Conversation data".to_string()
+										}
+									} else {
+										format!("{} (online)", name)
+									};
+									parts.conversations_parts.conv_data_btn.set_label(&btn_label);
+								}
+							}
+						}
+						"user_info" => {
+							if let Some(data) = val.get("data") {
+								let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+								let status = data.get("status").and_then(|s| s.as_str()).unwrap_or("");
+								let push_name = data.get("pushName").and_then(|p| p.as_str()).unwrap_or("");
+								let full_name = data.get("fullName").and_then(|f| f.as_str()).unwrap_or("");
+
+								let s = state.borrow();
+								if Some(jid.to_string()) == s.selected_chat {
+									let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+									let raw_phone = jid.split('@').next().unwrap_or(jid);
+									let mut phone = raw_phone.to_string();
+									if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+										phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+									}
+									
+									let mut text = format!("Name: {}\nPhone: {}\n", local_name, phone);
+									if !push_name.is_empty() {
+										text.push_str(&format!("WhatsApp Name: {}\n", push_name));
+									} else if !full_name.is_empty() {
+										text.push_str(&format!("WhatsApp Name: {}\n", full_name));
+									} else {
+										text.push_str("WhatsApp Name: Not available\n");
+									}
+									
+									if !status.is_empty() {
+										text.push_str(&format!("About/Status: {}\n", status));
+									} else {
+										text.push_str("About/Status: Not set\n");
+									}
+									
+									parts.conversation_data_dialog.info_field.set_value(&text);
+									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Conversation data loaded for {}", local_name));
 								}
 							}
 						}
@@ -2919,7 +3007,35 @@ parts.attachment_dialog.caption_field.set_value("");
 			parts.conversations_parts.conversation_panel.layout();
 			parts.conversations_parts.message_field.set_focus();
 		}
+		UiCommand::ShowConversationData => {
+			let s = state.borrow();
+			if let Some(ref jid) = s.selected_chat {
+				let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+				let raw_phone = jid.split('@').next().unwrap_or(jid);
+				let mut phone = raw_phone.to_string();
+				if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+					phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+				}
+				
+				let initial_text = format!("Name: {}\nPhone: {}\nWhatsApp Name: Loading...\nAbout/Status: Loading...", local_name, phone);
+				parts.conversation_data_dialog.info_field.set_value(&initial_text);
+				
+				let payload = serde_json::json!({
+					"action": "get_user_info",
+					"data": { "jid": jid }
+				});
+				let _ = s.ws_tx.send(payload.to_string());
+				
+				parts.conversation_data_dialog.info_field.set_focus();
+				parts.conversation_data_dialog.dialog.show_modal();
+			}
+		}
 		UiCommand::RemoveQuote => {
+			let mut s = state.borrow_mut();
+			s.pending_reply_id = None;
+			s.pending_reply_sender = None;
+			s.pending_reply_preview = None;
+			drop(s);
 			parts.conversations_parts.remove_quote_btn.show(false);
 			parts.conversations_parts.conversation_panel.layout();
 		}
