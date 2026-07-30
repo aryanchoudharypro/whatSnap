@@ -15,10 +15,7 @@ fn main() {
 
 	let qr_payload = "1@ABCD1234EFGH,IJKL5678MNOP,QRST9012UVWX";
 	let qr = qrcode::QrCode::new(qr_payload).expect("Failed to create QrCode");
-	let image = qr.render::<image::Rgba<u8>>()
-		.quiet_zone(true)
-		.module_dimensions(5, 5)
-		.build();
+	let image = qr.render::<image::Rgba<u8>>().quiet_zone(true).module_dimensions(5, 5).build();
 	let width = image.width();
 	let height = image.height();
 	let data = image.into_raw();
@@ -26,12 +23,17 @@ fn main() {
 	assert_eq!(data.len(), (width * height * 4) as usize);
 
 	let _ = wxdragon::main(move |_| {
-		let bitmap = wxdragon::bitmap::Bitmap::from_rgba(&data, width, height)
-			.expect("Failed to construct Bitmap from RGBA");
+		let bitmap =
+			wxdragon::bitmap::Bitmap::from_rgba(&data, width, height).expect("Failed to construct Bitmap from RGBA");
 		assert!(bitmap.is_ok());
 		assert_eq!(bitmap.get_width(), width as i32);
 		assert_eq!(bitmap.get_height(), height as i32);
-		println!("QR Bitmap verification successful: width={}, height={}, is_ok={}", bitmap.get_width(), bitmap.get_height(), bitmap.is_ok());
+		println!(
+			"QR Bitmap verification successful: width={}, height={}, is_ok={}",
+			bitmap.get_width(),
+			bitmap.get_height(),
+			bitmap.is_ok()
+		);
 		std::process::exit(0);
 	});
 

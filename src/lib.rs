@@ -69,7 +69,8 @@ impl ChatMessage {
 	}
 
 	pub fn sanitize_filename(filename: &str) -> String {
-		filename.replace(".x-python", ".py")
+		filename
+			.replace(".x-python", ".py")
 			.replace(".x-script.python", ".py")
 			.replace(".x-shellscript", ".sh")
 			.replace(".x-csrc", ".c")
@@ -85,11 +86,7 @@ impl ChatMessage {
 		} else if let Some(rest) = self.text.strip_prefix("[Document]") {
 			let rest = rest.trim();
 			let name = rest.split(": ").next().unwrap_or(rest).trim();
-			if !name.is_empty() {
-				name.to_string()
-			} else {
-				format!("{}.bin", self.id)
-			}
+			if !name.is_empty() { name.to_string() } else { format!("{}.bin", self.id) }
 		} else {
 			format!("{}.bin", self.id)
 		};
@@ -111,11 +108,11 @@ impl ChatMessage {
 			String::new()
 		};
 
-		let is_deleted = self.is_deleted || 
-		                 self.text == "[You deleted this message]" || 
-		                 self.text == "[This message was deleted]" || 
-		                 self.text == "You deleted this message" || 
-		                 self.text == "This message was deleted";
+		let is_deleted = self.is_deleted
+			|| self.text == "[You deleted this message]"
+			|| self.text == "[This message was deleted]"
+			|| self.text == "You deleted this message"
+			|| self.text == "This message was deleted";
 
 		if is_deleted {
 			return if self.from_me {
@@ -155,7 +152,7 @@ impl ChatMessage {
 		let body = if is_voice {
 			let prefix = if self.text.starts_with("[Audio]") { "Audio" } else { "Voice message" };
 			let tag = if self.text.starts_with("[Audio]") { "[Audio]" } else { "[Voice Message]" };
-			
+
 			if self.text == tag || self.text.is_empty() {
 				prefix.to_string()
 			} else if self.text.starts_with(tag) {
@@ -163,7 +160,7 @@ impl ChatMessage {
 				if rest.is_empty() {
 					prefix.to_string()
 				} else if rest.starts_with('(') && rest.ends_with(')') {
-					format!("{} Duration: {}", prefix, &rest[1..rest.len()-1])
+					format!("{} Duration: {}", prefix, &rest[1..rest.len() - 1])
 				} else {
 					format!("{} {}", prefix, rest)
 				}
@@ -171,11 +168,7 @@ impl ChatMessage {
 				self.text.clone()
 			}
 		} else {
-			if self.text.is_empty() {
-				"[Media]".to_string()
-			} else {
-				self.text.clone()
-			}
+			if self.text.is_empty() { "[Media]".to_string() } else { self.text.clone() }
 		};
 
 		let reply_suffix = if !self.quoted_text.is_empty() || !self.quoted_id.is_empty() {
@@ -196,7 +189,7 @@ impl ChatMessage {
 				if rest.is_empty() {
 					"Voice message".to_string()
 				} else if rest.starts_with('(') && rest.ends_with(')') {
-					format!("Voice message Duration: {}", &rest[1..rest.len()-1])
+					format!("Voice message Duration: {}", &rest[1..rest.len() - 1])
 				} else {
 					format!("Voice message {}", rest)
 				}
@@ -205,7 +198,7 @@ impl ChatMessage {
 				if rest.is_empty() {
 					"Audio".to_string()
 				} else if rest.starts_with('(') && rest.ends_with(')') {
-					format!("Audio Duration: {}", &rest[1..rest.len()-1])
+					format!("Audio Duration: {}", &rest[1..rest.len() - 1])
 				} else {
 					format!("Audio {}", rest)
 				}
@@ -225,29 +218,33 @@ impl ChatMessage {
 		};
 
 		let reactions_suffix = {
-			let active: Vec<String> = self.reactions.iter().filter(|r| !r.emoji.is_empty()).map(|r| {
-				let name = if r.reactor_name == "me" || r.reactor_name == "You" || r.reactor_jid == "me" {
-					"You".to_string()
-				} else if !r.reactor_name.is_empty() && !r.reactor_name.contains('@') {
-					r.reactor_name.clone()
-				} else if !self.sender_name.is_empty() && !self.sender_name.contains('@') && !self.from_me {
-					self.sender_name.clone()
-				} else {
-					"Contact".to_string()
-				};
-				format!("{} reacted with {}", name, r.emoji)
-			}).collect();
+			let active: Vec<String> = self
+				.reactions
+				.iter()
+				.filter(|r| !r.emoji.is_empty())
+				.map(|r| {
+					let name = if r.reactor_name == "me" || r.reactor_name == "You" || r.reactor_jid == "me" {
+						"You".to_string()
+					} else if !r.reactor_name.is_empty() && !r.reactor_name.contains('@') {
+						r.reactor_name.clone()
+					} else if !self.sender_name.is_empty() && !self.sender_name.contains('@') && !self.from_me {
+						self.sender_name.clone()
+					} else {
+						"Contact".to_string()
+					};
+					format!("{} reacted with {}", name, r.emoji)
+				})
+				.collect();
 
-			if !active.is_empty() {
-				format!(", {}", active.join(", "))
-			} else {
-				String::new()
-			}
+			if !active.is_empty() { format!(", {}", active.join(", ")) } else { String::new() }
 		};
 
 		if self.from_me {
 			if !formatted_time.is_empty() {
-				format!("You: {}{}, sent at {}, {}{}", body, reply_suffix, formatted_time, status_title, reactions_suffix)
+				format!(
+					"You: {}{}, sent at {}, {}{}",
+					body, reply_suffix, formatted_time, status_title, reactions_suffix
+				)
 			} else {
 				format!("You: {}{}, {}{}", body, reply_suffix, status_title, reactions_suffix)
 			}
@@ -316,19 +313,21 @@ impl DisplayItem {
 	pub fn all_downloaded(&self) -> bool {
 		match self {
 			DisplayItem::Single(msg) => msg.is_media_downloaded(),
-			DisplayItem::Album { messages, .. } => !messages.is_empty() && messages.iter().all(|m| m.is_media_downloaded()),
+			DisplayItem::Album { messages, .. } => {
+				!messages.is_empty() && messages.iter().all(|m| m.is_media_downloaded())
+			}
 		}
 	}
 
 	pub fn is_deleted(&self) -> bool {
 		match self {
 			DisplayItem::Single(msg) => {
-				msg.is_deleted || 
-				msg.text == "[You deleted this message]" || 
-				msg.text == "[This message was deleted]" || 
-				msg.text == "You deleted this message" || 
-				msg.text == "This message was deleted" ||
-				msg.text.contains("deleted")
+				msg.is_deleted
+					|| msg.text == "[You deleted this message]"
+					|| msg.text == "[This message was deleted]"
+					|| msg.text == "You deleted this message"
+					|| msg.text == "This message was deleted"
+					|| msg.text.contains("deleted")
 			}
 			DisplayItem::Album { messages, .. } => messages.is_empty() || messages.iter().all(|m| m.is_deleted),
 		}
@@ -349,8 +348,14 @@ impl DisplayItem {
 					String::new()
 				};
 
-				let photo_count = messages.iter().filter(|m| m.media_type == "image" || m.text.starts_with("[Photo]") || m.text.starts_with("[Image]")).count();
-				let video_count = messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
+				let photo_count = messages
+					.iter()
+					.filter(|m| {
+						m.media_type == "image" || m.text.starts_with("[Photo]") || m.text.starts_with("[Image]")
+					})
+					.count();
+				let video_count =
+					messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
 				let total = messages.len();
 
 				let desc = if photo_count > 0 && video_count == 0 {
@@ -399,13 +404,12 @@ pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<Displa
 
 	for msg in messages {
 		let is_deleted = msg.is_deleted || msg.text.contains("deleted") || msg.text.contains("Deleted");
-		let is_media = !is_deleted && (
-			msg.media_type == "image" || 
-			msg.media_type == "video" || 
-			msg.text.starts_with("[Photo]") || 
-			msg.text.starts_with("[Image]") || 
-			msg.text.starts_with("[Video]")
-		);
+		let is_media = !is_deleted
+			&& (msg.media_type == "image"
+				|| msg.media_type == "video"
+				|| msg.text.starts_with("[Photo]")
+				|| msg.text.starts_with("[Image]")
+				|| msg.text.starts_with("[Video]"));
 
 		if is_media {
 			if let Some(prev) = current_album.last() {
@@ -544,7 +548,10 @@ mod tests {
 			quoted_sender: "alex".into(),
 			..Default::default()
 		};
-		assert_eq!(voice_received.format_display(true), "Pooja: Voice message Duration: 0:10, replied to quoted message from @alex: \"Voice message Duration: 0:23\"");
+		assert_eq!(
+			voice_received.format_display(true),
+			"Pooja: Voice message Duration: 0:10, replied to quoted message from @alex: \"Voice message Duration: 0:23\""
+		);
 	}
 
 	#[test]
@@ -560,4 +567,3 @@ mod tests {
 		assert_eq!(msg.status, "read");
 	}
 }
-

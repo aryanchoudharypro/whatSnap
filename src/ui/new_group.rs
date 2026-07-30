@@ -1,5 +1,6 @@
-use wxdragon::prelude::*;
 use std::collections::HashSet;
+
+use wxdragon::prelude::*;
 
 pub struct NewGroupState {
 	pub all_contact_labels: Vec<String>,
@@ -19,7 +20,10 @@ pub struct NewGroupDialogParts {
 }
 
 pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
-	let dialog = Dialog::builder(parent, "New group").with_size(460, 560).with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder).build();
+	let dialog = Dialog::builder(parent, "New group")
+		.with_size(460, 560)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
 	let panel = Panel::builder(&dialog).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
@@ -59,13 +63,5 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	NewGroupDialogParts {
-		dialog,
-		name_field,
-		search_field,
-		contacts_listbox,
-		extra_number_field,
-		ok_btn,
-		cancel_btn,
-	}
+	NewGroupDialogParts { dialog, name_field, search_field, contacts_listbox, extra_number_field, ok_btn, cancel_btn }
 }

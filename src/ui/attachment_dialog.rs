@@ -24,9 +24,7 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 	let caption_label = StaticText::builder(&dialog).with_label("Caption (optional)").build();
 	sizer.add(&caption_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let caption_field = TextCtrl::builder(&dialog)
-		.with_style(TextCtrlStyle::ProcessEnter)
-		.build();
+	let caption_field = TextCtrl::builder(&dialog).with_style(TextCtrlStyle::ProcessEnter).build();
 	sizer.add(&caption_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();

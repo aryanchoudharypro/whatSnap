@@ -17,11 +17,7 @@ pub struct UiWaker {
 
 impl UiWaker {
 	pub fn new(frame: Frame, alive: Arc<AtomicBool>) -> Self {
-		Self {
-			frame_ptr: frame.handle_ptr() as usize,
-			pending: Arc::new(AtomicBool::new(false)),
-			alive,
-		}
+		Self { frame_ptr: frame.handle_ptr() as usize, pending: Arc::new(AtomicBool::new(false)), alive }
 	}
 
 	pub fn wake(&self) {

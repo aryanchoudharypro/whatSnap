@@ -190,9 +190,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	let hotkey_label = StaticText::builder(&general_page).with_label("Global hotkey").build();
 	gen_sizer.add(&hotkey_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
-	let hotkey_field = TextCtrl::builder(&general_page)
-		.with_style(TextCtrlStyle::ProcessEnter)
-		.build();
+	let hotkey_field = TextCtrl::builder(&general_page).with_style(TextCtrlStyle::ProcessEnter).build();
 	gen_sizer.add(&hotkey_field, 0, SizerFlag::Expand | SizerFlag::All, 8);
 
 	general_page.set_sizer(gen_sizer, true);
@@ -206,59 +204,47 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let messages_page_size_field = TextCtrl::builder(&ui_page).build();
 	ui_sizer.add(&messages_page_size_field, 0, SizerFlag::Expand | SizerFlag::All, 8);
 
-	let focus_sizer = StaticBoxSizerBuilder::new_with_label(Orientation::Vertical, &ui_page, "Focus on conversation open").build();
+	let focus_sizer =
+		StaticBoxSizerBuilder::new_with_label(Orientation::Vertical, &ui_page, "Focus on conversation open").build();
 	let focus_box = focus_sizer.get_static_box().unwrap();
-	let focus_message_field_rb = RadioButton::builder(&focus_box)
-		.with_label("Message field")
-		.with_style(RadioButtonStyle::GroupStart)
-		.build();
+	let focus_message_field_rb =
+		RadioButton::builder(&focus_box).with_label("Message field").with_style(RadioButtonStyle::GroupStart).build();
 	focus_sizer.add(&focus_message_field_rb, 0, SizerFlag::Left | SizerFlag::Top, 5);
-	let focus_unread_or_last_rb = RadioButton::builder(&focus_box)
-		.with_label("Unread or last message")
-		.build();
+	let focus_unread_or_last_rb = RadioButton::builder(&focus_box).with_label("Unread or last message").build();
 	focus_sizer.add(&focus_unread_or_last_rb, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
 	ui_sizer.add_sizer(&focus_sizer, 0, SizerFlag::Expand | SizerFlag::All, 8);
 
-	let voice_focus_sizer = StaticBoxSizerBuilder::new_with_label(Orientation::Vertical, &ui_page, "After recording voice message").build();
+	let voice_focus_sizer =
+		StaticBoxSizerBuilder::new_with_label(Orientation::Vertical, &ui_page, "After recording voice message").build();
 	let voice_focus_box = voice_focus_sizer.get_static_box().unwrap();
 	let voice_focus_send_rb = RadioButton::builder(&voice_focus_box)
 		.with_label("Focus Send button")
 		.with_style(RadioButtonStyle::GroupStart)
 		.build();
 	voice_focus_sizer.add(&voice_focus_send_rb, 0, SizerFlag::Left | SizerFlag::Top, 5);
-	let voice_focus_discard_rb = RadioButton::builder(&voice_focus_box)
-		.with_label("Focus Discard button")
-		.build();
+	let voice_focus_discard_rb = RadioButton::builder(&voice_focus_box).with_label("Focus Discard button").build();
 	voice_focus_sizer.add(&voice_focus_discard_rb, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
 	ui_sizer.add_sizer(&voice_focus_sizer, 0, SizerFlag::Expand | SizerFlag::All, 8);
 
-	let msg_list_sizer = StaticBoxSizerBuilder::new_with_label(Orientation::Vertical, &ui_page, "Message list mode").build();
+	let msg_list_sizer =
+		StaticBoxSizerBuilder::new_with_label(Orientation::Vertical, &ui_page, "Message list mode").build();
 	let msg_list_box = msg_list_sizer.get_static_box().unwrap();
-	let msg_list_mode_classic_rb = RadioButton::builder(&msg_list_box)
-		.with_label("Classic")
-		.with_style(RadioButtonStyle::GroupStart)
-		.build();
+	let msg_list_mode_classic_rb =
+		RadioButton::builder(&msg_list_box).with_label("Classic").with_style(RadioButtonStyle::GroupStart).build();
 	msg_list_sizer.add(&msg_list_mode_classic_rb, 0, SizerFlag::Left | SizerFlag::Top, 5);
-	let msg_list_mode_listbox_rb = RadioButton::builder(&msg_list_box)
-		.with_label("List box")
-		.build();
+	let msg_list_mode_listbox_rb = RadioButton::builder(&msg_list_box).with_label("List box").build();
 	msg_list_sizer.add(&msg_list_mode_listbox_rb, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
 	ui_sizer.add_sizer(&msg_list_sizer, 0, SizerFlag::Expand | SizerFlag::All, 8);
 
-	let self_ref_sizer = StaticBoxSizerBuilder::new_with_label(Orientation::Vertical, &ui_page, "Self reference").build();
+	let self_ref_sizer =
+		StaticBoxSizerBuilder::new_with_label(Orientation::Vertical, &ui_page, "Self reference").build();
 	let self_ref_box = self_ref_sizer.get_static_box().unwrap();
-	let self_ref_eu_rb = RadioButton::builder(&self_ref_box)
-		.with_label("You")
-		.with_style(RadioButtonStyle::GroupStart)
-		.build();
+	let self_ref_eu_rb =
+		RadioButton::builder(&self_ref_box).with_label("You").with_style(RadioButtonStyle::GroupStart).build();
 	self_ref_sizer.add(&self_ref_eu_rb, 0, SizerFlag::Left | SizerFlag::Top, 5);
-	let self_ref_voce_rb = RadioButton::builder(&self_ref_box)
-		.with_label("Voce")
-		.build();
+	let self_ref_voce_rb = RadioButton::builder(&self_ref_box).with_label("Voce").build();
 	self_ref_sizer.add(&self_ref_voce_rb, 0, SizerFlag::Left | SizerFlag::Top, 5);
-	let self_ref_other_rb = RadioButton::builder(&self_ref_box)
-		.with_label("Other")
-		.build();
+	let self_ref_other_rb = RadioButton::builder(&self_ref_box).with_label("Other").build();
 	self_ref_sizer.add(&self_ref_other_rb, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
 	let self_ref_custom_label = StaticText::builder(&self_ref_box).with_label("Custom word").build();
 	self_ref_sizer.add(&self_ref_custom_label, 0, SizerFlag::Left | SizerFlag::Right, 8);
@@ -399,4 +385,3 @@ mod tests {
 		assert_eq!(deserialized.ws_server, default_cfg.ws_server);
 	}
 }
-
