@@ -675,7 +675,13 @@ func handleSendVoiceMessage(conn *websocket.Conn, raw json.RawMessage) {
 			return
 		}
 
-		waveform := []byte{0, 5, 12, 25, 45, 70, 90, 100, 85, 60, 40, 20, 10, 5, 0, 10, 30, 60, 80, 95, 75, 50, 30, 15, 5, 0}
+		// WhatsApp strict requirement: Waveform MUST be exactly 64 bytes.
+		waveform := []byte{
+			0, 10, 20, 35, 50, 75, 90, 110, 100, 85, 70, 50, 30, 15, 5, 0,
+			5, 20, 45, 65, 80, 100, 120, 110, 95, 75, 50, 30, 20, 10, 5, 0,
+			10, 25, 40, 60, 85, 105, 115, 100, 80, 60, 45, 25, 15, 5, 0, 5,
+			15, 30, 55, 75, 95, 110, 90, 70, 50, 35, 20, 10, 5, 0, 0, 0,
+		}
 
 		msg := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
 			Mimetype: proto.String(mimetype), PTT: proto.Bool(true),
