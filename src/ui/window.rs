@@ -11,7 +11,7 @@ pub struct WindowParts {
 	pub frame: Frame,
 	pub nav_list: ListBox,
 	pub content_panel: Panel,
-	pub login_panel: Panel,
+	pub login_panel: Dialog,
 	pub main_panel: Panel,
 	pub nav_panel: Panel,
 	pub qrcode_dialog: Dialog,
@@ -56,7 +56,7 @@ pub fn build_main_window() -> WindowParts {
 	let content_panel = Panel::builder(&main_panel).build();
 	let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let login_panel = Panel::builder(&main_panel).build();
+	let login_panel = Dialog::builder(&frame, "Login").with_size(500, 300).build();
 	let login_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let qrcode_dialog = Dialog::builder(&frame, "QR Code").with_size(550, 550).build();
@@ -147,7 +147,6 @@ pub fn build_main_window() -> WindowParts {
 
 	main_sizer.add(&nav_panel, 0, SizerFlag::Expand | SizerFlag::All, 5);
 	main_sizer.add(&content_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
-	main_sizer.add(&login_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	main_panel.set_sizer(main_sizer, true);
 
 	let frame_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -1437,8 +1436,12 @@ pub fn bind_input_handlers(
 	let audio_progress_label_sel = parts.conversations_parts.audio_progress_label.clone();
 	let conv_parts_sel = parts.conversations_parts.clone();
 	let last_layout_time = std::cell::Cell::new(std::time::Instant::now());
+	let tx_sel = ui_tx.clone();
 	parts.conversations_parts.messages_list.on_selection_changed(move |event| {
 		if let Some(idx) = event.get_selection() {
+			if idx == 0 {
+				let _ = tx_sel.send(UiCommand::LoadMoreMessages);
+			}
 			let s = state_sel.borrow();
 			conv_parts_sel.action_panel.freeze();
 			let mut need_layout = crate::update_action_buttons(&s, &conv_parts_sel);
