@@ -739,6 +739,18 @@ fn do_seek(stream_handle: &MixerDeviceSink, path: &str, target_secs: f32, speed:
 	None
 }
 
+fn get_status_rank(s: &str) -> i32 {
+	match s {
+		"pending" => 0,
+		"uploading" => 1,
+		"sent" => 2,
+		"delivered" => 3,
+		"read" => 4,
+		"played" => 5,
+		_ => 0,
+	}
+}
+
 fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	match cmd {
 		UiCommand::PrepareNewGroup => {
@@ -1577,7 +1589,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									for (id, st) in pending_ids {
 										s.pending_receipts.remove(&id);
 										if let Some(msg) = s.messages.iter_mut().find(|m| m.id == id) {
-											msg.status = st;
+											if get_status_rank(&st) >= get_status_rank(&msg.status) {
+												msg.status = st;
+											}
 										}
 									}
 									s.display_items = whantv::group_messages_into_display_items(&s.messages);
@@ -2076,6 +2090,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let is_group = chat_jid.ends_with("@g.us");
 									let norm_status = match raw_status {
 										"read-self" => "read",
+										"sender" => "sent",
+										"inactive" => "delivered",
 										"" => "delivered",
 										other => other,
 									};
@@ -2086,25 +2102,27 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										let mut found = false;
 										for msg in s.messages.iter_mut() {
 											if msg.id == *target_id {
-												msg.status = norm_status.to_string();
-												if receipt_ts > 0 {
-													match norm_status {
-														"delivered" => {
-															if msg.delivered_at == 0 {
-																msg.delivered_at = receipt_ts;
+												if get_status_rank(norm_status) >= get_status_rank(&msg.status) {
+													msg.status = norm_status.to_string();
+													if receipt_ts > 0 {
+														match norm_status {
+															"delivered" => {
+																if msg.delivered_at == 0 {
+																	msg.delivered_at = receipt_ts;
+																}
 															}
-														}
-														"read" => {
-															if msg.read_at == 0 {
-																msg.read_at = receipt_ts;
+															"read" => {
+																if msg.read_at == 0 {
+																	msg.read_at = receipt_ts;
+																}
 															}
-														}
-														"played" => {
-															if msg.played_at == 0 {
-																msg.played_at = receipt_ts;
+															"played" => {
+																if msg.played_at == 0 {
+																	msg.played_at = receipt_ts;
+																}
 															}
+															_ => {}
 														}
-														_ => {}
 													}
 												}
 												found = true;
@@ -3072,8 +3090,10 @@ while ($true) {
 					std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
 				let wav_path = temp_dir.join(format!("voice_rec_{}.wav", ts));
 				let wav_path_str = wav_path.to_string_lossy().to_string();
-
 				let res1 = execute_mci_command("open new type waveaudio alias voice_rec");
+				let _ = execute_mci_command(
+					"set voice_rec channels 2 samplespersec 48000 bitspersample 16 alignment 4 bytespersec 192000 format tag pcm",
+				);
 				let res2 = execute_mci_command("record voice_rec");
 
 				if res1 == 0 && res2 == 0 {
@@ -3191,24 +3211,13 @@ while ($true) {
 
 				thread::spawn(move || {
 					let ogg_path = wav_path.replace(".wav", ".ogg");
-					let convert_res = std::process::Command::new("ffmpeg")
-						.args(&[
-							"-y",
-							"-i",
-							&wav_path,
-							"-c:a",
-							"libopus",
-							"-b:a",
-							"32k",
-							"-application",
-							"voip",
-							&ogg_path,
-						])
-						.output();
 
-					let (final_path, mimetype) = match convert_res {
-						Ok(out) if out.status.success() => (ogg_path, "audio/ogg; codecs=opus"),
-						_ => (wav_path, "audio/wav"),
+					let (final_path, mimetype) = match convert_wav_to_opus_ogg(&wav_path, &ogg_path) {
+						Ok(_) => (ogg_path, "audio/ogg; codecs=opus"),
+						Err(e) => {
+							eprintln!("[LOG UI] Error converting wav to opus natively: {}", e);
+							(wav_path, "audio/wav")
+						}
 					};
 
 					let payload = serde_json::json!({
@@ -3917,8 +3926,10 @@ fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()>
 	if spec.sample_rate != 48000 {
 		return Err(anyhow::anyhow!("Sample rate must be 48000"));
 	}
+	let is_stereo = spec.channels == 2;
+	let opus_channels = if is_stereo { Channels::Stereo } else { Channels::Mono };
 
-	let mut encoder = Encoder::new(48000, Channels::Mono, Application::Voip)?;
+	let mut encoder = Encoder::new(48000, opus_channels, Application::Voip)?;
 	let out_file = File::create(ogg_path)?;
 	let mut writer = PacketWriter::new(BufWriter::new(out_file));
 	let serial = 12345;
@@ -3927,7 +3938,7 @@ fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()>
 	let mut head = Vec::new();
 	head.extend_from_slice(b"OpusHead");
 	head.push(1); // Version
-	head.push(1); // Channels
+	head.push(spec.channels as u8); // Channels
 	head.extend_from_slice(&384_u16.to_le_bytes()); // Preskip
 	head.extend_from_slice(&48000_u32.to_le_bytes()); // Input sample rate
 	head.extend_from_slice(&0_u16.to_le_bytes()); // Gain
@@ -3944,9 +3955,11 @@ fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()>
 
 	let mut granule = 0;
 	let mut samples = Vec::new();
+	let samples_per_frame = if is_stereo { 960 * 2 } else { 960 };
+
 	for sample in reader.samples::<i16>() {
 		samples.push(sample?);
-		if samples.len() == 960 {
+		if samples.len() == samples_per_frame {
 			let mut out = vec![0u8; 1024];
 			let len = encoder.encode(&samples, &mut out)?;
 			out.truncate(len);
@@ -3957,11 +3970,12 @@ fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()>
 	}
 
 	if !samples.is_empty() {
-		samples.resize(960, 0);
+		let remaining_frames = samples.len() / (if is_stereo { 2 } else { 1 });
+		samples.resize(samples_per_frame, 0);
 		let mut out = vec![0u8; 1024];
 		let len = encoder.encode(&samples, &mut out)?;
 		out.truncate(len);
-		granule += samples.len() as u64;
+		granule += remaining_frames as u64;
 		writer.write_packet(out, serial, ogg::PacketWriteEndInfo::EndStream, granule)?;
 	}
 

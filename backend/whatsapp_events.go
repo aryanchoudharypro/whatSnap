@@ -625,10 +625,16 @@ func eventHandler(evt interface{}) {
 		// advances from_me rows. Empty receipt type means "delivered" per
 		// whatsmeow's types.ReceiptType constants.
 		status := "delivered"
-		if v.Type == types.ReceiptTypeRead {
+		if v.Type == types.ReceiptTypeRead || v.Type == types.ReceiptTypeReadSelf {
 			status = "read"
 		} else if v.Type == types.ReceiptTypePlayed {
 			status = "played"
+		} else if string(v.Type) == "sender" {
+			status = "sent"
+		} else if string(v.Type) == "inactive" {
+			status = "delivered"
+		} else if string(v.Type) != "" {
+			status = string(v.Type)
 		}
 		go func() {
 			ids := make([]string, len(v.MessageIDs))
