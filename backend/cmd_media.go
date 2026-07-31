@@ -17,10 +17,13 @@ import (
 	"sync"
 	"time"
 
+	"go.mau.fi/whatsmeow/proto/waMmsRetry"
+
 	"github.com/gorilla/websocket"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -86,6 +89,14 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 	}
 	data, mt, mime, fn, dErr := downloadMessageMedia(messageID)
 	if dErr != nil {
+		if strings.Contains(dErr.Error(), "403") || strings.Contains(dErr.Error(), "404") || strings.Contains(dErr.Error(), "410") {
+			fmt.Printf("Requesting media retry (sync) for %s...\n", messageID)
+			retryErr := requestMediaRetry(messageID)
+			if retryErr != nil {
+				return "", "", "", "", fmt.Errorf("URL expired and retry request failed: %v", retryErr)
+			}
+			return "", "", "", "", fmt.Errorf("Media URL expired. Requesting a fresh copy from the sender's phone, please wait a moment and try again.")
+		}
 		return "", "", "", "", dErr
 	}
 	path, err = saveMediaBytes("media", messageID, mime, data)
@@ -102,6 +113,7 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 var (
 	activeDownloadsMu sync.Mutex
 	activeDownloads   = map[string]context.CancelFunc{}
+	pendingAutoOpens  sync.Map
 )
 
 // progressFile wraps the cache file handed to whatsmeow's DownloadToFile.
@@ -249,11 +261,30 @@ func handleDownloadMedia(conn *websocket.Conn, raw json.RawMessage) {
 		}
 		path, mediaType, mimetype, filename, err := downloadMessageMediaToFile(ctx, data.MessageID, onProgress)
 		if err != nil {
+			fmt.Printf("Media download failed for message %s: %v\n", data.MessageID, err)
 			if errors.Is(err, context.Canceled) {
 				broadcastEvent("media_download_cancelled", map[string]interface{}{
 					"message_id": data.MessageID,
 					"jid":        data.JID,
 				})
+			} else if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "410") {
+				fmt.Printf("Requesting media retry for %s...\n", data.MessageID)
+				retryErr := requestMediaRetry(data.MessageID)
+				if retryErr != nil {
+					fmt.Printf("Retry request failed: %v\n", retryErr)
+					broadcastEvent("media_download_failed", map[string]interface{}{
+						"message_id": data.MessageID,
+						"jid":        data.JID,
+						"message":    "URL expired and retry request failed: " + retryErr.Error(),
+					})
+				} else {
+					// Inform frontend we are requesting from phone (percent=0)
+					broadcastEvent("media_download_progress", map[string]interface{}{
+						"message_id": data.MessageID,
+						"jid":        data.JID,
+						"percent":    0,
+					})
+				}
 			} else {
 				broadcastEvent("media_download_failed", map[string]interface{}{
 					"message_id": data.MessageID,
@@ -308,10 +339,17 @@ func handleOpenMedia(conn *websocket.Conn, raw json.RawMessage) {
 	go func() {
 		path, _, _, filename, err := ensureMediaCached(data.MessageID)
 		if err != nil {
+			if strings.Contains(err.Error(), "URL expired") {
+				pendingAutoOpens.Store(data.MessageID, map[string]interface{}{
+					"conn": conn,
+					"action": "open_media",
+				})
+				return
+			}
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-		
+
 		openPath := path
 		if filename != "" {
 			tempDir := filepath.Join(os.TempDir(), "whantv_open")
@@ -713,6 +751,13 @@ func handlePlayVoiceMessage(conn *websocket.Conn, raw json.RawMessage) {
 
 		path, _, _, _, err := ensureMediaCached(data.ID)
 		if err != nil {
+			if strings.Contains(err.Error(), "URL expired") {
+				pendingAutoOpens.Store(data.ID, map[string]interface{}{
+					"conn": conn,
+					"action": "play_audio",
+				})
+				return
+			}
 			fmt.Println("Error downloading audio:", err)
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
@@ -740,7 +785,7 @@ func handleCopyAlbumToClipboard(conn *websocket.Conn, raw json.RawMessage) {
 			if err != nil {
 				continue
 			}
-			
+
 			if filename != "" {
 				tempPath := filepath.Join(tempDir, filename)
 				if bytes, err := os.ReadFile(path); err == nil {
@@ -765,7 +810,7 @@ func handleCopyAlbumToClipboard(conn *websocket.Conn, raw json.RawMessage) {
 			}
 			psPathsStr := strings.Join(psPaths, ",")
 			script := fmt.Sprintf("Add-Type -AssemblyName System.Windows.Forms; $files = @(%s); $sc = New-Object System.Collections.Specialized.StringCollection; foreach ($f in $files) { $sc.Add($f) | Out-Null }; [System.Windows.Forms.Clipboard]::SetFileDropList($sc)", psPathsStr)
-			
+
 			cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
 			if err := cmd.Run(); err == nil {
 				sendEvent(conn, "copied_album_to_clipboard", map[string]interface{}{})
@@ -773,5 +818,175 @@ func handleCopyAlbumToClipboard(conn *websocket.Conn, raw json.RawMessage) {
 				sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			}
 		}
+	}()
+}
+
+func requestMediaRetry(messageID string) error {
+	rawBytes, jidStr, senderJidStr, fromMe, dbErr := getMessageRaw(messageID)
+	if dbErr != nil {
+		return dbErr
+	}
+	msg := &waE2E.Message{}
+	if err := proto.Unmarshal(rawBytes, msg); err != nil {
+		return err
+	}
+	chatJID, _ := types.ParseJID(jidStr)
+	senderJID, _ := types.ParseJID(senderJidStr)
+	if senderJID.IsEmpty() {
+		senderJID = chatJID
+	}
+
+	if chatJID.Server == "lid" {
+		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+			chatJID = pn
+		}
+	}
+	if senderJID.Server == "lid" {
+		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+			senderJID = pn
+		}
+	}
+
+	msgInfo := &types.MessageInfo{
+		ID:       types.MessageID(messageID),
+		MessageSource: types.MessageSource{
+			Chat:     chatJID,
+			Sender:   senderJID,
+			IsFromMe: fromMe,
+			IsGroup:  chatJID.Server == "g.us",
+		},
+	}
+	var mediaKey []byte
+	switch {
+	case msg.GetImageMessage() != nil:
+		mediaKey = msg.GetImageMessage().GetMediaKey()
+	case msg.GetVideoMessage() != nil:
+		mediaKey = msg.GetVideoMessage().GetMediaKey()
+	case msg.GetAudioMessage() != nil:
+		mediaKey = msg.GetAudioMessage().GetMediaKey()
+	case msg.GetDocumentMessage() != nil:
+		mediaKey = msg.GetDocumentMessage().GetMediaKey()
+	case msg.GetStickerMessage() != nil:
+		mediaKey = msg.GetStickerMessage().GetMediaKey()
+	}
+	if mediaKey == nil {
+		return fmt.Errorf("no media key found")
+	}
+	return client.SendMediaRetryReceipt(context.Background(), msgInfo, mediaKey)
+}
+
+func handleMediaRetryEvent(evt *events.MediaRetry) {
+	rawBytes, jidStr, _, _, dbErr := getMessageRaw(string(evt.MessageID))
+	if dbErr != nil {
+		return
+	}
+	msg := &waE2E.Message{}
+	proto.Unmarshal(rawBytes, msg)
+	var mediaKey []byte
+	switch {
+	case msg.GetImageMessage() != nil:
+		mediaKey = msg.GetImageMessage().GetMediaKey()
+	case msg.GetVideoMessage() != nil:
+		mediaKey = msg.GetVideoMessage().GetMediaKey()
+	case msg.GetAudioMessage() != nil:
+		mediaKey = msg.GetAudioMessage().GetMediaKey()
+	case msg.GetDocumentMessage() != nil:
+		mediaKey = msg.GetDocumentMessage().GetMediaKey()
+	case msg.GetStickerMessage() != nil:
+		mediaKey = msg.GetStickerMessage().GetMediaKey()
+	}
+	if mediaKey == nil {
+		return
+	}
+	retryData, err := whatsmeow.DecryptMediaRetryNotification(evt, mediaKey)
+	if err != nil || retryData.GetResult() != waMmsRetry.MediaRetryNotification_SUCCESS {
+		fmt.Printf("Failed to decrypt media retry or result not success for %s: %v\n", evt.MessageID, err)
+		broadcastEvent("media_download_failed", map[string]interface{}{
+			"message_id": string(evt.MessageID),
+			"jid":        jidStr,
+			"message":    "Phone could not re-upload the expired media",
+		})
+		return
+	}
+
+	newPath := retryData.GetDirectPath()
+	if newPath == "" {
+		return
+	}
+	switch {
+	case msg.GetImageMessage() != nil:
+		msg.GetImageMessage().DirectPath = proto.String(newPath)
+	case msg.GetVideoMessage() != nil:
+		msg.GetVideoMessage().DirectPath = proto.String(newPath)
+	case msg.GetAudioMessage() != nil:
+		msg.GetAudioMessage().DirectPath = proto.String(newPath)
+	case msg.GetDocumentMessage() != nil:
+		msg.GetDocumentMessage().DirectPath = proto.String(newPath)
+	case msg.GetStickerMessage() != nil:
+		msg.GetStickerMessage().DirectPath = proto.String(newPath)
+	}
+
+	newRawBytes, _ := proto.Marshal(msg)
+	db.Exec("UPDATE messages SET raw = ? WHERE id = ?", newRawBytes, string(evt.MessageID))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	activeDownloadsMu.Lock()
+	activeDownloads[string(evt.MessageID)] = cancel
+	activeDownloadsMu.Unlock()
+	go func() {
+		defer func() {
+			activeDownloadsMu.Lock()
+			delete(activeDownloads, string(evt.MessageID))
+			activeDownloadsMu.Unlock()
+			cancel()
+		}()
+		onProgress := func(percent int) {
+			broadcastEvent("media_download_progress", map[string]interface{}{
+				"message_id": string(evt.MessageID),
+				"jid":        jidStr,
+				"percent":    percent,
+			})
+		}
+		path, mediaType, mimetype, filename, err := downloadMessageMediaToFile(ctx, string(evt.MessageID), onProgress)
+		if err != nil {
+			broadcastEvent("media_download_failed", map[string]interface{}{
+				"message_id": string(evt.MessageID),
+				"jid":        jidStr,
+				"message":    err.Error(),
+			})
+			if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
+				data := c.(map[string]interface{})
+				conn := data["conn"].(*websocket.Conn)
+				sendEvent(conn, "error", map[string]string{"message": "Failed to automatically fetch old media: " + err.Error()})
+				pendingAutoOpens.Delete(string(evt.MessageID))
+			}
+			return
+		}
+
+		if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
+			data := c.(map[string]interface{})
+			conn := data["conn"].(*websocket.Conn)
+			action := data["action"].(string)
+			if action == "open_media" {
+				if mediaType == "document" || mediaType == "audio" {
+					absPath, _ := filepath.Abs(path)
+					sendEvent(conn, "open_media", map[string]string{"path": absPath})
+				} else {
+					sendEvent(conn, "open_media", map[string]string{"path": path})
+				}
+			} else if action == "play_audio" {
+				sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": string(evt.MessageID)})
+			}
+			pendingAutoOpens.Delete(string(evt.MessageID))
+		}
+
+		broadcastEvent("media_downloaded", map[string]interface{}{
+			"message_id": string(evt.MessageID),
+			"jid":        jidStr,
+			"path":       path,
+			"mediaType":  mediaType,
+			"mimetype":   mimetype,
+			"filename":   filename,
+		})
 	}()
 }

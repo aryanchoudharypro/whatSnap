@@ -216,6 +216,8 @@ func eventHandler(evt interface{}) {
 	}
 
 	switch v := evt.(type) {
+	case *events.MediaRetry:
+		go handleMediaRetryEvent(v)
 	case *events.HistorySync:
 		go func() {
 			for _, conv := range v.Data.GetConversations() {

@@ -92,21 +92,18 @@ impl ChatMessage {
 		};
 		Self::sanitize_filename(&raw)
 	}
-	pub fn format_display(&self, _is_group: bool) -> String {
+	pub fn format_display(&self, is_group: bool) -> String {
 		if self.is_date_divider {
 			return self.text.clone();
 		}
 
-		let formatted_time = if self.timestamp > 0 {
+		let mut formatted_time = String::new();
+		if self.timestamp > 0 {
 			if let Some(datetime) = chrono::DateTime::from_timestamp(self.timestamp, 0) {
-				let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
-				local_dt.format("%l:%M %p").to_string().trim().to_string()
-			} else {
-				String::new()
+				let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+				formatted_time = local_datetime.format("%I:%M %p").to_string();
 			}
-		} else {
-			String::new()
-		};
+		}
 
 		let is_deleted = self.is_deleted
 			|| self.text == "[You deleted this message]"

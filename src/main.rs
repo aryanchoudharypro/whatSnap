@@ -955,6 +955,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									);
 								}
 								drop(s);
+								parts.conversations_parts.play_voice_btn.set_label("Play voice message");
 								MessageDialog::builder(&parts.frame, msg, "Error")
 									.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 									.build()
@@ -1525,9 +1526,22 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 
+									let mut s = state.borrow_mut();
+									let chat_jid = s.selected_chat.clone().unwrap_or_default();
+									let chat_name =
+										s.contacts.get(&chat_jid).cloned().unwrap_or_else(|| chat_jid.clone());
+									let is_group_chat = chat_jid.ends_with("@g.us");
+
 									let mut with_dates = Vec::new();
 									let mut last_date = String::new();
-									for msg in deduplicated {
+									for mut msg in deduplicated {
+										if !is_group_chat
+											&& !msg.from_me && msg.sender_name.is_empty()
+											&& msg.sender_jid.is_empty()
+										{
+											msg.sender_name = chat_name.clone();
+										}
+
 										if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
 											let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
 											let date_str = local_datetime.format("%A, %B %e, %Y").to_string();
@@ -1544,7 +1558,6 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										with_dates.push(msg);
 									}
 
-									let mut s = state.borrow_mut();
 									s.loading_messages = false;
 									let was_history_loading = s.history_loading;
 									s.history_loading = false;
@@ -2459,11 +2472,14 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									}
 								}
 
-								let announce_name = if filename.is_empty() { "File".to_string() } else { filename };
-								live_region::announce(
-									parts.conversations_parts.messages_announcer.clone(),
-									&format!("{} downloaded", announce_name),
-								);
+								let media_type = data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("");
+								if media_type != "voice" {
+									let announce_name = if filename.is_empty() { "File".to_string() } else { filename };
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										&format!("{} downloaded", announce_name),
+									);
+								}
 							}
 						}
 						"media_download_progress" => {
@@ -2508,6 +2524,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									parts.conversations_parts.messages_announcer.clone(),
 									&announcement,
 								);
+								parts.conversations_parts.play_voice_btn.set_label("Play voice message");
 							}
 						}
 						"media_saved" => {
