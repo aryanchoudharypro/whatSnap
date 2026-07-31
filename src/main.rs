@@ -700,8 +700,7 @@ fn main() {
 		audio_timer.start(500, false);
 		Box::leak(Box::new(audio_timer)); // Keep alive for app lifetime
 
-		frame.show(true);
-		parts_clone.conversations_parts.search_field.set_focus();
+		parts_clone.login_panel.set_focus();
 	});
 	if let Err(e) = res {
 		let _ = std::fs::write("main_error.log", format!("{:?}", e));
@@ -878,10 +877,16 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							parts.nav_panel.show(true);
 							parts.content_panel.show(true);
 							parts.main_panel.layout();
+							parts.frame.show(true);
+							parts.conversations_parts.search_field.set_focus();
 							let payload = serde_json::json!({
 								"action": "get_chats"
 							});
 							let _ = state.borrow().ws_tx.send(payload.to_string());
+						}
+						"needs_login" => {
+							parts.login_panel.show(true);
+							parts.login_panel.set_focus();
 						}
 						"pairing_code" => {
 							if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
@@ -972,6 +977,24 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 									.build()
 									.show_modal();
+							}
+						}
+						"history_sync" => {
+							if let Some(data) = val.get("data") {
+								if let Some(jids) = data.get("jids").and_then(|j| j.as_array()) {
+									let s = state.borrow();
+									if s.history_loading {
+										if let Some(selected_jid) = s.selected_chat.clone() {
+											if jids.iter().any(|j| j.as_str() == Some(&selected_jid)) {
+												let payload = serde_json::json!({
+													"action": "get_messages",
+													"data": { "jid": selected_jid, "limit": 9999999, "offset": 0 }
+												});
+												let _ = s.ws_tx.send(payload.to_string());
+											}
+										}
+									}
+								}
 							}
 						}
 						"chats" => {
