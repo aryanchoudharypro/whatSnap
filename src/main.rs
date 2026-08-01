@@ -72,7 +72,7 @@ pub enum UiCommand {
 	SeekAudio(f32),         // relative delta in seconds
 	SeekAudioAbsolute(i32), // slider value 0..1000
 	CloseConversation,
-	ReactToMessage { message_id: String, emoji: String },
+	ReactToMessage { message_id: String, sender_jid: String, emoji: String },
 	ToggleAudioSpeed,
 	ShowConversationData,
 }
@@ -2346,8 +2346,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										reactor_name_val.to_string()
 									} else {
 										s.contacts
-											.get(norm_jid_react(chat_jid).as_str())
-											.or_else(|| s.contacts.get(chat_jid))
+											.get(norm_jid_react(reactor).as_str())
 											.or_else(|| s.contacts.get(reactor))
 											.cloned()
 											.unwrap_or_else(|| "Contact".to_string())
@@ -3859,7 +3858,7 @@ while ($true) {
 				parts.conversations_parts.audio_slider.set_value(pos);
 			}
 		}
-		UiCommand::ReactToMessage { message_id, emoji } => {
+		UiCommand::ReactToMessage { message_id, sender_jid, emoji } => {
 			let s = state.borrow();
 			if let Some(ref jid) = s.selected_chat {
 				let payload = serde_json::json!({
@@ -3867,6 +3866,7 @@ while ($true) {
 					"data": {
 						"jid": jid,
 						"message_id": message_id,
+						"sender_jid": sender_jid,
 						"emoji": emoji
 					}
 				});
