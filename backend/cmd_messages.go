@@ -109,10 +109,9 @@ func handleReactMessage(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		myJID := client.Store.ID.ToNonAD().String()
-		upsertReaction(data.MessageID, data.JID, myJID, data.Emoji, resp.Timestamp.Unix())
+		upsertReaction(data.MessageID, data.JID, "me", data.Emoji, resp.Timestamp.Unix())
 		broadcastEvent("message_reaction", map[string]interface{}{
-			"jid": data.JID, "message_id": data.MessageID, "reactor": myJID, "emoji": data.Emoji,
+			"jid": data.JID, "message_id": data.MessageID, "reactor": "me", "reactor_name": "You", "emoji": data.Emoji,
 		})
 	}()
 }

@@ -88,7 +88,33 @@ impl ChatMessage {
 			let name = rest.split(": ").next().unwrap_or(rest).trim();
 			if !name.is_empty() { name.to_string() } else { format!("{}.bin", self.id) }
 		} else {
-			format!("{}.bin", self.id)
+			let ext = if !self.media_path.is_empty() {
+				std::path::Path::new(&self.media_path).extension().and_then(|e| e.to_str()).unwrap_or("bin")
+			} else {
+				"bin"
+			};
+
+			let prefix = match self.media_type.as_str() {
+				"image" => "WhatsApp Image",
+				"video" => "WhatsApp Video",
+				"voice" => "WhatsApp PTT",
+				"audio" => "WhatsApp Audio",
+				_ => "WhatsApp File",
+			};
+
+			let mut time_str = String::new();
+			if self.timestamp > 0 {
+				if let Some(datetime) = chrono::DateTime::from_timestamp(self.timestamp, 0) {
+					let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+					time_str = local_datetime.format(" %Y-%m-%d at %H.%M.%S").to_string();
+				}
+			}
+
+			if time_str.is_empty() {
+				format!("{} {}.{}", prefix, self.id, ext)
+			} else {
+				format!("{}{}.{}", prefix, time_str, ext)
+			}
 		};
 		Self::sanitize_filename(&raw)
 	}

@@ -820,6 +820,7 @@ pub fn bind_input_handlers(
 						let dlg_ref = dlg.clone();
 						let tx_react = tx_play_media_clone.clone();
 						let msg_id = msg.id.clone();
+						let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
 						let parent_ref = parent_frame_clone.clone();
 
 						let on_select = Rc::new(move |choice_idx: usize| {
@@ -829,6 +830,7 @@ pub fn bind_input_handlers(
 									let selected = emojis[choice_idx].clone();
 									let _ = tx_react.send(UiCommand::ReactToMessage {
 										message_id: msg_id.clone(),
+										sender_jid: sender_jid.clone(),
 										emoji: selected,
 									});
 								}
@@ -845,6 +847,7 @@ pub fn bind_input_handlers(
 											if !emoji.is_empty() {
 												let _ = tx_react.send(UiCommand::ReactToMessage {
 													message_id: msg_id.clone(),
+													sender_jid: sender_jid.clone(),
 													emoji,
 												});
 											}
@@ -854,6 +857,7 @@ pub fn bind_input_handlers(
 								12 => {
 									let _ = tx_react.send(UiCommand::ReactToMessage {
 										message_id: msg_id.clone(),
+										sender_jid: sender_jid.clone(),
 										emoji: String::new(),
 									});
 								}
