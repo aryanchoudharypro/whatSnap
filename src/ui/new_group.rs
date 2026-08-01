@@ -63,5 +63,53 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
+	let dlg_g1 = dialog.clone();
+	name_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_g1.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let dlg_g2 = dialog.clone();
+	search_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_g2.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let dlg_g3 = dialog.clone();
+	contacts_listbox.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_g3.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let dlg_g4 = dialog.clone();
+	extra_number_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_g4.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
 	NewGroupDialogParts { dialog, name_field, search_field, contacts_listbox, extra_number_field, ok_btn, cancel_btn }
 }

@@ -32,16 +32,27 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 	let add_more_btn = Button::builder(&dialog).with_label("Add more files").build();
 	btn_sizer.add(&add_more_btn, 0, SizerFlag::Right, 5);
 
-	let discard_btn = Button::builder(&dialog).with_label("Discard").build();
+	let discard_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("Discard").build();
 	btn_sizer.add(&discard_btn, 0, SizerFlag::Right, 5);
 
-	let send_btn = Button::builder(&dialog).with_label("Send").build();
+	let send_btn = Button::builder(&dialog).with_id(ID_OK).with_label("Send").build();
 	btn_sizer.add(&send_btn, 0, SizerFlag::empty(), 0);
 
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::AlignRight | SizerFlag::All, 10);
 
-	dialog.set_sizer(sizer, true);
 	dialog.center();
+
+	let dlg_att = dialog.clone();
+	caption_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_att.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
 
 	AttachmentDialogParts {
 		dialog,

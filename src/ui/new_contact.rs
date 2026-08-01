@@ -38,10 +38,10 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 	sizer.add(&sync_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let ok_btn = Button::builder(&panel).with_label("Create").build();
+	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Create").build();
 	btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
-	let cancel_btn = Button::builder(&panel).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
 	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);
 
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
@@ -51,6 +51,42 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
 	dialog.set_sizer(outer, true);
 	dialog.center();
+
+	let dlg_e1 = dialog.clone();
+	name_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_e1.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let dlg_e2 = dialog.clone();
+	surname_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_e2.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let dlg_e3 = dialog.clone();
+	phone_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_e3.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
 
 	NewContactDialogParts { dialog, name_field, surname_field, phone_field, sync_check, ok_btn, cancel_btn }
 }

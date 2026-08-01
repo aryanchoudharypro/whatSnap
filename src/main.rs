@@ -75,6 +75,7 @@ pub enum UiCommand {
 	ReactToMessage { message_id: String, sender_jid: String, emoji: String },
 	ToggleAudioSpeed,
 	ShowConversationData,
+	ForwardMessage { message_id: String, to_jids: Vec<String> },
 }
 
 use std::{fs::File, io::BufReader};
@@ -858,14 +859,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				parts.conversations_parts.conversation_panel.layout();
 			}
 		}
-		UiCommand::ConversationSelectionChanged(idx) => {
-			let jid = state.borrow().filtered_chats.get(idx).cloned();
-			println!("DEBUG: ConversationSelectionChanged idx={}, jid={:?}", idx, jid);
-			let mut s = state.borrow_mut();
-			s.selected_chat = jid;
-			s.messages.clear();
-			// 			parts.conversations_parts.messages_list.update_entries(&[], None);
-		}
+		UiCommand::ConversationSelectionChanged(_idx) => {}
 		UiCommand::ProcessWebSocketMessage(raw) => {
 			if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
 				if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
@@ -1029,46 +1023,24 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												chat.get("PreviewFromMe").and_then(|p| p.as_bool()).unwrap_or(false);
 
 											let time_str = if ts > 0 {
-												let now = std::time::SystemTime::now()
-													.duration_since(std::time::UNIX_EPOCH)
-													.unwrap_or_default()
-													.as_secs() as i64;
-												let ist_offset: i64 = 5 * 3600 + 30 * 60;
-												let local_ts = ts + ist_offset;
-												let local_now = now + ist_offset;
-												let msg_day = local_ts / 86400;
-												let today = local_now / 86400;
-												let secs_in_day = local_ts % 86400;
-												let hour = secs_in_day / 3600;
-												let minute = (secs_in_day % 3600) / 60;
-												let (h12, ampm) = if hour == 0 {
-													(12, "AM")
-												} else if hour < 12 {
-													(hour, "AM")
-												} else if hour == 12 {
-													(12, "PM")
-												} else {
-													(hour - 12, "PM")
-												};
-												let time_part = format!("{}:{:02} {}", h12, minute, ampm);
-												if msg_day == today {
-													time_part
-												} else if msg_day == today - 1 {
-													format!("Yesterday {}", time_part)
-												} else {
-													let total_days = local_ts / 86400;
-													let y = (10000 * total_days as i64 + 14780) / 3652425;
-													let doy = total_days - (365 * y + y / 4 - y / 100 + y / 400);
-													let doy = if doy < 0 {
-														let y2 = y - 1;
-														total_days - (365 * y2 + y2 / 4 - y2 / 100 + y2 / 400)
+												if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
+													let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
+													let now_dt = chrono::Local::now();
+													let msg_date = local_dt.date_naive();
+													let today = now_dt.date_naive();
+													let yesterday = today.pred_opt().unwrap_or(today);
+													let num_days_ago = (today - msg_date).num_days();
+													if msg_date == today {
+														local_dt.format("%I:%M %p").to_string()
+													} else if msg_date == yesterday {
+														"Yesterday".to_string()
+													} else if num_days_ago > 1 && num_days_ago < 7 {
+														local_dt.format("%A").to_string()
 													} else {
-														doy
-													};
-													let mi = (100 * doy + 52) / 3060;
-													let month = (mi + 2) % 12 + 1;
-													let day = doy - (mi * 306 + 5) / 10 + 1;
-													format!("{:02}/{:02} {}", day, month, time_part)
+														local_dt.format("%d/%m/%Y").to_string()
+													}
+												} else {
+													String::new()
 												}
 											} else {
 												String::new()
@@ -3765,6 +3737,17 @@ while ($true) {
 				});
 				let _ = state.borrow().ws_tx.send(payload.to_string());
 			}
+		}
+		UiCommand::ForwardMessage { message_id, to_jids } => {
+			let payload = serde_json::json!({
+				"action": "forward_message",
+				"data": {
+					"message_id": message_id,
+					"to_jids": to_jids
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Message forwarded.");
 		}
 		UiCommand::SubscribePresence(jid) => {
 			let payload = serde_json::json!({

@@ -72,7 +72,8 @@ pub fn build_main_window() -> WindowParts {
 	let qrcode_announcer = StaticText::builder(&qrcode_dialog).with_label("").build();
 	live_region::set_live_region(&qrcode_announcer);
 
-	let qrcode_cancel_btn = Button::builder(&qrcode_dialog).with_label("Cancel QR Code").build();
+	let qrcode_cancel_btn =
+		Button::builder(&qrcode_dialog).with_id(wxdragon::id::ID_CANCEL).with_label("Cancel QR Code").build();
 	qr_sizer.add(&qrcode_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	qr_sizer.add(&qrcode_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	qr_sizer.add(&qrcode_announcer, 0, SizerFlag::Left, 0);
@@ -119,13 +120,26 @@ pub fn build_main_window() -> WindowParts {
 	let pairing_announcer = StaticText::builder(&pairing_dialog).with_label("").build();
 	live_region::set_live_region(&pairing_announcer);
 
-	let pairing_cancel_btn = Button::builder(&pairing_dialog).with_label("Cancel").build();
+	let pairing_cancel_btn =
+		Button::builder(&pairing_dialog).with_id(wxdragon::id::ID_CANCEL).with_label("Cancel").build();
 	p_sizer.add(&pairing_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	p_sizer.add(&pairing_code_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	p_sizer.add(&pairing_announcer, 0, SizerFlag::Left, 0); // hidden visually but in DOM
 	pairing_announcer.show(false);
 	p_sizer.add(&pairing_cancel_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	pairing_dialog.set_sizer(p_sizer, true);
+
+	let pairing_dlg_esc = pairing_dialog.clone();
+	pairing_code_display.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				pairing_dlg_esc.end_modal(wxdragon::id::ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
 
 	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
@@ -611,6 +625,7 @@ pub fn bind_input_handlers(
 			let delete_id = 3003;
 			let info_id = 3004;
 			let copy_all_id = 3005;
+			let forward_id = 3006;
 			let react_dialog_id = 3010;
 
 			let s = state_ctx.borrow();
@@ -635,6 +650,7 @@ pub fn bind_input_handlers(
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder
 				.append_item(reply_id, "&Reply", "Reply to message")
+				.append_item(forward_id, "&Forward...", "Forward message to another contact")
 				.append_item(edit_id, "&Edit", "Edit message")
 				.append_item(delete_id, "&Delete", "Delete message")
 				.append_item(react_dialog_id, "&React...", "React to message");
@@ -692,6 +708,151 @@ pub fn bind_input_handlers(
 								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 									windows::Win32::UI::WindowsAndMessaging::MB_OK,
 								);
+							}
+						}
+					}
+				} else if id == forward_id {
+					let s = state_clone.borrow();
+					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+						whantv::DisplayItem::Single(m) => Some(m.clone()),
+						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+					});
+					if let Some(msg) = msg_opt {
+						if !msg.is_date_divider {
+							let mut labels = Vec::new();
+							let mut jids = Vec::new();
+							for jid in &s.chats {
+								if !jid.ends_with("@broadcast") {
+									let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+									labels.push(name);
+									jids.push(jid.clone());
+								}
+							}
+							for (jid, name) in &s.contacts {
+								if !jid.ends_with("@broadcast") && !jids.contains(jid) {
+									labels.push(name.clone());
+									jids.push(jid.clone());
+								}
+							}
+							drop(s);
+
+							if !jids.is_empty() {
+								let dlg = Dialog::builder(&parent_frame_clone, "Forward Message")
+									.with_size(400, 450)
+									.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+									.build();
+								let dlg_panel = Panel::builder(&dlg).build();
+								let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+								let search_label =
+									StaticText::builder(&dlg_panel).with_label("Search contacts or chats:").build();
+								dlg_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
+
+								let search_ctrl = TextCtrl::builder(&dlg_panel).build();
+								dlg_sizer.add(&search_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
+								let contacts_listbox =
+									ListBox::builder(&dlg_panel).with_choices(labels.clone()).build();
+								dlg_sizer.add(
+									&contacts_listbox,
+									1,
+									SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right,
+									8,
+								);
+
+								let btn_panel = Panel::builder(&dlg_panel).build();
+								let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+								let ok_btn = Button::builder(&btn_panel)
+									.with_id(wxdragon::id::ID_OK)
+									.with_label("Forward")
+									.build();
+								let cancel_btn = Button::builder(&btn_panel)
+									.with_id(wxdragon::id::ID_CANCEL)
+									.with_label("Cancel")
+									.build();
+								btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 5);
+								btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
+								btn_panel.set_sizer(btn_sizer, true);
+
+								dlg_sizer.add(&btn_panel, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
+								dlg_panel.set_sizer(dlg_sizer, true);
+
+								let dlg_esc_search = dlg.clone();
+								search_ctrl.on_key_down(move |event| {
+									if let WindowEventData::Keyboard(ref key) = event {
+										if key.get_key_code() == Some(27) {
+											dlg_esc_search.end_modal(wxdragon::id::ID_CANCEL);
+											event.skip(false);
+											return;
+										}
+									}
+									event.skip(true);
+								});
+
+								let dlg_esc_list = dlg.clone();
+								contacts_listbox.on_key_down(move |event| {
+									if let WindowEventData::Keyboard(ref key) = event {
+										if key.get_key_code() == Some(27) {
+											dlg_esc_list.end_modal(wxdragon::id::ID_CANCEL);
+											event.skip(false);
+											return;
+										}
+									}
+									event.skip(true);
+								});
+
+								let current_labels = std::rc::Rc::new(std::cell::RefCell::new(labels.clone()));
+								let current_jids = std::rc::Rc::new(std::cell::RefCell::new(jids.clone()));
+
+								let all_labels = labels;
+								let all_jids = jids;
+								let current_labels_search = current_labels.clone();
+								let current_jids_search = current_jids.clone();
+								let listbox_search = contacts_listbox;
+
+								search_ctrl.on_text_changed(move |_| {
+									let q = search_ctrl.get_value().to_lowercase().trim().to_string();
+									let mut fl = Vec::new();
+									let mut fj = Vec::new();
+									for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
+										if q.is_empty() || lbl.to_lowercase().contains(&q) {
+											fl.push(lbl.clone());
+											fj.push(jid.clone());
+										}
+									}
+									listbox_search.clear();
+									for l in &fl {
+										listbox_search.append(l);
+									}
+									*current_labels_search.borrow_mut() = fl;
+									*current_jids_search.borrow_mut() = fj;
+								});
+
+								let dlg_cancel = dlg.clone();
+								cancel_btn.on_click(move |_| {
+									dlg_cancel.end_modal(0);
+								});
+
+								let dlg_ok = dlg.clone();
+								let tx_fwd = tx_play_media_clone.clone();
+								let msg_id = msg.id.clone();
+								let current_jids_ok = current_jids;
+								ok_btn.on_click(move |_| {
+									if let Some(sel_idx) = contacts_listbox.get_selection() {
+										let cj = current_jids_ok.borrow();
+										if (sel_idx as usize) < cj.len() {
+											let target_jid = cj[sel_idx as usize].clone();
+											dlg_ok.end_modal(wxdragon::id::ID_OK);
+											let _ = tx_fwd.send(UiCommand::ForwardMessage {
+												message_id: msg_id.clone(),
+												to_jids: vec![target_jid],
+											});
+										}
+									}
+								});
+
+								search_ctrl.set_focus();
+								dlg.show_modal();
 							}
 						}
 					}
@@ -1222,6 +1383,155 @@ pub fn bind_input_handlers(
 										}
 									}
 								}
+							}
+						}
+					}
+				}
+				event.skip(false);
+			} else if code == Some('f' as i32) || code == Some('F' as i32) || code == Some(70) || code == Some(102) {
+				// 'f' / 'F' -> Forward
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let s = state_play.borrow();
+					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+						whantv::DisplayItem::Single(m) => Some(m.clone()),
+						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+					});
+					if let Some(msg) = msg_opt {
+						if !msg.is_date_divider {
+							let mut labels = Vec::new();
+							let mut jids = Vec::new();
+							for jid in &s.chats {
+								if !jid.ends_with("@broadcast") {
+									let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+									labels.push(name);
+									jids.push(jid.clone());
+								}
+							}
+							for (jid, name) in &s.contacts {
+								if !jid.ends_with("@broadcast") && !jids.contains(jid) {
+									labels.push(name.clone());
+									jids.push(jid.clone());
+								}
+							}
+							drop(s);
+
+							if !jids.is_empty() {
+								let dlg = Dialog::builder(&parent_frame, "Forward Message")
+									.with_size(400, 450)
+									.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+									.build();
+								let dlg_panel = Panel::builder(&dlg).build();
+								let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+								let search_label =
+									StaticText::builder(&dlg_panel).with_label("Search contacts or chats:").build();
+								dlg_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
+
+								let search_ctrl = TextCtrl::builder(&dlg_panel).build();
+								dlg_sizer.add(&search_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
+								let contacts_listbox =
+									ListBox::builder(&dlg_panel).with_choices(labels.clone()).build();
+								dlg_sizer.add(
+									&contacts_listbox,
+									1,
+									SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right,
+									8,
+								);
+
+								let btn_panel = Panel::builder(&dlg_panel).build();
+								let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+								let ok_btn = Button::builder(&btn_panel)
+									.with_id(wxdragon::id::ID_OK)
+									.with_label("Forward")
+									.build();
+								let cancel_btn = Button::builder(&btn_panel)
+									.with_id(wxdragon::id::ID_CANCEL)
+									.with_label("Cancel")
+									.build();
+								btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 5);
+								btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
+								btn_panel.set_sizer(btn_sizer, true);
+
+								dlg_sizer.add(&btn_panel, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
+								dlg_panel.set_sizer(dlg_sizer, true);
+
+								let dlg_esc_search = dlg.clone();
+								search_ctrl.on_key_down(move |event| {
+									if let WindowEventData::Keyboard(ref key) = event {
+										if key.get_key_code() == Some(27) {
+											dlg_esc_search.end_modal(wxdragon::id::ID_CANCEL);
+											event.skip(false);
+											return;
+										}
+									}
+									event.skip(true);
+								});
+
+								let dlg_esc_list = dlg.clone();
+								contacts_listbox.on_key_down(move |event| {
+									if let WindowEventData::Keyboard(ref key) = event {
+										if key.get_key_code() == Some(27) {
+											dlg_esc_list.end_modal(wxdragon::id::ID_CANCEL);
+											event.skip(false);
+											return;
+										}
+									}
+									event.skip(true);
+								});
+
+								let current_labels = std::rc::Rc::new(std::cell::RefCell::new(labels.clone()));
+								let current_jids = std::rc::Rc::new(std::cell::RefCell::new(jids.clone()));
+
+								let all_labels = labels;
+								let all_jids = jids;
+								let current_labels_search = current_labels.clone();
+								let current_jids_search = current_jids.clone();
+								let listbox_search = contacts_listbox;
+
+								search_ctrl.on_text_changed(move |_| {
+									let q = search_ctrl.get_value().to_lowercase().trim().to_string();
+									let mut fl = Vec::new();
+									let mut fj = Vec::new();
+									for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
+										if q.is_empty() || lbl.to_lowercase().contains(&q) {
+											fl.push(lbl.clone());
+											fj.push(jid.clone());
+										}
+									}
+									listbox_search.clear();
+									for l in &fl {
+										listbox_search.append(l);
+									}
+									*current_labels_search.borrow_mut() = fl;
+									*current_jids_search.borrow_mut() = fj;
+								});
+
+								let dlg_cancel = dlg.clone();
+								cancel_btn.on_click(move |_| {
+									dlg_cancel.end_modal(0);
+								});
+
+								let dlg_ok = dlg.clone();
+								let tx_fwd = tx_close_list.clone();
+								let msg_id = msg.id.clone();
+								let current_jids_ok = current_jids;
+								ok_btn.on_click(move |_| {
+									if let Some(sel_idx) = contacts_listbox.get_selection() {
+										let cj = current_jids_ok.borrow();
+										if (sel_idx as usize) < cj.len() {
+											let target_jid = cj[sel_idx as usize].clone();
+											dlg_ok.end_modal(wxdragon::id::ID_OK);
+											let _ = tx_fwd.send(UiCommand::ForwardMessage {
+												message_id: msg_id.clone(),
+												to_jids: vec![target_jid],
+											});
+										}
+									}
+								});
+
+								search_ctrl.set_focus();
+								dlg.show_modal();
 							}
 						}
 					}

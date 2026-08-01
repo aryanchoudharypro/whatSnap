@@ -63,6 +63,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		// --- messaging ---
 		case "send":
 			go handleSend(conn, cmd.Data)
+		case "forward_message":
+			handleForwardMessage(conn, cmd.Data)
 		case "react_message":
 			handleReactMessage(cmd.Data)
 		case "edit_message":

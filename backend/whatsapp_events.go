@@ -370,17 +370,6 @@ func eventHandler(evt interface{}) {
 					}
 					evtMsg, parseEvtErr := client.ParseWebMessage(chatJID, webMsg)
 					if parseEvtErr != nil || evtMsg == nil {
-						msgID := webMsg.GetKey().GetID()
-						if msgID != "" {
-							msgTS := int64(webMsg.GetMessageTimestamp())
-							msgFromMe := webMsg.GetKey().GetFromMe()
-							if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp)
-									VALUES (?, ?, ?, '[Unsupported Message]', ?)
-									ON CONFLICT(id) DO UPDATE SET text='[Unsupported Message]'`,
-								msgID, jid, msgFromMe, msgTS); err != nil {
-								log.Println("Error storing fallback unsupported message:", err)
-							}
-						}
 						continue
 					}
 					if pm := evtMsg.Message.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_REVOKE {
@@ -908,10 +897,7 @@ func populateChatsFromStore() {
 		}
 
 		if name != "" {
-			db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0)
-				ON CONFLICT(jid) DO UPDATE SET
-				name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
-				jidStr, name)
+			db.Exec(`UPDATE chats SET name = COALESCE(NULLIF(?, ''), name) WHERE jid = ?`, name, jidStr)
 		}
 	}
 
@@ -987,5 +973,6 @@ func populateChatsFromStore() {
 			UpdateChatSnippet(target.String())
 		}
 	}
+	db.Exec("DELETE FROM chats WHERE timestamp = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)")
 	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@broadcast'")
 }

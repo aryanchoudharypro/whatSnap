@@ -61,11 +61,9 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN played_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN edited_at INTEGER DEFAULT 0")
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
-	// Rows synced before revoked-stub handling existed: no text, no media and
-	// no raw protobuf means the message was revoked, so surface it as deleted
-	// instead of "[Media]".
-	db.Exec(`UPDATE messages SET is_deleted = 1 WHERE COALESCE(is_deleted, 0) = 0 AND COALESCE(text, '') = ''
-		AND COALESCE(media_type, '') = '' AND COALESCE(media_path, '') = '' AND (raw IS NULL OR length(raw) = 0)`)
+	db.Exec("DELETE FROM messages WHERE (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
+	db.Exec("DELETE FROM messages WHERE is_deleted = 1 AND (raw IS NULL OR length(raw) = 0) AND (text = '' OR text IS NULL)")
+	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0)) AND pinned = 0 AND muted = 0 AND archived = 0")
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
@@ -207,11 +205,11 @@ func UpdateChatSnippet(jid string) {
 	db.Exec(`UPDATE chats SET
 		preview_snippet = COALESCE(
 			(SELECT CASE WHEN is_deleted = 1 THEN CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END ELSE NULLIF(text, '') END
-			 FROM messages WHERE messages.jid = ? ORDER BY timestamp DESC LIMIT 1), chats.preview_snippet),
+			 FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), chats.preview_snippet),
 		preview_sender = COALESCE(
-			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = ? ORDER BY timestamp DESC LIMIT 1), ''),
+			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), ''),
 		preview_from_me = COALESCE(
-			(SELECT from_me FROM messages WHERE messages.jid = ? ORDER BY timestamp DESC LIMIT 1), 0)
+			(SELECT from_me FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), 0)
 		WHERE jid = ?`, jid, jid, jid, jid)
 }
 
@@ -219,11 +217,11 @@ func UpdateAllChatSnippets() {
 	db.Exec(`UPDATE chats SET
 		preview_snippet = COALESCE(
 			(SELECT CASE WHEN is_deleted = 1 THEN CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END ELSE NULLIF(text, '') END
-			 FROM messages WHERE messages.jid = chats.jid ORDER BY timestamp DESC LIMIT 1), chats.preview_snippet),
+			 FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), chats.preview_snippet),
 		preview_sender = COALESCE(
-			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = chats.jid ORDER BY timestamp DESC LIMIT 1), ''),
+			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), ''),
 		preview_from_me = COALESCE(
-			(SELECT from_me FROM messages WHERE messages.jid = chats.jid ORDER BY timestamp DESC LIMIT 1), 0)`)
+			(SELECT from_me FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), 0)`)
 }
 
 func setMessageMediaPath(id, path string) error {
