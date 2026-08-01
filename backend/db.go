@@ -28,6 +28,8 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN preview_snippet TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE chats ADD COLUMN archived INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN preview_sender TEXT DEFAULT ''")
+	db.Exec("ALTER TABLE chats ADD COLUMN preview_from_me INTEGER DEFAULT 0")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
@@ -202,44 +204,26 @@ func markMessageDeleted(id, jid string) error {
 }
 
 func UpdateChatSnippet(jid string) {
-	query := `
-		UPDATE chats 
-		SET preview_snippet = COALESCE(
-			(SELECT 
-				CASE 
-					WHEN is_deleted = 1 THEN 
-						CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END 
-					ELSE 
-						NULLIF(text, '')
-				END 
-			 FROM messages 
-			 WHERE messages.jid = chats.jid 
-			 ORDER BY timestamp DESC 
-			 LIMIT 1), 
-			chats.preview_snippet)
-		WHERE jid = ?
-	`
-	db.Exec(query, jid)
+	db.Exec(`UPDATE chats SET
+		preview_snippet = COALESCE(
+			(SELECT CASE WHEN is_deleted = 1 THEN CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END ELSE NULLIF(text, '') END
+			 FROM messages WHERE messages.jid = ? ORDER BY timestamp DESC LIMIT 1), chats.preview_snippet),
+		preview_sender = COALESCE(
+			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = ? ORDER BY timestamp DESC LIMIT 1), ''),
+		preview_from_me = COALESCE(
+			(SELECT from_me FROM messages WHERE messages.jid = ? ORDER BY timestamp DESC LIMIT 1), 0)
+		WHERE jid = ?`, jid, jid, jid, jid)
 }
 
 func UpdateAllChatSnippets() {
-	query := `
-		UPDATE chats 
-		SET preview_snippet = COALESCE(
-			(SELECT 
-				CASE 
-					WHEN is_deleted = 1 THEN 
-						CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END 
-					ELSE 
-						NULLIF(text, '')
-				END 
-			 FROM messages 
-			 WHERE messages.jid = chats.jid 
-			 ORDER BY timestamp DESC 
-			 LIMIT 1), 
-			chats.preview_snippet)
-	`
-	db.Exec(query)
+	db.Exec(`UPDATE chats SET
+		preview_snippet = COALESCE(
+			(SELECT CASE WHEN is_deleted = 1 THEN CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END ELSE NULLIF(text, '') END
+			 FROM messages WHERE messages.jid = chats.jid ORDER BY timestamp DESC LIMIT 1), chats.preview_snippet),
+		preview_sender = COALESCE(
+			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = chats.jid ORDER BY timestamp DESC LIMIT 1), ''),
+		preview_from_me = COALESCE(
+			(SELECT from_me FROM messages WHERE messages.jid = chats.jid ORDER BY timestamp DESC LIMIT 1), 0)`)
 }
 
 func setMessageMediaPath(id, path string) error {
@@ -408,15 +392,14 @@ func resolveDisplayName(jid types.JID) string {
 			}
 		}
 	}
-	var name string
+	var name, phone string
 	if db != nil {
-		_ = db.QueryRow(`SELECT name FROM contacts WHERE (jid = ? OR jid = ?) AND name != '' AND name NOT LIKE '%@%' LIMIT 1`, jid.String(), contactJID.String()).Scan(&name)
+		_ = db.QueryRow(`SELECT name, phone FROM contacts_cache WHERE (jid = ? OR jid = ?) AND (name != '' OR phone != '') LIMIT 1`, jid.String(), contactJID.String()).Scan(&name, &phone)
 		if name != "" {
 			return name
 		}
-		_ = db.QueryRow(`SELECT sender_name FROM messages WHERE (sender_jid = ? OR sender_jid = ?) AND sender_name != '' AND sender_name NOT LIKE '%@%' ORDER BY timestamp DESC LIMIT 1`, jid.String(), contactJID.String()).Scan(&name)
-		if name != "" {
-			return name
+		if phone != "" {
+			return "+" + phone
 		}
 	}
 	if jid.Server != "g.us" && jid.Server != "lid" && jid.Server != "" && jid.User != "" {

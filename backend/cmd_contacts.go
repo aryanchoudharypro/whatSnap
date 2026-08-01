@@ -12,7 +12,9 @@ import (
 
 func handleGetContacts(conn *websocket.Conn) {
 	go func() {
+		populateChatsFromStore()
 		rows, err := db.Query(`SELECT jid, name, phone, is_business, about, avatar_path, is_blocked FROM contacts_cache WHERE name != '' OR phone != '' ORDER BY name COLLATE NOCASE ASC`)
+
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return

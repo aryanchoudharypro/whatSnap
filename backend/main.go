@@ -80,8 +80,18 @@ func main() {
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportAddOnHistorySyncMigration = proto.Bool(true)
-	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(1095)
-	store.DeviceProps.HistorySyncConfig.StorageQuotaMb = proto.Uint32(50000)
+	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(3650)
+	store.DeviceProps.HistorySyncConfig.FullSyncSizeMbLimit = proto.Uint32(50000)
+	store.DeviceProps.HistorySyncConfig.StorageQuotaMb = proto.Uint32(102400)
+	store.DeviceProps.HistorySyncConfig.InlineInitialPayloadInE2EeMsg = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportCallLogHistory = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportBotUserAgentChatHistory = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportCagReactionsAndPolls = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportBizHostedMsg = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportHostedGroupMsg = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportMessageAssociation = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportGroupHistory = proto.Bool(true)
+
 
 	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -205,11 +206,12 @@ func mediaInfoFromMessage(msg *waE2E.Message) (mediaType, mimetype, filename str
 }
 
 func isIgnoredChatJID(jid string) bool {
-	return strings.HasSuffix(jid, "@broadcast") || strings.HasSuffix(jid, "@newsletter") || strings.HasSuffix(jid, "@lid")
+	return jid == "status@broadcast" || strings.HasSuffix(jid, "@broadcast") || strings.HasSuffix(jid, "@newsletter")
 }
 
+var historySyncMutex sync.Mutex
+
 func eventHandler(evt interface{}) {
-	// Skip logging low-level noisy events unless debugging
 	switch evt.(type) {
 	case *events.Message, *events.Receipt, *events.HistorySync:
 		log.Printf("Event received in eventHandler: %T", evt)
@@ -220,6 +222,51 @@ func eventHandler(evt interface{}) {
 		go handleMediaRetryEvent(v)
 	case *events.HistorySync:
 		go func() {
+			historySyncMutex.Lock()
+			defer historySyncMutex.Unlock()
+
+			if v.Data == nil {
+				return
+			}
+
+			for _, mapping := range v.Data.GetPhoneNumberToLidMappings() {
+				if mapping == nil {
+					continue
+				}
+				pnJID, err1 := types.ParseJID(mapping.GetPnJID())
+				lidJID, err2 := types.ParseJID(mapping.GetLidJID())
+				if err1 == nil && err2 == nil && !pnJID.IsEmpty() && !lidJID.IsEmpty() {
+					client.Store.LIDs.PutLIDMapping(context.Background(), lidJID, pnJID)
+					db.Exec(`UPDATE chats SET jid = ? WHERE jid = ?`, pnJID.String(), lidJID.String())
+					db.Exec(`UPDATE messages SET jid = ? WHERE jid = ?`, pnJID.String(), lidJID.String())
+					db.Exec(`UPDATE messages SET sender_jid = ? WHERE sender_jid = ?`, pnJID.String(), lidJID.String())
+				}
+			}
+
+			for _, p := range v.Data.GetPushnames() {
+				if p == nil {
+					continue
+				}
+				idStr := p.GetID()
+				pushname := p.GetPushname()
+				if idStr == "" || pushname == "" {
+					continue
+				}
+				parsedJID, err := types.ParseJID(idStr)
+				if err != nil {
+					continue
+				}
+				targetJID := parsedJID.ToNonAD()
+				if targetJID.Server == "lid" {
+					if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), targetJID); err == nil && !pn.IsEmpty() {
+						targetJID = pn.ToNonAD()
+					}
+				}
+				client.Store.Contacts.PutPushName(context.Background(), targetJID, pushname)
+				upsertContactCacheRow(targetJID.String(), pushname, targetJID.User, false)
+				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, pushname, targetJID.String())
+			}
+
 			for _, conv := range v.Data.GetConversations() {
 				tx, txErr := db.Begin()
 				if txErr != nil {
@@ -232,7 +279,30 @@ func eventHandler(evt interface{}) {
 					tx.Rollback()
 					continue
 				}
+				chatJID, parseErr := types.ParseJID(jid)
+				if parseErr != nil {
+					tx.Rollback()
+					continue
+				}
+				chatJID = chatJID.ToNonAD()
+				if chatJID.Server == "lid" {
+					if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+						chatJID = pn.ToNonAD()
+					}
+				}
+				jid = chatJID.String()
+
 				name := conv.GetName()
+				if name == "" {
+					if contact, err := client.Store.Contacts.GetContact(context.Background(), chatJID); err == nil && contact.Found {
+						if contact.FullName != "" {
+							name = contact.FullName
+						} else if contact.PushName != "" {
+							name = contact.PushName
+						}
+					}
+				}
+
 				ts := conv.GetConversationTimestamp()
 				if ts == 0 {
 					ts = conv.GetLastMsgTimestamp()
@@ -274,113 +344,152 @@ func eventHandler(evt interface{}) {
 					fmt.Println("Error inserting chat from HistorySync:", err)
 				}
 
-				chatJID, parseErr := types.ParseJID(jid)
-				if parseErr == nil {
-					for _, historyMsg := range conv.GetMessages() {
-						webMsg := historyMsg.GetMessage()
-						if webMsg == nil {
-							continue
+				for i, historyMsg := range conv.GetMessages() {
+					if i > 0 && i%200 == 0 {
+						tx.Commit()
+						time.Sleep(5 * time.Millisecond)
+						tx, _ = db.Begin()
+					}
+					webMsg := historyMsg.GetMessage()
+					if webMsg == nil {
+						continue
+					}
+					if webMsg.GetMessageStubType() == waWeb.WebMessageInfo_REVOKE {
+						stubID := webMsg.GetKey().GetID()
+						if stubID != "" {
+							stubFromMe := webMsg.GetKey().GetFromMe()
+							stubTS := int64(webMsg.GetMessageTimestamp())
+							if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
+									VALUES (?, ?, ?, '', ?, 1)
+									ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
+								stubID, jid, stubFromMe, stubTS); err != nil {
+								log.Println("Error storing revoked stub from HistorySync:", err)
+							}
 						}
-						if webMsg.GetMessageStubType() == waWeb.WebMessageInfo_REVOKE {
-							// Revoked messages come through history sync as a stub
-							// with no content; without this they'd be stored as
-							// empty rows and render as "[Media]".
-							stubID := webMsg.GetKey().GetID()
-							if stubID != "" {
-								stubFromMe := webMsg.GetKey().GetFromMe()
-								stubTS := int64(webMsg.GetMessageTimestamp())
-								if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
-										VALUES (?, ?, ?, '', ?, 1)
-										ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
-									stubID, chatJID.String(), stubFromMe, stubTS); err != nil {
-									log.Println("Error storing revoked stub from HistorySync:", err)
-								}
+						continue
+					}
+					evtMsg, parseEvtErr := client.ParseWebMessage(chatJID, webMsg)
+					if parseEvtErr != nil || evtMsg == nil {
+						msgID := webMsg.GetKey().GetID()
+						if msgID != "" {
+							msgTS := int64(webMsg.GetMessageTimestamp())
+							msgFromMe := webMsg.GetKey().GetFromMe()
+							if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp)
+									VALUES (?, ?, ?, '[Unsupported Message]', ?)
+									ON CONFLICT(id) DO UPDATE SET text='[Unsupported Message]'`,
+								msgID, jid, msgFromMe, msgTS); err != nil {
+								log.Println("Error storing fallback unsupported message:", err)
 							}
-							continue
 						}
-						evtMsg, parseEvtErr := client.ParseWebMessage(chatJID, webMsg)
-						if parseEvtErr == nil && evtMsg != nil {
-							if pm := evtMsg.Message.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_REVOKE {
-								if targetID := pm.GetKey().GetID(); targetID != "" {
-									if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
-											VALUES (?, ?, ?, '', ?, 1)
-											ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
-										targetID, chatJID.String(), evtMsg.Info.IsFromMe, evtMsg.Info.Timestamp.Unix()); err != nil {
-										log.Println("Error storing revoke from HistorySync:", err)
-									}
-								}
-								continue
+						continue
+					}
+					if pm := evtMsg.Message.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_REVOKE {
+						if targetID := pm.GetKey().GetID(); targetID != "" {
+							if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
+									VALUES (?, ?, ?, '', ?, 1)
+									ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
+								targetID, jid, evtMsg.Info.IsFromMe, evtMsg.Info.Timestamp.Unix()); err != nil {
+								log.Println("Error storing revoke from HistorySync:", err)
 							}
-							msgText := extractText(evtMsg.Message)
-							if msgText == "[Unsupported Message]" || msgText == "[Protocol Message]" {
-								continue
+						}
+						continue
+					}
+					if reaction := evtMsg.Message.GetReactionMessage(); reaction != nil {
+						targetID := reaction.GetKey().GetID()
+						emoji := reaction.GetText()
+						reactorJID := evtMsg.Info.Sender.ToNonAD().String()
+						if evtMsg.Info.IsFromMe {
+							reactorJID = "me"
+						}
+						ts := reaction.GetSenderTimestampMS() / 1000
+						if ts == 0 {
+							ts = evtMsg.Info.Timestamp.Unix()
+						}
+						if emoji == "" {
+							tx.Exec(`DELETE FROM reactions WHERE message_id = ? AND (reactor_jid = ? OR reactor_jid = 'me')`, targetID, reactorJID)
+						} else {
+							tx.Exec(`INSERT INTO reactions (message_id, chat_jid, reactor_jid, emoji, timestamp) VALUES (?, ?, ?, ?, ?)
+								ON CONFLICT(message_id, reactor_jid) DO UPDATE SET emoji = excluded.emoji, timestamp = excluded.timestamp`,
+								targetID, jid, reactorJID, emoji, ts)
+						}
+						continue
+					}
+
+					msgText := extractText(evtMsg.Message)
+					if msgText == "[Protocol Message]" {
+						continue
+					}
+					msgID := evtMsg.Info.ID
+					if msgID == "" && webMsg.Key != nil {
+						msgID = webMsg.GetKey().GetID()
+					}
+					if msgID != "" {
+						msgJID := evtMsg.Info.Chat.ToNonAD().String()
+						if msgJID == "" || strings.HasSuffix(msgJID, "@lid") {
+							msgJID = jid
+						}
+						msgFromMe := evtMsg.Info.IsFromMe
+						msgTS := evtMsg.Info.Timestamp.Unix()
+						if msgTS <= 0 && webMsg.MessageTimestamp != nil {
+							msgTS = int64(webMsg.GetMessageTimestamp())
+						}
+						senderJID := evtMsg.Info.Sender.ToNonAD()
+						if senderJID.Server == "lid" {
+							if !evtMsg.Info.SenderAlt.IsEmpty() {
+								senderJID = evtMsg.Info.SenderAlt.ToNonAD()
+							} else if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+								senderJID = pn.ToNonAD()
 							}
-							msgID := evtMsg.Info.ID
-							if msgID == "" && webMsg.Key != nil {
-								msgID = webMsg.GetKey().GetID()
-							}
-							if msgID != "" {
-								msgJID := evtMsg.Info.Chat.String()
-								if msgJID == "" {
-									msgJID = chatJID.String()
+						}
+						rawBytes, _ := proto.Marshal(evtMsg.Message)
+						mediaType, mimetype, filename := mediaInfoFromMessage(evtMsg.Message)
+						quotedID, quotedText, quotedSender := quotedPreview(evtMsg.Message)
+						status := ""
+						var sentAt, deliveredAt, readAt, playedAt int64
+						if msgFromMe {
+							sentAt = msgTS
+							for _, ur := range webMsg.GetUserReceipt() {
+								if ts := ur.GetReceiptTimestamp(); ts > deliveredAt {
+									deliveredAt = ts
 								}
-								msgFromMe := evtMsg.Info.IsFromMe
-								msgTS := evtMsg.Info.Timestamp.Unix()
-								if msgTS <= 0 && webMsg.MessageTimestamp != nil {
-									msgTS = int64(webMsg.GetMessageTimestamp())
+								if ts := ur.GetReadTimestamp(); ts > readAt {
+									readAt = ts
 								}
-								senderJID := evtMsg.Info.Sender.String()
-								rawBytes, _ := proto.Marshal(evtMsg.Message)
-								mediaType, mimetype, filename := mediaInfoFromMessage(evtMsg.Message)
-								quotedID, quotedText, quotedSender := quotedPreview(evtMsg.Message)
-								status := ""
-								var sentAt, deliveredAt, readAt, playedAt int64
-								if msgFromMe {
-									sentAt = msgTS
-									for _, ur := range webMsg.GetUserReceipt() {
-										if ts := ur.GetReceiptTimestamp(); ts > deliveredAt {
-											deliveredAt = ts
-										}
-										if ts := ur.GetReadTimestamp(); ts > readAt {
-											readAt = ts
-										}
-										if ts := ur.GetPlayedTimestamp(); ts > playedAt {
-											playedAt = ts
-										}
-									}
-									stStr := strings.ToLower(webMsg.GetStatus().String())
-									switch {
-									case strings.Contains(stStr, "played"):
-										status = "played"
-									case strings.Contains(stStr, "read"):
-										status = "read"
-									case strings.Contains(stStr, "delivery") || strings.Contains(stStr, "delivered"):
-										status = "delivered"
-									case strings.Contains(stStr, "server") || strings.Contains(stStr, "sent"):
-										status = "sent"
-									default:
-										if webMsg.GetStatus() > 0 {
-											status = "sent"
-										}
-									}
-								}
-								_, err := tx.Exec(`INSERT INTO messages
-										(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at)
-									VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-									ON CONFLICT(id) DO UPDATE SET text=excluded.text, timestamp=excluded.timestamp, sender_jid=excluded.sender_jid, raw=excluded.raw,
-										status=CASE WHEN excluded.status != '' THEN excluded.status ELSE messages.status END,
-										media_type=excluded.media_type, media_mimetype=excluded.media_mimetype, media_filename=excluded.media_filename,
-										quoted_id=excluded.quoted_id, quoted_text=excluded.quoted_text, quoted_sender=excluded.quoted_sender,
-										sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END,
-										delivered_at=CASE WHEN messages.delivered_at != 0 THEN messages.delivered_at ELSE excluded.delivered_at END,
-										read_at=CASE WHEN messages.read_at != 0 THEN messages.read_at ELSE excluded.read_at END,
-										played_at=CASE WHEN messages.played_at != 0 THEN messages.played_at ELSE excluded.played_at END`,
-									msgID, msgJID, msgFromMe, msgText, msgTS, senderJID, rawBytes, status,
-									mediaType, mimetype, filename, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt)
-								if err != nil {
-									log.Println("Error inserting message from HistorySync:", err)
+								if ts := ur.GetPlayedTimestamp(); ts > playedAt {
+									playedAt = ts
 								}
 							}
+							stStr := strings.ToLower(webMsg.GetStatus().String())
+							switch {
+							case strings.Contains(stStr, "played"):
+								status = "played"
+							case strings.Contains(stStr, "read"):
+								status = "read"
+							case strings.Contains(stStr, "delivery") || strings.Contains(stStr, "delivered"):
+								status = "delivered"
+							case strings.Contains(stStr, "server") || strings.Contains(stStr, "sent"):
+								status = "sent"
+							default:
+								if webMsg.GetStatus() > 0 {
+									status = "sent"
+								}
+							}
+						}
+						_, err := tx.Exec(`INSERT INTO messages
+								(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at)
+							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+							ON CONFLICT(id) DO UPDATE SET text=excluded.text, timestamp=excluded.timestamp, sender_jid=excluded.sender_jid, raw=excluded.raw,
+								status=CASE WHEN excluded.status != '' THEN excluded.status ELSE messages.status END,
+								media_type=excluded.media_type, media_mimetype=excluded.media_mimetype, media_filename=excluded.media_filename,
+								quoted_id=excluded.quoted_id, quoted_text=excluded.quoted_text, quoted_sender=excluded.quoted_sender,
+								sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END,
+								delivered_at=CASE WHEN messages.delivered_at != 0 THEN messages.delivered_at ELSE excluded.delivered_at END,
+								read_at=CASE WHEN messages.read_at != 0 THEN messages.read_at ELSE excluded.read_at END,
+								played_at=CASE WHEN messages.played_at != 0 THEN messages.played_at ELSE excluded.played_at END`,
+							msgID, msgJID, msgFromMe, msgText, msgTS, senderJID.String(), rawBytes, status,
+							mediaType, mimetype, filename, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt)
+						if err != nil {
+							log.Println("Error inserting message from HistorySync:", err)
 						}
 					}
 				}
@@ -389,14 +498,11 @@ func eventHandler(evt interface{}) {
 				}
 			}
 			UpdateAllChatSnippets()
+			populateChatsFromStore()
 			broadcastChats()
 		}()
 
 	case *events.Message:
-		// Edits, deletes (revokes), and reactions all arrive as *events.Message
-		// too, distinguished by these sub-fields rather than a separate event
-		// type. Handle them first and return early; only genuinely new content
-		// falls through to the normal insert-and-broadcast path below.
 		if v.IsEdit {
 			targetID := v.Message.GetProtocolMessage().GetKey().GetID()
 			newContent := v.Message.GetProtocolMessage().GetEditedMessage()
@@ -458,7 +564,7 @@ func eventHandler(evt interface{}) {
 		}
 
 		text := extractText(v.Message)
-		if text == "[Unsupported Message]" || text == "[Protocol Message]" {
+		if text == "[Protocol Message]" {
 			return
 		}
 		log.Printf("Received events.Message. ID: %s, Sender: %s, Chat: %s, text length: %d", v.Info.ID, v.Info.Sender.String(), v.Info.Chat.String(), len(text))
@@ -476,12 +582,14 @@ func eventHandler(evt interface{}) {
 			if v.Info.IsFromMe {
 				increment = 0
 			}
-			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet) VALUES (?, ?, ?, ?)
+			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 					timestamp=MAX(timestamp, excluded.timestamp),
 					unread_count=chats.unread_count + excluded.unread_count,
-					preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
-				jid, ts, increment, text)
+					preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
+					preview_sender=excluded.preview_sender,
+					preview_from_me=excluded.preview_from_me`,
+				jid, ts, increment, text, senderJID.String(), v.Info.IsFromMe)
 			if err != nil {
 				fmt.Println("Error updating chat timestamp:", err)
 			}
@@ -525,6 +633,49 @@ func eventHandler(evt interface{}) {
 				"quotedSender":  quotedSender,
 			})
 		}
+	case *events.PushName:
+		go func() {
+			jidStr := v.JID.ToNonAD().String()
+			if v.NewPushName != "" {
+				client.Store.Contacts.PutPushName(context.Background(), v.JID.ToNonAD(), v.NewPushName)
+				upsertContactCacheRow(jidStr, v.NewPushName, v.JID.User, false)
+				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewPushName, jidStr)
+				broadcastChats()
+			}
+		}()
+	case *events.Contact:
+		go func() {
+			jidStr := v.JID.ToNonAD().String()
+			fullName := ""
+			if v.Action != nil {
+				fullName = v.Action.GetFullName()
+				if fullName == "" {
+					fullName = v.Action.GetFirstName()
+				}
+			}
+			if fullName != "" {
+				client.Store.Contacts.PutContactName(context.Background(), v.JID.ToNonAD(), fullName, fullName)
+				upsertContactCacheRow(jidStr, fullName, v.JID.User, false)
+				db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, fullName, jidStr)
+				broadcastChats()
+			}
+		}()
+	case *events.BusinessName:
+		go func() {
+			jidStr := v.JID.ToNonAD().String()
+			if v.NewBusinessName != "" {
+				upsertContactCacheRow(jidStr, v.NewBusinessName, v.JID.User, true)
+				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewBusinessName, jidStr)
+				broadcastChats()
+			}
+		}()
+	case *events.OfflineSyncCompleted:
+		log.Printf("OfflineSyncCompleted event received. Count: %d", v.Count)
+		go func() {
+			UpdateAllChatSnippets()
+			populateChatsFromStore()
+			broadcastChats()
+		}()
 	case *events.DeleteForMe:
 		jid := v.ChatJID.String()
 		go markMessageDeleted(v.MessageID, jid)
@@ -621,9 +772,7 @@ func eventHandler(evt interface{}) {
 			"type":        string(v.Type),
 			"timestamp":   v.Timestamp.Unix(),
 		})
-		// Receipts only ever describe messages *we* sent, so this only ever
-		// advances from_me rows. Empty receipt type means "delivered" per
-		// whatsmeow's types.ReceiptType constants.
+		log.Printf("Received Receipt event - Chat: %s, Sender: %s, Type: %s, MessageIDs: %v", chatJID.String(), senderJID.String(), string(v.Type), v.MessageIDs)
 		status := "delivered"
 		if v.Type == types.ReceiptTypeRead || v.Type == types.ReceiptTypeReadSelf {
 			status = "read"
@@ -643,21 +792,23 @@ func eventHandler(evt interface{}) {
 			}
 			receiptTS := v.Timestamp.Unix()
 			updated := updateMessageStatusIfNewer(ids, status, receiptTS)
-			if len(updated) > 0 {
-				chatJID := v.MessageSource.Chat.ToNonAD()
-				// Resolve LID to phone-number JID so the frontend can match it
-				// against the selected chat (which is stored as @s.whatsapp.net).
-				if chatJID.Server == "lid" {
-					if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
-						chatJID = pn.ToNonAD()
-					}
+			resolvedChatJID := v.MessageSource.Chat.ToNonAD()
+			if resolvedChatJID.Server == "lid" {
+				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), resolvedChatJID); err == nil && !pn.IsEmpty() {
+					resolvedChatJID = pn.ToNonAD()
 				}
+			}
+			if len(updated) > 0 {
 				broadcastEvent("message_status", map[string]interface{}{
-					"jid":         chatJID.String(),
+					"jid":         resolvedChatJID.String(),
 					"message_ids": updated,
 					"status":      status,
 					"timestamp":   receiptTS,
 				})
+			}
+			if v.Type == types.ReceiptTypeReadSelf {
+				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", resolvedChatJID.String())
+				broadcastChats()
 			}
 		}()
 	case *events.AppStateSyncComplete:
@@ -712,6 +863,10 @@ func eventHandler(evt interface{}) {
 }
 
 func populateChatsFromStore() {
+	if client == nil || client.Store == nil || client.Store.Contacts == nil {
+		return
+	}
+
 	allContacts, err := client.Store.Contacts.GetAllContacts(context.Background())
 	if err != nil {
 		fmt.Println("Error getting contacts from store:", err)
@@ -719,7 +874,14 @@ func populateChatsFromStore() {
 	}
 
 	for jid, contact := range allContacts {
-		jidStr := jid.String()
+		targetJID := jid.ToNonAD()
+		if targetJID.Server == "lid" {
+			if pn, pnErr := client.Store.LIDs.GetPNForLID(context.Background(), targetJID); pnErr == nil && !pn.IsEmpty() {
+				targetJID = pn.ToNonAD()
+			}
+		}
+
+		jidStr := targetJID.String()
 		if isIgnoredChatJID(jidStr) {
 			continue
 		}
@@ -732,50 +894,31 @@ func populateChatsFromStore() {
 			name = contact.BusinessName
 		}
 
-		if jid.Server == "lid" {
-			if pn, pnErr := client.Store.LIDs.GetPNForLID(context.Background(), jid); pnErr == nil && !pn.IsEmpty() {
-				pnContact, pnContactErr := client.Store.Contacts.GetContact(context.Background(), pn)
-				if pnContactErr == nil && pnContact.Found {
-					if pnContact.FullName != "" {
-						name = pnContact.FullName
-					} else if pnContact.PushName != "" {
-						name = pnContact.PushName
-					}
-				}
-				if name == "" {
-					name = "+" + pn.User
-				}
-			}
+		if name == "" && targetJID.Server != "g.us" && targetJID.Server != "lid" {
+			name = "+" + targetJID.User
 		}
 
-		if name == "" && jid.Server != "g.us" && jid.Server != "lid" {
-			name = "+" + jid.User
-		}
-
-		// Keep the contacts cache (used by get_contacts/check_contacts) up to
-		// date even for contacts that don't have a chat yet.
 		phone := ""
-		if jid.Server != "g.us" && jid.Server != "lid" {
-			phone = jid.User
+		if targetJID.Server != "g.us" && targetJID.Server != "lid" {
+			phone = targetJID.User
 		}
+
 		if name != "" || phone != "" {
 			upsertContactCacheRow(jidStr, name, phone, contact.BusinessName != "")
 		}
 
-		if name == "" {
-			continue
+		if name != "" {
+			db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0)
+				ON CONFLICT(jid) DO UPDATE SET
+				name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
+				jidStr, name)
 		}
-
-		db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0)
-			ON CONFLICT(jid) DO UPDATE SET
-			name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
-			jidStr, name)
 	}
 
 	groups, err := client.GetJoinedGroups(context.Background())
 	if err == nil {
 		for _, g := range groups {
-			jidStr := g.JID.String()
+			jidStr := g.JID.ToNonAD().String()
 			db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0)
 				ON CONFLICT(jid) DO UPDATE SET
 				name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
@@ -783,17 +926,40 @@ func populateChatsFromStore() {
 		}
 	}
 
-	rows, err := db.Query(`SELECT DISTINCT sender_jid FROM messages
-		WHERE jid LIKE '%@broadcast' AND jid != 'status@broadcast' AND from_me = 0 AND sender_jid != ''`)
+	rows, err := db.Query(`SELECT jid FROM chats WHERE name IS NULL OR name = '' OR name LIKE '+%' OR jid LIKE '%@lid'`)
 	if err == nil {
-		var senders []string
+		var jidsToResolve []string
 		for rows.Next() {
-			var s string
-			if rows.Scan(&s) == nil {
-				senders = append(senders, s)
+			var j string
+			if rows.Scan(&j) == nil {
+				jidsToResolve = append(jidsToResolve, j)
 			}
 		}
 		rows.Close()
+
+		for _, jStr := range jidsToResolve {
+			pj, err := types.ParseJID(jStr)
+			if err != nil {
+				continue
+			}
+			resName := resolveDisplayName(pj)
+			if resName != "" && resName != jStr && !strings.HasPrefix(resName, "+") {
+				db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, resName, jStr)
+			}
+		}
+	}
+
+	rowsBroad, errBroad := db.Query(`SELECT DISTINCT sender_jid FROM messages
+		WHERE jid LIKE '%@broadcast' AND jid != 'status@broadcast' AND from_me = 0 AND sender_jid != ''`)
+	if errBroad == nil {
+		var senders []string
+		for rowsBroad.Next() {
+			var s string
+			if rowsBroad.Scan(&s) == nil {
+				senders = append(senders, s)
+			}
+		}
+		rowsBroad.Close()
 		for _, s := range senders {
 			parsed, err := types.ParseJID(s)
 			if err != nil {
@@ -821,5 +987,5 @@ func populateChatsFromStore() {
 			UpdateChatSnippet(target.String())
 		}
 	}
-	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@lid' OR jid LIKE '%@broadcast'")
+	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@broadcast'")
 }
