@@ -113,6 +113,8 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 var (
 	activeDownloadsMu sync.Mutex
 	activeDownloads   = map[string]context.CancelFunc{}
+	retryWaitersMu    sync.Mutex
+	retryWaiters      = map[string]chan bool{}
 	pendingAutoOpens  sync.Map
 )
 
@@ -259,15 +261,30 @@ func handleDownloadMedia(conn *websocket.Conn, raw json.RawMessage) {
 				"percent":    percent,
 			})
 		}
-		path, mediaType, mimetype, filename, err := downloadMessageMediaToFile(ctx, data.MessageID, onProgress)
-		if err != nil {
-			fmt.Printf("Media download failed for message %s: %v\n", data.MessageID, err)
+		for attempt := 0; attempt < 2; attempt++ {
+			path, mediaType, mimetype, filename, err := downloadMessageMediaToFile(ctx, data.MessageID, onProgress)
+			if err == nil {
+				broadcastEvent("media_downloaded", map[string]interface{}{
+					"message_id": data.MessageID,
+					"jid":        data.JID,
+					"path":       path,
+					"mediaType":  mediaType,
+					"mimetype":   mimetype,
+					"filename":   filename,
+				})
+				return
+			}
+			fmt.Printf("Media download failed for message %s (attempt %d): %v\n", data.MessageID, attempt+1, err)
+
 			if errors.Is(err, context.Canceled) {
 				broadcastEvent("media_download_cancelled", map[string]interface{}{
 					"message_id": data.MessageID,
 					"jid":        data.JID,
 				})
-			} else if strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "410") {
+				return
+			}
+
+			if attempt == 0 && (strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "410")) {
 				fmt.Printf("Requesting media retry for %s...\n", data.MessageID)
 				retryErr := requestMediaRetry(data.MessageID)
 				if retryErr != nil {
@@ -277,31 +294,57 @@ func handleDownloadMedia(conn *websocket.Conn, raw json.RawMessage) {
 						"jid":        data.JID,
 						"message":    "URL expired and retry request failed: " + retryErr.Error(),
 					})
-				} else {
-					// Inform frontend we are requesting from phone (percent=0)
-					broadcastEvent("media_download_progress", map[string]interface{}{
+					return
+				}
+
+				// Wait for retry response
+				ch := make(chan bool, 1)
+				retryWaitersMu.Lock()
+				retryWaiters[data.MessageID] = ch
+				retryWaitersMu.Unlock()
+
+				select {
+				case success := <-ch:
+					if !success {
+						broadcastEvent("media_download_failed", map[string]interface{}{
+							"message_id": data.MessageID,
+							"jid":        data.JID,
+							"message":    "Phone could not re-upload the media",
+						})
+						return
+					}
+					// Success! Loop again to download the new path
+					continue
+				case <-time.After(45 * time.Second):
+					broadcastEvent("media_download_failed", map[string]interface{}{
 						"message_id": data.MessageID,
 						"jid":        data.JID,
-						"percent":    0,
+						"message":    "Timeout waiting for phone to re-upload media",
 					})
+					retryWaitersMu.Lock()
+					delete(retryWaiters, data.MessageID)
+					retryWaitersMu.Unlock()
+					return
+				case <-ctx.Done():
+					broadcastEvent("media_download_cancelled", map[string]interface{}{
+						"message_id": data.MessageID,
+						"jid":        data.JID,
+					})
+					retryWaitersMu.Lock()
+					delete(retryWaiters, data.MessageID)
+					retryWaitersMu.Unlock()
+					return
 				}
-			} else {
-				broadcastEvent("media_download_failed", map[string]interface{}{
-					"message_id": data.MessageID,
-					"jid":        data.JID,
-					"message":    err.Error(),
-				})
 			}
+
+			// Non-retryable error or second attempt failed
+			broadcastEvent("media_download_failed", map[string]interface{}{
+				"message_id": data.MessageID,
+				"jid":        data.JID,
+				"message":    err.Error(),
+			})
 			return
 		}
-		broadcastEvent("media_downloaded", map[string]interface{}{
-			"message_id": data.MessageID,
-			"jid":        data.JID,
-			"path":       path,
-			"mediaType":  mediaType,
-			"mimetype":   mimetype,
-			"filename":   filename,
-		})
 	}()
 }
 
@@ -315,6 +358,11 @@ func handleCancelDownload(conn *websocket.Conn, raw json.RawMessage) {
 	activeDownloadsMu.Unlock()
 	if cancel != nil {
 		cancel()
+	} else {
+		broadcastEvent("media_download_cancelled", map[string]interface{}{
+			"message_id": data.MessageID,
+			"jid":        data.JID,
+		})
 	}
 }
 
@@ -907,11 +955,18 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 	retryData, err := whatsmeow.DecryptMediaRetryNotification(evt, mediaKey)
 	if err != nil || retryData.GetResult() != waMmsRetry.MediaRetryNotification_SUCCESS {
 		fmt.Printf("Failed to decrypt media retry or result not success for %s: %v\n", evt.MessageID, err)
-		broadcastEvent("media_download_failed", map[string]interface{}{
-			"message_id": string(evt.MessageID),
-			"jid":        jidStr,
-			"message":    "Phone could not re-upload the expired media",
-		})
+		retryWaitersMu.Lock()
+		if ch, ok := retryWaiters[string(evt.MessageID)]; ok {
+			ch <- false
+			delete(retryWaiters, string(evt.MessageID))
+		} else {
+			broadcastEvent("media_download_failed", map[string]interface{}{
+				"message_id": string(evt.MessageID),
+				"jid":        jidStr,
+				"message":    "Phone could not re-upload the expired media",
+			})
+		}
+		retryWaitersMu.Unlock()
 		return
 	}
 
@@ -935,6 +990,17 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 	newRawBytes, _ := proto.Marshal(msg)
 	db.Exec("UPDATE messages SET raw = ? WHERE id = ?", newRawBytes, string(evt.MessageID))
 
+	// If there's an active waiter (handleDownloadMedia), signal it to resume downloading
+	retryWaitersMu.Lock()
+	if ch, ok := retryWaiters[string(evt.MessageID)]; ok {
+		ch <- true
+		delete(retryWaiters, string(evt.MessageID))
+		retryWaitersMu.Unlock()
+		return // Let the waiting goroutine handle the download!
+	}
+	retryWaitersMu.Unlock()
+
+	// If no waiter, start a background download
 	ctx, cancel := context.WithCancel(context.Background())
 	activeDownloadsMu.Lock()
 	activeDownloads[string(evt.MessageID)] = cancel

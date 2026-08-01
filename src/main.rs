@@ -1022,28 +1022,108 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											let preview =
 												chat.get("PreviewSnippet").and_then(|p| p.as_str()).unwrap_or("");
 
-											let mut prefix = String::new();
-											if archived {
-												prefix.push_str("[Archived] ");
-												archived_jids.insert(jid.to_string());
-											}
-											if pinned {
-												prefix.push_str("[Pinned] ");
-											}
-											if muted {
-												prefix.push_str("[Muted] ");
-											}
+											let ts = chat.get("Timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
+											let preview_sender =
+												chat.get("PreviewSender").and_then(|p| p.as_str()).unwrap_or("");
+											let preview_from_me =
+												chat.get("PreviewFromMe").and_then(|p| p.as_bool()).unwrap_or(false);
 
-											let unread_str =
-												if unread > 0 { format!(" ({})", unread) } else { String::new() };
-											let preview_str = if !preview.is_empty() {
-												format!(" - {}", preview)
+											let time_str = if ts > 0 {
+												let now = std::time::SystemTime::now()
+													.duration_since(std::time::UNIX_EPOCH)
+													.unwrap_or_default()
+													.as_secs() as i64;
+												let ist_offset: i64 = 5 * 3600 + 30 * 60;
+												let local_ts = ts + ist_offset;
+												let local_now = now + ist_offset;
+												let msg_day = local_ts / 86400;
+												let today = local_now / 86400;
+												let secs_in_day = local_ts % 86400;
+												let hour = secs_in_day / 3600;
+												let minute = (secs_in_day % 3600) / 60;
+												let (h12, ampm) = if hour == 0 {
+													(12, "AM")
+												} else if hour < 12 {
+													(hour, "AM")
+												} else if hour == 12 {
+													(12, "PM")
+												} else {
+													(hour - 12, "PM")
+												};
+												let time_part = format!("{}:{:02} {}", h12, minute, ampm);
+												if msg_day == today {
+													time_part
+												} else if msg_day == today - 1 {
+													format!("Yesterday {}", time_part)
+												} else {
+													let total_days = local_ts / 86400;
+													let y = (10000 * total_days as i64 + 14780) / 3652425;
+													let doy = total_days - (365 * y + y / 4 - y / 100 + y / 400);
+													let doy = if doy < 0 {
+														let y2 = y - 1;
+														total_days - (365 * y2 + y2 / 4 - y2 / 100 + y2 / 400)
+													} else {
+														doy
+													};
+													let mi = (100 * doy + 52) / 3060;
+													let month = (mi + 2) % 12 + 1;
+													let day = doy - (mi * 306 + 5) / 10 + 1;
+													format!("{:02}/{:02} {}", day, month, time_part)
+												}
 											} else {
 												String::new()
 											};
 
-											let display_name =
-												format!("{}{}{}{}", prefix, name, unread_str, preview_str);
+											let mut tags = Vec::new();
+											if archived {
+												tags.push("Archived");
+												archived_jids.insert(jid.to_string());
+											}
+											if pinned {
+												tags.push("Pinned");
+											}
+											if muted {
+												tags.push("Muted");
+											}
+
+											let name_line = if tags.is_empty() {
+												name.clone()
+											} else {
+												format!("{} [{}]", name, tags.join("] ["))
+											};
+
+											let unread_line = if unread == 1 {
+												"1 unread message".to_string()
+											} else if unread > 1 {
+												format!("{} unread messages", unread)
+											} else {
+												String::new()
+											};
+
+											let preview_line = if !preview.is_empty() {
+												if preview_from_me {
+													format!("You: {}", preview)
+												} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
+													format!("{}: {}", preview_sender, preview)
+												} else {
+													preview.to_string()
+												}
+											} else {
+												String::new()
+											};
+
+											let mut parts_vec: Vec<&str> = Vec::new();
+											parts_vec.push(&name_line);
+											if !unread_line.is_empty() {
+												parts_vec.push(&unread_line);
+											}
+											if !time_str.is_empty() {
+												parts_vec.push(&time_str);
+											}
+											if !preview_line.is_empty() {
+												parts_vec.push(&preview_line);
+											}
+											let display_name = parts_vec.join(" | ");
 											display_names.insert(jid.to_string(), display_name);
 											contacts_map.insert(jid.to_string(), name);
 										}
@@ -3048,6 +3128,7 @@ while ($true) {
 				let _ = s.ws_tx.send(payload.to_string());
 			}
 		}
+
 		UiCommand::SearchInConversation(query) => {
 			if let Some(ref jid) = state.borrow().selected_chat {
 				let payload = serde_json::json!({

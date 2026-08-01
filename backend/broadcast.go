@@ -23,7 +23,7 @@ func broadcastEvent(evtType string, data interface{}) {
 			raw = bytes
 		}
 	}
-	
+
 	if evtType == "message" {
 		log.Printf("Broadcasting 'message' event to WS: %s", string(raw))
 	}
@@ -93,7 +93,7 @@ func broadcastChats() {
 // broadcastChats (pushed to everyone) and the get_chats command (requested
 // by one client). Keeping this in one place means the two can't drift.
 func buildChatsList() []map[string]interface{} {
-	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
+	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0) FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
 	if err != nil {
 		fmt.Println("Error querying chats:", err)
 		return []map[string]interface{}{}
@@ -110,8 +110,10 @@ func buildChatsList() []map[string]interface{} {
 		var muted int
 		var preview sql.NullString
 		var archived int
+		var previewSender sql.NullString
+		var previewFromMe int
 
-		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived); err != nil {
+		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe); err != nil {
 			continue
 		}
 		n := jid
@@ -145,6 +147,16 @@ func buildChatsList() []map[string]interface{} {
 		if preview.Valid {
 			p = preview.String
 		}
+
+		ps := ""
+		if previewSender.Valid && previewSender.String != "" {
+			if parsedSender, sErr := types.ParseJID(previewSender.String); sErr == nil {
+				ps = resolveDisplayName(parsedSender)
+			} else {
+				ps = previewSender.String
+			}
+		}
+
 		chats = append(chats, map[string]interface{}{
 			"JID":            jid,
 			"FullName":       n,
@@ -154,6 +166,8 @@ func buildChatsList() []map[string]interface{} {
 			"Muted":          muted == 1,
 			"PreviewSnippet": p,
 			"Archived":       archived == 1,
+			"PreviewSender":  ps,
+			"PreviewFromMe":  previewFromMe == 1,
 		})
 	}
 	return chats

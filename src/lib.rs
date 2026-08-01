@@ -53,6 +53,8 @@ pub struct ChatMessage {
 	pub quoted_sender: String,
 	#[serde(rename = "mediaType", alias = "media_type", default)]
 	pub media_type: String,
+	#[serde(rename = "mediaMimetype", alias = "media_mimetype", default)]
+	pub media_mimetype: String,
 	#[serde(rename = "mediaFilename", alias = "media_filename", default)]
 	pub media_filename: String,
 	#[serde(rename = "mediaPath", alias = "media_path", default)]
@@ -73,10 +75,10 @@ impl ChatMessage {
 			.replace(".x-python", ".py")
 			.replace(".x-script.python", ".py")
 			.replace(".x-shellscript", ".sh")
-			.replace(".x-csrc", ".c")
-			.replace(".x-c++src", ".cpp")
-			.replace(".x-perl", ".pl")
+			.replace(".x-c", ".c")
+			.replace(".x-c++", ".cpp")
 			.replace(".x-ruby", ".rb")
+			.replace(".x-perl", ".pl")
 			.replace(".x-php", ".php")
 	}
 
@@ -88,11 +90,39 @@ impl ChatMessage {
 			let name = rest.split(": ").next().unwrap_or(rest).trim();
 			if !name.is_empty() { name.to_string() } else { format!("{}.bin", self.id) }
 		} else {
-			let ext = if !self.media_path.is_empty() {
-				std::path::Path::new(&self.media_path).extension().and_then(|e| e.to_str()).unwrap_or("bin")
+			let mut ext = if !self.media_path.is_empty() {
+				std::path::Path::new(&self.media_path).extension().and_then(|e| e.to_str()).unwrap_or("").to_string()
 			} else {
-				"bin"
+				"".to_string()
 			};
+
+			if ext.is_empty() || ext == "bin" {
+				if self.media_mimetype.contains("jpeg") || self.media_mimetype.contains("jpg") {
+					ext = "jpg".to_string();
+				} else if self.media_mimetype.contains("png") {
+					ext = "png".to_string();
+				} else if self.media_mimetype.contains("webp") {
+					ext = "webp".to_string();
+				} else if self.media_mimetype.contains("mp4") {
+					ext = "mp4".to_string();
+				} else if self.media_mimetype.contains("ogg") {
+					ext = "ogg".to_string();
+				} else if self.media_mimetype.contains("mp3") || self.media_mimetype.contains("mpeg") {
+					ext = "mp3".to_string();
+				} else if self.media_mimetype.contains("pdf") {
+					ext = "pdf".to_string();
+				} else {
+					ext = match self.media_type.as_str() {
+						"image" => "jpg",
+						"video" => "mp4",
+						"voice" => "ogg",
+						"audio" => "mp3",
+						"sticker" => "webp",
+						_ => "bin",
+					}
+					.to_string();
+				}
+			}
 
 			let prefix = match self.media_type.as_str() {
 				"image" => "WhatsApp Image",
