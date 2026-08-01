@@ -37,7 +37,7 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 
 	btn_sizer.add_stretch_spacer(1);
 
-	let close_btn = Button::builder(&panel).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
 	btn_sizer.add(&close_btn, 0, SizerFlag::empty(), 0);
 
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
@@ -49,6 +49,30 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 	dialog.set_sizer(outer, true);
 
 	dialog.center();
+
+	let dlg_esc1 = dialog.clone();
+	search_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_esc1.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let dlg_esc2 = dialog.clone();
+	results_list.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dlg_esc2.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
 
 	NewConversationDialogParts { dialog, search_field, results_list, new_group_btn, new_contact_btn, close_btn }
 }

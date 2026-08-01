@@ -352,3 +352,99 @@ func handleGetMessageInfo(conn *websocket.Conn, raw json.RawMessage) {
 		"media_type":   mediaType,
 	})
 }
+
+type ForwardMessageData struct {
+	MessageID string   `json:"message_id"`
+	ToJIDs    []string `json:"to_jids"`
+}
+
+func handleForwardMessage(conn *websocket.Conn, raw json.RawMessage) {
+	var data ForwardMessageData
+	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" || len(data.ToJIDs) == 0 {
+		return
+	}
+	go func() {
+		rawBytes, _, _, _, err := getMessageRaw(data.MessageID)
+		if err != nil || len(rawBytes) == 0 {
+			sendEvent(conn, "error", map[string]string{"message": "Message not found for forwarding"})
+			return
+		}
+		var origMsg waE2E.Message
+		if unmarshalErr := proto.Unmarshal(rawBytes, &origMsg); unmarshalErr != nil {
+			sendEvent(conn, "error", map[string]string{"message": "Failed to parse message protobuf for forwarding"})
+			return
+		}
+
+		if ctx := getContextInfo(&origMsg); ctx != nil {
+			ctx.IsForwarded = proto.Bool(true)
+		} else {
+			if origMsg.ExtendedTextMessage != nil {
+				origMsg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.Conversation != nil {
+				txt := origMsg.GetConversation()
+				origMsg.Conversation = nil
+				origMsg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
+					Text:        &txt,
+					ContextInfo: &waE2E.ContextInfo{IsForwarded: proto.Bool(true)},
+				}
+			} else if origMsg.ImageMessage != nil {
+				origMsg.ImageMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.VideoMessage != nil {
+				origMsg.VideoMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.DocumentMessage != nil {
+				origMsg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.AudioMessage != nil {
+				origMsg.AudioMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.StickerMessage != nil {
+				origMsg.StickerMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			}
+		}
+
+		for _, toJIDStr := range data.ToJIDs {
+			targetJID, parseErr := types.ParseJID(toJIDStr)
+			if parseErr != nil {
+				continue
+			}
+			resp, sendErr := client.SendMessage(context.Background(), targetJID, &origMsg)
+			if sendErr != nil {
+				log.Printf("Error forwarding message to %s: %v", toJIDStr, sendErr)
+				continue
+			}
+			ts := resp.Timestamp.Unix()
+			text := extractText(&origMsg)
+			senderJID := client.Store.ID.ToNonAD().String()
+			fwdRawBytes, _ := proto.Marshal(&origMsg)
+			mediaType, mimetype, filename := mediaInfoFromMessage(&origMsg)
+			quotedID, quotedText, quotedSender := quotedPreview(&origMsg)
+
+			db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+				ON CONFLICT(jid) DO UPDATE SET
+				timestamp=MAX(timestamp, excluded.timestamp),
+				preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
+				targetJID.String(), ts, text)
+
+			saveMessage(StoredMessage{
+				ID: resp.ID, JID: targetJID.String(), SenderJID: senderJID, FromMe: true,
+				Text: text, Timestamp: ts, Raw: fwdRawBytes, Status: "sent",
+				MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename,
+				QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
+			})
+
+			broadcastEvent("message", map[string]interface{}{
+				"jid":           targetJID.String(),
+				"from":          "me",
+				"id":            resp.ID,
+				"text":          text,
+				"from_me":       true,
+				"timestamp":     ts,
+				"has_media":     mediaType != "",
+				"mediaType":     mediaType,
+				"mediaFilename": filename,
+				"quotedId":      quotedID,
+				"quotedText":    quotedText,
+				"quotedSender":  quotedSender,
+			})
+		}
+		broadcastChats()
+	}()
+}
