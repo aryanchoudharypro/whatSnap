@@ -604,6 +604,9 @@ func eventHandler(evt interface{}) {
 		}()
 		if text != "" {
 			chatJID, senderJID := resolveLIDChat(v)
+			if isIgnoredChatJID(chatJID.String()) {
+				return
+			}
 			liveMediaType, _, liveMediaFilename := mediaInfoFromMessage(v.Message)
 
 			quotedID, quotedText, quotedSender := quotedPreview(v.Message)
@@ -765,7 +768,7 @@ func eventHandler(evt interface{}) {
 		status := "delivered"
 		if v.Type == types.ReceiptTypeRead || v.Type == types.ReceiptTypeReadSelf {
 			status = "read"
-		} else if v.Type == types.ReceiptTypePlayed {
+		} else if v.Type == types.ReceiptTypePlayed || v.Type == types.ReceiptTypePlayedSelf {
 			status = "played"
 		} else if string(v.Type) == "sender" {
 			status = "sent"
@@ -795,7 +798,8 @@ func eventHandler(evt interface{}) {
 					"timestamp":   receiptTS,
 				})
 			}
-			if v.Type == types.ReceiptTypeReadSelf {
+			isReadSelf := v.Type == types.ReceiptTypeReadSelf || v.Type == types.ReceiptTypePlayedSelf || ((v.Type == types.ReceiptTypeRead || v.Type == types.ReceiptTypePlayed) && v.MessageSource.IsFromMe)
+			if isReadSelf {
 				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", resolvedChatJID.String())
 				for _, mid := range v.MessageIDs {
 					db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = (SELECT jid FROM messages WHERE id = ?)", string(mid))

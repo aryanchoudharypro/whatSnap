@@ -106,6 +106,7 @@ func main() {
 	client.EnableAutoReconnect = true
 	client.AutoTrustIdentity = true
 	client.UseRetryMessageStore = true
+	client.EmitAppStateEventsOnFullSync = true
 	client.SetForceActiveDeliveryReceipts(true)
 	client.AutomaticMessageRerequestFromPhone = true
 	client.GetMessageForRetry = func(requester, to types.JID, id types.MessageID) *waE2E.Message {
