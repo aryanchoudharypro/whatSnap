@@ -797,6 +797,9 @@ func eventHandler(evt interface{}) {
 			}
 			if v.Type == types.ReceiptTypeReadSelf {
 				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", resolvedChatJID.String())
+				for _, mid := range v.MessageIDs {
+					db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = (SELECT jid FROM messages WHERE id = ?)", string(mid))
+				}
 				broadcastChats()
 			}
 		}()

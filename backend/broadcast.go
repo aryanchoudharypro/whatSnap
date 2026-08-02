@@ -140,6 +140,18 @@ func buildChatsList() []map[string]interface{} {
 				if !chatSettings.MutedUntil.IsZero() && chatSettings.MutedUntil.After(time.Now()) {
 					muted = 1
 				}
+				if unread > 0 {
+					var unreadMsgCount int
+					errCount := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND from_me = 0 AND status != 'read' AND status != 'played' AND (read_at IS NULL OR read_at = 0)`, jid).Scan(&unreadMsgCount)
+					if errCount == nil && unreadMsgCount == 0 {
+						var totalIncoming int
+						_ = db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND from_me = 0`, jid).Scan(&totalIncoming)
+						if totalIncoming > 0 {
+							unread = 0
+							db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", jid)
+						}
+					}
+				}
 			}
 		}
 
