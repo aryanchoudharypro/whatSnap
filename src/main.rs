@@ -1979,10 +1979,23 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												format!("{} is typing...", sender_name)
 											}
 										} else {
+											let norm_chat_jid = if let Some((user, server)) = chat_jid.split_once('@') {
+												let base = user
+													.split('.')
+													.next()
+													.unwrap_or(user)
+													.split(':')
+													.next()
+													.unwrap_or(user);
+												format!("{}@{}", base, server)
+											} else {
+												chat_jid.to_string()
+											};
 											s.presence_labels
 												.get(chat_jid)
+												.or_else(|| s.presence_labels.get(&norm_chat_jid))
 												.cloned()
-												.unwrap_or_else(|| sender_name.clone())
+												.unwrap_or_else(|| format!("Conversation data"))
 										};
 										parts.conversations_parts.conv_data_btn.set_label(&btn_label);
 									}
@@ -2317,6 +2330,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 									if changed {
+										for msg in s.messages.iter_mut() {
+											if msg.quoted_id == target_id {
+												msg.quoted_text = new_text.to_string();
+											}
+										}
 										// Update display_items in-place instead of full O(n) regrouping
 										for item in s.display_items.iter_mut() {
 											match item {
@@ -2338,12 +2356,29 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												_ => {}
 											}
 										}
+										for item in s.display_items.iter_mut() {
+											match item {
+												whantv::DisplayItem::Single(m) if m.quoted_id == target_id => {
+													m.quoted_text = new_text.to_string();
+												}
+												whantv::DisplayItem::Album { messages, .. } => {
+													for am in messages.iter_mut() {
+														if am.quoted_id == target_id {
+															am.quoted_text = new_text.to_string();
+														}
+													}
+												}
+												_ => {}
+											}
+										}
 										for (di, item) in s.display_items.iter().enumerate() {
 											let contains = match item {
-												whantv::DisplayItem::Single(m) => m.id == target_id,
-												whantv::DisplayItem::Album { messages, .. } => {
-													messages.iter().any(|m| m.id == target_id)
+												whantv::DisplayItem::Single(m) => {
+													m.id == target_id || m.quoted_id == target_id
 												}
+												whantv::DisplayItem::Album { messages, .. } => messages
+													.iter()
+													.any(|m| m.id == target_id || m.quoted_id == target_id),
 											};
 											if contains {
 												let updated_display = item.format_display(is_group);

@@ -192,6 +192,8 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 
 func markMessageEdited(id, jid, newText string, newRaw []byte, editTime int64) error {
 	_, err := db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, newText, newRaw, editTime, id, jid)
+	db.Exec(`UPDATE messages SET quoted_text = ? WHERE quoted_id = ?`, newText, id)
+	UpdateChatSnippet(jid)
 	return err
 }
 
