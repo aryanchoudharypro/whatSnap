@@ -618,6 +618,86 @@ pub fn bind_input_handlers(
 	let remove_quote_btn_ctx = parts.conversations_parts.remove_quote_btn;
 	let conv_panel_ctx = parts.conversations_parts.conversation_panel;
 
+	let state_copy = state.clone();
+	let tx_copy = ui_tx.clone();
+	let msgs_announcer_copy = parts.conversations_parts.messages_announcer.clone();
+	let msgs_list_copy = parts.conversations_parts.messages_list.clone();
+
+	let perform_copy_selected = std::rc::Rc::new(move || {
+		if let Some(idx) = msgs_list_copy.get_selection() {
+			let s = state_copy.borrow();
+			if let Some(display_item) = s.display_items.get(idx as usize).cloned() {
+				drop(s);
+				match display_item {
+					whantv::DisplayItem::Single(msg) => {
+						let is_voice = msg.is_audio
+							|| msg.media_type == "voice"
+							|| msg.media_type == "audio"
+							|| msg.text.starts_with("[Voice Message]")
+							|| msg.text.starts_with("[Audio]");
+						let is_media = is_voice
+							|| !msg.media_type.is_empty()
+							|| msg.text.starts_with("[Image]")
+							|| msg.text.starts_with("[Photo]")
+							|| msg.text.starts_with("[Video]")
+							|| msg.text.starts_with("[Document]")
+							|| msg.text.starts_with("[Sticker]");
+
+						if is_media {
+							if msg.is_media_downloaded()
+								&& !msg.media_path.is_empty()
+								&& std::path::Path::new(&msg.media_path).exists()
+							{
+								let display_name = msg.display_filename();
+								let temp_dir = std::env::temp_dir().join("whantv_clipboard");
+								let _ = std::fs::create_dir_all(&temp_dir);
+								let temp_path = temp_dir.join(&display_name);
+								let path_to_copy = if std::fs::copy(&msg.media_path, &temp_path).is_ok() {
+									temp_path.to_string_lossy().to_string()
+								} else {
+									msg.media_path.clone()
+								};
+								if crate::copy_files_to_clipboard(&[path_to_copy]) {
+									let msg_kind = if is_voice { "voice message" } else { "file" };
+									live_region::announce(
+										msgs_announcer_copy.clone(),
+										&format!("Copied {} to clipboard.", msg_kind),
+									);
+								} else {
+									live_region::announce(
+										msgs_announcer_copy.clone(),
+										"Failed to copy file to clipboard.",
+									);
+								}
+							} else {
+								let _ =
+									tx_copy.send(UiCommand::CopyAlbumToClipboard { message_ids: vec![msg.id.clone()] });
+							}
+						} else {
+							if let Some(_locker) = Clipboard::get().locker() {
+								if Clipboard::get().set_text(&msg.text) {
+									live_region::announce(
+										msgs_announcer_copy.clone(),
+										"Copied message text to clipboard.",
+									);
+								}
+							}
+						}
+					}
+					whantv::DisplayItem::Album { messages, .. } => {
+						let msg_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
+						if !msg_ids.is_empty() {
+							let _ = tx_copy.send(UiCommand::CopyAlbumToClipboard { message_ids: msg_ids });
+						}
+					}
+				}
+			}
+		}
+	});
+
+	let copy_for_ctx = perform_copy_selected.clone();
+	let copy_for_key = perform_copy_selected.clone();
+
 	let open_msg_context_menu = Rc::new(move || {
 		if let Some(idx) = msgs_list_ctx.get_selection() {
 			let reply_id = 3001;
@@ -626,6 +706,8 @@ pub fn bind_input_handlers(
 			let info_id = 3004;
 			let copy_all_id = 3005;
 			let forward_id = 3006;
+			let copy_id = 3007;
+			let save_voice_id = 3008;
 			let react_dialog_id = 3010;
 
 			let s = state_ctx.borrow();
@@ -646,14 +728,32 @@ pub fn bind_input_handlers(
 					_ => false,
 				})
 				.unwrap_or(false);
+			let is_voice_msg = display_item
+				.as_ref()
+				.map(|item| match item {
+					whantv::DisplayItem::Single(m) => {
+						m.is_audio
+							|| m.media_type == "voice"
+							|| m.media_type == "audio"
+							|| m.text.starts_with("[Voice Message]")
+							|| m.text.starts_with("[Audio]")
+					}
+					_ => false,
+				})
+				.unwrap_or(false);
 
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder
+				.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard")
 				.append_item(reply_id, "&Reply", "Reply to message")
 				.append_item(forward_id, "&Forward...", "Forward message to another contact")
 				.append_item(edit_id, "&Edit", "Edit message")
 				.append_item(delete_id, "&Delete", "Delete message")
 				.append_item(react_dialog_id, "&React...", "React to message");
+			if is_voice_msg {
+				menu_builder =
+					menu_builder.append_item(save_voice_id, "&Save voice message...", "Save voice message to device");
+			}
 			if is_from_me {
 				menu_builder = menu_builder.append_item(info_id, "Message &Info", "View message delivery info");
 			}
@@ -668,6 +768,7 @@ pub fn bind_input_handlers(
 			let msgs_announcer_clone = msgs_announcer_ctx.clone();
 			let msg_input_field_clone = msg_input_field_ctx.clone();
 			let tx_play_media_clone = tx_play_media_ctx.clone();
+			let copy_for_menu = copy_for_ctx.clone();
 
 			popup_menu.on_selected(move |menu_evt| {
 				let id = menu_evt.get_id();
@@ -935,6 +1036,10 @@ pub fn bind_input_handlers(
 							let _ = tx_play_media_clone.send(UiCommand::GetMessageInfo { message_id: msg.id.clone() });
 						}
 					}
+				} else if id == copy_id {
+					copy_for_menu.as_ref()();
+				} else if id == save_voice_id {
+					let _ = tx_play_media_clone.send(UiCommand::SaveMediaAs);
 				} else if id == copy_all_id {
 					let s = state_clone.borrow();
 					if let Some(whantv::DisplayItem::Album { messages, .. }) = s.display_items.get(idx as usize) {
@@ -1221,6 +1326,11 @@ pub fn bind_input_handlers(
 				if count > 0 {
 					msgs_list_play.set_selection((count - 1) as u32, true);
 				}
+				event.skip(false);
+			} else if (code == Some(67) || code == Some('c' as i32) || code == Some('C' as i32))
+				&& key_event.control_down()
+			{
+				copy_for_key.as_ref()();
 				event.skip(false);
 			} else if key_event.get_key_code() == Some(86) && key_event.control_down() {
 				// Ctrl+V
@@ -1573,7 +1683,7 @@ pub fn bind_input_handlers(
 				&& (code == Some(395) || code == Some(93) || (key_event.shift_down() && code == Some(349)))
 			{
 				// Context Menu key or Shift+F10
-				open_menu_key();
+				open_menu_key.as_ref()();
 				event.skip(false);
 			} else {
 				event.skip(true);
@@ -1681,7 +1791,7 @@ pub fn bind_input_handlers(
 
 	let open_menu_cb = open_msg_context_menu.clone();
 	parts.conversations_parts.messages_list.bind_internal(EventType::CONTEXT_MENU, move |_event| {
-		open_menu_cb();
+		open_menu_cb.as_ref()();
 	});
 
 	let tx_play_btn = ui_tx.clone();
