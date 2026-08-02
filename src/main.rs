@@ -1444,12 +1444,16 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 								} else {
-									let is_from_me = data
-										.get("from_me")
-										.and_then(|f| f.as_bool())
-										.unwrap_or_else(|| from == "me" || from == "You");
-									if !is_from_me {
-										play_notification_sound("sounds/message_background.ogg", true);
+									let is_ignored = jid == "status@broadcast"
+										|| jid.ends_with("@broadcast") || jid.ends_with("@newsletter");
+									if !is_ignored {
+										let is_from_me = data
+											.get("from_me")
+											.and_then(|f| f.as_bool())
+											.unwrap_or_else(|| from == "me" || from == "You");
+										if !is_from_me {
+											play_notification_sound("sounds/message_background.ogg", true);
+										}
 									}
 								}
 							}
@@ -1945,33 +1949,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										s.contacts.get(sender_jid).cloned().unwrap_or_else(|| sender_jid.to_string());
 									if !sender_name.is_empty() {
 										let announcement = if is_recording {
-											format!("{} is recording audio...", sender_name)
+											Some(format!("{} is recording audio...", sender_name))
 										} else if is_typing {
-											format!("{} is typing...", sender_name)
+											Some(format!("{} is typing...", sender_name))
 										} else {
-											let presence = s
-												.presence_labels
-												.get(chat_jid)
-												.cloned()
-												.unwrap_or_else(|| sender_name.clone());
-											// Convert format "Name (online)" to "Name is online" or just "online"
-											if presence.contains("(online)") {
-												format!("{} is online", sender_name)
-											} else if presence.contains("(last seen ") {
-												let last_seen_text = presence
-													.split("(last seen ")
-													.nth(1)
-													.unwrap_or("")
-													.trim_end_matches(')');
-												format!("{} is offline, last seen {}", sender_name, last_seen_text)
-											} else {
-												presence.clone()
-											}
+											None
 										};
-										live_region::announce(
-											parts.conversations_parts.messages_announcer.clone(),
-											&announcement,
-										);
+										if let Some(ann) = announcement {
+											live_region::announce(
+												parts.conversations_parts.messages_announcer.clone(),
+												&ann,
+											);
+										}
 										let btn_label = if is_recording || is_typing {
 											if is_recording {
 												format!("{} is recording audio...", sender_name)
