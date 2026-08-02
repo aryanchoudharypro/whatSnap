@@ -835,24 +835,64 @@ func handleCopyAlbumToClipboard(conn *websocket.Conn, raw json.RawMessage) {
 
 		var paths []string
 		for _, msgID := range data.MessageIDs {
-			path, _, _, filename, err := ensureMediaCached(msgID)
+			path, mediaType, mimetype, filename, err := ensureMediaCached(msgID)
 			if err != nil {
 				continue
 			}
 
-			if filename != "" {
-				tempPath := filepath.Join(tempDir, filename)
-				if bytes, err := os.ReadFile(path); err == nil {
-					if os.WriteFile(tempPath, bytes, 0644) == nil {
-						paths = append(paths, tempPath)
-					}
+			destFilename := filename
+			if destFilename == "" {
+				ext := ""
+				switch {
+				case strings.Contains(mimetype, "jpeg") || strings.Contains(mimetype, "jpg"):
+					ext = ".jpg"
+				case strings.Contains(mimetype, "png"):
+					ext = ".png"
+				case strings.Contains(mimetype, "webp"):
+					ext = ".webp"
+				case strings.Contains(mimetype, "mp4"):
+					ext = ".mp4"
+				case strings.Contains(mimetype, "ogg") || mediaType == "voice":
+					ext = ".ogg"
+				case strings.Contains(mimetype, "mp3") || strings.Contains(mimetype, "mpeg") || mediaType == "audio":
+					ext = ".mp3"
+				case strings.Contains(mimetype, "pdf"):
+					ext = ".pdf"
 				}
-			} else {
-				tempPath := filepath.Join(tempDir, msgID+".jpg")
-				if bytes, err := os.ReadFile(path); err == nil {
-					if os.WriteFile(tempPath, bytes, 0644) == nil {
-						paths = append(paths, tempPath)
-					}
+
+				if ext == "" {
+					ext = filepath.Ext(path)
+				}
+				if ext == "" {
+					ext = ".bin"
+				}
+
+				prefix := "WhatsApp File"
+				switch mediaType {
+				case "image":
+					prefix = "WhatsApp Image"
+				case "video":
+					prefix = "WhatsApp Video"
+				case "voice":
+					prefix = "WhatsApp PTT"
+				case "audio":
+					prefix = "WhatsApp Audio"
+				}
+
+				var ts int64
+				db.QueryRow("SELECT COALESCE(timestamp, 0) FROM messages WHERE id = ?", msgID).Scan(&ts)
+				if ts > 0 {
+					t := time.Unix(ts, 0)
+					destFilename = fmt.Sprintf("%s %s%s", prefix, t.Format("2006-01-02-150405"), ext)
+				} else {
+					destFilename = fmt.Sprintf("%s-%s%s", prefix, msgID, ext)
+				}
+			}
+
+			tempPath := filepath.Join(tempDir, destFilename)
+			if bytes, err := os.ReadFile(path); err == nil {
+				if os.WriteFile(tempPath, bytes, 0644) == nil {
+					paths = append(paths, tempPath)
 				}
 			}
 		}
@@ -867,7 +907,10 @@ func handleCopyAlbumToClipboard(conn *websocket.Conn, raw json.RawMessage) {
 
 			cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
 			if err := cmd.Run(); err == nil {
-				sendEvent(conn, "copied_album_to_clipboard", map[string]interface{}{})
+				sendEvent(conn, "copied_album_to_clipboard", map[string]interface{}{
+					"message_ids": data.MessageIDs,
+					"count":       len(paths),
+				})
 			} else {
 				sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			}

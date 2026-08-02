@@ -197,6 +197,7 @@ struct AppState {
 	pending_reply_preview: Option<String>,
 	pending_receipts: std::collections::HashMap<String, String>,
 	downloads_in_progress: std::collections::HashMap<String, i64>,
+	pending_copy_announcements: std::collections::HashSet<String>,
 	search_target_id: Option<String>,
 	search_target_text: Option<String>,
 	played_sent_sounds: std::collections::HashSet<String>,
@@ -632,6 +633,7 @@ fn main() {
 			pending_reply_preview: None,
 			pending_receipts: std::collections::HashMap::new(),
 			downloads_in_progress: std::collections::HashMap::new(),
+			pending_copy_announcements: std::collections::HashSet::new(),
 			search_target_id: None,
 			search_target_text: None,
 			played_sent_sounds: std::collections::HashSet::new(),
@@ -2523,10 +2525,39 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							}
 						}
 						"copied_album_to_clipboard" => {
-							live_region::announce(
-								parts.conversations_parts.messages_announcer.clone(),
-								"Photos copied to clipboard successfully.",
-							);
+							let ann_text = if let Some(data) = val.get("data") {
+								let msg_ids: Vec<String> = data
+									.get("message_ids")
+									.and_then(|ids| ids.as_array())
+									.map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+									.unwrap_or_default();
+
+								let mut s = state.borrow_mut();
+								let mut is_voice = false;
+								for id in &msg_ids {
+									s.pending_copy_announcements.remove(id);
+									if let Some(m) = s.messages.iter().find(|msg| msg.id == *id) {
+										if m.is_audio
+											|| m.media_type == "voice" || m.media_type == "audio"
+											|| m.text.starts_with("[Voice Message]")
+											|| m.text.starts_with("[Audio]")
+										{
+											is_voice = true;
+										}
+									}
+								}
+								if is_voice {
+									"Copied voice message to clipboard.".to_string()
+								} else if msg_ids.len() <= 1 {
+									"Copied file to clipboard.".to_string()
+								} else {
+									format!("Copied {} files to clipboard.", msg_ids.len())
+								}
+							} else {
+								"Copied file to clipboard.".to_string()
+							};
+
+							live_region::announce(parts.conversations_parts.messages_announcer.clone(), &ann_text);
 						}
 						"media_downloaded" => {
 							if let Some(data) = val.get("data") {
@@ -2588,8 +2619,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									}
 								}
 
+								let is_copy_pending = s.pending_copy_announcements.contains(&msg_id);
 								let media_type = data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("");
-								if media_type != "voice" {
+								if media_type != "voice" && !is_copy_pending {
 									let announce_name = if filename.is_empty() { "File".to_string() } else { filename };
 									live_region::announce(
 										parts.conversations_parts.messages_announcer.clone(),
@@ -3843,31 +3875,55 @@ while ($true) {
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		UiCommand::CopyAlbumToClipboard { message_ids } => {
-			let paths: Vec<String> = {
+			let (paths, is_single_voice): (Vec<String>, bool) = {
 				let s = state.borrow();
 				let mut p = Vec::new();
+				let mut voice_count = 0;
+				let temp_dir = std::env::temp_dir().join("whantv_clipboard");
+				let _ = std::fs::create_dir_all(&temp_dir);
+
 				for id in &message_ids {
 					if let Some(msg) = s.messages.iter().find(|m| m.id == *id) {
-						if msg.is_media_downloaded() {
-							p.push(msg.media_path.clone());
+						if msg.is_media_downloaded()
+							&& !msg.media_path.is_empty()
+							&& std::path::Path::new(&msg.media_path).exists()
+						{
+							let display_name = msg.display_filename();
+							let temp_path = temp_dir.join(&display_name);
+							let copy_path = if std::fs::copy(&msg.media_path, &temp_path).is_ok() {
+								temp_path.to_string_lossy().to_string()
+							} else {
+								msg.media_path.clone()
+							};
+							p.push(copy_path);
+							if msg.is_audio
+								|| msg.media_type == "voice"
+								|| msg.media_type == "audio"
+								|| msg.text.starts_with("[Voice Message]")
+								|| msg.text.starts_with("[Audio]")
+							{
+								voice_count += 1;
+							}
 						}
 					}
 				}
-				p
+				(p, message_ids.len() == 1 && voice_count > 0)
 			};
 
 			if !paths.is_empty() {
-				let count = paths.len();
 				if copy_files_to_clipboard(&paths) {
-					let noun = if count == 1 { "photo" } else { "photos" };
-					live_region::announce(
-						parts.conversations_parts.messages_announcer.clone(),
-						&format!("Copied {} {} to clipboard.", count, noun),
-					);
+					let ann_text = if is_single_voice {
+						"Copied voice message to clipboard.".to_string()
+					} else if paths.len() == 1 {
+						"Copied file to clipboard.".to_string()
+					} else {
+						format!("Copied {} files to clipboard.", paths.len())
+					};
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), &ann_text);
 				} else {
 					live_region::announce(
 						parts.conversations_parts.messages_announcer.clone(),
-						"Failed to copy photos to clipboard.",
+						"Failed to copy file to clipboard.",
 					);
 				}
 			} else {
@@ -3875,10 +3931,16 @@ while ($true) {
 					"action": "copy_album_to_clipboard",
 					"data": { "message_ids": message_ids }
 				});
-				let _ = state.borrow().ws_tx.send(payload.to_string());
+				{
+					let mut s = state.borrow_mut();
+					for id in &message_ids {
+						s.pending_copy_announcements.insert(id.clone());
+					}
+					let _ = s.ws_tx.send(payload.to_string());
+				}
 				live_region::announce(
 					parts.conversations_parts.messages_announcer.clone(),
-					"Downloading photos before copying to clipboard...",
+					"Downloading file before copying to clipboard...",
 				);
 			}
 		}
