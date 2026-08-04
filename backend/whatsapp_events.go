@@ -47,15 +47,64 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 	return
 }
 
+func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
+	if msg == nil {
+		return nil
+	}
+	for {
+		if msg.GetEphemeralMessage() != nil && msg.GetEphemeralMessage().GetMessage() != nil {
+			msg = msg.GetEphemeralMessage().GetMessage()
+			continue
+		}
+		if msg.GetViewOnceMessage() != nil && msg.GetViewOnceMessage().GetMessage() != nil {
+			msg = msg.GetViewOnceMessage().GetMessage()
+			continue
+		}
+		if msg.GetViewOnceMessageV2() != nil && msg.GetViewOnceMessageV2().GetMessage() != nil {
+			msg = msg.GetViewOnceMessageV2().GetMessage()
+			continue
+		}
+		if msg.GetViewOnceMessageV2Extension() != nil && msg.GetViewOnceMessageV2Extension().GetMessage() != nil {
+			msg = msg.GetViewOnceMessageV2Extension().GetMessage()
+			continue
+		}
+		if msg.GetDocumentWithCaptionMessage() != nil && msg.GetDocumentWithCaptionMessage().GetMessage() != nil {
+			msg = msg.GetDocumentWithCaptionMessage().GetMessage()
+			continue
+		}
+		if msg.GetGroupMentionedMessage() != nil && msg.GetGroupMentionedMessage().GetMessage() != nil {
+			msg = msg.GetGroupMentionedMessage().GetMessage()
+			continue
+		}
+		if msg.GetDeviceSentMessage() != nil && msg.GetDeviceSentMessage().GetMessage() != nil {
+			msg = msg.GetDeviceSentMessage().GetMessage()
+			continue
+		}
+		if msg.GetEditedMessage() != nil && msg.GetEditedMessage().GetMessage() != nil {
+			inner := msg.GetEditedMessage().GetMessage()
+			if inner.GetProtocolMessage() != nil && inner.GetProtocolMessage().GetEditedMessage() != nil {
+				msg = inner.GetProtocolMessage().GetEditedMessage()
+				continue
+			}
+			msg = inner
+			continue
+		}
+		if msg.GetProtocolMessage() != nil && msg.GetProtocolMessage().GetEditedMessage() != nil {
+			msg = msg.GetProtocolMessage().GetEditedMessage()
+			continue
+		}
+		break
+	}
+	return msg
+}
+
 func extractText(msg *waE2E.Message) string {
+	msg = unwrapMessage(msg)
 	if msg == nil {
 		return ""
 	}
 	if msg.GetExtendedTextMessage() != nil {
 		return msg.GetExtendedTextMessage().GetText()
-	}
-	if msg.GetDeviceSentMessage() != nil && msg.GetDeviceSentMessage().GetMessage() != nil {
-		return extractText(msg.GetDeviceSentMessage().GetMessage())
 	}
 	if msg.GetConversation() != "" {
 		return msg.GetConversation()
@@ -136,6 +185,7 @@ func extractText(msg *waE2E.Message) string {
 // getContextInfo pulls the ContextInfo (which carries reply/quote data) out
 // of whichever message type actually has it populated.
 func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
+	msg = unwrapMessage(msg)
 	if msg == nil {
 		return nil
 	}
@@ -180,6 +230,7 @@ func quotedPreview(msg *waE2E.Message) (quotedID, quotedText, quotedSender strin
 // triple for the media-bearing message kinds, so we can tag rows in the
 // messages table for the frontend without it having to inspect raw protobuf.
 func mediaInfoFromMessage(msg *waE2E.Message) (mediaType, mimetype, filename string) {
+	msg = unwrapMessage(msg)
 	if msg == nil {
 		return "", "", ""
 	}
@@ -492,27 +543,34 @@ func eventHandler(evt interface{}) {
 		}()
 
 	case *events.Message:
-		if v.IsEdit {
-			targetID := v.Message.GetProtocolMessage().GetKey().GetID()
-			newContent := v.Message.GetProtocolMessage().GetEditedMessage()
+		unwrappedMsg := unwrapMessage(v.Message)
+		if v.IsEdit || (unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT) {
+			var targetID string
+			var newContent *waE2E.Message
+			if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil {
+				targetID = unwrappedMsg.GetProtocolMessage().GetKey().GetID()
+				newContent = unwrappedMsg.GetProtocolMessage().GetEditedMessage()
+			}
 			newText := extractText(newContent)
 			resolvedChat, _ := resolveLIDChat(v)
 			jid := resolvedChat.String()
 			editTime := v.Info.Timestamp.Unix()
-			go func() {
-				rawBytes, _ := proto.Marshal(newContent)
-				markMessageEdited(targetID, jid, newText, rawBytes, editTime)
-			}()
-			broadcastEvent("message_edited", map[string]interface{}{
-				"jid":        jid,
-				"message_id": targetID,
-				"text":       newText,
-				"edited_at":  editTime,
-			})
+			if targetID != "" {
+				go func() {
+					rawBytes, _ := proto.Marshal(newContent)
+					markMessageEdited(targetID, jid, newText, rawBytes, editTime)
+				}()
+				broadcastEvent("message_edited", map[string]interface{}{
+					"jid":        jid,
+					"message_id": targetID,
+					"text":       newText,
+					"edited_at":  editTime,
+				})
+			}
 			return
 		}
-		if v.Message.GetProtocolMessage() != nil && v.Message.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
-			targetID := v.Message.GetProtocolMessage().GetKey().GetID()
+		if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
+			targetID := unwrappedMsg.GetProtocolMessage().GetKey().GetID()
 			resolvedChat, _ := resolveLIDChat(v)
 			jid := resolvedChat.String()
 			go markMessageDeleted(targetID, jid)
@@ -523,7 +581,7 @@ func eventHandler(evt interface{}) {
 			})
 			return
 		}
-		if reaction := v.Message.GetReactionMessage(); reaction != nil {
+		if reaction := unwrappedMsg.GetReactionMessage(); reaction != nil {
 			targetID := reaction.GetKey().GetID()
 			chatJID, senderJID := resolveLIDChat(v)
 			jid := chatJID.ToNonAD().String()
@@ -610,6 +668,7 @@ func eventHandler(evt interface{}) {
 			liveMediaType, _, liveMediaFilename := mediaInfoFromMessage(v.Message)
 
 			quotedID, quotedText, quotedSender := quotedPreview(v.Message)
+			unwrappedMsg := unwrapMessage(v.Message)
 			broadcastEvent("message", map[string]interface{}{
 				"jid":           chatJID.String(),
 				"from":          senderJID.String(),
@@ -617,7 +676,7 @@ func eventHandler(evt interface{}) {
 				"text":          text,
 				"from_me":       v.Info.IsFromMe,
 				"timestamp":     v.Info.Timestamp.Unix(),
-				"has_media":     v.Message.GetImageMessage() != nil || v.Message.GetVideoMessage() != nil || v.Message.GetAudioMessage() != nil || v.Message.GetDocumentMessage() != nil || v.Message.GetStickerMessage() != nil,
+				"has_media":     unwrappedMsg != nil && (unwrappedMsg.GetImageMessage() != nil || unwrappedMsg.GetVideoMessage() != nil || unwrappedMsg.GetAudioMessage() != nil || unwrappedMsg.GetDocumentMessage() != nil || unwrappedMsg.GetStickerMessage() != nil),
 				"mediaType":     liveMediaType,
 				"mediaFilename": liveMediaFilename,
 				"quotedId":      quotedID,

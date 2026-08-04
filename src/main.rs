@@ -202,6 +202,7 @@ struct AppState {
 	search_target_text: Option<String>,
 	played_sent_sounds: std::collections::HashSet<String>,
 	display_items: Vec<whantv::DisplayItem>,
+	typing_timestamps: std::collections::HashMap<String, std::time::Instant>,
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
@@ -611,6 +612,7 @@ fn main() {
 			display_names: std::collections::HashMap::new(),
 			contacts: std::collections::HashMap::new(),
 			presence_labels: std::collections::HashMap::new(),
+			typing_timestamps: std::collections::HashMap::new(),
 			group_state: crate::ui::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
@@ -701,7 +703,53 @@ fn main() {
 			}
 		});
 		audio_timer.start(500, false);
-		Box::leak(Box::new(audio_timer)); // Keep alive for app lifetime
+		Box::leak(Box::new(audio_timer));
+
+		let typing_timer = Timer::new(&frame);
+		let state_typing_timer = state.clone();
+		let parts_typing_timer = parts_clone.clone();
+		typing_timer.on_tick(move |_| {
+			let mut s = match state_typing_timer.try_borrow_mut() {
+				Ok(s) => s,
+				Err(_) => return,
+			};
+			let now = std::time::Instant::now();
+			let timeout = std::time::Duration::from_secs(30);
+			let expired: Vec<String> = s
+				.typing_timestamps
+				.iter()
+				.filter(|(_, ts)| now.duration_since(**ts) >= timeout)
+				.map(|(jid, _)| jid.clone())
+				.collect();
+			if expired.is_empty() {
+				return;
+			}
+			let selected = s.selected_chat.clone();
+			for jid in &expired {
+				s.typing_timestamps.remove(jid);
+			}
+			if let Some(ref sel_jid) = selected {
+				if expired.iter().any(|j| j == sel_jid) {
+					let norm_jid = if let Some((user, server)) = sel_jid.split_once('@') {
+						let base = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+						format!("{}@{}", base, server)
+					} else {
+						sel_jid.clone()
+					};
+					let label = s
+						.presence_labels
+						.get(sel_jid.as_str())
+						.or_else(|| s.presence_labels.get(&norm_jid))
+						.cloned()
+						.unwrap_or_else(|| {
+							s.contacts.get(sel_jid).cloned().unwrap_or_else(|| "Conversation data".to_string())
+						});
+					parts_typing_timer.conversations_parts.conv_data_btn.set_label(&label);
+				}
+			}
+		});
+		typing_timer.start(5000, false);
+		Box::leak(Box::new(typing_timer));
 
 		parts_clone.login_panel.set_focus();
 	});
@@ -1944,6 +1992,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								}
 								let is_typing = data.get("typing").and_then(|t| t.as_bool()).unwrap_or(false);
 								let is_recording = data.get("recording").and_then(|r| r.as_bool()).unwrap_or(false);
+
+								{
+									let mut s = state.borrow_mut();
+									if is_typing || is_recording {
+										s.typing_timestamps.insert(chat_jid.to_string(), std::time::Instant::now());
+									} else {
+										s.typing_timestamps.remove(chat_jid);
+									}
+								}
 
 								let s = state.borrow();
 								if Some(chat_jid.to_string()) == s.selected_chat {
