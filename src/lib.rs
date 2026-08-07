@@ -292,14 +292,16 @@ impl ChatMessage {
 			if !active.is_empty() { format!(", {}", active.join(", ")) } else { String::new() }
 		};
 
+		let edit_suffix = if self.is_edited { ", edited" } else { "" };
+
 		if self.from_me {
 			if !formatted_time.is_empty() {
 				format!(
-					"You: {}{}, sent at {}, {}{}",
-					body, reply_suffix, formatted_time, status_title, reactions_suffix
+					"You: {}{}, sent at {}, {}{}{}",
+					body, reply_suffix, formatted_time, status_title, reactions_suffix, edit_suffix
 				)
 			} else {
-				format!("You: {}{}, {}{}", body, reply_suffix, status_title, reactions_suffix)
+				format!("You: {}{}, {}{}{}", body, reply_suffix, status_title, reactions_suffix, edit_suffix)
 			}
 		} else {
 			let name = if !self.sender_name.is_empty() {
@@ -311,9 +313,12 @@ impl ChatMessage {
 			};
 
 			if !formatted_time.is_empty() {
-				format!("{}: {}{}, received at {}{}", name, body, reply_suffix, formatted_time, reactions_suffix)
+				format!(
+					"{}: {}{}, received at {}{}{}",
+					name, body, reply_suffix, formatted_time, reactions_suffix, edit_suffix
+				)
 			} else {
-				format!("{}: {}{}{}", name, body, reply_suffix, reactions_suffix)
+				format!("{}: {}{}{}{}", name, body, reply_suffix, reactions_suffix, edit_suffix)
 			}
 		}
 	}

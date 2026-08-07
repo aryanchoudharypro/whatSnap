@@ -216,7 +216,7 @@ func handleSetAbout(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SetStatusMessage(context.Background(), data.Text); err != nil {
+		if err := client.SetStatusMessage(context.Background(), types.SetStatusInput{Text: &data.Text}); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 		}
 	}()

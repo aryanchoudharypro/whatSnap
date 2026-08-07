@@ -544,14 +544,41 @@ func eventHandler(evt interface{}) {
 
 	case *events.Message:
 		unwrappedMsg := unwrapMessage(v.Message)
-		if v.IsEdit || (unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT) {
+		isEdit := v.IsEdit || v.Info.Edit == types.EditAttributeMessageEdit || (unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT)
+		if isEdit {
 			var targetID string
 			var newContent *waE2E.Message
-			if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil {
+
+			if enc := v.Message.GetSecretEncryptedMessage(); enc != nil && enc.GetSecretEncType() == waE2E.SecretEncryptedMessage_MESSAGE_EDIT {
+				targetID = enc.GetTargetMessageKey().GetID()
+				decrypted, err := client.DecryptSecretEncryptedMessage(context.Background(), v)
+				if err != nil {
+					log.Printf("Edit: failed to decrypt secret encrypted edit: %v", err)
+				} else {
+					if decrypted.GetProtocolMessage() != nil && decrypted.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT {
+						newContent = decrypted.GetProtocolMessage().GetEditedMessage()
+					} else {
+						newContent = decrypted
+					}
+				}
+			} else if v.Message.GetProtocolMessage() != nil {
+				targetID = v.Message.GetProtocolMessage().GetKey().GetID()
+				newContent = v.Message.GetProtocolMessage().GetEditedMessage()
+			} else if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil {
 				targetID = unwrappedMsg.GetProtocolMessage().GetKey().GetID()
 				newContent = unwrappedMsg.GetProtocolMessage().GetEditedMessage()
 			}
+
+			if targetID == "" {
+				targetID = v.Info.ID
+			}
 			newText := extractText(newContent)
+			if newText == "" || newText == "[Unsupported Message]" || newText == "[Protocol Message]" {
+				newText = extractText(v.Message)
+			}
+			if newText == "[Protocol Message]" || newText == "[Unsupported Message]" {
+				newText = extractText(unwrappedMsg)
+			}
 			resolvedChat, _ := resolveLIDChat(v)
 			jid := resolvedChat.String()
 			editTime := v.Info.Timestamp.Unix()
