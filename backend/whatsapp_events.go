@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
+
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
@@ -288,9 +292,9 @@ func eventHandler(evt interface{}) {
 				lidJID, err2 := types.ParseJID(mapping.GetLidJID())
 				if err1 == nil && err2 == nil && !pnJID.IsEmpty() && !lidJID.IsEmpty() {
 					client.Store.LIDs.PutLIDMapping(context.Background(), lidJID, pnJID)
-					db.Exec(`UPDATE chats SET jid = ? WHERE jid = ?`, pnJID.String(), lidJID.String())
-					db.Exec(`UPDATE messages SET jid = ? WHERE jid = ?`, pnJID.String(), lidJID.String())
-					db.Exec(`UPDATE messages SET sender_jid = ? WHERE sender_jid = ?`, pnJID.String(), lidJID.String())
+					db.Exec(`UPDATE OR IGNORE chats SET jid = ? WHERE jid = ?`, pnJID.String(), lidJID.String())
+					db.Exec(`UPDATE OR IGNORE messages SET jid = ? WHERE jid = ?`, pnJID.String(), lidJID.String())
+					db.Exec(`UPDATE OR IGNORE messages SET sender_jid = ? WHERE sender_jid = ?`, pnJID.String(), lidJID.String())
 				}
 			}
 
@@ -385,11 +389,11 @@ func eventHandler(evt interface{}) {
 				_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived) VALUES (?, ?, ?, ?, ?, ?, ?)
 					ON CONFLICT(jid) DO UPDATE SET
 					timestamp=MAX(timestamp, excluded.timestamp),
-					name=COALESCE(NULLIF(excluded.name, ''), chats.name),
-					unread_count=excluded.unread_count,
-					pinned=excluded.pinned,
-					muted=excluded.muted,
-					archived=excluded.archived`,
+					name=CASE WHEN chats.name IS NULL OR chats.name = '' OR chats.name LIKE '+%' THEN COALESCE(NULLIF(excluded.name, ''), chats.name) ELSE chats.name END,
+					unread_count=MAX(chats.unread_count, excluded.unread_count),
+					pinned=MAX(chats.pinned, excluded.pinned),
+					muted=MAX(chats.muted, excluded.muted),
+					archived=MAX(chats.archived, excluded.archived)`,
 					jid, name, ts, unread, pinned, muted, archived)
 				if err != nil {
 					fmt.Println("Error inserting chat from HistorySync:", err)
@@ -763,6 +767,14 @@ func eventHandler(evt interface{}) {
 			"by":         v.SenderJID.String(),
 		})
 	case *events.Connected:
+		appStateResyncMu.Lock()
+		for k := range appStateResyncCount {
+			delete(appStateResyncCount, k)
+		}
+		for k := range lastAppStateResync {
+			delete(lastAppStateResync, k)
+		}
+		appStateResyncMu.Unlock()
 		if client.Store.ID != nil {
 			broadcastEvent("connected", map[string]string{"jid": client.Store.ID.String()})
 			go client.SendPresence(context.Background(), types.PresenceAvailable)
@@ -900,6 +912,44 @@ func eventHandler(evt interface{}) {
 				broadcastChats()
 			}()
 		}
+	case *events.AppStateSyncError:
+		handleAppStateSyncError(v)
+	case *events.Archive:
+		go func() {
+			if v.Action == nil {
+				return
+			}
+			archivedInt := 0
+			if v.Action.GetArchived() {
+				archivedInt = 1
+			}
+			db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", archivedInt, v.JID.String())
+			broadcastChats()
+		}()
+	case *events.Mute:
+		go func() {
+			if v.Action == nil {
+				return
+			}
+			mutedInt := 0
+			if v.Action.GetMuted() {
+				mutedInt = 1
+			}
+			db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", mutedInt, v.JID.String())
+			broadcastChats()
+		}()
+	case *events.Pin:
+		go func() {
+			if v.Action == nil {
+				return
+			}
+			pinnedInt := 0
+			if v.Action.GetPinned() {
+				pinnedInt = 1
+			}
+			db.Exec("UPDATE chats SET pinned = ? WHERE jid = ?", pinnedInt, v.JID.String())
+			broadcastChats()
+		}()
 	case *events.Picture:
 		go func() {
 			jidStr := v.JID.String()
@@ -1068,4 +1118,67 @@ func populateChatsFromStore() {
 	}
 	db.Exec("DELETE FROM chats WHERE timestamp = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)")
 	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@broadcast'")
+}
+
+var (
+	appStateResyncMu     sync.Mutex
+	lastAppStateResync   = make(map[appstate.WAPatchName]time.Time)
+	appStateResyncCount  = make(map[appstate.WAPatchName]int)
+)
+
+func handleAppStateSyncError(v *events.AppStateSyncError) {
+	appStateResyncMu.Lock()
+	count := appStateResyncCount[v.Name]
+	if count >= 3 {
+		appStateResyncMu.Unlock()
+		log.Printf("AppStateSyncError for %s: giving up after %d failed attempts. Will retry on next connection.", v.Name, count)
+		return
+	}
+	lastTime := lastAppStateResync[v.Name]
+	if time.Since(lastTime) < 60*time.Second {
+		appStateResyncMu.Unlock()
+		return
+	}
+	appStateResyncCount[v.Name] = count + 1
+	lastAppStateResync[v.Name] = time.Now()
+	appStateResyncMu.Unlock()
+
+	go func() {
+		log.Printf("AppStateSyncError for %s (attempt %d/3): %v. Wiping local state and requesting full resync...", v.Name, count+1, v.Error)
+		if client == nil {
+			return
+		}
+		db.Exec("DELETE FROM whatsmeow_app_state_version WHERE name = ?", string(v.Name))
+		db.Exec("DELETE FROM whatsmeow_app_state_mutation_macs WHERE name = ?", string(v.Name))
+		err := client.FetchAppState(context.Background(), v.Name, true, true)
+		if err != nil {
+			if errors.Is(err, whatsmeow.ErrIQRateOverLimit) || strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate-overlimit") {
+				log.Printf("Rate limit 429 during resync of %s. Scheduling retry in 90s...", v.Name)
+				time.AfterFunc(90*time.Second, func() {
+					appStateResyncMu.Lock()
+					lastAppStateResync[v.Name] = time.Now()
+					appStateResyncMu.Unlock()
+					if client != nil {
+						db.Exec("DELETE FROM whatsmeow_app_state_version WHERE name = ?", string(v.Name))
+						db.Exec("DELETE FROM whatsmeow_app_state_mutation_macs WHERE name = ?", string(v.Name))
+						if retryErr := client.FetchAppState(context.Background(), v.Name, true, true); retryErr != nil {
+							log.Printf("Delayed retry for %s failed: %v", v.Name, retryErr)
+						} else {
+							log.Printf("Delayed resync for %s succeeded", v.Name)
+							appStateResyncMu.Lock()
+							appStateResyncCount[v.Name] = 0
+							appStateResyncMu.Unlock()
+						}
+					}
+				})
+			} else {
+				log.Printf("Failed to resync app state %s: %v", v.Name, err)
+			}
+		} else {
+			log.Printf("App state %s full resync succeeded", v.Name)
+			appStateResyncMu.Lock()
+			appStateResyncCount[v.Name] = 0
+			appStateResyncMu.Unlock()
+		}
+	}()
 }

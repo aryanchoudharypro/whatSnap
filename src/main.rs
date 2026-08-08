@@ -76,6 +76,11 @@ pub enum UiCommand {
 	ToggleAudioSpeed,
 	ShowConversationData,
 	ForwardMessage { message_id: String, to_jids: Vec<String> },
+	TogglePinChat { jid: String, pin: bool },
+	ToggleArchiveChat { jid: String, archive: bool },
+	ToggleMuteChat { jid: String, mute: bool },
+	ToggleReadChat { jid: String, read: bool },
+	DeleteChat { jid: String },
 }
 
 use std::{fs::File, io::BufReader};
@@ -177,6 +182,9 @@ struct AppState {
 	chats: Vec<String>,
 	filtered_chats: Vec<String>,
 	archived_jids: std::collections::HashSet<String>,
+	pinned_jids: std::collections::HashSet<String>,
+	muted_jids: std::collections::HashSet<String>,
+	unread_counts: std::collections::HashMap<String, u64>,
 	display_names: std::collections::HashMap<String, String>,
 	contacts: std::collections::HashMap<String, String>,
 	presence_labels: std::collections::HashMap<String, String>,
@@ -609,6 +617,9 @@ fn main() {
 			chats: Vec::new(),
 			filtered_chats: Vec::new(),
 			archived_jids: std::collections::HashSet::new(),
+			pinned_jids: std::collections::HashSet::new(),
+			muted_jids: std::collections::HashSet::new(),
+			unread_counts: std::collections::HashMap::new(),
 			display_names: std::collections::HashMap::new(),
 			contacts: std::collections::HashMap::new(),
 			presence_labels: std::collections::HashMap::new(),
@@ -1047,6 +1058,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								{
 									let mut chat_list = Vec::new();
 									let mut archived_jids = std::collections::HashSet::new();
+									let mut pinned_jids = std::collections::HashSet::new();
+									let mut muted_jids = std::collections::HashSet::new();
+									let mut unread_counts = std::collections::HashMap::new();
 									let mut display_names = std::collections::HashMap::new();
 									let mut contacts_map = std::collections::HashMap::new();
 									for chat in chats_array {
@@ -1103,10 +1117,13 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											}
 											if pinned {
 												tags.push("Pinned");
+												pinned_jids.insert(jid.to_string());
 											}
 											if muted {
 												tags.push("Muted");
+												muted_jids.insert(jid.to_string());
 											}
+											unread_counts.insert(jid.to_string(), unread);
 
 											let name_line = if tags.is_empty() {
 												name.clone()
@@ -1154,6 +1171,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									s.chats = chat_list;
 									s.contacts = contacts_map;
 									s.archived_jids = archived_jids;
+									s.pinned_jids = pinned_jids;
+									s.muted_jids = muted_jids;
+									s.unread_counts = unread_counts;
 									s.display_names = display_names;
 
 									// Compute new filtered list
@@ -4111,6 +4131,130 @@ while ($true) {
 				s.is_audio_paused = false;
 				parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
 			}
+		}
+		UiCommand::TogglePinChat { jid, pin } => {
+			let chat_name = {
+				let mut s = state.borrow_mut();
+				if pin {
+					s.pinned_jids.insert(jid.clone());
+				} else {
+					s.pinned_jids.remove(&jid);
+				}
+				s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
+			};
+			let payload = serde_json::json!({
+				"action": "set_chat_pinned",
+				"data": {
+					"jid": jid,
+					"value": pin
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				&format!("Chat {} {}.", chat_name, if pin { "pinned" } else { "unpinned" }),
+			);
+		}
+		UiCommand::ToggleArchiveChat { jid, archive } => {
+			let chat_name = {
+				let mut s = state.borrow_mut();
+				if archive {
+					s.archived_jids.insert(jid.clone());
+				} else {
+					s.archived_jids.remove(&jid);
+				}
+				let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+				apply_chat_filter(&mut s, parts);
+				name
+			};
+			let payload = serde_json::json!({
+				"action": "set_chat_archived",
+				"data": {
+					"jid": jid,
+					"value": archive
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				&format!("Chat {} {}.", chat_name, if archive { "archived" } else { "unarchived" }),
+			);
+		}
+		UiCommand::ToggleMuteChat { jid, mute } => {
+			let chat_name = {
+				let mut s = state.borrow_mut();
+				if mute {
+					s.muted_jids.insert(jid.clone());
+				} else {
+					s.muted_jids.remove(&jid);
+				}
+				s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
+			};
+			let payload = serde_json::json!({
+				"action": "set_chat_muted",
+				"data": {
+					"jid": jid,
+					"muted": mute,
+					"duration_seconds": 0
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				&format!("Notifications {} for {}.", if mute { "muted" } else { "unmuted" }, chat_name),
+			);
+		}
+		UiCommand::ToggleReadChat { jid, read } => {
+			let chat_name = {
+				let mut s = state.borrow_mut();
+				if read {
+					s.unread_counts.insert(jid.clone(), 0);
+				} else {
+					s.unread_counts.insert(jid.clone(), 1);
+				}
+				s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
+			};
+			let payload = serde_json::json!({
+				"action": "set_chat_read",
+				"data": {
+					"jid": jid,
+					"value": read
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				&format!("Chat {} marked as {}.", chat_name, if read { "read" } else { "unread" }),
+			);
+		}
+		UiCommand::DeleteChat { jid } => {
+			let chat_name = {
+				let mut s = state.borrow_mut();
+				s.chats.retain(|j| j != &jid);
+				s.filtered_chats.retain(|j| j != &jid);
+				s.archived_jids.remove(&jid);
+				s.pinned_jids.remove(&jid);
+				s.muted_jids.remove(&jid);
+				s.unread_counts.remove(&jid);
+				let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+				if s.selected_chat.as_ref() == Some(&jid) {
+					s.selected_chat = None;
+					parts.conversations_parts.conversation_panel.show(false);
+				}
+				apply_chat_filter(&mut s, parts);
+				name
+			};
+			let payload = serde_json::json!({
+				"action": "delete_chat",
+				"data": {
+					"jid": jid
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				&format!("Chat {} deleted.", chat_name),
+			);
 		}
 	}
 }
