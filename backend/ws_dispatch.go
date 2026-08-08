@@ -174,14 +174,25 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 		case "force_sync":
 			go func() {
-				if err := client.FetchAppState(context.Background(), appstate.WAPatchCriticalUnblockLow, true, false); err != nil {
-					fmt.Println("Error syncing AppState (CriticalUnblockLow):", err)
+				appStateResyncMu.Lock()
+				for k := range appStateResyncCount {
+					delete(appStateResyncCount, k)
 				}
-				if err := client.FetchAppState(context.Background(), appstate.WAPatchCriticalBlock, true, false); err != nil {
-					fmt.Println("Error syncing AppState (CriticalBlock):", err)
+				for k := range lastAppStateResync {
+					delete(lastAppStateResync, k)
 				}
-				if err := client.FetchAppState(context.Background(), appstate.WAPatchRegularHigh, true, false); err != nil {
-					fmt.Println("Error syncing AppState (RegularHigh):", err)
+				appStateResyncMu.Unlock()
+				db.Exec("DELETE FROM whatsmeow_app_state_version")
+				db.Exec("DELETE FROM whatsmeow_app_state_mutation_macs")
+				for _, name := range []appstate.WAPatchName{
+					appstate.WAPatchRegularLow,
+					appstate.WAPatchRegularHigh,
+					appstate.WAPatchCriticalBlock,
+					appstate.WAPatchCriticalUnblockLow,
+				} {
+					if err := client.FetchAppState(context.Background(), name, true, true); err != nil {
+						fmt.Println("Error syncing AppState (", name, "):", err)
+					}
 				}
 				populateChatsFromStore()
 				broadcastChats()

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -238,6 +239,29 @@ func handleSearchMessages(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
+func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) {
+	var msg_id string
+	var msg_ts int64
+	var from_me bool
+	var sender_jid string
+	err := db.QueryRow(
+		`SELECT id, timestamp, from_me, COALESCE(sender_jid, '') FROM messages WHERE jid = ? ORDER BY timestamp DESC LIMIT 1`,
+		jid_str,
+	).Scan(&msg_id, &msg_ts, &from_me, &sender_jid)
+	if err != nil {
+		return time.Time{}, nil
+	}
+	key := &waCommon.MessageKey{
+		RemoteJID: proto.String(jid_str),
+		ID:        proto.String(msg_id),
+		FromMe:    proto.Bool(from_me),
+	}
+	if sender_jid != "" && sender_jid != jid_str {
+		key.Participant = proto.String(sender_jid)
+	}
+	return time.Unix(msg_ts, 0), key
+}
+
 // --- chat-level state: pin / archive / mute / mark read / delete -----------
 // These write through to WhatsApp's app-state (SendAppState) rather than
 // just the local cache, so pin/archive/mute state matches what you'd see on
@@ -254,8 +278,7 @@ func handleSetChatPinned(raw json.RawMessage) {
 	}
 	go func() {
 		if err := client.SendAppState(context.Background(), appstate.BuildPin(jid, data.Value)); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
-			return
+			log.Printf("SendAppState pin failed for %s: %v", data.JID, err)
 		}
 		pinnedInt := 0
 		if data.Value {
@@ -276,15 +299,16 @@ func handleSetChatArchived(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SendAppState(context.Background(), appstate.BuildArchive(jid, data.Value, time.Time{}, nil)); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+		last_ts, last_key := getLastMessageKeyForChat(data.JID)
+		if err := client.SendAppState(context.Background(), appstate.BuildArchive(jid, data.Value, last_ts, last_key)); err != nil {
+			log.Printf("SendAppState archive failed for %s: %v", data.JID, err)
 			return
 		}
-		archivedInt := 0
+		archived_int := 0
 		if data.Value {
-			archivedInt = 1
+			archived_int = 1
 		}
-		db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", archivedInt, data.JID)
+		db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", archived_int, data.JID)
 		broadcastChats()
 	}()
 }
@@ -301,8 +325,7 @@ func handleSetChatMuted(raw json.RawMessage) {
 	go func() {
 		duration := time.Duration(data.DurationSeconds) * time.Second
 		if err := client.SendAppState(context.Background(), appstate.BuildMute(jid, data.Muted, duration)); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
-			return
+			log.Printf("SendAppState mute failed for %s: %v", data.JID, err)
 		}
 		mutedInt := 0
 		if data.Muted {
@@ -323,12 +346,15 @@ func handleSetChatRead(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SendAppState(context.Background(), appstate.BuildMarkChatAsRead(jid, data.Value, time.Time{}, nil)); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+		last_ts, last_key := getLastMessageKeyForChat(data.JID)
+		if err := client.SendAppState(context.Background(), appstate.BuildMarkChatAsRead(jid, data.Value, last_ts, last_key)); err != nil {
+			log.Printf("SendAppState mark-read failed for %s: %v", data.JID, err)
 			return
 		}
 		if data.Value {
 			db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
+		} else {
+			db.Exec("UPDATE chats SET unread_count = 1 WHERE jid = ?", data.JID)
 		}
 		broadcastChats()
 	}()
@@ -352,7 +378,7 @@ func handleRequestHistorySync(raw json.RawMessage) {
 		MessageID string `json:"message_id"`
 		Count     int    `json:"count"`
 	}
-	
+
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
@@ -384,6 +410,6 @@ func handleRequestHistorySync(raw json.RawMessage) {
 	}
 
 	req := client.BuildHistorySyncRequest(msgInfo, data.Count)
-	
+
 	client.SendPeerMessage(context.Background(), req)
 }

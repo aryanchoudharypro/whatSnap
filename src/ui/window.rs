@@ -561,14 +561,99 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	let convs_list_ctx = parts.conversations_parts.conversations_list.clone();
+	let state_chat_ctx = state.clone();
+	let ui_tx_chat_ctx = ui_tx.clone();
+	let parent_frame_chat_ctx = parts.frame;
+
+	let open_chat_context_menu = Rc::new(move || {
+		if let Some(idx) = convs_list_ctx.get_selection() {
+			let pin_id = 4001;
+			let archive_id = 4002;
+			let mute_id = 4003;
+			let read_id = 4004;
+			let delete_id = 4005;
+
+			let s = state_chat_ctx.borrow();
+			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
+			if let Some(jid) = jid_opt {
+				let is_pinned = s.pinned_jids.contains(&jid);
+				let is_archived = s.archived_jids.contains(&jid);
+				let is_muted = s.muted_jids.contains(&jid);
+				let unread_count = s.unread_counts.get(&jid).copied().unwrap_or(0);
+				let is_unread = unread_count > 0;
+				let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+				drop(s);
+
+				let mut menu_builder = Menu::builder();
+
+				let pin_label = if is_pinned { "Un&pin chat" } else { "&Pin chat" };
+				let archive_label = if is_archived { "&Unarchive chat" } else { "&Archive chat" };
+				let mute_label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
+				let read_label = if is_unread { "Mark as &read" } else { "Mark as &unread" };
+
+				menu_builder = menu_builder
+					.append_item(pin_id, pin_label, "Pin or unpin chat")
+					.append_item(archive_id, archive_label, "Archive or unarchive chat")
+					.append_item(mute_id, mute_label, "Mute or unmute notifications")
+					.append_item(read_id, read_label, "Mark chat as read or unread")
+					.append_item(delete_id, "&Delete chat...", "Delete chat history");
+
+				let mut popup_menu = menu_builder.build();
+
+				let ui_tx_clone = ui_tx_chat_ctx.clone();
+				let jid_clone = jid.clone();
+				let parent_clone = parent_frame_chat_ctx.clone();
+
+				popup_menu.on_selected(move |menu_evt| {
+					let id = menu_evt.get_id();
+					if id == pin_id {
+						let _ = ui_tx_clone.send(UiCommand::TogglePinChat { jid: jid_clone.clone(), pin: !is_pinned });
+					} else if id == archive_id {
+						let _ = ui_tx_clone
+							.send(UiCommand::ToggleArchiveChat { jid: jid_clone.clone(), archive: !is_archived });
+					} else if id == mute_id {
+						let _ = ui_tx_clone.send(UiCommand::ToggleMuteChat { jid: jid_clone.clone(), mute: !is_muted });
+					} else if id == read_id {
+						let _ =
+							ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: !is_unread });
+					} else if id == delete_id {
+						let dialog = MessageDialog::builder(
+							&parent_clone,
+							&format!("Are you sure you want to delete chat with {}?", chat_name),
+							"Confirm Delete",
+						)
+						.with_style(
+							MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
+						)
+						.build();
+						if dialog.show_modal() == wxdragon::id::ID_OK {
+							let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
+						}
+					}
+				});
+
+				convs_list_ctx.popup_menu(&mut popup_menu, None);
+				popup_menu.destroy_menu();
+			}
+		}
+	});
+
+	let open_chat_menu_key = open_chat_context_menu.clone();
+	let conv_list_key = parts.conversations_parts.conversations_list.clone();
 	let tx_open_enter = ui_tx.clone();
-	let conv_list_enter = parts.conversations_parts.conversations_list.clone();
 	parts.conversations_parts.conversations_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
-			if key_event.get_key_code() == Some(13) {
-				if let Some(idx) = conv_list_enter.get_selection() {
+			let code = key_event.get_key_code();
+			if code == Some(13) {
+				if let Some(idx) = conv_list_key.get_selection() {
 					let _ = tx_open_enter.send(UiCommand::OpenConversation(idx as usize));
 				}
+				event.skip(false);
+			} else if !key_event.meta_down()
+				&& (code == Some(395) || code == Some(93) || (key_event.shift_down() && code == Some(349)))
+			{
+				open_chat_menu_key.as_ref()();
 				event.skip(false);
 			} else {
 				event.skip(true);
@@ -576,6 +661,11 @@ pub fn bind_input_handlers(
 		} else {
 			event.skip(true);
 		}
+	});
+
+	let open_chat_menu_cb = open_chat_context_menu.clone();
+	parts.conversations_parts.conversations_list.bind_internal(EventType::CONTEXT_MENU, move |_event| {
+		open_chat_menu_cb.as_ref()();
 	});
 
 	let tx_open_enter_up = ui_tx.clone();
