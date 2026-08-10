@@ -182,15 +182,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 					delete(lastAppStateResync, k)
 				}
 				appStateResyncMu.Unlock()
-				db.Exec("DELETE FROM whatsmeow_app_state_version")
-				db.Exec("DELETE FROM whatsmeow_app_state_mutation_macs")
 				for _, name := range []appstate.WAPatchName{
 					appstate.WAPatchRegularLow,
 					appstate.WAPatchRegularHigh,
 					appstate.WAPatchCriticalBlock,
 					appstate.WAPatchCriticalUnblockLow,
 				} {
-					if err := client.FetchAppState(context.Background(), name, true, true); err != nil {
+					if err := client.FetchAppState(context.Background(), name, false, false); err != nil {
 						fmt.Println("Error syncing AppState (", name, "):", err)
 					}
 				}
