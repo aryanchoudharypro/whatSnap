@@ -591,7 +591,7 @@ mod tests {
 			timestamp: 0,
 			from_me: false,
 			sender_jid: "123@s.whatsapp.net".into(),
-			sender_name: "Pooja".into(),
+			sender_name: "aryan".into(),
 			is_audio: true,
 			is_date_divider: false,
 			is_deleted: false,
@@ -608,7 +608,7 @@ mod tests {
 		};
 		assert_eq!(
 			voice_received.format_display(true),
-			"Pooja: Voice message Duration: 0:10, replied to quoted message from @boostoftech: \"Voice message Duration: 0:23\""
+			"aryan: Voice message Duration: 0:10, replied to quoted message from @boostoftech: \"Voice message Duration: 0:23\""
 		);
 	}
 

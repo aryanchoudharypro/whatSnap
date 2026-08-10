@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -262,6 +263,28 @@ func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) 
 	return time.Unix(msg_ts, 0), key
 }
 
+func sendAppStateWithRetry(ctx context.Context, patch appstate.PatchInfo) error {
+	err := client.SendAppState(ctx, patch)
+	if err == nil {
+		return nil
+	}
+	log.Printf("SendAppState %s failed, attempting resync: %v", patch.Type, err)
+
+	appStateResyncMu.Lock()
+	lastAppStateResync[patch.Type] = time.Now()
+	appStateResyncMu.Unlock()
+
+	if sync_err := client.FetchAppState(ctx, patch.Type, false, false); sync_err != nil {
+		log.Printf("Resync of %s failed: %v", patch.Type, sync_err)
+		return fmt.Errorf("app state sync failed for %s: %w", patch.Type, sync_err)
+	}
+	if retry_err := client.SendAppState(ctx, patch); retry_err != nil {
+		log.Printf("SendAppState %s retry also failed: %v", patch.Type, retry_err)
+		return fmt.Errorf("app state retry failed for %s: %w", patch.Type, retry_err)
+	}
+	return nil
+}
+
 // --- chat-level state: pin / archive / mute / mark read / delete -----------
 // These write through to WhatsApp's app-state (SendAppState) rather than
 // just the local cache, so pin/archive/mute state matches what you'd see on
@@ -277,14 +300,15 @@ func handleSetChatPinned(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SendAppState(context.Background(), appstate.BuildPin(jid, data.Value)); err != nil {
-			log.Printf("SendAppState pin failed for %s: %v", data.JID, err)
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildPin(jid, data.Value)); err != nil {
+			broadcastChats()
+			return
 		}
-		pinnedInt := 0
+		pinned_int := 0
 		if data.Value {
-			pinnedInt = 1
+			pinned_int = 1
 		}
-		db.Exec("UPDATE chats SET pinned = ? WHERE jid = ?", pinnedInt, data.JID)
+		db.Exec("UPDATE chats SET pinned = ? WHERE jid = ?", pinned_int, data.JID)
 		broadcastChats()
 	}()
 }
@@ -300,8 +324,8 @@ func handleSetChatArchived(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := client.SendAppState(context.Background(), appstate.BuildArchive(jid, data.Value, last_ts, last_key)); err != nil {
-			log.Printf("SendAppState archive failed for %s: %v", data.JID, err)
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildArchive(jid, data.Value, last_ts, last_key)); err != nil {
+			broadcastChats()
 			return
 		}
 		archived_int := 0
@@ -324,14 +348,15 @@ func handleSetChatMuted(raw json.RawMessage) {
 	}
 	go func() {
 		duration := time.Duration(data.DurationSeconds) * time.Second
-		if err := client.SendAppState(context.Background(), appstate.BuildMute(jid, data.Muted, duration)); err != nil {
-			log.Printf("SendAppState mute failed for %s: %v", data.JID, err)
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMute(jid, data.Muted, duration)); err != nil {
+			broadcastChats()
+			return
 		}
-		mutedInt := 0
+		muted_int := 0
 		if data.Muted {
-			mutedInt = 1
+			muted_int = 1
 		}
-		db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", mutedInt, data.JID)
+		db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", muted_int, data.JID)
 		broadcastChats()
 	}()
 }
@@ -347,8 +372,8 @@ func handleSetChatRead(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := client.SendAppState(context.Background(), appstate.BuildMarkChatAsRead(jid, data.Value, last_ts, last_key)); err != nil {
-			log.Printf("SendAppState mark-read failed for %s: %v", data.JID, err)
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMarkChatAsRead(jid, data.Value, last_ts, last_key)); err != nil {
+			broadcastChats()
 			return
 		}
 		if data.Value {

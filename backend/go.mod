@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	go.mau.fi/whatsmeow v0.0.0-20260806224404-e277b766ab33
+	go.mau.fi/whatsmeow v0.0.0-20260810134348-a23afe317180
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.53.0
 )
@@ -35,3 +35,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20260810161345-cb34c28a6c93

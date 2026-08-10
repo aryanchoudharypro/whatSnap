@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1144,13 +1146,42 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 	appStateResyncMu.Unlock()
 
 	go func() {
-		log.Printf("AppStateSyncError for %s (attempt %d/3): %v. Wiping local state and requesting full resync...", v.Name, count+1, v.Error)
+		log.Printf("AppStateSyncError for %s (attempt %d/3): %v.", v.Name, count+1, v.Error)
 		if client == nil {
 			return
 		}
-		db.Exec("DELETE FROM whatsmeow_app_state_version WHERE name = ?", string(v.Name))
-		db.Exec("DELETE FROM whatsmeow_app_state_mutation_macs WHERE name = ?", string(v.Name))
-		err := client.FetchAppState(context.Background(), v.Name, true, true)
+		if v.Error != nil {
+			errMsg := v.Error.Error()
+			if strings.Contains(errMsg, "mismatching LTHash") || strings.Contains(errMsg, "failed to verify snapshot") {
+				re := regexp.MustCompile(`patch v(\d+)`)
+				matches := re.FindStringSubmatch(errMsg)
+				if len(matches) < 2 {
+					re = regexp.MustCompile(`v(\d+)`)
+					matches = re.FindStringSubmatch(errMsg)
+				}
+				if len(matches) > 1 {
+					ver, err := strconv.ParseUint(matches[1], 10, 64)
+					if err == nil && ver > 0 {
+						var jid string
+						if client.Store != nil && client.Store.ID != nil {
+							jid = client.Store.ID.String()
+						}
+						log.Printf("Seeding version %d for %s (JID: %s)...", ver, v.Name, jid)
+						db.Exec("INSERT INTO whatsmeow_app_state_version (jid, name, version, hash) VALUES (?, ?, ?, ?) ON CONFLICT(jid, name) DO UPDATE SET version=excluded.version", jid, string(v.Name), ver, make([]byte, 128))
+						if resyncErr := client.FetchAppState(context.Background(), v.Name, false, false); resyncErr != nil {
+							log.Printf("Post-seeding resync for %s failed: %v", v.Name, resyncErr)
+						} else {
+							log.Printf("Post-seeding resync for %s succeeded", v.Name)
+							appStateResyncMu.Lock()
+							appStateResyncCount[v.Name] = 0
+							appStateResyncMu.Unlock()
+						}
+						return
+					}
+				}
+			}
+		}
+		err := client.FetchAppState(context.Background(), v.Name, false, false)
 		if err != nil {
 			if errors.Is(err, whatsmeow.ErrIQRateOverLimit) || strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate-overlimit") {
 				log.Printf("Rate limit 429 during resync of %s. Scheduling retry in 90s...", v.Name)
@@ -1159,9 +1190,7 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 					lastAppStateResync[v.Name] = time.Now()
 					appStateResyncMu.Unlock()
 					if client != nil {
-						db.Exec("DELETE FROM whatsmeow_app_state_version WHERE name = ?", string(v.Name))
-						db.Exec("DELETE FROM whatsmeow_app_state_mutation_macs WHERE name = ?", string(v.Name))
-						if retryErr := client.FetchAppState(context.Background(), v.Name, true, true); retryErr != nil {
+						if retryErr := client.FetchAppState(context.Background(), v.Name, false, false); retryErr != nil {
 							log.Printf("Delayed retry for %s failed: %v", v.Name, retryErr)
 						} else {
 							log.Printf("Delayed resync for %s succeeded", v.Name)
@@ -1175,7 +1204,7 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 				log.Printf("Failed to resync app state %s: %v", v.Name, err)
 			}
 		} else {
-			log.Printf("App state %s full resync succeeded", v.Name)
+			log.Printf("App state %s resync succeeded", v.Name)
 			appStateResyncMu.Lock()
 			appStateResyncCount[v.Name] = 0
 			appStateResyncMu.Unlock()

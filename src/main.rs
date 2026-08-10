@@ -3841,6 +3841,7 @@ while ($true) {
 					"data": { "jid": jid }
 				});
 				let _ = s.ws_tx.send(payload.to_string());
+				drop(s);
 
 				parts.conversation_data_dialog.info_field.set_focus();
 				parts.conversation_data_dialog.dialog.show_modal();
