@@ -436,5 +436,7 @@ func handleRequestHistorySync(raw json.RawMessage) {
 
 	req := client.BuildHistorySyncRequest(msgInfo, data.Count)
 
-	client.SendPeerMessage(context.Background(), req)
+	if _, sendErr := client.SendPeerMessage(context.Background(), req); sendErr != nil {
+		log.Printf("history sync request for %s failed: %v", data.JID, sendErr)
+	}
 }

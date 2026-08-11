@@ -51,7 +51,11 @@ func handlePair(raw json.RawMessage) {
 	go func() {
 		if client.Store.ID == nil {
 			if !client.IsConnected() {
-				qrChan, _ := client.GetQRChannel(context.Background())
+				qrChan, qrErr := client.GetQRChannel(context.Background())
+				if qrErr != nil {
+					broadcastEvent("error", map[string]string{"message": qrErr.Error()})
+					return
+				}
 				err := client.Connect()
 				if err != nil {
 					broadcastEvent("error", map[string]string{"message": err.Error()})

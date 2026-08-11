@@ -402,7 +402,7 @@ func handleOpenMedia(conn net.Conn, raw json.RawMessage) {
 		if filename != "" {
 			tempDir := filepath.Join(os.TempDir(), "whantv_open")
 			os.MkdirAll(tempDir, 0755)
-			tempPath := filepath.Join(tempDir, filename)
+			tempPath := filepath.Join(tempDir, safeFilenameForFS(filename))
 			if bytes, err := os.ReadFile(path); err == nil {
 				if os.WriteFile(tempPath, bytes, 0644) == nil {
 					openPath = tempPath
@@ -889,7 +889,7 @@ func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 				}
 			}
 
-			tempPath := filepath.Join(tempDir, destFilename)
+			tempPath := filepath.Join(tempDir, safeFilenameForFS(destFilename))
 			if bytes, err := os.ReadFile(path); err == nil {
 				if os.WriteFile(tempPath, bytes, 0644) == nil {
 					paths = append(paths, tempPath)
@@ -900,7 +900,7 @@ func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 		if len(paths) > 0 {
 			var psPaths []string
 			for _, p := range paths {
-				psPaths = append(psPaths, fmt.Sprintf("'%s'", p))
+				psPaths = append(psPaths, fmt.Sprintf("'%s'", strings.ReplaceAll(p, "'", "''")))
 			}
 			psPathsStr := strings.Join(psPaths, ",")
 			script := fmt.Sprintf("Add-Type -AssemblyName System.Windows.Forms; $files = @(%s); $sc = New-Object System.Collections.Specialized.StringCollection; foreach ($f in $files) { $sc.Add($f) | Out-Null }; [System.Windows.Forms.Clipboard]::SetFileDropList($sc)", psPathsStr)
@@ -1070,27 +1070,31 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 				"message":    err.Error(),
 			})
 			if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
-				data := c.(map[string]interface{})
-				conn := data["conn"].(net.Conn)
-				sendEvent(conn, "error", map[string]string{"message": "Failed to automatically fetch old media: " + err.Error()})
+				if data, ok := c.(map[string]interface{}); ok {
+					if conn, ok := data["conn"].(net.Conn); ok {
+						sendEvent(conn, "error", map[string]string{"message": "Failed to automatically fetch old media: " + err.Error()})
+					}
+				}
 				pendingAutoOpens.Delete(string(evt.MessageID))
 			}
 			return
 		}
 
 		if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
-			data := c.(map[string]interface{})
-			conn := data["conn"].(net.Conn)
-			action := data["action"].(string)
-			if action == "open_media" {
-				if mediaType == "document" || mediaType == "audio" {
-					absPath, _ := filepath.Abs(path)
-					sendEvent(conn, "open_media", map[string]string{"path": absPath})
-				} else {
-					sendEvent(conn, "open_media", map[string]string{"path": path})
+			data, dataOk := c.(map[string]interface{})
+			conn, connOk := data["conn"].(net.Conn)
+			action, _ := data["action"].(string)
+			if dataOk && connOk {
+				if action == "open_media" {
+					if mediaType == "document" || mediaType == "audio" {
+						absPath, _ := filepath.Abs(path)
+						sendEvent(conn, "open_media", map[string]string{"path": absPath})
+					} else {
+						sendEvent(conn, "open_media", map[string]string{"path": path})
+					}
+				} else if action == "play_audio" {
+					sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": string(evt.MessageID)})
 				}
-			} else if action == "play_audio" {
-				sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": string(evt.MessageID)})
 			}
 			pendingAutoOpens.Delete(string(evt.MessageID))
 		}

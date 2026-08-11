@@ -86,6 +86,14 @@ func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
 			msg = msg.GetDeviceSentMessage().GetMessage()
 			continue
 		}
+		if msg.GetBotInvokeMessage() != nil && msg.GetBotInvokeMessage().GetMessage() != nil {
+			msg = msg.GetBotInvokeMessage().GetMessage()
+			continue
+		}
+		if msg.GetLottieStickerMessage() != nil && msg.GetLottieStickerMessage().GetMessage() != nil {
+			msg = msg.GetLottieStickerMessage().GetMessage()
+			continue
+		}
 		if msg.GetEditedMessage() != nil && msg.GetEditedMessage().GetMessage() != nil {
 			inner := msg.GetEditedMessage().GetMessage()
 			if inner.GetProtocolMessage() != nil && inner.GetProtocolMessage().GetEditedMessage() != nil {
@@ -208,6 +216,30 @@ func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 		return msg.GetAudioMessage().GetContextInfo()
 	case msg.GetStickerMessage() != nil:
 		return msg.GetStickerMessage().GetContextInfo()
+	case msg.GetContactMessage() != nil:
+		return msg.GetContactMessage().GetContextInfo()
+	case msg.GetContactsArrayMessage() != nil:
+		return msg.GetContactsArrayMessage().GetContextInfo()
+	case msg.GetLocationMessage() != nil:
+		return msg.GetLocationMessage().GetContextInfo()
+	case msg.GetLiveLocationMessage() != nil:
+		return msg.GetLiveLocationMessage().GetContextInfo()
+	case msg.GetGroupInviteMessage() != nil:
+		return msg.GetGroupInviteMessage().GetContextInfo()
+	case msg.GetPollCreationMessage() != nil:
+		return msg.GetPollCreationMessage().GetContextInfo()
+	case msg.GetListMessage() != nil:
+		return msg.GetListMessage().GetContextInfo()
+	case msg.GetButtonsMessage() != nil:
+		return msg.GetButtonsMessage().GetContextInfo()
+	case msg.GetTemplateMessage() != nil:
+		return msg.GetTemplateMessage().GetContextInfo()
+	case msg.GetProductMessage() != nil:
+		return msg.GetProductMessage().GetContextInfo()
+	case msg.GetOrderMessage() != nil:
+		return msg.GetOrderMessage().GetContextInfo()
+	case msg.GetInteractiveMessage() != nil:
+		return msg.GetInteractiveMessage().GetContextInfo()
 	}
 	return nil
 }
@@ -661,6 +693,15 @@ func eventHandler(evt interface{}) {
 			increment := 1
 			if v.Info.IsFromMe {
 				increment = 0
+			}
+			if increment > 0 && v.Info.ID != "" {
+				var alreadyExists int
+				_ = db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ?`, v.Info.ID).Scan(&alreadyExists)
+				if alreadyExists > 0 {
+					// Redelivered/duplicate event for a message we've already
+					// counted (e.g. reconnect resync) - don't double-count it.
+					increment = 0
+				}
 			}
 			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"net"
 	"go.mau.fi/whatsmeow"
@@ -139,10 +140,19 @@ func handleUpdateGroupParticipants(raw json.RawMessage) {
 		return
 	}
 	var participants []types.JID
+	var invalid []string
 	for _, p := range data.Participants {
 		if parsed, perr := types.ParseJID(p); perr == nil {
 			participants = append(participants, parsed)
+		} else {
+			invalid = append(invalid, p)
 		}
+	}
+	if len(invalid) > 0 {
+		broadcastEvent("error", map[string]string{"message": "invalid participant number(s), skipped: " + strings.Join(invalid, ", ")})
+	}
+	if len(participants) == 0 {
+		return
 	}
 	go func() {
 		_, err := client.UpdateGroupParticipants(context.Background(), jid, participants, change)
