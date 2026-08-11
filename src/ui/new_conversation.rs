@@ -1,5 +1,8 @@
 use wxdragon::prelude::*;
 
+/// Every constructed widget is kept here for consistency even if not all of
+/// them are read back after construction yet.
+#[allow(dead_code)]
 pub struct NewConversationDialogParts {
 	pub dialog: Dialog,
 	pub search_field: TextCtrl,

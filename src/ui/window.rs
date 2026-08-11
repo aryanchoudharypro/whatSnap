@@ -7,6 +7,9 @@ use wxdragon::{
 
 use crate::{UiCommand, ui_wake::UiCommandSender};
 
+/// Every constructed widget is kept here for consistency even if not all of
+/// them are read back after construction yet (e.g. phone_panel).
+#[allow(dead_code)]
 pub struct WindowParts {
 	pub frame: Frame,
 	pub nav_list: ListBox,
@@ -1915,9 +1918,12 @@ pub fn bind_input_handlers(
 						play_voice_btn_ref.set_label("Pause voice message");
 						return;
 					} else {
-						// Pause — save elapsed time
+						// Pause — save elapsed time (played back at the
+						// current speed since the last seek/start, so the
+						// wall-clock delta must be scaled the same way the
+						// resume/tick/seek paths compute position)
 						if let Some(inst) = s.audio_start_instant.take() {
-							s.audio_elapsed_secs += inst.elapsed().as_secs_f32();
+							s.audio_elapsed_secs += inst.elapsed().as_secs_f32() * s.audio_speed;
 						}
 						if let Some(ref sink) = s.audio_sink {
 							sink.pause();

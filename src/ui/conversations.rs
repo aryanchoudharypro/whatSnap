@@ -1,5 +1,8 @@
 use wxdragon::prelude::*;
 
+/// Every constructed widget is kept here for consistency even if not all of
+/// them are read back after construction yet (e.g. static labels).
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct ConversationsPanelParts {
 	pub panel: Panel,

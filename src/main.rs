@@ -163,6 +163,62 @@ fn execute_mci_command(cmd: &str) -> u32 {
 	}
 }
 
+/// Opens a fresh MCI waveaudio recording device and starts capturing into it.
+/// Used both for the initial recording and for each resume after a pause:
+/// MCI's own "pause"/"resume" pair isn't reliably continued into the same
+/// buffer by every audio driver, so instead of trusting "resume" we always
+/// start a brand new, self-contained segment and splice segments together
+/// on send (see `concat_wav_segments`).
+fn mci_start_new_segment() -> bool {
+	execute_mci_command("close voice_rec");
+	let res1 = execute_mci_command("open new type waveaudio alias voice_rec");
+	let _ = execute_mci_command(
+		"set voice_rec channels 2 samplespersec 48000 bitspersample 16 alignment 4 bytespersec 192000 format tag pcm",
+	);
+	let res2 = execute_mci_command("record voice_rec");
+	res1 == 0 && res2 == 0
+}
+
+/// Stops the active MCI recording, saves it to `path`, and closes the
+/// device, leaving `path` a complete, independently-playable WAV file.
+fn mci_finish_segment(path: &str) {
+	execute_mci_command("stop voice_rec");
+	execute_mci_command(&format!("save voice_rec \"{}\"", path));
+	execute_mci_command("close voice_rec");
+}
+
+/// Concatenates the PCM audio from one or more same-format WAV segments
+/// (produced across a recording's pause/resume cycles) into a single WAV
+/// file at `out_path`.
+fn concat_wav_segments(segments: &[String], out_path: &str) -> anyhow::Result<()> {
+	use hound::{WavReader, WavWriter};
+	let mut spec = None;
+	let mut writer: Option<WavWriter<std::io::BufWriter<std::fs::File>>> = None;
+	for seg in segments {
+		let mut reader = WavReader::open(seg)?;
+		let seg_spec = reader.spec();
+		if writer.is_none() {
+			spec = Some(seg_spec);
+			writer = Some(WavWriter::create(out_path, seg_spec)?);
+		} else if spec != Some(seg_spec) {
+			eprintln!("[LOG UI] Voice recording segment {} has a mismatched format, skipping it", seg);
+			continue;
+		}
+		if let Some(ref mut w) = writer {
+			for sample in reader.samples::<i16>() {
+				w.write_sample(sample?)?;
+			}
+		}
+	}
+	match writer {
+		Some(w) => {
+			w.finalize()?;
+			Ok(())
+		}
+		None => Err(anyhow::anyhow!("no valid voice recording segments to concatenate")),
+	}
+}
+
 struct AppState {
 	ws_tx: mpsc::Sender<String>,
 	audio_stream: Option<MixerDeviceSink>,
@@ -179,6 +235,12 @@ struct AppState {
 	is_voice_recording: bool,
 	is_voice_paused: bool,
 	voice_recording_path: Option<String>,
+	/// Completed segments from earlier pause/resume cycles in the current
+	/// recording, in order. MCI's "pause"/"resume" for a waveaudio device is
+	/// not reliably continued by every driver, so each pause closes off a
+	/// self-contained WAV segment instead of trusting the device to keep
+	/// appending to one file; segments are spliced together on send.
+	voice_recording_segments: Vec<String>,
 	voice_recording_start: Option<std::time::Instant>,
 	voice_paused_duration: std::time::Duration,
 	voice_pause_instant: Option<std::time::Instant>,
@@ -671,6 +733,7 @@ fn main() {
 			is_voice_recording: false,
 			is_voice_paused: false,
 			voice_recording_path: None,
+			voice_recording_segments: Vec::new(),
 			voice_recording_start: None,
 			voice_paused_duration: std::time::Duration::ZERO,
 			voice_pause_instant: None,
@@ -1311,7 +1374,6 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 														}
 													}
 												}
-												_ => {}
 											}
 											if matched {
 												target_di = Some(di);
@@ -2530,7 +2592,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.unwrap_or_else(|| "Contact".to_string())
 									};
 
-									for (idx, msg) in s.messages.iter_mut().enumerate() {
+									for msg in s.messages.iter_mut() {
 										if msg.id == target_id {
 											if emoji.is_empty() {
 												msg.reactions.retain(|r| {
@@ -2806,7 +2868,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											s.playing_msg_id = Some(id.clone());
 										}
 									}
-									s.is_audio_paused = false;
+									// The user may have hit "pause" while this was still loading
+									// (playing_msg_id is set immediately on click, before this
+									// response arrives) - honor that instead of always starting
+									// playback out from under them.
+									let start_paused = s.is_audio_paused;
 									s.audio_elapsed_secs = 0.0;
 									s.audio_start_instant = None;
 									s.audio_path = Some(path.to_string());
@@ -2870,24 +2936,36 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										if let Ok(file) = File::open(path) {
 											if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
 												sink.append(decoder.wsola(s.audio_speed));
-												sink.play();
+												if start_paused {
+													sink.pause();
+												} else {
+													sink.play();
+												}
 												s.audio_sink = Some(sink);
 												played = true;
-												s.audio_start_instant = Some(std::time::Instant::now());
-												parts
-													.conversations_parts
-													.play_voice_btn
-													.set_label("Pause voice message");
+												s.audio_start_instant =
+													if start_paused { None } else { Some(std::time::Instant::now()) };
+												parts.conversations_parts.play_voice_btn.set_label(if start_paused {
+													"Play voice message"
+												} else {
+													"Pause voice message"
+												});
 											} else if let Some(opus_buf) = decode_opus_file(path) {
 												sink.append(opus_buf.wsola(s.audio_speed));
-												sink.play();
+												if start_paused {
+													sink.pause();
+												} else {
+													sink.play();
+												}
 												s.audio_sink = Some(sink);
 												played = true;
-												s.audio_start_instant = Some(std::time::Instant::now());
-												parts
-													.conversations_parts
-													.play_voice_btn
-													.set_label("Pause voice message");
+												s.audio_start_instant =
+													if start_paused { None } else { Some(std::time::Instant::now()) };
+												parts.conversations_parts.play_voice_btn.set_label(if start_paused {
+													"Play voice message"
+												} else {
+													"Pause voice message"
+												});
 											}
 										}
 									}
@@ -2928,11 +3006,20 @@ while ($true) {
 										}
 										if let Some(ref mut stdin) = s.audio_stdin {
 											let _ = writeln!(stdin, "PLAY {}", path_escaped);
+											if start_paused {
+												let _ = writeln!(stdin, "PAUSE");
+											}
 											let _ = stdin.flush();
-											s.audio_start_instant = Some(std::time::Instant::now());
-											parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+											s.audio_start_instant =
+												if start_paused { None } else { Some(std::time::Instant::now()) };
+											parts.conversations_parts.play_voice_btn.set_label(if start_paused {
+												"Play voice message"
+											} else {
+												"Pause voice message"
+											});
 										}
 									}
+									s.is_audio_paused = start_paused;
 									// Show slider UI and speed button
 									parts.conversations_parts.audio_slider.show(true);
 									parts.conversations_parts.audio_speed_btn.show(true);
@@ -3045,7 +3132,6 @@ while ($true) {
 												}
 											}
 										}
-										_ => {}
 									}
 									if matched {
 										target_di = Some(di);
@@ -3146,7 +3232,6 @@ while ($true) {
 												}
 											}
 										}
-										_ => {}
 									}
 									if matched {
 										target_di = Some(di);
@@ -3314,23 +3399,17 @@ while ($true) {
 		UiCommand::StartRecording => {
 			let mut s = state.borrow_mut();
 			if s.selected_chat.is_some() {
-				execute_mci_command("close voice_rec");
-
 				let temp_dir = std::env::temp_dir();
 				let ts =
 					std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
-				let wav_path = temp_dir.join(format!("voice_rec_{}.wav", ts));
+				let wav_path = temp_dir.join(format!("voice_rec_{}_0.wav", ts));
 				let wav_path_str = wav_path.to_string_lossy().to_string();
-				let res1 = execute_mci_command("open new type waveaudio alias voice_rec");
-				let _ = execute_mci_command(
-					"set voice_rec channels 2 samplespersec 48000 bitspersample 16 alignment 4 bytespersec 192000 format tag pcm",
-				);
-				let res2 = execute_mci_command("record voice_rec");
 
-				if res1 == 0 && res2 == 0 {
+				if mci_start_new_segment() {
 					s.is_voice_recording = true;
 					s.is_voice_paused = false;
 					s.voice_recording_path = Some(wav_path_str);
+					s.voice_recording_segments.clear();
 					s.voice_recording_start = Some(std::time::Instant::now());
 					s.voice_paused_duration = std::time::Duration::ZERO;
 					s.voice_pause_instant = None;
@@ -3358,7 +3437,7 @@ while ($true) {
 						"Recording voice message...",
 					);
 				} else {
-					eprintln!("[LOG UI] Failed to start MCI voice recording: res1={}, res2={}", res1, res2);
+					eprintln!("[LOG UI] Failed to start MCI voice recording");
 					live_region::announce(
 						parts.conversations_parts.messages_announcer.clone(),
 						"Failed to start microphone recording.",
@@ -3376,18 +3455,46 @@ while ($true) {
 			let mut s = state.borrow_mut();
 			if s.is_voice_recording {
 				if s.is_voice_paused {
-					execute_mci_command("resume voice_rec");
-					s.is_voice_paused = false;
-					if let Some(inst) = s.voice_pause_instant.take() {
-						s.voice_paused_duration += inst.elapsed();
+					// Resume by starting a brand new segment rather than
+					// trusting MCI's "resume" to keep appending to the same
+					// file - some audio drivers silently stop capturing
+					// after a resume, truncating everything recorded after
+					// the pause.
+					let temp_dir = std::env::temp_dir();
+					let ts = std::time::SystemTime::now()
+						.duration_since(std::time::UNIX_EPOCH)
+						.unwrap_or_default()
+						.as_secs();
+					let seg_idx = s.voice_recording_segments.len();
+					let wav_path = temp_dir.join(format!("voice_rec_{}_{}.wav", ts, seg_idx));
+					let wav_path_str = wav_path.to_string_lossy().to_string();
+
+					if mci_start_new_segment() {
+						s.voice_recording_path = Some(wav_path_str);
+						s.is_voice_paused = false;
+						if let Some(inst) = s.voice_pause_instant.take() {
+							s.voice_paused_duration += inst.elapsed();
+						}
+						parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							"Voice recording resumed.",
+						);
+					} else {
+						eprintln!("[LOG UI] Failed to resume voice recording");
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							"Failed to resume recording.",
+						);
 					}
-					parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
-					live_region::announce(
-						parts.conversations_parts.messages_announcer.clone(),
-						"Voice recording resumed.",
-					);
 				} else {
-					execute_mci_command("pause voice_rec");
+					// Pause by closing off the current segment as a
+					// complete, valid WAV file instead of relying on MCI's
+					// "pause" to keep the device alive correctly.
+					if let Some(path) = s.voice_recording_path.take() {
+						mci_finish_segment(&path);
+						s.voice_recording_segments.push(path);
+					}
 					s.is_voice_paused = true;
 					s.voice_pause_instant = Some(std::time::Instant::now());
 					parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
@@ -3402,11 +3509,17 @@ while ($true) {
 			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "force_sync" }).to_string());
 		}
 		UiCommand::SendVoiceMessage => {
-			let (rec_path, rec_start, paused_dur, pause_inst, is_paused, jid_opt, sounds_enabled, ws_tx) = {
+			let (segments, rec_start, paused_dur, pause_inst, is_paused, jid_opt, sounds_enabled, ws_tx) = {
 				let mut s = state.borrow_mut();
 				s.is_voice_recording = false;
+				// If still actively recording (not paused), close off the
+				// final segment as a complete, valid WAV file.
+				if let Some(path) = s.voice_recording_path.take() {
+					mci_finish_segment(&path);
+					s.voice_recording_segments.push(path);
+				}
 				(
-					s.voice_recording_path.take(),
+					std::mem::take(&mut s.voice_recording_segments),
 					s.voice_recording_start.take(),
 					s.voice_paused_duration,
 					s.voice_pause_instant.take(),
@@ -3425,46 +3538,79 @@ while ($true) {
 				let _ = ws_tx.send(payload.to_string());
 			}
 
-			execute_mci_command("stop voice_rec");
+			if !segments.is_empty() {
+				if let (Some(start_inst), Some(jid)) = (rec_start, jid_opt) {
+					let total_elapsed = start_inst.elapsed();
+					let total_paused = paused_dur
+						+ if is_paused {
+							pause_inst.map(|i| i.elapsed()).unwrap_or_default()
+						} else {
+							std::time::Duration::ZERO
+						};
+					let active_secs = total_elapsed.saturating_sub(total_paused).as_secs().max(1);
 
-			if let (Some(wav_path), Some(start_inst), Some(jid)) = (rec_path, rec_start, jid_opt) {
-				execute_mci_command(&format!("save voice_rec \"{}\"", wav_path));
-				execute_mci_command("close voice_rec");
-
-				let total_elapsed = start_inst.elapsed();
-				let total_paused = paused_dur
-					+ if is_paused {
-						pause_inst.map(|i| i.elapsed()).unwrap_or_default()
-					} else {
-						std::time::Duration::ZERO
-					};
-				let active_secs = total_elapsed.saturating_sub(total_paused).as_secs().max(1);
-
-				thread::spawn(move || {
-					let ogg_path = wav_path.replace(".wav", ".ogg");
-
-					let (final_path, mimetype) = match convert_wav_to_opus_ogg(&wav_path, &ogg_path) {
-						Ok(_) => (ogg_path, "audio/ogg; codecs=opus"),
-						Err(e) => {
-							eprintln!("[LOG UI] Error converting wav to opus natively: {}", e);
-							(wav_path, "audio/wav")
+					thread::spawn(move || {
+						// Splice pause/resume segments into one continuous
+						// WAV before encoding (a single-segment recording,
+						// the common case, needs no splicing).
+						let is_multi_segment = segments.len() > 1;
+						let wav_path = if !is_multi_segment {
+							segments[0].clone()
+						} else {
+							let merged_path = segments[0].replace(".wav", "_merged.wav");
+							let result = concat_wav_segments(&segments, &merged_path);
+							// The originals are fully absorbed into
+							// `merged_path` now (or, on failure, no longer
+							// useful) - clean them up either way.
+							for seg in &segments {
+								let _ = std::fs::remove_file(seg);
+							}
+							match result {
+								Ok(()) => merged_path,
+								Err(e) => {
+									eprintln!("[LOG UI] Failed to splice voice recording segments: {}", e);
+									String::new()
+								}
+							}
+						};
+						if wav_path.is_empty() {
+							eprintln!("[LOG UI] No usable audio to send for voice message");
+							return;
 						}
-					};
 
-					let payload = serde_json::json!({
-						"action": "send_voice_message",
-						"data": {
-							"jid": jid,
-							"path": final_path,
-							"mimetype": mimetype,
-							"duration": active_secs
-						}
+						let ogg_path = wav_path.replace(".wav", ".ogg");
+						let (final_path, mimetype) = match convert_wav_to_opus_ogg(&wav_path, &ogg_path) {
+							Ok(_) => {
+								// wav_path is only an intermediate once
+								// converted; if it's the sole segment itself
+								// leave it (matches the single-segment path,
+								// which never deletes the source recording).
+								if is_multi_segment {
+									let _ = std::fs::remove_file(&wav_path);
+								}
+								(ogg_path, "audio/ogg; codecs=opus")
+							}
+							Err(e) => {
+								eprintln!("[LOG UI] Error converting wav to opus natively: {}", e);
+								(wav_path.clone(), "audio/wav")
+							}
+						};
+
+						let payload = serde_json::json!({
+							"action": "send_voice_message",
+							"data": {
+								"jid": jid,
+								"path": final_path,
+								"mimetype": mimetype,
+								"duration": active_secs
+							}
+						});
+						let _ = ws_tx.send(payload.to_string());
 					});
-					let _ = ws_tx.send(payload.to_string());
-				});
 
-				play_notification_sound("sounds/voicemsg_send.wav", sounds_enabled);
-				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
+					play_notification_sound("sounds/voicemsg_send.wav", sounds_enabled);
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
+				}
 			}
 
 			parts.conversations_parts.message_field.show(true);
@@ -3487,8 +3633,13 @@ while ($true) {
 				let mut s = state.borrow_mut();
 				s.is_voice_recording = false;
 				s.is_voice_paused = false;
-				if let Some(path) = s.voice_recording_path.take() {
-					let _ = std::fs::remove_file(path);
+				// The in-progress segment (if any) was never saved to disk,
+				// so just abandon it via the "close voice_rec" below;
+				// earlier segments from prior pause cycles were saved and
+				// need real cleanup.
+				s.voice_recording_path = None;
+				for seg in s.voice_recording_segments.drain(..) {
+					let _ = std::fs::remove_file(seg);
 				}
 				if let Some(ref jid) = s.selected_chat {
 					let payload = serde_json::json!({
@@ -4139,6 +4290,7 @@ while ($true) {
 		}
 		UiCommand::ToggleAudioSpeed => {
 			let mut s = state.borrow_mut();
+			let old_speed = s.audio_speed;
 			let new_speed = if s.audio_speed >= 2.0 {
 				1.0
 			} else if s.audio_speed >= 1.5 {
@@ -4151,8 +4303,14 @@ while ($true) {
 
 			// Trigger soft-seek to apply new wsola speed
 			if s.playing_msg_id.is_some() && s.audio_sink.is_some() {
+				let was_paused = s.is_audio_paused;
+				// Use the *old* speed: the wall-clock time elapsed since the
+				// last seek/start was played back at the previous speed, not
+				// the one we're switching to. Using the new speed here made
+				// every speed change jump the position, i.e. "plays from a
+				// bit before" where it actually was.
 				let elapsed = s.audio_elapsed_secs
-					+ s.audio_start_instant.map(|i| i.elapsed().as_secs_f32() * s.audio_speed).unwrap_or(0.0);
+					+ s.audio_start_instant.map(|i| i.elapsed().as_secs_f32() * old_speed).unwrap_or(0.0);
 				let target = elapsed.max(0.0).min(s.audio_total_secs);
 				if let Some(ref sink) = s.audio_sink {
 					sink.stop();
@@ -4160,13 +4318,22 @@ while ($true) {
 				s.audio_sink = None;
 				let path = s.audio_path.clone().unwrap_or_default();
 				if let Some(ref stream_handle) = s.audio_stream {
-					let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
+					let new_sink = do_seek(stream_handle, &path, target, new_speed);
+					if was_paused {
+						if let Some(ref sink) = new_sink {
+							sink.pause();
+						}
+					}
 					s.audio_sink = new_sink;
 				}
 				s.audio_elapsed_secs = target;
-				s.audio_start_instant = Some(std::time::Instant::now());
-				s.is_audio_paused = false;
-				parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+				s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
+				s.is_audio_paused = was_paused;
+				parts.conversations_parts.play_voice_btn.set_label(if was_paused {
+					"Play voice message"
+				} else {
+					"Pause voice message"
+				});
 			}
 		}
 		UiCommand::TogglePinChat { jid, pin } => {
@@ -4296,21 +4463,140 @@ while ($true) {
 	}
 }
 
+/// Decodes an Ogg Opus file into interleaved f32 PCM at 48kHz.
+///
+/// This walks the raw Ogg page structure by hand instead of using the `ogg`
+/// crate's `PacketReader`: that reader enforces strict page-continuity
+/// bookkeeping and hard-errors (aborting the rest of the file) on real-world
+/// voice notes - including ones recorded with pause/resume by WhatsApp's
+/// own official app - that don't perfectly match its expectations, even
+/// though the same files play back with the exact intended duration in VLC,
+/// ffmpeg, and the official WhatsApp client. `PacketReader`'s only lenient
+/// recovery path is gated behind an internal flag that's not reachable
+/// through its public API without a real prior seek, and its packet data is
+/// otherwise private, so there's no way to opt into leniency from outside
+/// the crate. Since the Ogg page format itself is simple, this reimplements
+/// just enough of it to reconstruct packets tolerantly: on any structural
+/// oddity (a page continuation that doesn't line up, a lost sync pattern)
+/// it drops only the one ambiguous packet at that seam and keeps going,
+/// instead of losing everything after it.
 fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffer> {
-	use ogg::PacketReader;
 	use opus::{Channels, Decoder};
 
-	let file = std::fs::File::open(path).ok()?;
-	let mut reader = PacketReader::new(file);
-	let mut decoder = Decoder::new(48000, Channels::Mono).ok()?;
-	let mut samples: Vec<f32> = Vec::new();
-
-	while let Ok(Some(packet)) = reader.read_packet() {
-		let mut pcm = vec![0i16; 5760]; // Max frame size for opus is 120ms at 48kHz = 5760 samples
-		if let Ok(len) = decoder.decode(&packet.data, &mut pcm, false) {
-			pcm.truncate(len);
-			samples.extend(pcm.into_iter().map(|s| (s as f32) / 32768.0));
+	fn feed_packet(
+		packet: &[u8],
+		decoder: &mut Option<Decoder>,
+		channels: &mut usize,
+		pre_skip: &mut usize,
+		skipped: &mut usize,
+		samples: &mut Vec<f32>,
+	) {
+		if packet.len() >= 8 && &packet[0..8] == b"OpusHead" {
+			// Header packet, not audio - (re)establish the decoder from it.
+			// Real chaining (a new pause/resume segment spliced in as its
+			// own logical stream) shows up as more of these later in the
+			// file; picking up its channel count/pre-skip here handles that
+			// case too, not just the file's very first stream.
+			*channels = if packet.len() >= 10 { (packet[9] as usize).max(1) } else { 1 };
+			*pre_skip = if packet.len() >= 12 { u16::from_le_bytes([packet[10], packet[11]]) as usize } else { 0 };
+			let opus_channels = if *channels >= 2 { Channels::Stereo } else { Channels::Mono };
+			*decoder = Decoder::new(48000, opus_channels).ok();
+			*skipped = 0;
+			return;
 		}
+		if packet.len() >= 8 && &packet[0..8] == b"OpusTags" {
+			return;
+		}
+		let Some(dec) = decoder.as_mut() else { return };
+		let mut pcm = vec![0i16; 5760 * (*channels).max(1)]; // Max frame size for opus is 120ms at 48kHz
+		if let Ok(n) = dec.decode(packet, &mut pcm, false) {
+			pcm.truncate(n * (*channels).max(1));
+			let mut frame: Vec<f32> = pcm.into_iter().map(|s| (s as f32) / 32768.0).collect();
+			if *skipped < *pre_skip {
+				let frames_here = frame.len() / (*channels).max(1);
+				let to_skip = (*pre_skip - *skipped).min(frames_here);
+				frame.drain(0..to_skip * (*channels).max(1));
+				*skipped += to_skip;
+			}
+			samples.extend(frame);
+		}
+	}
+
+	let data = std::fs::read(path).ok()?;
+	let len = data.len();
+	let mut pos: usize = 0;
+
+	let mut decoder: Option<Decoder> = None;
+	let mut channels: usize = 1;
+	let mut pre_skip: usize = 0;
+	let mut skipped: usize = 0;
+	let mut samples: Vec<f32> = Vec::new();
+	let mut pending: Vec<u8> = Vec::new(); // partial packet carried across a page boundary
+
+	while pos + 27 <= len {
+		if &data[pos..pos + 4] != b"OggS" {
+			// Lost sync (or not actually at a page boundary yet) - scan
+			// forward for the next capture pattern rather than giving up.
+			match data[pos + 1..].windows(4).position(|w| w == b"OggS") {
+				Some(off) => {
+					pos += 1 + off;
+					continue;
+				}
+				None => break,
+			}
+		}
+		let header = &data[pos..pos + 27];
+		let flags = header[5];
+		let segs = header[26] as usize;
+		if pos + 27 + segs > len {
+			break;
+		}
+		let lacing = &data[pos + 27..pos + 27 + segs];
+		let body_len: usize = lacing.iter().map(|&b| b as usize).sum();
+		let body_start = pos + 27 + segs;
+		if body_start + body_len > len {
+			break;
+		}
+		let body = &data[body_start..body_start + body_len];
+
+		let starts_with_continued = flags & 0x01 != 0;
+		if !starts_with_continued {
+			pending.clear();
+		}
+
+		let mut offset = 0usize;
+		let mut seg_run_start = 0usize;
+		let mut first_packet_of_page = true;
+		for (i, &seg_len) in lacing.iter().enumerate() {
+			offset += seg_len as usize;
+			let is_packet_end = seg_len < 255;
+			let is_last_segment = i + 1 == lacing.len();
+			if is_packet_end {
+				let packet_bytes = &body[seg_run_start..offset];
+				seg_run_start = offset;
+				let is_continuation = first_packet_of_page && starts_with_continued;
+				first_packet_of_page = false;
+				if is_continuation {
+					if pending.is_empty() {
+						// No matching partial packet to complete this with
+						// (e.g. we just resynced) - can't recover it, drop
+						// it and move on to the next one.
+						continue;
+					}
+					let mut full = std::mem::take(&mut pending);
+					full.extend_from_slice(packet_bytes);
+					feed_packet(&full, &mut decoder, &mut channels, &mut pre_skip, &mut skipped, &mut samples);
+				} else {
+					feed_packet(packet_bytes, &mut decoder, &mut channels, &mut pre_skip, &mut skipped, &mut samples);
+				}
+			} else if is_last_segment {
+				// Page ends mid-packet - stash it for the next page to
+				// (hopefully) complete.
+				pending.extend_from_slice(&body[seg_run_start..offset]);
+			}
+		}
+
+		pos = body_start + body_len;
 	}
 
 	if samples.is_empty() {
@@ -4318,7 +4604,7 @@ fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffer> {
 	}
 
 	Some(rodio::buffer::SamplesBuffer::new(
-		std::num::NonZeroU16::new(1).unwrap(),
+		std::num::NonZeroU16::new(channels as u16).unwrap_or(std::num::NonZeroU16::new(1).unwrap()),
 		std::num::NonZeroU32::new(48000).unwrap(),
 		samples,
 	))
