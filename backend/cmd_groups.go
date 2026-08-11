@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/gorilla/websocket"
+	"net"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
-func handleCreateGroup(conn *websocket.Conn, raw json.RawMessage) {
+func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
 	var groupData CreateGroupCommandData
 	if err := json.Unmarshal(raw, &groupData); err != nil {
 		return
@@ -58,7 +58,7 @@ func handleCreateGroup(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleGetGroupInfo(conn *websocket.Conn, raw json.RawMessage) {
+func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -96,7 +96,7 @@ func handleLeaveGroup(raw json.RawMessage) {
 	}()
 }
 
-func handleGetGroupInviteLink(conn *websocket.Conn, raw json.RawMessage) {
+func handleGetGroupInviteLink(conn net.Conn, raw json.RawMessage) {
 	var data GetGroupInviteLinkData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return

@@ -38,6 +38,8 @@ pub struct WindowParts {
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whantv").with_size(Size::new(900, 600)).build();
 	wxdragon::app::set_top_window(&frame);
+	frame.create_status_bar(1, 0, wxdragon::id::ID_ANY as i32, "status_bar");
+	frame.set_status_text("Status: Initializing...", 0);
 
 	let main_panel = Panel::builder(&frame).build();
 	let main_sizer = BoxSizer::builder(Orientation::Horizontal).build();

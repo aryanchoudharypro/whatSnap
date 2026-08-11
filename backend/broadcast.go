@@ -8,7 +8,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"net"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -39,11 +39,11 @@ func broadcastEvent(evtType string, data interface{}) {
 	}
 
 	for conn := range wsClients {
-		conn.WriteMessage(websocket.TextMessage, bytes)
+		conn.Write(append(bytes, '\n'))
 	}
 }
 
-func sendEvent(conn *websocket.Conn, evtType string, data interface{}) {
+func sendEvent(conn net.Conn, evtType string, data interface{}) {
 	wsMutex.Lock()
 	defer wsMutex.Unlock()
 	var raw json.RawMessage
@@ -64,7 +64,7 @@ func sendEvent(conn *websocket.Conn, evtType string, data interface{}) {
 		return
 	}
 
-	conn.WriteMessage(websocket.TextMessage, bytes)
+	conn.Write(append(bytes, '\n'))
 }
 
 // broadcastChats re-reads the local chat list cache and pushes it to every

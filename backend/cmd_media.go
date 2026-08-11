@@ -19,7 +19,7 @@ import (
 
 	"go.mau.fi/whatsmeow/proto/waMmsRetry"
 
-	"github.com/gorilla/websocket"
+	"net"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -218,7 +218,7 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 	return
 }
 
-func handleDownloadMedia(conn *websocket.Conn, raw json.RawMessage) {
+func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -348,7 +348,7 @@ func handleDownloadMedia(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleCancelDownload(conn *websocket.Conn, raw json.RawMessage) {
+func handleCancelDownload(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -379,7 +379,7 @@ func openFileInOS(path string) error {
 	return cmd.Start()
 }
 
-func handleOpenMedia(conn *websocket.Conn, raw json.RawMessage) {
+func handleOpenMedia(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -416,7 +416,7 @@ func handleOpenMedia(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleSaveMediaAs(conn *websocket.Conn, raw json.RawMessage) {
+func handleSaveMediaAs(conn net.Conn, raw json.RawMessage) {
 	var data SaveMediaAsData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -535,7 +535,7 @@ func detectMimeType(filename, path string, header []byte) string {
 	return "application/octet-stream"
 }
 
-func handleSendAttachment(conn *websocket.Conn, raw json.RawMessage) {
+func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 	var data SendAttachmentData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -696,7 +696,7 @@ func handleSendAttachment(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleSendVoiceMessage(conn *websocket.Conn, raw json.RawMessage) {
+func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 	var data SendVoiceMessageData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -769,7 +769,7 @@ func handleSendVoiceMessage(conn *websocket.Conn, raw json.RawMessage) {
 // handlePlayVoiceMessage generalizes the original ad-hoc voice-download code
 // into the shared media cache, and still sends WhatsApp the "played" receipt
 // so the sender sees their voice note was listened to.
-func handlePlayVoiceMessage(conn *websocket.Conn, raw json.RawMessage) {
+func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		ID string `json:"id"`
 	}
@@ -824,7 +824,7 @@ type CopyAlbumToClipboardData struct {
 	MessageIDs []string `json:"message_ids"`
 }
 
-func handleCopyAlbumToClipboard(conn *websocket.Conn, raw json.RawMessage) {
+func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 	var data CopyAlbumToClipboardData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -1071,7 +1071,7 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 			})
 			if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
 				data := c.(map[string]interface{})
-				conn := data["conn"].(*websocket.Conn)
+				conn := data["conn"].(net.Conn)
 				sendEvent(conn, "error", map[string]string{"message": "Failed to automatically fetch old media: " + err.Error()})
 				pendingAutoOpens.Delete(string(evt.MessageID))
 			}
@@ -1080,7 +1080,7 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 
 		if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
 			data := c.(map[string]interface{})
-			conn := data["conn"].(*websocket.Conn)
+			conn := data["conn"].(net.Conn)
 			action := data["action"].(string)
 			if action == "open_media" {
 				if mediaType == "document" || mediaType == "audio" {

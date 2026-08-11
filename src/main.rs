@@ -6,9 +6,10 @@ mod ui_wake;
 
 use std::{
 	cell::RefCell,
+	io::{BufRead, BufReader, Write},
 	rc::Rc,
 	sync::{
-		Arc,
+		Arc, Mutex,
 		atomic::{AtomicBool, Ordering},
 		mpsc,
 	},
@@ -16,7 +17,10 @@ use std::{
 	time::Duration,
 };
 
-use tungstenite::{Message, connect, stream::MaybeTlsStream};
+use interprocess::{
+	TryClone,
+	local_socket::{GenericNamespaced, ToNsName, prelude::*},
+};
 use wxdragon::prelude::*;
 
 use crate::{
@@ -83,7 +87,7 @@ pub enum UiCommand {
 	DeleteChat { jid: String },
 }
 
-use std::{fs::File, io::BufReader};
+use std::fs::File;
 
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
 use rodio_wsola::WsolaSourceExt;
@@ -528,13 +532,19 @@ fn main() {
 
 	let _ = Command::new("taskkill").args(&["/F", "/IM", "backend.exe"]).creation_flags(0x08000000).output();
 
+	let pipe_id = format!("whantv-backend-{}", std::process::id());
+	let go_pipe_name = format!(r"\\.\pipe\{}", pipe_id);
+
 	let mut bridge_child = if let Some(ref backend_path) = backend_exe {
 		Command::new(backend_path)
 			.arg("-db")
 			.arg(&db_path_str)
+			.arg("-pipe")
+			.arg(&go_pipe_name)
 			.current_dir(&backend_dir)
 			.stdout(Stdio::null())
 			.stderr(Stdio::null())
+			.creation_flags(0x08000000)
 			.spawn()
 			.ok()
 	} else {
@@ -554,46 +564,54 @@ fn main() {
 		let ui_tx_clone = ui_tx.clone();
 		let ui_alive_clone = ui_alive.clone();
 
+		let ws_out_rx = Arc::new(Mutex::new(ws_out_rx));
+
 		thread::spawn(move || {
 			loop {
 				if !ui_alive_clone.load(Ordering::SeqCst) {
 					break;
 				}
 
-				if let Ok((mut socket, _)) = connect("ws://localhost:9000/ws") {
-					if let MaybeTlsStream::Plain(s) = socket.get_ref() {
-						let _ = s.set_nonblocking(true);
-					}
+				let stream_name = pipe_id.as_str().to_ns_name::<GenericNamespaced>().unwrap();
+				if let Ok(socket) = LocalSocketStream::connect(stream_name) {
+					let mut socket_writer = socket.try_clone().expect("Failed to clone pipe");
+					let mut buf_reader = BufReader::new(socket);
+					let mut line = String::new();
+
+					let ui_alive_write = ui_alive_clone.clone();
+					let rx_clone = ws_out_rx.clone();
+
+					// Write Thread
+					thread::spawn(move || {
+						while ui_alive_write.load(Ordering::SeqCst) {
+							let msg_opt = {
+								let rx = rx_clone.lock().unwrap();
+								rx.recv_timeout(Duration::from_millis(500)).ok()
+							};
+
+							if let Some(out_msg) = msg_opt {
+								let msg = format!("{}\n", out_msg);
+								if socket_writer.write_all(msg.as_bytes()).is_err() {
+									break;
+								}
+							}
+						}
+					});
+
+					// Read Loop (Current thread)
 					loop {
 						if !ui_alive_clone.load(Ordering::SeqCst) {
 							break;
 						}
 
-						match socket.read() {
-							Ok(Message::Text(text)) => {
-								let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(text.to_string()));
+						match buf_reader.read_line(&mut line) {
+							Ok(0) => break, // EOF
+							Ok(_) => {
+								let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(line.trim().to_string()));
+								line.clear();
 							}
-							Ok(_) => {} // ignore other messages
-							Err(tungstenite::Error::Io(ref err)) if err.kind() == std::io::ErrorKind::WouldBlock => {} // this is fine
-							Err(_) => {
-								// Socket is closed or errored, break to reconnect
-								break;
-							}
+							Err(_) => break, // Any read error breaks and triggers reconnect
 						}
-
-						if let Ok(out_msg) = ws_out_rx.try_recv() {
-							if let Err(e) = socket.send(Message::Text(out_msg.into())) {
-								if let tungstenite::Error::Io(ref err) = e {
-									if err.kind() != std::io::ErrorKind::WouldBlock {
-										break;
-									}
-								} else {
-									break;
-								}
-							}
-						}
-
-						thread::sleep(Duration::from_millis(50));
 					}
 				}
 
@@ -926,6 +944,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
 					match t {
 						"connected" => {
+							parts.frame.set_status_text("Status: Connected", 0);
 							parts.pairing_dialog.show(false);
 							parts.qrcode_dialog.show(false);
 							parts.login_panel.show(false);
@@ -1034,7 +1053,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									.show_modal();
 							}
 						}
+						"disconnected" | "socket_disconnected" => {
+							parts.frame.set_status_text("Status: Disconnected", 0);
+						}
 						"history_sync" => {
+							parts.frame.set_status_text("Status: Connected (History Syncing...)", 0);
 							if let Some(data) = val.get("data") {
 								if let Some(jids) = data.get("jids").and_then(|j| j.as_array()) {
 									let s = state.borrow();

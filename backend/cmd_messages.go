@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"net"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
 
-func handleSend(conn *websocket.Conn, raw json.RawMessage) {
+func handleSend(conn net.Conn, raw json.RawMessage) {
 	var data SendCommandData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -323,7 +323,7 @@ func handleMarkRead(raw json.RawMessage) {
 	})
 }
 
-func handleGetMessageInfo(conn *websocket.Conn, raw json.RawMessage) {
+func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		ID string `json:"id"`
 	}
@@ -358,7 +358,7 @@ type ForwardMessageData struct {
 	ToJIDs    []string `json:"to_jids"`
 }
 
-func handleForwardMessage(conn *websocket.Conn, raw json.RawMessage) {
+func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 	var data ForwardMessageData
 	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" || len(data.ToJIDs) == 0 {
 		return

@@ -1,22 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
+	"net"
 
 	"go.mau.fi/whatsmeow/appstate"
 )
 
-func wsHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		fmt.Println("WS Upgrade error:", err)
-		return
-	}
-	fmt.Println("New WS connection!")
+func handleConnection(conn net.Conn) {
+	fmt.Println("New IPC connection!")
 	defer conn.Close()
 
 	wsMutex.Lock()
@@ -40,11 +36,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Not sending connected. Store.ID=%v", client.Store.ID != nil)
 	}
 
-	for {
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
+	scanner := bufio.NewScanner(conn)
+	// Optionally set a higher buffer size if messages are large
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		msg := scanner.Bytes()
 
 		var cmd Command
 		if err := json.Unmarshal(msg, &cmd); err != nil {

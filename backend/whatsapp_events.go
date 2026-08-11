@@ -797,6 +797,8 @@ func eventHandler(evt interface{}) {
 		}()
 	case *events.LoggedOut:
 		broadcastEvent("disconnected", nil)
+	case *events.Disconnected:
+		broadcastEvent("socket_disconnected", nil)
 	case *events.ChatPresence:
 		isComposing := v.State == types.ChatPresenceComposing
 		isRecording := isComposing && v.Media == types.ChatPresenceMediaAudio

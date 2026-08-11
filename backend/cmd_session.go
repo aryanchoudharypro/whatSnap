@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/gorilla/websocket"
+	"net"
 	"go.mau.fi/whatsmeow"
 )
 
-func handleGetQR(conn *websocket.Conn) {
+func handleGetQR(conn net.Conn) {
 	go func() {
 		if client.Store.ID == nil {
 			if client != nil && client.IsConnected() {
