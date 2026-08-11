@@ -21,10 +21,13 @@ fn main() {
 
 		let _ = std::fs::create_dir_all(out_path.parent().unwrap());
 
-		let status = std::process::Command::new("go")
-			.args(&["build", "-o", out_path.to_str().unwrap()])
-			.current_dir("backend")
-			.status();
+		let mut args = vec!["build".to_string(), "-o".to_string(), out_path.to_str().unwrap().to_string()];
+		if profile == "release" {
+			args.push("-ldflags=-s -w".to_string());
+			args.push("-trimpath".to_string());
+		}
+
+		let status = std::process::Command::new("go").args(&args).current_dir("backend").status();
 
 		if let Ok(s) = status {
 			if !s.success() {
