@@ -1,5 +1,8 @@
 use wxdragon::prelude::*;
 
+/// Every constructed widget is kept here for consistency even if not all of
+/// them are read back after construction yet (e.g. static labels).
+#[allow(dead_code)]
 pub struct AttachmentDialogParts {
 	pub dialog: Dialog,
 	pub attachment_info_label: StaticText,

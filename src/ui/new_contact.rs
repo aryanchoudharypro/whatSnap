@@ -1,5 +1,8 @@
 use wxdragon::prelude::*;
 
+/// Every constructed widget is kept here for consistency even if not all of
+/// them are read back after construction yet (e.g. the sync checkbox).
+#[allow(dead_code)]
 pub struct NewContactDialogParts {
 	pub dialog: Dialog,
 	pub name_field: TextCtrl,

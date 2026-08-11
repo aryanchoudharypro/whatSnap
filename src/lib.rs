@@ -148,7 +148,7 @@ impl ChatMessage {
 		};
 		Self::sanitize_filename(&raw)
 	}
-	pub fn format_display(&self, is_group: bool) -> String {
+	pub fn format_display(&self, _is_group: bool) -> String {
 		if self.is_date_divider {
 			return self.text.clone();
 		}
