@@ -3677,31 +3677,44 @@ while ($true) {
 			}
 		}
 		UiCommand::DownloadMedia => {
-			let (items_to_dl, jid_opt) = {
+			let (to_start, to_cancel, jid_opt) = {
 				let s = state.borrow();
 				let sel = parts.conversations_parts.messages_list.get_selection();
 				if let Some(idx) = sel {
 					if let Some(item) = s.display_items.get(idx as usize) {
-						let to_dl: Vec<(String, String)> = item
+						let pending: Vec<(String, String)> = item
 							.messages()
 							.into_iter()
 							.filter(|m| !m.is_media_downloaded())
 							.map(|m| (m.id.clone(), m.display_filename()))
 							.collect();
-						(to_dl, s.selected_chat.clone())
+						let (in_progress, not_started): (Vec<_>, Vec<_>) =
+							pending.into_iter().partition(|(id, _)| s.downloads_in_progress.contains_key(id));
+						(not_started, in_progress, s.selected_chat.clone())
 					} else {
-						(Vec::new(), None)
+						(Vec::new(), Vec::new(), None)
 					}
 				} else {
-					(Vec::new(), None)
+					(Vec::new(), Vec::new(), None)
 				}
 			};
 
-			if let (Some(jid), false) = (jid_opt, items_to_dl.is_empty()) {
-				let count = items_to_dl.len();
+			// Already downloading: clicking again means "cancel", not "start over".
+			if let (Some(jid), false) = (jid_opt.clone(), to_cancel.is_empty()) {
+				for (msg_id, _) in &to_cancel {
+					let payload = serde_json::json!({
+						"action": "cancel_download",
+						"data": { "jid": jid, "message_id": msg_id }
+					});
+					let _ = state.borrow().ws_tx.send(payload.to_string());
+				}
+			}
+
+			if let (Some(jid), false) = (jid_opt, to_start.is_empty()) {
+				let count = to_start.len();
 				{
 					let mut s = state.borrow_mut();
-					for (msg_id, _) in &items_to_dl {
+					for (msg_id, _) in &to_start {
 						s.downloads_in_progress.insert(msg_id.clone(), 0);
 					}
 				}
@@ -3711,7 +3724,7 @@ while ($true) {
 				}
 				parts.conversations_parts.conversation_panel.thaw();
 
-				for (msg_id, _) in &items_to_dl {
+				for (msg_id, _) in &to_start {
 					let payload = serde_json::json!({
 						"action": "download_media",
 						"data": { "jid": jid, "message_id": msg_id }
@@ -3721,7 +3734,7 @@ while ($true) {
 				if count == 1 {
 					live_region::announce(
 						parts.conversations_parts.messages_announcer.clone(),
-						&format!("Downloading {}", items_to_dl[0].1),
+						&format!("Downloading {}", to_start[0].1),
 					);
 				} else {
 					live_region::announce(

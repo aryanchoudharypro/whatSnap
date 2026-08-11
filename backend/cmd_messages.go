@@ -397,6 +397,18 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				origMsg.AudioMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
 			} else if origMsg.StickerMessage != nil {
 				origMsg.StickerMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.ContactMessage != nil {
+				origMsg.ContactMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.ContactsArrayMessage != nil {
+				origMsg.ContactsArrayMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.LocationMessage != nil {
+				origMsg.LocationMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.LiveLocationMessage != nil {
+				origMsg.LiveLocationMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.GroupInviteMessage != nil {
+				origMsg.GroupInviteMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
+			} else if origMsg.PollCreationMessage != nil {
+				origMsg.PollCreationMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
 			}
 		}
 
