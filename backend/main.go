@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -14,7 +13,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/gorilla/websocket"
+	"net"
+	"github.com/Microsoft/go-winio"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -28,11 +28,12 @@ import (
 var (
 	client      *whatsmeow.Client
 	db          *sql.DB
-	wsClients   = make(map[*websocket.Conn]bool)
-	wsMutex     sync.Mutex
-	upgrader    = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	wsClients   = make(map[net.Conn]bool)
+	wsMutex          sync.Mutex
 	pairingCode      string
 	dbPathFlag       = flag.String("db", "session.db", "SQLite db path")
+	pipeFlag         = flag.String("pipe", "", "Named pipe to listen on")
+	tokenFlag        = flag.String("token", "", "Secret auth token")
 )
 
 func main() {
@@ -141,21 +142,26 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/ws", wsHandler)
-	http.HandleFunc("/shutdown", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("Shutting down gracefully...")
-		if client != nil {
-			client.Disconnect()
+	pipePath := *pipeFlag
+	if pipePath == "" {
+		log.Fatal("Must provide --pipe argument for IPC")
+	}
+
+	listener, err := winio.ListenPipe(pipePath, nil)
+	if err != nil {
+		log.Fatal("Failed to create named pipe:", err)
+	}
+	defer listener.Close()
+
+	fmt.Println("Backend listening on Named Pipe:", pipePath)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Println("Pipe accept error:", err)
+			continue
 		}
-		if db != nil {
-			db.Close()
-		}
-		w.WriteHeader(http.StatusOK)
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			os.Exit(0)
-		}()
-	})
-	fmt.Println("Backend listening on :9000")
-	http.ListenAndServe(":9000", nil)
+
+		go handleConnection(conn)
+	}
 }

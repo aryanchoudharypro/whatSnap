@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"net"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -17,13 +17,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func handleGetChats(conn *websocket.Conn) {
+func handleGetChats(conn net.Conn) {
 	go func() {
 		sendEvent(conn, "chats", buildChatsList())
 	}()
 }
 
-func handleGetMessages(conn *websocket.Conn, raw json.RawMessage) {
+func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID    string `json:"jid"`
 		Limit  int    `json:"limit"`
@@ -165,7 +165,7 @@ func handleGetMessages(conn *websocket.Conn, raw json.RawMessage) {
 // handleSearchMessages implements real full-text search over the local
 // message cache (previously a stub). Search is scoped to one chat when jid
 // is provided, otherwise it searches everything.
-func handleSearchMessages(conn *websocket.Conn, raw json.RawMessage) {
+func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 	var data SearchMessagesData
 	if err := json.Unmarshal(raw, &data); err != nil || data.Query == "" {
 		return

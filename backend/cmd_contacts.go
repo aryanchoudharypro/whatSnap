@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/gorilla/websocket"
+	"net"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func handleGetContacts(conn *websocket.Conn) {
+func handleGetContacts(conn net.Conn) {
 	go func() {
 		populateChatsFromStore()
 		rows, err := db.Query(`SELECT jid, name, phone, is_business, about, avatar_path, is_blocked FROM contacts_cache WHERE name != '' OR phone != '' ORDER BY name COLLATE NOCASE ASC`)
@@ -36,7 +36,7 @@ func handleGetContacts(conn *websocket.Conn) {
 	}()
 }
 
-func handleGetAvatar(conn *websocket.Conn, raw json.RawMessage) {
+func handleGetAvatar(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -65,7 +65,7 @@ func handleGetAvatar(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleCheckContacts(conn *websocket.Conn, raw json.RawMessage) {
+func handleCheckContacts(conn net.Conn, raw json.RawMessage) {
 	var data CheckContactsData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -102,7 +102,7 @@ func handleCheckContacts(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleGetUserInfo(conn *websocket.Conn, raw json.RawMessage) {
+func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -138,7 +138,7 @@ func handleGetUserInfo(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleGetBusinessProfile(conn *websocket.Conn, raw json.RawMessage) {
+func handleGetBusinessProfile(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -157,7 +157,7 @@ func handleGetBusinessProfile(conn *websocket.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleGetBlocklist(conn *websocket.Conn) {
+func handleGetBlocklist(conn net.Conn) {
 	go func() {
 		bl, err := client.GetBlocklist(context.Background())
 		if err != nil {
@@ -226,7 +226,7 @@ func handleSetAbout(raw json.RawMessage) {
 // contacts_cache kept in sync and the previous "chats" event (which was
 // actually sending a raw, differently-shaped contacts map mislabeled as
 // chats) replaced with a proper chat-list refresh.
-func handleNewContact(conn *websocket.Conn, raw json.RawMessage) {
+func handleNewContact(conn net.Conn, raw json.RawMessage) {
 	var data NewContactCommandData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
