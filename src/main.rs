@@ -3568,7 +3568,18 @@ while ($true) {
 			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "force_sync" }).to_string());
 		}
 		UiCommand::SendVoiceMessage => {
-			let (segments, rec_start, paused_dur, pause_inst, is_paused, jid_opt, sounds_enabled, ws_tx) = {
+			let (
+				segments,
+				rec_start,
+				paused_dur,
+				pause_inst,
+				is_paused,
+				jid_opt,
+				sounds_enabled,
+				ws_tx,
+				reply_id,
+				reply_sender,
+			) = {
 				let mut s = state.borrow_mut();
 				s.is_voice_recording = false;
 				// If still actively recording (not paused), close off the
@@ -3577,6 +3588,9 @@ while ($true) {
 					mci_finish_segment(&path);
 					s.voice_recording_segments.push(path);
 				}
+				let reply_id = s.pending_reply_id.take().unwrap_or_default();
+				let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
+				s.pending_reply_preview = None;
 				(
 					std::mem::take(&mut s.voice_recording_segments),
 					s.voice_recording_start.take(),
@@ -3586,8 +3600,11 @@ while ($true) {
 					s.selected_chat.clone(),
 					true,
 					s.ws_tx.clone(),
+					reply_id,
+					reply_sender,
 				)
 			};
+			parts.conversations_parts.remove_quote_btn.show(false);
 
 			if let Some(ref jid) = jid_opt {
 				let payload = serde_json::json!({
@@ -3661,7 +3678,9 @@ while ($true) {
 								"jid": jid,
 								"path": final_path,
 								"mimetype": mimetype,
-								"duration": active_secs
+								"duration": active_secs,
+								"reply_to_id": reply_id,
+								"reply_to_sender": reply_sender
 							}
 						});
 						let _ = ws_tx.send(payload.to_string());
