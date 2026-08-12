@@ -1408,10 +1408,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										};
 
 										let mut insert_date = false;
-										let mut date_str = String::new();
+										let mut divider_label = String::new();
 										if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
 											let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-											date_str = local_datetime.format("%A, %B %e, %Y").to_string();
+											let day = whantv::date_key(local_datetime);
 											if let Some(last_msg) = s.messages.last() {
 												if !last_msg.is_date_divider {
 													if let Some(last_dt) =
@@ -1419,15 +1419,16 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													{
 														let last_local: chrono::DateTime<chrono::Local> =
 															last_dt.into();
-														let last_date_str =
-															last_local.format("%A, %B %e, %Y").to_string();
-														if date_str != last_date_str {
+														if day != whantv::date_key(last_local) {
 															insert_date = true;
 														}
 													}
 												}
 											} else {
 												insert_date = true;
+											}
+											if insert_date {
+												divider_label = whantv::format_date_divider_label(local_datetime);
 											}
 										}
 
@@ -1450,15 +1451,16 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.unwrap_or("")
 											.to_string();
 
-										if insert_date && !date_str.is_empty() {
+										if insert_date && !divider_label.is_empty() {
 											let divider = ChatMessage {
 												id: String::new(),
-												text: date_str,
+												text: divider_label,
 												timestamp: ts,
 												is_date_divider: true,
 												..Default::default()
 											};
 											s.messages.push(divider.clone());
+											s.display_items.push(whantv::DisplayItem::Single(divider.clone()));
 											parts
 												.conversations_parts
 												.messages_list
@@ -1779,7 +1781,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let is_group_chat = chat_jid.ends_with("@g.us");
 
 									let mut with_dates = Vec::new();
-									let mut last_date = String::new();
+									let mut last_date: Option<chrono::NaiveDate> = None;
 									for mut msg in deduplicated {
 										if !is_group_chat
 											&& !msg.from_me && msg.sender_name.is_empty()
@@ -1790,11 +1792,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 
 										if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
 											let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-											let date_str = local_datetime.format("%A, %B %e, %Y").to_string();
-											if date_str != last_date {
-												last_date = date_str.clone();
+											let day = whantv::date_key(local_datetime);
+											if last_date != Some(day) {
+												last_date = Some(day);
 												with_dates.push(ChatMessage {
-													text: date_str,
+													text: whantv::format_date_divider_label(local_datetime),
 													timestamp: msg.timestamp,
 													is_date_divider: true,
 													..Default::default()
@@ -2040,15 +2042,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									}
 
 									let mut with_dates = Vec::new();
-									let mut last_date = String::new();
+									let mut last_date: Option<chrono::NaiveDate> = None;
 									for msg in parsed_msgs {
 										if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
 											let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-											let date_str = local_datetime.format("%A, %B %e, %Y").to_string();
-											if date_str != last_date {
-												last_date = date_str.clone();
+											let day = whantv::date_key(local_datetime);
+											if last_date != Some(day) {
+												last_date = Some(day);
 												with_dates.push(ChatMessage {
-													text: date_str,
+													text: whantv::format_date_divider_label(local_datetime),
 													timestamp: msg.timestamp,
 													is_date_divider: true,
 													..Default::default()
