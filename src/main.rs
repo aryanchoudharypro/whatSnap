@@ -1438,18 +1438,48 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.and_then(|q| q.as_str())
 											.unwrap_or("")
 											.to_string();
-										let quoted_text = data
+										let mut quoted_text = data
 											.get("quoted_text")
 											.or_else(|| data.get("quotedText"))
 											.and_then(|q| q.as_str())
 											.unwrap_or("")
 											.to_string();
-										let quoted_sender = data
+										let mut quoted_sender = data
 											.get("quoted_sender")
 											.or_else(|| data.get("quotedSender"))
 											.and_then(|q| q.as_str())
 											.unwrap_or("")
 											.to_string();
+
+										// The live push event doesn't always carry the quote preview
+										// (e.g. server-side lookup races). Backfill it from the
+										// already-loaded chat so reply styling doesn't depend on
+										// closing and reopening the chat to pick it up on next load.
+										if !quoted_id.is_empty() && (quoted_text.is_empty() || quoted_sender.is_empty())
+										{
+											if let Some(original) = s.messages.iter().find(|m| m.id == quoted_id) {
+												if quoted_text.is_empty() {
+													quoted_text = if original.is_audio
+														|| original.text.starts_with("[Voice Message]")
+													{
+														"[Voice Message]".to_string()
+													} else if original.text.is_empty() {
+														"[Media]".to_string()
+													} else {
+														original.text.clone()
+													};
+												}
+												if quoted_sender.is_empty() {
+													quoted_sender = if original.from_me {
+														"me".to_string()
+													} else if !original.sender_name.is_empty() {
+														original.sender_name.clone()
+													} else {
+														original.sender_jid.clone()
+													};
+												}
+											}
+										}
 
 										if insert_date && !divider_label.is_empty() {
 											let divider = ChatMessage {
