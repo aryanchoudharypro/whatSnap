@@ -61,6 +61,30 @@ pub struct ChatMessage {
 	pub media_path: String,
 }
 
+/// Label shown on a date-divider row: "Today" / "Yesterday" for the two most
+/// recent days, otherwise the full weekday/month/day/year string. Used both to
+/// build the row text and (via `date_key`) to decide whether two messages fall
+/// on the same day, so the same calendar comparison always governs both.
+pub fn format_date_divider_label(local_dt: chrono::DateTime<chrono::Local>) -> String {
+	let day = local_dt.date_naive();
+	let today = chrono::Local::now().date_naive();
+	if day == today {
+		"Today".to_string()
+	} else if day == today - chrono::Duration::days(1) {
+		"Yesterday".to_string()
+	} else {
+		local_dt.format("%A, %B %e, %Y").to_string()
+	}
+}
+
+/// Calendar-day key for a timestamp, used to decide whether two messages need
+/// a date divider between them. Independent of `format_date_divider_label`'s
+/// "Today"/"Yesterday" wording so that changes to the label never affect the
+/// same-day comparison.
+pub fn date_key(local_dt: chrono::DateTime<chrono::Local>) -> chrono::NaiveDate {
+	local_dt.date_naive()
+}
+
 impl ChatMessage {
 	pub fn is_document(&self) -> bool {
 		self.media_type == "document" || self.text.starts_with("[Document]")
