@@ -739,13 +739,16 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			15, 30, 55, 75, 95, 110, 90, 70, 50, 35, 20, 10, 5, 0, 0, 0,
 		}
 
+		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
+
 		msg := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
 			Mimetype: proto.String(mimetype), PTT: proto.Bool(true),
 			Seconds: proto.Uint32(uint32(data.Duration)),
 			URL:     proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
 			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
-			FileLength: proto.Uint64(uploaded.FileLength),
-			Waveform:   waveform,
+			FileLength:  proto.Uint64(uploaded.FileLength),
+			Waveform:    waveform,
+			ContextInfo: ctxInfo,
 		}}
 
 		resp, err := client.SendMessage(context.Background(), jid, msg)
@@ -766,9 +769,17 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			ID: resp.ID, JID: jid.String(), SenderJID: client.Store.ID.ToNonAD().String(), FromMe: true,
 			Text: voiceText, Timestamp: resp.Timestamp.Unix(), Raw: rawBytes, Status: "sent",
 			MediaType: "voice", MediaMimetype: mimetype, MediaPath: localPath,
+			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
 		broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": resp.ID, "text": voiceText,
+			"from_me":      true,
+			"timestamp":    resp.Timestamp.Unix(),
+			"has_media":    true,
+			"mediaType":    "voice",
+			"quotedId":     quotedID,
+			"quotedText":   quotedText,
+			"quotedSender": quotedSender,
 		})
 		broadcastChats()
 	}()

@@ -85,11 +85,13 @@ type SendAttachmentData struct {
 }
 
 type SendVoiceMessageData struct {
-	JID      string `json:"jid"`
-	Path     string `json:"path"` // local file path to the recorded clip
-	Data     string `json:"data"` // base64 fallback
-	Mimetype string `json:"mimetype"`
-	Duration int    `json:"duration"` // seconds
+	JID         string `json:"jid"`
+	Path        string `json:"path"` // local file path to the recorded clip
+	Data        string `json:"data"` // base64 fallback
+	Mimetype    string `json:"mimetype"`
+	Duration    int    `json:"duration"` // seconds
+	ReplyToID   string `json:"reply_to_id"`
+	ReplySender string `json:"reply_to_sender"`
 }
 
 // --- Chats -----------------------------------------------------------------
