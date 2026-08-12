@@ -1343,9 +1343,30 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.and_then(|m| m.as_str())
 											.unwrap_or("")
 											.to_string();
+										s.messages[idx].quoted_id = data
+											.get("quoted_id")
+											.or_else(|| data.get("quotedId"))
+											.and_then(|q| q.as_str())
+											.unwrap_or("")
+											.to_string();
+										s.messages[idx].quoted_text = data
+											.get("quoted_text")
+											.or_else(|| data.get("quotedText"))
+											.and_then(|q| q.as_str())
+											.unwrap_or("")
+											.to_string();
+										s.messages[idx].quoted_sender = data
+											.get("quoted_sender")
+											.or_else(|| data.get("quotedSender"))
+											.and_then(|q| q.as_str())
+											.unwrap_or("")
+											.to_string();
 
 										let media_type = s.messages[idx].media_type.clone();
 										let media_filename = s.messages[idx].media_filename.clone();
+										let quoted_id = s.messages[idx].quoted_id.clone();
+										let quoted_text = s.messages[idx].quoted_text.clone();
+										let quoted_sender = s.messages[idx].quoted_sender.clone();
 
 										// Update display_items and UI
 										let mut target_di = None;
@@ -1359,6 +1380,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 														m.text = text.to_string();
 														m.media_type = media_type.clone();
 														m.media_filename = media_filename.clone();
+														m.quoted_id = quoted_id.clone();
+														m.quoted_text = quoted_text.clone();
+														m.quoted_sender = quoted_sender.clone();
 														matched = true;
 													}
 												}
@@ -1369,6 +1393,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 															m.text = text.to_string();
 															m.media_type = media_type.clone();
 															m.media_filename = media_filename.clone();
+															m.quoted_id = quoted_id.clone();
+															m.quoted_text = quoted_text.clone();
+															m.quoted_sender = quoted_sender.clone();
 															matched = true;
 															break;
 														}
@@ -3785,10 +3812,15 @@ while ($true) {
 		}
 		UiCommand::SendAttachment { caption } => {
 			let jid = state.borrow().selected_chat.clone();
-			let paths = {
+			let (paths, reply_id, reply_sender) = {
 				let mut s = state.borrow_mut();
-				std::mem::take(&mut s.pending_attachments)
+				let paths = std::mem::take(&mut s.pending_attachments);
+				let reply_id = s.pending_reply_id.take().unwrap_or_default();
+				let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
+				s.pending_reply_preview = None;
+				(paths, reply_id, reply_sender)
 			};
+			parts.conversations_parts.remove_quote_btn.show(false);
 			if let Some(ref jid) = jid {
 				let is_group = jid.ends_with("@g.us");
 				let ts =
@@ -3842,6 +3874,8 @@ while ($true) {
 						&pending_msg.format_display(is_group),
 					);
 
+					// Only the first attachment in a multi-file batch carries the
+					// reply-to context, so a reply doesn't get quoted once per file.
 					let payload = serde_json::json!({
 						"action": "send_attachment",
 						"data": {
@@ -3849,7 +3883,9 @@ while ($true) {
 							"type": file_type,
 							"path": path,
 							"filename": filename,
-							"caption": caption
+							"caption": caption,
+							"reply_to_id": if idx == 0 { reply_id.as_str() } else { "" },
+							"reply_to_sender": if idx == 0 { reply_sender.as_str() } else { "" }
 						}
 					});
 					let _ = state.borrow().ws_tx.send(payload.to_string());
