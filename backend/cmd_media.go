@@ -690,6 +690,14 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		})
 		broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": resp.ID, "text": extractText(msg),
+			"from_me":       true,
+			"timestamp":     resp.Timestamp.Unix(),
+			"has_media":     true,
+			"mediaType":     data.Type,
+			"mediaFilename": data.Filename,
+			"quotedId":      quotedID,
+			"quotedText":    quotedText,
+			"quotedSender":  quotedSender,
 		})
 		broadcastChats()
 		sendEvent(conn, "attachment_sent", map[string]interface{}{"jid": jid.String(), "filename": data.Filename, "status": "sent"})
