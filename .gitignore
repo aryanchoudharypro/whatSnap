@@ -1,7 +1,19 @@
 /target/
+/dist/
 *.db
 *.db-wal
 *.db-shm
 *.log
 *.exe
 .agents/
+
+__pycache__/
+*.pyc
+
+# Local Claude Code settings and working notes.
+.claude/
+
+# Local dependency sources kept for offline reference only; not used by the
+# build (no source replacement is configured in .cargo/). Regenerate with
+# `cargo vendor`.
+/vendor/
