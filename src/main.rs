@@ -631,6 +631,7 @@ fn main() {
 		let ui_alive_clone = ui_alive.clone();
 
 		let ws_out_rx = Arc::new(Mutex::new(ws_out_rx));
+		let resend_tx_outer = ws_out_tx.clone();
 
 		thread::spawn(move || {
 			loop {
@@ -660,6 +661,7 @@ fn main() {
 
 					let ui_alive_write = ui_alive_clone.clone();
 					let rx_clone = ws_out_rx.clone();
+					let resend_tx = resend_tx_outer.clone();
 
 					// Write Thread
 					thread::spawn(move || {
@@ -672,6 +674,11 @@ fn main() {
 							if let Some(out_msg) = msg_opt {
 								let msg = format!("{}\n", out_msg);
 								if socket_writer.write_all(msg.as_bytes()).is_err() {
+									// Writers from prior connections stay parked
+									// on the shared receiver, so a command can be
+									// claimed by one whose socket is already dead.
+									// Hand it back for the live writer to send.
+									let _ = resend_tx.send(out_msg);
 									break;
 								}
 							}
