@@ -255,6 +255,8 @@ struct AppState {
 	prev_msg_count: usize,
 	active_tab: usize,
 	search_query: String,
+	displayed_chat_labels: Vec<String>,
+	main_ui_shown: bool,
 	pending_attachments: Vec<String>,
 	pending_reply_id: Option<String>,
 	pending_reply_sender: Option<String>,
@@ -270,12 +272,10 @@ struct AppState {
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
-	s.filtered_chats.clear();
-	parts.conversations_parts.conversations_list.freeze();
-	parts.conversations_parts.conversations_list.clear();
 	let lower_query = s.search_query.to_lowercase();
 
-	let mut selected_idx_to_restore = None;
+	let mut filtered = Vec::new();
+	let mut labels = Vec::new();
 
 	for jid in &s.chats {
 		let is_archived = s.archived_jids.contains(jid);
@@ -285,23 +285,42 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 
 		let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
 		if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
-			s.filtered_chats.push(jid.clone());
-			let display_name = s.display_names.get(jid).cloned().unwrap_or_else(|| name);
-			parts.conversations_parts.conversations_list.append(&display_name);
-
-			if Some(jid.clone()) == s.selected_chat {
-				selected_idx_to_restore = Some(s.filtered_chats.len() - 1);
-			}
+			labels.push(s.display_names.get(jid).cloned().unwrap_or(name));
+			filtered.push(jid.clone());
 		}
 	}
-	parts.conversations_parts.conversations_list.thaw();
 
-	if let Some(idx) = selected_idx_to_restore {
-		let count = parts.conversations_parts.conversations_list.get_count();
+	s.filtered_chats = filtered;
+
+	// Clearing and refilling the list resets the focused item and makes the
+	// screen reader re-announce, so leave the control untouched when the
+	// backend re-sends chats that produce identical contents.
+	if labels == s.displayed_chat_labels {
+		return;
+	}
+
+	let list = &parts.conversations_parts.conversations_list;
+	let had_focus = list.has_focus();
+
+	list.freeze();
+	list.clear();
+	for label in &labels {
+		list.append(label);
+	}
+	list.thaw();
+
+	if let Some(idx) = s.selected_chat.as_ref().and_then(|sel| s.filtered_chats.iter().position(|j| j == sel)) {
+		let count = list.get_count();
 		if count > 0 && (idx as u32) < count {
-			parts.conversations_parts.conversations_list.set_selection(idx as u32, true);
+			list.set_selection(idx as u32, true);
 		}
 	}
+
+	if had_focus {
+		list.set_focus();
+	}
+
+	s.displayed_chat_labels = labels;
 }
 
 pub(crate) fn update_action_buttons(s: &AppState, parts: &crate::ui::conversations::ConversationsPanelParts) -> bool {
@@ -733,6 +752,8 @@ fn main() {
 			prev_msg_count: 0,
 			active_tab: 0,
 			search_query: String::new(),
+			displayed_chat_labels: Vec::new(),
+			main_ui_shown: false,
 			pending_attachments: Vec::new(),
 			pending_reply_id: None,
 			pending_reply_sender: None,
@@ -1061,14 +1082,24 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 					match t {
 						"connected" => {
 							parts.frame.set_status_text("Status: Connected", 0);
-							parts.pairing_dialog.show(false);
-							parts.qrcode_dialog.show(false);
-							parts.login_panel.show(false);
-							parts.nav_panel.show(true);
-							parts.content_panel.show(true);
-							parts.main_panel.layout();
-							parts.frame.show(true);
-							parts.conversations_parts.search_field.set_focus();
+
+							// Emitted on every IPC connect and on every whatsmeow
+							// reconnect, not just at startup. Re-running the layout
+							// and focus below on a mid-session reconnect is what
+							// yanked focus back to the search box.
+							let first_show = !state.borrow().main_ui_shown;
+							if first_show {
+								parts.pairing_dialog.show(false);
+								parts.qrcode_dialog.show(false);
+								parts.login_panel.show(false);
+								parts.nav_panel.show(true);
+								parts.content_panel.show(true);
+								parts.main_panel.layout();
+								parts.frame.show(true);
+								parts.conversations_parts.search_field.set_focus();
+								state.borrow_mut().main_ui_shown = true;
+							}
+
 							let payload = serde_json::json!({
 								"action": "get_chats"
 							});
@@ -1077,6 +1108,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"needs_login" => {
 							parts.login_panel.show(true);
 							parts.login_panel.set_focus();
+							state.borrow_mut().main_ui_shown = false;
 						}
 						"pairing_code" => {
 							if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
