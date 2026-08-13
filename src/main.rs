@@ -875,14 +875,54 @@ fn main() {
 	}
 
 	if let Some(ref mut child) = bridge_child {
-		if let Ok(mut stream) = std::net::TcpStream::connect("127.0.0.1:9000") {
-			use std::io::Write;
-			let _ = stream.write_all(b"POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1:9000\r\nContent-Length: 0\r\n\r\n");
-			std::thread::sleep(std::time::Duration::from_millis(600));
+		// Killing the backend outright skips both the WhatsApp disconnect and
+		// the database close, which strands the SQLite -wal/-shm files. Ask it
+		// to exit on its own first.
+		request_backend_shutdown(&shutdown_pipe_id);
+
+		let deadline = std::time::Instant::now() + Duration::from_secs(5);
+		loop {
+			match child.try_wait() {
+				Ok(Some(_)) => break,
+				Ok(None) if std::time::Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+				_ => {
+					let _ = child.kill();
+					break;
+				}
+			}
 		}
-		let _ = child.kill();
 		let _ = child.wait();
 	}
+
+	// Backstop if the backend never came down on its own.
+	drop(job);
+}
+
+fn request_backend_shutdown(pipe_id: &str) {
+	let Ok(name) = pipe_id.to_ns_name::<GenericNamespaced>() else {
+		return;
+	};
+	let Ok(mut socket) = LocalSocketStream::connect(name) else {
+		return;
+	};
+	let Ok(drain_socket) = socket.try_clone() else {
+		return;
+	};
+
+	// The backend greets every new connection with a connected event and the
+	// full chat list, writing it before it reads anything. Left undrained the
+	// pipe fills, the backend blocks mid-write, and it never reaches our
+	// command -- so the reader has to run concurrently with the write.
+	thread::spawn(move || {
+		let mut reader = BufReader::new(drain_socket);
+		let mut buf = String::new();
+		while matches!(reader.read_line(&mut buf), Ok(n) if n > 0) {
+			buf.clear();
+		}
+	});
+
+	let _ = socket.write_all(b"{\"action\":\"shutdown\"}\n");
+	let _ = socket.flush();
 }
 
 /// Perform a soft seek by stopping the current sink and re-opening the file

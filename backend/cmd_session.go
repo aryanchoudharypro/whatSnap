@@ -4,10 +4,46 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"sync"
 
 	"net"
 	"go.mau.fi/whatsmeow"
 )
+
+var shutdownOnce sync.Once
+
+// handleShutdown closes the WhatsApp connection and the database before
+// exiting. Without it the process is terminated abruptly, which leaves the
+// SQLite -wal/-shm files behind (recovered on next open, but never
+// checkpointed away) and drops the WhatsApp socket without a clean
+// companion-device disconnect.
+func handleShutdown() {
+	shutdownOnce.Do(func() {
+		log.Println("Shutdown requested")
+
+		if client != nil && client.IsConnected() {
+			client.Disconnect()
+		}
+
+		if db != nil {
+			// Disconnect returns before every handler goroutine has released
+			// its connection, and SQLite only drops the -wal/-shm files once
+			// the last one closes. Checkpointing explicitly folds the WAL back
+			// into the main database even if a straggler keeps a handle.
+			if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+				log.Println("WAL checkpoint failed:", err)
+			}
+			if err := db.Close(); err != nil {
+				log.Println("Error closing database:", err)
+			}
+		}
+
+		log.Println("Shutdown complete")
+		os.Exit(0)
+	})
+}
 
 func handleGetQR(conn net.Conn) {
 	go func() {

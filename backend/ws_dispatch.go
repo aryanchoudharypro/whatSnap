@@ -11,6 +11,9 @@ import (
 	"go.mau.fi/whatsmeow/appstate"
 )
 
+// maxCommandBytes bounds a single JSON command line from the frontend.
+const maxCommandBytes = 1024 * 1024
+
 func handleConnection(conn net.Conn) {
 	fmt.Println("New IPC connection!")
 	defer conn.Close()
@@ -37,9 +40,8 @@ func handleConnection(conn net.Conn) {
 	}
 
 	scanner := bufio.NewScanner(conn)
-	// Optionally set a higher buffer size if messages are large
 	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	scanner.Buffer(buf, maxCommandBytes)
 
 	for scanner.Scan() {
 		msg := scanner.Bytes()
@@ -57,6 +59,8 @@ func handleConnection(conn net.Conn) {
 			handleCancelPairing()
 		case "pair":
 			handlePair(cmd.Data)
+		case "shutdown":
+			handleShutdown()
 
 		// --- messaging ---
 		case "send":
@@ -195,5 +199,15 @@ func handleConnection(conn net.Conn) {
 				handleGetContacts(conn)
 			}()
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		if err == bufio.ErrTooLong {
+			log.Printf("IPC connection dropped: command exceeded %d bytes", maxCommandBytes)
+		} else {
+			log.Println("IPC connection dropped:", err)
+		}
+	} else {
+		log.Println("IPC connection closed by client")
 	}
 }
