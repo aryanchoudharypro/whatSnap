@@ -31,7 +31,7 @@ var (
 	wsClients   = make(map[net.Conn]bool)
 	wsMutex          sync.Mutex
 	pairingCode      string
-	dbPathFlag       = flag.String("db", "session.db", "SQLite db path")
+	dbPathFlag       = flag.String("db", "", "SQLite db path (default: %LOCALAPPDATA%\\whaNTV\\session.db)")
 	pipeFlag         = flag.String("pipe", "", "Named pipe to listen on")
 	tokenFlag        = flag.String("token", "", "Secret auth token")
 )
@@ -39,13 +39,17 @@ var (
 func main() {
 	flag.Parse()
 
-	logFile, err := os.OpenFile("backend.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if *dbPathFlag == "" {
+		*dbPathFlag = defaultDBPath()
+	}
+
+	logFile, err := os.OpenFile(logFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err == nil {
 		log.SetOutput(logFile)
 		os.Stdout = logFile
 		os.Stderr = logFile
 	} else {
-		fmt.Println("Failed to open backend.log:", err)
+		fmt.Println("Failed to open backend log:", err)
 	}
 
 	dbPath := *dbPathFlag
