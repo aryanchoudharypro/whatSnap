@@ -23,7 +23,10 @@ use interprocess::{
 	TryClone,
 	local_socket::{GenericNamespaced, ToNsName, prelude::*},
 };
-use wxdragon::prelude::*;
+use wxdragon::{
+	prelude::*,
+	sound::{Sound, SoundFlags},
+};
 
 use crate::{
 	ui::window::{WindowParts, bind_input_handlers, build_main_window},
@@ -95,50 +98,35 @@ use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
 use rodio_wsola::WsolaSourceExt;
 use whantv::ChatMessage;
 
-fn play_notification_sound(sound_file: &str, sounds_enabled: bool) {
+#[derive(Clone, Copy)]
+pub enum NotificationSound {
+	MessageCurrent,
+	MessageBackground,
+	MessageSent,
+	VoiceMessageSent,
+}
+
+impl NotificationSound {
+	const fn wav(self) -> &'static [u8] {
+		match self {
+			Self::MessageCurrent => include_bytes!("../sounds/message_current.wav"),
+			Self::MessageBackground => include_bytes!("../sounds/message_background.wav"),
+			Self::MessageSent => include_bytes!("../sounds/message_sent.wav"),
+			Self::VoiceMessageSent => include_bytes!("../sounds/voicemsg_send.wav"),
+		}
+	}
+}
+
+fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 	if !sounds_enabled {
 		return;
 	}
-	let wav_file = sound_file.replace(".ogg", ".wav");
-	let path = sound_file.to_string();
 	std::thread::spawn(move || {
-		#[cfg(target_os = "windows")]
-		unsafe {
-			let _ =
-				windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_MULTITHREADED);
-		}
-
-		let find_path = |target_name: &str| -> Option<std::path::PathBuf> {
-			if let Ok(exe_path) = std::env::current_exe() {
-				if let Some(parent) = exe_path.parent() {
-					let p = parent.join(target_name);
-					if p.exists() {
-						return Some(p);
-					}
-				}
-			}
-			let p = std::path::PathBuf::from(target_name);
-			if p.exists() { Some(p) } else { None }
-		};
-
-		let resolved_path =
-			find_path(&wav_file).or_else(|| find_path(&path)).unwrap_or_else(|| std::path::PathBuf::from(&wav_file));
-
-		if !resolved_path.exists() {
-			eprintln!("[LOG SOUND] Sound file does not exist at {:?}", resolved_path);
-			return;
-		}
-
-		if let Ok(stream_handle) = DeviceSinkBuilder::open_default_sink() {
-			let sink = Player::connect_new(&stream_handle.mixer());
-			if let Ok(file) = File::open(&resolved_path) {
-				if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-					sink.append(decoder);
-					sink.sleep_until_end();
-				} else {
-					eprintln!("[LOG SOUND] Failed to decode audio {:?}", resolved_path);
-				}
-			}
+		let handle = Sound::from_data(sound.wav());
+		if handle.is_ok() {
+			// Sync, not Async: wxSound requires the object to outlive playback,
+			// and this is already a worker thread.
+			handle.play(SoundFlags::Sync);
 		}
 	});
 }
@@ -1719,7 +1707,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											});
 											let sounds_enabled = true;
 											let _ = tx.send(payload.to_string());
-											play_notification_sound("sounds/message_current.ogg", sounds_enabled);
+											play_notification_sound(NotificationSound::MessageCurrent, sounds_enabled);
 										}
 									}
 								} else {
@@ -1731,7 +1719,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.and_then(|f| f.as_bool())
 											.unwrap_or_else(|| from == "me" || from == "You");
 										if !is_from_me {
-											play_notification_sound("sounds/message_background.ogg", true);
+											play_notification_sound(NotificationSound::MessageBackground, true);
 										}
 									}
 								}
@@ -2564,7 +2552,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											}
 										}
 										if should_play {
-											play_notification_sound("sounds/message_sent.ogg", true);
+											play_notification_sound(NotificationSound::MessageSent, true);
 										}
 									}
 								}
@@ -3751,7 +3739,7 @@ while ($true) {
 						let _ = ws_tx.send(payload.to_string());
 					});
 
-					play_notification_sound("sounds/voicemsg_send.wav", sounds_enabled);
+					play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled);
 					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
 				}
 			}
