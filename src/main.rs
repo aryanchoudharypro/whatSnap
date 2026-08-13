@@ -4,6 +4,7 @@ mod countries;
 mod paths;
 mod ui;
 mod ui_wake;
+mod win_job;
 
 use std::{
 	cell::RefCell,
@@ -585,10 +586,13 @@ fn main() {
 
 	let db_path_str = paths::db_path().to_string_lossy().into_owned();
 
-	let _ = Command::new("taskkill").args(&["/F", "/IM", "backend.exe"]).creation_flags(0x08000000).output();
-
-	let pipe_id = format!("whantv-backend-{}", std::process::id());
+	// Random rather than PID-derived: on Windows the first process to create a
+	// pipe name owns it, so a predictable name can be squatted by a local
+	// process that would then receive our commands.
+	let pipe_id = format!("whantv-{}", uuid::Uuid::new_v4().simple());
 	let go_pipe_name = format!(r"\\.\pipe\{}", pipe_id);
+
+	let job = win_job::KillOnCloseJob::new().ok();
 
 	let mut bridge_child = if let Some(ref backend_path) = backend_exe {
 		Command::new(backend_path)
@@ -606,7 +610,14 @@ fn main() {
 		None
 	};
 
-	let res = wxdragon::main(|_| {
+	if let (Some(job), Some(child)) = (job.as_ref(), bridge_child.as_ref()) {
+		let _ = job.assign(child);
+	}
+
+	let backend_pid = bridge_child.as_ref().map(std::process::Child::id);
+	let shutdown_pipe_id = pipe_id.clone();
+
+	let res = wxdragon::main(move |_| {
 		let parts = build_main_window();
 		let frame = parts.frame;
 
@@ -629,6 +640,20 @@ fn main() {
 
 				let stream_name = pipe_id.as_str().to_ns_name::<GenericNamespaced>().unwrap();
 				if let Ok(socket) = LocalSocketStream::connect(stream_name) {
+					// Confirm we reached the backend we spawned and not a
+					// process that beat it to the pipe name.
+					let peer_ok = match (backend_pid, socket.peer_creds().ok().and_then(|c| c.pid())) {
+						(Some(expected), Some(actual)) => actual == expected,
+						(None, _) => true,
+						(Some(_), None) => false,
+					};
+
+					if !peer_ok {
+						drop(socket);
+						thread::sleep(Duration::from_secs(2));
+						continue;
+					}
+
 					let mut socket_writer = socket.try_clone().expect("Failed to clone pipe");
 					let mut buf_reader = BufReader::new(socket);
 					let mut line = String::new();

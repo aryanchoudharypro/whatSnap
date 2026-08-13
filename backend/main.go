@@ -33,7 +33,6 @@ var (
 	pairingCode      string
 	dbPathFlag       = flag.String("db", "", "SQLite db path (default: %LOCALAPPDATA%\\whaNTV\\session.db)")
 	pipeFlag         = flag.String("pipe", "", "Named pipe to listen on")
-	tokenFlag        = flag.String("token", "", "Secret auth token")
 )
 
 func main() {
@@ -151,7 +150,16 @@ func main() {
 		log.Fatal("Must provide --pipe argument for IPC")
 	}
 
-	listener, err := winio.ListenPipe(pipePath, nil)
+	// A nil config falls back to the token's default DACL, which is broader
+	// than we need for a pipe that can drive the WhatsApp session.
+	pipeCfg := &winio.PipeConfig{}
+	if sddl, err := currentUserPipeSDDL(); err != nil {
+		log.Println("Falling back to default pipe ACL:", err)
+	} else {
+		pipeCfg.SecurityDescriptor = sddl
+	}
+
+	listener, err := winio.ListenPipe(pipePath, pipeCfg)
 	if err != nil {
 		log.Fatal("Failed to create named pipe:", err)
 	}
