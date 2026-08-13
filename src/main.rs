@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod countries;
+mod paths;
 mod ui;
 mod ui_wake;
 
@@ -551,7 +552,7 @@ use std::{
 
 fn main() {
 	std::panic::set_hook(Box::new(|info| {
-		let _ = std::fs::write("panic.log", format!("{}", info));
+		let _ = std::fs::write(paths::log_dir().join("panic.log"), format!("{}", info));
 	}));
 
 	let exe_dir = std::env::current_exe()
@@ -582,15 +583,7 @@ fn main() {
 		.and_then(|p| p.parent().map(|d| d.to_path_buf()))
 		.unwrap_or_else(|| std::path::PathBuf::from("backend"));
 
-	let db_path = backend_dir.join("session.db");
-	let abs_db_path = if db_path.is_absolute() {
-		db_path.clone()
-	} else if let Ok(cwd) = std::env::current_dir() {
-		cwd.join(&db_path)
-	} else {
-		db_path.clone()
-	};
-	let db_path_str = abs_db_path.to_str().unwrap_or("session.db").to_string();
+	let db_path_str = paths::db_path().to_string_lossy().into_owned();
 
 	let _ = Command::new("taskkill").args(&["/F", "/IM", "backend.exe"]).creation_flags(0x08000000).output();
 
@@ -846,7 +839,7 @@ fn main() {
 		parts_clone.login_panel.set_focus();
 	});
 	if let Err(e) = res {
-		let _ = std::fs::write("main_error.log", format!("{:?}", e));
+		let _ = std::fs::write(paths::log_dir().join("main_error.log"), format!("{:?}", e));
 	}
 
 	if let Some(ref mut child) = bridge_child {
