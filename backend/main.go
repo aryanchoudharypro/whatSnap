@@ -1,3 +1,16 @@
+// whaNTV backend -- WhatsApp protocol service for the whaNTV client.
+// Copyright (C) 2026 Aryan Choudhary
+//
+// This program is free software: you can redistribute it and/or modify it
+// under the terms of the GNU General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version. It is distributed WITHOUT ANY WARRANTY; without even the
+// implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU General Public License in LICENSE for more details.
+//
+// GPLv3 applies because this binary links go.mau.fi/libsignal. See
+// ../THIRD-PARTY-NOTICES.md.
+
 package main
 
 import (
