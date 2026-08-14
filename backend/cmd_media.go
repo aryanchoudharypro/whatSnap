@@ -385,11 +385,11 @@ func handleOpenMedia(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		path, _, _, filename, err := ensureMediaCached(data.MessageID)
+		path, mediaType, mimetype, filename, err := ensureMediaCached(data.MessageID)
 		if err != nil {
 			if strings.Contains(err.Error(), "URL expired") {
 				pendingAutoOpens.Store(data.MessageID, map[string]interface{}{
-					"conn": conn,
+					"conn":   conn,
 					"action": "open_media",
 				})
 				return
@@ -397,22 +397,7 @@ func handleOpenMedia(conn net.Conn, raw json.RawMessage) {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-
-		openPath := path
-		if filename != "" {
-			tempDir := filepath.Join(os.TempDir(), "whantv_open")
-			os.MkdirAll(tempDir, 0755)
-			tempPath := filepath.Join(tempDir, safeFilenameForFS(filename))
-			if bytes, err := os.ReadFile(path); err == nil {
-				if os.WriteFile(tempPath, bytes, 0644) == nil {
-					openPath = tempPath
-				}
-			}
-		}
-
-		if err := openFileInOS(openPath); err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
-		}
+		openMediaFileWithRealName(conn, data.MessageID, path, mediaType, mimetype, filename)
 	}()
 }
 
@@ -535,6 +520,105 @@ func detectMimeType(filename, path string, header []byte) string {
 	return "application/octet-stream"
 }
 
+// synthesizeMediaFilename builds a WhatsApp-style display filename ("WhatsApp
+// Image 2026-08-14-150405.jpg") for media that never carries a real filename
+// from WhatsApp itself: images, videos, voice notes, audio, and stickers
+// only get a real one when they're actually a DocumentMessage. Used whenever
+// a file is handed to something outside this app (opened, saved, copied to
+// the clipboard) so it gets a sensible name instead of an internal id.
+func synthesizeMediaFilename(mediaType, mimetype string, timestamp int64, id string) string {
+	ext := ""
+	switch {
+	case strings.Contains(mimetype, "jpeg") || strings.Contains(mimetype, "jpg"):
+		ext = ".jpg"
+	case strings.Contains(mimetype, "png"):
+		ext = ".png"
+	case strings.Contains(mimetype, "webp"):
+		ext = ".webp"
+	case strings.Contains(mimetype, "mp4"):
+		ext = ".mp4"
+	case strings.Contains(mimetype, "ogg") || mediaType == "voice":
+		ext = ".ogg"
+	case strings.Contains(mimetype, "mp3") || strings.Contains(mimetype, "mpeg") || mediaType == "audio":
+		ext = ".mp3"
+	case strings.Contains(mimetype, "pdf"):
+		ext = ".pdf"
+	}
+	if ext == "" {
+		ext = extForMime(mimetype)
+	}
+
+	prefix := "WhatsApp File"
+	switch mediaType {
+	case "image":
+		prefix = "WhatsApp Image"
+	case "video":
+		prefix = "WhatsApp Video"
+	case "voice":
+		prefix = "WhatsApp PTT"
+	case "audio":
+		prefix = "WhatsApp Audio"
+	}
+
+	if timestamp > 0 {
+		t := time.Unix(timestamp, 0)
+		return fmt.Sprintf("%s %s%s", prefix, t.Format("2006-01-02-150405"), ext)
+	}
+	return fmt.Sprintf("%s-%s%s", prefix, id, ext)
+}
+
+// uniqueFileForDir returns a path in dir for filename, disambiguating with
+// " (1)", " (2)", ... before the extension if that name is already taken —
+// the same trick Explorer/WhatsApp itself uses. This matters most for
+// multi-item operations like copying an album to the clipboard: every photo
+// in an album shares (or is a second apart on) the same timestamp, so
+// without this every synthesized name would collide and only the last file
+// written would actually end up in the clipboard.
+func uniqueFileForDir(dir, filename string) string {
+	base := safeFilenameForFS(filename)
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	candidate := filepath.Join(dir, base)
+	for i := 1; ; i++ {
+		if _, statErr := os.Stat(candidate); statErr != nil {
+			return candidate
+		}
+		candidate = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, i, ext))
+	}
+}
+
+// openMediaFileWithRealName copies a locally-cached media file to a
+// friendly-named temp copy — so whatever app opens it (and its window
+// title / "recent files" entry) shows something like "WhatsApp Image
+// ....jpg" instead of the internal cache filename — and opens it with the
+// OS default handler. filename may be empty (true for anything but a
+// WhatsApp DocumentMessage), in which case a display name is synthesized.
+func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimetype, filename string) {
+	if filename == "" {
+		var ts int64
+		db.QueryRow("SELECT COALESCE(timestamp, 0) FROM messages WHERE id = ?", messageID).Scan(&ts)
+		filename = synthesizeMediaFilename(mediaType, mimetype, ts, messageID)
+	}
+
+	openPath := path
+	if absPath, absErr := filepath.Abs(path); absErr == nil {
+		openPath = absPath
+	}
+
+	tempDir := filepath.Join(os.TempDir(), "whantv_open")
+	os.MkdirAll(tempDir, 0755)
+	tempPath := filepath.Join(tempDir, safeFilenameForFS(filename))
+	if bytes, readErr := os.ReadFile(path); readErr == nil {
+		if os.WriteFile(tempPath, bytes, 0644) == nil {
+			openPath = tempPath
+		}
+	}
+
+	if err := openFileInOS(openPath); err != nil && conn != nil {
+		sendEvent(conn, "error", map[string]string{"message": err.Error()})
+	}
+}
+
 func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 	var data SendAttachmentData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -546,162 +630,223 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		var waMediaType whatsmeow.MediaType
-		switch data.Type {
-		case "image", "sticker":
-			waMediaType = whatsmeow.MediaImage
-		case "video":
-			waMediaType = whatsmeow.MediaVideo
-		default:
-			waMediaType = whatsmeow.MediaDocument
-		}
+		id := whatsmeow.GenerateMessageID()
 
-		sendEvent(conn, "attachment_uploading", map[string]interface{}{"jid": jid.String(), "filename": data.Filename, "status": "uploading", "percent": 0})
-
-		var uploaded whatsmeow.UploadResponse
-		var mimetype string
-		var localPath string
-
-		if data.Path != "" {
-			f, err := os.Open(data.Path)
-			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": err.Error()})
+		// Resolve to a real local file up front, including decoding+caching
+		// base64 (e.g. clipboard-pasted) payloads immediately. That way the
+		// pending/failed row always has a path to retry from, and we don't
+		// end up sending a file we then have no local cache of.
+		localPath := data.Path
+		if localPath == "" {
+			fileBytes, decErr := readLocalFileOrDecode("", data.Data)
+			if decErr != nil {
+				sendEvent(conn, "error", map[string]string{"message": decErr.Error()})
 				return
 			}
-			defer f.Close()
-
-			stat, _ := f.Stat()
-			totalSize := int64(0)
-			if stat != nil {
-				totalSize = stat.Size()
+			mimeGuess := data.Mimetype
+			if mimeGuess == "" || mimeGuess == "application/octet-stream" || mimeGuess == "application/zip" {
+				mimeGuess = detectMimeType(data.Filename, "", fileBytes)
 			}
-
-			header := make([]byte, 512)
-			n, _ := f.Read(header)
-			f.Seek(0, 0)
-
-			mimetype = data.Mimetype
-			if mimetype == "" || mimetype == "application/octet-stream" || mimetype == "application/zip" {
-				mimetype = detectMimeType(data.Filename, data.Path, header[:n])
-			}
-
-			var pr io.Reader = f
-			if totalSize > 0 {
-				lastPct := -1
-				pr = &ProgressReader{
-					reader: f,
-					total:  totalSize,
-					onProgress: func(pct int) {
-						if pct != lastPct {
-							lastPct = pct
-							sendEvent(conn, "attachment_uploading", map[string]interface{}{
-								"jid":      jid.String(),
-								"filename": data.Filename,
-								"percent":  pct,
-								"status":   "uploading",
-							})
-						}
-					},
-				}
-			}
-
-			uploaded, err = client.UploadReader(context.Background(), pr, nil, waMediaType)
-			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			cached, saveErr := saveMediaBytes("outgoing", id, mimeGuess, fileBytes)
+			if saveErr != nil {
+				sendEvent(conn, "error", map[string]string{"message": saveErr.Error()})
 				return
 			}
-			localPath = data.Path
-		} else {
-			fileBytes, err := readLocalFileOrDecode("", data.Data)
-			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": err.Error()})
-				return
-			}
-			mimetype = data.Mimetype
-			if mimetype == "" || mimetype == "application/octet-stream" || mimetype == "application/zip" {
-				mimetype = detectMimeType(data.Filename, "", fileBytes)
-			}
-			uploaded, err = client.Upload(context.Background(), fileBytes, waMediaType)
-			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": err.Error()})
-				return
-			}
+			localPath = cached
 		}
 
 		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
 
-		var msg *waE2E.Message
-		switch data.Type {
-		case "image":
-			imgMsg := &waE2E.ImageMessage{
-				Mimetype: proto.String(mimetype),
-				URL: proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
-				MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
-				FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
-			}
-			if data.Caption != "" {
-				imgMsg.Caption = proto.String(data.Caption)
-			}
-			msg = &waE2E.Message{ImageMessage: imgMsg}
-		case "video":
-			vidMsg := &waE2E.VideoMessage{
-				Mimetype: proto.String(mimetype),
-				URL: proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
-				MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
-				FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
-			}
-			if data.Caption != "" {
-				vidMsg.Caption = proto.String(data.Caption)
-			}
-			msg = &waE2E.Message{VideoMessage: vidMsg}
-		case "sticker":
-			msg = &waE2E.Message{StickerMessage: &waE2E.StickerMessage{
-				Mimetype: proto.String(mimetype),
-				URL:      proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
-				MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
-				FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
-			}}
-		default:
-			filename := data.Filename
-			docMsg := &waE2E.DocumentMessage{
-				Title: proto.String(filename), FileName: proto.String(filename), Mimetype: proto.String(mimetype),
-				URL: proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
-				MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
-				FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
-			}
-			if data.Caption != "" {
-				docMsg.Caption = proto.String(data.Caption)
-			}
-			msg = &waE2E.Message{DocumentMessage: docMsg}
+		senderJID := ""
+		if client.Store.ID != nil {
+			senderJID = client.Store.ID.ToNonAD().String()
 		}
+		ts := time.Now().Unix()
 
-		resp, err := client.SendMessage(context.Background(), jid, msg)
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
-			return
-		}
-
-		rawBytes, _ := proto.Marshal(msg)
+		// Persist and broadcast as "uploading" immediately: this is the
+		// local echo, and what makes a failed/offline upload recoverable
+		// (marked "failed", retryable from the message context menu)
+		// instead of just vanishing.
 		saveMessage(StoredMessage{
-			ID: resp.ID, JID: jid.String(), SenderJID: client.Store.ID.ToNonAD().String(), FromMe: true,
-			Text: extractText(msg), Timestamp: resp.Timestamp.Unix(), Raw: rawBytes, Status: "sent",
-			MediaType: data.Type, MediaMimetype: mimetype, MediaFilename: data.Filename, MediaPath: localPath,
+			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
+			Text: data.Caption, Timestamp: ts, Status: "uploading",
+			MediaType: data.Type, MediaMimetype: data.Mimetype, MediaFilename: data.Filename, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
+		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+			ON CONFLICT(jid) DO UPDATE SET timestamp=MAX(timestamp, excluded.timestamp)`, jid.String(), ts, data.Caption)
 		broadcastEvent("message", map[string]interface{}{
-			"jid": jid.String(), "from": "me", "id": resp.ID, "text": extractText(msg),
+			"jid": jid.String(), "from": "me", "id": id, "text": data.Caption,
 			"from_me":       true,
-			"timestamp":     resp.Timestamp.Unix(),
+			"timestamp":     ts,
 			"has_media":     true,
 			"mediaType":     data.Type,
 			"mediaFilename": data.Filename,
+			"status":        "uploading",
 			"quotedId":      quotedID,
 			"quotedText":    quotedText,
 			"quotedSender":  quotedSender,
 		})
 		broadcastChats()
-		sendEvent(conn, "attachment_sent", map[string]interface{}{"jid": jid.String(), "filename": data.Filename, "status": "sent"})
+
+		sendUploadedAttachment(conn, id, jid, data.Type, localPath, data.Mimetype, data.Filename, data.Caption, ctxInfo, quotedID, quotedText, quotedSender)
 	}()
+}
+
+// sendUploadedAttachment uploads the file at path and sends it as mediaType,
+// updating the row already persisted by handleSendAttachment (or reused by
+// handleRetryMessage) to "sent" on success or "failed" on error. Shared by
+// the initial send and a manual retry so both behave identically.
+func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+	fail := func(errMsg string) {
+		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+		if conn != nil {
+			sendEvent(conn, "error", map[string]string{"message": errMsg})
+		}
+		broadcastEvent("message", map[string]interface{}{
+			"jid": jid.String(), "from": "me", "id": id, "text": caption,
+			"from_me": true, "timestamp": time.Now().Unix(), "has_media": true,
+			"mediaType": mediaType, "mediaFilename": filename, "status": "failed",
+			"quotedId": quotedID, "quotedText": quotedText, "quotedSender": quotedSender,
+		})
+	}
+
+	var waMediaType whatsmeow.MediaType
+	switch mediaType {
+	case "image", "sticker":
+		waMediaType = whatsmeow.MediaImage
+	case "video":
+		waMediaType = whatsmeow.MediaVideo
+	default:
+		waMediaType = whatsmeow.MediaDocument
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+	defer f.Close()
+
+	stat, _ := f.Stat()
+	totalSize := int64(0)
+	if stat != nil {
+		totalSize = stat.Size()
+	}
+
+	header := make([]byte, 512)
+	n, _ := f.Read(header)
+	f.Seek(0, 0)
+
+	mimetype := mimetypeHint
+	if mimetype == "" || mimetype == "application/octet-stream" || mimetype == "application/zip" {
+		mimetype = detectMimeType(filename, path, header[:n])
+	}
+
+	if conn != nil {
+		sendEvent(conn, "attachment_uploading", map[string]interface{}{"id": id, "jid": jid.String(), "filename": filename, "status": "uploading", "percent": 0})
+	}
+
+	var pr io.Reader = f
+	if totalSize > 0 {
+		lastPct := -1
+		pr = &ProgressReader{
+			reader: f,
+			total:  totalSize,
+			onProgress: func(pct int) {
+				if pct != lastPct {
+					lastPct = pct
+					if conn != nil {
+						sendEvent(conn, "attachment_uploading", map[string]interface{}{
+							"id":       id,
+							"jid":      jid.String(),
+							"filename": filename,
+							"percent":  pct,
+							"status":   "uploading",
+						})
+					}
+				}
+			},
+		}
+	}
+
+	uploaded, err := client.UploadReader(context.Background(), pr, nil, waMediaType)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+
+	var msg *waE2E.Message
+	switch mediaType {
+	case "image":
+		imgMsg := &waE2E.ImageMessage{
+			Mimetype: proto.String(mimetype),
+			URL: proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
+			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
+			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
+		}
+		if caption != "" {
+			imgMsg.Caption = proto.String(caption)
+		}
+		msg = &waE2E.Message{ImageMessage: imgMsg}
+	case "video":
+		vidMsg := &waE2E.VideoMessage{
+			Mimetype: proto.String(mimetype),
+			URL: proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
+			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
+			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
+		}
+		if caption != "" {
+			vidMsg.Caption = proto.String(caption)
+		}
+		msg = &waE2E.Message{VideoMessage: vidMsg}
+	case "sticker":
+		msg = &waE2E.Message{StickerMessage: &waE2E.StickerMessage{
+			Mimetype: proto.String(mimetype),
+			URL:      proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
+			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
+			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
+		}}
+	default:
+		docMsg := &waE2E.DocumentMessage{
+			Title: proto.String(filename), FileName: proto.String(filename), Mimetype: proto.String(mimetype),
+			URL: proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
+			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
+			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
+		}
+		if caption != "" {
+			docMsg.Caption = proto.String(caption)
+		}
+		msg = &waE2E.Message{DocumentMessage: docMsg}
+	}
+
+	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+
+	rawBytes, _ := proto.Marshal(msg)
+	ts := resp.Timestamp.Unix()
+	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
+		ts, ts, rawBytes, path, mimetype, id)
+
+	broadcastEvent("message", map[string]interface{}{
+		"jid": jid.String(), "from": "me", "id": id, "text": caption,
+		"from_me":       true,
+		"timestamp":     ts,
+		"has_media":     true,
+		"mediaType":     mediaType,
+		"mediaFilename": filename,
+		"status":        "sent",
+		"quotedId":      quotedID,
+		"quotedText":    quotedText,
+		"quotedSender":  quotedSender,
+	})
+	broadcastChats()
+	if conn != nil {
+		sendEvent(conn, "attachment_sent", map[string]interface{}{"jid": jid.String(), "filename": filename, "status": "sent"})
+	}
 }
 
 func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
@@ -715,6 +860,8 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
+		id := whatsmeow.GenerateMessageID()
+
 		fileBytes, err := readLocalFileOrDecode(data.Path, data.Data)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
@@ -724,65 +871,124 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		if mimetype == "" {
 			mimetype = "audio/ogg; codecs=opus"
 		}
-
-		uploaded, err := client.Upload(context.Background(), fileBytes, whatsmeow.MediaAudio)
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
-			return
-		}
-
-		// WhatsApp strict requirement: Waveform MUST be exactly 64 bytes.
-		waveform := []byte{
-			0, 10, 20, 35, 50, 75, 90, 110, 100, 85, 70, 50, 30, 15, 5, 0,
-			5, 20, 45, 65, 80, 100, 120, 110, 95, 75, 50, 30, 20, 10, 5, 0,
-			10, 25, 40, 60, 85, 105, 115, 100, 80, 60, 45, 25, 15, 5, 0, 5,
-			15, 30, 55, 75, 95, 110, 90, 70, 50, 35, 20, 10, 5, 0, 0, 0,
+		localPath := data.Path
+		if localPath == "" {
+			if cachedPath, cacheErr := saveMediaBytes("outgoing", id, mimetype, fileBytes); cacheErr == nil {
+				localPath = cachedPath
+			}
 		}
 
 		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
 
-		msg := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
-			Mimetype: proto.String(mimetype), PTT: proto.Bool(true),
-			Seconds: proto.Uint32(uint32(data.Duration)),
-			URL:     proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
-			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
-			FileLength:  proto.Uint64(uploaded.FileLength),
-			Waveform:    waveform,
-			ContextInfo: ctxInfo,
-		}}
-
-		resp, err := client.SendMessage(context.Background(), jid, msg)
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
-			return
-		}
-
-		rawBytes, _ := proto.Marshal(msg)
-		localPath := data.Path
-		if localPath == "" {
-			if cachedPath, cacheErr := saveMediaBytes("outgoing", resp.ID, mimetype, fileBytes); cacheErr == nil {
-				localPath = cachedPath
-			}
+		senderJID := ""
+		if client.Store.ID != nil {
+			senderJID = client.Store.ID.ToNonAD().String()
 		}
 		voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", data.Duration/60, data.Duration%60)
+		ts := time.Now().Unix()
+
 		saveMessage(StoredMessage{
-			ID: resp.ID, JID: jid.String(), SenderJID: client.Store.ID.ToNonAD().String(), FromMe: true,
-			Text: voiceText, Timestamp: resp.Timestamp.Unix(), Raw: rawBytes, Status: "sent",
+			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
+			Text: voiceText, Timestamp: ts, Status: "uploading",
 			MediaType: "voice", MediaMimetype: mimetype, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
+		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+			ON CONFLICT(jid) DO UPDATE SET timestamp=MAX(timestamp, excluded.timestamp)`, jid.String(), ts, voiceText)
 		broadcastEvent("message", map[string]interface{}{
-			"jid": jid.String(), "from": "me", "id": resp.ID, "text": voiceText,
+			"jid": jid.String(), "from": "me", "id": id, "text": voiceText,
 			"from_me":      true,
-			"timestamp":    resp.Timestamp.Unix(),
+			"timestamp":    ts,
 			"has_media":    true,
 			"mediaType":    "voice",
+			"status":       "uploading",
 			"quotedId":     quotedID,
 			"quotedText":   quotedText,
 			"quotedSender": quotedSender,
 		})
 		broadcastChats()
+
+		sendUploadedVoiceMessage(conn, id, jid, localPath, mimetype, data.Duration, ctxInfo, quotedID, quotedText, quotedSender)
 	}()
+}
+
+// sendUploadedVoiceMessage uploads the recording at path and sends it as a
+// PTT audio message, updating the row already persisted by
+// handleSendVoiceMessage (or reused by handleRetryMessage) to "sent" on
+// success or "failed" on error.
+func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mimetypeHint string, duration int, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+	voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", duration/60, duration%60)
+
+	fail := func(errMsg string) {
+		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+		if conn != nil {
+			sendEvent(conn, "error", map[string]string{"message": errMsg})
+		}
+		broadcastEvent("message", map[string]interface{}{
+			"jid": jid.String(), "from": "me", "id": id, "text": voiceText,
+			"from_me": true, "timestamp": time.Now().Unix(), "has_media": true,
+			"mediaType": "voice", "status": "failed",
+			"quotedId": quotedID, "quotedText": quotedText, "quotedSender": quotedSender,
+		})
+	}
+
+	fileBytes, err := os.ReadFile(path)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+	mimetype := mimetypeHint
+	if mimetype == "" {
+		mimetype = "audio/ogg; codecs=opus"
+	}
+
+	uploaded, err := client.Upload(context.Background(), fileBytes, whatsmeow.MediaAudio)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+
+	// WhatsApp strict requirement: Waveform MUST be exactly 64 bytes.
+	waveform := []byte{
+		0, 10, 20, 35, 50, 75, 90, 110, 100, 85, 70, 50, 30, 15, 5, 0,
+		5, 20, 45, 65, 80, 100, 120, 110, 95, 75, 50, 30, 20, 10, 5, 0,
+		10, 25, 40, 60, 85, 105, 115, 100, 80, 60, 45, 25, 15, 5, 0, 5,
+		15, 30, 55, 75, 95, 110, 90, 70, 50, 35, 20, 10, 5, 0, 0, 0,
+	}
+
+	msg := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+		Mimetype: proto.String(mimetype), PTT: proto.Bool(true),
+		Seconds: proto.Uint32(uint32(duration)),
+		URL:     proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
+		MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
+		FileLength:  proto.Uint64(uploaded.FileLength),
+		Waveform:    waveform,
+		ContextInfo: ctxInfo,
+	}}
+
+	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+
+	rawBytes, _ := proto.Marshal(msg)
+	ts := resp.Timestamp.Unix()
+	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
+		ts, ts, rawBytes, path, mimetype, id)
+
+	broadcastEvent("message", map[string]interface{}{
+		"jid": jid.String(), "from": "me", "id": id, "text": voiceText,
+		"from_me":      true,
+		"timestamp":    ts,
+		"has_media":    true,
+		"mediaType":    "voice",
+		"status":       "sent",
+		"quotedId":     quotedID,
+		"quotedText":   quotedText,
+		"quotedSender": quotedSender,
+	})
+	broadcastChats()
 }
 
 // handlePlayVoiceMessage generalizes the original ad-hoc voice-download code
@@ -861,54 +1067,17 @@ func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 
 			destFilename := filename
 			if destFilename == "" {
-				ext := ""
-				switch {
-				case strings.Contains(mimetype, "jpeg") || strings.Contains(mimetype, "jpg"):
-					ext = ".jpg"
-				case strings.Contains(mimetype, "png"):
-					ext = ".png"
-				case strings.Contains(mimetype, "webp"):
-					ext = ".webp"
-				case strings.Contains(mimetype, "mp4"):
-					ext = ".mp4"
-				case strings.Contains(mimetype, "ogg") || mediaType == "voice":
-					ext = ".ogg"
-				case strings.Contains(mimetype, "mp3") || strings.Contains(mimetype, "mpeg") || mediaType == "audio":
-					ext = ".mp3"
-				case strings.Contains(mimetype, "pdf"):
-					ext = ".pdf"
-				}
-
-				if ext == "" {
-					ext = filepath.Ext(path)
-				}
-				if ext == "" {
-					ext = ".bin"
-				}
-
-				prefix := "WhatsApp File"
-				switch mediaType {
-				case "image":
-					prefix = "WhatsApp Image"
-				case "video":
-					prefix = "WhatsApp Video"
-				case "voice":
-					prefix = "WhatsApp PTT"
-				case "audio":
-					prefix = "WhatsApp Audio"
-				}
-
 				var ts int64
 				db.QueryRow("SELECT COALESCE(timestamp, 0) FROM messages WHERE id = ?", msgID).Scan(&ts)
-				if ts > 0 {
-					t := time.Unix(ts, 0)
-					destFilename = fmt.Sprintf("%s %s%s", prefix, t.Format("2006-01-02-150405"), ext)
-				} else {
-					destFilename = fmt.Sprintf("%s-%s%s", prefix, msgID, ext)
-				}
+				destFilename = synthesizeMediaFilename(mediaType, mimetype, ts, msgID)
 			}
 
-			tempPath := filepath.Join(tempDir, safeFilenameForFS(destFilename))
+			// Album items are sent within the same second (often the exact
+			// same one), so without disambiguating here every photo's
+			// synthesized name would collide and only the last file written
+			// would actually end up on the clipboard - looking like the
+			// same image copied over and over instead of the whole album.
+			tempPath := uniqueFileForDir(tempDir, destFilename)
 			if bytes, err := os.ReadFile(path); err == nil {
 				if os.WriteFile(tempPath, bytes, 0644) == nil {
 					paths = append(paths, tempPath)
@@ -1103,15 +1272,16 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 			data, dataOk := c.(map[string]interface{})
 			conn, connOk := data["conn"].(net.Conn)
 			action, _ := data["action"].(string)
-			if dataOk && connOk {
+			if dataOk {
 				if action == "open_media" {
-					if mediaType == "document" || mediaType == "audio" {
-						absPath, _ := filepath.Abs(path)
-						sendEvent(conn, "open_media", map[string]string{"path": absPath})
-					} else {
-						sendEvent(conn, "open_media", map[string]string{"path": path})
-					}
-				} else if action == "play_audio" {
+					// This used to just sendEvent "open_media" with a path,
+					// but nothing on the frontend ever listened for that —
+					// the auto-open silently did nothing once an expired
+					// media URL had to be re-fetched. Open it directly here
+					// instead, same as the fast (already-cached) path. conn
+					// is safely nil if the assertion above failed.
+					openMediaFileWithRealName(conn, string(evt.MessageID), path, mediaType, mimetype, filename)
+				} else if action == "play_audio" && connOk {
 					sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": string(evt.MessageID)})
 				}
 			}

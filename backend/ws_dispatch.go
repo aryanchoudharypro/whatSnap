@@ -73,6 +73,8 @@ func handleConnection(conn net.Conn) {
 			handleEditMessage(cmd.Data)
 		case "delete_message":
 			handleDeleteMessage(cmd.Data)
+		case "retry_message":
+			handleRetryMessage(conn, cmd.Data)
 		case "send_typing":
 			handleSendTyping(cmd.Data)
 		case "subscribe_presence":

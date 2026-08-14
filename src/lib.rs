@@ -218,6 +218,7 @@ impl ChatMessage {
 		let status_title = match self.status.as_str() {
 			"pending" => "Pending",
 			"uploading" => "Uploading",
+			"failed" => "Failed to send",
 			"sent" => "Sent",
 			"delivered" => "Delivered",
 			"read" => "Read",

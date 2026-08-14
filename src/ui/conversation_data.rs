@@ -1,5 +1,7 @@
 use wxdragon::prelude::*;
 
+use crate::ui::theme;
+
 #[derive(Clone)]
 pub struct ConversationDataDialogParts {
 	pub dialog: Dialog,
@@ -9,9 +11,11 @@ pub struct ConversationDataDialogParts {
 
 pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDataDialogParts {
 	let dialog = Dialog::builder(parent, "Conversation Data").with_size(400, 300).build();
+	theme::style_content(&dialog);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let info_field = TextCtrl::builder(&dialog).with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly).build();
+	info_field.set_font(&theme::Fonts::body());
 	sizer.add(&info_field, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let close_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("Close").build();

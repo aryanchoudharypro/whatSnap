@@ -1,5 +1,7 @@
 use wxdragon::prelude::*;
 
+use crate::ui::theme;
+
 /// Every constructed widget is kept here for consistency even if not all of
 /// them are read back after construction yet (e.g. the sync checkbox).
 #[allow(dead_code)]
@@ -18,30 +20,40 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 		.with_size(380, 320)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
+	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
+	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let name_label = StaticText::builder(&panel).with_label("Name").build();
+	theme::style_muted_label(&name_label);
 	sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let name_field = TextCtrl::builder(&panel).build();
+	name_field.set_font(&theme::Fonts::body());
 	sizer.add(&name_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let surname_label = StaticText::builder(&panel).with_label("Surname").build();
+	theme::style_muted_label(&surname_label);
 	sizer.add(&surname_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let surname_field = TextCtrl::builder(&panel).build();
+	surname_field.set_font(&theme::Fonts::body());
 	sizer.add(&surname_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let phone_label = StaticText::builder(&panel).with_label("Phone Number").build();
+	theme::style_muted_label(&phone_label);
 	sizer.add(&phone_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let phone_field = TextCtrl::builder(&panel).build();
+	phone_field.set_font(&theme::Fonts::body());
 	sizer.add(&phone_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let sync_check = CheckBox::builder(&panel).with_label("Sync Contact").build();
 	sync_check.set_value(true);
+	sync_check.set_font(&theme::Fonts::body());
 	sizer.add(&sync_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Create").build();
+	theme::style_primary_button(&ok_btn);
 	btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();

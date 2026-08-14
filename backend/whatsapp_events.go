@@ -821,6 +821,7 @@ func eventHandler(evt interface{}) {
 		if client.Store.ID != nil {
 			broadcastEvent("connected", map[string]string{"jid": client.Store.ID.String()})
 			go client.SendPresence(context.Background(), types.PresenceAvailable)
+			go retryPendingTextMessages()
 			go func() {
 				time.Sleep(3 * time.Second)
 				populateChatsFromStore()

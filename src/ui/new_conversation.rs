@@ -1,5 +1,7 @@
 use wxdragon::prelude::*;
 
+use crate::ui::theme;
+
 /// Every constructed widget is kept here for consistency even if not all of
 /// them are read back after construction yet.
 #[allow(dead_code)]
@@ -17,25 +19,32 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 		.with_size(440, 480)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
+	theme::style_content(&dialog);
 
 	let panel = Panel::builder(&dialog).build();
+	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let search_label = StaticText::builder(&panel).with_label("Search name or number").build();
+	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let search_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
+	search_field.set_font(&theme::Fonts::body());
 	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let results_list = ListBox::builder(&panel).build();
+	results_list.set_font(&theme::Fonts::body());
 	sizer.add(&results_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let new_group_btn = Button::builder(&panel).with_label("New Group").build();
+	new_group_btn.set_font(&theme::Fonts::body());
 	btn_sizer.add(&new_group_btn, 0, SizerFlag::Right, 8);
 
 	let new_contact_btn = Button::builder(&panel).with_label("New Contact").build();
+	new_contact_btn.set_font(&theme::Fonts::body());
 	btn_sizer.add(&new_contact_btn, 0, SizerFlag::Right, 8);
 
 	btn_sizer.add_stretch_spacer(1);
