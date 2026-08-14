@@ -73,6 +73,7 @@ pub enum UiCommand {
 	EditMessage { message_id: String, new_text: String },
 	DeleteMessage { message_id: String, sender_jid: String, for_everyone: bool },
 	GetMessageInfo { message_id: String },
+	RetryMessage { message_id: String },
 	CopyAlbumToClipboard { message_ids: Vec<String> },
 	SendTyping { jid: String, state: String, media: String },
 	SubscribePresence(String),
@@ -1347,28 +1348,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						}
 						"error" => {
 							if let Some(msg) = val.get("data").and_then(|d| d.get("message")).and_then(|m| m.as_str()) {
-								let mut s = state.borrow_mut();
-								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
-								let mut temp_idx = None;
-								for (idx, m) in s.messages.iter().enumerate() {
-									if m.id.starts_with("temp_upload_") {
-										temp_idx = Some(idx);
-										break;
-									}
-								}
-								if let Some(idx) = temp_idx {
-									s.messages[idx].text = format!("[Upload failed: {}]", msg);
-									parts
-										.conversations_parts
-										.messages_list
-										.set_string(idx as u32, &s.messages[idx].format_display(is_group));
-									let formatted = s.messages[idx].format_display(is_group);
-									live_region::announce(
-										parts.conversations_parts.messages_announcer.clone(),
-										&formatted,
-									);
-								}
-								drop(s);
+								// The message row itself (if any) is already updated to
+								// "failed" by its own "message" event, which the backend
+								// always sends before this one; this is just the popup.
 								parts.conversations_parts.play_voice_btn.set_label("Play voice message");
 								MessageDialog::builder(&parts.frame, msg, "Error")
 									.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
@@ -1583,10 +1565,16 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										});
 									let msg_id = data.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
 
+									// Matches either the old client-side upload placeholder (by
+									// its temp_upload_ prefix) or, now that the backend sends the
+									// local echo itself with a real id from the start, a message
+									// we already have that's transitioning status (pending/uploading
+									// -> sent/failed). Either way this is an update-in-place, not a
+									// new row.
 									let mut temp_msg_idx = None;
 									if is_from_me {
 										for (idx, msg) in s.messages.iter().enumerate() {
-											if msg.id.starts_with("temp_upload_") {
+											if msg.id == msg_id || msg.id.starts_with("temp_upload_") {
 												temp_msg_idx = Some(idx);
 												break;
 											}
@@ -1596,6 +1584,14 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									if let Some(idx) = temp_msg_idx {
 										s.messages[idx].id = msg_id.clone();
 										s.messages[idx].text = text.to_string();
+										s.messages[idx].timestamp = ts;
+										s.messages[idx].sent_at = ts;
+										s.messages[idx].status = data
+											.get("status")
+											.and_then(|st| st.as_str())
+											.filter(|st| !st.is_empty())
+											.unwrap_or("sent")
+											.to_string();
 										s.messages[idx].media_type =
 											data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("").to_string();
 										s.messages[idx].media_filename = data
@@ -1622,22 +1618,29 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.unwrap_or("")
 											.to_string();
 
+										let status = s.messages[idx].status.clone();
 										let media_type = s.messages[idx].media_type.clone();
 										let media_filename = s.messages[idx].media_filename.clone();
 										let quoted_id = s.messages[idx].quoted_id.clone();
 										let quoted_text = s.messages[idx].quoted_text.clone();
 										let quoted_sender = s.messages[idx].quoted_sender.clone();
 
-										// Update display_items and UI
+										// Update display_items and UI. Matches by real id first (a
+										// message transitioning pending/uploading -> sent/failed);
+										// the temp_upload_ prefix check is kept only for backward
+										// compatibility with any leftover client-side placeholder.
 										let mut target_di = None;
 										let mut updated_display = String::new();
 										for (di, item) in s.display_items.iter_mut().enumerate() {
 											let mut matched = false;
 											match item {
 												whantv::DisplayItem::Single(m) => {
-													if m.id.starts_with("temp_upload_") {
+													if m.id == msg_id || m.id.starts_with("temp_upload_") {
 														m.id = msg_id.clone();
 														m.text = text.to_string();
+														m.timestamp = ts;
+														m.sent_at = ts;
+														m.status = status.clone();
 														m.media_type = media_type.clone();
 														m.media_filename = media_filename.clone();
 														m.quoted_id = quoted_id.clone();
@@ -1648,9 +1651,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												}
 												whantv::DisplayItem::Album { messages, .. } => {
 													for m in messages.iter_mut() {
-														if m.id.starts_with("temp_upload_") {
+														if m.id == msg_id || m.id.starts_with("temp_upload_") {
 															m.id = msg_id.clone();
 															m.text = text.to_string();
+															m.timestamp = ts;
+															m.sent_at = ts;
+															m.status = status.clone();
 															m.media_type = media_type.clone();
 															m.media_filename = media_filename.clone();
 															m.quoted_id = quoted_id.clone();
@@ -1793,9 +1799,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											sender_name,
 											is_audio: text.starts_with("[Voice Message]")
 												|| text.starts_with("[Audio]"),
-											status: s
-												.pending_receipts
-												.remove(&msg_id)
+											// The backend now tells us the real status up front for our
+											// own sends (pending/uploading/sent/failed); fall back to an
+											// out-of-order receipt, then "sent", for anything else.
+											status: data
+												.get("status")
+												.and_then(|st| st.as_str())
+												.filter(|st| !st.is_empty())
+												.map(|st| st.to_string())
+												.or_else(|| s.pending_receipts.remove(&msg_id))
 												.unwrap_or_else(|| "sent".to_string()),
 											sent_at: if is_from_me { ts } else { 0 },
 											quoted_id,
@@ -3460,6 +3472,11 @@ while ($true) {
 							}
 						}
 						"attachment_uploading" => {
+							// Percentage-level upload progress. The message row itself
+							// (text/status) is kept in sync by the "message" event, which
+							// the backend sends immediately with a real id and again on
+							// completion/failure; this only drives the live announcement
+							// and the (usually already-closed) attachment dialog's label.
 							if let Some(data) = val.get("data") {
 								let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("file");
 								let percent = data.get("percent").and_then(|p| p.as_i64());
@@ -3469,204 +3486,13 @@ while ($true) {
 									format!("Uploading {}...", filename)
 								};
 								parts.attachment_dialog.attachment_info_label.set_label(&msg);
-
-								let mut s = state.borrow_mut();
-								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
-
-								// 1. Update s.messages
-								let mut temp_msg_idx = None;
-								for (idx, m) in s.messages.iter().enumerate() {
-									if m.id.starts_with("temp_upload_") {
-										temp_msg_idx = Some(idx);
-										break;
-									}
-								}
-
-								if let Some(idx) = temp_msg_idx {
-									let existing_text = &s.messages[idx].text;
-									let caption_suffix = if existing_text.starts_with("[Uploading ") {
-										if let Some(pos) = existing_text.find("] ") {
-											existing_text[pos + 2..].to_string()
-										} else {
-											String::new()
-										}
-									} else {
-										// If it already transformed to [Document] etc., just keep it as is,
-										// but actually we shouldn't really overwrite it if it's no longer Uploading,
-										// but to be safe we'll preserve the whole text as suffix if it lacks ]
-										if let Some(pos) = existing_text.find("] ") {
-											existing_text[pos + 2..].to_string()
-										} else {
-											String::new()
-										}
-									};
-									s.messages[idx].text = if caption_suffix.is_empty() {
-										format!("[{}]", msg)
-									} else {
-										format!("[{}] {}", msg, caption_suffix)
-									};
-								}
-
-								// 2. Update s.display_items and UI
-								let mut target_di = None;
-								let mut updated_display = String::new();
-								for (di, item) in s.display_items.iter_mut().enumerate() {
-									let mut matched = false;
-									match item {
-										whantv::DisplayItem::Single(m) => {
-											if m.id.starts_with("temp_upload_") {
-												let existing_text = &m.text;
-												let caption_suffix = if let Some(pos) = existing_text.find("] ") {
-													existing_text[pos + 2..].to_string()
-												} else {
-													String::new()
-												};
-												m.text = if caption_suffix.is_empty() {
-													format!("[{}]", msg)
-												} else {
-													format!("[{}] {}", msg, caption_suffix)
-												};
-												matched = true;
-											}
-										}
-										whantv::DisplayItem::Album { messages, .. } => {
-											for m in messages.iter_mut() {
-												if m.id.starts_with("temp_upload_") {
-													let existing_text = &m.text;
-													let caption_suffix = if let Some(pos) = existing_text.find("] ") {
-														existing_text[pos + 2..].to_string()
-													} else {
-														String::new()
-													};
-													m.text = if caption_suffix.is_empty() {
-														format!("[{}]", msg)
-													} else {
-														format!("[{}] {}", msg, caption_suffix)
-													};
-													matched = true;
-													break;
-												}
-											}
-										}
-									}
-									if matched {
-										target_di = Some(di);
-										updated_display = item.format_display(is_group);
-										break;
-									}
-								}
-
-								if let Some(di) = target_di {
-									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-								}
 								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
 							}
 						}
 						"attachment_sent" => {
-							if let Some(data) = val.get("data") {
-								let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("file");
-								let real_id = data.get("id").and_then(|i| i.as_str()).unwrap_or("");
-
-								parts.attachment_dialog.attachment_info_label.set_label("");
-
-								let mut s = state.borrow_mut();
-								let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
-
-								// 1. Update s.messages
-								let mut target_msg_idx = None;
-								for (idx, m) in s.messages.iter().enumerate() {
-									if m.id.starts_with("temp_upload_")
-										|| m.status == "uploading" || m.status == "pending"
-									{
-										target_msg_idx = Some(idx);
-										break;
-									}
-								}
-
-								if let Some(idx) = target_msg_idx {
-									if !real_id.is_empty() {
-										s.messages[idx].id = real_id.to_string();
-									}
-									s.messages[idx].status = "sent".to_string();
-
-									let text = &s.messages[idx].text;
-									if text.starts_with("[Uploading ") {
-										if let Some(pos) = text.find("] ") {
-											s.messages[idx].text = text[pos + 2..].to_string();
-										} else if text.ends_with(']') {
-											s.messages[idx].text = String::new();
-										}
-									}
-								}
-
-								// 2. Update s.display_items and UI
-								let mut target_di = None;
-								let mut updated_display = String::new();
-								for (di, item) in s.display_items.iter_mut().enumerate() {
-									let mut matched = false;
-									match item {
-										whantv::DisplayItem::Single(m) => {
-											if m.id.starts_with("temp_upload_")
-												|| m.status == "uploading" || m.status == "pending"
-											{
-												if !real_id.is_empty() {
-													m.id = real_id.to_string();
-												}
-												m.status = "sent".to_string();
-
-												let text = &m.text;
-												if text.starts_with("[Uploading ") {
-													if let Some(pos) = text.find("] ") {
-														m.text = text[pos + 2..].to_string();
-													} else if text.ends_with(']') {
-														m.text = String::new();
-													}
-												}
-												matched = true;
-											}
-										}
-										whantv::DisplayItem::Album { messages, .. } => {
-											for m in messages.iter_mut() {
-												if m.id.starts_with("temp_upload_")
-													|| m.status == "uploading" || m.status == "pending"
-												{
-													if !real_id.is_empty() {
-														m.id = real_id.to_string();
-													}
-													m.status = "sent".to_string();
-
-													let text = &m.text;
-													if text.starts_with("[Uploading ") {
-														if let Some(pos) = text.find("] ") {
-															m.text = text[pos + 2..].to_string();
-														} else if text.ends_with(']') {
-															m.text = String::new();
-														}
-													}
-													matched = true;
-													break;
-												}
-											}
-										}
-									}
-									if matched {
-										target_di = Some(di);
-										updated_display = item.format_display(is_group);
-										break;
-									}
-								}
-
-								if let Some(di) = target_di {
-									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-									live_region::announce(
-										parts.conversations_parts.messages_announcer.clone(),
-										&updated_display,
-									);
-								} else {
-									let msg = format!("{} sent successfully", filename);
-									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
-								}
-							}
+							// The message row itself is already updated to "sent" by its
+							// own "message" event, which the backend always sends first.
+							parts.attachment_dialog.attachment_info_label.set_label("");
 						}
 						_ => {}
 					}
@@ -4198,11 +4024,11 @@ while ($true) {
 			};
 			parts.conversations_parts.remove_quote_btn.show(false);
 			if let Some(ref jid) = jid {
-				let is_group = jid.ends_with("@g.us");
-				let ts =
-					std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
-						as i64;
-
+				// The backend persists a "uploading" row and broadcasts it
+				// immediately, before the upload even starts, so the local
+				// echo comes back through the normal "message" event handler
+				// with a real id from the start instead of a client-side
+				// placeholder here.
 				for (idx, path) in paths.iter().enumerate() {
 					let ext =
 						std::path::Path::new(path).extension().unwrap_or_default().to_string_lossy().to_lowercase();
@@ -4213,42 +4039,6 @@ while ($true) {
 					};
 					let filename =
 						std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string();
-
-					let display_text = if caption.trim().is_empty() {
-						format!("[Uploading {}...]", filename)
-					} else {
-						format!("[Uploading {}...] {}", filename, caption)
-					};
-
-					let temp_id = format!("temp_upload_{}_{}", ts, idx);
-					let pending_msg = ChatMessage {
-						id: temp_id,
-						text: display_text,
-						timestamp: ts,
-						from_me: true,
-						sender_jid: "me".to_string(),
-						sender_name: "You".to_string(),
-						status: "uploading".to_string(),
-						sent_at: ts,
-						..Default::default()
-					};
-
-					{
-						let mut s = state.borrow_mut();
-						s.messages.push(pending_msg.clone());
-						s.display_items.push(whantv::DisplayItem::Single(pending_msg.clone()));
-					}
-					parts.conversations_parts.messages_list.append(&pending_msg.format_display(is_group));
-
-					let count = parts.conversations_parts.messages_list.get_count();
-					if count > 0 {
-						parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
-						parts.conversations_parts.messages_list.set_focus();
-					}
-					live_region::announce(
-						parts.conversations_parts.messages_announcer.clone(),
-						&pending_msg.format_display(is_group),
-					);
 
 					// Only the first attachment in a multi-file batch carries the
 					// reply-to context, so a reply doesn't get quoted once per file.
@@ -4721,6 +4511,13 @@ while ($true) {
 			let payload = serde_json::json!({
 				"action": "get_message_info",
 				"data": { "id": message_id }
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::RetryMessage { message_id } => {
+			let payload = serde_json::json!({
+				"action": "retry_message",
+				"data": { "message_id": message_id }
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}

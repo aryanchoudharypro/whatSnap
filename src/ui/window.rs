@@ -5,7 +5,7 @@ use wxdragon::{
 	prelude::*,
 };
 
-use crate::{UiCommand, ui_wake::UiCommandSender};
+use crate::{UiCommand, ui::theme, ui_wake::UiCommandSender};
 
 /// Every constructed widget is kept here for consistency even if not all of
 /// them are read back after construction yet (e.g. phone_panel).
@@ -41,35 +41,47 @@ pub struct WindowParts {
 }
 
 pub fn build_main_window() -> WindowParts {
-	let frame = Frame::builder().with_title("whantv").with_size(Size::new(900, 600)).build();
+	let frame = Frame::builder().with_title("whantv").with_size(Size::new(1180, 760)).build();
+	frame.set_min_size(Size::new(900, 600));
 	wxdragon::app::set_top_window(&frame);
 	frame.create_status_bar(1, 0, wxdragon::id::ID_ANY as i32, "status_bar");
 	frame.set_status_text("Status: Initializing...", 0);
+	theme::style_content(&frame);
 
 	let main_panel = Panel::builder(&frame).build();
+	theme::style_content(&main_panel);
 	let main_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let nav_panel = Panel::builder(&main_panel).build();
+	theme::style_sidebar(&nav_panel);
+	nav_panel.set_min_size(Size::new(200, -1));
 	let nav_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let nav_label = StaticText::builder(&nav_panel).with_label("Main Navigation").build();
+	theme::style_sidebar_heading(&nav_label);
 	let nav_list = ListBox::builder(&nav_panel)
 		.with_choices(vec!["Conversations".to_string(), "Archived Chats".to_string()])
 		.build();
+	nav_list.set_font(&theme::Fonts::body_strong());
+	theme::style_sidebar(&nav_list);
 	nav_list.set_selection(0_u32, true);
-	nav_sizer.add(&nav_label, 0, SizerFlag::All, 5);
-	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	nav_sizer.add(&nav_label, 0, SizerFlag::All, 10);
+	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 	nav_panel.set_sizer(nav_sizer, true);
 
 	let content_panel = Panel::builder(&main_panel).build();
+	theme::style_content(&content_panel);
 	let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let login_panel = Dialog::builder(&frame, "Login").with_size(500, 300).build();
+	let login_panel = Dialog::builder(&frame, "Login").with_size(500, 320).build();
+	theme::style_content(&login_panel);
 	let login_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let qrcode_dialog = Dialog::builder(&frame, "QR Code").with_size(550, 550).build();
+	theme::style_content(&qrcode_dialog);
 	let qr_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let qrcode_instructions =
 		StaticText::builder(&qrcode_dialog).with_label("Scan this QR Code with WhatsApp:").build();
+	theme::style_heading(&qrcode_instructions);
 	let empty_bitmap = wxdragon::bitmap::Bitmap::from_rgba(&[255, 255, 255, 255], 1, 1).unwrap();
 	let qrcode_display = StaticBitmap::builder(&qrcode_dialog)
 		.with_bitmap(Some(empty_bitmap))
@@ -78,9 +90,11 @@ pub fn build_main_window() -> WindowParts {
 
 	let qrcode_announcer = StaticText::builder(&qrcode_dialog).with_label("").build();
 	live_region::set_live_region(&qrcode_announcer);
+	theme::style_muted_label(&qrcode_announcer);
 
 	let qrcode_cancel_btn =
 		Button::builder(&qrcode_dialog).with_id(wxdragon::id::ID_CANCEL).with_label("Cancel QR Code").build();
+	qrcode_cancel_btn.set_font(&theme::Fonts::body());
 	qr_sizer.add(&qrcode_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	qr_sizer.add(&qrcode_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	qr_sizer.add(&qrcode_announcer, 0, SizerFlag::Left, 0);
@@ -89,8 +103,10 @@ pub fn build_main_window() -> WindowParts {
 
 	// Phone Panel
 	let phone_panel = Panel::builder(&login_panel).build();
+	theme::style_content(&phone_panel);
 	let phone_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let country_label = StaticText::builder(&phone_panel).with_label("Country:").build();
+	theme::style_muted_label(&country_label);
 	let mut choices = Vec::new();
 	for &(name, _) in crate::countries::COUNTRIES {
 		choices.push(name.to_string());
@@ -98,11 +114,16 @@ pub fn build_main_window() -> WindowParts {
 	let country_combo =
 		ComboBox::builder(&phone_panel).with_choices(choices).with_style(ComboBoxStyle::ReadOnly).build();
 	country_combo.set_selection(0_u32);
+	country_combo.set_font(&theme::Fonts::body());
 
 	let phone_label = StaticText::builder(&phone_panel).with_label("Enter phone number:").build();
+	theme::style_muted_label(&phone_label);
 	let phone_field = TextCtrl::builder(&phone_panel).with_value("+55 ").build();
+	phone_field.set_font(&theme::Fonts::body());
 	let pair_btn = Button::builder(&phone_panel).with_label("Continue").build();
+	theme::style_primary_button(&pair_btn);
 	let switch_to_qr_btn = Button::builder(&phone_panel).with_label("Connect with QR Code").build();
+	switch_to_qr_btn.set_font(&theme::Fonts::body());
 
 	phone_sizer.add(&country_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	phone_sizer.add(&country_combo, 0, SizerFlag::Expand | SizerFlag::All, 10);
@@ -117,18 +138,22 @@ pub fn build_main_window() -> WindowParts {
 	login_panel.set_sizer(login_sizer, true);
 
 	// Pairing Dialog
-	let pairing_dialog = Dialog::builder(&frame, "Pairing Code").with_size(300, 150).build();
+	let pairing_dialog = Dialog::builder(&frame, "Pairing Code").with_size(320, 170).build();
+	theme::style_content(&pairing_dialog);
 	let p_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let pairing_instructions =
 		StaticText::builder(&pairing_dialog).with_label("Enter this pairing code in WhatsApp on your phone:").build();
+	theme::style_heading(&pairing_instructions);
 	let pairing_code_display =
 		TextCtrl::builder(&pairing_dialog).with_style(TextCtrlStyle::ReadOnly | TextCtrlStyle::Centre).build();
+	pairing_code_display.set_font(&theme::Fonts::heading());
 
 	let pairing_announcer = StaticText::builder(&pairing_dialog).with_label("").build();
 	live_region::set_live_region(&pairing_announcer);
 
 	let pairing_cancel_btn =
 		Button::builder(&pairing_dialog).with_id(wxdragon::id::ID_CANCEL).with_label("Cancel").build();
+	pairing_cancel_btn.set_font(&theme::Fonts::body());
 	p_sizer.add(&pairing_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	p_sizer.add(&pairing_code_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	p_sizer.add(&pairing_announcer, 0, SizerFlag::Left, 0); // hidden visually but in DOM
@@ -868,6 +893,7 @@ pub fn bind_input_handlers(
 			let copy_id = 3007;
 			let save_voice_id = 3008;
 			let react_dialog_id = 3010;
+			let retry_id = 3011;
 
 			let s = state_ctx.borrow();
 			let display_item = s.display_items.get(idx as usize).cloned();
@@ -900,6 +926,18 @@ pub fn bind_input_handlers(
 					_ => false,
 				})
 				.unwrap_or(false);
+			let can_retry = display_item
+				.as_ref()
+				.map(|item| match item {
+					whantv::DisplayItem::Single(m) => {
+						m.from_me && !m.is_date_divider && (m.status == "pending" || m.status == "failed")
+					}
+					whantv::DisplayItem::Album { messages, .. } => messages
+						.first()
+						.map(|m| m.from_me && (m.status == "pending" || m.status == "failed"))
+						.unwrap_or(false),
+				})
+				.unwrap_or(false);
 
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder
@@ -909,6 +947,9 @@ pub fn bind_input_handlers(
 				.append_item(edit_id, "&Edit", "Edit message")
 				.append_item(delete_id, "&Delete", "Delete message")
 				.append_item(react_dialog_id, "&React...", "React to message");
+			if can_retry {
+				menu_builder = menu_builder.append_item(retry_id, "Retry &send", "Retry sending this message");
+			}
 			if is_voice_msg {
 				menu_builder =
 					menu_builder.append_item(save_voice_id, "&Save voice message...", "Save voice message to device");
@@ -1197,6 +1238,16 @@ pub fn bind_input_handlers(
 					}
 				} else if id == copy_id {
 					copy_for_menu.as_ref()();
+				} else if id == retry_id {
+					let s = state_clone.borrow();
+					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+						whantv::DisplayItem::Single(m) => Some(m.clone()),
+						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+					});
+					drop(s);
+					if let Some(msg) = msg_opt {
+						let _ = tx_play_media_clone.send(UiCommand::RetryMessage { message_id: msg.id.clone() });
+					}
 				} else if id == save_voice_id {
 					let _ = tx_play_media_clone.send(UiCommand::SaveMediaAs);
 				} else if id == copy_all_id {

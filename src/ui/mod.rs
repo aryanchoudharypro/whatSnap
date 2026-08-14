@@ -6,5 +6,6 @@ pub mod new_conversation;
 pub mod new_group;
 pub mod group_data;
 pub mod call_window;
+pub mod theme;
 
 pub mod window;

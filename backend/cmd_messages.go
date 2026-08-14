@@ -25,64 +25,125 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	var msg *waE2E.Message
+	// Pick the message ID up front (instead of taking whatever whatsmeow
+	// generates on success) so the pending row we persist right now and the
+	// eventual sent/failed row are the same message throughout.
+	id := whatsmeow.GenerateMessageID()
+
 	quotedID, quotedText, quotedSender := "", "", ""
 	if data.ReplyToID != "" {
-		quotedMsg, storedSenderJID, preview, qErr := getMessageForQuote(data.ReplyToID)
-		participant := data.ReplySender
-		if participant == "" {
-			participant = storedSenderJID
-		}
-		if qErr == nil {
-			quotedID, quotedText, quotedSender = data.ReplyToID, preview, participant
-			ctxInfo := &waE2E.ContextInfo{StanzaID: proto.String(data.ReplyToID), QuotedMessage: quotedMsg}
-			if participant != "" {
-				ctxInfo.Participant = proto.String(participant)
+		if _, storedSenderJID, preview, qErr := getMessageForQuote(data.ReplyToID); qErr == nil {
+			quotedID = data.ReplyToID
+			quotedText = preview
+			quotedSender = data.ReplySender
+			if quotedSender == "" {
+				quotedSender = storedSenderJID
 			}
-			msg = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: &data.Text, ContextInfo: ctxInfo}}
 		}
 	}
-	if msg == nil {
-		msg = &waE2E.Message{Conversation: &data.Text}
-	}
 
-	resp, err := client.SendMessage(context.Background(), jid, msg)
-	if err != nil {
-		log.Printf("Error sending message: %v", err)
-		sendEvent(conn, "error", map[string]string{"message": err.Error()})
-		return
+	senderJID := ""
+	if client.Store.ID != nil {
+		senderJID = client.Store.ID.ToNonAD().String()
 	}
-	log.Printf("Message sent successfully with ID %s", resp.ID)
-	ts := resp.Timestamp.Unix()
-	senderJID := client.Store.ID.ToNonAD().String()
-	rawBytes, _ := proto.Marshal(msg)
+	ts := time.Now().Unix()
 
-	if _, dbErr := db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+	// Persist and broadcast as "pending" immediately, before the network
+	// attempt: this is the local echo, and it's what makes a failed/offline
+	// send recoverable instead of just vanishing.
+	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
-		jid.String(), ts, data.Text); dbErr != nil {
-		log.Println("Error updating chat on send:", dbErr)
-	}
-	if dbErr := saveMessage(StoredMessage{
-		ID: resp.ID, JID: jid.String(), SenderJID: senderJID, FromMe: true,
-		Text: data.Text, Timestamp: ts, Raw: rawBytes, Status: "sent",
+		jid.String(), ts, data.Text)
+	saveMessage(StoredMessage{
+		ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
+		Text: data.Text, Timestamp: ts, Status: "pending",
 		QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
-	}); dbErr != nil {
-		log.Println("Error inserting sent message:", dbErr)
-	}
-
+	})
 	broadcastEvent("message", map[string]interface{}{
 		"jid":          jid.String(),
 		"from":         "me",
-		"id":           resp.ID,
+		"id":           id,
 		"text":         data.Text,
 		"from_me":      true,
 		"timestamp":    ts,
 		"has_media":    false,
+		"status":       "pending",
 		"quotedId":     quotedID,
 		"quotedText":   quotedText,
 		"quotedSender": quotedSender,
+	})
+	broadcastChats()
+
+	sendPendingTextMessage(conn, id, jid.String(), data.Text, quotedID, quotedSender)
+}
+
+// sendPendingTextMessage attempts to actually deliver a text message that has
+// already been persisted (as "pending" or "failed"). It's the single place
+// that turns a stored row into a real WhatsApp send, shared by the initial
+// send above, the reconnect auto-retry sweep, and a user-triggered manual
+// retry, so all three behave identically.
+func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSender string) {
+	jid, err := types.ParseJID(jidStr)
+	if err != nil {
+		return
+	}
+
+	var msg *waE2E.Message
+	finalQuotedID, quotedText, finalQuotedSender := "", "", ""
+	if quotedID != "" {
+		quotedMsg, storedSenderJID, preview, qErr := getMessageForQuote(quotedID)
+		participant := quotedSender
+		if participant == "" {
+			participant = storedSenderJID
+		}
+		if qErr == nil {
+			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, participant
+			ctxInfo := &waE2E.ContextInfo{StanzaID: proto.String(quotedID), QuotedMessage: quotedMsg}
+			if participant != "" {
+				ctxInfo.Participant = proto.String(participant)
+			}
+			msg = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: &text, ContextInfo: ctxInfo}}
+		}
+	}
+	if msg == nil {
+		msg = &waE2E.Message{Conversation: &text}
+	}
+
+	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
+	if err != nil {
+		log.Printf("Error sending message %s: %v", id, err)
+		if conn != nil {
+			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+		}
+		// Left as "pending" in the DB: the reconnect sweep (or a manual
+		// retry from the context menu) will pick it up again. Nothing lost.
+		return
+	}
+	log.Printf("Message %s sent successfully", id)
+	ts := resp.Timestamp.Unix()
+	rawBytes, _ := proto.Marshal(msg)
+
+	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=? WHERE id=?`, ts, ts, rawBytes, id)
+	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+			ON CONFLICT(jid) DO UPDATE SET
+			timestamp=MAX(timestamp, excluded.timestamp),
+			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
+		jid.String(), ts, text)
+
+	broadcastEvent("message", map[string]interface{}{
+		"jid":          jid.String(),
+		"from":         "me",
+		"id":           id,
+		"text":         text,
+		"from_me":      true,
+		"timestamp":    ts,
+		"has_media":    false,
+		"status":       "sent",
+		"quotedId":     finalQuotedID,
+		"quotedText":   quotedText,
+		"quotedSender": finalQuotedSender,
 	})
 	broadcastChats()
 }
