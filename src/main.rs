@@ -117,8 +117,18 @@ impl NotificationSound {
 	}
 }
 
+use std::sync::atomic::AtomicU64;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+static LAST_SOUND_TIME: AtomicU64 = AtomicU64::new(0);
+
 fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 	if !sounds_enabled {
+		return;
+	}
+	let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+	let last = LAST_SOUND_TIME.swap(now, Ordering::Relaxed);
+	if now - last < 500 {
 		return;
 	}
 	std::thread::spawn(move || {
@@ -128,6 +138,26 @@ fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 			// and this is already a worker thread.
 			handle.play(SoundFlags::Sync);
 		}
+	});
+}
+
+fn show_toast_notification(title: &str, body: &str) {
+	// Debounce toast notifications globally to max 1 per second to avoid flooding on startup
+	static LAST_TOAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+	let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+	let last = LAST_TOAST.swap(now, std::sync::atomic::Ordering::Relaxed);
+	if now - last < 1000 {
+		return;
+	}
+
+	let title = title.to_string();
+	let body = body.to_string();
+	std::thread::spawn(move || {
+		let _ = notify_rust::Notification::new()
+			.app_id("whaNTV")
+			.summary(&title)
+			.body(&body)
+			.show();
 	});
 }
 
@@ -1752,6 +1782,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.unwrap_or_else(|| from == "me" || from == "You");
 										if !is_from_me {
 											play_notification_sound(NotificationSound::MessageBackground, true);
+											let sender = data.get("sender_name").and_then(|s| s.as_str()).unwrap_or(from);
+											show_toast_notification(sender, text);
 										}
 									}
 								}

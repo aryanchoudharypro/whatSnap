@@ -1,4 +1,3 @@
-#Requires -Version 7
 <#
     Builds whaNTV for release: both binaries, a portable zip, and the installer.
 
@@ -42,6 +41,7 @@ foreach ($tool in 'cargo', 'go') {
 
 # build.rs drives `go build` for the backend, so this produces both binaries.
 Push-Location $repo
+$env:CMAKE_POLICY_VERSION_MINIMUM="3.5"
 try {
     cargo build --release
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
