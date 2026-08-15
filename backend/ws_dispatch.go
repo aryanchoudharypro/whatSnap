@@ -145,6 +145,8 @@ func handleConnection(conn net.Conn) {
 			handleDeleteChat(cmd.Data)
 		case "request_history_sync":
 			handleRequestHistorySync(cmd.Data)
+		case "place_call":
+			handlePlaceCall(cmd.Data)
 
 		// --- settings (unchanged) ---
 		case "update_settings":

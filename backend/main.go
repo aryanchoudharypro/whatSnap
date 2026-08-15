@@ -148,6 +148,7 @@ func main() {
 			}
 			log.Println("Connected to WhatsApp!")
 			broadcastEvent("connected", map[string]string{"jid": client.Store.ID.String()})
+			initCallClient()
 			go client.SendPresence(context.Background(), types.PresenceAvailable)
 
 			go func() {
