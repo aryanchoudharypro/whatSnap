@@ -85,6 +85,14 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 // send above, the reconnect auto-retry sweep, and a user-triggered manual
 // retry, so all three behave identically.
 func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSender string) {
+	if !beginSendAttempt(id) {
+		// Already in flight - the reconnect sweep, the periodic auto-retry
+		// sweep, and a manual "Retry send" can all reach this function for
+		// the same message, and only one should ever hit the network.
+		return
+	}
+	defer endSendAttempt(id)
+
 	jid, err := types.ParseJID(jidStr)
 	if err != nil {
 		return
@@ -117,11 +125,15 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		if conn != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 		}
-		// Left as "pending" in the DB: the reconnect sweep (or a manual
-		// retry from the context menu) will pick it up again. Nothing lost.
+		// Stays "pending" in the DB while auto-retries remain; the periodic
+		// sweep (backend/cmd_retry.go) will pick it up again with backoff,
+		// or a manual retry from the context menu. Once retries are
+		// exhausted, recordSendFailure marks it "failed" instead.
+		recordSendFailure(id, jidStr, text, quotedID, quotedSender)
 		return
 	}
 	log.Printf("Message %s sent successfully", id)
+	clearRetryState(id)
 	ts := resp.Timestamp.Unix()
 	rawBytes, _ := proto.Marshal(msg)
 

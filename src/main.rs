@@ -1,11 +1,11 @@
 #![windows_subsystem = "windows"]
 
+mod call_audio;
 mod countries;
 mod paths;
 mod ui;
 mod ui_wake;
 mod win_job;
-mod call_audio;
 
 use std::{
 	cell::RefCell,
@@ -131,8 +131,10 @@ impl NotificationSound {
 	}
 }
 
-use std::sync::atomic::AtomicU64;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+	sync::atomic::AtomicU64,
+	time::{SystemTime, UNIX_EPOCH},
+};
 
 static LAST_SOUND_TIME: AtomicU64 = AtomicU64::new(0);
 
@@ -171,7 +173,7 @@ fn play_call_fail_sound(state: &mut AppState) {
 				sink.append(decoder);
 				sink.play();
 				state.call_ringing_sink = Some(sink);
-			},
+			}
 			Err(e) => println!("[AUDIO] Error decoding fail sound: {:?}", e),
 		}
 	} else {
@@ -196,7 +198,7 @@ fn start_call_ringing_sound(state: &mut AppState) {
 				sink.append(decoder.repeat_infinite());
 				sink.play();
 				state.call_ringing_sink = Some(sink);
-			},
+			}
 			Err(e) => println!("[AUDIO] Error decoding ringing sound: {:?}", e),
 		}
 	} else {
@@ -224,11 +226,7 @@ fn show_toast_notification(title: &str, body: &str) {
 	let title = title.to_string();
 	let body = body.to_string();
 	std::thread::spawn(move || {
-		let _ = notify_rust::Notification::new()
-			.app_id("whaNTV")
-			.summary(&title)
-			.body(&body)
-			.show();
+		let _ = notify_rust::Notification::new().app_id("whaNTV").summary(&title).body(&body).show();
 	});
 }
 
@@ -370,6 +368,10 @@ struct AppState {
 	played_sent_sounds: std::collections::HashSet<String>,
 	display_items: Vec<whantv::DisplayItem>,
 	typing_timestamps: std::collections::HashMap<String, std::time::Instant>,
+	// Last announced typing/recording state per chat (0=none, 1=typing, 2=recording),
+	// so a screen reader hears "X is typing" once per state change instead of on
+	// every composing stanza WhatsApp resends while the sender keeps typing.
+	typing_announce_state: std::collections::HashMap<String, u8>,
 	active_call_audio: Option<call_audio::CallAudioState>,
 	active_call_id: Option<String>,
 	call_ringing_sink: Option<Player>,
@@ -842,6 +844,7 @@ fn main() {
 			contacts: std::collections::HashMap::new(),
 			presence_labels: std::collections::HashMap::new(),
 			typing_timestamps: std::collections::HashMap::new(),
+			typing_announce_state: std::collections::HashMap::new(),
 			active_call_audio: None,
 			active_call_id: None,
 			call_ringing_sink: None,
@@ -964,6 +967,7 @@ fn main() {
 			let selected = s.selected_chat.clone();
 			for jid in &expired {
 				s.typing_timestamps.remove(jid);
+				s.typing_announce_state.remove(jid);
 			}
 			if let Some(ref sel_jid) = selected {
 				if expired.iter().any(|j| j == sel_jid) {
@@ -1248,8 +1252,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									stop_call_ringing_sound(&mut s);
 									if let Ok(streams) = call_audio::start_audio_streams(audio_port as u16) {
 										s.active_call_audio = Some(streams);
-										live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Call connected.");
-										
+										live_region::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											"Call connected.",
+										);
+
 										parts.call_parts.status_label.set_label("Call connected.");
 										parts.call_parts.accept_btn.show(false);
 										parts.call_parts.reject_btn.show(false);
@@ -1258,7 +1265,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.call_parts.add_participant_btn.show(true);
 										parts.call_parts.frame.show(true);
 									} else {
-										live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Failed to start audio stream.");
+										live_region::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											"Failed to start audio stream.",
+										);
 									}
 								}
 							}
@@ -1282,7 +1292,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.call_parts.frame.show(false);
 										stop_call_ringing_sound(&mut s);
 										play_call_fail_sound(&mut s);
-										live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Call ended.");
+										live_region::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											"Call ended.",
+										);
 									}
 								}
 							}
@@ -1294,14 +1307,20 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let mut s = state.borrow_mut();
 									s.active_call_id = Some(call_id.to_string());
 									let name = s.contacts.get(caller).cloned().unwrap_or_else(|| caller.to_string());
-									parts.call_parts.status_label.set_label(&format!("Incoming voice call from {}", name));
+									parts
+										.call_parts
+										.status_label
+										.set_label(&format!("Incoming voice call from {}", name));
 									parts.call_parts.accept_btn.show(true);
 									parts.call_parts.reject_btn.show(true);
 									parts.call_parts.mute_btn.show(false);
 									parts.call_parts.leave_btn.show(false);
 									parts.call_parts.add_participant_btn.show(false);
 									parts.call_parts.frame.show(true);
-									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Incoming voice call from {}", name));
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										&format!("Incoming voice call from {}", name),
+									);
 								}
 							}
 						}
@@ -1939,7 +1958,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.unwrap_or_else(|| from == "me" || from == "You");
 										if !is_from_me {
 											play_notification_sound(NotificationSound::MessageBackground, true);
-											let sender = data.get("sender_name").and_then(|s| s.as_str()).unwrap_or(from);
+											let sender =
+												data.get("sender_name").and_then(|s| s.as_str()).unwrap_or(from);
 											show_toast_notification(sender, text);
 										}
 									}
@@ -2431,14 +2451,28 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let is_typing = data.get("typing").and_then(|t| t.as_bool()).unwrap_or(false);
 								let is_recording = data.get("recording").and_then(|r| r.as_bool()).unwrap_or(false);
 
-								{
+								let state_changed = {
 									let mut s = state.borrow_mut();
 									if is_typing || is_recording {
 										s.typing_timestamps.insert(chat_jid.to_string(), std::time::Instant::now());
 									} else {
 										s.typing_timestamps.remove(chat_jid);
 									}
-								}
+									let new_kind: u8 = if is_recording {
+										2
+									} else if is_typing {
+										1
+									} else {
+										0
+									};
+									let prev_kind = s.typing_announce_state.get(chat_jid).copied().unwrap_or(0);
+									if new_kind == 0 {
+										s.typing_announce_state.remove(chat_jid);
+									} else {
+										s.typing_announce_state.insert(chat_jid.to_string(), new_kind);
+									}
+									new_kind != prev_kind
+								};
 
 								let s = state.borrow();
 								if Some(chat_jid.to_string()) == s.selected_chat {
@@ -2453,10 +2487,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											None
 										};
 										if let Some(ann) = announcement {
-											live_region::announce(
-												parts.conversations_parts.messages_announcer.clone(),
-												&ann,
-											);
+											if state_changed {
+												live_region::announce(
+													parts.conversations_parts.messages_announcer.clone(),
+													&ann,
+												);
+											}
 										}
 										let btn_label = if is_recording || is_typing {
 											if is_recording {
@@ -2581,7 +2617,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"group_info" => {
 							if let Some(payload) = val.get("data") {
 								let info = payload.get("Info").unwrap_or(payload);
-								let viewer_is_admin = payload.get("ViewerIsAdmin").and_then(|v| v.as_bool()).unwrap_or(false);
+								let viewer_is_admin =
+									payload.get("ViewerIsAdmin").and_then(|v| v.as_bool()).unwrap_or(false);
 
 								// Set visibility of admin buttons
 								parts.group_data_dialog.add_member_btn.show(viewer_is_admin);
@@ -2609,30 +2646,35 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									for p in participants {
 										if let Some(jid) = p.get("JID").and_then(|j| j.as_str()) {
 											let is_admin = p.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
-											let is_super = p.get("IsSuperAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
-											
+											let is_super =
+												p.get("IsSuperAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
+
 											let backend_name = p.get("Name").and_then(|n| n.as_str()).unwrap_or("");
-											
+
 											let mut local_name = if !backend_name.is_empty() {
 												backend_name.to_string()
 											} else {
 												s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string())
 											};
-											
+
 											let raw_phone = jid.split('@').next().unwrap_or(jid);
 											let mut phone = raw_phone.to_string();
 											if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
-												phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+												phone =
+													parsed.format().mode(phonenumber::Mode::International).to_string();
 											}
-											
+
 											if local_name == jid {
 												local_name = phone.clone();
 											}
-											
+
 											let mut role = "";
-											if is_super { role = " (Super Admin)"; }
-											else if is_admin { role = " (Admin)"; }
-											
+											if is_super {
+												role = " (Super Admin)";
+											} else if is_admin {
+												role = " (Admin)";
+											}
+
 											if local_name == phone {
 												member_strings.push(format!("{}{}", local_name, role));
 											} else {
@@ -2644,7 +2686,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								drop(s);
 								let mut s_mut = state.borrow_mut();
 								s_mut.group_data_members = member_strings;
-								
+
 								// Populate files
 								let mut file_strings = Vec::new();
 								for msg in &s_mut.messages {
@@ -2655,7 +2697,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									}
 								}
 								s_mut.group_data_files = file_strings;
-								
+
 								let query_members = parts.group_data_dialog.members_search.get_value().to_lowercase();
 								parts.group_data_dialog.members_list.clear();
 								for member in &s_mut.group_data_members {
@@ -2663,7 +2705,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.group_data_dialog.members_list.append(member);
 									}
 								}
-								
+
 								let query_files = parts.group_data_dialog.files_search.get_value().to_lowercase();
 								parts.group_data_dialog.files_list.clear();
 								for file in &s_mut.group_data_files {
@@ -4249,14 +4291,14 @@ while ($true) {
 					parts.group_data_dialog.group_name_field.set_value(&local_name);
 					parts.group_data_dialog.members_list.clear();
 					parts.group_data_dialog.files_list.clear();
-					
+
 					let payload = serde_json::json!({
 						"action": "get_group_info",
 						"data": { "jid": jid }
 					});
 					let _ = s.ws_tx.send(payload.to_string());
 					drop(s);
-					
+
 					parts.group_data_dialog.dialog.show_modal();
 				} else {
 					let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
@@ -4334,7 +4376,7 @@ while ($true) {
 				"data": { "jid": jid }
 			});
 			let _ = state.borrow().ws_tx.send(msg.to_string());
-			
+
 			let s = state.borrow();
 			let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 			parts.call_parts.status_label.set_label(&format!("In call with {}", name));
@@ -4344,7 +4386,7 @@ while ($true) {
 			parts.call_parts.add_participant_btn.show(true);
 			parts.call_parts.leave_btn.show(true);
 			parts.call_parts.frame.show(true);
-			
+
 			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Placing call...");
 		}
 		UiCommand::AnswerCall => {
@@ -4438,7 +4480,10 @@ while ($true) {
 							"data": { "call_id": call_id, "jid": clean }
 						});
 						let _ = s.ws_tx.send(msg.to_string());
-						live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Participant added.");
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							"Participant added.",
+						);
 					}
 				}
 			} else {
@@ -4633,31 +4678,31 @@ while ($true) {
 			let jid = state.borrow().selected_chat.clone();
 			if let Some(jid) = jid {
 				let s = state.borrow();
-				
+
 				let msg_name = serde_json::json!({
 					"action": "set_group_name",
 					"data": { "jid": jid, "name": name }
 				});
 				let _ = s.ws_tx.send(msg_name.to_string());
-				
+
 				let msg_topic = serde_json::json!({
 					"action": "set_group_topic",
 					"data": { "jid": jid, "topic": topic }
 				});
 				let _ = s.ws_tx.send(msg_topic.to_string());
-				
+
 				let msg_ann = serde_json::json!({
 					"action": "set_group_announce",
 					"data": { "jid": jid, "value": announce }
 				});
 				let _ = s.ws_tx.send(msg_ann.to_string());
-				
+
 				let msg_lock = serde_json::json!({
 					"action": "set_group_locked",
 					"data": { "jid": jid, "value": locked }
 				});
 				let _ = s.ws_tx.send(msg_lock.to_string());
-				
+
 				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Group settings updated.");
 			}
 		}
