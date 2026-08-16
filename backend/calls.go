@@ -27,17 +27,7 @@ func initCallClient() {
 		activeCallsMutex.Unlock()
 		
 		call.OnReady(func() {
-			bridge, port, err := NewUDPBridge()
-			if err != nil {
-				log.Println("Failed to create UDP bridge:", err)
-				return
-			}
-			call.Play(bridge)
-			call.Receive(bridge)
-			broadcastEvent("call_connected", map[string]interface{}{
-				"call_id":    call.ID(),
-				"audio_port": port,
-			})
+			log.Println("Incoming call ready (connected):", call.ID())
 		})
 		call.OnEnd(func(reason string) {
 			broadcastEvent("call_ended", map[string]string{
@@ -135,11 +125,23 @@ func handleAnswerCall(data []byte) {
 		return
 	}
 	
-	err := call.Answer()
+	bridge, port, err := NewUDPBridge()
+	if err != nil {
+		log.Println("Failed to create UDP bridge:", err)
+		return
+	}
+	call.Play(bridge)
+	call.Receive(bridge)
+
+	err = call.Answer()
 	if err != nil {
 		log.Println("Failed to answer call:", err)
 	} else {
 		log.Println("Answered call:", req.CallID)
+		broadcastEvent("call_connected", map[string]interface{}{
+			"call_id":    call.ID(),
+			"audio_port": port,
+		})
 	}
 }
 
