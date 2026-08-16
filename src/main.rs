@@ -101,6 +101,8 @@ pub enum UiCommand {
 	ToggleMuteChat { jid: String, mute: bool },
 	ToggleReadChat { jid: String, read: bool },
 	DeleteChat { jid: String },
+	FilterGroupMembers(String),
+	FilterGroupFiles(String),
 }
 
 use std::fs::File;
@@ -370,6 +372,8 @@ struct AppState {
 	active_call_audio: Option<call_audio::CallAudioState>,
 	active_call_id: Option<String>,
 	call_ringing_sink: Option<Player>,
+	group_data_members: Vec<String>,
+	group_data_files: Vec<String>,
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
@@ -840,6 +844,8 @@ fn main() {
 			active_call_audio: None,
 			active_call_id: None,
 			call_ringing_sink: None,
+			group_data_members: Vec::new(),
+			group_data_files: Vec::new(),
 			group_state: crate::ui::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
@@ -2608,29 +2614,35 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 								}
-								parts.group_data_dialog.members_list.clear();
-								for member_str in &member_strings {
-									parts.group_data_dialog.members_list.append(member_str);
-								}
+								drop(s);
+								let mut s_mut = state.borrow_mut();
+								s_mut.group_data_members = member_strings;
 								
-								// Also populate files
-								let mut file_strings: Vec<String> = Vec::new();
-								if let Some(selected) = &s.selected_chat {
-									for msg in &s.messages {
-										if !msg.media_type.is_empty() {
-											if !msg.media_filename.is_empty() {
-												file_strings.push(msg.media_filename.clone());
-											} else if !msg.text.is_empty() {
-												file_strings.push(msg.text.clone());
-											} else {
-												file_strings.push(format!("Media: {}", msg.media_type));
-											}
-										}
+								// Populate files
+								let mut file_strings = Vec::new();
+								for msg in &s_mut.messages {
+									if !msg.media_filename.is_empty() {
+										file_strings.push(msg.media_filename.clone());
+									} else if !msg.media_mimetype.is_empty() {
+										file_strings.push(format!("Media: {}", msg.media_mimetype));
 									}
 								}
+								s_mut.group_data_files = file_strings;
+								
+								let query_members = parts.group_data_dialog.members_search.get_value().to_lowercase();
+								parts.group_data_dialog.members_list.clear();
+								for member in &s_mut.group_data_members {
+									if query_members.is_empty() || member.to_lowercase().contains(&query_members) {
+										parts.group_data_dialog.members_list.append(member);
+									}
+								}
+								
+								let query_files = parts.group_data_dialog.files_search.get_value().to_lowercase();
 								parts.group_data_dialog.files_list.clear();
-								for file_str in &file_strings {
-									parts.group_data_dialog.files_list.append(file_str);
+								for file in &s_mut.group_data_files {
+									if query_files.is_empty() || file.to_lowercase().contains(&query_files) {
+										parts.group_data_dialog.files_list.append(file);
+									}
 								}
 							}
 						}
@@ -4568,6 +4580,26 @@ while ($true) {
 				s.active_call_audio = None;
 				stop_call_ringing_sound(&mut s);
 				play_call_fail_sound(&mut s);
+			}
+		}
+		UiCommand::FilterGroupMembers(query) => {
+			let s = state.borrow();
+			let lower_query = query.to_lowercase();
+			parts.group_data_dialog.members_list.clear();
+			for member in &s.group_data_members {
+				if lower_query.is_empty() || member.to_lowercase().contains(&lower_query) {
+					parts.group_data_dialog.members_list.append(member);
+				}
+			}
+		}
+		UiCommand::FilterGroupFiles(query) => {
+			let s = state.borrow();
+			let lower_query = query.to_lowercase();
+			parts.group_data_dialog.files_list.clear();
+			for file in &s.group_data_files {
+				if lower_query.is_empty() || file.to_lowercase().contains(&lower_query) {
+					parts.group_data_dialog.files_list.append(file);
+				}
 			}
 		}
 		UiCommand::MuteCall => {
