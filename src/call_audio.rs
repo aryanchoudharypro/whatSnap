@@ -2,36 +2,16 @@ use std::{
 	net::UdpSocket,
 	sync::{
 		Arc,
-		atomic::{AtomicBool, AtomicU64, Ordering},
+		atomic::{AtomicBool, Ordering},
 		mpsc,
 	},
-	time::{Duration, Instant},
+	time::Duration,
 };
 
 use rodio::cpal::{
 	self, BufferSize, StreamConfig,
 	traits::{DeviceTrait, HostTrait, StreamTrait},
 };
-
-// The user reported inbound audio playing for a moment then cutting off for
-// good, while outbound (mic) kept working - but meowcaller's own diagnostics
-// showed RTP arriving with zero loss and real decoded PCM energy the whole
-// call. That means the break is somewhere between the UDP bridge here and
-// actually reaching the speaker, which is invisible: this file's own
-// eprintln!() calls go to a console that a windowed GUI app doesn't have, so
-// none of them were ever seen. Append-only log to a real file instead, plus
-// cheap atomic counters sampled periodically (never file I/O from the
-// real-time cpal callbacks themselves) so a repro shows exactly which stage
-// stalls: UDP reader dying/stalling, the channel backing up, or the output
-// callback finding the buffer starved.
-fn log_line(msg: &str) {
-	use std::io::Write;
-	let path = crate::paths::log_dir().join("call_audio.log");
-	if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-		let now = chrono::Local::now().format("%H:%M:%S%.3f");
-		let _ = writeln!(f, "{} {}", now, msg);
-	}
-}
 
 // On Windows, a UDP socket that has sent a datagram to a port with no
 // listener can later fail recvfrom() with WSAECONNRESET when the OS
@@ -98,25 +78,6 @@ pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
 	let socket_read = socket.try_clone()?;
 	let socket_out = socket.try_clone()?;
 
-	log_line(&format!(
-		"start_audio_streams: target_port={} input_device={:?} output_device={:?}",
-		target_port,
-		input_device.name().unwrap_or_default(),
-		output_device.name().unwrap_or_default()
-	));
-
-	// Cheap atomics only - sampled by the periodic health-check below, never
-	// logged from inside a real-time cpal callback. This is what actually
-	// tells us which stage stalls on a repro: the reader thread going quiet,
-	// the channel to the output callback backing up, or the output callback
-	// itself finding nothing to play.
-	let reader_recv_count = Arc::new(AtomicU64::new(0));
-	let reader_error_count = Arc::new(AtomicU64::new(0));
-	let tx_drop_count = Arc::new(AtomicU64::new(0));
-	let output_starved_samples = Arc::new(AtomicU64::new(0));
-	let output_played_samples = Arc::new(AtomicU64::new(0));
-	let output_src_accum_len = Arc::new(AtomicU64::new(0));
-
 	// The output cpal callback runs on a real-time audio thread that must
 	// never block; a blocking UDP recv there previously stalled (or on
 	// Windows/WASAPI, could glitch/silence) playback whenever a frame from
@@ -126,82 +87,38 @@ pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
 	let (frame_tx, frame_rx) = mpsc::sync_channel::<Vec<f32>>(8);
 	let reader_stop = Arc::new(AtomicBool::new(false));
 	let reader_stop_thread = Arc::clone(&reader_stop);
-	{
-		let reader_recv_count = Arc::clone(&reader_recv_count);
-		let reader_error_count = Arc::clone(&reader_error_count);
-		let tx_drop_count = Arc::clone(&tx_drop_count);
-		std::thread::spawn(move || {
-			let _ = socket_read.set_read_timeout(Some(Duration::from_millis(200)));
-			disable_udp_connreset(&socket_read);
-			let mut buf = vec![0u8; 960 * 4];
-			while !reader_stop_thread.load(Ordering::Relaxed) {
-				match socket_read.recv_from(&mut buf) {
-					Ok((size, _)) => {
-						let floats = size / 4;
-						let mut frame = Vec::with_capacity(floats);
-						for i in 0..floats {
-							let bytes = [buf[i * 4], buf[i * 4 + 1], buf[i * 4 + 2], buf[i * 4 + 3]];
-							frame.push(f32::from_le_bytes(bytes));
-						}
-						reader_recv_count.fetch_add(1, Ordering::Relaxed);
-						// A full channel means playback is falling behind; drop
-						// the frame rather than block this thread's UDP reads.
-						if frame_tx.try_send(frame).is_err() {
-							tx_drop_count.fetch_add(1, Ordering::Relaxed);
-						}
+	std::thread::spawn(move || {
+		let _ = socket_read.set_read_timeout(Some(Duration::from_millis(200)));
+		disable_udp_connreset(&socket_read);
+		let mut buf = vec![0u8; 960 * 4];
+		while !reader_stop_thread.load(Ordering::Relaxed) {
+			match socket_read.recv_from(&mut buf) {
+				Ok((size, _)) => {
+					let floats = size / 4;
+					let mut frame = Vec::with_capacity(floats);
+					for i in 0..floats {
+						let bytes = [buf[i * 4], buf[i * 4 + 1], buf[i * 4 + 2], buf[i * 4 + 3]];
+						frame.push(f32::from_le_bytes(bytes));
 					}
-					Err(ref e)
-						if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {}
-					// Any other recv error (notably WSAECONNRESET on Windows,
-					// which a loopback UDP socket can get handed after any
-					// datagram it sent found no listener at that instant - pure
-					// local plumbing noise, unrelated to whether the call/relay
-					// is still up) used to permanently kill this thread, which
-					// dropped frame_tx and silenced playback for the rest of the
-					// call even though nothing about the connection had changed.
-					// Log and keep listening instead; only the explicit stop
-					// flag above should end this loop.
-					Err(e) => {
-						reader_error_count.fetch_add(1, Ordering::Relaxed);
-						log_line(&format!("reader recv error (continuing): {}", e));
-					}
+					// A full channel means playback is falling behind; drop
+					// the frame rather than block this thread's UDP reads.
+					let _ = frame_tx.try_send(frame);
 				}
+				Err(ref e)
+					if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {}
+				// Any other recv error (notably WSAECONNRESET on Windows,
+				// which a loopback UDP socket can get handed after any
+				// datagram it sent found no listener at that instant - pure
+				// local plumbing noise, unrelated to whether the call/relay
+				// is still up) used to permanently kill this thread, which
+				// dropped frame_tx and silenced playback for the rest of the
+				// call even though nothing about the connection had changed.
+				// Keep listening instead; only the explicit stop flag above
+				// should end this loop.
+				Err(_) => {}
 			}
-			log_line("reader thread exiting (reader_stop set)");
-		});
-	}
-
-	// Periodic health snapshot - runs on its own plain thread so it can do
-	// file I/O freely without ever touching a real-time cpal callback.
-	// Stops itself the same way the reader thread does.
-	{
-		let reader_stop = Arc::clone(&reader_stop);
-		let reader_recv_count = Arc::clone(&reader_recv_count);
-		let reader_error_count = Arc::clone(&reader_error_count);
-		let tx_drop_count = Arc::clone(&tx_drop_count);
-		let output_starved_samples = Arc::clone(&output_starved_samples);
-		let output_played_samples = Arc::clone(&output_played_samples);
-		let output_src_accum_len = Arc::clone(&output_src_accum_len);
-		std::thread::spawn(move || {
-			let mut last = Instant::now();
-			while !reader_stop.load(Ordering::Relaxed) {
-				std::thread::sleep(Duration::from_millis(200));
-				if last.elapsed() < Duration::from_secs(2) {
-					continue;
-				}
-				last = Instant::now();
-				log_line(&format!(
-					"health: udp_recv={} udp_err={} tx_dropped={} src_accum_len={} played={} starved={}",
-					reader_recv_count.load(Ordering::Relaxed),
-					reader_error_count.load(Ordering::Relaxed),
-					tx_drop_count.load(Ordering::Relaxed),
-					output_src_accum_len.load(Ordering::Relaxed),
-					output_played_samples.load(Ordering::Relaxed),
-					output_starved_samples.load(Ordering::Relaxed),
-				));
-			}
-		});
-	}
+		}
+	});
 
 	let is_muted = Arc::new(AtomicBool::new(false));
 	let mute_flag = Arc::clone(&is_muted);
@@ -276,7 +193,7 @@ pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
 						sample_accum = remainder;
 					}
 				},
-				|err| log_line(&format!("Input stream error: {}", err)),
+				|_err| {},
 				None,
 			);
 
@@ -344,7 +261,6 @@ pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
 						src_accum.pop_front();
 					}
 
-					let mut starved = 0u64;
 					for out_frame in data.chunks_mut(channels as usize) {
 						let idx = resample_phase.floor() as usize;
 						let sample = if idx + 1 < src_accum.len() {
@@ -367,7 +283,6 @@ pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
 							// go silent for the rest of the call. Freezing
 							// phase at the buffer boundary means it's already
 							// aligned with the front of whatever arrives next.
-							starved += 1;
 							0.0
 						};
 						for slot in out_frame.iter_mut() {
@@ -385,25 +300,15 @@ pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
 					if src_accum.is_empty() && resample_phase > 0.0 {
 						resample_phase = 0.0;
 					}
-
-					output_played_samples.fetch_add(out_frames as u64, Ordering::Relaxed);
-					output_starved_samples.fetch_add(starved, Ordering::Relaxed);
-					output_src_accum_len.store(src_accum.len() as u64, Ordering::Relaxed);
 				},
-				|err| log_line(&format!("Output stream error: {}", err)),
+				|_err| {},
 				None,
 			);
 
-			match stream {
-				Ok(s) => {
-					if s.play().is_ok() {
-						output_stream = Some(s);
-						log_line("output stream started");
-					} else {
-						log_line("output stream play() failed");
-					}
+			if let Ok(s) = stream {
+				if s.play().is_ok() {
+					output_stream = Some(s);
 				}
-				Err(e) => log_line(&format!("output build_output_stream failed: {}", e)),
 			}
 		}
 	}

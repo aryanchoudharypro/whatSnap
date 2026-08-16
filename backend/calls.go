@@ -3,13 +3,9 @@ package main
 import (
 	"context"
 	"log"
-	"os"
-	"path/filepath"
 	"sync"
 	"encoding/json"
 	"github.com/purpshell/meowcaller"
-	"github.com/purpshell/meowcaller/diag"
-	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -21,30 +17,7 @@ func initCallClient() {
 	if client == nil {
 		return
 	}
-	// meowcaller "never configures logging" on its own - without WithLogger
-	// every diagnostic it has (relay allocation, SRTP unprotect failures,
-	// first-RTP-in timing) is silently discarded, which left us guessing
-	// blind about where inbound audio was actually failing. os.Stderr is
-	// already redirected to backend.log in main(), so this lands in the
-	// same place as everything else.
-	callLog := zerolog.New(os.Stderr).Level(zerolog.DebugLevel).With().Timestamp().Str("component", "meowcaller").Logger()
-	opts := []meowcaller.Option{meowcaller.WithLogger(callLog)}
-
-	// WithDiagnostics gives per-packet visibility (every STUN/RTCP/RTP packet
-	// on the relay channel, not just the summarized log lines above) - this
-	// is what lets us tell whether the relay transport itself goes quiet
-	// mid-call or the peer specifically stops sending audio while everything
-	// else keeps flowing. Written next to backend.log; harmless if it can't
-	// be created (call still works, we just lose this extra detail).
-	if diagDir, err := os.UserCacheDir(); err == nil {
-		if rec, err := diag.NewRecorder(filepath.Join(diagDir, "whaNTV", "logs", "call-diag")); err == nil {
-			opts = append(opts, meowcaller.WithDiagnostics(rec))
-		} else {
-			log.Println("Failed to create call diagnostics recorder:", err)
-		}
-	}
-
-	callClient = meowcaller.NewClient(client, opts...)
+	callClient = meowcaller.NewClient(client)
 
 	callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())
