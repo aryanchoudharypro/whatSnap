@@ -18,6 +18,7 @@ pub struct ConversationsPanelParts {
 	pub conv_data_btn: Button,
 	pub add_attachment_btn: Button,
 	pub search_in_conv_btn: Button,
+	pub place_call_btn: Button,
 
 	pub search_panel: Panel,
 	pub search_close_btn: Button,
@@ -82,11 +83,19 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let conversation_panel = Panel::builder(&panel).build();
 	let conv_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let conv_data_btn = Button::builder(&conversation_panel).with_label("Conversation data").build();
-	conv_sizer.add(&conv_data_btn, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
+	let top_btns_panel = Panel::builder(&conversation_panel).build();
+	let top_btns_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let conv_data_btn = Button::builder(&top_btns_panel).with_label("Conversation data").build();
+	top_btns_sizer.add(&conv_data_btn, 0, SizerFlag::Right, 5);
 
-	let search_in_conv_btn = Button::builder(&conversation_panel).with_label("Search in conversation").build();
-	conv_sizer.add(&search_in_conv_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
+	let search_in_conv_btn = Button::builder(&top_btns_panel).with_label("Search in conversation").build();
+	top_btns_sizer.add(&search_in_conv_btn, 0, SizerFlag::Right, 5);
+
+	let place_call_btn = Button::builder(&top_btns_panel).with_label("Call").build();
+	top_btns_sizer.add(&place_call_btn, 0, SizerFlag::Right, 5);
+	
+	top_btns_panel.set_sizer(top_btns_sizer, true);
+	conv_sizer.add(&top_btns_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top | SizerFlag::Bottom, 5);
 
 	let search_panel = Panel::builder(&conversation_panel).build();
 	let search_sizer = BoxSizer::builder(Orientation::Horizontal).build();
@@ -222,6 +231,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		conv_data_btn,
 		add_attachment_btn,
 		search_in_conv_btn,
+		place_call_btn,
 		search_panel,
 		search_close_btn,
 		search_conv_label,

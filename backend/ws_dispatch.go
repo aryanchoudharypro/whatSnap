@@ -147,6 +147,16 @@ func handleConnection(conn net.Conn) {
 			handleRequestHistorySync(cmd.Data)
 		case "place_call":
 			handlePlaceCall(cmd.Data)
+		case "answer_call":
+			handleAnswerCall(cmd.Data)
+		case "reject_call":
+			handleRejectCall(cmd.Data)
+		case "mute_call":
+			handleMuteCall(cmd.Data)
+		case "leave_call":
+			handleLeaveCall(cmd.Data)
+		case "add_participant":
+			handleAddParticipant(cmd.Data)
 
 		// --- settings (unchanged) ---
 		case "update_settings":

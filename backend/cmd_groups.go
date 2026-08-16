@@ -74,7 +74,22 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-		sendEvent(conn, "group_info", info)
+		
+		myJID := client.Store.ID.ToNonAD()
+		isMyAdmin := false
+		for _, p := range info.Participants {
+			if p.JID.ToNonAD().String() == myJID.String() {
+				if p.IsAdmin || p.IsSuperAdmin {
+					isMyAdmin = true
+				}
+				break
+			}
+		}
+
+		sendEvent(conn, "group_info", map[string]interface{}{
+			"Info": info,
+			"ViewerIsAdmin": isMyAdmin,
+		})
 	}()
 }
 

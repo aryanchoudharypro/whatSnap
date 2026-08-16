@@ -34,7 +34,9 @@ pub struct WindowParts {
 	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
 	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
 	pub attachment_dialog: crate::ui::attachment_dialog::AttachmentDialogParts,
+	pub call_parts: crate::ui::call_window::CallWindowParts,
 	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
+	pub group_data_dialog: crate::ui::group_data::GroupDataDialogParts,
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
 }
 
@@ -150,7 +152,9 @@ pub fn build_main_window() -> WindowParts {
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
 	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
 	let attachment_dialog = crate::ui::attachment_dialog::build_attachment_dialog(&frame);
+	let call_parts = crate::ui::call_window::build_call_window();
 	let conversation_data_dialog = crate::ui::conversation_data::build_conversation_data_dialog(&frame);
+	let group_data_dialog = crate::ui::group_data::build_group_data_dialog(&frame);
 
 	let conv_panel = crate::ui::conversations::build_conversations_panel(&content_panel);
 
@@ -195,7 +199,9 @@ pub fn build_main_window() -> WindowParts {
 		new_contact_dialog,
 		new_group_dialog,
 		attachment_dialog,
+		call_parts,
 		conversation_data_dialog,
+		group_data_dialog,
 		conversations_parts: conv_panel,
 	}
 }
@@ -293,9 +299,53 @@ pub fn bind_input_handlers(
 		let _ = tx_conv_data.send(UiCommand::ShowConversationData);
 	});
 
+	let tx_place_call = ui_tx.clone();
+	parts.conversations_parts.place_call_btn.on_click(move |_| {
+		let _ = tx_place_call.send(UiCommand::PlaceCall);
+	});
+
+	let tx_answer = ui_tx.clone();
+	parts.call_parts.accept_btn.on_click(move |_| {
+		let _ = tx_answer.send(UiCommand::AnswerCall);
+	});
+	let tx_reject = ui_tx.clone();
+	parts.call_parts.reject_btn.on_click(move |_| {
+		let _ = tx_reject.send(UiCommand::RejectCall);
+	});
+	let tx_mute = ui_tx.clone();
+	parts.call_parts.mute_btn.on_click(move |_| {
+		let _ = tx_mute.send(UiCommand::MuteCall);
+	});
+	let tx_leave = ui_tx.clone();
+	parts.call_parts.leave_btn.on_click(move |_| {
+		let _ = tx_leave.send(UiCommand::LeaveCall);
+	});
+	let tx_add_participant = ui_tx.clone();
+	parts.call_parts.add_participant_btn.on_click(move |_| {
+		let _ = tx_add_participant.send(UiCommand::AddParticipant);
+	});
+
 	let conv_data_dialog_close = parts.conversation_data_dialog.dialog.clone();
 	parts.conversation_data_dialog.close_btn.on_click(move |_| {
 		conv_data_dialog_close.end_modal(0);
+	});
+
+	let group_data_dialog_close = parts.group_data_dialog.dialog.clone();
+	parts.group_data_dialog.close_btn.on_click(move |_| {
+		group_data_dialog_close.end_modal(0);
+	});
+
+	let tx_group_settings = ui_tx.clone();
+	let group_name_field = parts.group_data_dialog.group_name_field.clone();
+	let group_desc_field = parts.group_data_dialog.group_desc_field.clone();
+	let announce_chk = parts.group_data_dialog.announce_chk.clone();
+	let locked_chk = parts.group_data_dialog.locked_chk.clone();
+	parts.group_data_dialog.save_settings_btn.on_click(move |_| {
+		let name = group_name_field.get_value();
+		let topic = group_desc_field.get_value();
+		let announce = announce_chk.is_checked();
+		let locked = locked_chk.is_checked();
+		let _ = tx_group_settings.send(UiCommand::UpdateGroupSettings { name, topic, announce, locked });
 	});
 
 	let conv_data_dialog_esc = parts.conversation_data_dialog.dialog.clone();
