@@ -116,7 +116,12 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	top_btns_sizer.add(&place_call_btn, 0, SizerFlag::Right, 5);
 
 	top_btns_panel.set_sizer(top_btns_sizer, true);
-	conv_sizer.add(&top_btns_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top | SizerFlag::Bottom, 5);
+	conv_sizer.add(
+		&top_btns_panel,
+		0,
+		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top | SizerFlag::Bottom,
+		5,
+	);
 
 	let search_panel = Panel::builder(&conversation_panel).build();
 	theme::style_content(&search_panel);

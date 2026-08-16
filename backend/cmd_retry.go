@@ -7,16 +7,109 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/types"
 )
 
+// Auto-retry policy for pending text sends, mirroring official WhatsApp:
+// keep quietly retrying with backoff while offline/erroring, and only
+// surface a "failed to send" state (requiring a manual tap) once retries
+// are exhausted.
+const (
+	maxAutoRetries   = 6
+	retryBaseDelay   = 3 * time.Second
+	retryMaxDelay    = 2 * time.Minute
+	retrySweepPeriod = 3 * time.Second
+)
+
+var (
+	retryMu       sync.Mutex
+	sendInFlight  = map[string]bool{}
+	retryAttempts = map[string]int{}
+	retryNextAt   = map[string]time.Time{}
+)
+
+func init() {
+	// Single periodic sweep, independent of the reconnect-triggered one in
+	// whatsapp_events.go, so messages that fail while the socket stays up
+	// (not just offline) still get retried. beginSendAttempt's in-flight
+	// guard makes the two triggers safe to overlap instead of double-sending.
+	go func() {
+		ticker := time.NewTicker(retrySweepPeriod)
+		defer ticker.Stop()
+		for range ticker.C {
+			if client == nil || !client.IsConnected() {
+				continue
+			}
+			retryPendingTextMessages()
+		}
+	}()
+}
+
+// beginSendAttempt claims the single in-flight slot for a message ID so the
+// reconnect sweep, the periodic sweep, and a manual "Retry send" can never
+// dispatch the same message to the network at the same time.
+func beginSendAttempt(id string) bool {
+	retryMu.Lock()
+	defer retryMu.Unlock()
+	if sendInFlight[id] {
+		return false
+	}
+	sendInFlight[id] = true
+	return true
+}
+
+func endSendAttempt(id string) {
+	retryMu.Lock()
+	delete(sendInFlight, id)
+	retryMu.Unlock()
+}
+
+// clearRetryState resets a message's backoff bookkeeping. Called on a
+// successful send, and on a manual retry so a user-initiated attempt always
+// gets a fresh run of automatic backoff rather than inheriting whatever was
+// left over from before.
+func clearRetryState(id string) {
+	retryMu.Lock()
+	delete(retryAttempts, id)
+	delete(retryNextAt, id)
+	retryMu.Unlock()
+}
+
+// recordSendFailure schedules the next backoff attempt, or - once
+// maxAutoRetries is exhausted - marks the message "failed" so the UI stops
+// silently retrying and asks the user to retry manually instead.
+func recordSendFailure(id, jidStr, text, quotedID, quotedSender string) {
+	retryMu.Lock()
+	attempts := retryAttempts[id] + 1
+	retryAttempts[id] = attempts
+	if attempts >= maxAutoRetries {
+		delete(retryAttempts, id)
+		delete(retryNextAt, id)
+		retryMu.Unlock()
+
+		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+		broadcastEvent("message", map[string]interface{}{
+			"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
+			"timestamp": time.Now().Unix(), "has_media": false, "status": "failed",
+			"quotedId": quotedID, "quotedSender": quotedSender,
+		})
+		return
+	}
+	delay := retryBaseDelay * time.Duration(uint64(1)<<uint(attempts-1))
+	if delay > retryMaxDelay {
+		delay = retryMaxDelay
+	}
+	retryNextAt[id] = time.Now().Add(delay)
+	retryMu.Unlock()
+}
+
 // retryPendingTextMessages resends every text message still marked "pending"
-// (never confirmed sent, whether because we were offline or the app closed
-// mid-send) once the WhatsApp connection comes back up. It's called from the
-// events.Connected handler, so it runs both at startup and after any
-// reconnect.
+// that isn't already in flight and whose backoff delay has elapsed. It's
+// called from the events.Connected handler (for an immediate attempt right
+// on reconnect) and from the periodic sweep started in init() above.
 //
 // Media is deliberately excluded here: a stalled upload is surfaced as
 // "failed" instead of "pending", and is only retried when the user
@@ -40,8 +133,17 @@ func retryPendingTextMessages() {
 		}
 	}
 	rows.Close()
+
+	now := time.Now()
 	for _, p := range pending {
-		log.Printf("Retrying pending message %s after reconnect", p.id)
+		retryMu.Lock()
+		inFlight := sendInFlight[p.id]
+		next, hasNext := retryNextAt[p.id]
+		retryMu.Unlock()
+		if inFlight || (hasNext && now.Before(next)) {
+			continue
+		}
+		log.Printf("Retrying pending message %s", p.id)
 		sendPendingTextMessage(nil, p.id, p.jid, p.text, p.quotedID, p.quotedSender)
 	}
 }
@@ -75,6 +177,7 @@ func retryOneMessage(conn net.Conn, id string) {
 	}
 
 	if mediaType == "" {
+		clearRetryState(id)
 		if status != "pending" {
 			db.Exec(`UPDATE messages SET status = 'pending' WHERE id = ?`, id)
 		}
