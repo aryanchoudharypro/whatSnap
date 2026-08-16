@@ -27,6 +27,25 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// friendlyMediaError turns known-unrecoverable whatsmeow media errors into a
+// message a non-technical user can act on. The ciphertext-hash mismatch in
+// particular means the sender's device re-uploaded media that no longer
+// matches the original encryption key/hash (e.g. it deleted the original
+// file) — retrying again won't help.
+func friendlyMediaError(err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "hash of media ciphertext doesn't match"):
+		return "This media is no longer available. The sender's phone no longer has the original file to resend."
+	case strings.Contains(msg, "Phone could not re-upload"):
+		return "This media is no longer available. The sender's phone couldn't resend it."
+	case strings.Contains(msg, "Timeout waiting for phone to re-upload"):
+		return "This media is no longer available. The sender's phone didn't respond in time."
+	default:
+		return msg
+	}
+}
+
 // downloadMessageMedia loads a stored message's raw protobuf, figures out
 // which kind of media it carries, and downloads+decrypts it via whatsmeow.
 func downloadMessageMedia(messageID string) (data []byte, mediaType, mimetype, filename string, err error) {
@@ -341,7 +360,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 			broadcastEvent("media_download_failed", map[string]interface{}{
 				"message_id": data.MessageID,
 				"jid":        data.JID,
-				"message":    err.Error(),
+				"message":    friendlyMediaError(err),
 			})
 			return
 		}
@@ -394,7 +413,7 @@ func handleOpenMedia(conn net.Conn, raw json.RawMessage) {
 				})
 				return
 			}
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
 			return
 		}
 		openMediaFileWithRealName(conn, data.MessageID, path, mediaType, mimetype, filename)
@@ -409,7 +428,7 @@ func handleSaveMediaAs(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		path, _, _, _, err := ensureMediaCached(data.MessageID)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
 			return
 		}
 		bytes, err := os.ReadFile(path)
@@ -1255,12 +1274,12 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 			broadcastEvent("media_download_failed", map[string]interface{}{
 				"message_id": string(evt.MessageID),
 				"jid":        jidStr,
-				"message":    err.Error(),
+				"message":    friendlyMediaError(err),
 			})
 			if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
 				if data, ok := c.(map[string]interface{}); ok {
 					if conn, ok := data["conn"].(net.Conn); ok {
-						sendEvent(conn, "error", map[string]string{"message": "Failed to automatically fetch old media: " + err.Error()})
+						sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
 					}
 				}
 				pendingAutoOpens.Delete(string(evt.MessageID))
