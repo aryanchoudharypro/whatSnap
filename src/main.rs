@@ -2593,24 +2593,39 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								// Parse members
 								let s = state.borrow();
 								let mut member_strings = Vec::new();
-								if let Some(participants) = info.get("Participants").and_then(|p| p.as_array()) {
+								if let Some(participants) = payload.get("Participants").and_then(|p| p.as_array()) {
 									for p in participants {
 										if let Some(jid) = p.get("JID").and_then(|j| j.as_str()) {
 											let is_admin = p.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
 											let is_super = p.get("IsSuperAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
 											
-											let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+											let backend_name = p.get("Name").and_then(|n| n.as_str()).unwrap_or("");
+											
+											let mut local_name = if !backend_name.is_empty() {
+												backend_name.to_string()
+											} else {
+												s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string())
+											};
+											
 											let raw_phone = jid.split('@').next().unwrap_or(jid);
 											let mut phone = raw_phone.to_string();
 											if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
 												phone = parsed.format().mode(phonenumber::Mode::International).to_string();
 											}
 											
+											if local_name == jid {
+												local_name = phone.clone();
+											}
+											
 											let mut role = "";
 											if is_super { role = " (Super Admin)"; }
 											else if is_admin { role = " (Admin)"; }
 											
-											member_strings.push(format!("{}{} - {}", local_name, role, phone));
+											if local_name == phone {
+												member_strings.push(format!("{}{}", local_name, role));
+											} else {
+												member_strings.push(format!("{}{} - {}", local_name, role, phone));
+											}
 										}
 									}
 								}
