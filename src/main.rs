@@ -5,6 +5,7 @@ mod paths;
 mod ui;
 mod ui_wake;
 mod win_job;
+mod call_audio;
 
 use std::{
 	cell::RefCell,
@@ -78,7 +79,17 @@ pub enum UiCommand {
 	MarkRead { jid: String, message_ids: Vec<String> },
 	LoadMoreMessages,
 	PlayVoiceMessage(String),
-	SeekAudio(f32),         // relative delta in seconds
+	RefreshMessages,
+	DownloadAttachment(String), // message ID
+	ChangeAudioSpeed,
+	SeekAudio(f32),
+	PlaceCall,
+	AnswerCall,
+	RejectCall,
+	MuteCall,
+	LeaveCall,
+	AddParticipant,
+	UpdateGroupSettings { name: String, topic: String, announce: bool, locked: bool },
 	SeekAudioAbsolute(i32), // slider value 0..1000
 	CloseConversation,
 	ReactToMessage { message_id: String, sender_jid: String, emoji: String },
@@ -139,6 +150,63 @@ fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 			handle.play(SoundFlags::Sync);
 		}
 	});
+}
+
+fn play_call_fail_sound(state: &mut AppState) {
+	println!("[AUDIO] play_call_fail_sound called");
+	if state.audio_stream.is_none() {
+		if let Ok(stream_handle) = DeviceSinkBuilder::open_default_sink() {
+			state.audio_stream = Some(stream_handle);
+		}
+	}
+	if let Some(ref stream_handle) = state.audio_stream {
+		let sink = Player::connect_new(&stream_handle.mixer());
+		let cursor = std::io::Cursor::new(include_bytes!("../sounds/soundshelfstudio-ui-loading-end-fail-522858.mp3"));
+		match rodio::Decoder::new(cursor) {
+			Ok(decoder) => {
+				println!("[AUDIO] Decoded fail sound successfully");
+				sink.append(decoder);
+				sink.play();
+				state.call_ringing_sink = Some(sink);
+			},
+			Err(e) => println!("[AUDIO] Error decoding fail sound: {:?}", e),
+		}
+	} else {
+		println!("[AUDIO] No audio stream available");
+	}
+}
+
+fn start_call_ringing_sound(state: &mut AppState) {
+	println!("[AUDIO] start_call_ringing_sound called");
+	if state.audio_stream.is_none() {
+		if let Ok(stream_handle) = DeviceSinkBuilder::open_default_sink() {
+			state.audio_stream = Some(stream_handle);
+		}
+	}
+	if let Some(ref stream_handle) = state.audio_stream {
+		let sink = Player::connect_new(&stream_handle.mixer());
+		let cursor = std::io::Cursor::new(include_bytes!("../sounds/telefone.wav"));
+		match rodio::Decoder::new(cursor) {
+			Ok(decoder) => {
+				println!("[AUDIO] Decoded ringing sound successfully");
+				use rodio::Source;
+				sink.append(decoder.repeat_infinite());
+				sink.play();
+				state.call_ringing_sink = Some(sink);
+			},
+			Err(e) => println!("[AUDIO] Error decoding ringing sound: {:?}", e),
+		}
+	} else {
+		println!("[AUDIO] No audio stream available");
+	}
+}
+
+fn stop_call_ringing_sound(state: &mut AppState) {
+	println!("[AUDIO] stop_call_ringing_sound called");
+	if let Some(sink) = state.call_ringing_sink.take() {
+		sink.pause();
+		println!("[AUDIO] paused ringing sink");
+	}
 }
 
 fn show_toast_notification(title: &str, body: &str) {
@@ -299,6 +367,9 @@ struct AppState {
 	played_sent_sounds: std::collections::HashSet<String>,
 	display_items: Vec<whantv::DisplayItem>,
 	typing_timestamps: std::collections::HashMap<String, std::time::Instant>,
+	active_call_audio: Option<call_audio::CallAudioState>,
+	active_call_id: Option<String>,
+	call_ringing_sink: Option<Player>,
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
@@ -766,6 +837,9 @@ fn main() {
 			contacts: std::collections::HashMap::new(),
 			presence_labels: std::collections::HashMap::new(),
 			typing_timestamps: std::collections::HashMap::new(),
+			active_call_audio: None,
+			active_call_id: None,
+			call_ringing_sink: None,
 			group_state: crate::ui::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
@@ -1157,6 +1231,71 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									parts.pairing_announcer.clone(),
 									&format!("Pairing code updated: {}", code),
 								);
+							}
+						}
+						"call_connected" => {
+							if let Some(data) = val.get("data") {
+								let _call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+								if let Some(audio_port) = data.get("audio_port").and_then(|p| p.as_u64()) {
+									let mut s = state.borrow_mut();
+									stop_call_ringing_sound(&mut s);
+									if let Ok(streams) = call_audio::start_audio_streams(audio_port as u16) {
+										s.active_call_audio = Some(streams);
+										live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Call connected.");
+										
+										parts.call_parts.status_label.set_label("Call connected.");
+										parts.call_parts.accept_btn.show(false);
+										parts.call_parts.reject_btn.show(false);
+										parts.call_parts.mute_btn.show(true);
+										parts.call_parts.leave_btn.show(true);
+										parts.call_parts.add_participant_btn.show(true);
+										parts.call_parts.frame.show(true);
+									} else {
+										live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Failed to start audio stream.");
+									}
+								}
+							}
+						}
+						"call_placed" => {
+							if let Some(data) = val.get("data") {
+								if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
+									let mut s = state.borrow_mut();
+									s.active_call_id = Some(call_id.to_string());
+									start_call_ringing_sound(&mut s);
+								}
+							}
+						}
+						"call_ended" => {
+							if let Some(data) = val.get("data") {
+								if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
+									let mut s = state.borrow_mut();
+									if s.active_call_id.as_deref() == Some(call_id) {
+										s.active_call_id = None;
+										s.active_call_audio = None;
+										parts.call_parts.frame.show(false);
+										stop_call_ringing_sound(&mut s);
+										play_call_fail_sound(&mut s);
+										live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Call ended.");
+									}
+								}
+							}
+						}
+						"incoming_call" => {
+							if let Some(data) = val.get("data") {
+								let caller = data.get("caller").and_then(|c| c.as_str()).unwrap_or("Unknown");
+								if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
+									let mut s = state.borrow_mut();
+									s.active_call_id = Some(call_id.to_string());
+									let name = s.contacts.get(caller).cloned().unwrap_or_else(|| caller.to_string());
+									parts.call_parts.status_label.set_label(&format!("Incoming voice call from {}", name));
+									parts.call_parts.accept_btn.show(true);
+									parts.call_parts.reject_btn.show(true);
+									parts.call_parts.mute_btn.show(false);
+									parts.call_parts.leave_btn.show(false);
+									parts.call_parts.add_participant_btn.show(false);
+									parts.call_parts.frame.show(true);
+									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Incoming voice call from {}", name));
+								}
 							}
 						}
 						"qr" => {
@@ -2418,6 +2557,80 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										);
 									}
 									parts.conversations_parts.conv_data_btn.set_label(&btn_label);
+								}
+							}
+						}
+						"group_info" => {
+							if let Some(payload) = val.get("data") {
+								let info = payload.get("Info").unwrap_or(payload);
+								let viewer_is_admin = payload.get("ViewerIsAdmin").and_then(|v| v.as_bool()).unwrap_or(false);
+
+								// Set visibility of admin buttons
+								parts.group_data_dialog.add_member_btn.show(viewer_is_admin);
+								parts.group_data_dialog.make_admin_btn.show(viewer_is_admin);
+								parts.group_data_dialog.remove_member_btn.show(viewer_is_admin);
+								parts.group_data_dialog.save_settings_btn.show(viewer_is_admin);
+								parts.group_data_dialog.announce_chk.enable(viewer_is_admin);
+								parts.group_data_dialog.locked_chk.enable(viewer_is_admin);
+
+								// Set basic settings
+								if let Some(topic) = info.get("Topic").and_then(|t| t.as_str()) {
+									parts.group_data_dialog.group_desc_field.set_value(topic);
+								}
+								if let Some(is_announce) = info.get("IsAnnounce").and_then(|t| t.as_bool()) {
+									parts.group_data_dialog.announce_chk.set_value(is_announce);
+								}
+								if let Some(is_locked) = info.get("IsLocked").and_then(|t| t.as_bool()) {
+									parts.group_data_dialog.locked_chk.set_value(is_locked);
+								}
+
+								// Parse members
+								let s = state.borrow();
+								let mut member_strings = Vec::new();
+								if let Some(participants) = info.get("Participants").and_then(|p| p.as_array()) {
+									for p in participants {
+										if let Some(jid) = p.get("JID").and_then(|j| j.as_str()) {
+											let is_admin = p.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
+											let is_super = p.get("IsSuperAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
+											
+											let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+											let raw_phone = jid.split('@').next().unwrap_or(jid);
+											let mut phone = raw_phone.to_string();
+											if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+												phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+											}
+											
+											let mut role = "";
+											if is_super { role = " (Super Admin)"; }
+											else if is_admin { role = " (Admin)"; }
+											
+											member_strings.push(format!("{}{} - {}", local_name, role, phone));
+										}
+									}
+								}
+								parts.group_data_dialog.members_list.clear();
+								for member_str in &member_strings {
+									parts.group_data_dialog.members_list.append(member_str);
+								}
+								
+								// Also populate files
+								let mut file_strings: Vec<String> = Vec::new();
+								if let Some(selected) = &s.selected_chat {
+									for msg in &s.messages {
+										if !msg.media_type.is_empty() {
+											if !msg.media_filename.is_empty() {
+												file_strings.push(msg.media_filename.clone());
+											} else if !msg.text.is_empty() {
+												file_strings.push(msg.text.clone());
+											} else {
+												file_strings.push(format!("Media: {}", msg.media_type));
+											}
+										}
+									}
+								}
+								parts.group_data_dialog.files_list.clear();
+								for file_str in &file_strings {
+									parts.group_data_dialog.files_list.append(file_str);
 								}
 							}
 						}
@@ -4214,28 +4427,44 @@ while ($true) {
 		UiCommand::ShowConversationData => {
 			let s = state.borrow();
 			if let Some(ref jid) = s.selected_chat {
-				let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-				let raw_phone = jid.split('@').next().unwrap_or(jid);
-				let mut phone = raw_phone.to_string();
-				if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
-					phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+				if jid.ends_with("@g.us") {
+					let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+					parts.group_data_dialog.group_name_field.set_value(&local_name);
+					parts.group_data_dialog.members_list.clear();
+					parts.group_data_dialog.files_list.clear();
+					
+					let payload = serde_json::json!({
+						"action": "get_group_info",
+						"data": { "jid": jid }
+					});
+					let _ = s.ws_tx.send(payload.to_string());
+					drop(s);
+					
+					parts.group_data_dialog.dialog.show_modal();
+				} else {
+					let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+					let raw_phone = jid.split('@').next().unwrap_or(jid);
+					let mut phone = raw_phone.to_string();
+					if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+						phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+					}
+
+					let initial_text = format!(
+						"Name: {}\nPhone: {}\nWhatsApp Name: Loading...\nAbout/Status: Loading...",
+						local_name, phone
+					);
+					parts.conversation_data_dialog.info_field.set_value(&initial_text);
+
+					let payload = serde_json::json!({
+						"action": "get_user_info",
+						"data": { "jid": jid }
+					});
+					let _ = s.ws_tx.send(payload.to_string());
+					drop(s);
+
+					parts.conversation_data_dialog.info_field.set_focus();
+					parts.conversation_data_dialog.dialog.show_modal();
 				}
-
-				let initial_text = format!(
-					"Name: {}\nPhone: {}\nWhatsApp Name: Loading...\nAbout/Status: Loading...",
-					local_name, phone
-				);
-				parts.conversation_data_dialog.info_field.set_value(&initial_text);
-
-				let payload = serde_json::json!({
-					"action": "get_user_info",
-					"data": { "jid": jid }
-				});
-				let _ = s.ws_tx.send(payload.to_string());
-				drop(s);
-
-				parts.conversation_data_dialog.info_field.set_focus();
-				parts.conversation_data_dialog.dialog.show_modal();
 			}
 		}
 		UiCommand::RemoveQuote => {
@@ -4273,6 +4502,111 @@ while ($true) {
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Message forwarded.");
+		}
+		UiCommand::PlaceCall => {
+			let jid = {
+				let s = state.borrow();
+				if let Some(j) = s.selected_chat.as_ref() {
+					j.clone()
+				} else {
+					return;
+				}
+			};
+			let msg = serde_json::json!({
+				"action": "place_call",
+				"data": { "jid": jid }
+			});
+			let _ = state.borrow().ws_tx.send(msg.to_string());
+			
+			let s = state.borrow();
+			let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+			parts.call_parts.status_label.set_label(&format!("In call with {}", name));
+			parts.call_parts.accept_btn.show(false);
+			parts.call_parts.reject_btn.show(false);
+			parts.call_parts.mute_btn.show(true);
+			parts.call_parts.add_participant_btn.show(true);
+			parts.call_parts.leave_btn.show(true);
+			parts.call_parts.frame.show(true);
+			
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Placing call...");
+		}
+		UiCommand::AnswerCall => {
+			let mut s = state.borrow_mut();
+			if let Some(call_id) = &s.active_call_id {
+				let msg = serde_json::json!({
+					"action": "answer_call",
+					"data": { "call_id": call_id }
+				});
+				let _ = s.ws_tx.send(msg.to_string());
+				parts.call_parts.status_label.set_label("Answering...");
+			}
+		}
+		UiCommand::RejectCall => {
+			let mut s = state.borrow_mut();
+			if let Some(call_id) = &s.active_call_id {
+				let msg = serde_json::json!({
+					"action": "reject_call",
+					"data": { "call_id": call_id }
+				});
+				let _ = s.ws_tx.send(msg.to_string());
+				parts.call_parts.frame.show(false);
+				s.active_call_id = None;
+				stop_call_ringing_sound(&mut s);
+				play_call_fail_sound(&mut s);
+			}
+		}
+		UiCommand::LeaveCall => {
+			let mut s = state.borrow_mut();
+			if let Some(call_id) = &s.active_call_id {
+				let msg = serde_json::json!({
+					"action": "leave_call",
+					"data": { "call_id": call_id }
+				});
+				let _ = s.ws_tx.send(msg.to_string());
+				parts.call_parts.frame.show(false);
+				s.active_call_id = None;
+				s.active_call_audio = None;
+				stop_call_ringing_sound(&mut s);
+				play_call_fail_sound(&mut s);
+			}
+		}
+		UiCommand::MuteCall => {
+			let s = state.borrow();
+			if let Some(audio) = &s.active_call_audio {
+				let current = audio.is_muted.load(std::sync::atomic::Ordering::Relaxed);
+				audio.is_muted.store(!current, std::sync::atomic::Ordering::Relaxed);
+				let status = if !current { "Microphone muted." } else { "Microphone unmuted." };
+				parts.call_parts.mute_btn.set_label(if !current { "Unmute microphone" } else { "Mute microphone" });
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), status);
+			}
+		}
+		UiCommand::AddParticipant => {
+			let mut s = state.borrow_mut();
+			if let Some(call_id) = &s.active_call_id {
+				let dlg = wxdragon::TextEntryDialog::builder(
+					&parts.frame,
+					"Enter phone number to add (with country code):",
+					"Add Participant",
+				)
+				.build();
+				if dlg.show_modal() == wxdragon::id::ID_OK {
+					let num = dlg.get_value().unwrap_or_default().trim().to_string();
+					if !num.is_empty() {
+						let mut clean = num.replace('+', "").replace('-', "").replace(' ', "");
+						if !clean.contains('@') {
+							clean = format!("{}@s.whatsapp.net", clean);
+						}
+						let msg = serde_json::json!({
+							"action": "add_participant",
+							"data": { "call_id": call_id, "jid": clean }
+						});
+						let _ = s.ws_tx.send(msg.to_string());
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Participant added.");
+					}
+				}
+			} else {
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "No active call.");
+			}
 		}
 		UiCommand::SubscribePresence(jid) => {
 			let payload = serde_json::json!({
@@ -4446,6 +4780,41 @@ while ($true) {
 				let pos = (target as i32).max(0).min(max_sec);
 				parts.conversations_parts.audio_slider.set_range(0, max_sec);
 				parts.conversations_parts.audio_slider.set_value(pos);
+			}
+		}
+		UiCommand::RefreshMessages => {}
+		UiCommand::DownloadAttachment(_) => {}
+		UiCommand::ChangeAudioSpeed => {}
+		UiCommand::UpdateGroupSettings { name, topic, announce, locked } => {
+			let jid = state.borrow().selected_chat.clone();
+			if let Some(jid) = jid {
+				let s = state.borrow();
+				
+				let msg_name = serde_json::json!({
+					"action": "set_group_name",
+					"data": { "jid": jid, "name": name }
+				});
+				let _ = s.ws_tx.send(msg_name.to_string());
+				
+				let msg_topic = serde_json::json!({
+					"action": "set_group_topic",
+					"data": { "jid": jid, "topic": topic }
+				});
+				let _ = s.ws_tx.send(msg_topic.to_string());
+				
+				let msg_ann = serde_json::json!({
+					"action": "set_group_announce",
+					"data": { "jid": jid, "value": announce }
+				});
+				let _ = s.ws_tx.send(msg_ann.to_string());
+				
+				let msg_lock = serde_json::json!({
+					"action": "set_group_locked",
+					"data": { "jid": jid, "value": locked }
+				});
+				let _ = s.ws_tx.send(msg_lock.to_string());
+				
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Group settings updated.");
 			}
 		}
 		UiCommand::SeekAudioAbsolute(slider_val) => {
