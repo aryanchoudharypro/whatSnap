@@ -78,7 +78,7 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 		myJID := client.Store.ID.ToNonAD()
 		isMyAdmin := false
 		for _, p := range info.Participants {
-			if p.JID.ToNonAD().String() == myJID.String() {
+			if p.JID.User == myJID.User {
 				if p.IsAdmin || p.IsSuperAdmin {
 					isMyAdmin = true
 				}
