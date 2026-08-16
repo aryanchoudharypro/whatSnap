@@ -348,6 +348,20 @@ pub fn bind_input_handlers(
 		let _ = tx_group_settings.send(UiCommand::UpdateGroupSettings { name, topic, announce, locked });
 	});
 
+	let tx_group_members_search = ui_tx.clone();
+	let members_search = parts.group_data_dialog.members_search.clone();
+	members_search.on_text_changed(move |_| {
+		let query = members_search.get_value();
+		let _ = tx_group_members_search.send(UiCommand::FilterGroupMembers(query));
+	});
+
+	let tx_group_files_search = ui_tx.clone();
+	let files_search = parts.group_data_dialog.files_search.clone();
+	files_search.on_text_changed(move |_| {
+		let query = files_search.get_value();
+		let _ = tx_group_files_search.send(UiCommand::FilterGroupFiles(query));
+	});
+
 	let conv_data_dialog_esc = parts.conversation_data_dialog.dialog.clone();
 	parts.conversation_data_dialog.info_field.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
