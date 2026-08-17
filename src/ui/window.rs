@@ -38,6 +38,9 @@ pub struct WindowParts {
 	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
 	pub group_data_dialog: crate::ui::group_data::GroupDataDialogParts,
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
+	pub settings_btn: Button,
+	pub settings_dialog: crate::ui::settings_dialog::SettingsDialogParts,
+	pub tray_icon: Rc<TaskBarIcon>,
 }
 
 pub fn build_main_window() -> WindowParts {
@@ -66,6 +69,11 @@ pub fn build_main_window() -> WindowParts {
 	nav_list.set_selection(0_u32, true);
 	nav_sizer.add(&nav_label, 0, SizerFlag::All, 10);
 	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
+
+	let settings_btn = Button::builder(&nav_panel).with_label("Settings...").build();
+	settings_btn.set_font(&theme::Fonts::body());
+	nav_sizer.add(&settings_btn, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
+
 	nav_panel.set_sizer(nav_sizer, true);
 
 	let content_panel = Panel::builder(&main_panel).build();
@@ -180,6 +188,8 @@ pub fn build_main_window() -> WindowParts {
 	let call_parts = crate::ui::call_window::build_call_window();
 	let conversation_data_dialog = crate::ui::conversation_data::build_conversation_data_dialog(&frame);
 	let group_data_dialog = crate::ui::group_data::build_group_data_dialog(&frame);
+	let settings_dialog = crate::ui::settings_dialog::build_settings_dialog(&frame);
+	let tray_icon = Rc::new(TaskBarIcon::builder().build());
 
 	let conv_panel = crate::ui::conversations::build_conversations_panel(&content_panel);
 
@@ -228,6 +238,9 @@ pub fn build_main_window() -> WindowParts {
 		conversation_data_dialog,
 		group_data_dialog,
 		conversations_parts: conv_panel,
+		settings_btn,
+		settings_dialog,
+		tray_icon,
 	}
 }
 
@@ -358,6 +371,115 @@ pub fn bind_input_handlers(
 	let group_data_dialog_close = parts.group_data_dialog.dialog.clone();
 	parts.group_data_dialog.close_btn.on_click(move |_| {
 		group_data_dialog_close.end_modal(0);
+	});
+
+	// ── Tray icon ────────────────────────────────────────────────────────────
+	// The icon bitmap and popup menu are set up once; whether it's actually
+	// installed (and thus whether closing the window hides to it) tracks the
+	// `show_tray_icon` setting, reconciled below and whenever Settings is saved.
+	let tray_icon = parts.tray_icon.clone();
+	let tray_bitmap = theme::build_app_icon(32);
+
+	let tray_open_id = 5001;
+	let tray_exit_id = 5002;
+	let mut tray_menu = Menu::builder()
+		.append_item(tray_open_id, "&Open whaNTV", "Show the main window")
+		.append_item(tray_exit_id, "E&xit", "Quit whaNTV")
+		.build();
+	let frame_tray_menu = parts.frame;
+	tray_icon.on_menu(move |event| {
+		let id = event.get_id();
+		if id == tray_open_id {
+			frame_tray_menu.show(true);
+			frame_tray_menu.iconize(false);
+		} else if id == tray_exit_id {
+			frame_tray_menu.close(true);
+		}
+	});
+	tray_icon.set_popup_menu(&mut tray_menu);
+	std::mem::forget(tray_menu);
+
+	let frame_tray_restore = parts.frame;
+	tray_icon.on_left_double_click(move |_| {
+		frame_tray_restore.show(true);
+		frame_tray_restore.iconize(false);
+	});
+
+	let apply_tray_setting = {
+		let tray_icon = tray_icon.clone();
+		let tray_bitmap = tray_bitmap.clone();
+		move |enabled: bool| {
+			if enabled {
+				tray_icon.set_icon(&tray_bitmap, "whaNTV");
+			} else {
+				tray_icon.remove_icon();
+			}
+		}
+	};
+	apply_tray_setting(state.borrow().settings.show_tray_icon);
+
+	// Closing the window hides it to the tray instead of quitting, as long as
+	// the tray icon is actually installed to bring it back with. A forced
+	// close (the tray menu's Exit, or Windows shutting the app down) can't be
+	// vetoed, so `can_veto()` tells the two cases apart.
+	let frame_close = parts.frame;
+	let tray_icon_close = tray_icon.clone();
+	parts.frame.on_close(move |event| {
+		if let WindowEventData::General(ref ev) = event {
+			if ev.can_veto() && tray_icon_close.is_icon_installed() {
+				ev.veto();
+				frame_close.show(false);
+			}
+		}
+	});
+
+	let settings_dialog = parts.settings_dialog.dialog;
+	let sounds_check = parts.settings_dialog.sounds_check;
+	let notifications_check = parts.settings_dialog.notifications_check;
+	let announce_typing_check = parts.settings_dialog.announce_typing_check;
+	let announce_recording_check = parts.settings_dialog.announce_recording_check;
+	let tray_icon_check = parts.settings_dialog.tray_icon_check;
+	let autostart_check = parts.settings_dialog.autostart_check;
+	let state_settings_open = state.clone();
+	parts.settings_btn.on_click(move |_| {
+		let s = state_settings_open.borrow();
+		sounds_check.set_value(s.settings.sounds_enabled);
+		notifications_check.set_value(s.settings.notifications_enabled);
+		announce_typing_check.set_value(s.settings.announce_typing);
+		announce_recording_check.set_value(s.settings.announce_recording);
+		tray_icon_check.set_value(s.settings.show_tray_icon);
+		drop(s);
+		autostart_check.set_value(crate::autostart::is_enabled());
+		settings_dialog.show_modal();
+	});
+
+	let settings_dialog_cancel = parts.settings_dialog.dialog;
+	parts.settings_dialog.cancel_btn.on_click(move |_| {
+		settings_dialog_cancel.end_modal(wxdragon::id::ID_CANCEL);
+	});
+
+	let settings_dialog_ok = parts.settings_dialog.dialog;
+	let sounds_check_ok = parts.settings_dialog.sounds_check;
+	let notifications_check_ok = parts.settings_dialog.notifications_check;
+	let announce_typing_check_ok = parts.settings_dialog.announce_typing_check;
+	let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
+	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
+	let autostart_check_ok = parts.settings_dialog.autostart_check;
+	let state_settings_save = state.clone();
+	parts.settings_dialog.ok_btn.on_click(move |_| {
+		let mut s = state_settings_save.borrow_mut();
+		s.settings.sounds_enabled = sounds_check_ok.is_checked();
+		s.settings.notifications_enabled = notifications_check_ok.is_checked();
+		s.settings.announce_typing = announce_typing_check_ok.is_checked();
+		s.settings.announce_recording = announce_recording_check_ok.is_checked();
+		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
+		s.settings.save();
+		drop(s);
+		apply_tray_setting(tray_icon_check_ok.is_checked());
+		if crate::autostart::is_enabled() != autostart_check_ok.is_checked() {
+			crate::autostart::set_enabled(autostart_check_ok.is_checked());
+		}
+		settings_dialog_ok.end_modal(wxdragon::id::ID_OK);
 	});
 
 	let tx_group_settings = ui_tx.clone();

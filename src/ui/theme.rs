@@ -208,6 +208,32 @@ pub fn style_sidebar_heading(label: &StaticText) {
 	label.set_foreground_color(Palette::SIDEBAR_TEXT);
 }
 
+/// Builds a plain `size`x`size` app glyph (a filled circle in the accent
+/// colour) for use where a real icon asset isn't warranted, e.g. the tray
+/// icon. Not affected by [`use_custom_colours`] — unlike widget chrome, a
+/// tray icon has no native fallback to defer to.
+pub fn build_app_icon(size: u32) -> wxdragon::bitmap::Bitmap {
+	let mut rgba = vec![0u8; (size * size * 4) as usize];
+	let center = (size as f32 - 1.0) / 2.0;
+	let radius = size as f32 / 2.0 - 1.0;
+	for y in 0..size {
+		for x in 0..size {
+			let dx = x as f32 - center;
+			let dy = y as f32 - center;
+			let dist = (dx * dx + dy * dy).sqrt();
+			// One pixel of antialiasing at the edge keeps the circle from
+			// looking jagged at the small sizes a tray icon is shown at.
+			let coverage = (radius + 1.0 - dist).clamp(0.0, 1.0);
+			let idx = ((y * size + x) * 4) as usize;
+			rgba[idx] = Palette::ACCENT.r;
+			rgba[idx + 1] = Palette::ACCENT.g;
+			rgba[idx + 2] = Palette::ACCENT.b;
+			rgba[idx + 3] = (coverage * 255.0) as u8;
+		}
+	}
+	wxdragon::bitmap::Bitmap::from_rgba(&rgba, size, size).expect("failed to build app icon bitmap")
+}
+
 /// Styles a muted/secondary hint StaticText.
 ///
 /// "Muted" is only a colour change: these labels stay at the full system

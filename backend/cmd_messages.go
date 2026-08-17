@@ -54,7 +54,9 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
-			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
+			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
+			preview_is_reaction=0,
+			preview_reaction_emoji=''`,
 		jid.String(), ts, data.Text)
 	saveMessage(StoredMessage{
 		ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
@@ -141,7 +143,9 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
-			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
+			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
+			preview_is_reaction=0,
+			preview_reaction_emoji=''`,
 		jid.String(), ts, text)
 
 	broadcastEvent("message", map[string]interface{}{
@@ -183,6 +187,8 @@ func handleReactMessage(raw json.RawMessage) {
 			return
 		}
 		upsertReaction(data.MessageID, data.JID, "me", data.Emoji, resp.Timestamp.Unix())
+		updateChatReactionPreview(data.JID, data.MessageID, "me", data.Emoji, true)
+		broadcastChats()
 		broadcastEvent("message_reaction", map[string]interface{}{
 			"jid": data.JID, "message_id": data.MessageID, "reactor": "me", "reactor_name": "You", "emoji": data.Emoji,
 		})
@@ -505,7 +511,9 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
-				preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet)`,
+				preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
+				preview_is_reaction=0,
+				preview_reaction_emoji=''`,
 				targetJID.String(), ts, text)
 
 			saveMessage(StoredMessage{

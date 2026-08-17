@@ -5,6 +5,7 @@ go 1.26.4
 require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/purpshell/meowcaller v0.0.0-20260811012811-27a3c6b18657
+	github.com/rs/zerolog v1.35.1
 	go.mau.fi/whatsmeow v0.0.0-20260814123134-0dcf1f50f4b1
 	golang.org/x/sys v0.47.0
 	google.golang.org/protobuf v1.36.12
@@ -31,7 +32,6 @@ require (
 	github.com/pion/sctp v1.11.1 // indirect
 	github.com/pion/transport/v4 v4.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.36 // indirect
 	go.mau.fi/libsignal v0.2.2 // indirect
 	go.mau.fi/util v0.9.12-0.20260717235539-f9ffa7eca58d // indirect
