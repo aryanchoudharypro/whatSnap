@@ -85,6 +85,48 @@ pub fn date_key(local_dt: chrono::DateTime<chrono::Local>) -> chrono::NaiveDate 
 	local_dt.date_naive()
 }
 
+/// Converts a raw backend placeholder like `"[Image] caption"` or
+/// `"[Document] file.pdf"` into the bracket-free text used in the chat list
+/// preview (`"Photo: caption"`, `"Document: file.pdf"`, ...). Plain text
+/// passes through unchanged.
+pub fn friendly_preview_text(text: &str) -> String {
+	if text.starts_with("[Voice Message]") {
+		return "Voice message".to_string();
+	}
+	if text.starts_with("[Audio]") {
+		return "Audio".to_string();
+	}
+	for tag in ["[Image]", "[Photo]"] {
+		if let Some(rest) = text.strip_prefix(tag) {
+			let rest = rest.trim();
+			return if rest.is_empty() { "Photo".to_string() } else { format!("Photo: {}", rest) };
+		}
+	}
+	if let Some(rest) = text.strip_prefix("[Video]") {
+		let rest = rest.trim();
+		return if rest.is_empty() { "Video".to_string() } else { format!("Video: {}", rest) };
+	}
+	if let Some(rest) = text.strip_prefix("[Document]") {
+		let rest = rest.trim();
+		return if rest.is_empty() { "Document".to_string() } else { format!("Document: {}", rest) };
+	}
+	if let Some(rest) = text.strip_prefix("[Contact]") {
+		let rest = rest.trim();
+		return if rest.is_empty() { "Contact".to_string() } else { format!("Contact: {}", rest) };
+	}
+	if let Some(rest) = text.strip_prefix("[Poll]") {
+		let rest = rest.trim();
+		return if rest.is_empty() { "Poll".to_string() } else { format!("Poll: {}", rest) };
+	}
+	match text {
+		"[Location]" => "Location".to_string(),
+		"[Sticker]" => "Sticker".to_string(),
+		"[Message deleted]" => "This message was deleted".to_string(),
+		"[Unsupported Message]" => "Message".to_string(),
+		_ => text.to_string(),
+	}
+}
+
 impl ChatMessage {
 	pub fn is_document(&self) -> bool {
 		self.media_type == "document" || self.text.starts_with("[Document]")
@@ -245,8 +287,14 @@ impl ChatMessage {
 			} else {
 				self.text.clone()
 			}
+		} else if self.text.is_empty() {
+			if self.is_document() || self.media_type == "document" {
+				format!("Document: {}", self.display_filename())
+			} else {
+				"[Media]".to_string()
+			}
 		} else {
-			if self.text.is_empty() { "[Media]".to_string() } else { self.text.clone() }
+			self.text.clone()
 		};
 
 		let reply_suffix = if !self.quoted_text.is_empty() || !self.quoted_id.is_empty() {

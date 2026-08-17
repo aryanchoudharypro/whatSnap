@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"encoding/json"
 	"github.com/purpshell/meowcaller"
+	"github.com/purpshell/meowcaller/diag"
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -13,11 +17,35 @@ var callClient *meowcaller.Client
 var activeCalls = make(map[string]*meowcaller.Call)
 var activeCallsMutex sync.Mutex
 
+// Debugging aid for call-audio issues reported in the field (e.g. one-sided
+// silence): the diag.Recorder dumps per-call JSONL (rtp/rtcp/srtp/relay/stun/
+// etc.) under logs/call-diag, and the zerolog logger writes meowcaller's own
+// debug/trace lines to logs/call.log, both alongside the main backend.log.
+func newCallDiagnosticsOptions() []meowcaller.Option {
+	var opts []meowcaller.Option
+
+	diagDir := filepath.Join(appDataDir(), "logs", "call-diag")
+	if rec, err := diag.NewRecorder(diagDir); err == nil {
+		opts = append(opts, meowcaller.WithDiagnostics(rec))
+	} else {
+		log.Println("Failed to create call diagnostics recorder:", err)
+	}
+
+	logPath := filepath.Join(appDataDir(), "logs", "call.log")
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		opts = append(opts, meowcaller.WithLogger(zerolog.New(f).With().Timestamp().Logger()))
+	} else {
+		log.Println("Failed to open call log file:", err)
+	}
+
+	return opts
+}
+
 func initCallClient() {
 	if client == nil {
 		return
 	}
-	callClient = meowcaller.NewClient(client)
+	callClient = meowcaller.NewClient(client, newCallDiagnosticsOptions()...)
 
 	callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())
@@ -85,6 +113,16 @@ func handlePlaceCall(data []byte) {
 	call, err := callClient.Call(ctx, parsedJID.String())
 	if err != nil {
 		log.Println("Failed to place call:", err)
+		// Without this, the frontend never hears back at all: it shows the
+		// call UI optimistically on place_call and only learns the real
+		// call_id (and un-races its Leave button) from call_placed. If the
+		// offer never made it onto the wire, that event never arrives and
+		// the UI is stuck showing a live-looking call forever with no way
+		// to dismiss it.
+		broadcastEvent("call_failed", map[string]string{
+			"jid":     parsedJID.String(),
+			"message": err.Error(),
+		})
 		return
 	}
 

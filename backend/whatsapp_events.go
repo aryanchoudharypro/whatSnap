@@ -664,7 +664,11 @@ func eventHandler(evt interface{}) {
 				ts = v.Info.Timestamp.Unix()
 			}
 
-			go upsertReaction(targetID, jid, reactorJID, emoji, ts)
+			go func() {
+				upsertReaction(targetID, jid, reactorJID, emoji, ts)
+				updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
+				broadcastChats()
+			}()
 			broadcastEvent("message_reaction", map[string]interface{}{
 				"jid":          jid,
 				"message_id":   targetID,
@@ -709,7 +713,9 @@ func eventHandler(evt interface{}) {
 					unread_count=chats.unread_count + excluded.unread_count,
 					preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
 					preview_sender=excluded.preview_sender,
-					preview_from_me=excluded.preview_from_me`,
+					preview_from_me=excluded.preview_from_me,
+					preview_is_reaction=0,
+					preview_reaction_emoji=''`,
 				jid, ts, increment, text, senderJID.String(), v.Info.IsFromMe)
 			if err != nil {
 				fmt.Println("Error updating chat timestamp:", err)

@@ -638,6 +638,40 @@ func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimety
 	}
 }
 
+// attachmentDisplayText mirrors extractText's formatting for the equivalent
+// incoming message type, so an outgoing attachment's local echo (and the
+// text persisted to the DB) shows the same "[Document] filename" style
+// instead of just the caption (which is usually empty).
+func attachmentDisplayText(mediaType, filename, caption string) string {
+	tag := "[Document]"
+	switch mediaType {
+	case "image":
+		tag = "[Image]"
+	case "video":
+		tag = "[Video]"
+	case "sticker":
+		return "[Sticker]"
+	}
+
+	if mediaType == "image" || mediaType == "video" {
+		if caption != "" {
+			return tag + " " + caption
+		}
+		return tag
+	}
+
+	if filename != "" {
+		if caption != "" {
+			return tag + " " + filename + ": " + caption
+		}
+		return tag + " " + filename
+	}
+	if caption != "" {
+		return tag + " " + caption
+	}
+	return tag
+}
+
 func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 	var data SendAttachmentData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -686,16 +720,21 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		// local echo, and what makes a failed/offline upload recoverable
 		// (marked "failed", retryable from the message context menu)
 		// instead of just vanishing.
+		displayText := attachmentDisplayText(data.Type, data.Filename, data.Caption)
 		saveMessage(StoredMessage{
 			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
-			Text: data.Caption, Timestamp: ts, Status: "uploading",
+			Text: displayText, Timestamp: ts, Status: "uploading",
 			MediaType: data.Type, MediaMimetype: data.Mimetype, MediaFilename: data.Filename, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
 		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
-			ON CONFLICT(jid) DO UPDATE SET timestamp=MAX(timestamp, excluded.timestamp)`, jid.String(), ts, data.Caption)
+			ON CONFLICT(jid) DO UPDATE SET
+				timestamp=MAX(timestamp, excluded.timestamp),
+				preview_snippet=excluded.preview_snippet,
+				preview_is_reaction=0,
+				preview_reaction_emoji=''`, jid.String(), ts, displayText)
 		broadcastEvent("message", map[string]interface{}{
-			"jid": jid.String(), "from": "me", "id": id, "text": data.Caption,
+			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 			"from_me":       true,
 			"timestamp":     ts,
 			"has_media":     true,
@@ -717,13 +756,14 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 // handleRetryMessage) to "sent" on success or "failed" on error. Shared by
 // the initial send and a manual retry so both behave identically.
 func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+	displayText := attachmentDisplayText(mediaType, filename, caption)
 	fail := func(errMsg string) {
 		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
 		if conn != nil {
 			sendEvent(conn, "error", map[string]string{"message": errMsg})
 		}
 		broadcastEvent("message", map[string]interface{}{
-			"jid": jid.String(), "from": "me", "id": id, "text": caption,
+			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 			"from_me": true, "timestamp": time.Now().Unix(), "has_media": true,
 			"mediaType": mediaType, "mediaFilename": filename, "status": "failed",
 			"quotedId": quotedID, "quotedText": quotedText, "quotedSender": quotedSender,
@@ -847,11 +887,11 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 
 	rawBytes, _ := proto.Marshal(msg)
 	ts := resp.Timestamp.Unix()
-	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
-		ts, ts, rawBytes, path, mimetype, id)
+	db.Exec(`UPDATE messages SET status='sent', text=?, timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
+		displayText, ts, ts, rawBytes, path, mimetype, id)
 
 	broadcastEvent("message", map[string]interface{}{
-		"jid": jid.String(), "from": "me", "id": id, "text": caption,
+		"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 		"from_me":       true,
 		"timestamp":     ts,
 		"has_media":     true,
@@ -913,7 +953,11 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
 		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
-			ON CONFLICT(jid) DO UPDATE SET timestamp=MAX(timestamp, excluded.timestamp)`, jid.String(), ts, voiceText)
+			ON CONFLICT(jid) DO UPDATE SET
+				timestamp=MAX(timestamp, excluded.timestamp),
+				preview_snippet=excluded.preview_snippet,
+				preview_is_reaction=0,
+				preview_reaction_emoji=''`, jid.String(), ts, voiceText)
 		broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": id, "text": voiceText,
 			"from_me":      true,

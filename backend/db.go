@@ -30,6 +30,8 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE chats ADD COLUMN archived INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN preview_sender TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE chats ADD COLUMN preview_from_me INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN preview_is_reaction INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN preview_reaction_emoji TEXT DEFAULT ''")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
@@ -211,7 +213,9 @@ func UpdateChatSnippet(jid string) {
 		preview_sender = COALESCE(
 			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), ''),
 		preview_from_me = COALESCE(
-			(SELECT from_me FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), 0)
+			(SELECT from_me FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), 0),
+		preview_is_reaction = 0,
+		preview_reaction_emoji = ''
 		WHERE jid = ?`, jid, jid, jid, jid)
 }
 
@@ -223,7 +227,9 @@ func UpdateAllChatSnippets() {
 		preview_sender = COALESCE(
 			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), ''),
 		preview_from_me = COALESCE(
-			(SELECT from_me FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), 0)`)
+			(SELECT from_me FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), 0),
+		preview_is_reaction = 0,
+		preview_reaction_emoji = ''`)
 }
 
 func setMessageMediaPath(id, path string) error {
@@ -325,6 +331,38 @@ func upsertReaction(messageID, chatJID, reactorJID, emoji string, ts int64) erro
 		ON CONFLICT(message_id, reactor_jid) DO UPDATE SET emoji = excluded.emoji, timestamp = excluded.timestamp`,
 		messageID, chatJID, reactorJID, emoji, ts)
 	return err
+}
+
+// updateChatReactionPreview mirrors official WhatsApp's chat-list behaviour:
+// reacting to a message (even an old one) swaps the list row's preview to
+// "<reactor> reacted with <emoji> to: <message>" without bumping the chat's
+// position or displayed time - WhatsApp doesn't hand us a reaction
+// timestamp for that, so the row keeps showing the last real message's time.
+// Clearing a reaction (empty emoji) reverts the row to the actual last
+// message via UpdateChatSnippet.
+func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji string, reactorIsFromMe bool) {
+	if emoji == "" {
+		db.Exec(`UPDATE chats SET preview_is_reaction = 0, preview_reaction_emoji = '' WHERE jid = ?`, chatJID)
+		UpdateChatSnippet(chatJID)
+		return
+	}
+	var text string
+	var isDeleted int
+	err := db.QueryRow(`SELECT COALESCE(text, ''), is_deleted FROM messages WHERE id = ?`, reactedMessageID).Scan(&text, &isDeleted)
+	if err != nil || isDeleted == 1 || text == "" {
+		return
+	}
+	fromMe := 0
+	if reactorIsFromMe {
+		fromMe = 1
+	}
+	db.Exec(`UPDATE chats SET
+			preview_snippet = ?,
+			preview_sender = ?,
+			preview_from_me = ?,
+			preview_is_reaction = 1,
+			preview_reaction_emoji = ?
+		WHERE jid = ?`, text, reactorJID, fromMe, emoji, chatJID)
 }
 
 // --- contacts -----------------------------------------------------------------

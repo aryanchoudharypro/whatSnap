@@ -1,8 +1,10 @@
 #![windows_subsystem = "windows"]
 
+mod autostart;
 mod call_audio;
 mod countries;
 mod paths;
+mod settings;
 mod ui;
 mod ui_wake;
 mod win_job;
@@ -309,6 +311,7 @@ fn concat_wav_segments(segments: &[String], out_path: &str) -> anyhow::Result<()
 }
 
 struct AppState {
+	settings: crate::settings::Settings,
 	ws_tx: mpsc::Sender<String>,
 	audio_stream: Option<MixerDeviceSink>,
 	audio_sink: Option<Player>,
@@ -374,6 +377,14 @@ struct AppState {
 	typing_announce_state: std::collections::HashMap<String, u8>,
 	active_call_audio: Option<call_audio::CallAudioState>,
 	active_call_id: Option<String>,
+	// active_call_id is only known once call_placed arrives - Call() blocks until the
+	// offer is actually on the wire to WhatsApp, a real network round trip, so there's a
+	// real window after clicking Call where the UI shows a Leave button before any
+	// call_id exists to leave. call_placing tracks "we're in that window", and
+	// call_pending_cancel records that the user hit Leave during it, so call_placed can
+	// immediately hang the call back up instead of leaving it stuck ringing.
+	call_placing: bool,
+	call_pending_cancel: bool,
 	call_ringing_sink: Option<Player>,
 	group_data_members: Vec<String>,
 	group_data_files: Vec<String>,
@@ -822,6 +833,7 @@ fn main() {
 		});
 
 		let state = Rc::new(RefCell::new(AppState {
+			settings: crate::settings::Settings::load(),
 			ws_tx: ws_out_tx,
 			audio_stream: None,
 			audio_sink: None,
@@ -847,6 +859,8 @@ fn main() {
 			typing_announce_state: std::collections::HashMap::new(),
 			active_call_audio: None,
 			active_call_id: None,
+			call_placing: false,
+			call_pending_cancel: false,
 			call_ringing_sink: None,
 			group_data_members: Vec::new(),
 			group_data_files: Vec::new(),
@@ -1277,9 +1291,39 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							if let Some(data) = val.get("data") {
 								if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
 									let mut s = state.borrow_mut();
-									s.active_call_id = Some(call_id.to_string());
-									start_call_ringing_sound(&mut s);
+									s.call_placing = false;
+									if s.call_pending_cancel {
+										// Leave was pressed before we had a call_id to leave with (see
+										// call_placing doc comment). Now that the backend has one, hang
+										// up immediately instead of leaving the call ringing on the
+										// peer's end with nothing on screen to show for it.
+										s.call_pending_cancel = false;
+										let msg = serde_json::json!({
+											"action": "leave_call",
+											"data": { "call_id": call_id }
+										});
+										let _ = s.ws_tx.send(msg.to_string());
+									} else {
+										s.active_call_id = Some(call_id.to_string());
+										start_call_ringing_sound(&mut s);
+									}
 								}
+							}
+						}
+						"call_failed" => {
+							let mut s = state.borrow_mut();
+							if s.call_placing {
+								s.call_placing = false;
+								s.call_pending_cancel = false;
+								parts.call_parts.frame.show(false);
+								stop_call_ringing_sound(&mut s);
+								play_call_fail_sound(&mut s);
+								let message = val
+									.get("data")
+									.and_then(|d| d.get("message"))
+									.and_then(|m| m.as_str())
+									.unwrap_or("Failed to place call.");
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), message);
 							}
 						}
 						"call_ended" => {
@@ -1432,6 +1476,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												chat.get("PreviewSender").and_then(|p| p.as_str()).unwrap_or("");
 											let preview_from_me =
 												chat.get("PreviewFromMe").and_then(|p| p.as_bool()).unwrap_or(false);
+											let preview_is_reaction = chat
+												.get("PreviewIsReaction")
+												.and_then(|p| p.as_bool())
+												.unwrap_or(false);
+											let preview_reaction_emoji =
+												chat.get("PreviewReactionEmoji").and_then(|p| p.as_str()).unwrap_or("");
 
 											let time_str = if ts > 0 {
 												if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
@@ -1486,13 +1536,31 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												String::new()
 											};
 
-											let preview_line = if !preview.is_empty() {
-												if preview_from_me {
-													format!("You: {}", preview)
-												} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
-													format!("{}: {}", preview_sender, preview)
+											let preview_line = if preview_is_reaction
+												&& !preview_reaction_emoji.is_empty()
+												&& !preview.is_empty()
+											{
+												let who = if preview_from_me {
+													"You".to_string()
+												} else if !preview_sender.is_empty() {
+													preview_sender.to_string()
 												} else {
-													preview.to_string()
+													"Someone".to_string()
+												};
+												format!(
+													"{} reacted with {} to: {}",
+													who,
+													preview_reaction_emoji,
+													whantv::friendly_preview_text(preview)
+												)
+											} else if !preview.is_empty() {
+												let body = whantv::friendly_preview_text(preview);
+												if preview_from_me {
+													format!("You: {}", body)
+												} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
+													format!("{}: {}", preview_sender, body)
+												} else {
+													body
 												}
 											} else {
 												String::new()
@@ -1943,7 +2011,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												"action": "mark_read",
 												"data": { "jid": mark_jid, "message_ids": vec![mark_msg_id] }
 											});
-											let sounds_enabled = true;
+											let sounds_enabled =
+												s.settings.sounds_enabled && !s.muted_jids.contains(jid);
 											let _ = tx.send(payload.to_string());
 											play_notification_sound(NotificationSound::MessageCurrent, sounds_enabled);
 										}
@@ -1956,11 +2025,16 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.get("from_me")
 											.and_then(|f| f.as_bool())
 											.unwrap_or_else(|| from == "me" || from == "You");
-										if !is_from_me {
-											play_notification_sound(NotificationSound::MessageBackground, true);
-											let sender =
-												data.get("sender_name").and_then(|s| s.as_str()).unwrap_or(from);
-											show_toast_notification(sender, text);
+										if !is_from_me && !s.muted_jids.contains(jid) {
+											play_notification_sound(
+												NotificationSound::MessageBackground,
+												s.settings.sounds_enabled,
+											);
+											if s.settings.notifications_enabled {
+												let sender =
+													data.get("sender_name").and_then(|s| s.as_str()).unwrap_or(from);
+												show_toast_notification(sender, text);
+											}
 										}
 									}
 								}
@@ -2479,9 +2553,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let sender_name =
 										s.contacts.get(sender_jid).cloned().unwrap_or_else(|| sender_jid.to_string());
 									if !sender_name.is_empty() {
-										let announcement = if is_recording {
+										let announcement = if is_recording && s.settings.announce_recording {
 											Some(format!("{} is recording audio...", sender_name))
-										} else if is_typing {
+										} else if is_typing && s.settings.announce_typing {
 											Some(format!("{} is typing...", sender_name))
 										} else {
 											None
@@ -2910,7 +2984,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											}
 										}
 										if should_play {
-											play_notification_sound(NotificationSound::MessageSent, true);
+											play_notification_sound(
+												NotificationSound::MessageSent,
+												s.settings.sounds_enabled,
+											);
 										}
 									}
 								}
@@ -3823,7 +3900,7 @@ while ($true) {
 					s.voice_pause_instant.take(),
 					s.is_voice_paused,
 					s.selected_chat.clone(),
-					true,
+					s.settings.sounds_enabled,
 					s.ws_tx.clone(),
 					reply_id,
 					reply_sender,
@@ -4375,9 +4452,11 @@ while ($true) {
 				"action": "place_call",
 				"data": { "jid": jid }
 			});
-			let _ = state.borrow().ws_tx.send(msg.to_string());
+			let mut s = state.borrow_mut();
+			let _ = s.ws_tx.send(msg.to_string());
+			s.call_placing = true;
+			s.call_pending_cancel = false;
 
-			let s = state.borrow();
 			let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 			parts.call_parts.status_label.set_label(&format!("In call with {}", name));
 			parts.call_parts.accept_btn.show(false);
@@ -4386,6 +4465,7 @@ while ($true) {
 			parts.call_parts.add_participant_btn.show(true);
 			parts.call_parts.leave_btn.show(true);
 			parts.call_parts.frame.show(true);
+			drop(s);
 
 			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Placing call...");
 		}
@@ -4427,6 +4507,16 @@ while ($true) {
 				s.active_call_audio = None;
 				stop_call_ringing_sound(&mut s);
 				play_call_fail_sound(&mut s);
+			} else if s.call_placing {
+				// We're in the window between sending place_call and hearing back
+				// call_placed/call_failed with a real call_id - there's nothing to
+				// send leave_call for yet. Hide the UI now for immediate feedback,
+				// and mark the cancel as pending so the call_placed handler hangs
+				// up as soon as the call_id actually arrives instead of leaving it
+				// ringing on the peer's end.
+				s.call_pending_cancel = true;
+				parts.call_parts.frame.show(false);
+				stop_call_ringing_sound(&mut s);
 			}
 		}
 		UiCommand::FilterGroupMembers(query) => {
