@@ -5,6 +5,7 @@ mod call_audio;
 mod countries;
 mod paths;
 mod settings;
+mod single_instance;
 mod ui;
 mod ui_wake;
 mod win_job;
@@ -80,6 +81,7 @@ pub enum UiCommand {
 	SendTyping { jid: String, state: String, media: String },
 	SubscribePresence(String),
 	SetPresence(bool),
+	ActivateWindow,
 	MarkRead { jid: String, message_ids: Vec<String> },
 	LoadMoreMessages,
 	PlayVoiceMessage(String),
@@ -698,6 +700,13 @@ fn main() {
 		let _ = std::fs::write(paths::log_dir().join("panic.log"), format!("{}", info));
 	}));
 
+	// If whaNTV is already running, activate its window (restoring it from
+	// the tray if needed) instead of launching a second instance.
+	let _instance_lock = match single_instance::acquire_or_activate_existing() {
+		Some(lock) => lock,
+		None => return,
+	};
+
 	let exe_dir = std::env::current_exe()
 		.ok()
 		.and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -767,6 +776,13 @@ fn main() {
 		let ui_alive = Arc::new(AtomicBool::new(true));
 		let ui_waker = UiWaker::new(frame, ui_alive.clone());
 		let ui_tx = UiCommandSender::new(ui_tx_raw, ui_waker.clone());
+
+		// Let future launches of the app (see `single_instance::acquire_or_activate_existing`
+		// at the top of `main`) hand off to this window instead of starting a second instance.
+		let ui_tx_activate = ui_tx.clone();
+		single_instance::listen_for_activation(move || {
+			let _ = ui_tx_activate.send(UiCommand::ActivateWindow);
+		});
 
 		let (ws_out_tx, ws_out_rx) = mpsc::channel::<String>();
 		let ui_tx_clone = ui_tx.clone();
@@ -4685,6 +4701,18 @@ while ($true) {
 				}
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::ActivateWindow => {
+			// A newly launched second instance is asking us to come to the
+			// foreground instead of starting its own copy. We have to be the
+			// one to call raise()/SetForegroundWindow on our own window —
+			// the launcher process doing it directly would just flash the
+			// taskbar icon, since Windows only lets a process steal focus
+			// for itself (see single_instance::request_activate).
+			parts.frame.show(true);
+			parts.frame.iconize(false);
+			parts.frame.raise();
+			handle_ui_command(UiCommand::SetPresence(true), state, parts);
 		}
 		UiCommand::SetPresence(available) => {
 			let mut s = state.borrow_mut();

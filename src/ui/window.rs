@@ -406,7 +406,21 @@ pub fn bind_input_handlers(
 	tray_icon.on_left_double_click(move |_| {
 		frame_tray_restore.show(true);
 		frame_tray_restore.iconize(false);
+		frame_tray_restore.raise();
 		let _ = tx_tray_restore.send(UiCommand::SetPresence(true));
+	});
+
+	// A single left click also restores the window — this is what Explorer
+	// sends when the icon is "selected" via keyboard (Tab to it, then press
+	// Space/Enter) or touch, not a double-click, so without this the tray
+	// icon only responds to its context menu from the keyboard.
+	let frame_tray_select = parts.frame;
+	let tx_tray_select = ui_tx.clone();
+	tray_icon.on_left_up(move |_| {
+		frame_tray_select.show(true);
+		frame_tray_select.iconize(false);
+		frame_tray_select.raise();
+		let _ = tx_tray_select.send(UiCommand::SetPresence(true));
 	});
 
 	let apply_tray_setting = {

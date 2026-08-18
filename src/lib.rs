@@ -295,6 +295,12 @@ impl ChatMessage {
 			} else {
 				"[Media]".to_string()
 			}
+		} else if self.text.starts_with('[') {
+			// text is the backend's "[Document] file.docx"-style placeholder
+			// (used for the chat-list preview and DB persistence), not a real
+			// caption — translate it the same way the chat list does instead
+			// of showing the bracket tag as if the user had typed it.
+			friendly_preview_text(&self.text)
 		} else {
 			self.text.clone()
 		};
