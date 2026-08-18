@@ -79,6 +79,8 @@ func handleConnection(conn net.Conn) {
 			handleSendTyping(cmd.Data)
 		case "subscribe_presence":
 			handleSubscribePresence(cmd.Data)
+		case "set_presence":
+			handleSetPresence(cmd.Data)
 		case "mark_read":
 			handleMarkRead(cmd.Data)
 

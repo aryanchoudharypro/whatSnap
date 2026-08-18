@@ -27,6 +27,8 @@ pub struct ChatMessage {
 	pub is_audio: bool,
 	#[serde(default)]
 	pub is_date_divider: bool,
+	#[serde(default)]
+	pub is_unread_divider: bool,
 	#[serde(rename = "isDeleted", alias = "is_deleted", default)]
 	pub is_deleted: bool,
 	#[serde(rename = "isEdited", alias = "is_edited", default)]
@@ -215,7 +217,7 @@ impl ChatMessage {
 		Self::sanitize_filename(&raw)
 	}
 	pub fn format_display(&self, _is_group: bool) -> String {
-		if self.is_date_divider {
+		if self.is_date_divider || self.is_unread_divider {
 			return self.text.clone();
 		}
 
@@ -602,6 +604,38 @@ pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<Displa
 	}
 
 	items
+}
+
+/// Inserts an "N unread messages" divider before the last `count` non-divider
+/// (real) messages in `messages`, e.g. to mark where messages that arrived
+/// while the chat was open but unread pick up. No-op if `count` is 0 or
+/// exceeds the number of real messages present.
+pub fn insert_unread_divider(messages: &mut Vec<ChatMessage>, count: u64) {
+	let n = count as usize;
+	if n == 0 {
+		return;
+	}
+	let real_count = messages.iter().filter(|m| !m.is_date_divider && !m.is_unread_divider).count();
+	if n > real_count {
+		return;
+	}
+	let target_real_index = real_count - n;
+	let mut seen_real = 0usize;
+	let insert_at = messages
+		.iter()
+		.position(|m| {
+			if m.is_date_divider || m.is_unread_divider {
+				return false;
+			}
+			if seen_real == target_real_index {
+				return true;
+			}
+			seen_real += 1;
+			false
+		})
+		.unwrap_or(messages.len());
+	let label = if n == 1 { "1 unread message".to_string() } else { format!("{} unread messages", n) };
+	messages.insert(insert_at, ChatMessage { text: label, is_unread_divider: true, ..Default::default() });
 }
 
 #[cfg(test)]

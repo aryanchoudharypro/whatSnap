@@ -290,6 +290,21 @@ func handleSendTyping(raw json.RawMessage) {
 	go client.SendChatPresence(context.Background(), jid, pState, types.ChatPresenceMedia(data.Media))
 }
 
+func handleSetPresence(raw json.RawMessage) {
+	var data struct {
+		Available bool `json:"available"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		log.Printf("Failed to unmarshal set_presence: %v", err)
+		return
+	}
+	state := types.PresenceUnavailable
+	if data.Available {
+		state = types.PresenceAvailable
+	}
+	go client.SendPresence(context.Background(), state)
+}
+
 func handleSubscribePresence(raw json.RawMessage) {
 	var data struct {
 		JID string `json:"jid"`
