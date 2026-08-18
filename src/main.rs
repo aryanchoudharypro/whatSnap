@@ -79,6 +79,7 @@ pub enum UiCommand {
 	CopyAlbumToClipboard { message_ids: Vec<String> },
 	SendTyping { jid: String, state: String, media: String },
 	SubscribePresence(String),
+	SetPresence(bool),
 	MarkRead { jid: String, message_ids: Vec<String> },
 	LoadMoreMessages,
 	PlayVoiceMessage(String),
@@ -343,6 +344,21 @@ struct AppState {
 	pinned_jids: std::collections::HashSet<String>,
 	muted_jids: std::collections::HashSet<String>,
 	unread_counts: std::collections::HashMap<String, u64>,
+	/// The chat and count an "N unread messages" divider was captured for
+	/// when it was opened, so the divider stays put in the message list even
+	/// after `mark_read` zeroes out `unread_counts` moments later. Cleared
+	/// once the user sends a reply or reopens the chat.
+	unread_divider_jid: Option<String>,
+	unread_divider_count: u64,
+	/// Whether the app window is currently focused at the OS level (see
+	/// `ui::window`'s Activate handler). While unfocused, incoming messages
+	/// for the open chat aren't marked read — the user isn't actually
+	/// looking at them.
+	window_focused: bool,
+	/// Message IDs of incoming messages queued for the open chat while the
+	/// window was unfocused; drained into the unread divider + a batched
+	/// mark_read once focus returns.
+	background_unread_message_ids: Vec<String>,
 	display_names: std::collections::HashMap<String, String>,
 	contacts: std::collections::HashMap<String, String>,
 	presence_labels: std::collections::HashMap<String, String>,
@@ -852,6 +868,10 @@ fn main() {
 			pinned_jids: std::collections::HashSet::new(),
 			muted_jids: std::collections::HashSet::new(),
 			unread_counts: std::collections::HashMap::new(),
+			unread_divider_jid: None,
+			unread_divider_count: 0,
+			window_focused: true,
+			background_unread_message_ids: Vec::new(),
 			display_names: std::collections::HashMap::new(),
 			contacts: std::collections::HashMap::new(),
 			presence_labels: std::collections::HashMap::new(),
@@ -1184,6 +1204,25 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		UiCommand::SendMessage(text) => {
 			let mut s = state.borrow_mut();
 			if let Some(ref jid) = s.selected_chat.clone() {
+				// Sending a reply means the unread messages have obviously been
+				// seen, so drop the "N unread messages" divider from the list
+				// right away rather than waiting for the next time the chat is
+				// opened.
+				if s.unread_divider_jid.as_deref() == Some(jid.as_str()) {
+					s.unread_divider_jid = None;
+					s.unread_divider_count = 0;
+					s.background_unread_message_ids.clear();
+					s.messages.retain(|m| !m.is_unread_divider);
+					let is_group = jid.ends_with("@g.us");
+					s.display_items = whantv::group_messages_into_display_items(&s.messages);
+					parts.conversations_parts.messages_list.freeze();
+					parts.conversations_parts.messages_list.clear();
+					for item in &s.display_items {
+						parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+					}
+					parts.conversations_parts.messages_list.thaw();
+				}
+
 				let reply_id = s.pending_reply_id.take().unwrap_or_default();
 				let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
 				s.pending_reply_preview = None;
@@ -2004,16 +2043,66 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										);
 
 										if !is_from_me {
-											let mark_jid = jid.to_string();
-											let mark_msg_id = msg_id.clone();
-											let tx = s.ws_tx.clone();
-											let payload = serde_json::json!({
-												"action": "mark_read",
-												"data": { "jid": mark_jid, "message_ids": vec![mark_msg_id] }
-											});
 											let sounds_enabled =
 												s.settings.sounds_enabled && !s.muted_jids.contains(jid);
-											let _ = tx.send(payload.to_string());
+											if s.window_focused {
+												let mark_jid = jid.to_string();
+												let mark_msg_id = msg_id.clone();
+												let tx = s.ws_tx.clone();
+												let payload = serde_json::json!({
+													"action": "mark_read",
+													"data": { "jid": mark_jid, "message_ids": vec![mark_msg_id] }
+												});
+												let _ = tx.send(payload.to_string());
+											} else {
+												// The window isn't focused, so the user hasn't actually
+												// seen this yet — don't send a read receipt. Queue it
+												// for a batched mark_read once focus returns, and show
+												// (or grow) an "N unread messages" divider right now so
+												// it's already there when they look back at the chat.
+												s.background_unread_message_ids.push(msg_id.clone());
+												let has_divider = s.messages.iter().any(|m| m.is_unread_divider);
+												if has_divider {
+													s.unread_divider_count += 1;
+													let count = s.unread_divider_count;
+													let label = if count == 1 {
+														"1 unread message".to_string()
+													} else {
+														format!("{} unread messages", count)
+													};
+													if let Some(m) = s.messages.iter_mut().find(|m| m.is_unread_divider)
+													{
+														m.text = label;
+													}
+												} else {
+													s.unread_divider_jid = Some(jid.to_string());
+													s.unread_divider_count = 1;
+													// The message that just triggered this branch was
+													// appended as the last entry above, so the divider
+													// belongs immediately before it.
+													let insert_at = s.messages.len().saturating_sub(1);
+													s.messages.insert(
+														insert_at,
+														ChatMessage {
+															text: "1 unread message".to_string(),
+															is_unread_divider: true,
+															..Default::default()
+														},
+													);
+												}
+												let is_group = jid.ends_with("@g.us");
+												s.display_items =
+													whantv::group_messages_into_display_items(&s.messages);
+												parts.conversations_parts.messages_list.freeze();
+												parts.conversations_parts.messages_list.clear();
+												for item in &s.display_items {
+													parts
+														.conversations_parts
+														.messages_list
+														.append(&item.format_display(is_group));
+												}
+												parts.conversations_parts.messages_list.thaw();
+											}
 											play_notification_sound(NotificationSound::MessageCurrent, sounds_enabled);
 										}
 									}
@@ -2229,6 +2318,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											}
 										}
 										with_dates.push(msg);
+									}
+
+									if s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
+										whantv::insert_unread_divider(&mut with_dates, s.unread_divider_count);
 									}
 
 									s.loading_messages = false;
@@ -3649,6 +3742,10 @@ while ($true) {
 			if let Some(ref jid) = jid {
 				let mut s = state.borrow_mut();
 				s.selected_chat = Some(jid.clone());
+				let unread = s.unread_counts.get(jid).copied().unwrap_or(0);
+				s.unread_divider_jid = if unread > 0 { Some(jid.clone()) } else { None };
+				s.unread_divider_count = unread;
+				s.background_unread_message_ids.clear();
 				s.initial_presence_received = false;
 				s.messages.clear();
 				s.loading_messages = false;
@@ -4588,6 +4685,36 @@ while ($true) {
 				}
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::SetPresence(available) => {
+			let mut s = state.borrow_mut();
+			let regained_focus = available && !s.window_focused;
+			s.window_focused = available;
+
+			// The "N unread messages" divider is already built and kept
+			// up to date live as messages arrive in the background (see the
+			// "message" event handler); on refocus there's nothing left to
+			// do but send the batched read receipt for what queued up.
+			if regained_focus && !s.background_unread_message_ids.is_empty() {
+				if let Some(jid) = s.selected_chat.clone() {
+					let ids = std::mem::take(&mut s.background_unread_message_ids);
+					let payload = serde_json::json!({
+						"action": "mark_read",
+						"data": { "jid": jid, "message_ids": ids }
+					});
+					let _ = s.ws_tx.send(payload.to_string());
+				} else {
+					s.background_unread_message_ids.clear();
+				}
+			}
+
+			let payload = serde_json::json!({
+				"action": "set_presence",
+				"data": {
+					"available": available
+				}
+			});
+			let _ = s.ws_tx.send(payload.to_string());
 		}
 		UiCommand::MarkRead { jid, message_ids } => {
 			let payload = serde_json::json!({

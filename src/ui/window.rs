@@ -387,11 +387,13 @@ pub fn bind_input_handlers(
 		.append_item(tray_exit_id, "E&xit", "Quit whaNTV")
 		.build();
 	let frame_tray_menu = parts.frame;
+	let tx_tray_menu = ui_tx.clone();
 	tray_icon.on_menu(move |event| {
 		let id = event.get_id();
 		if id == tray_open_id {
 			frame_tray_menu.show(true);
 			frame_tray_menu.iconize(false);
+			let _ = tx_tray_menu.send(UiCommand::SetPresence(true));
 		} else if id == tray_exit_id {
 			frame_tray_menu.close(true);
 		}
@@ -400,9 +402,11 @@ pub fn bind_input_handlers(
 	std::mem::forget(tray_menu);
 
 	let frame_tray_restore = parts.frame;
+	let tx_tray_restore = ui_tx.clone();
 	tray_icon.on_left_double_click(move |_| {
 		frame_tray_restore.show(true);
 		frame_tray_restore.iconize(false);
+		let _ = tx_tray_restore.send(UiCommand::SetPresence(true));
 	});
 
 	let apply_tray_setting = {
@@ -424,12 +428,25 @@ pub fn bind_input_handlers(
 	// vetoed, so `can_veto()` tells the two cases apart.
 	let frame_close = parts.frame;
 	let tray_icon_close = tray_icon.clone();
+	let tx_close = ui_tx.clone();
 	parts.frame.on_close(move |event| {
 		if let WindowEventData::General(ref ev) = event {
 			if ev.can_veto() && tray_icon_close.is_icon_installed() {
 				ev.veto();
 				frame_close.show(false);
+				let _ = tx_close.send(UiCommand::SetPresence(false));
 			}
+		}
+	});
+
+	// The window is only "actively in use" while it's focused at the OS
+	// level; losing focus (alt-tabbing away, minimizing, or hiding to tray)
+	// should stop broadcasting an online presence to WhatsApp, matching what
+	// the official clients do.
+	let tx_activate = ui_tx.clone();
+	parts.frame.on_activate(move |event| {
+		if let WindowEventData::Activate(ref ev) = event {
+			let _ = tx_activate.send(UiCommand::SetPresence(ev.is_active()));
 		}
 	});
 
