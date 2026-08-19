@@ -1316,6 +1316,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
+					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
 							let can_edit = msg.from_me
@@ -1355,6 +1356,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
+					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
 							let prompt = if msg.from_me {
@@ -1417,6 +1419,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
+					drop(s);
 					if let Some(msg) = msg_opt {
 						let dlg = Dialog::builder(&parent_frame_clone, "React to message").with_size(300, 400).build();
 						let dlg_panel = Panel::builder(&dlg).build();
@@ -1826,6 +1829,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
+					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
 							let can_edit = msg.from_me
@@ -2018,6 +2022,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
+					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
 							let prompt = if msg.from_me {
@@ -2098,6 +2103,7 @@ pub fn bind_input_handlers(
 							whantv::DisplayItem::Single(m) => Some(m.clone()),
 							whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 						});
+						drop(s);
 						if let Some(msg) = msg_opt {
 							let mut urls = Vec::new();
 							let text = &msg.text;
