@@ -236,7 +236,15 @@ impl CaptureDsp {
 		// above the 8kHz output Nyquist back into the audible band. A cascaded
 		// two-pole one-pole low-pass at ~7kHz (comfortably under 8kHz) run on the
 		// native-rate signal before decimation removes that content first.
-		let lp_cutoff_hz: f32 = 7000.0;
+		//
+		// Cascading two identical one-pole stages does NOT put the pair's -3dB point
+		// at the per-stage cutoff: each stage alone is already -3dB there, so the pair
+		// is -6dB, and the actual combined -3dB point lands at cutoff * sqrt(sqrt(2)-1)
+		// (~0.644x) - using 7kHz directly for both stages put the real rolloff around
+		// 4.5kHz, cutting into sibilance/formants and making voice sound muffled. Scale
+		// the per-stage cutoff up so the cascade's own -3dB point is the intended 7kHz.
+		let lp_target_hz: f32 = 7000.0;
+		let lp_cutoff_hz: f32 = lp_target_hz / (2.0_f32.sqrt() - 1.0).sqrt();
 		let lp_rc = 1.0 / (2.0 * std::f32::consts::PI * lp_cutoff_hz);
 		let lp_dt = 1.0 / sample_rate as f32;
 		let lp_alpha = lp_dt / (lp_rc + lp_dt);
