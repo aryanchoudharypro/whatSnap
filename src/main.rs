@@ -2075,10 +2075,16 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												// seen this yet — don't send a read receipt. Queue it
 												// for a batched mark_read once focus returns, and show
 												// (or grow) an "N unread messages" divider right now so
-												// it's already there when they look back at the chat.
+												// it's already there when they look back at the chat —
+												// updated/inserted in place rather than rebuilding the
+												// whole list, so messages just quietly stack up in the
+												// background like the official WhatsApp client.
 												s.background_unread_message_ids.push(msg_id.clone());
-												let has_divider = s.messages.iter().any(|m| m.is_unread_divider);
-												if has_divider {
+												let is_group = jid.ends_with("@g.us");
+												let existing_di = s.display_items.iter().position(
+													|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider),
+												);
+												if let Some(di) = existing_di {
 													s.unread_divider_count += 1;
 													let count = s.unread_divider_count;
 													let label = if count == 1 {
@@ -2088,36 +2094,38 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													};
 													if let Some(m) = s.messages.iter_mut().find(|m| m.is_unread_divider)
 													{
-														m.text = label;
+														m.text = label.clone();
 													}
+													if let whantv::DisplayItem::Single(m) = &mut s.display_items[di] {
+														m.text = label.clone();
+													}
+													parts
+														.conversations_parts
+														.messages_list
+														.set_string(di as u32, &label);
 												} else {
 													s.unread_divider_jid = Some(jid.to_string());
 													s.unread_divider_count = 1;
 													// The message that just triggered this branch was
 													// appended as the last entry above, so the divider
 													// belongs immediately before it.
+													let divider = ChatMessage {
+														text: "1 unread message".to_string(),
+														is_unread_divider: true,
+														..Default::default()
+													};
 													let insert_at = s.messages.len().saturating_sub(1);
-													s.messages.insert(
-														insert_at,
-														ChatMessage {
-															text: "1 unread message".to_string(),
-															is_unread_divider: true,
-															..Default::default()
-														},
+													s.messages.insert(insert_at, divider.clone());
+													let di_insert_at = s.display_items.len().saturating_sub(1);
+													s.display_items.insert(
+														di_insert_at,
+														whantv::DisplayItem::Single(divider.clone()),
 													);
-												}
-												let is_group = jid.ends_with("@g.us");
-												s.display_items =
-													whantv::group_messages_into_display_items(&s.messages);
-												parts.conversations_parts.messages_list.freeze();
-												parts.conversations_parts.messages_list.clear();
-												for item in &s.display_items {
 													parts
 														.conversations_parts
 														.messages_list
-														.append(&item.format_display(is_group));
+														.insert(&divider.format_display(is_group), di_insert_at);
 												}
-												parts.conversations_parts.messages_list.thaw();
 											}
 											play_notification_sound(NotificationSound::MessageCurrent, sounds_enabled);
 										}
@@ -2403,6 +2411,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												}
 											})
 										}
+									} else if old_count == 0
+										&& s.unread_divider_jid.as_deref() == Some(chat_jid.as_str())
+									{
+										// Opening a chat with unread messages: land on the
+										// "N unread messages" divider, same as pressing Enter
+										// on it from the chat list, instead of the very bottom.
+										s.display_items.iter().position(
+											|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider),
+										)
 									} else {
 										None
 									};
@@ -4387,7 +4404,12 @@ while ($true) {
 			if let Some(item) = item_opt {
 				match item {
 					whantv::DisplayItem::Single(msg) => {
-						if let Some(ref jid) = state.borrow().selected_chat {
+						// Grab an owned copy and drop the borrow before opening the
+						// modal dialog below — show_modal() pumps the message loop,
+						// and any handler that needs state.borrow_mut() while we're
+						// still holding this Ref would panic with a BorrowMutError.
+						let jid_opt = state.borrow().selected_chat.clone();
+						if let Some(jid) = jid_opt {
 							let filename = msg.display_filename();
 							let dialog = FileDialog::builder(&parts.frame)
 								.with_message("Save file as")
