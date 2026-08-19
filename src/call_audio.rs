@@ -583,7 +583,12 @@ pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
 	std::thread::spawn(move || {
 		let _ = socket_read.set_read_timeout(Some(Duration::from_millis(200)));
 		disable_udp_connreset(&socket_read);
-		let mut buf = vec![0u8; FRAME_SAMPLES * 4];
+		// Sized to the max possible UDP datagram, not FRAME_SAMPLES * 4: on Windows,
+		// recv_from on an undersized buffer returns WSAEMSGSIZE and silently drops the
+		// *whole* datagram (no partial read like POSIX gives you), so a relay/peer that
+		// occasionally bursts more samples per packet than we send ourselves was having
+		// those packets discarded outright, causing choppy/starved audio for that call.
+		let mut buf = vec![0u8; 65536];
 		while !reader_stop_thread.load(Ordering::Relaxed) {
 			match socket_read.recv_from(&mut buf) {
 				Ok((size, _)) => {
