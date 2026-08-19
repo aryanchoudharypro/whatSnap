@@ -1415,7 +1415,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									parts.call_parts.mute_btn.show(false);
 									parts.call_parts.leave_btn.show(false);
 									parts.call_parts.add_participant_btn.show(false);
+									// Pop the call dialog to the front the same way a second
+									// launch instance activates the main window (see
+									// UiCommand::ActivateWindow) - just calling show(true) is not
+									// enough to steal focus if the app is minimized or behind
+									// other windows.
 									parts.call_parts.frame.show(true);
+									parts.call_parts.frame.iconize(false);
+									parts.call_parts.frame.raise();
+									start_call_ringing_sound(&mut s);
+									if s.settings.notifications_enabled {
+										show_toast_notification("Incoming call", &format!("Voice call from {}", name));
+									}
 									live_region::announce(
 										parts.conversations_parts.messages_announcer.clone(),
 										&format!("Incoming voice call from {}", name),
@@ -4612,6 +4623,7 @@ while ($true) {
 					"data": { "call_id": call_id }
 				});
 				let _ = s.ws_tx.send(msg.to_string());
+				stop_call_ringing_sound(&mut s);
 				parts.call_parts.status_label.set_label("Answering...");
 			}
 		}
