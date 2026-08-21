@@ -15,6 +15,40 @@ fn sanitize_export_filename(name: &str) -> String {
 	if trimmed.is_empty() { "chat".to_string() } else { trimmed.to_string() }
 }
 
+/// Confirms a message delete. Your own messages get a choice between
+/// revoking for everyone and removing it locally only ("delete for me");
+/// someone else's message can only ever be removed locally, so it's a plain
+/// yes/no confirm. Returns `None` if the user cancelled, else `Some(for_everyone)`.
+fn confirm_delete_choice(parent: &impl WxWidget, from_me: bool) -> Option<bool> {
+	if from_me {
+		let choices: Vec<&str> = vec!["Delete for Everyone", "Delete for Me"];
+		let dialog = SingleChoiceDialog::builder(
+			parent,
+			"Delete this message for everyone, or just remove it from your own device?",
+			"Delete Message",
+			&choices,
+		)
+		.build();
+		if dialog.show_modal() != wxdragon::id::ID_OK {
+			return None;
+		}
+		match dialog.get_string_selection().as_deref() {
+			Some("Delete for Everyone") => Some(true),
+			Some("Delete for Me") => Some(false),
+			_ => None,
+		}
+	} else {
+		let dlg = MessageDialog::builder(
+			parent,
+			"Are you sure you want to delete this message from your device?",
+			"Confirm Delete",
+		)
+		.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+		.build();
+		if dlg.show_modal() == wxdragon::id::ID_OK { Some(false) } else { None }
+	}
+}
+
 /// wxDialog::Create() on MSW doesn't set the native window's owner
 /// (GWLP_HWNDPARENT) from the `parent` it's given, so every dialog we build
 /// ends up as an unowned top-level window - Windows then gives each one its
@@ -1606,23 +1640,12 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
-							let prompt = if msg.from_me {
-								"Are you sure you want to delete this message for everyone?"
-							} else {
-								"Are you sure you want to delete this message from your device?"
-							};
-							let dlg = MessageDialog::builder(&parent_frame_clone, prompt, "Confirm Delete")
-								.with_style(
-									MessageDialogStyle::OK
-										| MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
-								)
-								.build();
-							if dlg.show_modal() == wxdragon::id::ID_OK {
+							if let Some(for_everyone) = confirm_delete_choice(&parent_frame_clone, msg.from_me) {
 								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
 								let _ = tx_play_media_clone.send(UiCommand::DeleteMessage {
 									message_id: msg.id.clone(),
 									sender_jid,
-									for_everyone: msg.from_me,
+									for_everyone,
 								});
 							}
 						}
@@ -2312,23 +2335,12 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
-							let prompt = if msg.from_me {
-								"Are you sure you want to delete this message for everyone?"
-							} else {
-								"Are you sure you want to delete this message from your device?"
-							};
-							let dlg = MessageDialog::builder(&parent_frame, prompt, "Confirm Delete")
-								.with_style(
-									MessageDialogStyle::OK
-										| MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
-								)
-								.build();
-							if dlg.show_modal() == wxdragon::id::ID_OK {
+							if let Some(for_everyone) = confirm_delete_choice(&parent_frame, msg.from_me) {
 								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
 								let _ = tx_play_media.send(UiCommand::DeleteMessage {
 									message_id: msg.id.clone(),
 									sender_jid,
-									for_everyone: msg.from_me,
+									for_everyone,
 								});
 							}
 						}
