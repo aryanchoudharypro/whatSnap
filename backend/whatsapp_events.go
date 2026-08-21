@@ -720,6 +720,10 @@ func eventHandler(evt interface{}) {
 			applyReaction(v, reaction)
 			return
 		}
+		if v.Info.Chat.User == "status" && v.Info.Chat.Server == types.BroadcastServer {
+			handleIncomingStatus(v)
+			return
+		}
 
 		text := extractText(v.Message)
 		if text == "[Protocol Message]" {
@@ -1212,6 +1216,47 @@ func populateChatsFromStore() {
 	}
 	db.Exec("DELETE FROM chats WHERE timestamp = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)")
 	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@broadcast'")
+}
+
+// handleIncomingStatus stores a Status/Stories post (someone else's, or our
+// own posted from another linked device) using the exact same messages-table
+// row shape as a normal message, just under the reserved "status@broadcast"
+// jid, which the rest of the app already treats as invisible to the regular
+// chat list (see isIgnoredChatJID). Reusing that table means every existing
+// media download/open/save code path (keyed purely by message ID) works for
+// status media with zero changes.
+func handleIncomingStatus(v *events.Message) {
+	text := extractText(v.Message)
+	if text == "[Protocol Message]" || text == "[Unsupported Message]" {
+		text = ""
+	}
+	senderJID := v.Info.Sender.ToNonAD()
+	mediaType, mimetype, filename := mediaInfoFromMessage(v.Message)
+	if text == "" && mediaType == "" {
+		return
+	}
+	ts := v.Info.Timestamp.Unix()
+	status := ""
+	if v.Info.IsFromMe {
+		status = "sent"
+	}
+	rawBytes, _ := proto.Marshal(v.Message)
+	if err := saveMessage(StoredMessage{
+		ID: v.Info.ID, JID: "status@broadcast", SenderJID: senderJID.String(),
+		FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,
+		MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename,
+	}); err != nil {
+		log.Println("Error saving status update:", err)
+		return
+	}
+	go func() {
+		cutoff := time.Now().Add(-24 * time.Hour).Unix()
+		db.Exec("DELETE FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?", cutoff)
+	}()
+	broadcastEvent("status_update", map[string]interface{}{
+		"id": v.Info.ID, "posterJid": senderJID.String(), "fromMe": v.Info.IsFromMe,
+		"text": text, "mediaType": mediaType, "timestamp": ts,
+	})
 }
 
 var (

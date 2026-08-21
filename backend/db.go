@@ -63,6 +63,9 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN played_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN edited_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN starred INTEGER DEFAULT 0")
+	// "viewed" only has meaning for jid = 'status@broadcast' rows (Status/Stories).
+	db.Exec("ALTER TABLE messages ADD COLUMN viewed INTEGER DEFAULT 0")
+	db.Exec("DELETE FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?", time.Now().Add(-24*time.Hour).Unix())
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
 	db.Exec("DELETE FROM messages WHERE (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
 	db.Exec("DELETE FROM messages WHERE is_deleted = 1 AND (raw IS NULL OR length(raw) = 0) AND (text = '' OR text IS NULL)")
