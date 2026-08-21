@@ -2376,10 +2376,40 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							if let Some(data) = val.get("data") {
 								let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 								let message_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+								let for_everyone = data.get("for_everyone").and_then(|f| f.as_bool()).unwrap_or(true);
 
 								let mut s = state.borrow_mut();
 								if Some(jid.to_string()) == s.selected_chat {
 									let is_group = jid.ends_with("@g.us");
+
+									if !for_everyone {
+										// "Delete for me": the row just disappears, like
+										// official WhatsApp - no "This message was
+										// deleted" tombstone, that's only for revokes.
+										let had_message = s.messages.iter().any(|m| m.id == message_id);
+										if had_message {
+											s.messages.retain(|m| m.id != message_id);
+											s.display_items = whantv::group_messages_into_display_items(&s.messages);
+											s.prev_msg_count = s.display_items.len();
+
+											parts.conversations_parts.messages_list.freeze();
+											parts.conversations_parts.messages_list.clear();
+											for item in &s.display_items {
+												parts
+													.conversations_parts
+													.messages_list
+													.append(&item.format_display(is_group));
+											}
+											parts.conversations_parts.messages_list.thaw();
+											let count = parts.conversations_parts.messages_list.get_count();
+											if count > 0 {
+												parts.conversations_parts.messages_list.set_selection(count - 1, true);
+											}
+											live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+										}
+										return;
+									}
+
 									let mut changed = false;
 									for msg in s.messages.iter_mut() {
 										if msg.id == message_id {

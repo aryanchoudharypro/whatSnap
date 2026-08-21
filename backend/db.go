@@ -209,6 +209,19 @@ func markMessageDeleted(id, jid string) error {
 	return err
 }
 
+// deleteMessageForMe removes a message entirely from the local cache, for
+// "delete for me" (both our own and synced from another linked device via
+// events.DeleteForMe). Unlike markMessageDeleted this leaves no tombstone -
+// the row just disappears, matching official WhatsApp: a message you (or
+// another of your devices) deleted for yourself was never a "this message
+// was deleted" placeholder, it's simply gone from your view.
+func deleteMessageForMe(id, jid string) error {
+	db.Exec(`DELETE FROM reactions WHERE message_id = ?`, id)
+	_, err := db.Exec(`DELETE FROM messages WHERE id = ? AND jid = ?`, id, jid)
+	UpdateChatSnippet(jid)
+	return err
+}
+
 func markMessageStarred(id, jid string, starred bool) error {
 	starredInt := 0
 	if starred {

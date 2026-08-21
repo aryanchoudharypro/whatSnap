@@ -291,9 +291,13 @@ func handleDeleteMessage(raw json.RawMessage) {
 				// linked devices didn't go through.
 			}
 		}
-		markMessageDeleted(data.MessageID, data.JID)
+		if data.ForEveryone {
+			markMessageDeleted(data.MessageID, data.JID)
+		} else {
+			deleteMessageForMe(data.MessageID, data.JID)
+		}
 		broadcastEvent("message_deleted", map[string]interface{}{
-			"jid": data.JID, "message_id": data.MessageID, "by": "me",
+			"jid": data.JID, "message_id": data.MessageID, "by": "me", "for_everyone": data.ForEveryone,
 		})
 	}()
 }
