@@ -177,7 +177,12 @@ pub fn build_main_window() -> WindowParts {
 	let nav_label = StaticText::builder(&nav_panel).with_label("Main Navigation").build();
 	theme::style_sidebar_heading(&nav_label);
 	let nav_list = ListBox::builder(&nav_panel)
-		.with_choices(vec!["Conversations".to_string(), "Starred Messages".to_string(), "Archived Chats".to_string()])
+		.with_choices(vec![
+			"Conversations".to_string(),
+			"Status".to_string(),
+			"Starred Messages".to_string(),
+			"Archived Chats".to_string(),
+		])
 		.build();
 	nav_list.set_font(&theme::Fonts::body_strong());
 	theme::style_sidebar(&nav_list);
@@ -448,8 +453,23 @@ pub fn bind_input_handlers(
 	});
 
 	let new_conv_dialog = parts.new_conv_dialog.dialog;
+	let tx_post_status = ui_tx.clone();
+	let state_new_conv = state.clone();
+	let frame_new_conv = parts.frame.clone();
 	parts.conversations_parts.new_conv_btn.on_click(move |_| {
-		new_conv_dialog.show_modal();
+		if state_new_conv.borrow().active_tab == 1 {
+			let dlg = TextEntryDialog::builder(&frame_new_conv, "What's on your mind?", "Post Status Update").build();
+			if dlg.show_modal() == wxdragon::id::ID_OK {
+				if let Some(val) = dlg.get_value() {
+					let text = val.trim().to_string();
+					if !text.is_empty() {
+						let _ = tx_post_status.send(UiCommand::PostStatus { text });
+					}
+				}
+			}
+		} else {
+			new_conv_dialog.show_modal();
+		}
 	});
 
 	let new_conv_dialog_close = parts.new_conv_dialog.dialog;

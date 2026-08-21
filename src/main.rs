@@ -77,6 +77,7 @@ pub enum UiCommand {
 	DeleteMessage { message_id: String, sender_jid: String, for_everyone: bool },
 	StarMessage { message_id: String, sender_jid: String, from_me: bool, starred: bool },
 	ExportChat { jid: String, dest_path: String },
+	PostStatus { text: String },
 	GetMessageInfo { message_id: String },
 	RetryMessage { message_id: String },
 	CopyAlbumToClipboard { message_ids: Vec<String> },
@@ -331,6 +332,25 @@ struct StarredEntry {
 	label: String,
 }
 
+/// One posted Status/Stories update, as shown in the Status nav view.
+#[derive(Clone)]
+struct StatusItem {
+	id: String,
+	text: String,
+	media_type: String,
+	timestamp: i64,
+	viewed: bool,
+}
+
+/// All of one contact's (or our own) live status updates, in post order.
+#[derive(Clone)]
+struct StatusGroup {
+	poster_jid: String,
+	poster_name: String,
+	all_viewed: bool,
+	items: Vec<StatusItem>,
+}
+
 struct AppState {
 	settings: crate::settings::Settings,
 	ws_tx: mpsc::Sender<String>,
@@ -391,12 +411,16 @@ struct AppState {
 	history_loading: bool,
 	completed_history_chats: std::collections::HashSet<String>,
 	prev_msg_count: usize,
-	/// 0 = Conversations, 1 = Starred Messages, 2 = Archived Chats.
+	/// 0 = Conversations, 1 = Status, 2 = Starred Messages, 3 = Archived Chats.
 	active_tab: usize,
 	starred_entries: Vec<StarredEntry>,
-	/// Parallel to `filtered_chats` while `active_tab == 1`: the starred
+	/// Parallel to `filtered_chats` while `active_tab == 2`: the starred
 	/// message to jump to for each row shown in the nav list.
 	filtered_starred_message_ids: Vec<String>,
+	status_groups: Vec<StatusGroup>,
+	/// Parallel to `filtered_chats` while `active_tab == 1`: the status
+	/// message id for each row shown in the nav list.
+	filtered_status_message_ids: Vec<String>,
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
 	main_ui_shown: bool,
@@ -480,8 +504,47 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	let mut filtered = Vec::new();
 	let mut labels = Vec::new();
 	let mut filtered_starred_ids = Vec::new();
+	let mut filtered_status_ids = Vec::new();
 
 	if s.active_tab == 1 {
+		// Status: a flat list, one row per status item (not grouped by
+		// contact) - own statuses first, then everyone else newest-post-first
+		// (status_groups is already sorted that way by the backend).
+		// filtered_chats holds the poster's jid per row, filtered_status_ids
+		// the status message id, so OpenConversation can look either up by idx.
+		for group in &s.status_groups {
+			for item in &group.items {
+				let viewed_tag = if item.viewed { "Viewed" } else { "New" };
+				let preview = if !item.text.is_empty() {
+					item.text.clone()
+				} else if !item.media_type.is_empty() {
+					"Media".to_string()
+				} else {
+					String::new()
+				};
+				let time_str = if item.timestamp > 0 {
+					chrono::DateTime::from_timestamp(item.timestamp, 0)
+						.map(|dt| {
+							let local_dt: chrono::DateTime<chrono::Local> = dt.into();
+							local_dt.format("%I:%M %p").to_string()
+						})
+						.unwrap_or_default()
+				} else {
+					String::new()
+				};
+				let label = if time_str.is_empty() {
+					format!("{} [{}]: {}", group.poster_name, viewed_tag, preview)
+				} else {
+					format!("{} [{}]: {}, {}", group.poster_name, viewed_tag, preview, time_str)
+				};
+				if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) {
+					labels.push(label);
+					filtered.push(group.poster_jid.clone());
+					filtered_status_ids.push(item.id.clone());
+				}
+			}
+		}
+	} else if s.active_tab == 2 {
 		// Starred Messages: a flat, cross-chat list built from starred_entries
 		// rather than s.chats. filtered_chats still holds one jid per row so
 		// OpenConversation's existing index -> jid lookup keeps working.
@@ -495,7 +558,7 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	} else {
 		for jid in &s.chats {
 			let is_archived = s.archived_jids.contains(jid);
-			if (s.active_tab == 0 && is_archived) || (s.active_tab == 2 && !is_archived) {
+			if (s.active_tab == 0 && is_archived) || (s.active_tab == 3 && !is_archived) {
 				continue;
 			}
 
@@ -509,6 +572,7 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 
 	s.filtered_chats = filtered;
 	s.filtered_starred_message_ids = filtered_starred_ids;
+	s.filtered_status_message_ids = filtered_status_ids;
 
 	// Clearing and refilling the list resets the focused item and makes the
 	// screen reader re-announce, so leave the control untouched when the
@@ -1007,6 +1071,8 @@ fn main() {
 			active_tab: 0,
 			starred_entries: Vec::new(),
 			filtered_starred_message_ids: Vec::new(),
+			status_groups: Vec::new(),
+			filtered_status_message_ids: Vec::new(),
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),
 			main_ui_shown: false,
@@ -1798,10 +1864,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let lower_query = s.search_query.to_lowercase();
 									let mut new_filtered = Vec::new();
 									let mut new_display = Vec::new();
-									if s.active_tab != 1 {
+									if s.active_tab != 1 && s.active_tab != 2 {
 										for jid in &s.chats {
 											let is_archived = s.archived_jids.contains(jid);
-											if (s.active_tab == 0 && is_archived) || (s.active_tab == 2 && !is_archived)
+											if (s.active_tab == 0 && is_archived) || (s.active_tab == 3 && !is_archived)
 											{
 												continue;
 											}
@@ -1815,8 +1881,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									}
 
 									let structure_changed = s.active_tab != 1
-										&& (new_filtered.len() != s.filtered_chats.len()
-											|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b));
+										&& s.active_tab != 2 && (new_filtered.len()
+										!= s.filtered_chats.len()
+										|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b));
 
 									if structure_changed {
 										s.filtered_chats = new_filtered;
@@ -2760,6 +2827,85 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
 							}
 						}
+						"statuses" => {
+							if let Some(data) = val.get("data") {
+								if let Some(groups) = data.get("groups").and_then(|g| g.as_array()) {
+									let mut parsed = Vec::new();
+									for g in groups {
+										let poster_jid =
+											g.get("posterJid").and_then(|j| j.as_str()).unwrap_or("").to_string();
+										let poster_name =
+											g.get("posterName").and_then(|n| n.as_str()).unwrap_or("").to_string();
+										let all_viewed = g.get("allViewed").and_then(|v| v.as_bool()).unwrap_or(false);
+										let mut items = Vec::new();
+										if let Some(statuses) = g.get("statuses").and_then(|s| s.as_array()) {
+											for it in statuses {
+												items.push(StatusItem {
+													id: it.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+													text: it
+														.get("text")
+														.and_then(|v| v.as_str())
+														.unwrap_or("")
+														.to_string(),
+													media_type: it
+														.get("mediaType")
+														.and_then(|v| v.as_str())
+														.unwrap_or("")
+														.to_string(),
+													timestamp: it
+														.get("timestamp")
+														.and_then(|v| v.as_i64())
+														.unwrap_or(0),
+													viewed: it.get("viewed").and_then(|v| v.as_bool()).unwrap_or(false),
+												});
+											}
+										}
+										parsed.push(StatusGroup { poster_jid, poster_name, all_viewed, items });
+									}
+									let mut s = state.borrow_mut();
+									s.status_groups = parsed;
+									if s.active_tab == 1 {
+										apply_chat_filter(&mut s, parts);
+									}
+								}
+							}
+						}
+						"status_update" => {
+							if let Some(data) = val.get("data") {
+								let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+								let poster_jid =
+									data.get("posterJid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+								if id.is_empty() || poster_jid.is_empty() {
+									return;
+								}
+								let from_me = data.get("fromMe").and_then(|v| v.as_bool()).unwrap_or(false);
+								let text = data.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+								let media_type =
+									data.get("mediaType").and_then(|v| v.as_str()).unwrap_or("").to_string();
+								let timestamp = data.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+
+								let mut s = state.borrow_mut();
+								let poster_name =
+									s.contacts.get(&poster_jid).cloned().unwrap_or_else(|| {
+										if from_me { "You".to_string() } else { poster_jid.clone() }
+									});
+								let item = StatusItem { id, text, media_type, timestamp, viewed: from_me };
+								if let Some(group) = s.status_groups.iter_mut().find(|g| g.poster_jid == poster_jid) {
+									group.items.push(item);
+									group.all_viewed = group.items.iter().all(|it| it.viewed);
+								} else {
+									s.status_groups.push(StatusGroup {
+										poster_jid,
+										poster_name,
+										all_viewed: from_me,
+										items: vec![item],
+									});
+								}
+								if s.active_tab == 1 {
+									apply_chat_filter(&mut s, parts);
+								}
+							}
+						}
 						"starred_messages" => {
 							if let Some(data) = val.get("data") {
 								if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
@@ -2815,7 +2961,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										entries.push(StarredEntry { jid, message_id, label });
 									}
 									s.starred_entries = entries;
-									if s.active_tab == 1 {
+									if s.active_tab == 2 {
 										apply_chat_filter(&mut s, parts);
 									}
 								}
@@ -3552,7 +3698,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 								}
-								if s.active_tab == 1 {
+								if s.active_tab == 2 {
 									let payload = serde_json::json!({ "action": "get_starred_messages" });
 									let _ = s.ws_tx.send(payload.to_string());
 								}
@@ -4088,20 +4234,36 @@ while ($true) {
 					// Conversations
 					parts.conversations_parts.panel.show(true);
 					state.borrow_mut().active_tab = 0;
+					parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+					parts.conversations_parts.conversations_label.set_label("Conversations");
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
 				1 => {
-					// Starred Messages
+					// Status
 					parts.conversations_parts.panel.show(true);
 					state.borrow_mut().active_tab = 1;
-					let payload = serde_json::json!({ "action": "get_starred_messages" });
+					parts.conversations_parts.new_conv_btn.set_label("Post Status Update...");
+					parts.conversations_parts.conversations_label.set_label("Status Updates");
+					let payload = serde_json::json!({ "action": "get_statuses" });
 					let _ = state.borrow().ws_tx.send(payload.to_string());
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
 				2 => {
-					// Archived Chats
+					// Starred Messages
 					parts.conversations_parts.panel.show(true);
 					state.borrow_mut().active_tab = 2;
+					parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+					parts.conversations_parts.conversations_label.set_label("Starred Messages");
+					let payload = serde_json::json!({ "action": "get_starred_messages" });
+					let _ = state.borrow().ws_tx.send(payload.to_string());
+					apply_chat_filter(&mut state.borrow_mut(), parts);
+				}
+				3 => {
+					// Archived Chats
+					parts.conversations_parts.panel.show(true);
+					state.borrow_mut().active_tab = 3;
+					parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+					parts.conversations_parts.conversations_label.set_label("Archived Chats");
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
 				_ => {}
@@ -4114,6 +4276,60 @@ while ($true) {
 			apply_chat_filter(&mut s, parts);
 		}
 		UiCommand::OpenConversation(idx) => {
+			if state.borrow().active_tab == 1 {
+				// Status: selecting a row views that status instead of opening a chat.
+				let (poster_jid, message_id) = {
+					let s = state.borrow();
+					(s.filtered_chats.get(idx).cloned(), s.filtered_status_message_ids.get(idx).cloned())
+				};
+				if let (Some(poster_jid), Some(message_id)) = (poster_jid, message_id) {
+					let mut s = state.borrow_mut();
+					let mut media_type = String::new();
+					let mut text = String::new();
+					let mut poster_name = poster_jid.clone();
+					for group in s.status_groups.iter_mut() {
+						if group.poster_jid == poster_jid {
+							poster_name = group.poster_name.clone();
+							if let Some(item) = group.items.iter_mut().find(|it| it.id == message_id) {
+								item.viewed = true;
+								media_type = item.media_type.clone();
+								text = item.text.clone();
+							}
+							group.all_viewed = group.items.iter().all(|it| it.viewed);
+							break;
+						}
+					}
+					apply_chat_filter(&mut s, parts);
+					let ws_tx = s.ws_tx.clone();
+					drop(s);
+
+					let mark_payload = serde_json::json!({
+						"action": "mark_status_viewed",
+						"data": { "id": message_id, "poster_jid": poster_jid }
+					});
+					let _ = ws_tx.send(mark_payload.to_string());
+
+					if !media_type.is_empty() {
+						let open_payload = serde_json::json!({
+							"action": "open_media",
+							"data": { "jid": "status@broadcast", "message_id": message_id }
+						});
+						let _ = ws_tx.send(open_payload.to_string());
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							&format!("Opening {}'s status media...", poster_name),
+						);
+					} else {
+						let msg = if text.is_empty() {
+							format!("{}'s status has no content.", poster_name)
+						} else {
+							format!("{}: {}", poster_name, text)
+						};
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+					}
+				}
+				return;
+			}
 			let jid = state.borrow().filtered_chats.get(idx).cloned();
 			if let Some(ref jid) = jid {
 				let mut s = state.borrow_mut();
@@ -4129,7 +4345,7 @@ while ($true) {
 				s.history_loading = false;
 				s.prev_msg_count = 0;
 				s.pending_attachments.clear();
-				if s.active_tab == 1 {
+				if s.active_tab == 2 {
 					if let Some(msg_id) = s.filtered_starred_message_ids.get(idx).cloned() {
 						s.search_target_id = Some(msg_id);
 					}
@@ -5280,6 +5496,14 @@ while ($true) {
 				parts.conversations_parts.messages_announcer.clone(),
 				"Exporting chat, this may take a while for chats with a lot of media...",
 			);
+		}
+		UiCommand::PostStatus { text } => {
+			let payload = serde_json::json!({
+				"action": "post_status",
+				"data": { "text": text }
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Posting status update...");
 		}
 		UiCommand::GetMessageInfo { message_id } => {
 			let payload = serde_json::json!({
