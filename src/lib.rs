@@ -134,6 +134,38 @@ impl ChatMessage {
 		self.media_type == "document" || self.text.starts_with("[Document]")
 	}
 
+	pub fn is_voice(&self) -> bool {
+		self.is_audio || self.text.starts_with("[Voice Message]") || self.text.starts_with("[Audio]")
+	}
+
+	/// Photos and videos only - matches what official WhatsApp's Media tab
+	/// shows (voice messages and documents get their own tabs).
+	pub fn is_photo_or_video(&self) -> bool {
+		!self.is_voice()
+			&& (self.media_type == "image"
+				|| self.media_type == "video"
+				|| self.text.starts_with("[Photo]")
+				|| self.text.starts_with("[Image]")
+				|| self.text.starts_with("[Video]"))
+	}
+
+	/// The first URL-looking word in the message text, if any. Used to
+	/// populate the Links tab; messages whose text is a backend placeholder
+	/// (e.g. "[Document] file.pdf") never count as links.
+	pub fn first_link(&self) -> Option<String> {
+		if self.text.starts_with('[') {
+			return None;
+		}
+		self.text.split_whitespace().find_map(|word| {
+			let lower = word.to_lowercase();
+			if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("www.") {
+				Some(word.trim_matches(|c: char| ".,;:!?()'\"".contains(c)).to_string())
+			} else {
+				None
+			}
+		})
+	}
+
 	pub fn is_media_downloaded(&self) -> bool {
 		!self.media_path.is_empty() && std::path::Path::new(&self.media_path).exists()
 	}

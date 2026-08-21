@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -51,6 +52,64 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 	}
 
 	return
+}
+
+// applyReaction stores an incoming reaction and updates the chat-list preview.
+// It never creates a standalone chat message - if the reacted-to message isn't
+// in the local DB, updateChatReactionPreview silently leaves the preview alone.
+func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
+	targetID := reaction.GetKey().GetID()
+	chatJID, senderJID := resolveLIDChat(v)
+	jid := chatJID.ToNonAD().String()
+	emoji := reaction.GetText()
+
+	reactorJID := senderJID.ToNonAD().String()
+	reactorName := resolveDisplayName(senderJID)
+	if v.Info.IsFromMe {
+		reactorJID = "me"
+		reactorName = "You"
+	}
+
+	ts := reaction.GetSenderTimestampMS() / 1000
+	if ts == 0 {
+		ts = v.Info.Timestamp.Unix()
+	}
+
+	go func() {
+		upsertReaction(targetID, jid, reactorJID, emoji, ts)
+		updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
+		broadcastChats()
+	}()
+	broadcastEvent("message_reaction", map[string]interface{}{
+		"jid":          jid,
+		"message_id":   targetID,
+		"reactor":      reactorJID,
+		"reactor_name": reactorName,
+		"emoji":        emoji,
+	})
+}
+
+// storeReactionTx applies a HistorySync-backfilled reaction within the
+// caller's transaction. Mirrors applyReaction but writes via tx and skips the
+// live "message_reaction" broadcast, since this runs during bulk backfill.
+func storeReactionTx(tx *sql.Tx, jid string, evtMsg *events.Message, reaction *waE2E.ReactionMessage) {
+	targetID := reaction.GetKey().GetID()
+	emoji := reaction.GetText()
+	reactorJID := evtMsg.Info.Sender.ToNonAD().String()
+	if evtMsg.Info.IsFromMe {
+		reactorJID = "me"
+	}
+	ts := reaction.GetSenderTimestampMS() / 1000
+	if ts == 0 {
+		ts = evtMsg.Info.Timestamp.Unix()
+	}
+	if emoji == "" {
+		tx.Exec(`DELETE FROM reactions WHERE message_id = ? AND (reactor_jid = ? OR reactor_jid = 'me')`, targetID, reactorJID)
+	} else {
+		tx.Exec(`INSERT INTO reactions (message_id, chat_jid, reactor_jid, emoji, timestamp) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(message_id, reactor_jid) DO UPDATE SET emoji = excluded.emoji, timestamp = excluded.timestamp`,
+			targetID, jid, reactorJID, emoji, ts)
+	}
 }
 
 func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
@@ -473,22 +532,18 @@ func eventHandler(evt interface{}) {
 						continue
 					}
 					if reaction := evtMsg.Message.GetReactionMessage(); reaction != nil {
-						targetID := reaction.GetKey().GetID()
-						emoji := reaction.GetText()
-						reactorJID := evtMsg.Info.Sender.ToNonAD().String()
-						if evtMsg.Info.IsFromMe {
-							reactorJID = "me"
-						}
-						ts := reaction.GetSenderTimestampMS() / 1000
-						if ts == 0 {
-							ts = evtMsg.Info.Timestamp.Unix()
-						}
-						if emoji == "" {
-							tx.Exec(`DELETE FROM reactions WHERE message_id = ? AND (reactor_jid = ? OR reactor_jid = 'me')`, targetID, reactorJID)
+						storeReactionTx(tx, jid, evtMsg, reaction)
+						continue
+					}
+					if evtMsg.Message.GetEncReactionMessage() != nil {
+						// Same announcement-group encrypted-reaction case as the
+						// live-event path below - decrypt it instead of letting
+						// it fall through to extractText's "[Unsupported
+						// Message]" and get inserted as a bogus chat message.
+						if reaction, err := client.DecryptReaction(context.Background(), evtMsg); err == nil {
+							storeReactionTx(tx, jid, evtMsg, reaction)
 						} else {
-							tx.Exec(`INSERT INTO reactions (message_id, chat_jid, reactor_jid, emoji, timestamp) VALUES (?, ?, ?, ?, ?)
-								ON CONFLICT(message_id, reactor_jid) DO UPDATE SET emoji = excluded.emoji, timestamp = excluded.timestamp`,
-								targetID, jid, reactorJID, emoji, ts)
+							log.Printf("Failed to decrypt announcement-group reaction from HistorySync: %v", err)
 						}
 						continue
 					}
@@ -647,35 +702,22 @@ func eventHandler(evt interface{}) {
 			return
 		}
 		if reaction := unwrappedMsg.GetReactionMessage(); reaction != nil {
-			targetID := reaction.GetKey().GetID()
-			chatJID, senderJID := resolveLIDChat(v)
-			jid := chatJID.ToNonAD().String()
-			emoji := reaction.GetText()
-
-			reactorJID := senderJID.ToNonAD().String()
-			reactorName := resolveDisplayName(senderJID)
-			if v.Info.IsFromMe {
-				reactorJID = "me"
-				reactorName = "You"
+			applyReaction(v, reaction)
+			return
+		}
+		if unwrappedMsg.GetEncReactionMessage() != nil {
+			// Reactions in community announcement groups are delivered as
+			// EncReactionMessage (encrypted separately from the outer stanza,
+			// since only admins can post but anyone can react). Without this,
+			// GetReactionMessage() above is nil, extractText falls through to
+			// "[Unsupported Message]", and the reaction gets inserted as a
+			// bogus standalone chat message instead of being applied.
+			reaction, err := client.DecryptReaction(context.Background(), v)
+			if err != nil {
+				log.Printf("Failed to decrypt announcement-group reaction from %s: %v", v.Info.Sender, err)
+				return
 			}
-
-			ts := reaction.GetSenderTimestampMS() / 1000
-			if ts == 0 {
-				ts = v.Info.Timestamp.Unix()
-			}
-
-			go func() {
-				upsertReaction(targetID, jid, reactorJID, emoji, ts)
-				updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
-				broadcastChats()
-			}()
-			broadcastEvent("message_reaction", map[string]interface{}{
-				"jid":          jid,
-				"message_id":   targetID,
-				"reactor":      reactorJID,
-				"reactor_name": reactorName,
-				"emoji":        emoji,
-			})
+			applyReaction(v, reaction)
 			return
 		}
 

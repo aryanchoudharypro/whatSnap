@@ -108,7 +108,12 @@ pub enum UiCommand {
 	ToggleReadChat { jid: String, read: bool },
 	DeleteChat { jid: String },
 	FilterGroupMembers(String),
-	FilterGroupFiles(String),
+	AddGroupMember,
+	ToggleGroupMemberAdmin(u32),
+	RemoveGroupMember(u32),
+	DownloadMediaMessage(String),
+	OpenMediaMessage(String),
+	SaveMediaMessageAs(String),
 }
 
 use std::fs::File;
@@ -403,9 +408,52 @@ struct AppState {
 	// immediately hang the call back up instead of leaving it stuck ringing.
 	call_placing: bool,
 	call_pending_cancel: bool,
+	/// Set when we send answer_call for an incoming call, cleared on
+	/// call_connected/call_ended/call_answer_failed. If it's still set once
+	/// this has been elapsed too long, the periodic timer treats it as a
+	/// silently-failed answer (see typing_timer's tick handler) - covers the
+	/// case where the backend never hears back at all rather than erroring.
+	call_answer_deadline: Option<std::time::Instant>,
 	call_ringing_sink: Option<Player>,
 	group_data_members: Vec<String>,
-	group_data_files: Vec<String>,
+	/// Action JIDs for `group_data_members`, aligned by index (unfiltered).
+	group_data_member_jids: Vec<String>,
+	/// Whether each entry in `group_data_members` is an admin/super admin, aligned by index (unfiltered).
+	group_data_member_admin: Vec<bool>,
+	/// Action JIDs for whatever is currently shown in `members_list`, in
+	/// display order, so a selection index from the list box can be mapped
+	/// back to a JID even while a search filter is narrowing the list.
+	group_data_visible_member_jids: Vec<String>,
+	/// Media/Documents/Links tabs in the group info dialog, aligned 1:1 with
+	/// what's shown in each ListBox (no search/filtering on these, matching
+	/// official WhatsApp).
+	group_data_media: Vec<ChatMessage>,
+	group_data_documents: Vec<ChatMessage>,
+	group_data_links: Vec<ChatMessage>,
+	/// Same as the group_data_* trio above, but for the 1-on-1 conversation
+	/// data dialog.
+	conversation_data_media: Vec<ChatMessage>,
+	conversation_data_documents: Vec<ChatMessage>,
+	conversation_data_links: Vec<ChatMessage>,
+}
+
+fn build_media_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+	messages.iter().filter(|m| m.is_photo_or_video()).cloned().collect()
+}
+
+fn build_document_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+	messages.iter().filter(|m| m.is_document()).cloned().collect()
+}
+
+fn build_link_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+	messages.iter().filter(|m| m.first_link().is_some()).cloned().collect()
+}
+
+fn populate_message_list(list: &ListBox, messages: &[ChatMessage], label: impl Fn(&ChatMessage) -> String) {
+	list.clear();
+	for msg in messages {
+		list.append(&label(msg));
+	}
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
@@ -897,9 +945,18 @@ fn main() {
 			active_call_id: None,
 			call_placing: false,
 			call_pending_cancel: false,
+			call_answer_deadline: None,
 			call_ringing_sink: None,
 			group_data_members: Vec::new(),
-			group_data_files: Vec::new(),
+			group_data_member_jids: Vec::new(),
+			group_data_member_admin: Vec::new(),
+			group_data_visible_member_jids: Vec::new(),
+			group_data_media: Vec::new(),
+			group_data_documents: Vec::new(),
+			group_data_links: Vec::new(),
+			conversation_data_media: Vec::new(),
+			conversation_data_documents: Vec::new(),
+			conversation_data_links: Vec::new(),
 			group_state: crate::ui::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
@@ -1036,6 +1093,25 @@ fn main() {
 							s.contacts.get(sel_jid).cloned().unwrap_or_else(|| "Conversation data".to_string())
 						});
 					parts_typing_timer.conversations_parts.conv_data_btn.set_label(&label);
+				}
+			}
+
+			// Watchdog for a silently-failed call answer: if the backend never
+			// sends back call_connected, call_ended, or call_answer_failed at
+			// all (e.g. the callee's media path never comes up), the UI would
+			// otherwise sit on "Answering..." forever with no way to tell the
+			// Accept press did nothing.
+			if let Some(deadline) = s.call_answer_deadline {
+				if deadline.elapsed() >= std::time::Duration::from_secs(15) {
+					s.call_answer_deadline = None;
+					s.active_call_id = None;
+					s.active_call_audio = None;
+					parts_typing_timer.call_parts.frame.show(false);
+					play_call_fail_sound(&mut s);
+					live_region::announce(
+						parts_typing_timer.conversations_parts.messages_announcer.clone(),
+						"No response - the call could not be answered.",
+					);
 				}
 			}
 		});
@@ -1318,6 +1394,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let _call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
 								if let Some(audio_port) = data.get("audio_port").and_then(|p| p.as_u64()) {
 									let mut s = state.borrow_mut();
+									s.call_answer_deadline = None;
 									stop_call_ringing_sound(&mut s);
 									if let Ok(streams) = call_audio::start_audio_streams(audio_port as u16) {
 										s.active_call_audio = Some(streams);
@@ -1388,6 +1465,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									if s.active_call_id.as_deref() == Some(call_id) {
 										s.active_call_id = None;
 										s.active_call_audio = None;
+										s.call_answer_deadline = None;
 										parts.call_parts.frame.show(false);
 										stop_call_ringing_sound(&mut s);
 										play_call_fail_sound(&mut s);
@@ -1399,12 +1477,36 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								}
 							}
 						}
+						"call_answer_failed" => {
+							if let Some(data) = val.get("data") {
+								if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
+									let mut s = state.borrow_mut();
+									if s.active_call_id.as_deref() == Some(call_id) {
+										s.active_call_id = None;
+										s.active_call_audio = None;
+										s.call_answer_deadline = None;
+										parts.call_parts.frame.show(false);
+										stop_call_ringing_sound(&mut s);
+										play_call_fail_sound(&mut s);
+										let message = data
+											.get("message")
+											.and_then(|m| m.as_str())
+											.unwrap_or("Failed to answer call.");
+										live_region::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											message,
+										);
+									}
+								}
+							}
+						}
 						"incoming_call" => {
 							if let Some(data) = val.get("data") {
 								let caller = data.get("caller").and_then(|c| c.as_str()).unwrap_or("Unknown");
 								if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
 									let mut s = state.borrow_mut();
 									s.active_call_id = Some(call_id.to_string());
+									s.call_answer_deadline = None;
 									let name = s.contacts.get(caller).cloned().unwrap_or_else(|| caller.to_string());
 									parts
 										.call_parts
@@ -2853,9 +2955,17 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								// Parse members
 								let s = state.borrow();
 								let mut member_strings = Vec::new();
+								let mut member_jids = Vec::new();
+								let mut member_admin = Vec::new();
 								if let Some(participants) = payload.get("Participants").and_then(|p| p.as_array()) {
 									for p in participants {
 										if let Some(jid) = p.get("JID").and_then(|j| j.as_str()) {
+											// PhoneJID is the participant's actual phone-number
+											// JID (backend-resolved from a @lid address when the
+											// group hides phone numbers) - display/contact lookups
+											// must use it, never the raw action JID, or a privacy
+											// group shows unreadable LIDs instead of names/numbers.
+											let phone_jid = p.get("PhoneJID").and_then(|j| j.as_str()).unwrap_or(jid);
 											let is_admin = p.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
 											let is_super =
 												p.get("IsSuperAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
@@ -2865,17 +2975,20 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											let mut local_name = if !backend_name.is_empty() {
 												backend_name.to_string()
 											} else {
-												s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string())
+												s.contacts
+													.get(phone_jid)
+													.cloned()
+													.unwrap_or_else(|| phone_jid.to_string())
 											};
 
-											let raw_phone = jid.split('@').next().unwrap_or(jid);
+											let raw_phone = phone_jid.split('@').next().unwrap_or(phone_jid);
 											let mut phone = raw_phone.to_string();
 											if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
 												phone =
 													parsed.format().mode(phonenumber::Mode::International).to_string();
 											}
 
-											if local_name == jid {
+											if local_name == phone_jid {
 												local_name = phone.clone();
 											}
 
@@ -2886,43 +2999,66 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												role = " (Admin)";
 											}
 
-											if local_name == phone {
-												member_strings.push(format!("{}{}", local_name, role));
+											let display = if local_name == phone {
+												format!("{}{}", local_name, role)
 											} else {
-												member_strings.push(format!("{}{} - {}", local_name, role, phone));
-											}
+												format!("{}{} - {}", local_name, role, phone)
+											};
+											member_strings.push(display);
+											member_jids.push(jid.to_string());
+											member_admin.push(is_admin || is_super);
 										}
 									}
 								}
 								drop(s);
 								let mut s_mut = state.borrow_mut();
 								s_mut.group_data_members = member_strings;
+								s_mut.group_data_member_jids = member_jids;
+								s_mut.group_data_member_admin = member_admin;
 
-								// Populate files
-								let mut file_strings = Vec::new();
-								for msg in &s_mut.messages {
-									if !msg.media_filename.is_empty() {
-										file_strings.push(msg.media_filename.clone());
-									} else if !msg.media_mimetype.is_empty() {
-										file_strings.push(format!("Media: {}", msg.media_mimetype));
-									}
-								}
-								s_mut.group_data_files = file_strings;
+								// Populate Media/Documents/Links
+								s_mut.group_data_media = build_media_messages(&s_mut.messages);
+								s_mut.group_data_documents = build_document_messages(&s_mut.messages);
+								s_mut.group_data_links = build_link_messages(&s_mut.messages);
+								populate_message_list(
+									&parts.group_data_dialog.media_list,
+									&s_mut.group_data_media,
+									|m| m.display_filename(),
+								);
+								populate_message_list(
+									&parts.group_data_dialog.documents_list,
+									&s_mut.group_data_documents,
+									|m| m.display_filename(),
+								);
+								populate_message_list(
+									&parts.group_data_dialog.links_list,
+									&s_mut.group_data_links,
+									|m| m.first_link().unwrap_or_default(),
+								);
 
 								let query_members = parts.group_data_dialog.members_search.get_value().to_lowercase();
 								parts.group_data_dialog.members_list.clear();
-								for member in &s_mut.group_data_members {
+								let mut visible_jids = Vec::new();
+								for (i, member) in s_mut.group_data_members.iter().enumerate() {
 									if query_members.is_empty() || member.to_lowercase().contains(&query_members) {
 										parts.group_data_dialog.members_list.append(member);
+										visible_jids.push(s_mut.group_data_member_jids[i].clone());
 									}
 								}
-
-								let query_files = parts.group_data_dialog.files_search.get_value().to_lowercase();
-								parts.group_data_dialog.files_list.clear();
-								for file in &s_mut.group_data_files {
-									if query_files.is_empty() || file.to_lowercase().contains(&query_files) {
-										parts.group_data_dialog.files_list.append(file);
-									}
+								s_mut.group_data_visible_member_jids = visible_jids;
+							}
+						}
+						"group_updated" => {
+							if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+								let s = state.borrow();
+								let is_relevant = s.selected_chat.as_deref() == Some(jid)
+									&& parts.group_data_dialog.dialog.is_shown();
+								if is_relevant {
+									let payload = serde_json::json!({
+										"action": "get_group_info",
+										"data": { "jid": jid }
+									});
+									let _ = s.ws_tx.send(payload.to_string());
 								}
 							}
 						}
@@ -4513,7 +4649,9 @@ while ($true) {
 					let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
 					parts.group_data_dialog.group_name_field.set_value(&local_name);
 					parts.group_data_dialog.members_list.clear();
-					parts.group_data_dialog.files_list.clear();
+					parts.group_data_dialog.media_list.clear();
+					parts.group_data_dialog.documents_list.clear();
+					parts.group_data_dialog.links_list.clear();
 
 					let payload = serde_json::json!({
 						"action": "get_group_info",
@@ -4542,7 +4680,25 @@ while ($true) {
 						"data": { "jid": jid }
 					});
 					let _ = s.ws_tx.send(payload.to_string());
+
+					let media = build_media_messages(&s.messages);
+					let documents = build_document_messages(&s.messages);
+					let links = build_link_messages(&s.messages);
 					drop(s);
+
+					populate_message_list(&parts.conversation_data_dialog.media_list, &media, |m| m.display_filename());
+					populate_message_list(&parts.conversation_data_dialog.documents_list, &documents, |m| {
+						m.display_filename()
+					});
+					populate_message_list(&parts.conversation_data_dialog.links_list, &links, |m| {
+						m.first_link().unwrap_or_default()
+					});
+
+					let mut s_mut = state.borrow_mut();
+					s_mut.conversation_data_media = media;
+					s_mut.conversation_data_documents = documents;
+					s_mut.conversation_data_links = links;
+					drop(s_mut);
 
 					parts.conversation_data_dialog.info_field.set_focus();
 					parts.conversation_data_dialog.dialog.show_modal();
@@ -4624,6 +4780,7 @@ while ($true) {
 				});
 				let _ = s.ws_tx.send(msg.to_string());
 				stop_call_ringing_sound(&mut s);
+				s.call_answer_deadline = Some(std::time::Instant::now());
 				parts.call_parts.status_label.set_label("Answering...");
 			}
 		}
@@ -4637,6 +4794,7 @@ while ($true) {
 				let _ = s.ws_tx.send(msg.to_string());
 				parts.call_parts.frame.show(false);
 				s.active_call_id = None;
+				s.call_answer_deadline = None;
 				stop_call_ringing_sound(&mut s);
 				play_call_fail_sound(&mut s);
 			}
@@ -4652,6 +4810,7 @@ while ($true) {
 				parts.call_parts.frame.show(false);
 				s.active_call_id = None;
 				s.active_call_audio = None;
+				s.call_answer_deadline = None;
 				stop_call_ringing_sound(&mut s);
 				play_call_fail_sound(&mut s);
 			} else if s.call_placing {
@@ -4667,22 +4826,85 @@ while ($true) {
 			}
 		}
 		UiCommand::FilterGroupMembers(query) => {
-			let s = state.borrow();
+			let mut s = state.borrow_mut();
 			let lower_query = query.to_lowercase();
 			parts.group_data_dialog.members_list.clear();
-			for member in &s.group_data_members {
+			let mut visible_jids = Vec::new();
+			for (i, member) in s.group_data_members.iter().enumerate() {
 				if lower_query.is_empty() || member.to_lowercase().contains(&lower_query) {
 					parts.group_data_dialog.members_list.append(member);
+					visible_jids.push(s.group_data_member_jids[i].clone());
+				}
+			}
+			s.group_data_visible_member_jids = visible_jids;
+		}
+		UiCommand::DownloadMediaMessage(message_id) => {
+			let (jid_opt, needs_download, filename) = {
+				let s = state.borrow();
+				let msg = s.messages.iter().find(|m| m.id == message_id);
+				(
+					s.selected_chat.clone(),
+					msg.map(|m| !m.is_media_downloaded()).unwrap_or(false),
+					msg.map(|m| m.display_filename()).unwrap_or_default(),
+				)
+			};
+			if let (Some(jid), true) = (jid_opt, needs_download) {
+				state.borrow_mut().downloads_in_progress.insert(message_id.clone(), 0);
+				let payload = serde_json::json!({
+					"action": "download_media",
+					"data": { "jid": jid, "message_id": message_id }
+				});
+				let _ = state.borrow().ws_tx.send(payload.to_string());
+				live_region::announce(
+					parts.conversations_parts.messages_announcer.clone(),
+					&format!("Downloading {}", filename),
+				);
+			}
+		}
+		UiCommand::OpenMediaMessage(message_id) => {
+			let s = state.borrow();
+			if let Some(jid) = s.selected_chat.clone() {
+				if s.messages.iter().any(|m| m.id == message_id && m.is_media_downloaded()) {
+					let payload = serde_json::json!({
+						"action": "open_media",
+						"data": { "jid": jid, "message_id": message_id }
+					});
+					let _ = s.ws_tx.send(payload.to_string());
 				}
 			}
 		}
-		UiCommand::FilterGroupFiles(query) => {
-			let s = state.borrow();
-			let lower_query = query.to_lowercase();
-			parts.group_data_dialog.files_list.clear();
-			for file in &s.group_data_files {
-				if lower_query.is_empty() || file.to_lowercase().contains(&lower_query) {
-					parts.group_data_dialog.files_list.append(file);
+		UiCommand::SaveMediaMessageAs(message_id) => {
+			// Grab an owned copy and drop the borrow before opening the modal
+			// save dialog below - show_modal() pumps the message loop, and any
+			// handler that needs state.borrow_mut() while we're still holding
+			// this Ref would panic with a BorrowMutError.
+			let (jid_opt, msg_opt) = {
+				let s = state.borrow();
+				(s.selected_chat.clone(), s.messages.iter().find(|m| m.id == message_id).cloned())
+			};
+			if let (Some(jid), Some(msg)) = (jid_opt, msg_opt) {
+				let filename = msg.display_filename();
+				let dialog = FileDialog::builder(&parts.frame)
+					.with_message("Save file as")
+					.with_default_file(&filename)
+					.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+					.build();
+				if dialog.show_modal() == wxdragon::id::ID_OK {
+					if let Some(path) = dialog.get_path() {
+						if msg.is_media_downloaded() {
+							let _ = std::fs::copy(&msg.media_path, &path);
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								"File saved successfully.",
+							);
+						} else {
+							let payload = serde_json::json!({
+								"action": "save_media_as",
+								"data": { "jid": jid, "message_id": msg.id, "dest_path": path }
+							});
+							let _ = state.borrow().ws_tx.send(payload.to_string());
+						}
+					}
 				}
 			}
 		}
@@ -4697,7 +4919,7 @@ while ($true) {
 			}
 		}
 		UiCommand::AddParticipant => {
-			let mut s = state.borrow_mut();
+			let s = state.borrow();
 			if let Some(call_id) = &s.active_call_id {
 				let dlg = wxdragon::TextEntryDialog::builder(
 					&parts.frame,
@@ -4983,6 +5205,73 @@ while ($true) {
 				let _ = s.ws_tx.send(msg_lock.to_string());
 
 				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Group settings updated.");
+			}
+		}
+		UiCommand::AddGroupMember => {
+			let jid = state.borrow().selected_chat.clone();
+			if let Some(jid) = jid {
+				let dlg = wxdragon::TextEntryDialog::builder(
+					&parts.frame,
+					"Enter phone number to add (with country code):",
+					"Add Member",
+				)
+				.build();
+				if dlg.show_modal() == wxdragon::id::ID_OK {
+					let num = dlg.get_value().unwrap_or_default().trim().to_string();
+					if !num.is_empty() {
+						let mut clean = num.replace('+', "").replace('-', "").replace(' ', "");
+						if !clean.contains('@') {
+							clean = format!("{}@s.whatsapp.net", clean);
+						}
+						let msg = serde_json::json!({
+							"action": "update_group_participants",
+							"data": { "jid": jid, "participants": [clean], "action": "add" }
+						});
+						let _ = state.borrow().ws_tx.send(msg.to_string());
+					}
+				}
+			}
+		}
+		UiCommand::ToggleGroupMemberAdmin(idx) => {
+			let s = state.borrow();
+			if let Some(jid) = s.selected_chat.clone() {
+				if let Some(member_jid) = s.group_data_visible_member_jids.get(idx as usize).cloned() {
+					let is_admin = s
+						.group_data_member_jids
+						.iter()
+						.position(|j| j == &member_jid)
+						.and_then(|i| s.group_data_member_admin.get(i).copied())
+						.unwrap_or(false);
+					let action = if is_admin { "demote" } else { "promote" };
+					let msg = serde_json::json!({
+						"action": "update_group_participants",
+						"data": { "jid": jid, "participants": [member_jid], "action": action }
+					});
+					let _ = s.ws_tx.send(msg.to_string());
+				}
+			}
+		}
+		UiCommand::RemoveGroupMember(idx) => {
+			let s = state.borrow();
+			if let Some(jid) = s.selected_chat.clone() {
+				if let Some(member_jid) = s.group_data_visible_member_jids.get(idx as usize).cloned() {
+					let label = s.group_data_members.get(idx as usize).cloned().unwrap_or_default();
+					drop(s);
+					let confirm = MessageDialog::builder(
+						&parts.frame,
+						&format!("Remove {} from the group?", label),
+						"Remove Member",
+					)
+					.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+					.build();
+					if confirm.show_modal() == wxdragon::id::ID_YES {
+						let msg = serde_json::json!({
+							"action": "update_group_participants",
+							"data": { "jid": jid, "participants": [member_jid], "action": "remove" }
+						});
+						let _ = state.borrow().ws_tx.send(msg.to_string());
+					}
+				}
 			}
 		}
 		UiCommand::SeekAudioAbsolute(slider_val) => {

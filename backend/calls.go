@@ -177,6 +177,14 @@ func handleAnswerCall(data []byte) {
 
 	if !exists {
 		log.Println("Cannot answer call, not found:", req.CallID)
+		// Without this the frontend just sits on "Answering..." forever with
+		// no way to know the call is already gone (e.g. the caller hung up
+		// right as Accept was pressed) - it was previously indistinguishable
+		// from Accept silently doing nothing.
+		broadcastEvent("call_answer_failed", map[string]string{
+			"call_id": req.CallID,
+			"message": "That call is no longer available.",
+		})
 		return
 	}
 
@@ -185,6 +193,10 @@ func handleAnswerCall(data []byte) {
 	err := call.Answer()
 	if err != nil {
 		log.Println("Failed to answer call:", err)
+		broadcastEvent("call_answer_failed", map[string]string{
+			"call_id": req.CallID,
+			"message": "Failed to answer call: " + err.Error(),
+		})
 	} else {
 		log.Println("Answered call:", req.CallID)
 	}
