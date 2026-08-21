@@ -51,11 +51,11 @@ anything.
 |---|------|-------|-------------|--------|
 | 1 | True Recent Chat List | Implement Recent Chat List in Rust (sorting by recent message, exact match of Python client) | none | DONE |
 | 2 | Message History | Implement actual message history fetching in Go (`get_messages` stub) and Rust UI update | none | DONE |
-| 3 | Typing Indicators & Presence | Wire typing indicators/presence from Go backend to Rust UI (live regions for screen reader) | none | PLANNED |
-| 4 | Complete UI Wiring & Archived Chats | Wire missing UI elements, implement Archived Chats, resolve dead code warnings | M1, M2 | PLANNED |
-| 5 | Distribution | Inno Setup installer, code signing, portable zip | none | IN PROGRESS |
+| 3 | Typing Indicators & Presence | Wire typing indicators/presence from Go backend to Rust UI (live regions for screen reader) | none | DONE |
+| 4 | Complete UI Wiring & Archived Chats | Wire missing UI elements, implement Archived Chats, resolve dead code warnings | M1, M2 | DONE (Archived Chats tab is live; dead-code sweep not separately re-verified) |
+| 5 | Distribution | Inno Setup installer, code signing, portable zip | none | IN PROGRESS (installer + portable zip build script done in `packaging/`; code signing needs a real cert, wired via `-SignCommand` but unexercised) |
 | 6 | Auto-update | Deferred | M5 | PLANNED |
-| 7 | Starred Messages | Star/unstar command (whatsmeow `appstate.BuildStar` patch), starred-messages view | none | PLANNED |
+| 7 | Starred Messages | Star/unstar command (whatsmeow `appstate.BuildStar` patch), starred-messages view | none | IN PROGRESS (star/unstar wired end-to-end: `appstate.BuildStar` patch, DB column, context-menu + 's' shortcut, live announce; a dedicated cross-chat starred-messages browser view is not yet built) |
 | 8 | Send Disappearing/View-Once/Polls/Live Location/Stickers | Add send paths for message types already unwrapped on receive. Confirmed in whatsmeow: `SetDisappearingTimer`/`SetDefaultDisappearingTimer`, `BuildPollCreation`/`BuildPollVote`; sticker-send already exists in `cmd_media.go` for forwarding, needs a picker; view-once/live-location just need protobuf wrapping, no special API | none | PLANNED |
 | 9 | Chat Export | Export a chat's messages/media to a file. Needs no whatsmeow API — `session.db`/`media_cache/` already hold everything locally | none | PLANNED |
 | 10 | Status/Stories | Post (confirmed: plain `SendMessage` to `types.StatusBroadcastJID`, resolved via `GetStatusPrivacy`/`getStatusBroadcastRecipients`) and view text/photo/video status updates; viewing needs incoming status-notification handling, not yet wired | none | PLANNED |

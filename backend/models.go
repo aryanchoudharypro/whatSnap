@@ -54,6 +54,14 @@ type DeleteMessageData struct {
 	ForEveryone bool   `json:"for_everyone"` // true = revoke for everyone, false = delete locally only
 }
 
+type StarMessageData struct {
+	JID       string `json:"jid"`        // chat JID
+	MessageID string `json:"message_id"` // target message being starred/unstarred
+	SenderJID string `json:"sender_jid"` // original sender ("" or "me" if it was your own message)
+	FromMe    bool   `json:"from_me"`
+	Starred   bool   `json:"starred"`
+}
+
 type SearchMessagesData struct {
 	Query string `json:"query"`
 	JID   string `json:"jid"` // optional: scope search to a single chat

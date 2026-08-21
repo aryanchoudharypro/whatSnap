@@ -75,6 +75,7 @@ pub enum UiCommand {
 	RemoveQuote,
 	EditMessage { message_id: String, new_text: String },
 	DeleteMessage { message_id: String, sender_jid: String, for_everyone: bool },
+	StarMessage { message_id: String, sender_jid: String, from_me: bool, starred: bool },
 	GetMessageInfo { message_id: String },
 	RetryMessage { message_id: String },
 	CopyAlbumToClipboard { message_ids: Vec<String> },
@@ -318,6 +319,17 @@ fn concat_wav_segments(segments: &[String], out_path: &str) -> anyhow::Result<()
 	}
 }
 
+/// One row of the flat, cross-chat "Starred Messages" nav view: enough to
+/// show a label and to jump into the right chat at the right message when
+/// selected (reuses the same search_target_id jump mechanism as in-chat
+/// search results).
+#[derive(Clone)]
+struct StarredEntry {
+	jid: String,
+	message_id: String,
+	label: String,
+}
+
 struct AppState {
 	settings: crate::settings::Settings,
 	ws_tx: mpsc::Sender<String>,
@@ -378,7 +390,12 @@ struct AppState {
 	history_loading: bool,
 	completed_history_chats: std::collections::HashSet<String>,
 	prev_msg_count: usize,
+	/// 0 = Conversations, 1 = Starred Messages, 2 = Archived Chats.
 	active_tab: usize,
+	starred_entries: Vec<StarredEntry>,
+	/// Parallel to `filtered_chats` while `active_tab == 1`: the starred
+	/// message to jump to for each row shown in the nav list.
+	filtered_starred_message_ids: Vec<String>,
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
 	main_ui_shown: bool,
@@ -461,21 +478,36 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 
 	let mut filtered = Vec::new();
 	let mut labels = Vec::new();
+	let mut filtered_starred_ids = Vec::new();
 
-	for jid in &s.chats {
-		let is_archived = s.archived_jids.contains(jid);
-		if (s.active_tab == 0 && is_archived) || (s.active_tab == 1 && !is_archived) {
-			continue;
+	if s.active_tab == 1 {
+		// Starred Messages: a flat, cross-chat list built from starred_entries
+		// rather than s.chats. filtered_chats still holds one jid per row so
+		// OpenConversation's existing index -> jid lookup keeps working.
+		for entry in &s.starred_entries {
+			if lower_query.is_empty() || entry.label.to_lowercase().contains(&lower_query) {
+				labels.push(entry.label.clone());
+				filtered.push(entry.jid.clone());
+				filtered_starred_ids.push(entry.message_id.clone());
+			}
 		}
+	} else {
+		for jid in &s.chats {
+			let is_archived = s.archived_jids.contains(jid);
+			if (s.active_tab == 0 && is_archived) || (s.active_tab == 2 && !is_archived) {
+				continue;
+			}
 
-		let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-		if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
-			labels.push(s.display_names.get(jid).cloned().unwrap_or(name));
-			filtered.push(jid.clone());
+			let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+			if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
+				labels.push(s.display_names.get(jid).cloned().unwrap_or(name));
+				filtered.push(jid.clone());
+			}
 		}
 	}
 
 	s.filtered_chats = filtered;
+	s.filtered_starred_message_ids = filtered_starred_ids;
 
 	// Clearing and refilling the list resets the focused item and makes the
 	// screen reader re-announce, so leave the control untouched when the
@@ -972,6 +1004,8 @@ fn main() {
 			completed_history_chats: std::collections::HashSet::new(),
 			prev_msg_count: 0,
 			active_tab: 0,
+			starred_entries: Vec::new(),
+			filtered_starred_message_ids: Vec::new(),
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),
 			main_ui_shown: false,
@@ -1763,21 +1797,25 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let lower_query = s.search_query.to_lowercase();
 									let mut new_filtered = Vec::new();
 									let mut new_display = Vec::new();
-									for jid in &s.chats {
-										let is_archived = s.archived_jids.contains(jid);
-										if (s.active_tab == 0 && is_archived) || (s.active_tab == 1 && !is_archived) {
-											continue;
-										}
-										let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-										if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
-											let dn = s.display_names.get(jid).cloned().unwrap_or_else(|| name);
-											new_filtered.push(jid.clone());
-											new_display.push(dn);
+									if s.active_tab != 1 {
+										for jid in &s.chats {
+											let is_archived = s.archived_jids.contains(jid);
+											if (s.active_tab == 0 && is_archived) || (s.active_tab == 2 && !is_archived)
+											{
+												continue;
+											}
+											let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+											if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
+												let dn = s.display_names.get(jid).cloned().unwrap_or_else(|| name);
+												new_filtered.push(jid.clone());
+												new_display.push(dn);
+											}
 										}
 									}
 
-									let structure_changed = new_filtered.len() != s.filtered_chats.len()
-										|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b);
+									let structure_changed = s.active_tab != 1
+										&& (new_filtered.len() != s.filtered_chats.len()
+											|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b));
 
 									if structure_changed {
 										s.filtered_chats = new_filtered;
@@ -2695,6 +2733,67 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let _ = s.ws_tx.send(payload.to_string());
 							}
 						}
+						"starred_messages" => {
+							if let Some(data) = val.get("data") {
+								if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
+									let mut s = state.borrow_mut();
+									let mut entries = Vec::new();
+									for item in results {
+										let jid = item.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
+										let message_id =
+											item.get("id").and_then(|m| m.as_str()).unwrap_or("").to_string();
+										if jid.is_empty() || message_id.is_empty() {
+											continue;
+										}
+										let from_me = item.get("fromMe").and_then(|f| f.as_bool()).unwrap_or(false);
+										let sender_name = item.get("senderName").and_then(|n| n.as_str()).unwrap_or("");
+										let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
+										let quoted_text = item.get("quotedText").and_then(|t| t.as_str()).unwrap_or("");
+										let media_type = item.get("mediaType").and_then(|t| t.as_str()).unwrap_or("");
+										let timestamp = item.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
+
+										let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+										let sender = if from_me {
+											"You".to_string()
+										} else if !sender_name.is_empty() {
+											sender_name.to_string()
+										} else {
+											chat_name.clone()
+										};
+										let body = if !text.is_empty() {
+											whantv::friendly_preview_text(text)
+										} else if !quoted_text.is_empty() {
+											whantv::friendly_preview_text(quoted_text)
+										} else if !media_type.is_empty() {
+											"Media".to_string()
+										} else {
+											"Message".to_string()
+										};
+										let date_str = if timestamp > 0 {
+											chrono::DateTime::from_timestamp(timestamp, 0)
+												.map(|dt| {
+													let local_dt: chrono::DateTime<chrono::Local> = dt.into();
+													local_dt.format("%b %e, %Y").to_string()
+												})
+												.unwrap_or_default()
+										} else {
+											String::new()
+										};
+										let label = if date_str.is_empty() {
+											format!("{} ({}): {}", chat_name, sender, body)
+										} else {
+											format!("{} ({}): {}, {}", chat_name, sender, body, date_str)
+										};
+
+										entries.push(StarredEntry { jid, message_id, label });
+									}
+									s.starred_entries = entries;
+									if s.active_tab == 1 {
+										apply_chat_filter(&mut s, parts);
+									}
+								}
+							}
+						}
 						"search_results" => {
 							if let Some(data) = val.get("data") {
 								if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
@@ -3370,6 +3469,68 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								}
 							}
 						}
+						"message_starred" => {
+							if let Some(data) = val.get("data") {
+								let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+								let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+								let starred = data.get("starred").and_then(|s| s.as_bool()).unwrap_or(false);
+
+								let norm_jid_star = |jid: &str| -> String {
+									if let Some((user, server)) = jid.split_once('@') {
+										let base_user =
+											user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+										format!("{}@{}", base_user, server)
+									} else {
+										jid.to_string()
+									}
+								};
+
+								let mut s = state.borrow_mut();
+								let is_match = if let Some(ref sel) = s.selected_chat {
+									norm_jid_star(chat_jid) == norm_jid_star(sel)
+								} else {
+									false
+								};
+
+								if is_match {
+									let is_group = chat_jid.ends_with("@g.us");
+									for msg in s.messages.iter_mut() {
+										if msg.id == target_id {
+											msg.starred = starred;
+											break;
+										}
+									}
+									for item in s.display_items.iter_mut() {
+										if let whantv::DisplayItem::Single(m) = item {
+											if m.id == target_id {
+												m.starred = starred;
+												break;
+											}
+										}
+									}
+									for (di, item) in s.display_items.iter().enumerate() {
+										let matches =
+											matches!(item, whantv::DisplayItem::Single(m) if m.id == target_id);
+										if matches {
+											let updated_display = item.format_display(is_group);
+											parts
+												.conversations_parts
+												.messages_list
+												.set_string(di as u32, &updated_display);
+											live_region::announce(
+												parts.conversations_parts.messages_announcer.clone(),
+												if starred { "Message starred." } else { "Message unstarred." },
+											);
+											break;
+										}
+									}
+								}
+								if s.active_tab == 1 {
+									let payload = serde_json::json!({ "action": "get_starred_messages" });
+									let _ = s.ws_tx.send(payload.to_string());
+								}
+							}
+						}
 						"message_reaction" => {
 							if let Some(data) = val.get("data") {
 								let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
@@ -3903,9 +4064,17 @@ while ($true) {
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
 				1 => {
-					// Archived Chats
+					// Starred Messages
 					parts.conversations_parts.panel.show(true);
 					state.borrow_mut().active_tab = 1;
+					let payload = serde_json::json!({ "action": "get_starred_messages" });
+					let _ = state.borrow().ws_tx.send(payload.to_string());
+					apply_chat_filter(&mut state.borrow_mut(), parts);
+				}
+				2 => {
+					// Archived Chats
+					parts.conversations_parts.panel.show(true);
+					state.borrow_mut().active_tab = 2;
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
 				_ => {}
@@ -3933,6 +4102,11 @@ while ($true) {
 				s.history_loading = false;
 				s.prev_msg_count = 0;
 				s.pending_attachments.clear();
+				if s.active_tab == 1 {
+					if let Some(msg_id) = s.filtered_starred_message_ids.get(idx).cloned() {
+						s.search_target_id = Some(msg_id);
+					}
+				}
 				parts.conversations_parts.conversation_panel.show(true);
 				parts.conversations_parts.play_voice_btn.show(false);
 				parts.conversations_parts.action_panel.show(false);
@@ -5048,6 +5222,22 @@ while ($true) {
 						"message_id": message_id,
 						"sender_jid": sender_jid,
 						"for_everyone": for_everyone
+					}
+				});
+				let _ = state.borrow().ws_tx.send(payload.to_string());
+			}
+		}
+		UiCommand::StarMessage { message_id, sender_jid, from_me, starred } => {
+			let jid = state.borrow().selected_chat.clone();
+			if let Some(jid) = jid {
+				let payload = serde_json::json!({
+					"action": "star_message",
+					"data": {
+						"jid": jid,
+						"message_id": message_id,
+						"sender_jid": sender_jid,
+						"from_me": from_me,
+						"starred": starred
 					}
 				});
 				let _ = state.borrow().ws_tx.send(payload.to_string());

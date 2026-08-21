@@ -62,6 +62,7 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN read_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN played_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN edited_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN starred INTEGER DEFAULT 0")
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
 	db.Exec("DELETE FROM messages WHERE (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
 	db.Exec("DELETE FROM messages WHERE is_deleted = 1 AND (raw IS NULL OR length(raw) = 0) AND (text = '' OR text IS NULL)")
@@ -202,6 +203,15 @@ func markMessageEdited(id, jid, newText string, newRaw []byte, editTime int64) e
 func markMessageDeleted(id, jid string) error {
 	_, err := db.Exec(`UPDATE messages SET is_deleted = 1, text = '' WHERE id = ? AND jid = ?`, id, jid)
 	UpdateChatSnippet(jid)
+	return err
+}
+
+func markMessageStarred(id, jid string, starred bool) error {
+	starredInt := 0
+	if starred {
+		starredInt = 1
+	}
+	_, err := db.Exec(`UPDATE messages SET starred = ? WHERE id = ? AND jid = ?`, starredInt, id, jid)
 	return err
 }
 

@@ -169,7 +169,7 @@ pub fn build_main_window() -> WindowParts {
 	let nav_label = StaticText::builder(&nav_panel).with_label("Main Navigation").build();
 	theme::style_sidebar_heading(&nav_label);
 	let nav_list = ListBox::builder(&nav_panel)
-		.with_choices(vec!["Conversations".to_string(), "Archived Chats".to_string()])
+		.with_choices(vec!["Conversations".to_string(), "Starred Messages".to_string(), "Archived Chats".to_string()])
 		.build();
 	nav_list.set_font(&theme::Fonts::body_strong());
 	theme::style_sidebar(&nav_list);
@@ -1235,10 +1235,19 @@ pub fn bind_input_handlers(
 			let save_voice_id = 3008;
 			let react_dialog_id = 3010;
 			let retry_id = 3011;
+			let star_id = 3012;
 
 			let s = state_ctx.borrow();
 			let display_item = s.display_items.get(idx as usize).cloned();
 			drop(s);
+
+			let is_starred = display_item
+				.as_ref()
+				.map(|item| match item {
+					whantv::DisplayItem::Single(m) => m.starred && !m.is_date_divider,
+					whantv::DisplayItem::Album { .. } => false,
+				})
+				.unwrap_or(false);
 
 			let is_from_me = display_item
 				.as_ref()
@@ -1288,6 +1297,12 @@ pub fn bind_input_handlers(
 				.append_item(edit_id, "&Edit", "Edit message")
 				.append_item(delete_id, "&Delete", "Delete message")
 				.append_item(react_dialog_id, "&React...", "React to message");
+			let is_single_message =
+				matches!(display_item, Some(whantv::DisplayItem::Single(ref m)) if !m.is_date_divider);
+			if is_single_message {
+				let star_label = if is_starred { "&Unstar" } else { "&Star" };
+				menu_builder = menu_builder.append_item(star_id, star_label, "Star or unstar this message");
+			}
 			if can_retry {
 				menu_builder = menu_builder.append_item(retry_id, "Retry &send", "Retry sending this message");
 			}
@@ -1566,6 +1581,24 @@ pub fn bind_input_handlers(
 									for_everyone: msg.from_me,
 								});
 							}
+						}
+					}
+				} else if id == star_id {
+					let s = state_clone.borrow();
+					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+						whantv::DisplayItem::Single(m) => Some(m.clone()),
+						whantv::DisplayItem::Album { .. } => None,
+					});
+					drop(s);
+					if let Some(msg) = msg_opt {
+						if !msg.is_date_divider {
+							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+							let _ = tx_play_media_clone.send(UiCommand::StarMessage {
+								message_id: msg.id.clone(),
+								sender_jid,
+								from_me: msg.from_me,
+								starred: !msg.starred,
+							});
 						}
 					}
 				} else if id == info_id {
@@ -2049,6 +2082,28 @@ pub fn bind_input_handlers(
 									}
 								}
 							}
+						}
+					}
+				}
+				event.skip(false);
+			} else if code == Some('s' as i32) || code == Some('S' as i32) || code == Some(83) || code == Some(115) {
+				// 's' / 'S' -> Star/Unstar
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let s = state_play.borrow();
+					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+						whantv::DisplayItem::Single(m) => Some(m.clone()),
+						whantv::DisplayItem::Album { .. } => None,
+					});
+					drop(s);
+					if let Some(msg) = msg_opt {
+						if !msg.is_date_divider {
+							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+							let _ = tx_play_media.send(UiCommand::StarMessage {
+								message_id: msg.id.clone(),
+								sender_jid,
+								from_me: msg.from_me,
+								starred: !msg.starred,
+							});
 						}
 					}
 				}

@@ -9,6 +9,7 @@ import (
 
 	"net"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -266,6 +267,34 @@ func handleDeleteMessage(raw json.RawMessage) {
 		markMessageDeleted(data.MessageID, data.JID)
 		broadcastEvent("message_deleted", map[string]interface{}{
 			"jid": data.JID, "message_id": data.MessageID, "by": "me",
+		})
+	}()
+}
+
+func handleStarMessage(raw json.RawMessage) {
+	var data StarMessageData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	chatJID, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+	senderJID := types.EmptyJID
+	if data.SenderJID != "" && data.SenderJID != "me" {
+		if parsed, perr := types.ParseJID(data.SenderJID); perr == nil {
+			senderJID = parsed
+		}
+	}
+	go func() {
+		patch := appstate.BuildStar(chatJID, senderJID, types.MessageID(data.MessageID), data.FromMe, data.Starred)
+		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
+			broadcastEvent("error", map[string]string{"message": err.Error()})
+			return
+		}
+		markMessageStarred(data.MessageID, data.JID, data.Starred)
+		broadcastEvent("message_starred", map[string]interface{}{
+			"jid": data.JID, "message_id": data.MessageID, "starred": data.Starred,
 		})
 	}()
 }
