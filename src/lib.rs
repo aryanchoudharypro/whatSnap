@@ -34,6 +34,8 @@ pub struct ChatMessage {
 	#[serde(rename = "isEdited", alias = "is_edited", default)]
 	pub is_edited: bool,
 	#[serde(default)]
+	pub starred: bool,
+	#[serde(default)]
 	pub status: String,
 	#[serde(rename = "editedAt", alias = "edited_at", default)]
 	pub edited_at: i64,
@@ -406,15 +408,19 @@ impl ChatMessage {
 		};
 
 		let edit_suffix = if self.is_edited { ", edited" } else { "" };
+		let star_suffix = if self.starred { ", starred" } else { "" };
 
 		if self.from_me {
 			if !formatted_time.is_empty() {
 				format!(
-					"You: {}{}, sent at {}, {}{}{}",
-					body, reply_suffix, formatted_time, status_title, reactions_suffix, edit_suffix
+					"You: {}{}, sent at {}, {}{}{}{}",
+					body, reply_suffix, formatted_time, status_title, reactions_suffix, edit_suffix, star_suffix
 				)
 			} else {
-				format!("You: {}{}, {}{}{}", body, reply_suffix, status_title, reactions_suffix, edit_suffix)
+				format!(
+					"You: {}{}, {}{}{}{}",
+					body, reply_suffix, status_title, reactions_suffix, edit_suffix, star_suffix
+				)
 			}
 		} else {
 			let name = if !self.sender_name.is_empty() {
@@ -427,11 +433,11 @@ impl ChatMessage {
 
 			if !formatted_time.is_empty() {
 				format!(
-					"{}: {}{}, received at {}{}{}",
-					name, body, reply_suffix, formatted_time, reactions_suffix, edit_suffix
+					"{}: {}{}, received at {}{}{}{}",
+					name, body, reply_suffix, formatted_time, reactions_suffix, edit_suffix, star_suffix
 				)
 			} else {
-				format!("{}: {}{}{}{}", name, body, reply_suffix, reactions_suffix, edit_suffix)
+				format!("{}: {}{}{}{}{}", name, body, reply_suffix, reactions_suffix, edit_suffix, star_suffix)
 			}
 		}
 	}

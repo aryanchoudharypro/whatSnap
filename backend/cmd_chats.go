@@ -50,7 +50,7 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		rows, queryErr := db.Query(`SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 				COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
 				COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
-				COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), raw
+				COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), raw
 			FROM messages WHERE jid = ? ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, data.JID, limit, offset)
 
 		msgs := []map[string]interface{}{}
@@ -62,10 +62,10 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 				var quotedID, quotedText, quotedSender string
 				var ts, sentAt, deliveredAt, readAt, playedAt, editedAt int64
 				var fromMe bool
-				var isEdited, isDeleted int
+				var isEdited, isDeleted, starred int
 				var rawBytes []byte
 				if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
-					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &rawBytes); err != nil {
+					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &rawBytes); err != nil {
 					log.Println("Error scanning message row:", err)
 					continue
 				}
@@ -134,6 +134,7 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 					"readAt":        readAt,
 					"playedAt":      playedAt,
 					"editedAt":      editedAt,
+					"starred":       starred == 1,
 				})
 			}
 		} else {
@@ -162,6 +163,50 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
+// handleGetStarredMessages returns every starred message across all chats,
+// newest first, for the Starred Messages nav view.
+func handleGetStarredMessages(conn net.Conn) {
+	go func() {
+		rows, err := db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
+				COALESCE(media_type,''), COALESCE(quoted_text,'')
+			FROM messages WHERE starred = 1 AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 500`)
+		results := []map[string]interface{}{}
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var id, jid, text, senderJID, mediaType, quotedText string
+				var ts int64
+				var fromMe bool
+				if scanErr := rows.Scan(&id, &jid, &text, &ts, &fromMe, &senderJID, &mediaType, &quotedText); scanErr == nil {
+					senderName := ""
+					if senderJID != "" {
+						if parsed, perr := types.ParseJID(senderJID); perr == nil {
+							senderName = resolveDisplayName(parsed)
+						}
+					}
+					results = append(results, map[string]interface{}{
+						"id":         id,
+						"jid":        jid,
+						"fromMe":     fromMe,
+						"text":       text,
+						"timestamp":  ts,
+						"senderJid":  senderJID,
+						"senderName": senderName,
+						"mediaType":  mediaType,
+						"quotedText": quotedText,
+						"starred":    true,
+					})
+				}
+			}
+		} else {
+			log.Println("Error querying starred messages:", err)
+		}
+		sendEvent(conn, "starred_messages", map[string]interface{}{
+			"results": results,
+		})
+	}()
+}
+
 // handleSearchMessages implements real full-text search over the local
 // message cache (previously a stub). Search is scoped to one chat when jid
 // is provided, otherwise it searches everything.
@@ -178,13 +223,13 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
-				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0) FROM messages
+				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
 				WHERE jid = ? AND text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, data.JID, like)
 		} else {
 			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
-				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0) FROM messages
+				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
 				WHERE text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, like)
 		}
 		results := []map[string]interface{}{}
@@ -195,9 +240,9 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 				var quotedID, quotedText, quotedSender string
 				var ts, sentAt, deliveredAt, readAt, playedAt, editedAt int64
 				var fromMe bool
-				var isEdited, isDeleted int
+				var isEdited, isDeleted, starred int
 				if scanErr := rows.Scan(&id, &jid, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
-					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt); scanErr == nil {
+					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred); scanErr == nil {
 					senderName := ""
 					if senderJID != "" {
 						if parsed, perr := types.ParseJID(senderJID); perr == nil {
@@ -227,6 +272,7 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 						"readAt":        readAt,
 						"playedAt":      playedAt,
 						"editedAt":      editedAt,
+						"starred":       starred == 1,
 					})
 				}
 			}

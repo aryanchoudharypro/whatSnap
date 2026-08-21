@@ -73,6 +73,8 @@ func handleConnection(conn net.Conn) {
 			handleEditMessage(cmd.Data)
 		case "delete_message":
 			handleDeleteMessage(cmd.Data)
+		case "star_message":
+			handleStarMessage(cmd.Data)
 		case "retry_message":
 			handleRetryMessage(conn, cmd.Data)
 		case "send_typing":
@@ -137,6 +139,8 @@ func handleConnection(conn net.Conn) {
 			handleGetMessageInfo(conn, cmd.Data)
 		case "search_messages":
 			handleSearchMessages(conn, cmd.Data)
+		case "get_starred_messages":
+			handleGetStarredMessages(conn)
 		case "set_chat_pinned":
 			handleSetChatPinned(cmd.Data)
 		case "set_chat_archived":
