@@ -74,30 +74,54 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-		
+
 		myJID := client.Store.ID.ToNonAD()
 		isMyAdmin := false
 		participantsList := make([]map[string]interface{}, 0, len(info.Participants))
-		
+
 		for _, p := range info.Participants {
-			if p.JID.User == myJID.User {
+			// p.JID is whichever address WhatsApp uses to identify this
+			// participant in this group (a phone JID, or a @lid JID in
+			// privacy-mode groups) - it's what participant actions
+			// (add/remove/promote/demote) need to target. For display we
+			// want the phone number, which whatsmeow already resolves onto
+			// PhoneNumber; only fall back to a live LID store lookup if that
+			// wasn't populated.
+			displayJID := p.JID
+			if !p.PhoneNumber.IsEmpty() {
+				displayJID = p.PhoneNumber
+			} else if displayJID.Server == "lid" {
+				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), displayJID); err == nil && !pn.IsEmpty() {
+					displayJID = pn
+				}
+			}
+
+			if displayJID.User == myJID.User {
 				if p.IsAdmin || p.IsSuperAdmin {
 					isMyAdmin = true
 				}
 			}
-			
+
 			name := ""
-			contact, err := client.Store.Contacts.GetContact(context.Background(), p.JID)
+			contact, err := client.Store.Contacts.GetContact(context.Background(), displayJID)
 			if err == nil && contact.Found {
 				if contact.FullName != "" {
 					name = contact.FullName
 				} else if contact.PushName != "" {
 					name = contact.PushName
+				} else if contact.BusinessName != "" {
+					name = contact.BusinessName
 				}
 			}
-			
+			// Anonymous participants in announcement groups have no
+			// resolvable contact - only an obfuscated phone number.
+			if name == "" && p.DisplayName != "" {
+				name = p.DisplayName
+			}
+
 			participantsList = append(participantsList, map[string]interface{}{
 				"JID": p.JID.String(),
+				"PhoneJID": displayJID.String(),
 				"IsAdmin": p.IsAdmin,
 				"IsSuperAdmin": p.IsSuperAdmin,
 				"Name": name,

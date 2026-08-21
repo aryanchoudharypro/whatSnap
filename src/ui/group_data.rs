@@ -1,8 +1,12 @@
 use wxdragon::prelude::*;
 
+/// Every constructed widget is kept here for consistency, matching this
+/// codebase's convention for dialog parts structs.
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct GroupDataDialogParts {
 	pub dialog: Dialog,
+	pub back_btn: Button,
 	pub notebook: Notebook,
 
 	// Members tab
@@ -14,11 +18,17 @@ pub struct GroupDataDialogParts {
 	pub make_admin_btn: Button,
 	pub remove_member_btn: Button,
 
-	// Files tab
-	pub files_panel: Panel,
-	pub files_search_label: StaticText,
-	pub files_search: TextCtrl,
-	pub files_list: ListBox,
+	// Media tab (photos and videos only, matching official WhatsApp)
+	pub media_panel: Panel,
+	pub media_list: ListBox,
+
+	// Documents tab
+	pub documents_panel: Panel,
+	pub documents_list: ListBox,
+
+	// Links tab
+	pub links_panel: Panel,
+	pub links_list: ListBox,
 
 	// Settings tab
 	pub settings_panel: Panel,
@@ -29,13 +39,18 @@ pub struct GroupDataDialogParts {
 	pub announce_chk: CheckBox,
 	pub locked_chk: CheckBox,
 	pub save_settings_btn: Button,
-	pub close_btn: Button,
 }
 
 pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let dialog = Dialog::builder(parent, "Group Info").with_size(600, 500).build();
 	let panel = Panel::builder(&dialog).build();
 	let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	// The back button comes first, both in tab order and on screen, matching
+	// the old WhatsApp UWP app's pattern of a "Back" control at the top of a
+	// detail screen rather than a "Close" button at the bottom.
+	let back_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("< Back").build();
+	main_sizer.add(&back_btn, 0, SizerFlag::All, 5);
 
 	let notebook = Notebook::builder(&panel).build();
 
@@ -67,20 +82,26 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	members_sizer.add(&mem_btn_panel, 0, SizerFlag::All, 5);
 	members_panel.set_sizer(members_sizer, true);
 
-	// --- Files Tab ---
-	let files_panel = Panel::builder(&notebook).build();
-	let files_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	// --- Media Tab ---
+	let media_panel = Panel::builder(&notebook).build();
+	let media_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let media_list = ListBox::builder(&media_panel).build();
+	media_sizer.add(&media_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	media_panel.set_sizer(media_sizer, true);
 
-	let files_search_label = StaticText::builder(&files_panel).with_label("Search files").build();
-	files_sizer.add(&files_search_label, 0, SizerFlag::All, 5);
+	// --- Documents Tab ---
+	let documents_panel = Panel::builder(&notebook).build();
+	let documents_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let documents_list = ListBox::builder(&documents_panel).build();
+	documents_sizer.add(&documents_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	documents_panel.set_sizer(documents_sizer, true);
 
-	let files_search = TextCtrl::builder(&files_panel).with_style(TextCtrlStyle::ProcessEnter).build();
-	files_sizer.add(&files_search, 0, SizerFlag::Expand | SizerFlag::All, 5);
-
-	let files_list = ListBox::builder(&files_panel).build();
-	files_sizer.add(&files_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
-
-	files_panel.set_sizer(files_sizer, true);
+	// --- Links Tab ---
+	let links_panel = Panel::builder(&notebook).build();
+	let links_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let links_list = ListBox::builder(&links_panel).build();
+	links_sizer.add(&links_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	links_panel.set_sizer(links_sizer, true);
 
 	// --- Settings Tab ---
 	let settings_panel = Panel::builder(&notebook).build();
@@ -111,17 +132,18 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 
 	// Add pages to notebook
 	notebook.add_page(&members_panel, "Members", true, None);
-	notebook.add_page(&files_panel, "Files and Media", false, None);
+	notebook.add_page(&media_panel, "Media", false, None);
+	notebook.add_page(&documents_panel, "Documents", false, None);
+	notebook.add_page(&links_panel, "Links", false, None);
 	notebook.add_page(&settings_panel, "Settings", false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
-	let close_btn = Button::builder(&panel).with_label("Close").build();
-	main_sizer.add(&close_btn, 0, SizerFlag::All | SizerFlag::AlignRight, 5);
 
 	panel.set_sizer(main_sizer, true);
 
 	GroupDataDialogParts {
 		dialog,
+		back_btn,
 		notebook,
 		members_panel,
 		members_search_label,
@@ -130,10 +152,12 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		add_member_btn,
 		make_admin_btn,
 		remove_member_btn,
-		files_panel,
-		files_search_label,
-		files_search,
-		files_list,
+		media_panel,
+		media_list,
+		documents_panel,
+		documents_list,
+		links_panel,
+		links_list,
 		settings_panel,
 		name_label,
 		group_name_field,
@@ -142,6 +166,5 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		announce_chk,
 		locked_chk,
 		save_settings_btn,
-		close_btn,
 	}
 }

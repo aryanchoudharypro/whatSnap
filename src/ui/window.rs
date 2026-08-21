@@ -7,6 +7,113 @@ use wxdragon::{
 
 use crate::{UiCommand, ui::theme, ui_wake::UiCommandSender};
 
+/// wxDialog::Create() on MSW doesn't set the native window's owner
+/// (GWLP_HWNDPARENT) from the `parent` it's given, so every dialog we build
+/// ends up as an unowned top-level window - Windows then gives each one its
+/// own Alt-Tab/taskbar entry instead of grouping it under the main frame
+/// like a proper child dialog. Setting the owner directly via the Win32 API
+/// right after construction fixes that.
+fn set_dialog_owner(dialog: &impl WxWidget, owner: &impl WxWidget) {
+	let dialog_handle = dialog.get_handle();
+	let owner_handle = owner.get_handle();
+	if dialog_handle.is_null() || owner_handle.is_null() {
+		return;
+	}
+	unsafe {
+		windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
+			windows::Win32::Foundation::HWND(dialog_handle),
+			windows::Win32::UI::WindowsAndMessaging::GWLP_HWNDPARENT,
+			owner_handle as isize,
+		);
+	}
+}
+
+/// Wires a ListBox in one of the group/conversation "data" dialogs so that
+/// pressing Enter on a row closes the dialog and jumps to the message it
+/// came from (like a search result), and - for lists of actual media files -
+/// so the context menu (right-click or the Menu/Shift+F10 key) offers
+/// Download/Open/Save As, mirroring the actions available for a selected
+/// media message in the main conversation view.
+fn wire_media_list(
+	list: &ListBox,
+	dialog: &Dialog,
+	ui_tx: &UiCommandSender,
+	state: &std::rc::Rc<std::cell::RefCell<crate::AppState>>,
+	get_message: impl Fn(&crate::AppState, usize) -> Option<whantv::ChatMessage> + Clone + 'static,
+	with_media_actions: bool,
+) {
+	let list_enter = list.clone();
+	let dialog_enter = dialog.clone();
+	let tx_enter = ui_tx.clone();
+	let state_enter = state.clone();
+	let get_message_enter = get_message.clone();
+	list.on_key_up(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if code == Some(13) || code == Some(370) {
+				// Enter or numpad Enter
+				if let Some(idx) = list_enter.get_selection() {
+					if let Some(msg) = get_message_enter(&state_enter.borrow(), idx as usize) {
+						dialog_enter.end_modal(0);
+						let _ = tx_enter
+							.send(UiCommand::JumpToSearchResult { message_id: msg.id, message_text: String::new() });
+					}
+				}
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	if with_media_actions {
+		let list_ctx = list.clone();
+		let tx_ctx = ui_tx.clone();
+		let state_ctx = state.clone();
+		list.bind_internal(EventType::CONTEXT_MENU, move |_event| {
+			let Some(idx) = list_ctx.get_selection() else { return };
+			let Some(msg) = get_message(&state_ctx.borrow(), idx as usize) else { return };
+
+			let download_id = 4101;
+			let open_id = 4102;
+			let save_id = 4103;
+			let is_downloaded = msg.is_media_downloaded();
+			let mut menu_builder = Menu::builder();
+			if is_downloaded {
+				menu_builder = menu_builder.append_item(open_id, "&Open", "Open this file").append_item(
+					save_id,
+					"&Save as...",
+					"Save this file to a chosen location",
+				);
+			} else {
+				menu_builder = menu_builder.append_item(download_id, "&Download", "Download this file");
+			}
+			let mut popup_menu = menu_builder.build();
+
+			let tx_menu = tx_ctx.clone();
+			let message_id = msg.id.clone();
+			popup_menu.on_selected(move |menu_evt| {
+				let id = menu_evt.get_id();
+				let cmd = if id == download_id {
+					Some(UiCommand::DownloadMediaMessage(message_id.clone()))
+				} else if id == open_id {
+					Some(UiCommand::OpenMediaMessage(message_id.clone()))
+				} else if id == save_id {
+					Some(UiCommand::SaveMediaMessageAs(message_id.clone()))
+				} else {
+					None
+				};
+				if let Some(cmd) = cmd {
+					let _ = tx_menu.send(cmd);
+				}
+			});
+
+			list_ctx.popup_menu(&mut popup_menu, None);
+			popup_menu.destroy_menu();
+		});
+	}
+}
+
 /// Every constructed widget is kept here for consistency even if not all of
 /// them are read back after construction yet (e.g. phone_panel).
 #[allow(dead_code)]
@@ -210,6 +317,23 @@ pub fn build_main_window() -> WindowParts {
 	let frame_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	frame_sizer.add(&main_panel, 1, SizerFlag::Expand, 0);
 	frame.set_sizer(frame_sizer, true);
+
+	// Group every dialog under the main frame's Alt-Tab/taskbar entry
+	// instead of letting each show up as its own independent window (see
+	// set_dialog_owner). The call window is deliberately left out - it's a
+	// Frame the user is meant to be able to switch to independently while a
+	// call is up, not a transient dialog.
+	set_dialog_owner(&login_panel, &frame);
+	set_dialog_owner(&qrcode_dialog, &frame);
+	set_dialog_owner(&pairing_dialog, &frame);
+	set_dialog_owner(&new_conv_dialog.dialog, &frame);
+	set_dialog_owner(&new_contact_dialog.dialog, &frame);
+	set_dialog_owner(&new_group_dialog.dialog, &frame);
+	set_dialog_owner(&attachment_dialog.dialog, &frame);
+	set_dialog_owner(&conversation_data_dialog.dialog, &frame);
+	set_dialog_owner(&group_data_dialog.dialog, &frame);
+	set_dialog_owner(&settings_dialog.dialog, &frame);
+
 	WindowParts {
 		frame,
 		nav_list,
@@ -363,14 +487,14 @@ pub fn bind_input_handlers(
 		let _ = tx_add_participant.send(UiCommand::AddParticipant);
 	});
 
-	let conv_data_dialog_close = parts.conversation_data_dialog.dialog.clone();
-	parts.conversation_data_dialog.close_btn.on_click(move |_| {
-		conv_data_dialog_close.end_modal(0);
+	let conv_data_dialog_back = parts.conversation_data_dialog.dialog.clone();
+	parts.conversation_data_dialog.back_btn.on_click(move |_| {
+		conv_data_dialog_back.end_modal(0);
 	});
 
-	let group_data_dialog_close = parts.group_data_dialog.dialog.clone();
-	parts.group_data_dialog.close_btn.on_click(move |_| {
-		group_data_dialog_close.end_modal(0);
+	let group_data_dialog_back = parts.group_data_dialog.dialog.clone();
+	parts.group_data_dialog.back_btn.on_click(move |_| {
+		group_data_dialog_back.end_modal(0);
 	});
 
 	// ── Tray icon ────────────────────────────────────────────────────────────
@@ -533,12 +657,51 @@ pub fn bind_input_handlers(
 		let _ = tx_group_members_search.send(UiCommand::FilterGroupMembers(query));
 	});
 
-	let tx_group_files_search = ui_tx.clone();
-	let files_search = parts.group_data_dialog.files_search.clone();
-	files_search.on_text_changed(move |_| {
-		let query = files_search.get_value();
-		let _ = tx_group_files_search.send(UiCommand::FilterGroupFiles(query));
+	let tx_add_member = ui_tx.clone();
+	parts.group_data_dialog.add_member_btn.on_click(move |_| {
+		let _ = tx_add_member.send(UiCommand::AddGroupMember);
 	});
+
+	let tx_make_admin = ui_tx.clone();
+	let members_list_admin = parts.group_data_dialog.members_list.clone();
+	parts.group_data_dialog.make_admin_btn.on_click(move |_| {
+		if let Some(idx) = members_list_admin.get_selection() {
+			let _ = tx_make_admin.send(UiCommand::ToggleGroupMemberAdmin(idx));
+		}
+	});
+
+	let tx_remove_member = ui_tx.clone();
+	let members_list_remove = parts.group_data_dialog.members_list.clone();
+	parts.group_data_dialog.remove_member_btn.on_click(move |_| {
+		if let Some(idx) = members_list_remove.get_selection() {
+			let _ = tx_remove_member.send(UiCommand::RemoveGroupMember(idx));
+		}
+	});
+
+	wire_media_list(
+		&parts.group_data_dialog.media_list,
+		&parts.group_data_dialog.dialog,
+		&ui_tx,
+		state,
+		|s, i| s.group_data_media.get(i).cloned(),
+		true,
+	);
+	wire_media_list(
+		&parts.group_data_dialog.documents_list,
+		&parts.group_data_dialog.dialog,
+		&ui_tx,
+		state,
+		|s, i| s.group_data_documents.get(i).cloned(),
+		true,
+	);
+	wire_media_list(
+		&parts.group_data_dialog.links_list,
+		&parts.group_data_dialog.dialog,
+		&ui_tx,
+		state,
+		|s, i| s.group_data_links.get(i).cloned(),
+		false,
+	);
 
 	let conv_data_dialog_esc = parts.conversation_data_dialog.dialog.clone();
 	parts.conversation_data_dialog.info_field.on_key_down(move |event| {
@@ -553,6 +716,31 @@ pub fn bind_input_handlers(
 			event.skip(true);
 		}
 	});
+
+	wire_media_list(
+		&parts.conversation_data_dialog.media_list,
+		&parts.conversation_data_dialog.dialog,
+		&ui_tx,
+		state,
+		|s, i| s.conversation_data_media.get(i).cloned(),
+		true,
+	);
+	wire_media_list(
+		&parts.conversation_data_dialog.documents_list,
+		&parts.conversation_data_dialog.dialog,
+		&ui_tx,
+		state,
+		|s, i| s.conversation_data_documents.get(i).cloned(),
+		true,
+	);
+	wire_media_list(
+		&parts.conversation_data_dialog.links_list,
+		&parts.conversation_data_dialog.dialog,
+		&ui_tx,
+		state,
+		|s, i| s.conversation_data_links.get(i).cloned(),
+		false,
+	);
 
 	let new_contact_dialog_cancel = parts.new_contact_dialog.dialog;
 	parts.new_contact_dialog.cancel_btn.on_click(move |_| {
