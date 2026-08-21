@@ -141,6 +141,8 @@ func handleConnection(conn net.Conn) {
 			handleSearchMessages(conn, cmd.Data)
 		case "get_starred_messages":
 			handleGetStarredMessages(conn)
+		case "export_chat":
+			handleExportChat(conn, cmd.Data)
 		case "set_chat_pinned":
 			handleSetChatPinned(cmd.Data)
 		case "set_chat_archived":

@@ -76,6 +76,7 @@ pub enum UiCommand {
 	EditMessage { message_id: String, new_text: String },
 	DeleteMessage { message_id: String, sender_jid: String, for_everyone: bool },
 	StarMessage { message_id: String, sender_jid: String, from_me: bool, starred: bool },
+	ExportChat { jid: String, dest_path: String },
 	GetMessageInfo { message_id: String },
 	RetryMessage { message_id: String },
 	CopyAlbumToClipboard { message_ids: Vec<String> },
@@ -2733,6 +2734,32 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let _ = s.ws_tx.send(payload.to_string());
 							}
 						}
+						"export_progress" => {
+							if let Some(data) = val.get("data") {
+								let current = data.get("current").and_then(|c| c.as_i64()).unwrap_or(0);
+								let total = data.get("total").and_then(|t| t.as_i64()).unwrap_or(0);
+								parts
+									.frame
+									.set_status_text(&format!("Status: Exporting chat... {}/{}", current, total), 0);
+							}
+						}
+						"chat_exported" => {
+							if let Some(data) = val.get("data") {
+								let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
+								let media_exported = data.get("media_exported").and_then(|m| m.as_i64()).unwrap_or(0);
+								let media_skipped = data.get("media_skipped").and_then(|m| m.as_i64()).unwrap_or(0);
+								parts.frame.set_status_text("Status: Connected", 0);
+								let msg = if media_skipped > 0 {
+									format!(
+										"Chat exported to {}. {} media files included, {} could not be downloaded and were skipped.",
+										path, media_exported, media_skipped
+									)
+								} else {
+									format!("Chat exported to {}. {} media files included.", path, media_exported)
+								};
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+							}
+						}
 						"starred_messages" => {
 							if let Some(data) = val.get("data") {
 								if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
@@ -5242,6 +5269,17 @@ while ($true) {
 				});
 				let _ = state.borrow().ws_tx.send(payload.to_string());
 			}
+		}
+		UiCommand::ExportChat { jid, dest_path } => {
+			let payload = serde_json::json!({
+				"action": "export_chat",
+				"data": { "jid": jid, "dest_path": dest_path }
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				"Exporting chat, this may take a while for chats with a lot of media...",
+			);
 		}
 		UiCommand::GetMessageInfo { message_id } => {
 			let payload = serde_json::json!({
