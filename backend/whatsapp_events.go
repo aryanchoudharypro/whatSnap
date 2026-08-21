@@ -854,12 +854,16 @@ func eventHandler(evt interface{}) {
 			broadcastChats()
 		}()
 	case *events.DeleteForMe:
+		// Synced from another of our own linked devices (or replayed on
+		// first link / history resync) - always a local-only hide, never a
+		// tombstone. See deleteMessageForMe's doc comment.
 		jid := v.ChatJID.String()
-		go markMessageDeleted(v.MessageID, jid)
+		go deleteMessageForMe(v.MessageID, jid)
 		broadcastEvent("message_deleted", map[string]interface{}{
-			"jid":        jid,
-			"message_id": v.MessageID,
-			"by":         v.SenderJID.String(),
+			"jid":          jid,
+			"message_id":   v.MessageID,
+			"by":           v.SenderJID.String(),
+			"for_everyone": false,
 		})
 	case *events.Connected:
 		appStateResyncMu.Lock()
