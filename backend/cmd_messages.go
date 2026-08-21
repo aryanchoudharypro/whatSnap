@@ -232,16 +232,18 @@ func handleDeleteMessage(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if data.ForEveryone {
-			targetChatJID := chatJID
-			var storedJIDStr, storedSenderStr string
-			var storedFromMe bool
-			if dbErr := db.QueryRow("SELECT jid, COALESCE(sender_jid, ''), from_me FROM messages WHERE id = ?", data.MessageID).Scan(&storedJIDStr, &storedSenderStr, &storedFromMe); dbErr == nil {
-				if parsed, perr := types.ParseJID(storedJIDStr); perr == nil && !parsed.IsEmpty() {
-					targetChatJID = parsed
-				}
+		targetChatJID := chatJID
+		var storedJIDStr, storedSenderStr string
+		var storedFromMe bool
+		var storedTimestamp int64
+		if dbErr := db.QueryRow("SELECT jid, COALESCE(sender_jid, ''), from_me, timestamp FROM messages WHERE id = ?", data.MessageID).
+			Scan(&storedJIDStr, &storedSenderStr, &storedFromMe, &storedTimestamp); dbErr == nil {
+			if parsed, perr := types.ParseJID(storedJIDStr); perr == nil && !parsed.IsEmpty() {
+				targetChatJID = parsed
 			}
+		}
 
+		if data.ForEveryone {
 			senderJID := types.EmptyJID
 			if targetChatJID.Server == types.GroupServer {
 				if storedSenderStr != "" {
@@ -262,6 +264,31 @@ func handleDeleteMessage(raw json.RawMessage) {
 				}
 				broadcastEvent("error", map[string]string{"message": errMsg})
 				return
+			}
+		} else {
+			// "Delete for me": syncs the local hide via app-state so it also
+			// applies on the user's other linked devices, not just this one
+			// (see appstate.BuildDeleteMessageForMe).
+			originalSender := types.EmptyJID
+			if storedFromMe {
+				if client.Store.ID != nil {
+					originalSender = client.Store.ID.ToNonAD()
+				}
+			} else if storedSenderStr != "" {
+				if parsed, perr := types.ParseJID(storedSenderStr); perr == nil {
+					originalSender = parsed
+				}
+			}
+			msgTimestamp := time.Now()
+			if storedTimestamp > 0 {
+				msgTimestamp = time.Unix(storedTimestamp, 0)
+			}
+			patch := appstate.BuildDeleteMessageForMe(targetChatJID, originalSender, data.MessageID, storedFromMe, true, msgTimestamp)
+			if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
+				log.Printf("Delete-for-me app-state sync failed for %s: %v", data.MessageID, err)
+				// Fall through to the local delete below regardless - at
+				// minimum this device drops it even if the sync to other
+				// linked devices didn't go through.
 			}
 		}
 		markMessageDeleted(data.MessageID, data.JID)
