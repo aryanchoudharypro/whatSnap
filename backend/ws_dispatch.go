@@ -113,6 +113,10 @@ func handleConnection(conn net.Conn) {
 			handleCreateGroup(conn, cmd.Data)
 		case "get_group_info":
 			handleGetGroupInfo(conn, cmd.Data)
+		case "get_community_subgroups":
+			handleGetCommunitySubGroups(conn, cmd.Data)
+		case "join_community_subgroup":
+			handleJoinCommunitySubgroup(cmd.Data)
 		case "leave_group":
 			handleLeaveGroup(cmd.Data)
 		case "get_group_invite_link":
@@ -147,6 +151,8 @@ func handleConnection(conn net.Conn) {
 			handleGetStatuses(conn)
 		case "post_status":
 			handlePostStatus(cmd.Data)
+		case "post_media_status":
+			handlePostMediaStatus(cmd.Data)
 		case "mark_status_viewed":
 			handleMarkStatusViewed(cmd.Data)
 		case "set_chat_pinned":

@@ -12,6 +12,7 @@ pub struct ConversationsPanelParts {
 	pub search_label: StaticText,
 	pub search_field: TextCtrl,
 	pub new_conv_btn: Button,
+	pub post_media_status_btn: Button,
 
 	pub conversations_label: StaticText,
 	pub conversations_list: ListBox,
@@ -84,6 +85,17 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top | SizerFlag::Bottom,
 		10,
 	);
+
+	// Only shown in the Status nav view, alongside new_conv_btn (which posts
+	// a text status there instead of opening the new-conversation dialog).
+	let post_media_status_btn = Button::builder(&panel).with_label("Post Photo/Video Status...").build();
+	outer_sizer.add(
+		&post_media_status_btn,
+		0,
+		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+		10,
+	);
+	post_media_status_btn.show(false);
 
 	let list_divider = StaticLine::builder(&panel).build();
 	theme::style_divider(&list_divider);
@@ -303,6 +315,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		search_label,
 		search_field,
 		new_conv_btn,
+		post_media_status_btn,
 		conversations_label,
 		conversations_list,
 		conversation_panel,

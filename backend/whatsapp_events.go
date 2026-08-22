@@ -1150,10 +1150,11 @@ func populateChatsFromStore() {
 	if err == nil {
 		for _, g := range groups {
 			jidStr := g.JID.ToNonAD().String()
-			db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0)
+			db.Exec(`INSERT INTO chats (jid, name, timestamp, is_community) VALUES (?, ?, 0, ?)
 				ON CONFLICT(jid) DO UPDATE SET
-				name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
-				jidStr, g.GroupName.Name)
+				name=COALESCE(NULLIF(excluded.name, ''), chats.name),
+				is_community=excluded.is_community`,
+				jidStr, g.GroupName.Name, boolToInt(g.IsParent))
 		}
 	}
 

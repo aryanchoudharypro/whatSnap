@@ -136,6 +136,76 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
+// handleGetCommunitySubGroups lists the groups linked under a community JID,
+// for the read-only "Groups" tab in the group info dialog. Communities are
+// just groups with IsParent set, so the request JID is the same community
+// chat JID already shown in the chat list.
+func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
+	var data JIDData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+	go func() {
+		subGroups, err := client.GetSubGroups(context.Background(), jid)
+		if err != nil {
+			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			return
+		}
+		groups := make([]map[string]interface{}, 0, len(subGroups))
+		for _, g := range subGroups {
+			groups = append(groups, map[string]interface{}{
+				"JID":               g.JID.String(),
+				"Name":              g.Name,
+				"IsDefaultSubGroup": g.IsDefaultSubGroup,
+			})
+		}
+		sendEvent(conn, "community_subgroups", map[string]interface{}{"jid": data.JID, "groups": groups})
+	}()
+}
+
+// handleJoinCommunitySubgroup joins the caller into a group linked under a
+// community. WhatsApp lets community members self-join an open ("all_member_add")
+// linked group without an invite link - the server authorizes it based on
+// community membership, so this is just a normal add-participant request
+// targeting our own JID.
+func handleJoinCommunitySubgroup(raw json.RawMessage) {
+	var data JIDData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+	go func() {
+		myJID := client.Store.ID.ToNonAD()
+		participants, err := client.UpdateGroupParticipants(context.Background(), jid, []types.JID{myJID}, whatsmeow.ParticipantChangeAdd)
+		if err != nil {
+			broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + err.Error()})
+			return
+		}
+		// A nil top-level err doesn't mean the add actually happened - WhatsApp
+		// reports per-participant failures (e.g. the subgroup requires admin
+		// approval, so we get an invite request queued instead of being added
+		// directly) via a non-zero Error code on our own entry.
+		if len(participants) > 0 && participants[0].Error != 0 {
+			if participants[0].AddRequest != nil {
+				broadcastEvent("error", map[string]string{"message": "This group requires admin approval to join. Your request has been sent."})
+			} else {
+				broadcastEvent("error", map[string]string{"message": "Couldn't join this group. It may be closed to new members or require an invite link."})
+			}
+			return
+		}
+		populateChatsFromStore()
+		broadcastChats()
+		broadcastEvent("community_subgroup_joined", map[string]interface{}{"jid": data.JID})
+	}()
+}
+
 func handleLeaveGroup(raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
