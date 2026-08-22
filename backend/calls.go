@@ -84,9 +84,14 @@ func initCallClient() {
 			activeCallsMutex.Unlock()
 		})
 
+		// The peer JID is usually a @lid, which the frontend's contact map
+		// (keyed by phone JID) cannot look up - it would show the raw
+		// "...@lid" string instead of a name. Resolve it here, where the
+		// LID -> PN -> contact-name fallback chain already lives.
 		broadcastEvent("incoming_call", map[string]string{
-			"call_id": call.ID(),
-			"caller":  call.Peer().String(),
+			"call_id":     call.ID(),
+			"caller":      call.Peer().String(),
+			"caller_name": resolveDisplayName(call.Peer()),
 		})
 	})
 }

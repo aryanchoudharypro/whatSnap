@@ -466,8 +466,10 @@ func resolveDisplayName(jid types.JID) string {
 			return "+" + phone
 		}
 	}
-	if jid.Server != "g.us" && jid.Server != "lid" && jid.Server != "" && jid.User != "" {
-		return "+" + jid.User
+	// Fall back on contactJID, not jid: for a LID we already resolved to a
+	// phone JID above, and "+<number>" beats showing a raw "<n>@lid".
+	if contactJID.Server != "g.us" && contactJID.Server != "lid" && contactJID.Server != "" && contactJID.User != "" {
+		return "+" + contactJID.User
 	}
 	return jid.String()
 }

@@ -1608,7 +1608,16 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let mut s = state.borrow_mut();
 									s.active_call_id = Some(call_id.to_string());
 									s.call_answer_deadline = None;
-									let name = s.contacts.get(caller).cloned().unwrap_or_else(|| caller.to_string());
+									// Prefer the backend-resolved name: the caller JID is
+									// typically a @lid, which s.contacts (keyed by phone JID)
+									// cannot resolve.
+									let name = data
+										.get("caller_name")
+										.and_then(|n| n.as_str())
+										.filter(|n| !n.is_empty() && *n != caller)
+										.map(|n| n.to_string())
+										.or_else(|| s.contacts.get(caller).cloned())
+										.unwrap_or_else(|| caller.to_string());
 									parts
 										.call_parts
 										.status_label
