@@ -50,7 +50,7 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		rows, queryErr := db.Query(`SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 				COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
 				COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
-				COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), raw
+				COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''), raw
 			FROM messages WHERE jid = ? ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, data.JID, limit, offset)
 
 		msgs := []map[string]interface{}{}
@@ -59,13 +59,13 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 			defer rows.Close()
 			for rows.Next() {
 				var id, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath string
-				var quotedID, quotedText, quotedSender string
+				var quotedID, quotedText, quotedSender, albumID string
 				var ts, sentAt, deliveredAt, readAt, playedAt, editedAt int64
 				var fromMe bool
 				var isEdited, isDeleted, starred int
 				var rawBytes []byte
 				if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
-					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &rawBytes); err != nil {
+					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &albumID, &rawBytes); err != nil {
 					log.Println("Error scanning message row:", err)
 					continue
 				}
@@ -135,6 +135,7 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 					"playedAt":      playedAt,
 					"editedAt":      editedAt,
 					"starred":       starred == 1,
+					"albumId":       albumID,
 				})
 			}
 		} else {

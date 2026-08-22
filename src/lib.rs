@@ -63,6 +63,11 @@ pub struct ChatMessage {
 	pub media_filename: String,
 	#[serde(rename = "mediaPath", alias = "media_path", default)]
 	pub media_path: String,
+	/// ID of the album header the backend grouped this media under, empty for
+	/// standalone media. Authoritative when present: it comes from WhatsApp's
+	/// own album announcement rather than from guessing at timestamps.
+	#[serde(rename = "albumId", alias = "album_id", default)]
+	pub album_id: String,
 }
 
 /// Label shown on a date-divider row: "Today" / "Yesterday" for the two most
@@ -579,6 +584,22 @@ impl DisplayItem {
 	}
 }
 
+/// Whether `msg` belongs to the same album as the media in `prev`. The backend
+/// stamps media that arrived under one WhatsApp album header with a shared
+/// `album_id`, and when that's present it decides on its own - it is what the
+/// sender actually grouped, rather than an inference. Media stored before that
+/// existed, or synced from history, carries no stamp, so it falls back to the
+/// original "same sender, within ten seconds of each other" guess.
+pub fn same_album(prev: &ChatMessage, msg: &ChatMessage) -> bool {
+	if prev.from_me != msg.from_me || prev.sender_jid != msg.sender_jid {
+		return false;
+	}
+	if !prev.album_id.is_empty() || !msg.album_id.is_empty() {
+		return prev.album_id == msg.album_id;
+	}
+	(msg.timestamp - prev.timestamp).abs() <= 10
+}
+
 pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<DisplayItem> {
 	let mut items = Vec::new();
 	let mut current_album: Vec<ChatMessage> = Vec::new();
@@ -594,9 +615,7 @@ pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<Displa
 
 		if is_media {
 			if let Some(prev) = current_album.last() {
-				let same_sender = prev.from_me == msg.from_me && prev.sender_jid == msg.sender_jid;
-				let close_time = (msg.timestamp - prev.timestamp).abs() <= 10;
-				if same_sender && close_time {
+				if same_album(prev, msg) {
 					current_album.push(msg.clone());
 					continue;
 				} else {
