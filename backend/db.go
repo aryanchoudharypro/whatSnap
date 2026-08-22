@@ -71,6 +71,7 @@ func migrateDB() error {
 	db.Exec("DELETE FROM messages WHERE (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
 	db.Exec("DELETE FROM messages WHERE is_deleted = 1 AND (raw IS NULL OR length(raw) = 0) AND (text = '' OR text IS NULL)")
 	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0)) AND pinned = 0 AND muted = 0 AND archived = 0")
+	backfillTemplateMessages()
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
@@ -230,6 +231,52 @@ func markMessageStarred(id, jid string, starred bool) error {
 	}
 	_, err := db.Exec(`UPDATE messages SET starred = ? WHERE id = ? AND jid = ?`, starredInt, id, jid)
 	return err
+}
+
+// backfillTemplateMessages re-derives the text and media info of messages that
+// were stored back when business template / interactive / buttons messages had
+// no handling, so they landed as "[Unsupported Message]" with their header
+// image unreachable. Their raw protobuf was kept, so re-running the (now
+// smarter) extractors over it recovers them in place - no history resync, and
+// nothing to do on a DB that has none of them.
+func backfillTemplateMessages() {
+	rows, err := db.Query(`SELECT id, jid, raw FROM messages
+		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
+	if err != nil {
+		return
+	}
+	type recovered struct {
+		id, jid, text, mediaType, mimetype, filename string
+	}
+	var fixed []recovered
+	for rows.Next() {
+		var id, jid string
+		var raw []byte
+		if rows.Scan(&id, &jid, &raw) != nil {
+			continue
+		}
+		msg := &waE2E.Message{}
+		if proto.Unmarshal(raw, msg) != nil {
+			continue
+		}
+		text := extractText(msg)
+		if text == "" || text == "[Unsupported Message]" {
+			continue
+		}
+		mediaType, mimetype, filename := mediaInfoFromMessage(msg)
+		fixed = append(fixed, recovered{id, jid, text, mediaType, mimetype, filename})
+	}
+	rows.Close()
+
+	chats := make(map[string]struct{}, len(fixed))
+	for _, msg := range fixed {
+		db.Exec(`UPDATE messages SET text = ?, media_type = ?, media_mimetype = ?, media_filename = ?
+			WHERE id = ?`, msg.text, msg.mediaType, msg.mimetype, msg.filename, msg.id)
+		chats[msg.jid] = struct{}{}
+	}
+	for jid := range chats {
+		UpdateChatSnippet(jid)
+	}
 }
 
 func UpdateChatSnippet(jid string) {
