@@ -74,7 +74,7 @@ func migrateDB() error {
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
 	db.Exec("DELETE FROM messages WHERE (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
 	db.Exec("DELETE FROM messages WHERE is_deleted = 1 AND (raw IS NULL OR length(raw) = 0) AND (text = '' OR text IS NULL)")
-	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0)) AND pinned = 0 AND muted = 0 AND archived = 0")
+	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0)) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0")
 	backfillTemplateMessages()
 	backfillAlbumMessages()
 

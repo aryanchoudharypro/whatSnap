@@ -383,6 +383,10 @@ struct AppState {
 	chats: Vec<String>,
 	filtered_chats: Vec<String>,
 	archived_jids: std::collections::HashSet<String>,
+	/// Chats that are community parent groups, i.e. the ones the Communities
+	/// tab lists. They stay in Conversations too, tagged "[Community]", the
+	/// way they always have.
+	community_jids: std::collections::HashSet<String>,
 	pinned_jids: std::collections::HashSet<String>,
 	muted_jids: std::collections::HashSet<String>,
 	unread_counts: std::collections::HashMap<String, u64>,
@@ -503,6 +507,29 @@ fn populate_message_list(list: &ListBox, messages: &[ChatMessage], label: impl F
 	}
 }
 
+/// Whether a chat belongs in the list shown for `tab`. Conversations (0) hides
+/// archived chats, Archived (3) shows only those, and Communities (4) shows
+/// only the community parent groups. The Status and Starred tabs build their
+/// rows from something other than the chat list and never reach this.
+///
+/// Communities are kept out of Conversations as well: a community parent
+/// carries no messages of its own - everything is posted in its announcement
+/// and member sub-groups, which appear as ordinary chats - so a row for it
+/// there would be permanently empty.
+fn chat_visible_in_tab(
+	tab: usize,
+	jid: &str,
+	archived: &std::collections::HashSet<String>,
+	communities: &std::collections::HashSet<String>,
+) -> bool {
+	match tab {
+		0 => !archived.contains(jid) && !communities.contains(jid),
+		3 => archived.contains(jid),
+		4 => communities.contains(jid),
+		_ => true,
+	}
+}
+
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	let lower_query = s.search_query.to_lowercase();
 
@@ -562,8 +589,7 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 		}
 	} else {
 		for jid in &s.chats {
-			let is_archived = s.archived_jids.contains(jid);
-			if (s.active_tab == 0 && is_archived) || (s.active_tab == 3 && !is_archived) {
+			if !chat_visible_in_tab(s.active_tab, jid, &s.archived_jids, &s.community_jids) {
 				continue;
 			}
 
@@ -1031,6 +1057,7 @@ fn main() {
 			chats: Vec::new(),
 			filtered_chats: Vec::new(),
 			archived_jids: std::collections::HashSet::new(),
+			community_jids: std::collections::HashSet::new(),
 			pinned_jids: std::collections::HashSet::new(),
 			muted_jids: std::collections::HashSet::new(),
 			unread_counts: std::collections::HashMap::new(),
@@ -1733,6 +1760,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								{
 									let mut chat_list = Vec::new();
 									let mut archived_jids = std::collections::HashSet::new();
+									let mut community_jids = std::collections::HashSet::new();
 									let mut pinned_jids = std::collections::HashSet::new();
 									let mut muted_jids = std::collections::HashSet::new();
 									let mut unread_counts = std::collections::HashMap::new();
@@ -1808,6 +1836,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											}
 											if is_community {
 												tags.push("Community");
+												community_jids.insert(jid.to_string());
 											}
 											unread_counts.insert(jid.to_string(), unread);
 
@@ -1875,6 +1904,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									s.chats = chat_list;
 									s.contacts = contacts_map;
 									s.archived_jids = archived_jids;
+									s.community_jids = community_jids;
 									s.pinned_jids = pinned_jids;
 									s.muted_jids = muted_jids;
 									s.unread_counts = unread_counts;
@@ -1886,9 +1916,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let mut new_display = Vec::new();
 									if s.active_tab != 1 && s.active_tab != 2 {
 										for jid in &s.chats {
-											let is_archived = s.archived_jids.contains(jid);
-											if (s.active_tab == 0 && is_archived) || (s.active_tab == 3 && !is_archived)
-											{
+											if !chat_visible_in_tab(
+												s.active_tab,
+												jid,
+												&s.archived_jids,
+												&s.community_jids,
+											) {
 												continue;
 											}
 											let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
@@ -4350,6 +4383,15 @@ while ($true) {
 					parts.conversations_parts.new_conv_btn.set_label("New Conversation");
 					parts.conversations_parts.post_media_status_btn.show(false);
 					parts.conversations_parts.conversations_label.set_label("Archived Chats");
+					apply_chat_filter(&mut state.borrow_mut(), parts);
+				}
+				4 => {
+					// Communities
+					parts.conversations_parts.panel.show(true);
+					state.borrow_mut().active_tab = 4;
+					parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+					parts.conversations_parts.post_media_status_btn.show(false);
+					parts.conversations_parts.conversations_label.set_label("Communities");
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
 				_ => {}
