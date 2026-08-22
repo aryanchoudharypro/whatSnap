@@ -216,6 +216,7 @@ pub fn build_main_window() -> WindowParts {
 			"Status".to_string(),
 			"Starred Messages".to_string(),
 			"Archived Chats".to_string(),
+			"Communities".to_string(),
 		])
 		.build();
 	nav_list.set_font(&theme::Fonts::body_strong());

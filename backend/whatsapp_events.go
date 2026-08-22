@@ -1508,7 +1508,12 @@ func populateChatsFromStore() {
 			UpdateChatSnippet(target.String())
 		}
 	}
-	db.Exec("DELETE FROM chats WHERE timestamp = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)")
+	// Community parent groups are exempt: they legitimately never carry
+	// messages of their own (those go to the community's announcement and
+	// member sub-groups), so this sweep would otherwise delete every one of
+	// them the moment populateChatsFromStore inserted it, and the Communities
+	// tab would always be empty.
+	db.Exec("DELETE FROM chats WHERE timestamp = 0 AND COALESCE(is_community, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)")
 	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@broadcast'")
 }
 
