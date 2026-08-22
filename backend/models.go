@@ -190,4 +190,5 @@ type StoredMessage struct {
 	QuotedID      string
 	QuotedText    string
 	QuotedSender  string
+	AlbumID       string // header message ID of the album this belongs to, "" if standalone
 }

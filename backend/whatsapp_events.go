@@ -395,6 +395,90 @@ func headerMedia(image *waE2E.ImageMessage, video *waE2E.VideoMessage, document 
 	return nil
 }
 
+// WhatsApp announces an album by sending a tiny albumMessage header ("3 videos
+// are coming") immediately before the media itself. The header carries no
+// content of its own, so storing it would show the user a stray empty bubble
+// next to their photos - instead we keep it only long enough to stamp the
+// media that follows with a shared album ID.
+type pendingAlbum struct {
+	id        string
+	remaining int
+	expires   time.Time
+}
+
+var (
+	pendingAlbumsMu sync.Mutex
+	pendingAlbums   = map[string]*pendingAlbum{}
+)
+
+// albumWindow bounds how long an album header waits for its media. The media
+// normally follows within a couple of seconds; the window only has to outlast
+// a slow upload, and its real job is to stop an album whose media never
+// arrived from swallowing unrelated photos sent later.
+const albumWindow = 2 * time.Minute
+
+func albumKey(chatJID, senderJID string) string {
+	return chatJID + "|" + senderJID
+}
+
+// registerAlbum records an incoming album header so the media that follows can
+// claim it. Returns false if the header announced no media at all, in which
+// case there is nothing to group.
+func registerAlbum(chatJID, senderJID, headerID string, album *waE2E.AlbumMessage) bool {
+	expected := int(album.GetExpectedImageCount() + album.GetExpectedVideoCount())
+	if expected <= 0 || headerID == "" {
+		return false
+	}
+	pendingAlbumsMu.Lock()
+	defer pendingAlbumsMu.Unlock()
+	pendingAlbums[albumKey(chatJID, senderJID)] = &pendingAlbum{
+		id:        headerID,
+		remaining: expected,
+		expires:   time.Now().Add(albumWindow),
+	}
+	return true
+}
+
+// claimAlbumID hands the next piece of media in a chat the ID of the album
+// header that announced it, or "" if no album is open. Must be called in
+// arrival order - i.e. synchronously from the event handler, not from the
+// goroutine that does the storing.
+func claimAlbumID(chatJID, senderJID string) string {
+	pendingAlbumsMu.Lock()
+	defer pendingAlbumsMu.Unlock()
+	key := albumKey(chatJID, senderJID)
+	album, ok := pendingAlbums[key]
+	if !ok {
+		return ""
+	}
+	if time.Now().After(album.expires) {
+		delete(pendingAlbums, key)
+		return ""
+	}
+	album.remaining--
+	if album.remaining <= 0 {
+		delete(pendingAlbums, key)
+	}
+	return album.id
+}
+
+// stampAlbumMembers assigns an album ID to the media already sitting in the
+// database that a given album header announced. Used for history-synced and
+// previously-stored albums, where the header and its media arrive together (or
+// arrived long ago) and the in-memory handoff above doesn't apply.
+func stampAlbumMembers(headerID, chatJID, senderJID string, headerTS int64, expected int) {
+	if headerID == "" || expected <= 0 {
+		return
+	}
+	db.Exec(`UPDATE messages SET album_id = ? WHERE id IN (
+			SELECT id FROM messages
+			WHERE jid = ? AND sender_jid = ? AND media_type IN ('image', 'video')
+				AND timestamp >= ? AND timestamp <= ?
+				AND (album_id IS NULL OR album_id = '')
+			ORDER BY timestamp ASC, id ASC LIMIT ?)`,
+		headerID, chatJID, senderJID, headerTS-1, headerTS+int64(albumWindow/time.Second), expected)
+}
+
 // mediaCarrier returns the message that actually holds msg's downloadable
 // media: msg itself for ordinary media messages, or the lifted-out header for
 // template-style ones. Use this anywhere a raw stored message is about to be
@@ -531,6 +615,13 @@ func eventHandler(evt interface{}) {
 			if v.Data == nil {
 				return
 			}
+
+			type syncedAlbum struct {
+				id, jid, senderJID string
+				timestamp          int64
+				expected           int
+			}
+			var albumHeaders []syncedAlbum
 
 			for _, mapping := range v.Data.GetPhoneNumberToLidMappings() {
 				if mapping == nil {
@@ -703,6 +794,25 @@ func eventHandler(evt interface{}) {
 						continue
 					}
 
+					if album := unwrapMessage(evtMsg.Message).GetAlbumMessage(); album != nil {
+						// Same header-only stanza as the live path, but here
+						// the media it announces is being written in this very
+						// loop, so the grouping is applied by SQL once the
+						// batch has landed rather than as each one arrives.
+						headerID := evtMsg.Info.ID
+						if headerID == "" && webMsg.Key != nil {
+							headerID = webMsg.GetKey().GetID()
+						}
+						albumHeaders = append(albumHeaders, syncedAlbum{
+							id:        headerID,
+							jid:       jid,
+							senderJID: evtMsg.Info.Sender.ToNonAD().String(),
+							timestamp: evtMsg.Info.Timestamp.Unix(),
+							expected:  int(album.GetExpectedImageCount() + album.GetExpectedVideoCount()),
+						})
+						continue
+					}
+
 					msgText := extractText(evtMsg.Message)
 					if msgText == "[Protocol Message]" {
 						continue
@@ -784,6 +894,9 @@ func eventHandler(evt interface{}) {
 				if err := tx.Commit(); err != nil {
 					log.Println("Error committing HistorySync transaction for conv:", err)
 				}
+			}
+			for _, album := range albumHeaders {
+				stampAlbumMembers(album.id, album.jid, album.senderJID, album.timestamp, album.expected)
 			}
 			UpdateAllChatSnippets()
 			populateChatsFromStore()
@@ -880,11 +993,31 @@ func eventHandler(evt interface{}) {
 			return
 		}
 
+		if album := unwrappedMsg.GetAlbumMessage(); album != nil {
+			// Header only, no content of its own - remember it so the media
+			// that follows can be grouped, and store nothing.
+			albumChat, albumSender := resolveLIDChat(v)
+			if registerAlbum(albumChat.String(), albumSender.String(), v.Info.ID, album) {
+				log.Printf("Album header %s from %s: expecting %d media", v.Info.ID, albumSender,
+					album.GetExpectedImageCount()+album.GetExpectedVideoCount())
+			}
+			return
+		}
+
 		text := extractText(v.Message)
 		if text == "[Protocol Message]" {
 			return
 		}
 		log.Printf("Received events.Message. ID: %s, Sender: %s, Chat: %s, text length: %d", v.Info.ID, v.Info.Sender.String(), v.Info.Chat.String(), len(text))
+
+		// Claimed here rather than inside the goroutine below so that media
+		// gets stamped in arrival order, which is the order the album header
+		// counted them in.
+		albumID := ""
+		if mt, _, _ := mediaInfoFromMessage(v.Message); mt == "image" || mt == "video" {
+			albumChat, albumSender := resolveLIDChat(v)
+			albumID = claimAlbumID(albumChat.String(), albumSender.String())
+		}
 
 		go func() {
 			chatJID, senderJID := resolveLIDChat(v)
@@ -934,6 +1067,7 @@ func eventHandler(evt interface{}) {
 					FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,
 					MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename,
 					QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
+					AlbumID: albumID,
 				})
 				if err != nil {
 					fmt.Println("Error inserting message from live event:", err)
@@ -959,6 +1093,7 @@ func eventHandler(evt interface{}) {
 				"has_media":     liveMediaType != "",
 				"mediaType":     liveMediaType,
 				"mediaFilename": liveMediaFilename,
+				"albumId":       albumID,
 				"quotedId":      quotedID,
 				"quotedText":    quotedText,
 				"quotedSender":  quotedSender,

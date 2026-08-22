@@ -2204,6 +2204,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												.and_then(|m| m.as_str())
 												.unwrap_or("")
 												.to_string(),
+											album_id: data
+												.get("albumId")
+												.and_then(|m| m.as_str())
+												.unwrap_or("")
+												.to_string(),
 											..Default::default()
 										};
 										s.messages.push(chat_msg.clone());
@@ -2230,25 +2235,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 																|| prev_msg.text.starts_with("[Photo]")
 																|| prev_msg.text.starts_with("[Image]")
 																|| prev_msg.text.starts_with("[Video]"));
-														prev_is_media
-															&& prev_msg.from_me == chat_msg.from_me && prev_msg.sender_jid
-															== chat_msg.sender_jid && (chat_msg.timestamp
-															- prev_msg.timestamp)
-															.abs() <= 10
+														prev_is_media && whantv::same_album(prev_msg, &chat_msg)
 													}
-													whantv::DisplayItem::Album {
-														from_me,
-														sender_jid,
-														messages,
-														..
-													} => {
-														*from_me == chat_msg.from_me
-															&& sender_jid == &chat_msg.sender_jid && messages
-															.last()
-															.map_or(false, |m| {
-																(chat_msg.timestamp - m.timestamp).abs() <= 10
-															})
-													}
+													whantv::DisplayItem::Album { messages, .. } => messages
+														.last()
+														.is_some_and(|m| whantv::same_album(m, &chat_msg)),
 												}
 											} else {
 												false

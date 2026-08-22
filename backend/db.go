@@ -66,12 +66,17 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN starred INTEGER DEFAULT 0")
 	// "viewed" only has meaning for jid = 'status@broadcast' rows (Status/Stories).
 	db.Exec("ALTER TABLE messages ADD COLUMN viewed INTEGER DEFAULT 0")
+	// Media that arrived as one WhatsApp album share the album header's
+	// message ID here, so the frontend can group them without guessing from
+	// timestamps. Empty for standalone media.
+	db.Exec("ALTER TABLE messages ADD COLUMN album_id TEXT DEFAULT ''")
 	db.Exec("DELETE FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?", time.Now().Add(-24*time.Hour).Unix())
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
 	db.Exec("DELETE FROM messages WHERE (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
 	db.Exec("DELETE FROM messages WHERE is_deleted = 1 AND (raw IS NULL OR length(raw) = 0) AND (text = '' OR text IS NULL)")
 	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0)) AND pinned = 0 AND muted = 0 AND archived = 0")
 	backfillTemplateMessages()
+	backfillAlbumMessages()
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
@@ -140,8 +145,8 @@ func saveMessage(sm StoredMessage) error {
 		sentAt = sm.Timestamp
 	}
 	_, err := db.Exec(`INSERT INTO messages
-			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, quoted_id, quoted_text, quoted_sender, sent_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, quoted_id, quoted_text, quoted_sender, sent_at, album_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			text=excluded.text,
 			timestamp=excluded.timestamp,
@@ -154,10 +159,11 @@ func saveMessage(sm StoredMessage) error {
 			quoted_id=excluded.quoted_id,
 			quoted_text=excluded.quoted_text,
 			quoted_sender=excluded.quoted_sender,
-			sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END`,
+			sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END,
+			album_id=CASE WHEN excluded.album_id != '' THEN excluded.album_id ELSE messages.album_id END`,
 		sm.ID, sm.JID, sm.FromMe, sm.Text, sm.Timestamp, sm.SenderJID, sm.Raw, sm.Status,
 		sm.MediaType, sm.MediaMimetype, sm.MediaFilename, sm.MediaPath,
-		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt)
+		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt, sm.AlbumID)
 	return err
 }
 
@@ -273,6 +279,53 @@ func backfillTemplateMessages() {
 		db.Exec(`UPDATE messages SET text = ?, media_type = ?, media_mimetype = ?, media_filename = ?
 			WHERE id = ?`, msg.text, msg.mediaType, msg.mimetype, msg.filename, msg.id)
 		chats[msg.jid] = struct{}{}
+	}
+	for jid := range chats {
+		UpdateChatSnippet(jid)
+	}
+}
+
+// backfillAlbumMessages converts album headers that were stored back when they
+// had no handling - each one showed up as a stray "[Unsupported Message]"
+// bubble next to the photos it announced - into the album_id grouping the
+// frontend now uses, then removes the header rows themselves.
+func backfillAlbumMessages() {
+	rows, err := db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), timestamp, raw FROM messages
+		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
+	if err != nil {
+		return
+	}
+	type header struct {
+		id, jid, senderJID string
+		timestamp          int64
+		expected           int
+	}
+	var headers []header
+	for rows.Next() {
+		var id, jid, senderJID string
+		var ts int64
+		var raw []byte
+		if rows.Scan(&id, &jid, &senderJID, &ts, &raw) != nil {
+			continue
+		}
+		msg := &waE2E.Message{}
+		if proto.Unmarshal(raw, msg) != nil {
+			continue
+		}
+		album := unwrapMessage(msg).GetAlbumMessage()
+		if album == nil {
+			continue
+		}
+		headers = append(headers, header{id, jid, senderJID, ts,
+			int(album.GetExpectedImageCount() + album.GetExpectedVideoCount())})
+	}
+	rows.Close()
+
+	chats := make(map[string]struct{}, len(headers))
+	for _, h := range headers {
+		stampAlbumMembers(h.id, h.jid, h.senderJID, h.timestamp, h.expected)
+		db.Exec("DELETE FROM messages WHERE id = ?", h.id)
+		chats[h.jid] = struct{}{}
 	}
 	for jid := range chats {
 		UpdateChatSnippet(jid)
