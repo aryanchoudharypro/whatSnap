@@ -114,6 +114,10 @@ pub fn friendly_preview_text(text: &str) -> String {
 		let rest = rest.trim();
 		return if rest.is_empty() { "Document".to_string() } else { format!("Document: {}", rest) };
 	}
+	if let Some(rest) = text.strip_prefix("[Live Location]") {
+		let rest = rest.trim();
+		return if rest.is_empty() { "Live location".to_string() } else { format!("Live location: {}", rest) };
+	}
 	if let Some(rest) = text.strip_prefix("[Contact]") {
 		let rest = rest.trim();
 		return if rest.is_empty() { "Contact".to_string() } else { format!("Contact: {}", rest) };

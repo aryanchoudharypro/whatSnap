@@ -230,6 +230,12 @@ func extractText(msg *waE2E.Message) string {
 	if msg.GetLocationMessage() != nil {
 		return "[Location]"
 	}
+	if msg.GetLiveLocationMessage() != nil {
+		if caption := strings.TrimSpace(msg.GetLiveLocationMessage().GetCaption()); caption != "" {
+			return "[Live Location] " + caption
+		}
+		return "[Live Location]"
+	}
 	if msg.GetContactMessage() != nil {
 		name := msg.GetContactMessage().GetDisplayName()
 		if name != "" {
@@ -252,7 +258,156 @@ func extractText(msg *waE2E.Message) string {
 		}
 		return "[Protocol Message]"
 	}
+	if media, body, ok := templateParts(msg); ok {
+		switch {
+		case media.GetImageMessage() != nil:
+			return strings.TrimSpace("[Image] " + body)
+		case media.GetVideoMessage() != nil:
+			return strings.TrimSpace("[Video] " + body)
+		case media.GetDocumentMessage() != nil:
+			return strings.TrimSpace("[Document] " + body)
+		}
+		if body != "" {
+			return body
+		}
+	}
+	if reply := msg.GetTemplateButtonReplyMessage(); reply != nil {
+		if text := reply.GetSelectedDisplayText(); text != "" {
+			return text
+		}
+	}
+	if reply := msg.GetButtonsResponseMessage(); reply != nil {
+		if text := reply.GetSelectedDisplayText(); text != "" {
+			return text
+		}
+	}
+	if reply := msg.GetListResponseMessage(); reply != nil {
+		if text := reply.GetTitle(); text != "" {
+			return text
+		}
+	}
 	return "[Unsupported Message]"
+}
+
+// templateParts flattens a business template / interactive / buttons / list
+// message into the two things the rest of the app knows how to handle: the
+// header media (if any) and the visible text. Businesses send order updates,
+// OTPs and marketing broadcasts as these, and without this they all decode to
+// "[Unsupported Message]" with the header image unreachable, because the
+// media sits nested inside the template rather than at the top level.
+//
+// The returned media message deliberately shares its ImageMessage/etc pointer
+// with msg rather than copying, so callers that patch DirectPath after a media
+// retry still write through to the original when they re-marshal msg.
+func templateParts(msg *waE2E.Message) (media *waE2E.Message, text string, ok bool) {
+	var blocks, buttons []string
+	add := func(dst *[]string, s string) {
+		if s = strings.TrimSpace(s); s != "" {
+			*dst = append(*dst, s)
+		}
+	}
+	switch {
+	case msg.GetTemplateMessage() != nil:
+		tpl := msg.GetTemplateMessage()
+		hydrated := tpl.GetHydratedTemplate()
+		if hydrated == nil {
+			hydrated = tpl.GetHydratedFourRowTemplate()
+		}
+		if hydrated == nil {
+			// interactiveMessageTemplate is just an InteractiveMessage in a
+			// template wrapper, so hand it to the interactive branch below.
+			if inner := tpl.GetInteractiveMessageTemplate(); inner != nil {
+				return templateParts(&waE2E.Message{InteractiveMessage: inner})
+			}
+			return nil, "", false
+		}
+		media = headerMedia(hydrated.GetImageMessage(), hydrated.GetVideoMessage(), hydrated.GetDocumentMessage())
+		add(&blocks, hydrated.GetHydratedTitleText())
+		add(&blocks, hydrated.GetHydratedContentText())
+		add(&blocks, hydrated.GetHydratedFooterText())
+		for _, button := range hydrated.GetHydratedButtons() {
+			// Quick-reply labels are just tap targets we can't offer, but URL
+			// and call buttons carry a link/number that appears nowhere else
+			// in the message, so they'd be lost if we dropped them.
+			if url := button.GetUrlButton(); url != nil {
+				add(&buttons, labeledValue(url.GetDisplayText(), url.GetURL()))
+			} else if call := button.GetCallButton(); call != nil {
+				add(&buttons, labeledValue(call.GetDisplayText(), call.GetPhoneNumber()))
+			}
+		}
+		ok = true
+	case msg.GetInteractiveMessage() != nil:
+		interactive := msg.GetInteractiveMessage()
+		header := interactive.GetHeader()
+		media = headerMedia(header.GetImageMessage(), header.GetVideoMessage(), header.GetDocumentMessage())
+		add(&blocks, header.GetTitle())
+		add(&blocks, header.GetSubtitle())
+		add(&blocks, interactive.GetBody().GetText())
+		add(&blocks, interactive.GetFooter().GetText())
+		ok = true
+	case msg.GetButtonsMessage() != nil:
+		buttonsMsg := msg.GetButtonsMessage()
+		media = headerMedia(buttonsMsg.GetImageMessage(), buttonsMsg.GetVideoMessage(), buttonsMsg.GetDocumentMessage())
+		add(&blocks, buttonsMsg.GetText())
+		add(&blocks, buttonsMsg.GetContentText())
+		add(&blocks, buttonsMsg.GetFooterText())
+		ok = true
+	case msg.GetListMessage() != nil:
+		list := msg.GetListMessage()
+		add(&blocks, list.GetTitle())
+		add(&blocks, list.GetDescription())
+		add(&blocks, list.GetFooterText())
+		ok = true
+	default:
+		return nil, "", false
+	}
+	text = strings.Join(blocks, "\n\n")
+	if len(buttons) > 0 {
+		if text != "" {
+			text += "\n\n"
+		}
+		text += strings.Join(buttons, "\n")
+	}
+	return media, text, ok
+}
+
+// labeledValue renders a template button as "Label: value", degrading to just
+// the value when the button has no display text.
+func labeledValue(label, value string) string {
+	label, value = strings.TrimSpace(label), strings.TrimSpace(value)
+	if label == "" || value == "" {
+		return label + value
+	}
+	return label + ": " + value
+}
+
+// headerMedia wraps whichever of a template header's media slots is populated
+// back into a plain Message, so the normal media code paths can handle it.
+func headerMedia(image *waE2E.ImageMessage, video *waE2E.VideoMessage, document *waE2E.DocumentMessage) *waE2E.Message {
+	switch {
+	case image != nil:
+		return &waE2E.Message{ImageMessage: image}
+	case video != nil:
+		return &waE2E.Message{VideoMessage: video}
+	case document != nil:
+		return &waE2E.Message{DocumentMessage: document}
+	}
+	return nil
+}
+
+// mediaCarrier returns the message that actually holds msg's downloadable
+// media: msg itself for ordinary media messages, or the lifted-out header for
+// template-style ones. Use this anywhere a raw stored message is about to be
+// inspected for media.
+func mediaCarrier(msg *waE2E.Message) *waE2E.Message {
+	msg = unwrapMessage(msg)
+	if msg == nil {
+		return nil
+	}
+	if media, _, _ := templateParts(msg); media != nil {
+		return media
+	}
+	return msg
 }
 
 // getContextInfo pulls the ContextInfo (which carries reply/quote data) out
@@ -327,7 +482,7 @@ func quotedPreview(msg *waE2E.Message) (quotedID, quotedText, quotedSender strin
 // triple for the media-bearing message kinds, so we can tag rows in the
 // messages table for the frontend without it having to inspect raw protobuf.
 func mediaInfoFromMessage(msg *waE2E.Message) (mediaType, mimetype, filename string) {
-	msg = unwrapMessage(msg)
+	msg = mediaCarrier(msg)
 	if msg == nil {
 		return "", "", ""
 	}
@@ -794,7 +949,6 @@ func eventHandler(evt interface{}) {
 			liveMediaType, _, liveMediaFilename := mediaInfoFromMessage(v.Message)
 
 			quotedID, quotedText, quotedSender := quotedPreview(v.Message)
-			unwrappedMsg := unwrapMessage(v.Message)
 			broadcastEvent("message", map[string]interface{}{
 				"jid":           chatJID.String(),
 				"from":          senderJID.String(),
@@ -802,7 +956,7 @@ func eventHandler(evt interface{}) {
 				"text":          text,
 				"from_me":       v.Info.IsFromMe,
 				"timestamp":     v.Info.Timestamp.Unix(),
-				"has_media":     unwrappedMsg != nil && (unwrappedMsg.GetImageMessage() != nil || unwrappedMsg.GetVideoMessage() != nil || unwrappedMsg.GetAudioMessage() != nil || unwrappedMsg.GetDocumentMessage() != nil || unwrappedMsg.GetStickerMessage() != nil),
+				"has_media":     liveMediaType != "",
 				"mediaType":     liveMediaType,
 				"mediaFilename": liveMediaFilename,
 				"quotedId":      quotedID,

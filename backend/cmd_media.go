@@ -59,6 +59,7 @@ func downloadMessageMedia(messageID string) (data []byte, mediaType, mimetype, f
 		err = perr
 		return
 	}
+	msg = mediaCarrier(msg)
 	switch {
 	case msg.GetImageMessage() != nil:
 		m := msg.GetImageMessage()
@@ -177,6 +178,7 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 		err = perr
 		return
 	}
+	msg = mediaCarrier(msg)
 	var dl whatsmeow.DownloadableMessage
 	var total int64
 	switch {
@@ -1204,18 +1206,19 @@ func requestMediaRetry(messageID string) error {
 			IsGroup:  chatJID.Server == "g.us",
 		},
 	}
+	media := mediaCarrier(msg)
 	var mediaKey []byte
 	switch {
-	case msg.GetImageMessage() != nil:
-		mediaKey = msg.GetImageMessage().GetMediaKey()
-	case msg.GetVideoMessage() != nil:
-		mediaKey = msg.GetVideoMessage().GetMediaKey()
-	case msg.GetAudioMessage() != nil:
-		mediaKey = msg.GetAudioMessage().GetMediaKey()
-	case msg.GetDocumentMessage() != nil:
-		mediaKey = msg.GetDocumentMessage().GetMediaKey()
-	case msg.GetStickerMessage() != nil:
-		mediaKey = msg.GetStickerMessage().GetMediaKey()
+	case media.GetImageMessage() != nil:
+		mediaKey = media.GetImageMessage().GetMediaKey()
+	case media.GetVideoMessage() != nil:
+		mediaKey = media.GetVideoMessage().GetMediaKey()
+	case media.GetAudioMessage() != nil:
+		mediaKey = media.GetAudioMessage().GetMediaKey()
+	case media.GetDocumentMessage() != nil:
+		mediaKey = media.GetDocumentMessage().GetMediaKey()
+	case media.GetStickerMessage() != nil:
+		mediaKey = media.GetStickerMessage().GetMediaKey()
 	}
 	if mediaKey == nil {
 		return fmt.Errorf("no media key found")
@@ -1230,18 +1233,19 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 	}
 	msg := &waE2E.Message{}
 	proto.Unmarshal(rawBytes, msg)
+	media := mediaCarrier(msg)
 	var mediaKey []byte
 	switch {
-	case msg.GetImageMessage() != nil:
-		mediaKey = msg.GetImageMessage().GetMediaKey()
-	case msg.GetVideoMessage() != nil:
-		mediaKey = msg.GetVideoMessage().GetMediaKey()
-	case msg.GetAudioMessage() != nil:
-		mediaKey = msg.GetAudioMessage().GetMediaKey()
-	case msg.GetDocumentMessage() != nil:
-		mediaKey = msg.GetDocumentMessage().GetMediaKey()
-	case msg.GetStickerMessage() != nil:
-		mediaKey = msg.GetStickerMessage().GetMediaKey()
+	case media.GetImageMessage() != nil:
+		mediaKey = media.GetImageMessage().GetMediaKey()
+	case media.GetVideoMessage() != nil:
+		mediaKey = media.GetVideoMessage().GetMediaKey()
+	case media.GetAudioMessage() != nil:
+		mediaKey = media.GetAudioMessage().GetMediaKey()
+	case media.GetDocumentMessage() != nil:
+		mediaKey = media.GetDocumentMessage().GetMediaKey()
+	case media.GetStickerMessage() != nil:
+		mediaKey = media.GetStickerMessage().GetMediaKey()
 	}
 	if mediaKey == nil {
 		return
@@ -1268,17 +1272,19 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 	if newPath == "" {
 		return
 	}
+	// media shares its nested pointers with msg, so patching DirectPath here
+	// still shows up when msg is re-marshalled below.
 	switch {
-	case msg.GetImageMessage() != nil:
-		msg.GetImageMessage().DirectPath = proto.String(newPath)
-	case msg.GetVideoMessage() != nil:
-		msg.GetVideoMessage().DirectPath = proto.String(newPath)
-	case msg.GetAudioMessage() != nil:
-		msg.GetAudioMessage().DirectPath = proto.String(newPath)
-	case msg.GetDocumentMessage() != nil:
-		msg.GetDocumentMessage().DirectPath = proto.String(newPath)
-	case msg.GetStickerMessage() != nil:
-		msg.GetStickerMessage().DirectPath = proto.String(newPath)
+	case media.GetImageMessage() != nil:
+		media.GetImageMessage().DirectPath = proto.String(newPath)
+	case media.GetVideoMessage() != nil:
+		media.GetVideoMessage().DirectPath = proto.String(newPath)
+	case media.GetAudioMessage() != nil:
+		media.GetAudioMessage().DirectPath = proto.String(newPath)
+	case media.GetDocumentMessage() != nil:
+		media.GetDocumentMessage().DirectPath = proto.String(newPath)
+	case media.GetStickerMessage() != nil:
+		media.GetStickerMessage().DirectPath = proto.String(newPath)
 	}
 
 	newRawBytes, _ := proto.Marshal(msg)
