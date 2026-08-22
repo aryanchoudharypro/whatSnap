@@ -149,6 +149,10 @@ func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
 			msg = msg.GetBotInvokeMessage().GetMessage()
 			continue
 		}
+		if msg.GetPollCreationMessageV4() != nil && msg.GetPollCreationMessageV4().GetMessage() != nil {
+			msg = msg.GetPollCreationMessageV4().GetMessage()
+			continue
+		}
 		if msg.GetLottieStickerMessage() != nil && msg.GetLottieStickerMessage().GetMessage() != nil {
 			msg = msg.GetLottieStickerMessage().GetMessage()
 			continue
@@ -249,8 +253,8 @@ func extractText(msg *waE2E.Message) string {
 	if msg.GetReactionMessage() != nil {
 		return "[Reaction]"
 	}
-	if msg.GetPollCreationMessage() != nil {
-		return "[Poll] " + msg.GetPollCreationMessage().GetName()
+	if poll := pollCreation(msg); poll != nil {
+		return "[Poll] " + poll.GetName()
 	}
 	if msg.GetProtocolMessage() != nil {
 		if msg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
@@ -287,6 +291,27 @@ func extractText(msg *waE2E.Message) string {
 		}
 	}
 	return "[Unsupported Message]"
+}
+
+// pollCreation returns whichever of the poll-creation fields is populated.
+// WhatsApp has revised the poll format six times and each revision landed on a
+// new field number rather than replacing the last, so a client that only reads
+// the original one renders every poll sent by a current app as an unsupported
+// message. (V4 is a FutureProofMessage wrapper and is peeled off in
+// unwrapMessage, so it arrives here as one of the others.)
+func pollCreation(msg *waE2E.Message) *waE2E.PollCreationMessage {
+	for _, poll := range []*waE2E.PollCreationMessage{
+		msg.GetPollCreationMessage(),
+		msg.GetPollCreationMessageV2(),
+		msg.GetPollCreationMessageV3(),
+		msg.GetPollCreationMessageV5(),
+		msg.GetPollCreationMessageV6(),
+	} {
+		if poll != nil {
+			return poll
+		}
+	}
+	return nil
 }
 
 // templateParts flattens a business template / interactive / buttons / list
@@ -524,8 +549,8 @@ func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 		return msg.GetLiveLocationMessage().GetContextInfo()
 	case msg.GetGroupInviteMessage() != nil:
 		return msg.GetGroupInviteMessage().GetContextInfo()
-	case msg.GetPollCreationMessage() != nil:
-		return msg.GetPollCreationMessage().GetContextInfo()
+	case pollCreation(msg) != nil:
+		return pollCreation(msg).GetContextInfo()
 	case msg.GetListMessage() != nil:
 		return msg.GetListMessage().GetContextInfo()
 	case msg.GetButtonsMessage() != nil:
