@@ -32,6 +32,7 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE chats ADD COLUMN preview_from_me INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN preview_is_reaction INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN preview_reaction_emoji TEXT DEFAULT ''")
+	db.Exec("ALTER TABLE chats ADD COLUMN is_community INTEGER DEFAULT 0")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,

@@ -506,6 +506,11 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	let tx_post_media_status = ui_tx.clone();
+	parts.conversations_parts.post_media_status_btn.on_click(move |_| {
+		let _ = tx_post_media_status.send(UiCommand::PostMediaStatus);
+	});
+
 	let new_conv_dialog_close = parts.new_conv_dialog.dialog;
 	parts.new_conv_dialog.close_btn.on_click(move |_| {
 		new_conv_dialog_close.end_modal(0);
@@ -737,6 +742,14 @@ pub fn bind_input_handlers(
 	parts.group_data_dialog.remove_member_btn.on_click(move |_| {
 		if let Some(idx) = members_list_remove.get_selection() {
 			let _ = tx_remove_member.send(UiCommand::RemoveGroupMember(idx));
+		}
+	});
+
+	let tx_join_group = ui_tx.clone();
+	let groups_list_join = parts.group_data_dialog.groups_list.clone();
+	parts.group_data_dialog.join_group_btn.on_click(move |_| {
+		if let Some(idx) = groups_list_join.get_selection() {
+			let _ = tx_join_group.send(UiCommand::JoinCommunitySubgroup(idx));
 		}
 	});
 

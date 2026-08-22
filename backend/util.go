@@ -6,6 +6,14 @@ import (
 	"strings"
 )
 
+// boolToInt converts a bool to SQLite's 0/1 integer representation.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // decodeBase64Loose accepts either a bare base64 string or a data: URL
 // (e.g. "data:image/png;base64,iVBORw0...") and returns the decoded bytes.
 func decodeBase64Loose(s string) ([]byte, error) {

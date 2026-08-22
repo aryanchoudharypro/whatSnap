@@ -22,6 +22,15 @@ type PostStatusData struct {
 	Text string `json:"text"`
 }
 
+type PostMediaStatusData struct {
+	Type     string `json:"type"` // image | video
+	Path     string `json:"path"`
+	Data     string `json:"data"`
+	Mimetype string `json:"mimetype"`
+	Filename string `json:"filename"`
+	Caption  string `json:"caption"`
+}
+
 type MarkStatusViewedData struct {
 	ID        string `json:"id"`
 	PosterJID string `json:"poster_jid"`
@@ -149,6 +158,101 @@ func handlePostStatus(raw json.RawMessage) {
 		broadcastEvent("status_update", map[string]interface{}{
 			"id": resp.ID, "posterJid": ownJID, "fromMe": true, "text": text,
 			"mediaType": "", "timestamp": resp.Timestamp.Unix(),
+		})
+	}()
+}
+
+// handlePostMediaStatus posts a photo or video Status update, mirroring
+// handlePostStatus's text-only flow but reusing the upload machinery from
+// sendUploadedAttachment (minus ContextInfo/quoting, which don't apply to
+// statuses). Sending to types.StatusBroadcastJID is what makes whatsmeow
+// broadcast-encrypt this to the status audience instead of a single chat.
+func handlePostMediaStatus(raw json.RawMessage) {
+	var data PostMediaStatusData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	if data.Type != "image" && data.Type != "video" {
+		return
+	}
+	go func() {
+		id := whatsmeow.GenerateMessageID()
+
+		fileBytes, err := readLocalFileOrDecode(data.Path, data.Data)
+		if err != nil {
+			broadcastEvent("error", map[string]string{"message": err.Error()})
+			return
+		}
+		mimetype := data.Mimetype
+		if mimetype == "" || mimetype == "application/octet-stream" || mimetype == "application/zip" {
+			mimetype = detectMimeType(data.Filename, "", fileBytes)
+		}
+		cachedPath, saveErr := saveMediaBytes("outgoing", id, mimetype, fileBytes)
+		if saveErr != nil {
+			broadcastEvent("error", map[string]string{"message": saveErr.Error()})
+			return
+		}
+
+		waMediaType := whatsmeow.MediaImage
+		if data.Type == "video" {
+			waMediaType = whatsmeow.MediaVideo
+		}
+		uploaded, err := client.Upload(context.Background(), fileBytes, waMediaType)
+		if err != nil {
+			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
+			return
+		}
+
+		var msg *waE2E.Message
+		if data.Type == "image" {
+			imgMsg := &waE2E.ImageMessage{
+				Mimetype:      proto.String(mimetype),
+				URL:           proto.String(uploaded.URL),
+				DirectPath:    proto.String(uploaded.DirectPath),
+				MediaKey:      uploaded.MediaKey,
+				FileEncSHA256: uploaded.FileEncSHA256,
+				FileSHA256:    uploaded.FileSHA256,
+				FileLength:    proto.Uint64(uploaded.FileLength),
+			}
+			if data.Caption != "" {
+				imgMsg.Caption = proto.String(data.Caption)
+			}
+			msg = &waE2E.Message{ImageMessage: imgMsg}
+		} else {
+			vidMsg := &waE2E.VideoMessage{
+				Mimetype:      proto.String(mimetype),
+				URL:           proto.String(uploaded.URL),
+				DirectPath:    proto.String(uploaded.DirectPath),
+				MediaKey:      uploaded.MediaKey,
+				FileEncSHA256: uploaded.FileEncSHA256,
+				FileSHA256:    uploaded.FileSHA256,
+				FileLength:    proto.Uint64(uploaded.FileLength),
+			}
+			if data.Caption != "" {
+				vidMsg.Caption = proto.String(data.Caption)
+			}
+			msg = &waE2E.Message{VideoMessage: vidMsg}
+		}
+
+		resp, err := client.SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id})
+		if err != nil {
+			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
+			return
+		}
+
+		ownJID := ""
+		if client.Store.ID != nil {
+			ownJID = client.Store.ID.ToNonAD().String()
+		}
+		rawBytes, _ := proto.Marshal(msg)
+		saveMessage(StoredMessage{
+			ID: resp.ID, JID: "status@broadcast", SenderJID: ownJID,
+			FromMe: true, Text: data.Caption, Timestamp: resp.Timestamp.Unix(), Raw: rawBytes, Status: "sent",
+			MediaType: data.Type, MediaMimetype: mimetype, MediaFilename: data.Filename, MediaPath: cachedPath,
+		})
+		broadcastEvent("status_update", map[string]interface{}{
+			"id": resp.ID, "posterJid": ownJID, "fromMe": true, "text": data.Caption,
+			"mediaType": data.Type, "timestamp": resp.Timestamp.Unix(),
 		})
 	}()
 }

@@ -20,15 +20,24 @@ pub struct GroupDataDialogParts {
 
 	// Media tab (photos and videos only, matching official WhatsApp)
 	pub media_panel: Panel,
+	pub media_label: StaticText,
 	pub media_list: ListBox,
 
 	// Documents tab
 	pub documents_panel: Panel,
+	pub documents_label: StaticText,
 	pub documents_list: ListBox,
 
 	// Links tab
 	pub links_panel: Panel,
+	pub links_label: StaticText,
 	pub links_list: ListBox,
+
+	// Groups tab (communities only - lists linked subgroups; can join an open one)
+	pub groups_panel: Panel,
+	pub groups_label: StaticText,
+	pub groups_list: ListBox,
+	pub join_group_btn: Button,
 
 	// Settings tab
 	pub settings_panel: Panel,
@@ -67,24 +76,28 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let members_list = ListBox::builder(&members_panel).build();
 	members_sizer.add(&members_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
-	let mem_btn_panel = Panel::builder(&members_panel).build();
+	// A nested sizer (not a wrapping Panel) groups these buttons horizontally -
+	// an intermediate Panel here would be its own unlabeled tab stop between
+	// members_list and these buttons, read by a screen reader as a bare
+	// "panel" with nothing on it.
 	let mem_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let add_member_btn = Button::builder(&mem_btn_panel).with_label("Add member").build();
+	let add_member_btn = Button::builder(&members_panel).with_label("Add member").build();
 	mem_btn_sizer.add(&add_member_btn, 0, SizerFlag::Right, 5);
 
-	let make_admin_btn = Button::builder(&mem_btn_panel).with_label("Make admin").build();
+	let make_admin_btn = Button::builder(&members_panel).with_label("Make admin").build();
 	mem_btn_sizer.add(&make_admin_btn, 0, SizerFlag::Right, 5);
 
-	let remove_member_btn = Button::builder(&mem_btn_panel).with_label("Remove member").build();
+	let remove_member_btn = Button::builder(&members_panel).with_label("Remove member").build();
 	mem_btn_sizer.add(&remove_member_btn, 0, SizerFlag::Right, 5);
 
-	mem_btn_panel.set_sizer(mem_btn_sizer, true);
-	members_sizer.add(&mem_btn_panel, 0, SizerFlag::All, 5);
+	members_sizer.add_sizer(&mem_btn_sizer, 0, SizerFlag::All, 5);
 	members_panel.set_sizer(members_sizer, true);
 
 	// --- Media Tab ---
 	let media_panel = Panel::builder(&notebook).build();
 	let media_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let media_label = StaticText::builder(&media_panel).with_label("Media").build();
+	media_sizer.add(&media_label, 0, SizerFlag::All, 5);
 	let media_list = ListBox::builder(&media_panel).build();
 	media_sizer.add(&media_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	media_panel.set_sizer(media_sizer, true);
@@ -92,6 +105,8 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	// --- Documents Tab ---
 	let documents_panel = Panel::builder(&notebook).build();
 	let documents_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let documents_label = StaticText::builder(&documents_panel).with_label("Documents").build();
+	documents_sizer.add(&documents_label, 0, SizerFlag::All, 5);
 	let documents_list = ListBox::builder(&documents_panel).build();
 	documents_sizer.add(&documents_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	documents_panel.set_sizer(documents_sizer, true);
@@ -99,9 +114,22 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	// --- Links Tab ---
 	let links_panel = Panel::builder(&notebook).build();
 	let links_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let links_label = StaticText::builder(&links_panel).with_label("Links").build();
+	links_sizer.add(&links_label, 0, SizerFlag::All, 5);
 	let links_list = ListBox::builder(&links_panel).build();
 	links_sizer.add(&links_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	links_panel.set_sizer(links_sizer, true);
+
+	// --- Groups Tab (communities only) ---
+	let groups_panel = Panel::builder(&notebook).build();
+	let groups_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let groups_label = StaticText::builder(&groups_panel).with_label("Linked groups").build();
+	groups_sizer.add(&groups_label, 0, SizerFlag::All, 5);
+	let groups_list = ListBox::builder(&groups_panel).build();
+	groups_sizer.add(&groups_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	let join_group_btn = Button::builder(&groups_panel).with_label("Join group").build();
+	groups_sizer.add(&join_group_btn, 0, SizerFlag::All, 5);
+	groups_panel.set_sizer(groups_sizer, true);
 
 	// --- Settings Tab ---
 	let settings_panel = Panel::builder(&notebook).build();
@@ -135,6 +163,7 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	notebook.add_page(&media_panel, "Media", false, None);
 	notebook.add_page(&documents_panel, "Documents", false, None);
 	notebook.add_page(&links_panel, "Links", false, None);
+	notebook.add_page(&groups_panel, "Groups", false, None);
 	notebook.add_page(&settings_panel, "Settings", false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -153,11 +182,18 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		make_admin_btn,
 		remove_member_btn,
 		media_panel,
+		media_label,
 		media_list,
 		documents_panel,
+		documents_label,
 		documents_list,
 		links_panel,
+		links_label,
 		links_list,
+		groups_panel,
+		groups_label,
+		groups_list,
+		join_group_btn,
 		settings_panel,
 		name_label,
 		group_name_field,

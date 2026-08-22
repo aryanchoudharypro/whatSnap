@@ -78,6 +78,7 @@ pub enum UiCommand {
 	StarMessage { message_id: String, sender_jid: String, from_me: bool, starred: bool },
 	ExportChat { jid: String, dest_path: String },
 	PostStatus { text: String },
+	PostMediaStatus,
 	GetMessageInfo { message_id: String },
 	RetryMessage { message_id: String },
 	CopyAlbumToClipboard { message_ids: Vec<String> },
@@ -114,6 +115,7 @@ pub enum UiCommand {
 	AddGroupMember,
 	ToggleGroupMemberAdmin(u32),
 	RemoveGroupMember(u32),
+	JoinCommunitySubgroup(u32),
 	DownloadMediaMessage(String),
 	OpenMediaMessage(String),
 	SaveMediaMessageAs(String),
@@ -472,6 +474,9 @@ struct AppState {
 	group_data_media: Vec<ChatMessage>,
 	group_data_documents: Vec<ChatMessage>,
 	group_data_links: Vec<ChatMessage>,
+	/// JIDs of the community subgroups shown in the Groups tab, aligned 1:1
+	/// with `groups_list` rows, so a list selection can be joined by JID.
+	group_data_subgroup_jids: Vec<String>,
 	/// Same as the group_data_* trio above, but for the 1-on-1 conversation
 	/// data dialog.
 	conversation_data_media: Vec<ChatMessage>,
@@ -1051,6 +1056,7 @@ fn main() {
 			group_data_media: Vec::new(),
 			group_data_documents: Vec::new(),
 			group_data_links: Vec::new(),
+			group_data_subgroup_jids: Vec::new(),
 			conversation_data_media: Vec::new(),
 			conversation_data_documents: Vec::new(),
 			conversation_data_links: Vec::new(),
@@ -1746,6 +1752,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											let muted = chat.get("Muted").and_then(|m| m.as_bool()).unwrap_or(false);
 											let archived =
 												chat.get("Archived").and_then(|a| a.as_bool()).unwrap_or(false);
+											let is_community =
+												chat.get("IsCommunity").and_then(|c| c.as_bool()).unwrap_or(false);
 											let preview =
 												chat.get("PreviewSnippet").and_then(|p| p.as_str()).unwrap_or("");
 
@@ -1797,6 +1805,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											if muted {
 												tags.push("Muted");
 												muted_jids.insert(jid.to_string());
+											}
+											if is_community {
+												tags.push("Community");
 											}
 											unread_counts.insert(jid.to_string(), unread);
 
@@ -3262,6 +3273,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								if let Some(is_locked) = info.get("IsLocked").and_then(|t| t.as_bool()) {
 									parts.group_data_dialog.locked_chk.set_value(is_locked);
 								}
+								let is_community = info.get("IsParent").and_then(|t| t.as_bool()).unwrap_or(false);
+								parts.group_data_dialog.groups_list.clear();
+								if is_community {
+									let s = state.borrow();
+									if let Some(ref jid) = s.selected_chat {
+										let payload = serde_json::json!({
+											"action": "get_community_subgroups",
+											"data": { "jid": jid }
+										});
+										let _ = s.ws_tx.send(payload.to_string());
+									}
+								}
 
 								// Parse members
 								let s = state.borrow();
@@ -3357,6 +3380,35 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									}
 								}
 								s_mut.group_data_visible_member_jids = visible_jids;
+							}
+						}
+						"community_subgroups" => {
+							if let Some(data) = val.get("data") {
+								let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+								let s = state.borrow();
+								let is_relevant = s.selected_chat.as_deref() == Some(jid)
+									&& parts.group_data_dialog.dialog.is_shown();
+								drop(s);
+								if is_relevant {
+									parts.group_data_dialog.groups_list.clear();
+									let mut subgroup_jids = Vec::new();
+									if let Some(groups) = data.get("groups").and_then(|g| g.as_array()) {
+										for g in groups {
+											let name = g.get("Name").and_then(|n| n.as_str()).unwrap_or("");
+											let is_default =
+												g.get("IsDefaultSubGroup").and_then(|d| d.as_bool()).unwrap_or(false);
+											let label = if is_default {
+												format!("{} (Announcements)", name)
+											} else {
+												name.to_string()
+											};
+											parts.group_data_dialog.groups_list.append(&label);
+											subgroup_jids
+												.push(g.get("JID").and_then(|j| j.as_str()).unwrap_or("").to_string());
+										}
+									}
+									state.borrow_mut().group_data_subgroup_jids = subgroup_jids;
+								}
 							}
 						}
 						"group_updated" => {
@@ -4274,6 +4326,7 @@ while ($true) {
 					parts.conversations_parts.panel.show(true);
 					state.borrow_mut().active_tab = 0;
 					parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+					parts.conversations_parts.post_media_status_btn.show(false);
 					parts.conversations_parts.conversations_label.set_label("Conversations");
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
@@ -4282,6 +4335,7 @@ while ($true) {
 					parts.conversations_parts.panel.show(true);
 					state.borrow_mut().active_tab = 1;
 					parts.conversations_parts.new_conv_btn.set_label("Post Status Update...");
+					parts.conversations_parts.post_media_status_btn.show(true);
 					parts.conversations_parts.conversations_label.set_label("Status Updates");
 					let payload = serde_json::json!({ "action": "get_statuses" });
 					let _ = state.borrow().ws_tx.send(payload.to_string());
@@ -4292,6 +4346,7 @@ while ($true) {
 					parts.conversations_parts.panel.show(true);
 					state.borrow_mut().active_tab = 2;
 					parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+					parts.conversations_parts.post_media_status_btn.show(false);
 					parts.conversations_parts.conversations_label.set_label("Starred Messages");
 					let payload = serde_json::json!({ "action": "get_starred_messages" });
 					let _ = state.borrow().ws_tx.send(payload.to_string());
@@ -4302,6 +4357,7 @@ while ($true) {
 					parts.conversations_parts.panel.show(true);
 					state.borrow_mut().active_tab = 3;
 					parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+					parts.conversations_parts.post_media_status_btn.show(false);
 					parts.conversations_parts.conversations_label.set_label("Archived Chats");
 					apply_chat_filter(&mut state.borrow_mut(), parts);
 				}
@@ -5108,6 +5164,7 @@ while ($true) {
 					parts.group_data_dialog.media_list.clear();
 					parts.group_data_dialog.documents_list.clear();
 					parts.group_data_dialog.links_list.clear();
+					parts.group_data_dialog.groups_list.clear();
 
 					let payload = serde_json::json!({
 						"action": "get_group_info",
@@ -5115,6 +5172,7 @@ while ($true) {
 					});
 					let _ = s.ws_tx.send(payload.to_string());
 					drop(s);
+					state.borrow_mut().group_data_subgroup_jids.clear();
 
 					parts.group_data_dialog.dialog.show_modal();
 				} else {
@@ -5544,6 +5602,49 @@ while ($true) {
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Posting status update...");
 		}
+		UiCommand::PostMediaStatus => {
+			let file_dialog = FileDialog::builder(&parts.frame)
+				.with_message("Choose a photo or video to post as a status")
+				.with_wildcard(
+					"Photos and videos|*.jpg;*.jpeg;*.png;*.gif;*.webp;*.bmp;*.mp4;*.avi;*.mov;*.mkv;*.webm;*.3gp",
+				)
+				.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
+				.build();
+			if file_dialog.show_modal() == wxdragon::id::ID_OK {
+				if let Some(path) = file_dialog.get_path() {
+					let ext =
+						std::path::Path::new(&path).extension().unwrap_or_default().to_string_lossy().to_lowercase();
+					let media_type = match ext.as_str() {
+						"mp4" | "avi" | "mov" | "mkv" | "webm" | "3gp" => "video",
+						_ => "image",
+					};
+					let filename =
+						std::path::Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();
+
+					let dlg = wxdragon::TextEntryDialog::builder(
+						&parts.frame,
+						"Add a caption (optional):",
+						"Post Photo/Video Status",
+					)
+					.build();
+					let caption = if dlg.show_modal() == wxdragon::id::ID_OK {
+						dlg.get_value().unwrap_or_default()
+					} else {
+						String::new()
+					};
+
+					let payload = serde_json::json!({
+						"action": "post_media_status",
+						"data": { "type": media_type, "path": path, "filename": filename, "caption": caption }
+					});
+					let _ = state.borrow().ws_tx.send(payload.to_string());
+					live_region::announce(
+						parts.conversations_parts.messages_announcer.clone(),
+						"Posting status update...",
+					);
+				}
+			}
+		}
 		UiCommand::GetMessageInfo { message_id } => {
 			let payload = serde_json::json!({
 				"action": "get_message_info",
@@ -5763,6 +5864,16 @@ while ($true) {
 						let _ = state.borrow().ws_tx.send(msg.to_string());
 					}
 				}
+			}
+		}
+		UiCommand::JoinCommunitySubgroup(idx) => {
+			let s = state.borrow();
+			if let Some(subgroup_jid) = s.group_data_subgroup_jids.get(idx as usize).cloned() {
+				let msg = serde_json::json!({
+					"action": "join_community_subgroup",
+					"data": { "jid": subgroup_jid }
+				});
+				let _ = s.ws_tx.send(msg.to_string());
 			}
 		}
 		UiCommand::SeekAudioAbsolute(slider_val) => {

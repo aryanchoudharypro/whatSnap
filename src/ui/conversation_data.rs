@@ -17,14 +17,17 @@ pub struct ConversationDataDialogParts {
 
 	// Media tab (photos and videos only, matching official WhatsApp)
 	pub media_panel: Panel,
+	pub media_label: StaticText,
 	pub media_list: ListBox,
 
 	// Documents tab
 	pub documents_panel: Panel,
+	pub documents_label: StaticText,
 	pub documents_list: ListBox,
 
 	// Links tab
 	pub links_panel: Panel,
+	pub links_label: StaticText,
 	pub links_list: ListBox,
 }
 
@@ -55,6 +58,8 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	// --- Media Tab ---
 	let media_panel = Panel::builder(&notebook).build();
 	let media_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let media_label = StaticText::builder(&media_panel).with_label("Media").build();
+	media_sizer.add(&media_label, 0, SizerFlag::All, 5);
 	let media_list = ListBox::builder(&media_panel).build();
 	media_sizer.add(&media_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	media_panel.set_sizer(media_sizer, true);
@@ -62,6 +67,8 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	// --- Documents Tab ---
 	let documents_panel = Panel::builder(&notebook).build();
 	let documents_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let documents_label = StaticText::builder(&documents_panel).with_label("Documents").build();
+	documents_sizer.add(&documents_label, 0, SizerFlag::All, 5);
 	let documents_list = ListBox::builder(&documents_panel).build();
 	documents_sizer.add(&documents_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	documents_panel.set_sizer(documents_sizer, true);
@@ -69,6 +76,8 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	// --- Links Tab ---
 	let links_panel = Panel::builder(&notebook).build();
 	let links_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let links_label = StaticText::builder(&links_panel).with_label("Links").build();
+	links_sizer.add(&links_label, 0, SizerFlag::All, 5);
 	let links_list = ListBox::builder(&links_panel).build();
 	links_sizer.add(&links_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	links_panel.set_sizer(links_sizer, true);
@@ -102,10 +111,13 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 		info_panel,
 		info_field,
 		media_panel,
+		media_label,
 		media_list,
 		documents_panel,
+		documents_label,
 		documents_list,
 		links_panel,
+		links_label,
 		links_list,
 	}
 }
