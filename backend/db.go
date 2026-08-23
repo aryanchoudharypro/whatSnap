@@ -70,6 +70,15 @@ func migrateDB() error {
 	// message ID here, so the frontend can group them without guessing from
 	// timestamps. Empty for standalone media.
 	db.Exec("ALTER TABLE messages ADD COLUMN album_id TEXT DEFAULT ''")
+	// An edit is delivered as its own stanza with its own message ID, so every
+	// receipt for it names an ID no message row has. This maps those IDs back
+	// to the message being edited.
+	db.Exec(`CREATE TABLE IF NOT EXISTS message_edits (
+		edit_id TEXT PRIMARY KEY,
+		target_id TEXT NOT NULL,
+		jid TEXT NOT NULL,
+		timestamp INTEGER DEFAULT 0
+	)`)
 	db.Exec("DELETE FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?", time.Now().Add(-24*time.Hour).Unix())
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
 	db.Exec("DELETE FROM messages WHERE (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
@@ -192,6 +201,11 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 	}
 	var updated []string
 	for _, id := range ids {
+		// Receipts for an edit name the edit stanza, not the message it
+		// changed - the status belongs to the message the reader actually sees.
+		if target := editTargetID(id); target != "" {
+			id = target
+		}
 		if tsCol != "" && receiptTS > 0 {
 			db.Exec("UPDATE messages SET "+tsCol+" = ? WHERE id = ? AND "+tsCol+" = 0", receiptTS, id)
 		}
@@ -208,6 +222,37 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 		}
 	}
 	return updated
+}
+
+// recordEditStanza remembers that editID carries an edit of targetID. Called
+// before the edit goes out, because the delivery receipt can beat the send call
+// returning.
+func recordEditStanza(editID, targetID, jid string, ts int64) {
+	if editID == "" || targetID == "" || editID == targetID {
+		return
+	}
+	db.Exec(`INSERT INTO message_edits (edit_id, target_id, jid, timestamp) VALUES (?, ?, ?, ?)
+		ON CONFLICT(edit_id) DO UPDATE SET target_id = excluded.target_id`, editID, targetID, jid, ts)
+}
+
+// editTargetID resolves an edit stanza's ID to the message it edited, following
+// the chain when a message has been edited more than once. Returns "" for IDs
+// that aren't edits.
+func editTargetID(editID string) string {
+	seen := 0
+	current := editID
+	for seen < 8 {
+		var target string
+		if db.QueryRow(`SELECT target_id FROM message_edits WHERE edit_id = ?`, current).Scan(&target) != nil {
+			break
+		}
+		current = target
+		seen++
+	}
+	if current == editID {
+		return ""
+	}
+	return current
 }
 
 func markMessageEdited(id, jid, newText string, newRaw []byte, editTime int64) error {
