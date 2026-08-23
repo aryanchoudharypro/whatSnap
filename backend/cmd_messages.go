@@ -208,7 +208,14 @@ func handleEditMessage(raw json.RawMessage) {
 	go func() {
 		newContent := &waE2E.Message{Conversation: proto.String(data.NewText)}
 		msg := client.BuildEdit(chatJID, data.MessageID, newContent)
-		_, err := client.SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: whatsmeow.GenerateMessageID()})
+
+		// The edit travels as its own message with its own ID, and every
+		// receipt for it comes back under that ID. Note the pairing before
+		// sending - the first receipt can arrive before SendMessage returns.
+		editStanzaID := whatsmeow.GenerateMessageID()
+		recordEditStanza(editStanzaID, data.MessageID, data.JID, time.Now().Unix())
+
+		_, err := client.SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: editStanzaID})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return

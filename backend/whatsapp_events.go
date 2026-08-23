@@ -1007,6 +1007,11 @@ func eventHandler(evt interface{}) {
 			editTime := v.Info.Timestamp.Unix()
 			if targetID != "" {
 				go func() {
+					// An edit made on another of our devices reaches us as a
+					// normal message; its receipts will name this stanza too.
+					if v.Info.IsFromMe {
+						recordEditStanza(v.Info.ID, targetID, jid, editTime)
+					}
 					rawBytes, _ := proto.Marshal(newContent)
 					markMessageEdited(targetID, jid, newText, rawBytes, editTime)
 				}()
