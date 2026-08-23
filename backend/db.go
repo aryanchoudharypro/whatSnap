@@ -77,6 +77,7 @@ func migrateDB() error {
 	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0)) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0")
 	backfillTemplateMessages()
 	backfillAlbumMessages()
+	removeKeyDistributionStubs()
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
@@ -148,13 +149,18 @@ func saveMessage(sm StoredMessage) error {
 			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, quoted_id, quoted_text, quoted_sender, sent_at, album_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-			text=excluded.text,
+			-- A message can be delivered more than once (reconnect resync, or a
+			-- group message whose two encrypted halves each raise an event), and
+			-- the copies can land in either order. Never let a copy we couldn't
+			-- make sense of overwrite one we could - keep the whole content set
+			-- together so text, raw and media stay consistent.
+			text=CASE WHEN excluded.text = '[Unsupported Message]' AND messages.text NOT IN ('', '[Unsupported Message]') THEN messages.text ELSE excluded.text END,
 			timestamp=excluded.timestamp,
 			sender_jid=excluded.sender_jid,
-			raw=excluded.raw,
-			media_type=excluded.media_type,
-			media_mimetype=excluded.media_mimetype,
-			media_filename=excluded.media_filename,
+			raw=CASE WHEN excluded.text = '[Unsupported Message]' AND messages.text NOT IN ('', '[Unsupported Message]') THEN messages.raw ELSE excluded.raw END,
+			media_type=CASE WHEN excluded.text = '[Unsupported Message]' AND messages.text NOT IN ('', '[Unsupported Message]') THEN messages.media_type ELSE excluded.media_type END,
+			media_mimetype=CASE WHEN excluded.text = '[Unsupported Message]' AND messages.text NOT IN ('', '[Unsupported Message]') THEN messages.media_mimetype ELSE excluded.media_mimetype END,
+			media_filename=CASE WHEN excluded.text = '[Unsupported Message]' AND messages.text NOT IN ('', '[Unsupported Message]') THEN messages.media_filename ELSE excluded.media_filename END,
 			media_path=CASE WHEN excluded.media_path != '' THEN excluded.media_path ELSE messages.media_path END,
 			quoted_id=excluded.quoted_id,
 			quoted_text=excluded.quoted_text,
@@ -289,6 +295,45 @@ func backfillTemplateMessages() {
 // had no handling - each one showed up as a stray "[Unsupported Message]"
 // bubble next to the photos it announced - into the album_id grouping the
 // frontend now uses, then removes the header rows themselves.
+// removeKeyDistributionStubs deletes rows that only ever held a group sender
+// key, never any content. Older builds stored these as "[Unsupported Message]"
+// bubbles, and one of them could even overwrite the real message it shared an
+// ID with - the content is unrecoverable from what's left, so drop the stub
+// rather than keep showing it.
+func removeKeyDistributionStubs() {
+	rows, err := db.Query(`SELECT id, jid, raw FROM messages
+		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
+	if err != nil {
+		return
+	}
+	type stub struct{ id, jid string }
+	var stubs []stub
+	for rows.Next() {
+		var id, jid string
+		var raw []byte
+		if rows.Scan(&id, &jid, &raw) != nil {
+			continue
+		}
+		msg := &waE2E.Message{}
+		if proto.Unmarshal(raw, msg) != nil {
+			continue
+		}
+		if isKeyDistributionOnly(msg) {
+			stubs = append(stubs, stub{id, jid})
+		}
+	}
+	rows.Close()
+
+	chats := make(map[string]struct{}, len(stubs))
+	for _, st := range stubs {
+		db.Exec("DELETE FROM messages WHERE id = ?", st.id)
+		chats[st.jid] = struct{}{}
+	}
+	for jid := range chats {
+		UpdateChatSnippet(jid)
+	}
+}
+
 func backfillAlbumMessages() {
 	rows, err := db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), timestamp, raw FROM messages
 		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
