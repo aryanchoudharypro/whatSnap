@@ -80,12 +80,25 @@ func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 		updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
 		broadcastChats()
 	}()
+
+	// Included so clients can show a WhatsApp-style "<name> reacted <emoji>
+	// to: <text>" desktop notification without having the reacted-to
+	// message loaded locally (e.g. reactions on chats other than the one
+	// currently open).
+	var reactedText string
+	var isDeleted int
+	if err := db.QueryRow(`SELECT COALESCE(text, ''), is_deleted FROM messages WHERE id = ?`, targetID).
+		Scan(&reactedText, &isDeleted); err != nil || isDeleted == 1 {
+		reactedText = ""
+	}
+
 	broadcastEvent("message_reaction", map[string]interface{}{
 		"jid":          jid,
 		"message_id":   targetID,
 		"reactor":      reactorJID,
 		"reactor_name": reactorName,
 		"emoji":        emoji,
+		"text":         reactedText,
 	})
 }
 
