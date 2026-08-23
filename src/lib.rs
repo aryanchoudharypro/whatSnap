@@ -184,6 +184,66 @@ impl ChatMessage {
 		})
 	}
 
+	/// The first phone-number-looking run of text in the message, if any.
+	/// Returns (matched substring as it appeared in the text, digits-only
+	/// form suitable for building a `<digits>@s.whatsapp.net` JID). Runs are
+	/// validated with `phonenumber` so things like order numbers or dates
+	/// don't false-positive.
+	pub fn first_phone_number(&self) -> Option<(String, String)> {
+		if self.text.starts_with('[') {
+			return None;
+		}
+		let chars: Vec<char> = self.text.chars().collect();
+		let n = chars.len();
+		let mut i = 0;
+		while i < n {
+			let c = chars[i];
+			if (c == '+' || c.is_ascii_digit()) && (i == 0 || !chars[i - 1].is_alphanumeric()) {
+				let start = i;
+				let mut j = i;
+				let mut digit_count = 0usize;
+				let mut end = i;
+				while j < n {
+					let cj = chars[j];
+					if cj.is_ascii_digit() {
+						digit_count += 1;
+						j += 1;
+						end = j;
+					} else if cj == '+' || cj == '-' || cj == '(' || cj == ')' || cj == '.' {
+						j += 1;
+					} else if cj == ' ' {
+						let mut k = j + 1;
+						while k < n && chars[k] == ' ' {
+							k += 1;
+						}
+						if k < n && chars[k].is_ascii_digit() {
+							j = k;
+						} else {
+							break;
+						}
+					} else {
+						break;
+					}
+				}
+				if (8..=15).contains(&digit_count) {
+					let candidate: String = chars[start..end].iter().collect();
+					let digits: String = candidate.chars().filter(|c| c.is_ascii_digit()).collect();
+					let looks_valid = phonenumber::parse(None, candidate.clone())
+						.or_else(|_| phonenumber::parse(None, format!("+{}", digits)))
+						.map(|p| p.is_valid())
+						.unwrap_or(false);
+					if looks_valid {
+						return Some((candidate, digits));
+					}
+				}
+				i = j.max(i + 1);
+				continue;
+			}
+			i += 1;
+		}
+		None
+	}
+
 	pub fn is_media_downloaded(&self) -> bool {
 		!self.media_path.is_empty() && std::path::Path::new(&self.media_path).exists()
 	}
