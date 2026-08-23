@@ -1347,6 +1347,8 @@ pub fn bind_input_handlers(
 			let retry_id = 3011;
 			let star_id = 3012;
 			let resend_id = 3013;
+			let copy_number_id = 3014;
+			let message_number_id = 3015;
 
 			let s = state_ctx.borrow();
 			let display_item = s.display_items.get(idx as usize).cloned();
@@ -1408,6 +1410,11 @@ pub fn bind_input_handlers(
 				})
 				.unwrap_or(false);
 
+			let phone_match = display_item.as_ref().and_then(|item| match item {
+				whantv::DisplayItem::Single(m) => m.first_phone_number(),
+				whantv::DisplayItem::Album { .. } => None,
+			});
+
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder
 				.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard")
@@ -1440,6 +1447,11 @@ pub fn bind_input_handlers(
 				menu_builder =
 					menu_builder.append_item(copy_all_id, "Copy all p&hotos", "Copy all photos to clipboard");
 			}
+			if phone_match.is_some() {
+				menu_builder = menu_builder
+					.append_item(copy_number_id, "Copy Nu&mber", "Copy phone number to clipboard")
+					.append_item(message_number_id, "Message Num&ber", "Start a chat with this phone number");
+			}
 			let mut popup_menu = menu_builder.build();
 
 			let state_clone = state_ctx.clone();
@@ -1447,6 +1459,7 @@ pub fn bind_input_handlers(
 			let msgs_announcer_clone = msgs_announcer_ctx.clone();
 			let msg_input_field_clone = msg_input_field_ctx.clone();
 			let tx_play_media_clone = tx_play_media_ctx.clone();
+			let phone_match_clone = phone_match.clone();
 			let copy_for_menu = copy_for_ctx.clone();
 
 			popup_menu.on_selected(move |menu_evt| {
@@ -1756,6 +1769,21 @@ pub fn bind_input_handlers(
 						if !msg_ids.is_empty() {
 							let _ = tx_play_media_clone.send(UiCommand::CopyAlbumToClipboard { message_ids: msg_ids });
 						}
+					}
+				} else if id == copy_number_id {
+					if let Some((_, digits)) = phone_match_clone.as_ref() {
+						if let Some(_locker) = Clipboard::get().locker() {
+							if Clipboard::get().set_text(&format!("+{}", digits)) {
+								live_region::announce(
+									msgs_announcer_clone.clone(),
+									"Copied phone number to clipboard.",
+								);
+							}
+						}
+					}
+				} else if id == message_number_id {
+					if let Some((_, digits)) = phone_match_clone.as_ref() {
+						let _ = tx_play_media_clone.send(UiCommand::OpenChatByPhone(digits.clone()));
 					}
 				} else if id == react_dialog_id {
 					let s = state_clone.borrow();
@@ -2418,9 +2446,11 @@ pub fn bind_input_handlers(
 
 	// on_key_up catches Enter on ListBox — on_key_down misses it because the OS consumes it
 	let tx_jump_enter = ui_tx.clone();
+	let tx_phone_enter = ui_tx.clone();
 	let msgs_list_enter = parts.conversations_parts.messages_list.clone();
 	let state_enter = state.clone();
 	let search_panel_enter = parts.conversations_parts.search_panel;
+	let msgs_announcer_enter = parts.conversations_parts.messages_announcer.clone();
 	parts.conversations_parts.messages_list.on_key_up(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
@@ -2504,6 +2534,32 @@ pub fn bind_input_handlers(
 										);
 									}
 								}
+							} else if let Some((_, digits)) = msg.first_phone_number() {
+								let copy_num_id = 9001;
+								let msg_num_id = 9002;
+								let mut phone_menu = Menu::builder()
+									.append_item(copy_num_id, "&Copy Number", "Copy phone number to clipboard")
+									.append_item(msg_num_id, "&Message Number", "Start a chat with this phone number")
+									.build();
+								let tx_phone = tx_phone_enter.clone();
+								let msgs_announcer_phone = msgs_announcer_enter.clone();
+								phone_menu.on_selected(move |menu_evt| {
+									let sel_id = menu_evt.get_id();
+									if sel_id == copy_num_id {
+										if let Some(_locker) = Clipboard::get().locker() {
+											if Clipboard::get().set_text(&format!("+{}", digits)) {
+												live_region::announce(
+													msgs_announcer_phone.clone(),
+													"Copied phone number to clipboard.",
+												);
+											}
+										}
+									} else if sel_id == msg_num_id {
+										let _ = tx_phone.send(UiCommand::OpenChatByPhone(digits.clone()));
+									}
+								});
+								msgs_list_enter.popup_menu(&mut phone_menu, None);
+								phone_menu.destroy_menu();
 							}
 						}
 					}

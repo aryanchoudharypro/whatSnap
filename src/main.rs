@@ -120,6 +120,7 @@ pub enum UiCommand {
 	DownloadMediaMessage(String),
 	OpenMediaMessage(String),
 	SaveMediaMessageAs(String),
+	OpenChatByPhone(String), // digits-only phone number, no '@s.whatsapp.net' suffix
 }
 
 use std::fs::File;
@@ -1376,6 +1377,70 @@ fn get_status_rank(s: &str) -> i32 {
 		"played" => 5,
 		_ => 0,
 	}
+}
+
+/// Falls back to a formatted phone number (e.g. "+91 96671 74783") instead
+/// of the raw JID when a chat has no saved contact name yet — most visibly
+/// hit right after `OpenChatByPhone` jumps to a number that isn't a contact.
+fn display_name_for_jid(jid: &str) -> String {
+	let raw_phone = jid.split('@').next().unwrap_or(jid);
+	if !raw_phone.is_empty() && raw_phone.chars().all(|c| c.is_ascii_digit()) {
+		if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+			return parsed.format().mode(phonenumber::Mode::International).to_string();
+		}
+		return format!("+{}", raw_phone);
+	}
+	jid.to_string()
+}
+
+/// Switches the conversation panel over to `jid`, requesting its message
+/// history. Shared by opening a chat from the sidebar (`OpenConversation`)
+/// and jumping straight to a phone number found in message text
+/// (`OpenChatByPhone`) — the latter's jid may not be in `filtered_chats` yet.
+fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	s.selected_chat = Some(jid.to_string());
+	// Mirrors official WhatsApp: opening a chat clears any of its
+	// notifications still sitting in Action Center.
+	if let Some(notifications) = s.active_notifications.remove(jid) {
+		for notification in notifications {
+			notification.close();
+		}
+	}
+	let unread = s.unread_counts.get(jid).copied().unwrap_or(0);
+	s.unread_divider_jid = if unread > 0 { Some(jid.to_string()) } else { None };
+	s.unread_divider_count = unread;
+	s.background_unread_message_ids.clear();
+	s.initial_presence_received = false;
+	s.messages.clear();
+	s.loading_messages = false;
+	s.no_more_messages = false;
+	s.history_loading = false;
+	s.prev_msg_count = 0;
+	s.pending_attachments.clear();
+	parts.conversations_parts.conversation_panel.show(true);
+	parts.conversations_parts.play_voice_btn.show(false);
+	parts.conversations_parts.action_panel.show(false);
+
+	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| display_name_for_jid(jid));
+	let label = s.presence_labels.get(jid).cloned().unwrap_or_else(|| name.clone());
+	parts.conversations_parts.conv_data_btn.set_label(&label);
+
+	parts.attachment_dialog.attachment_info_label.set_label("");
+	parts.conversations_parts.messages_list.clear();
+	parts.conversations_parts.message_field.set_value("");
+	parts.conversations_parts.send_message_btn.show(false);
+	parts.conversations_parts.panel.layout();
+	let limit = 9999999;
+	let payload = serde_json::json!({
+		"action": "get_messages",
+		"data": { "jid": jid, "limit": limit, "offset": 0 }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+	drop(s);
+	handle_ui_command(UiCommand::SubscribePresence(jid.to_string()), state, parts);
+	handle_ui_command(UiCommand::MarkRead { jid: jid.to_string(), message_ids: Vec::new() }, state, parts);
+	parts.conversations_parts.messages_list.set_focus();
 }
 
 fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -3274,7 +3339,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									.get(&clean_jid)
 									.or_else(|| s.contacts.get(jid))
 									.cloned()
-									.unwrap_or_else(|| clean_jid.clone());
+									.unwrap_or_else(|| display_name_for_jid(&clean_jid));
 
 								let btn_label = if unavailable {
 									if last_seen > 0 {
@@ -4577,55 +4642,18 @@ while ($true) {
 			}
 			let jid = state.borrow().filtered_chats.get(idx).cloned();
 			if let Some(ref jid) = jid {
-				let mut s = state.borrow_mut();
-				s.selected_chat = Some(jid.clone());
-				// Mirrors official WhatsApp: opening a chat clears any of its
-				// notifications still sitting in Action Center.
-				if let Some(notifications) = s.active_notifications.remove(jid) {
-					for notification in notifications {
-						notification.close();
+				if state.borrow().active_tab == 2 {
+					let msg_id = state.borrow().filtered_starred_message_ids.get(idx).cloned();
+					if let Some(msg_id) = msg_id {
+						state.borrow_mut().search_target_id = Some(msg_id);
 					}
 				}
-				let unread = s.unread_counts.get(jid).copied().unwrap_or(0);
-				s.unread_divider_jid = if unread > 0 { Some(jid.clone()) } else { None };
-				s.unread_divider_count = unread;
-				s.background_unread_message_ids.clear();
-				s.initial_presence_received = false;
-				s.messages.clear();
-				s.loading_messages = false;
-				s.no_more_messages = false;
-				s.history_loading = false;
-				s.prev_msg_count = 0;
-				s.pending_attachments.clear();
-				if s.active_tab == 2 {
-					if let Some(msg_id) = s.filtered_starred_message_ids.get(idx).cloned() {
-						s.search_target_id = Some(msg_id);
-					}
-				}
-				parts.conversations_parts.conversation_panel.show(true);
-				parts.conversations_parts.play_voice_btn.show(false);
-				parts.conversations_parts.action_panel.show(false);
-
-				let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-				let label = s.presence_labels.get(jid).cloned().unwrap_or_else(|| name.clone());
-				parts.conversations_parts.conv_data_btn.set_label(&label);
-
-				parts.attachment_dialog.attachment_info_label.set_label("");
-				parts.conversations_parts.messages_list.clear();
-				parts.conversations_parts.message_field.set_value("");
-				parts.conversations_parts.send_message_btn.show(false);
-				parts.conversations_parts.panel.layout();
-				let limit = 9999999;
-				let payload = serde_json::json!({
-					"action": "get_messages",
-					"data": { "jid": jid, "limit": limit, "offset": 0 }
-				});
-				let _ = s.ws_tx.send(payload.to_string());
-				drop(s);
-				handle_ui_command(UiCommand::SubscribePresence(jid.clone()), state, parts);
-				handle_ui_command(UiCommand::MarkRead { jid: jid.clone(), message_ids: Vec::new() }, state, parts);
-				parts.conversations_parts.messages_list.set_focus();
+				open_chat_for_jid(jid, state, parts);
 			}
+		}
+		UiCommand::OpenChatByPhone(digits) => {
+			let jid = format!("{}@s.whatsapp.net", digits);
+			open_chat_for_jid(&jid, state, parts);
 		}
 		UiCommand::LoadMoreMessages => {
 			let mut s = state.borrow_mut();
