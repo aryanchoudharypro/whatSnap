@@ -229,20 +229,39 @@ fn stop_call_ringing_sound(state: &mut AppState) {
 	}
 }
 
-fn show_toast_notification(title: &str, body: &str) {
+/// Shows a native desktop notification. Must be called on the wx main/GUI
+/// thread - wx (and the underlying WinRT toast COM calls) aren't thread-safe.
+/// Returns the shown notification (kept alive by the caller and closeable
+/// later via `NotificationMessage::close`, e.g. once the user opens the chat
+/// it was for) so it can be dismissed from Action Center on demand, the way
+/// official WhatsApp clears a chat's notifications the moment you read it.
+fn show_toast_notification(title: &str, body: &str) -> Option<wxdragon::prelude::NotificationMessage> {
 	// Debounce toast notifications globally to max 1 per second to avoid flooding on startup
 	static LAST_TOAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 	let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
 	let last = LAST_TOAST.swap(now, std::sync::atomic::Ordering::Relaxed);
 	if now - last < 1000 {
-		return;
+		return None;
 	}
 
-	let title = title.to_string();
-	let body = body.to_string();
-	std::thread::spawn(move || {
-		let _ = notify_rust::Notification::new().app_id("whaNTV").summary(&title).body(&body).show();
-	});
+	// `with_generic(false)` opts into the native backend, which uses the modern
+	// WinRT toast (registered via `msw_use_toasts` above) rather than wxdragon's
+	// default generic popup on Windows.
+	match wxdragon::prelude::NotificationMessage::builder()
+		.with_title(title)
+		.with_message(body)
+		.with_generic(false)
+		.build()
+	{
+		Ok(notification) => {
+			notification.show(wxdragon::prelude::TIMEOUT_AUTO);
+			Some(notification)
+		}
+		Err(err) => {
+			eprintln!("[NOTIFY] Failed to build notification: {:?}", err);
+			None
+		}
+	}
 }
 
 #[cfg(target_os = "windows")]
@@ -440,6 +459,11 @@ struct AppState {
 	search_target_id: Option<String>,
 	search_target_text: Option<String>,
 	played_sent_sounds: std::collections::HashSet<String>,
+	/// Toast notifications currently showing for each background chat, kept
+	/// alive so they can be dismissed (`NotificationMessage::close`) once the
+	/// user actually opens that chat - matching official WhatsApp's behavior
+	/// of clearing a chat's notifications the moment you read it.
+	active_notifications: std::collections::HashMap<String, Vec<wxdragon::prelude::NotificationMessage>>,
 	display_items: Vec<whantv::DisplayItem>,
 	typing_timestamps: std::collections::HashMap<String, std::time::Instant>,
 	// Last announced typing/recording state per chat (0=none, 1=typing, 2=recording),
@@ -945,6 +969,16 @@ fn main() {
 	let shutdown_pipe_id = pipe_id.clone();
 
 	let res = wxdragon::main(move |_| {
+		// Registers (or repairs) a Start Menu shortcut carrying our Application
+		// User Model ID. Windows silently drops toasts from any AUMID that
+		// isn't backed by such a shortcut, which is why notifications never
+		// showed up in Action Center even though sounds played fine - the app
+		// wasn't a Windows-recognized notification sender at all. This is the
+		// modern WinRT toast path (wx/msw/rt/notifmsgrt.cpp), not the legacy
+		// taskbar-balloon fallback that wxdragon's builder avoids by default.
+		#[cfg(target_os = "windows")]
+		wxdragon::prelude::NotificationMessage::msw_use_toasts("", "whaNTV");
+
 		let parts = build_main_window();
 		let frame = parts.frame;
 
@@ -1119,6 +1153,7 @@ fn main() {
 			search_target_id: None,
 			search_target_text: None,
 			played_sent_sounds: std::collections::HashSet::new(),
+			active_notifications: std::collections::HashMap::new(),
 			is_voice_recording: false,
 			is_voice_paused: false,
 			voice_recording_path: None,
@@ -2407,9 +2442,42 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												s.settings.sounds_enabled,
 											);
 											if s.settings.notifications_enabled {
-												let sender =
-													data.get("sender_name").and_then(|s| s.as_str()).unwrap_or(from);
-												show_toast_notification(sender, text);
+												// The backend's "message" event carries no sender_name
+												// field - resolve the display name from the contacts
+												// map ourselves, same as everywhere else in the UI, so
+												// the notification doesn't show a raw JID.
+												let body = whantv::friendly_preview_text(text);
+												let is_group = jid.ends_with("@g.us");
+												if is_group {
+													let chat_name =
+														s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+													let sender_name = s
+														.contacts
+														.get(from)
+														.cloned()
+														.unwrap_or_else(|| from.to_string());
+													if let Some(n) = show_toast_notification(
+														&chat_name,
+														&format!("{}: {}", sender_name, body),
+													) {
+														s.active_notifications
+															.entry(jid.to_string())
+															.or_default()
+															.push(n);
+													}
+												} else {
+													let sender_name = s
+														.contacts
+														.get(from)
+														.cloned()
+														.unwrap_or_else(|| from.to_string());
+													if let Some(n) = show_toast_notification(&sender_name, &body) {
+														s.active_notifications
+															.entry(jid.to_string())
+															.or_default()
+															.push(n);
+													}
+												}
 											}
 										}
 									}
@@ -3952,6 +4020,47 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											break;
 										}
 									}
+								} else if !emoji.is_empty() && !s.muted_jids.contains(chat_jid) {
+									// Reaction on a chat that isn't currently open - there's no
+									// loaded ChatMessage to update, just surface it the way
+									// WhatsApp itself does: a notification naming the reactor and
+									// what they reacted to.
+									let is_own_reaction =
+										reactor == "me" || reactor_name_val == "You" || reactor_name_val == "me";
+									if !is_own_reaction {
+										let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+										if !text.is_empty() {
+											let resolved_name =
+												if !reactor_name_val.is_empty() && !reactor_name_val.contains('@') {
+													reactor_name_val.to_string()
+												} else {
+													s.contacts
+														.get(norm_jid_react(reactor).as_str())
+														.or_else(|| s.contacts.get(reactor))
+														.cloned()
+														.unwrap_or_else(|| "Contact".to_string())
+												};
+											play_notification_sound(
+												NotificationSound::MessageBackground,
+												s.settings.sounds_enabled,
+											);
+											if s.settings.notifications_enabled {
+												if let Some(n) = show_toast_notification(
+													&resolved_name,
+													&format!(
+														"Reacted {} to \"{}\"",
+														emoji,
+														whantv::friendly_preview_text(text)
+													),
+												) {
+													s.active_notifications
+														.entry(chat_jid.to_string())
+														.or_default()
+														.push(n);
+												}
+											}
+										}
+									}
 								}
 							}
 						}
@@ -4341,7 +4450,14 @@ while ($true) {
 			}
 		}
 		UiCommand::ExitApp => {
+			// See the matching comment on the tray menu's Exit handler in
+			// ui/window.rs: closing the main frame alone doesn't end the app
+			// because other top-level windows (the call window, dialogs) are
+			// built once at startup and never destroyed.
 			parts.frame.close(true);
+			if let Some(app) = wxdragon::get_app_instance() {
+				app.exit_main_loop();
+			}
 		}
 		UiCommand::NavSelected(idx) => {
 			match idx {
@@ -4462,6 +4578,13 @@ while ($true) {
 			if let Some(ref jid) = jid {
 				let mut s = state.borrow_mut();
 				s.selected_chat = Some(jid.clone());
+				// Mirrors official WhatsApp: opening a chat clears any of its
+				// notifications still sitting in Action Center.
+				if let Some(notifications) = s.active_notifications.remove(jid) {
+					for notification in notifications {
+						notification.close();
+					}
+				}
 				let unread = s.unread_counts.get(jid).copied().unwrap_or(0);
 				s.unread_divider_jid = if unread > 0 { Some(jid.clone()) } else { None };
 				s.unread_divider_count = unread;

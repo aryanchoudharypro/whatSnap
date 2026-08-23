@@ -587,7 +587,17 @@ pub fn bind_input_handlers(
 			frame_tray_menu.iconize(false);
 			let _ = tx_tray_menu.send(UiCommand::SetPresence(true));
 		} else if id == tray_exit_id {
+			// Closing just the main frame doesn't end the app on its own: wx only
+			// auto-exits once every top-level window it knows about is destroyed,
+			// and the call window (and every dialog built up front in this
+			// function) is created once at startup and only ever shown/hidden,
+			// never destroyed - so it, and them, would otherwise keep the process
+			// (and the backend it owns) alive forever in the background after
+			// "Exit". Ending the loop explicitly sidesteps that entirely.
 			frame_tray_menu.close(true);
+			if let Some(app) = wxdragon::get_app_instance() {
+				app.exit_main_loop();
+			}
 		}
 	});
 	tray_icon.set_popup_menu(&mut tray_menu);
@@ -641,6 +651,14 @@ pub fn bind_input_handlers(
 				ev.veto();
 				frame_close.show(false);
 				let _ = tx_close.send(UiCommand::SetPresence(false));
+			} else {
+				// A real close (tray icon disabled in Settings, so the X button
+				// actually quits) - see the tray Exit handler above for why this
+				// explicit ExitMainLoop is needed rather than relying on wx's
+				// default "last frame closed" behavior.
+				if let Some(app) = wxdragon::get_app_instance() {
+					app.exit_main_loop();
+				}
 			}
 		}
 	});
