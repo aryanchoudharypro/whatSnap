@@ -1346,6 +1346,7 @@ pub fn bind_input_handlers(
 			let react_dialog_id = 3010;
 			let retry_id = 3011;
 			let star_id = 3012;
+			let resend_id = 3013;
 
 			let s = state_ctx.borrow();
 			let display_item = s.display_items.get(idx as usize).cloned();
@@ -1399,6 +1400,14 @@ pub fn bind_input_handlers(
 				})
 				.unwrap_or(false);
 
+			let is_unreadable = display_item
+				.as_ref()
+				.map(|item| match item {
+					whantv::DisplayItem::Single(m) => m.is_unreadable(),
+					_ => false,
+				})
+				.unwrap_or(false);
+
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder
 				.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard")
@@ -1415,6 +1424,10 @@ pub fn bind_input_handlers(
 			}
 			if can_retry {
 				menu_builder = menu_builder.append_item(retry_id, "Retry &send", "Retry sending this message");
+			}
+			if is_unreadable {
+				menu_builder =
+					menu_builder.append_item(resend_id, "Re&quest again", "Ask your phone to send this message again");
 			}
 			if is_voice_msg {
 				menu_builder =
@@ -1722,6 +1735,17 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						let _ = tx_play_media_clone.send(UiCommand::RetryMessage { message_id: msg.id.clone() });
+					}
+				} else if id == resend_id {
+					let s = state_clone.borrow();
+					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+						whantv::DisplayItem::Single(m) => Some(m.clone()),
+						_ => None,
+					});
+					drop(s);
+					if let Some(msg) = msg_opt {
+						let _ =
+							tx_play_media_clone.send(UiCommand::RequestMessageResend { message_id: msg.id.clone() });
 					}
 				} else if id == save_voice_id {
 					let _ = tx_play_media_clone.send(UiCommand::SaveMediaAs);

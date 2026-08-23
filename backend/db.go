@@ -301,17 +301,17 @@ func backfillTemplateMessages() {
 // ID with - the content is unrecoverable from what's left, so drop the stub
 // rather than keep showing it.
 func removeKeyDistributionStubs() {
-	rows, err := db.Query(`SELECT id, jid, raw FROM messages
+	rows, err := db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), raw FROM messages
 		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
 	if err != nil {
 		return
 	}
-	type stub struct{ id, jid string }
+	type stub struct{ id, jid, senderJID string }
 	var stubs []stub
 	for rows.Next() {
-		var id, jid string
+		var id, jid, senderJID string
 		var raw []byte
-		if rows.Scan(&id, &jid, &raw) != nil {
+		if rows.Scan(&id, &jid, &senderJID, &raw) != nil {
 			continue
 		}
 		msg := &waE2E.Message{}
@@ -319,13 +319,16 @@ func removeKeyDistributionStubs() {
 			continue
 		}
 		if isKeyDistributionOnly(msg) {
-			stubs = append(stubs, stub{id, jid})
+			stubs = append(stubs, stub{id, jid, senderJID})
 		}
 	}
 	rows.Close()
 
 	chats := make(map[string]struct{}, len(stubs))
 	for _, st := range stubs {
+		// Ask for the real message once we're connected. If it comes back it
+		// lands as a normal message and repopulates the row we're deleting.
+		requestMessageResend(st.id, st.jid, st.senderJID)
 		db.Exec("DELETE FROM messages WHERE id = ?", st.id)
 		chats[st.jid] = struct{}{}
 	}

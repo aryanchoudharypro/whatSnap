@@ -81,6 +81,7 @@ pub enum UiCommand {
 	PostMediaStatus,
 	GetMessageInfo { message_id: String },
 	RetryMessage { message_id: String },
+	RequestMessageResend { message_id: String },
 	CopyAlbumToClipboard { message_ids: Vec<String> },
 	SendTyping { jid: String, state: String, media: String },
 	SubscribePresence(String),
@@ -5814,6 +5815,20 @@ while ($true) {
 				"data": { "message_id": message_id }
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::RequestMessageResend { message_id } => {
+			let s = state.borrow();
+			if let Some(jid) = s.selected_chat.clone() {
+				let payload = serde_json::json!({
+					"action": "request_message_resend",
+					"data": { "jid": jid, "message_id": message_id }
+				});
+				let _ = s.ws_tx.send(payload.to_string());
+				live_region::announce(
+					parts.conversations_parts.messages_announcer.clone(),
+					"Requested this message from your phone",
+				);
+			}
 		}
 		UiCommand::CopyAlbumToClipboard { message_ids } => {
 			let (paths, is_single_voice): (Vec<String>, bool) = {

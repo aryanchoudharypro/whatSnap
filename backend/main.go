@@ -122,6 +122,9 @@ func main() {
 	client = whatsmeow.NewClient(deviceStore, clientLog)
 	client.EnableAutoReconnect = true
 	client.AutoTrustIdentity = true
+	// Undecryptable messages are worth one automatic ask to the phone -
+	// without it a message we couldn't decrypt is simply lost.
+	client.AutomaticMessageRerequestFromPhone = true
 	client.UseRetryMessageStore = true
 	client.EmitAppStateEventsOnFullSync = true
 	client.SetForceActiveDeliveryReceipts(true)
