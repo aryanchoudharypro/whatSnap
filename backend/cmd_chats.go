@@ -444,6 +444,25 @@ func handleDeleteChat(raw json.RawMessage) {
 	}()
 }
 
+// handleRequestMessageResend backs the "Request again" message action: the one
+// repair available for a message that arrived unreadable, or whose content we
+// lost. Nothing is guaranteed - the phone has to still hold the message and be
+// reachable - so this stays silent and lets the message reappear on its own if
+// it works.
+func handleRequestMessageResend(raw json.RawMessage) {
+	var data struct {
+		JID       string `json:"jid"`
+		MessageID string `json:"message_id"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+
+	var senderJID string
+	db.QueryRow("SELECT COALESCE(sender_jid, '') FROM messages WHERE id = ?", data.MessageID).Scan(&senderJID)
+	requestMessageResend(data.MessageID, data.JID, senderJID)
+}
+
 func handleRequestHistorySync(raw json.RawMessage) {
 	var data struct {
 		JID       string `json:"jid"`

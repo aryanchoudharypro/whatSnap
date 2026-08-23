@@ -145,6 +145,13 @@ impl ChatMessage {
 		self.media_type == "document" || self.text.starts_with("[Document]")
 	}
 
+	/// A message that reached us but carried nothing we could show. The content
+	/// isn't recoverable locally - the only way back is asking the phone for
+	/// its copy - so these are the ones worth offering "Request again" on.
+	pub fn is_unreadable(&self) -> bool {
+		!self.from_me && !self.is_date_divider && self.text == "[Unsupported Message]"
+	}
+
 	pub fn is_voice(&self) -> bool {
 		self.is_audio || self.text.starts_with("[Voice Message]") || self.text.starts_with("[Audio]")
 	}
