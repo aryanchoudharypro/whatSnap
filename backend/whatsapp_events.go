@@ -19,6 +19,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
@@ -123,6 +124,29 @@ func storeReactionTx(tx *sql.Tx, jid string, evtMsg *events.Message, reaction *w
 			ON CONFLICT(message_id, reactor_jid) DO UPDATE SET emoji = excluded.emoji, timestamp = excluded.timestamp`,
 			targetID, jid, reactorJID, emoji, ts)
 	}
+}
+
+// isKeyDistributionOnly reports whether a decrypted payload carries nothing but
+// a sender key distribution message. Group messages arrive as two encrypted
+// blobs - a per-device one holding the sender key, and the skmsg holding the
+// actual content - and whatsmeow dispatches an events.Message for each, both
+// with the same message ID. The key-distribution half has no content to show,
+// so storing it would either create a phantom "[Unsupported Message]" bubble or
+// (when it lands last) overwrite the real message with one.
+func isKeyDistributionOnly(msg *waE2E.Message) bool {
+	if msg == nil || msg.GetSenderKeyDistributionMessage() == nil {
+		return false
+	}
+	contentful := false
+	msg.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		switch fd.Name() {
+		case "senderKeyDistributionMessage", "messageContextInfo":
+			return true
+		}
+		contentful = true
+		return false
+	})
+	return !contentful
 }
 
 func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
@@ -1039,6 +1063,10 @@ func eventHandler(evt interface{}) {
 				log.Printf("Album header %s from %s: expecting %d media", v.Info.ID, albumSender,
 					album.GetExpectedImageCount()+album.GetExpectedVideoCount())
 			}
+			return
+		}
+
+		if isKeyDistributionOnly(unwrappedMsg) {
 			return
 		}
 
