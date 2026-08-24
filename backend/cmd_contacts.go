@@ -130,9 +130,18 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 			pushName = contactInfo.PushName
 			fullName = contactInfo.FullName
 		}
-		go updateContactAboutCache(data.JID, userInfo.Status)
+		// userInfo.Status comes from the legacy usync <status/> node, which
+		// the server stops keeping in sync once a contact updates their
+		// About via the newer mex mutation. GetTextStatus is the read-side
+		// counterpart of that mutation and gives a fresh value; fall back to
+		// the usync value if the fresh fetch fails.
+		status := userInfo.Status
+		if fresh, sErr := client.GetTextStatus(context.Background(), jid); sErr == nil && fresh != nil {
+			status = fresh.Text
+		}
+		go updateContactAboutCache(data.JID, status)
 		sendEvent(conn, "user_info", map[string]interface{}{
-			"jid": data.JID, "status": userInfo.Status, "pictureId": userInfo.PictureID,
+			"jid": data.JID, "status": status, "pictureId": userInfo.PictureID,
 			"deviceCount": len(userInfo.Devices),
 			"pushName":    pushName,
 			"fullName":    fullName,
