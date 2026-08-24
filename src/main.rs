@@ -2514,14 +2514,23 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												// the notification doesn't show a raw JID.
 												let body = whantv::friendly_preview_text(text);
 												let is_group = jid.ends_with("@g.us");
+												// `from` can carry a WhatsApp device suffix (e.g.
+												// "1234:12@s.whatsapp.net") which will not match the
+												// contacts map keyed by the plain JID - strip it, same
+												// as the in-window sender resolution above.
+												let clean_from = match from.find(':') {
+													Some(idx) => format!("{}@s.whatsapp.net", &from[..idx]),
+													None => from.to_string(),
+												};
 												if is_group {
 													let chat_name =
 														s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
 													let sender_name = s
 														.contacts
-														.get(from)
+														.get(&clean_from)
+														.or_else(|| s.contacts.get(from))
 														.cloned()
-														.unwrap_or_else(|| from.to_string());
+														.unwrap_or_else(|| display_name_for_jid(&clean_from));
 													if let Some(n) = show_toast_notification(
 														&chat_name,
 														&format!("{}: {}", sender_name, body),
@@ -2534,9 +2543,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												} else {
 													let sender_name = s
 														.contacts
-														.get(from)
+														.get(&clean_from)
+														.or_else(|| s.contacts.get(from))
 														.cloned()
-														.unwrap_or_else(|| from.to_string());
+														.unwrap_or_else(|| display_name_for_jid(&clean_from));
 													if let Some(n) = show_toast_notification(&sender_name, &body) {
 														s.active_notifications
 															.entry(jid.to_string())
