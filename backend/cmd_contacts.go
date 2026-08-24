@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
-
 	"net"
+	"time"
+
+	"go.mau.fi/util/jsontime"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -132,8 +134,8 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 		sendEvent(conn, "user_info", map[string]interface{}{
 			"jid": data.JID, "status": userInfo.Status, "pictureId": userInfo.PictureID,
 			"deviceCount": len(userInfo.Devices),
-			"pushName": pushName,
-			"fullName": fullName,
+			"pushName":    pushName,
+			"fullName":    fullName,
 		})
 	}()
 }
@@ -216,7 +218,11 @@ func handleSetAbout(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SetStatusMessage(context.Background(), types.SetStatusInput{Text: &data.Text}); err != nil {
+		// WhatsApp Web always sends a 24h ephemeral_duration_sec on this
+		// mutation, even for a "permanent" about text; the server rejects
+		// the request with a 400 if it's left at zero.
+		input := types.SetStatusInput{Text: &data.Text, Duration: jsontime.S(24 * time.Hour)}
+		if err := client.SetStatusMessage(context.Background(), input); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 		}
 	}()
