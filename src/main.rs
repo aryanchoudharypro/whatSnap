@@ -512,6 +512,9 @@ struct AppState {
 	conversation_data_media: Vec<ChatMessage>,
 	conversation_data_documents: Vec<ChatMessage>,
 	conversation_data_links: Vec<ChatMessage>,
+	own_push_name: String,
+	own_about: String,
+	privacy_settings: std::collections::HashMap<String, String>,
 }
 
 fn build_media_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
@@ -1123,6 +1126,9 @@ fn main() {
 			conversation_data_media: Vec::new(),
 			conversation_data_documents: Vec::new(),
 			conversation_data_links: Vec::new(),
+			own_push_name: String::new(),
+			own_about: String::new(),
+			privacy_settings: std::collections::HashMap::new(),
 			group_state: crate::ui::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
@@ -3628,6 +3634,83 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									live_region::announce(
 										parts.conversations_parts.messages_announcer.clone(),
 										&format!("Conversation data loaded for {}", local_name),
+									);
+								}
+							}
+						}
+						"own_profile" => {
+							if let Some(data) = val.get("data") {
+								let mut s = state.borrow_mut();
+								if let Some(push_name) = data.get("pushName").and_then(|p| p.as_str()) {
+									s.own_push_name = push_name.to_string();
+								}
+								if let Some(about) = data.get("about").and_then(|a| a.as_str()) {
+									s.own_about = about.to_string();
+								}
+								let push_name = s.own_push_name.clone();
+								let about = s.own_about.clone();
+								drop(s);
+								if parts.settings_dialog.dialog.is_shown() {
+									parts.settings_dialog.name_field.set_value(&push_name);
+									parts.settings_dialog.about_field.set_value(&about);
+								}
+							}
+						}
+						"privacy_settings" => {
+							if let Some(data) = val.get("data") {
+								let mut s = state.borrow_mut();
+								for (key, ptr) in [
+									("groupadd", "groupadd"),
+									("last", "last"),
+									("status", "status"),
+									("profile", "profile"),
+									("readreceipts", "readreceipts"),
+									("online", "online"),
+									("calladd", "calladd"),
+								] {
+									if let Some(v) = data.get(key).and_then(|v| v.as_str()) {
+										s.privacy_settings.insert(ptr.to_string(), v.to_string());
+									}
+								}
+								let privacy_settings = s.privacy_settings.clone();
+								drop(s);
+								if parts.settings_dialog.dialog.is_shown() {
+									use crate::ui::settings_dialog::*;
+									let get = |k: &str| privacy_settings.get(k).map(|s| s.as_str()).unwrap_or("all");
+									set_combo_from_value(
+										&parts.settings_dialog.last_seen_combo,
+										VISIBILITY_CHOICES,
+										get("last"),
+									);
+									set_combo_from_value(
+										&parts.settings_dialog.profile_photo_combo,
+										VISIBILITY_CHOICES,
+										get("profile"),
+									);
+									set_combo_from_value(
+										&parts.settings_dialog.about_privacy_combo,
+										VISIBILITY_CHOICES,
+										get("status"),
+									);
+									set_combo_from_value(
+										&parts.settings_dialog.read_receipts_combo,
+										READ_RECEIPTS_CHOICES,
+										get("readreceipts"),
+									);
+									set_combo_from_value(
+										&parts.settings_dialog.groups_combo,
+										VISIBILITY_CHOICES,
+										get("groupadd"),
+									);
+									set_combo_from_value(
+										&parts.settings_dialog.calls_combo,
+										CALL_CHOICES,
+										get("calladd"),
+									);
+									set_combo_from_value(
+										&parts.settings_dialog.online_combo,
+										ONLINE_CHOICES,
+										get("online"),
 									);
 								}
 							}

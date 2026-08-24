@@ -129,6 +129,15 @@ type SetAboutData struct {
 	Text string `json:"text"`
 }
 
+type SetPushNameData struct {
+	Name string `json:"name"`
+}
+
+type SetPrivacySettingData struct {
+	Name  string `json:"name"`  // groupadd | last | status | profile | readreceipts | online | calladd
+	Value string `json:"value"` // all | contacts | contact_blacklist | none | known | match_last_seen
+}
+
 // --- Groups ------------------------------------------------------------------
 
 type CreateGroupCommandData struct {

@@ -681,14 +681,38 @@ pub fn bind_input_handlers(
 	let announce_recording_check = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check = parts.settings_dialog.tray_icon_check;
 	let autostart_check = parts.settings_dialog.autostart_check;
+	let name_field_open = parts.settings_dialog.name_field.clone();
+	let about_field_open = parts.settings_dialog.about_field.clone();
+	let last_seen_combo_open = parts.settings_dialog.last_seen_combo.clone();
+	let profile_photo_combo_open = parts.settings_dialog.profile_photo_combo.clone();
+	let about_privacy_combo_open = parts.settings_dialog.about_privacy_combo.clone();
+	let read_receipts_combo_open = parts.settings_dialog.read_receipts_combo.clone();
+	let groups_combo_open = parts.settings_dialog.groups_combo.clone();
+	let calls_combo_open = parts.settings_dialog.calls_combo.clone();
+	let online_combo_open = parts.settings_dialog.online_combo.clone();
 	let state_settings_open = state.clone();
 	parts.settings_btn.on_click(move |_| {
+		use crate::ui::settings_dialog::*;
 		let s = state_settings_open.borrow();
 		sounds_check.set_value(s.settings.sounds_enabled);
 		notifications_check.set_value(s.settings.notifications_enabled);
 		announce_typing_check.set_value(s.settings.announce_typing);
 		announce_recording_check.set_value(s.settings.announce_recording);
 		tray_icon_check.set_value(s.settings.show_tray_icon);
+
+		name_field_open.set_value(&s.own_push_name);
+		about_field_open.set_value(&s.own_about);
+		let get = |k: &str| s.privacy_settings.get(k).map(|v| v.as_str()).unwrap_or("all");
+		set_combo_from_value(&last_seen_combo_open, VISIBILITY_CHOICES, get("last"));
+		set_combo_from_value(&profile_photo_combo_open, VISIBILITY_CHOICES, get("profile"));
+		set_combo_from_value(&about_privacy_combo_open, VISIBILITY_CHOICES, get("status"));
+		set_combo_from_value(&read_receipts_combo_open, READ_RECEIPTS_CHOICES, get("readreceipts"));
+		set_combo_from_value(&groups_combo_open, VISIBILITY_CHOICES, get("groupadd"));
+		set_combo_from_value(&calls_combo_open, CALL_CHOICES, get("calladd"));
+		set_combo_from_value(&online_combo_open, ONLINE_CHOICES, get("online"));
+
+		let _ = s.ws_tx.send(serde_json::json!({"action": "get_own_profile"}).to_string());
+		let _ = s.ws_tx.send(serde_json::json!({"action": "get_privacy_settings"}).to_string());
 		drop(s);
 		autostart_check.set_value(crate::autostart::is_enabled());
 		settings_dialog.show_modal();
@@ -706,8 +730,18 @@ pub fn bind_input_handlers(
 	let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
 	let autostart_check_ok = parts.settings_dialog.autostart_check;
+	let name_field_ok = parts.settings_dialog.name_field.clone();
+	let about_field_ok = parts.settings_dialog.about_field.clone();
+	let last_seen_combo_ok = parts.settings_dialog.last_seen_combo.clone();
+	let profile_photo_combo_ok = parts.settings_dialog.profile_photo_combo.clone();
+	let about_privacy_combo_ok = parts.settings_dialog.about_privacy_combo.clone();
+	let read_receipts_combo_ok = parts.settings_dialog.read_receipts_combo.clone();
+	let groups_combo_ok = parts.settings_dialog.groups_combo.clone();
+	let calls_combo_ok = parts.settings_dialog.calls_combo.clone();
+	let online_combo_ok = parts.settings_dialog.online_combo.clone();
 	let state_settings_save = state.clone();
 	parts.settings_dialog.ok_btn.on_click(move |_| {
+		use crate::ui::settings_dialog::*;
 		let mut s = state_settings_save.borrow_mut();
 		s.settings.sounds_enabled = sounds_check_ok.is_checked();
 		s.settings.notifications_enabled = notifications_check_ok.is_checked();
@@ -715,6 +749,35 @@ pub fn bind_input_handlers(
 		s.settings.announce_recording = announce_recording_check_ok.is_checked();
 		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
 		s.settings.save();
+
+		let new_name = name_field_ok.get_value();
+		if new_name != s.own_push_name {
+			s.own_push_name = new_name.clone();
+			let _ =
+				s.ws_tx.send(serde_json::json!({"action": "set_push_name", "data": {"name": new_name}}).to_string());
+		}
+		let new_about = about_field_ok.get_value();
+		if new_about != s.own_about {
+			s.own_about = new_about.clone();
+			let _ = s.ws_tx.send(serde_json::json!({"action": "set_about", "data": {"text": new_about}}).to_string());
+		}
+		for (name, value) in [
+			("last", combo_value(&last_seen_combo_ok, VISIBILITY_CHOICES)),
+			("profile", combo_value(&profile_photo_combo_ok, VISIBILITY_CHOICES)),
+			("status", combo_value(&about_privacy_combo_ok, VISIBILITY_CHOICES)),
+			("readreceipts", combo_value(&read_receipts_combo_ok, READ_RECEIPTS_CHOICES)),
+			("groupadd", combo_value(&groups_combo_ok, VISIBILITY_CHOICES)),
+			("calladd", combo_value(&calls_combo_ok, CALL_CHOICES)),
+			("online", combo_value(&online_combo_ok, ONLINE_CHOICES)),
+		] {
+			if s.privacy_settings.get(name).map(|v| v.as_str()) != Some(value.as_str()) {
+				s.privacy_settings.insert(name.to_string(), value.clone());
+				let _ = s.ws_tx.send(
+					serde_json::json!({"action": "set_privacy_setting", "data": {"name": name, "value": value}})
+						.to_string(),
+				);
+			}
+		}
 		drop(s);
 		apply_tray_setting(tray_icon_check_ok.is_checked());
 		if crate::autostart::is_enabled() != autostart_check_ok.is_checked() {
