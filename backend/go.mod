@@ -47,4 +47,4 @@ require (
 
 replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20260821210110-fc2082f1a059
 
-replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20260819103112-fec91f900277
+replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20260824005101-4792641c3836
