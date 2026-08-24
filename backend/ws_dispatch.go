@@ -107,6 +107,14 @@ func handleConnection(conn net.Conn) {
 			handleUnblockContact(cmd.Data)
 		case "set_about":
 			handleSetAbout(cmd.Data)
+		case "get_own_profile":
+			handleGetOwnProfile(conn)
+		case "set_push_name":
+			handleSetPushName(cmd.Data)
+		case "get_privacy_settings":
+			handleGetPrivacySettings(conn)
+		case "set_privacy_setting":
+			handleSetPrivacySetting(cmd.Data)
 
 		// --- groups ---
 		case "create_group":
