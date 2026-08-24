@@ -19,10 +19,13 @@ func handleGetOwnProfile(conn net.Conn) {
 		}
 		myJID := client.Store.ID.ToNonAD()
 		about := ""
-		if info, err := client.GetUserInfo(context.Background(), []types.JID{myJID}); err == nil {
-			if userInfo, ok := info[myJID]; ok {
-				about = userInfo.Status
-			}
+		// GetUserInfo's Status comes from the legacy usync <status/> node,
+		// which the server stops keeping in sync with SetStatusMessage's
+		// newer mex mutation - GetTextStatus is the read-side counterpart
+		// of that mutation and is the only reliable way to get a fresh
+		// value.
+		if status, err := client.GetTextStatus(context.Background(), myJID); err == nil && status != nil {
+			about = status.Text
 		}
 		sendEvent(conn, "own_profile", map[string]interface{}{
 			"jid":      myJID.String(),
