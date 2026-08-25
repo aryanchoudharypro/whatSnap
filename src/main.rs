@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod audio_devices;
 mod autostart;
 mod call_audio;
 mod countries;
@@ -8,6 +9,7 @@ mod settings;
 mod single_instance;
 mod ui;
 mod ui_wake;
+mod voice_recorder;
 mod win_job;
 
 use std::{
@@ -121,6 +123,8 @@ pub enum UiCommand {
 	OpenMediaMessage(String),
 	SaveMediaMessageAs(String),
 	OpenChatByPhone(String), // digits-only phone number, no '@s.whatsapp.net' suffix
+	ToggleSelectionMode,
+	DeleteSelectedMessages { for_everyone: bool },
 }
 
 use std::fs::File;
@@ -155,6 +159,16 @@ use std::{
 
 static LAST_SOUND_TIME: AtomicU64 = AtomicU64::new(0);
 
+/// Opens a playback stream on the user's preferred output device (Settings ->
+/// Input & Output), falling back to the system default if none is set or the
+/// named device is no longer present.
+fn open_output_stream(preferred_name: Option<&str>) -> Result<MixerDeviceSink, rodio::DeviceSinkError> {
+	match audio_devices::resolve_output_device(preferred_name) {
+		Some(device) => DeviceSinkBuilder::from_device(device).and_then(|b| b.open_stream()),
+		None => DeviceSinkBuilder::open_default_sink(),
+	}
+}
+
 fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 	if !sounds_enabled {
 		return;
@@ -177,7 +191,7 @@ fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 fn play_call_fail_sound(state: &mut AppState) {
 	println!("[AUDIO] play_call_fail_sound called");
 	if state.audio_stream.is_none() {
-		if let Ok(stream_handle) = DeviceSinkBuilder::open_default_sink() {
+		if let Ok(stream_handle) = open_output_stream(state.settings.output_device_name.as_deref()) {
 			state.audio_stream = Some(stream_handle);
 		}
 	}
@@ -201,7 +215,7 @@ fn play_call_fail_sound(state: &mut AppState) {
 fn start_call_ringing_sound(state: &mut AppState) {
 	println!("[AUDIO] start_call_ringing_sound called");
 	if state.audio_stream.is_none() {
-		if let Ok(stream_handle) = DeviceSinkBuilder::open_default_sink() {
+		if let Ok(stream_handle) = open_output_stream(state.settings.output_device_name.as_deref()) {
 			state.audio_stream = Some(stream_handle);
 		}
 	}
@@ -264,52 +278,6 @@ fn show_toast_notification(title: &str, body: &str) -> Option<wxdragon::prelude:
 			None
 		}
 	}
-}
-
-#[cfg(target_os = "windows")]
-unsafe extern "system" {
-	fn mciSendStringW(
-		lpstrCommand: *const u16,
-		lpstrReturnString: *mut u16,
-		uReturnLength: u32,
-		hwndCallback: isize,
-	) -> u32;
-}
-
-fn execute_mci_command(cmd: &str) -> u32 {
-	#[cfg(target_os = "windows")]
-	{
-		let wide: Vec<u16> = cmd.encode_utf16().chain(std::iter::once(0)).collect();
-		unsafe { mciSendStringW(wide.as_ptr(), std::ptr::null_mut(), 0, 0) }
-	}
-	#[cfg(not(target_os = "windows"))]
-	{
-		0
-	}
-}
-
-/// Opens a fresh MCI waveaudio recording device and starts capturing into it.
-/// Used both for the initial recording and for each resume after a pause:
-/// MCI's own "pause"/"resume" pair isn't reliably continued into the same
-/// buffer by every audio driver, so instead of trusting "resume" we always
-/// start a brand new, self-contained segment and splice segments together
-/// on send (see `concat_wav_segments`).
-fn mci_start_new_segment() -> bool {
-	execute_mci_command("close voice_rec");
-	let res1 = execute_mci_command("open new type waveaudio alias voice_rec");
-	let _ = execute_mci_command(
-		"set voice_rec channels 2 samplespersec 48000 bitspersample 16 alignment 4 bytespersec 192000 format tag pcm",
-	);
-	let res2 = execute_mci_command("record voice_rec");
-	res1 == 0 && res2 == 0
-}
-
-/// Stops the active MCI recording, saves it to `path`, and closes the
-/// device, leaving `path` a complete, independently-playable WAV file.
-fn mci_finish_segment(path: &str) {
-	execute_mci_command("stop voice_rec");
-	execute_mci_command(&format!("save voice_rec \"{}\"", path));
-	execute_mci_command("close voice_rec");
 }
 
 /// Concatenates the PCM audio from one or more same-format WAV segments
@@ -391,11 +359,14 @@ struct AppState {
 	is_voice_recording: bool,
 	is_voice_paused: bool,
 	voice_recording_path: Option<String>,
+	/// The currently open WASAPI capture session for the in-progress segment,
+	/// if any (see `voice_recorder::RecordingSession`).
+	voice_recording_session: Option<voice_recorder::RecordingSession>,
 	/// Completed segments from earlier pause/resume cycles in the current
-	/// recording, in order. MCI's "pause"/"resume" for a waveaudio device is
-	/// not reliably continued by every driver, so each pause closes off a
-	/// self-contained WAV segment instead of trusting the device to keep
-	/// appending to one file; segments are spliced together on send.
+	/// recording, in order. WASAPI capture doesn't have a reliable
+	/// pause/resume of its own, so each pause closes off a self-contained WAV
+	/// segment instead of trying to keep appending to one file; segments are
+	/// spliced together on send.
 	voice_recording_segments: Vec<String>,
 	voice_recording_start: Option<std::time::Instant>,
 	voice_paused_duration: std::time::Duration,
@@ -467,6 +438,24 @@ struct AppState {
 	/// of clearing a chat's notifications the moment you read it.
 	active_notifications: std::collections::HashMap<String, Vec<wxdragon::prelude::NotificationMessage>>,
 	display_items: Vec<whantv::DisplayItem>,
+	/// Whether the message list is showing checkboxes for a batch action
+	/// (currently just delete), entered via `UiCommand::ToggleSelectionMode`.
+	selection_mode: bool,
+	/// IDs of messages checked in selection mode, keyed by `DisplayItem::id()`
+	/// (a `ChatMessage::id` for a single message, or an album's synthetic id)
+	/// so the set survives list rebuilds/reindexing.
+	selected_message_ids: std::collections::HashSet<String>,
+	/// The rows currently shown in `messages_select_list`, in display order -
+	/// dividers are excluded since they aren't selectable. Row index -> this
+	/// vector is how the CheckListBox's toggle event (which only reports an
+	/// index) is mapped back to a message id, same pattern as
+	/// `NewGroupState::current_jids`.
+	selection_rows: Vec<whantv::DisplayItem>,
+	/// Count of "message_deleted" push events still expected from the batch
+	/// `DeleteSelectedMessages` just sent, decremented as each arrives so
+	/// their individual "Message deleted" announcements can be suppressed in
+	/// favor of the one summary announcement already made for the batch.
+	bulk_delete_pending: usize,
 	typing_timestamps: std::collections::HashMap<String, std::time::Instant>,
 	// Last announced typing/recording state per chat (0=none, 1=typing, 2=recording),
 	// so a screen reader hears "X is typing" once per state change instead of on
@@ -1165,12 +1154,17 @@ fn main() {
 			is_voice_recording: false,
 			is_voice_paused: false,
 			voice_recording_path: None,
+			voice_recording_session: None,
 			voice_recording_segments: Vec::new(),
 			voice_recording_start: None,
 			voice_paused_duration: std::time::Duration::ZERO,
 			voice_pause_instant: None,
 			is_pairing_active: false,
 			display_items: Vec::new(),
+			selection_mode: false,
+			selected_message_ids: std::collections::HashSet::new(),
+			selection_rows: Vec::new(),
+			bulk_delete_pending: 0,
 		}));
 
 		let state_clone = state.clone();
@@ -1399,6 +1393,42 @@ fn display_name_for_jid(jid: &str) -> String {
 	jid.to_string()
 }
 
+/// Rebuilds `messages_select_list` from the current `display_items` while
+/// selection mode is active - a no-op otherwise. Called everywhere
+/// `messages_list` itself gets a structural rebuild (new message, delete,
+/// history load) so the selection list never shows a stale row set while the
+/// user is mid-selection. Previously-checked message IDs that no longer
+/// exist in the rebuilt rows (e.g. deleted from another device) are dropped
+/// rather than left dangling in `selected_message_ids`.
+fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
+	if !s.selection_mode {
+		return;
+	}
+	let is_group = s.selected_chat.as_deref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+	s.selection_rows = s
+		.display_items
+		.iter()
+		.filter(|item| match item {
+			whantv::DisplayItem::Single(m) => !m.is_date_divider && !m.is_unread_divider,
+			_ => true,
+		})
+		.cloned()
+		.collect();
+	let valid_ids: std::collections::HashSet<String> = s.selection_rows.iter().map(|i| i.id().to_string()).collect();
+	s.selected_message_ids.retain(|id| valid_ids.contains(id));
+
+	parts.conversations_parts.messages_select_list.freeze();
+	parts.conversations_parts.messages_select_list.clear();
+	for (idx, item) in s.selection_rows.iter().enumerate() {
+		parts.conversations_parts.messages_select_list.append(&item.format_display(is_group));
+		if s.selected_message_ids.contains(item.id()) {
+			parts.conversations_parts.messages_select_list.check(idx as u32, true);
+		}
+	}
+	parts.conversations_parts.messages_select_list.thaw();
+	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
+}
+
 /// Switches the conversation panel over to `jid`, requesting its message
 /// history. Shared by opening a chat from the sidebar (`OpenConversation`)
 /// and jumping straight to a phone number found in message text
@@ -1424,6 +1454,20 @@ fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	s.history_loading = false;
 	s.prev_msg_count = 0;
 	s.pending_attachments.clear();
+	// Selection mode's row list is tied to the chat it was built from -
+	// switching chats mid-selection would leave it pointing at messages that
+	// no longer belong to the now-displayed conversation.
+	if s.selection_mode {
+		s.selection_mode = false;
+		s.selected_message_ids.clear();
+		s.selection_rows.clear();
+		parts.conversations_parts.messages_select_list.show(false);
+		parts.conversations_parts.selection_bar_panel.show(false);
+		parts.conversations_parts.messages_list.show(true);
+		parts.conversations_parts.message_field.show(true);
+		parts.conversations_parts.add_attachment_btn.show(true);
+		parts.conversations_parts.record_voice_btn.show(true);
+	}
 	parts.conversations_parts.conversation_panel.show(true);
 	parts.conversations_parts.play_voice_btn.show(false);
 	parts.conversations_parts.action_panel.show(false);
@@ -1554,6 +1598,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						parts.conversations_parts.messages_list.append(&item.format_display(is_group));
 					}
 					parts.conversations_parts.messages_list.thaw();
+					refresh_selection_list(&mut s, parts);
 				}
 
 				let reply_id = s.pending_reply_id.take().unwrap_or_default();
@@ -1637,7 +1682,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let mut s = state.borrow_mut();
 									s.call_answer_deadline = None;
 									stop_call_ringing_sound(&mut s);
-									if let Ok(streams) = call_audio::start_audio_streams(audio_port as u16) {
+									if let Ok(streams) = call_audio::start_audio_streams(
+										audio_port as u16,
+										s.settings.input_device_name.clone(),
+										s.settings.output_device_name.clone(),
+									) {
 										s.active_call_audio = Some(streams);
 										live_region::announce(
 											parts.conversations_parts.messages_announcer.clone(),
@@ -2414,6 +2463,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											}
 											parts.conversations_parts.messages_list.thaw();
 										}
+										refresh_selection_list(&mut s, parts);
 
 										let count = parts.conversations_parts.messages_list.get_count();
 										if count > 0 && is_from_me {
@@ -2573,6 +2623,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let for_everyone = data.get("for_everyone").and_then(|f| f.as_bool()).unwrap_or(true);
 
 								let mut s = state.borrow_mut();
+								// A bulk delete (selection mode) fires one "message_deleted"
+								// event per message; announcing each individually would spam
+								// a screen reader with "Message deleted" N times back to
+								// back, on top of the one summary announcement
+								// DeleteSelectedMessages already made - suppress the
+								// per-message announce while draining that batch's count.
+								let suppress_announce = if s.bulk_delete_pending > 0 {
+									s.bulk_delete_pending -= 1;
+									true
+								} else {
+									false
+								};
 								if Some(jid.to_string()) == s.selected_chat {
 									let is_group = jid.ends_with("@g.us");
 
@@ -2595,11 +2657,17 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													.append(&item.format_display(is_group));
 											}
 											parts.conversations_parts.messages_list.thaw();
+											refresh_selection_list(&mut s, parts);
 											let count = parts.conversations_parts.messages_list.get_count();
 											if count > 0 {
 												parts.conversations_parts.messages_list.set_selection(count - 1, true);
 											}
-											live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+											if !suppress_announce {
+												live_region::announce(
+													parts.qrcode_announcer.clone(),
+													"Message deleted.",
+												);
+											}
 										}
 										return;
 									}
@@ -2673,7 +2741,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												break;
 											}
 										}
-										live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+										if !suppress_announce {
+											live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+										}
 									}
 								}
 							}
@@ -2825,6 +2895,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.conversations_parts.messages_list.append(&item.format_display(is_group));
 									}
 									parts.conversations_parts.messages_list.thaw();
+									refresh_selection_list(&mut s, parts);
 
 									let count = parts.conversations_parts.messages_list.get_count();
 									let target_pos = if let Some(target_id) = s.search_target_id.take() {
@@ -3232,6 +3303,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.conversations_parts.messages_list.append(&item.format_display(is_group));
 									}
 									parts.conversations_parts.messages_list.thaw();
+									refresh_selection_list(&mut s, parts);
 									let count = parts.conversations_parts.messages_list.get_count();
 									if count > 0 {
 										parts.conversations_parts.messages_list.set_selection(0, true);
@@ -4463,7 +4535,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									eprintln!("[LOG UI] Audio total duration: {}s", s.audio_total_secs);
 
 									if s.audio_stream.is_none() {
-										if let Ok(stream_handle) = DeviceSinkBuilder::open_default_sink() {
+										if let Ok(stream_handle) =
+											open_output_stream(s.settings.output_device_name.as_deref())
+										{
 											s.audio_stream = Some(stream_handle);
 										}
 									}
@@ -4748,6 +4822,87 @@ while ($true) {
 			let jid = format!("{}@s.whatsapp.net", digits);
 			open_chat_for_jid(&jid, state, parts);
 		}
+		UiCommand::ToggleSelectionMode => {
+			let mut s = state.borrow_mut();
+			s.selection_mode = !s.selection_mode;
+			if s.selection_mode {
+				s.selected_message_ids.clear();
+				refresh_selection_list(&mut s, parts);
+				parts.conversations_parts.messages_list.show(false);
+				parts.conversations_parts.messages_select_list.show(true);
+				parts.conversations_parts.selection_bar_panel.show(true);
+				parts.conversations_parts.message_field.show(false);
+				parts.conversations_parts.add_attachment_btn.show(false);
+				parts.conversations_parts.send_message_btn.show(false);
+				parts.conversations_parts.record_voice_btn.show(false);
+			} else {
+				s.selected_message_ids.clear();
+				s.selection_rows.clear();
+				parts.conversations_parts.messages_select_list.show(false);
+				parts.conversations_parts.selection_bar_panel.show(false);
+				parts.conversations_parts.messages_list.show(true);
+				parts.conversations_parts.message_field.show(true);
+				parts.conversations_parts.add_attachment_btn.show(true);
+				parts
+					.conversations_parts
+					.send_message_btn
+					.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
+				parts.conversations_parts.record_voice_btn.show(true);
+			}
+			parts.conversations_parts.conversation_panel.layout();
+		}
+		UiCommand::DeleteSelectedMessages { for_everyone } => {
+			let (jid_opt, ws_tx, to_delete) = {
+				let s = state.borrow();
+				let ids = &s.selected_message_ids;
+				let msgs: Vec<whantv::ChatMessage> = s
+					.selection_rows
+					.iter()
+					.filter(|item| ids.contains(item.id()))
+					.flat_map(|item| item.messages())
+					.collect();
+				(s.selected_chat.clone(), s.ws_tx.clone(), msgs)
+			};
+			if let Some(jid) = jid_opt {
+				state.borrow_mut().bulk_delete_pending += to_delete.len();
+				for msg in &to_delete {
+					let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+					let payload = serde_json::json!({
+						"action": "delete_message",
+						"data": {
+							"jid": jid,
+							"message_id": msg.id,
+							"sender_jid": sender_jid,
+							"for_everyone": for_everyone
+						}
+					});
+					let _ = ws_tx.send(payload.to_string());
+				}
+			}
+
+			let mut s = state.borrow_mut();
+			s.selection_mode = false;
+			s.selected_message_ids.clear();
+			s.selection_rows.clear();
+			drop(s);
+			parts.conversations_parts.messages_select_list.show(false);
+			parts.conversations_parts.selection_bar_panel.show(false);
+			parts.conversations_parts.messages_list.show(true);
+			parts.conversations_parts.message_field.show(true);
+			parts.conversations_parts.add_attachment_btn.show(true);
+			parts.conversations_parts.record_voice_btn.show(true);
+			parts
+				.conversations_parts
+				.send_message_btn
+				.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
+			parts.conversations_parts.conversation_panel.layout();
+			if !to_delete.is_empty() {
+				live_region::announce(
+					parts.conversations_parts.messages_announcer.clone(),
+					"Selected messages deleted.",
+				);
+			}
+		}
 		UiCommand::LoadMoreMessages => {
 			let mut s = state.borrow_mut();
 			if s.history_loading {
@@ -4833,43 +4988,51 @@ while ($true) {
 				let wav_path = temp_dir.join(format!("voice_rec_{}_0.wav", ts));
 				let wav_path_str = wav_path.to_string_lossy().to_string();
 
-				if mci_start_new_segment() {
-					s.is_voice_recording = true;
-					s.is_voice_paused = false;
-					s.voice_recording_path = Some(wav_path_str);
-					s.voice_recording_segments.clear();
-					s.voice_recording_start = Some(std::time::Instant::now());
-					s.voice_paused_duration = std::time::Duration::ZERO;
-					s.voice_pause_instant = None;
+				match voice_recorder::RecordingSession::start(
+					&wav_path_str,
+					s.settings.input_device_name.clone(),
+					s.settings.voice_message_noise_suppression,
+				) {
+					Ok(session) => {
+						s.is_voice_recording = true;
+						s.is_voice_paused = false;
+						s.voice_recording_path = Some(wav_path_str);
+						s.voice_recording_session = Some(session);
+						s.voice_recording_segments.clear();
+						s.voice_recording_start = Some(std::time::Instant::now());
+						s.voice_paused_duration = std::time::Duration::ZERO;
+						s.voice_pause_instant = None;
 
-					if let Some(ref jid) = s.selected_chat {
-						let payload = serde_json::json!({
-							"action": "send_typing",
-							"data": { "jid": jid, "state": "composing", "media": "audio" }
-						});
-						let _ = s.ws_tx.send(payload.to_string());
+						if let Some(ref jid) = s.selected_chat {
+							let payload = serde_json::json!({
+								"action": "send_typing",
+								"data": { "jid": jid, "state": "composing", "media": "audio" }
+							});
+							let _ = s.ws_tx.send(payload.to_string());
+						}
+
+						parts.conversations_parts.message_field.show(false);
+						parts.conversations_parts.add_attachment_btn.show(false);
+						parts.conversations_parts.send_message_btn.show(false);
+						parts.conversations_parts.record_voice_btn.show(false);
+						parts.conversations_parts.discard_voice_btn.show(true);
+						parts.conversations_parts.pause_resume_btn.show(true);
+						parts.conversations_parts.send_voice_btn.show(true);
+						parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+						parts.conversations_parts.conversation_panel.layout();
+						parts.conversations_parts.send_voice_btn.set_focus();
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							"Recording voice message...",
+						);
 					}
-
-					parts.conversations_parts.message_field.show(false);
-					parts.conversations_parts.add_attachment_btn.show(false);
-					parts.conversations_parts.send_message_btn.show(false);
-					parts.conversations_parts.record_voice_btn.show(false);
-					parts.conversations_parts.discard_voice_btn.show(true);
-					parts.conversations_parts.pause_resume_btn.show(true);
-					parts.conversations_parts.send_voice_btn.show(true);
-					parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
-					parts.conversations_parts.conversation_panel.layout();
-					parts.conversations_parts.send_voice_btn.set_focus();
-					live_region::announce(
-						parts.conversations_parts.messages_announcer.clone(),
-						"Recording voice message...",
-					);
-				} else {
-					eprintln!("[LOG UI] Failed to start MCI voice recording");
-					live_region::announce(
-						parts.conversations_parts.messages_announcer.clone(),
-						"Failed to start microphone recording.",
-					);
+					Err(e) => {
+						eprintln!("[LOG UI] Failed to start voice recording: {:?}", e);
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							"Failed to start microphone recording.",
+						);
+					}
 				}
 			}
 		}
@@ -4883,11 +5046,9 @@ while ($true) {
 			let mut s = state.borrow_mut();
 			if s.is_voice_recording {
 				if s.is_voice_paused {
-					// Resume by starting a brand new segment rather than
-					// trusting MCI's "resume" to keep appending to the same
-					// file - some audio drivers silently stop capturing
-					// after a resume, truncating everything recorded after
-					// the pause.
+					// Resume by starting a brand new segment rather than a
+					// pause/resume on the same capture session - segments are
+					// spliced together on send.
 					let temp_dir = std::env::temp_dir();
 					let ts = std::time::SystemTime::now()
 						.duration_since(std::time::UNIX_EPOCH)
@@ -4897,30 +5058,39 @@ while ($true) {
 					let wav_path = temp_dir.join(format!("voice_rec_{}_{}.wav", ts, seg_idx));
 					let wav_path_str = wav_path.to_string_lossy().to_string();
 
-					if mci_start_new_segment() {
-						s.voice_recording_path = Some(wav_path_str);
-						s.is_voice_paused = false;
-						if let Some(inst) = s.voice_pause_instant.take() {
-							s.voice_paused_duration += inst.elapsed();
+					match voice_recorder::RecordingSession::start(
+						&wav_path_str,
+						s.settings.input_device_name.clone(),
+						s.settings.voice_message_noise_suppression,
+					) {
+						Ok(session) => {
+							s.voice_recording_path = Some(wav_path_str);
+							s.voice_recording_session = Some(session);
+							s.is_voice_paused = false;
+							if let Some(inst) = s.voice_pause_instant.take() {
+								s.voice_paused_duration += inst.elapsed();
+							}
+							parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								"Voice recording resumed.",
+							);
 						}
-						parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
-						live_region::announce(
-							parts.conversations_parts.messages_announcer.clone(),
-							"Voice recording resumed.",
-						);
-					} else {
-						eprintln!("[LOG UI] Failed to resume voice recording");
-						live_region::announce(
-							parts.conversations_parts.messages_announcer.clone(),
-							"Failed to resume recording.",
-						);
+						Err(e) => {
+							eprintln!("[LOG UI] Failed to resume voice recording: {:?}", e);
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								"Failed to resume recording.",
+							);
+						}
 					}
 				} else {
 					// Pause by closing off the current segment as a
-					// complete, valid WAV file instead of relying on MCI's
-					// "pause" to keep the device alive correctly.
+					// complete, valid WAV file.
 					if let Some(path) = s.voice_recording_path.take() {
-						mci_finish_segment(&path);
+						if let Some(session) = s.voice_recording_session.take() {
+							session.finish();
+						}
 						s.voice_recording_segments.push(path);
 					}
 					s.is_voice_paused = true;
@@ -4954,7 +5124,9 @@ while ($true) {
 				// If still actively recording (not paused), close off the
 				// final segment as a complete, valid WAV file.
 				if let Some(path) = s.voice_recording_path.take() {
-					mci_finish_segment(&path);
+					if let Some(session) = s.voice_recording_session.take() {
+						session.finish();
+					}
 					s.voice_recording_segments.push(path);
 				}
 				let reply_id = s.pending_reply_id.take().unwrap_or_default();
@@ -5080,11 +5252,15 @@ while ($true) {
 				let mut s = state.borrow_mut();
 				s.is_voice_recording = false;
 				s.is_voice_paused = false;
-				// The in-progress segment (if any) was never saved to disk,
-				// so just abandon it via the "close voice_rec" below;
-				// earlier segments from prior pause cycles were saved and
-				// need real cleanup.
-				s.voice_recording_path = None;
+				// The in-progress segment's capture session (if any) is still
+				// writing to disk - stop it, then clean up its file along with
+				// any earlier segments from prior pause cycles.
+				if let Some(session) = s.voice_recording_session.take() {
+					session.finish();
+				}
+				if let Some(path) = s.voice_recording_path.take() {
+					let _ = std::fs::remove_file(path);
+				}
 				for seg in s.voice_recording_segments.drain(..) {
 					let _ = std::fs::remove_file(seg);
 				}
@@ -5096,7 +5272,6 @@ while ($true) {
 					let _ = s.ws_tx.send(payload.to_string());
 				}
 			}
-			execute_mci_command("close voice_rec");
 
 			parts.conversations_parts.message_field.show(true);
 			parts.conversations_parts.add_attachment_btn.show(true);

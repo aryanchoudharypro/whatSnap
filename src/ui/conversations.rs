@@ -22,6 +22,7 @@ pub struct ConversationsPanelParts {
 	pub add_attachment_btn: Button,
 	pub search_in_conv_btn: Button,
 	pub place_call_btn: Button,
+	pub select_messages_btn: Button,
 
 	pub search_panel: Panel,
 	pub search_close_btn: Button,
@@ -30,6 +31,12 @@ pub struct ConversationsPanelParts {
 
 	pub messages_label: StaticText,
 	pub messages_list: ListBox,
+	pub messages_select_list: CheckListBox,
+
+	pub selection_bar_panel: Panel,
+	pub selection_count_label: StaticText,
+	pub selection_delete_btn: Button,
+	pub selection_cancel_btn: Button,
 
 	pub play_voice_btn: Button,
 	pub messages_announcer: StaticText,
@@ -127,6 +134,10 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	place_call_btn.set_font(&theme::Fonts::body());
 	top_btns_sizer.add(&place_call_btn, 0, SizerFlag::Right, 5);
 
+	let select_messages_btn = Button::builder(&top_btns_panel).with_label("Select messages").build();
+	select_messages_btn.set_font(&theme::Fonts::body());
+	top_btns_sizer.add(&select_messages_btn, 0, SizerFlag::Right, 5);
+
 	top_btns_panel.set_sizer(top_btns_sizer, true);
 	conv_sizer.add(
 		&top_btns_panel,
@@ -158,6 +169,38 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	messages_list.set_font(&theme::Fonts::body());
 	theme::style_chat_area(&messages_list);
 	conv_sizer.add(&messages_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
+
+	// Shown in place of `messages_list` while selection mode is active - kept
+	// as a separate widget rather than swapping messages_list's own type so
+	// every existing single-selection call site (context menu, search jump,
+	// keyboard nav) is unaffected by selection mode.
+	let messages_select_list = CheckListBox::builder(&conversation_panel).build();
+	messages_select_list.set_font(&theme::Fonts::body());
+	theme::style_chat_area(&messages_select_list);
+	conv_sizer.add(&messages_select_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
+	messages_select_list.show(false);
+
+	let selection_bar_panel = Panel::builder(&conversation_panel).build();
+	theme::style_content(&selection_bar_panel);
+	let selection_bar_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let selection_count_label = StaticText::builder(&selection_bar_panel).with_label("0 selected").build();
+	theme::style_muted_label(&selection_count_label);
+	selection_bar_sizer.add(&selection_count_label, 0, SizerFlag::Left | SizerFlag::AlignCenterVertical, 5);
+	selection_bar_sizer.add_stretch_spacer(1);
+	let selection_delete_btn = Button::builder(&selection_bar_panel).with_label("Delete").build();
+	selection_delete_btn.set_font(&theme::Fonts::body());
+	selection_bar_sizer.add(&selection_delete_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
+	let selection_cancel_btn = Button::builder(&selection_bar_panel).with_label("Cancel").build();
+	selection_cancel_btn.set_font(&theme::Fonts::body());
+	selection_bar_sizer.add(&selection_cancel_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
+	selection_bar_panel.set_sizer(selection_bar_sizer, true);
+	conv_sizer.add(
+		&selection_bar_panel,
+		0,
+		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+		10,
+	);
+	selection_bar_panel.show(false);
 
 	let action_panel = Panel::builder(&conversation_panel).build();
 	theme::style_chat_area(&action_panel);
@@ -323,12 +366,18 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		add_attachment_btn,
 		search_in_conv_btn,
 		place_call_btn,
+		select_messages_btn,
 		search_panel,
 		search_close_btn,
 		search_conv_label,
 		search_conv_field,
 		messages_label,
 		messages_list,
+		messages_select_list,
+		selection_bar_panel,
+		selection_count_label,
+		selection_delete_btn,
+		selection_cancel_btn,
 		play_voice_btn,
 		messages_announcer,
 		read_more_btn,
