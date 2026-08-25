@@ -15,16 +15,20 @@ fn sanitize_export_filename(name: &str) -> String {
 	if trimmed.is_empty() { "chat".to_string() } else { trimmed.to_string() }
 }
 
-/// Confirms a message delete. Your own messages get a choice between
-/// revoking for everyone and removing it locally only ("delete for me");
-/// someone else's message can only ever be removed locally, so it's a plain
-/// yes/no confirm. Returns `None` if the user cancelled, else `Some(for_everyone)`.
-fn confirm_delete_choice(parent: &impl WxWidget, from_me: bool) -> Option<bool> {
-	if from_me {
+/// Confirms deleting `count` message(s). If every one of them is your own
+/// (`all_from_me`), offers a choice between revoking for everyone and
+/// removing them locally only ("delete for me"); if even one belongs to
+/// someone else, the whole batch can only ever be removed locally (matching
+/// official WhatsApp: "delete for everyone" is unavailable the moment a
+/// selection mixes in someone else's messages), so it's a plain yes/no
+/// confirm. Returns `None` if the user cancelled, else `Some(for_everyone)`.
+fn confirm_delete_choice(parent: &impl WxWidget, count: usize, all_from_me: bool) -> Option<bool> {
+	let plural = if count == 1 { "this message" } else { "these messages" };
+	if all_from_me {
 		let choices: Vec<&str> = vec!["Delete for Everyone", "Delete for Me"];
 		let dialog = SingleChoiceDialog::builder(
 			parent,
-			"Delete this message for everyone, or just remove it from your own device?",
+			&format!("Delete {plural} for everyone, or just remove {} from your own device?", plural),
 			"Delete Message",
 			&choices,
 		)
@@ -40,7 +44,7 @@ fn confirm_delete_choice(parent: &impl WxWidget, from_me: bool) -> Option<bool> 
 	} else {
 		let dlg = MessageDialog::builder(
 			parent,
-			"Are you sure you want to delete this message from your device?",
+			&format!("Are you sure you want to delete {plural} from your device?"),
 			"Confirm Delete",
 		)
 		.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
@@ -690,6 +694,9 @@ pub fn bind_input_handlers(
 	let groups_combo_open = parts.settings_dialog.groups_combo.clone();
 	let calls_combo_open = parts.settings_dialog.calls_combo.clone();
 	let online_combo_open = parts.settings_dialog.online_combo.clone();
+	let input_device_combo_open = parts.settings_dialog.input_device_combo.clone();
+	let output_device_combo_open = parts.settings_dialog.output_device_combo.clone();
+	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check.clone();
 	let state_settings_open = state.clone();
 	parts.settings_btn.on_click(move |_| {
 		use crate::ui::settings_dialog::*;
@@ -699,6 +706,7 @@ pub fn bind_input_handlers(
 		announce_typing_check.set_value(s.settings.announce_typing);
 		announce_recording_check.set_value(s.settings.announce_recording);
 		tray_icon_check.set_value(s.settings.show_tray_icon);
+		noise_suppression_check_open.set_value(s.settings.voice_message_noise_suppression);
 
 		name_field_open.set_value(&s.own_push_name);
 		about_field_open.set_value(&s.own_about);
@@ -710,6 +718,19 @@ pub fn bind_input_handlers(
 		set_combo_from_value(&groups_combo_open, VISIBILITY_CHOICES, get("groupadd"));
 		set_combo_from_value(&calls_combo_open, CALL_CHOICES, get("calladd"));
 		set_combo_from_value(&online_combo_open, ONLINE_CHOICES, get("online"));
+
+		// Re-enumerated on every open since WASAPI device lists can change
+		// (USB headset plugged/unplugged, etc) while the app is running.
+		set_device_combo(
+			&input_device_combo_open,
+			&crate::audio_devices::input_device_names(),
+			s.settings.input_device_name.as_deref(),
+		);
+		set_device_combo(
+			&output_device_combo_open,
+			&crate::audio_devices::output_device_names(),
+			s.settings.output_device_name.as_deref(),
+		);
 
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_own_profile"}).to_string());
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_privacy_settings"}).to_string());
@@ -739,6 +760,9 @@ pub fn bind_input_handlers(
 	let groups_combo_ok = parts.settings_dialog.groups_combo.clone();
 	let calls_combo_ok = parts.settings_dialog.calls_combo.clone();
 	let online_combo_ok = parts.settings_dialog.online_combo.clone();
+	let input_device_combo_ok = parts.settings_dialog.input_device_combo.clone();
+	let output_device_combo_ok = parts.settings_dialog.output_device_combo.clone();
+	let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check.clone();
 	let state_settings_save = state.clone();
 	parts.settings_dialog.ok_btn.on_click(move |_| {
 		use crate::ui::settings_dialog::*;
@@ -748,6 +772,16 @@ pub fn bind_input_handlers(
 		s.settings.announce_typing = announce_typing_check_ok.is_checked();
 		s.settings.announce_recording = announce_recording_check_ok.is_checked();
 		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
+		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
+		s.settings.input_device_name = device_combo_value(&input_device_combo_ok);
+		let new_output_device = device_combo_value(&output_device_combo_ok);
+		if new_output_device != s.settings.output_device_name {
+			s.settings.output_device_name = new_output_device;
+			// Drop the cached playback stream so the next sound/voice-message
+			// play reopens it against the newly selected device instead of
+			// the one that was live when the dialog opened.
+			s.audio_stream = None;
+		}
 		s.settings.save();
 
 		let new_name = name_field_ok.get_value();
@@ -1761,7 +1795,7 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
-							if let Some(for_everyone) = confirm_delete_choice(&parent_frame_clone, msg.from_me) {
+							if let Some(for_everyone) = confirm_delete_choice(&parent_frame_clone, 1, msg.from_me) {
 								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
 								let _ = tx_play_media_clone.send(UiCommand::DeleteMessage {
 									message_id: msg.id.clone(),
@@ -2151,6 +2185,12 @@ pub fn bind_input_handlers(
 			} else if key_event.get_key_code() == Some(13) {
 				// Enter key
 				event.skip(true);
+			} else if (key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32))
+				&& key_event.control_down()
+			{
+				// Ctrl+Space: enter/exit selection mode.
+				let _ = tx_close_list.send(UiCommand::ToggleSelectionMode);
+				event.skip(false);
 			} else if key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32) {
 				// Space
 				use std::io::Write;
@@ -2482,7 +2522,7 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
-							if let Some(for_everyone) = confirm_delete_choice(&parent_frame, msg.from_me) {
+							if let Some(for_everyone) = confirm_delete_choice(&parent_frame, 1, msg.from_me) {
 								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
 								let _ = tx_play_media.send(UiCommand::DeleteMessage {
 									message_id: msg.id.clone(),
@@ -2834,6 +2874,74 @@ pub fn bind_input_handlers(
 	let tx_toggle_search = ui_tx.clone();
 	parts.conversations_parts.search_in_conv_btn.on_click(move |_| {
 		let _ = tx_toggle_search.send(UiCommand::ToggleSearchPanel);
+	});
+
+	let tx_toggle_selection = ui_tx.clone();
+	parts.conversations_parts.select_messages_btn.on_click(move |_| {
+		let _ = tx_toggle_selection.send(UiCommand::ToggleSelectionMode);
+	});
+
+	let tx_cancel_selection = ui_tx.clone();
+	parts.conversations_parts.selection_cancel_btn.on_click(move |_| {
+		let _ = tx_cancel_selection.send(UiCommand::ToggleSelectionMode);
+	});
+
+	let selection_list_toggle = parts.conversations_parts.messages_select_list;
+	let selection_count_label_toggle = parts.conversations_parts.selection_count_label;
+	let state_selection_toggle = state.clone();
+	selection_list_toggle.on_toggled(move |event| {
+		if let Some(idx) = event.get_selection() {
+			let mut s = state_selection_toggle.borrow_mut();
+			if let Some(item) = s.selection_rows.get(idx as usize).cloned() {
+				if selection_list_toggle.is_checked(idx) {
+					s.selected_message_ids.insert(item.id().to_string());
+				} else {
+					s.selected_message_ids.remove(item.id());
+				}
+				let count = s.selected_message_ids.len();
+				selection_count_label_toggle.set_label(&format!("{} selected", count));
+			}
+		}
+	});
+
+	// `messages_select_list` (not `messages_list`) has focus while selection
+	// mode is active, so the Ctrl+Space/Escape handling on `messages_list`
+	// above never fires here - bind the same exit shortcuts on it directly.
+	let tx_selection_list_keys = ui_tx.clone();
+	parts.conversations_parts.messages_select_list.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			let ctrl_space = (code == Some(32) || code == Some(' ' as i32)) && key_event.control_down();
+			if ctrl_space || code == Some(27) {
+				let _ = tx_selection_list_keys.send(UiCommand::ToggleSelectionMode);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let tx_delete_selection = ui_tx.clone();
+	let parent_frame_selection = parts.frame.clone();
+	let state_delete_selection = state.clone();
+	parts.conversations_parts.selection_delete_btn.on_click(move |_| {
+		let (count, all_from_me) = {
+			let s = state_delete_selection.borrow();
+			let ids = &s.selected_message_ids;
+			let msgs: Vec<whantv::ChatMessage> = s
+				.selection_rows
+				.iter()
+				.filter(|item| ids.contains(item.id()))
+				.flat_map(|item| item.messages())
+				.collect();
+			(msgs.len(), !msgs.is_empty() && msgs.iter().all(|m| m.from_me))
+		};
+		if count == 0 {
+			return;
+		}
+		if let Some(for_everyone) = confirm_delete_choice(&parent_frame_selection, count, all_from_me) {
+			let _ = tx_delete_selection.send(UiCommand::DeleteSelectedMessages { for_everyone });
+		}
 	});
 
 	let tx_close_search = ui_tx.clone();

@@ -42,7 +42,7 @@ const NETWORK_SAMPLE_RATE: u32 = 16000;
 // backend.log; safe to call from any thread, but never from a WASAPI
 // event-loop iteration that's about to block on I/O under time pressure -
 // only from plain background threads and stream-lifecycle points.
-fn log_line(msg: &str) {
+pub(crate) fn log_line(msg: &str) {
 	use std::io::Write;
 	let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
 	let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), msg);
@@ -85,7 +85,7 @@ fn disable_udp_connreset(socket: &UdpSocket) {
 }
 
 // Closes the WASAPI event handle when a capture/render thread exits, however it exits.
-struct EventGuard(HANDLE);
+pub(crate) struct EventGuard(pub(crate) HANDLE);
 impl Drop for EventGuard {
 	fn drop(&mut self) {
 		unsafe {
@@ -97,7 +97,7 @@ impl Drop for EventGuard {
 // Balances a per-thread CoInitializeEx: each capture/render thread owns its WASAPI COM
 // objects and must uninitialize COM on the same thread before exiting, on every path
 // (including early '?' returns from a failed setup step).
-struct ComGuard;
+pub(crate) struct ComGuard;
 impl Drop for ComGuard {
 	fn drop(&mut self) {
 		unsafe { CoUninitialize() };
@@ -120,40 +120,55 @@ impl Drop for CallAudioState {
 	}
 }
 
-// Opens a WASAPI shared-mode stream on the eCommunications-role default device for
-// `dataflow` (eCapture or eRender), tagged with the Communications audio-session
-// category. That combination is what makes Windows apply its own echo
-// cancellation/noise-suppression/AGC audio-effects pipeline to the stream - the
-// previous cpal-based implementation used the plain default multimedia-role devices
-// with no session category set, which never engaged any of that, so speakerphone/
-// laptop mic+speaker setups got raw, unprocessed audio (echo, room noise) end to end.
-struct WasapiOpen {
-	client: IAudioClient2,
-	event: HANDLE,
-	buffer_frames: u32,
-	sample_rate: u32,
-	channels: u16,
-	bits_per_sample: u16,
-	is_float: bool,
+// Opens a WASAPI shared-mode stream on the eCommunications-role default (or, if
+// `preferred_device_name` names a still-present device, that specific) device for
+// `dataflow` (eCapture or eRender). When `apply_effects` is set, the stream is also
+// tagged with the Communications audio-session category, which is what makes Windows
+// apply its own echo cancellation/noise-suppression/AGC audio-effects pipeline to the
+// stream - the previous cpal-based implementation used the plain default multimedia-role
+// devices with no session category set, which never engaged any of that, so
+// speakerphone/laptop mic+speaker setups got raw, unprocessed audio (echo, room noise)
+// end to end. Calls always pass `apply_effects: true`; voice-message recording lets the
+// user choose, since some prefer the raw signal over what the effects pipeline does to it.
+pub(crate) struct WasapiOpen {
+	pub(crate) client: IAudioClient2,
+	pub(crate) event: HANDLE,
+	pub(crate) buffer_frames: u32,
+	pub(crate) sample_rate: u32,
+	pub(crate) channels: u16,
+	pub(crate) bits_per_sample: u16,
+	pub(crate) is_float: bool,
 }
 
-unsafe fn open_communications_stream(
+pub(crate) unsafe fn open_communications_stream(
 	dataflow: windows::Win32::Media::Audio::EDataFlow,
 	tag: &str,
+	preferred_device_name: Option<&str>,
+	apply_effects: bool,
 ) -> anyhow::Result<WasapiOpen> {
 	unsafe {
 		let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-		let device = enumerator.GetDefaultAudioEndpoint(dataflow, eCommunications)?;
+		// Falls back to the default communications-role device if no preference is
+		// set, or if the preferred device (unplugged, renamed, etc) can't be found -
+		// same behavior as before this became user-selectable.
+		let device = match preferred_device_name
+			.and_then(|name| crate::audio_devices::find_wasapi_device_by_name(&enumerator, dataflow, name))
+		{
+			Some(device) => device,
+			None => enumerator.GetDefaultAudioEndpoint(dataflow, eCommunications)?,
+		};
 		let client: IAudioClient2 = device.Activate(CLSCTX_ALL, None)?;
 
-		let props = AudioClientProperties {
-			cbSize: std::mem::size_of::<AudioClientProperties>() as u32,
-			bIsOffload: false.into(),
-			eCategory: AudioCategory_Communications,
-			Options: AUDCLNT_STREAMOPTIONS_NONE,
-		};
-		if let Err(e) = client.SetClientProperties(&props) {
-			log_line(&format!("{tag}: SetClientProperties(Communications) failed, continuing without it: {:?}", e));
+		if apply_effects {
+			let props = AudioClientProperties {
+				cbSize: std::mem::size_of::<AudioClientProperties>() as u32,
+				bIsOffload: false.into(),
+				eCategory: AudioCategory_Communications,
+				Options: AUDCLNT_STREAMOPTIONS_NONE,
+			};
+			if let Err(e) = client.SetClientProperties(&props) {
+				log_line(&format!("{tag}: SetClientProperties(Communications) failed, continuing without it: {:?}", e));
+			}
 		}
 
 		// GetMixFormat's returned pointer may point at a WAVEFORMATEXTENSIBLE (larger
@@ -392,9 +407,15 @@ impl RenderDsp {
 // fresh session is the same recovery WASAPI apps are expected to perform on
 // AUDCLNT_E_DEVICE_INVALIDATED and similar - there's no other way to recover a live
 // IAudioClient once the OS has torn down its underlying endpoint.
-fn run_capture(stop: &AtomicBool, is_muted: &AtomicBool, socket_out: &UdpSocket, target_addr: &str) {
+fn run_capture(
+	stop: &AtomicBool,
+	is_muted: &AtomicBool,
+	socket_out: &UdpSocket,
+	target_addr: &str,
+	preferred_device_name: Option<&str>,
+) {
 	while !stop.load(Ordering::Relaxed) {
-		if let Err(e) = run_capture_session(stop, is_muted, socket_out, target_addr) {
+		if let Err(e) = run_capture_session(stop, is_muted, socket_out, target_addr, preferred_device_name) {
 			log_line(&format!("capture session ended with error, reopening: {:?}", e));
 			if stop.load(Ordering::Relaxed) {
 				break;
@@ -410,12 +431,13 @@ fn run_capture_session(
 	is_muted: &AtomicBool,
 	socket_out: &UdpSocket,
 	target_addr: &str,
+	preferred_device_name: Option<&str>,
 ) -> anyhow::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
-		let wasapi = open_communications_stream(eCapture, "capture")?;
+		let wasapi = open_communications_stream(eCapture, "capture", preferred_device_name, true)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let capture_client: IAudioCaptureClient = wasapi.client.GetService()?;
 
@@ -475,9 +497,10 @@ fn run_render(
 	played: Arc<AtomicU64>,
 	starved: Arc<AtomicU64>,
 	accum_len: Arc<AtomicUsize>,
+	preferred_device_name: Option<&str>,
 ) {
 	while !stop.load(Ordering::Relaxed) {
-		if let Err(e) = run_render_session(stop, &frame_rx, &played, &starved, &accum_len) {
+		if let Err(e) = run_render_session(stop, &frame_rx, &played, &starved, &accum_len, preferred_device_name) {
 			log_line(&format!("render session ended with error, reopening: {:?}", e));
 			if stop.load(Ordering::Relaxed) {
 				break;
@@ -494,12 +517,13 @@ fn run_render_session(
 	played: &Arc<AtomicU64>,
 	starved: &Arc<AtomicU64>,
 	accum_len: &Arc<AtomicUsize>,
+	preferred_device_name: Option<&str>,
 ) -> anyhow::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
-		let wasapi = open_communications_stream(eRender, "render")?;
+		let wasapi = open_communications_stream(eRender, "render", preferred_device_name, true)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let render_client: IAudioRenderClient = wasapi.client.GetService()?;
 
@@ -557,7 +581,11 @@ fn run_render_session(
 	Ok(())
 }
 
-pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
+pub fn start_audio_streams(
+	target_port: u16,
+	preferred_input_device: Option<String>,
+	preferred_output_device: Option<String>,
+) -> anyhow::Result<CallAudioState> {
 	let socket = UdpSocket::bind("127.0.0.1:0")?;
 	let target_addr = format!("127.0.0.1:{}", target_port);
 
@@ -671,14 +699,21 @@ pub fn start_audio_streams(target_port: u16) -> anyhow::Result<CallAudioState> {
 		let is_muted = Arc::clone(&is_muted);
 		let target_addr = target_addr.clone();
 		std::thread::spawn(move || {
-			run_capture(&stop, &is_muted, &socket_out, &target_addr);
+			run_capture(&stop, &is_muted, &socket_out, &target_addr, preferred_input_device.as_deref());
 		});
 	}
 
 	{
 		let stop = Arc::clone(&stop);
 		std::thread::spawn(move || {
-			run_render(&stop, frame_rx, output_played_samples, output_starved_samples, output_src_accum_len);
+			run_render(
+				&stop,
+				frame_rx,
+				output_played_samples,
+				output_starved_samples,
+				output_src_accum_len,
+				preferred_output_device.as_deref(),
+			);
 		});
 	}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"net"
@@ -310,7 +311,21 @@ func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) 
 	return time.Unix(msg_ts, 0), key
 }
 
+// Serializes every SendAppState call process-wide. whatsmeow builds each
+// patch against the collection's current version fetched from local store;
+// firing several patches concurrently (e.g. bulk "delete for me" across a
+// multi-message selection) races them against the same base version, so the
+// server accepts only the first and rejects the rest with a version/hash
+// mismatch that surfaces here as a silent per-patch failure - the affected
+// rows just never disappear, with no error visible to the user. Holding this
+// lock for the whole send-and-retry sequence makes concurrent callers queue
+// up and each apply cleanly against the version the previous one left behind.
+var appStateSendMu sync.Mutex
+
 func sendAppStateWithRetry(ctx context.Context, patch appstate.PatchInfo) error {
+	appStateSendMu.Lock()
+	defer appStateSendMu.Unlock()
+
 	err := client.SendAppState(ctx, patch)
 	if err == nil {
 		return nil

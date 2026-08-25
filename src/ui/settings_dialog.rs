@@ -1,6 +1,6 @@
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::{audio_devices::DEFAULT_LABEL, ui::theme};
 
 /// Display label -> wire value pairs for a privacy dropdown, matching the
 /// subset of `types.PrivacySetting` values whatsmeow documents as valid for
@@ -39,6 +39,12 @@ pub struct SettingsDialogParts {
 	pub groups_combo: ComboBox,
 	pub calls_combo: ComboBox,
 	pub online_combo: ComboBox,
+
+	// Input & Output tab
+	pub audio_panel: Panel,
+	pub input_device_combo: ComboBox,
+	pub output_device_combo: ComboBox,
+	pub voice_message_noise_suppression_check: CheckBox,
 
 	pub ok_btn: Button,
 	pub cancel_btn: Button,
@@ -130,8 +136,52 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	privacy_panel.set_sizer(privacy_sizer, true);
 
+	// --- Input & Output tab ---
+	let audio_panel = Panel::builder(&notebook).build();
+	theme::style_content(&audio_panel);
+	let audio_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	let input_label = StaticText::builder(&audio_panel).with_label("Microphone (calls)").build();
+	input_label.set_font(&theme::Fonts::body());
+	audio_sizer.add(&input_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
+	let input_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	input_device_combo.set_font(&theme::Fonts::body());
+	audio_sizer.add(&input_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
+
+	let input_note = StaticText::builder(&audio_panel).with_label("Also used for recording voice messages.").build();
+	input_note.set_font(&theme::Fonts::body());
+	audio_sizer.add(&input_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+
+	let voice_message_noise_suppression_check = CheckBox::builder(&audio_panel)
+		.with_label("Reduce background noise when recording voice messages (Windows communications audio effects)")
+		.build();
+	voice_message_noise_suppression_check.set_font(&theme::Fonts::body());
+	audio_sizer.add(&voice_message_noise_suppression_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+
+	let noise_suppression_note = StaticText::builder(&audio_panel)
+		.with_label("Off by default: keeps the raw mic signal. Calls always use this processing.")
+		.build();
+	noise_suppression_note.set_font(&theme::Fonts::body());
+	audio_sizer.add(&noise_suppression_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+
+	let output_label = StaticText::builder(&audio_panel).with_label("Speaker (calls & playback)").build();
+	output_label.set_font(&theme::Fonts::body());
+	audio_sizer.add(&output_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
+	let output_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	output_device_combo.set_font(&theme::Fonts::body());
+	audio_sizer.add(&output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
+
+	let output_note = StaticText::builder(&audio_panel)
+		.with_label("Used for call audio, voice message playback, and notification/ringtone sounds.")
+		.build();
+	output_note.set_font(&theme::Fonts::body());
+	audio_sizer.add(&output_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+
+	audio_panel.set_sizer(audio_sizer, true);
+
 	notebook.add_page(&general_panel, "General", true, None);
 	notebook.add_page(&privacy_panel, "Profile & Privacy", false, None);
+	notebook.add_page(&audio_panel, "Input & Output", false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
@@ -179,8 +229,33 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		groups_combo,
 		calls_combo,
 		online_combo,
+		audio_panel,
+		input_device_combo,
+		output_device_combo,
+		voice_message_noise_suppression_check,
 		ok_btn,
 		cancel_btn,
+	}
+}
+
+/// Repopulates a device-selection combo box with "System Default" followed by
+/// `names`, selecting whichever entry matches `selected` (or "System Default"
+/// if `selected` is `None` or no longer present in `names`).
+pub fn set_device_combo(combo: &ComboBox, names: &[String], selected: Option<&str>) {
+	combo.clear();
+	combo.append(DEFAULT_LABEL);
+	for name in names {
+		combo.append(name);
+	}
+	let idx = selected.and_then(|s| names.iter().position(|n| n == s)).map(|i| i + 1).unwrap_or(0);
+	combo.set_selection(idx as u32);
+}
+
+/// The selected device's friendly name, or `None` for "System Default".
+pub fn device_combo_value(combo: &ComboBox) -> Option<String> {
+	match combo.get_string_selection() {
+		Some(label) if label != DEFAULT_LABEL => Some(label),
+		_ => None,
 	}
 }
 
