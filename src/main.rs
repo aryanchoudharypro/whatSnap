@@ -2639,11 +2639,13 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											if let Some(idx) = from.find(':') {
 												clean_jid = format!("{}@s.whatsapp.net", &from[..idx]);
 											}
-											s.contacts
-												.get(&clean_jid)
-												.or_else(|| s.contacts.get(from))
-												.cloned()
-												.unwrap_or_else(|| clean_jid)
+											data.get("senderName")
+												.and_then(|n| n.as_str())
+												.filter(|n| !n.is_empty())
+												.map(|n| n.to_string())
+												.or_else(|| s.contacts.get(&clean_jid).cloned())
+												.or_else(|| s.contacts.get(from).cloned())
+												.unwrap_or(clean_jid)
 										};
 
 										let mut insert_date = false;
