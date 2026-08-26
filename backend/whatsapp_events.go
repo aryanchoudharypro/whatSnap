@@ -1227,9 +1227,14 @@ func eventHandler(evt interface{}) {
 			liveMediaType, _, liveMediaFilename := mediaInfoFromMessage(v.Message)
 
 			quotedID, quotedText, quotedSender := quotedPreview(v.Message)
+			senderName := ""
+			if !v.Info.IsFromMe {
+				senderName = resolveDisplayName(senderJID)
+			}
 			broadcastEvent("message", map[string]interface{}{
 				"jid":           chatJID.String(),
 				"from":          senderJID.String(),
+				"senderName":    senderName,
 				"id":            v.Info.ID,
 				"text":          text,
 				"from_me":       v.Info.IsFromMe,
@@ -1574,7 +1579,43 @@ func eventHandler(evt interface{}) {
 	}
 }
 
+var (
+	populateChatsMu      sync.Mutex
+	populateChatsRunning bool
+	populateChatsPending bool
+)
+
+// populateChatsFromStore is called from many event handlers that can fire in
+// a burst (reconnect, history sync, bulk group joins). Without coalescing,
+// each call redundantly re-queries the whole joined-groups list over the
+// wire and races the others' chats-table writes against each other.
+// Concurrent calls collapse into one run followed by at most one more.
 func populateChatsFromStore() {
+	populateChatsMu.Lock()
+	if populateChatsRunning {
+		populateChatsPending = true
+		populateChatsMu.Unlock()
+		return
+	}
+	populateChatsRunning = true
+	populateChatsMu.Unlock()
+
+	for {
+		populateChatsFromStoreOnce()
+
+		populateChatsMu.Lock()
+		if populateChatsPending {
+			populateChatsPending = false
+			populateChatsMu.Unlock()
+			continue
+		}
+		populateChatsRunning = false
+		populateChatsMu.Unlock()
+		break
+	}
+}
+
+func populateChatsFromStoreOnce() {
 	if client == nil || client.Store == nil || client.Store.Contacts == nil {
 		return
 	}
@@ -1628,11 +1669,13 @@ func populateChatsFromStore() {
 	if err == nil {
 		for _, g := range groups {
 			jidStr := g.JID.ToNonAD().String()
-			db.Exec(`INSERT INTO chats (jid, name, timestamp, is_community) VALUES (?, ?, 0, ?)
+			if _, err := db.Exec(`INSERT INTO chats (jid, name, timestamp, is_community) VALUES (?, ?, 0, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 				name=COALESCE(NULLIF(excluded.name, ''), chats.name),
 				is_community=excluded.is_community`,
-				jidStr, g.GroupName.Name, boolToInt(g.IsParent))
+				jidStr, g.GroupName.Name, boolToInt(g.IsParent)); err != nil {
+				fmt.Println("Error upserting group chat", jidStr, ":", err)
+			}
 		}
 	}
 
