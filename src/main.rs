@@ -526,6 +526,25 @@ struct AppState {
 	/// for "that was the last one", so idle-timeout is what actually decides
 	/// when the "Syncing history..." status goes away.
 	history_sync_last_update: Option<std::time::Instant>,
+	/// Stays set to "60s from the last real history_sync update" for as long
+	/// as one keeps arriving. Arms the db-size fallback below *only* while
+	/// we know a bulk sync is (or was very recently) actually in progress -
+	/// without this, any ordinary write (sending one message, say) would
+	/// change the db's size and could flash a bogus "Syncing..." status.
+	history_sync_armed_until: Option<std::time::Instant>,
+	/// Last (main db file + WAL sidecar) size seen by the polling timer, and
+	/// when it last changed. Fallback for when the backend's "history_sync"
+	/// broadcasts stop arriving (or arrive too sparsely) but writes are
+	/// still visibly landing on disk - lets the status bar say *something*
+	/// is happening instead of settling on "Connected" while a big sync is
+	/// still quietly running in the background. Only trusted while armed
+	/// (see above).
+	db_size_last_seen: u64,
+	db_growth_last_seen: Option<std::time::Instant>,
+	/// True while the status bar is showing our own db-growth fallback text,
+	/// so the timer knows it's safe to clear it later without clobbering
+	/// some unrelated status message it doesn't own.
+	db_growth_status_shown: bool,
 	completed_history_chats: std::collections::HashSet<String>,
 	prev_msg_count: usize,
 	/// 0 = Conversations, 1 = Status, 2 = Starred Messages, 3 = Archived Chats.
@@ -1335,6 +1354,10 @@ fn main() {
 			no_more_messages: false,
 			history_loading: false,
 			history_sync_last_update: None,
+			history_sync_armed_until: None,
+			db_size_last_seen: 0,
+			db_growth_last_seen: None,
+			db_growth_status_shown: false,
 			completed_history_chats: std::collections::HashSet::new(),
 			prev_msg_count: 0,
 			active_tab: 0,
@@ -1499,9 +1522,17 @@ fn main() {
 
 		// WhatsApp delivers history sync as many independent chunks with no
 		// "that was the last one" signal, so there's no event to hang a
-		// completion status on. Instead: once 3s pass with no new
-		// "history_sync" update, treat the sync as finished and clear the
-		// status bar back to plain "Connected".
+		// completion status on - and on a very large account, the
+		// "history_sync" broadcasts themselves have sometimes gone quiet for
+		// a stretch while the backend was still visibly writing to disk.
+		// This tick does two things: clears the detailed "history_sync"
+		// status once 3s pass with no new update (same as before), and -
+		// only while "armed" by a real history_sync update within the last
+		// 60s, so an ordinary message send doesn't get misread as a bulk
+		// sync - falls back to a bare "Syncing..." for up to 5s after the db
+		// (or its WAL sidecar) last changed size. `db_growth_status_shown`
+		// tracks whether *we* put that fallback text up, so clearing it
+		// never clobbers some unrelated status message we don't own.
 		let history_sync_timer = Timer::new(&frame);
 		let state_history_sync_timer = state.clone();
 		let parts_history_sync_timer = parts_clone.clone();
@@ -1510,11 +1541,38 @@ fn main() {
 				Ok(s) => s,
 				Err(_) => return,
 			};
-			if let Some(last_update) = s.history_sync_last_update {
-				if last_update.elapsed() >= std::time::Duration::from_millis(3000) {
-					s.history_sync_last_update = None;
-					parts_history_sync_timer.frame.set_status_text("Status: Connected", 0);
-				}
+
+			let now = std::time::Instant::now();
+			let db_size = paths::db_and_wal_size();
+			if db_size != s.db_size_last_seen {
+				s.db_size_last_seen = db_size;
+				s.db_growth_last_seen = Some(now);
+			}
+
+			if !s.main_ui_shown {
+				return;
+			}
+
+			let history_sync_fresh = s
+				.history_sync_last_update
+				.map(|t| t.elapsed() < std::time::Duration::from_millis(3000))
+				.unwrap_or(false);
+			if history_sync_fresh {
+				s.db_growth_status_shown = false;
+				return;
+			}
+			let real_signal_just_expired = s.history_sync_last_update.take().is_some();
+
+			let armed = s.history_sync_armed_until.map(|t| now < t).unwrap_or(false);
+			let db_growth_fresh =
+				s.db_growth_last_seen.map(|t| t.elapsed() < std::time::Duration::from_millis(5000)).unwrap_or(false);
+
+			if armed && db_growth_fresh {
+				parts_history_sync_timer.frame.set_status_text("Status: Connected (Syncing...)", 0);
+				s.db_growth_status_shown = true;
+			} else if real_signal_just_expired || s.db_growth_status_shown {
+				parts_history_sync_timer.frame.set_status_text("Status: Connected", 0);
+				s.db_growth_status_shown = false;
 			}
 		});
 		history_sync_timer.start(1500, false);
@@ -2162,7 +2220,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									"Status: Connected (Syncing history... {msgs_done} messages, {chats_done} chats so far)"
 								);
 								parts.frame.set_status_text(&label, 0);
-								state.borrow_mut().history_sync_last_update = Some(std::time::Instant::now());
+								{
+									let mut s = state.borrow_mut();
+									let now = std::time::Instant::now();
+									s.history_sync_last_update = Some(now);
+									s.history_sync_armed_until = Some(now + std::time::Duration::from_secs(60));
+								}
 								if let Some(jids) = data.get("jids").and_then(|j| j.as_array()) {
 									let s = state.borrow();
 									if s.history_loading {
@@ -4208,10 +4271,24 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										}
 									}
 									if any_updated && (norm_status == "sent" || norm_status == "delivered") {
+										// A reconnect or history sync can flush receipts for a
+										// whole backlog of older outgoing messages at once; only
+										// ding for messages we actually just sent, not every
+										// backlogged ID that happens to be getting acked now.
+										let now_ts = std::time::SystemTime::now()
+											.duration_since(std::time::UNIX_EPOCH)
+											.unwrap_or_default()
+											.as_secs() as i64;
 										let mut should_play = false;
 										for target_id in &msg_ids {
 											if s.played_sent_sounds.insert(target_id.clone()) {
-												should_play = true;
+												let is_recent = s
+													.messages
+													.iter()
+													.any(|m| m.id == *target_id && now_ts - m.sent_at < 20);
+												if is_recent {
+													should_play = true;
+												}
 											}
 										}
 										if should_play {

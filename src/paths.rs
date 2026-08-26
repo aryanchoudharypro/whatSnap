@@ -24,3 +24,16 @@ pub fn log_dir() -> PathBuf {
 	let _ = std::fs::create_dir_all(&dir);
 	dir
 }
+
+/// Combined size of the session database and its WAL sidecar file. In WAL
+/// mode, writes land in `-wal` first and only fold back into the main file
+/// at a checkpoint, so the main file alone can look static while the app is
+/// actively writing - summing both is what actually tracks live write
+/// activity.
+pub fn db_and_wal_size() -> u64 {
+	let db = db_path();
+	let mut wal = db.clone().into_os_string();
+	wal.push("-wal");
+	std::fs::metadata(&db).map(|m| m.len()).unwrap_or(0)
+		+ std::fs::metadata(PathBuf::from(wal)).map(|m| m.len()).unwrap_or(0)
+}
