@@ -286,7 +286,7 @@ fn play_call_fail_sound(state: &mut AppState) {
 	}
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(&stream_handle.mixer());
-		let cursor = std::io::Cursor::new(include_bytes!("../sounds/soundshelfstudio-ui-loading-end-fail-522858.mp3"));
+		let cursor = std::io::Cursor::new(include_bytes!("../sounds/whatsapp_windows_hangup_01_705kbps.wav"));
 		match rodio::Decoder::new(cursor) {
 			Ok(decoder) => {
 				println!("[AUDIO] Decoded fail sound successfully");
@@ -301,7 +301,7 @@ fn play_call_fail_sound(state: &mut AppState) {
 	}
 }
 
-fn start_call_ringing_sound(state: &mut AppState) {
+fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'static [u8]) {
 	println!("[AUDIO] start_call_ringing_sound called");
 	if state.audio_stream.is_none() {
 		if let Ok(stream_handle) = open_output_stream(state.settings.output_device_name.as_deref()) {
@@ -310,7 +310,7 @@ fn start_call_ringing_sound(state: &mut AppState) {
 	}
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(&stream_handle.mixer());
-		let cursor = std::io::Cursor::new(include_bytes!("../sounds/telefone.wav"));
+		let cursor = std::io::Cursor::new(sound_bytes);
 		match rodio::Decoder::new(cursor) {
 			Ok(decoder) => {
 				println!("[AUDIO] Decoded ringing sound successfully");
@@ -689,6 +689,33 @@ fn chat_visible_in_tab(
 	}
 }
 
+/// If `new` is exactly `old` with one element removed and a (possibly
+/// different) element inserted at the front, returns the index that element
+/// held in `old`. Used to detect "one chat bumped to the top" without an
+/// O(n^2) scan, so `apply_chat_filter` can patch the list in place instead
+/// of rebuilding it on every message sent or received.
+fn find_single_removal_offset(old: &[String], new: &[String]) -> Option<usize> {
+	if new.is_empty() || old.len() != new.len() {
+		return None;
+	}
+	let new_tail = &new[1..];
+	let mut oi = 0usize;
+	let mut ni = 0usize;
+	let mut skipped: Option<usize> = None;
+	while ni < new_tail.len() {
+		if old[oi] == new_tail[ni] {
+			oi += 1;
+			ni += 1;
+		} else if skipped.is_none() {
+			skipped = Some(oi);
+			oi += 1;
+		} else {
+			return None;
+		}
+	}
+	Some(skipped.unwrap_or(oi))
+}
+
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	let lower_query = s.search_query.to_lowercase();
 
@@ -774,10 +801,24 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	let list = &parts.conversations_parts.conversations_list;
 	let had_focus = list.has_focus();
 
+	// The overwhelmingly common reason the label set changes at all is one
+	// chat (whichever was just messaged) jumping to the front, with every
+	// other row's relative order and text untouched. Detect that shape and
+	// apply it as a single delete+insert instead of tearing down and
+	// rebuilding the whole native list control - on a chat list with
+	// hundreds of entries, a full clear()+append() per row on every single
+	// message sent or received was the visible "UI freezes for a bit" hitch.
+	let moved_from = find_single_removal_offset(&s.displayed_chat_labels, &labels);
+
 	list.freeze();
-	list.clear();
-	for label in &labels {
-		list.append(label);
+	if let Some(idx) = moved_from {
+		list.delete(idx as u32);
+		list.insert(&labels[0], 0);
+	} else {
+		list.clear();
+		for label in &labels {
+			list.append(label);
+		}
 	}
 	list.thaw();
 
@@ -2048,7 +2089,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										let _ = s.ws_tx.send(msg.to_string());
 									} else {
 										s.active_call_id = Some(call_id.to_string());
-										start_call_ringing_sound(&mut s);
+										start_call_ringing_sound(&mut s, include_bytes!("../sounds/telefone.wav"));
 									}
 								}
 							}
@@ -2145,7 +2186,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									parts.call_parts.frame.show(true);
 									parts.call_parts.frame.iconize(false);
 									parts.call_parts.frame.raise();
-									start_call_ringing_sound(&mut s);
+									start_call_ringing_sound(
+										&mut s,
+										include_bytes!("../sounds/ringtone_incoming_call.wav"),
+									);
 									if s.settings.notifications_enabled {
 										show_toast_notification("Incoming call", &format!("Voice call from {}", name));
 									}
