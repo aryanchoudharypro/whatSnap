@@ -72,6 +72,25 @@ impl RecordingSession {
 		}
 	}
 
+	/// Like `start`, but opens the device on a background thread instead of
+	/// blocking the caller - `start`'s brief block is fine on a worker
+	/// thread but freezes the whole UI when called from the wx event
+	/// handler. `on_ready` runs on that background thread once the device
+	/// has been confirmed open (or failed), so it must hand the result off
+	/// rather than touch UI state directly.
+	pub fn start_async(
+		path: &str,
+		preferred_device_name: Option<String>,
+		apply_effects: bool,
+		on_ready: impl FnOnce(anyhow::Result<Self>) + Send + 'static,
+	) {
+		let path = path.to_string();
+		std::thread::spawn(move || {
+			let result = Self::start(&path, preferred_device_name, apply_effects);
+			on_ready(result);
+		});
+	}
+
 	/// Stops capture and finalizes the WAV file.
 	pub fn finish(mut self) {
 		self.stop.store(true, Ordering::Relaxed);

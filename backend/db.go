@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -81,9 +82,15 @@ func migrateDB() error {
 	)`)
 	db.Exec("DELETE FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?", time.Now().Add(-24*time.Hour).Unix())
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
-	db.Exec("DELETE FROM messages WHERE (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
-	db.Exec("DELETE FROM messages WHERE is_deleted = 1 AND (raw IS NULL OR length(raw) = 0) AND (text = '' OR text IS NULL)")
-	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0)) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0")
+	// Excludes is_deleted=1 rows: those are deliberate "this message was
+	// deleted" tombstones (a revoke stub synced from history, or a live
+	// revoke of a message whose content we never had) - empty text and no
+	// raw is their normal, intended state, matching official WhatsApp
+	// keeping the tombstone after a "delete for everyone". Only "delete for
+	// me" removes the row outright, and that already happens immediately via
+	// deleteMessageForMe, not through this startup sweep.
+	db.Exec("DELETE FROM messages WHERE COALESCE(is_deleted, 0) = 0 AND (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
+	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0) OR COALESCE(is_deleted, 0) = 1) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0")
 	backfillTemplateMessages()
 	backfillAlbumMessages()
 	removeKeyDistributionStubs()
@@ -179,6 +186,12 @@ func saveMessage(sm StoredMessage) error {
 		sm.ID, sm.JID, sm.FromMe, sm.Text, sm.Timestamp, sm.SenderJID, sm.Raw, sm.Status,
 		sm.MediaType, sm.MediaMimetype, sm.MediaFilename, sm.MediaPath,
 		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt, sm.AlbumID)
+	// Several call sites (local echo of a send, media/status messages) don't
+	// check this error themselves, so a write failure here would otherwise
+	// vanish silently instead of just losing the message on screen.
+	if err != nil {
+		log.Println("saveMessage failed for", sm.ID, "in", sm.JID, ":", err)
+	}
 	return err
 }
 

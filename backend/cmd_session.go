@@ -77,6 +77,28 @@ func handleCancelPairing() {
 	}
 }
 
+// handleLogout unlinks this device from the WhatsApp account (mirroring
+// WhatsApp Web's "Log out"): it tells the phone to remove this companion,
+// wipes the whatsmeow session/credentials, then swaps in a brand-new,
+// unpaired device so the app can be paired again without a restart. The
+// local chat cache (messages, chats, contacts_cache) is left untouched -
+// logging back into the same account brings it straight back.
+func handleLogout() {
+	go func() {
+		if client == nil || client.Store.ID == nil {
+			broadcastEvent("needs_login", nil)
+			return
+		}
+		if err := client.Logout(context.Background()); err != nil {
+			broadcastEvent("error", map[string]string{"message": "Logout failed: " + err.Error()})
+			return
+		}
+
+		replaceWithFreshClient()
+		broadcastEvent("needs_login", nil)
+	}()
+}
+
 func handlePair(raw json.RawMessage) {
 	fmt.Println("Received pair request for:", string(raw))
 	var data PairCommandData

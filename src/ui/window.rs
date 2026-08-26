@@ -191,10 +191,14 @@ pub struct WindowParts {
 	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
 	pub group_data_dialog: crate::ui::group_data::GroupDataDialogParts,
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
-	pub settings_btn: Button,
 	pub settings_dialog: crate::ui::settings_dialog::SettingsDialogParts,
 	pub tray_icon: Rc<TaskBarIcon>,
 }
+
+/// IDs for the frame's menu bar (Account menu). Not app-global command IDs -
+/// just needs to be outside wx's reserved/auto-assigned ranges.
+pub const MENU_ID_SETTINGS: i32 = 6001;
+pub const MENU_ID_LOGOUT: i32 = 6002;
 
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whantv").with_size(Size::new(1180, 760)).build();
@@ -229,11 +233,15 @@ pub fn build_main_window() -> WindowParts {
 	nav_sizer.add(&nav_label, 0, SizerFlag::All, 10);
 	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 
-	let settings_btn = Button::builder(&nav_panel).with_label("Settings...").build();
-	settings_btn.set_font(&theme::Fonts::body());
-	nav_sizer.add(&settings_btn, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
-
 	nav_panel.set_sizer(nav_sizer, true);
+
+	let account_menu = Menu::builder()
+		.append_item(MENU_ID_SETTINGS, "&Settings...", "Open settings")
+		.append_separator()
+		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
+		.build();
+	let menu_bar = MenuBar::builder().append(account_menu, "&Account").build();
+	frame.set_menu_bar(menu_bar);
 
 	let content_panel = Panel::builder(&main_panel).build();
 	theme::style_content(&content_panel);
@@ -414,7 +422,6 @@ pub fn build_main_window() -> WindowParts {
 		conversation_data_dialog,
 		group_data_dialog,
 		conversations_parts: conv_panel,
-		settings_btn,
 		settings_dialog,
 		tray_icon,
 	}
@@ -698,7 +705,10 @@ pub fn bind_input_handlers(
 	let output_device_combo_open = parts.settings_dialog.output_device_combo.clone();
 	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check.clone();
 	let state_settings_open = state.clone();
-	parts.settings_btn.on_click(move |_| {
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() != MENU_ID_SETTINGS {
+			return;
+		}
 		use crate::ui::settings_dialog::*;
 		let s = state_settings_open.borrow();
 		sounds_check.set_value(s.settings.sounds_enabled);
@@ -737,6 +747,26 @@ pub fn bind_input_handlers(
 		drop(s);
 		autostart_check.set_value(crate::autostart::is_enabled());
 		settings_dialog.show_modal();
+	});
+
+	let frame_logout = parts.frame;
+	let state_logout = state.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() != MENU_ID_LOGOUT {
+			return;
+		}
+		let dlg = MessageDialog::builder(
+			&frame_logout,
+			"Log out of WhatsApp on this device? You'll need to scan a QR code or re-enter your phone number to use whaNTV again.",
+			"Log Out",
+		)
+		.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+		.build();
+		if dlg.show_modal() != wxdragon::id::ID_OK {
+			return;
+		}
+		let s = state_logout.borrow();
+		let _ = s.ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
 	});
 
 	let settings_dialog_cancel = parts.settings_dialog.dialog;

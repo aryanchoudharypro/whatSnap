@@ -15,6 +15,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -658,7 +659,34 @@ func isIgnoredChatJID(jid string) bool {
 	return jid == "status@broadcast" || strings.HasSuffix(jid, "@broadcast") || strings.HasSuffix(jid, "@newsletter")
 }
 
-var historySyncMutex sync.Mutex
+var (
+	historySyncMutex sync.Mutex
+	// historySyncChatsDone counts chats processed across every HistorySync
+	// chunk since the last (re)connect. WhatsApp splits history into many
+	// independent chunks - each with its own conversation count and a
+	// "progress" percentage that's only meaningful for that one chunk/sync
+	// type - so showing per-chunk numbers to the user just looks like the
+	// sync is jumping backward and forward. This cumulative, monotonically
+	// increasing count is what actually reads as progress.
+	historySyncChatsDone int
+	// historySyncMsgsDone mirrors historySyncChatsDone but counts individual
+	// messages. A single conversation can hold tens of thousands of messages,
+	// which takes a while to insert - without this, the status only updates
+	// once per *conversation*, so it looks stalled (and an idle-timeout on
+	// the frontend even reverts it to plain "Connected") while that one huge
+	// chat is still being written.
+	historySyncMsgsDone int
+)
+
+// resetHistorySyncProgress zeroes the running counters shown for "Syncing
+// history...". Called on every fresh connect so a reconnect (or a new
+// account after logging out) doesn't keep adding to a stale total.
+func resetHistorySyncProgress() {
+	historySyncMutex.Lock()
+	historySyncChatsDone = 0
+	historySyncMsgsDone = 0
+	historySyncMutex.Unlock()
+}
 
 func eventHandler(evt interface{}) {
 	switch evt.(type) {
@@ -678,12 +706,27 @@ func eventHandler(evt interface{}) {
 				return
 			}
 
+			conversations := v.Data.GetConversations()
+			// On-demand syncs (fetching one older chat's history when it's
+			// opened) and chunks with no chat data (push names, app state)
+			// shouldn't flash the "Syncing history..." status - they're not
+			// part of the bulk sync the user is waiting on.
+			reportProgress := v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND && len(conversations) > 0
+			if reportProgress {
+				broadcastEvent("history_sync", map[string]interface{}{
+					"status":    "syncing",
+					"chatsDone": historySyncChatsDone,
+					"msgsDone":  historySyncMsgsDone,
+				})
+			}
+
 			type syncedAlbum struct {
 				id, jid, senderJID string
 				timestamp          int64
 				expected           int
 			}
 			var albumHeaders []syncedAlbum
+			var syncedJIDs []string
 
 			for _, mapping := range v.Data.GetPhoneNumberToLidMappings() {
 				if mapping == nil {
@@ -723,7 +766,14 @@ func eventHandler(evt interface{}) {
 				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, pushname, targetJID.String())
 			}
 
-			for _, conv := range v.Data.GetConversations() {
+			for convIdx, conv := range conversations {
+				if reportProgress && convIdx > 0 && convIdx%5 == 0 {
+					broadcastEvent("history_sync", map[string]interface{}{
+						"status":    "syncing",
+						"chatsDone": historySyncChatsDone + convIdx,
+						"msgsDone":  historySyncMsgsDone,
+					})
+				}
 				tx, txErr := db.Begin()
 				if txErr != nil {
 					fmt.Println("Error starting transaction for HistorySync:", txErr)
@@ -747,6 +797,7 @@ func eventHandler(evt interface{}) {
 					}
 				}
 				jid = chatJID.String()
+				syncedJIDs = append(syncedJIDs, jid)
 
 				name := conv.GetName()
 				if name == "" {
@@ -803,6 +854,14 @@ func eventHandler(evt interface{}) {
 				for i, historyMsg := range conv.GetMessages() {
 					if i > 0 && i%200 == 0 {
 						tx.Commit()
+						historySyncMsgsDone += 200
+						if reportProgress {
+							broadcastEvent("history_sync", map[string]interface{}{
+								"status":    "syncing",
+								"chatsDone": historySyncChatsDone + convIdx,
+								"msgsDone":  historySyncMsgsDone,
+							})
+						}
 						time.Sleep(5 * time.Millisecond)
 						tx, _ = db.Begin()
 					}
@@ -953,9 +1012,14 @@ func eventHandler(evt interface{}) {
 						}
 					}
 				}
+				// Whatever's left since the last 200-message checkpoint (or the
+				// whole count, for a conversation under 200 messages that never
+				// hit one).
+				historySyncMsgsDone += len(conv.GetMessages()) % 200
 				if err := tx.Commit(); err != nil {
 					log.Println("Error committing HistorySync transaction for conv:", err)
 				}
+				historySyncChatsDone++
 			}
 			for _, album := range albumHeaders {
 				stampAlbumMembers(album.id, album.jid, album.senderJID, album.timestamp, album.expected)
@@ -963,6 +1027,15 @@ func eventHandler(evt interface{}) {
 			UpdateAllChatSnippets()
 			populateChatsFromStore()
 			broadcastChats()
+
+			if reportProgress {
+				broadcastEvent("history_sync", map[string]interface{}{
+					"status":    "syncing",
+					"chatsDone": historySyncChatsDone,
+					"msgsDone":  historySyncMsgsDone,
+					"jids":      syncedJIDs,
+				})
+			}
 		}()
 
 	case *events.Message:
@@ -1235,6 +1308,14 @@ func eventHandler(evt interface{}) {
 		}
 		appStateResyncMu.Unlock()
 		if client.Store.ID != nil {
+			// Deliberately not resetting history-sync progress here: this event
+			// also fires on every keepalive-triggered auto-reconnect, not just
+			// the first connect of a session (that case is covered once in
+			// main.go). A sync spanning a large account can easily outlast a
+			// couple of those blips, and zeroing the counters (or the frontend
+			// clobbering its "Syncing history..." status text back to plain
+			// "Connected") on each one made the status look stalled or reset
+			// while it was still writing in the background.
 			broadcastEvent("connected", map[string]string{"jid": client.Store.ID.String()})
 			go client.SendPresence(context.Background(), types.PresenceAvailable)
 			go retryPendingTextMessages()
@@ -1255,7 +1336,43 @@ func eventHandler(evt interface{}) {
 			broadcastChats()
 		}()
 	case *events.LoggedOut:
-		broadcastEvent("disconnected", nil)
+		// WhatsApp has already unpaired this device server-side (phone
+		// unlinked it, session expired, etc.) and whatsmeow has already
+		// wiped the store's credentials by the time this event arrives - the
+		// old *never* auto-reconnects from here, it would just fail forever.
+		// Swap in a fresh, unpaired client so re-pairing works without
+		// restarting the app, same as an explicit "Log Out".
+		reason := v.Reason.String()
+		log.Println("Logged out by WhatsApp:", reason)
+		go func() {
+			replaceWithFreshClient()
+			broadcastEvent("needs_login", map[string]string{"reason": reason})
+		}()
+	case *events.StreamReplaced:
+		// Another client (a second copy of the backend, or this account
+		// linked from elsewhere) took over this session's connection.
+		// whatsmeow won't auto-reconnect after this - doing so immediately
+		// would just bounce the other session right back off.
+		log.Println("Session replaced by another connection")
+		broadcastEvent("error", map[string]string{
+			"message": "whaNTV was disconnected because this WhatsApp account connected from another session. Restart whaNTV to reconnect.",
+		})
+		broadcastEvent("socket_disconnected", nil)
+	case *events.TemporaryBan:
+		log.Println("Temporary ban:", v.String())
+		broadcastEvent("error", map[string]string{"message": v.String()})
+	case *events.ClientOutdated:
+		log.Println("WhatsApp rejected this client as outdated")
+		broadcastEvent("error", map[string]string{
+			"message": "WhatsApp has rejected this version of whaNTV as outdated. Please update whaNTV to reconnect.",
+		})
+	case *events.CATRefreshError:
+		log.Println("CAT refresh error:", v.Error)
+	case *events.ConnectFailure:
+		log.Println("Unhandled connect failure:", v.Reason.String(), v.Message)
+		broadcastEvent("error", map[string]string{"message": "Connection failed: " + v.Reason.String()})
+	case *events.StreamError:
+		log.Println("Unknown stream error, code:", v.Code)
 	case *events.Disconnected:
 		broadcastEvent("socket_disconnected", nil)
 	case *events.ChatPresence:
