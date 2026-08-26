@@ -438,31 +438,78 @@ func backfillAlbumMessages() {
 	}
 }
 
+// UpdateChatSnippet recomputes a chat's list preview from its latest real
+// message. If a reaction landed after that message (the normal "reacted to
+// the last message and nothing followed" case), the reaction preview wins
+// instead - otherwise a bulk resync (e.g. UpdateAllChatSnippets on app
+// restart/reconnect) would blindly overwrite a still-current reaction
+// preview with the plain last message, even though no new message actually
+// arrived to justify that. A real new message already clears the reaction
+// fields itself via the ON CONFLICT UPDATE in the live-message insert path.
 func UpdateChatSnippet(jid string) {
+	var msgText, msgSender string
+	var msgFromMe, msgDeleted int
+	var msgTS int64
+	hasMsg := db.QueryRow(`SELECT COALESCE(text, ''), COALESCE(sender_jid, ''), from_me, is_deleted, timestamp
+		FROM messages WHERE jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0))
+		ORDER BY timestamp DESC LIMIT 1`, jid).Scan(&msgText, &msgSender, &msgFromMe, &msgDeleted, &msgTS) == nil
+
+	var reactorJID, emoji, reactedText string
+	var reactionTS int64
+	hasReaction := db.QueryRow(`SELECT r.reactor_jid, r.emoji, r.timestamp, m.text
+		FROM reactions r JOIN messages m ON m.id = r.message_id
+		WHERE r.chat_jid = ? AND COALESCE(m.is_deleted, 0) = 0 AND COALESCE(m.text, '') != '' AND r.emoji != ''
+		ORDER BY r.timestamp DESC LIMIT 1`, jid).Scan(&reactorJID, &emoji, &reactionTS, &reactedText) == nil
+
+	if hasReaction && (!hasMsg || reactionTS > msgTS) {
+		fromMe := 0
+		if reactorJID == "me" {
+			fromMe = 1
+		}
+		db.Exec(`UPDATE chats SET
+				preview_snippet = ?, preview_sender = ?, preview_from_me = ?,
+				preview_is_reaction = 1, preview_reaction_emoji = ?
+			WHERE jid = ?`, reactedText, reactorJID, fromMe, emoji, jid)
+		return
+	}
+
+	snippet := ""
+	if hasMsg {
+		if msgDeleted == 1 {
+			if msgFromMe == 1 {
+				snippet = "You deleted this message"
+			} else {
+				snippet = "This message was deleted"
+			}
+		} else {
+			snippet = msgText
+		}
+	}
 	db.Exec(`UPDATE chats SET
-		preview_snippet = COALESCE(
-			(SELECT CASE WHEN is_deleted = 1 THEN CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END ELSE NULLIF(text, '') END
-			 FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), chats.preview_snippet),
-		preview_sender = COALESCE(
-			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), ''),
-		preview_from_me = COALESCE(
-			(SELECT from_me FROM messages WHERE messages.jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), 0),
-		preview_is_reaction = 0,
-		preview_reaction_emoji = ''
-		WHERE jid = ?`, jid, jid, jid, jid)
+			preview_snippet = COALESCE(NULLIF(?, ''), preview_snippet),
+			preview_sender = ?,
+			preview_from_me = ?,
+			preview_is_reaction = 0,
+			preview_reaction_emoji = ''
+		WHERE jid = ?`, snippet, msgSender, msgFromMe, jid)
 }
 
 func UpdateAllChatSnippets() {
-	db.Exec(`UPDATE chats SET
-		preview_snippet = COALESCE(
-			(SELECT CASE WHEN is_deleted = 1 THEN CASE WHEN from_me = 1 THEN 'You deleted this message' ELSE 'This message was deleted' END ELSE NULLIF(text, '') END
-			 FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), chats.preview_snippet),
-		preview_sender = COALESCE(
-			(SELECT COALESCE(sender_jid, '') FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), ''),
-		preview_from_me = COALESCE(
-			(SELECT from_me FROM messages WHERE messages.jid = chats.jid AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0)) ORDER BY timestamp DESC LIMIT 1), 0),
-		preview_is_reaction = 0,
-		preview_reaction_emoji = ''`)
+	rows, err := db.Query(`SELECT jid FROM chats`)
+	if err != nil {
+		return
+	}
+	var jids []string
+	for rows.Next() {
+		var jid string
+		if rows.Scan(&jid) == nil {
+			jids = append(jids, jid)
+		}
+	}
+	rows.Close()
+	for _, jid := range jids {
+		UpdateChatSnippet(jid)
+	}
 }
 
 func setMessageMediaPath(id, path string) error {
