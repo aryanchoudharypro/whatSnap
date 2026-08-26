@@ -40,6 +40,7 @@ import (
 
 var (
 	client      *whatsmeow.Client
+	container   *sqlstore.Container
 	db          *sql.DB
 	wsClients   = make(map[net.Conn]bool)
 	wsMutex          sync.Mutex
@@ -47,6 +48,47 @@ var (
 	dbPathFlag       = flag.String("db", "", "SQLite db path (default: %LOCALAPPDATA%\\whaNTV\\session.db)")
 	pipeFlag         = flag.String("pipe", "", "Named pipe to listen on")
 )
+
+// buildClient wires up a *whatsmeow.Client with this app's fixed
+// configuration (delivery receipts, auto-reconnect, media resend, etc.)
+// around the given device store. Called once at startup and again by
+// handleLogout to hand the app a fresh, unlinked session after a log out.
+func buildClient(deviceStore *store.Device) *whatsmeow.Client {
+	clientLog := waLog.Stdout("Client", "DEBUG", true)
+	c := whatsmeow.NewClient(deviceStore, clientLog)
+	c.EnableAutoReconnect = true
+	c.AutoTrustIdentity = true
+	// Undecryptable messages are worth one automatic ask to the phone -
+	// without it a message we couldn't decrypt is simply lost.
+	c.AutomaticMessageRerequestFromPhone = true
+	c.UseRetryMessageStore = true
+	c.EmitAppStateEventsOnFullSync = true
+	c.SetForceActiveDeliveryReceipts(true)
+	c.GetMessageForRetry = func(requester, to types.JID, id types.MessageID) *waE2E.Message {
+		var rawBytes []byte
+		err := db.QueryRow("SELECT raw FROM messages WHERE id = ?", id).Scan(&rawBytes)
+		if err == nil && len(rawBytes) > 0 {
+			msg := &waE2E.Message{}
+			if proto.Unmarshal(rawBytes, msg) == nil {
+				return msg
+			}
+		}
+		return nil
+	}
+	c.AddEventHandler(eventHandler)
+	return c
+}
+
+// replaceWithFreshClient swaps the global whatsmeow client for a brand-new,
+// unpaired one so the app can be paired again without a restart. Used both
+// after an explicit "Log Out" and whenever whatsmeow itself reports the
+// session was invalidated server-side (events.LoggedOut) - in both cases the
+// old device's credentials are already gone, so there's nothing to reuse.
+func replaceWithFreshClient() {
+	newDevice := container.NewDevice()
+	client = buildClient(newDevice)
+	initCallClient()
+}
 
 func main() {
 	flag.Parse()
@@ -71,12 +113,21 @@ func main() {
 	}
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
 	if !strings.Contains(sqlitePath, "?") {
-		sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)"
+		sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)"
 	}
 	db, err = sql.Open("sqlite", sqlitePath)
 	if err != nil {
 		panic(err)
 	}
+	// SQLite only ever allows one writer at a time no matter how many
+	// connections Go opens; leaving the pool unbounded just means bursts of
+	// concurrent writers (live events, history sync, call state all firing
+	// from their own goroutines) pile up as separate connections each
+	// independently burning into the busy_timeout above. Capping it keeps
+	// that contention bounded while still leaving room for WAL's concurrent
+	// reads (chat/message list queries) alongside the one active writer.
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(8)
 	if _, err := db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
 		panic(err)
 	}
@@ -85,7 +136,7 @@ func main() {
 		panic(err)
 	}
 
-	container := sqlstore.NewWithDB(db, "sqlite", dbLog)
+	container = sqlstore.NewWithDB(db, "sqlite", dbLog)
 	err = container.Upgrade(context.Background())
 	if err != nil {
 		panic(err)
@@ -118,29 +169,7 @@ func main() {
 		deviceStore = container.NewDevice()
 	}
 
-	clientLog := waLog.Stdout("Client", "DEBUG", true)
-	client = whatsmeow.NewClient(deviceStore, clientLog)
-	client.EnableAutoReconnect = true
-	client.AutoTrustIdentity = true
-	// Undecryptable messages are worth one automatic ask to the phone -
-	// without it a message we couldn't decrypt is simply lost.
-	client.AutomaticMessageRerequestFromPhone = true
-	client.UseRetryMessageStore = true
-	client.EmitAppStateEventsOnFullSync = true
-	client.SetForceActiveDeliveryReceipts(true)
-	client.AutomaticMessageRerequestFromPhone = true
-	client.GetMessageForRetry = func(requester, to types.JID, id types.MessageID) *waE2E.Message {
-		var rawBytes []byte
-		err := db.QueryRow("SELECT raw FROM messages WHERE id = ?", id).Scan(&rawBytes)
-		if err == nil && len(rawBytes) > 0 {
-			msg := &waE2E.Message{}
-			if proto.Unmarshal(rawBytes, msg) == nil {
-				return msg
-			}
-		}
-		return nil
-	}
-	client.AddEventHandler(eventHandler)
+	client = buildClient(deviceStore)
 	initCallClient()
 
 	go func() {
@@ -151,6 +180,7 @@ func main() {
 				return
 			}
 			log.Println("Connected to WhatsApp!")
+			resetHistorySyncProgress()
 			broadcastEvent("connected", map[string]string{"jid": client.Store.ID.String()})
 			go client.SendPresence(context.Background(), types.PresenceAvailable)
 

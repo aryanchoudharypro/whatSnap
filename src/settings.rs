@@ -12,9 +12,8 @@ pub struct Settings {
 	pub announce_recording: bool,
 	pub show_tray_icon: bool,
 	/// Friendly name of the preferred microphone for calls, or `None` for the
-	/// system default communications device. Voice-message recording still
-	/// always uses the system default device - it records through the legacy
-	/// MCI waveaudio API, which has no way to target a specific device.
+	/// system default communications device. Also used for voice-message
+	/// recording (see [`crate::voice_recorder`]), which honors this device.
 	pub input_device_name: Option<String>,
 	/// Friendly name of the preferred speaker/output device for calls and for
 	/// voice-message/notification playback, or `None` for the system default.

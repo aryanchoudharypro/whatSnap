@@ -46,9 +46,15 @@ pub enum UiCommand {
 	ConversationSelectionChanged(usize),
 	ProcessWebSocketMessage(String),
 	ExitApp,
-	NewContact { name: String, phone: String },
+	NewContact {
+		name: String,
+		phone: String,
+	},
 	PrepareNewGroup,
-	CreateGroup { name: String, participants: Vec<String> },
+	CreateGroup {
+		name: String,
+		participants: Vec<String>,
+	},
 	RequestQr,
 	CancelQr,
 	CancelPairing,
@@ -58,7 +64,10 @@ pub enum UiCommand {
 	SearchInConversation(String),
 	ToggleSearchPanel,
 	CloseSearch,
-	JumpToSearchResult { message_id: String, message_text: String },
+	JumpToSearchResult {
+		message_id: String,
+		message_text: String,
+	},
 	StartRecording,
 	TogglePauseRecording,
 	StopRecording,
@@ -68,28 +77,62 @@ pub enum UiCommand {
 	DiscardVoiceMessage,
 	AddAttachment,
 	PasteAttachment,
-	SendAttachment { caption: String },
+	SendAttachment {
+		caption: String,
+	},
 	DiscardAttachment,
 	DownloadMedia,
 	OpenMedia,
 	SaveMediaAs,
 	CancelEdit,
 	RemoveQuote,
-	EditMessage { message_id: String, new_text: String },
-	DeleteMessage { message_id: String, sender_jid: String, for_everyone: bool },
-	StarMessage { message_id: String, sender_jid: String, from_me: bool, starred: bool },
-	ExportChat { jid: String, dest_path: String },
-	PostStatus { text: String },
+	EditMessage {
+		message_id: String,
+		new_text: String,
+	},
+	DeleteMessage {
+		message_id: String,
+		sender_jid: String,
+		for_everyone: bool,
+	},
+	StarMessage {
+		message_id: String,
+		sender_jid: String,
+		from_me: bool,
+		starred: bool,
+	},
+	ExportChat {
+		jid: String,
+		dest_path: String,
+	},
+	PostStatus {
+		text: String,
+	},
 	PostMediaStatus,
-	GetMessageInfo { message_id: String },
-	RetryMessage { message_id: String },
-	RequestMessageResend { message_id: String },
-	CopyAlbumToClipboard { message_ids: Vec<String> },
-	SendTyping { jid: String, state: String, media: String },
+	GetMessageInfo {
+		message_id: String,
+	},
+	RetryMessage {
+		message_id: String,
+	},
+	RequestMessageResend {
+		message_id: String,
+	},
+	CopyAlbumToClipboard {
+		message_ids: Vec<String>,
+	},
+	SendTyping {
+		jid: String,
+		state: String,
+		media: String,
+	},
 	SubscribePresence(String),
 	SetPresence(bool),
 	ActivateWindow,
-	MarkRead { jid: String, message_ids: Vec<String> },
+	MarkRead {
+		jid: String,
+		message_ids: Vec<String>,
+	},
 	LoadMoreMessages,
 	PlayVoiceMessage(String),
 	RefreshMessages,
@@ -102,18 +145,44 @@ pub enum UiCommand {
 	MuteCall,
 	LeaveCall,
 	AddParticipant,
-	UpdateGroupSettings { name: String, topic: String, announce: bool, locked: bool },
+	UpdateGroupSettings {
+		name: String,
+		topic: String,
+		announce: bool,
+		locked: bool,
+	},
 	SeekAudioAbsolute(i32), // slider value 0..1000
 	CloseConversation,
-	ReactToMessage { message_id: String, sender_jid: String, emoji: String },
+	ReactToMessage {
+		message_id: String,
+		sender_jid: String,
+		emoji: String,
+	},
 	ToggleAudioSpeed,
 	ShowConversationData,
-	ForwardMessage { message_id: String, to_jids: Vec<String> },
-	TogglePinChat { jid: String, pin: bool },
-	ToggleArchiveChat { jid: String, archive: bool },
-	ToggleMuteChat { jid: String, mute: bool },
-	ToggleReadChat { jid: String, read: bool },
-	DeleteChat { jid: String },
+	ForwardMessage {
+		message_id: String,
+		to_jids: Vec<String>,
+	},
+	TogglePinChat {
+		jid: String,
+		pin: bool,
+	},
+	ToggleArchiveChat {
+		jid: String,
+		archive: bool,
+	},
+	ToggleMuteChat {
+		jid: String,
+		mute: bool,
+	},
+	ToggleReadChat {
+		jid: String,
+		read: bool,
+	},
+	DeleteChat {
+		jid: String,
+	},
 	FilterGroupMembers(String),
 	AddGroupMember,
 	ToggleGroupMemberAdmin(u32),
@@ -124,7 +193,27 @@ pub enum UiCommand {
 	SaveMediaMessageAs(String),
 	OpenChatByPhone(String), // digits-only phone number, no '@s.whatsapp.net' suffix
 	ToggleSelectionMode,
-	DeleteSelectedMessages { for_everyone: bool },
+	DeleteSelectedMessages {
+		for_everyone: bool,
+	},
+	/// Posted by `RecordingSession::start_async`'s supervisor thread once a
+	/// voice-recording device open (initial start, or a pause's resume)
+	/// finishes - the outcome itself is collected from
+	/// `AppState::voice_recording_pending` rather than carried on this
+	/// variant, since `RecordingSession` isn't `Clone`.
+	VoiceRecordingReady,
+}
+
+/// Outcome of an async `RecordingSession::start_async` call, handed back to
+/// the UI thread through `AppState::voice_recording_pending`. See
+/// `AppState::voice_recording_generation` for how a stale result (the
+/// recording was discarded/sent before the device finished opening) is
+/// detected.
+struct PendingVoiceRecording {
+	generation: u64,
+	wav_path: String,
+	is_resume: bool,
+	result: anyhow::Result<voice_recorder::RecordingSession>,
 }
 
 use std::fs::File;
@@ -345,6 +434,7 @@ struct StatusGroup {
 struct AppState {
 	settings: crate::settings::Settings,
 	ws_tx: mpsc::Sender<String>,
+	ui_tx: UiCommandSender,
 	audio_stream: Option<MixerDeviceSink>,
 	audio_sink: Option<Player>,
 	playing_msg_id: Option<String>,
@@ -371,6 +461,29 @@ struct AppState {
 	voice_recording_start: Option<std::time::Instant>,
 	voice_paused_duration: std::time::Duration,
 	voice_pause_instant: Option<std::time::Instant>,
+	/// Bumped on every action that starts (or tears down) a voice-recording
+	/// device open - `StartRecording`, a pause's resume, `DiscardRecording`/
+	/// `DiscardVoiceMessage`, `SendVoiceMessage`. `RecordingSession::start`
+	/// opens the WASAPI device on a background thread (it used to block the
+	/// UI thread for up to 3s doing this); the value captured at the moment
+	/// a given open was kicked off is compared against the current value
+	/// when that open's result comes back via `VoiceRecordingReady`, so a
+	/// stale result (the user discarded/sent/paused again before the device
+	/// finished opening) is recognized and just cleaned up instead of
+	/// resurrecting recording state out from under the user.
+	voice_recording_generation: u64,
+	/// True while a `RecordingSession::start_async` call kicked off by the
+	/// current `voice_recording_generation` hasn't reported back yet - guards
+	/// against a second `StartRecording`/resume landing before the first
+	/// device open finishes (the record/pause-resume buttons are also
+	/// disabled for this, but that's belt-and-suspenders against e.g. a
+	/// screen reader's synthesized click bypassing the disabled state).
+	voice_recording_opening: bool,
+	/// Outcome of the most recent async device-open, if any is waiting to be
+	/// collected by `VoiceRecordingReady`. `RecordingSession::start_async`'s
+	/// supervisor thread writes here and wakes the UI thread rather than
+	/// blocking it.
+	voice_recording_pending: Arc<Mutex<Option<PendingVoiceRecording>>>,
 	is_pairing_active: bool,
 	chats: Vec<String>,
 	filtered_chats: Vec<String>,
@@ -407,6 +520,12 @@ struct AppState {
 	loading_messages: bool,
 	no_more_messages: bool,
 	history_loading: bool,
+	/// Set to "now" on every "history_sync" update from the backend, cleared
+	/// (and the status bar reverted) once a timer tick finds it's gone stale.
+	/// WhatsApp delivers history in many independent chunks with no signal
+	/// for "that was the last one", so idle-timeout is what actually decides
+	/// when the "Syncing history..." status goes away.
+	history_sync_last_update: Option<std::time::Instant>,
 	completed_history_chats: std::collections::HashSet<String>,
 	prev_msg_count: usize,
 	/// 0 = Conversations, 1 = Status, 2 = Starred Messages, 3 = Archived Chats.
@@ -451,11 +570,14 @@ struct AppState {
 	/// index) is mapped back to a message id, same pattern as
 	/// `NewGroupState::current_jids`.
 	selection_rows: Vec<whantv::DisplayItem>,
-	/// Count of "message_deleted" push events still expected from the batch
-	/// `DeleteSelectedMessages` just sent, decremented as each arrives so
-	/// their individual "Message deleted" announcements can be suppressed in
-	/// favor of the one summary announcement already made for the batch.
-	bulk_delete_pending: usize,
+	/// (jid, message_id) pairs still expected as "message_deleted" push
+	/// events from the batch `DeleteSelectedMessages` just sent, removed as
+	/// each arrives so their individual "Message deleted" announcements can
+	/// be suppressed in favor of the one summary announcement already made
+	/// for the batch. Scoped by message so an unrelated delete (e.g. synced
+	/// from another linked device) arriving mid-batch isn't mistaken for
+	/// part of it.
+	bulk_delete_pending: std::collections::HashSet<(String, String)>,
 	typing_timestamps: std::collections::HashMap<String, std::time::Instant>,
 	// Last announced typing/recording state per chat (0=none, 1=typing, 2=recording),
 	// so a screen reader hears "X is typing" once per state change instead of on
@@ -806,6 +928,87 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 	need_layout
 }
 
+/// Syncs `play_voice_btn` / `audio_slider` / `action_panel` visibility to
+/// whichever row `messages_list` currently has selected.
+///
+/// This duplicates the logic in `messages_list`'s `on_selection_changed`
+/// handler (ui/window.rs) because a *programmatic* `set_selection()` - used
+/// throughout this file to land on a particular row after rebuilding the
+/// list (e.g. the newest message after a send, the message just jumped to
+/// from search) - doesn't fire that wx event. Without this, those buttons
+/// keep reflecting whatever row was selected *before* the rebuild: e.g. if
+/// the user had a voice message selected, then sent a plain text message,
+/// `play_voice_btn` stayed visible and labeled for the old voice message
+/// even though the newly-selected row is the text message they just sent.
+/// Call this after any `messages_list.set_selection(...)` that isn't
+/// immediately followed by a real user-driven selection change.
+fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conversations::ConversationsPanelParts) {
+	parts.action_panel.freeze();
+	let mut need_layout = false;
+
+	let msg_opt = parts.messages_list.get_selection().and_then(|idx| s.display_items.get(idx as usize)).and_then(
+		|item| match item {
+			whantv::DisplayItem::Single(m) => Some(m.clone()),
+			whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+		},
+	);
+
+	let is_voice = msg_opt.as_ref().is_some_and(|msg| {
+		let is_deleted =
+			msg.is_deleted || msg.text == "[This message was deleted]" || msg.text == "[You deleted this message]";
+		!is_deleted && (msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]"))
+	});
+
+	if parts.play_voice_btn.is_shown() != is_voice {
+		parts.play_voice_btn.show(is_voice);
+		need_layout = true;
+	}
+
+	if is_voice {
+		let msg = msg_opt.expect("is_voice implies msg_opt is Some");
+		let is_playing = s.playing_msg_id.as_deref() == Some(msg.id.as_str());
+		if is_playing {
+			let is_paused = s
+				.audio_sink
+				.as_ref()
+				.map(|sink| sink.is_paused() || sink.empty())
+				.unwrap_or_else(|| s.audio_process.is_none());
+			parts.play_voice_btn.set_label(if is_paused { "Play voice message" } else { "Pause voice message" });
+			if !parts.audio_slider.is_shown() {
+				parts.audio_slider.show(true);
+				parts.audio_progress_label.show(true);
+				need_layout = true;
+			}
+		} else {
+			parts.play_voice_btn.set_label("Play voice message");
+			if parts.audio_slider.is_shown() {
+				parts.audio_slider.show(false);
+				parts.audio_progress_label.show(false);
+				need_layout = true;
+			}
+		}
+	} else if parts.audio_slider.is_shown() {
+		parts.audio_slider.show(false);
+		parts.audio_progress_label.show(false);
+		need_layout = true;
+	}
+
+	let any_action_visible = parts.play_voice_btn.is_shown()
+		|| parts.action_open_btn.is_shown()
+		|| parts.action_save_as_btn.is_shown()
+		|| parts.action_download_btn.is_shown()
+		|| parts.audio_slider.is_shown();
+	if parts.action_panel.is_shown() != any_action_visible {
+		parts.action_panel.show(any_action_visible);
+		need_layout = true;
+	}
+
+	parts.action_panel.thaw();
+	if need_layout {
+		parts.action_panel.layout();
+	}
+}
+
 #[cfg(target_os = "windows")]
 mod win_cb {
 	#[link(name = "user32")]
@@ -1071,6 +1274,7 @@ fn main() {
 		let state = Rc::new(RefCell::new(AppState {
 			settings: crate::settings::Settings::load(),
 			ws_tx: ws_out_tx,
+			ui_tx: ui_tx.clone(),
 			audio_stream: None,
 			audio_sink: None,
 			playing_msg_id: None,
@@ -1130,6 +1334,7 @@ fn main() {
 			loading_messages: false,
 			no_more_messages: false,
 			history_loading: false,
+			history_sync_last_update: None,
 			completed_history_chats: std::collections::HashSet::new(),
 			prev_msg_count: 0,
 			active_tab: 0,
@@ -1159,12 +1364,15 @@ fn main() {
 			voice_recording_start: None,
 			voice_paused_duration: std::time::Duration::ZERO,
 			voice_pause_instant: None,
+			voice_recording_generation: 0,
+			voice_recording_opening: false,
+			voice_recording_pending: Arc::new(Mutex::new(None)),
 			is_pairing_active: false,
 			display_items: Vec::new(),
 			selection_mode: false,
 			selected_message_ids: std::collections::HashSet::new(),
 			selection_rows: Vec::new(),
-			bulk_delete_pending: 0,
+			bulk_delete_pending: std::collections::HashSet::new(),
 		}));
 
 		let state_clone = state.clone();
@@ -1288,6 +1496,29 @@ fn main() {
 		});
 		typing_timer.start(5000, false);
 		Box::leak(Box::new(typing_timer));
+
+		// WhatsApp delivers history sync as many independent chunks with no
+		// "that was the last one" signal, so there's no event to hang a
+		// completion status on. Instead: once 3s pass with no new
+		// "history_sync" update, treat the sync as finished and clear the
+		// status bar back to plain "Connected".
+		let history_sync_timer = Timer::new(&frame);
+		let state_history_sync_timer = state.clone();
+		let parts_history_sync_timer = parts_clone.clone();
+		history_sync_timer.on_tick(move |_| {
+			let mut s = match state_history_sync_timer.try_borrow_mut() {
+				Ok(s) => s,
+				Err(_) => return,
+			};
+			if let Some(last_update) = s.history_sync_last_update {
+				if last_update.elapsed() >= std::time::Duration::from_millis(3000) {
+					s.history_sync_last_update = None;
+					parts_history_sync_timer.frame.set_status_text("Status: Connected", 0);
+				}
+			}
+		});
+		history_sync_timer.start(1500, false);
+		Box::leak(Box::new(history_sync_timer));
 
 		parts_clone.login_panel.set_focus();
 	});
@@ -1627,7 +1858,19 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
 					match t {
 						"connected" => {
-							parts.frame.set_status_text("Status: Connected", 0);
+							// A reconnect (keepalive blip, brief network drop) also
+							// fires this event, not just the first connect - don't
+							// clobber an in-progress "Syncing history..." status
+							// with plain "Connected" just because the socket
+							// happened to bounce mid-sync.
+							let mid_sync = state
+								.borrow()
+								.history_sync_last_update
+								.map(|t| t.elapsed() < std::time::Duration::from_secs(5))
+								.unwrap_or(false);
+							if !mid_sync {
+								parts.frame.set_status_text("Status: Connected", 0);
+							}
 
 							// Emitted on every IPC connect and on every whatsmeow
 							// reconnect, not just at startup. Re-running the layout
@@ -1652,9 +1895,29 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							let _ = state.borrow().ws_tx.send(payload.to_string());
 						}
 						"needs_login" => {
+							parts.frame.set_status_text("Status: Not logged in", 0);
+							parts.nav_panel.show(false);
+							parts.content_panel.show(false);
+							parts.main_panel.layout();
 							parts.login_panel.show(true);
 							parts.login_panel.set_focus();
 							state.borrow_mut().main_ui_shown = false;
+
+							// A "reason" means WhatsApp itself ended the session (phone
+							// unlinked it, session expired, etc.) rather than us just
+							// having sent our own "Log Out" - worth telling the user
+							// why they suddenly landed back on the login screen.
+							if let Some(reason) = val.get("data").and_then(|d| d.get("reason")).and_then(|r| r.as_str())
+							{
+								MessageDialog::builder(
+									&parts.frame,
+									&format!("whaNTV was logged out of WhatsApp: {reason}"),
+									"Logged Out",
+								)
+								.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+								.build()
+								.show_modal();
+							}
 						}
 						"pairing_code" => {
 							if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
@@ -1892,8 +2155,14 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							parts.frame.set_status_text("Status: Disconnected", 0);
 						}
 						"history_sync" => {
-							parts.frame.set_status_text("Status: Connected (History Syncing...)", 0);
 							if let Some(data) = val.get("data") {
+								let chats_done = data.get("chatsDone").and_then(|v| v.as_i64()).unwrap_or(0);
+								let msgs_done = data.get("msgsDone").and_then(|v| v.as_i64()).unwrap_or(0);
+								let label = format!(
+									"Status: Connected (Syncing history... {msgs_done} messages, {chats_done} chats so far)"
+								);
+								parts.frame.set_status_text(&label, 0);
+								state.borrow_mut().history_sync_last_update = Some(std::time::Instant::now());
 								if let Some(jids) = data.get("jids").and_then(|j| j.as_array()) {
 									let s = state.borrow();
 									if s.history_loading {
@@ -2471,6 +2740,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												.conversations_parts
 												.messages_list
 												.set_selection((count - 1) as u32, true);
+											refresh_voice_action_button(&s, &parts.conversations_parts);
 										}
 										let formatted = chat_msg.format_display(is_group);
 										live_region::announce(
@@ -2628,13 +2898,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								// a screen reader with "Message deleted" N times back to
 								// back, on top of the one summary announcement
 								// DeleteSelectedMessages already made - suppress the
-								// per-message announce while draining that batch's count.
-								let suppress_announce = if s.bulk_delete_pending > 0 {
-									s.bulk_delete_pending -= 1;
-									true
-								} else {
-									false
-								};
+								// per-message announce while draining that batch's set.
+								// Keyed by (jid, message_id) so an unrelated delete arriving
+								// mid-batch (e.g. synced from another linked device) isn't
+								// mistaken for part of this batch.
+								let suppress_announce =
+									s.bulk_delete_pending.remove(&(jid.to_string(), message_id.to_string()));
 								if Some(jid.to_string()) == s.selected_chat {
 									let is_group = jid.ends_with("@g.us");
 
@@ -2662,6 +2931,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											if count > 0 {
 												parts.conversations_parts.messages_list.set_selection(count - 1, true);
 											}
+											refresh_voice_action_button(&s, &parts.conversations_parts);
 											if !suppress_announce {
 												live_region::announce(
 													parts.qrcode_announcer.clone(),
@@ -2961,6 +3231,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.conversations_parts.conversation_panel.layout();
 									}
 									parts.conversations_parts.conversation_panel.thaw();
+									refresh_voice_action_button(&s, &parts.conversations_parts);
 
 									if was_history_loading && new_len == old_count {
 										if let Some(ref jid) = s.selected_chat.clone() {
@@ -3308,6 +3579,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									if count > 0 {
 										parts.conversations_parts.messages_list.set_selection(0, true);
 									}
+									refresh_voice_action_button(&s, &parts.conversations_parts);
 								}
 							}
 						}
@@ -4864,7 +5136,12 @@ while ($true) {
 				(s.selected_chat.clone(), s.ws_tx.clone(), msgs)
 			};
 			if let Some(jid) = jid_opt {
-				state.borrow_mut().bulk_delete_pending += to_delete.len();
+				{
+					let mut s = state.borrow_mut();
+					for msg in &to_delete {
+						s.bulk_delete_pending.insert((jid.clone(), msg.id.clone()));
+					}
+				}
 				for msg in &to_delete {
 					let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
 					let payload = serde_json::json!({
@@ -4981,22 +5258,156 @@ while ($true) {
 		}
 		UiCommand::StartRecording => {
 			let mut s = state.borrow_mut();
-			if s.selected_chat.is_some() {
+			if s.selected_chat.is_some() && !s.is_voice_recording && !s.voice_recording_opening {
 				let temp_dir = std::env::temp_dir();
 				let ts =
 					std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
 				let wav_path = temp_dir.join(format!("voice_rec_{}_0.wav", ts));
 				let wav_path_str = wav_path.to_string_lossy().to_string();
 
-				match voice_recorder::RecordingSession::start(
+				s.voice_recording_opening = true;
+				s.voice_recording_generation += 1;
+				let generation = s.voice_recording_generation;
+				let pending = s.voice_recording_pending.clone();
+				let ui_tx = s.ui_tx.clone();
+				let wav_path_for_thread = wav_path_str.clone();
+
+				parts.conversations_parts.record_voice_btn.enable(false);
+
+				voice_recorder::RecordingSession::start_async(
 					&wav_path_str,
 					s.settings.input_device_name.clone(),
 					s.settings.voice_message_noise_suppression,
-				) {
+					move |result| {
+						*pending.lock().unwrap() = Some(PendingVoiceRecording {
+							generation,
+							wav_path: wav_path_for_thread,
+							is_resume: false,
+							result,
+						});
+						let _ = ui_tx.send(UiCommand::VoiceRecordingReady);
+					},
+				);
+			}
+		}
+		UiCommand::StopRecording => {
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				"Voice recording stopped. Ready to send.",
+			);
+		}
+		UiCommand::TogglePauseRecording => {
+			let mut s = state.borrow_mut();
+			if s.is_voice_recording && !s.voice_recording_opening {
+				if s.is_voice_paused {
+					// Resume by starting a brand new segment rather than a
+					// pause/resume on the same capture session - segments are
+					// spliced together on send.
+					let temp_dir = std::env::temp_dir();
+					let ts = std::time::SystemTime::now()
+						.duration_since(std::time::UNIX_EPOCH)
+						.unwrap_or_default()
+						.as_secs();
+					let seg_idx = s.voice_recording_segments.len();
+					let wav_path = temp_dir.join(format!("voice_rec_{}_{}.wav", ts, seg_idx));
+					let wav_path_str = wav_path.to_string_lossy().to_string();
+
+					s.voice_recording_opening = true;
+					s.voice_recording_generation += 1;
+					let generation = s.voice_recording_generation;
+					let pending = s.voice_recording_pending.clone();
+					let ui_tx = s.ui_tx.clone();
+					let wav_path_for_thread = wav_path_str.clone();
+
+					parts.conversations_parts.pause_resume_btn.enable(false);
+
+					voice_recorder::RecordingSession::start_async(
+						&wav_path_str,
+						s.settings.input_device_name.clone(),
+						s.settings.voice_message_noise_suppression,
+						move |result| {
+							*pending.lock().unwrap() = Some(PendingVoiceRecording {
+								generation,
+								wav_path: wav_path_for_thread,
+								is_resume: true,
+								result,
+							});
+							let _ = ui_tx.send(UiCommand::VoiceRecordingReady);
+						},
+					);
+				} else {
+					// Pause by closing off the current segment as a
+					// complete, valid WAV file.
+					if let Some(path) = s.voice_recording_path.take() {
+						if let Some(session) = s.voice_recording_session.take() {
+							session.finish();
+						}
+						s.voice_recording_segments.push(path);
+					}
+					s.is_voice_paused = true;
+					s.voice_pause_instant = Some(std::time::Instant::now());
+					parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
+					live_region::announce(
+						parts.conversations_parts.messages_announcer.clone(),
+						"Voice recording paused.",
+					);
+				}
+			}
+		}
+		UiCommand::VoiceRecordingReady => {
+			let pending = {
+				let s = state.borrow();
+				s.voice_recording_pending.lock().unwrap().take()
+			};
+			let Some(pending) = pending else {
+				return;
+			};
+
+			let mut s = state.borrow_mut();
+			if pending.generation != s.voice_recording_generation {
+				// Stale: the recording was discarded/sent (or another open
+				// was kicked off) before this device-open finished. Clean up
+				// quietly instead of resurrecting recording state.
+				drop(s);
+				if let Ok(session) = pending.result {
+					session.finish();
+				}
+				let _ = std::fs::remove_file(&pending.wav_path);
+				return;
+			}
+			s.voice_recording_opening = false;
+
+			if pending.is_resume {
+				parts.conversations_parts.pause_resume_btn.enable(true);
+				match pending.result {
+					Ok(session) => {
+						s.voice_recording_path = Some(pending.wav_path);
+						s.voice_recording_session = Some(session);
+						s.is_voice_paused = false;
+						if let Some(inst) = s.voice_pause_instant.take() {
+							s.voice_paused_duration += inst.elapsed();
+						}
+						parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							"Voice recording resumed.",
+						);
+					}
+					Err(e) => {
+						eprintln!("[LOG UI] Failed to resume voice recording: {:?}", e);
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							"Failed to resume recording.",
+						);
+					}
+				}
+			} else {
+				parts.conversations_parts.record_voice_btn.enable(true);
+				match pending.result {
 					Ok(session) => {
 						s.is_voice_recording = true;
 						s.is_voice_paused = false;
-						s.voice_recording_path = Some(wav_path_str);
+						s.voice_recording_path = Some(pending.wav_path);
 						s.voice_recording_session = Some(session);
 						s.voice_recording_segments.clear();
 						s.voice_recording_start = Some(std::time::Instant::now());
@@ -5036,73 +5447,6 @@ while ($true) {
 				}
 			}
 		}
-		UiCommand::StopRecording => {
-			live_region::announce(
-				parts.conversations_parts.messages_announcer.clone(),
-				"Voice recording stopped. Ready to send.",
-			);
-		}
-		UiCommand::TogglePauseRecording => {
-			let mut s = state.borrow_mut();
-			if s.is_voice_recording {
-				if s.is_voice_paused {
-					// Resume by starting a brand new segment rather than a
-					// pause/resume on the same capture session - segments are
-					// spliced together on send.
-					let temp_dir = std::env::temp_dir();
-					let ts = std::time::SystemTime::now()
-						.duration_since(std::time::UNIX_EPOCH)
-						.unwrap_or_default()
-						.as_secs();
-					let seg_idx = s.voice_recording_segments.len();
-					let wav_path = temp_dir.join(format!("voice_rec_{}_{}.wav", ts, seg_idx));
-					let wav_path_str = wav_path.to_string_lossy().to_string();
-
-					match voice_recorder::RecordingSession::start(
-						&wav_path_str,
-						s.settings.input_device_name.clone(),
-						s.settings.voice_message_noise_suppression,
-					) {
-						Ok(session) => {
-							s.voice_recording_path = Some(wav_path_str);
-							s.voice_recording_session = Some(session);
-							s.is_voice_paused = false;
-							if let Some(inst) = s.voice_pause_instant.take() {
-								s.voice_paused_duration += inst.elapsed();
-							}
-							parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
-							live_region::announce(
-								parts.conversations_parts.messages_announcer.clone(),
-								"Voice recording resumed.",
-							);
-						}
-						Err(e) => {
-							eprintln!("[LOG UI] Failed to resume voice recording: {:?}", e);
-							live_region::announce(
-								parts.conversations_parts.messages_announcer.clone(),
-								"Failed to resume recording.",
-							);
-						}
-					}
-				} else {
-					// Pause by closing off the current segment as a
-					// complete, valid WAV file.
-					if let Some(path) = s.voice_recording_path.take() {
-						if let Some(session) = s.voice_recording_session.take() {
-							session.finish();
-						}
-						s.voice_recording_segments.push(path);
-					}
-					s.is_voice_paused = true;
-					s.voice_pause_instant = Some(std::time::Instant::now());
-					parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
-					live_region::announce(
-						parts.conversations_parts.messages_announcer.clone(),
-						"Voice recording paused.",
-					);
-				}
-			}
-		}
 		UiCommand::ForceSync => {
 			let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "force_sync" }).to_string());
 		}
@@ -5121,6 +5465,10 @@ while ($true) {
 			) = {
 				let mut s = state.borrow_mut();
 				s.is_voice_recording = false;
+				// Invalidate a resume's device-open still in flight, if any -
+				// see the matching comment in DiscardRecording.
+				s.voice_recording_generation += 1;
+				s.voice_recording_opening = false;
 				// If still actively recording (not paused), close off the
 				// final segment as a complete, valid WAV file.
 				if let Some(path) = s.voice_recording_path.take() {
@@ -5235,6 +5583,8 @@ while ($true) {
 			parts.conversations_parts.message_field.show(true);
 			parts.conversations_parts.add_attachment_btn.show(true);
 			parts.conversations_parts.record_voice_btn.show(true);
+			parts.conversations_parts.record_voice_btn.enable(true);
+			parts.conversations_parts.pause_resume_btn.enable(true);
 			parts
 				.conversations_parts
 				.send_message_btn
@@ -5252,6 +5602,12 @@ while ($true) {
 				let mut s = state.borrow_mut();
 				s.is_voice_recording = false;
 				s.is_voice_paused = false;
+				// Invalidate any device-open still in flight (a resume, or the
+				// initial start) - its result will arrive later via
+				// VoiceRecordingReady and be cleaned up there instead of
+				// resurrecting the recording state we're tearing down here.
+				s.voice_recording_generation += 1;
+				s.voice_recording_opening = false;
 				// The in-progress segment's capture session (if any) is still
 				// writing to disk - stop it, then clean up its file along with
 				// any earlier segments from prior pause cycles.
@@ -5276,6 +5632,8 @@ while ($true) {
 			parts.conversations_parts.message_field.show(true);
 			parts.conversations_parts.add_attachment_btn.show(true);
 			parts.conversations_parts.record_voice_btn.show(true);
+			parts.conversations_parts.record_voice_btn.enable(true);
+			parts.conversations_parts.pause_resume_btn.enable(true);
 			parts
 				.conversations_parts
 				.send_message_btn

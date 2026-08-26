@@ -61,6 +61,8 @@ func handleConnection(conn net.Conn) {
 			handlePair(cmd.Data)
 		case "shutdown":
 			handleShutdown()
+		case "logout":
+			handleLogout()
 
 		// --- messaging ---
 		case "send":
