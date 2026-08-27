@@ -498,8 +498,8 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	let new_conv_dialog = parts.new_conv_dialog.dialog;
 	let tx_post_status = ui_tx.clone();
+	let tx_new_conv = ui_tx.clone();
 	let state_new_conv = state.clone();
 	let frame_new_conv = parts.frame.clone();
 	parts.conversations_parts.new_conv_btn.on_click(move |_| {
@@ -514,7 +514,7 @@ pub fn bind_input_handlers(
 				}
 			}
 		} else {
-			new_conv_dialog.show_modal();
+			let _ = tx_new_conv.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::OpenChat));
 		}
 	});
 
@@ -533,6 +533,58 @@ pub fn bind_input_handlers(
 	parts.new_conv_dialog.new_contact_btn.on_click(move |_| {
 		new_conv_dlg_for_contact.end_modal(0);
 		new_contact_dialog.show_modal();
+	});
+
+	let tx_picker_filter = ui_tx.clone();
+	let picker_search_field = parts.new_conv_dialog.search_field;
+	picker_search_field.on_text_changed(move |_| {
+		let query = picker_search_field.get_value();
+		let _ = tx_picker_filter.send(UiCommand::FilterContactPicker(query));
+	});
+
+	// Enter in the search field jumps straight to the top match, so picking
+	// a contact never requires touching the results list at all.
+	let tx_picker_select_from_search = ui_tx.clone();
+	let picker_results_list_from_search = parts.new_conv_dialog.results_list;
+	picker_search_field.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if (code == Some(13) || code == Some(370)) && picker_results_list_from_search.get_count() > 0 {
+				let _ = tx_picker_select_from_search.send(UiCommand::SelectContactPickerResult(0));
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let tx_picker_select = ui_tx.clone();
+	let picker_results_list = parts.new_conv_dialog.results_list;
+	picker_results_list.on_item_double_clicked(move |event| {
+		if let Some(idx) = event.get_selection() {
+			let _ = tx_picker_select.send(UiCommand::SelectContactPickerResult(idx as usize));
+		}
+	});
+
+	let tx_picker_select_key = ui_tx.clone();
+	let picker_results_list_key = parts.new_conv_dialog.results_list;
+	let picker_dialog_esc = parts.new_conv_dialog.dialog;
+	picker_results_list_key.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if code == Some(13) || code == Some(370) {
+				if let Some(idx) = picker_results_list_key.get_selection() {
+					let _ = tx_picker_select_key.send(UiCommand::SelectContactPickerResult(idx as usize));
+				}
+				event.skip(false);
+				return;
+			} else if code == Some(27) {
+				picker_dialog_esc.end_modal(wxdragon::id::ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
 	});
 
 	let tx_conv_data = ui_tx.clone();
@@ -563,7 +615,7 @@ pub fn bind_input_handlers(
 	});
 	let tx_add_participant = ui_tx.clone();
 	parts.call_parts.add_participant_btn.on_click(move |_| {
-		let _ = tx_add_participant.send(UiCommand::AddParticipant);
+		let _ = tx_add_participant.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::AddCallParticipant));
 	});
 
 	let conv_data_dialog_back = parts.conversation_data_dialog.dialog.clone();
@@ -872,7 +924,7 @@ pub fn bind_input_handlers(
 
 	let tx_add_member = ui_tx.clone();
 	parts.group_data_dialog.add_member_btn.on_click(move |_| {
-		let _ = tx_add_member.send(UiCommand::AddGroupMember);
+		let _ = tx_add_member.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::AddGroupMember));
 	});
 
 	let tx_make_admin = ui_tx.clone();
