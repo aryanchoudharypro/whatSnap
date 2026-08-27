@@ -276,6 +276,35 @@ fn open_output_stream(preferred_name: Option<&str>) -> Result<MixerDeviceSink, r
 	}
 }
 
+/// Makes sure `s.audio_stream` is a live stream on whatever device the
+/// user's output preference currently resolves to, (re)opening it if it's
+/// missing or if that resolution has changed since it was last opened.
+///
+/// A cpal/WASAPI stream is bound to one concrete endpoint for its whole
+/// lifetime - it doesn't follow the OS's "default device" pointer moving,
+/// so a stream opened before unplugging headphones stays silently pointed
+/// at that now-gone endpoint even after the headphones (or the fallback
+/// speakers) come back. Without this re-check, every sound the app plays
+/// through `audio_stream` (call-ended tone, voice message playback) would
+/// stay dead until the app was restarted.
+fn ensure_audio_stream(s: &mut AppState) {
+	let current_name = audio_devices::resolve_output_device_name(s.settings.output_device_name.as_deref());
+	if s.audio_stream.is_some() && s.audio_stream_device_name == current_name {
+		return;
+	}
+	match open_output_stream(s.settings.output_device_name.as_deref()) {
+		Ok(stream) => {
+			s.audio_stream = Some(stream);
+			s.audio_stream_device_name = current_name;
+		}
+		Err(e) => {
+			eprintln!("[AUDIO] Failed to (re)open output stream: {:?}", e);
+			s.audio_stream = None;
+			s.audio_stream_device_name = None;
+		}
+	}
+}
+
 fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 	if !sounds_enabled {
 		return;
@@ -297,11 +326,7 @@ fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 
 fn play_call_fail_sound(state: &mut AppState) {
 	println!("[AUDIO] play_call_fail_sound called");
-	if state.audio_stream.is_none() {
-		if let Ok(stream_handle) = open_output_stream(state.settings.output_device_name.as_deref()) {
-			state.audio_stream = Some(stream_handle);
-		}
-	}
+	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(&stream_handle.mixer());
 		let cursor = std::io::Cursor::new(include_bytes!("../sounds/whatsapp_windows_hangup_01_705kbps.wav"));
@@ -321,11 +346,7 @@ fn play_call_fail_sound(state: &mut AppState) {
 
 fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'static [u8]) {
 	println!("[AUDIO] start_call_ringing_sound called");
-	if state.audio_stream.is_none() {
-		if let Ok(stream_handle) = open_output_stream(state.settings.output_device_name.as_deref()) {
-			state.audio_stream = Some(stream_handle);
-		}
-	}
+	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(&stream_handle.mixer());
 		let cursor = std::io::Cursor::new(sound_bytes);
@@ -454,6 +475,12 @@ struct AppState {
 	ws_tx: mpsc::Sender<String>,
 	ui_tx: UiCommandSender,
 	audio_stream: Option<MixerDeviceSink>,
+	/// Friendly name of the device `audio_stream` was actually opened
+	/// against (as resolved at open time, even for "System Default") - lets
+	/// `ensure_audio_stream` notice the resolved device has since changed
+	/// (headphones unplugged/replugged) and reopen instead of silently
+	/// writing to a now-stale stream until the app is restarted.
+	audio_stream_device_name: Option<String>,
 	audio_sink: Option<Player>,
 	playing_msg_id: Option<String>,
 	audio_process: Option<std::process::Child>,
@@ -1376,6 +1403,7 @@ fn main() {
 			ws_tx: ws_out_tx,
 			ui_tx: ui_tx.clone(),
 			audio_stream: None,
+			audio_stream_device_name: None,
 			audio_sink: None,
 			playing_msg_id: None,
 			audio_process: None,
@@ -5195,13 +5223,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 
 									eprintln!("[LOG UI] Audio total duration: {}s", s.audio_total_secs);
 
-									if s.audio_stream.is_none() {
-										if let Ok(stream_handle) =
-											open_output_stream(s.settings.output_device_name.as_deref())
-										{
-											s.audio_stream = Some(stream_handle);
-										}
-									}
+									ensure_audio_stream(&mut s);
 									let mut played = false;
 									if let Some(ref stream_handle) = s.audio_stream {
 										let sink = Player::connect_new(&stream_handle.mixer());
