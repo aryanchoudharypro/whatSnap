@@ -1203,6 +1203,35 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	// Escape only closed the conversation when the message list or composer
+	// itself had focus - hitting it from any other control in the
+	// conversation panel (a toolbar button, the "Conversation data" field,
+	// etc.) did nothing. CHAR_HOOK fires on the frame for every keypress
+	// before it reaches whichever control has focus, so it catches Escape
+	// regardless of what's focused. Left alone when the in-conversation
+	// search panel is showing (Escape closes that first, like official
+	// WhatsApp) or selection mode is active (its own list has dedicated
+	// Escape handling to exit selection instead).
+	let tx_escape_hook = ui_tx.clone();
+	let conv_panel_hook = parts.conversations_parts.conversation_panel;
+	let search_panel_hook = parts.conversations_parts.search_panel;
+	let state_hook = state.clone();
+	parts.frame.bind_internal(wxdragon::event::EventType::CHAR_HOOK, move |event| {
+		let data = WindowEventData::new(event);
+		if let WindowEventData::Keyboard(ref key_event) = data {
+			if key_event.get_key_code() == Some(27)
+				&& conv_panel_hook.is_shown()
+				&& !search_panel_hook.is_shown()
+				&& !state_hook.borrow().selection_mode
+			{
+				let _ = tx_escape_hook.send(UiCommand::CloseConversation);
+				data.skip(false);
+				return;
+			}
+		}
+		data.skip(true);
+	});
+
 	let tx_filter = ui_tx.clone();
 	let conv_search = parts.conversations_parts.search_field;
 	conv_search.on_text_changed(move |_| {
