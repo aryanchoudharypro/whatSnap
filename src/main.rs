@@ -712,6 +712,11 @@ struct AppState {
 	own_push_name: String,
 	own_about: String,
 	privacy_settings: std::collections::HashMap<String, String>,
+	/// Whether `privacy_settings` reflects a real server response yet. Until
+	/// this is true the settings dialog's Save button stays disabled, so a
+	/// user who presses it before the fetch lands can't silently overwrite
+	/// their real privacy settings with the dropdowns' placeholder defaults.
+	privacy_settings_loaded: bool,
 }
 
 fn build_media_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
@@ -1454,6 +1459,7 @@ fn main() {
 			own_push_name: String::new(),
 			own_about: String::new(),
 			privacy_settings: std::collections::HashMap::new(),
+			privacy_settings_loaded: false,
 			group_state: crate::ui::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
@@ -4419,10 +4425,12 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										s.privacy_settings.insert(ptr.to_string(), v.to_string());
 									}
 								}
+								s.privacy_settings_loaded = true;
 								let privacy_settings = s.privacy_settings.clone();
 								drop(s);
 								if parts.settings_dialog.dialog.is_shown() {
 									use crate::ui::settings_dialog::*;
+									parts.settings_dialog.ok_btn.enable(true);
 									let get = |k: &str| privacy_settings.get(k).map(|s| s.as_str()).unwrap_or("all");
 									set_combo_from_value(
 										&parts.settings_dialog.last_seen_combo,

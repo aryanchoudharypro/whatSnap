@@ -756,6 +756,7 @@ pub fn bind_input_handlers(
 	let input_device_combo_open = parts.settings_dialog.input_device_combo.clone();
 	let output_device_combo_open = parts.settings_dialog.output_device_combo.clone();
 	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check.clone();
+	let ok_btn_open = parts.settings_dialog.ok_btn.clone();
 	let state_settings_open = state.clone();
 	parts.frame.on_menu_selected(move |evt| {
 		if evt.get_id() != MENU_ID_SETTINGS {
@@ -794,6 +795,12 @@ pub fn bind_input_handlers(
 			s.settings.output_device_name.as_deref(),
 		);
 
+		// Until a real response to `get_privacy_settings` lands, the combos
+		// above are showing whatever was cached from a previous load (or, on
+		// first run, the "all"/Everyone placeholder from `get()`'s fallback).
+		// Keep Save disabled so a quick press before the fetch completes
+		// can't silently push that placeholder to the server.
+		ok_btn_open.enable(s.privacy_settings_loaded);
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_own_profile"}).to_string());
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_privacy_settings"}).to_string());
 		drop(s);
