@@ -1759,6 +1759,29 @@ fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
 }
 
+/// Drops the "N unread messages" divider from `jid`'s message list right
+/// away, if `jid` is the chat currently open and it has one - shared by
+/// replying (obviously seen) and explicitly marking the chat read from the
+/// chat-list context menu. Removing just the divider row in place is O(1)
+/// against the widget rather than rebuilding+re-appending the whole
+/// (unvirtualized) list, which visibly froze the UI on long chats.
+fn clear_unread_divider_for_open_chat(s: &mut AppState, parts: &WindowParts, jid: &str) {
+	if s.unread_divider_jid.as_deref() != Some(jid) {
+		return;
+	}
+	s.unread_divider_jid = None;
+	s.unread_divider_count = 0;
+	s.background_unread_message_ids.clear();
+	s.messages.retain(|m| !m.is_unread_divider);
+	if let Some(di) =
+		s.display_items.iter().position(|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider))
+	{
+		s.display_items.remove(di);
+		parts.conversations_parts.messages_list.delete(di as u32);
+	}
+	refresh_selection_list(s, parts);
+}
+
 /// Switches the conversation panel over to `jid`, requesting its message
 /// history. Shared by opening a chat from the sidebar (`OpenConversation`)
 /// and jumping straight to a phone number found in message text
@@ -1915,25 +1938,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				// seen, so drop the "N unread messages" divider from the list
 				// right away rather than waiting for the next time the chat is
 				// opened.
-				if s.unread_divider_jid.as_deref() == Some(jid.as_str()) {
-					s.unread_divider_jid = None;
-					s.unread_divider_count = 0;
-					s.background_unread_message_ids.clear();
-					s.messages.retain(|m| !m.is_unread_divider);
-					// Removing just the divider row in place is O(1) against the
-					// widget rather than rebuilding+re-appending the whole
-					// (unvirtualized) list, which visibly froze the UI on long
-					// chats.
-					if let Some(di) = s
-						.display_items
-						.iter()
-						.position(|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider))
-					{
-						s.display_items.remove(di);
-						parts.conversations_parts.messages_list.delete(di as u32);
-					}
-					refresh_selection_list(&mut s, parts);
-				}
+				clear_unread_divider_for_open_chat(&mut s, parts, jid);
 
 				let reply_id = s.pending_reply_id.take().unwrap_or_default();
 				let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
@@ -7030,6 +7035,7 @@ while ($true) {
 				let mut s = state.borrow_mut();
 				if read {
 					s.unread_counts.insert(jid.clone(), 0);
+					clear_unread_divider_for_open_chat(&mut s, parts, &jid);
 				} else {
 					s.unread_counts.insert(jid.clone(), 1);
 				}
