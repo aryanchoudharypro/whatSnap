@@ -4275,6 +4275,21 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								}
 							}
 						}
+						"community_subgroup_joined" => {
+							if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+								// The chat list itself already self-corrects via the
+								// broadcastChats() the backend fires right before this -
+								// but silence otherwise leaves a screen-reader user unable
+								// to tell "joined" apart from "nothing happened yet" (the
+								// failure paths for this same action all announce via the
+								// "error" event; this was the one success path that didn't).
+								let name = state.borrow().contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+								live_region::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									&format!("Joined {}.", name),
+								);
+							}
+						}
 						"about_updated" => {
 							if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
 								let s = state.borrow();
