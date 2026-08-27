@@ -564,6 +564,12 @@ struct AppState {
 	pending_reply_id: Option<String>,
 	pending_reply_sender: Option<String>,
 	pending_reply_preview: Option<String>,
+	/// Unsent composer text per chat, saved whenever the conversation is
+	/// switched away from (closing it, or opening a different chat) and
+	/// restored when that chat is opened again - so leaving mid-draft (e.g.
+	/// Escape) never loses what was typed. Cleared once the draft is
+	/// actually sent.
+	draft_messages: std::collections::HashMap<String, String>,
 	pending_receipts: std::collections::HashMap<String, String>,
 	downloads_in_progress: std::collections::HashMap<String, i64>,
 	pending_copy_announcements: std::collections::HashSet<String>,
@@ -1419,6 +1425,7 @@ fn main() {
 			pending_reply_id: None,
 			pending_reply_sender: None,
 			pending_reply_preview: None,
+			draft_messages: std::collections::HashMap::new(),
 			pending_receipts: std::collections::HashMap::new(),
 			downloads_in_progress: std::collections::HashMap::new(),
 			pending_copy_announcements: std::collections::HashSet::new(),
@@ -1788,12 +1795,28 @@ fn clear_unread_divider_for_open_chat(s: &mut AppState, parts: &WindowParts, jid
 	refresh_selection_list(s, parts);
 }
 
+/// Saves whatever is currently sitting in the composer into `draft_messages`
+/// under the chat that's about to be left, if any - so switching away (to
+/// another chat, or closing the conversation entirely) never silently
+/// discards an unsent message. A no-op if the composer is empty or no chat
+/// is currently open.
+fn save_composer_draft(s: &mut AppState, parts: &WindowParts) {
+	let Some(prev_jid) = s.selected_chat.clone() else { return };
+	let text = parts.conversations_parts.message_field.get_value();
+	if text.trim().is_empty() {
+		s.draft_messages.remove(&prev_jid);
+	} else {
+		s.draft_messages.insert(prev_jid, text);
+	}
+}
+
 /// Switches the conversation panel over to `jid`, requesting its message
 /// history. Shared by opening a chat from the sidebar (`OpenConversation`)
 /// and jumping straight to a phone number found in message text
 /// (`OpenChatByPhone`) — the latter's jid may not be in `filtered_chats` yet.
 fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
+	save_composer_draft(&mut s, parts);
 	s.selected_chat = Some(jid.to_string());
 	// Mirrors official WhatsApp: opening a chat clears any of its
 	// notifications still sitting in Action Center.
@@ -1837,8 +1860,9 @@ fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 
 	parts.attachment_dialog.attachment_info_label.set_label("");
 	parts.conversations_parts.messages_list.clear();
-	parts.conversations_parts.message_field.set_value("");
-	parts.conversations_parts.send_message_btn.show(false);
+	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();
+	parts.conversations_parts.message_field.set_value(&draft);
+	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
 	parts.conversations_parts.panel.layout();
 	let limit = 9999999;
 	let payload = serde_json::json!({
@@ -1960,6 +1984,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 					}
 				});
 				let _ = s.ws_tx.send(payload.to_string());
+				s.draft_messages.remove(jid);
 				parts.conversations_parts.message_field.set_value("");
 				parts.conversations_parts.send_message_btn.show(false);
 				parts.conversations_parts.remove_quote_btn.show(false);
@@ -6550,6 +6575,7 @@ while ($true) {
 		}
 		UiCommand::CloseConversation => {
 			let mut s = state.borrow_mut();
+			save_composer_draft(&mut s, parts);
 			s.selected_chat = None;
 			parts.conversations_parts.conversation_panel.show(false);
 			parts.conversations_parts.panel.layout();
@@ -7104,6 +7130,7 @@ while ($true) {
 				s.pinned_jids.remove(&jid);
 				s.muted_jids.remove(&jid);
 				s.unread_counts.remove(&jid);
+				s.draft_messages.remove(&jid);
 				let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 				if s.selected_chat.as_ref() == Some(&jid) {
 					s.selected_chat = None;
