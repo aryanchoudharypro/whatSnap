@@ -2923,11 +2923,6 @@ pub fn bind_input_handlers(
 		let _ = tx_toggle_search.send(UiCommand::ToggleSearchPanel);
 	});
 
-	let tx_toggle_selection = ui_tx.clone();
-	parts.conversations_parts.select_messages_btn.on_click(move |_| {
-		let _ = tx_toggle_selection.send(UiCommand::ToggleSelectionMode);
-	});
-
 	let tx_cancel_selection = ui_tx.clone();
 	parts.conversations_parts.selection_cancel_btn.on_click(move |_| {
 		let _ = tx_cancel_selection.send(UiCommand::ToggleSelectionMode);

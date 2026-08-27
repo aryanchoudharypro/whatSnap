@@ -22,7 +22,6 @@ pub struct ConversationsPanelParts {
 	pub add_attachment_btn: Button,
 	pub search_in_conv_btn: Button,
 	pub place_call_btn: Button,
-	pub select_messages_btn: Button,
 
 	pub search_panel: Panel,
 	pub search_close_btn: Button,
@@ -133,10 +132,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let place_call_btn = Button::builder(&top_btns_panel).with_label("Call").build();
 	place_call_btn.set_font(&theme::Fonts::body());
 	top_btns_sizer.add(&place_call_btn, 0, SizerFlag::Right, 5);
-
-	let select_messages_btn = Button::builder(&top_btns_panel).with_label("Select messages").build();
-	select_messages_btn.set_font(&theme::Fonts::body());
-	top_btns_sizer.add(&select_messages_btn, 0, SizerFlag::Right, 5);
 
 	top_btns_panel.set_sizer(top_btns_sizer, true);
 	conv_sizer.add(
@@ -366,7 +361,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		add_attachment_btn,
 		search_in_conv_btn,
 		place_call_btn,
-		select_messages_btn,
 		search_panel,
 		search_close_btn,
 		search_conv_label,
