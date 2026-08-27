@@ -619,6 +619,11 @@ struct AppState {
 	/// case where the backend never hears back at all rather than erroring.
 	call_answer_deadline: Option<std::time::Instant>,
 	call_ringing_sink: Option<Player>,
+	/// Display name of the caller for the current incoming call, set on
+	/// `incoming_call` and cleared as soon as it's answered, rejected, or
+	/// otherwise handled. Still set when `call_ended` arrives means it rang
+	/// out unanswered - that's what drives the "Missed voice call" toast.
+	incoming_call_caller: Option<String>,
 	group_data_members: Vec<String>,
 	/// Action JIDs for `group_data_members`, aligned by index (unfiltered).
 	group_data_member_jids: Vec<String>,
@@ -1368,6 +1373,7 @@ fn main() {
 			call_pending_cancel: false,
 			call_answer_deadline: None,
 			call_ringing_sink: None,
+			incoming_call_caller: None,
 			group_data_members: Vec::new(),
 			group_data_member_jids: Vec::new(),
 			group_data_member_admin: Vec::new(),
@@ -2052,6 +2058,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								if let Some(audio_port) = data.get("audio_port").and_then(|p| p.as_u64()) {
 									let mut s = state.borrow_mut();
 									s.call_answer_deadline = None;
+									s.incoming_call_caller = None;
 									stop_call_ringing_sound(&mut s);
 									if let Ok(streams) = call_audio::start_audio_streams(
 										audio_port as u16,
@@ -2130,10 +2137,27 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.call_parts.frame.show(false);
 										stop_call_ringing_sound(&mut s);
 										play_call_fail_sound(&mut s);
-										live_region::announce(
-											parts.conversations_parts.messages_announcer.clone(),
-											"Call ended.",
-										);
+										// Still set here means an incoming call rang out without
+										// being answered or rejected - surface a "missed call"
+										// notification the same way a still-open ring toast would,
+										// since the ring itself may well have gone unnoticed.
+										if let Some(caller) = s.incoming_call_caller.take() {
+											if s.settings.notifications_enabled {
+												show_toast_notification(
+													"Missed call",
+													&format!("Missed voice call from {}", caller),
+												);
+											}
+											live_region::announce(
+												parts.conversations_parts.messages_announcer.clone(),
+												&format!("Missed voice call from {}.", caller),
+											);
+										} else {
+											live_region::announce(
+												parts.conversations_parts.messages_announcer.clone(),
+												"Call ended.",
+											);
+										}
 									}
 								}
 							}
@@ -2146,6 +2170,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										s.active_call_id = None;
 										s.active_call_audio = None;
 										s.call_answer_deadline = None;
+										s.incoming_call_caller = None;
 										parts.call_parts.frame.show(false);
 										stop_call_ringing_sound(&mut s);
 										play_call_fail_sound(&mut s);
@@ -2178,6 +2203,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										.map(|n| n.to_string())
 										.or_else(|| s.contacts.get(caller).cloned())
 										.unwrap_or_else(|| caller.to_string());
+									s.incoming_call_caller = Some(name.clone());
 									parts
 										.call_parts
 										.status_label
@@ -4077,6 +4103,20 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								if is_relevant {
 									let payload = serde_json::json!({
 										"action": "get_group_info",
+										"data": { "jid": jid }
+									});
+									let _ = s.ws_tx.send(payload.to_string());
+								}
+							}
+						}
+						"about_updated" => {
+							if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+								let s = state.borrow();
+								let is_relevant = s.selected_chat.as_deref() == Some(jid)
+									&& parts.conversation_data_dialog.dialog.is_shown();
+								if is_relevant {
+									let payload = serde_json::json!({
+										"action": "get_user_info",
 										"data": { "jid": jid }
 									});
 									let _ = s.ws_tx.send(payload.to_string());
@@ -6274,6 +6314,7 @@ while ($true) {
 				parts.call_parts.frame.show(false);
 				s.active_call_id = None;
 				s.call_answer_deadline = None;
+				s.incoming_call_caller = None;
 				stop_call_ringing_sound(&mut s);
 				play_call_fail_sound(&mut s);
 			}
