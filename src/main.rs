@@ -3761,8 +3761,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 
 								let s = state.borrow();
 								if Some(chat_jid.to_string()) == s.selected_chat {
-									let sender_name =
-										s.contacts.get(sender_jid).cloned().unwrap_or_else(|| sender_jid.to_string());
+									let sender_name = s
+										.contacts
+										.get(sender_jid)
+										.cloned()
+										.unwrap_or_else(|| display_name_for_jid(sender_jid));
 									if !sender_name.is_empty() {
 										let announcement = if is_recording && s.settings.announce_recording {
 											Some(format!("{} is recording audio...", sender_name))
