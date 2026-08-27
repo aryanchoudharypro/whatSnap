@@ -282,6 +282,7 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 			log.Println("Error searching messages:", err)
 		}
 		sendEvent(conn, "search_results", map[string]interface{}{
+			"jid":     data.JID,
 			"query":   data.Query,
 			"results": results,
 		})

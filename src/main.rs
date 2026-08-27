@@ -3398,6 +3398,13 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						}
 						"conversation_messages" => {
 							if let Some(data) = val.get("data") {
+								let response_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+								// The chat may have been switched again while this
+								// request was in flight - applying a stale response
+								// would silently populate the wrong chat's history.
+								if state.borrow().selected_chat.as_deref() != Some(response_jid) {
+									return;
+								}
 								if let Some(messages) = data.get("messages").and_then(|m| m.as_array()) {
 									let mut parsed_msgs = Vec::new();
 									for msg in messages {
@@ -3864,6 +3871,13 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						}
 						"search_results" => {
 							if let Some(data) = val.get("data") {
+								let response_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+								// The chat may have been switched again while this
+								// search was in flight - applying a stale response
+								// would silently populate the wrong chat's messages.
+								if state.borrow().selected_chat.as_deref() != Some(response_jid) {
+									return;
+								}
 								if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
 									let mut parsed_msgs: Vec<ChatMessage> = Vec::new();
 									for msg_val in results {
