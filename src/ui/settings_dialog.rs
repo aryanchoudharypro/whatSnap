@@ -197,16 +197,22 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	dialog.set_sizer(main_sizer, true);
 	dialog.center();
 
+	// CHAR_HOOK fires on this dialog (a top-level window) before the
+	// keypress reaches whichever control has focus, so Escape closes the
+	// dialog regardless of which checkbox/combo/field/tab is focused -
+	// binding it per-widget (as this used to, on sounds_check only) misses
+	// everything else in the dialog.
 	let dlg_esc = dialog.clone();
-	sounds_check.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
+	dialog.bind_internal(EventType::CHAR_HOOK, move |event| {
+		let data = WindowEventData::new(event);
+		if let WindowEventData::Keyboard(ref key) = data {
 			if key.get_key_code() == Some(27) {
 				dlg_esc.end_modal(ID_CANCEL);
-				event.skip(false);
+				data.skip(false);
 				return;
 			}
 		}
-		event.skip(true);
+		data.skip(true);
 	});
 
 	SettingsDialogParts {

@@ -5735,6 +5735,17 @@ while ($true) {
 					}
 					s.is_voice_paused = true;
 					s.voice_pause_instant = Some(std::time::Instant::now());
+					// Unlike Discard/Send, pausing never told the backend the
+					// composing state had stopped - the recipient kept seeing
+					// "recording audio..." for the whole pause, not just until
+					// WhatsApp's own protocol-level timeout cleared it.
+					if let Some(ref jid) = s.selected_chat {
+						let payload = serde_json::json!({
+							"action": "send_typing",
+							"data": { "jid": jid, "state": "paused", "media": "" }
+						});
+						let _ = s.ws_tx.send(payload.to_string());
+					}
 					parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
 					live_region::announce(
 						parts.conversations_parts.messages_announcer.clone(),
@@ -5775,6 +5786,13 @@ while ($true) {
 						s.is_voice_paused = false;
 						if let Some(inst) = s.voice_pause_instant.take() {
 							s.voice_paused_duration += inst.elapsed();
+						}
+						if let Some(ref jid) = s.selected_chat {
+							let payload = serde_json::json!({
+								"action": "send_typing",
+								"data": { "jid": jid, "state": "composing", "media": "audio" }
+							});
+							let _ = s.ws_tx.send(payload.to_string());
 						}
 						parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
 						live_region::announce(

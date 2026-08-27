@@ -54,16 +54,20 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 
 	dialog.center();
 
+	// CHAR_HOOK fires on this dialog (a top-level window) before the
+	// keypress reaches whichever control has focus, so Escape discards the
+	// attachment regardless of what's focused, not just caption_field.
 	let dlg_att = dialog.clone();
-	caption_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
+	dialog.bind_internal(EventType::CHAR_HOOK, move |event| {
+		let data = WindowEventData::new(event);
+		if let WindowEventData::Keyboard(ref key) = data {
 			if key.get_key_code() == Some(27) {
 				dlg_att.end_modal(ID_CANCEL);
-				event.skip(false);
+				data.skip(false);
 				return;
 			}
 		}
-		event.skip(true);
+		data.skip(true);
 	});
 
 	AttachmentDialogParts {
