@@ -202,6 +202,16 @@ func retryOneMessage(conn net.Conn, id string) {
 		return
 	}
 
+	// Unlike the text path (sendPendingTextMessage), nothing claimed an
+	// in-flight slot for media before this point - two overlapping retries
+	// (e.g. a double-tapped "Retry send" on a slow upload) would otherwise
+	// both pass the pending/failed status check above and both upload the
+	// same file concurrently.
+	if !beginSendAttempt(id) {
+		return
+	}
+	defer endSendAttempt(id)
+
 	db.Exec(`UPDATE messages SET status = 'uploading' WHERE id = ?`, id)
 	broadcastEvent("message", map[string]interface{}{
 		"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
