@@ -2777,6 +2777,19 @@ pub fn bind_input_handlers(
 	let conv_parts_sel = parts.conversations_parts.clone();
 	let last_layout_time = std::cell::Cell::new(std::time::Instant::now());
 	let tx_sel = ui_tx.clone();
+	// The 100ms throttle below skips layout() on some events in a rapid
+	// selection burst (e.g. holding an arrow key down through messages) so
+	// the toolbar doesn't visibly freeze while it repaints on every row. But
+	// if the burst's last event lands inside the throttle window, that final
+	// show()/hide() never gets laid out - the toolbar is stuck showing the
+	// previous row's buttons until some unrelated event happens to trigger
+	// another layout. This one-shot timer, (re)armed on every skipped
+	// layout, guarantees a trailing layout once the burst actually settles.
+	let action_layout_timer = Timer::new(&parts.frame);
+	let action_panel_for_timer = parts.conversations_parts.action_panel.clone();
+	action_layout_timer.on_tick(move |_| {
+		action_panel_for_timer.layout();
+	});
 	parts.conversations_parts.messages_list.on_selection_changed(move |event| {
 		if let Some(idx) = event.get_selection() {
 			if idx == 0 {
@@ -2867,6 +2880,8 @@ pub fn bind_input_handlers(
 				if now.duration_since(last_layout_time.get()) > std::time::Duration::from_millis(100) {
 					conv_parts_sel.action_panel.layout();
 					last_layout_time.set(now);
+				} else {
+					action_layout_timer.start(120, true);
 				}
 			}
 		} else {
@@ -2896,6 +2911,8 @@ pub fn bind_input_handlers(
 				if now.duration_since(last_layout_time.get()) > std::time::Duration::from_millis(100) {
 					conv_parts_sel.action_panel.layout();
 					last_layout_time.set(now);
+				} else {
+					action_layout_timer.start(120, true);
 				}
 			}
 		}
