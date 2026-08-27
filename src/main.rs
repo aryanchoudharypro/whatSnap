@@ -2305,21 +2305,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										stop_call_ringing_sound(&mut s);
 										play_call_fail_sound(&mut s);
 										// Still set here means an incoming call rang out without
-										// being answered or rejected - surface a "missed call"
-										// notification the same way a still-open ring toast would,
-										// since the ring itself may well have gone unnoticed.
-										if let Some(caller) = s.incoming_call_caller.take() {
-											if s.settings.notifications_enabled {
-												show_toast_notification(
-													"Missed call",
-													&format!("Missed voice call from {}", caller),
-												);
-											}
-											live_region::announce(
-												parts.conversations_parts.messages_announcer.clone(),
-												&format!("Missed voice call from {}.", caller),
-											);
-										} else {
+										// being answered or rejected. No toast/announcement for
+										// this case - missed calls are silent, just clear state.
+										if s.incoming_call_caller.take().is_none() {
 											live_region::announce(
 												parts.conversations_parts.messages_announcer.clone(),
 												"Call ended.",
