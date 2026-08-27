@@ -1920,14 +1920,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 					s.unread_divider_count = 0;
 					s.background_unread_message_ids.clear();
 					s.messages.retain(|m| !m.is_unread_divider);
-					let is_group = jid.ends_with("@g.us");
-					s.display_items = whantv::group_messages_into_display_items(&s.messages);
-					parts.conversations_parts.messages_list.freeze();
-					parts.conversations_parts.messages_list.clear();
-					for item in &s.display_items {
-						parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+					// Removing just the divider row in place is O(1) against the
+					// widget rather than rebuilding+re-appending the whole
+					// (unvirtualized) list, which visibly froze the UI on long
+					// chats.
+					if let Some(di) = s
+						.display_items
+						.iter()
+						.position(|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider))
+					{
+						s.display_items.remove(di);
+						parts.conversations_parts.messages_list.delete(di as u32);
 					}
-					parts.conversations_parts.messages_list.thaw();
 					refresh_selection_list(&mut s, parts);
 				}
 
