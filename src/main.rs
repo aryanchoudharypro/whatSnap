@@ -2793,9 +2793,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												.starts_with("[Photo]") || chat_msg.text.starts_with("[Image]")
 												|| chat_msg.text.starts_with("[Video]"));
 
-										let mut needs_full_rebuild = false;
-										if is_media_msg {
-											let should_merge = if let Some(last_item) = s.display_items.last() {
+										let should_merge = if is_media_msg {
+											if let Some(last_item) = s.display_items.last() {
 												match last_item {
 													whantv::DisplayItem::Single(prev_msg) => {
 														let prev_is_media =
@@ -2814,36 +2813,56 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												}
 											} else {
 												false
-											};
-
-											if should_merge {
-												needs_full_rebuild = true;
-											} else {
-												s.display_items.push(whantv::DisplayItem::Single(chat_msg.clone()));
-												parts
-													.conversations_parts
-													.messages_list
-													.append(&chat_msg.format_display(is_group));
 											}
+										} else {
+											false
+										};
+
+										if should_merge {
+											// Merging into the previous item only changes that one
+											// row's label (e.g. "2 photos" -> "3 photos") - update it
+											// in place instead of regrouping and re-appending the
+											// whole (unvirtualized) list.
+											let last_idx = s.display_items.len() - 1;
+											let merged = match s.display_items.pop().unwrap() {
+												whantv::DisplayItem::Single(prev_msg) => whantv::DisplayItem::Album {
+													id: prev_msg.id.clone(),
+													sender_jid: prev_msg.sender_jid.clone(),
+													sender_name: prev_msg.sender_name.clone(),
+													from_me: prev_msg.from_me,
+													timestamp: prev_msg.timestamp,
+													messages: vec![prev_msg, chat_msg.clone()],
+												},
+												whantv::DisplayItem::Album {
+													id,
+													sender_jid,
+													sender_name,
+													from_me,
+													timestamp,
+													mut messages,
+												} => {
+													messages.push(chat_msg.clone());
+													whantv::DisplayItem::Album {
+														id,
+														sender_jid,
+														sender_name,
+														from_me,
+														timestamp,
+														messages,
+													}
+												}
+											};
+											parts
+												.conversations_parts
+												.messages_list
+												.set_string(last_idx as u32, &merged.format_display(is_group));
+											s.display_items.push(merged);
 										} else {
 											s.display_items.push(whantv::DisplayItem::Single(chat_msg.clone()));
 											parts
 												.conversations_parts
 												.messages_list
 												.append(&chat_msg.format_display(is_group));
-										}
-
-										if needs_full_rebuild {
-											s.display_items = whantv::group_messages_into_display_items(&s.messages);
-											parts.conversations_parts.messages_list.freeze();
-											parts.conversations_parts.messages_list.clear();
-											for item in &s.display_items {
-												parts
-													.conversations_parts
-													.messages_list
-													.append(&item.format_display(is_group));
-											}
-											parts.conversations_parts.messages_list.thaw();
 										}
 										refresh_selection_list(&mut s, parts);
 
