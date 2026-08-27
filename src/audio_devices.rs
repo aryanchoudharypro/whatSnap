@@ -63,6 +63,15 @@ pub fn resolve_output_device(name: Option<&str>) -> Option<cpal::Device> {
 	host.default_output_device()
 }
 
+/// The friendly name `resolve_output_device(name)` would currently resolve
+/// to - cheap enough to call before every playback to detect whether a
+/// cached output stream needs reopening (e.g. the "System Default" device
+/// changed because headphones were unplugged/replugged; a stream opened
+/// against one concrete endpoint doesn't follow that change on its own).
+pub fn resolve_output_device_name(name: Option<&str>) -> Option<String> {
+	resolve_output_device(name).and_then(|d| device_name(&d))
+}
+
 /// Finds the WASAPI endpoint whose friendly name matches `name` among active
 /// devices for `dataflow`. Returns `None` for the "use system default"
 /// selection, or if the named device is no longer present - callers should

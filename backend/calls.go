@@ -51,8 +51,26 @@ func initCallClient() {
 		log.Printf("Incoming call from %v\n", call.Peer())
 
 		activeCallsMutex.Lock()
-		activeCalls[call.ID()] = call
+		alreadyOnACall := len(activeCalls) > 0
+		if !alreadyOnACall {
+			activeCalls[call.ID()] = call
+		}
 		activeCallsMutex.Unlock()
+
+		if alreadyOnACall {
+			// meowcaller has no protocol-level "busy" reason to send back
+			// (WhatsApp's reject stanza doesn't carry one in this library),
+			// so the closest equivalent is declining it the same way a
+			// manual Reject does - this at least stops a second incoming
+			// call from silently clobbering the active call's UI state, and
+			// lets it go to voicemail/missed-call on the caller's end
+			// instead of ringing against someone who's already on a call.
+			log.Printf("Already on a call, auto-rejecting incoming call from %v\n", call.Peer())
+			if err := call.Reject(); err != nil {
+				log.Println("Failed to auto-reject incoming call while busy:", err)
+			}
+			return
+		}
 
 		// OnReady is a single-slot callback on *meowcaller.Call (overwritten,
 		// not a list), so this is the one and only place that may register
