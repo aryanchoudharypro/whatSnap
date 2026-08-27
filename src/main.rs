@@ -1592,7 +1592,19 @@ fn main() {
 			if let Some(deadline) = s.call_answer_deadline {
 				if deadline.elapsed() >= std::time::Duration::from_secs(15) {
 					s.call_answer_deadline = None;
-					s.active_call_id = None;
+					// Giving up locally doesn't mean the call is actually gone on
+					// the backend/network - if we don't also tell it to hang up,
+					// the call can still connect moments later (call_connected
+					// doesn't check active_call_id - see below) and reopen the UI
+					// for a call the user was just told had failed, with no way
+					// to leave it since active_call_id is about to become None.
+					if let Some(call_id) = s.active_call_id.take() {
+						let msg = serde_json::json!({
+							"action": "leave_call",
+							"data": { "call_id": call_id }
+						});
+						let _ = s.ws_tx.send(msg.to_string());
+					}
 					s.active_call_audio = None;
 					parts_typing_timer.call_parts.frame.show(false);
 					play_call_fail_sound(&mut s);
@@ -2166,9 +2178,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						}
 						"call_connected" => {
 							if let Some(data) = val.get("data") {
-								let _call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+								let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
 								if let Some(audio_port) = data.get("audio_port").and_then(|p| p.as_u64()) {
 									let mut s = state.borrow_mut();
+									// Unlike call_ended/call_answer_failed, this used to act
+									// on any call_connected regardless of call_id - a
+									// call_connected arriving after we'd already given up on
+									// (or left) that call, e.g. the answer watchdog above,
+									// reopened the call UI and started a fresh audio stream
+									// for a call the user was already told had ended.
+									if s.active_call_id.as_deref() != Some(call_id) {
+										return;
+									}
 									s.call_answer_deadline = None;
 									s.incoming_call_caller = None;
 									stop_call_ringing_sound(&mut s);
