@@ -6461,6 +6461,17 @@ while ($true) {
 						"data": { "jid": jid, "message_ids": ids }
 					});
 					let _ = s.ws_tx.send(payload.to_string());
+					// handle_mark_read on the backend only broadcasts a
+					// "chat_updated" event, which nothing here listens for -
+					// left alone, unread_counts (and thus the chat list's
+					// "N unread messages" label, and the divider recreated
+					// from it on the next OpenConversation) would stay stale
+					// until some unrelated event happened to trigger a full
+					// chats resync. Clear it locally now and ask for a fresh
+					// snapshot to repaint the list right away.
+					s.unread_counts.insert(jid, 0);
+					let refresh_payload = serde_json::json!({ "action": "get_chats" });
+					let _ = s.ws_tx.send(refresh_payload.to_string());
 				} else {
 					s.background_unread_message_ids.clear();
 				}
