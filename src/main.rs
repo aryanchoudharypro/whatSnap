@@ -51,6 +51,9 @@ pub enum UiCommand {
 		phone: String,
 	},
 	PrepareNewGroup,
+	PrepareContactPicker(ContactPickerMode),
+	FilterContactPicker(String),
+	SelectContactPickerResult(usize),
 	CreateGroup {
 		name: String,
 		participants: Vec<String>,
@@ -144,7 +147,6 @@ pub enum UiCommand {
 	RejectCall,
 	MuteCall,
 	LeaveCall,
-	AddParticipant,
 	UpdateGroupSettings {
 		name: String,
 		topic: String,
@@ -184,7 +186,6 @@ pub enum UiCommand {
 		jid: String,
 	},
 	FilterGroupMembers(String),
-	AddGroupMember,
 	ToggleGroupMemberAdmin(u32),
 	RemoveGroupMember(u32),
 	JoinCommunitySubgroup(u32),
@@ -221,6 +222,23 @@ use std::fs::File;
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
 use rodio_wsola::WsolaSourceExt;
 use whantv::ChatMessage;
+
+/// A synced WhatsApp contact, as returned by the backend's `get_contacts`.
+#[derive(Clone)]
+pub struct Contact {
+	jid: String,
+	name: String,
+	phone: String,
+}
+
+/// What selecting a contact from the shared contact-picker dialog
+/// (`new_conv_dialog`, reused for all three "pick someone" flows) should do.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ContactPickerMode {
+	OpenChat,
+	AddCallParticipant,
+	AddGroupMember,
+}
 
 #[derive(Clone, Copy)]
 pub enum NotificationSound {
@@ -512,6 +530,17 @@ struct AppState {
 	background_unread_message_ids: Vec<String>,
 	display_names: std::collections::HashMap<String, String>,
 	contacts: std::collections::HashMap<String, String>,
+	/// Full synced contact list (name + phone), independent of `contacts`
+	/// (which only ever covers jids that already appear in `chats`) - backs
+	/// the shared contact-picker dialog for New Conversation, Add call
+	/// participant, and Add group member.
+	all_contacts: Vec<Contact>,
+	/// What picking a result from `new_conv_dialog` should currently do.
+	contact_picker_mode: ContactPickerMode,
+	/// jids aligned with whatever `new_conv_dialog.results_list` is
+	/// currently showing (post-filter), so a selected row index can be
+	/// resolved back to a jid.
+	contact_picker_current_jids: Vec<String>,
 	presence_labels: std::collections::HashMap<String, String>,
 	group_state: crate::ui::new_group::NewGroupState,
 	selected_chat: Option<String>,
@@ -1370,6 +1399,9 @@ fn main() {
 			background_unread_message_ids: Vec::new(),
 			display_names: std::collections::HashMap::new(),
 			contacts: std::collections::HashMap::new(),
+			all_contacts: Vec::new(),
+			contact_picker_mode: ContactPickerMode::OpenChat,
+			contact_picker_current_jids: Vec::new(),
 			presence_labels: std::collections::HashMap::new(),
 			typing_timestamps: std::collections::HashMap::new(),
 			typing_announce_state: std::collections::HashMap::new(),
@@ -1736,6 +1768,37 @@ fn display_name_for_jid(jid: &str) -> String {
 	jid.to_string()
 }
 
+/// Formats a raw digits-only phone number (e.g. "919800000003") as
+/// "+91 96671 74783", falling back to a plain "+"-prefixed string if it
+/// doesn't parse as a phone number at all.
+fn format_phone_digits(raw_phone: &str) -> String {
+	if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+		return parsed.format().mode(phonenumber::Mode::International).to_string();
+	}
+	format!("+{}", raw_phone)
+}
+
+/// Builds the "Name +91 96671 74783" (or just the number, if unnamed) label
+/// shown for a contact in the shared contact-picker dialog.
+fn contact_picker_label(contact: &Contact) -> String {
+	let raw_phone = if !contact.phone.is_empty() {
+		contact.phone.as_str()
+	} else {
+		contact.jid.split('@').next().unwrap_or(&contact.jid)
+	};
+	let formatted_phone = if raw_phone.chars().all(|c| c.is_ascii_digit()) && !raw_phone.is_empty() {
+		Some(format_phone_digits(raw_phone))
+	} else {
+		None
+	};
+	match (contact.name.trim().is_empty(), formatted_phone) {
+		(false, Some(phone)) => format!("{} {}", contact.name.trim(), phone),
+		(false, None) => contact.name.trim().to_string(),
+		(true, Some(phone)) => phone,
+		(true, None) => contact.jid.clone(),
+	}
+}
+
 /// Rebuilds `messages_select_list` from the current `display_items` while
 /// selection mode is active - a no-op otherwise. Called everywhere
 /// `messages_list` itself gets a structural rebuild (new message, delete,
@@ -1770,6 +1833,31 @@ fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	}
 	parts.conversations_parts.messages_select_list.thaw();
 	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
+}
+
+/// Re-filters `s.all_contacts` by `query` (against the same "Name +phone"
+/// text shown to the user) and repaints `new_conv_dialog.results_list` with
+/// the matches, recording their jids in `contact_picker_current_jids` so a
+/// selected row index can be resolved back to a jid. Shared by opening the
+/// dialog (empty query - the whole contact list), typing in its search
+/// field, and a fresh `contacts` response landing while it's already open.
+fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let q = query.trim().to_lowercase();
+	let mut s = state.borrow_mut();
+	let mut labels = Vec::new();
+	let mut jids = Vec::new();
+	for contact in &s.all_contacts {
+		let label = contact_picker_label(contact);
+		if q.is_empty() || label.to_lowercase().contains(&q) {
+			labels.push(label);
+			jids.push(contact.jid.clone());
+		}
+	}
+	parts.new_conv_dialog.results_list.clear();
+	for label in &labels {
+		parts.new_conv_dialog.results_list.append(label);
+	}
+	s.contact_picker_current_jids = jids;
 }
 
 /// Drops the "N unread messages" divider from `jid`'s message list right
@@ -1887,12 +1975,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				let s = state.borrow();
 				let mut labels = Vec::new();
 				let mut jids = Vec::new();
-				for jid in &s.chats {
-					if !jid.ends_with("@g.us") && !jid.ends_with("@broadcast") {
-						let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-						labels.push(name);
-						jids.push(jid.clone());
-					}
+				for contact in &s.all_contacts {
+					labels.push(contact_picker_label(contact));
+					jids.push(contact.jid.clone());
 				}
 				(labels, jids)
 			};
@@ -1908,6 +1993,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			for label in all_labels {
 				parts.new_group_dialog.contacts_listbox.append(&label);
 			}
+			let payload = serde_json::json!({ "action": "get_contacts" });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
 			parts.new_group_dialog.dialog.show_modal();
 		}
 		UiCommand::CreateGroup { name, participants } => {
@@ -3227,6 +3314,39 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.build()
 											.show_modal();
 									}
+								}
+							}
+						}
+						"contacts" => {
+							if let Ok(rows) = serde_json::from_value::<Vec<serde_json::Value>>(
+								val.get("data").cloned().unwrap_or(serde_json::Value::Null),
+							) {
+								let mut contacts: Vec<Contact> = rows
+									.iter()
+									.filter_map(|row| {
+										let jid = row.get("jid").and_then(|j| j.as_str())?.to_string();
+										if jid.is_empty() {
+											return None;
+										}
+										let name = row.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+										let phone = row.get("phone").and_then(|p| p.as_str()).unwrap_or("").to_string();
+										Some(Contact { jid, name, phone })
+									})
+									.collect();
+								contacts.sort_by(|a, b| {
+									let ka = if a.name.is_empty() { &a.phone } else { &a.name };
+									let kb = if b.name.is_empty() { &b.phone } else { &b.name };
+									ka.to_lowercase().cmp(&kb.to_lowercase())
+								});
+								let mut s = state.borrow_mut();
+								s.all_contacts = contacts;
+								// Refresh the picker live if it's already open and the
+								// backend response landed after the dialog was shown
+								// with a possibly-empty or stale contact list.
+								if parts.new_conv_dialog.dialog.is_shown() {
+									let query = parts.new_conv_dialog.search_field.get_value();
+									drop(s);
+									apply_contact_picker_filter(&query, state, parts);
 								}
 							}
 						}
@@ -6463,35 +6583,65 @@ while ($true) {
 				live_region::announce(parts.conversations_parts.messages_announcer.clone(), status);
 			}
 		}
-		UiCommand::AddParticipant => {
-			let s = state.borrow();
-			if let Some(call_id) = &s.active_call_id {
-				let dlg = wxdragon::TextEntryDialog::builder(
-					&parts.frame,
-					"Enter phone number to add (with country code):",
-					"Add Participant",
-				)
-				.build();
-				if dlg.show_modal() == wxdragon::id::ID_OK {
-					let num = dlg.get_value().unwrap_or_default().trim().to_string();
-					if !num.is_empty() {
-						let mut clean = num.replace('+', "").replace('-', "").replace(' ', "");
-						if !clean.contains('@') {
-							clean = format!("{}@s.whatsapp.net", clean);
-						}
+		UiCommand::PrepareContactPicker(mode) => {
+			if mode == ContactPickerMode::AddCallParticipant && state.borrow().active_call_id.is_none() {
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "No active call.");
+				return;
+			}
+			state.borrow_mut().contact_picker_mode = mode;
+			parts.new_conv_dialog.search_field.set_value("");
+			let heading = match mode {
+				ContactPickerMode::OpenChat => "Search name or number",
+				ContactPickerMode::AddCallParticipant => "Search a contact to add to the call",
+				ContactPickerMode::AddGroupMember => "Search a contact to add to the group",
+			};
+			parts.new_conv_dialog.search_label.set_label(heading);
+			apply_contact_picker_filter("", state, parts);
+			let payload = serde_json::json!({ "action": "get_contacts" });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			parts.new_conv_dialog.dialog.show_modal();
+		}
+		UiCommand::FilterContactPicker(query) => {
+			apply_contact_picker_filter(&query, state, parts);
+		}
+		UiCommand::SelectContactPickerResult(idx) => {
+			let (jid_opt, mode) = {
+				let s = state.borrow();
+				(s.contact_picker_current_jids.get(idx).cloned(), s.contact_picker_mode)
+			};
+			let Some(jid) = jid_opt else {
+				return;
+			};
+			parts.new_conv_dialog.dialog.end_modal(wxdragon::id::ID_OK);
+			match mode {
+				ContactPickerMode::OpenChat => {
+					open_chat_for_jid(&jid, state, parts);
+				}
+				ContactPickerMode::AddCallParticipant => {
+					let s = state.borrow();
+					if let Some(call_id) = &s.active_call_id {
 						let msg = serde_json::json!({
 							"action": "add_participant",
-							"data": { "call_id": call_id, "jid": clean }
+							"data": { "call_id": call_id, "jid": jid }
 						});
 						let _ = s.ws_tx.send(msg.to_string());
+						drop(s);
 						live_region::announce(
 							parts.conversations_parts.messages_announcer.clone(),
 							"Participant added.",
 						);
 					}
 				}
-			} else {
-				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "No active call.");
+				ContactPickerMode::AddGroupMember => {
+					let group_jid = state.borrow().selected_chat.clone();
+					if let Some(group_jid) = group_jid {
+						let msg = serde_json::json!({
+							"action": "update_group_participants",
+							"data": { "jid": group_jid, "participants": [jid], "action": "add" }
+						});
+						let _ = state.borrow().ws_tx.send(msg.to_string());
+					}
+				}
 			}
 		}
 		UiCommand::SubscribePresence(jid) => {
@@ -6854,31 +7004,6 @@ while ($true) {
 				let _ = s.ws_tx.send(msg_lock.to_string());
 
 				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Group settings updated.");
-			}
-		}
-		UiCommand::AddGroupMember => {
-			let jid = state.borrow().selected_chat.clone();
-			if let Some(jid) = jid {
-				let dlg = wxdragon::TextEntryDialog::builder(
-					&parts.frame,
-					"Enter phone number to add (with country code):",
-					"Add Member",
-				)
-				.build();
-				if dlg.show_modal() == wxdragon::id::ID_OK {
-					let num = dlg.get_value().unwrap_or_default().trim().to_string();
-					if !num.is_empty() {
-						let mut clean = num.replace('+', "").replace('-', "").replace(' ', "");
-						if !clean.contains('@') {
-							clean = format!("{}@s.whatsapp.net", clean);
-						}
-						let msg = serde_json::json!({
-							"action": "update_group_participants",
-							"data": { "jid": jid, "participants": [clean], "action": "add" }
-						});
-						let _ = state.borrow().ws_tx.send(msg.to_string());
-					}
-				}
 			}
 		}
 		UiCommand::ToggleGroupMemberAdmin(idx) => {

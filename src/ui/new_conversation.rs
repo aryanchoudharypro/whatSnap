@@ -7,6 +7,7 @@ use crate::ui::theme;
 #[allow(dead_code)]
 pub struct NewConversationDialogParts {
 	pub dialog: Dialog,
+	pub search_label: StaticText,
 	pub search_field: TextCtrl,
 	pub results_list: ListBox,
 	pub new_group_btn: Button,
@@ -74,17 +75,17 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 		event.skip(true);
 	});
 
-	let dlg_esc2 = dialog.clone();
-	results_list.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dlg_esc2.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	// Enter-to-select and Escape-to-cancel for `results_list` are bound in
+	// `ui::window::bind_input_handlers`, which has access to the app state
+	// needed to resolve a selected row back to a jid.
 
-	NewConversationDialogParts { dialog, search_field, results_list, new_group_btn, new_contact_btn, close_btn }
+	NewConversationDialogParts {
+		dialog,
+		search_label,
+		search_field,
+		results_list,
+		new_group_btn,
+		new_contact_btn,
+		close_btn,
+	}
 }
