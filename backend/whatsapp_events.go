@@ -213,7 +213,56 @@ func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
 	return msg
 }
 
+// extractText returns the display text for a message, with any WhatsApp
+// @mention tokens (which arrive as raw "@<jid-user>" digit strings) resolved
+// to display names the same way the chat list resolves them.
 func extractText(msg *waE2E.Message) string {
+	return resolveMentions(extractTextRaw(msg), getContextInfo(msg))
+}
+
+// resolveMentions replaces each "@<jid-user>" token named in ctx's
+// mentionedJID list with "@<resolved display name>". WhatsApp sends mentions
+// as the bare numeric JID user part (a LID number for LID-addressed groups,
+// which is what rendered as "@36473315274856" instead of "@Hari Narayan").
+func resolveMentions(text string, ctx *waE2E.ContextInfo) string {
+	if text == "" || ctx == nil {
+		return text
+	}
+	for _, raw := range ctx.GetMentionedJID() {
+		jid, err := types.ParseJID(raw)
+		if err != nil || jid.User == "" {
+			continue
+		}
+		text = replaceMentionToken(text, "@"+jid.User, "@"+resolveDisplayName(jid))
+	}
+	return text
+}
+
+// replaceMentionToken replaces occurrences of token in text, skipping any
+// occurrence immediately followed by another digit (so "@123" inside
+// "@12345" - a different, longer JID user - is left untouched).
+func replaceMentionToken(text, token, replacement string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(text, token)
+		if i == -1 {
+			b.WriteString(text)
+			break
+		}
+		end := i + len(token)
+		if end < len(text) && text[end] >= '0' && text[end] <= '9' {
+			b.WriteString(text[:end])
+			text = text[end:]
+			continue
+		}
+		b.WriteString(text[:i])
+		b.WriteString(replacement)
+		text = text[end:]
+	}
+	return b.String()
+}
+
+func extractTextRaw(msg *waE2E.Message) string {
 	msg = unwrapMessage(msg)
 	if msg == nil {
 		return ""
@@ -1557,6 +1606,9 @@ func eventHandler(evt interface{}) {
 			if v.Name != nil {
 				db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, v.Name.Name, v.JID.String())
 			}
+			for i, text := range groupChangeMessages(v) {
+				insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d_%d", v.JID.User, v.Timestamp.UnixNano(), i), text, v.Timestamp)
+			}
 		}()
 		broadcastEvent("group_updated", map[string]interface{}{
 			"jid": v.JID.String(),
@@ -1577,6 +1629,117 @@ func eventHandler(evt interface{}) {
 		}()
 		broadcastEvent("blocklist_updated", nil)
 	}
+}
+
+// joinedNamesList formats a list of JIDs as display names, "A", "A and B", or
+// "A, B and C", matching how the official app lists multiple participants in
+// one group-change line.
+func joinedNamesList(jids []types.JID) string {
+	names := make([]string, 0, len(jids))
+	for _, j := range jids {
+		names = append(names, resolveDisplayName(j))
+	}
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	default:
+		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
+}
+
+// groupChangeMessages turns a GroupInfo event's participant/admin changes
+// into the human-readable lines the official WhatsApp app shows inline in the
+// chat (e.g. "Aryan added Rishit", "Rishit left"). Returns one line per kind
+// of change present in the event.
+func groupChangeMessages(v *events.GroupInfo) []string {
+	var lines []string
+	actor := ""
+	if v.Sender != nil {
+		actor = resolveDisplayName(*v.Sender)
+	}
+
+	if len(v.Join) > 0 {
+		names := joinedNamesList(v.Join)
+		switch {
+		case actor != "" && actor != names:
+			lines = append(lines, fmt.Sprintf("%s added %s", actor, names))
+		case v.JoinReason == "invite":
+			lines = append(lines, fmt.Sprintf("%s joined using this group's invite link", names))
+		default:
+			lines = append(lines, fmt.Sprintf("%s joined", names))
+		}
+	}
+
+	if len(v.Leave) > 0 {
+		names := joinedNamesList(v.Leave)
+		if actor != "" && actor != names {
+			lines = append(lines, fmt.Sprintf("%s removed %s", actor, names))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s left", names))
+		}
+	}
+
+	if len(v.Promote) > 0 {
+		names := joinedNamesList(v.Promote)
+		if actor != "" {
+			lines = append(lines, fmt.Sprintf("%s made %s a group admin", actor, names))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s is now a group admin", names))
+		}
+	}
+
+	if len(v.Demote) > 0 {
+		names := joinedNamesList(v.Demote)
+		if actor != "" {
+			lines = append(lines, fmt.Sprintf("%s removed %s as group admin", actor, names))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s is no longer a group admin", names))
+		}
+	}
+
+	return lines
+}
+
+// insertGroupSystemMessage stores a synthesized "X added Y"-style line as a
+// message row (media_type "system") so it persists in history and appears in
+// the chat the same way a real message does, then broadcasts it live.
+func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
+	if text == "" {
+		return
+	}
+	if isIgnoredChatJID(jid) {
+		return
+	}
+	tsUnix := ts.Unix()
+	err := saveMessage(StoredMessage{
+		ID: id, JID: jid, Text: text, Timestamp: tsUnix, Status: "sent", MediaType: "system",
+	})
+	if err != nil {
+		fmt.Println("Error inserting group system message:", err)
+		return
+	}
+	db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', 0)
+		ON CONFLICT(jid) DO UPDATE SET
+			timestamp=MAX(timestamp, excluded.timestamp),
+			preview_snippet=excluded.preview_snippet,
+			preview_sender='',
+			preview_from_me=0,
+			preview_is_reaction=0,
+			preview_reaction_emoji=''`,
+		jid, tsUnix, text)
+	broadcastChats()
+	broadcastEvent("message", map[string]interface{}{
+		"jid":       jid,
+		"from":      "",
+		"id":        id,
+		"text":      text,
+		"from_me":   false,
+		"timestamp": tsUnix,
+		"has_media": false,
+		"mediaType": "system",
+	})
 }
 
 var (

@@ -1,5 +1,12 @@
 pub mod countries;
 
+/// WhatsApp sends `notify="[]"` (and the backend forwards it verbatim as the
+/// sender/quoted-sender name) when a contact has no push name set. Treat that
+/// literal placeholder the same as an empty name rather than rendering it.
+fn is_placeholder_name(name: &str) -> bool {
+	name.is_empty() || name == "[]"
+}
+
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, PartialEq)]
 pub struct ChatReaction {
 	#[serde(rename = "reactorJid", alias = "reactor_jid", alias = "reactor", default)]
@@ -143,6 +150,12 @@ pub fn friendly_preview_text(text: &str) -> String {
 impl ChatMessage {
 	pub fn is_document(&self) -> bool {
 		self.media_type == "document" || self.text.starts_with("[Document]")
+	}
+
+	/// A synthesized group-change line ("Aryan added Rishit", "Rishit left"),
+	/// not a real message - shown as plain text with no sender/time framing.
+	pub fn is_system(&self) -> bool {
+		self.media_type == "system"
 	}
 
 	/// A message that reached us but carried nothing we could show. The content
@@ -327,7 +340,7 @@ impl ChatMessage {
 		Self::sanitize_filename(&raw)
 	}
 	pub fn format_display(&self, _is_group: bool) -> String {
-		if self.is_date_divider || self.is_unread_divider {
+		if self.is_date_divider || self.is_unread_divider || self.is_system() {
 			return self.text.clone();
 		}
 
@@ -353,7 +366,7 @@ impl ChatMessage {
 					"You: deleted this message".to_string()
 				}
 			} else {
-				let name = if !self.sender_name.is_empty() {
+				let name = if !is_placeholder_name(&self.sender_name) {
 					&self.sender_name
 				} else if !self.sender_jid.is_empty() {
 					&self.sender_jid
@@ -418,7 +431,7 @@ impl ChatMessage {
 		let reply_suffix = if !self.quoted_text.is_empty() || !self.quoted_id.is_empty() {
 			let q_sender = if self.quoted_sender == "me" || self.quoted_sender == "You" {
 				"You".to_string()
-			} else if !self.quoted_sender.is_empty() && !self.quoted_sender.contains('@') {
+			} else if !is_placeholder_name(&self.quoted_sender) && !self.quoted_sender.contains('@') {
 				if self.quoted_sender.starts_with('@') {
 					self.quoted_sender.clone()
 				} else {
@@ -469,9 +482,12 @@ impl ChatMessage {
 				.map(|r| {
 					let name = if r.reactor_name == "me" || r.reactor_name == "You" || r.reactor_jid == "me" {
 						"You".to_string()
-					} else if !r.reactor_name.is_empty() && !r.reactor_name.contains('@') {
+					} else if !is_placeholder_name(&r.reactor_name) && !r.reactor_name.contains('@') {
 						r.reactor_name.clone()
-					} else if !self.sender_name.is_empty() && !self.sender_name.contains('@') && !self.from_me {
+					} else if !is_placeholder_name(&self.sender_name)
+						&& !self.sender_name.contains('@')
+						&& !self.from_me
+					{
 						self.sender_name.clone()
 					} else {
 						"Contact".to_string()
@@ -499,7 +515,7 @@ impl ChatMessage {
 				)
 			}
 		} else {
-			let name = if !self.sender_name.is_empty() {
+			let name = if !is_placeholder_name(&self.sender_name) {
 				&self.sender_name
 			} else if !self.sender_jid.is_empty() {
 				&self.sender_jid
@@ -626,7 +642,7 @@ impl DisplayItem {
 						format!("You: [Album: {}]", desc)
 					}
 				} else {
-					let name = if !sender_name.is_empty() {
+					let name = if !is_placeholder_name(sender_name) {
 						sender_name.as_str()
 					} else if !sender_jid.is_empty() {
 						sender_jid.as_str()
@@ -850,6 +866,31 @@ mod tests {
 		assert_eq!(
 			voice_received.format_display(true),
 			"aryan: Voice message Duration: 0:10, replied to quoted message from @boostoftech: \"Voice message Duration: 0:23\""
+		);
+
+		let voice_reply_no_pushname = ChatMessage {
+			id: "4".into(),
+			text: "Yes you are right".into(),
+			timestamp: 0,
+			from_me: false,
+			sender_jid: "919667174783@s.whatsapp.net".into(),
+			sender_name: "Hari Narayan".into(),
+			is_date_divider: false,
+			is_deleted: false,
+			status: "".into(),
+			sent_at: 0,
+			delivered_at: 0,
+			read_at: 0,
+			played_at: 0,
+			reactions: Vec::new(),
+			quoted_id: "q2".into(),
+			quoted_text: "[Voice Message] (0:49)".into(),
+			quoted_sender: "[]".into(),
+			..Default::default()
+		};
+		assert_eq!(
+			voice_reply_no_pushname.format_display(true),
+			"Hari Narayan: Yes you are right, replied to quoted message: \"Voice message Duration: 0:49\""
 		);
 	}
 
