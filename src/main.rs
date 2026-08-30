@@ -1710,7 +1710,16 @@ fn main() {
 		history_sync_timer.start(1500, false);
 		Box::leak(Box::new(history_sync_timer));
 
-		parts_clone.login_panel.set_focus();
+		// Deliberately show nothing yet - not even the frame. The backend
+		// hasn't reported login state, so anything we reveal now is a guess we
+		// have to correct a few seconds later. Focusing an empty frame here
+		// made NVDA announce "whaNTV panel" and then, seconds later, "search
+		// conversations" once the chat list appeared. Instead we wait: the
+		// "connected" handler shows the fully-populated chat list and focuses
+		// the search field in one step (so NVDA says "whaNTV, search
+		// conversations"), and "needs_login" shows the login panel - each
+		// revealing its window only once, already correct. The frame is hidden,
+		// not deleted, so the event loop stays alive to receive those events.
 	});
 	if let Err(e) = res {
 		let _ = std::fs::write(paths::log_dir().join("main_error.log"), format!("{:?}", e));
@@ -2159,6 +2168,13 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								parts.frame.show(true);
 								parts.conversations_parts.search_field.set_focus();
 								state.borrow_mut().main_ui_shown = true;
+
+								// Now that we're logged in, install the tray icon if the
+								// user wants it - it's gated on login so an unpaired app
+								// never parks an icon in the tray (window.rs).
+								if state.borrow().settings.show_tray_icon {
+									parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), "whaNTV");
+								}
 							}
 
 							let payload = serde_json::json!({
@@ -2171,9 +2187,26 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							parts.nav_panel.show(false);
 							parts.content_panel.show(false);
 							parts.main_panel.layout();
+							// The login panel is a Dialog owned by the frame (see
+							// set_dialog_owner). Windows won't activate an owned window
+							// whose owner is hidden, so with the frame no longer shown at
+							// startup we reveal it here first - otherwise the login dialog
+							// shows but never takes focus and NVDA lands on nothing. A
+							// visible owner is what lets the owned dialog activate.
+							// Keep the frame hidden so the login dialog is the only top-level
+							// window while logged out. That way alt-tabbing to whaNTV activates
+							// the dialog itself - a screen reader announces the window and its
+							// focused field in one step - instead of landing on an empty frame
+							// behind it and needing focus force-shifted into the dialog.
+							parts.frame.show(false);
+							parts.pairing_dialog.show(false);
+							parts.qrcode_dialog.show(false);
 							parts.login_panel.show(true);
 							parts.login_panel.set_focus();
 							state.borrow_mut().main_ui_shown = false;
+							// Logged out: pull the tray icon so an unpaired app leaves
+							// nothing behind in the tray (reinstalled on connect).
+							parts.tray_icon.remove_icon();
 
 							// A "reason" means WhatsApp itself ended the session (phone
 							// unlinked it, session expired, etc.) rather than us just
@@ -2195,6 +2228,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 							if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
 								parts.pairing_code_display.set_value(code);
 								println!("{{'data': {{'qrcode': {{'pairingCode': '{}'}}}}}}", code);
+								// One setup screen at a time: the pairing-code screen
+								// replaces the phone-entry and QR screens.
+								parts.login_panel.show(false);
 								parts.pairing_dialog.show(true);
 								parts.qrcode_dialog.show(false);
 								parts.pairing_code_display.select_all();
@@ -2422,7 +2458,13 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.qrcode_dialog.layout();
 									}
 								}
+								// One setup screen at a time: the QR screen replaces the
+								// phone-entry and pairing screens rather than stacking
+								// beside them.
+								parts.login_panel.show(false);
+								parts.pairing_dialog.show(false);
 								parts.qrcode_dialog.show(true);
+								parts.qrcode_cancel_btn.set_focus();
 								unsafe {
 									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 										windows::Win32::UI::WindowsAndMessaging::MB_OK,

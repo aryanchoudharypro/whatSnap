@@ -363,10 +363,15 @@ pub fn build_main_window() -> WindowParts {
 	content_sizer.add(&conv_panel.panel, 1, SizerFlag::Expand, 0);
 	conv_panel.panel.show(true);
 
-	// Start with login shown, main app hidden
+	// Start everything hidden until the backend reports login state. Showing
+	// the login panel here unconditionally made it flash on screen for a few
+	// seconds at every launch - even when a saved session was about to log us
+	// straight in - because it was the default startup screen rather than a
+	// choice gated on whether we're actually logged in. The "connected" /
+	// "needs_login" events (see main.rs) now pick the right screen instead.
 	nav_panel.show(false);
 	content_panel.show(false);
-	login_panel.show(true);
+	login_panel.show(false);
 
 	content_panel.set_sizer(content_sizer, true);
 
@@ -457,16 +462,23 @@ pub fn bind_input_handlers(
 	});
 
 	let qr_dialog = parts.qrcode_dialog;
+	let login_from_qr = parts.login_panel;
 	let tx_cancel_qr = ui_tx.clone();
 	parts.qrcode_cancel_btn.on_click(move |_| {
+		// Back to the phone-entry screen, keeping the one-screen-at-a-time flow.
 		qr_dialog.show(false);
+		login_from_qr.show(true);
+		login_from_qr.set_focus();
 		let _ = tx_cancel_qr.send(UiCommand::CancelQr);
 	});
 
 	let pairing_dialog = parts.pairing_dialog;
+	let login_from_pairing = parts.login_panel;
 	let tx_cancel_pairing = ui_tx.clone();
 	parts.pairing_cancel_btn.on_click(move |_| {
 		pairing_dialog.show(false);
+		login_from_pairing.show(true);
+		login_from_pairing.set_focus();
 		let _ = tx_cancel_pairing.send(UiCommand::CancelPairing);
 	});
 
@@ -699,7 +711,17 @@ pub fn bind_input_handlers(
 			}
 		}
 	};
-	apply_tray_setting(state.borrow().settings.show_tray_icon);
+	// Only ever install the tray icon while logged in - there's nothing to
+	// keep running in the background for otherwise, and a tray icon for an
+	// unpaired app is just clutter (and one more stray thing for a screen
+	// reader to trip over). main_ui_shown is false until "connected" lands, so
+	// this installs nothing at startup; the connected/needs_login handlers in
+	// main.rs reconcile it on every login state change thereafter.
+	let show_tray_now = {
+		let s = state.borrow();
+		s.settings.show_tray_icon && s.main_ui_shown
+	};
+	apply_tray_setting(show_tray_now);
 
 	// Closing the window hides it to the tray instead of quitting, as long as
 	// the tray icon is actually installed to bring it back with. A forced
@@ -708,9 +730,17 @@ pub fn bind_input_handlers(
 	let frame_close = parts.frame;
 	let tray_icon_close = tray_icon.clone();
 	let tx_close = ui_tx.clone();
+	let state_close = state.clone();
 	parts.frame.on_close(move |event| {
 		if let WindowEventData::General(ref ev) = event {
-			if ev.can_veto() && tray_icon_close.is_icon_installed() {
+			// Only hide-to-tray while logged in - a signed-in session is worth
+			// keeping alive in the background to receive messages/calls. When
+			// we're not logged in there's nothing to stay running for, so
+			// Alt+F4 should actually quit instead of parking a stray (and, to a
+			// screen reader, oddly-announced) window in the tray. main_ui_shown
+			// is true only once "connected" has shown the chat list.
+			let logged_in = state_close.borrow().main_ui_shown;
+			if logged_in && ev.can_veto() && tray_icon_close.is_icon_installed() {
 				ev.veto();
 				frame_close.show(false);
 				let _ = tx_close.send(UiCommand::SetPresence(false));
@@ -722,6 +752,18 @@ pub fn bind_input_handlers(
 				if let Some(app) = wxdragon::get_app_instance() {
 					app.exit_main_loop();
 				}
+			}
+		}
+	});
+
+	// The login dialog is only ever up while we're logged out, so Alt+F4 (or
+	// its close box) there should quit outright too. Without this the close
+	// could land on the dialog rather than the frame and fall through to wx's
+	// default hide, leaving an invisible, still-running app behind.
+	parts.login_panel.on_close(move |event| {
+		if let WindowEventData::General(_) = event {
+			if let Some(app) = wxdragon::get_app_instance() {
+				app.exit_main_loop();
 			}
 		}
 	});
@@ -901,8 +943,10 @@ pub fn bind_input_handlers(
 				);
 			}
 		}
+		let logged_in = s.main_ui_shown;
 		drop(s);
-		apply_tray_setting(tray_icon_check_ok.is_checked());
+		// Respect the setting, but never surface the icon while logged out.
+		apply_tray_setting(tray_icon_check_ok.is_checked() && logged_in);
 		if crate::autostart::is_enabled() != autostart_check_ok.is_checked() {
 			crate::autostart::set_enabled(autostart_check_ok.is_checked());
 		}
