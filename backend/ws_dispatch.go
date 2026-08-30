@@ -36,7 +36,14 @@ func handleConnection(conn net.Conn) {
 			broadcastChats()
 		}()
 	} else {
-		log.Printf("Not sending connected. Store.ID=%v", client.Store.ID != nil)
+		// Not logged in: tell the client so up front. Without this the UI has
+		// no way to know it should show the login screen at startup - main.go's
+		// startup goroutine only ever broadcasts "connected" (and only when
+		// already paired), and a broadcast would race the frontend's pipe
+		// connect anyway. Sending it per-connection here is what makes the
+		// login screen appear on a fresh, unpaired launch (and on reconnect).
+		log.Println("Not logged in; sending needs_login to WS")
+		sendEvent(conn, "needs_login", nil)
 	}
 
 	scanner := bufio.NewScanner(conn)
