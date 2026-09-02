@@ -191,6 +191,127 @@ func handleExportChat(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
+type ExportChatTextData struct {
+	JID      string `json:"jid"`
+	DestPath string `json:"dest_path"` // .md file to write
+}
+
+// handleExportChatText writes a text-only Markdown transcript: no media is
+// downloaded (fast, works offline), each calendar date is an H2 heading, and
+// every message is one line "**Sender**, HH:MM — content". Deleted messages
+// render "This message was deleted"; media collapses to a placeholder
+// ([ptt] for voice, [file] for documents, [media] for everything else), with
+// any caption text kept after it.
+func handleExportChatText(conn net.Conn, raw json.RawMessage) {
+	var data ExportChatTextData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+
+	go func() {
+		var chatName string
+		db.QueryRow("SELECT COALESCE(name, '') FROM chats WHERE jid = ?", data.JID).Scan(&chatName)
+		if chatName == "" {
+			chatName = resolveDisplayName(jid)
+		}
+
+		rows, queryErr := db.Query(`SELECT COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
+				COALESCE(media_type, ''), COALESCE(is_deleted, 0)
+			FROM messages WHERE jid = ? ORDER BY timestamp ASC, id ASC`, data.JID)
+		if queryErr != nil {
+			broadcastEvent("error", map[string]string{"message": "Export failed: " + queryErr.Error()})
+			return
+		}
+
+		var md strings.Builder
+
+		lastDate := ""
+		total := 0
+		for rows.Next() {
+			var text, senderJID, mediaType string
+			var ts int64
+			var fromMe bool
+			var deletedInt int
+			if scanErr := rows.Scan(&text, &ts, &fromMe, &senderJID, &mediaType, &deletedInt); scanErr != nil {
+				continue
+			}
+
+			t := time.Unix(ts, 0)
+
+			var content string
+			switch {
+			case deletedInt == 1:
+				content = "This message was deleted"
+			case mediaType != "":
+				placeholder := "[media]"
+				switch mediaType {
+				case "voice":
+					placeholder = "[ptt]"
+				case "document":
+					placeholder = "[file]"
+				}
+				if strings.TrimSpace(text) != "" {
+					content = placeholder + " " + text
+				} else {
+					content = placeholder
+				}
+			default:
+				content = text
+			}
+
+			// Nothing worth a line (e.g. a protocol/placeholder message with no
+			// text and no media) - skip it rather than emit an empty entry.
+			if strings.TrimSpace(content) == "" {
+				continue
+			}
+			// Keep one message per line so the "Sender, time — text" shape holds.
+			content = strings.ReplaceAll(content, "\r\n", " ")
+			content = strings.ReplaceAll(content, "\n", " ")
+
+			if date := t.Format("01/02/06"); date != lastDate {
+				// First date has no leading blank line so the file opens directly
+				// on the heading; later dates get a separating blank line.
+				if lastDate == "" {
+					fmt.Fprintf(&md, "# %s\n\n", date)
+				} else {
+					fmt.Fprintf(&md, "\n# %s\n\n", date)
+				}
+				lastDate = date
+			}
+
+			sender := "You"
+			if !fromMe {
+				if senderJID != "" {
+					if parsed, perr := types.ParseJID(senderJID); perr == nil {
+						sender = resolveDisplayName(parsed)
+					} else {
+						sender = chatName
+					}
+				} else {
+					sender = chatName
+				}
+			}
+
+			fmt.Fprintf(&md, "%s, %s — %s\n", sender, t.Format("15:04"), content)
+			total++
+		}
+		rows.Close()
+
+		if err := os.WriteFile(data.DestPath, []byte(md.String()), 0644); err != nil {
+			broadcastEvent("error", map[string]string{"message": "Export failed: " + err.Error()})
+			return
+		}
+
+		broadcastEvent("chat_exported", map[string]interface{}{
+			"jid": data.JID, "path": data.DestPath, "message_count": total, "text_only": true,
+		})
+	}()
+}
+
 // extForFilePath pulls the extension straight off a cached media file's own
 // path rather than re-deriving it from mimetype, since that's exactly the
 // extension ensureMediaCached/downloadMessageMediaToFile already chose for it.

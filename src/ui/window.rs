@@ -1362,6 +1362,7 @@ pub fn bind_input_handlers(
 			let read_id = 4004;
 			let delete_id = 4005;
 			let export_id = 4006;
+			let export_text_id = 4007;
 
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
@@ -1387,6 +1388,11 @@ pub fn bind_input_handlers(
 					.append_item(mute_id, mute_label, "Mute or unmute notifications")
 					.append_item(read_id, read_label, "Mark chat as read or unread")
 					.append_item(export_id, "&Export chat...", "Export this chat's transcript and media")
+					.append_item(
+						export_text_id,
+						"Export &text only (Markdown)...",
+						"Export just the message text as a Markdown file, no media",
+					)
 					.append_item(delete_id, "&Delete chat...", "Delete chat history");
 
 				let mut popup_menu = menu_builder.build();
@@ -1432,6 +1438,20 @@ pub fn bind_input_handlers(
 							if let Some(path) = dialog.get_path() {
 								let _ =
 									ui_tx_clone.send(UiCommand::ExportChat { jid: jid_clone.clone(), dest_path: path });
+							}
+						}
+					} else if id == export_text_id {
+						let default_name = format!("{}.md", sanitize_export_filename(&chat_name));
+						let dialog = FileDialog::builder(&parent_clone)
+							.with_message("Export chat text as")
+							.with_default_file(&default_name)
+							.with_wildcard("Markdown file (*.md)|*.md")
+							.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+							.build();
+						if dialog.show_modal() == wxdragon::id::ID_OK {
+							if let Some(path) = dialog.get_path() {
+								let _ = ui_tx_clone
+									.send(UiCommand::ExportChatText { jid: jid_clone.clone(), dest_path: path });
 							}
 						}
 					}
