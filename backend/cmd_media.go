@@ -685,7 +685,7 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		id := whatsmeow.GenerateMessageID()
+		id := client.GenerateMessageID()
 
 		// Resolve to a real local file up front, including decoding+caching
 		// base64 (e.g. clipboard-pasted) payloads immediately. That way the
@@ -921,7 +921,7 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		id := whatsmeow.GenerateMessageID()
+		id := client.GenerateMessageID()
 
 		fileBytes, err := readLocalFileOrDecode(data.Path, data.Data)
 		if err != nil {

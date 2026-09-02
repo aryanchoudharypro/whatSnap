@@ -29,7 +29,7 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	// Pick the message ID up front (instead of taking whatever whatsmeow
 	// generates on success) so the pending row we persist right now and the
 	// eventual sent/failed row are the same message throughout.
-	id := whatsmeow.GenerateMessageID()
+	id := client.GenerateMessageID()
 
 	quotedID, quotedText, quotedSender := "", "", ""
 	if data.ReplyToID != "" {
@@ -182,7 +182,7 @@ func handleReactMessage(raw json.RawMessage) {
 	}
 	go func() {
 		msg := client.BuildReaction(chatJID, senderJID, data.MessageID, data.Emoji)
-		resp, err := client.SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: whatsmeow.GenerateMessageID()})
+		resp, err := client.SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: client.GenerateMessageID()})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
@@ -212,7 +212,7 @@ func handleEditMessage(raw json.RawMessage) {
 		// The edit travels as its own message with its own ID, and every
 		// receipt for it comes back under that ID. Note the pairing before
 		// sending - the first receipt can arrive before SendMessage returns.
-		editStanzaID := whatsmeow.GenerateMessageID()
+		editStanzaID := client.GenerateMessageID()
 		recordEditStanza(editStanzaID, data.MessageID, data.JID, time.Now().Unix())
 
 		_, err := client.SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: editStanzaID})
@@ -264,7 +264,7 @@ func handleDeleteMessage(raw json.RawMessage) {
 			}
 
 			msg := client.BuildRevoke(targetChatJID, senderJID, data.MessageID)
-			if _, err := client.SendMessage(context.Background(), targetChatJID, msg, whatsmeow.SendRequestExtra{ID: whatsmeow.GenerateMessageID()}); err != nil {
+			if _, err := client.SendMessage(context.Background(), targetChatJID, msg, whatsmeow.SendRequestExtra{ID: client.GenerateMessageID()}); err != nil {
 				errMsg := err.Error()
 				if strings.Contains(errMsg, "479") {
 					errMsg = "WhatsApp error 479: Failed to delete for everyone. The message key mismatch or the revoke time limit expired."

@@ -141,7 +141,7 @@ func handlePostStatus(raw json.RawMessage) {
 				BackgroundArgb: proto.Uint32(whatsappTeal),
 			},
 		}
-		resp, err := client.SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: whatsmeow.GenerateMessageID()})
+		resp, err := client.SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: client.GenerateMessageID()})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
@@ -176,7 +176,7 @@ func handlePostMediaStatus(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		id := whatsmeow.GenerateMessageID()
+		id := client.GenerateMessageID()
 
 		fileBytes, err := readLocalFileOrDecode(data.Path, data.Data)
 		if err != nil {
