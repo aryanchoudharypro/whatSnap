@@ -1964,6 +1964,19 @@ fn save_composer_draft(s: &mut AppState, parts: &WindowParts) {
 fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	save_composer_draft(&mut s, parts);
+	// Leaving a chat with unsent text in the composer must not leave the
+	// recipient staring at a "typing…" indicator that never clears - real
+	// WhatsApp Web sends "paused" the moment you navigate away, not just
+	// when the text is deleted or sent.
+	if let Some(prev_jid) = s.selected_chat.clone() {
+		if prev_jid != jid {
+			let payload = serde_json::json!({
+				"action": "send_typing",
+				"data": { "jid": prev_jid, "state": "paused", "media": "" }
+			});
+			let _ = s.ws_tx.send(payload.to_string());
+		}
+	}
 	s.selected_chat = Some(jid.to_string());
 	// Mirrors official WhatsApp: opening a chat clears any of its
 	// notifications still sitting in Action Center.
@@ -6833,6 +6846,20 @@ while ($true) {
 					let _ = s.ws_tx.send(refresh_payload.to_string());
 				} else {
 					s.background_unread_message_ids.clear();
+				}
+			}
+
+			// Going unavailable (blur, minimize, hide-to-tray) must pause any
+			// in-flight composing state too, for the same reason a chat switch
+			// does - otherwise backgrounding the app mid-compose leaves the
+			// other side seeing "typing…" indefinitely.
+			if !available {
+				if let Some(jid) = s.selected_chat.clone() {
+					let typing_payload = serde_json::json!({
+						"action": "send_typing",
+						"data": { "jid": jid, "state": "paused", "media": "" }
+					});
+					let _ = s.ws_tx.send(typing_payload.to_string());
 				}
 			}
 
