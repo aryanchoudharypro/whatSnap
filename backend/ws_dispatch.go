@@ -164,6 +164,8 @@ func handleConnection(conn net.Conn) {
 			handleGetStarredMessages(conn)
 		case "export_chat":
 			handleExportChat(conn, cmd.Data)
+		case "export_chat_text":
+			handleExportChatText(conn, cmd.Data)
 		case "get_statuses":
 			handleGetStatuses(conn)
 		case "post_status":

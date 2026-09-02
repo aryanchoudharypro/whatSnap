@@ -108,6 +108,10 @@ pub enum UiCommand {
 		jid: String,
 		dest_path: String,
 	},
+	ExportChatText {
+		jid: String,
+		dest_path: String,
+	},
 	PostStatus {
 		text: String,
 	},
@@ -3779,9 +3783,15 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"chat_exported" => {
 							if let Some(data) = val.get("data") {
 								let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
+								parts.frame.set_status_text("Status: Connected", 0);
+								if data.get("text_only").and_then(|t| t.as_bool()).unwrap_or(false) {
+									let count = data.get("message_count").and_then(|m| m.as_i64()).unwrap_or(0);
+									let msg = format!("Chat text exported to {}. {} messages.", path, count);
+									live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+									return;
+								}
 								let media_exported = data.get("media_exported").and_then(|m| m.as_i64()).unwrap_or(0);
 								let media_skipped = data.get("media_skipped").and_then(|m| m.as_i64()).unwrap_or(0);
-								parts.frame.set_status_text("Status: Connected", 0);
 								let msg = if media_skipped > 0 {
 									format!(
 										"Chat exported to {}. {} media files included, {} could not be downloaded and were skipped.",
@@ -6914,6 +6924,14 @@ while ($true) {
 				parts.conversations_parts.messages_announcer.clone(),
 				"Exporting chat, this may take a while for chats with a lot of media...",
 			);
+		}
+		UiCommand::ExportChatText { jid, dest_path } => {
+			let payload = serde_json::json!({
+				"action": "export_chat_text",
+				"data": { "jid": jid, "dest_path": dest_path }
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Exporting chat text...");
 		}
 		UiCommand::PostStatus { text } => {
 			let payload = serde_json::json!({
