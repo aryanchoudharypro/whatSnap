@@ -1363,6 +1363,7 @@ pub fn bind_input_handlers(
 			let delete_id = 4005;
 			let export_id = 4006;
 			let export_text_id = 4007;
+			let leave_group_id = 4008;
 
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
@@ -1372,6 +1373,7 @@ pub fn bind_input_handlers(
 				let is_muted = s.muted_jids.contains(&jid);
 				let unread_count = s.unread_counts.get(&jid).copied().unwrap_or(0);
 				let is_unread = unread_count > 0;
+				let is_group = jid.ends_with("@g.us");
 				let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 				drop(s);
 
@@ -1392,8 +1394,11 @@ pub fn bind_input_handlers(
 						export_text_id,
 						"Export &text only (Markdown)...",
 						"Export just the message text as a Markdown file, no media",
-					)
-					.append_item(delete_id, "&Delete chat...", "Delete chat history");
+					);
+				if is_group {
+					menu_builder = menu_builder.append_item(leave_group_id, "Leave &group...", "Leave this group");
+				}
+				menu_builder = menu_builder.append_item(delete_id, "&Delete chat...", "Delete chat history");
 
 				let mut popup_menu = menu_builder.build();
 
@@ -1414,17 +1419,53 @@ pub fn bind_input_handlers(
 						let _ =
 							ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: !is_unread });
 					} else if id == delete_id {
+						if is_group {
+							let choices: Vec<&str> = vec!["Delete chat only", "Delete chat and exit group"];
+							let dialog = SingleChoiceDialog::builder(
+								&parent_clone,
+								&format!("Delete chat with {}?", chat_name),
+								"Confirm Delete",
+								&choices,
+							)
+							.build();
+							if dialog.show_modal() == wxdragon::id::ID_OK {
+								match dialog.get_string_selection().as_deref() {
+									Some("Delete chat only") => {
+										let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
+									}
+									Some("Delete chat and exit group") => {
+										let _ = ui_tx_clone.send(UiCommand::LeaveGroup { jid: jid_clone.clone() });
+										let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
+									}
+									_ => {}
+								}
+							}
+						} else {
+							let dialog = MessageDialog::builder(
+								&parent_clone,
+								&format!("Are you sure you want to delete chat with {}?", chat_name),
+								"Confirm Delete",
+							)
+							.with_style(
+								MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
+							)
+							.build();
+							if dialog.show_modal() == wxdragon::id::ID_OK {
+								let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
+							}
+						}
+					} else if id == leave_group_id {
 						let dialog = MessageDialog::builder(
 							&parent_clone,
-							&format!("Are you sure you want to delete chat with {}?", chat_name),
-							"Confirm Delete",
+							&format!("Are you sure you want to leave {}?", chat_name),
+							"Leave Group",
 						)
 						.with_style(
 							MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
 						)
 						.build();
 						if dialog.show_modal() == wxdragon::id::ID_OK {
-							let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
+							let _ = ui_tx_clone.send(UiCommand::LeaveGroup { jid: jid_clone.clone() });
 						}
 					} else if id == export_id {
 						let default_name = format!("{}.zip", sanitize_export_filename(&chat_name));

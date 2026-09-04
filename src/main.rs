@@ -189,6 +189,9 @@ pub enum UiCommand {
 	DeleteChat {
 		jid: String,
 	},
+	LeaveGroup {
+		jid: String,
+	},
 	FilterGroupMembers(String),
 	ToggleGroupMemberAdmin(u32),
 	RemoveGroupMember(u32),
@@ -1160,6 +1163,27 @@ mod win_cb {
 		pub fn GlobalAlloc(uFlags: u32, dwBytes: usize) -> *mut std::ffi::c_void;
 		pub fn GlobalLock(hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
 		pub fn GlobalUnlock(hMem: *mut std::ffi::c_void) -> i32;
+	}
+}
+
+/// Disambiguates a generated clipboard filename against others already used
+/// in the same copy batch (e.g. photos from one album share the same
+/// second-precision timestamp, so `display_filename()` returns identical
+/// names for all of them). Collisions get " (2)", " (3)", ... appended before
+/// the extension, matching how Windows Explorer disambiguates duplicate
+/// names, so every file lands at its own temp path instead of overwriting
+/// the previous one.
+fn unique_clipboard_filename(name: &str, used: &mut std::collections::HashMap<String, u32>) -> String {
+	let count = used.entry(name.to_string()).or_insert(0);
+	*count += 1;
+	if *count == 1 {
+		return name.to_string();
+	}
+	let path = std::path::Path::new(name);
+	let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
+	match path.extension().and_then(|e| e.to_str()) {
+		Some(ext) => format!("{} ({}).{}", stem, count, ext),
+		None => format!("{} ({})", stem, count),
 	}
 }
 
@@ -7046,6 +7070,7 @@ while ($true) {
 				let mut voice_count = 0;
 				let temp_dir = std::env::temp_dir().join("whantv_clipboard");
 				let _ = std::fs::create_dir_all(&temp_dir);
+				let mut used_names: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
 
 				for id in &message_ids {
 					if let Some(msg) = s.messages.iter().find(|m| m.id == *id) {
@@ -7053,7 +7078,7 @@ while ($true) {
 							&& !msg.media_path.is_empty()
 							&& std::path::Path::new(&msg.media_path).exists()
 						{
-							let display_name = msg.display_filename();
+							let display_name = unique_clipboard_filename(&msg.display_filename(), &mut used_names);
 							let temp_path = temp_dir.join(&display_name);
 							let copy_path = if std::fs::copy(&msg.media_path, &temp_path).is_ok() {
 								temp_path.to_string_lossy().to_string()
@@ -7447,6 +7472,36 @@ while ($true) {
 			live_region::announce(
 				parts.conversations_parts.messages_announcer.clone(),
 				&format!("Chat {} deleted.", chat_name),
+			);
+		}
+		UiCommand::LeaveGroup { jid } => {
+			let chat_name = {
+				let mut s = state.borrow_mut();
+				s.chats.retain(|j| j != &jid);
+				s.filtered_chats.retain(|j| j != &jid);
+				s.archived_jids.remove(&jid);
+				s.pinned_jids.remove(&jid);
+				s.muted_jids.remove(&jid);
+				s.unread_counts.remove(&jid);
+				s.draft_messages.remove(&jid);
+				let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+				if s.selected_chat.as_ref() == Some(&jid) {
+					s.selected_chat = None;
+					parts.conversations_parts.conversation_panel.show(false);
+				}
+				apply_chat_filter(&mut s, parts);
+				name
+			};
+			let payload = serde_json::json!({
+				"action": "leave_group",
+				"data": {
+					"jid": jid
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				&format!("Left group {}.", chat_name),
 			);
 		}
 	}
