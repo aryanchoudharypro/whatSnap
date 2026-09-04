@@ -29,10 +29,7 @@ use interprocess::{
 	TryClone,
 	local_socket::{GenericNamespaced, ToNsName, prelude::*},
 };
-use wxdragon::{
-	prelude::*,
-	sound::{Sound, SoundFlags},
-};
+use wxdragon::prelude::*;
 
 use crate::{
 	ui::window::{WindowParts, bind_input_handlers, build_main_window},
@@ -256,12 +253,12 @@ pub enum NotificationSound {
 }
 
 impl NotificationSound {
-	const fn wav(self) -> &'static [u8] {
+	const fn ogg(self) -> &'static [u8] {
 		match self {
-			Self::MessageCurrent => include_bytes!("../sounds/message_current.wav"),
-			Self::MessageBackground => include_bytes!("../sounds/message_background.wav"),
-			Self::MessageSent => include_bytes!("../sounds/message_sent.wav"),
-			Self::VoiceMessageSent => include_bytes!("../sounds/voicemsg_send.wav"),
+			Self::MessageCurrent => include_bytes!("../sounds/message_current.ogg"),
+			Self::MessageBackground => include_bytes!("../sounds/message_background.ogg"),
+			Self::MessageSent => include_bytes!("../sounds/message_sent.ogg"),
+			Self::VoiceMessageSent => include_bytes!("../sounds/voicemsg_send.ogg"),
 		}
 	}
 }
@@ -322,11 +319,17 @@ fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 		return;
 	}
 	std::thread::spawn(move || {
-		let handle = Sound::from_data(sound.wav());
-		if handle.is_ok() {
-			// Sync, not Async: wxSound requires the object to outlive playback,
-			// and this is already a worker thread.
-			handle.play(SoundFlags::Sync);
+		let Ok(stream) = DeviceSinkBuilder::open_default_sink() else {
+			return;
+		};
+		let sink = Player::connect_new(&stream.mixer());
+		let cursor = std::io::Cursor::new(sound.ogg());
+		if let Ok(decoder) = rodio::Decoder::new(cursor) {
+			sink.append(decoder);
+			sink.play();
+			// Block this worker thread until playback finishes, so `stream` and
+			// `sink` (and the device they hold open) stay alive for the duration.
+			sink.sleep_until_end();
 		}
 	});
 }
@@ -336,7 +339,7 @@ fn play_call_fail_sound(state: &mut AppState) {
 	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(&stream_handle.mixer());
-		let cursor = std::io::Cursor::new(include_bytes!("../sounds/whatsapp_windows_hangup_01_705kbps.wav"));
+		let cursor = std::io::Cursor::new(include_bytes!("../sounds/whatsapp_windows_hangup_01_705kbps.ogg"));
 		match rodio::Decoder::new(cursor) {
 			Ok(decoder) => {
 				println!("[AUDIO] Decoded fail sound successfully");
@@ -2349,7 +2352,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										let _ = s.ws_tx.send(msg.to_string());
 									} else {
 										s.active_call_id = Some(call_id.to_string());
-										start_call_ringing_sound(&mut s, include_bytes!("../sounds/telefone.wav"));
+										start_call_ringing_sound(&mut s, include_bytes!("../sounds/telefone.ogg"));
 									}
 								}
 							}
@@ -2455,7 +2458,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									parts.call_parts.frame.raise();
 									start_call_ringing_sound(
 										&mut s,
-										include_bytes!("../sounds/ringtone_incoming_call.wav"),
+										include_bytes!("../sounds/ringtone_incoming_call.ogg"),
 									);
 									if s.settings.notifications_enabled {
 										show_toast_notification("Incoming call", &format!("Voice call from {}", name));
