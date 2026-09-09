@@ -199,6 +199,26 @@ pub struct WindowParts {
 /// just needs to be outside wx's reserved/auto-assigned ranges.
 pub const MENU_ID_SETTINGS: i32 = 6001;
 pub const MENU_ID_LOGOUT: i32 = 6002;
+pub const MENU_ID_NAV_CONVERSATIONS: i32 = 6010;
+pub const MENU_ID_NAV_STATUS: i32 = 6011;
+pub const MENU_ID_NAV_COMMUNITIES: i32 = 6012;
+pub const MENU_ID_NAV_STARRED: i32 = 6013;
+pub const MENU_ID_NAV_ARCHIVED: i32 = 6014;
+pub const MENU_ID_NEW_CHAT: i32 = 6020;
+pub const MENU_ID_NEW_GROUP: i32 = 6021;
+pub const MENU_ID_SEARCH_GLOBAL: i32 = 6022;
+pub const MENU_ID_SEARCH_CHAT: i32 = 6023;
+pub const MENU_ID_MUTE_CHAT: i32 = 6024;
+pub const MENU_ID_ARCHIVE_CHAT: i32 = 6025;
+pub const MENU_ID_PIN_CHAT: i32 = 6026;
+pub const MENU_ID_MARK_UNREAD: i32 = 6027;
+pub const MENU_ID_CHAT_INFO: i32 = 6028;
+pub const MENU_ID_STAR_MESSAGE: i32 = 6029;
+pub const MENU_ID_START_RECORDING: i32 = 6030;
+pub const MENU_ID_PAUSE_RECORDING: i32 = 6031;
+pub const MENU_ID_SEND_PTT: i32 = 6032;
+pub const MENU_ID_CALL_MUTE: i32 = 6033;
+pub const MENU_ID_CALL_END: i32 = 6034;
 
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whantv").with_size(Size::new(1180, 760)).build();
@@ -236,11 +256,56 @@ pub fn build_main_window() -> WindowParts {
 	nav_panel.set_sizer(nav_sizer, true);
 
 	let account_menu = Menu::builder()
-		.append_item(MENU_ID_SETTINGS, "&Settings...", "Open settings")
+		.append_item(MENU_ID_SETTINGS, "&Settings...\tCtrl+,", "Open settings")
 		.append_separator()
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
 		.build();
-	let menu_bar = MenuBar::builder().append(account_menu, "&Account").build();
+	// Alt+1/2/3 match official WhatsApp's Chats/Status/Communities shortcuts;
+	// Alt+4/5 extend the pattern to whaNTV's Starred/Archived tabs, which
+	// WhatsApp doesn't have. These need to live on real menu items - wx only
+	// builds an app-wide accelerator table (honored no matter which control
+	// has focus) from the "\tAlt+1" accelerator syntax on a menu label; a
+	// plain key-down handler on a widget loses to that table for Alt-combos.
+	let go_menu = Menu::builder()
+		.append_item(MENU_ID_NAV_CONVERSATIONS, "&Conversations\tAlt+1", "Jump to the conversation list")
+		.append_item(MENU_ID_NAV_STATUS, "&Status\tAlt+2", "Jump to Status")
+		.append_item(MENU_ID_NAV_COMMUNITIES, "C&ommunities\tAlt+3", "Jump to Communities")
+		.append_item(MENU_ID_NAV_STARRED, "S&tarred Messages\tAlt+4", "Jump to Starred Messages")
+		.append_item(MENU_ID_NAV_ARCHIVED, "&Archived Chats\tAlt+5", "Jump to Archived Chats")
+		.build();
+	// Matches official WhatsApp's shortcuts, minus Alt on every combo that
+	// also has Ctrl (kept only on the Alt-only ones) - see the Alt+1..5
+	// comment above for why these have to be real menu items.
+	let chat_menu = Menu::builder()
+		.append_item(MENU_ID_NEW_CHAT, "&New Chat\tCtrl+N", "Start a new chat")
+		.append_item(MENU_ID_NEW_GROUP, "New &Group\tCtrl+Shift+N", "Start a new group")
+		.append_item(MENU_ID_SEARCH_GLOBAL, "&Search\tCtrl+/", "Search chats")
+		.append_item(MENU_ID_SEARCH_CHAT, "Search in &Chat\tCtrl+Shift+F", "Search within the open chat")
+		.append_separator()
+		.append_item(MENU_ID_MUTE_CHAT, "&Mute Chat\tCtrl+Shift+M", "Mute the open chat")
+		.append_item(MENU_ID_ARCHIVE_CHAT, "&Archive Chat\tCtrl+Shift+E", "Archive the open chat")
+		.append_item(MENU_ID_PIN_CHAT, "&Pin Chat\tCtrl+Shift+P", "Pin the open chat")
+		.append_item(MENU_ID_MARK_UNREAD, "Mark as &Unread\tCtrl+Shift+U", "Toggle read/unread on the open chat")
+		.append_item(MENU_ID_CHAT_INFO, "Chat &Info\tAlt+I", "Open info for the open chat")
+		.append_separator()
+		.append_item(MENU_ID_STAR_MESSAGE, "&Star Message\tAlt+8", "Star the selected message")
+		.build();
+	let voice_menu = Menu::builder()
+		.append_item(MENU_ID_START_RECORDING, "Start &Recording\tCtrl+Shift+R", "Start a voice message recording")
+		.append_item(MENU_ID_PAUSE_RECORDING, "&Pause Recording\tAlt+P", "Pause/resume the voice recording")
+		.append_item(MENU_ID_SEND_PTT, "Sen&d Voice Message\tCtrl+Enter", "Send the recorded voice message")
+		.build();
+	let call_menu = Menu::builder()
+		.append_item(MENU_ID_CALL_MUTE, "Toggle &Mute\tCtrl+M", "Mute/unmute the microphone during a call")
+		.append_item(MENU_ID_CALL_END, "&End Call\tCtrl+W", "End the active call")
+		.build();
+	let menu_bar = MenuBar::builder()
+		.append(account_menu, "&Account")
+		.append(go_menu, "&Go")
+		.append(chat_menu, "&Chat")
+		.append(voice_menu, "&Voice")
+		.append(call_menu, "Ca&ll")
+		.build();
 	frame.set_menu_bar(menu_bar);
 
 	let content_panel = Panel::builder(&main_panel).build();
@@ -882,6 +947,110 @@ pub fn bind_input_handlers(
 		}
 		let s = state_logout.borrow();
 		let _ = s.ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
+	});
+
+	let nav_list_for_menu = parts.nav_list.clone();
+	let tx_nav_menu = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		let idx = match evt.get_id() {
+			MENU_ID_NAV_CONVERSATIONS => 0,
+			MENU_ID_NAV_STATUS => 1,
+			MENU_ID_NAV_STARRED => 2,
+			MENU_ID_NAV_ARCHIVED => 3,
+			MENU_ID_NAV_COMMUNITIES => 4,
+			_ => return,
+		};
+		// set_selection's bool means select-vs-deselect, not "fire the change
+		// event" - wxListBox::SetSelection never generates one, so switching
+		// the highlighted tab needs an explicit NavSelected to actually swap
+		// the (shared) list's content, same as a mouse click would trigger.
+		nav_list_for_menu.set_selection(idx, true);
+		let _ = tx_nav_menu.send(UiCommand::NavSelected(idx as usize));
+	});
+
+	let state_chat_menu = state.clone();
+	let tx_chat_menu = ui_tx.clone();
+	let messages_list_for_menu = parts.conversations_parts.messages_list.clone();
+	let search_field_for_menu = parts.conversations_parts.search_field;
+	parts.frame.on_menu_selected(move |evt| {
+		let id = evt.get_id();
+		if id == MENU_ID_NEW_CHAT {
+			let _ = tx_chat_menu.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::OpenChat));
+		} else if id == MENU_ID_NEW_GROUP {
+			let _ = tx_chat_menu.send(UiCommand::PrepareNewGroup);
+		} else if id == MENU_ID_SEARCH_GLOBAL {
+			search_field_for_menu.set_focus();
+		} else if id == MENU_ID_SEARCH_CHAT {
+			let _ = tx_chat_menu.send(UiCommand::ToggleSearchPanel);
+		} else if id == MENU_ID_CHAT_INFO {
+			let _ = tx_chat_menu.send(UiCommand::ShowConversationData);
+		} else if id == MENU_ID_MUTE_CHAT
+			|| id == MENU_ID_ARCHIVE_CHAT
+			|| id == MENU_ID_PIN_CHAT
+			|| id == MENU_ID_MARK_UNREAD
+		{
+			let s = state_chat_menu.borrow();
+			let Some(jid) = s.selected_chat.clone() else { return };
+			if id == MENU_ID_MUTE_CHAT {
+				let mute = !s.muted_jids.contains(&jid);
+				drop(s);
+				let _ = tx_chat_menu.send(UiCommand::ToggleMuteChat { jid, mute });
+			} else if id == MENU_ID_ARCHIVE_CHAT {
+				let archive = !s.archived_jids.contains(&jid);
+				drop(s);
+				let _ = tx_chat_menu.send(UiCommand::ToggleArchiveChat { jid, archive });
+			} else if id == MENU_ID_PIN_CHAT {
+				let pin = !s.pinned_jids.contains(&jid);
+				drop(s);
+				let _ = tx_chat_menu.send(UiCommand::TogglePinChat { jid, pin });
+			} else {
+				let read = s.unread_counts.get(&jid).copied().unwrap_or(0) == 0;
+				drop(s);
+				let _ = tx_chat_menu.send(UiCommand::ToggleReadChat { jid, read: !read });
+			}
+		} else if id == MENU_ID_STAR_MESSAGE {
+			if let Some(idx) = messages_list_for_menu.get_selection() {
+				let s = state_chat_menu.borrow();
+				let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+					whantv::DisplayItem::Single(m) => Some(m.clone()),
+					whantv::DisplayItem::Album { .. } => None,
+				});
+				drop(s);
+				if let Some(msg) = msg_opt {
+					if !msg.is_date_divider {
+						let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+						let _ = tx_chat_menu.send(UiCommand::StarMessage {
+							message_id: msg.id.clone(),
+							sender_jid,
+							from_me: msg.from_me,
+							starred: !msg.starred,
+						});
+					}
+				}
+			}
+		}
+	});
+
+	let tx_voice_menu = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		let id = evt.get_id();
+		if id == MENU_ID_START_RECORDING {
+			let _ = tx_voice_menu.send(UiCommand::StartRecording);
+		} else if id == MENU_ID_PAUSE_RECORDING {
+			let _ = tx_voice_menu.send(UiCommand::TogglePauseRecording);
+		} else if id == MENU_ID_SEND_PTT {
+			let _ = tx_voice_menu.send(UiCommand::SendVoiceMessage);
+		}
+	});
+
+	let tx_call_menu = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		let id = evt.get_id();
+		if id == MENU_ID_CALL_MUTE {
+			let _ = tx_call_menu.send(UiCommand::MuteCall);
+		} else if id == MENU_ID_CALL_END {
+			let _ = tx_call_menu.send(UiCommand::LeaveCall);
+		}
 	});
 
 	let settings_dialog_cancel = parts.settings_dialog.dialog;
@@ -2516,8 +2685,68 @@ pub fn bind_input_handlers(
 					event.skip(true);
 				}
 			} else if key_event.get_key_code() == Some(13) {
-				// Enter key
-				event.skip(true);
+				// Enter key: play/pause a selected voice message directly,
+				// same as the Space handler below, instead of requiring a
+				// Tab to the play button. Non-voice messages keep whatever
+				// default Enter behavior the list already had.
+				use std::io::Write;
+				let mut handled = false;
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let mut s = state_play.borrow_mut();
+					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+						whantv::DisplayItem::Single(m) => Some(m.clone()),
+						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+					});
+					if let Some(msg) = msg_opt {
+						let is_voice =
+							msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
+						if is_voice {
+							handled = true;
+							let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
+							if is_currently_playing {
+								if s.is_audio_paused {
+									// Resume
+									if let Some(ref sink) = s.audio_sink {
+										sink.play();
+									}
+									if let Some(ref mut stdin) = s.audio_stdin {
+										let _ = writeln!(stdin, "RESUME");
+										let _ = stdin.flush();
+									}
+									s.is_audio_paused = false;
+									s.audio_start_instant = Some(std::time::Instant::now());
+									play_voice_btn_space.set_label("Pause voice message");
+								} else {
+									// Pause — save elapsed
+									if let Some(inst) = s.audio_start_instant.take() {
+										s.audio_elapsed_secs += inst.elapsed().as_secs_f32();
+									}
+									if let Some(ref sink) = s.audio_sink {
+										sink.pause();
+									}
+									if let Some(ref mut stdin) = s.audio_stdin {
+										let _ = writeln!(stdin, "PAUSE");
+										let _ = stdin.flush();
+									}
+									s.is_audio_paused = true;
+									play_voice_btn_space.set_label("Play voice message");
+								}
+							} else {
+								if let Some(ref sink) = s.audio_sink {
+									sink.stop();
+								}
+								s.audio_sink = None;
+								s.audio_elapsed_secs = 0.0;
+								s.audio_start_instant = None;
+								s.is_audio_paused = false;
+								s.playing_msg_id = Some(msg.id.clone());
+								play_voice_btn_space.set_label("Loading voice message...");
+								let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id));
+							}
+						}
+					}
+				}
+				event.skip(!handled);
 			} else if (key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32))
 				&& key_event.control_down()
 			{
