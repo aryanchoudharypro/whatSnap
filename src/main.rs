@@ -5774,6 +5774,10 @@ while ($true) {
 			}
 		}
 		UiCommand::ToggleSearchPanel => {
+			if state.borrow().selected_chat.is_none() {
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "No chat open.");
+				return;
+			}
 			let visible = parts.conversations_parts.search_panel.is_shown();
 			parts.conversations_parts.search_panel.show(!visible);
 			if !visible {
