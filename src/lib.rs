@@ -788,6 +788,101 @@ pub fn insert_unread_divider(messages: &mut Vec<ChatMessage>, count: u64) {
 	messages.insert(insert_at, ChatMessage { text: label, is_unread_divider: true, ..Default::default() });
 }
 
+/// How much noise an archived chat may make when a message arrives in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchivedAlert {
+	/// No sound and nothing on screen - what archiving means by default here,
+	/// matching WhatsApp's own "keep chats archived" behaviour.
+	#[default]
+	Silent,
+	/// The usual message sound, but no notification.
+	SoundOnly,
+	/// Alerts exactly like an unarchived chat.
+	Full,
+}
+
+/// What an incoming message is allowed to do about itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IncomingAlert {
+	pub sound: bool,
+	pub toast: bool,
+}
+
+/// Decides whether a new message may play the background sound and raise a
+/// toast. Muting silences a chat outright, archived or not. An unmuted archived
+/// chat falls to its own per-chat level, which defaults to silent: archiving is
+/// how you say "stop bothering me about this", so an archived chat alerting like
+/// any other is the surprising behaviour, not the quiet one.
+///
+/// The global `sounds_enabled`/`notifications_enabled` settings still apply on
+/// top of this - it answers "is this chat allowed to", not "is the app".
+pub fn incoming_alert(muted: bool, archived: bool, level: ArchivedAlert) -> IncomingAlert {
+	if muted {
+		return IncomingAlert { sound: false, toast: false };
+	}
+	if !archived {
+		return IncomingAlert { sound: true, toast: true };
+	}
+	match level {
+		ArchivedAlert::Silent => IncomingAlert { sound: false, toast: false },
+		ArchivedAlert::SoundOnly => IncomingAlert { sound: true, toast: false },
+		ArchivedAlert::Full => IncomingAlert { sound: true, toast: true },
+	}
+}
+
+/// Total unread across every chat that would actually have alerted about it, by
+/// the same [`incoming_alert`] rules the "message" event applies. Muted chats
+/// and silent archived ones are left out deliberately: this is a summary of what
+/// is waiting for attention, not a raw count of everything unopened, and a
+/// tooltip advertising chats that are set never to make a sound would contradict
+/// the setting that silenced them.
+pub fn unread_notification_total(
+	unread_counts: &std::collections::HashMap<String, u64>,
+	muted_jids: &std::collections::HashSet<String>,
+	archived_jids: &std::collections::HashSet<String>,
+	archived_levels: &std::collections::HashMap<String, ArchivedAlert>,
+) -> u64 {
+	unread_counts
+		.iter()
+		.filter(|(jid, _)| {
+			let level = archived_levels.get(*jid).copied().unwrap_or_default();
+			let alert = incoming_alert(muted_jids.contains(*jid), archived_jids.contains(*jid), level);
+			alert.sound || alert.toast
+		})
+		.map(|(_, n)| *n)
+		.sum()
+}
+
+/// The tray icon's accessible name, supplied as the tooltip when the icon is
+/// first added to the notification area.
+///
+/// The shell fixes a notification-area item's name from the tooltip it was added
+/// with, and routes every later tooltip change to the item's description
+/// instead; a screen reader reads both, in that order. So the name has to be the
+/// app's identity and nothing else - install the icon carrying a count and that
+/// count is stuck in the announcement forever, however stale it goes
+/// ("No unread messages, 7 unread messages").
+pub const TRAY_APP_NAME: &str = "whaNTV";
+
+/// Tooltip text for the tray icon, written over it as the unread count changes.
+/// A screen reader reads this out after [`TRAY_APP_NAME`] when the icon is
+/// focused in the notification area (Tab to it, or Win+B), which makes it the
+/// only way to check for new messages without restoring the window - so the
+/// count is spelled out in words rather than left to a badge overlay, which is
+/// purely visual.
+///
+/// Carries no app name of its own: it is read as the second half of
+/// "whaNTV, 7 unread messages", and naming whaNTV again here is what made the
+/// icon stutter its own name.
+pub fn tray_tooltip_text(unread: u64) -> String {
+	match unread {
+		0 => "No unread messages".to_string(),
+		1 => "1 unread message".to_string(),
+		n => format!("{} unread messages", n),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -905,5 +1000,96 @@ mod tests {
 		assert_eq!(msg.sender_jid, "sender@s.whatsapp.net");
 		assert_eq!(msg.sender_name, "Sender");
 		assert_eq!(msg.status, "read");
+	}
+
+	#[test]
+	fn test_unread_notification_total_excludes_muted() {
+		let mut counts = std::collections::HashMap::new();
+		counts.insert("a@s.whatsapp.net".to_string(), 3u64);
+		counts.insert("b@s.whatsapp.net".to_string(), 5u64);
+		counts.insert("c@g.us".to_string(), 7u64);
+		let mut muted = std::collections::HashSet::new();
+		muted.insert("c@g.us".to_string());
+		let none = std::collections::HashSet::new();
+		let no_levels = std::collections::HashMap::new();
+		assert_eq!(unread_notification_total(&counts, &muted, &none, &no_levels), 8);
+
+		// Every chat muted, and the read chats a chats broadcast leaves sitting
+		// at zero, both come out as "nothing waiting" rather than a stray count.
+		muted.insert("a@s.whatsapp.net".to_string());
+		muted.insert("b@s.whatsapp.net".to_string());
+		assert_eq!(unread_notification_total(&counts, &muted, &none, &no_levels), 0);
+		let zeroed: std::collections::HashMap<String, u64> =
+			[("a@s.whatsapp.net".to_string(), 0u64)].into_iter().collect();
+		assert_eq!(unread_notification_total(&zeroed, &none, &none, &no_levels), 0);
+	}
+
+	#[test]
+	fn test_unread_notification_total_respects_archived_levels() {
+		let counts: std::collections::HashMap<String, u64> = [
+			("silent@s.whatsapp.net".to_string(), 2u64),
+			("sound@s.whatsapp.net".to_string(), 3u64),
+			("full@s.whatsapp.net".to_string(), 4u64),
+		]
+		.into_iter()
+		.collect();
+		let archived: std::collections::HashSet<String> = counts.keys().cloned().collect();
+		let muted = std::collections::HashSet::new();
+
+		// Archived defaults to silent, so an archived chat with no stored level
+		// contributes nothing at all.
+		assert_eq!(unread_notification_total(&counts, &muted, &archived, &std::collections::HashMap::new()), 0);
+
+		// Sound-only still alerts, so it still counts; only Silent drops out.
+		let levels: std::collections::HashMap<String, ArchivedAlert> = [
+			("sound@s.whatsapp.net".to_string(), ArchivedAlert::SoundOnly),
+			("full@s.whatsapp.net".to_string(), ArchivedAlert::Full),
+		]
+		.into_iter()
+		.collect();
+		assert_eq!(unread_notification_total(&counts, &muted, &archived, &levels), 7);
+
+		// Muting beats a per-chat level that would otherwise have alerted.
+		let muted_full: std::collections::HashSet<String> = ["full@s.whatsapp.net".to_string()].into_iter().collect();
+		assert_eq!(unread_notification_total(&counts, &muted_full, &archived, &levels), 3);
+	}
+
+	#[test]
+	fn test_incoming_alert() {
+		// Unarchived chats are unaffected by the archived level entirely.
+		for level in [ArchivedAlert::Silent, ArchivedAlert::SoundOnly, ArchivedAlert::Full] {
+			assert_eq!(incoming_alert(false, false, level), IncomingAlert { sound: true, toast: true });
+		}
+		// Muting wins over every archived level, including Full.
+		for level in [ArchivedAlert::Silent, ArchivedAlert::SoundOnly, ArchivedAlert::Full] {
+			assert_eq!(incoming_alert(true, true, level), IncomingAlert { sound: false, toast: false });
+			assert_eq!(incoming_alert(true, false, level), IncomingAlert { sound: false, toast: false });
+		}
+		assert_eq!(incoming_alert(false, true, ArchivedAlert::default()), IncomingAlert { sound: false, toast: false });
+		assert_eq!(incoming_alert(false, true, ArchivedAlert::SoundOnly), IncomingAlert { sound: true, toast: false });
+		assert_eq!(incoming_alert(false, true, ArchivedAlert::Full), IncomingAlert { sound: true, toast: true });
+	}
+
+	#[test]
+	fn test_archived_alert_serde_roundtrip() {
+		// settings.json holds these by name - renaming a variant would silently
+		// reset every archived chat to the default on next load.
+		assert_eq!(serde_json::to_string(&ArchivedAlert::Silent).unwrap(), "\"silent\"");
+		assert_eq!(serde_json::to_string(&ArchivedAlert::SoundOnly).unwrap(), "\"sound_only\"");
+		assert_eq!(serde_json::to_string(&ArchivedAlert::Full).unwrap(), "\"full\"");
+		assert_eq!(serde_json::from_str::<ArchivedAlert>("\"sound_only\"").unwrap(), ArchivedAlert::SoundOnly);
+		assert_eq!(ArchivedAlert::default(), ArchivedAlert::Silent);
+	}
+
+	#[test]
+	fn test_tray_tooltip_text() {
+		assert_eq!(tray_tooltip_text(0), "No unread messages");
+		assert_eq!(tray_tooltip_text(1), "1 unread message");
+		assert_eq!(tray_tooltip_text(12), "12 unread messages");
+		// TRAY_APP_NAME is announced ahead of this string, so repeating the name
+		// here is what made the icon stutter it.
+		for n in [0, 1, 12] {
+			assert!(!tray_tooltip_text(n).contains(TRAY_APP_NAME));
+		}
 	}
 }

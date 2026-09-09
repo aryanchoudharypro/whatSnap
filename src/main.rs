@@ -179,6 +179,13 @@ pub enum UiCommand {
 		jid: String,
 		mute: bool,
 	},
+	/// Per-chat alert level for an archived chat, from the chat-list context
+	/// menu. Stored locally in settings.json rather than pushed to WhatsApp -
+	/// there's no protocol-level equivalent, unlike mute.
+	SetArchivedAlert {
+		jid: String,
+		level: whantv::ArchivedAlert,
+	},
 	ToggleReadChat {
 		jid: String,
 		read: bool,
@@ -1946,6 +1953,47 @@ fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppState>>, parts
 	s.contact_picker_current_jids = jids;
 }
 
+/// Repaints the tray icon's tooltip with the current unread total, so the count
+/// can be read straight off the notification area without restoring the window.
+///
+/// Called from every place that touches `unread_counts` rather than from one
+/// funnel, because there isn't one: the backend's chats broadcast covers most of
+/// it, but marking a chat read/unread, deleting a chat and leaving a group all
+/// adjust the map locally with no resync behind them.
+///
+/// Gated on exactly the condition `ui::window` installs the icon under - a
+/// refresh must never resurrect an icon switched off in Settings or pulled on
+/// logout, and `set_icon` on its own would do precisely that.
+/// Adds the tray icon to the notification area, then immediately writes the
+/// current unread count over it.
+///
+/// The two calls are deliberate and not redundant: the shell takes the item's
+/// accessible name from the tooltip it was *added* with and sends every later
+/// change to the description, so adding the icon under [`whantv::TRAY_APP_NAME`]
+/// and only then writing counts is what makes a screen reader say
+/// "whaNTV, 7 unread messages" instead of pairing the live count with whatever
+/// it happened to be at login.
+fn install_tray_icon(s: &AppState, parts: &WindowParts) {
+	if !s.settings.show_tray_icon || !s.main_ui_shown {
+		return;
+	}
+	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), whantv::TRAY_APP_NAME);
+	refresh_tray_tooltip(s, parts);
+}
+
+fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
+	if !s.settings.show_tray_icon || !s.main_ui_shown {
+		return;
+	}
+	let unread = whantv::unread_notification_total(
+		&s.unread_counts,
+		&s.muted_jids,
+		&s.archived_jids,
+		&s.settings.archived_alert_levels,
+	);
+	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), &whantv::tray_tooltip_text(unread));
+}
+
 /// Drops the "N unread messages" divider from `jid`'s message list right
 /// away, if `jid` is the chat currently open and it has one - shared by
 /// replying (obviously seen) and explicitly marking the chat read from the
@@ -2216,9 +2264,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								// Now that we're logged in, install the tray icon if the
 								// user wants it - it's gated on login so an unpaired app
 								// never parks an icon in the tray (window.rs).
-								if state.borrow().settings.show_tray_icon {
-									parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), "whaNTV");
-								}
+								install_tray_icon(&state.borrow(), parts);
 							}
 
 							let payload = serde_json::json!({
@@ -2717,6 +2763,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									s.muted_jids = muted_jids;
 									s.unread_counts = unread_counts;
 									s.display_names = display_names;
+									refresh_tray_tooltip(&s, parts);
 
 									// Compute new filtered list
 									let lower_query = s.search_query.to_lowercase();
@@ -3232,12 +3279,21 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											.get("from_me")
 											.and_then(|f| f.as_bool())
 											.unwrap_or_else(|| from == "me" || from == "You");
-										if !is_from_me && !s.muted_jids.contains(jid) {
-											play_notification_sound(
-												NotificationSound::MessageBackground,
-												s.settings.sounds_enabled,
+										if !is_from_me {
+											// Archived chats default to silent and can be dialled back up per chat
+											// from the chat-list context menu; muting still overrides both.
+											let alert = whantv::incoming_alert(
+												s.muted_jids.contains(jid),
+												s.archived_jids.contains(jid),
+												s.settings.archived_alert(jid),
 											);
-											if s.settings.notifications_enabled {
+											if alert.sound {
+												play_notification_sound(
+													NotificationSound::MessageBackground,
+													s.settings.sounds_enabled,
+												);
+											}
+											if alert.toast && s.settings.notifications_enabled {
 												// The backend's "message" event carries no sender_name
 												// field - resolve the display name from the contacts
 												// map ourselves, same as everywhere else in the UI, so
@@ -5028,7 +5084,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											break;
 										}
 									}
-								} else if !emoji.is_empty() && !s.muted_jids.contains(chat_jid) {
+								} else if !emoji.is_empty() {
 									// Reaction on a chat that isn't currently open - there's no
 									// loaded ChatMessage to update, just surface it the way
 									// WhatsApp itself does: a notification naming the reactor and
@@ -5048,11 +5104,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 														.cloned()
 														.unwrap_or_else(|| "Contact".to_string())
 												};
-											play_notification_sound(
-												NotificationSound::MessageBackground,
-												s.settings.sounds_enabled,
+											let alert = whantv::incoming_alert(
+												s.muted_jids.contains(chat_jid),
+												s.archived_jids.contains(chat_jid),
+												s.settings.archived_alert(chat_jid),
 											);
-											if s.settings.notifications_enabled {
+											if alert.sound {
+												play_notification_sound(
+													NotificationSound::MessageBackground,
+													s.settings.sounds_enabled,
+												);
+											}
+											if alert.toast && s.settings.notifications_enabled {
 												if let Some(n) = show_toast_notification(
 													&resolved_name,
 													&format!(
@@ -6869,6 +6932,7 @@ while ($true) {
 					// chats resync. Clear it locally now and ask for a fresh
 					// snapshot to repaint the list right away.
 					s.unread_counts.insert(jid, 0);
+					refresh_tray_tooltip(&s, parts);
 					let refresh_payload = serde_json::json!({ "action": "get_chats" });
 					let _ = s.ws_tx.send(refresh_payload.to_string());
 				} else {
@@ -7399,6 +7463,27 @@ while ($true) {
 				&format!("Chat {} {}.", chat_name, if archive { "archived" } else { "unarchived" }),
 			);
 		}
+		UiCommand::SetArchivedAlert { jid, level } => {
+			let (chat_name, spoken) = {
+				let mut s = state.borrow_mut();
+				s.settings.set_archived_alert(&jid, level);
+				s.settings.save();
+				// The tooltip total only counts chats that would actually alert,
+				// so changing a level changes it.
+				refresh_tray_tooltip(&s, parts);
+				let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+				let spoken = match level {
+					whantv::ArchivedAlert::Silent => "silent",
+					whantv::ArchivedAlert::SoundOnly => "sound only",
+					whantv::ArchivedAlert::Full => "notify normally",
+				};
+				(name, spoken)
+			};
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				&format!("Archived alerts for {} set to {}.", chat_name, spoken),
+			);
+		}
 		UiCommand::ToggleMuteChat { jid, mute } => {
 			let chat_name = {
 				let mut s = state.borrow_mut();
@@ -7432,6 +7517,7 @@ while ($true) {
 				} else {
 					s.unread_counts.insert(jid.clone(), 1);
 				}
+				refresh_tray_tooltip(&s, parts);
 				s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
 			};
 			let payload = serde_json::json!({
@@ -7463,6 +7549,7 @@ while ($true) {
 					parts.conversations_parts.conversation_panel.show(false);
 				}
 				apply_chat_filter(&mut s, parts);
+				refresh_tray_tooltip(&s, parts);
 				name
 			};
 			let payload = serde_json::json!({
@@ -7493,6 +7580,7 @@ while ($true) {
 					parts.conversations_parts.conversation_panel.show(false);
 				}
 				apply_chat_filter(&mut s, parts);
+				refresh_tray_tooltip(&s, parts);
 				name
 			};
 			let payload = serde_json::json!({
