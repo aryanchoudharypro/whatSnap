@@ -24,6 +24,12 @@ pub struct Settings {
 	/// no speaker output to echo-cancel against, and some prefer the raw mic
 	/// signal over what the effects pipeline does to it.
 	pub voice_message_noise_suppression: bool,
+	/// Per-chat alert level for archived chats, keyed by JID. A chat with no
+	/// entry uses [`whantv::ArchivedAlert::default`] (silent), so archiving
+	/// quiets a chat with no bookkeeping at all. Entries deliberately survive
+	/// unarchiving: re-archiving a chat shouldn't silently discard the choice
+	/// made for it last time.
+	pub archived_alert_levels: std::collections::HashMap<String, whantv::ArchivedAlert>,
 }
 
 impl Default for Settings {
@@ -37,6 +43,7 @@ impl Default for Settings {
 			input_device_name: None,
 			output_device_name: None,
 			voice_message_noise_suppression: false,
+			archived_alert_levels: std::collections::HashMap::new(),
 		}
 	}
 }
@@ -51,6 +58,22 @@ impl Settings {
 			.ok()
 			.and_then(|raw| serde_json::from_str(&raw).ok())
 			.unwrap_or_default()
+	}
+
+	/// Alert level for `jid` as an archived chat. Chats that aren't archived
+	/// never consult this - see [`whantv::incoming_alert`].
+	pub fn archived_alert(&self, jid: &str) -> whantv::ArchivedAlert {
+		self.archived_alert_levels.get(jid).copied().unwrap_or_default()
+	}
+
+	/// Records `level` for `jid`, dropping the entry when it's the default so
+	/// settings.json doesn't grow a line for every archived chat left alone.
+	pub fn set_archived_alert(&mut self, jid: &str, level: whantv::ArchivedAlert) {
+		if level == whantv::ArchivedAlert::default() {
+			self.archived_alert_levels.remove(jid);
+		} else {
+			self.archived_alert_levels.insert(jid.to_string(), level);
+		}
 	}
 
 	pub fn save(&self) {

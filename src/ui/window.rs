@@ -703,9 +703,23 @@ pub fn bind_input_handlers(
 	let apply_tray_setting = {
 		let tray_icon = tray_icon.clone();
 		let tray_bitmap = tray_bitmap.clone();
+		let state = state.clone();
 		move |enabled: bool| {
 			if enabled {
-				tray_icon.set_icon(&tray_bitmap, "whaNTV");
+				// Two calls on purpose - see `install_tray_icon` in main.rs. The
+				// icon is added under the app name so that becomes the item's
+				// accessible name, and the count is written over it straight after
+				// so switching the icon back on in Settings doesn't leave a bare
+				// name until the next chats broadcast refreshes it.
+				let s = state.borrow();
+				tray_icon.set_icon(&tray_bitmap, whantv::TRAY_APP_NAME);
+				let unread = whantv::unread_notification_total(
+					&s.unread_counts,
+					&s.muted_jids,
+					&s.archived_jids,
+					&s.settings.archived_alert_levels,
+				);
+				tray_icon.set_icon(&tray_bitmap, &whantv::tray_tooltip_text(unread));
 			} else {
 				tray_icon.remove_icon();
 			}
@@ -1354,6 +1368,26 @@ pub fn bind_input_handlers(
 	let ui_tx_chat_ctx = ui_tx.clone();
 	let parent_frame_chat_ctx = parts.frame;
 
+	// The chat list opens the selected chat from BOTH key-down and key-up, which
+	// needs a shared "this Enter release is already spoken for" flag to stay
+	// correct. Two separate releases would otherwise each open a chat:
+	//
+	//  - Plain Enter on the list opens on key-down, and the key-up that follows
+	//    would open it a second time. `open_chat_for_jid` has no already-open
+	//    guard, so that is two history round trips and two list rebuilds; on the
+	//    Status tab it is two `open_media` sends, i.e. two player windows.
+	//  - Activating a context-menu item with Enter closes the menu on the key
+	//    *down*, leaving the key-up to land on the list underneath, which read it
+	//    as "open this chat" - so picking an archived-alert level also opened the
+	//    chat.
+	//
+	// Key-up honours the flag once and clears it. Key-down sets it when it has
+	// already opened the chat itself, and clears it for any other key, so a menu
+	// dismissed with the mouse (no key-up follows at all) can't leave it armed to
+	// swallow a later numpad Enter, which only ever opens from key-up.
+	let enter_release_handled = Rc::new(std::cell::Cell::new(false));
+
+	let guard_ctx = enter_release_handled.clone();
 	let open_chat_context_menu = Rc::new(move || {
 		if let Some(idx) = convs_list_ctx.get_selection() {
 			let pin_id = 4001;
@@ -1364,6 +1398,9 @@ pub fn bind_input_handlers(
 			let export_id = 4006;
 			let export_text_id = 4007;
 			let leave_group_id = 4008;
+			let alert_silent_id = 4009;
+			let alert_sound_id = 4010;
+			let alert_full_id = 4011;
 
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
@@ -1375,6 +1412,7 @@ pub fn bind_input_handlers(
 				let is_unread = unread_count > 0;
 				let is_group = jid.ends_with("@g.us");
 				let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+				let archived_level = s.settings.archived_alert(&jid);
 				drop(s);
 
 				let mut menu_builder = Menu::builder();
@@ -1401,6 +1439,59 @@ pub fn bind_input_handlers(
 				menu_builder = menu_builder.append_item(delete_id, "&Delete chat...", "Delete chat history");
 
 				let mut popup_menu = menu_builder.build();
+
+				// Archived chats are silent by default; this submenu is where one
+				// gets dialled back up. It has to be appended after `build()`
+				// because only a finished `Menu` can take a submenu, which also
+				// means it lands last - no bad thing, since it keeps "Delete
+				// chat..." away from the bottom edge of the menu.
+				//
+				// A submenu item's event is offered to the submenu's own handler
+				// and then to the invoking window, never to the parent menu's, so
+				// this needs its own `on_selected` rather than riding on the one
+				// below. The closure is boxed into the underlying wxMenu, so it
+				// outlives `append_submenu` taking ownership of the wrapper.
+				if is_archived {
+					let alert_menu = Menu::builder()
+						.append_radio_item(alert_silent_id, "&Silent", "No sound and no notification for this chat")
+						.append_radio_item(
+							alert_sound_id,
+							"Sound &only",
+							"Play the message sound but show no notification",
+						)
+						.append_radio_item(alert_full_id, "&Notify normally", "Alert exactly like an unarchived chat")
+						.build();
+					alert_menu.check_item(
+						match archived_level {
+							whantv::ArchivedAlert::Silent => alert_silent_id,
+							whantv::ArchivedAlert::SoundOnly => alert_sound_id,
+							whantv::ArchivedAlert::Full => alert_full_id,
+						},
+						true,
+					);
+
+					let ui_tx_alert = ui_tx_chat_ctx.clone();
+					let jid_alert = jid.clone();
+					alert_menu.on_selected(move |menu_evt| {
+						let id = menu_evt.get_id();
+						let level = if id == alert_silent_id {
+							whantv::ArchivedAlert::Silent
+						} else if id == alert_sound_id {
+							whantv::ArchivedAlert::SoundOnly
+						} else if id == alert_full_id {
+							whantv::ArchivedAlert::Full
+						} else {
+							return;
+						};
+						let _ = ui_tx_alert.send(UiCommand::SetArchivedAlert { jid: jid_alert.clone(), level });
+					});
+
+					popup_menu.append_submenu(
+						alert_menu,
+						"Archived a&lerts",
+						"How this archived chat alerts you about new messages",
+					);
+				}
 
 				let ui_tx_clone = ui_tx_chat_ctx.clone();
 				let jid_clone = jid.clone();
@@ -1500,6 +1591,7 @@ pub fn bind_input_handlers(
 
 				convs_list_ctx.popup_menu(&mut popup_menu, None);
 				popup_menu.destroy_menu();
+				guard_ctx.set(true);
 			}
 		}
 	});
@@ -1507,6 +1599,7 @@ pub fn bind_input_handlers(
 	let open_chat_menu_key = open_chat_context_menu.clone();
 	let conv_list_key = parts.conversations_parts.conversations_list.clone();
 	let tx_open_enter = ui_tx.clone();
+	let guard_key_down = enter_release_handled.clone();
 	parts.conversations_parts.conversations_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
@@ -1514,13 +1607,22 @@ pub fn bind_input_handlers(
 				if let Some(idx) = conv_list_key.get_selection() {
 					let _ = tx_open_enter.send(UiCommand::OpenConversation(idx as usize));
 				}
+				// This keystroke has opened the chat already; its release must
+				// not open it again.
+				guard_key_down.set(true);
 				event.skip(false);
 			} else if !key_event.meta_down()
 				&& (code == Some(395) || code == Some(93) || (key_event.shift_down() && code == Some(349)))
 			{
+				// Leaves the flag alone: the menu arms it itself once it closes.
 				open_chat_menu_key.as_ref()();
 				event.skip(false);
 			} else {
+				// Some other key went down on the list, so the list - not a menu
+				// we just dismissed - owns this keystroke, and whatever release
+				// follows is genuinely its own. This is what lets numpad Enter,
+				// which reaches us only as a key-up, still open a chat.
+				guard_key_down.set(false);
 				event.skip(true);
 			}
 		} else {
@@ -1535,9 +1637,17 @@ pub fn bind_input_handlers(
 
 	let tx_open_enter_up = ui_tx.clone();
 	let conv_list_enter_up = parts.conversations_parts.conversations_list;
+	let guard_key_up = enter_release_handled.clone();
 	parts.conversations_parts.conversations_list.on_key_up(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			if key_event.get_key_code() == Some(13) || key_event.get_key_code() == Some(370) {
+				if guard_key_up.replace(false) {
+					// Already accounted for - either key-down opened the chat, or
+					// this is the release left over from closing a context menu.
+					// See the flag's definition above.
+					event.skip(false);
+					return;
+				}
 				if let Some(idx) = conv_list_enter_up.get_selection() {
 					let _ = tx_open_enter_up.send(UiCommand::OpenConversation(idx as usize));
 				}
