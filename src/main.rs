@@ -208,6 +208,7 @@ pub enum UiCommand {
 	OpenMediaMessage(String),
 	SaveMediaMessageAs(String),
 	OpenChatByPhone(String), // digits-only phone number, no '@s.whatsapp.net' suffix
+	OpenChatByJid(String),   // full jid, used to jump to a group message sender's 1:1 chat
 	ToggleSelectionMode,
 	DeleteSelectedMessages {
 		for_everyone: bool,
@@ -5830,6 +5831,9 @@ while ($true) {
 		}
 		UiCommand::OpenChatByPhone(digits) => {
 			let jid = format!("{}@s.whatsapp.net", digits);
+			open_chat_for_jid(&jid, state, parts);
+		}
+		UiCommand::OpenChatByJid(jid) => {
 			open_chat_for_jid(&jid, state, parts);
 		}
 		UiCommand::ToggleSelectionMode => {

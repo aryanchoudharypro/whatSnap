@@ -2154,6 +2154,7 @@ pub fn bind_input_handlers(
 
 			let s = state_ctx.borrow();
 			let display_item = s.display_items.get(idx as usize).cloned();
+			let is_group_chat = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 			drop(s);
 
 			let is_starred = display_item
@@ -2217,6 +2218,27 @@ pub fn bind_input_handlers(
 				whantv::DisplayItem::Album { .. } => None,
 			});
 
+			// Only meaningful in a group: a 1:1 chat has no other "sender" to
+			// jump to, and messages from you have no other party to reach.
+			let sender_jid = if is_group_chat {
+				display_item.as_ref().and_then(|item| match item {
+					whantv::DisplayItem::Single(m) if !m.is_date_divider && !m.from_me && !m.sender_jid.is_empty() => {
+						Some(m.sender_jid.clone())
+					}
+					whantv::DisplayItem::Album { messages, .. } => messages
+						.first()
+						.filter(|m| !m.from_me && !m.sender_jid.is_empty())
+						.map(|m| m.sender_jid.clone()),
+					_ => None,
+				})
+			} else {
+				None
+			};
+			let sender_name = sender_jid.as_ref().map(|jid| {
+				let s = state_ctx.borrow();
+				s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())
+			});
+
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder
 				.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard")
@@ -2255,6 +2277,46 @@ pub fn bind_input_handlers(
 					.append_item(message_number_id, "Message Num&ber", "Start a chat with this phone number");
 			}
 			let mut popup_menu = menu_builder.build();
+
+			// Same reasoning as the archived-alerts submenu on the chat-list
+			// context menu: a submenu can only be appended to an already-built
+			// `Menu`, and its items are only ever offered to its own
+			// `on_selected`, never the parent's - so this needs its own.
+			if let (Some(sender_jid), Some(sender_name)) = (sender_jid.clone(), sender_name.clone()) {
+				let message_sender_id = 3101;
+				let call_sender_id = 3102;
+
+				let sender_menu = Menu::builder()
+					.append_item(
+						message_sender_id,
+						&format!("&Message {}", sender_name),
+						"Open a one-on-one chat with this message's sender",
+					)
+					.append_item(
+						call_sender_id,
+						&format!("&Call {}", sender_name),
+						"Start a call with this message's sender",
+					)
+					.build();
+
+				let tx_sender_menu = tx_play_media_ctx.clone();
+				let sender_jid_menu = sender_jid.clone();
+				sender_menu.on_selected(move |menu_evt| {
+					let id = menu_evt.get_id();
+					if id == message_sender_id {
+						let _ = tx_sender_menu.send(UiCommand::OpenChatByJid(sender_jid_menu.clone()));
+					} else if id == call_sender_id {
+						let _ = tx_sender_menu.send(UiCommand::OpenChatByJid(sender_jid_menu.clone()));
+						let _ = tx_sender_menu.send(UiCommand::PlaceCall);
+					}
+				});
+
+				popup_menu.append_submenu(
+					sender_menu,
+					&format!("&User actions for {}", sender_name),
+					"Actions for this message's sender",
+				);
+			}
 
 			let state_clone = state_ctx.clone();
 			let parent_frame_clone = parent_frame_ctx.clone();
