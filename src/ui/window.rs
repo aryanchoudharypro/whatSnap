@@ -187,6 +187,13 @@ pub struct WindowParts {
 	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
 	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
 	pub add_members_dialog: crate::ui::add_members::AddMembersDialogParts,
+	/// Shared with the search-field debounce in `bind_input_handlers` so a
+	/// `contacts` response landing while a picker is open coalesces with any
+	/// in-flight keystroke rebuild instead of firing an immediate rebuild
+	/// back-to-back with it - see the "bad wxCheckListBox index" comments in
+	/// `bind_input_handlers` and in main.rs's `refresh_*_contacts_list`.
+	pub new_group_contacts_timer: Rc<Timer<Dialog>>,
+	pub add_members_contacts_timer: Rc<Timer<Dialog>>,
 	pub attachment_dialog: crate::ui::attachment_dialog::AttachmentDialogParts,
 	pub call_parts: crate::ui::call_window::CallWindowParts,
 	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
@@ -418,6 +425,8 @@ pub fn build_main_window() -> WindowParts {
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
 	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
 	let add_members_dialog = crate::ui::add_members::build_add_members_dialog(&frame);
+	let new_group_contacts_timer = Rc::new(Timer::new(&new_group_dialog.dialog));
+	let add_members_contacts_timer = Rc::new(Timer::new(&add_members_dialog.dialog));
 	let attachment_dialog = crate::ui::attachment_dialog::build_attachment_dialog(&frame);
 	let call_parts = crate::ui::call_window::build_call_window();
 	let conversation_data_dialog = crate::ui::conversation_data::build_conversation_data_dialog(&frame);
@@ -491,6 +500,8 @@ pub fn build_main_window() -> WindowParts {
 		new_contact_dialog,
 		new_group_dialog,
 		add_members_dialog,
+		new_group_contacts_timer,
+		add_members_contacts_timer,
 		attachment_dialog,
 		call_parts,
 		conversation_data_dialog,
@@ -1405,9 +1416,11 @@ pub fn bind_input_handlers(
 	// index past the new, shorter list and tripping wx's "bad
 	// wxCheckListBox index" assert in IsChecked(). Debouncing so the list
 	// only rebuilds once typing pauses keeps rebuilds far enough apart for
-	// NVDA to finish querying the previous one first.
-	let group_search_timer = Timer::new(&parts.new_group_dialog.dialog);
-	let group_search_timer = Rc::new(group_search_timer);
+	// NVDA to finish querying the previous one first. This timer is shared
+	// (via `parts.new_group_contacts_timer`) with a fresh `contacts` response
+	// landing while the dialog is open, for the same reason - see the
+	// "contacts" case in main.rs's websocket message handler.
+	let group_search_timer = parts.new_group_contacts_timer.clone();
 	let timer_for_tick = group_search_timer.clone();
 	timer_for_tick.on_tick(move |_| {
 		let query = search_field.get_value().to_lowercase().trim().to_string();
@@ -1504,15 +1517,14 @@ pub fn bind_input_handlers(
 	});
 
 	// Add Members dialog - mirrors the New Group dialog's checkbox-list
-	// wiring above (including the debounced search and the crash fixes that
-	// motivated it), but confirms with an explicit Add button instead of
-	// creating anything.
+	// wiring above (including the debounced search, shared with a fresh
+	// `contacts` response, and the crash fixes that motivated it), but
+	// confirms with an explicit Add button instead of creating anything.
 	let add_members_search_field = parts.add_members_dialog.search_field;
 	let add_members_listbox = parts.add_members_dialog.contacts_listbox;
 	let add_members_selection_announcer = parts.add_members_dialog.selection_announcer;
 	let state_add_members_search = state.clone();
-	let add_members_search_timer = Timer::new(&parts.add_members_dialog.dialog);
-	let add_members_search_timer = Rc::new(add_members_search_timer);
+	let add_members_search_timer = parts.add_members_contacts_timer.clone();
 	let add_members_timer_tick = add_members_search_timer.clone();
 	add_members_timer_tick.on_tick(move |_| {
 		let query = add_members_search_field.get_value().to_lowercase().trim().to_string();
