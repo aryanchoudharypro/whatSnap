@@ -48,6 +48,8 @@ pub enum UiCommand {
 		phone: String,
 	},
 	PrepareNewGroup,
+	PrepareAddMembers,
+	AddGroupMembers(Vec<String>),
 	PrepareContactPicker(ContactPickerMode),
 	FilterContactPicker(String),
 	SelectContactPickerResult(usize),
@@ -200,6 +202,8 @@ pub enum UiCommand {
 	ToggleGroupMemberAdmin(u32),
 	RemoveGroupMember(u32),
 	JoinCommunitySubgroup(u32),
+	OpenGroupInvite(String), // message id of a group-invite message
+	JoinGroupInvite(String), // message id, confirmed via the invite-details dialog
 	DownloadMediaMessage(String),
 	OpenMediaMessage(String),
 	SaveMediaMessageAs(String),
@@ -243,12 +247,14 @@ pub struct Contact {
 }
 
 /// What selecting a contact from the shared contact-picker dialog
-/// (`new_conv_dialog`, reused for all three "pick someone" flows) should do.
+/// (`new_conv_dialog`, reused for both remaining "pick someone" flows)
+/// should do. Adding group members used to be a third mode here, but it
+/// wanted checkbox multi-select and an explicit Add button rather than
+/// "search, Enter, done" - see `add_members.rs` and `AddMembersState`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ContactPickerMode {
 	OpenChat,
 	AddCallParticipant,
-	AddGroupMember,
 }
 
 #[derive(Clone, Copy)]
@@ -342,51 +348,57 @@ fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
 }
 
 fn play_call_fail_sound(state: &mut AppState) {
-	println!("[AUDIO] play_call_fail_sound called");
 	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(&stream_handle.mixer());
 		let cursor = std::io::Cursor::new(include_bytes!("../sounds/whatsapp_windows_hangup_01_705kbps.ogg"));
 		match rodio::Decoder::new(cursor) {
 			Ok(decoder) => {
-				println!("[AUDIO] Decoded fail sound successfully");
 				sink.append(decoder);
 				sink.play();
 				state.call_ringing_sink = Some(sink);
 			}
-			Err(e) => println!("[AUDIO] Error decoding fail sound: {:?}", e),
+			Err(e) => eprintln!("[AUDIO] Error decoding fail sound: {:?}", e),
 		}
 	} else {
-		println!("[AUDIO] No audio stream available");
+		eprintln!("[AUDIO] No audio stream available");
 	}
 }
 
 fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'static [u8]) {
-	println!("[AUDIO] start_call_ringing_sound called");
 	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(&stream_handle.mixer());
 		let cursor = std::io::Cursor::new(sound_bytes);
 		match rodio::Decoder::new(cursor) {
 			Ok(decoder) => {
-				println!("[AUDIO] Decoded ringing sound successfully");
 				use rodio::Source;
-				sink.append(decoder.repeat_infinite());
+				// Fully decode into a SamplesBuffer before looping: rodio's
+				// symphonia-backed Decoder reports current_span_len() == 0 until
+				// its internal buffer is first populated by a next() call, and
+				// repeat_infinite()'s underlying buffered() checks that length
+				// immediately at construction time - seeing 0, it treats the
+				// decoder as already exhausted and Repeat plays silence forever.
+				// SamplesBuffer reports its real length from the start, so
+				// wrapping that instead avoids the false-exhausted state.
+				let channels = decoder.channels();
+				let sample_rate = decoder.sample_rate();
+				let samples: Vec<f32> = decoder.collect();
+				let buffer = rodio::buffer::SamplesBuffer::new(channels, sample_rate, samples);
+				sink.append(buffer.repeat_infinite());
 				sink.play();
 				state.call_ringing_sink = Some(sink);
 			}
-			Err(e) => println!("[AUDIO] Error decoding ringing sound: {:?}", e),
+			Err(e) => eprintln!("[AUDIO] Error decoding ringing sound: {:?}", e),
 		}
 	} else {
-		println!("[AUDIO] No audio stream available");
+		eprintln!("[AUDIO] No audio stream available");
 	}
 }
 
 fn stop_call_ringing_sound(state: &mut AppState) {
-	println!("[AUDIO] stop_call_ringing_sound called");
 	if let Some(sink) = state.call_ringing_sink.take() {
 		sink.pause();
-		println!("[AUDIO] paused ringing sink");
 	}
 }
 
@@ -587,6 +599,7 @@ struct AppState {
 	contact_picker_current_jids: Vec<String>,
 	presence_labels: std::collections::HashMap<String, String>,
 	group_state: crate::ui::new_group::NewGroupState,
+	add_members_state: crate::ui::add_members::AddMembersState,
 	selected_chat: Option<String>,
 	initial_presence_received: bool,
 	messages: Vec<ChatMessage>,
@@ -1504,6 +1517,13 @@ fn main() {
 				checked_jids: std::collections::HashSet::new(),
 				current_jids: Vec::new(),
 			},
+			add_members_state: crate::ui::add_members::AddMembersState {
+				group_jid: None,
+				all_contact_labels: Vec::new(),
+				all_contact_jids: Vec::new(),
+				checked_jids: std::collections::HashSet::new(),
+				current_jids: Vec::new(),
+			},
 			selected_chat: None,
 			initial_presence_received: false,
 			messages: Vec::new(),
@@ -1874,16 +1894,20 @@ fn format_phone_digits(raw_phone: &str) -> String {
 /// Builds the "Name +91 96671 74783" (or just the number, if unnamed) label
 /// shown for a contact in the shared contact-picker dialog.
 fn contact_picker_label(contact: &Contact) -> String {
+	// A "@lid" jid's user part is WhatsApp's own large synthetic identifier,
+	// not a phone number - it just happens to also be all digits, so without
+	// this check an unresolved lid contact (no known phone) would get that
+	// identifier formatted as if it were one, e.g. "Name +1 10000000000004".
+	let is_lid = contact.jid.ends_with("@lid");
 	let raw_phone = if !contact.phone.is_empty() {
-		contact.phone.as_str()
-	} else {
-		contact.jid.split('@').next().unwrap_or(&contact.jid)
-	};
-	let formatted_phone = if raw_phone.chars().all(|c| c.is_ascii_digit()) && !raw_phone.is_empty() {
-		Some(format_phone_digits(raw_phone))
+		Some(contact.phone.as_str())
+	} else if !is_lid {
+		Some(contact.jid.split('@').next().unwrap_or(&contact.jid))
 	} else {
 		None
 	};
+	let formatted_phone =
+		raw_phone.filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())).map(format_phone_digits);
 	match (contact.name.trim().is_empty(), formatted_phone) {
 		(false, Some(phone)) => format!("{} {}", contact.name.trim(), phone),
 		(false, None) => contact.name.trim().to_string(),
@@ -1926,6 +1950,105 @@ fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	}
 	parts.conversations_parts.messages_select_list.thaw();
 	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
+}
+
+/// Re-filters `s.all_contacts` by `query` and repaints the New Group dialog's
+/// `contacts_listbox` (a wxCheckListBox) with the matches, preserving which
+/// jids are already checked. Shared by opening the dialog and by a fresh
+/// `contacts` response landing while it's already open - without the latter,
+/// the box stays empty for the entire first `get_contacts` round trip, and
+/// tabbing focus into an empty wxCheckListBox is what trips the "bad
+/// wxCheckListBox index" debug assert in NVDA's accessibility queries.
+fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let q = query.trim().to_lowercase();
+	let mut s = state.borrow_mut();
+	let mut all_labels = Vec::new();
+	let mut all_jids = Vec::new();
+	for contact in &s.all_contacts {
+		all_labels.push(contact_picker_label(contact));
+		all_jids.push(contact.jid.clone());
+	}
+	let mut filtered_labels = Vec::new();
+	let mut filtered_jids = Vec::new();
+	for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
+		if q.is_empty() || lbl.to_lowercase().contains(&q) {
+			filtered_labels.push(lbl.clone());
+			filtered_jids.push(jid.clone());
+		}
+	}
+	parts.new_group_dialog.contacts_listbox.clear();
+	for lbl in &filtered_labels {
+		parts.new_group_dialog.contacts_listbox.append(lbl);
+	}
+	let gs = &mut s.group_state;
+	gs.all_contact_labels = all_labels;
+	gs.all_contact_jids = all_jids;
+	gs.current_jids = filtered_jids;
+	for (idx, jid) in gs.current_jids.iter().enumerate() {
+		if gs.checked_jids.contains(jid) {
+			parts.new_group_dialog.contacts_listbox.check(idx as u32, true);
+		}
+	}
+	// See the comment on the equivalent reset in window.rs's search handler:
+	// clear()+append() leaves the native listbox caret wherever it was
+	// before the rebuild, which NVDA can query past the end of a shorter
+	// list and trip wx's "bad wxCheckListBox index" assert.
+	// wxListBox::SetSelection asserts/crashes if given index 0 on an empty
+	// list (only wxNOT_FOUND, which wxdragon's u32 API can't express, is
+	// valid there) - so there's nothing to reset when the filter has no
+	// matches, only when it has at least one.
+	if !gs.current_jids.is_empty() {
+		parts.new_group_dialog.contacts_listbox.set_selection(0, true);
+	}
+}
+
+/// Same as `refresh_new_group_contacts_list` above, but for the Add Members
+/// dialog's `contacts_listbox`, and additionally excluding anyone already in
+/// the group (`group_data_member_jids`) - there's no reason to offer
+/// re-adding an existing member.
+fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let q = query.trim().to_lowercase();
+	let mut s = state.borrow_mut();
+	let existing_members: std::collections::HashSet<String> = s.group_data_member_jids.iter().cloned().collect();
+	let mut all_labels = Vec::new();
+	let mut all_jids = Vec::new();
+	for contact in &s.all_contacts {
+		if existing_members.contains(&contact.jid) {
+			continue;
+		}
+		all_labels.push(contact_picker_label(contact));
+		all_jids.push(contact.jid.clone());
+	}
+	let mut filtered_labels = Vec::new();
+	let mut filtered_jids = Vec::new();
+	for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
+		if q.is_empty() || lbl.to_lowercase().contains(&q) {
+			filtered_labels.push(lbl.clone());
+			filtered_jids.push(jid.clone());
+		}
+	}
+	parts.add_members_dialog.contacts_listbox.clear();
+	for lbl in &filtered_labels {
+		parts.add_members_dialog.contacts_listbox.append(lbl);
+	}
+	let ams = &mut s.add_members_state;
+	ams.all_contact_labels = all_labels;
+	ams.all_contact_jids = all_jids;
+	ams.current_jids = filtered_jids;
+	for (idx, jid) in ams.current_jids.iter().enumerate() {
+		if ams.checked_jids.contains(jid) {
+			parts.add_members_dialog.contacts_listbox.check(idx as u32, true);
+		}
+	}
+	// See the equivalent reset in refresh_new_group_contacts_list/window.rs:
+	// clear()+append() leaves the native listbox caret wherever it was
+	// before the rebuild, which NVDA can query past the end of a shorter
+	// list and trip wx's "bad wxCheckListBox index" assert. SetSelection
+	// itself asserts/crashes given index 0 on an empty list (only
+	// wxNOT_FOUND, which wxdragon's u32 API can't express, is valid there).
+	if !ams.current_jids.is_empty() {
+		parts.add_members_dialog.contacts_listbox.set_selection(0, true);
+	}
 }
 
 /// Re-filters `s.all_contacts` by `query` (against the same "Name +phone"
@@ -2118,31 +2241,41 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			parts.new_group_dialog.name_field.set_value("");
 			parts.new_group_dialog.search_field.set_value("");
 			parts.new_group_dialog.extra_number_field.set_value("");
-			let (all_labels, all_jids) = {
-				let s = state.borrow();
-				let mut labels = Vec::new();
-				let mut jids = Vec::new();
-				for contact in &s.all_contacts {
-					labels.push(contact_picker_label(contact));
-					jids.push(contact.jid.clone());
-				}
-				(labels, jids)
-			};
-			{
-				let mut s_mut = state.borrow_mut();
-				let gs = &mut s_mut.group_state;
-				gs.all_contact_labels = all_labels.clone();
-				gs.all_contact_jids = all_jids.clone();
-				gs.checked_jids.clear();
-				gs.current_jids = all_jids;
-			}
-			parts.new_group_dialog.contacts_listbox.clear();
-			for label in all_labels {
-				parts.new_group_dialog.contacts_listbox.append(&label);
-			}
+			state.borrow_mut().group_state.checked_jids.clear();
+			refresh_new_group_contacts_list("", state, parts);
 			let payload = serde_json::json!({ "action": "get_contacts" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 			parts.new_group_dialog.dialog.show_modal();
+		}
+		UiCommand::PrepareAddMembers => {
+			let group_jid = state.borrow().selected_chat.clone();
+			if group_jid.is_none() {
+				return;
+			}
+			parts.add_members_dialog.add_btn.enable(true);
+			parts.add_members_dialog.search_field.set_value("");
+			parts.add_members_dialog.selection_announcer.set_label("");
+			{
+				let mut s = state.borrow_mut();
+				s.add_members_state.group_jid = group_jid;
+				s.add_members_state.checked_jids.clear();
+			}
+			refresh_add_members_contacts_list("", state, parts);
+			let payload = serde_json::json!({ "action": "get_contacts" });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			parts.add_members_dialog.dialog.show_modal();
+		}
+		UiCommand::AddGroupMembers(participants) => {
+			let group_jid = state.borrow().add_members_state.group_jid.clone();
+			if let Some(group_jid) = group_jid {
+				if !participants.is_empty() {
+					let payload = serde_json::json!({
+						"action": "update_group_participants",
+						"data": { "jid": group_jid, "participants": participants, "action": "add" }
+					});
+					let _ = state.borrow().ws_tx.send(payload.to_string());
+				}
+			}
 		}
 		UiCommand::CreateGroup { name, participants } => {
 			let payload = serde_json::json!({
@@ -3525,13 +3658,24 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								});
 								let mut s = state.borrow_mut();
 								s.all_contacts = contacts;
-								// Refresh the picker live if it's already open and the
+								// Refresh the pickers live if they're already open and the
 								// backend response landed after the dialog was shown
 								// with a possibly-empty or stale contact list.
-								if parts.new_conv_dialog.dialog.is_shown() {
+								let new_conv_shown = parts.new_conv_dialog.dialog.is_shown();
+								let new_group_shown = parts.new_group_dialog.dialog.is_shown();
+								let add_members_shown = parts.add_members_dialog.dialog.is_shown();
+								drop(s);
+								if new_conv_shown {
 									let query = parts.new_conv_dialog.search_field.get_value();
-									drop(s);
 									apply_contact_picker_filter(&query, state, parts);
+								}
+								if new_group_shown {
+									let query = parts.new_group_dialog.search_field.get_value();
+									refresh_new_group_contacts_list(&query, state, parts);
+								}
+								if add_members_shown {
+									let query = parts.add_members_dialog.search_field.get_value();
+									refresh_add_members_contacts_list(&query, state, parts);
 								}
 							}
 						}
@@ -4473,6 +4617,38 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									&format!("Joined {}.", name),
 								);
 							}
+						}
+						"group_invite_info" => {
+							if let Some(data) = val.get("data") {
+								let message_id =
+									data.get("messageId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+								let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+								let topic = data.get("topic").and_then(|v| v.as_str()).unwrap_or("");
+								let size = data.get("size").and_then(|v| v.as_i64()).unwrap_or(0);
+								let display_name = if name.is_empty() { "This group".to_string() } else { name };
+								let mut body = format!("{display_name}\n{size} member(s)");
+								if !topic.is_empty() {
+									body.push_str(&format!("\n\n{topic}"));
+								}
+								let dlg = MessageDialog::builder(&parts.frame, &body, "Group Invite")
+									.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+									.build();
+								if dlg.show_modal() == wxdragon::id::ID_YES {
+									let _ = state.borrow().ui_tx.send(UiCommand::JoinGroupInvite(message_id));
+								}
+							}
+						}
+						"group_invite_joined" => {
+							let name = val
+								.get("data")
+								.and_then(|d| d.get("jid"))
+								.and_then(|j| j.as_str())
+								.and_then(|jid| state.borrow().contacts.get(jid).cloned())
+								.unwrap_or_else(|| "the group".to_string());
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								&format!("Joined {}.", name),
+							);
 						}
 						"about_updated" => {
 							if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
@@ -6837,10 +7013,18 @@ while ($true) {
 			parts.new_conv_dialog.search_field.set_value("");
 			let heading = match mode {
 				ContactPickerMode::OpenChat => "Search name or number",
-				ContactPickerMode::AddCallParticipant => "Search a contact to add to the call",
-				ContactPickerMode::AddGroupMember => "Search a contact to add to the group",
+				ContactPickerMode::AddCallParticipant => "Search a contact to add to the call, then press Enter",
 			};
 			parts.new_conv_dialog.search_label.set_label(heading);
+			// "New Group" and "New Contact" only make sense when this dialog
+			// is opened to start a chat - shown regardless of mode, they
+			// caused exactly the confusion reported when adding a call
+			// participant: press Enter on a search match to add someone
+			// instead, which is the only action that applies here.
+			let is_open_chat = mode == ContactPickerMode::OpenChat;
+			parts.new_conv_dialog.new_group_btn.show(is_open_chat);
+			parts.new_conv_dialog.new_contact_btn.show(is_open_chat);
+			parts.new_conv_dialog.dialog.layout();
 			apply_contact_picker_filter("", state, parts);
 			let payload = serde_json::json!({ "action": "get_contacts" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
@@ -6875,16 +7059,6 @@ while ($true) {
 							parts.conversations_parts.messages_announcer.clone(),
 							"Participant added.",
 						);
-					}
-				}
-				ContactPickerMode::AddGroupMember => {
-					let group_jid = state.borrow().selected_chat.clone();
-					if let Some(group_jid) = group_jid {
-						let msg = serde_json::json!({
-							"action": "update_group_participants",
-							"data": { "jid": group_jid, "participants": [jid], "action": "add" }
-						});
-						let _ = state.borrow().ws_tx.send(msg.to_string());
 					}
 				}
 			}
@@ -7326,6 +7500,20 @@ while ($true) {
 				});
 				let _ = s.ws_tx.send(msg.to_string());
 			}
+		}
+		UiCommand::OpenGroupInvite(message_id) => {
+			let msg = serde_json::json!({
+				"action": "get_group_invite_info",
+				"data": { "message_id": message_id }
+			});
+			let _ = state.borrow().ws_tx.send(msg.to_string());
+		}
+		UiCommand::JoinGroupInvite(message_id) => {
+			let msg = serde_json::json!({
+				"action": "join_group_invite",
+				"data": { "message_id": message_id }
+			});
+			let _ = state.borrow().ws_tx.send(msg.to_string());
 		}
 		UiCommand::SeekAudioAbsolute(slider_val) => {
 			let mut s = state.borrow_mut();

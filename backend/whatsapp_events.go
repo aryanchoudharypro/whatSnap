@@ -340,6 +340,12 @@ func extractTextRaw(msg *waE2E.Message) string {
 	if msg.GetReactionMessage() != nil {
 		return "[Reaction]"
 	}
+	if invite := msg.GetGroupInviteMessage(); invite != nil {
+		if name := invite.GetGroupName(); name != "" {
+			return "[Group Invite] " + name
+		}
+		return "[Group Invite]"
+	}
 	if poll := pollCreation(msg); poll != nil {
 		return "[Poll] " + poll.GetName()
 	}
@@ -1819,6 +1825,15 @@ func populateChatsFromStoreOnce() {
 			phone = targetJID.User
 		}
 
+		// An unresolved "lid" identity (GetPNForLID above came up empty - the
+		// mapping to the person's phone number isn't known yet) is sometimes
+		// a duplicate of that same person's phone-number contact and
+		// sometimes the only entry that exists for them at all (their PN
+		// identity may never get synced as a separate contact). Caching it
+		// is still correct either way; the "Name +1 10000000000004"-looking
+		// duplicate row was the picker formatting the lid's own large
+		// numeric ID as if it were a phone number - fixed at display time in
+		// contact_picker_label (main.rs), not by dropping the contact here.
 		if name != "" || phone != "" {
 			upsertContactCacheRow(jidStr, name, phone, contact.BusinessName != "")
 		}

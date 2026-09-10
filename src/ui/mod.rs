@@ -1,3 +1,4 @@
+pub mod add_members;
 pub mod attachment_dialog;
 pub mod call_window;
 pub mod conversation_data;

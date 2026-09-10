@@ -140,6 +140,10 @@ func handleConnection(conn net.Conn) {
 			handleGetGroupInviteLink(conn, cmd.Data)
 		case "update_group_participants":
 			handleUpdateGroupParticipants(cmd.Data)
+		case "get_group_invite_info":
+			handleGetGroupInviteInfo(conn, cmd.Data)
+		case "join_group_invite":
+			handleJoinGroupInvite(cmd.Data)
 		case "set_group_name":
 			handleSetGroupName(cmd.Data)
 		case "set_group_topic":
