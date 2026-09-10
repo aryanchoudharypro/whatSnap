@@ -199,6 +199,7 @@ pub enum UiCommand {
 		jid: String,
 	},
 	FilterGroupMembers(String),
+	GroupMemberSelectionChanged,
 	ToggleGroupMemberAdmin(u32),
 	RemoveGroupMember(u32),
 	JoinCommunitySubgroup(u32),
@@ -1951,6 +1952,25 @@ fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	}
 	parts.conversations_parts.messages_select_list.thaw();
 	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
+}
+
+/// Sets the group data dialog's `make_admin_btn` label to match whether the
+/// currently selected member (by position in the filtered `members_list`) is
+/// already an admin, mirroring official WhatsApp's per-member "Make admin" /
+/// "Dismiss as admin" toggle instead of one static label regardless of
+/// who's selected.
+fn update_make_admin_button_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let s = state.borrow();
+	let is_admin = parts
+		.group_data_dialog
+		.members_list
+		.get_selection()
+		.and_then(|idx| s.group_data_visible_member_jids.get(idx as usize))
+		.and_then(|jid| s.group_data_member_jids.iter().position(|j| j == jid))
+		.and_then(|i| s.group_data_member_admin.get(i).copied())
+		.unwrap_or(false);
+	drop(s);
+	parts.group_data_dialog.make_admin_btn.set_label(if is_admin { "Dismiss as admin" } else { "Make admin" });
 }
 
 /// Re-filters `s.all_contacts` by `query` and repaints the New Group dialog's
@@ -4652,6 +4672,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									}
 								}
 								s_mut.group_data_visible_member_jids = visible_jids;
+								drop(s_mut);
+								// The list was just rebuilt from scratch, so there's no
+								// selection yet - reset the label to the no-selection default.
+								parts.group_data_dialog.make_admin_btn.set_label("Make admin");
 							}
 						}
 						"community_subgroups" => {
@@ -7020,6 +7044,13 @@ while ($true) {
 				}
 			}
 			s.group_data_visible_member_jids = visible_jids;
+			drop(s);
+			// Filtering rebuilds the list from scratch, so any prior selection
+			// is gone - reset the label to the no-selection default.
+			parts.group_data_dialog.make_admin_btn.set_label("Make admin");
+		}
+		UiCommand::GroupMemberSelectionChanged => {
+			update_make_admin_button_label(state, parts);
 		}
 		UiCommand::DownloadMediaMessage(message_id) => {
 			let (jid_opt, needs_download, filename) = {

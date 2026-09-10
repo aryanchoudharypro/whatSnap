@@ -1193,6 +1193,14 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	// Keeps "Make admin" reading as "Dismiss as admin" when the selected
+	// member already is one, matching official WhatsApp's per-member toggle
+	// instead of one static label regardless of who's selected.
+	let tx_member_selection = ui_tx.clone();
+	parts.group_data_dialog.members_list.on_selection_changed(move |_| {
+		let _ = tx_member_selection.send(UiCommand::GroupMemberSelectionChanged);
+	});
+
 	let tx_remove_member = ui_tx.clone();
 	let members_list_remove = parts.group_data_dialog.members_list.clone();
 	parts.group_data_dialog.remove_member_btn.on_click(move |_| {
