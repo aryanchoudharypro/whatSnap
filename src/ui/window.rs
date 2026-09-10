@@ -186,6 +186,7 @@ pub struct WindowParts {
 	pub new_conv_dialog: crate::ui::new_conversation::NewConversationDialogParts,
 	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
 	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
+	pub add_members_dialog: crate::ui::add_members::AddMembersDialogParts,
 	pub attachment_dialog: crate::ui::attachment_dialog::AttachmentDialogParts,
 	pub call_parts: crate::ui::call_window::CallWindowParts,
 	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
@@ -416,6 +417,7 @@ pub fn build_main_window() -> WindowParts {
 	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
 	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
+	let add_members_dialog = crate::ui::add_members::build_add_members_dialog(&frame);
 	let attachment_dialog = crate::ui::attachment_dialog::build_attachment_dialog(&frame);
 	let call_parts = crate::ui::call_window::build_call_window();
 	let conversation_data_dialog = crate::ui::conversation_data::build_conversation_data_dialog(&frame);
@@ -459,6 +461,7 @@ pub fn build_main_window() -> WindowParts {
 	set_dialog_owner(&new_conv_dialog.dialog, &frame);
 	set_dialog_owner(&new_contact_dialog.dialog, &frame);
 	set_dialog_owner(&new_group_dialog.dialog, &frame);
+	set_dialog_owner(&add_members_dialog.dialog, &frame);
 	set_dialog_owner(&attachment_dialog.dialog, &frame);
 	set_dialog_owner(&conversation_data_dialog.dialog, &frame);
 	set_dialog_owner(&group_data_dialog.dialog, &frame);
@@ -487,6 +490,7 @@ pub fn build_main_window() -> WindowParts {
 		new_conv_dialog,
 		new_contact_dialog,
 		new_group_dialog,
+		add_members_dialog,
 		attachment_dialog,
 		call_parts,
 		conversation_data_dialog,
@@ -951,6 +955,7 @@ pub fn bind_input_handlers(
 
 	let nav_list_for_menu = parts.nav_list.clone();
 	let tx_nav_menu = ui_tx.clone();
+	let conv_list_for_nav_menu = parts.conversations_parts.conversations_list;
 	parts.frame.on_menu_selected(move |evt| {
 		let idx = match evt.get_id() {
 			MENU_ID_NAV_CONVERSATIONS => 0,
@@ -966,6 +971,14 @@ pub fn bind_input_handlers(
 		// the (shared) list's content, same as a mouse click would trigger.
 		nav_list_for_menu.set_selection(idx, true);
 		let _ = tx_nav_menu.send(UiCommand::NavSelected(idx as usize));
+		// Move focus into the (now repopulated) chat list. set_focus() is a
+		// no-op - fires no event - when focus is already there, which is
+		// exactly the common case (the shortcut is usually pressed from
+		// inside the list). Bounce focus off nav_list first so the move back
+		// is always a genuine focus transition, and the screen reader always
+		// announces the newly-focused item naturally, same as arrowing to it.
+		nav_list_for_menu.set_focus();
+		conv_list_for_nav_menu.set_focus();
 	});
 
 	let state_chat_menu = state.clone();
@@ -1158,7 +1171,7 @@ pub fn bind_input_handlers(
 
 	let tx_add_member = ui_tx.clone();
 	parts.group_data_dialog.add_member_btn.on_click(move |_| {
-		let _ = tx_add_member.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::AddGroupMember));
+		let _ = tx_add_member.send(UiCommand::PrepareAddMembers);
 	});
 
 	let tx_make_admin = ui_tx.clone();
@@ -1382,8 +1395,21 @@ pub fn bind_input_handlers(
 
 	let search_field = parts.new_group_dialog.search_field;
 	let contacts_listbox = parts.new_group_dialog.contacts_listbox;
+	let selection_announcer_search = parts.new_group_dialog.selection_announcer;
 	let state_search = state.clone();
-	search_field.on_text_changed(move |_| {
+	// wxCheckListBox::Check() fires an OBJECT_STATECHANGE WinEvent per item
+	// (checklst.cpp), which NVDA processes asynchronously. Rebuilding the
+	// whole list (clear() + append() + re-Check()) on every single keystroke
+	// queued events referencing items that a following keystroke's rebuild
+	// had already replaced by the time NVDA got to them, landing NVDA on an
+	// index past the new, shorter list and tripping wx's "bad
+	// wxCheckListBox index" assert in IsChecked(). Debouncing so the list
+	// only rebuilds once typing pauses keeps rebuilds far enough apart for
+	// NVDA to finish querying the previous one first.
+	let group_search_timer = Timer::new(&parts.new_group_dialog.dialog);
+	let group_search_timer = Rc::new(group_search_timer);
+	let timer_for_tick = group_search_timer.clone();
+	timer_for_tick.on_tick(move |_| {
 		let query = search_field.get_value().to_lowercase().trim().to_string();
 		let mut s = state_search.borrow_mut();
 		let gs = &mut s.group_state;
@@ -1416,9 +1442,33 @@ pub fn bind_input_handlers(
 				contacts_listbox.check(idx as u32, true);
 			}
 		}
+		// wxListBox::SetSelection asserts/crashes if given index 0 on an
+		// empty list (only wxNOT_FOUND, which wxdragon's u32 API can't
+		// express, is valid there) - so there's nothing to reset when the
+		// filter has no matches, only when it has at least one.
+		if !gs.current_jids.is_empty() {
+			contacts_listbox.set_selection(0, true);
+		}
+		if !gs.checked_jids.is_empty() {
+			let count = gs.checked_jids.len();
+			live_region::announce(
+				selection_announcer_search.clone(),
+				&format!(
+					"{} shown. {} contact{} selected.",
+					gs.current_jids.len(),
+					count,
+					if count == 1 { "" } else { "s" }
+				),
+			);
+		}
+	});
+	search_field.on_text_changed(move |_| {
+		group_search_timer.stop();
+		group_search_timer.start(250, true);
 	});
 
 	let contacts_listbox_toggle = parts.new_group_dialog.contacts_listbox;
+	let selection_announcer_toggle = parts.new_group_dialog.selection_announcer;
 	let state_toggle = state.clone();
 	contacts_listbox_toggle.on_toggled(move |event| {
 		if let Some(idx) = event.get_selection() {
@@ -1434,9 +1484,162 @@ pub fn bind_input_handlers(
 				}
 				let label = contacts_listbox_toggle.get_string(idx as usize).unwrap_or_default();
 				let state_str = if checked { "selected" } else { "not selected" };
-				println!("{}: {}", label, state_str);
+				// Checking someone and then filtering them out of view with
+				// a new search reads as "my selection got lost" with no way
+				// to otherwise confirm it didn't - this running total is how
+				// they can tell it's still there.
+				let count = gs.checked_jids.len();
+				live_region::announce(
+					selection_announcer_toggle.clone(),
+					&format!(
+						"{}: {}. {} contact{} selected.",
+						label,
+						state_str,
+						count,
+						if count == 1 { "" } else { "s" }
+					),
+				);
 			}
 		}
+	});
+
+	// Add Members dialog - mirrors the New Group dialog's checkbox-list
+	// wiring above (including the debounced search and the crash fixes that
+	// motivated it), but confirms with an explicit Add button instead of
+	// creating anything.
+	let add_members_search_field = parts.add_members_dialog.search_field;
+	let add_members_listbox = parts.add_members_dialog.contacts_listbox;
+	let add_members_selection_announcer = parts.add_members_dialog.selection_announcer;
+	let state_add_members_search = state.clone();
+	let add_members_search_timer = Timer::new(&parts.add_members_dialog.dialog);
+	let add_members_search_timer = Rc::new(add_members_search_timer);
+	let add_members_timer_tick = add_members_search_timer.clone();
+	add_members_timer_tick.on_tick(move |_| {
+		let query = add_members_search_field.get_value().to_lowercase().trim().to_string();
+		let mut s = state_add_members_search.borrow_mut();
+		let ams = &mut s.add_members_state;
+		let count = add_members_listbox.get_count();
+		for idx in 0..count {
+			if idx < ams.current_jids.len() as u32 {
+				let jid = ams.current_jids[idx as usize].clone();
+				if add_members_listbox.is_checked(idx) {
+					ams.checked_jids.insert(jid);
+				} else {
+					ams.checked_jids.remove(&jid);
+				}
+			}
+		}
+		let mut filtered_labels = Vec::new();
+		let mut filtered_jids = Vec::new();
+		for (lbl, jid) in ams.all_contact_labels.iter().zip(ams.all_contact_jids.iter()) {
+			if query.is_empty() || lbl.to_lowercase().contains(&query) {
+				filtered_labels.push(lbl.clone());
+				filtered_jids.push(jid.clone());
+			}
+		}
+		add_members_listbox.clear();
+		for lbl in &filtered_labels {
+			add_members_listbox.append(lbl);
+		}
+		ams.current_jids = filtered_jids;
+		for (idx, jid) in ams.current_jids.iter().enumerate() {
+			if ams.checked_jids.contains(jid) {
+				add_members_listbox.check(idx as u32, true);
+			}
+		}
+		if !ams.current_jids.is_empty() {
+			add_members_listbox.set_selection(0, true);
+		}
+		if !ams.checked_jids.is_empty() {
+			let count = ams.checked_jids.len();
+			live_region::announce(
+				add_members_selection_announcer.clone(),
+				&format!(
+					"{} shown. {} contact{} selected.",
+					ams.current_jids.len(),
+					count,
+					if count == 1 { "" } else { "s" }
+				),
+			);
+		}
+	});
+	add_members_search_field.on_text_changed(move |_| {
+		add_members_search_timer.stop();
+		add_members_search_timer.start(250, true);
+	});
+
+	let add_members_listbox_toggle = parts.add_members_dialog.contacts_listbox;
+	let add_members_selection_announcer_toggle = parts.add_members_dialog.selection_announcer;
+	let state_add_members_toggle = state.clone();
+	add_members_listbox_toggle.on_toggled(move |event| {
+		if let Some(idx) = event.get_selection() {
+			let mut s = state_add_members_toggle.borrow_mut();
+			let ams = &mut s.add_members_state;
+			if idx < ams.current_jids.len() as u32 {
+				let jid = ams.current_jids[idx as usize].clone();
+				let checked = add_members_listbox_toggle.is_checked(idx);
+				if checked {
+					ams.checked_jids.insert(jid);
+				} else {
+					ams.checked_jids.remove(&jid);
+				}
+				let label = add_members_listbox_toggle.get_string(idx as usize).unwrap_or_default();
+				let state_str = if checked { "selected" } else { "not selected" };
+				let count = ams.checked_jids.len();
+				live_region::announce(
+					add_members_selection_announcer_toggle.clone(),
+					&format!(
+						"{}: {}. {} contact{} selected.",
+						label,
+						state_str,
+						count,
+						if count == 1 { "" } else { "s" }
+					),
+				);
+			}
+		}
+	});
+
+	let tx_add_members_confirm = ui_tx.clone();
+	let add_members_listbox_ok = parts.add_members_dialog.contacts_listbox;
+	let add_members_dialog_ok = parts.add_members_dialog.dialog;
+	let state_add_members_ok = state.clone();
+	parts.add_members_dialog.add_btn.on_click(move |_| {
+		let mut s = state_add_members_ok.borrow_mut();
+		let ams = &mut s.add_members_state;
+		let count = add_members_listbox_ok.get_count();
+		for idx in 0..count {
+			if idx < ams.current_jids.len() as u32 {
+				let jid = ams.current_jids[idx as usize].clone();
+				if add_members_listbox_ok.is_checked(idx) {
+					ams.checked_jids.insert(jid);
+				} else {
+					ams.checked_jids.remove(&jid);
+				}
+			}
+		}
+		let participants: Vec<String> = ams.checked_jids.iter().cloned().collect();
+		drop(s);
+		if participants.is_empty() {
+			unsafe {
+				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
+				);
+			}
+			MessageDialog::builder(&add_members_dialog_ok, "At least one contact must be selected.", "Error")
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal();
+			add_members_listbox_ok.set_focus();
+			return;
+		}
+		add_members_dialog_ok.end_modal(wxdragon::id::ID_OK);
+		let _ = tx_add_members_confirm.send(UiCommand::AddGroupMembers(participants));
+	});
+
+	let add_members_cancel = parts.add_members_dialog.dialog;
+	parts.add_members_dialog.cancel_btn.on_click(move |_| {
+		add_members_cancel.end_modal(0);
 	});
 
 	let tx_nav = ui_tx.clone();
@@ -3112,6 +3315,7 @@ pub fn bind_input_handlers(
 	// on_key_up catches Enter on ListBox — on_key_down misses it because the OS consumes it
 	let tx_jump_enter = ui_tx.clone();
 	let tx_phone_enter = ui_tx.clone();
+	let tx_invite_enter = ui_tx.clone();
 	let msgs_list_enter = parts.conversations_parts.messages_list.clone();
 	let state_enter = state.clone();
 	let search_panel_enter = parts.conversations_parts.search_panel;
@@ -3155,6 +3359,11 @@ pub fn bind_input_handlers(
 						});
 						drop(s);
 						if let Some(msg) = msg_opt {
+							if msg.text.starts_with("[Group Invite]") {
+								let _ = tx_invite_enter.send(UiCommand::OpenGroupInvite(msg.id.clone()));
+								event.skip(false);
+								return;
+							}
 							let mut urls = Vec::new();
 							let text = &msg.text;
 							let mut start_idx = 0;

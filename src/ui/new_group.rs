@@ -16,6 +16,7 @@ pub struct NewGroupDialogParts {
 	pub name_field: TextCtrl,
 	pub search_field: TextCtrl,
 	pub contacts_listbox: CheckListBox,
+	pub selection_announcer: StaticText,
 	pub extra_number_field: TextCtrl,
 	pub ok_btn: Button,
 	pub cancel_btn: Button,
@@ -52,6 +53,16 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	let contacts_listbox = CheckListBox::builder(&panel).build();
 	contacts_listbox.set_font(&theme::Fonts::body());
 	sizer.add(&contacts_listbox, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	// Checking a contact and then typing a new search filters them out of
+	// view (they're still selected - see NewGroupState::checked_jids - just
+	// not currently shown), which reads as "my selection got lost" with no
+	// way to otherwise confirm it didn't. This live region reports the
+	// running total whenever it changes.
+	let selection_announcer = StaticText::builder(&panel).with_label("").build();
+	live_region::set_live_region(&selection_announcer);
+	theme::style_muted_label(&selection_announcer);
+	sizer.add(&selection_announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let extra_label = StaticText::builder(&panel).with_label("Extra number (optional)").build();
 	theme::style_muted_label(&extra_label);
@@ -124,5 +135,14 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 		event.skip(true);
 	});
 
-	NewGroupDialogParts { dialog, name_field, search_field, contacts_listbox, extra_number_field, ok_btn, cancel_btn }
+	NewGroupDialogParts {
+		dialog,
+		name_field,
+		search_field,
+		contacts_listbox,
+		selection_announcer,
+		extra_number_field,
+		ok_btn,
+		cancel_btn,
+	}
 }

@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"net"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 )
 
 func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
@@ -54,6 +57,16 @@ func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 		sendEvent(conn, "create_group_status", map[string]interface{}{"status": "success", "jid": createResp.JID.String()})
+		// whatsmeow's local joined-groups store (what populateChatsFromStore
+		// reads from) doesn't reliably reflect a group we just created
+		// ourselves until a later JoinedGroup/GroupInfo event syncs it - for
+		// a self-created group that can take until the next message arrives,
+		// leaving it out of the chat list and then showing its raw jid
+		// instead of its name once it does appear. Insert it directly with
+		// the name we already have so it shows up correctly right away.
+		db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, ?)
+			ON CONFLICT(jid) DO UPDATE SET name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
+			createResp.JID.String(), groupData.Name, time.Now().Unix())
 		populateChatsFromStore()
 		broadcastChats()
 	}()
@@ -283,12 +296,122 @@ func handleUpdateGroupParticipants(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		_, err := client.UpdateGroupParticipants(context.Background(), jid, participants, change)
+		results, err := client.UpdateGroupParticipants(context.Background(), jid, participants, change)
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
+		// A nil top-level err doesn't mean every participant change actually
+		// happened - WhatsApp reports per-participant failures (e.g. adding
+		// someone whose privacy settings block direct group adds queues an
+		// invite request instead) via a non-zero Error code on that entry.
+		var failed []string
+		var pendingInvite bool
+		for _, p := range results {
+			if p.Error == 0 {
+				continue
+			}
+			if data.Action == "add" && p.AddRequest != nil {
+				pendingInvite = true
+				continue
+			}
+			failed = append(failed, p.JID.User)
+		}
+		switch {
+		case pendingInvite && len(failed) == 0:
+			broadcastEvent("error", map[string]string{"message": "Some participants have privacy settings that prevent being added directly. An invite link was sent to them instead."})
+		case len(failed) > 0:
+			broadcastEvent("error", map[string]string{"message": "Couldn't update participant(s): " + strings.Join(failed, ", ")})
+		}
 		broadcastEvent("group_updated", map[string]interface{}{"jid": data.JID})
+	}()
+}
+
+// groupInviteFromMessageID re-parses a stored message's raw protobuf to pull
+// out the fields a GroupInviteMessage needs for GetGroupInfoFromInvite /
+// JoinGroupWithInvite - those aren't columns of their own, just part of the
+// message content already saved for other purposes (forwarding, quoting).
+// The "inviter" WhatsApp wants is whoever sent us the invite: the message's
+// sender for a group-relayed invite, or the chat JID itself for a DM.
+func groupInviteFromMessageID(messageID string) (groupJID, inviterJID types.JID, code string, expiration int64, err error) {
+	rawBytes, chatJID, senderJID, _, dbErr := getMessageRaw(messageID)
+	if dbErr != nil || len(rawBytes) == 0 {
+		err = fmt.Errorf("message not found")
+		return
+	}
+	var msg waE2E.Message
+	if unmarshalErr := proto.Unmarshal(rawBytes, &msg); unmarshalErr != nil {
+		err = fmt.Errorf("failed to parse message")
+		return
+	}
+	invite := msg.GetGroupInviteMessage()
+	if invite == nil {
+		err = fmt.Errorf("message is not a group invite")
+		return
+	}
+	groupJID, parseErr := types.ParseJID(invite.GetGroupJID())
+	if parseErr != nil {
+		err = fmt.Errorf("invalid group JID in invite")
+		return
+	}
+	inviterStr := senderJID
+	if inviterStr == "" {
+		inviterStr = chatJID
+	}
+	inviterJID, parseErr = types.ParseJID(inviterStr)
+	if parseErr != nil {
+		err = fmt.Errorf("invalid inviter JID")
+		return
+	}
+	code = invite.GetInviteCode()
+	expiration = invite.GetInviteExpiration()
+	return
+}
+
+func handleGetGroupInviteInfo(conn net.Conn, raw json.RawMessage) {
+	var data MessageRefData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	go func() {
+		groupJID, inviterJID, code, expiration, err := groupInviteFromMessageID(data.MessageID)
+		if err != nil {
+			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			return
+		}
+		info, err := client.GetGroupInfoFromInvite(context.Background(), groupJID, inviterJID, code, expiration)
+		if err != nil {
+			sendEvent(conn, "error", map[string]string{"message": "This invite is no longer valid: " + err.Error()})
+			return
+		}
+		sendEvent(conn, "group_invite_info", map[string]interface{}{
+			"messageId": data.MessageID,
+			"jid":       info.JID.String(),
+			"name":      info.Name,
+			"topic":     info.Topic,
+			"size":      len(info.Participants),
+		})
+	}()
+}
+
+func handleJoinGroupInvite(raw json.RawMessage) {
+	var data MessageRefData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	go func() {
+		groupJID, inviterJID, code, expiration, err := groupInviteFromMessageID(data.MessageID)
+		if err != nil {
+			broadcastEvent("error", map[string]string{"message": err.Error()})
+			return
+		}
+		if joinErr := client.JoinGroupWithInvite(context.Background(), groupJID, inviterJID, code, expiration); joinErr != nil {
+			broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + joinErr.Error()})
+			return
+		}
+		populateChatsFromStore()
+		broadcastChats()
+		broadcastEvent("group_invite_joined", map[string]interface{}{"jid": groupJID.String()})
 	}()
 }
 
