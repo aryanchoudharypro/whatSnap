@@ -2003,6 +2003,24 @@ fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<AppState>>, p
 	}
 }
 
+/// Recomputes `group_state.all_contact_labels`/`all_contact_jids` from
+/// `s.all_contacts` without touching the New Group dialog's listbox widget.
+/// Used when a `contacts` response lands while the dialog is open, so the
+/// debounced rebuild it then schedules (via `new_group_contacts_timer`) has
+/// fresh data to filter once it actually fires.
+fn sync_new_group_contact_labels(state: &Rc<RefCell<AppState>>) {
+	let mut s = state.borrow_mut();
+	let mut all_labels = Vec::new();
+	let mut all_jids = Vec::new();
+	for contact in &s.all_contacts {
+		all_labels.push(contact_picker_label(contact));
+		all_jids.push(contact.jid.clone());
+	}
+	let gs = &mut s.group_state;
+	gs.all_contact_labels = all_labels;
+	gs.all_contact_jids = all_jids;
+}
+
 /// Same as `refresh_new_group_contacts_list` above, but for the Add Members
 /// dialog's `contacts_listbox`, and additionally excluding anyone already in
 /// the group (`group_data_member_jids`) - there's no reason to offer
@@ -2050,6 +2068,29 @@ fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<AppState>>,
 	if !ams.current_jids.is_empty() {
 		parts.add_members_dialog.contacts_listbox.set_selection(0, true);
 	}
+}
+
+/// Recomputes `add_members_state.all_contact_labels`/`all_contact_jids` from
+/// `s.all_contacts` (excluding existing group members) without touching the
+/// Add Members dialog's listbox widget. Used when a `contacts` response
+/// lands while the dialog is open, so the debounced rebuild it then
+/// schedules (via `add_members_contacts_timer`) has fresh data to filter
+/// once it actually fires.
+fn sync_add_members_contact_labels(state: &Rc<RefCell<AppState>>) {
+	let mut s = state.borrow_mut();
+	let existing_members: std::collections::HashSet<String> = s.group_data_member_jids.iter().cloned().collect();
+	let mut all_labels = Vec::new();
+	let mut all_jids = Vec::new();
+	for contact in &s.all_contacts {
+		if existing_members.contains(&contact.jid) {
+			continue;
+		}
+		all_labels.push(contact_picker_label(contact));
+		all_jids.push(contact.jid.clone());
+	}
+	let ams = &mut s.add_members_state;
+	ams.all_contact_labels = all_labels;
+	ams.all_contact_jids = all_jids;
 }
 
 /// Re-filters `s.all_contacts` by `query` (against the same "Name +phone"
@@ -3670,13 +3711,22 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let query = parts.new_conv_dialog.search_field.get_value();
 									apply_contact_picker_filter(&query, state, parts);
 								}
+								// Route a fresh `contacts` response through the same debounce
+								// timer as keystrokes (rather than rebuilding the checklist
+								// widget here immediately) - back-to-back rebuilds (this one
+								// landing right after the dialog-open rebuild) race NVDA's
+								// async accessibility queries and trip wx's "bad
+								// wxCheckListBox index" assert. See the timer's own comment
+								// in window.rs's bind_input_handlers.
 								if new_group_shown {
-									let query = parts.new_group_dialog.search_field.get_value();
-									refresh_new_group_contacts_list(&query, state, parts);
+									sync_new_group_contact_labels(state);
+									parts.new_group_contacts_timer.stop();
+									parts.new_group_contacts_timer.start(250, true);
 								}
 								if add_members_shown {
-									let query = parts.add_members_dialog.search_field.get_value();
-									refresh_add_members_contacts_list(&query, state, parts);
+									sync_add_members_contact_labels(state);
+									parts.add_members_contacts_timer.stop();
+									parts.add_members_contacts_timer.start(250, true);
 								}
 							}
 						}
@@ -3970,6 +4020,49 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let edited_fmt = fmt_ts(edited_s);
 								if !edited_fmt.is_empty() {
 									lines.push(format!("Edited at {}", edited_fmt));
+								}
+
+								if let Some(participants) = data.get("participants").and_then(|p| p.as_array()) {
+									if !participants.is_empty() {
+										lines.retain(|l| l.starts_with("Sent at") || l.starts_with("Edited at"));
+
+										let mut played = Vec::new();
+										let mut read = Vec::new();
+										let mut delivered = Vec::new();
+										let mut sent = Vec::new();
+										for p in participants {
+											let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+											let pstatus = p.get("status").and_then(|v| v.as_str()).unwrap_or("sent");
+											let pts = p.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+											let ts_fmt = fmt_ts(pts);
+											let entry = if ts_fmt.is_empty() {
+												name.to_string()
+											} else {
+												format!("{} — {}", name, ts_fmt)
+											};
+											match pstatus {
+												"played" => played.push(entry),
+												"read" => read.push(entry),
+												"delivered" => delivered.push(entry),
+												_ => sent.push(entry),
+											}
+										}
+
+										let mut push_group = |label: &str, entries: &Vec<String>| {
+											if entries.is_empty() {
+												return;
+											}
+											lines.push(String::new());
+											lines.push(label.to_string());
+											for e in entries {
+												lines.push(format!("  {}", e));
+											}
+										};
+										push_group("Played by", &played);
+										push_group("Read by", &read);
+										push_group("Delivered to", &delivered);
+										push_group("Sent to", &sent);
+									}
 								}
 
 								if lines.is_empty() {

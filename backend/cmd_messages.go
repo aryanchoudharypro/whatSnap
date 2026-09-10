@@ -492,18 +492,20 @@ func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	var sentAt, deliveredAt, readAt, playedAt, editedAt, msgTS int64
-	var mediaType string
+	var mediaType, jid string
+	var fromMe bool
 	err := db.QueryRow(
-		`SELECT COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(media_type,''), COALESCE(timestamp,0) FROM messages WHERE id = ?`,
+		`SELECT COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(media_type,''), COALESCE(timestamp,0), COALESCE(jid,''), COALESCE(from_me,0) FROM messages WHERE id = ?`,
 		data.ID,
-	).Scan(&sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &mediaType, &msgTS)
+	).Scan(&sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &mediaType, &msgTS, &jid, &fromMe)
 	if err != nil {
 		return
 	}
 	if sentAt == 0 && msgTS > 0 {
 		sentAt = msgTS
 	}
-	sendEvent(conn, "message_info", map[string]interface{}{
+
+	result := map[string]interface{}{
 		"id":           data.ID,
 		"sent_at":      sentAt,
 		"delivered_at": deliveredAt,
@@ -511,7 +513,82 @@ func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 		"played_at":    playedAt,
 		"edited_at":    editedAt,
 		"media_type":   mediaType,
+	}
+
+	// Official WhatsApp only breaks receipts down per-member for messages you
+	// sent to a group - it has no visibility into who read someone else's
+	// message either, so we match that scope.
+	if fromMe && strings.HasSuffix(jid, "@g.us") {
+		if participants := groupMessageReceiptParticipants(data.ID, jid); len(participants) > 0 {
+			result["participants"] = participants
+		}
+	}
+
+	sendEvent(conn, "message_info", result)
+}
+
+// groupMessageReceiptParticipants lists every other member of groupJID with
+// whatever delivery/read status has been observed for messageID, for the
+// Message Info "Read by" breakdown. A member with no message_receipts row
+// just hasn't had a receipt recorded since that table existed - it does not
+// mean the message wasn't delivered.
+func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]interface{} {
+	jid, err := types.ParseJID(groupJID)
+	if err != nil {
+		return nil
+	}
+	info, err := client.GetGroupInfo(context.Background(), jid)
+	if err != nil {
+		return nil
+	}
+	myJID := client.Store.ID.ToNonAD()
+
+	rows, err := db.Query("SELECT participant_jid, status, timestamp FROM message_receipts WHERE message_id = ?", messageID)
+	if err != nil {
+		return nil
+	}
+	receipts := make(map[string]struct {
+		status string
+		ts     int64
 	})
+	for rows.Next() {
+		var pJID, status string
+		var ts int64
+		if rows.Scan(&pJID, &status, &ts) == nil {
+			receipts[pJID] = struct {
+				status string
+				ts     int64
+			}{status, ts}
+		}
+	}
+	rows.Close()
+
+	participants := make([]map[string]interface{}, 0, len(info.Participants))
+	for _, p := range info.Participants {
+		displayJID := p.JID
+		if !p.PhoneNumber.IsEmpty() {
+			displayJID = p.PhoneNumber
+		} else if displayJID.Server == "lid" {
+			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), displayJID); err == nil && !pn.IsEmpty() {
+				displayJID = pn
+			}
+		}
+		if displayJID.User == myJID.User {
+			continue
+		}
+		status := "sent"
+		var ts int64
+		if r, ok := receipts[displayJID.ToNonAD().String()]; ok {
+			status = r.status
+			ts = r.ts
+		}
+		participants = append(participants, map[string]interface{}{
+			"name":      resolveDisplayName(displayJID),
+			"status":    status,
+			"timestamp": ts,
+		})
+	}
+	return participants
 }
 
 type ForwardMessageData struct {

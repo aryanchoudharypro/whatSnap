@@ -110,6 +110,20 @@ func migrateDB() error {
 		return err
 	}
 
+	// Per-participant delivery/read status for group messages, so Message Info
+	// can show a WhatsApp-style "Read by ..." breakdown. Only populated from
+	// receipts observed after this table existed - there is no way to backfill
+	// who already read older messages.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS message_receipts (
+		message_id TEXT NOT NULL,
+		participant_jid TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'delivered',
+		timestamp INTEGER DEFAULT 0,
+		PRIMARY KEY (message_id, participant_jid)
+	)`); err != nil {
+		return err
+	}
+
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS contacts_cache (
 		jid TEXT PRIMARY KEY,
 		name TEXT DEFAULT '',
@@ -235,6 +249,27 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 		}
 	}
 	return updated
+}
+
+// updateParticipantReceiptIfNewer records one group member's delivery/read
+// status for a set of messages, ignoring a receipt that would regress a
+// status already recorded for that member (mirrors updateMessageStatusIfNewer,
+// but per-participant instead of per-message).
+func updateParticipantReceiptIfNewer(ids []string, participantJID, newStatus string, receiptTS int64) {
+	newRank := statusRank(newStatus)
+	for _, id := range ids {
+		if target := editTargetID(id); target != "" {
+			id = target
+		}
+		var current string
+		err := db.QueryRow("SELECT status FROM message_receipts WHERE message_id = ? AND participant_jid = ?", id, participantJID).Scan(&current)
+		if err == nil && statusRank(current) >= newRank {
+			continue
+		}
+		db.Exec(`INSERT INTO message_receipts (message_id, participant_jid, status, timestamp) VALUES (?, ?, ?, ?)
+			ON CONFLICT(message_id, participant_jid) DO UPDATE SET status = excluded.status, timestamp = excluded.timestamp`,
+			id, participantJID, newStatus, receiptTS)
+	}
 }
 
 // recordEditStanza remembers that editID carries an edit of targetID. Called

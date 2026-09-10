@@ -1521,6 +1521,9 @@ func eventHandler(evt interface{}) {
 				ids[i] = string(id)
 			}
 			receiptTS := v.Timestamp.Unix()
+			if chatJID.Server == "g.us" && !v.MessageSource.IsFromMe && (status == "delivered" || status == "read" || status == "played") {
+				updateParticipantReceiptIfNewer(ids, senderJID.String(), status, receiptTS)
+			}
 			updated := updateMessageStatusIfNewer(ids, status, receiptTS)
 			resolvedChatJID := v.MessageSource.Chat.ToNonAD()
 			if resolvedChatJID.Server == "lid" {
