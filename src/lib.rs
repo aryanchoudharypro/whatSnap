@@ -1092,4 +1092,22 @@ mod tests {
 			assert!(!tray_tooltip_text(n).contains(TRAY_APP_NAME));
 		}
 	}
+
+	#[test]
+	fn test_failed_message_display_format() {
+		let failed_msg = ChatMessage {
+			id: "fail1".into(),
+			text: "[Photo] photo.jpg".into(),
+			timestamp: 1700000000,
+			from_me: true,
+			sender_name: "You".into(),
+			status: "failed".into(),
+			media_type: "image".into(),
+			media_filename: "photo.jpg".into(),
+			media_path: "C:\\some\\file.jpg".into(),
+			..Default::default()
+		};
+		let display = failed_msg.format_display(false);
+		assert!(display.contains("Failed to send"), "Expected 'Failed to send' in '{}'", display);
+	}
 }

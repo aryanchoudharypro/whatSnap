@@ -65,6 +65,7 @@ pub struct ConversationsPanelParts {
 	pub audio_slider: Slider,
 
 	pub action_panel: Panel,
+	pub action_retry_btn: Button,
 	pub action_open_btn: Button,
 	pub action_save_as_btn: Button,
 	pub action_download_btn: Button,
@@ -215,6 +216,10 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let read_more_btn = Button::builder(&action_panel).with_label("Read more").build();
 	action_sizer.add(&read_more_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	read_more_btn.show(false);
+
+	let action_retry_btn = Button::builder(&action_panel).with_label("Retry send").build();
+	action_sizer.add(&action_retry_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
+	action_retry_btn.show(false);
 
 	let action_open_btn = Button::builder(&action_panel).with_label("Open").build();
 	action_sizer.add(&action_open_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
@@ -395,6 +400,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		audio_progress_label,
 		audio_slider,
 		action_panel,
+		action_retry_btn,
 		action_open_btn,
 		action_save_as_btn,
 		action_download_btn,

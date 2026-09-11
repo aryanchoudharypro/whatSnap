@@ -122,6 +122,7 @@ pub enum UiCommand {
 	RetryMessage {
 		message_id: String,
 	},
+	RetrySelectedMessage,
 	RequestMessageResend {
 		message_id: String,
 	},
@@ -981,6 +982,13 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 							|| msg.text.starts_with("[Document]")
 							|| msg.text.starts_with("[Media]"));
 
+					let is_failed = msg.from_me && !msg.is_date_divider && msg.status == "failed";
+					let is_uploading = msg.from_me && msg.status == "uploading";
+					if is_failed || is_uploading {
+						return need_layout | show_send_state_buttons(parts, is_failed);
+					}
+					need_layout |= set_shown(&parts.action_retry_btn, false);
+
 					if is_media {
 						if msg.is_media_downloaded() {
 							if parts.action_download_btn.is_shown() {
@@ -1024,6 +1032,13 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 					let valid_messages: Vec<_> =
 						messages.iter().filter(|m| !m.is_deleted && !m.text.contains("deleted")).collect();
 					if !valid_messages.is_empty() {
+						let is_failed = valid_messages.iter().any(|m| m.from_me && m.status == "failed");
+						let is_uploading = valid_messages.iter().any(|m| m.from_me && m.status == "uploading");
+						if is_failed || is_uploading {
+							return need_layout | show_send_state_buttons(parts, is_failed);
+						}
+						need_layout |= set_shown(&parts.action_retry_btn, false);
+
 						let all_dl = valid_messages.iter().all(|m| m.is_media_downloaded());
 						if all_dl {
 							if parts.action_download_btn.is_shown() {
@@ -1091,6 +1106,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 		}
 	}
 
+	need_layout |= set_shown(&parts.action_retry_btn, false);
 	if parts.action_download_btn.is_shown() {
 		parts.action_download_btn.show(false);
 		need_layout = true;
@@ -1103,6 +1119,27 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 		parts.action_save_as_btn.show(false);
 		need_layout = true;
 	}
+	need_layout
+}
+
+/// Shows or hides `btn`, returning whether that changed anything (and so
+/// needs a layout).
+fn set_shown(btn: &Button, show: bool) -> bool {
+	if btn.is_shown() == show {
+		return false;
+	}
+	btn.show(show);
+	true
+}
+
+/// Action buttons for an outgoing message that failed to send (Retry is the
+/// only thing to do) or is still uploading (nothing to do yet). Returns
+/// whether a layout is needed.
+fn show_send_state_buttons(parts: &crate::ui::conversations::ConversationsPanelParts, failed: bool) -> bool {
+	let mut need_layout = set_shown(&parts.action_retry_btn, failed);
+	need_layout |= set_shown(&parts.action_open_btn, false);
+	need_layout |= set_shown(&parts.action_save_as_btn, false);
+	need_layout |= set_shown(&parts.action_download_btn, false);
 	need_layout
 }
 
@@ -1122,7 +1159,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 /// immediately followed by a real user-driven selection change.
 fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conversations::ConversationsPanelParts) {
 	parts.action_panel.freeze();
-	let mut need_layout = false;
+	let mut need_layout = update_action_buttons_inner(s, parts);
 
 	let msg_opt = parts.messages_list.get_selection().and_then(|idx| s.display_items.get(idx as usize)).and_then(
 		|item| match item {
@@ -1172,6 +1209,7 @@ fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conversations::C
 	}
 
 	let any_action_visible = parts.play_voice_btn.is_shown()
+		|| parts.action_retry_btn.is_shown()
 		|| parts.action_open_btn.is_shown()
 		|| parts.action_save_as_btn.is_shown()
 		|| parts.action_download_btn.is_shown()
@@ -3400,6 +3438,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												parts.conversations_parts.messages_announcer.clone(),
 												&updated_display,
 											);
+											if parts.conversations_parts.messages_list.get_selection()
+												== Some(di as u32)
+											{
+												refresh_voice_action_button(&s, &parts.conversations_parts);
+											}
 										}
 									} else {
 										let sender_name = if is_from_me {
@@ -7706,6 +7749,35 @@ while ($true) {
 				"data": { "message_id": message_id }
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::RetrySelectedMessage => {
+			// The toolbar's Retry send button: unlike the context menu's single
+			// RetryMessage, this retries every failed item of an album.
+			let s = state.borrow();
+			let failed: Vec<String> = parts
+				.conversations_parts
+				.messages_list
+				.get_selection()
+				.and_then(|idx| s.display_items.get(idx as usize))
+				.map(|item| match item {
+					whantv::DisplayItem::Single(m) => std::slice::from_ref(m),
+					whantv::DisplayItem::Album { messages, .. } => messages.as_slice(),
+				})
+				.unwrap_or_default()
+				.iter()
+				.filter(|m| m.from_me && !m.is_date_divider && m.status == "failed")
+				.map(|m| m.id.clone())
+				.collect();
+			for message_id in &failed {
+				let payload = serde_json::json!({
+					"action": "retry_message",
+					"data": { "message_id": message_id }
+				});
+				let _ = s.ws_tx.send(payload.to_string());
+			}
+			if !failed.is_empty() {
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Retrying send...");
+			}
 		}
 		UiCommand::RequestMessageResend { message_id } => {
 			let s = state.borrow();

@@ -3728,6 +3728,7 @@ pub fn bind_input_handlers(
 
 			// Show/hide action_panel based on whether any action buttons are visible
 			let any_action_visible = play_voice_btn_sel.is_shown()
+				|| conv_parts_sel.action_retry_btn.is_shown()
 				|| conv_parts_sel.action_open_btn.is_shown()
 				|| conv_parts_sel.action_save_as_btn.is_shown()
 				|| conv_parts_sel.action_download_btn.is_shown()
@@ -3937,6 +3938,11 @@ pub fn bind_input_handlers(
 	let tx_discard_attach = ui_tx.clone();
 	parts.attachment_dialog.discard_btn.on_click(move |_| {
 		let _ = tx_discard_attach.send(UiCommand::DiscardAttachment);
+	});
+
+	let tx_retry = ui_tx.clone();
+	parts.conversations_parts.action_retry_btn.on_click(move |_| {
+		let _ = tx_retry.send(UiCommand::RetrySelectedMessage);
 	});
 
 	let tx_download = ui_tx.clone();
