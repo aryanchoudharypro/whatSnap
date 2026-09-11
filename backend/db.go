@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"log"
 	"time"
 
@@ -111,9 +113,11 @@ func migrateDB() error {
 	}
 
 	// Per-participant delivery/read status for group messages, so Message Info
-	// can show a WhatsApp-style "Read by ..." breakdown. Only populated from
-	// receipts observed after this table existed - there is no way to backfill
-	// who already read older messages.
+	// can show a WhatsApp-style "Read by ..." breakdown. Populated from live
+	// receipts and backfilled from history sync, whose group messages carry a
+	// per-member receipt list. status/timestamp are the furthest state reached;
+	// delivered_at/read_at/played_at keep each state's own time so both "read
+	// at" and "delivered at" can be shown.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS message_receipts (
 		message_id TEXT NOT NULL,
 		participant_jid TEXT NOT NULL,
@@ -123,6 +127,9 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
+	db.Exec("ALTER TABLE message_receipts ADD COLUMN delivered_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE message_receipts ADD COLUMN read_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE message_receipts ADD COLUMN played_at INTEGER DEFAULT 0")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS contacts_cache (
 		jid TEXT PRIMARY KEY,
@@ -256,20 +263,45 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 // status already recorded for that member (mirrors updateMessageStatusIfNewer,
 // but per-participant instead of per-message).
 func updateParticipantReceiptIfNewer(ids []string, participantJID, newStatus string, receiptTS int64) {
-	newRank := statusRank(newStatus)
 	for _, id := range ids {
 		if target := editTargetID(id); target != "" {
 			id = target
 		}
-		var current string
-		err := db.QueryRow("SELECT status FROM message_receipts WHERE message_id = ? AND participant_jid = ?", id, participantJID).Scan(&current)
-		if err == nil && statusRank(current) >= newRank {
-			continue
+		if err := recordParticipantReceipt(db, id, participantJID, newStatus, receiptTS); err != nil {
+			log.Println("Error recording participant receipt:", err)
 		}
-		db.Exec(`INSERT INTO message_receipts (message_id, participant_jid, status, timestamp) VALUES (?, ?, ?, ?)
-			ON CONFLICT(message_id, participant_jid) DO UPDATE SET status = excluded.status, timestamp = excluded.timestamp`,
-			id, participantJID, newStatus, receiptTS)
 	}
+}
+
+type sqlExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+// recordParticipantReceipt stores one member's delivered/read/played receipt
+// for one message. Each state's own time is kept the first time it's seen,
+// even when it arrives out of order (a delivery receipt landing after the
+// read one); status/timestamp only ever advance.
+func recordParticipantReceipt(ex sqlExecer, messageID, participantJID, status string, ts int64) error {
+	var col string
+	switch status {
+	case "delivered":
+		col = "delivered_at"
+	case "read":
+		col = "read_at"
+	case "played":
+		col = "played_at"
+	default:
+		return nil
+	}
+	const rank = `CASE %s WHEN 'played' THEN 4 WHEN 'read' THEN 3 WHEN 'delivered' THEN 2 ELSE 1 END`
+	advance := fmt.Sprintf(rank, "excluded.status") + " > " + fmt.Sprintf(rank, "message_receipts.status")
+	_, err := ex.Exec(`INSERT INTO message_receipts (message_id, participant_jid, status, timestamp, `+col+`) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(message_id, participant_jid) DO UPDATE SET
+			status = CASE WHEN `+advance+` THEN excluded.status ELSE message_receipts.status END,
+			timestamp = CASE WHEN `+advance+` THEN excluded.timestamp ELSE message_receipts.timestamp END,
+			`+col+` = CASE WHEN COALESCE(message_receipts.`+col+`, 0) = 0 THEN excluded.`+col+` ELSE message_receipts.`+col+` END`,
+		messageID, participantJID, status, ts, ts)
+	return err
 }
 
 // recordEditStanza remembers that editID carries an edit of targetID. Called
@@ -772,4 +804,39 @@ func resolveDisplayName(jid types.JID) string {
 		return "+" + contactJID.User
 	}
 	return jid.String()
+}
+
+// removeOrphanedDeviceRows deletes whatsmeow rows belonging to devices that no
+// longer exist - what ON DELETE CASCADE would have done when each device was
+// logged out, had foreign keys been on for that connection (see main.go).
+// Each re-pair otherwise left the previous device's message secrets,
+// contacts, sessions, etc. behind. Only foreign keys that whatsmeow's own
+// schema declares against whatsmeow_device are followed.
+func removeOrphanedDeviceRows() {
+	rows, err := db.Query(`SELECT m.name, f."from"
+		FROM sqlite_master m, pragma_foreign_key_list(m.name) f
+		WHERE m.type = 'table' AND f."table" = 'whatsmeow_device'`)
+	if err != nil {
+		log.Println("Orphan cleanup: listing foreign keys failed:", err)
+		return
+	}
+	type ref struct{ table, column string }
+	var refs []ref
+	for rows.Next() {
+		var r ref
+		if rows.Scan(&r.table, &r.column) == nil {
+			refs = append(refs, r)
+		}
+	}
+	rows.Close()
+	for _, r := range refs {
+		res, err := db.Exec(fmt.Sprintf(`DELETE FROM %q WHERE %q NOT IN (SELECT jid FROM whatsmeow_device)`, r.table, r.column))
+		if err != nil {
+			log.Printf("Orphan cleanup of %s failed: %v", r.table, err)
+			continue
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			log.Printf("Orphan cleanup: removed %d rows from %s left by old device pairings", n, r.table)
+		}
+	}
 }

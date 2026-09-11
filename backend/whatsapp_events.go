@@ -3,13 +3,18 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"regexp"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -753,9 +758,18 @@ func eventHandler(evt interface{}) {
 	case *events.MediaRetry:
 		go handleMediaRetryEvent(v)
 	case *events.HistorySync:
+		historySyncPending.Add(1)
 		go func() {
 			historySyncMutex.Lock()
 			defer historySyncMutex.Unlock()
+			defer historySyncPending.Add(-1)
+			chunkStart := time.Now()
+			stallTimer := time.AfterFunc(historySyncStallThreshold, func() {
+				dumpGoroutinesForStall("history sync chunk still writing after " + historySyncStallThreshold.String())
+			})
+			defer stallTimer.Stop()
+			statsAtStart := db.Stats()
+			chunkMsgs := 0
 
 			if v.Data == nil {
 				return
@@ -783,19 +797,7 @@ func eventHandler(evt interface{}) {
 			var albumHeaders []syncedAlbum
 			var syncedJIDs []string
 
-			for _, mapping := range v.Data.GetPhoneNumberToLidMappings() {
-				if mapping == nil {
-					continue
-				}
-				pnJID, err1 := types.ParseJID(mapping.GetPnJID())
-				lidJID, err2 := types.ParseJID(mapping.GetLidJID())
-				if err1 == nil && err2 == nil && !pnJID.IsEmpty() && !lidJID.IsEmpty() {
-					client.Store.LIDs.PutLIDMapping(context.Background(), lidJID, pnJID)
-					db.Exec(`UPDATE OR IGNORE chats SET jid = ? WHERE jid = ?`, pnJID.String(), lidJID.String())
-					db.Exec(`UPDATE OR IGNORE messages SET jid = ? WHERE jid = ?`, pnJID.String(), lidJID.String())
-					db.Exec(`UPDATE OR IGNORE messages SET sender_jid = ? WHERE sender_jid = ?`, pnJID.String(), lidJID.String())
-				}
-			}
+			remapLIDRowsToPN(v.Data.GetPhoneNumberToLidMappings())
 
 			for _, p := range v.Data.GetPushnames() {
 				if p == nil {
@@ -816,7 +818,8 @@ func eventHandler(evt interface{}) {
 						targetJID = pn.ToNonAD()
 					}
 				}
-				client.Store.Contacts.PutPushName(context.Background(), targetJID, pushname)
+				// whatsmeow already put these push names in its contact store
+				// before dispatching the chunk; only our own tables need them.
 				upsertContactCacheRow(targetJID.String(), pushname, targetJID.User, false)
 				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, pushname, targetJID.String())
 			}
@@ -829,20 +832,24 @@ func eventHandler(evt interface{}) {
 						"msgsDone":  historySyncMsgsDone,
 					})
 				}
-				tx, txErr := db.Begin()
-				if txErr != nil {
-					fmt.Println("Error starting transaction for HistorySync:", txErr)
-					continue
-				}
+				// Everything this chat needs is worked out first - including
+				// every lookup that goes through whatsmeow's stores - and only
+				// then written, in short transactions that run nothing but SQL.
+				// whatsmeow's stores hold their own in-memory locks (contact
+				// cache, LID map) *while* they wait for SQLite's write lock, so
+				// calling into them with our write transaction open deadlocked
+				// until the 10s busy timeout: sync stalled for seconds at a
+				// time, and whatsmeow's own writes failed with "database is
+				// locked" - once dropping a whole history-sync chunk because it
+				// couldn't store the identity needed to decrypt it.
+				var writes []func(tx *sql.Tx)
 
 				jid := conv.GetID()
 				if isIgnoredChatJID(jid) {
-					tx.Rollback()
 					continue
 				}
 				chatJID, parseErr := types.ParseJID(jid)
 				if parseErr != nil {
-					tx.Rollback()
 					continue
 				}
 				chatJID = chatJID.ToNonAD()
@@ -893,33 +900,23 @@ func eventHandler(evt interface{}) {
 				if conv.GetArchived() {
 					archived = 1
 				}
-				_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived) VALUES (?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(jid) DO UPDATE SET
-					timestamp=MAX(timestamp, excluded.timestamp),
-					name=CASE WHEN chats.name IS NULL OR chats.name = '' OR chats.name LIKE '+%' THEN COALESCE(NULLIF(excluded.name, ''), chats.name) ELSE chats.name END,
-					unread_count=MAX(chats.unread_count, excluded.unread_count),
-					pinned=MAX(chats.pinned, excluded.pinned),
-					muted=MAX(chats.muted, excluded.muted),
-					archived=MAX(chats.archived, excluded.archived)`,
-					jid, name, ts, unread, pinned, muted, archived)
-				if err != nil {
-					fmt.Println("Error inserting chat from HistorySync:", err)
-				}
-
-				for i, historyMsg := range conv.GetMessages() {
-					if i > 0 && i%200 == 0 {
-						tx.Commit()
-						historySyncMsgsDone += 200
-						if reportProgress {
-							broadcastEvent("history_sync", map[string]interface{}{
-								"status":    "syncing",
-								"chatsDone": historySyncChatsDone + convIdx,
-								"msgsDone":  historySyncMsgsDone,
-							})
-						}
-						time.Sleep(5 * time.Millisecond)
-						tx, _ = db.Begin()
+				writes = append(writes, func(tx *sql.Tx) {
+					_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived) VALUES (?, ?, ?, ?, ?, ?, ?)
+						ON CONFLICT(jid) DO UPDATE SET
+						timestamp=MAX(timestamp, excluded.timestamp),
+						name=CASE WHEN chats.name IS NULL OR chats.name = '' OR chats.name LIKE '+%' THEN COALESCE(NULLIF(excluded.name, ''), chats.name) ELSE chats.name END,
+						unread_count=MAX(chats.unread_count, excluded.unread_count),
+						pinned=MAX(chats.pinned, excluded.pinned),
+						muted=MAX(chats.muted, excluded.muted),
+						archived=MAX(chats.archived, excluded.archived)`,
+						jid, name, ts, unread, pinned, muted, archived)
+					if err != nil {
+						fmt.Println("Error inserting chat from HistorySync:", err)
 					}
+				})
+
+				chunkMsgs += len(conv.GetMessages())
+				for _, historyMsg := range conv.GetMessages() {
 					webMsg := historyMsg.GetMessage()
 					if webMsg == nil {
 						continue
@@ -929,12 +926,46 @@ func eventHandler(evt interface{}) {
 						if stubID != "" {
 							stubFromMe := webMsg.GetKey().GetFromMe()
 							stubTS := int64(webMsg.GetMessageTimestamp())
-							if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
-									VALUES (?, ?, ?, '', ?, 1)
-									ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
-								stubID, jid, stubFromMe, stubTS); err != nil {
-								log.Println("Error storing revoked stub from HistorySync:", err)
+							// Without a sender the chat can only show "Contact:
+							// deleted this message" in a group, rather than who
+							// deleted it. 1:1 chats leave it empty as before.
+							stubSender := ""
+							if !stubFromMe {
+								if s := historyStubActor(webMsg); !s.IsEmpty() {
+									stubSender = s.String()
+								}
 							}
+							writes = append(writes, func(tx *sql.Tx) {
+								if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted, sender_jid)
+										VALUES (?, ?, ?, '', ?, 1, ?)
+										ON CONFLICT(id) DO UPDATE SET is_deleted=1, text='',
+											sender_jid=COALESCE(NULLIF(messages.sender_jid, ''), excluded.sender_jid)`,
+									stubID, jid, stubFromMe, stubTS, stubSender); err != nil {
+									log.Println("Error storing revoked stub from HistorySync:", err)
+								}
+							})
+						}
+						continue
+					}
+					// Group events (someone added, left, made admin, the
+					// subject changed...) arrive in history sync as content-less
+					// "stub" entries. Stored as-is they became empty rows the
+					// chat rendered as "[Media]"; turn the ones the live path
+					// also describes into the same system lines, drop the rest.
+					if webMsg.GetMessageStubType() != 0 && webMsg.GetMessage() == nil {
+						if text := historyStubText(webMsg); text != "" {
+							stubTS := int64(webMsg.GetMessageTimestamp())
+							// Same id the live GroupInfo handler gives this line, so
+							// a resync doesn't duplicate one we already showed live.
+							stubID := fmt.Sprintf("system_%s_%d_0", chatJID.User, time.Unix(stubTS, 0).UnixNano())
+							writes = append(writes, func(tx *sql.Tx) {
+								if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, status, media_type)
+										VALUES (?, ?, 0, ?, ?, 'sent', 'system')
+										ON CONFLICT(id) DO NOTHING`,
+									stubID, jid, text, stubTS); err != nil {
+									log.Println("Error storing group event from HistorySync:", err)
+								}
+							})
 						}
 						continue
 					}
@@ -944,17 +975,20 @@ func eventHandler(evt interface{}) {
 					}
 					if pm := evtMsg.Message.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_REVOKE {
 						if targetID := pm.GetKey().GetID(); targetID != "" {
-							if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
-									VALUES (?, ?, ?, '', ?, 1)
-									ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
-								targetID, jid, evtMsg.Info.IsFromMe, evtMsg.Info.Timestamp.Unix()); err != nil {
-								log.Println("Error storing revoke from HistorySync:", err)
-							}
+							fromMe, revokeTS := evtMsg.Info.IsFromMe, evtMsg.Info.Timestamp.Unix()
+							writes = append(writes, func(tx *sql.Tx) {
+								if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, is_deleted)
+										VALUES (?, ?, ?, '', ?, 1)
+										ON CONFLICT(id) DO UPDATE SET is_deleted=1, text=''`,
+									targetID, jid, fromMe, revokeTS); err != nil {
+									log.Println("Error storing revoke from HistorySync:", err)
+								}
+							})
 						}
 						continue
 					}
 					if reaction := evtMsg.Message.GetReactionMessage(); reaction != nil {
-						storeReactionTx(tx, jid, evtMsg, reaction)
+						writes = append(writes, func(tx *sql.Tx) { storeReactionTx(tx, jid, evtMsg, reaction) })
 						continue
 					}
 					if evtMsg.Message.GetEncReactionMessage() != nil {
@@ -963,7 +997,7 @@ func eventHandler(evt interface{}) {
 						// it fall through to extractText's "[Unsupported
 						// Message]" and get inserted as a bogus chat message.
 						if reaction, err := client.DecryptReaction(context.Background(), evtMsg); err == nil {
-							storeReactionTx(tx, jid, evtMsg, reaction)
+							writes = append(writes, func(tx *sql.Tx) { storeReactionTx(tx, jid, evtMsg, reaction) })
 						} else {
 							log.Printf("Failed to decrypt announcement-group reaction from HistorySync: %v", err)
 						}
@@ -1022,6 +1056,7 @@ func eventHandler(evt interface{}) {
 						var sentAt, deliveredAt, readAt, playedAt int64
 						if msgFromMe {
 							sentAt = msgTS
+							isGroupMsg := strings.HasSuffix(msgJID, "@g.us")
 							for _, ur := range webMsg.GetUserReceipt() {
 								if ts := ur.GetReceiptTimestamp(); ts > deliveredAt {
 									deliveredAt = ts
@@ -1031,6 +1066,35 @@ func eventHandler(evt interface{}) {
 								}
 								if ts := ur.GetPlayedTimestamp(); ts > playedAt {
 									playedAt = ts
+								}
+								// A group message's receipt list is per member - the
+								// only way Message Info's "Read by" breakdown can
+								// cover messages whose live receipts we never saw
+								// (sent before this device was linked, or while
+								// re-linking).
+								if !isGroupMsg {
+									continue
+								}
+								userJID, err := types.ParseJID(ur.GetUserJID())
+								if err != nil || userJID.User == "" {
+									continue
+								}
+								participant := preferPN(userJID).String()
+								for _, r := range []struct {
+									status string
+									ts     int64
+								}{
+									{"delivered", ur.GetReceiptTimestamp()},
+									{"read", ur.GetReadTimestamp()},
+									{"played", ur.GetPlayedTimestamp()},
+								} {
+									if r.ts > 0 {
+										writes = append(writes, func(tx *sql.Tx) {
+											if err := recordParticipantReceipt(tx, msgID, participant, r.status, r.ts); err != nil {
+												log.Println("Error storing participant receipt from HistorySync:", err)
+											}
+										})
+									}
 								}
 							}
 							stStr := strings.ToLower(webMsg.GetStatus().String())
@@ -1049,6 +1113,7 @@ func eventHandler(evt interface{}) {
 								}
 							}
 						}
+						writes = append(writes, func(tx *sql.Tx) {
 						_, err := tx.Exec(`INSERT INTO messages
 								(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at)
 							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1065,23 +1130,41 @@ func eventHandler(evt interface{}) {
 						if err != nil {
 							log.Println("Error inserting message from HistorySync:", err)
 						}
+						})
 					}
 				}
-				// Whatever's left since the last 200-message checkpoint (or the
-				// whole count, for a conversation under 200 messages that never
-				// hit one).
-				historySyncMsgsDone += len(conv.GetMessages()) % 200
-				if err := tx.Commit(); err != nil {
-					log.Println("Error committing HistorySync transaction for conv:", err)
-				}
+
+				writeHistorySyncBatch(writes)
+				historySyncMsgsDone += len(conv.GetMessages())
 				historySyncChatsDone++
+				if reportProgress && len(conv.GetMessages()) >= 200 {
+					broadcastEvent("history_sync", map[string]interface{}{
+						"status":    "syncing",
+						"chatsDone": historySyncChatsDone,
+						"msgsDone":  historySyncMsgsDone,
+					})
+				}
 			}
 			for _, album := range albumHeaders {
 				stampAlbumMembers(album.id, album.jid, album.senderJID, album.timestamp, album.expected)
 			}
-			UpdateAllChatSnippets()
-			populateChatsFromStore()
+			loopTook := time.Since(chunkStart)
+			tailStart := time.Now()
+			// Only this chunk's chats can have a new latest message.
+			for _, j := range syncedJIDs {
+				UpdateChatSnippet(j)
+			}
+			// The all-chats snippet pass and the contact/group re-sync (which
+			// also fetches the group list from WhatsApp) used to run after
+			// every chunk. Their cost grows with the database, and during a
+			// full sync the next chunks are already queued behind this one -
+			// so run them once, after the last queued chunk, instead.
+			if historySyncPending.Load() <= 1 {
+				UpdateAllChatSnippets()
+				populateChatsFromStore()
+			}
 			broadcastChats()
+			tailTook := time.Since(tailStart)
 
 			if reportProgress {
 				broadcastEvent("history_sync", map[string]interface{}{
@@ -1090,6 +1173,18 @@ func eventHandler(evt interface{}) {
 					"msgsDone":  historySyncMsgsDone,
 					"jids":      syncedJIDs,
 				})
+			}
+			if len(conversations) > 0 {
+				stats := db.Stats()
+				log.Printf("History sync chunk written: type=%s chunk=%d progress=%d chats=%d msgs=%d took=%s (messages %s, snippets/contacts %s) queued=%d dbWait=%d/%s inUse=%d",
+					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), len(conversations), chunkMsgs,
+					time.Since(chunkStart).Round(time.Millisecond), loopTook.Round(time.Millisecond), tailTook.Round(time.Millisecond),
+					historySyncPending.Load()-1,
+					stats.WaitCount-statsAtStart.WaitCount, (stats.WaitDuration-statsAtStart.WaitDuration).Round(time.Millisecond),
+					stats.InUse)
+			}
+			if v.Data.GetSyncType() == waHistorySync.HistorySync_FULL && v.Data.GetProgress() >= 100 {
+				scheduleHistorySyncCheckpoint()
 			}
 		}()
 
@@ -1727,6 +1822,318 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	return lines
 }
 
+// remapLIDRowsToPN moves chat and message rows stored under a @lid over to
+// the phone JID a history-sync chunk says it maps to.
+//
+// This used to run three UPDATEs per mapping. messages.sender_jid has no
+// index, so each of those scanned the whole messages table - thousands of
+// full scans per chunk, every one holding SQLite's write lock, getting slower
+// as the sync filled the table. whatsmeow's own store writes timed out behind
+// them ("database is locked"), which once cost a whole history-sync chunk.
+// Now it's one set-based UPDATE per column. (whatsmeow already saved the
+// mappings to its LID store before dispatching the chunk, so there's nothing
+// to store here.)
+func remapLIDRowsToPN(mappings []*waHistorySync.PhoneNumberToLIDMapping) {
+	type pair struct{ lid, pn string }
+	var pairs []pair
+	for _, mapping := range mappings {
+		if mapping == nil {
+			continue
+		}
+		pnJID, err1 := types.ParseJID(mapping.GetPnJID())
+		lidJID, err2 := types.ParseJID(mapping.GetLidJID())
+		if err1 == nil && err2 == nil && !pnJID.IsEmpty() && !lidJID.IsEmpty() {
+			pairs = append(pairs, pair{lidJID.String(), pnJID.String()})
+		}
+	}
+	if len(pairs) == 0 {
+		return
+	}
+	// A temp table lives on one connection, so everything here has to go
+	// through the same transaction.
+	tx, err := db.Begin()
+	if err != nil {
+		log.Println("Error starting LID remap transaction:", err)
+		return
+	}
+	defer tx.Rollback()
+	tx.Exec(`CREATE TEMP TABLE IF NOT EXISTS hs_lid_map (lid TEXT PRIMARY KEY, pn TEXT NOT NULL)`)
+	tx.Exec(`DELETE FROM hs_lid_map`)
+	for _, p := range pairs {
+		tx.Exec(`INSERT OR REPLACE INTO hs_lid_map (lid, pn) VALUES (?, ?)`, p.lid, p.pn)
+	}
+	for _, stmt := range []string{
+		`UPDATE OR IGNORE chats SET jid = (SELECT pn FROM hs_lid_map WHERE lid = chats.jid) WHERE jid IN (SELECT lid FROM hs_lid_map)`,
+		`UPDATE OR IGNORE messages SET jid = (SELECT pn FROM hs_lid_map WHERE lid = messages.jid) WHERE jid IN (SELECT lid FROM hs_lid_map)`,
+		`UPDATE OR IGNORE messages SET sender_jid = (SELECT pn FROM hs_lid_map WHERE lid = messages.sender_jid) WHERE sender_jid IN (SELECT lid FROM hs_lid_map)`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			log.Println("Error remapping LID rows:", err)
+		}
+	}
+	tx.Exec(`DELETE FROM hs_lid_map`)
+	if err := tx.Commit(); err != nil {
+		log.Println("Error committing LID remap:", err)
+	}
+}
+
+// historySyncStallThreshold is how long one chunk may take to write before
+// the backend records what every goroutine is doing - a chunk normally takes
+// well under a second per few thousand messages, so anything past this is
+// almost certainly stuck behind a lock.
+const historySyncStallThreshold = 8 * time.Second
+
+var lastStallDump atomic.Int64
+
+// dumpGoroutinesForStall writes every goroutine's stack to
+// logs/stall-<time>.txt (at most once a minute), so a lock stall can be traced
+// to exactly who holds what and who is waiting on it.
+func dumpGoroutinesForStall(reason string) {
+	now := time.Now()
+	if last := lastStallDump.Load(); last != 0 && now.Sub(time.Unix(0, last)) < time.Minute {
+		return
+	}
+	lastStallDump.Store(now.UnixNano())
+	path := filepath.Join(appDataDir(), "logs", "stall-"+now.Format("20060102-150405")+".txt")
+	f, err := os.Create(path)
+	if err != nil {
+		log.Println("Failed to write stall dump:", err)
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s\n%s\n\n", now.Format(time.RFC3339Nano), reason)
+	pprof.Lookup("goroutine").WriteTo(f, 2)
+	log.Printf("Stall detected (%s); goroutine dump written to %s", reason, path)
+}
+
+// historySyncBatchSize caps how many statements one history-sync write
+// transaction runs, so live traffic (and whatsmeow's own store writes) get
+// the write lock back regularly during a big chat.
+const historySyncBatchSize = 500
+
+// writeHistorySyncBatch runs pre-built history-sync writes in short
+// transactions. The closures must only run SQL on the tx they're given -
+// never call into whatsmeow's stores (see the comment where they're built).
+func writeHistorySyncBatch(writes []func(tx *sql.Tx)) {
+	for start := 0; start < len(writes); start += historySyncBatchSize {
+		end := min(start+historySyncBatchSize, len(writes))
+		tx, err := db.Begin()
+		if err != nil {
+			log.Println("Error starting transaction for HistorySync:", err)
+			return
+		}
+		for _, w := range writes[start:end] {
+			w(tx)
+		}
+		if err := tx.Commit(); err != nil {
+			log.Println("Error committing HistorySync transaction:", err)
+		}
+	}
+}
+
+var (
+	historySyncCheckpointMu  sync.Mutex
+	historySyncCheckpointGen int
+	// historySyncPending counts HistorySync chunks received but not yet
+	// written - each one waits its turn on historySyncMutex.
+	historySyncPending atomic.Int32
+)
+
+// historySyncCheckpointDelay is how long after the final history-sync chunk
+// the WAL is folded back into the main database.
+const historySyncCheckpointDelay = 5 * time.Second
+
+// scheduleHistorySyncCheckpoint folds the WAL back into session.db once a
+// full history sync is done. It leaves tens of MB in -wal, and SQLite's
+// automatic checkpoint only moves that across in small passive steps
+// piggybacked on later writes, so session.db kept creeping up in bursts with
+// multi-second stalls long after the sync itself was done. One TRUNCATE
+// checkpoint does it in a single pass and shrinks -wal back to zero.
+//
+// Only called for the final chunk: an earlier version ran it after any 5s
+// lull, but the phone regularly pauses that long between chunks, so it
+// checkpointed mid-sync, held up the next chunk while it ran, and made
+// SQLite regrow a truncated -wal from scratch - a full sync got slower.
+func scheduleHistorySyncCheckpoint() {
+	historySyncCheckpointMu.Lock()
+	historySyncCheckpointGen++
+	gen := historySyncCheckpointGen
+	historySyncCheckpointMu.Unlock()
+	runHistorySyncCheckpointAfter(gen, 0)
+}
+
+func runHistorySyncCheckpointAfter(gen, attempt int) {
+	time.AfterFunc(historySyncCheckpointDelay, func() {
+		historySyncCheckpointMu.Lock()
+		stale := gen != historySyncCheckpointGen
+		historySyncCheckpointMu.Unlock()
+		if stale {
+			return
+		}
+		// The final chunk isn't necessarily the last one written - chunks
+		// wait on historySyncMutex in no particular order. Wait until none
+		// are left rather than checkpointing between them.
+		if historySyncPending.Load() > 0 {
+			runHistorySyncCheckpointAfter(gen, attempt)
+			return
+		}
+		historySyncMutex.Lock()
+		defer historySyncMutex.Unlock()
+		start := time.Now()
+		var busy, walFrames, checkpointed int
+		if err := db.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &walFrames, &checkpointed); err != nil {
+			log.Println("History sync WAL checkpoint failed:", err)
+			return
+		}
+		log.Printf("History sync WAL checkpoint: busy=%d took=%s", busy, time.Since(start).Round(time.Millisecond))
+		if busy != 0 && attempt < 3 {
+			// A reader held an old snapshot past the busy timeout; the
+			// frames it pinned are still in -wal. Try again later - and if
+			// it keeps failing, SQLite's own passive checkpoints still get
+			// there eventually.
+			runHistorySyncCheckpointAfter(gen, attempt+1)
+		}
+	})
+}
+
+// preferPN swaps a @lid for the phone JID it maps to, when known - the
+// messages table and the frontend's contact lookups are keyed by phone JID.
+func preferPN(jid types.JID) types.JID {
+	jid = jid.ToNonAD()
+	if jid.Server == types.HiddenUserServer && client != nil {
+		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
+			return pn.ToNonAD()
+		}
+	}
+	return jid
+}
+
+// historyStubActor is whoever caused a history-sync stub entry (the person
+// who deleted a message, added someone, ...), as a phone JID when known.
+func historyStubActor(webMsg *waWeb.WebMessageInfo) types.JID {
+	raw := webMsg.GetParticipant()
+	if raw == "" {
+		raw = webMsg.GetKey().GetParticipant()
+	}
+	if raw == "" {
+		return types.EmptyJID
+	}
+	jid, err := types.ParseJID(raw)
+	if err != nil {
+		return types.EmptyJID
+	}
+	return preferPN(jid)
+}
+
+// historyStubJIDs parses a stub's parameters as participant JIDs. Newer
+// WhatsApp versions sometimes send a small JSON object per participant
+// instead of a bare JID, so both are accepted; anything else is skipped.
+func historyStubJIDs(params []string) []types.JID {
+	var jids []types.JID
+	for _, p := range params {
+		p = strings.TrimSpace(p)
+		if strings.HasPrefix(p, "{") {
+			var obj map[string]interface{}
+			if json.Unmarshal([]byte(p), &obj) != nil {
+				continue
+			}
+			for _, key := range []string{"pn", "phone_number", "jid", "lid", "id"} {
+				if s, ok := obj[key].(string); ok && s != "" {
+					p = s
+					break
+				}
+			}
+		}
+		if jid, err := types.ParseJID(p); err == nil && jid.User != "" {
+			jids = append(jids, preferPN(jid))
+		}
+	}
+	return jids
+}
+
+// historyStubText describes a history-sync group-event stub with the same
+// wording groupChangeMessages uses for the live event, or "" for stub types
+// the live path doesn't show either.
+func historyStubText(webMsg *waWeb.WebMessageInfo) string {
+	actor := ""
+	if a := historyStubActor(webMsg); !a.IsEmpty() {
+		actor = resolveDisplayName(a)
+	}
+	params := webMsg.GetMessageStubParameters()
+	names := joinedNamesList(historyStubJIDs(params))
+	switch webMsg.GetMessageStubType() {
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD,
+		waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD_REQUEST_JOIN,
+		waWeb.WebMessageInfo_GROUP_PARTICIPANT_ACCEPT,
+		waWeb.WebMessageInfo_GROUP_PARTICIPANT_LINKED_GROUP_JOIN:
+		switch {
+		case names == "":
+			return ""
+		case actor != "" && actor != names:
+			return fmt.Sprintf("%s added %s", actor, names)
+		default:
+			return fmt.Sprintf("%s joined", names)
+		}
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_INVITE:
+		if names == "" {
+			names = actor
+		}
+		if names == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s joined using this group's invite link", names)
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_REMOVE:
+		switch {
+		case names == "":
+			return ""
+		case actor != "" && actor != names:
+			return fmt.Sprintf("%s removed %s", actor, names)
+		default:
+			return fmt.Sprintf("%s left", names)
+		}
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_LEAVE:
+		if names == "" {
+			names = actor
+		}
+		if names == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s left", names)
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_PROMOTE:
+		switch {
+		case names == "":
+			return ""
+		case actor != "":
+			return fmt.Sprintf("%s made %s a group admin", actor, names)
+		default:
+			return fmt.Sprintf("%s is now a group admin", names)
+		}
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_DEMOTE:
+		switch {
+		case names == "":
+			return ""
+		case actor != "":
+			return fmt.Sprintf("%s removed %s as group admin", actor, names)
+		default:
+			return fmt.Sprintf("%s is no longer a group admin", names)
+		}
+	case waWeb.WebMessageInfo_GROUP_CHANGE_SUBJECT:
+		if len(params) == 0 || params[0] == "" {
+			return ""
+		}
+		if actor != "" {
+			return fmt.Sprintf("%s changed the group name to \"%s\"", actor, params[0])
+		}
+		return fmt.Sprintf("Group name changed to \"%s\"", params[0])
+	case waWeb.WebMessageInfo_GROUP_CREATE:
+		if actor != "" {
+			return fmt.Sprintf("%s created this group", actor)
+		}
+		return "Group created"
+	}
+	return ""
+}
+
 // insertGroupSystemMessage stores a synthesized "X added Y"-style line as a
 // message row (media_type "system") so it persists in history and appears in
 // the chat the same way a real message does, then broadcasts it live.
@@ -2034,6 +2441,46 @@ var (
 	appStateResyncCount  = make(map[appstate.WAPatchName]int)
 )
 
+func isDatabaseLocked(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "SQLITE_BUSY")
+}
+
+// retryAppStateAfterLock re-fetches an app-state collection whose sync failed
+// on a database lock, backing off 15s, 30s, ... up to five times.
+func retryAppStateAfterLock(name appstate.WAPatchName, attempt int) {
+	if attempt >= 5 {
+		log.Printf("App state %s: still hitting database locks after %d retries, giving up until next connection", name, attempt)
+		return
+	}
+	delay := time.Duration(15*(attempt+1)) * time.Second
+	log.Printf("App state %s hit a database lock; retrying in %s", name, delay)
+	time.AfterFunc(delay, func() {
+		if client == nil {
+			return
+		}
+		err := client.FetchAppState(context.Background(), name, false, false)
+		switch {
+		case err == nil:
+			log.Printf("App state %s resync succeeded after database lock", name)
+			appStateResyncMu.Lock()
+			appStateResyncCount[name] = 0
+			appStateResyncMu.Unlock()
+			// Saved contact names land in the contact store; carry them
+			// through to the chat list and contact picker.
+			populateChatsFromStore()
+			broadcastChats()
+		case isDatabaseLocked(err):
+			retryAppStateAfterLock(name, attempt+1)
+		default:
+			log.Printf("App state %s retry after database lock failed: %v", name, err)
+		}
+	})
+}
+
 func handleAppStateSyncError(v *events.AppStateSyncError) {
 	appStateResyncMu.Lock()
 	count := appStateResyncCount[v.Name]
@@ -2106,6 +2553,13 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 						}
 					}
 				})
+			} else if isDatabaseLocked(err) {
+				// Typically a full history sync hammering the database right
+				// after pairing. Retrying straight away just loses the same
+				// race again; wait for things to calm down instead.
+				// critical_unblock_low carries saved contact names, so giving
+				// up here leaves every chat showing push names instead.
+				retryAppStateAfterLock(v.Name, 0)
 			} else {
 				log.Printf("Failed to resync app state %s: %v", v.Name, err)
 			}
