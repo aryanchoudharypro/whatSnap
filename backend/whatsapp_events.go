@@ -1814,6 +1814,23 @@ func populateChatsFromStoreOnce() {
 		return
 	}
 
+	// The same person is often stored twice - once under their phone JID
+	// (usually carrying the address-book name) and once under their @lid
+	// (usually nameless) - and both resolve to the same phone JID below.
+	// Writing each store entry straight to the cache let whichever came
+	// last in Go's random map order win, so a nameless twin's "+<phone>"
+	// fallback regularly overwrote the real name: the contact picker showed
+	// only a number for people whose name was known all along, and which
+	// people were affected changed from sync to sync. Merge the twins first
+	// and keep the best name instead.
+	type mergedContact struct {
+		name       string
+		nameRank   int // 3 = address-book name, 2 = push name, 1 = business name, 0 = "+<phone>"/none
+		phone      string
+		isBusiness bool
+	}
+	merged := make(map[string]*mergedContact, len(allContacts))
+	var order []string
 	for jid, contact := range allContacts {
 		targetJID := jid.ToNonAD()
 		if targetJID.Server == "lid" {
@@ -1827,16 +1844,19 @@ func populateChatsFromStoreOnce() {
 			continue
 		}
 
-		name := contact.FullName
+		name, rank := contact.FullName, 3
 		if name == "" {
-			name = contact.PushName
+			name, rank = contact.PushName, 2
 		}
 		if name == "" {
-			name = contact.BusinessName
+			name, rank = contact.BusinessName, 1
 		}
 
-		if name == "" && targetJID.Server != "g.us" && targetJID.Server != "lid" {
-			name = "+" + targetJID.User
+		if name == "" {
+			rank = 0
+			if targetJID.Server != "g.us" && targetJID.Server != "lid" {
+				name = "+" + targetJID.User
+			}
 		}
 
 		phone := ""
@@ -1844,6 +1864,23 @@ func populateChatsFromStoreOnce() {
 			phone = targetJID.User
 		}
 
+		entry, exists := merged[jidStr]
+		if !exists {
+			entry = &mergedContact{nameRank: -1}
+			merged[jidStr] = entry
+			order = append(order, jidStr)
+		}
+		if rank > entry.nameRank {
+			entry.name, entry.nameRank = name, rank
+		}
+		if entry.phone == "" {
+			entry.phone = phone
+		}
+		entry.isBusiness = entry.isBusiness || contact.BusinessName != ""
+	}
+
+	for _, jidStr := range order {
+		entry := merged[jidStr]
 		// An unresolved "lid" identity (GetPNForLID above came up empty - the
 		// mapping to the person's phone number isn't known yet) is sometimes
 		// a duplicate of that same person's phone-number contact and
@@ -1853,12 +1890,16 @@ func populateChatsFromStoreOnce() {
 		// duplicate row was the picker formatting the lid's own large
 		// numeric ID as if it were a phone number - fixed at display time in
 		// contact_picker_label (main.rs), not by dropping the contact here.
-		if name != "" || phone != "" {
-			upsertContactCacheRow(jidStr, name, phone, contact.BusinessName != "")
+		if entry.name != "" || entry.phone != "" {
+			upsertContactCacheRow(jidStr, entry.name, entry.phone, entry.isBusiness)
 		}
 
-		if name != "" {
-			db.Exec(`UPDATE chats SET name = COALESCE(NULLIF(?, ''), name) WHERE jid = ?`, name, jidStr)
+		// Only a real name may replace a chat's name - the "+<phone>"
+		// fallback must never clobber a name the chat already has.
+		if entry.nameRank > 0 {
+			db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, entry.name, jidStr)
+		} else if entry.name != "" {
+			db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '')`, entry.name, jidStr)
 		}
 	}
 
