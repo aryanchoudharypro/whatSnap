@@ -683,10 +683,21 @@ func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji stri
 // --- contacts -----------------------------------------------------------------
 
 // upsertContactCacheRow keeps the local contacts_cache table (used for fast,
-// offline-friendly get_contacts/check_contacts responses) in sync.
+// offline-friendly get_contacts/check_contacts responses) in sync. A real
+// name is never downgraded to an empty one or to the "+<phone>" placeholder
+// callers use when they don't know the name.
 func upsertContactCacheRow(jid, name, phone string, isBusiness bool) error {
 	_, err := db.Exec(`INSERT INTO contacts_cache (jid, name, phone, is_business, updated_at) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(jid) DO UPDATE SET name=excluded.name, phone=excluded.phone, is_business=excluded.is_business, updated_at=excluded.updated_at`,
+		ON CONFLICT(jid) DO UPDATE SET
+			name = CASE
+				WHEN (excluded.name = '' OR excluded.name LIKE '+%')
+					AND COALESCE(contacts_cache.name, '') != '' AND contacts_cache.name NOT LIKE '+%'
+				THEN contacts_cache.name
+				ELSE excluded.name
+			END,
+			phone = COALESCE(NULLIF(excluded.phone, ''), contacts_cache.phone),
+			is_business = excluded.is_business,
+			updated_at = excluded.updated_at`,
 		jid, name, phone, isBusiness, time.Now().Unix())
 	return err
 }
