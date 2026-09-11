@@ -22,7 +22,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -57,6 +56,7 @@ func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	c := whatsmeow.NewClient(deviceStore, clientLog)
 	c.EnableAutoReconnect = true
+	c.AutoReconnectHook = autoReconnectHook(c)
 	c.AutoTrustIdentity = true
 	// Undecryptable messages are worth one automatic ask to the phone -
 	// without it a message we couldn't decrypt is simply lost.
@@ -172,25 +172,14 @@ func main() {
 	client = buildClient(deviceStore)
 	initCallClient()
 
-	go func() {
-		if client.Store.ID != nil {
-			err = client.Connect()
-			if err != nil {
-				log.Println("Connect error:", err)
-				return
-			}
-			log.Println("Connected to WhatsApp!")
-			resetHistorySyncProgress()
-			broadcastEvent("connected", map[string]string{"jid": client.Store.ID.String()})
-			go client.SendPresence(context.Background(), types.PresenceAvailable)
-
-			go func() {
-				time.Sleep(3 * time.Second)
-				populateChatsFromStore()
-				broadcastChats()
-			}()
-		}
-	}()
+	if client.Store.ID != nil {
+		// First connect of the session: start history-sync progress from
+		// zero (events.Connected deliberately doesn't, see there). The
+		// supervisor in connection.go keeps retrying if this attempt fails,
+		// and events.Connected does the "connected" broadcast once it lands.
+		resetHistorySyncProgress()
+		requestConnect(0)
+	}
 
 	pipePath := *pipeFlag
 	if pipePath == "" {

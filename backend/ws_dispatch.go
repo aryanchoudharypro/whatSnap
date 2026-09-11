@@ -31,6 +31,10 @@ func handleConnection(conn net.Conn) {
 	if client.Store.ID != nil {
 		log.Println("Sending initial connected event to WS")
 		sendEvent(conn, "connected", map[string]string{"jid": client.Store.ID.String()})
+		// "connected" here only means "logged in, show the chat list" - the
+		// WhatsApp socket itself may still be down (no network at startup),
+		// so follow up with its real state for the status bar.
+		sendEvent(conn, "connection_state", currentConnState())
 		go func() {
 			populateChatsFromStore()
 			broadcastChats()
@@ -70,6 +74,8 @@ func handleConnection(conn net.Conn) {
 			handleShutdown()
 		case "logout":
 			handleLogout()
+		case "reconnect":
+			handleReconnect()
 
 		// --- messaging ---
 		case "send":

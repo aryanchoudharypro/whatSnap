@@ -7,6 +7,13 @@ use wxdragon::{
 
 use crate::{UiCommand, ui::theme, ui_wake::UiCommandSender};
 
+/// Whether Enter (main or numpad) is physically down right now.
+fn enter_key_held() -> bool {
+	use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RETURN};
+	let state = unsafe { GetAsyncKeyState(i32::from(VK_RETURN.0)) };
+	state as u16 & 0x8000 != 0
+}
+
 /// Strips characters Windows can't have in a filename, for the default
 /// export filename built from a chat/contact name.
 fn sanitize_export_filename(name: &str) -> String {
@@ -207,6 +214,7 @@ pub struct WindowParts {
 /// just needs to be outside wx's reserved/auto-assigned ranges.
 pub const MENU_ID_SETTINGS: i32 = 6001;
 pub const MENU_ID_LOGOUT: i32 = 6002;
+pub const MENU_ID_RECONNECT: i32 = 6003;
 pub const MENU_ID_NAV_CONVERSATIONS: i32 = 6010;
 pub const MENU_ID_NAV_STATUS: i32 = 6011;
 pub const MENU_ID_NAV_COMMUNITIES: i32 = 6012;
@@ -265,6 +273,7 @@ pub fn build_main_window() -> WindowParts {
 
 	let account_menu = Menu::builder()
 		.append_item(MENU_ID_SETTINGS, "&Settings...\tCtrl+,", "Open settings")
+		.append_item(MENU_ID_RECONNECT, "&Reconnect Now\tF5", "Retry connecting to WhatsApp right away")
 		.append_separator()
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
 		.build();
@@ -962,6 +971,24 @@ pub fn bind_input_handlers(
 		}
 		let s = state_logout.borrow();
 		let _ = s.ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
+	});
+
+	let state_reconnect = state.clone();
+	let reconnect_announcer = parts.conversations_parts.messages_announcer.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() != MENU_ID_RECONNECT {
+			return;
+		}
+		let mut s = state_reconnect.borrow_mut();
+		// The backend answers with a "connection_state" either way (even if
+		// already online), and this flag makes sure that answer is spoken.
+		s.conn_manual_reconnect = true;
+		let online = s.conn_online;
+		let _ = s.ws_tx.send(serde_json::json!({"action": "reconnect"}).to_string());
+		drop(s);
+		if !online {
+			live_region::announce(reconnect_announcer.clone(), "Reconnecting...");
+		}
 	});
 
 	let nav_list_for_menu = parts.nav_list.clone();
@@ -1779,6 +1806,20 @@ pub fn bind_input_handlers(
 	// swallow a later numpad Enter, which only ever opens from key-up.
 	let enter_release_handled = Rc::new(std::cell::Cell::new(false));
 
+	// Menu-bar items (Reconnect Now, Mute Chat, ...) close on Enter's key-down
+	// just like the context menu, so their release hits the list too. Arm the
+	// same flag - but only for real menu-bar IDs, and only while Enter is
+	// actually held: plain Enter on the list also reaches the frame as a menu
+	// event (Windows turns it into an IDOK command), and arming on that
+	// swallowed the list's own Enter so chats stopped opening; F5 or a mouse
+	// click has no Enter release to swallow.
+	let guard_menu_bar = enter_release_handled.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if (MENU_ID_SETTINGS..=MENU_ID_CALL_END).contains(&evt.get_id()) && enter_key_held() {
+			guard_menu_bar.set(true);
+		}
+	});
+
 	let guard_ctx = enter_release_handled.clone();
 	let open_chat_context_menu = Rc::new(move || {
 		if let Some(idx) = convs_list_ctx.get_selection() {
@@ -2035,8 +2076,8 @@ pub fn bind_input_handlers(
 			if key_event.get_key_code() == Some(13) || key_event.get_key_code() == Some(370) {
 				if guard_key_up.replace(false) {
 					// Already accounted for - either key-down opened the chat, or
-					// this is the release left over from closing a context menu.
-					// See the flag's definition above.
+					// this is the release left over from closing a context menu
+					// or menu-bar item. See the flag's definition above.
 					event.skip(false);
 					return;
 				}

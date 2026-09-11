@@ -1367,7 +1367,9 @@ func eventHandler(evt interface{}) {
 			delete(lastAppStateResync, k)
 		}
 		appStateResyncMu.Unlock()
+		connFailures.Store(0)
 		if client.Store.ID != nil {
+			setConnState(connStateOnline, "", 0)
 			// Deliberately not resetting history-sync progress here: this event
 			// also fires on every keepalive-triggered auto-reconnect, not just
 			// the first connect of a session (that case is covered once in
@@ -1414,27 +1416,41 @@ func eventHandler(evt interface{}) {
 		// whatsmeow won't auto-reconnect after this - doing so immediately
 		// would just bounce the other session right back off.
 		log.Println("Session replaced by another connection")
-		broadcastEvent("error", map[string]string{
-			"message": "whaNTV was disconnected because this WhatsApp account connected from another session. Restart whaNTV to reconnect.",
-		})
-		broadcastEvent("socket_disconnected", nil)
+		msg := "whaNTV was disconnected because this WhatsApp account connected from another session. Use Reconnect Now in the Account menu to take the session back."
+		broadcastEvent("error", map[string]string{"message": msg})
+		setConnState(connStateStopped, "Disconnected: this account connected from another session.", 0)
 	case *events.TemporaryBan:
+		// whatsmeow stops reconnecting on a temp ban; try again once it
+		// should have lifted rather than staying offline until a restart.
 		log.Println("Temporary ban:", v.String())
 		broadcastEvent("error", map[string]string{"message": v.String()})
+		if v.Expire > 0 {
+			setConnState(connStateOffline, "Temporarily banned by WhatsApp.", v.Expire)
+			requestConnect(v.Expire + 5*time.Second)
+		} else {
+			scheduleRetryAfterFailure("Temporarily banned by WhatsApp.")
+		}
 	case *events.ClientOutdated:
 		log.Println("WhatsApp rejected this client as outdated")
 		broadcastEvent("error", map[string]string{
 			"message": "WhatsApp has rejected this version of whaNTV as outdated. Please update whaNTV to reconnect.",
 		})
+		setConnState(connStateStopped, "This version of whaNTV is outdated. Please update it.", 0)
 	case *events.CATRefreshError:
 		log.Println("CAT refresh error:", v.Error)
+		scheduleRetryAfterFailure("Couldn't refresh WhatsApp's connection token.")
 	case *events.ConnectFailure:
+		// Reasons whatsmeow doesn't know how to recover from: it has
+		// already given up, so retry ourselves instead of leaving the app
+		// permanently offline behind an error popup.
 		log.Println("Unhandled connect failure:", v.Reason.String(), v.Message)
-		broadcastEvent("error", map[string]string{"message": "Connection failed: " + v.Reason.String()})
+		scheduleRetryAfterFailure("WhatsApp refused the connection (" + v.Reason.String() + ").")
 	case *events.StreamError:
 		log.Println("Unknown stream error, code:", v.Code)
 	case *events.Disconnected:
-		broadcastEvent("socket_disconnected", nil)
+		// whatsmeow's own reconnect loop is already running; autoReconnectHook
+		// reports any failed attempts from there.
+		setConnState(connStateConnecting, "Connection lost.", 0)
 	case *events.ChatPresence:
 		isComposing := v.State == types.ChatPresenceComposing
 		isRecording := isComposing && v.Media == types.ChatPresenceMediaAudio
