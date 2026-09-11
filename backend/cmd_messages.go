@@ -52,13 +52,15 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	// Persist and broadcast as "pending" immediately, before the network
 	// attempt: this is the local echo, and it's what makes a failed/offline
 	// send recoverable instead of just vanishing.
-	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
+			preview_sender=excluded.preview_sender,
+			preview_from_me=1,
 			preview_is_reaction=0,
 			preview_reaction_emoji=''`,
-		jid.String(), ts, data.Text)
+		jid.String(), ts, data.Text, senderJID)
 	saveMessage(StoredMessage{
 		ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
 		Text: data.Text, Timestamp: ts, Status: "pending",
@@ -141,13 +143,19 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	rawBytes, _ := proto.Marshal(msg)
 
 	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=? WHERE id=?`, ts, ts, rawBytes, id)
-	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+	senderJID := ""
+	if client.Store.ID != nil {
+		senderJID = client.Store.ID.ToNonAD().String()
+	}
+	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
+			preview_sender=excluded.preview_sender,
+			preview_from_me=1,
 			preview_is_reaction=0,
 			preview_reaction_emoji=''`,
-		jid.String(), ts, text)
+		jid.String(), ts, text, senderJID)
 
 	broadcastEvent("message", map[string]interface{}{
 		"jid":          jid.String(),
@@ -667,13 +675,15 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			mediaType, mimetype, filename := mediaInfoFromMessage(&origMsg)
 			quotedID, quotedText, quotedSender := quotedPreview(&origMsg)
 
-			db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+			db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 				ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
 				preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
+				preview_sender=excluded.preview_sender,
+				preview_from_me=1,
 				preview_is_reaction=0,
 				preview_reaction_emoji=''`,
-				targetJID.String(), ts, text)
+				targetJID.String(), ts, text, senderJID)
 
 			saveMessage(StoredMessage{
 				ID: resp.ID, JID: targetJID.String(), SenderJID: senderJID, FromMe: true,
