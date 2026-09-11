@@ -2,6 +2,7 @@
 
 mod audio_devices;
 mod autostart;
+mod backend_process;
 mod call_audio;
 mod countries;
 mod paths;
@@ -648,6 +649,15 @@ struct AppState {
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
 	main_ui_shown: bool,
+	/// Whether the WhatsApp connection is up, as last reported by the
+	/// backend's "connection_state". Keeps the history-sync timer from
+	/// painting "Connected" back over an offline status.
+	conn_online: bool,
+	/// Set once the current outage has been announced, so repeated failed
+	/// retries stay quiet and coming back online gets announced.
+	conn_outage_announced: bool,
+	/// Set by Reconnect Now so the result of that attempt is always spoken.
+	conn_manual_reconnect: bool,
 	pending_attachments: Vec<String>,
 	pending_reply_id: Option<String>,
 	pending_reply_sender: Option<String>,
@@ -1272,10 +1282,7 @@ pub fn copy_files_to_clipboard(_paths: &[String]) -> bool {
 	false
 }
 
-use std::{
-	os::windows::process::CommandExt,
-	process::{Command, Stdio},
-};
+use std::os::windows::process::CommandExt;
 
 fn main() {
 	std::panic::set_hook(Box::new(|info| {
@@ -1325,29 +1332,9 @@ fn main() {
 	let pipe_id = format!("whantv-{}", uuid::Uuid::new_v4().simple());
 	let go_pipe_name = format!(r"\\.\pipe\{}", pipe_id);
 
-	let job = win_job::KillOnCloseJob::new().ok();
-
-	let mut bridge_child = if let Some(ref backend_path) = backend_exe {
-		Command::new(backend_path)
-			.arg("-db")
-			.arg(&db_path_str)
-			.arg("-pipe")
-			.arg(&go_pipe_name)
-			.current_dir(&backend_dir)
-			.stdout(Stdio::null())
-			.stderr(Stdio::null())
-			.creation_flags(0x08000000)
-			.spawn()
-			.ok()
-	} else {
-		None
-	};
-
-	if let (Some(job), Some(child)) = (job.as_ref(), bridge_child.as_ref()) {
-		let _ = job.assign(child);
-	}
-
-	let backend_pid = bridge_child.as_ref().map(std::process::Child::id);
+	let backend = backend_exe
+		.map(|exe| Arc::new(backend_process::BackendProcess::start(exe, backend_dir, db_path_str, go_pipe_name)));
+	let pipe_backend = backend.clone();
 	let shutdown_pipe_id = pipe_id.clone();
 
 	let res = wxdragon::main(move |_| {
@@ -1389,14 +1376,29 @@ fn main() {
 					break;
 				}
 
+				// Each pass here follows a dropped or failed pipe connection. If
+				// that's because the backend process died, start a fresh one
+				// instead of retrying a pipe nobody will ever listen on again.
+				if pipe_backend.as_ref().is_some_and(|b| b.restart_if_dead()) {
+					let notice = serde_json::json!({
+						"type": "connection_state",
+						"data": {
+							"state": "offline",
+							"message": "whaNTV's background service stopped unexpectedly and has been restarted."
+						}
+					});
+					let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(notice.to_string()));
+				}
+
 				let stream_name = pipe_id.as_str().to_ns_name::<GenericNamespaced>().unwrap();
 				if let Ok(socket) = LocalSocketStream::connect(stream_name) {
 					// Confirm we reached the backend we spawned and not a
 					// process that beat it to the pipe name.
-					let peer_ok = match (backend_pid, socket.peer_creds().ok().and_then(|c| c.pid())) {
-						(Some(expected), Some(actual)) => actual == expected,
-						(None, _) => true,
-						(Some(_), None) => false,
+					let expected_pid = pipe_backend.as_ref().map(|b| b.pid());
+					let peer_ok = match (expected_pid, socket.peer_creds().ok().and_then(|c| c.pid())) {
+						(Some(Some(expected)), Some(actual)) => actual == expected,
+						(None, _) => true, // no backend exe found; nothing to compare against
+						_ => false,
 					};
 
 					if !peer_ok {
@@ -1547,6 +1549,9 @@ fn main() {
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),
 			main_ui_shown: false,
+			conn_online: false,
+			conn_outage_announced: false,
+			conn_manual_reconnect: false,
 			pending_attachments: Vec::new(),
 			pending_reply_id: None,
 			pending_reply_sender: None,
@@ -1763,7 +1768,9 @@ fn main() {
 				parts_history_sync_timer.frame.set_status_text("Status: Connected (Syncing...)", 0);
 				s.db_growth_status_shown = true;
 			} else if real_signal_just_expired || s.db_growth_status_shown {
-				parts_history_sync_timer.frame.set_status_text("Status: Connected", 0);
+				if s.conn_online {
+					parts_history_sync_timer.frame.set_status_text("Status: Connected", 0);
+				}
 				s.db_growth_status_shown = false;
 			}
 		});
@@ -1785,28 +1792,13 @@ fn main() {
 		let _ = std::fs::write(paths::log_dir().join("main_error.log"), format!("{:?}", e));
 	}
 
-	if let Some(ref mut child) = bridge_child {
+	if let Some(backend) = backend {
 		// Killing the backend outright skips both the WhatsApp disconnect and
 		// the database close, which strands the SQLite -wal/-shm files. Ask it
-		// to exit on its own first.
-		request_backend_shutdown(&shutdown_pipe_id);
-
-		let deadline = std::time::Instant::now() + Duration::from_secs(5);
-		loop {
-			match child.try_wait() {
-				Ok(Some(_)) => break,
-				Ok(None) if std::time::Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
-				_ => {
-					let _ = child.kill();
-					break;
-				}
-			}
-		}
-		let _ = child.wait();
+		// to exit on its own first. (Its kill-on-close job is the backstop if
+		// it never comes down: the handle closes when this process exits.)
+		backend.shutdown(|| request_backend_shutdown(&shutdown_pipe_id));
 	}
-
-	// Backstop if the backend never came down on its own.
-	drop(job);
 }
 
 fn request_backend_shutdown(pipe_id: &str) {
@@ -2217,6 +2209,18 @@ fn save_composer_draft(s: &mut AppState, parts: &WindowParts) {
 	}
 }
 
+/// Drops a pending "reply to" quote and hides its Remove Quote button. A
+/// quote belongs to the chat it was picked in: every send path reads
+/// `pending_reply_id` against whatever chat is open *now*, so leaving it set
+/// across a chat switch sent the next message in the other chat as a reply
+/// to a message that isn't even there. Official WhatsApp cancels it too.
+fn clear_pending_reply(s: &mut AppState, parts: &WindowParts) {
+	s.pending_reply_id = None;
+	s.pending_reply_sender = None;
+	s.pending_reply_preview = None;
+	parts.conversations_parts.remove_quote_btn.show(false);
+}
+
 /// Switches the conversation panel over to `jid`, requesting its message
 /// history. Shared by opening a chat from the sidebar (`OpenConversation`)
 /// and jumping straight to a phone number found in message text
@@ -2236,6 +2240,10 @@ fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			});
 			let _ = s.ws_tx.send(payload.to_string());
 		}
+	}
+	// Re-opening the same chat keeps the quote; any other chat drops it.
+	if s.selected_chat.as_deref() != Some(jid) {
+		clear_pending_reply(&mut s, parts);
 	}
 	s.selected_chat = Some(jid.to_string());
 	// Mirrors official WhatsApp: opening a chat clears any of its
@@ -2770,8 +2778,83 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									.show_modal();
 							}
 						}
-						"disconnected" | "socket_disconnected" => {
-							parts.frame.set_status_text("Status: Disconnected", 0);
+						"connection_state" => {
+							let data = val.get("data");
+							let conn_state = data.and_then(|d| d.get("state")).and_then(|v| v.as_str()).unwrap_or("");
+							let message = data.and_then(|d| d.get("message")).and_then(|v| v.as_str()).unwrap_or("");
+							let retry_in = data.and_then(|d| d.get("retry_in")).and_then(|v| v.as_u64());
+
+							let mut s = state.borrow_mut();
+							s.conn_online = conn_state == "online";
+							// Only speak on the edges of an outage (and for a manual
+							// Reconnect Now): a quick keepalive blip that reconnects on
+							// the first try says nothing, and retries during a long
+							// outage don't repeat the same announcement every time.
+							let announcement = match conn_state {
+								"online" => {
+									let mid_sync = s
+										.history_sync_last_update
+										.map(|t| t.elapsed() < std::time::Duration::from_secs(5))
+										.unwrap_or(false);
+									if !mid_sync {
+										parts.frame.set_status_text("Status: Connected", 0);
+									}
+									let speak = s.conn_outage_announced || s.conn_manual_reconnect;
+									s.conn_outage_announced = false;
+									s.conn_manual_reconnect = false;
+									speak.then(|| "Connected to WhatsApp.".to_string())
+								}
+								"connecting" => {
+									let label = if message.is_empty() {
+										"Status: Connecting...".to_string()
+									} else {
+										format!("Status: {message} Reconnecting...")
+									};
+									parts.frame.set_status_text(&label, 0);
+									None
+								}
+								"offline" => {
+									let reason =
+										if message.is_empty() { "Can't connect to WhatsApp." } else { message };
+									// A temp ban can report its retry hours away, not seconds.
+									let label = match retry_in {
+										Some(secs @ 1..=119) => {
+											format!("Status: Offline. {reason} Retrying in {secs} seconds.")
+										}
+										Some(secs @ 120..=7199) => {
+											format!(
+												"Status: Offline. {reason} Retrying in {} minutes.",
+												secs.div_ceil(60)
+											)
+										}
+										Some(secs @ 7200..) => {
+											format!(
+												"Status: Offline. {reason} Retrying in {} hours.",
+												secs.div_ceil(3600)
+											)
+										}
+										_ => format!("Status: Offline. {reason} Retrying automatically."),
+									};
+									parts.frame.set_status_text(&label, 0);
+									let speak = !s.conn_outage_announced || s.conn_manual_reconnect;
+									s.conn_outage_announced = true;
+									s.conn_manual_reconnect = false;
+									speak.then(|| format!("{reason} whaNTV will keep trying to reconnect."))
+								}
+								"stopped" => {
+									// The backend already raised an error dialog explaining
+									// this one; the status bar just keeps it visible.
+									parts.frame.set_status_text(&format!("Status: {message}"), 0);
+									s.conn_outage_announced = true;
+									s.conn_manual_reconnect = false;
+									None
+								}
+								_ => None,
+							};
+							drop(s);
+							if let Some(text) = announcement {
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &text);
+							}
 						}
 						"history_sync" => {
 							if let Some(data) = val.get("data") {
@@ -6912,12 +6995,7 @@ while ($true) {
 			}
 		}
 		UiCommand::RemoveQuote => {
-			let mut s = state.borrow_mut();
-			s.pending_reply_id = None;
-			s.pending_reply_sender = None;
-			s.pending_reply_preview = None;
-			drop(s);
-			parts.conversations_parts.remove_quote_btn.show(false);
+			clear_pending_reply(&mut state.borrow_mut(), parts);
 			parts.conversations_parts.conversation_panel.layout();
 			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Quoted message removed.");
 			parts.conversations_parts.message_field.set_focus();
@@ -7289,6 +7367,7 @@ while ($true) {
 			let mut s = state.borrow_mut();
 			save_composer_draft(&mut s, parts);
 			s.selected_chat = None;
+			clear_pending_reply(&mut s, parts);
 			parts.conversations_parts.conversation_panel.show(false);
 			parts.conversations_parts.panel.layout();
 			parts.conversations_parts.conversations_list.set_focus();
@@ -7866,6 +7945,7 @@ while ($true) {
 				let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 				if s.selected_chat.as_ref() == Some(&jid) {
 					s.selected_chat = None;
+					clear_pending_reply(&mut s, parts);
 					parts.conversations_parts.conversation_panel.show(false);
 				}
 				apply_chat_filter(&mut s, parts);
@@ -7897,6 +7977,7 @@ while ($true) {
 				let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 				if s.selected_chat.as_ref() == Some(&jid) {
 					s.selected_chat = None;
+					clear_pending_reply(&mut s, parts);
 					parts.conversations_parts.conversation_panel.show(false);
 				}
 				apply_chat_filter(&mut s, parts);
