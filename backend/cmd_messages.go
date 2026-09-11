@@ -551,22 +551,32 @@ func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]in
 	}
 	myJID := client.Store.ID.ToNonAD()
 
-	rows, err := db.Query("SELECT participant_jid, status, timestamp FROM message_receipts WHERE message_id = ?", messageID)
+	rows, err := db.Query(`SELECT participant_jid, status, timestamp,
+			COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0)
+		FROM message_receipts WHERE message_id = ?`, messageID)
 	if err != nil {
 		return nil
 	}
-	receipts := make(map[string]struct {
-		status string
-		ts     int64
-	})
+	type receipt struct {
+		status                      string
+		ts, delivered, read, played int64
+	}
+	receipts := make(map[string]receipt)
 	for rows.Next() {
-		var pJID, status string
-		var ts int64
-		if rows.Scan(&pJID, &status, &ts) == nil {
-			receipts[pJID] = struct {
-				status string
-				ts     int64
-			}{status, ts}
+		var r receipt
+		var pJID string
+		if rows.Scan(&pJID, &r.status, &r.ts, &r.delivered, &r.read, &r.played) == nil {
+			// Rows written before the per-state columns existed only have
+			// the latest state's time.
+			switch {
+			case r.status == "delivered" && r.delivered == 0:
+				r.delivered = r.ts
+			case r.status == "read" && r.read == 0:
+				r.read = r.ts
+			case r.status == "played" && r.played == 0:
+				r.played = r.ts
+			}
+			receipts[pJID] = r
 		}
 	}
 	rows.Close()
@@ -584,16 +594,17 @@ func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]in
 		if displayJID.User == myJID.User {
 			continue
 		}
-		status := "sent"
-		var ts int64
-		if r, ok := receipts[displayJID.ToNonAD().String()]; ok {
-			status = r.status
-			ts = r.ts
+		r, ok := receipts[displayJID.ToNonAD().String()]
+		if !ok {
+			r.status = "sent"
 		}
 		participants = append(participants, map[string]interface{}{
-			"name":      resolveDisplayName(displayJID),
-			"status":    status,
-			"timestamp": ts,
+			"name":         resolveDisplayName(displayJID),
+			"status":       r.status,
+			"timestamp":    r.ts,
+			"delivered_at": r.delivered,
+			"read_at":      r.read,
+			"played_at":    r.played,
 		})
 	}
 	return participants

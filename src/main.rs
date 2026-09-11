@@ -1747,10 +1747,14 @@ fn main() {
 
 			let now = std::time::Instant::now();
 			let db_size = paths::db_and_wal_size();
-			if db_size != s.db_size_last_seen {
-				s.db_size_last_seen = db_size;
+			// Only growth counts as sync activity. The backend's post-sync WAL
+			// checkpoint moves data from -wal into the main file and truncates
+			// -wal, which always shrinks the total - that's housekeeping, not
+			// more history arriving, and shouldn't bring "Syncing..." back.
+			if db_size > s.db_size_last_seen {
 				s.db_growth_last_seen = Some(now);
 			}
+			s.db_size_last_seen = db_size;
 
 			if !s.main_ui_shown {
 				return;
@@ -4302,11 +4306,34 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
 											let pstatus = p.get("status").and_then(|v| v.as_str()).unwrap_or("sent");
 											let pts = p.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
-											let ts_fmt = fmt_ts(pts);
-											let entry = if ts_fmt.is_empty() {
+											let p_at = |key: &str| p.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+											// Every state this member has reached, latest first, e.g.
+											// "Asha — read 8:13 pm, delivered 8:07 pm".
+											let mut times = Vec::new();
+											if is_voice {
+												let played = fmt_ts(p_at("played_at"));
+												if !played.is_empty() {
+													times.push(format!("played {}", played));
+												}
+											}
+											let read_at = fmt_ts(p_at("read_at"));
+											if !read_at.is_empty() {
+												times.push(format!("read {}", read_at));
+											}
+											let delivered_at = fmt_ts(p_at("delivered_at"));
+											if !delivered_at.is_empty() {
+												times.push(format!("delivered {}", delivered_at));
+											}
+											if times.is_empty() {
+												let ts_fmt = fmt_ts(pts);
+												if !ts_fmt.is_empty() {
+													times.push(ts_fmt);
+												}
+											}
+											let entry = if times.is_empty() {
 												name.to_string()
 											} else {
-												format!("{} — {}", name, ts_fmt)
+												format!("{} — {}", name, times.join(", "))
 											};
 											match pstatus {
 												"played" => played.push(entry),

@@ -113,7 +113,13 @@ func main() {
 	}
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
 	if !strings.Contains(sqlitePath, "?") {
-		sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)"
+		// _txlock=immediate: every transaction (ours and whatsmeow's store)
+		// takes SQLite's write lock at BEGIN, waiting under busy_timeout,
+		// instead of starting as a reader and upgrading at its first write -
+		// an upgrade that can't wait for the lock and so fails outright with
+		// "database is locked" if another connection committed in between,
+		// and lets read-then-write transactions tangle with each other.
+		sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_txlock=immediate"
 	}
 	db, err = sql.Open("sqlite", sqlitePath)
 	if err != nil {
@@ -128,6 +134,11 @@ func main() {
 	// reads (chat/message list queries) alongside the one active writer.
 	db.SetMaxOpenConns(8)
 	db.SetMaxIdleConns(8)
+	// Also set per connection via _pragma=foreign_keys(1) above - this only
+	// covers whichever pooled connection runs it. With just this, whatsmeow's
+	// ON DELETE CASCADE cleanup (e.g. dropping a logged-out device's message
+	// secrets and contacts) only happened if the delete landed on that one
+	// connection, so old pairings' rows piled up in the database.
 	if _, err := db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
 		panic(err)
 	}
@@ -141,6 +152,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	removeOrphanedDeviceRows()
 
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 	store.DeviceProps.Os = proto.String("Windows")
