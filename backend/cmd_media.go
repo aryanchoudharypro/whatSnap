@@ -729,12 +729,14 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 			MediaType: data.Type, MediaMimetype: data.Mimetype, MediaFilename: data.Filename, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
-		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
 				preview_snippet=excluded.preview_snippet,
+				preview_sender=excluded.preview_sender,
+				preview_from_me=1,
 				preview_is_reaction=0,
-				preview_reaction_emoji=''`, jid.String(), ts, displayText)
+				preview_reaction_emoji=''`, jid.String(), ts, displayText, senderJID)
 		broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 			"from_me":       true,
@@ -954,12 +956,14 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			MediaType: "voice", MediaMimetype: mimetype, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
-		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet) VALUES (?, ?, ?)
+		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
 				preview_snippet=excluded.preview_snippet,
+				preview_sender=excluded.preview_sender,
+				preview_from_me=1,
 				preview_is_reaction=0,
-				preview_reaction_emoji=''`, jid.String(), ts, voiceText)
+				preview_reaction_emoji=''`, jid.String(), ts, voiceText, senderJID)
 		broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": id, "text": voiceText,
 			"from_me":      true,
