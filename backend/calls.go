@@ -2,15 +2,21 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
-	"encoding/json"
+
 	"github.com/purpshell/meowcaller"
 	"github.com/purpshell/meowcaller/diag"
+	"github.com/purpshell/meowcaller/signaling"
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 var callClient *meowcaller.Client
@@ -41,14 +47,129 @@ func newCallDiagnosticsOptions() []meowcaller.Option {
 	return opts
 }
 
+// meowcaller parses an incoming group offer's group-jid internally but never
+// exposes it on *meowcaller.Call, so this records it by call-id from the same
+// CallOffer event. whatsmeow runs event handlers one after another in
+// registration order, and this one is registered before meowcaller's (see
+// initCallClient), so the entry is always in place by the time
+// OnIncomingCall fires.
+var incomingGroupCallJIDs = make(map[string]types.JID)
+var incomingGroupCallJIDsMutex sync.Mutex
+
+func recordIncomingGroupCallJID(evt interface{}) {
+	offer, ok := evt.(*events.CallOffer)
+	if !ok || offer.Data == nil {
+		return
+	}
+	snapshot, isGroup, err := signaling.ParseGroupInviteSnapshot(offer.Data)
+	if err != nil || !isGroup || snapshot.GroupJID.IsEmpty() {
+		return
+	}
+	incomingGroupCallJIDsMutex.Lock()
+	incomingGroupCallJIDs[offer.CallID] = snapshot.GroupJID
+	incomingGroupCallJIDsMutex.Unlock()
+}
+
+func takeIncomingGroupCallJID(callID string) (types.JID, bool) {
+	incomingGroupCallJIDsMutex.Lock()
+	defer incomingGroupCallJIDsMutex.Unlock()
+	jid, ok := incomingGroupCallJIDs[callID]
+	delete(incomingGroupCallJIDs, callID)
+	return jid, ok
+}
+
+func groupChatName(jid types.JID) string {
+	var name string
+	if db != nil {
+		_ = db.QueryRow("SELECT name FROM chats WHERE jid = ?", jid.String()).Scan(&name)
+	}
+	return name
+}
+
+func isOwnJID(jid types.JID) bool {
+	if client == nil || client.Store == nil || jid.User == "" {
+		return false
+	}
+	for _, own := range []types.JID{client.Store.GetJID(), client.Store.GetLID()} {
+		if own.User != "" && own.User == jid.User {
+			return true
+		}
+	}
+	return false
+}
+
+// attachCallHandlers wires the callbacks shared by incoming and outgoing
+// calls. OnReady/OnEnd/OnGroupState are single-slot on *meowcaller.Call
+// (each registration overwrites the last), so this must be the only place
+// that registers them for a given call.
+func attachCallHandlers(call *meowcaller.Call) {
+	// Wiring the audio bridge here, rather than eagerly in handleAnswerCall,
+	// is what makes "connected" mean the media path is actually ready
+	// instead of just "Answer() didn't error".
+	call.OnReady(func() {
+		log.Println("Call ready (connected):", call.ID())
+		bridge, port, err := NewUDPBridge()
+		if err != nil {
+			log.Println("Failed to create UDP bridge:", err)
+			return
+		}
+		call.Play(bridge)
+		call.Receive(bridge)
+		broadcastEvent("call_connected", map[string]interface{}{
+			"call_id":    call.ID(),
+			"audio_port": port,
+		})
+	})
+	call.OnEnd(func(reason string) {
+		broadcastEvent("call_ended", map[string]string{
+			"call_id": call.ID(),
+			"reason":  reason,
+		})
+		activeCallsMutex.Lock()
+		delete(activeCalls, call.ID())
+		activeCallsMutex.Unlock()
+	})
+	// Fires for group calls (placed as one, or a 1:1 call that became an
+	// ad-hoc group through add_participant) with WhatsApp's authoritative
+	// roster, and replays the current roster immediately on registration.
+	// Our own entry is dropped - the frontend only needs the other people.
+	call.OnGroupState(func(state meowcaller.GroupCallState) {
+		participants := make([]map[string]string, 0, len(state.Participants))
+		for _, p := range state.Participants {
+			if isOwnJID(p.JID) || isOwnJID(p.PN) {
+				continue
+			}
+			nameJID := p.JID
+			if !p.PN.IsEmpty() {
+				nameJID = p.PN
+			}
+			participants = append(participants, map[string]string{
+				"jid":   p.JID.String(),
+				"name":  resolveDisplayName(nameJID),
+				"state": p.State,
+			})
+		}
+		broadcastEvent("call_participants", map[string]interface{}{
+			"call_id":      call.ID(),
+			"participants": participants,
+		})
+	})
+}
+
 func initCallClient() {
 	if client == nil {
 		return
 	}
+	// Must be registered before meowcaller.NewClient installs its own
+	// handler - see incomingGroupCallJIDs.
+	client.AddEventHandler(recordIncomingGroupCallJID)
 	callClient = meowcaller.NewClient(client, newCallDiagnosticsOptions()...)
 
 	callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())
+		// Taken up front so the entry is consumed even when the call is
+		// auto-rejected as busy below.
+		groupJID, hasGroupJID := takeIncomingGroupCallJID(call.ID())
 
 		activeCallsMutex.Lock()
 		alreadyOnACall := len(activeCalls) > 0
@@ -72,46 +193,54 @@ func initCallClient() {
 			return
 		}
 
-		// OnReady is a single-slot callback on *meowcaller.Call (overwritten,
-		// not a list), so this is the one and only place that may register
-		// it for an incoming call - wiring the audio bridge here, rather
-		// than eagerly in handleAnswerCall, is what makes "connected" mean
-		// the media path is actually ready instead of just "Answer() didn't
-		// error".
-		call.OnReady(func() {
-			log.Println("Incoming call ready (connected):", call.ID())
-			bridge, port, err := NewUDPBridge()
-			if err != nil {
-				log.Println("Failed to create UDP bridge:", err)
-				return
-			}
-			call.Play(bridge)
-			call.Receive(bridge)
-			broadcastEvent("call_connected", map[string]interface{}{
-				"call_id":    call.ID(),
-				"audio_port": port,
-			})
-		})
-		call.OnEnd(func(reason string) {
-			broadcastEvent("call_ended", map[string]string{
-				"call_id": call.ID(),
-				"reason":  reason,
-			})
-			activeCallsMutex.Lock()
-			delete(activeCalls, call.ID())
-			activeCallsMutex.Unlock()
-		})
+		_, isGroup := call.GroupState()
+
+		attachCallHandlers(call)
 
 		// The peer JID is usually a @lid, which the frontend's contact map
 		// (keyed by phone JID) cannot look up - it would show the raw
 		// "...@lid" string instead of a name. Resolve it here, where the
 		// LID -> PN -> contact-name fallback chain already lives.
-		broadcastEvent("incoming_call", map[string]string{
+		payload := map[string]interface{}{
 			"call_id":     call.ID(),
 			"caller":      call.Peer().String(),
 			"caller_name": resolveDisplayName(call.Peer()),
-		})
+			"is_group":    isGroup,
+		}
+		if hasGroupJID {
+			payload["group_jid"] = groupJID.String()
+			payload["group_name"] = groupChatName(groupJID)
+		}
+		broadcastEvent("incoming_call", payload)
 	})
+}
+
+// placeGroupChatCall calls every other member of a WhatsApp group chat.
+// meowcaller's GroupCallByID refuses groups with fewer than two other
+// members, so a group that is just you and one other person gets an
+// ordinary 1:1 call to that person instead - the same people end up in the
+// call either way.
+func placeGroupChatCall(ctx context.Context, groupJID types.JID) (*meowcaller.Call, error) {
+	info, err := client.GetGroupInfo(ctx, groupJID)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't load the group's members: %w", err)
+	}
+	var others []types.JID
+	for _, p := range info.Participants {
+		if isOwnJID(p.JID) || isOwnJID(p.PhoneNumber) || isOwnJID(p.LID) {
+			continue
+		}
+		others = append(others, p.JID)
+	}
+	switch {
+	case len(others) == 0:
+		return nil, errors.New("There's no one else in this group to call.")
+	case len(others) == 1:
+		return callClient.Call(ctx, others[0].String())
+	case len(others) > 31:
+		return nil, fmt.Errorf("This group has %d other members; WhatsApp group calls allow at most 32 people.", len(others))
+	}
+	return callClient.GroupCallByID(ctx, groupJID.String())
 }
 
 func handlePlaceCall(data []byte) {
@@ -133,7 +262,12 @@ func handlePlaceCall(data []byte) {
 	}
 
 	ctx := context.Background()
-	call, err := callClient.Call(ctx, parsedJID.String())
+	var call *meowcaller.Call
+	if parsedJID.Server == types.GroupServer {
+		call, err = placeGroupChatCall(ctx, parsedJID)
+	} else {
+		call, err = callClient.Call(ctx, parsedJID.String())
+	}
 	if err != nil {
 		log.Println("Failed to place call:", err)
 		// Without this, the frontend never hears back at all: it shows the
@@ -153,34 +287,14 @@ func handlePlaceCall(data []byte) {
 	activeCalls[call.ID()] = call
 	activeCallsMutex.Unlock()
 
-	call.OnReady(func() {
-		bridge, port, err := NewUDPBridge()
-		if err != nil {
-			log.Println("Failed to create UDP bridge:", err)
-			return
-		}
-		call.Play(bridge)
-		call.Receive(bridge)
-		broadcastEvent("call_connected", map[string]interface{}{
-			"call_id":    call.ID(),
-			"audio_port": port,
-		})
-	})
-
+	// call_placed goes out before attachCallHandlers: OnGroupState replays
+	// the seeded roster immediately, and the frontend ignores
+	// call_participants for a call_id it hasn't learned yet.
 	broadcastEvent("call_placed", map[string]string{
 		"call_id": call.ID(),
 		"peer":    parsedJID.String(),
 	})
-
-	call.OnEnd(func(reason string) {
-		broadcastEvent("call_ended", map[string]string{
-			"call_id": call.ID(),
-			"reason":  reason,
-		})
-		activeCallsMutex.Lock()
-		delete(activeCalls, call.ID())
-		activeCallsMutex.Unlock()
-	})
+	attachCallHandlers(call)
 
 	log.Printf("Placed call to %s, call ID: %s", parsedJID.String(), call.ID())
 }
@@ -302,15 +416,53 @@ func handleAddParticipant(data []byte) {
 	call, exists := activeCalls[req.CallID]
 	activeCallsMutex.Unlock()
 
+	name := resolveDisplayName(parsedJID)
+	// The frontend used to announce "Participant added." the moment the
+	// contact was picked, so every failure here was silent to the user.
+	// Report the real outcome instead.
+	fail := func(message string) {
+		broadcastEvent("call_participant_add_failed", map[string]string{
+			"call_id": req.CallID,
+			"jid":     parsedJID.String(),
+			"name":    name,
+			"message": message,
+		})
+	}
+
 	if !exists {
 		log.Println("Cannot add participant, call not found:", req.CallID)
+		fail("That call has already ended.")
 		return
 	}
 
 	err = call.AddParticipant(context.Background(), parsedJID.String())
 	if err != nil {
 		log.Println("Failed to add participant:", err)
-	} else {
-		log.Println("Added participant to call:", req.CallID)
+		fail(addParticipantErrorMessage(err, name))
+		return
 	}
+	log.Println("Added participant to call:", req.CallID)
+	broadcastEvent("call_participant_added", map[string]string{
+		"call_id": req.CallID,
+		"jid":     parsedJID.String(),
+		"name":    name,
+	})
+}
+
+// addParticipantErrorMessage turns meowcaller's invite errors into something
+// worth reading aloud. meowcaller has no typed errors for these, so this
+// matches on its messages and falls back to the raw error otherwise.
+func addParticipantErrorMessage(err error, name string) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "call is not connected"):
+		return "Wait for the call to connect before adding someone."
+	case strings.Contains(msg, "already in the call roster"):
+		return name + " is already in the call."
+	case strings.Contains(msg, "cannot add this client to its own call"):
+		return "You can't add yourself to the call."
+	case strings.Contains(msg, "capability is unavailable"):
+		return "Couldn't add " + name + ": WhatsApp hasn't sent the call details needed to invite someone yet. Try again in a moment."
+	}
+	return "Couldn't add " + name + ": " + msg
 }

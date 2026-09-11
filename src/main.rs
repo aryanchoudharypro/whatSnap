@@ -728,6 +728,10 @@ struct AppState {
 	/// otherwise handled. Still set when `call_ended` arrives means it rang
 	/// out unanswered - that's what drives the "Missed voice call" toast.
 	incoming_call_caller: Option<String>,
+	/// Latest roster from `call_participants` for the active group call
+	/// (excluding ourselves), empty for a 1:1 call. Kept so the next roster
+	/// can be diffed against it to announce who joined or left.
+	call_participants: Vec<CallParticipant>,
 	group_data_members: Vec<String>,
 	/// Action JIDs for `group_data_members`, aligned by index (unfiltered).
 	group_data_member_jids: Vec<String>,
@@ -1500,6 +1504,7 @@ fn main() {
 			call_answer_deadline: None,
 			call_ringing_sink: None,
 			incoming_call_caller: None,
+			call_participants: Vec::new(),
 			group_data_members: Vec::new(),
 			group_data_member_jids: Vec::new(),
 			group_data_member_admin: Vec::new(),
@@ -1705,6 +1710,7 @@ fn main() {
 						let _ = s.ws_tx.send(msg.to_string());
 					}
 					s.active_call_audio = None;
+					s.call_participants.clear();
 					parts_typing_timer.call_parts.frame.show(false);
 					play_call_fail_sound(&mut s);
 					live_region::announce(
@@ -1859,6 +1865,85 @@ fn get_status_rank(s: &str) -> i32 {
 		"played" => 5,
 		_ => 0,
 	}
+}
+
+/// One other person in a group call, as sent by the backend's
+/// `call_participants` event. `state` is WhatsApp's roster state, e.g.
+/// "connected", "outgoing", "ringing", "invited" or "rejected".
+#[derive(Clone)]
+struct CallParticipant {
+	jid: String,
+	name: String,
+	state: String,
+}
+
+fn parse_call_participants(data: &serde_json::Value) -> Vec<CallParticipant> {
+	let Some(list) = data.get("participants").and_then(|p| p.as_array()) else {
+		return Vec::new();
+	};
+	list.iter()
+		.filter_map(|p| {
+			let jid = p.get("jid").and_then(|v| v.as_str())?.to_string();
+			let name = p
+				.get("name")
+				.and_then(|v| v.as_str())
+				.filter(|n| !n.is_empty())
+				.map(|n| n.to_string())
+				.unwrap_or_else(|| display_name_for_jid(&jid));
+			let state = p.get("state").and_then(|v| v.as_str()).unwrap_or("").to_string();
+			Some(CallParticipant { jid, name, state })
+		})
+		.collect()
+}
+
+fn join_names(names: &[&str]) -> String {
+	match names {
+		[] => String::new(),
+		[one] => one.to_string(),
+		[rest @ .., last] => format!("{} and {}", rest.join(", "), last),
+	}
+}
+
+/// Status line for the call window during a group call, e.g.
+/// "In group call with Asha and Ben. Ringing Chris."
+fn group_call_status_text(participants: &[CallParticipant]) -> String {
+	let connected: Vec<&str> =
+		participants.iter().filter(|p| p.state == "connected").map(|p| p.name.as_str()).collect();
+	let ringing: Vec<&str> = participants
+		.iter()
+		.filter(|p| p.state != "connected" && p.state != "rejected")
+		.map(|p| p.name.as_str())
+		.collect();
+	match (connected.is_empty(), ringing.is_empty()) {
+		(true, true) => "In group call. No one else is here yet.".to_string(),
+		(true, false) => format!("Calling {}.", join_names(&ringing)),
+		(false, true) => format!("In group call with {}.", join_names(&connected)),
+		(false, false) => {
+			format!("In group call with {}. Ringing {}.", join_names(&connected), join_names(&ringing))
+		}
+	}
+}
+
+/// What changed between two group-call rosters, as screen-reader
+/// announcements ("Asha joined the call.", "Ben left the call.", ...).
+fn call_participant_changes(old: &[CallParticipant], new: &[CallParticipant]) -> Vec<String> {
+	let mut changes = Vec::new();
+	for p in new {
+		let before = old.iter().find(|o| o.jid == p.jid).map(|o| o.state.as_str());
+		if p.state == "connected" && before != Some("connected") {
+			changes.push(format!("{} joined the call.", p.name));
+		} else if p.state != "connected" && before == Some("connected") {
+			changes.push(format!("{} left the call.", p.name));
+		} else if p.state == "rejected" && before != Some("rejected") {
+			changes.push(format!("{} declined the call.", p.name));
+		}
+	}
+	for o in old {
+		if o.state == "connected" && !new.iter().any(|p| p.jid == o.jid) {
+			changes.push(format!("{} left the call.", o.name));
+		}
+	}
+	changes
 }
 
 /// Falls back to a formatted phone number (e.g. "+91 96671 74783") instead
@@ -2567,7 +2652,14 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											"Call connected.",
 										);
 
-										parts.call_parts.status_label.set_label("Call connected.");
+										if s.call_participants.is_empty() {
+											parts.call_parts.status_label.set_label("Call connected.");
+										} else {
+											parts
+												.call_parts
+												.status_label
+												.set_label(&group_call_status_text(&s.call_participants));
+										}
 										parts.call_parts.accept_btn.show(false);
 										parts.call_parts.reject_btn.show(false);
 										parts.call_parts.mute_btn.show(true);
@@ -2601,8 +2693,61 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										let _ = s.ws_tx.send(msg.to_string());
 									} else {
 										s.active_call_id = Some(call_id.to_string());
+										s.call_participants.clear();
 										start_call_ringing_sound(&mut s, include_bytes!("../sounds/telefone.ogg"));
 									}
+								}
+							}
+						}
+						"call_participant_added" | "call_participant_add_failed" => {
+							if let Some(data) = val.get("data") {
+								let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+								if state.borrow().active_call_id.as_deref() != Some(call_id) {
+									return;
+								}
+								let message = if t == "call_participant_added" {
+									let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("Contact");
+									format!("Ringing {}.", name)
+								} else {
+									data.get("message")
+										.and_then(|m| m.as_str())
+										.unwrap_or("Couldn't add that person to the call.")
+										.to_string()
+								};
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &message);
+							}
+						}
+						"call_participants" => {
+							if let Some(data) = val.get("data") {
+								let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+								let mut s = state.borrow_mut();
+								if s.active_call_id.as_deref() != Some(call_id) {
+									return;
+								}
+								let participants = parse_call_participants(data);
+								// The first roster of a call is the starting line-up (who we're
+								// ringing, or who's already in a call we're being invited to) -
+								// the status label covers it, so only later changes are announced.
+								let changes = if s.call_participants.is_empty() {
+									Vec::new()
+								} else {
+									call_participant_changes(&s.call_participants, &participants)
+								};
+								s.call_participants = participants;
+								// Leave the label alone while an incoming call is still ringing
+								// or being answered - it's showing who's calling / "Answering...".
+								if s.incoming_call_caller.is_none() && s.call_answer_deadline.is_none() {
+									parts
+										.call_parts
+										.status_label
+										.set_label(&group_call_status_text(&s.call_participants));
+								}
+								drop(s);
+								if !changes.is_empty() {
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										&changes.join(" "),
+									);
 								}
 							}
 						}
@@ -2629,6 +2774,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									if s.active_call_id.as_deref() == Some(call_id) {
 										s.active_call_id = None;
 										s.active_call_audio = None;
+										s.call_participants.clear();
 										s.call_answer_deadline = None;
 										parts.call_parts.frame.show(false);
 										stop_call_ringing_sound(&mut s);
@@ -2653,6 +2799,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									if s.active_call_id.as_deref() == Some(call_id) {
 										s.active_call_id = None;
 										s.active_call_audio = None;
+										s.call_participants.clear();
 										s.call_answer_deadline = None;
 										s.incoming_call_caller = None;
 										parts.call_parts.frame.show(false);
@@ -2688,10 +2835,26 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										.or_else(|| s.contacts.get(caller).cloned())
 										.unwrap_or_else(|| caller.to_string());
 									s.incoming_call_caller = Some(name.clone());
-									parts
-										.call_parts
-										.status_label
-										.set_label(&format!("Incoming voice call from {}", name));
+									s.call_participants.clear();
+									let is_group = data.get("is_group").and_then(|g| g.as_bool()).unwrap_or(false);
+									let group_name = data
+										.get("group_name")
+										.and_then(|n| n.as_str())
+										.filter(|n| !n.is_empty())
+										.map(|n| n.to_string())
+										.or_else(|| {
+											let group_jid = data.get("group_jid").and_then(|j| j.as_str())?;
+											s.display_names
+												.get(group_jid)
+												.or_else(|| s.contacts.get(group_jid))
+												.cloned()
+										});
+									let description = match (is_group, group_name) {
+										(true, Some(group)) => format!("group voice call from {} in {}", name, group),
+										(true, None) => format!("group voice call from {}", name),
+										(false, _) => format!("voice call from {}", name),
+									};
+									parts.call_parts.status_label.set_label(&format!("Incoming {}", description));
 									parts.call_parts.accept_btn.show(true);
 									parts.call_parts.reject_btn.show(true);
 									parts.call_parts.mute_btn.show(false);
@@ -2710,11 +2873,13 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										include_bytes!("../sounds/ringtone_incoming_call.ogg"),
 									);
 									if s.settings.notifications_enabled {
-										show_toast_notification("Incoming call", &format!("Voice call from {}", name));
+										let mut toast_body = description.clone();
+										toast_body[..1].make_ascii_uppercase();
+										show_toast_notification("Incoming call", &toast_body);
 									}
 									live_region::announce(
 										parts.conversations_parts.messages_announcer.clone(),
-										&format!("Incoming voice call from {}", name),
+										&format!("Incoming {}", description),
 									);
 								}
 							}
@@ -7043,17 +7208,27 @@ while ($true) {
 			s.call_placing = true;
 			s.call_pending_cancel = false;
 
+			let is_group = jid.ends_with("@g.us");
 			let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-			parts.call_parts.status_label.set_label(&format!("In call with {}", name));
+			if is_group {
+				parts.call_parts.status_label.set_label(&format!("Starting group call in {}", name));
+			} else {
+				parts.call_parts.status_label.set_label(&format!("In call with {}", name));
+			}
 			parts.call_parts.accept_btn.show(false);
 			parts.call_parts.reject_btn.show(false);
 			parts.call_parts.mute_btn.show(true);
-			parts.call_parts.add_participant_btn.show(true);
+			// Shown by call_connected - WhatsApp only accepts an invite into an
+			// established call, so offering it while ringing just fails.
+			parts.call_parts.add_participant_btn.show(false);
 			parts.call_parts.leave_btn.show(true);
 			parts.call_parts.frame.show(true);
 			drop(s);
 
-			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Placing call...");
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				if is_group { "Placing group call..." } else { "Placing call..." },
+			);
 		}
 		UiCommand::AnswerCall => {
 			let mut s = state.borrow_mut();
@@ -7078,6 +7253,7 @@ while ($true) {
 				let _ = s.ws_tx.send(msg.to_string());
 				parts.call_parts.frame.show(false);
 				s.active_call_id = None;
+				s.call_participants.clear();
 				s.call_answer_deadline = None;
 				s.incoming_call_caller = None;
 				stop_call_ringing_sound(&mut s);
@@ -7095,6 +7271,7 @@ while ($true) {
 				parts.call_parts.frame.show(false);
 				s.active_call_id = None;
 				s.active_call_audio = None;
+				s.call_participants.clear();
 				s.call_answer_deadline = None;
 				stop_call_ringing_sound(&mut s);
 				play_call_fail_sound(&mut s);
@@ -7261,9 +7438,11 @@ while ($true) {
 						});
 						let _ = s.ws_tx.send(msg.to_string());
 						drop(s);
+						// The outcome arrives as call_participant_added /
+						// call_participant_add_failed once WhatsApp has answered.
 						live_region::announce(
 							parts.conversations_parts.messages_announcer.clone(),
-							"Participant added.",
+							"Adding to call...",
 						);
 					}
 				}
@@ -8213,4 +8392,37 @@ fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()>
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod call_participant_tests {
+	use super::*;
+
+	fn p(jid: &str, name: &str, state: &str) -> CallParticipant {
+		CallParticipant { jid: jid.into(), name: name.into(), state: state.into() }
+	}
+
+	#[test]
+	fn status_text_lists_connected_and_ringing() {
+		let roster = [p("1@lid", "Asha", "connected"), p("2@lid", "Ben", "connected"), p("3@lid", "Chris", "ringing")];
+		assert_eq!(group_call_status_text(&roster), "In group call with Asha and Ben. Ringing Chris.");
+		let roster = [p("1@lid", "Asha", "outgoing"), p("2@lid", "Ben", "outgoing"), p("3@lid", "Chris", "outgoing")];
+		assert_eq!(group_call_status_text(&roster), "Calling Asha, Ben and Chris.");
+	}
+
+	#[test]
+	fn changes_announce_join_leave_and_decline() {
+		let old = [
+			p("1@lid", "Asha", "outgoing"),
+			p("2@lid", "Ben", "ringing"),
+			p("3@lid", "Chris", "connected"),
+			p("4@lid", "Dev", "connected"),
+		];
+		let new = [p("1@lid", "Asha", "connected"), p("2@lid", "Ben", "rejected"), p("4@lid", "Dev", "rejected")];
+		assert_eq!(
+			call_participant_changes(&old, &new),
+			vec!["Asha joined the call.", "Ben declined the call.", "Dev left the call.", "Chris left the call."]
+		);
+		assert!(call_participant_changes(&new, &new).is_empty());
+	}
 }
