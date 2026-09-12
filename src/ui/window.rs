@@ -2436,7 +2436,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
+						if !msg.is_date_divider && !msg.is_deleted {
 							let mut labels = Vec::new();
 							let mut jids = Vec::new();
 							for jid in &s.chats {
