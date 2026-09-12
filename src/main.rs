@@ -4739,30 +4739,39 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												);
 											}
 										}
+										let norm_chat_jid = if let Some((user, server)) = chat_jid.split_once('@') {
+											let base = user
+												.split('.')
+												.next()
+												.unwrap_or(user)
+												.split(':')
+												.next()
+												.unwrap_or(user);
+											format!("{}@{}", base, server)
+										} else {
+											chat_jid.to_string()
+										};
+										let base_label = s
+											.presence_labels
+											.get(chat_jid)
+											.or_else(|| s.presence_labels.get(&norm_chat_jid))
+											.cloned()
+											.unwrap_or_else(|| {
+												s.contacts
+													.get(chat_jid)
+													.cloned()
+													.unwrap_or_else(|| "Conversation data".to_string())
+											});
+
 										let btn_label = if is_recording || is_typing {
-											if is_recording {
+											let status = if is_recording {
 												format!("{} is recording audio...", sender_name)
 											} else {
 												format!("{} is typing...", sender_name)
-											}
-										} else {
-											let norm_chat_jid = if let Some((user, server)) = chat_jid.split_once('@') {
-												let base = user
-													.split('.')
-													.next()
-													.unwrap_or(user)
-													.split(':')
-													.next()
-													.unwrap_or(user);
-												format!("{}@{}", base, server)
-											} else {
-												chat_jid.to_string()
 											};
-											s.presence_labels
-												.get(chat_jid)
-												.or_else(|| s.presence_labels.get(&norm_chat_jid))
-												.cloned()
-												.unwrap_or_else(|| format!("Conversation data"))
+											format!("{}, {}", base_label, status)
+										} else {
+											base_label
 										};
 										parts.conversations_parts.conv_data_btn.set_label(&btn_label);
 									}
@@ -4772,7 +4781,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 						"presence" => {
 							if let Some(data) = val.get("data") {
 								let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
-								if jid.is_empty() {
+								if jid.is_empty() || jid.ends_with("@g.us") {
 									return;
 								}
 								let clean_jid = if let Some((user, server)) = jid.split_once('@') {
