@@ -2396,7 +2396,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
+						if !msg.is_date_divider && !msg.is_deleted {
 							let sender = if msg.from_me {
 								"You".to_string()
 							} else if !msg.sender_name.is_empty() {
@@ -3026,7 +3026,7 @@ pub fn bind_input_handlers(
 					if let Some(msg) = msg_opt {
 						let is_voice =
 							msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
-						if is_voice {
+						if is_voice && !msg.is_deleted {
 							handled = true;
 							let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
 							if is_currently_playing {
@@ -3091,7 +3091,7 @@ pub fn bind_input_handlers(
 					if let Some(msg) = msg_opt {
 						let is_voice =
 							msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
-						if !is_voice {
+						if !is_voice || msg.is_deleted {
 							event.skip(true);
 							return;
 						}
@@ -3148,7 +3148,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
+						if !msg.is_date_divider && !msg.is_deleted {
 							let sender = if msg.from_me {
 								"You".to_string()
 							} else if !msg.sender_name.is_empty() {
