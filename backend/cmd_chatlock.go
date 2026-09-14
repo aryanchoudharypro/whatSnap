@@ -88,7 +88,7 @@ func buildLockChat(target types.JID, lock bool) appstate.PatchInfo {
 	}
 }
 
-func handleSetChatLocked(raw json.RawMessage) {
+func handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
 	var data ChatBoolData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -97,6 +97,14 @@ func handleSetChatLocked(raw json.RawMessage) {
 	if err != nil {
 		return
 	}
+
+	b, codeErr := getChatLockSecretCode()
+	if codeErr != nil || len(b) == 0 {
+		sendEvent(conn, "error", map[string]interface{}{"message": "You must configure a Secret Code for Chat Lock on your primary phone before you can lock or unlock chats from this device."})
+		broadcastChats()
+		return
+	}
+
 	go func() {
 		if err := sendAppStateWithRetry(context.Background(), buildLockChat(jid, data.Value)); err != nil {
 			broadcastChats()

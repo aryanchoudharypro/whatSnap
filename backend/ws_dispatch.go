@@ -165,7 +165,7 @@ func handleConnection(conn net.Conn) {
 		case "verify_chat_lock_code":
 			handleVerifyChatLockCode(conn, cmd.Data)
 		case "set_chat_locked":
-			handleSetChatLocked(cmd.Data)
+			handleSetChatLocked(conn, cmd.Data)
 		case "get_chats":
 			handleGetChats(conn)
 		case "get_messages":
