@@ -2296,8 +2296,25 @@ pub fn bind_input_handlers(
 				None
 			};
 			let sender_name = sender_jid.as_ref().map(|jid| {
+				let msg_name = display_item
+					.as_ref()
+					.and_then(|item| match item {
+						whantv::DisplayItem::Single(m) => Some(m.sender_name.clone()),
+						whantv::DisplayItem::Album { sender_name, .. } => Some(sender_name.clone()),
+					})
+					.filter(|n| !n.is_empty() && n != jid);
+
 				let s = state_ctx.borrow();
-				s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())
+				msg_name.or_else(|| s.contacts.get(jid).cloned()).unwrap_or_else(|| {
+					let raw_phone = jid.split('@').next().unwrap_or(jid);
+					if !raw_phone.is_empty() && raw_phone.chars().all(|c| c.is_ascii_digit()) {
+						if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+							return parsed.format().mode(phonenumber::Mode::International).to_string();
+						}
+						return format!("+{}", raw_phone);
+					}
+					jid.clone()
+				})
 			});
 
 			let mut menu_builder = Menu::builder();
