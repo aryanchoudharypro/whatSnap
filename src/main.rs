@@ -3798,14 +3798,17 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													Some(idx) => format!("{}@s.whatsapp.net", &from[..idx]),
 													None => from.to_string(),
 												};
+												let provided_sender = data
+													.get("senderName")
+													.and_then(|n| n.as_str())
+													.filter(|n| !n.is_empty())
+													.map(|n| n.to_string());
 												if is_group {
 													let chat_name =
 														s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
-													let sender_name = s
-														.contacts
-														.get(&clean_from)
-														.or_else(|| s.contacts.get(from))
-														.cloned()
+													let sender_name = provided_sender
+														.or_else(|| s.contacts.get(&clean_from).cloned())
+														.or_else(|| s.contacts.get(from).cloned())
 														.unwrap_or_else(|| display_name_for_jid(&clean_from));
 													if let Some(n) = show_toast_notification(
 														&chat_name,
@@ -3817,11 +3820,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 															.push(n);
 													}
 												} else {
-													let sender_name = s
-														.contacts
-														.get(&clean_from)
-														.or_else(|| s.contacts.get(from))
-														.cloned()
+													let sender_name = provided_sender
+														.or_else(|| s.contacts.get(&clean_from).cloned())
+														.or_else(|| s.contacts.get(from).cloned())
 														.unwrap_or_else(|| display_name_for_jid(&clean_from));
 													if let Some(n) = show_toast_notification(&sender_name, &body) {
 														s.active_notifications

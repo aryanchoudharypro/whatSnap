@@ -1735,6 +1735,28 @@ func eventHandler(evt interface{}) {
 		})
 	case *events.JoinedGroup:
 		go func() {
+			actor := ""
+			if v.Sender != nil {
+				actor = resolveDisplayName(*v.Sender)
+			}
+			msg := ""
+			if v.Type == "new" {
+				if actor != "" && actor != "You" {
+					msg = fmt.Sprintf("%s created the group", actor)
+				} else {
+					msg = "You created the group"
+				}
+			} else if v.Reason == "invite" {
+				msg = "You joined using this group's invite link"
+			} else {
+				if actor != "" && actor != "You" {
+					msg = fmt.Sprintf("%s added you", actor)
+				} else {
+					msg = "You joined the group"
+				}
+			}
+			insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d", v.JID.User, time.Now().UnixNano()), msg, time.Now())
+
 			populateChatsFromStore()
 			broadcastChats()
 		}()
@@ -2197,6 +2219,7 @@ func populateChatsFromStore() {
 
 	for {
 		populateChatsFromStoreOnce()
+		broadcastChats()
 
 		populateChatsMu.Lock()
 		if populateChatsPending {
