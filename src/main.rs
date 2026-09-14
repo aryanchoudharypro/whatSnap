@@ -64,6 +64,8 @@ pub enum UiCommand {
 	NavSelected(usize),
 	FilterConversations(String),
 	OpenConversation(usize),
+	PromptLockedChats,
+	CloseLockedChats,
 	SearchInConversation(String),
 	ToggleSearchPanel,
 	CloseSearch,
@@ -178,6 +180,10 @@ pub enum UiCommand {
 	ToggleArchiveChat {
 		jid: String,
 		archive: bool,
+	},
+	ToggleLockChat {
+		jid: String,
+		lock: bool,
 	},
 	ToggleMuteChat {
 		jid: String,
@@ -566,6 +572,8 @@ struct AppState {
 	chats: Vec<String>,
 	filtered_chats: Vec<String>,
 	archived_jids: std::collections::HashSet<String>,
+	locked_jids: std::collections::HashSet<String>,
+	chats_unlocked: bool,
 	/// Chats that are community parent groups, i.e. the ones the Communities
 	/// tab lists. They stay in Conversations too, tagged "[Community]", the
 	/// way they always have.
@@ -800,7 +808,15 @@ fn chat_visible_in_tab(
 	jid: &str,
 	archived: &std::collections::HashSet<String>,
 	communities: &std::collections::HashSet<String>,
+	locked: &std::collections::HashSet<String>,
+	chats_unlocked: bool,
 ) -> bool {
+	if chats_unlocked {
+		return locked.contains(jid);
+	}
+	if locked.contains(jid) {
+		return false;
+	}
 	match tab {
 		0 => !archived.contains(jid) && !communities.contains(jid),
 		3 => archived.contains(jid),
@@ -895,7 +911,14 @@ fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 		}
 	} else {
 		for jid in &s.chats {
-			if !chat_visible_in_tab(s.active_tab, jid, &s.archived_jids, &s.community_jids) {
+			if !chat_visible_in_tab(
+				s.active_tab,
+				jid,
+				&s.archived_jids,
+				&s.community_jids,
+				&s.locked_jids,
+				s.chats_unlocked,
+			) {
 				continue;
 			}
 
@@ -1520,6 +1543,8 @@ fn main() {
 			chats: Vec::new(),
 			filtered_chats: Vec::new(),
 			archived_jids: std::collections::HashSet::new(),
+			locked_jids: std::collections::HashSet::new(),
+			chats_unlocked: false,
 			community_jids: std::collections::HashSet::new(),
 			pinned_jids: std::collections::HashSet::new(),
 			muted_jids: std::collections::HashSet::new(),
@@ -3095,6 +3120,22 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								}
 							}
 						}
+						"chat_lock_verify_result" => {
+							if let Some(data) = val.get("data") {
+								let success = data.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
+								if success {
+									let mut s = state.borrow_mut();
+									s.chats_unlocked = true;
+									s.search_query.clear(); // Clear the search bar
+									parts.conversations_parts.search_field.set_value("");
+									apply_chat_filter(&mut s, parts);
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										"Locked chats shown.",
+									);
+								}
+							}
+						}
 						"chats" => {
 							if let Some(data) = val.get("data") {
 								if let Ok(chats_array) = serde_json::from_value::<Vec<serde_json::Value>>(data.clone())
@@ -3105,6 +3146,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let mut pinned_jids = std::collections::HashSet::new();
 									let mut muted_jids = std::collections::HashSet::new();
 									let mut admin_group_jids = std::collections::HashSet::new();
+									let mut locked_jids = std::collections::HashSet::new();
 									let mut unread_counts = std::collections::HashMap::new();
 									let mut display_names = std::collections::HashMap::new();
 									let mut contacts_map = std::collections::HashMap::new();
@@ -3122,6 +3164,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											let muted = chat.get("Muted").and_then(|m| m.as_bool()).unwrap_or(false);
 											let archived =
 												chat.get("Archived").and_then(|a| a.as_bool()).unwrap_or(false);
+											let is_locked =
+												chat.get("IsLocked").and_then(|l| l.as_bool()).unwrap_or(false);
 											let is_community =
 												chat.get("IsCommunity").and_then(|c| c.as_bool()).unwrap_or(false);
 											let preview =
@@ -3164,6 +3208,10 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											};
 
 											let mut tags = Vec::new();
+											if is_locked {
+												tags.push("Locked");
+												locked_jids.insert(jid.to_string());
+											}
 											if archived {
 												tags.push("Archived");
 												archived_jids.insert(jid.to_string());
@@ -3249,6 +3297,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									s.chats = chat_list;
 									s.contacts = contacts_map;
 									s.archived_jids = archived_jids;
+									s.locked_jids = locked_jids;
 									s.community_jids = community_jids;
 									s.pinned_jids = pinned_jids;
 									s.muted_jids = muted_jids;
@@ -3268,6 +3317,8 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												jid,
 												&s.archived_jids,
 												&s.community_jids,
+												&s.locked_jids,
+												s.chats_unlocked,
 											) {
 												continue;
 											}
@@ -6441,6 +6492,29 @@ while ($true) {
 			}
 			parts.conversations_parts.conversation_panel.layout();
 		}
+		UiCommand::PromptLockedChats => {
+			let dlg = TextEntryDialog::builder(&parts.frame, "Enter Secret Code:", "Locked Chats").build();
+			if dlg.show_modal() == wxdragon::id::ID_OK {
+				if let Some(val) = dlg.get_value() {
+					let text = val.trim().to_string();
+					if !text.is_empty() {
+						let payload = serde_json::json!({
+							"action": "verify_chat_lock_code",
+							"data": { "code": text }
+						});
+						let _ = state.borrow().ws_tx.send(payload.to_string());
+					}
+				}
+			}
+		}
+		UiCommand::CloseLockedChats => {
+			let mut s = state.borrow_mut();
+			if s.chats_unlocked {
+				s.chats_unlocked = false;
+				apply_chat_filter(&mut s, parts);
+				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Locked chats hidden.");
+			}
+		}
 		UiCommand::CloseSearch => {
 			// Hide search panel and reload the real chat messages
 			parts.conversations_parts.search_panel.show(false);
@@ -8131,6 +8205,31 @@ while ($true) {
 					"Pause voice message"
 				});
 			}
+		}
+		UiCommand::ToggleLockChat { jid, lock } => {
+			let chat_name = {
+				let mut s = state.borrow_mut();
+				if lock {
+					s.locked_jids.insert(jid.clone());
+				} else {
+					s.locked_jids.remove(&jid);
+				}
+				apply_chat_filter(&mut s, parts);
+				s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
+			};
+			let payload = serde_json::json!({
+				"action": "set_chat_locked",
+				"data": {
+					"jid": jid,
+					"value": lock
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			let action_str = if lock { "Locked" } else { "Unlocked" };
+			live_region::announce(
+				parts.conversations_parts.messages_announcer.clone(),
+				&format!("{} chat {}.", action_str, chat_name),
+			);
 		}
 		UiCommand::TogglePinChat { jid, pin } => {
 			let chat_name = {

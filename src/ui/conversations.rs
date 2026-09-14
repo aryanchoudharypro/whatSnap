@@ -12,6 +12,7 @@ pub struct ConversationsPanelParts {
 	pub search_label: StaticText,
 	pub search_field: TextCtrl,
 	pub new_conv_btn: Button,
+	pub locked_chats_btn: Button,
 	pub post_media_status_btn: Button,
 
 	pub conversations_label: StaticText,
@@ -86,8 +87,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 
 	let new_conv_btn = Button::builder(&panel).with_label("New Conversation").build();
 	theme::style_primary_button(&new_conv_btn);
+	outer_sizer.add(&new_conv_btn, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	let locked_chats_btn = Button::builder(&panel).with_label("Locked Chats").build();
 	outer_sizer.add(
-		&new_conv_btn,
+		&locked_chats_btn,
 		0,
 		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top | SizerFlag::Bottom,
 		10,
@@ -358,6 +362,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		search_label,
 		search_field,
 		new_conv_btn,
+		locked_chats_btn,
 		post_media_status_btn,
 		conversations_label,
 		conversations_list,

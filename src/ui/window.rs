@@ -235,6 +235,7 @@ pub const MENU_ID_PAUSE_RECORDING: i32 = 6031;
 pub const MENU_ID_SEND_PTT: i32 = 6032;
 pub const MENU_ID_CALL_MUTE: i32 = 6033;
 pub const MENU_ID_CALL_END: i32 = 6034;
+pub const MENU_ID_LOCK_CHAT: i32 = 6035;
 
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whantv").with_size(Size::new(1180, 760)).build();
@@ -302,6 +303,7 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_MUTE_CHAT, "&Mute Chat\tCtrl+Shift+M", "Mute the open chat")
 		.append_item(MENU_ID_ARCHIVE_CHAT, "&Archive Chat\tCtrl+Shift+E", "Archive the open chat")
 		.append_item(MENU_ID_PIN_CHAT, "&Pin Chat\tCtrl+Shift+P", "Pin the open chat")
+		.append_item(MENU_ID_LOCK_CHAT, "&Lock Chat\tCtrl+L", "Lock or unlock the open chat")
 		.append_item(MENU_ID_MARK_UNREAD, "Mark as &Unread\tCtrl+Shift+U", "Toggle read/unread on the open chat")
 		.append_item(MENU_ID_CHAT_INFO, "Chat &Info\tAlt+I", "Open info for the open chat")
 		.append_separator()
@@ -622,6 +624,16 @@ pub fn bind_input_handlers(
 	let tx_post_media_status = ui_tx.clone();
 	parts.conversations_parts.post_media_status_btn.on_click(move |_| {
 		let _ = tx_post_media_status.send(UiCommand::PostMediaStatus);
+	});
+
+	let tx_locked_chats = ui_tx.clone();
+	let state_locked_chats = state.clone();
+	parts.conversations_parts.locked_chats_btn.on_click(move |_| {
+		if state_locked_chats.borrow().chats_unlocked {
+			let _ = tx_locked_chats.send(UiCommand::CloseLockedChats);
+		} else {
+			let _ = tx_locked_chats.send(UiCommand::PromptLockedChats);
+		}
 	});
 
 	let new_conv_dialog_close = parts.new_conv_dialog.dialog;
@@ -1038,6 +1050,7 @@ pub fn bind_input_handlers(
 		} else if id == MENU_ID_MUTE_CHAT
 			|| id == MENU_ID_ARCHIVE_CHAT
 			|| id == MENU_ID_PIN_CHAT
+			|| id == MENU_ID_LOCK_CHAT
 			|| id == MENU_ID_MARK_UNREAD
 		{
 			let s = state_chat_menu.borrow();
@@ -1054,6 +1067,10 @@ pub fn bind_input_handlers(
 				let pin = !s.pinned_jids.contains(&jid);
 				drop(s);
 				let _ = tx_chat_menu.send(UiCommand::TogglePinChat { jid, pin });
+			} else if id == MENU_ID_LOCK_CHAT {
+				let lock = !s.locked_jids.contains(&jid);
+				drop(s);
+				let _ = tx_chat_menu.send(UiCommand::ToggleLockChat { jid, lock });
 			} else {
 				let read = s.unread_counts.get(&jid).copied().unwrap_or(0) == 0;
 				drop(s);
@@ -1755,14 +1772,17 @@ pub fn bind_input_handlers(
 	parts.frame.bind_internal(wxdragon::event::EventType::CHAR_HOOK, move |event| {
 		let data = WindowEventData::new(event);
 		if let WindowEventData::Keyboard(ref key_event) = data {
-			if key_event.get_key_code() == Some(27)
-				&& conv_panel_hook.is_shown()
-				&& !search_panel_hook.is_shown()
-				&& !state_hook.borrow().selection_mode
-			{
-				let _ = tx_escape_hook.send(UiCommand::CloseConversation);
-				data.skip(false);
-				return;
+			if key_event.get_key_code() == Some(27) {
+				if state_hook.borrow().chats_unlocked {
+					let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
+					data.skip(false);
+					return;
+				}
+				if conv_panel_hook.is_shown() && !search_panel_hook.is_shown() && !state_hook.borrow().selection_mode {
+					let _ = tx_escape_hook.send(UiCommand::CloseConversation);
+					data.skip(false);
+					return;
+				}
 			}
 		}
 		data.skip(true);
@@ -1825,6 +1845,7 @@ pub fn bind_input_handlers(
 		if let Some(idx) = convs_list_ctx.get_selection() {
 			let pin_id = 4001;
 			let archive_id = 4002;
+			let lock_id = 4012;
 			let mute_id = 4003;
 			let read_id = 4004;
 			let delete_id = 4005;
@@ -1840,6 +1861,7 @@ pub fn bind_input_handlers(
 			if let Some(jid) = jid_opt {
 				let is_pinned = s.pinned_jids.contains(&jid);
 				let is_archived = s.archived_jids.contains(&jid);
+				let is_locked = s.locked_jids.contains(&jid);
 				let is_muted = s.muted_jids.contains(&jid);
 				let unread_count = s.unread_counts.get(&jid).copied().unwrap_or(0);
 				let is_unread = unread_count > 0;
@@ -1852,12 +1874,14 @@ pub fn bind_input_handlers(
 
 				let pin_label = if is_pinned { "Un&pin chat" } else { "&Pin chat" };
 				let archive_label = if is_archived { "&Unarchive chat" } else { "&Archive chat" };
+				let lock_label = if is_locked { "Un&lock chat" } else { "&Lock chat" };
 				let mute_label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
 				let read_label = if is_unread { "Mark as &read" } else { "Mark as &unread" };
 
 				menu_builder = menu_builder
 					.append_item(pin_id, pin_label, "Pin or unpin chat")
 					.append_item(archive_id, archive_label, "Archive or unarchive chat")
+					.append_item(lock_id, lock_label, "Lock or unlock chat")
 					.append_item(mute_id, mute_label, "Mute or unmute notifications")
 					.append_item(read_id, read_label, "Mark chat as read or unread")
 					.append_item(export_id, "&Export chat...", "Export this chat's transcript and media")
@@ -1937,6 +1961,9 @@ pub fn bind_input_handlers(
 					} else if id == archive_id {
 						let _ = ui_tx_clone
 							.send(UiCommand::ToggleArchiveChat { jid: jid_clone.clone(), archive: !is_archived });
+					} else if id == lock_id {
+						let _ =
+							ui_tx_clone.send(UiCommand::ToggleLockChat { jid: jid_clone.clone(), lock: !is_locked });
 					} else if id == mute_id {
 						let _ = ui_tx_clone.send(UiCommand::ToggleMuteChat { jid: jid_clone.clone(), mute: !is_muted });
 					} else if id == read_id {
