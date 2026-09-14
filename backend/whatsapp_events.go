@@ -1726,8 +1726,29 @@ func eventHandler(evt interface{}) {
 			if v.Name != nil {
 				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.Name.Name)
 			}
+
+			isAdminChanged := false
+			for _, j := range v.Promote {
+				if isParticipantMe(types.GroupParticipant{JID: j}) {
+					db.Exec("UPDATE chats SET is_admin = 1 WHERE jid = ?", v.JID.String())
+					isAdminChanged = true
+					break
+				}
+			}
+			for _, j := range v.Demote {
+				if isParticipantMe(types.GroupParticipant{JID: j}) {
+					db.Exec("UPDATE chats SET is_admin = 0 WHERE jid = ?", v.JID.String())
+					isAdminChanged = true
+					break
+				}
+			}
+
 			for i, text := range groupChangeMessages(v) {
 				insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d_%d", v.JID.User, v.Timestamp.UnixNano(), i), text, v.Timestamp)
+			}
+
+			if isAdminChanged {
+				broadcastChats()
 			}
 		}()
 		broadcastEvent("group_updated", map[string]interface{}{
@@ -2344,11 +2365,13 @@ func populateChatsFromStoreOnce() {
 	if err == nil {
 		for _, g := range groups {
 			jidStr := g.JID.ToNonAD().String()
-			if _, err := db.Exec(`INSERT INTO chats (jid, name, timestamp, is_community) VALUES (?, ?, 0, ?)
+			isAdmin := isViewerAdmin(g)
+			if _, err := db.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin) VALUES (?, ?, 0, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 				name=COALESCE(NULLIF(excluded.name, ''), chats.name),
-				is_community=excluded.is_community`,
-				jidStr, g.GroupName.Name, boolToInt(g.IsParent)); err != nil {
+				is_community=excluded.is_community,
+				is_admin=excluded.is_admin`,
+				jidStr, g.GroupName.Name, boolToInt(g.IsParent), boolToInt(isAdmin)); err != nil {
 				fmt.Println("Error upserting group chat", jidStr, ":", err)
 			}
 		}
@@ -2600,4 +2623,41 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 			appStateResyncMu.Unlock()
 		}
 	}()
+}
+func isParticipantMe(p types.GroupParticipant) bool {
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		return false
+	}
+	myJID := client.Store.ID.ToNonAD()
+	if p.JID.User == myJID.User || (!p.PhoneNumber.IsEmpty() && p.PhoneNumber.User == myJID.User) {
+		return true
+	}
+	// Note: in whatsmeow v0.2.x, LID might be a pointer or struct, but ID is a pointer in Device
+	// If the compiler complained about `client.Store.LID != nil`, it means LID is a struct in this fork.
+	if !client.Store.LID.IsEmpty() {
+		myLID := client.Store.LID.ToNonAD()
+		if p.JID.User == myLID.User || (!p.LID.IsEmpty() && p.LID.User == myLID.User) {
+			return true
+		}
+	}
+	if p.JID.Server == "lid" {
+		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), p.JID); err == nil && !pn.IsEmpty() {
+			if pn.User == myJID.User {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isViewerAdmin(info *types.GroupInfo) bool {
+	if info == nil {
+		return false
+	}
+	for _, p := range info.Participants {
+		if isParticipantMe(p) && (p.IsAdmin || p.IsSuperAdmin) {
+			return true
+		}
+	}
+	return false
 }

@@ -93,7 +93,7 @@ func broadcastChats() {
 // broadcastChats (pushed to everyone) and the get_chats command (requested
 // by one client). Keeping this in one place means the two can't drift.
 func buildChatsList() []map[string]interface{} {
-	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0) FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
+	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0) FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
 	if err != nil {
 		fmt.Println("Error querying chats:", err)
 		return []map[string]interface{}{}
@@ -115,8 +115,9 @@ func buildChatsList() []map[string]interface{} {
 		var previewIsReaction int
 		var previewReactionEmoji string
 		var isCommunity int
+		var isAdmin int
 
-		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity); err != nil {
+		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity, &isAdmin); err != nil {
 			continue
 		}
 		n := jid
@@ -186,6 +187,7 @@ func buildChatsList() []map[string]interface{} {
 			"PreviewIsReaction":     previewIsReaction == 1,
 			"PreviewReactionEmoji":  previewReactionEmoji,
 			"IsCommunity":           isCommunity == 1,
+			"IsAdmin":               isAdmin == 1,
 		})
 	}
 	return chats

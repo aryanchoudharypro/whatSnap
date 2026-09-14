@@ -266,6 +266,11 @@ func handleDeleteMessage(raw json.RawMessage) {
 						senderJID = parsed
 					}
 				}
+				if senderJID.IsEmpty() && data.SenderJID != "" && data.SenderJID != "me" {
+					if parsed, perr := types.ParseJID(data.SenderJID); perr == nil {
+						senderJID = parsed
+					}
+				}
 				if senderJID.IsEmpty() && client.Store.ID != nil {
 					senderJID = client.Store.ID.ToNonAD()
 				}
