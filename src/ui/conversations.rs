@@ -96,6 +96,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top | SizerFlag::Bottom,
 		10,
 	);
+	locked_chats_btn.show(false);
 
 	// Only shown in the Status nav view, alongside new_conv_btn (which posts
 	// a text status there instead of opening the new-conversation dialog).

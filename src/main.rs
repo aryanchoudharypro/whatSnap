@@ -853,6 +853,12 @@ fn find_single_removal_offset(old: &[String], new: &[String]) -> Option<usize> {
 }
 
 fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
+	let show_locked_btn = s.active_tab == 0 && !s.locked_jids.is_empty();
+	if parts.conversations_parts.locked_chats_btn.is_shown() != show_locked_btn {
+		parts.conversations_parts.locked_chats_btn.show(show_locked_btn);
+		parts.conversations_parts.panel.layout();
+	}
+
 	let lower_query = s.search_query.to_lowercase();
 
 	let mut filtered = Vec::new();
