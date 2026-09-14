@@ -605,6 +605,7 @@ struct AppState {
 	group_state: crate::ui::new_group::NewGroupState,
 	add_members_state: crate::ui::add_members::AddMembersState,
 	selected_chat: Option<String>,
+	admin_group_jids: std::collections::HashSet<String>,
 	initial_presence_received: bool,
 	messages: Vec<ChatMessage>,
 	loading_messages: bool,
@@ -1572,6 +1573,7 @@ fn main() {
 				current_jids: Vec::new(),
 			},
 			selected_chat: None,
+			admin_group_jids: std::collections::HashSet::new(),
 			initial_presence_received: false,
 			messages: Vec::new(),
 			loading_messages: false,
@@ -3102,6 +3104,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									let mut community_jids = std::collections::HashSet::new();
 									let mut pinned_jids = std::collections::HashSet::new();
 									let mut muted_jids = std::collections::HashSet::new();
+									let mut admin_group_jids = std::collections::HashSet::new();
 									let mut unread_counts = std::collections::HashMap::new();
 									let mut display_names = std::collections::HashMap::new();
 									let mut contacts_map = std::collections::HashMap::new();
@@ -3177,6 +3180,9 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												tags.push("Community");
 												community_jids.insert(jid.to_string());
 											}
+											if chat.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false) {
+												admin_group_jids.insert(jid.to_string());
+											}
 											unread_counts.insert(jid.to_string(), unread);
 
 											let name_line = if tags.is_empty() {
@@ -3246,6 +3252,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									s.community_jids = community_jids;
 									s.pinned_jids = pinned_jids;
 									s.muted_jids = muted_jids;
+									s.admin_group_jids = admin_group_jids;
 									s.unread_counts = unread_counts;
 									s.display_names = display_names;
 									refresh_tray_tooltip(&s, parts);
@@ -4885,6 +4892,18 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 								let info = payload.get("Info").unwrap_or(payload);
 								let viewer_is_admin =
 									payload.get("ViewerIsAdmin").and_then(|v| v.as_bool()).unwrap_or(false);
+
+								if let Some(group_jid) =
+									info.get("JID").and_then(|j| j.get("User")).and_then(|u| u.as_str())
+								{
+									let full_jid = format!("{}@g.us", group_jid);
+									let mut s = state.borrow_mut();
+									if viewer_is_admin {
+										s.admin_group_jids.insert(full_jid);
+									} else {
+										s.admin_group_jids.remove(&full_jid);
+									}
+								}
 
 								// Set visibility of admin buttons
 								parts.group_data_dialog.add_member_btn.show(viewer_is_admin);

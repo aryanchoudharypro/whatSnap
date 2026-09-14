@@ -141,6 +141,9 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			})
 		}
 
+		db.Exec("UPDATE chats SET is_admin = ? WHERE jid = ?", boolToInt(isMyAdmin), jid.String())
+		broadcastChats()
+
 		sendEvent(conn, "group_info", map[string]interface{}{
 			"Info": info,
 			"Participants": participantsList,

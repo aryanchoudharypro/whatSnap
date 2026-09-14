@@ -29,9 +29,9 @@ fn sanitize_export_filename(name: &str) -> String {
 /// official WhatsApp: "delete for everyone" is unavailable the moment a
 /// selection mixes in someone else's messages), so it's a plain yes/no
 /// confirm. Returns `None` if the user cancelled, else `Some(for_everyone)`.
-fn confirm_delete_choice(parent: &impl WxWidget, count: usize, all_from_me: bool) -> Option<bool> {
+fn confirm_delete_choice(parent: &impl WxWidget, count: usize, can_delete_for_everyone: bool) -> Option<bool> {
 	let plural = if count == 1 { "this message" } else { "these messages" };
-	if all_from_me {
+	if can_delete_for_everyone {
 		let choices: Vec<&str> = vec!["Delete for Everyone", "Delete for Me"];
 		let dialog = SingleChoiceDialog::builder(
 			parent,
@@ -2640,7 +2640,16 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
-							if let Some(for_everyone) = confirm_delete_choice(&parent_frame_clone, 1, msg.from_me) {
+							let is_group_admin = state_clone
+								.borrow()
+								.selected_chat
+								.as_ref()
+								.map(|jid| state_clone.borrow().admin_group_jids.contains(jid))
+								.unwrap_or(false);
+							let can_delete_for_everyone = msg.from_me || is_group_admin;
+							if let Some(for_everyone) =
+								confirm_delete_choice(&parent_frame_clone, 1, can_delete_for_everyone)
+							{
 								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
 								let _ = tx_play_media_clone.send(UiCommand::DeleteMessage {
 									message_id: msg.id.clone(),
@@ -3427,7 +3436,15 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
-							if let Some(for_everyone) = confirm_delete_choice(&parent_frame, 1, msg.from_me) {
+							let is_group_admin = state_play
+								.borrow()
+								.selected_chat
+								.as_ref()
+								.map(|jid| state_play.borrow().admin_group_jids.contains(jid))
+								.unwrap_or(false);
+							let can_delete_for_everyone = msg.from_me || is_group_admin;
+							if let Some(for_everyone) = confirm_delete_choice(&parent_frame, 1, can_delete_for_everyone)
+							{
 								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
 								let _ = tx_play_media.send(UiCommand::DeleteMessage {
 									message_id: msg.id.clone(),
@@ -3849,7 +3866,7 @@ pub fn bind_input_handlers(
 	let parent_frame_selection = parts.frame.clone();
 	let state_delete_selection = state.clone();
 	parts.conversations_parts.selection_delete_btn.on_click(move |_| {
-		let (count, all_from_me) = {
+		let (count, can_delete_for_everyone) = {
 			let s = state_delete_selection.borrow();
 			let ids = &s.selected_message_ids;
 			let msgs: Vec<whantv::ChatMessage> = s
@@ -3858,12 +3875,14 @@ pub fn bind_input_handlers(
 				.filter(|item| ids.contains(item.id()))
 				.flat_map(|item| item.messages())
 				.collect();
-			(msgs.len(), !msgs.is_empty() && msgs.iter().all(|m| m.from_me))
+			let all_from_me = !msgs.is_empty() && msgs.iter().all(|m| m.from_me);
+			let is_group_admin = s.selected_chat.as_ref().map(|jid| s.admin_group_jids.contains(jid)).unwrap_or(false);
+			(msgs.len(), all_from_me || is_group_admin)
 		};
 		if count == 0 {
 			return;
 		}
-		if let Some(for_everyone) = confirm_delete_choice(&parent_frame_selection, count, all_from_me) {
+		if let Some(for_everyone) = confirm_delete_choice(&parent_frame_selection, count, can_delete_for_everyone) {
 			let _ = tx_delete_selection.send(UiCommand::DeleteSelectedMessages { for_everyone });
 		}
 	});
