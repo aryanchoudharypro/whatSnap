@@ -797,6 +797,16 @@ func eventHandler(evt interface{}) {
 			var albumHeaders []syncedAlbum
 			var syncedJIDs []string
 
+			if gs := v.Data.GetGlobalSettings(); gs != nil {
+				if cls := gs.GetChatLockSettings(); cls != nil {
+					if sc := cls.GetSecretCode(); sc != nil {
+						if b, err := proto.Marshal(sc); err == nil {
+							saveChatLockSecretCode(b)
+						}
+					}
+				}
+			}
+
 			remapLIDRowsToPN(v.Data.GetPhoneNumberToLidMappings())
 
 			for _, p := range v.Data.GetPushnames() {
@@ -900,16 +910,21 @@ func eventHandler(evt interface{}) {
 				if conv.GetArchived() {
 					archived = 1
 				}
+				locked := 0
+				if conv.GetLocked() {
+					locked = 1
+				}
 				writes = append(writes, func(tx *sql.Tx) {
-					_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived) VALUES (?, ?, ?, ?, ?, ?, ?)
+					_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 						ON CONFLICT(jid) DO UPDATE SET
 						timestamp=MAX(timestamp, excluded.timestamp),
 						name=CASE WHEN chats.name IS NULL OR chats.name = '' OR chats.name LIKE '+%' THEN COALESCE(NULLIF(excluded.name, ''), chats.name) ELSE chats.name END,
 						unread_count=MAX(chats.unread_count, excluded.unread_count),
 						pinned=MAX(chats.pinned, excluded.pinned),
 						muted=MAX(chats.muted, excluded.muted),
-						archived=MAX(chats.archived, excluded.archived)`,
-						jid, name, ts, unread, pinned, muted, archived)
+						archived=MAX(chats.archived, excluded.archived),
+						is_locked=MAX(chats.is_locked, excluded.is_locked)`,
+						jid, name, ts, unread, pinned, muted, archived, locked)
 					if err != nil {
 						fmt.Println("Error inserting chat from HistorySync:", err)
 					}
@@ -1657,6 +1672,30 @@ func eventHandler(evt interface{}) {
 					db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = (SELECT jid FROM messages WHERE id = ?)", string(mid))
 				}
 				broadcastChats()
+			}
+		}()
+	case *events.AppState:
+		go func() {
+			if v.SyncActionValue == nil {
+				return
+			}
+			if cls := v.GetChatLockSettings(); cls != nil {
+				if sc := cls.GetSecretCode(); sc != nil {
+					if b, err := proto.Marshal(sc); err == nil {
+						saveChatLockSecretCode(b)
+					}
+				}
+			}
+			if lca := v.GetLockChatAction(); lca != nil {
+				if len(v.Index) > 1 {
+					jid := v.Index[1] // The JID is usually the second part of the index for chat actions
+					isLockedInt := 0
+					if lca.GetLocked() {
+						isLockedInt = 1
+					}
+					db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", isLockedInt, jid)
+					broadcastChats()
+				}
 			}
 		}()
 	case *events.AppStateSyncComplete:

@@ -37,6 +37,14 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE chats ADD COLUMN preview_reaction_emoji TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE chats ADD COLUMN is_community INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN is_admin INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN is_locked INTEGER DEFAULT 0")
+
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
+		key TEXT PRIMARY KEY,
+		value BLOB
+	)`); err != nil {
+		return err
+	}
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
@@ -840,4 +848,18 @@ func removeOrphanedDeviceRows() {
 			log.Printf("Orphan cleanup: removed %d rows from %s left by old device pairings", n, r.table)
 		}
 	}
+}
+
+func saveChatLockSecretCode(b []byte) error {
+	_, err := db.Exec(`INSERT INTO app_settings (key, value) VALUES ('chat_lock_secret_code', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, b)
+	return err
+}
+
+func getChatLockSecretCode() ([]byte, error) {
+	var b []byte
+	err := db.QueryRow(`SELECT value FROM app_settings WHERE key = 'chat_lock_secret_code'`).Scan(&b)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return b, err
 }
