@@ -1724,7 +1724,7 @@ func eventHandler(evt interface{}) {
 	case *events.GroupInfo:
 		go func() {
 			if v.Name != nil {
-				db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, v.Name.Name, v.JID.String())
+				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.Name.Name)
 			}
 			for i, text := range groupChangeMessages(v) {
 				insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d_%d", v.JID.User, v.Timestamp.UnixNano(), i), text, v.Timestamp)
@@ -1735,6 +1735,9 @@ func eventHandler(evt interface{}) {
 		})
 	case *events.JoinedGroup:
 		go func() {
+			if v.GroupName.Name != "" {
+				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.GroupName.Name)
+			}
 			actor := ""
 			if v.Sender != nil {
 				actor = resolveDisplayName(*v.Sender)
@@ -2183,6 +2186,9 @@ func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
 			preview_is_reaction=0,
 			preview_reaction_emoji=''`,
 		jid, tsUnix, text)
+	var chatName string
+	db.QueryRow(`SELECT name FROM chats WHERE jid = ?`, jid).Scan(&chatName)
+
 	broadcastChats()
 	broadcastEvent("message", map[string]interface{}{
 		"jid":       jid,
@@ -2193,6 +2199,7 @@ func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
 		"timestamp": tsUnix,
 		"has_media": false,
 		"mediaType": "system",
+		"chatName":  chatName,
 	})
 }
 
