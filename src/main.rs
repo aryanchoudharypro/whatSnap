@@ -3803,17 +3803,28 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 													.and_then(|n| n.as_str())
 													.filter(|n| !n.is_empty())
 													.map(|n| n.to_string());
+												let provided_chat_name = data
+													.get("chatName")
+													.and_then(|n| n.as_str())
+													.filter(|n| !n.is_empty())
+													.map(|n| n.to_string());
 												if is_group {
-													let chat_name =
-														s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+													let mut chat_name = provided_chat_name
+														.or_else(|| s.contacts.get(jid).cloned())
+														.unwrap_or_else(|| jid.to_string());
+													if chat_name == *jid {
+														chat_name = "New Group".to_string();
+													}
 													let sender_name = provided_sender
 														.or_else(|| s.contacts.get(&clean_from).cloned())
 														.or_else(|| s.contacts.get(from).cloned())
 														.unwrap_or_else(|| display_name_for_jid(&clean_from));
-													if let Some(n) = show_toast_notification(
-														&chat_name,
-														&format!("{}: {}", sender_name, body),
-													) {
+													let toast_body = if sender_name.is_empty() {
+														body.to_string()
+													} else {
+														format!("{}: {}", sender_name, body)
+													};
+													if let Some(n) = show_toast_notification(&chat_name, &toast_body) {
 														s.active_notifications
 															.entry(jid.to_string())
 															.or_default()
