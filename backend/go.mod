@@ -6,10 +6,10 @@ require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/purpshell/meowcaller v0.0.0-20260724091720-56f599712aaa
 	github.com/rs/zerolog v1.35.1
-	go.mau.fi/util v0.10.1-0.20260820140024-eb612d936fde
+	go.mau.fi/util v0.10.1
 	go.mau.fi/whatsmeow v0.0.0-20260814123134-0dcf1f50f4b1
-	golang.org/x/crypto v0.55.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.53.0
 )
@@ -25,7 +25,7 @@ require (
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
-	github.com/petermattis/goid v0.0.0-20260816044145-ed329add6b1b // indirect
+	github.com/petermattis/goid v0.0.0-20260820044319-269ab09b5261 // indirect
 	github.com/pion/datachannel v1.6.2 // indirect
 	github.com/pion/dtls/v3 v3.1.5 // indirect
 	github.com/pion/logging v0.2.4 // indirect
@@ -36,15 +36,15 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/vektah/gqlparser/v2 v2.5.36 // indirect
 	go.mau.fi/libsignal v0.2.2 // indirect
-	golang.org/x/exp v0.0.0-20260813180055-c1d0aacb2297 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	modernc.org/libc v1.73.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20260916024112-47571fe802f6
+replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20260917143849-cf74147c33dc
 
 replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20260825142219-d66eb3517e54
