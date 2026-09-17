@@ -1,4 +1,8 @@
 #![windows_subsystem = "windows"]
+mod types;
+pub use types::*;
+
+use crate::types::*;
 
 mod audio_devices;
 mod autostart;
@@ -15,280 +19,30 @@ mod win_job;
 
 use std::{
 	cell::RefCell,
+	fs::File,
 	io::{BufRead, BufReader, Write},
 	rc::Rc,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicBool, Ordering},
+		atomic::{AtomicBool, AtomicU64, Ordering},
 		mpsc,
 	},
 	thread,
-	time::Duration,
+	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use interprocess::{
 	TryClone,
 	local_socket::{GenericNamespaced, ToNsName, prelude::*},
 };
+use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
+use rodio_wsola::WsolaSourceExt;
+use whantv::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
 	ui::window::{WindowParts, bind_input_handlers, build_main_window},
 	ui_wake::{ID_UI_WAKE, UiCommandSender, UiWaker},
-};
-
-#[derive(Clone)]
-pub enum UiCommand {
-	RequestPairing(String),
-	SendMessage(String),
-	ConversationSelectionChanged(usize),
-	ProcessWebSocketMessage(String),
-	ExitApp,
-	NewContact {
-		name: String,
-		phone: String,
-	},
-	PrepareNewGroup,
-	PrepareAddMembers,
-	AddGroupMembers(Vec<String>),
-	PrepareContactPicker(ContactPickerMode),
-	FilterContactPicker(String),
-	SelectContactPickerResult(usize),
-	CreateGroup {
-		name: String,
-		participants: Vec<String>,
-	},
-	RequestQr,
-	CancelQr,
-	CancelPairing,
-	NavSelected(usize),
-	FilterConversations(String),
-	OpenConversation(usize),
-	PromptLockedChats,
-	CloseLockedChats,
-	SearchInConversation(String),
-	ToggleSearchPanel,
-	CloseSearch,
-	JumpToSearchResult {
-		message_id: String,
-		message_text: String,
-	},
-	StartRecording,
-	TogglePauseRecording,
-	StopRecording,
-	DiscardRecording,
-	ForceSync,
-	SendVoiceMessage,
-	DiscardVoiceMessage,
-	AddAttachment,
-	PasteAttachment,
-	SendAttachment {
-		caption: String,
-	},
-	DiscardAttachment,
-	DownloadMedia,
-	OpenMedia,
-	SaveMediaAs,
-	CancelEdit,
-	RemoveQuote,
-	EditMessage {
-		message_id: String,
-		new_text: String,
-	},
-	DeleteMessage {
-		message_id: String,
-		sender_jid: String,
-		for_everyone: bool,
-	},
-	StarMessage {
-		message_id: String,
-		sender_jid: String,
-		from_me: bool,
-		starred: bool,
-	},
-	ExportChat {
-		jid: String,
-		dest_path: String,
-	},
-	ExportChatText {
-		jid: String,
-		dest_path: String,
-	},
-	PostStatus {
-		text: String,
-	},
-	PostMediaStatus,
-	GetMessageInfo {
-		message_id: String,
-	},
-	RetryMessage {
-		message_id: String,
-	},
-	RetrySelectedMessage,
-	RequestMessageResend {
-		message_id: String,
-	},
-	CopyAlbumToClipboard {
-		message_ids: Vec<String>,
-	},
-	SendTyping {
-		jid: String,
-		state: String,
-		media: String,
-	},
-	SubscribePresence(String),
-	SetPresence(bool),
-	ActivateWindow,
-	MarkRead {
-		jid: String,
-		message_ids: Vec<String>,
-	},
-	LoadMoreMessages,
-	PlayVoiceMessage(String),
-	RefreshMessages,
-	DownloadAttachment(String), // message ID
-	ChangeAudioSpeed,
-	SeekAudio(f32),
-	PlaceCall,
-	AnswerCall,
-	RejectCall,
-	MuteCall,
-	LeaveCall,
-	UpdateGroupSettings {
-		name: String,
-		topic: String,
-		announce: bool,
-		locked: bool,
-	},
-	SeekAudioAbsolute(i32), // slider value 0..1000
-	CloseConversation,
-	ReactToMessage {
-		message_id: String,
-		sender_jid: String,
-		emoji: String,
-	},
-	ToggleAudioSpeed,
-	ShowConversationData,
-	ForwardMessage {
-		message_id: String,
-		to_jids: Vec<String>,
-	},
-	TogglePinChat {
-		jid: String,
-		pin: bool,
-	},
-	ToggleArchiveChat {
-		jid: String,
-		archive: bool,
-	},
-	ToggleLockChat {
-		jid: String,
-		lock: bool,
-	},
-	ToggleMuteChat {
-		jid: String,
-		mute: bool,
-	},
-	/// Per-chat alert level for an archived chat, from the chat-list context
-	/// menu. Stored locally in settings.json rather than pushed to WhatsApp -
-	/// there's no protocol-level equivalent, unlike mute.
-	SetArchivedAlert {
-		jid: String,
-		level: whantv::ArchivedAlert,
-	},
-	ToggleReadChat {
-		jid: String,
-		read: bool,
-	},
-	DeleteChat {
-		jid: String,
-	},
-	LeaveGroup {
-		jid: String,
-	},
-	FilterGroupMembers(String),
-	GroupMemberSelectionChanged,
-	ToggleGroupMemberAdmin(u32),
-	RemoveGroupMember(u32),
-	JoinCommunitySubgroup(u32),
-	OpenGroupInvite(String), // message id of a group-invite message
-	JoinGroupInvite(String), // message id, confirmed via the invite-details dialog
-	DownloadMediaMessage(String),
-	OpenMediaMessage(String),
-	SaveMediaMessageAs(String),
-	OpenChatByPhone(String), // digits-only phone number, no '@s.whatsapp.net' suffix
-	OpenChatByJid(String),   // full jid, used to jump to a group message sender's 1:1 chat
-	ToggleSelectionMode,
-	DeleteSelectedMessages {
-		for_everyone: bool,
-	},
-	/// Posted by `RecordingSession::start_async`'s supervisor thread once a
-	/// voice-recording device open (initial start, or a pause's resume)
-	/// finishes - the outcome itself is collected from
-	/// `AppState::voice_recording_pending` rather than carried on this
-	/// variant, since `RecordingSession` isn't `Clone`.
-	VoiceRecordingReady,
-}
-
-/// Outcome of an async `RecordingSession::start_async` call, handed back to
-/// the UI thread through `AppState::voice_recording_pending`. See
-/// `AppState::voice_recording_generation` for how a stale result (the
-/// recording was discarded/sent before the device finished opening) is
-/// detected.
-struct PendingVoiceRecording {
-	generation: u64,
-	wav_path: String,
-	is_resume: bool,
-	result: anyhow::Result<voice_recorder::RecordingSession>,
-}
-
-use std::fs::File;
-
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
-use rodio_wsola::WsolaSourceExt;
-use whantv::ChatMessage;
-
-/// A synced WhatsApp contact, as returned by the backend's `get_contacts`.
-#[derive(Clone)]
-pub struct Contact {
-	jid: String,
-	name: String,
-	phone: String,
-}
-
-/// What selecting a contact from the shared contact-picker dialog
-/// (`new_conv_dialog`, reused for both remaining "pick someone" flows)
-/// should do. Adding group members used to be a third mode here, but it
-/// wanted checkbox multi-select and an explicit Add button rather than
-/// "search, Enter, done" - see `add_members.rs` and `AddMembersState`.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ContactPickerMode {
-	OpenChat,
-	AddCallParticipant,
-}
-
-#[derive(Clone, Copy)]
-pub enum NotificationSound {
-	MessageCurrent,
-	MessageBackground,
-	MessageSent,
-	VoiceMessageSent,
-}
-
-impl NotificationSound {
-	const fn ogg(self) -> &'static [u8] {
-		match self {
-			Self::MessageCurrent => include_bytes!("../sounds/message_current.ogg"),
-			Self::MessageBackground => include_bytes!("../sounds/message_background.ogg"),
-			Self::MessageSent => include_bytes!("../sounds/message_sent.ogg"),
-			Self::VoiceMessageSent => include_bytes!("../sounds/voicemsg_send.ogg"),
-		}
-	}
-}
-
-use std::{
-	sync::atomic::AtomicU64,
-	time::{SystemTime, UNIX_EPOCH},
 };
 
 static LAST_SOUND_TIME: AtomicU64 = AtomicU64::new(0);
@@ -477,36 +231,6 @@ fn concat_wav_segments(segments: &[String], out_path: &str) -> anyhow::Result<()
 		}
 		None => Err(anyhow::anyhow!("no valid voice recording segments to concatenate")),
 	}
-}
-
-/// One row of the flat, cross-chat "Starred Messages" nav view: enough to
-/// show a label and to jump into the right chat at the right message when
-/// selected (reuses the same search_target_id jump mechanism as in-chat
-/// search results).
-#[derive(Clone)]
-struct StarredEntry {
-	jid: String,
-	message_id: String,
-	label: String,
-}
-
-/// One posted Status/Stories update, as shown in the Status nav view.
-#[derive(Clone)]
-struct StatusItem {
-	id: String,
-	text: String,
-	media_type: String,
-	timestamp: i64,
-	viewed: bool,
-}
-
-/// All of one contact's (or our own) live status updates, in post order.
-#[derive(Clone)]
-struct StatusGroup {
-	poster_jid: String,
-	poster_name: String,
-	all_viewed: bool,
-	items: Vec<StatusItem>,
 }
 
 struct AppState {
@@ -1940,16 +1664,6 @@ fn get_status_rank(s: &str) -> i32 {
 		"played" => 5,
 		_ => 0,
 	}
-}
-
-/// One other person in a group call, as sent by the backend's
-/// `call_participants` event. `state` is WhatsApp's roster state, e.g.
-/// "connected", "outgoing", "ringing", "invited" or "rejected".
-#[derive(Clone)]
-struct CallParticipant {
-	jid: String,
-	name: String,
-	state: String,
 }
 
 fn parse_call_participants(data: &serde_json::Value) -> Vec<CallParticipant> {
