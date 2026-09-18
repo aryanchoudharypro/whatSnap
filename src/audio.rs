@@ -1,10 +1,13 @@
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+	io::Read,
+	sync::atomic::{AtomicU64, Ordering},
+	time::{SystemTime, UNIX_EPOCH},
+};
+
+use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player};
 use rodio_wsola::WsolaSourceExt;
-use crate::{AppState, audio_devices};
-use crate::types::*;
-use std::io::{Cursor, Read, Write};
+
+use crate::{AppState, audio_devices, types::*};
 static LAST_SOUND_TIME: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn open_output_stream(preferred_name: Option<&str>) -> Result<MixerDeviceSink, rodio::DeviceSinkError> {
@@ -32,7 +35,11 @@ pub(crate) fn ensure_audio_stream(s: &mut AppState) {
 	}
 }
 
-pub(crate) fn play_notification_sound(sound: NotificationSound, sounds_enabled: bool) {
+pub(crate) fn play_notification_sound(
+	sound: NotificationSound,
+	sounds_enabled: bool,
+	output_device_name: Option<String>,
+) {
 	if !sounds_enabled {
 		return;
 	}
@@ -42,7 +49,18 @@ pub(crate) fn play_notification_sound(sound: NotificationSound, sounds_enabled: 
 		return;
 	}
 	std::thread::spawn(move || {
-		let Ok(stream) = DeviceSinkBuilder::open_default_sink() else {
+		// Honor the user's configured output device (and, for "System
+		// Default", the Communications-role default - see
+		// `audio_devices::resolve_output_device`) instead of always opening
+		// whatever cpal calls the default sink, which used to send
+		// notification sounds to a different device than calls/voice
+		// messages whenever the two audio roles disagreed (e.g. headphones
+		// plugged in).
+		let stream_result = match audio_devices::resolve_output_device(output_device_name.as_deref()) {
+			Some(device) => DeviceSinkBuilder::from_device(device).and_then(|b| b.open_stream()),
+			None => DeviceSinkBuilder::open_default_sink(),
+		};
+		let Ok(stream) = stream_result else {
 			return;
 		};
 		let sink = Player::connect_new(&stream.mixer());
@@ -358,6 +376,3 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow:
 
 	Ok(())
 }
-
-
-

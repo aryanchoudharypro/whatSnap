@@ -51,6 +51,15 @@ fn device_names(input: bool) -> Vec<String> {
 /// Resolves a saved output device name to a live cpal device, falling back to
 /// the system default if `name` is `None` or the named device is no longer
 /// present (unplugged, renamed, etc).
+///
+/// "System default" is resolved via the WASAPI **Communications**-role
+/// default rather than cpal's own `default_output_device()` (which follows
+/// the Console/Multimedia role). Windows tracks these roles independently -
+/// plugging in a headset commonly repoints only the Communications default,
+/// leaving Console pointed at the speakers - and calls (`call_audio.rs`)
+/// already use the Communications role. Resolving playback the same way
+/// keeps voice-message/notification audio on the same device calls use,
+/// instead of silently falling back to the speakers.
 pub fn resolve_output_device(name: Option<&str>) -> Option<cpal::Device> {
 	let host = cpal::default_host();
 	if let Some(name) = name {
@@ -60,7 +69,34 @@ pub fn resolve_output_device(name: Option<&str>) -> Option<cpal::Device> {
 			}
 		}
 	}
+	if let Some(comms_name) = communications_default_output_name() {
+		if let Ok(devices) = host.output_devices() {
+			if let Some(d) = devices.into_iter().find(|d| device_name(d).as_deref() == Some(comms_name.as_str())) {
+				return Some(d);
+			}
+		}
+	}
 	host.default_output_device()
+}
+
+/// The friendly name of the WASAPI Communications-role default render
+/// device, or `None` if it can't be determined (COM not initialized on this
+/// thread, no active render endpoint, etc) - callers should fall back to
+/// cpal's own default in that case.
+fn communications_default_output_name() -> Option<String> {
+	use windows::Win32::{
+		Media::Audio::{MMDeviceEnumerator, eCommunications, eRender},
+		System::Com::{CLSCTX_ALL, CoCreateInstance},
+	};
+	unsafe {
+		// CoCreateInstance works whether or not this thread has already
+		// CoInitializeEx'd (it will if it's the wx UI thread); if COM truly
+		// isn't initialized here this just fails harmlessly and the caller
+		// falls back to cpal's default.
+		let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+		let device = enumerator.GetDefaultAudioEndpoint(eRender, eCommunications).ok()?;
+		device_friendly_name(&device)
+	}
 }
 
 /// The friendly name `resolve_output_device(name)` would currently resolve

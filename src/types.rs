@@ -118,6 +118,9 @@ pub enum UiCommand {
 	RejectCall,
 	MuteCall,
 	LeaveCall,
+	/// `None` means "System Default" (matches Settings' device combos).
+	SetCallInputDevice(Option<String>),
+	SetCallOutputDevice(Option<String>),
 	UpdateGroupSettings {
 		name: String,
 		topic: String,

@@ -726,6 +726,18 @@ pub fn bind_input_handlers(
 	parts.call_parts.leave_btn.on_click(move |_| {
 		let _ = tx_leave.send(UiCommand::LeaveCall);
 	});
+	let tx_call_input = ui_tx.clone();
+	let call_input_combo = parts.call_parts.input_device_combo.clone();
+	parts.call_parts.input_device_combo.on_selection_changed(move |_| {
+		use crate::ui::settings_dialog::device_combo_value;
+		let _ = tx_call_input.send(UiCommand::SetCallInputDevice(device_combo_value(&call_input_combo)));
+	});
+	let tx_call_output = ui_tx.clone();
+	let call_output_combo = parts.call_parts.output_device_combo.clone();
+	parts.call_parts.output_device_combo.on_selection_changed(move |_| {
+		use crate::ui::settings_dialog::device_combo_value;
+		let _ = tx_call_output.send(UiCommand::SetCallOutputDevice(device_combo_value(&call_output_combo)));
+	});
 	let tx_add_participant = ui_tx.clone();
 	parts.call_parts.add_participant_btn.on_click(move |_| {
 		let _ = tx_add_participant.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::AddCallParticipant));

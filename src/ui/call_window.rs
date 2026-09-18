@@ -9,6 +9,9 @@ pub struct CallWindowParts {
 	pub mute_btn: Button,
 	pub add_participant_btn: Button,
 	pub leave_btn: Button,
+	pub devices_panel: Panel,
+	pub input_device_combo: ComboBox,
+	pub output_device_combo: ComboBox,
 }
 
 pub fn build_call_window() -> CallWindowParts {
@@ -42,7 +45,38 @@ pub fn build_call_window() -> CallWindowParts {
 
 	btn_panel.set_sizer(btn_sizer, true);
 	sizer.add(&btn_panel, 0, SizerFlag::Expand | SizerFlag::All, 10);
+
+	// Lets the mic/speaker be switched without ending the call - hidden until
+	// the call connects, same as mute_btn/leave_btn above.
+	let devices_panel = Panel::builder(&panel).build();
+	let devices_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	let input_device_label = StaticText::builder(&devices_panel).with_label("Microphone").build();
+	devices_sizer.add(&input_device_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
+	let input_device_combo = ComboBox::builder(&devices_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	devices_sizer.add(&input_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
+
+	let output_device_label = StaticText::builder(&devices_panel).with_label("Speaker").build();
+	devices_sizer.add(&output_device_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
+	let output_device_combo = ComboBox::builder(&devices_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	devices_sizer.add(&output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
+
+	devices_panel.set_sizer(devices_sizer, true);
+	sizer.add(&devices_panel, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	devices_panel.show(false);
+
 	panel.set_sizer(sizer, true);
 
-	CallWindowParts { frame, status_label, accept_btn, reject_btn, mute_btn, add_participant_btn, leave_btn }
+	CallWindowParts {
+		frame,
+		status_label,
+		accept_btn,
+		reject_btn,
+		mute_btn,
+		add_participant_btn,
+		leave_btn,
+		devices_panel,
+		input_device_combo,
+		output_device_combo,
+	}
 }
