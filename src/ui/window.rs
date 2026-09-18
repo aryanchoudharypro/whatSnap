@@ -3734,7 +3734,7 @@ pub fn bind_input_handlers(
 			}
 			let s = state_sel.borrow();
 			conv_parts_sel.action_panel.freeze();
-			let mut need_layout = crate::update_action_buttons(&s, &conv_parts_sel);
+			let mut need_layout = crate::message_display::update_action_buttons(&s, &conv_parts_sel);
 
 			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
 				whantv::DisplayItem::Single(m) => Some(m.clone()),
@@ -3825,7 +3825,7 @@ pub fn bind_input_handlers(
 		} else {
 			let s = state_sel.borrow();
 			conv_parts_sel.action_panel.freeze();
-			let mut need_layout = crate::update_action_buttons(&s, &conv_parts_sel);
+			let mut need_layout = crate::message_display::update_action_buttons(&s, &conv_parts_sel);
 			if play_voice_btn_sel.is_shown() {
 				play_voice_btn_sel.show(false);
 				need_layout = true;

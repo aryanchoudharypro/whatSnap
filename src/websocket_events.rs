@@ -1,0 +1,3490 @@
+//! Handles every event pushed from the Go backend over the WebSocket-like
+//! local pipe (`UiCommand::ProcessWebSocketMessage`), dispatching on the
+//! JSON payload's `type` field: message,call,presence,contacts,chats sync,
+//! privacy settings, status updates, and friends.
+
+use std::{cell::RefCell, fs::File, io::BufReader, os::windows::process::CommandExt, rc::Rc};
+
+use rodio::{Decoder, Player};
+use rodio_wsola::WsolaSourceExt;
+use whantv::ChatMessage;
+use wxdragon::prelude::*;
+
+use crate::{
+	AppState, Contact, NotificationSound, StarredEntry, StatusGroup, StatusItem, UiCommand,
+	audio::{
+		decode_opus_file, ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringing_sound,
+		stop_call_ringing_sound,
+	},
+	call_audio,
+	call_helpers::{
+		call_participant_changes, get_status_rank, group_call_status_text, parse_call_participants,
+		show_call_device_combos,
+	},
+	chat_ui::show_toast_notification,
+	contact_picker::{
+		apply_contact_picker_filter, display_name_for_jid, refresh_selection_list, sync_add_members_contact_labels,
+		sync_new_group_contact_labels,
+	},
+	message_display::{
+		apply_chat_filter, build_document_messages, build_link_messages, build_media_messages, chat_visible_in_tab,
+		populate_message_list, refresh_voice_action_button, update_action_buttons,
+	},
+	tray::{install_tray_icon, refresh_tray_tooltip},
+	ui::window::WindowParts,
+};
+
+pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+		if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
+			match t {
+				"connected" => {
+					// A reconnect (keepalive blip, brief network drop) also
+					// fires this event, not just the first connect - don't
+					// clobber an in-progress "Syncing history..." status
+					// with plain "Connected" just because the socket
+					// happened to bounce mid-sync.
+					let mid_sync = state
+						.borrow()
+						.history_sync_last_update
+						.map(|t| t.elapsed() < std::time::Duration::from_secs(5))
+						.unwrap_or(false);
+					if !mid_sync {
+						parts.frame.set_status_text("Status: Connected", 0);
+					}
+
+					// Emitted on every IPC connect and on every whatsmeow
+					// reconnect, not just at startup. Re-running the layout
+					// and focus below on a mid-session reconnect is what
+					// yanked focus back to the search box.
+					let first_show = !state.borrow().main_ui_shown;
+					if first_show {
+						parts.pairing_dialog.show(false);
+						parts.qrcode_dialog.show(false);
+						parts.login_panel.show(false);
+						parts.nav_panel.show(true);
+						parts.content_panel.show(true);
+						parts.main_panel.layout();
+						parts.frame.show(true);
+						parts.conversations_parts.search_field.set_focus();
+						state.borrow_mut().main_ui_shown = true;
+
+						// Now that we're logged in, install the tray icon if the
+						// user wants it - it's gated on login so an unpaired app
+						// never parks an icon in the tray (window.rs).
+						install_tray_icon(&state.borrow(), parts);
+					}
+
+					let payload = serde_json::json!({
+						"action": "get_chats"
+					});
+					let _ = state.borrow().ws_tx.send(payload.to_string());
+				}
+				"needs_login" => {
+					parts.frame.set_status_text("Status: Not logged in", 0);
+					parts.nav_panel.show(false);
+					parts.content_panel.show(false);
+					parts.main_panel.layout();
+					// The login panel is a Dialog owned by the frame (see
+					// set_dialog_owner). Windows won't activate an owned window
+					// whose owner is hidden, so with the frame no longer shown at
+					// startup we reveal it here first - otherwise the login dialog
+					// shows but never takes focus and NVDA lands on nothing. A
+					// visible owner is what lets the owned dialog activate.
+					// Keep the frame hidden so the login dialog is the only top-level
+					// window while logged out. That way alt-tabbing to whaNTV activates
+					// the dialog itself - a screen reader announces the window and its
+					// focused field in one step - instead of landing on an empty frame
+					// behind it and needing focus force-shifted into the dialog.
+					parts.frame.show(false);
+					parts.pairing_dialog.show(false);
+					parts.qrcode_dialog.show(false);
+					parts.login_panel.show(true);
+					parts.login_panel.set_focus();
+					state.borrow_mut().main_ui_shown = false;
+					// Logged out: pull the tray icon so an unpaired app leaves
+					// nothing behind in the tray (reinstalled on connect).
+					parts.tray_icon.remove_icon();
+
+					// A "reason" means WhatsApp itself ended the session (phone
+					// unlinked it, session expired, etc.) rather than us just
+					// having sent our own "Log Out" - worth telling the user
+					// why they suddenly landed back on the login screen.
+					if let Some(reason) = val.get("data").and_then(|d| d.get("reason")).and_then(|r| r.as_str()) {
+						MessageDialog::builder(
+							&parts.frame,
+							&format!("whaNTV was logged out of WhatsApp: {reason}"),
+							"Logged Out",
+						)
+						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+						.build()
+						.show_modal();
+					}
+				}
+				"pairing_code" => {
+					if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
+						parts.pairing_code_display.set_value(code);
+						println!("{{'data': {{'qrcode': {{'pairingCode': '{}'}}}}}}", code);
+						// One setup screen at a time: the pairing-code screen
+						// replaces the phone-entry and QR screens.
+						parts.login_panel.show(false);
+						parts.pairing_dialog.show(true);
+						parts.qrcode_dialog.show(false);
+						parts.pairing_code_display.select_all();
+						parts.pairing_code_display.set_focus();
+						unsafe {
+							let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+								windows::Win32::UI::WindowsAndMessaging::MB_OK,
+							);
+						}
+						live_region::announce(
+							parts.pairing_announcer.clone(),
+							&format!("Pairing code updated: {}", code),
+						);
+					}
+				}
+				"call_connected" => {
+					if let Some(data) = val.get("data") {
+						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+						if let Some(audio_port) = data.get("audio_port").and_then(|p| p.as_u64()) {
+							let mut s = state.borrow_mut();
+							// Unlike call_ended/call_answer_failed, this used to act
+							// on any call_connected regardless of call_id - a
+							// call_connected arriving after we'd already given up on
+							// (or left) that call, e.g. the answer watchdog above,
+							// reopened the call UI and started a fresh audio stream
+							// for a call the user was already told had ended.
+							if s.active_call_id.as_deref() != Some(call_id) {
+								return;
+							}
+							s.call_answer_deadline = None;
+							s.incoming_call_caller = None;
+							stop_call_ringing_sound(&mut s);
+							if let Ok(streams) = call_audio::start_audio_streams(
+								audio_port as u16,
+								s.settings.input_device_name.clone(),
+								s.settings.output_device_name.clone(),
+							) {
+								s.active_call_audio = Some(streams);
+								live_region::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									"Call connected.",
+								);
+
+								if s.call_participants.is_empty() {
+									parts.call_parts.status_label.set_label("Call connected.");
+								} else {
+									parts
+										.call_parts
+										.status_label
+										.set_label(&group_call_status_text(&s.call_participants));
+								}
+								parts.call_parts.accept_btn.show(false);
+								parts.call_parts.reject_btn.show(false);
+								parts.call_parts.mute_btn.show(true);
+								parts.call_parts.leave_btn.show(true);
+								parts.call_parts.add_participant_btn.show(true);
+								show_call_device_combos(&s, parts);
+								parts.call_parts.frame.show(true);
+							} else {
+								live_region::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									"Failed to start audio stream.",
+								);
+							}
+						}
+					}
+				}
+				"call_placed" => {
+					if let Some(data) = val.get("data") {
+						if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
+							let mut s = state.borrow_mut();
+							s.call_placing = false;
+							if s.call_pending_cancel {
+								// Leave was pressed before we had a call_id to leave with (see
+								// call_placing doc comment). Now that the backend has one, hang
+								// up immediately instead of leaving the call ringing on the
+								// peer's end with nothing on screen to show for it.
+								s.call_pending_cancel = false;
+								let msg = serde_json::json!({
+									"action": "leave_call",
+									"data": { "call_id": call_id }
+								});
+								let _ = s.ws_tx.send(msg.to_string());
+							} else {
+								s.active_call_id = Some(call_id.to_string());
+								s.call_participants.clear();
+								start_call_ringing_sound(&mut s, include_bytes!("../sounds/telefone.ogg"));
+							}
+						}
+					}
+				}
+				"call_participant_added" | "call_participant_add_failed" => {
+					if let Some(data) = val.get("data") {
+						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+						if state.borrow().active_call_id.as_deref() != Some(call_id) {
+							return;
+						}
+						let message = if t == "call_participant_added" {
+							let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("Contact");
+							format!("Ringing {}.", name)
+						} else {
+							data.get("message")
+								.and_then(|m| m.as_str())
+								.unwrap_or("Couldn't add that person to the call.")
+								.to_string()
+						};
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &message);
+					}
+				}
+				"call_participants" => {
+					if let Some(data) = val.get("data") {
+						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+						let mut s = state.borrow_mut();
+						if s.active_call_id.as_deref() != Some(call_id) {
+							return;
+						}
+						let participants = parse_call_participants(data);
+						// The first roster of a call is the starting line-up (who we're
+						// ringing, or who's already in a call we're being invited to) -
+						// the status label covers it, so only later changes are announced.
+						let changes = if s.call_participants.is_empty() {
+							Vec::new()
+						} else {
+							call_participant_changes(&s.call_participants, &participants)
+						};
+						s.call_participants = participants;
+						// Leave the label alone while an incoming call is still ringing
+						// or being answered - it's showing who's calling / "Answering...".
+						if s.incoming_call_caller.is_none() && s.call_answer_deadline.is_none() {
+							parts.call_parts.status_label.set_label(&group_call_status_text(&s.call_participants));
+						}
+						drop(s);
+						if !changes.is_empty() {
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								&changes.join(" "),
+							);
+						}
+					}
+				}
+				"call_failed" => {
+					let mut s = state.borrow_mut();
+					if s.call_placing {
+						s.call_placing = false;
+						s.call_pending_cancel = false;
+						parts.call_parts.frame.show(false);
+						stop_call_ringing_sound(&mut s);
+						play_call_fail_sound(&mut s);
+						let message = val
+							.get("data")
+							.and_then(|d| d.get("message"))
+							.and_then(|m| m.as_str())
+							.unwrap_or("Failed to place call.");
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), message);
+					}
+				}
+				"call_ended" => {
+					if let Some(data) = val.get("data") {
+						if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
+							let mut s = state.borrow_mut();
+							if s.active_call_id.as_deref() == Some(call_id) {
+								s.active_call_id = None;
+								s.active_call_audio = None;
+								s.call_participants.clear();
+								s.call_answer_deadline = None;
+								parts.call_parts.frame.show(false);
+								stop_call_ringing_sound(&mut s);
+								play_call_fail_sound(&mut s);
+								// Still set here means an incoming call rang out without
+								// being answered or rejected. No toast/announcement for
+								// this case - missed calls are silent, just clear state.
+								if s.incoming_call_caller.take().is_none() {
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										"Call ended.",
+									);
+								}
+							}
+						}
+					}
+				}
+				"call_answer_failed" => {
+					if let Some(data) = val.get("data") {
+						if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
+							let mut s = state.borrow_mut();
+							if s.active_call_id.as_deref() == Some(call_id) {
+								s.active_call_id = None;
+								s.active_call_audio = None;
+								s.call_participants.clear();
+								s.call_answer_deadline = None;
+								s.incoming_call_caller = None;
+								parts.call_parts.frame.show(false);
+								stop_call_ringing_sound(&mut s);
+								play_call_fail_sound(&mut s);
+								let message =
+									data.get("message").and_then(|m| m.as_str()).unwrap_or("Failed to answer call.");
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), message);
+							}
+						}
+					}
+				}
+				"incoming_call" => {
+					if let Some(data) = val.get("data") {
+						let caller = data.get("caller").and_then(|c| c.as_str()).unwrap_or("Unknown");
+						if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
+							let mut s = state.borrow_mut();
+							s.active_call_id = Some(call_id.to_string());
+							s.call_answer_deadline = None;
+							// Prefer the backend-resolved name: the caller JID is
+							// typically a @lid, which s.contacts (keyed by phone JID)
+							// cannot resolve.
+							let name = data
+								.get("caller_name")
+								.and_then(|n| n.as_str())
+								.filter(|n| !n.is_empty() && *n != caller)
+								.map(|n| n.to_string())
+								.or_else(|| s.contacts.get(caller).cloned())
+								.unwrap_or_else(|| caller.to_string());
+							s.incoming_call_caller = Some(name.clone());
+							s.call_participants.clear();
+							let is_group = data.get("is_group").and_then(|g| g.as_bool()).unwrap_or(false);
+							let group_name = data
+								.get("group_name")
+								.and_then(|n| n.as_str())
+								.filter(|n| !n.is_empty())
+								.map(|n| n.to_string())
+								.or_else(|| {
+									let group_jid = data.get("group_jid").and_then(|j| j.as_str())?;
+									s.display_names.get(group_jid).or_else(|| s.contacts.get(group_jid)).cloned()
+								});
+							let description = match (is_group, group_name) {
+								(true, Some(group)) => format!("group voice call from {} in {}", name, group),
+								(true, None) => format!("group voice call from {}", name),
+								(false, _) => format!("voice call from {}", name),
+							};
+							parts.call_parts.status_label.set_label(&format!("Incoming {}", description));
+							parts.call_parts.accept_btn.show(true);
+							parts.call_parts.reject_btn.show(true);
+							parts.call_parts.mute_btn.show(false);
+							parts.call_parts.leave_btn.show(false);
+							parts.call_parts.add_participant_btn.show(false);
+							parts.call_parts.devices_panel.show(false);
+							// Pop the call dialog to the front the same way a second
+							// launch instance activates the main window (see
+							// UiCommand::ActivateWindow) - just calling show(true) is not
+							// enough to steal focus if the app is minimized or behind
+							// other windows.
+							parts.call_parts.frame.show(true);
+							parts.call_parts.frame.iconize(false);
+							parts.call_parts.frame.raise();
+							start_call_ringing_sound(&mut s, include_bytes!("../sounds/ringtone_incoming_call.ogg"));
+							if s.settings.notifications_enabled {
+								let mut toast_body = description.clone();
+								toast_body[..1].make_ascii_uppercase();
+								show_toast_notification("Incoming call", &toast_body);
+							}
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								&format!("Incoming {}", description),
+							);
+						}
+					}
+				}
+				"qr" => {
+					if state.borrow().is_pairing_active {
+						return;
+					}
+					if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
+						if let Ok(qr) = qrcode::QrCode::new(code) {
+							let image = qr.render::<image::Rgba<u8>>().quiet_zone(true).module_dimensions(5, 5).build();
+							let width = image.width();
+							let height = image.height();
+							let data = image.into_raw();
+							let mut png_bytes = Vec::new();
+							let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
+							use image::ImageEncoder;
+							if encoder.write_image(&data, width, height, image::ExtendedColorType::Rgba8).is_ok() {
+								use base64::{Engine as _, engine::general_purpose};
+								let b64 = general_purpose::STANDARD.encode(&png_bytes);
+								println!("{{'data': {{'qrcode': {{'base64': 'data:image/png;base64,{}'}}}}}}", b64);
+							}
+							if let Some(bitmap) = wxdragon::bitmap::Bitmap::from_rgba(&data, width, height) {
+								parts.qrcode_display.set_min_size(Size::new(width as i32, height as i32));
+								parts.qrcode_display.set_bitmap(&bitmap);
+								parts.qrcode_dialog.fit();
+								parts.qrcode_dialog.layout();
+							}
+						}
+						// One setup screen at a time: the QR screen replaces the
+						// phone-entry and pairing screens rather than stacking
+						// beside them.
+						parts.login_panel.show(false);
+						parts.pairing_dialog.show(false);
+						parts.qrcode_dialog.show(true);
+						parts.qrcode_cancel_btn.set_focus();
+						unsafe {
+							let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+								windows::Win32::UI::WindowsAndMessaging::MB_OK,
+							);
+						}
+						live_region::announce(parts.qrcode_announcer.clone(), "QR code updated");
+					}
+				}
+				"error" => {
+					if let Some(msg) = val.get("data").and_then(|d| d.get("message")).and_then(|m| m.as_str()) {
+						// The message row itself (if any) is already updated to
+						// "failed" by its own "message" event, which the backend
+						// always sends before this one; this is just the popup.
+						parts.conversations_parts.play_voice_btn.set_label("Play voice message");
+						MessageDialog::builder(&parts.frame, msg, "Error")
+							.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+							.build()
+							.show_modal();
+					}
+				}
+				"connection_state" => {
+					let data = val.get("data");
+					let conn_state = data.and_then(|d| d.get("state")).and_then(|v| v.as_str()).unwrap_or("");
+					let message = data.and_then(|d| d.get("message")).and_then(|v| v.as_str()).unwrap_or("");
+					let retry_in = data.and_then(|d| d.get("retry_in")).and_then(|v| v.as_u64());
+
+					let mut s = state.borrow_mut();
+					s.conn_online = conn_state == "online";
+					// Only speak on the edges of an outage (and for a manual
+					// Reconnect Now): a quick keepalive blip that reconnects on
+					// the first try says nothing, and retries during a long
+					// outage don't repeat the same announcement every time.
+					let announcement = match conn_state {
+						"online" => {
+							let mid_sync = s
+								.history_sync_last_update
+								.map(|t| t.elapsed() < std::time::Duration::from_secs(5))
+								.unwrap_or(false);
+							if !mid_sync {
+								parts.frame.set_status_text("Status: Connected", 0);
+							}
+							let speak = s.conn_outage_announced || s.conn_manual_reconnect;
+							s.conn_outage_announced = false;
+							s.conn_manual_reconnect = false;
+							speak.then(|| "Connected to WhatsApp.".to_string())
+						}
+						"connecting" => {
+							let label = if message.is_empty() {
+								"Status: Connecting...".to_string()
+							} else {
+								format!("Status: {message} Reconnecting...")
+							};
+							parts.frame.set_status_text(&label, 0);
+							None
+						}
+						"offline" => {
+							let reason = if message.is_empty() { "Can't connect to WhatsApp." } else { message };
+							// A temp ban can report its retry hours away, not seconds.
+							let label = match retry_in {
+								Some(secs @ 1..=119) => {
+									format!("Status: Offline. {reason} Retrying in {secs} seconds.")
+								}
+								Some(secs @ 120..=7199) => {
+									format!("Status: Offline. {reason} Retrying in {} minutes.", secs.div_ceil(60))
+								}
+								Some(secs @ 7200..) => {
+									format!("Status: Offline. {reason} Retrying in {} hours.", secs.div_ceil(3600))
+								}
+								_ => format!("Status: Offline. {reason} Retrying automatically."),
+							};
+							parts.frame.set_status_text(&label, 0);
+							let speak = !s.conn_outage_announced || s.conn_manual_reconnect;
+							s.conn_outage_announced = true;
+							s.conn_manual_reconnect = false;
+							speak.then(|| format!("{reason} whaNTV will keep trying to reconnect."))
+						}
+						"stopped" => {
+							// The backend already raised an error dialog explaining
+							// this one; the status bar just keeps it visible.
+							parts.frame.set_status_text(&format!("Status: {message}"), 0);
+							s.conn_outage_announced = true;
+							s.conn_manual_reconnect = false;
+							None
+						}
+						_ => None,
+					};
+					drop(s);
+					if let Some(text) = announcement {
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &text);
+					}
+				}
+				"history_sync" => {
+					if let Some(data) = val.get("data") {
+						let chats_done = data.get("chatsDone").and_then(|v| v.as_i64()).unwrap_or(0);
+						let msgs_done = data.get("msgsDone").and_then(|v| v.as_i64()).unwrap_or(0);
+						let label = format!(
+							"Status: Connected (Syncing history... {msgs_done} messages, {chats_done} chats so far)"
+						);
+						parts.frame.set_status_text(&label, 0);
+						{
+							let mut s = state.borrow_mut();
+							let now = std::time::Instant::now();
+							s.history_sync_last_update = Some(now);
+							s.history_sync_armed_until = Some(now + std::time::Duration::from_secs(60));
+						}
+						if let Some(jids) = data.get("jids").and_then(|j| j.as_array()) {
+							let s = state.borrow();
+							if s.history_loading {
+								if let Some(selected_jid) = s.selected_chat.clone() {
+									if jids.iter().any(|j| j.as_str() == Some(&selected_jid)) {
+										let payload = serde_json::json!({
+											"action": "get_messages",
+											"data": { "jid": selected_jid, "limit": 9999999, "offset": 0 }
+										});
+										let _ = s.ws_tx.send(payload.to_string());
+									}
+								}
+							}
+						}
+					}
+				}
+				"chat_lock_verify_result" => {
+					if let Some(data) = val.get("data") {
+						let success = data.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
+						if success {
+							let mut s = state.borrow_mut();
+							s.chats_unlocked = true;
+							s.search_query.clear(); // Clear the search bar
+							parts.conversations_parts.search_field.set_value("");
+							apply_chat_filter(&mut s, parts);
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								"Locked chats shown.",
+							);
+						}
+					}
+				}
+				"chats" => {
+					if let Some(data) = val.get("data") {
+						if let Ok(chats_array) = serde_json::from_value::<Vec<serde_json::Value>>(data.clone()) {
+							let mut chat_list = Vec::new();
+							let mut archived_jids = std::collections::HashSet::new();
+							let mut community_jids = std::collections::HashSet::new();
+							let mut pinned_jids = std::collections::HashSet::new();
+							let mut muted_jids = std::collections::HashSet::new();
+							let mut admin_group_jids = std::collections::HashSet::new();
+							let mut locked_jids = std::collections::HashSet::new();
+							let mut unread_counts = std::collections::HashMap::new();
+							let mut display_names = std::collections::HashMap::new();
+							let mut contacts_map = std::collections::HashMap::new();
+							for chat in chats_array {
+								if let Some(jid) = chat.get("JID").and_then(|j| j.as_str()) {
+									let name = chat.get("FullName").and_then(|n| n.as_str()).unwrap_or(jid).to_string();
+									chat_list.push(jid.to_string());
+
+									let unread = chat.get("UnreadCount").and_then(|u| u.as_u64()).unwrap_or(0);
+									let pinned = chat.get("Pinned").and_then(|p| p.as_bool()).unwrap_or(false);
+									let muted = chat.get("Muted").and_then(|m| m.as_bool()).unwrap_or(false);
+									let archived = chat.get("Archived").and_then(|a| a.as_bool()).unwrap_or(false);
+									let is_locked = chat.get("IsLocked").and_then(|l| l.as_bool()).unwrap_or(false);
+									let is_community =
+										chat.get("IsCommunity").and_then(|c| c.as_bool()).unwrap_or(false);
+									let preview = chat.get("PreviewSnippet").and_then(|p| p.as_str()).unwrap_or("");
+
+									let ts = chat.get("Timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
+									let preview_sender =
+										chat.get("PreviewSender").and_then(|p| p.as_str()).unwrap_or("");
+									let preview_from_me =
+										chat.get("PreviewFromMe").and_then(|p| p.as_bool()).unwrap_or(false);
+									let preview_is_reaction =
+										chat.get("PreviewIsReaction").and_then(|p| p.as_bool()).unwrap_or(false);
+									let preview_reaction_emoji =
+										chat.get("PreviewReactionEmoji").and_then(|p| p.as_str()).unwrap_or("");
+
+									let time_str = if ts > 0 {
+										if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
+											let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
+											let now_dt = chrono::Local::now();
+											let msg_date = local_dt.date_naive();
+											let today = now_dt.date_naive();
+											let yesterday = today.pred_opt().unwrap_or(today);
+											let num_days_ago = (today - msg_date).num_days();
+											if msg_date == today {
+												local_dt.format("%I:%M %p").to_string()
+											} else if msg_date == yesterday {
+												"Yesterday".to_string()
+											} else if num_days_ago > 1 && num_days_ago < 7 {
+												local_dt.format("%A").to_string()
+											} else {
+												local_dt.format("%d/%m/%Y").to_string()
+											}
+										} else {
+											String::new()
+										}
+									} else {
+										String::new()
+									};
+
+									let mut tags = Vec::new();
+									if is_locked {
+										tags.push("Locked");
+										locked_jids.insert(jid.to_string());
+									}
+									if archived {
+										tags.push("Archived");
+										archived_jids.insert(jid.to_string());
+									}
+									if pinned {
+										tags.push("Pinned");
+										pinned_jids.insert(jid.to_string());
+									}
+									if muted {
+										tags.push("Muted");
+										muted_jids.insert(jid.to_string());
+									}
+									if is_community {
+										tags.push("Community");
+										community_jids.insert(jid.to_string());
+									}
+									if chat.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false) {
+										admin_group_jids.insert(jid.to_string());
+									}
+									unread_counts.insert(jid.to_string(), unread);
+
+									let name_line = if tags.is_empty() {
+										name.clone()
+									} else {
+										format!("{} [{}]", name, tags.join("] ["))
+									};
+
+									let unread_line = if unread == 1 {
+										"1 unread message".to_string()
+									} else if unread > 1 {
+										format!("{} unread messages", unread)
+									} else {
+										String::new()
+									};
+
+									let preview_line = if preview_is_reaction
+										&& !preview_reaction_emoji.is_empty()
+										&& !preview.is_empty()
+									{
+										let who = if preview_from_me {
+											"You".to_string()
+										} else if !preview_sender.is_empty() {
+											preview_sender.to_string()
+										} else {
+											"Someone".to_string()
+										};
+										format!(
+											"{} reacted with {} to: {}",
+											who,
+											preview_reaction_emoji,
+											whantv::friendly_preview_text(preview)
+										)
+									} else if !preview.is_empty() {
+										let body = whantv::friendly_preview_text(preview);
+										if preview_from_me {
+											format!("You: {}", body)
+										} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
+											format!("{}: {}", preview_sender, body)
+										} else {
+											body
+										}
+									} else {
+										String::new()
+									};
+
+									let mut parts_vec: Vec<&str> = Vec::new();
+									parts_vec.push(&name_line);
+									if !unread_line.is_empty() {
+										parts_vec.push(&unread_line);
+									}
+									if !time_str.is_empty() {
+										parts_vec.push(&time_str);
+									}
+									if !preview_line.is_empty() {
+										parts_vec.push(&preview_line);
+									}
+									let display_name = parts_vec.join(" | ");
+									display_names.insert(jid.to_string(), display_name);
+									contacts_map.insert(jid.to_string(), name);
+								}
+							}
+							let mut s = state.borrow_mut();
+							s.chats = chat_list;
+							s.contacts = contacts_map;
+							s.archived_jids = archived_jids;
+							s.locked_jids = locked_jids;
+							s.community_jids = community_jids;
+							s.pinned_jids = pinned_jids;
+							s.muted_jids = muted_jids;
+							s.admin_group_jids = admin_group_jids;
+							s.unread_counts = unread_counts;
+							s.display_names = display_names;
+							refresh_tray_tooltip(&s, parts);
+
+							// Compute new filtered list
+							let lower_query = s.search_query.to_lowercase();
+							let mut new_filtered = Vec::new();
+							let mut new_display = Vec::new();
+							if s.active_tab != 1 && s.active_tab != 2 {
+								for jid in &s.chats {
+									if !chat_visible_in_tab(
+										s.active_tab,
+										jid,
+										&s.archived_jids,
+										&s.community_jids,
+										&s.locked_jids,
+										s.chats_unlocked,
+									) {
+										continue;
+									}
+									let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+									if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
+										let dn = s.display_names.get(jid).cloned().unwrap_or_else(|| name);
+										new_filtered.push(jid.clone());
+										new_display.push(dn);
+									}
+								}
+							}
+
+							let structure_changed = s.active_tab != 1
+								&& s.active_tab != 2 && (new_filtered.len()
+								!= s.filtered_chats.len()
+								|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b));
+
+							if structure_changed {
+								s.filtered_chats = new_filtered;
+								drop(s);
+								apply_chat_filter(&mut state.borrow_mut(), parts);
+							} else {
+								// In-place update: just refresh display strings
+								parts.conversations_parts.conversations_list.freeze();
+								for (i, dn) in new_display.iter().enumerate() {
+									parts.conversations_parts.conversations_list.set_string(i as u32, dn);
+								}
+								parts.conversations_parts.conversations_list.thaw();
+								s.filtered_chats = new_filtered;
+							}
+						}
+					}
+				}
+				"message" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let from = data.get("from").and_then(|f| f.as_str()).unwrap_or("");
+						let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+
+						let mut s = state.borrow_mut();
+
+						if Some(jid.to_string()) == s.selected_chat {
+							let is_from_me = data
+								.get("from_me")
+								.and_then(|f| f.as_bool())
+								.unwrap_or_else(|| from == "me" || from == "You");
+							let is_group = jid.ends_with("@g.us");
+							let ts = data
+								.get("timestamp")
+								.and_then(|t| t.as_i64().or_else(|| t.as_f64().map(|f| f as i64)))
+								.unwrap_or_else(|| {
+									std::time::SystemTime::now()
+										.duration_since(std::time::UNIX_EPOCH)
+										.unwrap_or_default()
+										.as_secs() as i64
+								});
+							let msg_id = data.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+
+							// Matches either the old client-side upload placeholder (by
+							// its temp_upload_ prefix) or, now that the backend sends the
+							// local echo itself with a real id from the start, a message
+							// we already have that's transitioning status (pending/uploading
+							// -> sent/failed). Either way this is an update-in-place, not a
+							// new row.
+							let mut temp_msg_idx = None;
+							if is_from_me {
+								for (idx, msg) in s.messages.iter().enumerate() {
+									if msg.id == msg_id || msg.id.starts_with("temp_upload_") {
+										temp_msg_idx = Some(idx);
+										break;
+									}
+								}
+							}
+
+							if let Some(idx) = temp_msg_idx {
+								s.messages[idx].id = msg_id.clone();
+								s.messages[idx].text = text.to_string();
+								s.messages[idx].timestamp = ts;
+								s.messages[idx].sent_at = ts;
+								s.messages[idx].status = data
+									.get("status")
+									.and_then(|st| st.as_str())
+									.filter(|st| !st.is_empty())
+									.unwrap_or("sent")
+									.to_string();
+								s.messages[idx].media_type =
+									data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("").to_string();
+								s.messages[idx].media_filename =
+									data.get("mediaFilename").and_then(|m| m.as_str()).unwrap_or("").to_string();
+								s.messages[idx].quoted_id = data
+									.get("quoted_id")
+									.or_else(|| data.get("quotedId"))
+									.and_then(|q| q.as_str())
+									.unwrap_or("")
+									.to_string();
+								s.messages[idx].quoted_text = data
+									.get("quoted_text")
+									.or_else(|| data.get("quotedText"))
+									.and_then(|q| q.as_str())
+									.unwrap_or("")
+									.to_string();
+								s.messages[idx].quoted_sender = data
+									.get("quoted_sender")
+									.or_else(|| data.get("quotedSender"))
+									.and_then(|q| q.as_str())
+									.unwrap_or("")
+									.to_string();
+
+								let status = s.messages[idx].status.clone();
+								let media_type = s.messages[idx].media_type.clone();
+								let media_filename = s.messages[idx].media_filename.clone();
+								let quoted_id = s.messages[idx].quoted_id.clone();
+								let quoted_text = s.messages[idx].quoted_text.clone();
+								let quoted_sender = s.messages[idx].quoted_sender.clone();
+
+								// Update display_items and UI. Matches by real id first (a
+								// message transitioning pending/uploading -> sent/failed);
+								// the temp_upload_ prefix check is kept only for backward
+								// compatibility with any leftover client-side placeholder.
+								let mut target_di = None;
+								let mut updated_display = String::new();
+								for (di, item) in s.display_items.iter_mut().enumerate() {
+									let mut matched = false;
+									match item {
+										whantv::DisplayItem::Single(m) => {
+											if m.id == msg_id || m.id.starts_with("temp_upload_") {
+												m.id = msg_id.clone();
+												m.text = text.to_string();
+												m.timestamp = ts;
+												m.sent_at = ts;
+												m.status = status.clone();
+												m.media_type = media_type.clone();
+												m.media_filename = media_filename.clone();
+												m.quoted_id = quoted_id.clone();
+												m.quoted_text = quoted_text.clone();
+												m.quoted_sender = quoted_sender.clone();
+												matched = true;
+											}
+										}
+										whantv::DisplayItem::Album { messages, .. } => {
+											for m in messages.iter_mut() {
+												if m.id == msg_id || m.id.starts_with("temp_upload_") {
+													m.id = msg_id.clone();
+													m.text = text.to_string();
+													m.timestamp = ts;
+													m.sent_at = ts;
+													m.status = status.clone();
+													m.media_type = media_type.clone();
+													m.media_filename = media_filename.clone();
+													m.quoted_id = quoted_id.clone();
+													m.quoted_text = quoted_text.clone();
+													m.quoted_sender = quoted_sender.clone();
+													matched = true;
+													break;
+												}
+											}
+										}
+									}
+									if matched {
+										target_di = Some(di);
+										updated_display = item.format_display(is_group);
+										break;
+									}
+								}
+
+								if let Some(di) = target_di {
+									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										&updated_display,
+									);
+									if parts.conversations_parts.messages_list.get_selection() == Some(di as u32) {
+										refresh_voice_action_button(&s, &parts.conversations_parts);
+									}
+								}
+							} else {
+								let sender_name = if is_from_me {
+									"You".to_string()
+								} else {
+									let mut clean_jid = from.to_string();
+									if let Some(idx) = from.find(':') {
+										clean_jid = format!("{}@s.whatsapp.net", &from[..idx]);
+									}
+									data.get("senderName")
+										.and_then(|n| n.as_str())
+										.filter(|n| !n.is_empty())
+										.map(|n| n.to_string())
+										.or_else(|| s.contacts.get(&clean_jid).cloned())
+										.or_else(|| s.contacts.get(from).cloned())
+										.unwrap_or(clean_jid)
+								};
+
+								let mut insert_date = false;
+								let mut divider_label = String::new();
+								if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
+									let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+									let day = whantv::date_key(local_datetime);
+									if let Some(last_msg) = s.messages.last() {
+										if !last_msg.is_date_divider {
+											if let Some(last_dt) =
+												chrono::DateTime::from_timestamp(last_msg.timestamp, 0)
+											{
+												let last_local: chrono::DateTime<chrono::Local> = last_dt.into();
+												if day != whantv::date_key(last_local) {
+													insert_date = true;
+												}
+											}
+										}
+									} else {
+										insert_date = true;
+									}
+									if insert_date {
+										divider_label = whantv::format_date_divider_label(local_datetime);
+									}
+								}
+
+								let quoted_id = data
+									.get("quoted_id")
+									.or_else(|| data.get("quotedId"))
+									.and_then(|q| q.as_str())
+									.unwrap_or("")
+									.to_string();
+								let mut quoted_text = data
+									.get("quoted_text")
+									.or_else(|| data.get("quotedText"))
+									.and_then(|q| q.as_str())
+									.unwrap_or("")
+									.to_string();
+								let mut quoted_sender = data
+									.get("quoted_sender")
+									.or_else(|| data.get("quotedSender"))
+									.and_then(|q| q.as_str())
+									.unwrap_or("")
+									.to_string();
+
+								// The live push event doesn't always carry the quote preview
+								// (e.g. server-side lookup races). Backfill it from the
+								// already-loaded chat so reply styling doesn't depend on
+								// closing and reopening the chat to pick it up on next load.
+								if !quoted_id.is_empty() && (quoted_text.is_empty() || quoted_sender.is_empty()) {
+									if let Some(original) = s.messages.iter().find(|m| m.id == quoted_id) {
+										if quoted_text.is_empty() {
+											quoted_text =
+												if original.is_audio || original.text.starts_with("[Voice Message]") {
+													"[Voice Message]".to_string()
+												} else if original.text.is_empty() {
+													"[Media]".to_string()
+												} else {
+													original.text.clone()
+												};
+										}
+										if quoted_sender.is_empty() {
+											quoted_sender = if original.from_me {
+												"me".to_string()
+											} else if !original.sender_name.is_empty() {
+												original.sender_name.clone()
+											} else {
+												original.sender_jid.clone()
+											};
+										}
+									}
+								}
+
+								if insert_date && !divider_label.is_empty() {
+									let divider = ChatMessage {
+										id: String::new(),
+										text: divider_label,
+										timestamp: ts,
+										is_date_divider: true,
+										..Default::default()
+									};
+									s.messages.push(divider.clone());
+									s.display_items.push(whantv::DisplayItem::Single(divider.clone()));
+									parts.conversations_parts.messages_list.append(&divider.format_display(is_group));
+								}
+
+								let chat_msg = ChatMessage {
+									id: msg_id.clone(),
+									text: text.to_string(),
+									timestamp: ts,
+									from_me: is_from_me,
+									sender_jid: from.to_string(),
+									sender_name,
+									is_audio: text.starts_with("[Voice Message]") || text.starts_with("[Audio]"),
+									// The backend now tells us the real status up front for our
+									// own sends (pending/uploading/sent/failed); fall back to an
+									// out-of-order receipt, then "sent", for anything else.
+									status: data
+										.get("status")
+										.and_then(|st| st.as_str())
+										.filter(|st| !st.is_empty())
+										.map(|st| st.to_string())
+										.or_else(|| s.pending_receipts.remove(&msg_id))
+										.unwrap_or_else(|| "sent".to_string()),
+									sent_at: if is_from_me { ts } else { 0 },
+									quoted_id,
+									quoted_text,
+									quoted_sender,
+									media_type: data
+										.get("mediaType")
+										.and_then(|m| m.as_str())
+										.unwrap_or("")
+										.to_string(),
+									media_filename: data
+										.get("mediaFilename")
+										.and_then(|m| m.as_str())
+										.unwrap_or("")
+										.to_string(),
+									album_id: data.get("albumId").and_then(|m| m.as_str()).unwrap_or("").to_string(),
+									..Default::default()
+								};
+								s.messages.push(chat_msg.clone());
+
+								// Incremental display_items update instead of full O(n) regrouping
+								let is_deleted_msg = chat_msg.is_deleted || chat_msg.text.contains("deleted");
+								let is_media_msg = !is_deleted_msg
+									&& (chat_msg.media_type == "image"
+										|| chat_msg.media_type == "video"
+										|| chat_msg.text.starts_with("[Photo]")
+										|| chat_msg.text.starts_with("[Image]")
+										|| chat_msg.text.starts_with("[Video]"));
+
+								let should_merge = if is_media_msg {
+									if let Some(last_item) = s.display_items.last() {
+										match last_item {
+											whantv::DisplayItem::Single(prev_msg) => {
+												let prev_is_media = !prev_msg.is_deleted
+													&& !prev_msg.text.contains("deleted") && (prev_msg
+													.media_type
+													== "image"
+													|| prev_msg.media_type == "video"
+													|| prev_msg.text.starts_with("[Photo]")
+													|| prev_msg.text.starts_with("[Image]")
+													|| prev_msg.text.starts_with("[Video]"));
+												prev_is_media && whantv::same_album(prev_msg, &chat_msg)
+											}
+											whantv::DisplayItem::Album { messages, .. } => {
+												messages.last().is_some_and(|m| whantv::same_album(m, &chat_msg))
+											}
+										}
+									} else {
+										false
+									}
+								} else {
+									false
+								};
+
+								if should_merge {
+									// Merging into the previous item only changes that one
+									// row's label (e.g. "2 photos" -> "3 photos") - update it
+									// in place instead of regrouping and re-appending the
+									// whole (unvirtualized) list.
+									let last_idx = s.display_items.len() - 1;
+									let merged = match s.display_items.pop().unwrap() {
+										whantv::DisplayItem::Single(prev_msg) => whantv::DisplayItem::Album {
+											id: prev_msg.id.clone(),
+											sender_jid: prev_msg.sender_jid.clone(),
+											sender_name: prev_msg.sender_name.clone(),
+											from_me: prev_msg.from_me,
+											timestamp: prev_msg.timestamp,
+											messages: vec![prev_msg, chat_msg.clone()],
+										},
+										whantv::DisplayItem::Album {
+											id,
+											sender_jid,
+											sender_name,
+											from_me,
+											timestamp,
+											mut messages,
+										} => {
+											messages.push(chat_msg.clone());
+											whantv::DisplayItem::Album {
+												id,
+												sender_jid,
+												sender_name,
+												from_me,
+												timestamp,
+												messages,
+											}
+										}
+									};
+									parts
+										.conversations_parts
+										.messages_list
+										.set_string(last_idx as u32, &merged.format_display(is_group));
+									s.display_items.push(merged);
+								} else {
+									s.display_items.push(whantv::DisplayItem::Single(chat_msg.clone()));
+									parts.conversations_parts.messages_list.append(&chat_msg.format_display(is_group));
+								}
+								refresh_selection_list(&mut s, parts);
+
+								let count = parts.conversations_parts.messages_list.get_count();
+								if count > 0 && is_from_me {
+									parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
+									refresh_voice_action_button(&s, &parts.conversations_parts);
+								}
+								let formatted = chat_msg.format_display(is_group);
+								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &formatted);
+
+								if !is_from_me {
+									let sounds_enabled = s.settings.sounds_enabled && !s.muted_jids.contains(jid);
+									if s.window_focused {
+										let mark_jid = jid.to_string();
+										let mark_msg_id = msg_id.clone();
+										let tx = s.ws_tx.clone();
+										let payload = serde_json::json!({
+											"action": "mark_read",
+											"data": { "jid": mark_jid, "message_ids": vec![mark_msg_id] }
+										});
+										let _ = tx.send(payload.to_string());
+									} else {
+										// The window isn't focused, so the user hasn't actually
+										// seen this yet — don't send a read receipt. Queue it
+										// for a batched mark_read once focus returns, and show
+										// (or grow) an "N unread messages" divider right now so
+										// it's already there when they look back at the chat —
+										// updated/inserted in place rather than rebuilding the
+										// whole list, so messages just quietly stack up in the
+										// background like the official WhatsApp client.
+										s.background_unread_message_ids.push(msg_id.clone());
+										let is_group = jid.ends_with("@g.us");
+										let existing_di = s.display_items.iter().position(
+											|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider),
+										);
+										if let Some(di) = existing_di {
+											s.unread_divider_count += 1;
+											let count = s.unread_divider_count;
+											let label = if count == 1 {
+												"1 unread message".to_string()
+											} else {
+												format!("{} unread messages", count)
+											};
+											if let Some(m) = s.messages.iter_mut().find(|m| m.is_unread_divider) {
+												m.text = label.clone();
+											}
+											if let whantv::DisplayItem::Single(m) = &mut s.display_items[di] {
+												m.text = label.clone();
+											}
+											parts.conversations_parts.messages_list.set_string(di as u32, &label);
+										} else {
+											s.unread_divider_jid = Some(jid.to_string());
+											s.unread_divider_count = 1;
+											// The message that just triggered this branch was
+											// appended as the last entry above, so the divider
+											// belongs immediately before it.
+											let divider = ChatMessage {
+												text: "1 unread message".to_string(),
+												is_unread_divider: true,
+												..Default::default()
+											};
+											let insert_at = s.messages.len().saturating_sub(1);
+											s.messages.insert(insert_at, divider.clone());
+											let di_insert_at = s.display_items.len().saturating_sub(1);
+											s.display_items
+												.insert(di_insert_at, whantv::DisplayItem::Single(divider.clone()));
+											parts
+												.conversations_parts
+												.messages_list
+												.insert(&divider.format_display(is_group), di_insert_at);
+										}
+									}
+									play_notification_sound(
+										NotificationSound::MessageCurrent,
+										sounds_enabled,
+										s.settings.output_device_name.clone(),
+									);
+								}
+							}
+						} else {
+							let is_ignored = jid == "status@broadcast"
+								|| jid.ends_with("@broadcast")
+								|| jid.ends_with("@newsletter");
+							if !is_ignored {
+								let is_from_me = data
+									.get("from_me")
+									.and_then(|f| f.as_bool())
+									.unwrap_or_else(|| from == "me" || from == "You");
+								if !is_from_me {
+									// Archived chats default to silent and can be dialled back up per chat
+									// from the chat-list context menu; muting still overrides both.
+									let alert = whantv::incoming_alert(
+										s.muted_jids.contains(jid),
+										s.archived_jids.contains(jid),
+										s.settings.archived_alert(jid),
+									);
+									if alert.sound {
+										play_notification_sound(
+											NotificationSound::MessageBackground,
+											s.settings.sounds_enabled,
+											s.settings.output_device_name.clone(),
+										);
+									}
+									if alert.toast && s.settings.notifications_enabled {
+										// The backend's "message" event carries no sender_name
+										// field - resolve the display name from the contacts
+										// map ourselves, same as everywhere else in the UI, so
+										// the notification doesn't show a raw JID.
+										let body = whantv::friendly_preview_text(text);
+										let is_group = jid.ends_with("@g.us");
+										// `from` can carry a WhatsApp device suffix (e.g.
+										// "1234:12@s.whatsapp.net") which will not match the
+										// contacts map keyed by the plain JID - strip it, same
+										// as the in-window sender resolution above.
+										let clean_from = match from.find(':') {
+											Some(idx) => format!("{}@s.whatsapp.net", &from[..idx]),
+											None => from.to_string(),
+										};
+										let provided_sender = data
+											.get("senderName")
+											.and_then(|n| n.as_str())
+											.filter(|n| !n.is_empty())
+											.map(|n| n.to_string());
+										let provided_chat_name = data
+											.get("chatName")
+											.and_then(|n| n.as_str())
+											.filter(|n| !n.is_empty())
+											.map(|n| n.to_string());
+										if is_group {
+											let mut chat_name = provided_chat_name
+												.or_else(|| s.contacts.get(jid).cloned())
+												.unwrap_or_else(|| jid.to_string());
+											if chat_name == *jid {
+												chat_name = "New Group".to_string();
+											}
+											let sender_name = provided_sender
+												.or_else(|| s.contacts.get(&clean_from).cloned())
+												.or_else(|| s.contacts.get(from).cloned())
+												.unwrap_or_else(|| display_name_for_jid(&clean_from));
+											let toast_body = if sender_name.is_empty() {
+												body.to_string()
+											} else {
+												format!("{}: {}", sender_name, body)
+											};
+											if let Some(n) = show_toast_notification(&chat_name, &toast_body) {
+												s.active_notifications.entry(jid.to_string()).or_default().push(n);
+											}
+										} else {
+											let sender_name = provided_sender
+												.or_else(|| s.contacts.get(&clean_from).cloned())
+												.or_else(|| s.contacts.get(from).cloned())
+												.unwrap_or_else(|| display_name_for_jid(&clean_from));
+											if let Some(n) = show_toast_notification(&sender_name, &body) {
+												s.active_notifications.entry(jid.to_string()).or_default().push(n);
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				"message_deleted" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let message_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+						let for_everyone = data.get("for_everyone").and_then(|f| f.as_bool()).unwrap_or(true);
+
+						let mut s = state.borrow_mut();
+						// A bulk delete (selection mode) fires one "message_deleted"
+						// event per message; announcing each individually would spam
+						// a screen reader with "Message deleted" N times back to
+						// back, on top of the one summary announcement
+						// DeleteSelectedMessages already made - suppress the
+						// per-message announce while draining that batch's set.
+						// Keyed by (jid, message_id) so an unrelated delete arriving
+						// mid-batch (e.g. synced from another linked device) isn't
+						// mistaken for part of this batch.
+						let suppress_announce =
+							s.bulk_delete_pending.remove(&(jid.to_string(), message_id.to_string()));
+						if Some(jid.to_string()) == s.selected_chat {
+							let is_group = jid.ends_with("@g.us");
+
+							if !for_everyone {
+								// "Delete for me": the row just disappears, like
+								// official WhatsApp - no "This message was
+								// deleted" tombstone, that's only for revokes.
+								let had_message = s.messages.iter().any(|m| m.id == message_id);
+								if had_message {
+									s.messages.retain(|m| m.id != message_id);
+									s.display_items = whantv::group_messages_into_display_items(&s.messages);
+									s.prev_msg_count = s.display_items.len();
+
+									parts.conversations_parts.messages_list.freeze();
+									parts.conversations_parts.messages_list.clear();
+									for item in &s.display_items {
+										parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+									}
+									parts.conversations_parts.messages_list.thaw();
+									refresh_selection_list(&mut s, parts);
+									let count = parts.conversations_parts.messages_list.get_count();
+									if count > 0 {
+										parts.conversations_parts.messages_list.set_selection(count - 1, true);
+									}
+									refresh_voice_action_button(&s, &parts.conversations_parts);
+									if !suppress_announce {
+										live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+									}
+								}
+								return;
+							}
+
+							let mut changed = false;
+							for msg in s.messages.iter_mut() {
+								if msg.id == message_id {
+									msg.is_deleted = true;
+									msg.text = "".to_string();
+									changed = true;
+									break;
+								}
+							}
+							if changed {
+								// Update display_items in-place instead of full O(n) regrouping
+								for item in s.display_items.iter_mut() {
+									match item {
+										whantv::DisplayItem::Single(m) if m.id == message_id => {
+											m.is_deleted = true;
+											m.text = String::new();
+											break;
+										}
+										whantv::DisplayItem::Album { messages, .. } => {
+											if let Some(am) = messages.iter_mut().find(|am| am.id == message_id) {
+												am.is_deleted = true;
+												am.text = String::new();
+												break;
+											}
+										}
+										_ => {}
+									}
+								}
+								for (di, item) in s.display_items.iter().enumerate() {
+									let contains = match item {
+										whantv::DisplayItem::Single(m) => m.id == message_id,
+										whantv::DisplayItem::Album { messages, .. } => {
+											messages.iter().any(|m| m.id == message_id)
+										}
+									};
+									if contains {
+										parts
+											.conversations_parts
+											.messages_list
+											.set_string(di as u32, &item.format_display(is_group));
+
+										if let Some(sel_idx) = parts.conversations_parts.messages_list.get_selection() {
+											if sel_idx as u32 == di as u32 {
+												let mut need_layout =
+													crate::update_action_buttons(&s, &parts.conversations_parts);
+												if parts.conversations_parts.play_voice_btn.is_shown() {
+													parts.conversations_parts.play_voice_btn.show(false);
+													need_layout = true;
+												}
+												if parts.conversations_parts.audio_slider.is_shown() {
+													parts.conversations_parts.audio_slider.show(false);
+													parts.conversations_parts.audio_progress_label.show(false);
+													parts.conversations_parts.audio_speed_btn.show(false);
+													need_layout = true;
+												}
+												if need_layout {
+													parts.conversations_parts.action_panel.layout();
+													parts.conversations_parts.conversation_panel.layout();
+												}
+											}
+										}
+										break;
+									}
+								}
+								if !suppress_announce {
+									live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+								}
+							}
+						}
+					}
+				}
+				"new_contact_status" => {
+					if let Some(data) = val.get("data") {
+						if let Some(status) = data.get("status").and_then(|s| s.as_str()) {
+							if status == "success" {
+								let payload = serde_json::json!({
+									"action": "get_chats"
+								});
+								let _ = state.borrow().ws_tx.send(payload.to_string());
+							} else if status == "error" {
+								let err_msg = data.get("error").and_then(|e| e.as_str()).unwrap_or("Unknown error");
+								unsafe {
+									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+										windows::Win32::UI::WindowsAndMessaging::MB_OK,
+									);
+								}
+								MessageDialog::builder(&parts.new_contact_dialog.dialog, err_msg, "Error")
+									.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+									.build()
+									.show_modal();
+							}
+						}
+					}
+				}
+				"contacts" => {
+					if let Ok(rows) = serde_json::from_value::<Vec<serde_json::Value>>(
+						val.get("data").cloned().unwrap_or(serde_json::Value::Null),
+					) {
+						let mut contacts: Vec<Contact> = rows
+							.iter()
+							.filter_map(|row| {
+								let jid = row.get("jid").and_then(|j| j.as_str())?.to_string();
+								if jid.is_empty() {
+									return None;
+								}
+								let name = row.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+								let phone = row.get("phone").and_then(|p| p.as_str()).unwrap_or("").to_string();
+								Some(Contact { jid, name, phone })
+							})
+							.collect();
+						contacts.sort_by(|a, b| {
+							let ka = if a.name.is_empty() { &a.phone } else { &a.name };
+							let kb = if b.name.is_empty() { &b.phone } else { &b.name };
+							ka.to_lowercase().cmp(&kb.to_lowercase())
+						});
+						let mut s = state.borrow_mut();
+						s.all_contacts = contacts;
+						// Refresh the pickers live if they're already open and the
+						// backend response landed after the dialog was shown
+						// with a possibly-empty or stale contact list.
+						let new_conv_shown = parts.new_conv_dialog.dialog.is_shown();
+						let new_group_shown = parts.new_group_dialog.dialog.is_shown();
+						let add_members_shown = parts.add_members_dialog.dialog.is_shown();
+						drop(s);
+						if new_conv_shown {
+							let query = parts.new_conv_dialog.search_field.get_value();
+							apply_contact_picker_filter(&query, state, parts);
+						}
+						// Route a fresh `contacts` response through the same debounce
+						// timer as keystrokes (rather than rebuilding the checklist
+						// widget here immediately) - back-to-back rebuilds (this one
+						// landing right after the dialog-open rebuild) race NVDA's
+						// async accessibility queries and trip wx's "bad
+						// wxCheckListBox index" assert. See the timer's own comment
+						// in window.rs's bind_input_handlers.
+						if new_group_shown {
+							sync_new_group_contact_labels(state);
+							parts.new_group_contacts_timer.stop();
+							parts.new_group_contacts_timer.start(250, true);
+						}
+						if add_members_shown {
+							sync_add_members_contact_labels(state);
+							parts.add_members_contacts_timer.stop();
+							parts.add_members_contacts_timer.start(250, true);
+						}
+					}
+				}
+				"create_group_status" | "new_group_status" => {
+					if let Some(data) = val.get("data") {
+						if let Some(status) = data.get("status").and_then(|s| s.as_str()) {
+							if status == "success" {
+								let payload = serde_json::json!({
+									"action": "get_chats"
+								});
+								let _ = state.borrow().ws_tx.send(payload.to_string());
+							} else if status == "error" {
+								parts.new_group_dialog.ok_btn.enable(true);
+								let err_msg = data.get("error").and_then(|e| e.as_str()).unwrap_or("Unknown error");
+								unsafe {
+									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+										windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
+									);
+								}
+								MessageDialog::builder(&parts.new_group_dialog.dialog, err_msg, "Error")
+									.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+									.build()
+									.show_modal();
+							}
+						}
+					}
+				}
+				"conversation_messages" => {
+					if let Some(data) = val.get("data") {
+						let response_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						// The chat may have been switched again while this
+						// request was in flight - applying a stale response
+						// would silently populate the wrong chat's history.
+						if state.borrow().selected_chat.as_deref() != Some(response_jid) {
+							return;
+						}
+						if let Some(messages) = data.get("messages").and_then(|m| m.as_array()) {
+							let mut parsed_msgs = Vec::new();
+							for msg in messages {
+								match serde_json::from_value::<ChatMessage>(msg.clone()) {
+									Ok(chat_msg) => parsed_msgs.push(chat_msg),
+									Err(e) => {
+										let err_msg = ChatMessage {
+											text: format!("Parse error: {} for json: {}", e, msg),
+											..Default::default()
+										};
+										parsed_msgs.push(err_msg);
+									}
+								}
+							}
+							let mut seen_ids = std::collections::HashSet::new();
+							let mut deduplicated = Vec::new();
+							for msg in parsed_msgs {
+								if !msg.id.is_empty() {
+									if seen_ids.insert(msg.id.clone()) {
+										deduplicated.push(msg);
+									}
+								} else {
+									deduplicated.push(msg);
+								}
+							}
+
+							let mut s = state.borrow_mut();
+							let chat_jid = s.selected_chat.clone().unwrap_or_default();
+							let chat_name = s.contacts.get(&chat_jid).cloned().unwrap_or_else(|| chat_jid.clone());
+							let is_group_chat = chat_jid.ends_with("@g.us");
+
+							let mut with_dates = Vec::new();
+							let mut last_date: Option<chrono::NaiveDate> = None;
+							for mut msg in deduplicated {
+								if !is_group_chat
+									&& !msg.from_me && msg.sender_name.is_empty()
+									&& msg.sender_jid.is_empty()
+								{
+									msg.sender_name = chat_name.clone();
+								}
+
+								if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
+									let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+									let day = whantv::date_key(local_datetime);
+									if last_date != Some(day) {
+										last_date = Some(day);
+										with_dates.push(ChatMessage {
+											text: whantv::format_date_divider_label(local_datetime),
+											timestamp: msg.timestamp,
+											is_date_divider: true,
+											..Default::default()
+										});
+									}
+								}
+								with_dates.push(msg);
+							}
+
+							if s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
+								whantv::insert_unread_divider(&mut with_dates, s.unread_divider_count);
+							}
+
+							s.loading_messages = false;
+							let was_history_loading = s.history_loading;
+							s.history_loading = false;
+							let old_count = s.prev_msg_count;
+							let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+							s.messages = with_dates;
+							// Apply any receipts that arrived before messages finished loading.
+							// Collect first to avoid simultaneous mutable borrows of s.
+							let pending_ids: Vec<(String, String)> = s
+								.messages
+								.iter()
+								.filter_map(|msg| {
+									s.pending_receipts.get(&msg.id).map(|st| (msg.id.clone(), st.clone()))
+								})
+								.collect();
+							for (id, st) in pending_ids {
+								s.pending_receipts.remove(&id);
+								if let Some(msg) = s.messages.iter_mut().find(|m| m.id == id) {
+									if get_status_rank(&st) >= get_status_rank(&msg.status) {
+										msg.status = st;
+									}
+								}
+							}
+							s.display_items = whantv::group_messages_into_display_items(&s.messages);
+							let new_len = s.display_items.len();
+							s.prev_msg_count = new_len;
+
+							parts.conversations_parts.messages_list.freeze();
+							parts.conversations_parts.messages_list.clear();
+							for item in &s.display_items {
+								parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+							}
+							parts.conversations_parts.messages_list.thaw();
+							refresh_selection_list(&mut s, parts);
+
+							let count = parts.conversations_parts.messages_list.get_count();
+							let target_pos = if let Some(target_id) = s.search_target_id.take() {
+								s.display_items.iter().position(|item| match item {
+									whantv::DisplayItem::Single(m) => m.id == target_id,
+									whantv::DisplayItem::Album { messages, .. } => {
+										messages.iter().any(|m| m.id == target_id)
+									}
+								})
+							} else if let Some(target_text) = s.search_target_text.take() {
+								let is_generic = target_text == "[Voice Message]"
+									|| target_text == "[Audio]" || target_text == "Voice message"
+									|| target_text == "Audio" || target_text == "[Media]";
+								if is_generic {
+									None
+								} else {
+									s.display_items.iter().position(|item| match item {
+										whantv::DisplayItem::Single(m) => {
+											m.text == target_text
+												|| (!m.text.is_empty() && m.text.contains(&target_text))
+										}
+										whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| {
+											m.text == target_text
+												|| (!m.text.is_empty() && m.text.contains(&target_text))
+										}),
+									})
+								}
+							} else if old_count == 0 && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
+								// Opening a chat with unread messages: land on the
+								// "N unread messages" divider, same as pressing Enter
+								// on it from the chat list, instead of the very bottom.
+								s.display_items.iter().position(
+									|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider),
+								)
+							} else {
+								None
+							};
+							if let Some(pos) = target_pos {
+								parts.conversations_parts.messages_list.set_selection(pos as u32, true);
+								parts.conversations_parts.messages_list.set_focus();
+							} else if count > 0 {
+								if was_history_loading && new_len > old_count && old_count > 0 {
+									let keep_idx = (new_len - old_count) as u32;
+									if keep_idx < count {
+										parts.conversations_parts.messages_list.set_selection(keep_idx, true);
+									} else {
+										parts.conversations_parts.messages_list.set_selection(0, true);
+									}
+								} else if old_count == 0 {
+									parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
+									parts.conversations_parts.messages_list.set_focus();
+								}
+							}
+							parts.conversations_parts.conversation_panel.freeze();
+							if update_action_buttons(&s, &parts.conversations_parts) {
+								parts.conversations_parts.conversation_panel.layout();
+							}
+							parts.conversations_parts.conversation_panel.thaw();
+							refresh_voice_action_button(&s, &parts.conversations_parts);
+
+							if was_history_loading && new_len == old_count {
+								if let Some(ref jid) = s.selected_chat.clone() {
+									eprintln!(
+										"[LOG UI] No new history messages received for {}. Marking history complete.",
+										jid
+									);
+									s.completed_history_chats.insert(jid.clone());
+								}
+							}
+						}
+					}
+				}
+				"no_more_history" => {
+					let mut s = state.borrow_mut();
+					s.history_loading = false;
+					if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+						if !jid.is_empty() {
+							eprintln!("[LOG UI] End of history reached on phone for chat: {}", jid);
+							s.completed_history_chats.insert(jid.to_string());
+						}
+					}
+				}
+				"play_audio_failed" => {
+					eprintln!("[LOG UI] Voice message audio failed to load or download");
+					live_region::announce(
+						parts.conversations_parts.messages_announcer.clone(),
+						"Could not load voice message",
+					);
+				}
+				"message_info" => {
+					if let Some(data) = val.get("data") {
+						let fmt_ts = |ts: i64| -> String {
+							if ts == 0 {
+								return String::new();
+							}
+							let dt = chrono::DateTime::from_timestamp(ts, 0)
+								.unwrap_or_default()
+								.with_timezone(&chrono::Local);
+							dt.format("%l:%M %p").to_string().trim().to_lowercase()
+						};
+						let msg_id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
+						let mut sent_s = data.get("sent_at").and_then(|v| v.as_i64()).unwrap_or(0);
+						let mut delivered_s = data.get("delivered_at").and_then(|v| v.as_i64()).unwrap_or(0);
+						let mut read_s = data.get("read_at").and_then(|v| v.as_i64()).unwrap_or(0);
+						let mut played_s = data.get("played_at").and_then(|v| v.as_i64()).unwrap_or(0);
+						let mut edited_s = data.get("edited_at").and_then(|v| v.as_i64()).unwrap_or(0);
+						let media_type = data.get("media_type").and_then(|v| v.as_str()).unwrap_or("");
+						let is_voice = media_type == "voice" || media_type == "audio";
+
+						{
+							let s = state.borrow();
+							if let Some(msg) = s.messages.iter().find(|m| m.id == msg_id) {
+								if sent_s == 0 {
+									sent_s = if msg.sent_at > 0 { msg.sent_at } else { msg.timestamp };
+								}
+								if delivered_s == 0 && msg.delivered_at > 0 {
+									delivered_s = msg.delivered_at;
+								}
+								if read_s == 0 && msg.read_at > 0 {
+									read_s = msg.read_at;
+								}
+								if played_s == 0 && msg.played_at > 0 {
+									played_s = msg.played_at;
+								}
+								if edited_s == 0 && msg.edited_at > 0 {
+									edited_s = msg.edited_at;
+								}
+							}
+						}
+
+						let mut lines = Vec::new();
+						let sent_fmt = fmt_ts(sent_s);
+						if !sent_fmt.is_empty() {
+							lines.push(format!("Sent at {}", sent_fmt));
+						}
+						let del_fmt = fmt_ts(delivered_s);
+						if !del_fmt.is_empty() {
+							lines.push(format!("Delivered at {}", del_fmt));
+						}
+						let read_fmt = fmt_ts(read_s);
+						if !read_fmt.is_empty() {
+							lines.push(format!("Read at {}", read_fmt));
+						}
+						if is_voice {
+							let played_fmt = fmt_ts(played_s);
+							if !played_fmt.is_empty() {
+								lines.push(format!("Played at {}", played_fmt));
+							}
+						}
+						let edited_fmt = fmt_ts(edited_s);
+						if !edited_fmt.is_empty() {
+							lines.push(format!("Edited at {}", edited_fmt));
+						}
+
+						if let Some(participants) = data.get("participants").and_then(|p| p.as_array()) {
+							if !participants.is_empty() {
+								lines.retain(|l| l.starts_with("Sent at") || l.starts_with("Edited at"));
+
+								let mut played = Vec::new();
+								let mut read = Vec::new();
+								let mut delivered = Vec::new();
+								let mut sent = Vec::new();
+								for p in participants {
+									let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+									let pstatus = p.get("status").and_then(|v| v.as_str()).unwrap_or("sent");
+									let pts = p.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+									let p_at = |key: &str| p.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+									// Every state this member has reached, latest first, e.g.
+									// "Asha — read 8:13 pm, delivered 8:07 pm".
+									let mut times = Vec::new();
+									if is_voice {
+										let played = fmt_ts(p_at("played_at"));
+										if !played.is_empty() {
+											times.push(format!("played {}", played));
+										}
+									}
+									let read_at = fmt_ts(p_at("read_at"));
+									if !read_at.is_empty() {
+										times.push(format!("read {}", read_at));
+									}
+									let delivered_at = fmt_ts(p_at("delivered_at"));
+									if !delivered_at.is_empty() {
+										times.push(format!("delivered {}", delivered_at));
+									}
+									if times.is_empty() {
+										let ts_fmt = fmt_ts(pts);
+										if !ts_fmt.is_empty() {
+											times.push(ts_fmt);
+										}
+									}
+									let entry = if times.is_empty() {
+										name.to_string()
+									} else {
+										format!("{} — {}", name, times.join(", "))
+									};
+									match pstatus {
+										"played" => played.push(entry),
+										"read" => read.push(entry),
+										"delivered" => delivered.push(entry),
+										_ => sent.push(entry),
+									}
+								}
+
+								let mut push_group = |label: &str, entries: &Vec<String>| {
+									if entries.is_empty() {
+										return;
+									}
+									lines.push(String::new());
+									lines.push(label.to_string());
+									for e in entries {
+										lines.push(format!("  {}", e));
+									}
+								};
+								push_group("Played by", &played);
+								push_group("Read by", &read);
+								push_group("Delivered to", &delivered);
+								push_group("Sent to", &sent);
+							}
+						}
+
+						if lines.is_empty() {
+							lines.push("No receipt information available.".to_string());
+						}
+						let info_text = lines.join("\n");
+
+						let dlg = Dialog::builder(&parts.frame, "Message Info")
+							.with_style(DialogStyle::DefaultDialogStyle)
+							.build();
+						let sizer = BoxSizer::builder(Orientation::Vertical).build();
+						let txt = TextCtrl::builder(&dlg)
+							.with_value(&info_text)
+							.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::DontWrap)
+							.build();
+						sizer.add(&txt, 1, SizerFlag::Expand | SizerFlag::All, 10);
+						let ok_btn = Button::builder(&dlg).with_label("OK").build();
+						sizer.add(&ok_btn, 0, SizerFlag::AlignCentre | SizerFlag::Bottom | SizerFlag::All, 8);
+						dlg.set_sizer_and_fit(sizer, true);
+						let dlg_close = dlg.clone();
+						ok_btn.on_click(move |_| {
+							dlg_close.end_modal(wxdragon::id::ID_OK);
+						});
+						dlg.show_modal();
+					}
+				}
+				"history_updated" => {
+					eprintln!("[LOG UI] History sync completed on phone! Refreshing messages for active chat...");
+					let s = state.borrow();
+					if let Some(ref jid) = s.selected_chat.clone() {
+						let limit = 9999999;
+						let payload = serde_json::json!({
+							"action": "get_messages",
+							"data": { "jid": jid, "limit": limit, "offset": 0 }
+						});
+						let _ = s.ws_tx.send(payload.to_string());
+					}
+				}
+				"export_progress" => {
+					if let Some(data) = val.get("data") {
+						let current = data.get("current").and_then(|c| c.as_i64()).unwrap_or(0);
+						let total = data.get("total").and_then(|t| t.as_i64()).unwrap_or(0);
+						parts.frame.set_status_text(&format!("Status: Exporting chat... {}/{}", current, total), 0);
+					}
+				}
+				"chat_exported" => {
+					if let Some(data) = val.get("data") {
+						let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
+						parts.frame.set_status_text("Status: Connected", 0);
+						if data.get("text_only").and_then(|t| t.as_bool()).unwrap_or(false) {
+							let count = data.get("message_count").and_then(|m| m.as_i64()).unwrap_or(0);
+							let msg = format!("Chat text exported to {}. {} messages.", path, count);
+							live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+							return;
+						}
+						let media_exported = data.get("media_exported").and_then(|m| m.as_i64()).unwrap_or(0);
+						let media_skipped = data.get("media_skipped").and_then(|m| m.as_i64()).unwrap_or(0);
+						let msg = if media_skipped > 0 {
+							format!(
+								"Chat exported to {}. {} media files included, {} could not be downloaded and were skipped.",
+								path, media_exported, media_skipped
+							)
+						} else {
+							format!("Chat exported to {}. {} media files included.", path, media_exported)
+						};
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+					}
+				}
+				"statuses" => {
+					if let Some(data) = val.get("data") {
+						if let Some(groups) = data.get("groups").and_then(|g| g.as_array()) {
+							let mut parsed = Vec::new();
+							for g in groups {
+								let poster_jid = g.get("posterJid").and_then(|j| j.as_str()).unwrap_or("").to_string();
+								let poster_name =
+									g.get("posterName").and_then(|n| n.as_str()).unwrap_or("").to_string();
+								let all_viewed = g.get("allViewed").and_then(|v| v.as_bool()).unwrap_or(false);
+								let mut items = Vec::new();
+								if let Some(statuses) = g.get("statuses").and_then(|s| s.as_array()) {
+									for it in statuses {
+										items.push(StatusItem {
+											id: it.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+											text: it.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+											media_type: it
+												.get("mediaType")
+												.and_then(|v| v.as_str())
+												.unwrap_or("")
+												.to_string(),
+											timestamp: it.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
+											viewed: it.get("viewed").and_then(|v| v.as_bool()).unwrap_or(false),
+										});
+									}
+								}
+								parsed.push(StatusGroup { poster_jid, poster_name, all_viewed, items });
+							}
+							let mut s = state.borrow_mut();
+							s.status_groups = parsed;
+							if s.active_tab == 1 {
+								apply_chat_filter(&mut s, parts);
+							}
+						}
+					}
+				}
+				"status_update" => {
+					if let Some(data) = val.get("data") {
+						let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let poster_jid = data.get("posterJid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						if id.is_empty() || poster_jid.is_empty() {
+							return;
+						}
+						let from_me = data.get("fromMe").and_then(|v| v.as_bool()).unwrap_or(false);
+						let text = data.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let media_type = data.get("mediaType").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let timestamp = data.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+
+						let mut s = state.borrow_mut();
+						let poster_name = s
+							.contacts
+							.get(&poster_jid)
+							.cloned()
+							.unwrap_or_else(|| if from_me { "You".to_string() } else { poster_jid.clone() });
+						let item = StatusItem { id, text, media_type, timestamp, viewed: from_me };
+						if let Some(group) = s.status_groups.iter_mut().find(|g| g.poster_jid == poster_jid) {
+							group.items.push(item);
+							group.all_viewed = group.items.iter().all(|it| it.viewed);
+						} else {
+							s.status_groups.push(StatusGroup {
+								poster_jid,
+								poster_name,
+								all_viewed: from_me,
+								items: vec![item],
+							});
+						}
+						if s.active_tab == 1 {
+							apply_chat_filter(&mut s, parts);
+						}
+					}
+				}
+				"starred_messages" => {
+					if let Some(data) = val.get("data") {
+						if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
+							let mut s = state.borrow_mut();
+							let mut entries = Vec::new();
+							for item in results {
+								let jid = item.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
+								let message_id = item.get("id").and_then(|m| m.as_str()).unwrap_or("").to_string();
+								if jid.is_empty() || message_id.is_empty() {
+									continue;
+								}
+								let from_me = item.get("fromMe").and_then(|f| f.as_bool()).unwrap_or(false);
+								let sender_name = item.get("senderName").and_then(|n| n.as_str()).unwrap_or("");
+								let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
+								let quoted_text = item.get("quotedText").and_then(|t| t.as_str()).unwrap_or("");
+								let media_type = item.get("mediaType").and_then(|t| t.as_str()).unwrap_or("");
+								let timestamp = item.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
+
+								let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+								let sender = if from_me {
+									"You".to_string()
+								} else if !sender_name.is_empty() {
+									sender_name.to_string()
+								} else {
+									chat_name.clone()
+								};
+								let body = if !text.is_empty() {
+									whantv::friendly_preview_text(text)
+								} else if !quoted_text.is_empty() {
+									whantv::friendly_preview_text(quoted_text)
+								} else if !media_type.is_empty() {
+									"Media".to_string()
+								} else {
+									"Message".to_string()
+								};
+								let date_str = if timestamp > 0 {
+									chrono::DateTime::from_timestamp(timestamp, 0)
+										.map(|dt| {
+											let local_dt: chrono::DateTime<chrono::Local> = dt.into();
+											local_dt.format("%b %e, %Y").to_string()
+										})
+										.unwrap_or_default()
+								} else {
+									String::new()
+								};
+								let label = if date_str.is_empty() {
+									format!("{} ({}): {}", chat_name, sender, body)
+								} else {
+									format!("{} ({}): {}, {}", chat_name, sender, body, date_str)
+								};
+
+								entries.push(StarredEntry { jid, message_id, label });
+							}
+							s.starred_entries = entries;
+							if s.active_tab == 2 {
+								apply_chat_filter(&mut s, parts);
+							}
+						}
+					}
+				}
+				"search_results" => {
+					if let Some(data) = val.get("data") {
+						let response_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						// The chat may have been switched again while this
+						// search was in flight - applying a stale response
+						// would silently populate the wrong chat's messages.
+						if state.borrow().selected_chat.as_deref() != Some(response_jid) {
+							return;
+						}
+						if let Some(results) = data.get("results").and_then(|r| r.as_array()) {
+							let mut parsed_msgs: Vec<ChatMessage> = Vec::new();
+							for msg_val in results {
+								if let Ok(msg) = serde_json::from_value::<ChatMessage>(msg_val.clone()) {
+									parsed_msgs.push(msg);
+								}
+							}
+
+							let mut with_dates = Vec::new();
+							let mut last_date: Option<chrono::NaiveDate> = None;
+							for msg in parsed_msgs {
+								if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
+									let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+									let day = whantv::date_key(local_datetime);
+									if last_date != Some(day) {
+										last_date = Some(day);
+										with_dates.push(ChatMessage {
+											text: whantv::format_date_divider_label(local_datetime),
+											timestamp: msg.timestamp,
+											is_date_divider: true,
+											..Default::default()
+										});
+									}
+								}
+								with_dates.push(msg);
+							}
+
+							let mut s = state.borrow_mut();
+							let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+							s.messages = with_dates;
+							s.display_items = whantv::group_messages_into_display_items(&s.messages);
+
+							parts.conversations_parts.messages_list.freeze();
+							parts.conversations_parts.messages_list.clear();
+							for item in &s.display_items {
+								parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+							}
+							parts.conversations_parts.messages_list.thaw();
+							refresh_selection_list(&mut s, parts);
+							let count = parts.conversations_parts.messages_list.get_count();
+							if count > 0 {
+								parts.conversations_parts.messages_list.set_selection(0, true);
+							}
+							refresh_voice_action_button(&s, &parts.conversations_parts);
+						}
+					}
+				}
+				"typing" => {
+					if let Some(data) = val.get("data") {
+						let chat_jid =
+							data.get("chat_jid").or_else(|| data.get("jid")).and_then(|j| j.as_str()).unwrap_or("");
+						let mut sender_jid =
+							data.get("sender_jid").or_else(|| data.get("jid")).and_then(|j| j.as_str()).unwrap_or("");
+						if sender_jid.is_empty() {
+							sender_jid = chat_jid;
+						}
+						if chat_jid.is_empty() || sender_jid.is_empty() {
+							return;
+						}
+						let is_typing = data.get("typing").and_then(|t| t.as_bool()).unwrap_or(false);
+						let is_recording = data.get("recording").and_then(|r| r.as_bool()).unwrap_or(false);
+
+						let state_changed = {
+							let mut s = state.borrow_mut();
+							if is_typing || is_recording {
+								s.typing_timestamps.insert(chat_jid.to_string(), std::time::Instant::now());
+							} else {
+								s.typing_timestamps.remove(chat_jid);
+							}
+							let new_kind: u8 = if is_recording {
+								2
+							} else if is_typing {
+								1
+							} else {
+								0
+							};
+							let prev_kind = s.typing_announce_state.get(chat_jid).copied().unwrap_or(0);
+							if new_kind == 0 {
+								s.typing_announce_state.remove(chat_jid);
+							} else {
+								s.typing_announce_state.insert(chat_jid.to_string(), new_kind);
+							}
+							new_kind != prev_kind
+						};
+
+						let s = state.borrow();
+						if Some(chat_jid.to_string()) == s.selected_chat {
+							let sender_name =
+								s.contacts.get(sender_jid).cloned().unwrap_or_else(|| display_name_for_jid(sender_jid));
+							if !sender_name.is_empty() {
+								let announcement = if is_recording && s.settings.announce_recording {
+									Some(format!("{} is recording audio...", sender_name))
+								} else if is_typing && s.settings.announce_typing {
+									Some(format!("{} is typing...", sender_name))
+								} else {
+									None
+								};
+								if let Some(ann) = announcement {
+									if state_changed {
+										live_region::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											&ann,
+										);
+									}
+								}
+								let norm_chat_jid = if let Some((user, server)) = chat_jid.split_once('@') {
+									let base = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+									format!("{}@{}", base, server)
+								} else {
+									chat_jid.to_string()
+								};
+								let base_label = s
+									.presence_labels
+									.get(chat_jid)
+									.or_else(|| s.presence_labels.get(&norm_chat_jid))
+									.cloned()
+									.unwrap_or_else(|| {
+										s.contacts
+											.get(chat_jid)
+											.cloned()
+											.unwrap_or_else(|| "Conversation data".to_string())
+									});
+
+								let btn_label = if is_recording || is_typing {
+									let status = if is_recording {
+										format!("{} is recording audio...", sender_name)
+									} else {
+										format!("{} is typing...", sender_name)
+									};
+									format!("{}, {}", base_label, status)
+								} else {
+									base_label
+								};
+								parts.conversations_parts.conv_data_btn.set_label(&btn_label);
+							}
+						}
+					}
+				}
+				"presence" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						if jid.is_empty() || jid.ends_with("@g.us") {
+							return;
+						}
+						let clean_jid = if let Some((user, server)) = jid.split_once('@') {
+							let base_user = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+							format!("{}@{}", base_user, server)
+						} else {
+							jid.to_string()
+						};
+						let unavailable = data.get("unavailable").and_then(|u| u.as_bool()).unwrap_or(false);
+						let last_seen = data.get("last_seen").and_then(|l| l.as_i64()).unwrap_or(0);
+						let mut s = state.borrow_mut();
+
+						let name = s
+							.contacts
+							.get(&clean_jid)
+							.or_else(|| s.contacts.get(jid))
+							.cloned()
+							.unwrap_or_else(|| display_name_for_jid(&clean_jid));
+
+						let btn_label = if unavailable {
+							if last_seen > 0 {
+								if let Some(datetime) = chrono::DateTime::from_timestamp(last_seen, 0) {
+									let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
+									let now = chrono::Local::now();
+									let time_str = local_dt.format("%l:%M %p").to_string().trim().to_string();
+									let date_str = if local_dt.date_naive() == now.date_naive() {
+										format!("today at {}", time_str)
+									} else {
+										local_dt.format("%b %e at %l:%M %p").to_string().replace("  ", " ")
+									};
+									format!("{} (last seen {})", name, date_str)
+								} else {
+									name.clone()
+								}
+							} else {
+								name.clone()
+							}
+						} else {
+							format!("{} (online)", name)
+						};
+
+						s.presence_labels.insert(clean_jid.clone(), btn_label.clone());
+						s.presence_labels.insert(jid.to_string(), btn_label.clone());
+
+						if Some(clean_jid.clone()) == s.selected_chat || Some(jid.to_string()) == s.selected_chat {
+							let mut should_announce = true;
+							if !s.initial_presence_received {
+								s.initial_presence_received = true;
+								should_announce = false;
+							}
+
+							let announcement = if unavailable {
+								if last_seen > 0 {
+									if let Some(datetime) = chrono::DateTime::from_timestamp(last_seen, 0) {
+										let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
+										let now = chrono::Local::now();
+										let time_str = local_dt.format("%l:%M %p").to_string().trim().to_string();
+										let date_str = if local_dt.date_naive() == now.date_naive() {
+											format!("today at {}", time_str)
+										} else {
+											local_dt.format("%b %e at %l:%M %p").to_string().replace("  ", " ")
+										};
+										format!("{}, last seen {}", name, date_str)
+									} else {
+										format!("{}, offline", name)
+									}
+								} else {
+									format!("{}, offline", name)
+								}
+							} else {
+								format!("{} is now online", name)
+							};
+							if should_announce {
+								live_region::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									&announcement,
+								);
+							}
+							parts.conversations_parts.conv_data_btn.set_label(&btn_label);
+						}
+					}
+				}
+				"group_info" => {
+					if let Some(payload) = val.get("data") {
+						let info = payload.get("Info").unwrap_or(payload);
+						let viewer_is_admin = payload.get("ViewerIsAdmin").and_then(|v| v.as_bool()).unwrap_or(false);
+
+						if let Some(group_jid) = info.get("JID").and_then(|j| j.get("User")).and_then(|u| u.as_str()) {
+							let full_jid = format!("{}@g.us", group_jid);
+							let mut s = state.borrow_mut();
+							if viewer_is_admin {
+								s.admin_group_jids.insert(full_jid);
+							} else {
+								s.admin_group_jids.remove(&full_jid);
+							}
+						}
+
+						// Set visibility of admin buttons
+						parts.group_data_dialog.add_member_btn.show(viewer_is_admin);
+						parts.group_data_dialog.make_admin_btn.show(viewer_is_admin);
+						parts.group_data_dialog.remove_member_btn.show(viewer_is_admin);
+						parts.group_data_dialog.save_settings_btn.show(viewer_is_admin);
+						parts.group_data_dialog.announce_chk.enable(viewer_is_admin);
+						parts.group_data_dialog.locked_chk.enable(viewer_is_admin);
+
+						// Set basic settings
+						if let Some(topic) = info.get("Topic").and_then(|t| t.as_str()) {
+							parts.group_data_dialog.group_desc_field.set_value(topic);
+						}
+						if let Some(is_announce) = info.get("IsAnnounce").and_then(|t| t.as_bool()) {
+							parts.group_data_dialog.announce_chk.set_value(is_announce);
+						}
+						if let Some(is_locked) = info.get("IsLocked").and_then(|t| t.as_bool()) {
+							parts.group_data_dialog.locked_chk.set_value(is_locked);
+						}
+						let is_community = info.get("IsParent").and_then(|t| t.as_bool()).unwrap_or(false);
+						parts.group_data_dialog.groups_list.clear();
+						if is_community {
+							let s = state.borrow();
+							if let Some(ref jid) = s.selected_chat {
+								let payload = serde_json::json!({
+									"action": "get_community_subgroups",
+									"data": { "jid": jid }
+								});
+								let _ = s.ws_tx.send(payload.to_string());
+							}
+						}
+
+						// Parse members
+						let s = state.borrow();
+						let mut member_strings = Vec::new();
+						let mut member_jids = Vec::new();
+						let mut member_admin = Vec::new();
+						if let Some(participants) = payload.get("Participants").and_then(|p| p.as_array()) {
+							for p in participants {
+								if let Some(jid) = p.get("JID").and_then(|j| j.as_str()) {
+									// PhoneJID is the participant's actual phone-number
+									// JID (backend-resolved from a @lid address when the
+									// group hides phone numbers) - display/contact lookups
+									// must use it, never the raw action JID, or a privacy
+									// group shows unreadable LIDs instead of names/numbers.
+									let phone_jid = p.get("PhoneJID").and_then(|j| j.as_str()).unwrap_or(jid);
+									let is_admin = p.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
+									let is_super = p.get("IsSuperAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
+
+									let backend_name = p.get("Name").and_then(|n| n.as_str()).unwrap_or("");
+
+									let mut local_name = if !backend_name.is_empty() {
+										backend_name.to_string()
+									} else {
+										s.contacts.get(phone_jid).cloned().unwrap_or_else(|| phone_jid.to_string())
+									};
+
+									let raw_phone = phone_jid.split('@').next().unwrap_or(phone_jid);
+									let mut phone = raw_phone.to_string();
+									if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+										phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+									}
+
+									if local_name == phone_jid {
+										local_name = phone.clone();
+									}
+
+									let mut role = "";
+									if is_super {
+										role = " (Super Admin)";
+									} else if is_admin {
+										role = " (Admin)";
+									}
+
+									let display = if local_name == phone {
+										format!("{}{}", local_name, role)
+									} else {
+										format!("{}{} - {}", local_name, role, phone)
+									};
+									member_strings.push(display);
+									member_jids.push(jid.to_string());
+									member_admin.push(is_admin || is_super);
+								}
+							}
+						}
+						drop(s);
+						let mut s_mut = state.borrow_mut();
+						s_mut.group_data_members = member_strings;
+						s_mut.group_data_member_jids = member_jids;
+						s_mut.group_data_member_admin = member_admin;
+
+						// Populate Media/Documents/Links
+						s_mut.group_data_media = build_media_messages(&s_mut.messages);
+						s_mut.group_data_documents = build_document_messages(&s_mut.messages);
+						s_mut.group_data_links = build_link_messages(&s_mut.messages);
+						populate_message_list(&parts.group_data_dialog.media_list, &s_mut.group_data_media, |m| {
+							m.display_filename()
+						});
+						populate_message_list(
+							&parts.group_data_dialog.documents_list,
+							&s_mut.group_data_documents,
+							|m| m.display_filename(),
+						);
+						populate_message_list(&parts.group_data_dialog.links_list, &s_mut.group_data_links, |m| {
+							m.first_link().unwrap_or_default()
+						});
+
+						let query_members = parts.group_data_dialog.members_search.get_value().to_lowercase();
+						parts.group_data_dialog.members_list.clear();
+						let mut visible_jids = Vec::new();
+						for (i, member) in s_mut.group_data_members.iter().enumerate() {
+							if query_members.is_empty() || member.to_lowercase().contains(&query_members) {
+								parts.group_data_dialog.members_list.append(member);
+								visible_jids.push(s_mut.group_data_member_jids[i].clone());
+							}
+						}
+						s_mut.group_data_visible_member_jids = visible_jids;
+						drop(s_mut);
+						// The list was just rebuilt from scratch, so there's no
+						// selection yet - reset the label to the no-selection default.
+						parts.group_data_dialog.make_admin_btn.set_label("Make admin");
+					}
+				}
+				"community_subgroups" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let s = state.borrow();
+						let is_relevant =
+							s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown();
+						drop(s);
+						if is_relevant {
+							parts.group_data_dialog.groups_list.clear();
+							let mut subgroup_jids = Vec::new();
+							if let Some(groups) = data.get("groups").and_then(|g| g.as_array()) {
+								for g in groups {
+									let name = g.get("Name").and_then(|n| n.as_str()).unwrap_or("");
+									let is_default =
+										g.get("IsDefaultSubGroup").and_then(|d| d.as_bool()).unwrap_or(false);
+									let label =
+										if is_default { format!("{} (Announcements)", name) } else { name.to_string() };
+									parts.group_data_dialog.groups_list.append(&label);
+									subgroup_jids.push(g.get("JID").and_then(|j| j.as_str()).unwrap_or("").to_string());
+								}
+							}
+							state.borrow_mut().group_data_subgroup_jids = subgroup_jids;
+						}
+					}
+				}
+				"group_updated" => {
+					if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+						let s = state.borrow();
+						let is_relevant =
+							s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown();
+						if is_relevant {
+							let payload = serde_json::json!({
+								"action": "get_group_info",
+								"data": { "jid": jid }
+							});
+							let _ = s.ws_tx.send(payload.to_string());
+						}
+					}
+				}
+				"community_subgroup_joined" => {
+					if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+						// The chat list itself already self-corrects via the
+						// broadcastChats() the backend fires right before this -
+						// but silence otherwise leaves a screen-reader user unable
+						// to tell "joined" apart from "nothing happened yet" (the
+						// failure paths for this same action all announce via the
+						// "error" event; this was the one success path that didn't).
+						let name = state.borrow().contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							&format!("Joined {}.", name),
+						);
+					}
+				}
+				"group_invite_info" => {
+					if let Some(data) = val.get("data") {
+						let message_id = data.get("messageId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let topic = data.get("topic").and_then(|v| v.as_str()).unwrap_or("");
+						let size = data.get("size").and_then(|v| v.as_i64()).unwrap_or(0);
+						let display_name = if name.is_empty() { "This group".to_string() } else { name };
+						let mut body = format!("{display_name}\n{size} member(s)");
+						if !topic.is_empty() {
+							body.push_str(&format!("\n\n{topic}"));
+						}
+						let dlg = MessageDialog::builder(&parts.frame, &body, "Group Invite")
+							.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+							.build();
+						if dlg.show_modal() == wxdragon::id::ID_YES {
+							let _ = state.borrow().ui_tx.send(UiCommand::JoinGroupInvite(message_id));
+						}
+					}
+				}
+				"group_invite_joined" => {
+					let name = val
+						.get("data")
+						.and_then(|d| d.get("jid"))
+						.and_then(|j| j.as_str())
+						.and_then(|jid| state.borrow().contacts.get(jid).cloned())
+						.unwrap_or_else(|| "the group".to_string());
+					live_region::announce(
+						parts.conversations_parts.messages_announcer.clone(),
+						&format!("Joined {}.", name),
+					);
+				}
+				"about_updated" => {
+					if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+						let s = state.borrow();
+						let is_relevant =
+							s.selected_chat.as_deref() == Some(jid) && parts.conversation_data_dialog.dialog.is_shown();
+						if is_relevant {
+							let payload = serde_json::json!({
+								"action": "get_user_info",
+								"data": { "jid": jid }
+							});
+							let _ = s.ws_tx.send(payload.to_string());
+						}
+					}
+				}
+				"user_info" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let status = data.get("status").and_then(|s| s.as_str()).unwrap_or("");
+						let push_name = data.get("pushName").and_then(|p| p.as_str()).unwrap_or("");
+						let full_name = data.get("fullName").and_then(|f| f.as_str()).unwrap_or("");
+
+						let s = state.borrow();
+						if Some(jid.to_string()) == s.selected_chat {
+							let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+							let raw_phone = jid.split('@').next().unwrap_or(jid);
+							let mut phone = raw_phone.to_string();
+							if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
+								phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+							}
+
+							let mut text = format!("Name: {}\nPhone: {}\n", local_name, phone);
+							if !push_name.is_empty() {
+								text.push_str(&format!("WhatsApp Name: {}\n", push_name));
+							} else if !full_name.is_empty() {
+								text.push_str(&format!("WhatsApp Name: {}\n", full_name));
+							} else {
+								text.push_str("WhatsApp Name: Not available\n");
+							}
+
+							if !status.is_empty() {
+								text.push_str(&format!("About/Status: {}\n", status));
+							} else {
+								text.push_str("About/Status: Not set\n");
+							}
+
+							parts.conversation_data_dialog.info_field.set_value(&text);
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								&format!("Conversation data loaded for {}", local_name),
+							);
+						}
+					}
+				}
+				"own_profile" => {
+					if let Some(data) = val.get("data") {
+						let mut s = state.borrow_mut();
+						if let Some(push_name) = data.get("pushName").and_then(|p| p.as_str()) {
+							s.own_push_name = push_name.to_string();
+						}
+						if let Some(about) = data.get("about").and_then(|a| a.as_str()) {
+							s.own_about = about.to_string();
+						}
+						let push_name = s.own_push_name.clone();
+						let about = s.own_about.clone();
+						drop(s);
+						if parts.settings_dialog.dialog.is_shown() {
+							parts.settings_dialog.name_field.set_value(&push_name);
+							parts.settings_dialog.about_field.set_value(&about);
+						}
+					}
+				}
+				"privacy_settings" => {
+					if let Some(data) = val.get("data") {
+						let mut s = state.borrow_mut();
+						for (key, ptr) in [
+							("groupadd", "groupadd"),
+							("last", "last"),
+							("status", "status"),
+							("profile", "profile"),
+							("readreceipts", "readreceipts"),
+							("online", "online"),
+							("calladd", "calladd"),
+						] {
+							if let Some(v) = data.get(key).and_then(|v| v.as_str()) {
+								s.privacy_settings.insert(ptr.to_string(), v.to_string());
+							}
+						}
+						s.privacy_settings_loaded = true;
+						let privacy_settings = s.privacy_settings.clone();
+						drop(s);
+						if parts.settings_dialog.dialog.is_shown() {
+							use crate::ui::settings_dialog::*;
+							parts.settings_dialog.ok_btn.enable(true);
+							let get = |k: &str| privacy_settings.get(k).map(|s| s.as_str()).unwrap_or("all");
+							set_combo_from_value(
+								&parts.settings_dialog.last_seen_combo,
+								VISIBILITY_CHOICES,
+								get("last"),
+							);
+							set_combo_from_value(
+								&parts.settings_dialog.profile_photo_combo,
+								VISIBILITY_CHOICES,
+								get("profile"),
+							);
+							set_combo_from_value(
+								&parts.settings_dialog.about_privacy_combo,
+								VISIBILITY_CHOICES,
+								get("status"),
+							);
+							set_combo_from_value(
+								&parts.settings_dialog.read_receipts_combo,
+								READ_RECEIPTS_CHOICES,
+								get("readreceipts"),
+							);
+							set_combo_from_value(
+								&parts.settings_dialog.groups_combo,
+								VISIBILITY_CHOICES,
+								get("groupadd"),
+							);
+							set_combo_from_value(&parts.settings_dialog.calls_combo, CALL_CHOICES, get("calladd"));
+							set_combo_from_value(&parts.settings_dialog.online_combo, ONLINE_CHOICES, get("online"));
+						}
+					}
+				}
+				"message_status" | "receipt" => {
+					if let Some(data) = val.get("data") {
+						let chat_jid =
+							data.get("jid").or_else(|| data.get("chat_jid")).and_then(|j| j.as_str()).unwrap_or("");
+						let raw_status =
+							data.get("status").or_else(|| data.get("type")).and_then(|s| s.as_str()).unwrap_or("");
+
+						let mut msg_ids = Vec::new();
+						if let Some(ids) = data.get("message_ids").and_then(|i| i.as_array()) {
+							for id_val in ids {
+								if let Some(id_str) = id_val.as_str() {
+									msg_ids.push(id_str.to_string());
+								}
+							}
+						} else if let Some(id_str) = data.get("message_id").and_then(|i| i.as_str()) {
+							msg_ids.push(id_str.to_string());
+						}
+
+						// Normalize JID: strip :device suffix so "1234:0@s.whatsapp.net"
+						// compares equal to "1234@s.whatsapp.net".
+						let norm_jid_str = |jid: &str| -> String {
+							let no_device = jid.split(':').next().unwrap_or(jid);
+							if no_device.contains('@') {
+								no_device.to_string()
+							} else {
+								jid.split('@').next().unwrap_or(jid).to_string()
+							}
+						};
+						let norm_incoming = norm_jid_str(chat_jid);
+
+						let mut s = state.borrow_mut();
+						let is_match = if let Some(ref sel) = s.selected_chat {
+							norm_incoming == norm_jid_str(sel)
+						} else {
+							false
+						};
+
+						if is_match {
+							let is_group = chat_jid.ends_with("@g.us");
+							let norm_status = match raw_status {
+								"read-self" => "read",
+								"sender" => "sent",
+								"inactive" => "delivered",
+								"" => "delivered",
+								other => other,
+							};
+							let receipt_ts = data.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
+
+							let mut any_updated = false;
+							for target_id in &msg_ids {
+								let mut found = false;
+								for msg in s.messages.iter_mut() {
+									if msg.id == *target_id {
+										if get_status_rank(norm_status) >= get_status_rank(&msg.status) {
+											msg.status = norm_status.to_string();
+											if receipt_ts > 0 {
+												match norm_status {
+													"delivered" => {
+														if msg.delivered_at == 0 {
+															msg.delivered_at = receipt_ts;
+														}
+													}
+													"read" => {
+														if msg.read_at == 0 {
+															msg.read_at = receipt_ts;
+														}
+													}
+													"played" => {
+														if msg.played_at == 0 {
+															msg.played_at = receipt_ts;
+														}
+													}
+													_ => {}
+												}
+											}
+										}
+										found = true;
+										any_updated = true;
+										break;
+									}
+								}
+								if !found {
+									s.pending_receipts.insert(target_id.clone(), norm_status.to_string());
+								}
+							}
+							if any_updated {
+								// Update display items in-place instead of full O(n) regrouping
+								// Collect status updates first to avoid simultaneous borrows
+								let status_updates: Vec<(String, String, i64, i64, i64)> = s
+									.messages
+									.iter()
+									.filter(|msg| msg_ids.contains(&msg.id))
+									.map(|msg| {
+										(
+											msg.id.clone(),
+											msg.status.clone(),
+											msg.delivered_at,
+											msg.read_at,
+											msg.played_at,
+										)
+									})
+									.collect();
+								for (upd_id, upd_status, upd_del, upd_read, upd_played) in &status_updates {
+									for item in s.display_items.iter_mut() {
+										match item {
+											whantv::DisplayItem::Single(m) if m.id == *upd_id => {
+												m.status = upd_status.clone();
+												m.delivered_at = *upd_del;
+												m.read_at = *upd_read;
+												m.played_at = *upd_played;
+												break;
+											}
+											whantv::DisplayItem::Album { messages, .. } => {
+												if let Some(am) = messages.iter_mut().find(|am| am.id == *upd_id) {
+													am.status = upd_status.clone();
+													am.delivered_at = *upd_del;
+													am.read_at = *upd_read;
+													am.played_at = *upd_played;
+													break;
+												}
+											}
+											_ => {}
+										}
+									}
+								}
+								for (di, item) in s.display_items.iter().enumerate() {
+									let contains = match item {
+										whantv::DisplayItem::Single(m) => msg_ids.contains(&m.id),
+										whantv::DisplayItem::Album { messages, .. } => {
+											messages.iter().any(|m| msg_ids.contains(&m.id))
+										}
+									};
+									if contains {
+										parts
+											.conversations_parts
+											.messages_list
+											.set_string(di as u32, &item.format_display(is_group));
+									}
+								}
+							}
+							if any_updated && (norm_status == "sent" || norm_status == "delivered") {
+								// A reconnect or history sync can flush receipts for a
+								// whole backlog of older outgoing messages at once; only
+								// ding for messages we actually just sent, not every
+								// backlogged ID that happens to be getting acked now.
+								let now_ts = std::time::SystemTime::now()
+									.duration_since(std::time::UNIX_EPOCH)
+									.unwrap_or_default()
+									.as_secs() as i64;
+								let mut should_play = false;
+								for target_id in &msg_ids {
+									if s.played_sent_sounds.insert(target_id.clone()) {
+										let is_recent =
+											s.messages.iter().any(|m| m.id == *target_id && now_ts - m.sent_at < 20);
+										if is_recent {
+											should_play = true;
+										}
+									}
+								}
+								if should_play {
+									play_notification_sound(
+										NotificationSound::MessageSent,
+										s.settings.sounds_enabled,
+										s.settings.output_device_name.clone(),
+									);
+								}
+							}
+						}
+					}
+				}
+				"message_edited" => {
+					if let Some(data) = val.get("data") {
+						let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+						let new_text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+						let edited_at = data.get("edited_at").and_then(|e| e.as_i64()).unwrap_or(0);
+
+						let norm_jid_edit = |jid: &str| -> String {
+							if let Some((user, server)) = jid.split_once('@') {
+								let base_user =
+									user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+								format!("{}@{}", base_user, server)
+							} else {
+								jid.to_string()
+							}
+						};
+
+						let mut s = state.borrow_mut();
+						let is_match = if let Some(ref sel) = s.selected_chat {
+							norm_jid_edit(chat_jid) == norm_jid_edit(sel)
+						} else {
+							false
+						};
+
+						if is_match {
+							let is_group = chat_jid.ends_with("@g.us");
+							let mut changed = false;
+							for msg in s.messages.iter_mut() {
+								if msg.id == target_id {
+									msg.text = new_text.to_string();
+									msg.is_edited = true;
+									msg.edited_at = edited_at;
+									changed = true;
+									break;
+								}
+							}
+							if changed {
+								for msg in s.messages.iter_mut() {
+									if msg.quoted_id == target_id {
+										msg.quoted_text = new_text.to_string();
+									}
+								}
+								// Update display_items in-place instead of full O(n) regrouping
+								for item in s.display_items.iter_mut() {
+									match item {
+										whantv::DisplayItem::Single(m) if m.id == target_id => {
+											m.text = new_text.to_string();
+											m.is_edited = true;
+											m.edited_at = edited_at;
+											break;
+										}
+										whantv::DisplayItem::Album { messages, .. } => {
+											if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
+												am.text = new_text.to_string();
+												am.is_edited = true;
+												am.edited_at = edited_at;
+												break;
+											}
+										}
+										_ => {}
+									}
+								}
+								for item in s.display_items.iter_mut() {
+									match item {
+										whantv::DisplayItem::Single(m) if m.quoted_id == target_id => {
+											m.quoted_text = new_text.to_string();
+										}
+										whantv::DisplayItem::Album { messages, .. } => {
+											for am in messages.iter_mut() {
+												if am.quoted_id == target_id {
+													am.quoted_text = new_text.to_string();
+												}
+											}
+										}
+										_ => {}
+									}
+								}
+								for (di, item) in s.display_items.iter().enumerate() {
+									let contains = match item {
+										whantv::DisplayItem::Single(m) => m.id == target_id || m.quoted_id == target_id,
+										whantv::DisplayItem::Album { messages, .. } => {
+											messages.iter().any(|m| m.id == target_id || m.quoted_id == target_id)
+										}
+									};
+									if contains {
+										let updated_display = item.format_display(is_group);
+										parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
+										live_region::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											&format!("Message edited: {}", updated_display),
+										);
+										break;
+									}
+								}
+							}
+						}
+					}
+				}
+				"message_starred" => {
+					if let Some(data) = val.get("data") {
+						let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+						let starred = data.get("starred").and_then(|s| s.as_bool()).unwrap_or(false);
+
+						let norm_jid_star = |jid: &str| -> String {
+							if let Some((user, server)) = jid.split_once('@') {
+								let base_user =
+									user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+								format!("{}@{}", base_user, server)
+							} else {
+								jid.to_string()
+							}
+						};
+
+						let mut s = state.borrow_mut();
+						let is_match = if let Some(ref sel) = s.selected_chat {
+							norm_jid_star(chat_jid) == norm_jid_star(sel)
+						} else {
+							false
+						};
+
+						if is_match {
+							let is_group = chat_jid.ends_with("@g.us");
+							for msg in s.messages.iter_mut() {
+								if msg.id == target_id {
+									msg.starred = starred;
+									break;
+								}
+							}
+							for item in s.display_items.iter_mut() {
+								if let whantv::DisplayItem::Single(m) = item {
+									if m.id == target_id {
+										m.starred = starred;
+										break;
+									}
+								}
+							}
+							for (di, item) in s.display_items.iter().enumerate() {
+								let matches = matches!(item, whantv::DisplayItem::Single(m) if m.id == target_id);
+								if matches {
+									let updated_display = item.format_display(is_group);
+									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										if starred { "Message starred." } else { "Message unstarred." },
+									);
+									break;
+								}
+							}
+						}
+						if s.active_tab == 2 {
+							let payload = serde_json::json!({ "action": "get_starred_messages" });
+							let _ = s.ws_tx.send(payload.to_string());
+						}
+					}
+				}
+				"message_reaction" => {
+					if let Some(data) = val.get("data") {
+						let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+						let reactor = data.get("reactor").and_then(|r| r.as_str()).unwrap_or("");
+						let emoji = data.get("emoji").and_then(|e| e.as_str()).unwrap_or("");
+						let reactor_name_val = data.get("reactor_name").and_then(|n| n.as_str()).unwrap_or("");
+
+						let norm_jid_react = |jid: &str| -> String {
+							let no_device = jid.split(':').next().unwrap_or(jid);
+							if no_device.contains('@') {
+								no_device.to_string()
+							} else {
+								jid.split('@').next().unwrap_or(jid).to_string()
+							}
+						};
+
+						let mut s = state.borrow_mut();
+						let is_match = if let Some(ref sel) = s.selected_chat {
+							norm_jid_react(chat_jid) == norm_jid_react(sel)
+						} else {
+							false
+						};
+
+						if is_match {
+							let is_group = chat_jid.ends_with("@g.us");
+
+							let is_own_reaction =
+								reactor == "me" || reactor_name_val == "You" || reactor_name_val == "me";
+
+							let resolved_name = if is_own_reaction {
+								"You".to_string()
+							} else if !reactor_name_val.is_empty() && !reactor_name_val.contains('@') {
+								reactor_name_val.to_string()
+							} else {
+								s.contacts
+									.get(norm_jid_react(reactor).as_str())
+									.or_else(|| s.contacts.get(reactor))
+									.cloned()
+									.unwrap_or_else(|| "Contact".to_string())
+							};
+
+							for msg in s.messages.iter_mut() {
+								if msg.id == target_id {
+									if emoji.is_empty() {
+										msg.reactions.retain(|r| {
+											if is_own_reaction {
+												r.reactor_name != "You"
+													&& r.reactor_jid != "me" && r.reactor_name != "me"
+											} else {
+												r.reactor_jid != reactor && r.reactor_name != resolved_name
+											}
+										});
+									} else {
+										let mut found = false;
+										for r in msg.reactions.iter_mut() {
+											let r_is_own = r.reactor_name == "You" || r.reactor_jid == "me";
+											if (is_own_reaction && r_is_own)
+												|| (!is_own_reaction
+													&& (r.reactor_jid == reactor || r.reactor_name == resolved_name))
+											{
+												r.emoji = emoji.to_string();
+												r.reactor_name = resolved_name.clone();
+												found = true;
+												break;
+											}
+										}
+										if !found {
+											msg.reactions.push(whantv::ChatReaction {
+												reactor_jid: if is_own_reaction {
+													"me".to_string()
+												} else {
+													reactor.to_string()
+												},
+												reactor_name: resolved_name.clone(),
+												emoji: emoji.to_string(),
+												timestamp: std::time::SystemTime::now()
+													.duration_since(std::time::UNIX_EPOCH)
+													.unwrap_or_default()
+													.as_secs() as i64,
+											});
+										}
+									}
+									break;
+								}
+							}
+
+							// Sync reactions into display_items in-place instead of full O(n) regrouping
+							let updated_reactions =
+								s.messages.iter().find(|m| m.id == target_id).map(|m| m.reactions.clone());
+							if let Some(new_reactions) = updated_reactions {
+								for item in s.display_items.iter_mut() {
+									match item {
+										whantv::DisplayItem::Single(m) if m.id == target_id => {
+											m.reactions = new_reactions.clone();
+											break;
+										}
+										whantv::DisplayItem::Album { messages, .. } => {
+											if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
+												am.reactions = new_reactions.clone();
+												break;
+											}
+										}
+										_ => {}
+									}
+								}
+							}
+							for (di, item) in s.display_items.iter().enumerate() {
+								let contains = match item {
+									whantv::DisplayItem::Single(m) => m.id == target_id,
+									whantv::DisplayItem::Album { messages, .. } => {
+										messages.iter().any(|m| m.id == target_id)
+									}
+								};
+								if contains {
+									parts
+										.conversations_parts
+										.messages_list
+										.set_string(di as u32, &item.format_display(is_group));
+									let announce_msg = if emoji.is_empty() {
+										format!("Reaction removed by {}", resolved_name)
+									} else {
+										format!("{} reacted with {}", resolved_name, emoji)
+									};
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										&announce_msg,
+									);
+									break;
+								}
+							}
+						} else if !emoji.is_empty() {
+							// Reaction on a chat that isn't currently open - there's no
+							// loaded ChatMessage to update, just surface it the way
+							// WhatsApp itself does: a notification naming the reactor and
+							// what they reacted to.
+							let is_own_reaction =
+								reactor == "me" || reactor_name_val == "You" || reactor_name_val == "me";
+							if !is_own_reaction {
+								let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+								if !text.is_empty() {
+									let resolved_name =
+										if !reactor_name_val.is_empty() && !reactor_name_val.contains('@') {
+											reactor_name_val.to_string()
+										} else {
+											s.contacts
+												.get(norm_jid_react(reactor).as_str())
+												.or_else(|| s.contacts.get(reactor))
+												.cloned()
+												.unwrap_or_else(|| "Contact".to_string())
+										};
+									let alert = whantv::incoming_alert(
+										s.muted_jids.contains(chat_jid),
+										s.archived_jids.contains(chat_jid),
+										s.settings.archived_alert(chat_jid),
+									);
+									if alert.sound {
+										play_notification_sound(
+											NotificationSound::MessageBackground,
+											s.settings.sounds_enabled,
+											s.settings.output_device_name.clone(),
+										);
+									}
+									if alert.toast && s.settings.notifications_enabled {
+										if let Some(n) = show_toast_notification(
+											&resolved_name,
+											&format!(
+												"Reacted {} to \"{}\"",
+												emoji,
+												whantv::friendly_preview_text(text)
+											),
+										) {
+											s.active_notifications.entry(chat_jid.to_string()).or_default().push(n);
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				"copied_album_to_clipboard" => {
+					let ann_text = if let Some(data) = val.get("data") {
+						let msg_ids: Vec<String> = data
+							.get("message_ids")
+							.and_then(|ids| ids.as_array())
+							.map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+							.unwrap_or_default();
+
+						let mut s = state.borrow_mut();
+						let mut is_voice = false;
+						for id in &msg_ids {
+							s.pending_copy_announcements.remove(id);
+							if let Some(m) = s.messages.iter().find(|msg| msg.id == *id) {
+								if m.is_audio
+									|| m.media_type == "voice" || m.media_type == "audio"
+									|| m.text.starts_with("[Voice Message]")
+									|| m.text.starts_with("[Audio]")
+								{
+									is_voice = true;
+								}
+							}
+						}
+						if is_voice {
+							"Copied voice message to clipboard.".to_string()
+						} else if msg_ids.len() <= 1 {
+							"Copied file to clipboard.".to_string()
+						} else {
+							format!("Copied {} files to clipboard.", msg_ids.len())
+						}
+					} else {
+						"Copied file to clipboard.".to_string()
+					};
+
+					live_region::announce(parts.conversations_parts.messages_announcer.clone(), &ann_text);
+				}
+				"media_downloaded" => {
+					if let Some(data) = val.get("data") {
+						let msg_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("").to_string();
+						let mut path = data.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+						let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("").to_string();
+						let clean_filename = ChatMessage::sanitize_filename(&filename);
+
+						let clean_path = ChatMessage::sanitize_filename(&path);
+						if clean_path != path && std::path::Path::new(&path).exists() {
+							if std::fs::rename(&path, &clean_path).is_ok() {
+								path = clean_path;
+							}
+						}
+
+						let mut s = state.borrow_mut();
+						s.downloads_in_progress.remove(&msg_id);
+						if let Some(msg) = s.messages.iter_mut().find(|m| m.id == msg_id) {
+							msg.media_path = path.clone();
+							if !clean_filename.is_empty() {
+								msg.media_filename = clean_filename.clone();
+							}
+						}
+						// Update display_items in-place instead of full O(n) regrouping
+						for item in s.display_items.iter_mut() {
+							match item {
+								whantv::DisplayItem::Single(m) if m.id == msg_id => {
+									m.media_path = path.clone();
+									if !clean_filename.is_empty() {
+										m.media_filename = clean_filename.clone();
+									}
+									break;
+								}
+								whantv::DisplayItem::Album { messages, .. } => {
+									if let Some(am) = messages.iter_mut().find(|am| am.id == msg_id) {
+										am.media_path = path.clone();
+										if !clean_filename.is_empty() {
+											am.media_filename = clean_filename.clone();
+										}
+										break;
+									}
+								}
+								_ => {}
+							}
+						}
+
+						let download_had_focus = parts.conversations_parts.action_download_btn.has_focus();
+						parts.conversations_parts.conversation_panel.freeze();
+						if update_action_buttons(&s, &parts.conversations_parts) {
+							parts.conversations_parts.action_panel.layout();
+						}
+						parts.conversations_parts.conversation_panel.thaw();
+
+						if download_had_focus && !parts.conversations_parts.action_download_btn.is_shown() {
+							if parts.conversations_parts.action_open_btn.is_shown() {
+								parts.conversations_parts.action_open_btn.set_focus();
+							} else if parts.conversations_parts.action_save_as_btn.is_shown() {
+								parts.conversations_parts.action_save_as_btn.set_focus();
+							}
+						}
+
+						let is_copy_pending = s.pending_copy_announcements.contains(&msg_id);
+						let media_type = data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("");
+						if media_type != "voice" && !is_copy_pending {
+							let announce_name = if filename.is_empty() { "File".to_string() } else { filename };
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								&format!("{} downloaded", announce_name),
+							);
+						}
+					}
+				}
+				"media_download_progress" => {
+					if let Some(data) = val.get("data") {
+						let msg_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("").to_string();
+						let percent = data.get("percent").and_then(|p| p.as_i64()).unwrap_or(0);
+						let mut s = state.borrow_mut();
+						let prev = s.downloads_in_progress.insert(msg_id.clone(), percent);
+						parts.conversations_parts.conversation_panel.freeze();
+						if update_action_buttons(&s, &parts.conversations_parts) {
+							parts.conversations_parts.action_panel.layout();
+						}
+						parts.conversations_parts.conversation_panel.thaw();
+						for milestone in [25, 50, 75] {
+							if prev.unwrap_or(0) < milestone && percent >= milestone {
+								live_region::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									&format!("Download {}%", percent),
+								);
+								break;
+							}
+						}
+					}
+				}
+				"media_download_cancelled" | "media_download_failed" => {
+					if let Some(data) = val.get("data") {
+						let msg_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("").to_string();
+						let mut s = state.borrow_mut();
+						s.downloads_in_progress.remove(&msg_id);
+						parts.conversations_parts.conversation_panel.freeze();
+						if update_action_buttons(&s, &parts.conversations_parts) {
+							parts.conversations_parts.action_panel.layout();
+						}
+						parts.conversations_parts.conversation_panel.thaw();
+						let announcement = if t == "media_download_cancelled" {
+							"Download cancelled".to_string()
+						} else {
+							let err = data.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+							format!("Download failed: {}", err)
+						};
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &announcement);
+						parts.conversations_parts.play_voice_btn.set_label("Play voice message");
+					}
+				}
+				"media_saved" => {
+					if let Some(data) = val.get("data") {
+						let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							&format!("File saved to {}", path),
+						);
+					}
+				}
+				"play_audio" => {
+					if let Some(data) = val.get("data") {
+						if let Some(path) = data.get("path").and_then(|p| p.as_str()) {
+							// Backend sends "message_id", not "id"
+							let msg_id = data
+								.get("message_id")
+								.or_else(|| data.get("id"))
+								.and_then(|i| i.as_str())
+								.map(|s| s.to_string());
+							eprintln!(
+								"[LOG UI] Playing voice note: {} from path: {}",
+								msg_id.as_deref().unwrap_or(""),
+								path
+							);
+							let mut s = state.borrow_mut();
+							// Keep playing_msg_id from the UI-side set (which used the correct msg.id),
+							// only update it if the server echoes a non-empty id
+							if let Some(ref id) = msg_id {
+								if !id.is_empty() {
+									s.playing_msg_id = Some(id.clone());
+								}
+							}
+							// The user may have hit "pause" while this was still loading
+							// (playing_msg_id is set immediately on click, before this
+							// response arrives) - honor that instead of always starting
+							// playback out from under them.
+							let start_paused = s.is_audio_paused;
+							s.audio_elapsed_secs = 0.0;
+							s.audio_start_instant = None;
+							s.audio_path = Some(path.to_string());
+							if let Some(ref sink) = s.audio_sink {
+								sink.stop();
+							}
+							s.audio_sink = None;
+
+							// Duration strategy:
+							// 1. Count samples via rodio (works for WAV/FLAC/MP3 but not opus)
+							// 2. Parse "M:SS" from the message text e.g. "[Voice Message] (0:23)"
+							// 3. Count samples by consuming the decoder (always works, small files)
+							s.audio_total_secs = 0.0;
+
+							// Try rodio total_duration first (fast, works for some formats)
+							if let Ok(probe_file) = File::open(path) {
+								if let Ok(probe_dec) = Decoder::new(BufReader::new(probe_file)) {
+									use rodio::Source;
+									if let Some(dur) = probe_dec.total_duration() {
+										s.audio_total_secs = dur.as_secs_f32();
+									}
+								}
+							}
+
+							// Parse duration from message text: "[Voice Message] (M:SS)" or "[Audio] (M:SS)"
+							if s.audio_total_secs == 0.0 {
+								let playing_id = s.playing_msg_id.clone();
+								if let Some(ref pid) = playing_id {
+									if let Some(msg) = s.messages.iter().find(|m| &m.id == pid) {
+										let text = &msg.text;
+										// Find "(M:SS)" pattern inside the tag
+										if let Some(open) = text.find('(') {
+											if let Some(close) = text[open..].find(')') {
+												let inner = &text[open + 1..open + close];
+												// parse "M:SS"
+												let parts_dur: Vec<&str> = inner.split(':').collect();
+												if parts_dur.len() == 2 {
+													if let (Ok(m), Ok(ss)) =
+														(parts_dur[0].parse::<f32>(), parts_dur[1].parse::<f32>())
+													{
+														s.audio_total_secs = m * 60.0 + ss;
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+
+							eprintln!("[LOG UI] Audio total duration: {}s", s.audio_total_secs);
+
+							ensure_audio_stream(&mut s);
+							let mut played = false;
+							if let Some(ref stream_handle) = s.audio_stream {
+								let sink = Player::connect_new(&stream_handle.mixer());
+								if let Ok(file) = File::open(path) {
+									if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+										sink.append(decoder.wsola(s.audio_speed));
+										if start_paused {
+											sink.pause();
+										} else {
+											sink.play();
+										}
+										s.audio_sink = Some(sink);
+										played = true;
+										s.audio_start_instant =
+											if start_paused { None } else { Some(std::time::Instant::now()) };
+										parts.conversations_parts.play_voice_btn.set_label(if start_paused {
+											"Play voice message"
+										} else {
+											"Pause voice message"
+										});
+									} else if let Some(opus_buf) = decode_opus_file(path) {
+										sink.append(opus_buf.wsola(s.audio_speed));
+										if start_paused {
+											sink.pause();
+										} else {
+											sink.play();
+										}
+										s.audio_sink = Some(sink);
+										played = true;
+										s.audio_start_instant =
+											if start_paused { None } else { Some(std::time::Instant::now()) };
+										parts.conversations_parts.play_voice_btn.set_label(if start_paused {
+											"Play voice message"
+										} else {
+											"Pause voice message"
+										});
+									}
+								}
+							}
+							if !played {
+								use std::io::Write;
+								let path_escaped = path.replace("'", "''");
+								if s.audio_stdin.is_none() {
+									let ps_script = r#"
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Media.Playback.MediaPlayer, Windows.Media, ContentType=WindowsRuntime]
+$p = New-Object Windows.Media.Playback.MediaPlayer
+while ($true) {
+    $line = [System.Console]::ReadLine()
+    if ($null -eq $line -or $line -eq "EXIT") { break }
+    if ($line.StartsWith("PLAY ")) {
+        $path = $line.Substring(5)
+        $p.Source = [Windows.Media.Core.MediaSource]::CreateFromUri([Uri]$path)
+        $p.Play()
+    } elseif ($line -eq "PAUSE") {
+        $p.Pause()
+    } elseif ($line -eq "RESUME") {
+        $p.Play()
+    } elseif ($line.StartsWith("SEEK ")) {
+        $sec = [double]($line.Substring(5))
+        $p.PlaybackSession.Position = [TimeSpan]::FromSeconds($sec)
+    }
+}
+"#;
+									if let Ok(mut child) = std::process::Command::new("powershell")
+										.args(&["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script])
+										.stdin(std::process::Stdio::piped())
+										.creation_flags(0x08000000) // CREATE_NO_WINDOW
+										.spawn()
+									{
+										s.audio_stdin = child.stdin.take();
+										s.audio_process = Some(child);
+									}
+								}
+								if let Some(ref mut stdin) = s.audio_stdin {
+									let _ = writeln!(stdin, "PLAY {}", path_escaped);
+									if start_paused {
+										let _ = writeln!(stdin, "PAUSE");
+									}
+									let _ = stdin.flush();
+									s.audio_start_instant =
+										if start_paused { None } else { Some(std::time::Instant::now()) };
+									parts.conversations_parts.play_voice_btn.set_label(if start_paused {
+										"Play voice message"
+									} else {
+										"Pause voice message"
+									});
+								}
+							}
+							s.is_audio_paused = start_paused;
+							// Show slider UI and speed button
+							parts.conversations_parts.audio_slider.show(true);
+							parts.conversations_parts.audio_speed_btn.show(true);
+							parts.conversations_parts.audio_progress_label.show(false);
+							let total = s.audio_total_secs;
+							let max_sec = (total as i32).max(1);
+							parts.conversations_parts.audio_slider.set_range(0, max_sec);
+							parts.conversations_parts.audio_slider.set_value(0);
+							let fmt_dur = |v: f32| {
+								if v > 0.0 {
+									format!("{}:{:02}", v as u32 / 60, v as u32 % 60)
+								} else {
+									"?:??".to_string()
+								}
+							};
+							parts
+								.conversations_parts
+								.audio_progress_label
+								.set_label(&format!("0:00 / {}", fmt_dur(total)));
+							parts.conversations_parts.conversation_panel.layout();
+						}
+					}
+				}
+				"attachment_uploading" => {
+					// Percentage-level upload progress. The message row itself
+					// (text/status) is kept in sync by the "message" event, which
+					// the backend sends immediately with a real id and again on
+					// completion/failure; this only drives the live announcement
+					// and the (usually already-closed) attachment dialog's label.
+					if let Some(data) = val.get("data") {
+						let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("file");
+						let percent = data.get("percent").and_then(|p| p.as_i64());
+						let msg = if let Some(p) = percent {
+							format!("Uploading {} ({}%)...", filename, p)
+						} else {
+							format!("Uploading {}...", filename)
+						};
+						parts.attachment_dialog.attachment_info_label.set_label(&msg);
+						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+					}
+				}
+				"attachment_sent" => {
+					// The message row itself is already updated to "sent" by its
+					// own "message" event, which the backend always sends first.
+					parts.attachment_dialog.attachment_info_label.set_label("");
+				}
+				_ => {}
+			}
+		}
+	}
+}

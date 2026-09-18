@@ -1,5 +1,4 @@
 use std::{
-	io::Read,
 	sync::atomic::{AtomicU64, Ordering},
 	time::{SystemTime, UNIX_EPOCH},
 };
