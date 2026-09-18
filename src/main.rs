@@ -2,8 +2,6 @@
 mod types;
 pub use types::*;
 
-use crate::types::*;
-
 mod audio;
 pub use audio::*;
 mod audio_devices;
@@ -26,18 +24,18 @@ use std::{
 	rc::Rc,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicBool, AtomicU64, Ordering},
+		atomic::{AtomicBool, Ordering},
 		mpsc,
 	},
 	thread,
-	time::{Duration, SystemTime, UNIX_EPOCH},
+	time::Duration,
 };
 
 use interprocess::{
 	TryClone,
 	local_socket::{GenericNamespaced, ToNsName, prelude::*},
 };
-use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
+use rodio::{Decoder, MixerDeviceSink, Player};
 use rodio_wsola::WsolaSourceExt;
 use whantv::ChatMessage;
 use wxdragon::prelude::*;
@@ -47,12 +45,9 @@ use crate::{
 	ui_wake::{ID_UI_WAKE, UiCommandSender, UiWaker},
 };
 
-
-
 /// Opens a playback stream on the user's preferred output device (Settings ->
 /// Input & Output), falling back to the system default if none is set or the
 /// named device is no longer present.
-
 
 /// Makes sure `s.audio_stream` is a live stream on whatever device the
 /// user's output preference currently resolves to, (re)opening it if it's
@@ -65,15 +60,6 @@ use crate::{
 /// speakers) come back. Without this re-check, every sound the app plays
 /// through `audio_stream` (call-ended tone, voice message playback) would
 /// stay dead until the app was restarted.
-
-
-
-
-
-
-
-
-
 
 /// Shows a native desktop notification. Must be called on the wx main/GUI
 /// thread - wx (and the underlying WinRT toast COM calls) aren't thread-safe.
@@ -113,7 +99,6 @@ fn show_toast_notification(title: &str, body: &str) -> Option<wxdragon::prelude:
 /// Concatenates the PCM audio from one or more same-format WAV segments
 /// (produced across a recording's pause/resume cycles) into a single WAV
 /// file at `out_path`.
-
 
 struct AppState {
 	settings: crate::settings::Settings,
@@ -1518,7 +1503,6 @@ fn request_backend_shutdown(pipe_id: &str) {
 /// Perform a soft seek by stopping the current sink and re-opening the file
 /// from `target_secs`. Returns the new Sink if successful.
 
-
 fn get_status_rank(s: &str) -> i32 {
 	match s {
 		"pending" => 0,
@@ -1908,6 +1892,24 @@ fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 		&s.settings.archived_alert_levels,
 	);
 	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), &whantv::tray_tooltip_text(unread));
+}
+
+/// Re-enumerates devices (same reasoning as Settings' combos: WASAPI device
+/// lists can change while the app is running) into the call window's
+/// mic/speaker pickers and shows them, once a call has actually connected.
+fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
+	use crate::ui::settings_dialog::set_device_combo;
+	set_device_combo(
+		&parts.call_parts.input_device_combo,
+		&crate::audio_devices::input_device_names(),
+		s.settings.input_device_name.as_deref(),
+	);
+	set_device_combo(
+		&parts.call_parts.output_device_combo,
+		&crate::audio_devices::output_device_names(),
+		s.settings.output_device_name.as_deref(),
+	);
+	parts.call_parts.devices_panel.show(true);
 }
 
 /// Drops the "N unread messages" divider from `jid`'s message list right
@@ -2319,6 +2321,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 										parts.call_parts.mute_btn.show(true);
 										parts.call_parts.leave_btn.show(true);
 										parts.call_parts.add_participant_btn.show(true);
+										show_call_device_combos(&s, parts);
 										parts.call_parts.frame.show(true);
 									} else {
 										live_region::announce(
@@ -2514,6 +2517,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 									parts.call_parts.mute_btn.show(false);
 									parts.call_parts.leave_btn.show(false);
 									parts.call_parts.add_participant_btn.show(false);
+									parts.call_parts.devices_panel.show(false);
 									// Pop the call dialog to the front the same way a second
 									// launch instance activates the main window (see
 									// UiCommand::ActivateWindow) - just calling show(true) is not
@@ -3401,7 +3405,11 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 														.insert(&divider.format_display(is_group), di_insert_at);
 												}
 											}
-											play_notification_sound(NotificationSound::MessageCurrent, sounds_enabled);
+											play_notification_sound(
+												NotificationSound::MessageCurrent,
+												sounds_enabled,
+												s.settings.output_device_name.clone(),
+											);
 										}
 									}
 								} else {
@@ -3424,6 +3432,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												play_notification_sound(
 													NotificationSound::MessageBackground,
 													s.settings.sounds_enabled,
+													s.settings.output_device_name.clone(),
 												);
 											}
 											if alert.toast && s.settings.notifications_enabled {
@@ -5067,6 +5076,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 											play_notification_sound(
 												NotificationSound::MessageSent,
 												s.settings.sounds_enabled,
+												s.settings.output_device_name.clone(),
 											);
 										}
 									}
@@ -5401,6 +5411,7 @@ fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 												play_notification_sound(
 													NotificationSound::MessageBackground,
 													s.settings.sounds_enabled,
+													s.settings.output_device_name.clone(),
 												);
 											}
 											if alert.toast && s.settings.notifications_enabled {
@@ -6357,6 +6368,7 @@ while ($true) {
 				is_paused,
 				jid_opt,
 				sounds_enabled,
+				output_device_name,
 				ws_tx,
 				reply_id,
 				reply_sender,
@@ -6386,6 +6398,7 @@ while ($true) {
 					s.is_voice_paused,
 					s.selected_chat.clone(),
 					s.settings.sounds_enabled,
+					s.settings.output_device_name.clone(),
 					s.ws_tx.clone(),
 					reply_id,
 					reply_sender,
@@ -6473,7 +6486,7 @@ while ($true) {
 						let _ = ws_tx.send(payload.to_string());
 					});
 
-					play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled);
+					play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled, output_device_name);
 					live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
 				}
 			}
@@ -7155,6 +7168,33 @@ while ($true) {
 				parts.call_parts.mute_btn.set_label(if !current { "Unmute microphone" } else { "Mute microphone" });
 				live_region::announce(parts.conversations_parts.messages_announcer.clone(), status);
 			}
+		}
+		UiCommand::SetCallInputDevice(name) => {
+			let mut s = state.borrow_mut();
+			if let Some(audio) = &s.active_call_audio {
+				audio.set_input_device(name.clone());
+			}
+			// Remembered as the regular setting too, so the next call starts
+			// on the device just picked mid-call instead of reverting.
+			s.settings.input_device_name = name;
+			s.settings.save();
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Microphone changed.");
+		}
+		UiCommand::SetCallOutputDevice(name) => {
+			let mut s = state.borrow_mut();
+			if let Some(audio) = &s.active_call_audio {
+				audio.set_output_device(name.clone());
+			}
+			if name != s.settings.output_device_name {
+				s.settings.output_device_name = name;
+				// Same cache-invalidation as the Settings dialog's Save
+				// handler: drop the cached voice-message/notification
+				// playback stream so it reopens on the newly selected
+				// device next time something plays.
+				s.audio_stream = None;
+			}
+			s.settings.save();
+			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Speaker changed.");
 		}
 		UiCommand::PrepareContactPicker(mode) => {
 			if mode == ContactPickerMode::AddCallParticipant && state.borrow().active_call_id.is_none() {
@@ -8019,9 +8059,6 @@ while ($true) {
 /// it drops only the one ambiguous packet at that seam and keeps going,
 /// instead of losing everything after it.
 
-
-
-
 #[cfg(test)]
 mod call_participant_tests {
 	use super::*;
@@ -8054,5 +8091,3 @@ mod call_participant_tests {
 		assert!(call_participant_changes(&new, &new).is_empty());
 	}
 }
-
-

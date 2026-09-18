@@ -2,7 +2,7 @@ use std::{
 	collections::VecDeque,
 	net::UdpSocket,
 	sync::{
-		Arc,
+		Arc, Mutex,
 		atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 		mpsc,
 	},
@@ -107,6 +107,26 @@ impl Drop for ComGuard {
 pub struct CallAudioState {
 	pub is_muted: Arc<AtomicBool>,
 	stop: Arc<AtomicBool>,
+	preferred_input: Arc<Mutex<Option<String>>>,
+	preferred_output: Arc<Mutex<Option<String>>>,
+}
+
+impl CallAudioState {
+	/// Switches the capture device for this call in place, without dropping
+	/// or restarting the call. The capture session loop (see
+	/// `run_capture_session`) polls this value on the same cadence it
+	/// already polls for stream errors, and treats a change as a request to
+	/// close the current WASAPI stream and reopen a fresh one on the new
+	/// device - the same recovery path used when a device is lost, just
+	/// triggered deliberately instead of by an error.
+	pub fn set_input_device(&self, name: Option<String>) {
+		*self.preferred_input.lock().unwrap() = name;
+	}
+
+	/// Same as `set_input_device`, for the render (speaker) side.
+	pub fn set_output_device(&self, name: Option<String>) {
+		*self.preferred_output.lock().unwrap() = name;
+	}
 }
 
 impl Drop for CallAudioState {
@@ -412,10 +432,10 @@ fn run_capture(
 	is_muted: &AtomicBool,
 	socket_out: &UdpSocket,
 	target_addr: &str,
-	preferred_device_name: Option<&str>,
+	preferred_device: &Mutex<Option<String>>,
 ) {
 	while !stop.load(Ordering::Relaxed) {
-		if let Err(e) = run_capture_session(stop, is_muted, socket_out, target_addr, preferred_device_name) {
+		if let Err(e) = run_capture_session(stop, is_muted, socket_out, target_addr, preferred_device) {
 			log_line(&format!("capture session ended with error, reopening: {:?}", e));
 			if stop.load(Ordering::Relaxed) {
 				break;
@@ -431,13 +451,17 @@ fn run_capture_session(
 	is_muted: &AtomicBool,
 	socket_out: &UdpSocket,
 	target_addr: &str,
-	preferred_device_name: Option<&str>,
+	preferred_device: &Mutex<Option<String>>,
 ) -> anyhow::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
-		let wasapi = open_communications_stream(eCapture, "capture", preferred_device_name, true)?;
+		// Snapshot the requested device for this session; a change made
+		// through CallAudioState::set_input_device while this session is
+		// running is picked up by the poll loop below, not here.
+		let session_device = preferred_device.lock().unwrap().clone();
+		let wasapi = open_communications_stream(eCapture, "capture", session_device.as_deref(), true)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let capture_client: IAudioCaptureClient = wasapi.client.GetService()?;
 
@@ -448,6 +472,10 @@ fn run_capture_session(
 		log_line("capture stream started (communications role)");
 
 		while !stop.load(Ordering::Relaxed) {
+			if preferred_device.lock().unwrap().as_ref() != session_device.as_ref() {
+				log_line("capture: device switch requested, reopening");
+				break;
+			}
 			if WaitForSingleObject(wasapi.event, 200) != WAIT_OBJECT_0 {
 				continue;
 			}
@@ -497,10 +525,10 @@ fn run_render(
 	played: Arc<AtomicU64>,
 	starved: Arc<AtomicU64>,
 	accum_len: Arc<AtomicUsize>,
-	preferred_device_name: Option<&str>,
+	preferred_device: &Mutex<Option<String>>,
 ) {
 	while !stop.load(Ordering::Relaxed) {
-		if let Err(e) = run_render_session(stop, &frame_rx, &played, &starved, &accum_len, preferred_device_name) {
+		if let Err(e) = run_render_session(stop, &frame_rx, &played, &starved, &accum_len, preferred_device) {
 			log_line(&format!("render session ended with error, reopening: {:?}", e));
 			if stop.load(Ordering::Relaxed) {
 				break;
@@ -517,13 +545,16 @@ fn run_render_session(
 	played: &Arc<AtomicU64>,
 	starved: &Arc<AtomicU64>,
 	accum_len: &Arc<AtomicUsize>,
-	preferred_device_name: Option<&str>,
+	preferred_device: &Mutex<Option<String>>,
 ) -> anyhow::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
-		let wasapi = open_communications_stream(eRender, "render", preferred_device_name, true)?;
+		// See run_capture_session: a later device switch is picked up by the
+		// poll loop below, not by re-reading this snapshot.
+		let session_device = preferred_device.lock().unwrap().clone();
+		let wasapi = open_communications_stream(eRender, "render", session_device.as_deref(), true)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let render_client: IAudioRenderClient = wasapi.client.GetService()?;
 
@@ -547,6 +578,10 @@ fn run_render_session(
 		log_line("render stream started (communications role)");
 
 		while !stop.load(Ordering::Relaxed) {
+			if preferred_device.lock().unwrap().as_ref() != session_device.as_ref() {
+				log_line("render: device switch requested, reopening");
+				break;
+			}
 			if WaitForSingleObject(wasapi.event, 200) != WAIT_OBJECT_0 {
 				continue;
 			}
@@ -693,18 +728,22 @@ pub fn start_audio_streams(
 	}
 
 	let is_muted = Arc::new(AtomicBool::new(false));
+	let preferred_input = Arc::new(Mutex::new(preferred_input_device));
+	let preferred_output = Arc::new(Mutex::new(preferred_output_device));
 
 	{
 		let stop = Arc::clone(&stop);
 		let is_muted = Arc::clone(&is_muted);
 		let target_addr = target_addr.clone();
+		let preferred_input = Arc::clone(&preferred_input);
 		std::thread::spawn(move || {
-			run_capture(&stop, &is_muted, &socket_out, &target_addr, preferred_input_device.as_deref());
+			run_capture(&stop, &is_muted, &socket_out, &target_addr, &preferred_input);
 		});
 	}
 
 	{
 		let stop = Arc::clone(&stop);
+		let preferred_output = Arc::clone(&preferred_output);
 		std::thread::spawn(move || {
 			run_render(
 				&stop,
@@ -712,10 +751,10 @@ pub fn start_audio_streams(
 				output_played_samples,
 				output_starved_samples,
 				output_src_accum_len,
-				preferred_output_device.as_deref(),
+				&preferred_output,
 			);
 		});
 	}
 
-	Ok(CallAudioState { is_muted, stop })
+	Ok(CallAudioState { is_muted, stop, preferred_input, preferred_output })
 }
