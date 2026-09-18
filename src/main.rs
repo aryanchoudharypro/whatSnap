@@ -3,7 +3,7 @@ mod types;
 pub use types::*;
 
 mod audio;
-pub use audio::*;
+use audio::*;
 mod audio_devices;
 mod autostart;
 mod backend_process;
