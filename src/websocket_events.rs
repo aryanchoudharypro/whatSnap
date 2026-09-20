@@ -1521,6 +1521,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if state.borrow().selected_chat.as_deref() != Some(response_jid) {
 							return;
 						}
+						// Set only when this is a `load_more_messages` local
+						// page (offset > 0) - see `MESSAGE_PAGE_SIZE` and
+						// `ui_commands::chat_list::load_more_messages`. A
+						// fresh load (opening a chat, closing search,
+						// `get_messages_around`) replaces `s.messages`; this
+						// one prepends onto it instead.
+						let load_more = data.get("loadMore").and_then(|v| v.as_bool()).unwrap_or(false);
 						if let Some(messages) = data.get("messages").and_then(|m| m.as_array()) {
 							let mut parsed_msgs = Vec::new();
 							for msg in messages {
@@ -1578,8 +1585,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								with_dates.push(msg);
 							}
 
-							if s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
+							if !load_more && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
 								whantv::insert_unread_divider(&mut with_dates, s.unread_divider_count);
+							}
+
+							if load_more && with_dates.is_empty() {
+								// The local database has nothing older left for this
+								// chat - fall back to asking the phone for history
+								// beyond what's stored locally instead of quietly
+								// giving up here. `history_loading` stays true; the
+								// phone's answer arrives later as a "history_sync"
+								// event.
+								s.no_more_messages = true;
+								crate::ui_commands::chat_list::request_phone_history_sync(&s, &chat_jid);
+								return;
 							}
 
 							s.loading_messages = false;
@@ -1587,6 +1606,15 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							s.history_loading = false;
 							let old_count = s.prev_msg_count;
 							let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+							if load_more {
+								with_dates.append(&mut s.messages);
+								// The older page and the already-loaded batch each
+								// got their date dividers built independently (see
+								// `rebuild_date_dividers`'s doc comment) - rebuild
+								// once across the merged list instead of ending up
+								// with two adjacent dividers for the same day.
+								with_dates = whantv::rebuild_date_dividers(with_dates);
+							}
 							s.messages = with_dates;
 							// Apply any receipts that arrived before messages finished loading.
 							// Collect first to avoid simultaneous mutable borrows of s.
@@ -1695,6 +1723,28 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if !jid.is_empty() {
 							eprintln!("[LOG UI] End of history reached on phone for chat: {}", jid);
 							s.completed_history_chats.insert(jid.to_string());
+						}
+					}
+				}
+				"chat_cleared" => {
+					// Covers a clear-chat that happened on the phone or
+					// another linked device - whantv's own clear_chat already
+					// clears the open conversation view locally before this
+					// broadcast ever comes back, so this is a no-op for that
+					// case and the only path that matters for the other one.
+					if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+						let mut s = state.borrow_mut();
+						if s.selected_chat.as_deref() == Some(jid) && !s.messages.is_empty() {
+							s.messages.clear();
+							s.display_items.clear();
+							s.prev_msg_count = 0;
+							drop(s);
+							parts.conversations_parts.messages_list.clear();
+							update_action_buttons(&state.borrow(), &parts.conversations_parts);
+							live_region::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								"Chat cleared.",
+							);
 						}
 					}
 				}

@@ -518,15 +518,53 @@ func handleSetChatRead(raw json.RawMessage) {
 	}()
 }
 
+// handleDeleteChat previously only deleted the chat locally - it never told
+// WhatsApp at all, so a chat deleted from this app stayed put on the phone
+// and every other linked device. Sends the same "deleteChat" app-state
+// mutation the phone itself would, same as handleSetChatLocked/
+// handleSetChatRead already do for their own actions.
 func handleDeleteChat(raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
 	go func() {
+		last_ts, last_key := getLastMessageKeyForChat(data.JID)
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildDeleteChat(jid, last_ts, last_key, false)); err != nil {
+			broadcastEvent("error", map[string]string{"message": "Failed to delete chat: " + err.Error()})
+			return
+		}
 		db.Exec("DELETE FROM messages WHERE jid = ?", data.JID)
 		db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
 		broadcastChats()
+	}()
+}
+
+// handleClearChat empties a chat's messages while leaving the chat itself in
+// the list, mirroring "Clear chat" in official WhatsApp clients - distinct
+// from handleDeleteChat, which removes the chat entirely.
+func handleClearChat(raw json.RawMessage) {
+	var data JIDData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+	go func() {
+		last_ts, last_key := getLastMessageKeyForChat(data.JID)
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildClearChat(jid, last_ts, last_key, false, false)); err != nil {
+			broadcastEvent("error", map[string]string{"message": "Failed to clear chat: " + err.Error()})
+			return
+		}
+		db.Exec("DELETE FROM messages WHERE jid = ?", data.JID)
+		broadcastChats()
+		broadcastEvent("chat_cleared", map[string]interface{}{"jid": data.JID})
 	}()
 }
 

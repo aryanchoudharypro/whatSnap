@@ -204,7 +204,13 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
 	parts.conversations_parts.panel.layout();
-	let limit = 9999999;
+	// A bounded initial page, not the whole chat: fetching/rendering all of a
+	// chat's history up front (previously `limit: 9999999`) is what made
+	// opening a chat with tens of thousands of messages take several
+	// seconds. Older messages page in on demand via `load_more_messages`
+	// (scrolling to the top), same as it already did for phone-side history
+	// beyond what's stored locally.
+	let limit = crate::MESSAGE_PAGE_SIZE;
 	let payload = serde_json::json!({
 		"action": "get_messages",
 		"data": { "jid": jid, "limit": limit, "offset": 0 }

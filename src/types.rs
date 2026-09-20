@@ -173,6 +173,9 @@ pub enum UiCommand {
 	DeleteChat {
 		jid: String,
 	},
+	ClearChat {
+		jid: String,
+	},
 	LeaveGroup {
 		jid: String,
 	},

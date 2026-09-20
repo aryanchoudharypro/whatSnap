@@ -8,9 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime/pprof"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1770,6 +1768,75 @@ func eventHandler(evt interface{}) {
 			db.Exec("UPDATE chats SET pinned = ? WHERE jid = ?", pinnedInt, v.JID.String())
 			broadcastChats()
 		}()
+	case *events.LockChat:
+		// Previously only whantv's own handleSetChatLocked wrote is_locked -
+		// a lock/unlock from the phone or another linked device never
+		// reached here at all (the fork didn't dispatch anything for it
+		// until now), so this chat's lock state silently drifted from what
+		// the phone actually had.
+		go func() {
+			if v.Action == nil {
+				return
+			}
+			lockedInt := 0
+			if v.Action.GetLocked() {
+				lockedInt = 1
+			}
+			db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", lockedInt, v.JID.String())
+			broadcastChats()
+		}()
+	case *events.MarkChatAsRead:
+		// Previously only handleSetChatRead's own outbound action updated
+		// unread_count - marking a chat read/unread from the phone or
+		// another linked device never reached here, so this chat's read
+		// state could silently drift from what the phone actually had.
+		go func() {
+			if v.Action == nil {
+				return
+			}
+			if v.Action.GetRead() {
+				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", v.JID.String())
+			} else {
+				db.Exec("UPDATE chats SET unread_count = 1 WHERE jid = ?", v.JID.String())
+			}
+			broadcastChats()
+		}()
+	case *events.Star:
+		go func() {
+			if v.Action == nil {
+				return
+			}
+			starredInt := 0
+			if v.Action.GetStarred() {
+				starredInt = 1
+			}
+			db.Exec("UPDATE messages SET starred = ? WHERE id = ?", starredInt, v.MessageID)
+			broadcastEvent("message_starred", map[string]interface{}{
+				"jid": v.ChatJID.String(), "message_id": v.MessageID, "starred": v.Action.GetStarred(),
+			})
+		}()
+	case *events.ClearChat:
+		// Previously nothing here at all - clearing a chat from the phone
+		// or another linked device left this app's copy of the chat's
+		// messages in place indefinitely.
+		go func() {
+			jidStr := v.JID.String()
+			db.Exec("DELETE FROM messages WHERE jid = ?", jidStr)
+			broadcastChats()
+			broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
+		}()
+	case *events.DeleteChat:
+		// Previously nothing here at all - handleDeleteChat only ever
+		// deleted a chat locally and never told WhatsApp (see its own doc
+		// comment), so this case could never have fired from this app's own
+		// actions; it only ever meant the phone or another linked device
+		// deleted the chat.
+		go func() {
+			jidStr := v.JID.String()
+			db.Exec("DELETE FROM messages WHERE jid = ?", jidStr)
+			db.Exec("DELETE FROM chats WHERE jid = ?", jidStr)
+			broadcastChats()
+		}()
 	case *events.Picture:
 		go func() {
 			jidStr := v.JID.String()
@@ -2626,8 +2693,9 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 		return
 	}
 	lastTime := lastAppStateResync[v.Name]
-	if time.Since(lastTime) < 60*time.Second {
+	if wait := 60*time.Second - time.Since(lastTime); wait > 0 {
 		appStateResyncMu.Unlock()
+		log.Printf("AppStateSyncError for %s: skipping resync, still within 60s of the last attempt (%s left): %v", v.Name, wait.Round(time.Second), v.Error)
 		return
 	}
 	appStateResyncCount[v.Name] = count + 1
@@ -2642,32 +2710,33 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 		if v.Error != nil {
 			errMsg := v.Error.Error()
 			if strings.Contains(errMsg, "mismatching LTHash") || strings.Contains(errMsg, "failed to verify snapshot") {
-				re := regexp.MustCompile(`patch v(\d+)`)
-				matches := re.FindStringSubmatch(errMsg)
-				if len(matches) < 2 {
-					re = regexp.MustCompile(`v(\d+)`)
-					matches = re.FindStringSubmatch(errMsg)
+				// This used to hand-write a fake version + all-zero hash
+				// into whatsmeow_app_state_version and then do a plain
+				// (non-full) resync. That never touched
+				// whatsmeow_app_state_mutation_macs at all, so whatever
+				// local mutation record was actually missing/wrong (the
+				// real cause of the hash mismatch) stayed missing/wrong -
+				// it just forced the version counter forward, which is why
+				// the very next patch touching the same index failed the
+				// exact same way again.
+				//
+				// A real full resync (fullSync=true) resets the version via
+				// DeleteAppStateVersion *and* requests an actual snapshot
+				// (see Client.fetchAppState: wantSnapshot := fullSync)
+				// instead of replaying the patch stream that's missing the
+				// record - the snapshot repopulates the current live
+				// index->valueMAC mapping from scratch, which is what a
+				// later patch actually needs.
+				log.Printf("Mismatching LTHash for %s - forcing a full resync (fresh snapshot).", v.Name)
+				if resyncErr := client.FetchAppState(context.Background(), v.Name, true, false); resyncErr != nil {
+					log.Printf("Full resync for %s failed: %v", v.Name, resyncErr)
+				} else {
+					log.Printf("Full resync for %s succeeded", v.Name)
+					appStateResyncMu.Lock()
+					appStateResyncCount[v.Name] = 0
+					appStateResyncMu.Unlock()
 				}
-				if len(matches) > 1 {
-					ver, err := strconv.ParseUint(matches[1], 10, 64)
-					if err == nil && ver > 0 {
-						var jid string
-						if client.Store != nil && client.Store.ID != nil {
-							jid = client.Store.ID.String()
-						}
-						log.Printf("Seeding version %d for %s (JID: %s)...", ver, v.Name, jid)
-						db.Exec("INSERT INTO whatsmeow_app_state_version (jid, name, version, hash) VALUES (?, ?, ?, ?) ON CONFLICT(jid, name) DO UPDATE SET version=excluded.version", jid, string(v.Name), ver, make([]byte, 128))
-						if resyncErr := client.FetchAppState(context.Background(), v.Name, false, false); resyncErr != nil {
-							log.Printf("Post-seeding resync for %s failed: %v", v.Name, resyncErr)
-						} else {
-							log.Printf("Post-seeding resync for %s succeeded", v.Name)
-							appStateResyncMu.Lock()
-							appStateResyncCount[v.Name] = 0
-							appStateResyncMu.Unlock()
-						}
-						return
-					}
-				}
+				return
 			}
 		}
 		err := client.FetchAppState(context.Background(), v.Name, false, false)

@@ -2007,6 +2007,7 @@ pub fn bind_input_handlers(
 			let mute_id = 4003;
 			let read_id = 4004;
 			let delete_id = 4005;
+			let clear_id = 4013;
 			let export_id = 4006;
 			let export_text_id = 4007;
 			let leave_group_id = 4008;
@@ -2051,6 +2052,11 @@ pub fn bind_input_handlers(
 				if is_group {
 					menu_builder = menu_builder.append_item(leave_group_id, "Leave &group...", "Leave this group");
 				}
+				menu_builder = menu_builder.append_item(
+					clear_id,
+					"Clea&r chat...",
+					"Delete this chat's messages, keeping the chat itself",
+				);
 				menu_builder = menu_builder.append_item(delete_id, "&Delete chat...", "Delete chat history");
 
 				let mut popup_menu = menu_builder.build();
@@ -2162,6 +2168,22 @@ pub fn bind_input_handlers(
 							if dialog.show_modal() == wxdragon::id::ID_OK {
 								let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
 							}
+						}
+					} else if id == clear_id {
+						let dialog = MessageDialog::builder(
+							&parent_clone,
+							&format!(
+								"Delete all messages in the chat with {}? The chat itself will stay in your list.",
+								chat_name
+							),
+							"Confirm Clear Chat",
+						)
+						.with_style(
+							MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
+						)
+						.build();
+						if dialog.show_modal() == wxdragon::id::ID_OK {
+							let _ = ui_tx_clone.send(UiCommand::ClearChat { jid: jid_clone.clone() });
 						}
 					} else if id == leave_group_id {
 						let dialog = MessageDialog::builder(
