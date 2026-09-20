@@ -444,11 +444,9 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 		let msg = msg_opt.expect("is_voice implies msg_opt is Some");
 		let is_playing = s.playing_msg_id.as_deref() == Some(msg.id.as_str());
 		if is_playing {
-			let is_paused = s
-				.audio_sink
-				.as_ref()
-				.map(|sink| sink.is_paused() || sink.empty())
-				.unwrap_or_else(|| s.audio_process.is_none());
+			// No sink while a message is marked playing means playback never
+			// actually started, so present it as paused rather than "Pause".
+			let is_paused = s.audio_sink.as_ref().map_or(true, |sink| sink.is_paused() || sink.empty());
 			parts.play_voice_btn.set_label(if is_paused { "Play voice message" } else { "Pause voice message" });
 			if !parts.audio_slider.is_shown() {
 				parts.audio_slider.show(true);

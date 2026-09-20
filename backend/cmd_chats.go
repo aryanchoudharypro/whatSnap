@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -24,18 +25,22 @@ func handleGetChats(conn net.Conn) {
 	}()
 }
 
+// Shared zero-length slice so a message with no reactions marshals as
+// `"reactions": []` (which the UI expects) without allocating one per message.
+var emptyReactions = []ReactionInfo{}
+
 // fetchMessagesPage runs the shared "one page of a chat's messages, oldest
 // first" query used by both a plain get_messages and the around-a-target
 // variant below, so a single page's worth of local history is always built
 // the same way regardless of who's asking for it.
-func fetchMessagesPage(jid string, limit, offset int) []map[string]interface{} {
+func fetchMessagesPage(jid string, limit, offset int) []MessageJSON {
 	rows, queryErr := db.Query(`SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 			COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
 			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
 			COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''), raw
 		FROM messages WHERE jid = ? ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
 
-	msgs := []map[string]interface{}{}
+	msgs := []MessageJSON{}
 	var ids []string
 	if queryErr == nil {
 		defer rows.Close()
@@ -86,38 +91,58 @@ func fetchMessagesPage(jid string, limit, offset int) []map[string]interface{} {
 				}
 			}
 			qSenderName := quotedSender
-			if quotedSender != "" {
-				if quotedSender == "me" || (client != nil && client.Store != nil && client.Store.ID != nil && strings.Contains(quotedSender, client.Store.ID.User)) {
-					qSenderName = "You"
-				} else if parsed, err := types.ParseJID(quotedSender); err == nil {
+			if quotedID != "" {
+				// The quoted_sender column is a denormalized snapshot taken when
+				// this reply first arrived, and can go stale or wrong (e.g. a
+				// participant field missing at delivery time). When we still
+				// have the original message locally, its own from_me/sender_jid
+				// is the authoritative answer, so prefer it over the snapshot.
+				if origFromMe, origSenderJID, ok := lookupMessageOrigin(quotedID); ok {
+					if origFromMe {
+						qSenderName = "You"
+					} else if parsed, err := types.ParseJID(origSenderJID); err == nil {
+						qSenderName = resolveDisplayName(parsed)
+					}
+				} else if quotedSender != "" {
+					if quotedSender == "me" {
+						qSenderName = "You"
+					} else if parsed, err := types.ParseJID(quotedSender); err == nil {
+						qSenderName = resolveDisplayName(parsed)
+					}
+				}
+			} else if quotedSender == "me" {
+				qSenderName = "You"
+			} else if quotedSender != "" {
+				if parsed, err := types.ParseJID(quotedSender); err == nil {
 					qSenderName = resolveDisplayName(parsed)
 				}
 			}
 			ids = append(ids, id)
-			msgs = append(msgs, map[string]interface{}{
-				"id":            id,
-				"text":          text,
-				"timestamp":     ts,
-				"fromMe":        fromMe,
-				"senderJid":     senderJID,
-				"senderName":    senderName,
-				"status":        status,
-				"mediaType":     mediaType,
-				"mediaMimetype": mediaMimetype,
-				"mediaFilename": mediaFilename,
-				"mediaPath":     mediaPath,
-				"quotedId":      quotedID,
-				"quotedText":    quotedText,
-				"quotedSender":  qSenderName,
-				"isEdited":      isEdited == 1,
-				"isDeleted":     isDeleted == 1,
-				"sentAt":        sentAt,
-				"deliveredAt":   deliveredAt,
-				"readAt":        readAt,
-				"playedAt":      playedAt,
-				"editedAt":      editedAt,
-				"starred":       starred == 1,
-				"albumId":       albumID,
+			msgs = append(msgs, MessageJSON{
+				ID:            id,
+				Text:          text,
+				Timestamp:     ts,
+				FromMe:        fromMe,
+				SenderJID:     senderJID,
+				SenderName:    senderName,
+				Status:        status,
+				MediaType:     mediaType,
+				MediaMimetype: mediaMimetype,
+				MediaFilename: mediaFilename,
+				MediaPath:     mediaPath,
+				QuotedID:      quotedID,
+				QuotedText:    quotedText,
+				QuotedSender:  qSenderName,
+				IsEdited:      isEdited == 1,
+				IsDeleted:     isDeleted == 1,
+				SentAt:        sentAt,
+				DeliveredAt:   deliveredAt,
+				ReadAt:        readAt,
+				PlayedAt:      playedAt,
+				EditedAt:      editedAt,
+				Starred:       starred == 1,
+				AlbumID:       albumID,
+				Reactions:     emptyReactions,
 			})
 		}
 	} else {
@@ -129,11 +154,9 @@ func fetchMessagesPage(jid string, limit, offset int) []map[string]interface{} {
 	}
 	if ids != nil {
 		reactions := getReactionsForMessageIDs(ids)
-		for _, m := range msgs {
-			if rs, ok := reactions[m["id"].(string)]; ok {
-				m["reactions"] = rs
-			} else {
-				m["reactions"] = []ReactionInfo{}
+		for i := range msgs {
+			if rs, ok := reactions[msgs[i].ID]; ok {
+				msgs[i].Reactions = rs
 			}
 		}
 	}
@@ -169,8 +192,21 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 			"jid":      data.JID,
 			"messages": msgs,
 		})
+		// Opening a large chat is by far this process's biggest allocation
+		// burst, and every byte of it is garbage the moment the response is on
+		// the wire. Go's scavenger releases that back to the OS only gradually,
+		// so without an explicit nudge the process sits at its peak for minutes
+		// after the user has already closed the chat.
+		if len(msgs) >= collectAfterMessages {
+			debug.FreeOSMemory()
+		}
 	}()
 }
+
+// Messages in one response past which it is worth forcing the heap back to the
+// OS. Small responses are frequent and their garbage is cheap; paying for a
+// full GC plus scavenge on each of those would cost more than it returns.
+const collectAfterMessages = 2000
 
 // handleGetStarredMessages returns every starred message across all chats,
 // newest first, for the Starred Messages nav view.

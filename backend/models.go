@@ -189,6 +189,44 @@ type ReactionInfo struct {
 	Timestamp   int64  `json:"timestamp"`
 }
 
+// MessageJSON is one message as sent to the UI in a conversation_messages /
+// get_messages response. Field names and types must stay in sync with the Rust
+// side's ChatMessage.
+//
+// This used to be built as a map[string]interface{} per message. That cost a
+// Go map plus a boxed interface{} per field - for a chat with tens of
+// thousands of messages, hundreds of thousands of map entries and allocations
+// whose only purpose was to be marshalled once and thrown away. A flat struct
+// is one allocation per message and marshals without reflection over a map.
+type MessageJSON struct {
+	ID            string         `json:"id"`
+	Text          string         `json:"text"`
+	Timestamp     int64          `json:"timestamp"`
+	FromMe        bool           `json:"fromMe"`
+	SenderJID     string         `json:"senderJid"`
+	SenderName    string         `json:"senderName"`
+	Status        string         `json:"status"`
+	MediaType     string         `json:"mediaType"`
+	MediaMimetype string         `json:"mediaMimetype"`
+	MediaFilename string         `json:"mediaFilename"`
+	MediaPath     string         `json:"mediaPath"`
+	QuotedID      string         `json:"quotedId"`
+	QuotedText    string         `json:"quotedText"`
+	QuotedSender  string         `json:"quotedSender"`
+	IsEdited      bool           `json:"isEdited"`
+	IsDeleted     bool           `json:"isDeleted"`
+	SentAt        int64          `json:"sentAt"`
+	DeliveredAt   int64          `json:"deliveredAt"`
+	ReadAt        int64          `json:"readAt"`
+	PlayedAt      int64          `json:"playedAt"`
+	EditedAt      int64          `json:"editedAt"`
+	Starred       bool           `json:"starred"`
+	AlbumID       string         `json:"albumId"`
+	// Always a list, never null: the Rust side's `#[serde(default)]` covers a
+	// missing field but not an explicit null, which would fail to deserialize.
+	Reactions []ReactionInfo `json:"reactions"`
+}
+
 // StoredMessage is the normalized shape used when writing a message row,
 // whether it came from history sync, a live event, or something we just sent.
 type StoredMessage struct {

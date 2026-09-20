@@ -3,15 +3,16 @@
 //! JSON payload's `type` field: message,call,presence,contacts,chats sync,
 //! privacy settings, status updates, and friends.
 
-use std::{cell::RefCell, fs::File, io::BufReader, os::windows::process::CommandExt, rc::Rc};
+use std::{cell::RefCell, fs::File, io::BufReader, rc::Rc};
 
 use rodio::{Decoder, Player};
 use rodio_wsola::WsolaSourceExt;
+use serde::Deserialize;
 use whantv::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, Contact, NotificationSound, StarredEntry, StatusGroup, StatusItem, UiCommand,
+	AppState, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem, UiCommand,
 	audio::{
 		decode_opus_file, ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringing_sound,
 		stop_call_ringing_sound,
@@ -34,7 +35,237 @@ use crate::{
 	ui::window::WindowParts,
 };
 
+/// Applies a `conversation_messages` payload to the open chat: dedupes, adds
+/// date and unread dividers, replaces `messages`/`display_items`, repaints the
+/// message list and restores the right selection (a search jump target, the
+/// unread divider, or the bottom).
+///
+/// Takes already-deserialized messages so the caller can parse them straight
+/// off the wire - see `process_websocket_message`'s fast path for why this one
+/// payload bypasses `serde_json::Value`.
+fn apply_conversation_messages(parsed_msgs: Vec<ChatMessage>, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut seen_ids = std::collections::HashSet::new();
+	let mut deduplicated = Vec::new();
+	for msg in parsed_msgs {
+		if !msg.id.is_empty() {
+			if seen_ids.insert(msg.id.clone()) {
+				deduplicated.push(msg);
+			}
+		} else {
+			deduplicated.push(msg);
+		}
+	}
+
+	let mut s = state.borrow_mut();
+	let chat_jid = s.selected_chat.clone().unwrap_or_default();
+	let chat_name = s.contacts.get(&chat_jid).cloned().unwrap_or_else(|| chat_jid.clone());
+	let is_group_chat = chat_jid.ends_with("@g.us");
+
+	let mut with_dates = Vec::new();
+	let mut last_date: Option<chrono::NaiveDate> = None;
+	for mut msg in deduplicated {
+		if !is_group_chat && !msg.from_me && msg.sender_name.is_empty() && msg.sender_jid.is_empty() {
+			msg.sender_name = chat_name.clone();
+		}
+
+		if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
+			let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+			let day = whantv::date_key(local_datetime);
+			if last_date != Some(day) {
+				last_date = Some(day);
+				with_dates.push(ChatMessage {
+					text: whantv::format_date_divider_label(local_datetime),
+					timestamp: msg.timestamp,
+					is_date_divider: true,
+					..Default::default()
+				});
+			}
+		}
+		with_dates.push(msg);
+	}
+
+	if s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
+		whantv::insert_unread_divider(&mut with_dates, s.unread_divider_count);
+	}
+
+	s.loading_messages = false;
+	let was_history_loading = s.history_loading;
+	s.history_loading = false;
+	let old_count = s.prev_msg_count;
+	let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+	s.messages = with_dates;
+	// Apply any receipts that arrived before messages finished loading.
+	// Collect first to avoid simultaneous mutable borrows of s.
+	let pending_ids: Vec<(String, String)> = s
+		.messages
+		.iter()
+		.filter_map(|msg| s.pending_receipts.get(&msg.id).map(|st| (msg.id.clone(), st.clone())))
+		.collect();
+	for (id, st) in pending_ids {
+		s.pending_receipts.remove(&id);
+		if let Some(msg) = s.messages.iter_mut().find(|m| m.id == id) {
+			if get_status_rank(&st) >= get_status_rank(&msg.status) {
+				msg.status = st;
+			}
+		}
+	}
+	s.display_items = whantv::group_messages_into_display_items(&s.messages);
+	let new_len = s.display_items.len();
+	s.prev_msg_count = new_len;
+
+	parts.conversations_parts.messages_list.freeze();
+	parts.conversations_parts.messages_list.clear();
+	for item in &s.display_items {
+		parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+	}
+	parts.conversations_parts.messages_list.thaw();
+	refresh_selection_list(&mut s, parts);
+
+	let count = parts.conversations_parts.messages_list.get_count();
+	let target_pos = if let Some(target_id) = s.search_target_id.take() {
+		s.display_items.iter().position(|item| match item {
+			whantv::DisplayItem::Single(m) => m.id == target_id,
+			whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == target_id),
+		})
+	} else if let Some(target_text) = s.search_target_text.take() {
+		let is_generic = target_text == "[Voice Message]"
+			|| target_text == "[Audio]"
+			|| target_text == "Voice message"
+			|| target_text == "Audio"
+			|| target_text == "[Media]";
+		if is_generic {
+			None
+		} else {
+			s.display_items.iter().position(|item| match item {
+				whantv::DisplayItem::Single(m) => {
+					m.text == target_text || (!m.text.is_empty() && m.text.contains(&target_text))
+				}
+				whantv::DisplayItem::Album { messages, .. } => messages
+					.iter()
+					.any(|m| m.text == target_text || (!m.text.is_empty() && m.text.contains(&target_text))),
+			})
+		}
+	} else if old_count == 0 && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
+		// Opening a chat with unread messages: land on the
+		// "N unread messages" divider, same as pressing Enter
+		// on it from the chat list, instead of the very bottom.
+		s.display_items.iter().position(|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider))
+	} else {
+		None
+	};
+	if let Some(pos) = target_pos {
+		parts.conversations_parts.messages_list.set_selection(pos as u32, true);
+		parts.conversations_parts.messages_list.set_focus();
+	} else if count > 0 {
+		if was_history_loading && new_len > old_count && old_count > 0 {
+			let keep_idx = (new_len - old_count) as u32;
+			if keep_idx < count {
+				parts.conversations_parts.messages_list.set_selection(keep_idx, true);
+			} else {
+				parts.conversations_parts.messages_list.set_selection(0, true);
+			}
+		} else if old_count == 0 {
+			parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
+			parts.conversations_parts.messages_list.set_focus();
+		}
+	}
+	parts.conversations_parts.conversation_panel.freeze();
+	if update_action_buttons(&s, &parts.conversations_parts) {
+		parts.conversations_parts.conversation_panel.layout();
+	}
+	parts.conversations_parts.conversation_panel.thaw();
+	refresh_voice_action_button(&s, &parts.conversations_parts);
+
+	if was_history_loading && new_len == old_count {
+		if let Some(ref jid) = s.selected_chat.clone() {
+			eprintln!("[LOG UI] No new history messages received for {}. Marking history complete.", jid);
+			s.completed_history_chats.insert(jid.clone());
+		}
+	}
+}
+
+/// Just the `type` tag, with every other field skipped rather than
+/// materialized. Lets the dispatcher below route the one huge payload without
+/// first building a `serde_json::Value` for it.
+#[derive(Deserialize)]
+struct TypeTag<'a> {
+	#[serde(rename = "type", borrow, default)]
+	ty: std::borrow::Cow<'a, str>,
+}
+
+/// A `conversation_messages` payload. Each message is kept as a `RawValue` -
+/// a borrowed slice of the original JSON text, not a parsed tree - so that a
+/// message that fails to parse can be replaced by a placeholder row without
+/// failing the whole chat, which is what deserializing straight into
+/// `Vec<ChatMessage>` would do (`id`/`text`/`timestamp` have no serde default).
+#[derive(Deserialize)]
+struct ConversationMessagesEnvelope<'a> {
+	#[serde(borrow)]
+	data: ConversationMessagesData<'a>,
+}
+
+#[derive(Deserialize)]
+struct ConversationMessagesData<'a> {
+	#[serde(default)]
+	jid: String,
+	#[serde(borrow, default)]
+	messages: Vec<&'a serde_json::value::RawValue>,
+}
+
+/// Whether `raw` is a `conversation_messages` payload, read without
+/// materializing the rest of the document.
+fn is_conversation_messages(raw: &str) -> bool {
+	serde_json::from_str::<TypeTag>(raw).is_ok_and(|t| t.ty == "conversation_messages")
+}
+
+/// Parses a `conversation_messages` payload into its chat jid and messages,
+/// or `None` if the envelope itself is malformed.
+///
+/// A message that fails to parse becomes a placeholder row carrying the error,
+/// exactly as the old `Value`-walking path did, rather than failing the whole
+/// chat - `ChatMessage`'s `id`/`text`/`timestamp` have no serde default, so one
+/// bad row would otherwise blank the conversation.
+fn parse_conversation_messages(raw: &str) -> Option<(String, Vec<ChatMessage>)> {
+	let envelope = serde_json::from_str::<ConversationMessagesEnvelope>(raw).ok()?;
+	let parsed = envelope
+		.data
+		.messages
+		.into_iter()
+		.map(|raw_msg| {
+			serde_json::from_str::<ChatMessage>(raw_msg.get()).unwrap_or_else(|e| ChatMessage {
+				text: format!("Parse error: {} for json: {}", e, raw_msg.get()),
+				..Default::default()
+			})
+		})
+		.collect();
+	Some((envelope.data.jid, parsed))
+}
+
 pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	// Opening a chat delivers its entire history as one payload. Routed through
+	// the generic `Value` path below, a 26k-message chat built a tree of
+	// roughly 26k objects x ~28 fields - about 1.5M short-lived heap
+	// allocations - purely to be walked once and thrown away. Deserializing
+	// straight into `Vec<ChatMessage>` skips the tree altogether, so the only
+	// allocations are the messages the UI keeps.
+	//
+	// Reading the tag first costs one scan and no allocations: serde skips the
+	// fields it is not asked for instead of materializing them.
+	if is_conversation_messages(&raw) {
+		match parse_conversation_messages(&raw) {
+			Some((jid, parsed_msgs)) => {
+				// The chat may have been switched again while this request was
+				// in flight - applying a stale response would silently populate
+				// the wrong chat's history.
+				if state.borrow().selected_chat.as_deref() == Some(jid.as_str()) {
+					apply_conversation_messages(parsed_msgs, state, parts);
+				}
+			}
+			None => eprintln!("[LOG UI] Failed to parse a conversation_messages payload"),
+		}
+		return;
+	}
+
 	if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
 		if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
 			match t {
@@ -1268,7 +1499,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 												format!("{}: {}", sender_name, body)
 											};
 											if let Some(n) = show_toast_notification(&chat_name, &toast_body) {
-												s.active_notifications.entry(jid.to_string()).or_default().push(n);
+												crate::chat_ui::record_notification(&mut s, jid, n);
 											}
 										} else {
 											let sender_name = provided_sender
@@ -1276,7 +1507,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 												.or_else(|| s.contacts.get(from).cloned())
 												.unwrap_or_else(|| display_name_for_jid(&clean_from));
 											if let Some(n) = show_toast_notification(&sender_name, &body) {
-												s.active_notifications.entry(jid.to_string()).or_default().push(n);
+												crate::chat_ui::record_notification(&mut s, jid, n);
 											}
 										}
 									}
@@ -1512,182 +1743,6 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
-				"conversation_messages" => {
-					if let Some(data) = val.get("data") {
-						let response_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
-						// The chat may have been switched again while this
-						// request was in flight - applying a stale response
-						// would silently populate the wrong chat's history.
-						if state.borrow().selected_chat.as_deref() != Some(response_jid) {
-							return;
-						}
-						if let Some(messages) = data.get("messages").and_then(|m| m.as_array()) {
-							let mut parsed_msgs = Vec::new();
-							for msg in messages {
-								match serde_json::from_value::<ChatMessage>(msg.clone()) {
-									Ok(chat_msg) => parsed_msgs.push(chat_msg),
-									Err(e) => {
-										let err_msg = ChatMessage {
-											text: format!("Parse error: {} for json: {}", e, msg),
-											..Default::default()
-										};
-										parsed_msgs.push(err_msg);
-									}
-								}
-							}
-							let mut seen_ids = std::collections::HashSet::new();
-							let mut deduplicated = Vec::new();
-							for msg in parsed_msgs {
-								if !msg.id.is_empty() {
-									if seen_ids.insert(msg.id.clone()) {
-										deduplicated.push(msg);
-									}
-								} else {
-									deduplicated.push(msg);
-								}
-							}
-
-							let mut s = state.borrow_mut();
-							let chat_jid = s.selected_chat.clone().unwrap_or_default();
-							let chat_name = s.contacts.get(&chat_jid).cloned().unwrap_or_else(|| chat_jid.clone());
-							let is_group_chat = chat_jid.ends_with("@g.us");
-
-							let mut with_dates = Vec::new();
-							let mut last_date: Option<chrono::NaiveDate> = None;
-							for mut msg in deduplicated {
-								if !is_group_chat
-									&& !msg.from_me && msg.sender_name.is_empty()
-									&& msg.sender_jid.is_empty()
-								{
-									msg.sender_name = chat_name.clone();
-								}
-
-								if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
-									let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-									let day = whantv::date_key(local_datetime);
-									if last_date != Some(day) {
-										last_date = Some(day);
-										with_dates.push(ChatMessage {
-											text: whantv::format_date_divider_label(local_datetime),
-											timestamp: msg.timestamp,
-											is_date_divider: true,
-											..Default::default()
-										});
-									}
-								}
-								with_dates.push(msg);
-							}
-
-							if s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
-								whantv::insert_unread_divider(&mut with_dates, s.unread_divider_count);
-							}
-
-							s.loading_messages = false;
-							let was_history_loading = s.history_loading;
-							s.history_loading = false;
-							let old_count = s.prev_msg_count;
-							let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
-							s.messages = with_dates;
-							// Apply any receipts that arrived before messages finished loading.
-							// Collect first to avoid simultaneous mutable borrows of s.
-							let pending_ids: Vec<(String, String)> = s
-								.messages
-								.iter()
-								.filter_map(|msg| {
-									s.pending_receipts.get(&msg.id).map(|st| (msg.id.clone(), st.clone()))
-								})
-								.collect();
-							for (id, st) in pending_ids {
-								s.pending_receipts.remove(&id);
-								if let Some(msg) = s.messages.iter_mut().find(|m| m.id == id) {
-									if get_status_rank(&st) >= get_status_rank(&msg.status) {
-										msg.status = st;
-									}
-								}
-							}
-							s.display_items = whantv::group_messages_into_display_items(&s.messages);
-							let new_len = s.display_items.len();
-							s.prev_msg_count = new_len;
-
-							parts.conversations_parts.messages_list.freeze();
-							parts.conversations_parts.messages_list.clear();
-							for item in &s.display_items {
-								parts.conversations_parts.messages_list.append(&item.format_display(is_group));
-							}
-							parts.conversations_parts.messages_list.thaw();
-							refresh_selection_list(&mut s, parts);
-
-							let count = parts.conversations_parts.messages_list.get_count();
-							let target_pos = if let Some(target_id) = s.search_target_id.take() {
-								s.display_items.iter().position(|item| match item {
-									whantv::DisplayItem::Single(m) => m.id == target_id,
-									whantv::DisplayItem::Album { messages, .. } => {
-										messages.iter().any(|m| m.id == target_id)
-									}
-								})
-							} else if let Some(target_text) = s.search_target_text.take() {
-								let is_generic = target_text == "[Voice Message]"
-									|| target_text == "[Audio]" || target_text == "Voice message"
-									|| target_text == "Audio" || target_text == "[Media]";
-								if is_generic {
-									None
-								} else {
-									s.display_items.iter().position(|item| match item {
-										whantv::DisplayItem::Single(m) => {
-											m.text == target_text
-												|| (!m.text.is_empty() && m.text.contains(&target_text))
-										}
-										whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| {
-											m.text == target_text
-												|| (!m.text.is_empty() && m.text.contains(&target_text))
-										}),
-									})
-								}
-							} else if old_count == 0 && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
-								// Opening a chat with unread messages: land on the
-								// "N unread messages" divider, same as pressing Enter
-								// on it from the chat list, instead of the very bottom.
-								s.display_items.iter().position(
-									|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider),
-								)
-							} else {
-								None
-							};
-							if let Some(pos) = target_pos {
-								parts.conversations_parts.messages_list.set_selection(pos as u32, true);
-								parts.conversations_parts.messages_list.set_focus();
-							} else if count > 0 {
-								if was_history_loading && new_len > old_count && old_count > 0 {
-									let keep_idx = (new_len - old_count) as u32;
-									if keep_idx < count {
-										parts.conversations_parts.messages_list.set_selection(keep_idx, true);
-									} else {
-										parts.conversations_parts.messages_list.set_selection(0, true);
-									}
-								} else if old_count == 0 {
-									parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
-									parts.conversations_parts.messages_list.set_focus();
-								}
-							}
-							parts.conversations_parts.conversation_panel.freeze();
-							if update_action_buttons(&s, &parts.conversations_parts) {
-								parts.conversations_parts.conversation_panel.layout();
-							}
-							parts.conversations_parts.conversation_panel.thaw();
-							refresh_voice_action_button(&s, &parts.conversations_parts);
-
-							if was_history_loading && new_len == old_count {
-								if let Some(ref jid) = s.selected_chat.clone() {
-									eprintln!(
-										"[LOG UI] No new history messages received for {}. Marking history complete.",
-										jid
-									);
-									s.completed_history_chats.insert(jid.clone());
-								}
-							}
-						}
-					}
-				}
 				"no_more_history" => {
 					let mut s = state.borrow_mut();
 					s.history_loading = false;
@@ -1880,6 +1935,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							dlg_close.end_modal(wxdragon::id::ID_OK);
 						});
 						dlg.show_modal();
+						// Unlike MessageDialog/FileDialog/TextEntryDialog, the base
+						// `Dialog` has no `Drop` (see wxdragon's dialogs/mod.rs), so
+						// without this every Message Info leaves a hidden dialog -
+						// plus its TextCtrl, Button and bound closure - parented to
+						// the main frame for the rest of the session. Destroying the
+						// original exactly once also tears down `dlg_close`'s closure
+						// with the button that owns it.
+						dlg.destroy();
 					}
 				}
 				"history_updated" => {
@@ -2782,14 +2845,22 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									.duration_since(std::time::UNIX_EPOCH)
 									.unwrap_or_default()
 									.as_secs() as i64;
+								// Only IDs that could still ring are worth remembering.
+								// The recency gate means anything older than the window
+								// can never produce a sound again, so admitting it to
+								// the set was pure unbounded growth - and a reconnect
+								// admits the entire backlog at once. Drop what has aged
+								// out, and never take a backlogged ID in the first place.
+								s.played_sent_sounds.retain(|_, acked_at| now_ts - *acked_at < SENT_SOUND_WINDOW_SECS);
 								let mut should_play = false;
 								for target_id in &msg_ids {
-									if s.played_sent_sounds.insert(target_id.clone()) {
-										let is_recent =
-											s.messages.iter().any(|m| m.id == *target_id && now_ts - m.sent_at < 20);
-										if is_recent {
-											should_play = true;
-										}
+									let is_recent = s
+										.messages
+										.iter()
+										.any(|m| m.id == *target_id && now_ts - m.sent_at < SENT_SOUND_WINDOW_SECS);
+									if is_recent && !s.played_sent_sounds.contains_key(target_id) {
+										s.played_sent_sounds.insert(target_id.clone(), now_ts);
+										should_play = true;
 									}
 								}
 								if should_play {
@@ -3131,7 +3202,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 												whantv::friendly_preview_text(text)
 											),
 										) {
-											s.active_notifications.entry(chat_jid.to_string()).or_default().push(n);
+											crate::chat_ui::record_notification(&mut s, chat_jid, n);
 										}
 									}
 								}
@@ -3415,54 +3486,29 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								}
 							}
 							if !played {
-								use std::io::Write;
-								let path_escaped = path.replace("'", "''");
-								if s.audio_stdin.is_none() {
-									let ps_script = r#"
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
-$null = [Windows.Media.Playback.MediaPlayer, Windows.Media, ContentType=WindowsRuntime]
-$p = New-Object Windows.Media.Playback.MediaPlayer
-while ($true) {
-    $line = [System.Console]::ReadLine()
-    if ($null -eq $line -or $line -eq "EXIT") { break }
-    if ($line.StartsWith("PLAY ")) {
-        $path = $line.Substring(5)
-        $p.Source = [Windows.Media.Core.MediaSource]::CreateFromUri([Uri]$path)
-        $p.Play()
-    } elseif ($line -eq "PAUSE") {
-        $p.Pause()
-    } elseif ($line -eq "RESUME") {
-        $p.Play()
-    } elseif ($line.StartsWith("SEEK ")) {
-        $sec = [double]($line.Substring(5))
-        $p.PlaybackSession.Position = [TimeSpan]::FromSeconds($sec)
-    }
-}
-"#;
-									if let Ok(mut child) = std::process::Command::new("powershell")
-										.args(&["-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script])
-										.stdin(std::process::Stdio::piped())
-										.creation_flags(0x08000000) // CREATE_NO_WINDOW
-										.spawn()
-									{
-										s.audio_stdin = child.stdin.take();
-										s.audio_process = Some(child);
-									}
-								}
-								if let Some(ref mut stdin) = s.audio_stdin {
-									let _ = writeln!(stdin, "PLAY {}", path_escaped);
-									if start_paused {
-										let _ = writeln!(stdin, "PAUSE");
-									}
-									let _ = stdin.flush();
-									s.audio_start_instant =
-										if start_paused { None } else { Some(std::time::Instant::now()) };
-									parts.conversations_parts.play_voice_btn.set_label(if start_paused {
-										"Play voice message"
-									} else {
-										"Pause voice message"
-									});
-								}
+								// Every format WhatsApp actually sends is covered above
+								// (Ogg Opus by decode_opus_file, everything else by
+								// symphonia), so landing here means the output device
+								// couldn't be opened or the file is truncated/corrupt.
+								// Reset back to "not playing" rather than leaving the
+								// button stuck on "Pause" for audio that never started.
+								eprintln!("[LOG UI] No decoder could play {}", path);
+								s.playing_msg_id = None;
+								s.audio_path = None;
+								s.audio_start_instant = None;
+								s.audio_elapsed_secs = 0.0;
+								s.is_audio_paused = false;
+								drop(s);
+								parts.conversations_parts.play_voice_btn.set_label("Play voice message");
+								parts.conversations_parts.audio_slider.show(false);
+								parts.conversations_parts.audio_speed_btn.show(false);
+								parts.conversations_parts.audio_progress_label.show(false);
+								parts.conversations_parts.conversation_panel.layout();
+								live_region::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									"Could not play voice message",
+								);
+								return;
 							}
 							s.is_audio_paused = start_paused;
 							// Show slider UI and speed button
@@ -3514,5 +3560,73 @@ while ($true) {
 				_ => {}
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod conversation_messages_tests {
+	use super::*;
+
+	#[test]
+	fn only_conversation_messages_takes_the_typed_fast_path() {
+		assert!(is_conversation_messages(r#"{"type":"conversation_messages","data":{}}"#));
+		// The tag can sit after a large payload and still be found.
+		assert!(is_conversation_messages(r#"{"data":{"messages":[{"id":"a"}]},"type":"conversation_messages"}"#));
+		assert!(!is_conversation_messages(r#"{"type":"message","data":{}}"#));
+		assert!(!is_conversation_messages(r#"{"data":{}}"#));
+		assert!(!is_conversation_messages("not json at all"));
+	}
+
+	#[test]
+	fn parses_the_jid_and_every_message() {
+		let raw = r#"{"type":"conversation_messages","data":{"jid":"a@s.whatsapp.net","messages":[
+			{"id":"m1","text":"hi","timestamp":10,"fromMe":true,"mediaType":"image","albumId":"alb1"},
+			{"id":"m2","text":"yo","timestamp":11,"sender_jid":"b@s.whatsapp.net"}
+		]}}"#;
+		let (jid, msgs) = parse_conversation_messages(raw).expect("envelope should parse");
+		assert_eq!(jid, "a@s.whatsapp.net");
+		assert_eq!(msgs.len(), 2);
+		assert_eq!(msgs[0].id, "m1");
+		assert!(msgs[0].from_me);
+		assert_eq!(msgs[0].media_type, "image");
+		assert_eq!(msgs[0].album_id, "alb1");
+		assert_eq!(msgs[1].id, "m2");
+		assert_eq!(msgs[1].sender_jid, "b@s.whatsapp.net");
+	}
+
+	#[test]
+	fn a_single_bad_message_becomes_a_placeholder_instead_of_failing_the_chat() {
+		// The middle message is missing `timestamp`, which has no serde default.
+		let raw = r#"{"type":"conversation_messages","data":{"jid":"a@s.whatsapp.net","messages":[
+			{"id":"m1","text":"before","timestamp":10},
+			{"id":"m2","text":"broken"},
+			{"id":"m3","text":"after","timestamp":12}
+		]}}"#;
+		let (_, msgs) = parse_conversation_messages(raw).expect("one bad row must not fail the envelope");
+		assert_eq!(msgs.len(), 3);
+		assert_eq!(msgs[0].text, "before");
+		assert!(msgs[1].text.starts_with("Parse error:"), "got {:?}", msgs[1].text);
+		assert_eq!(msgs[1].id, "");
+		assert_eq!(msgs[2].text, "after");
+	}
+
+	#[test]
+	fn an_empty_or_absent_message_list_parses_to_nothing() {
+		let (jid, msgs) =
+			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a","messages":[]}}"#)
+				.unwrap();
+		assert_eq!(jid, "a");
+		assert!(msgs.is_empty());
+
+		let (jid, msgs) =
+			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a"}}"#).unwrap();
+		assert_eq!(jid, "a");
+		assert!(msgs.is_empty());
+	}
+
+	#[test]
+	fn a_malformed_envelope_is_rejected_rather_than_panicking() {
+		assert!(parse_conversation_messages(r#"{"type":"conversation_messages"}"#).is_none());
+		assert!(parse_conversation_messages("{").is_none());
 	}
 }

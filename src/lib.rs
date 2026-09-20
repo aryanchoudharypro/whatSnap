@@ -684,8 +684,32 @@ pub fn same_album(prev: &ChatMessage, msg: &ChatMessage) -> bool {
 }
 
 pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<DisplayItem> {
-	let mut items = Vec::new();
+	let mut items = Vec::with_capacity(messages.len());
 	let mut current_album: Vec<ChatMessage> = Vec::new();
+
+	// Turns the album accumulated so far into an item and hands the buffer back
+	// empty. Takes ownership of the run rather than cloning it: the old code
+	// cloned `current_album` into the Album and then immediately overwrote or
+	// cleared it, so every album's messages were allocated twice.
+	fn flush(current_album: &mut Vec<ChatMessage>, items: &mut Vec<DisplayItem>) {
+		match current_album.len() {
+			0 => {}
+			1 => items.push(DisplayItem::Single(current_album.remove(0))),
+			_ => {
+				let album = std::mem::take(current_album);
+				let first = &album[0];
+				items.push(DisplayItem::Album {
+					id: first.id.clone(),
+					sender_jid: first.sender_jid.clone(),
+					sender_name: first.sender_name.clone(),
+					from_me: first.from_me,
+					timestamp: first.timestamp,
+					messages: album,
+				});
+			}
+		}
+		current_album.clear();
+	}
 
 	for msg in messages {
 		let is_deleted = msg.is_deleted || msg.text.contains("deleted") || msg.text.contains("Deleted");
@@ -697,61 +721,20 @@ pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<Displa
 				|| msg.text.starts_with("[Video]"));
 
 		if is_media {
-			if let Some(prev) = current_album.last() {
-				if same_album(prev, msg) {
-					current_album.push(msg.clone());
-					continue;
-				} else {
-					if current_album.len() > 1 {
-						let first = current_album[0].clone();
-						items.push(DisplayItem::Album {
-							id: first.id.clone(),
-							sender_jid: first.sender_jid.clone(),
-							sender_name: first.sender_name.clone(),
-							from_me: first.from_me,
-							timestamp: first.timestamp,
-							messages: current_album.clone(),
-						});
-					} else if current_album.len() == 1 {
-						items.push(DisplayItem::Single(current_album[0].clone()));
-					}
-					current_album = vec![msg.clone()];
-				}
+			// A media run continues only while consecutive media belong to the
+			// same album; anything else closes the run before starting a new one.
+			if current_album.last().is_some_and(|prev| same_album(prev, msg)) {
+				current_album.push(msg.clone());
 			} else {
-				current_album = vec![msg.clone()];
+				flush(&mut current_album, &mut items);
+				current_album.push(msg.clone());
 			}
 		} else {
-			if current_album.len() > 1 {
-				let first = current_album[0].clone();
-				items.push(DisplayItem::Album {
-					id: first.id.clone(),
-					sender_jid: first.sender_jid.clone(),
-					sender_name: first.sender_name.clone(),
-					from_me: first.from_me,
-					timestamp: first.timestamp,
-					messages: current_album.clone(),
-				});
-			} else if current_album.len() == 1 {
-				items.push(DisplayItem::Single(current_album[0].clone()));
-			}
-			current_album.clear();
+			flush(&mut current_album, &mut items);
 			items.push(DisplayItem::Single(msg.clone()));
 		}
 	}
-
-	if current_album.len() > 1 {
-		let first = current_album[0].clone();
-		items.push(DisplayItem::Album {
-			id: first.id.clone(),
-			sender_jid: first.sender_jid.clone(),
-			sender_name: first.sender_name.clone(),
-			from_me: first.from_me,
-			timestamp: first.timestamp,
-			messages: current_album,
-		});
-	} else if current_album.len() == 1 {
-		items.push(DisplayItem::Single(current_album[0].clone()));
-	}
+	flush(&mut current_album, &mut items);
 
 	items
 }
@@ -1002,6 +985,43 @@ mod tests {
 		assert_eq!(msg.status, "read");
 	}
 
+	/// Covers the field mapping itself - the camelCase renames and the
+	/// snake_case aliases the backend may send either of - independently of
+	/// which deserializer the caller happens to use.
+	#[test]
+	fn test_chat_message_field_aliases_and_renames() {
+		use serde::Deserialize;
+
+		let json = r#"{"messages":[
+			{"id":"m1","text":"hi","timestamp":1700000000,"fromMe":true,"senderJid":"a@s.whatsapp.net","isAudio":true,"mediaType":"audio","albumId":"alb1","sentAt":17,"reactions":[{"reactorJid":"b@s.whatsapp.net","emoji":"x"}]},
+			{"id":"m2","text":"yo","timestamp":1700000001,"from_me":false,"sender_jid":"b@s.whatsapp.net","media_type":"image","album_id":"alb2"}
+		]}"#;
+		let val: serde_json::Value = serde_json::from_str(json).unwrap();
+		let arr = val.get("messages").and_then(|m| m.as_array()).unwrap();
+		let parsed: Vec<ChatMessage> = arr.iter().map(|m| ChatMessage::deserialize(m).unwrap()).collect();
+
+		assert_eq!(parsed.len(), 2);
+		assert_eq!(parsed[0].id, "m1");
+		assert!(parsed[0].from_me);
+		assert!(parsed[0].is_audio);
+		assert_eq!(parsed[0].sender_jid, "a@s.whatsapp.net");
+		assert_eq!(parsed[0].media_type, "audio");
+		assert_eq!(parsed[0].album_id, "alb1");
+		assert_eq!(parsed[0].sent_at, 17);
+		assert_eq!(parsed[0].reactions.len(), 1);
+		assert_eq!(parsed[0].reactions[0].emoji, "x");
+		// Fields absent from the payload fall back to Default, not an error.
+		assert_eq!(parsed[0].quoted_id, "");
+		assert_eq!(parsed[0].read_at, 0);
+
+		// snake_case aliases resolve the same way.
+		assert_eq!(parsed[1].id, "m2");
+		assert!(!parsed[1].from_me);
+		assert_eq!(parsed[1].sender_jid, "b@s.whatsapp.net");
+		assert_eq!(parsed[1].media_type, "image");
+		assert_eq!(parsed[1].album_id, "alb2");
+	}
+
 	#[test]
 	fn test_unread_notification_total_excludes_muted() {
 		let mut counts = std::collections::HashMap::new();
@@ -1109,5 +1129,95 @@ mod tests {
 		};
 		let display = failed_msg.format_display(false);
 		assert!(display.contains("Failed to send"), "Expected 'Failed to send' in '{}'", display);
+	}
+
+	fn media(id: &str, album_id: &str, sender: &str, ts: i64) -> ChatMessage {
+		ChatMessage {
+			id: id.into(),
+			text: "[Photo]".into(),
+			timestamp: ts,
+			sender_jid: sender.into(),
+			media_type: "image".into(),
+			album_id: album_id.into(),
+			..Default::default()
+		}
+	}
+
+	fn text(id: &str, body: &str) -> ChatMessage {
+		ChatMessage { id: id.into(), text: body.into(), ..Default::default() }
+	}
+
+	fn ids(items: &[DisplayItem]) -> Vec<Vec<String>> {
+		items
+			.iter()
+			.map(|item| match item {
+				DisplayItem::Single(m) => vec![m.id.clone()],
+				DisplayItem::Album { messages, .. } => messages.iter().map(|m| m.id.clone()).collect(),
+			})
+			.collect()
+	}
+
+	#[test]
+	fn grouping_keeps_lone_media_and_plain_text_as_singles() {
+		let msgs = vec![text("a", "hi"), media("b", "", "x@s.whatsapp.net", 100), text("c", "bye")];
+		assert_eq!(ids(&group_messages_into_display_items(&msgs)), vec![vec!["a"], vec!["b"], vec!["c"]]);
+	}
+
+	#[test]
+	fn grouping_collects_a_run_of_same_album_media() {
+		let msgs = vec![
+			media("a", "alb1", "x@s.whatsapp.net", 100),
+			media("b", "alb1", "x@s.whatsapp.net", 101),
+			media("c", "alb1", "x@s.whatsapp.net", 102),
+		];
+		let items = group_messages_into_display_items(&msgs);
+		assert_eq!(ids(&items), vec![vec!["a", "b", "c"]]);
+		// The album's identity comes from its first message.
+		match &items[0] {
+			DisplayItem::Album { id, sender_jid, timestamp, .. } => {
+				assert_eq!(id, "a");
+				assert_eq!(sender_jid, "x@s.whatsapp.net");
+				assert_eq!(*timestamp, 100);
+			}
+			DisplayItem::Single(_) => panic!("expected an album"),
+		}
+	}
+
+	#[test]
+	fn grouping_splits_adjacent_albums_and_flushes_before_text() {
+		let msgs = vec![
+			media("a", "alb1", "x@s.whatsapp.net", 100),
+			media("b", "alb1", "x@s.whatsapp.net", 101),
+			media("c", "alb2", "x@s.whatsapp.net", 102),
+			media("d", "alb2", "x@s.whatsapp.net", 103),
+			text("e", "look"),
+			media("f", "alb3", "x@s.whatsapp.net", 200),
+		];
+		assert_eq!(
+			ids(&group_messages_into_display_items(&msgs)),
+			vec![vec!["a", "b"], vec!["c", "d"], vec!["e"], vec!["f"]]
+		);
+	}
+
+	#[test]
+	fn grouping_falls_back_to_the_ten_second_window_without_album_ids() {
+		// No album_id on either side: same sender within 10s groups, beyond it splits.
+		let msgs = vec![
+			media("a", "", "x@s.whatsapp.net", 100),
+			media("b", "", "x@s.whatsapp.net", 105),
+			media("c", "", "x@s.whatsapp.net", 200),
+		];
+		assert_eq!(ids(&group_messages_into_display_items(&msgs)), vec![vec!["a", "b"], vec!["c"]]);
+	}
+
+	#[test]
+	fn grouping_never_merges_across_senders() {
+		let msgs = vec![media("a", "", "x@s.whatsapp.net", 100), media("b", "", "y@s.whatsapp.net", 101)];
+		assert_eq!(ids(&group_messages_into_display_items(&msgs)), vec![vec!["a"], vec!["b"]]);
+	}
+
+	#[test]
+	fn grouping_of_nothing_yields_nothing() {
+		assert!(group_messages_into_display_items(&[]).is_empty());
 	}
 }

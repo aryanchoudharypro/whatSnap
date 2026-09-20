@@ -433,8 +433,48 @@ pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	s.selected_chat = None;
 	clear_pending_reply(&mut s, parts);
 	parts.conversations_parts.conversation_panel.show(false);
+	// Hiding the panel does not release anything: without this the closed
+	// chat's messages (and their second copy in display_items, and the native
+	// list's rows) stay resident for the rest of the session. On a chat with
+	// tens of thousands of messages that is tens of MB held for a view the
+	// user has explicitly left. `clear_chat` already does the same.
+	release_conversation_buffers(&mut s, parts);
 	parts.conversations_parts.panel.layout();
 	parts.conversations_parts.conversations_list.set_focus();
+}
+
+/// Drops everything tied to the currently-displayed conversation: the message
+/// vectors, their display-item copies, any selection-mode rows, the media /
+/// documents / links snapshots taken for the info dialogs, and the native list
+/// controls' contents. Called when a chat is closed or switched away from.
+pub(crate) fn release_conversation_buffers(s: &mut AppState, parts: &Rc<WindowParts>) {
+	s.messages = Vec::new();
+	s.display_items = Vec::new();
+	s.selection_rows = Vec::new();
+	s.prev_msg_count = 0;
+	// These hold full ChatMessage clones taken when an info dialog is opened
+	// and were never released - not on dialog close, not on chat switch.
+	s.group_data_media = Vec::new();
+	s.group_data_documents = Vec::new();
+	s.group_data_links = Vec::new();
+	s.conversation_data_media = Vec::new();
+	s.conversation_data_documents = Vec::new();
+	s.conversation_data_links = Vec::new();
+	// NOT cleared here, deliberately. Dropping in-flight downloads would make
+	// the action button read "Download" for a file that is already downloading
+	// until the next progress event re-inserted it - a wrong announcement for
+	// anyone navigating by screen reader. The only thing left behind is an
+	// entry for a download that never reports completion or failure, which is
+	// rare and a few dozen bytes; the false announcement costs more than the
+	// bytes are worth. (`s.downloads_in_progress`)
+	parts.conversations_parts.messages_list.clear();
+	parts.conversations_parts.messages_select_list.clear();
+	parts.group_data_dialog.media_list.clear();
+	parts.group_data_dialog.documents_list.clear();
+	parts.group_data_dialog.links_list.clear();
+	parts.conversation_data_dialog.media_list.clear();
+	parts.conversation_data_dialog.documents_list.clear();
+	parts.conversation_data_dialog.links_list.clear();
 }
 
 pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, lock: bool) {
