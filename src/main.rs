@@ -55,6 +55,11 @@ use crate::{
 	ui_wake::{ID_UI_WAKE, UiCommandSender, UiWaker},
 };
 
+/// How many messages a single `get_messages` page request loads: opening a
+/// chat, closing search, and each "scrolled to the top" page all use this
+/// instead of fetching a chat's entire history in one shot.
+pub const MESSAGE_PAGE_SIZE: i32 = 100;
+
 struct AppState {
 	settings: crate::settings::Settings,
 	ws_tx: mpsc::Sender<String>,
@@ -164,6 +169,10 @@ struct AppState {
 	initial_presence_received: bool,
 	messages: Vec<ChatMessage>,
 	loading_messages: bool,
+	/// True once a `get_messages` page for the open chat has come back
+	/// shorter than requested - the local database has nothing older left
+	/// for it, so `load_more_messages` should go straight to phone-side
+	/// history sync instead of paging locally again. Reset per chat switch.
 	no_more_messages: bool,
 	history_loading: bool,
 	/// Set to "now" on every "history_sync" update from the backend, cleared
@@ -1015,6 +1024,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ToggleMuteChat { jid, mute } => ui_commands::chat_list::toggle_mute_chat(state, parts, jid, mute),
 		UiCommand::ToggleReadChat { jid, read } => ui_commands::chat_list::toggle_read_chat(state, parts, jid, read),
 		UiCommand::DeleteChat { jid } => ui_commands::chat_list::delete_chat(state, parts, jid),
+		UiCommand::ClearChat { jid } => ui_commands::chat_list::clear_chat(state, parts, jid),
 		UiCommand::LeaveGroup { jid } => ui_commands::contacts_groups::leave_group(state, parts, jid),
 	}
 }

@@ -247,14 +247,35 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 			return;
 		}
 		s.history_loading = true;
-		eprintln!("[LOG UI] Reached top of chat! Requesting older history from phone for: {}", jid);
-		let oldest_msg_id = s.messages.first().map(|m| m.id.clone()).unwrap_or_default();
-		let payload = serde_json::json!({
-			"action": "request_history_sync",
-			"data": { "jid": jid, "message_id": oldest_msg_id, "count": 50 }
-		});
-		let _ = s.ws_tx.send(payload.to_string());
+		if s.no_more_messages {
+			// Already know the local database has nothing older for this
+			// chat (a previous page came back short) - go straight to the
+			// phone instead of paying for another empty local query.
+			request_phone_history_sync(&s, jid);
+		} else {
+			eprintln!("[LOG UI] Reached top of chat! Requesting next local page for: {}", jid);
+			let offset = s.messages.len();
+			let payload = serde_json::json!({
+				"action": "get_messages",
+				"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": offset }
+			});
+			let _ = s.ws_tx.send(payload.to_string());
+		}
 	}
+}
+
+/// Asks the phone for WhatsApp history older than what's in the local
+/// database, once local pagination (`get_messages` with a growing `offset`)
+/// has come back empty for the open chat. The actual messages, if any,
+/// arrive later as a "history_sync" event handled in `websocket_events`.
+pub(crate) fn request_phone_history_sync(s: &AppState, jid: &str) {
+	eprintln!("[LOG UI] Requesting older history from phone for: {}", jid);
+	let oldest_msg_id = s.messages.first().map(|m| m.id.clone()).unwrap_or_default();
+	let payload = serde_json::json!({
+		"action": "request_history_sync",
+		"data": { "jid": jid, "message_id": oldest_msg_id, "count": 50 }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
 }
 
 pub(crate) fn search_in_conversation(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, query: String) {
@@ -311,10 +332,9 @@ pub(crate) fn close_search(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	parts.conversations_parts.search_panel.show(false);
 	parts.conversations_parts.search_conv_field.set_value("");
 	if let Some(jid) = state.borrow().selected_chat.clone() {
-		let limit = 9999999;
 		let payload = serde_json::json!({
 			"action": "get_messages",
-			"data": { "jid": jid, "limit": limit, "offset": 0 }
+			"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
 	}
@@ -333,15 +353,18 @@ pub(crate) fn jump_to_search_result(
 	{
 		let mut s = state.borrow_mut();
 		if !message_id.is_empty() {
-			s.search_target_id = Some(message_id);
+			s.search_target_id = Some(message_id.clone());
 		} else if !message_text.is_empty() {
-			s.search_target_text = Some(message_text);
+			s.search_target_text = Some(message_text.clone());
 		}
 		if let Some(jid) = s.selected_chat.clone() {
-			let limit = 9999999;
+			// Fetches a bounded window of local history centered on the
+			// target message instead of the whole chat - the existing
+			// `search_target_id`/`search_target_text` handling below finds
+			// it within whatever page comes back, same as it always has.
 			let payload = serde_json::json!({
-				"action": "get_messages",
-				"data": { "jid": jid, "limit": limit, "offset": 0 }
+				"action": "get_messages_around",
+				"data": { "jid": jid, "messageId": message_id, "text": message_text }
 			});
 			let _ = s.ws_tx.send(payload.to_string());
 		}
@@ -621,5 +644,39 @@ pub(crate) fn delete_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	live_region::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Chat {} deleted.", chat_name),
+	);
+}
+
+/// Deletes a chat's messages while leaving the chat itself in the list -
+/// distinct from `delete_chat`, which removes the chat entirely. If the
+/// chat is currently open, its message list is cleared immediately rather
+/// than waiting for a later `chats` refresh (which wouldn't touch the open
+/// conversation view anyway).
+pub(crate) fn clear_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
+	let (chat_name, is_open) = {
+		let mut s = state.borrow_mut();
+		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+		let is_open = s.selected_chat.as_ref() == Some(&jid);
+		if is_open {
+			s.messages.clear();
+			s.display_items.clear();
+			s.prev_msg_count = 0;
+		}
+		(name, is_open)
+	};
+	if is_open {
+		parts.conversations_parts.messages_list.clear();
+		crate::message_display::update_action_buttons(&state.borrow(), &parts.conversations_parts);
+	}
+	let payload = serde_json::json!({
+		"action": "clear_chat",
+		"data": {
+			"jid": jid
+		}
+	});
+	let _ = state.borrow().ws_tx.send(payload.to_string());
+	live_region::announce(
+		parts.conversations_parts.messages_announcer.clone(),
+		&format!("Chat {} cleared.", chat_name),
 	);
 }
