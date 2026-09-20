@@ -170,6 +170,8 @@ func handleConnection(conn net.Conn) {
 			handleGetChats(conn)
 		case "get_messages":
 			handleGetMessages(conn, cmd.Data)
+		case "get_messages_around":
+			handleGetMessagesAround(conn, cmd.Data)
 		case "get_message_info":
 			handleGetMessageInfo(conn, cmd.Data)
 		case "search_messages":
@@ -223,6 +225,8 @@ func handleConnection(conn net.Conn) {
 		// --- media / attachments / voice messages ---
 		case "send_attachment":
 			handleSendAttachment(conn, cmd.Data)
+		case "send_contacts":
+			handleSendContacts(conn, cmd.Data)
 		case "send_voice_message":
 			handleSendVoiceMessage(conn, cmd.Data)
 		case "download_media":

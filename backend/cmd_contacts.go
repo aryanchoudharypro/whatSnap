@@ -3,13 +3,20 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net"
+	"strings"
 	"time"
 
 	"go.mau.fi/util/jsontime"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 func handleGetContacts(conn net.Conn) {
@@ -267,7 +274,243 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 		}
 		sendEvent(conn, "new_contact_status", map[string]interface{}{"status": "success", "jid": jid.String(), "name": data.Name})
 		upsertContactCacheRow(jid.String(), data.Name, phone, false)
+
+		// IsOnWhatsApp is queried with addressing_mode=lid, so resp[0].JID is
+		// typically already the contact's LID rather than their phone-number
+		// JID (that's resp[0].PhoneNumber instead) - resolve both forms since
+		// an existing chat with this person may be keyed by either one.
+		pnJID, lidJID := resp[0].PhoneNumber, types.JID{}
+		if jid.Server == types.HiddenUserServer {
+			lidJID = jid
+		} else {
+			pnJID = jid
+			if resolved, lerr := client.Store.LIDs.GetLIDForPN(context.Background(), jid); lerr == nil {
+				lidJID = resolved
+			}
+		}
+
+		// Rename any existing chat with this person immediately, rather than
+		// waiting on populateChatsFromStore's full contact rescan below.
+		if !pnJID.IsEmpty() {
+			db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, data.Name, pnJID.String())
+		}
+		if !lidJID.IsEmpty() {
+			db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, data.Name, lidJID.String())
+		}
+
 		populateChatsFromStore()
+		broadcastChats()
+
+		// Push the contact to WhatsApp's own contact-sync (the same app-state
+		// patch official WhatsApp Web sends when you add a contact), so it
+		// actually shows up in the linked phone's WhatsApp/address book
+		// instead of only being cached locally by whaNTV. Best-effort: the
+		// contact was already created successfully above either way, so a
+		// failure here is only logged, not surfaced as an error to the user.
+		if data.Sync {
+			if syncErr := syncContactToPhone(pnJID, lidJID, data.Name); syncErr != nil {
+				log.Printf("Contact sync (app-state) failed for %s: %v", jid, syncErr)
+			}
+		}
+	}()
+}
+
+// syncContactToPhone sends the "contact" app-state patch(es) WhatsApp Web
+// itself sends when adding a contact: collection critical_unblock_low, with
+// SaveOnPrimaryAddressbook set so the linked phone actually saves it to its
+// address book rather than whaNTV's cache staying the only place that knows
+// about it.
+//
+// Captured from a real WhatsApp Web session's own patch (via temporary debug
+// logging on the receiving events.Contact handler): a modern (LID-migrated)
+// account writes the contact under BOTH the phone-number JID index (with
+// LidJID pointing at the contact's LID) AND a second, separate mutation
+// indexed by the LID itself (LidJID left empty there, since the index is
+// already the LID). Sending only one of the two is silently accepted by the
+// server (no error, version still advances) but never actually applied to
+// the phone's contact list.
+//
+// pnJID and lidJID are the two forms of the same contact as returned by
+// IsOnWhatsApp (queried with addressing_mode=lid, its primary .JID is
+// typically already the LID form, not the phone number - .PhoneNumber holds
+// the actual PN JID). Either may be the zero JID if unknown.
+func syncContactToPhone(pnJID, lidJID types.JID, name string) error {
+	if pnJID.IsEmpty() && lidJID.IsEmpty() {
+		return fmt.Errorf("no known jid to sync contact under")
+	}
+
+	newMutation := func(index types.JID, includeLidField bool) appstate.MutationInfo {
+		action := &waSyncAction.ContactAction{
+			FullName:                 proto.String(name),
+			FirstName:                proto.String(name),
+			SaveOnPrimaryAddressbook: proto.Bool(true),
+		}
+		if includeLidField && !lidJID.IsEmpty() {
+			action.LidJID = proto.String(lidJID.String())
+		}
+		return appstate.MutationInfo{
+			Index:   []string{appstate.IndexContact, index.String()},
+			Version: 2,
+			Value:   &waSyncAction.SyncActionValue{ContactAction: action},
+		}
+	}
+
+	var mutations []appstate.MutationInfo
+	if !pnJID.IsEmpty() {
+		mutations = append(mutations, newMutation(pnJID, true))
+	}
+	if !lidJID.IsEmpty() {
+		mutations = append(mutations, newMutation(lidJID, false))
+	}
+
+	patch := appstate.PatchInfo{
+		Type:      appstate.WAPatchCriticalUnblockLow,
+		Mutations: mutations,
+	}
+	return client.SendAppState(context.Background(), patch)
+}
+
+// vCardEscape escapes the characters vCard 3.0 (RFC 2426) requires escaped
+// inside a property value: backslash, comma, semicolon and newline.
+func vCardEscape(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `,`, `\,`, `;`, `\;`, "\n", `\n`)
+	return r.Replace(s)
+}
+
+// buildVCard renders a minimal WhatsApp-compatible vCard 3.0 for a contact,
+// matching the shape official WhatsApp clients send in a ContactMessage.
+func buildVCard(name, phone, jid string) string {
+	displayName := name
+	if displayName == "" {
+		displayName = phone
+	}
+	waid := phone
+	if waid == "" {
+		waid = strings.SplitN(jid, "@", 2)[0]
+	}
+	telValue := waid
+	if telValue != "" {
+		telValue = "+" + telValue
+	}
+	return fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nFN:%s\nTEL;type=CELL;type=VOICE;waid=%s:%s\nEND:VCARD",
+		vCardEscape(displayName), waid, telValue)
+}
+
+// contactDisplayInfo resolves a contact jid to (name, phone) using the local
+// contacts cache, falling back to the jid's own user part as the phone when
+// nothing better is known.
+func contactDisplayInfo(jidStr string) (name, phone string) {
+	db.QueryRow(`SELECT COALESCE(name, ''), COALESCE(phone, '') FROM contacts_cache WHERE jid = ?`, jidStr).Scan(&name, &phone)
+	if phone == "" {
+		phone = strings.SplitN(jidStr, "@", 2)[0]
+	}
+	return name, phone
+}
+
+func handleSendContacts(conn net.Conn, raw json.RawMessage) {
+	var data SendContactsData
+	if err := json.Unmarshal(raw, &data); err != nil || len(data.ContactJIDs) == 0 {
+		return
+	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil {
+		sendEvent(conn, "error", map[string]string{"message": "invalid jid"})
+		return
+	}
+	go func() {
+		id := client.GenerateMessageID()
+
+		vcards := make([]*waE2E.ContactMessage, 0, len(data.ContactJIDs))
+		names := make([]string, 0, len(data.ContactJIDs))
+		for _, cjid := range data.ContactJIDs {
+			name, phone := contactDisplayInfo(cjid)
+			display := name
+			if display == "" {
+				display = phone
+			}
+			vcards = append(vcards, &waE2E.ContactMessage{
+				DisplayName: proto.String(display),
+				Vcard:       proto.String(buildVCard(name, phone, cjid)),
+			})
+			names = append(names, display)
+		}
+
+		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
+
+		var msg *waE2E.Message
+		var displayText string
+		if len(vcards) == 1 {
+			vcards[0].ContextInfo = ctxInfo
+			msg = &waE2E.Message{ContactMessage: vcards[0]}
+			displayText = "[Contact] " + names[0]
+		} else {
+			arrayDisplayName := fmt.Sprintf("%d contacts", len(vcards))
+			msg = &waE2E.Message{ContactsArrayMessage: &waE2E.ContactsArrayMessage{
+				DisplayName: proto.String(arrayDisplayName),
+				Contacts:    vcards,
+				ContextInfo: ctxInfo,
+			}}
+			displayText = "[Contact] " + strings.Join(names, ", ")
+		}
+
+		senderJID := ""
+		if client.Store.ID != nil {
+			senderJID = client.Store.ID.ToNonAD().String()
+		}
+		ts := time.Now().Unix()
+
+		saveMessage(StoredMessage{
+			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
+			Text: displayText, Timestamp: ts, Status: "pending",
+			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
+		})
+		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+			ON CONFLICT(jid) DO UPDATE SET
+				timestamp=MAX(timestamp, excluded.timestamp),
+				preview_snippet=excluded.preview_snippet,
+				preview_sender=excluded.preview_sender,
+				preview_from_me=1,
+				preview_is_reaction=0,
+				preview_reaction_emoji=''`, jid.String(), ts, displayText, senderJID)
+		broadcastEvent("message", map[string]interface{}{
+			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
+			"from_me":      true,
+			"timestamp":    ts,
+			"has_media":    false,
+			"status":       "pending",
+			"quotedId":     quotedID,
+			"quotedText":   quotedText,
+			"quotedSender": quotedSender,
+		})
+		broadcastChats()
+
+		resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
+		if err != nil {
+			db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+			if conn != nil {
+				sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			}
+			broadcastEvent("message", map[string]interface{}{
+				"jid": jid.String(), "from": "me", "id": id, "text": displayText,
+				"from_me": true, "timestamp": time.Now().Unix(), "has_media": false, "status": "failed",
+				"quotedId": quotedID, "quotedText": quotedText, "quotedSender": quotedSender,
+			})
+			return
+		}
+
+		rawBytes, _ := proto.Marshal(msg)
+		sentTs := resp.Timestamp.Unix()
+		db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=? WHERE id=?`, sentTs, sentTs, rawBytes, id)
+		broadcastEvent("message", map[string]interface{}{
+			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
+			"from_me":      true,
+			"timestamp":    sentTs,
+			"has_media":    false,
+			"status":       "sent",
+			"quotedId":     quotedID,
+			"quotedText":   quotedText,
+			"quotedSender": quotedSender,
+		})
 		broadcastChats()
 	}()
 }
