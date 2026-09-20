@@ -55,6 +55,11 @@ use crate::{
 	ui_wake::{ID_UI_WAKE, UiCommandSender, UiWaker},
 };
 
+/// How recently a message must have been sent for its "delivered" receipt to
+/// ding. Also bounds `AppState::played_sent_sounds`: an ack older than this
+/// can never ring, so it is never recorded and aged-out entries are dropped.
+const SENT_SOUND_WINDOW_SECS: i64 = 20;
+
 struct AppState {
 	settings: crate::settings::Settings,
 	ws_tx: mpsc::Sender<String>,
@@ -68,8 +73,6 @@ struct AppState {
 	audio_stream_device_name: Option<String>,
 	audio_sink: Option<Player>,
 	playing_msg_id: Option<String>,
-	audio_process: Option<std::process::Child>,
-	audio_stdin: Option<std::process::ChildStdin>,
 	is_audio_paused: bool,
 	audio_path: Option<String>,
 	audio_total_secs: f32,
@@ -230,7 +233,10 @@ struct AppState {
 	pending_copy_announcements: std::collections::HashSet<String>,
 	search_target_id: Option<String>,
 	search_target_text: Option<String>,
-	played_sent_sounds: std::collections::HashSet<String>,
+	/// Message id -> unix time of the ack that rang for it, kept only for
+	/// `SENT_SOUND_WINDOW_SECS` so one message never dings twice while the
+	/// map stays bounded by a single window's worth of acks.
+	played_sent_sounds: std::collections::HashMap<String, i64>,
 	/// Toast notifications currently showing for each background chat, kept
 	/// alive so they can be dismissed (`NotificationMessage::close`) once the
 	/// user actually opens that chat - matching official WhatsApp's behavior
@@ -484,8 +490,23 @@ fn main() {
 						match buf_reader.read_line(&mut line) {
 							Ok(0) => break, // EOF
 							Ok(_) => {
-								let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(line.trim().to_string()));
-								line.clear();
+								// Hand the buffer itself over rather than allocating a
+								// second full copy via `line.trim().to_string()`: one
+								// chat's history arrives as a single line that can run
+								// to many megabytes. Allocation count is unchanged (the
+								// `to_string` was already one per line), but the peak is
+								// halved.
+								line.truncate(line.trim_end().len());
+								let leading = line.len() - line.trim_start().len();
+								if leading > 0 {
+									line.drain(..leading);
+								}
+								// `mem::take` leaves a fresh empty String behind, so -
+								// unlike `clear()` - the big line's capacity goes with
+								// it instead of staying pinned at the session's
+								// high-water mark for the life of the connection.
+								let payload = std::mem::take(&mut line);
+								let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(payload));
 							}
 							Err(_) => break, // Any read error breaks and triggers reconnect
 						}
@@ -504,8 +525,6 @@ fn main() {
 			audio_stream_device_name: None,
 			audio_sink: None,
 			playing_msg_id: None,
-			audio_process: None,
-			audio_stdin: None,
 			is_audio_paused: false,
 			audio_path: None,
 			audio_total_secs: 0.0,
@@ -610,7 +629,7 @@ fn main() {
 			pending_copy_announcements: std::collections::HashSet::new(),
 			search_target_id: None,
 			search_target_text: None,
-			played_sent_sounds: std::collections::HashSet::new(),
+			played_sent_sounds: std::collections::HashMap::new(),
 			active_notifications: std::collections::HashMap::new(),
 			is_voice_recording: false,
 			is_voice_paused: false,

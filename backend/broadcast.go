@@ -49,22 +49,36 @@ func sendEvent(conn net.Conn, evtType string, data interface{}) {
 	var raw json.RawMessage
 	if data != nil {
 		bytes, err := json.Marshal(data)
-		if err == nil {
+		if err != nil {
+			// Matches the previous behaviour: still send the bare event rather
+			// than dropping it, so the UI's dispatch is unchanged. Logged
+			// because it used to fail silently.
+			log.Println("sendEvent: failed to marshal", evtType, "payload:", err)
+		} else {
 			raw = bytes
 		}
 	}
 
-	evt := Event{
-		Type: evtType,
-		Data: raw,
-	}
-
-	bytes, err := json.Marshal(evt)
+	// Assembled by hand rather than marshalling an Event: `raw` is already
+	// valid JSON, so json.Marshal(evt) would copy the whole payload a second
+	// time purely to wrap it in {"type":..,"data":..}, and the trailing append
+	// could copy it a third. On a chat's full history that is tens of MB per
+	// copy. evtType still goes through Marshal so it stays correctly escaped,
+	// and the empty-data case matches Event's `omitempty`.
+	typeJSON, err := json.Marshal(evtType)
 	if err != nil {
 		return
 	}
+	buf := make([]byte, 0, len(raw)+len(typeJSON)+32)
+	buf = append(buf, `{"type":`...)
+	buf = append(buf, typeJSON...)
+	if len(raw) > 0 {
+		buf = append(buf, `,"data":`...)
+		buf = append(buf, raw...)
+	}
+	buf = append(buf, '}', '\n')
 
-	conn.Write(append(bytes, '\n'))
+	conn.Write(buf)
 }
 
 // broadcastChats re-reads the local chat list cache and pushes it to every

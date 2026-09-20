@@ -3248,7 +3248,6 @@ pub fn bind_input_handlers(
 				// same as the Space handler below, instead of requiring a
 				// Tab to the play button. Non-voice messages keep whatever
 				// default Enter behavior the list already had.
-				use std::io::Write;
 				let mut handled = false;
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
@@ -3268,10 +3267,6 @@ pub fn bind_input_handlers(
 									if let Some(ref sink) = s.audio_sink {
 										sink.play();
 									}
-									if let Some(ref mut stdin) = s.audio_stdin {
-										let _ = writeln!(stdin, "RESUME");
-										let _ = stdin.flush();
-									}
 									s.is_audio_paused = false;
 									s.audio_start_instant = Some(std::time::Instant::now());
 									play_voice_btn_space.set_label("Pause voice message");
@@ -3282,10 +3277,6 @@ pub fn bind_input_handlers(
 									}
 									if let Some(ref sink) = s.audio_sink {
 										sink.pause();
-									}
-									if let Some(ref mut stdin) = s.audio_stdin {
-										let _ = writeln!(stdin, "PAUSE");
-										let _ = stdin.flush();
 									}
 									s.is_audio_paused = true;
 									play_voice_btn_space.set_label("Play voice message");
@@ -3314,7 +3305,6 @@ pub fn bind_input_handlers(
 				event.skip(false);
 			} else if key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32) {
 				// Space
-				use std::io::Write;
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -3335,10 +3325,6 @@ pub fn bind_input_handlers(
 								if let Some(ref sink) = s.audio_sink {
 									sink.play();
 								}
-								if let Some(ref mut stdin) = s.audio_stdin {
-									let _ = writeln!(stdin, "RESUME");
-									let _ = stdin.flush();
-								}
 								s.is_audio_paused = false;
 								s.audio_start_instant = Some(std::time::Instant::now());
 								play_voice_btn_space.set_label("Pause voice message");
@@ -3349,10 +3335,6 @@ pub fn bind_input_handlers(
 								}
 								if let Some(ref sink) = s.audio_sink {
 									sink.pause();
-								}
-								if let Some(ref mut stdin) = s.audio_stdin {
-									let _ = writeln!(stdin, "PAUSE");
-									let _ = stdin.flush();
 								}
 								s.is_audio_paused = true;
 								play_voice_btn_space.set_label("Play voice message");
@@ -3817,7 +3799,6 @@ pub fn bind_input_handlers(
 	let state_play_btn = state.clone();
 	let play_voice_btn_ref = parts.conversations_parts.play_voice_btn.clone();
 	parts.conversations_parts.play_voice_btn.on_click(move |_| {
-		use std::io::Write;
 		if let Some(idx) = msgs_list_btn.get_selection() {
 			let mut s = state_play_btn.borrow_mut();
 			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -3831,10 +3812,6 @@ pub fn bind_input_handlers(
 						// Resume
 						if let Some(ref sink) = s.audio_sink {
 							sink.play();
-						}
-						if let Some(ref mut stdin) = s.audio_stdin {
-							let _ = writeln!(stdin, "RESUME");
-							let _ = stdin.flush();
 						}
 						s.is_audio_paused = false;
 						s.audio_start_instant = Some(std::time::Instant::now());
@@ -3850,10 +3827,6 @@ pub fn bind_input_handlers(
 						}
 						if let Some(ref sink) = s.audio_sink {
 							sink.pause();
-						}
-						if let Some(ref mut stdin) = s.audio_stdin {
-							let _ = writeln!(stdin, "PAUSE");
-							let _ = stdin.flush();
 						}
 						s.is_audio_paused = true;
 						play_voice_btn_ref.set_label("Play voice message");
@@ -3932,8 +3905,6 @@ pub fn bind_input_handlers(
 							} else {
 								play_voice_btn_sel.set_label("Play voice message");
 							}
-						} else if s.audio_process.is_some() {
-							play_voice_btn_sel.set_label("Pause voice message");
 						} else {
 							play_voice_btn_sel.set_label("Play voice message");
 						}

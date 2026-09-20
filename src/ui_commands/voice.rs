@@ -439,11 +439,6 @@ pub(crate) fn seek_audio(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 			let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
 			s.audio_sink = new_sink;
 		}
-		if let Some(ref mut stdin) = s.audio_stdin {
-			use std::io::Write;
-			let _ = writeln!(stdin, "SEEK {}", target);
-			let _ = stdin.flush();
-		}
 		s.audio_elapsed_secs = target;
 		s.audio_start_instant = Some(std::time::Instant::now());
 		s.is_audio_paused = false;
@@ -468,11 +463,6 @@ pub(crate) fn seek_audio_absolute(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		if let Some(ref stream_handle) = s.audio_stream {
 			let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
 			s.audio_sink = new_sink;
-		}
-		if let Some(ref mut stdin) = s.audio_stdin {
-			use std::io::Write;
-			let _ = writeln!(stdin, "SEEK {}", target);
-			let _ = stdin.flush();
 		}
 		s.audio_elapsed_secs = target;
 		s.audio_start_instant = Some(std::time::Instant::now());

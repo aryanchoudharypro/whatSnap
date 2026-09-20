@@ -668,6 +668,16 @@ func getMessageRaw(id string) (raw []byte, jid string, senderJID string, fromMe 
 	return
 }
 
+// lookupMessageOrigin returns the authoritative from_me/sender_jid for a
+// message we still have locally, so quoted-reply display can trust the
+// actual original row instead of a denormalized quoted_sender snapshot that
+// may have been captured wrong or gone stale. ok is false if we don't have
+// that message (e.g. it's outside our synced history).
+func lookupMessageOrigin(id string) (fromMe bool, senderJID string, ok bool) {
+	err := db.QueryRow(`SELECT from_me, COALESCE(sender_jid, '') FROM messages WHERE id = ?`, id).Scan(&fromMe, &senderJID)
+	return fromMe, senderJID, err == nil
+}
+
 // getMessageForQuote loads and parses a stored message so it can be used as
 // the QuotedMessage in a reply's ContextInfo, along with a short text preview
 // for locally caching alongside the new message.

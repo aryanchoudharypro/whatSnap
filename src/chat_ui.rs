@@ -56,6 +56,41 @@ pub(crate) fn show_toast_notification(title: &str, body: &str) -> Option<wxdrago
 	}
 }
 
+/// Toasts kept per chat so opening it can dismiss them.
+///
+/// Set well above what Windows itself retains in Action Center for one app: a
+/// toast Windows has already dropped cannot be dismissed anyway, so a lower cap
+/// buys no memory back but does leave real, still-visible notifications
+/// stranded for a chat the user has just read - noise for anyone reviewing
+/// Action Center with a screen reader. The cap exists only so a chat that is
+/// never opened cannot pin native objects for the whole session.
+const MAX_TRACKED_NOTIFICATIONS_PER_CHAT: usize = 40;
+/// Chats tracked at once, for the same reason.
+const MAX_TRACKED_NOTIFICATION_CHATS: usize = 128;
+
+/// Files a just-shown toast under `jid` so `open_chat_for_jid` can dismiss it,
+/// evicting older entries to keep the bookkeeping bounded.
+///
+/// Evicted entries are dropped rather than `close`d: dropping frees the native
+/// wrapper while leaving the toast itself in Action Center, whereas closing
+/// would yank a notification the user may not have read yet.
+pub(crate) fn record_notification(s: &mut AppState, jid: &str, notification: wxdragon::prelude::NotificationMessage) {
+	if s.active_notifications.len() >= MAX_TRACKED_NOTIFICATION_CHATS && !s.active_notifications.contains_key(jid) {
+		// Any chat but the one we are filing under - it is the one most
+		// likely to be opened next, so it is the one worth keeping.
+		let evict = s.active_notifications.keys().find(|k| k.as_str() != jid).cloned();
+		if let Some(key) = evict {
+			s.active_notifications.remove(&key);
+		}
+	}
+	let entry = s.active_notifications.entry(jid.to_string()).or_default();
+	entry.push(notification);
+	if entry.len() > MAX_TRACKED_NOTIFICATIONS_PER_CHAT {
+		let overflow = entry.len() - MAX_TRACKED_NOTIFICATIONS_PER_CHAT;
+		entry.drain(0..overflow);
+	}
+}
+
 pub(crate) fn request_backend_shutdown(pipe_id: &str) {
 	let Ok(name) = pipe_id.to_ns_name::<GenericNamespaced>() else {
 		return;
@@ -170,11 +205,15 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	s.unread_divider_count = unread;
 	s.background_unread_message_ids.clear();
 	s.initial_presence_received = false;
-	s.messages.clear();
+	// Releases the outgoing chat's messages, their display_items copies and the
+	// info dialogs' media snapshots. `s.messages.clear()` alone used to leave
+	// display_items holding a full second copy of the previous chat - both a
+	// retention leak and a source of stale row lookups in the window between
+	// the switch and the new conversation_messages response landing.
+	crate::ui_commands::chat_list::release_conversation_buffers(&mut s, parts);
 	s.loading_messages = false;
 	s.no_more_messages = false;
 	s.history_loading = false;
-	s.prev_msg_count = 0;
 	s.pending_attachments.clear();
 	// Selection mode's row list is tied to the chat it was built from -
 	// switching chats mid-selection would leave it pointing at messages that
@@ -199,7 +238,9 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.conv_data_btn.set_label(&label);
 
 	parts.attachment_dialog.attachment_info_label.set_label("");
-	parts.conversations_parts.messages_list.clear();
+	// The message list was already emptied by release_conversation_buffers
+	// above; clearing it a second time is dead work on a control a screen
+	// reader is watching.
 	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
