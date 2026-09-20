@@ -168,69 +168,6 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		sendEvent(conn, "conversation_messages", map[string]interface{}{
 			"jid":      data.JID,
 			"messages": msgs,
-			"loadMore": data.Offset > 0,
-		})
-	}()
-}
-
-// handleGetMessagesAround finds a target message (by id, falling back to a
-// text match) and returns a bounded window of local history centered on it,
-// instead of a plain get_messages with an enormous limit fetching the whole
-// chat just to jump to one message in it. If the target can't be found
-// locally, falls back to the most recent page so the caller still gets a
-// usable (if not-scrolled-to-target) view rather than nothing.
-func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
-	var data struct {
-		JID       string `json:"jid"`
-		MessageID string `json:"messageId"`
-		Text      string `json:"text"`
-		Context   int    `json:"context"`
-	}
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return
-	}
-	go func() {
-		context := data.Context
-		if context <= 0 {
-			context = 40
-		}
-
-		var targetTS int64
-		var targetID string
-		var lookupErr error
-		if data.MessageID != "" {
-			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND id = ?`,
-				data.JID, data.MessageID).Scan(&targetTS, &targetID)
-		} else if data.Text != "" {
-			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND text LIKE ?
-				ORDER BY timestamp DESC LIMIT 1`, data.JID, "%"+data.Text+"%").Scan(&targetTS, &targetID)
-		} else {
-			lookupErr = sql.ErrNoRows
-		}
-
-		offset := 0
-		limit := context*2 + 1
-		if lookupErr == nil {
-			var position int
-			if err := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND
-					(timestamp > ? OR (timestamp = ? AND id > ?))`,
-				data.JID, targetTS, targetTS, targetID).Scan(&position); err == nil {
-				offset = position - context
-				if offset < 0 {
-					offset = 0
-				}
-			}
-		} else {
-			log.Printf("get_messages_around: target not found locally for %s, falling back to latest page", data.JID)
-			limit = 50
-		}
-
-		msgs := fetchMessagesPage(data.JID, limit, offset)
-		log.Printf("Got %d messages around target for %s", len(msgs), data.JID)
-		sendEvent(conn, "conversation_messages", map[string]interface{}{
-			"jid":      data.JID,
-			"messages": msgs,
-			"loadMore": false,
 		})
 	}()
 }

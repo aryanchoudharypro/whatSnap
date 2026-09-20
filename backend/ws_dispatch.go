@@ -170,8 +170,6 @@ func handleConnection(conn net.Conn) {
 			handleGetChats(conn)
 		case "get_messages":
 			handleGetMessages(conn, cmd.Data)
-		case "get_messages_around":
-			handleGetMessagesAround(conn, cmd.Data)
 		case "get_message_info":
 			handleGetMessageInfo(conn, cmd.Data)
 		case "search_messages":
