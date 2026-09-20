@@ -24,7 +24,7 @@ use crate::{
 	chat_ui::show_toast_notification,
 	contact_picker::{
 		apply_contact_picker_filter, display_name_for_jid, refresh_selection_list, sync_add_members_contact_labels,
-		sync_new_group_contact_labels,
+		sync_attach_contact_labels, sync_new_group_contact_labels,
 	},
 	message_display::{
 		apply_chat_filter, build_document_messages, build_link_messages, build_media_messages, chat_visible_in_tab,
@@ -1458,6 +1458,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let new_conv_shown = parts.new_conv_dialog.dialog.is_shown();
 						let new_group_shown = parts.new_group_dialog.dialog.is_shown();
 						let add_members_shown = parts.add_members_dialog.dialog.is_shown();
+						let attach_contact_shown = parts.attach_contact_dialog.dialog.is_shown();
 						drop(s);
 						if new_conv_shown {
 							let query = parts.new_conv_dialog.search_field.get_value();
@@ -1479,6 +1480,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							sync_add_members_contact_labels(state);
 							parts.add_members_contacts_timer.stop();
 							parts.add_members_contacts_timer.start(250, true);
+						}
+						if attach_contact_shown {
+							sync_attach_contact_labels(state);
+							parts.attach_contact_timer.stop();
+							parts.attach_contact_timer.start(250, true);
 						}
 					}
 				}

@@ -158,6 +158,7 @@ struct AppState {
 	presence_labels: std::collections::HashMap<String, String>,
 	group_state: crate::ui::new_group::NewGroupState,
 	add_members_state: crate::ui::add_members::AddMembersState,
+	attach_contact_state: crate::ui::attach_contact::AttachContactState,
 	selected_chat: Option<String>,
 	admin_group_jids: std::collections::HashSet<String>,
 	initial_presence_received: bool,
@@ -568,6 +569,12 @@ fn main() {
 				checked_jids: std::collections::HashSet::new(),
 				current_jids: Vec::new(),
 			},
+			attach_contact_state: crate::ui::attach_contact::AttachContactState {
+				all_contact_labels: Vec::new(),
+				all_contact_jids: Vec::new(),
+				checked_jids: std::collections::HashSet::new(),
+				current_jids: Vec::new(),
+			},
 			selected_chat: None,
 			admin_group_jids: std::collections::HashSet::new(),
 			initial_presence_received: false,
@@ -857,7 +864,11 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::CreateGroup { name, participants } => {
 			ui_commands::contacts_groups::create_group(state, parts, name, participants)
 		}
-		UiCommand::NewContact { name, phone } => ui_commands::contacts_groups::new_contact(state, parts, name, phone),
+		UiCommand::NewContact { name, phone, sync } => {
+			ui_commands::contacts_groups::new_contact(state, parts, name, phone, sync)
+		}
+		UiCommand::PrepareAttachContact => ui_commands::attachments::prepare_attach_contact(state, parts),
+		UiCommand::SendContacts(jids) => ui_commands::attachments::send_contacts(state, parts, jids),
 		UiCommand::RequestQr => ui_commands::misc::request_qr(state, parts),
 		UiCommand::CancelQr => ui_commands::misc::cancel_qr(state, parts),
 		UiCommand::CancelPairing => ui_commands::misc::cancel_pairing(state, parts),

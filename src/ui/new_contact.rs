@@ -3,7 +3,7 @@ use wxdragon::prelude::*;
 use crate::ui::theme;
 
 /// Every constructed widget is kept here for consistency even if not all of
-/// them are read back after construction yet (e.g. the sync checkbox).
+/// them are read back after construction (e.g. static labels).
 #[allow(dead_code)]
 pub struct NewContactDialogParts {
 	pub dialog: Dialog,
@@ -46,7 +46,7 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 	phone_field.set_font(&theme::Fonts::body());
 	sizer.add(&phone_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let sync_check = CheckBox::builder(&panel).with_label("Sync Contact").build();
+	let sync_check = CheckBox::builder(&panel).with_label("Also save to my phone's WhatsApp contacts").build();
 	sync_check.set_value(true);
 	sync_check.set_font(&theme::Fonts::body());
 	sizer.add(&sync_check, 0, SizerFlag::Left | SizerFlag::Top, 10);

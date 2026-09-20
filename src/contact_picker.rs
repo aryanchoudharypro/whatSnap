@@ -252,6 +252,61 @@ pub(crate) fn sync_add_members_contact_labels(state: &Rc<RefCell<AppState>>) {
 	ams.all_contact_jids = all_jids;
 }
 
+/// Same as `refresh_new_group_contacts_list` above, but for the Attach
+/// Contact dialog's `contacts_listbox` - no membership exclusion, every
+/// contact is a valid pick.
+pub(crate) fn refresh_attach_contact_list(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let q = query.trim().to_lowercase();
+	let mut s = state.borrow_mut();
+	let mut all_labels = Vec::new();
+	let mut all_jids = Vec::new();
+	for contact in &s.all_contacts {
+		all_labels.push(contact_picker_label(contact));
+		all_jids.push(contact.jid.clone());
+	}
+	let mut filtered_labels = Vec::new();
+	let mut filtered_jids = Vec::new();
+	for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
+		if q.is_empty() || lbl.to_lowercase().contains(&q) {
+			filtered_labels.push(lbl.clone());
+			filtered_jids.push(jid.clone());
+		}
+	}
+	parts.attach_contact_dialog.contacts_listbox.clear();
+	for lbl in &filtered_labels {
+		parts.attach_contact_dialog.contacts_listbox.append(lbl);
+	}
+	let acs = &mut s.attach_contact_state;
+	acs.all_contact_labels = all_labels;
+	acs.all_contact_jids = all_jids;
+	acs.current_jids = filtered_jids;
+	for (idx, jid) in acs.current_jids.iter().enumerate() {
+		if acs.checked_jids.contains(jid) {
+			parts.attach_contact_dialog.contacts_listbox.check(idx as u32, true);
+		}
+	}
+	if !acs.current_jids.is_empty() {
+		parts.attach_contact_dialog.contacts_listbox.set_selection(0, true);
+	}
+}
+
+/// Recomputes `attach_contact_state.all_contact_labels`/`all_contact_jids`
+/// from `s.all_contacts` without touching the dialog's listbox widget. Used
+/// when a `contacts` response lands while the dialog is open - see the
+/// equivalent `sync_add_members_contact_labels`.
+pub(crate) fn sync_attach_contact_labels(state: &Rc<RefCell<AppState>>) {
+	let mut s = state.borrow_mut();
+	let mut all_labels = Vec::new();
+	let mut all_jids = Vec::new();
+	for contact in &s.all_contacts {
+		all_labels.push(contact_picker_label(contact));
+		all_jids.push(contact.jid.clone());
+	}
+	let acs = &mut s.attach_contact_state;
+	acs.all_contact_labels = all_labels;
+	acs.all_contact_jids = all_jids;
+}
+
 /// Re-filters `s.all_contacts` by `query` (against the same "Name +phone"
 /// text shown to the user) and repaints `new_conv_dialog.results_list` with
 /// the matches, recording their jids in `contact_picker_current_jids` so a

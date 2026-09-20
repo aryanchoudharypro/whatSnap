@@ -23,6 +23,7 @@ type PairCommandData struct {
 type NewContactCommandData struct {
 	Phone string `json:"phone"`
 	Name  string `json:"name"`
+	Sync  bool   `json:"sync"` // also push to WhatsApp's own contact-sync (visible on the phone), not just whaNTV's local cache
 }
 
 // --- Messaging -----------------------------------------------------------
@@ -90,6 +91,13 @@ type SendAttachmentData struct {
 	Caption     string `json:"caption"`
 	ReplyToID   string `json:"reply_to_id"`
 	ReplySender string `json:"reply_to_sender"`
+}
+
+type SendContactsData struct {
+	JID         string   `json:"jid"`
+	ContactJIDs []string `json:"contact_jids"`
+	ReplyToID   string   `json:"reply_to_id"`
+	ReplySender string   `json:"reply_to_sender"`
 }
 
 type SendVoiceMessageData struct {

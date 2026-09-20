@@ -8,6 +8,7 @@ use wxdragon::prelude::*;
 use crate::{
 	AppState,
 	clipboard::{self, copy_files_to_clipboard},
+	contact_picker::refresh_attach_contact_list,
 	message_display::update_action_buttons,
 	ui::window::WindowParts,
 };
@@ -47,6 +48,48 @@ pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 				parts.attachment_dialog.caption_field.set_focus();
 			}
 		}
+	}
+}
+
+pub(crate) fn prepare_attach_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if state.borrow().selected_chat.is_none() {
+		return;
+	}
+	parts.attach_contact_dialog.search_field.set_value("");
+	parts.attach_contact_dialog.selection_announcer.set_label("");
+	state.borrow_mut().attach_contact_state.checked_jids.clear();
+	refresh_attach_contact_list("", state, parts);
+	let payload = serde_json::json!({ "action": "get_contacts" });
+	let _ = state.borrow().ws_tx.send(payload.to_string());
+	parts.attach_contact_dialog.dialog.show_modal();
+}
+
+pub(crate) fn send_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, contact_jids: Vec<String>) {
+	let jid = state.borrow().selected_chat.clone();
+	let (reply_id, reply_sender) = {
+		let mut s = state.borrow_mut();
+		let reply_id = s.pending_reply_id.take().unwrap_or_default();
+		let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
+		s.pending_reply_preview = None;
+		(reply_id, reply_sender)
+	};
+	parts.conversations_parts.remove_quote_btn.show(false);
+	if let Some(jid) = jid {
+		let payload = serde_json::json!({
+			"action": "send_contacts",
+			"data": {
+				"jid": jid,
+				"contact_jids": contact_jids,
+				"reply_to_id": reply_id,
+				"reply_to_sender": reply_sender
+			}
+		});
+		let _ = state.borrow().ws_tx.send(payload.to_string());
+		let count = contact_jids.len();
+		live_region::announce(
+			parts.conversations_parts.messages_announcer.clone(),
+			&format!("Sending {} contact{}...", count, if count == 1 { "" } else { "s" }),
+		);
 	}
 }
 

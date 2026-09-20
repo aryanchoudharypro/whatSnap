@@ -24,6 +24,122 @@ func handleGetChats(conn net.Conn) {
 	}()
 }
 
+// fetchMessagesPage runs the shared "one page of a chat's messages, oldest
+// first" query used by both a plain get_messages and the around-a-target
+// variant below, so a single page's worth of local history is always built
+// the same way regardless of who's asking for it.
+func fetchMessagesPage(jid string, limit, offset int) []map[string]interface{} {
+	rows, queryErr := db.Query(`SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
+			COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
+			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
+			COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''), raw
+		FROM messages WHERE jid = ? ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
+
+	msgs := []map[string]interface{}{}
+	var ids []string
+	if queryErr == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath string
+			var quotedID, quotedText, quotedSender, albumID string
+			var ts, sentAt, deliveredAt, readAt, playedAt, editedAt int64
+			var fromMe bool
+			var isEdited, isDeleted, starred int
+			var rawBytes []byte
+			if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
+				&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &albumID, &rawBytes); err != nil {
+				log.Println("Error scanning message row:", err)
+				continue
+			}
+			if isDeleted == 1 {
+				if fromMe {
+					text = "[You deleted this message]"
+				} else {
+					text = "[This message was deleted]"
+				}
+			}
+
+			if mediaType == "voice" || mediaType == "audio" || strings.HasPrefix(text, "[Voice Message]") || strings.HasPrefix(text, "[Audio]") {
+				if !strings.Contains(text, "(") && len(rawBytes) > 0 {
+					var pbMsg waE2E.Message
+					if err := proto.Unmarshal(rawBytes, &pbMsg); err == nil {
+						extracted := extractText(&pbMsg)
+						if extracted != "" {
+							text = extracted
+						}
+					}
+				}
+			}
+
+			if strings.HasPrefix(quotedText, "[Voice Message]") || strings.HasPrefix(quotedText, "[Audio]") {
+				if !strings.Contains(quotedText, "(") && quotedID != "" {
+					if _, _, qPreview, qErr := getMessageForQuote(quotedID); qErr == nil && qPreview != "" {
+						quotedText = qPreview
+					}
+				}
+			}
+
+			senderName := ""
+			if senderJID != "" {
+				if parsedSender, errP := types.ParseJID(senderJID); errP == nil {
+					senderName = resolveDisplayName(parsedSender)
+				}
+			}
+			qSenderName := quotedSender
+			if quotedSender != "" {
+				if quotedSender == "me" || (client != nil && client.Store != nil && client.Store.ID != nil && strings.Contains(quotedSender, client.Store.ID.User)) {
+					qSenderName = "You"
+				} else if parsed, err := types.ParseJID(quotedSender); err == nil {
+					qSenderName = resolveDisplayName(parsed)
+				}
+			}
+			ids = append(ids, id)
+			msgs = append(msgs, map[string]interface{}{
+				"id":            id,
+				"text":          text,
+				"timestamp":     ts,
+				"fromMe":        fromMe,
+				"senderJid":     senderJID,
+				"senderName":    senderName,
+				"status":        status,
+				"mediaType":     mediaType,
+				"mediaMimetype": mediaMimetype,
+				"mediaFilename": mediaFilename,
+				"mediaPath":     mediaPath,
+				"quotedId":      quotedID,
+				"quotedText":    quotedText,
+				"quotedSender":  qSenderName,
+				"isEdited":      isEdited == 1,
+				"isDeleted":     isDeleted == 1,
+				"sentAt":        sentAt,
+				"deliveredAt":   deliveredAt,
+				"readAt":        readAt,
+				"playedAt":      playedAt,
+				"editedAt":      editedAt,
+				"starred":       starred == 1,
+				"albumId":       albumID,
+			})
+		}
+	} else {
+		log.Println("Error querying messages:", queryErr)
+	}
+
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	if ids != nil {
+		reactions := getReactionsForMessageIDs(ids)
+		for _, m := range msgs {
+			if rs, ok := reactions[m["id"].(string)]; ok {
+				m["reactions"] = rs
+			} else {
+				m["reactions"] = []ReactionInfo{}
+			}
+		}
+	}
+	return msgs
+}
+
 func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID    string `json:"jid"`
@@ -47,120 +163,74 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		}
 
 		log.Printf("Getting messages for %s (Limit: %d, Offset: %d)", data.JID, limit, offset)
-
-		rows, queryErr := db.Query(`SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
-				COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
-				COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
-				COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''), raw
-			FROM messages WHERE jid = ? ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, data.JID, limit, offset)
-
-		msgs := []map[string]interface{}{}
-		var ids []string
-		if queryErr == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var id, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath string
-				var quotedID, quotedText, quotedSender, albumID string
-				var ts, sentAt, deliveredAt, readAt, playedAt, editedAt int64
-				var fromMe bool
-				var isEdited, isDeleted, starred int
-				var rawBytes []byte
-				if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
-					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &albumID, &rawBytes); err != nil {
-					log.Println("Error scanning message row:", err)
-					continue
-				}
-				if isDeleted == 1 {
-					if fromMe {
-						text = "[You deleted this message]"
-					} else {
-						text = "[This message was deleted]"
-					}
-				}
-
-				if mediaType == "voice" || mediaType == "audio" || strings.HasPrefix(text, "[Voice Message]") || strings.HasPrefix(text, "[Audio]") {
-					if !strings.Contains(text, "(") && len(rawBytes) > 0 {
-						var pbMsg waE2E.Message
-						if err := proto.Unmarshal(rawBytes, &pbMsg); err == nil {
-							extracted := extractText(&pbMsg)
-							if extracted != "" {
-								text = extracted
-							}
-						}
-					}
-				}
-
-				if strings.HasPrefix(quotedText, "[Voice Message]") || strings.HasPrefix(quotedText, "[Audio]") {
-					if !strings.Contains(quotedText, "(") && quotedID != "" {
-						if _, _, qPreview, qErr := getMessageForQuote(quotedID); qErr == nil && qPreview != "" {
-							quotedText = qPreview
-						}
-					}
-				}
-
-				senderName := ""
-				if senderJID != "" {
-					if parsedSender, errP := types.ParseJID(senderJID); errP == nil {
-						senderName = resolveDisplayName(parsedSender)
-					}
-				}
-				qSenderName := quotedSender
-				if quotedSender != "" {
-					if quotedSender == "me" || (client != nil && client.Store != nil && client.Store.ID != nil && strings.Contains(quotedSender, client.Store.ID.User)) {
-						qSenderName = "You"
-					} else if parsed, err := types.ParseJID(quotedSender); err == nil {
-						qSenderName = resolveDisplayName(parsed)
-					}
-				}
-				ids = append(ids, id)
-				msgs = append(msgs, map[string]interface{}{
-					"id":            id,
-					"text":          text,
-					"timestamp":     ts,
-					"fromMe":        fromMe,
-					"senderJid":     senderJID,
-					"senderName":    senderName,
-					"status":        status,
-					"mediaType":     mediaType,
-					"mediaMimetype": mediaMimetype,
-					"mediaFilename": mediaFilename,
-					"mediaPath":     mediaPath,
-					"quotedId":      quotedID,
-					"quotedText":    quotedText,
-					"quotedSender":  qSenderName,
-					"isEdited":      isEdited == 1,
-					"isDeleted":     isDeleted == 1,
-					"sentAt":        sentAt,
-					"deliveredAt":   deliveredAt,
-					"readAt":        readAt,
-					"playedAt":      playedAt,
-					"editedAt":      editedAt,
-					"starred":       starred == 1,
-					"albumId":       albumID,
-				})
-			}
-		} else {
-			log.Println("Error querying messages in get_messages:", queryErr)
-		}
-
-		for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
-			msgs[i], msgs[j] = msgs[j], msgs[i]
-		}
-		if ids != nil {
-			reactions := getReactionsForMessageIDs(ids)
-			for _, m := range msgs {
-				if rs, ok := reactions[m["id"].(string)]; ok {
-					m["reactions"] = rs
-				} else {
-					m["reactions"] = []ReactionInfo{}
-				}
-			}
-		}
-
+		msgs := fetchMessagesPage(data.JID, limit, offset)
 		log.Printf("Got %d messages for %s", len(msgs), data.JID)
 		sendEvent(conn, "conversation_messages", map[string]interface{}{
 			"jid":      data.JID,
 			"messages": msgs,
+			"loadMore": data.Offset > 0,
+		})
+	}()
+}
+
+// handleGetMessagesAround finds a target message (by id, falling back to a
+// text match) and returns a bounded window of local history centered on it,
+// instead of a plain get_messages with an enormous limit fetching the whole
+// chat just to jump to one message in it. If the target can't be found
+// locally, falls back to the most recent page so the caller still gets a
+// usable (if not-scrolled-to-target) view rather than nothing.
+func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
+	var data struct {
+		JID       string `json:"jid"`
+		MessageID string `json:"messageId"`
+		Text      string `json:"text"`
+		Context   int    `json:"context"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	go func() {
+		context := data.Context
+		if context <= 0 {
+			context = 40
+		}
+
+		var targetTS int64
+		var targetID string
+		var lookupErr error
+		if data.MessageID != "" {
+			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND id = ?`,
+				data.JID, data.MessageID).Scan(&targetTS, &targetID)
+		} else if data.Text != "" {
+			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND text LIKE ?
+				ORDER BY timestamp DESC LIMIT 1`, data.JID, "%"+data.Text+"%").Scan(&targetTS, &targetID)
+		} else {
+			lookupErr = sql.ErrNoRows
+		}
+
+		offset := 0
+		limit := context*2 + 1
+		if lookupErr == nil {
+			var position int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND
+					(timestamp > ? OR (timestamp = ? AND id > ?))`,
+				data.JID, targetTS, targetTS, targetID).Scan(&position); err == nil {
+				offset = position - context
+				if offset < 0 {
+					offset = 0
+				}
+			}
+		} else {
+			log.Printf("get_messages_around: target not found locally for %s, falling back to latest page", data.JID)
+			limit = 50
+		}
+
+		msgs := fetchMessagesPage(data.JID, limit, offset)
+		log.Printf("Got %d messages around target for %s", len(msgs), data.JID)
+		sendEvent(conn, "conversation_messages", map[string]interface{}{
+			"jid":      data.JID,
+			"messages": msgs,
+			"loadMore": false,
 		})
 	}()
 }

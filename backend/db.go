@@ -109,6 +109,11 @@ func migrateDB() error {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
 	}
+	// History sync's LID->phone remap rewrites sender_jid by value; without
+	// this it scanned the whole messages table on nearly every chunk.
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_sender_jid ON messages(sender_jid)`); err != nil {
+		return err
+	}
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS reactions (
 		message_id TEXT NOT NULL,
@@ -118,6 +123,11 @@ func migrateDB() error {
 		timestamp INTEGER,
 		PRIMARY KEY (message_id, reactor_jid)
 	)`); err != nil {
+		return err
+	}
+	// UpdateChatSnippet looks up a chat's latest reaction for every chat it
+	// refreshes; without this each lookup scanned every reaction stored.
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_reactions_chat_timestamp ON reactions(chat_jid, timestamp DESC)`); err != nil {
 		return err
 	}
 
@@ -284,6 +294,62 @@ func updateParticipantReceiptIfNewer(ids []string, participantJID, newStatus str
 
 type sqlExecer interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+// stmtTx is a transaction that parses each distinct statement once and reuses
+// it. Bulk writes (history sync, contact refresh) run the same few long
+// statements hundreds of times per transaction; a plain tx.Exec re-parses the
+// SQL on every call. The prepared statements close with the transaction.
+type stmtTx struct {
+	tx    *sql.Tx
+	stmts map[string]*sql.Stmt
+}
+
+func beginStmtTx() (*stmtTx, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	return &stmtTx{tx: tx, stmts: map[string]*sql.Stmt{}}, nil
+}
+
+func (t *stmtTx) Exec(query string, args ...interface{}) (sql.Result, error) {
+	stmt, ok := t.stmts[query]
+	if !ok {
+		var err error
+		if stmt, err = t.tx.Prepare(query); err != nil {
+			return nil, err
+		}
+		t.stmts[query] = stmt
+	}
+	return stmt.Exec(args...)
+}
+
+// batchSize caps how many statements one batched write transaction runs, so
+// live traffic (and whatsmeow's own store writes) get the write lock back
+// regularly during a big history-sync chat or contact refresh.
+const batchSize = 500
+
+// writeBatch runs pre-built writes in short transactions. The closures must
+// only run SQL on the executor they're given - never call into whatsmeow's
+// stores, which hold their own in-memory locks while waiting for SQLite's
+// write lock and so deadlock against an open write transaction until the busy
+// timeout.
+func writeBatch(writes []func(tx sqlExecer)) {
+	for start := 0; start < len(writes); start += batchSize {
+		end := min(start+batchSize, len(writes))
+		tx, err := beginStmtTx()
+		if err != nil {
+			log.Println("Error starting batched write transaction:", err)
+			return
+		}
+		for _, w := range writes[start:end] {
+			w(tx)
+		}
+		if err := tx.tx.Commit(); err != nil {
+			log.Println("Error committing batched write transaction:", err)
+		}
+	}
 }
 
 // recordParticipantReceipt stores one member's delivered/read/played receipt
@@ -728,7 +794,11 @@ func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji stri
 // name is never downgraded to an empty one or to the "+<phone>" placeholder
 // callers use when they don't know the name.
 func upsertContactCacheRow(jid, name, phone string, isBusiness bool) error {
-	_, err := db.Exec(`INSERT INTO contacts_cache (jid, name, phone, is_business, updated_at) VALUES (?, ?, ?, ?, ?)
+	return upsertContactCacheRowWith(db, jid, name, phone, isBusiness)
+}
+
+func upsertContactCacheRowWith(ex sqlExecer, jid, name, phone string, isBusiness bool) error {
+	_, err := ex.Exec(`INSERT INTO contacts_cache (jid, name, phone, is_business, updated_at) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(jid) DO UPDATE SET
 			name = CASE
 				WHEN (excluded.name = '' OR excluded.name LIKE '+%')
@@ -740,6 +810,17 @@ func upsertContactCacheRow(jid, name, phone string, isBusiness bool) error {
 			is_business = excluded.is_business,
 			updated_at = excluded.updated_at`,
 		jid, name, phone, isBusiness, time.Now().Unix())
+	return err
+}
+
+// deleteContactCacheRow removes a contact entirely from the local cache
+// (e.g. after it's deleted from WhatsApp's own contact list on another
+// device). Unlike upsertContactCacheRowWith, this doesn't go through the
+// "keep the existing name" guard meant to protect a real name from being
+// blanked by a lower-quality update - a removal is an explicit, intentional
+// deletion, not a stale sync.
+func deleteContactCacheRow(jid string) error {
+	_, err := db.Exec(`DELETE FROM contacts_cache WHERE jid = ?`, jid)
 	return err
 }
 

@@ -74,7 +74,7 @@ fn request_activate() {
 	// (typically by direct user action), usually already holds it and can
 	// pass it along.
 	unsafe {
-		if let Ok(hwnd) = FindWindowW(None, w!("whantv")) {
+		if let Ok(hwnd) = FindWindowW(None, w!("whaNTV")) {
 			let mut pid = 0u32;
 			GetWindowThreadProcessId(hwnd, Some(&mut pid));
 			if pid != 0 {

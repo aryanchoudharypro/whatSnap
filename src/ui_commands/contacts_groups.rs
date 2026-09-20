@@ -77,12 +77,19 @@ pub(crate) fn create_group(
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
-pub(crate) fn new_contact(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, name: String, phone: String) {
+pub(crate) fn new_contact(
+	state: &Rc<RefCell<AppState>>,
+	_parts: &Rc<WindowParts>,
+	name: String,
+	phone: String,
+	sync: bool,
+) {
 	let payload = serde_json::json!({
 		"action": "new_contact",
 		"data": {
 			"phone": phone,
-			"name": name
+			"name": name,
+			"sync": sync
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());

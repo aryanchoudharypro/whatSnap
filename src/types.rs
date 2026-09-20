@@ -11,10 +11,13 @@ pub enum UiCommand {
 	NewContact {
 		name: String,
 		phone: String,
+		sync: bool,
 	},
 	PrepareNewGroup,
 	PrepareAddMembers,
 	AddGroupMembers(Vec<String>),
+	PrepareAttachContact,
+	SendContacts(Vec<String>),
 	PrepareContactPicker(ContactPickerMode),
 	FilterContactPicker(String),
 	SelectContactPickerResult(usize),

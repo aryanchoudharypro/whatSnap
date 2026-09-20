@@ -194,6 +194,7 @@ pub struct WindowParts {
 	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
 	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
 	pub add_members_dialog: crate::ui::add_members::AddMembersDialogParts,
+	pub attach_contact_dialog: crate::ui::attach_contact::AttachContactDialogParts,
 	/// Shared with the search-field debounce in `bind_input_handlers` so a
 	/// `contacts` response landing while a picker is open coalesces with any
 	/// in-flight keystroke rebuild instead of firing an immediate rebuild
@@ -201,6 +202,7 @@ pub struct WindowParts {
 	/// `bind_input_handlers` and in main.rs's `refresh_*_contacts_list`.
 	pub new_group_contacts_timer: Rc<Timer<Dialog>>,
 	pub add_members_contacts_timer: Rc<Timer<Dialog>>,
+	pub attach_contact_timer: Rc<Timer<Dialog>>,
 	pub attachment_dialog: crate::ui::attachment_dialog::AttachmentDialogParts,
 	pub call_parts: crate::ui::call_window::CallWindowParts,
 	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
@@ -238,7 +240,7 @@ pub const MENU_ID_CALL_END: i32 = 6034;
 pub const MENU_ID_LOCK_CHAT: i32 = 6035;
 
 pub fn build_main_window() -> WindowParts {
-	let frame = Frame::builder().with_title("whantv").with_size(Size::new(1180, 760)).build();
+	let frame = Frame::builder().with_title("whaNTV").with_size(Size::new(1180, 760)).build();
 	frame.set_min_size(Size::new(900, 600));
 	wxdragon::app::set_top_window(&frame);
 	frame.create_status_bar(1, 0, wxdragon::id::ID_ANY as i32, "status_bar");
@@ -436,8 +438,10 @@ pub fn build_main_window() -> WindowParts {
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
 	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
 	let add_members_dialog = crate::ui::add_members::build_add_members_dialog(&frame);
+	let attach_contact_dialog = crate::ui::attach_contact::build_attach_contact_dialog(&frame);
 	let new_group_contacts_timer = Rc::new(Timer::new(&new_group_dialog.dialog));
 	let add_members_contacts_timer = Rc::new(Timer::new(&add_members_dialog.dialog));
+	let attach_contact_timer = Rc::new(Timer::new(&attach_contact_dialog.dialog));
 	let attachment_dialog = crate::ui::attachment_dialog::build_attachment_dialog(&frame);
 	let call_parts = crate::ui::call_window::build_call_window();
 	let conversation_data_dialog = crate::ui::conversation_data::build_conversation_data_dialog(&frame);
@@ -482,6 +486,7 @@ pub fn build_main_window() -> WindowParts {
 	set_dialog_owner(&new_contact_dialog.dialog, &frame);
 	set_dialog_owner(&new_group_dialog.dialog, &frame);
 	set_dialog_owner(&add_members_dialog.dialog, &frame);
+	set_dialog_owner(&attach_contact_dialog.dialog, &frame);
 	set_dialog_owner(&attachment_dialog.dialog, &frame);
 	set_dialog_owner(&conversation_data_dialog.dialog, &frame);
 	set_dialog_owner(&group_data_dialog.dialog, &frame);
@@ -511,8 +516,10 @@ pub fn build_main_window() -> WindowParts {
 		new_contact_dialog,
 		new_group_dialog,
 		add_members_dialog,
+		attach_contact_dialog,
 		new_group_contacts_timer,
 		add_members_contacts_timer,
+		attach_contact_timer,
 		attachment_dialog,
 		call_parts,
 		conversation_data_dialog,
@@ -1347,6 +1354,7 @@ pub fn bind_input_handlers(
 	let name_field = parts.new_contact_dialog.name_field;
 	let surname_field = parts.new_contact_dialog.surname_field;
 	let phone_field = parts.new_contact_dialog.phone_field;
+	let sync_check = parts.new_contact_dialog.sync_check;
 	parts.new_contact_dialog.ok_btn.on_click(move |_| {
 		let name = name_field.get_value().trim().to_string();
 		let surname = surname_field.get_value().trim().to_string();
@@ -1379,8 +1387,9 @@ pub fn bind_input_handlers(
 			return;
 		}
 		let full_name = format!("{} {}", name, surname).trim().to_string();
+		let sync = sync_check.get_value();
 		dlg.end_modal(wxdragon::id::ID_OK);
-		let _ = tx_new_contact.send(UiCommand::NewContact { name: full_name, phone: clean_phone });
+		let _ = tx_new_contact.send(UiCommand::NewContact { name: full_name, phone: clean_phone, sync });
 	});
 
 	let tx_prepare = ui_tx.clone();
@@ -1716,6 +1725,143 @@ pub fn bind_input_handlers(
 	let add_members_cancel = parts.add_members_dialog.dialog;
 	parts.add_members_dialog.cancel_btn.on_click(move |_| {
 		add_members_cancel.end_modal(0);
+	});
+
+	// Attach Contact dialog - mirrors the Add Members dialog's checkbox-list
+	// wiring above (debounced search, live-region running total), confirming
+	// with "Send" instead of adding group members.
+	let attach_contact_search_field = parts.attach_contact_dialog.search_field;
+	let attach_contact_listbox = parts.attach_contact_dialog.contacts_listbox;
+	let attach_contact_selection_announcer = parts.attach_contact_dialog.selection_announcer;
+	let state_attach_contact_search = state.clone();
+	let attach_contact_search_timer = parts.attach_contact_timer.clone();
+	let attach_contact_timer_tick = attach_contact_search_timer.clone();
+	attach_contact_timer_tick.on_tick(move |_| {
+		let query = attach_contact_search_field.get_value().to_lowercase().trim().to_string();
+		let mut s = state_attach_contact_search.borrow_mut();
+		let acs = &mut s.attach_contact_state;
+		let count = attach_contact_listbox.get_count();
+		for idx in 0..count {
+			if idx < acs.current_jids.len() as u32 {
+				let jid = acs.current_jids[idx as usize].clone();
+				if attach_contact_listbox.is_checked(idx) {
+					acs.checked_jids.insert(jid);
+				} else {
+					acs.checked_jids.remove(&jid);
+				}
+			}
+		}
+		let mut filtered_labels = Vec::new();
+		let mut filtered_jids = Vec::new();
+		for (lbl, jid) in acs.all_contact_labels.iter().zip(acs.all_contact_jids.iter()) {
+			if query.is_empty() || lbl.to_lowercase().contains(&query) {
+				filtered_labels.push(lbl.clone());
+				filtered_jids.push(jid.clone());
+			}
+		}
+		attach_contact_listbox.clear();
+		for lbl in &filtered_labels {
+			attach_contact_listbox.append(lbl);
+		}
+		acs.current_jids = filtered_jids;
+		for (idx, jid) in acs.current_jids.iter().enumerate() {
+			if acs.checked_jids.contains(jid) {
+				attach_contact_listbox.check(idx as u32, true);
+			}
+		}
+		if !acs.current_jids.is_empty() {
+			attach_contact_listbox.set_selection(0, true);
+		}
+		if !acs.checked_jids.is_empty() {
+			let count = acs.checked_jids.len();
+			live_region::announce(
+				attach_contact_selection_announcer.clone(),
+				&format!(
+					"{} shown. {} contact{} selected.",
+					acs.current_jids.len(),
+					count,
+					if count == 1 { "" } else { "s" }
+				),
+			);
+		}
+	});
+	attach_contact_search_field.on_text_changed(move |_| {
+		attach_contact_search_timer.stop();
+		attach_contact_search_timer.start(250, true);
+	});
+
+	let attach_contact_listbox_toggle = parts.attach_contact_dialog.contacts_listbox;
+	let attach_contact_selection_announcer_toggle = parts.attach_contact_dialog.selection_announcer;
+	let state_attach_contact_toggle = state.clone();
+	attach_contact_listbox_toggle.on_toggled(move |event| {
+		if let Some(idx) = event.get_selection() {
+			let mut s = state_attach_contact_toggle.borrow_mut();
+			let acs = &mut s.attach_contact_state;
+			if idx < acs.current_jids.len() as u32 {
+				let jid = acs.current_jids[idx as usize].clone();
+				let checked = attach_contact_listbox_toggle.is_checked(idx);
+				if checked {
+					acs.checked_jids.insert(jid);
+				} else {
+					acs.checked_jids.remove(&jid);
+				}
+				let label = attach_contact_listbox_toggle.get_string(idx as usize).unwrap_or_default();
+				let state_str = if checked { "selected" } else { "not selected" };
+				let count = acs.checked_jids.len();
+				live_region::announce(
+					attach_contact_selection_announcer_toggle.clone(),
+					&format!(
+						"{}: {}. {} contact{} selected.",
+						label,
+						state_str,
+						count,
+						if count == 1 { "" } else { "s" }
+					),
+				);
+			}
+		}
+	});
+
+	let tx_attach_contact_confirm = ui_tx.clone();
+	let attach_contact_listbox_ok = parts.attach_contact_dialog.contacts_listbox;
+	let attach_contact_dialog_ok = parts.attach_contact_dialog.dialog;
+	let state_attach_contact_ok = state.clone();
+	parts.attach_contact_dialog.send_btn.on_click(move |_| {
+		let mut s = state_attach_contact_ok.borrow_mut();
+		let acs = &mut s.attach_contact_state;
+		let count = attach_contact_listbox_ok.get_count();
+		for idx in 0..count {
+			if idx < acs.current_jids.len() as u32 {
+				let jid = acs.current_jids[idx as usize].clone();
+				if attach_contact_listbox_ok.is_checked(idx) {
+					acs.checked_jids.insert(jid);
+				} else {
+					acs.checked_jids.remove(&jid);
+				}
+			}
+		}
+		let contact_jids: Vec<String> = acs.checked_jids.iter().cloned().collect();
+		drop(s);
+		if contact_jids.is_empty() {
+			unsafe {
+				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
+				);
+			}
+			MessageDialog::builder(&attach_contact_dialog_ok, "At least one contact must be selected.", "Error")
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal();
+			attach_contact_listbox_ok.set_focus();
+			return;
+		}
+		attach_contact_dialog_ok.end_modal(wxdragon::id::ID_OK);
+		let _ = tx_attach_contact_confirm.send(UiCommand::SendContacts(contact_jids));
+	});
+
+	let attach_contact_cancel = parts.attach_contact_dialog.dialog;
+	parts.attach_contact_dialog.cancel_btn.on_click(move |_| {
+		attach_contact_cancel.end_modal(0);
 	});
 
 	let tx_nav = ui_tx.clone();
@@ -3986,8 +4132,30 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_attach = ui_tx.clone();
+	let attach_btn_menu = parts.conversations_parts.add_attachment_btn;
 	parts.conversations_parts.add_attachment_btn.on_click(move |_| {
-		let _ = tx_attach.send(UiCommand::AddAttachment);
+		const ATTACH_DOCUMENT_ID: i32 = 4201;
+		const ATTACH_CONTACT_ID: i32 = 4202;
+		let mut popup_menu = Menu::builder()
+			.append_item(ATTACH_DOCUMENT_ID, "&Document", "Attach a file from this computer")
+			.append_item(ATTACH_CONTACT_ID, "&Contact", "Attach a contact from your WhatsApp contacts")
+			.build();
+		let tx_menu = tx_attach.clone();
+		popup_menu.on_selected(move |menu_evt| {
+			let id = menu_evt.get_id();
+			let cmd = if id == ATTACH_DOCUMENT_ID {
+				Some(UiCommand::AddAttachment)
+			} else if id == ATTACH_CONTACT_ID {
+				Some(UiCommand::PrepareAttachContact)
+			} else {
+				None
+			};
+			if let Some(cmd) = cmd {
+				let _ = tx_menu.send(cmd);
+			}
+		});
+		attach_btn_menu.popup_menu(&mut popup_menu, None);
+		popup_menu.destroy_menu();
 	});
 
 	let tx_speed = ui_tx.clone();
