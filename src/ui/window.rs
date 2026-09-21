@@ -712,6 +712,7 @@ pub fn bind_input_handlers(
 		let _ = tx_conv_data.send(UiCommand::ShowConversationData);
 	});
 
+	let tx_enter_call = ui_tx.clone();
 	let tx_place_call = ui_tx.clone();
 	parts.conversations_parts.place_call_btn.on_click(move |_| {
 		let _ = tx_place_call.send(UiCommand::PlaceCall);
@@ -3256,9 +3257,16 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt {
+						// Enter on a call-history row calls that chat back, the same
+						// shortcut the Call button gives, so the history is usable
+						// without leaving the message list.
+						if msg.is_call() {
+							handled = true;
+							let _ = tx_enter_call.send(UiCommand::PlaceCall);
+						}
 						let is_voice =
 							msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
-						if is_voice && !msg.is_deleted {
+						if !handled && is_voice && !msg.is_deleted {
 							handled = true;
 							let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
 							if is_currently_playing {

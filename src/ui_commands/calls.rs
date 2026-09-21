@@ -6,8 +6,9 @@ use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState,
+	AppState, CallVideo,
 	audio::{play_call_fail_sound, stop_call_ringing_sound},
+	call_helpers::{announce_call, call_window_title},
 	ui::window::WindowParts,
 };
 
@@ -31,6 +32,12 @@ pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 
 	let is_group = jid.ends_with("@g.us");
 	let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+	s.call_video = CallVideo {
+		is_video: false,
+		peer_name: if is_group { None } else { Some(name.clone()) },
+		peer_camera_on: Some(false),
+	};
+	parts.call_parts.frame.set_title(call_window_title(is_group, false));
 	if is_group {
 		parts.call_parts.status_label.set_label(&format!("Starting group call in {}", name));
 	} else {
@@ -46,10 +53,7 @@ pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 	parts.call_parts.frame.show(true);
 	drop(s);
 
-	live_region::announce(
-		parts.conversations_parts.messages_announcer.clone(),
-		if is_group { "Placing group call..." } else { "Placing call..." },
-	);
+	announce_call(parts, if is_group { "Placing group call..." } else { "Placing call..." });
 }
 
 pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -77,6 +81,7 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		parts.call_parts.frame.show(false);
 		s.active_call_id = None;
 		s.call_participants.clear();
+		s.call_video = CallVideo::default();
 		s.call_answer_deadline = None;
 		s.incoming_call_caller = None;
 		stop_call_ringing_sound(&mut s);
@@ -96,6 +101,7 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		s.active_call_id = None;
 		s.active_call_audio = None;
 		s.call_participants.clear();
+		s.call_video = CallVideo::default();
 		s.call_answer_deadline = None;
 		stop_call_ringing_sound(&mut s);
 		play_call_fail_sound(&mut s);
@@ -119,7 +125,7 @@ pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 		audio.is_muted.store(!current, std::sync::atomic::Ordering::Relaxed);
 		let status = if !current { "Microphone muted." } else { "Microphone unmuted." };
 		parts.call_parts.mute_btn.set_label(if !current { "Unmute microphone" } else { "Mute microphone" });
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), status);
+		announce_call(parts, status);
 	}
 }
 
@@ -132,7 +138,7 @@ pub(crate) fn set_call_input_device(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	// on the device just picked mid-call instead of reverting.
 	s.settings.input_device_name = name;
 	s.settings.save();
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Microphone changed.");
+	announce_call(parts, "Microphone changed.");
 }
 
 pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, name: Option<String>) {
@@ -149,5 +155,5 @@ pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		s.audio_stream = None;
 	}
 	s.settings.save();
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Speaker changed.");
+	announce_call(parts, "Speaker changed.");
 }

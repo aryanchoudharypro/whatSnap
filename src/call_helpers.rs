@@ -89,6 +89,64 @@ pub(crate) fn call_participant_changes(old: &[CallParticipant], new: &[CallParti
 
 /// Re-enumerates devices (same reasoning as Settings' combos: WASAPI device
 /// lists can change while the app is running) into the call window's
+/// "video call from Asha", "group voice call from Asha in Family" - the
+/// Announce something about the call to whichever window can actually be heard.
+///
+/// The call frame is a separate top-level window, and a screen reader only
+/// speaks a live-region change belonging to the FOREGROUND window. While the
+/// call window is up it owns focus, so routing call announcements through the
+/// main window's message announcer reaches nobody - which is why camera
+/// toggles and "Call connected." were silent. Fall back to the main announcer
+/// once the call window is gone, so late teardown messages still land.
+pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
+	if parts.call_parts.frame.is_shown() {
+		live_region::announce(parts.call_parts.announcer.clone(), message);
+	} else {
+		live_region::announce(parts.conversations_parts.messages_announcer.clone(), message);
+	}
+}
+
+/// incoming-call label, announcement and toast all use this.
+pub(crate) fn incoming_call_description(
+	is_group: bool,
+	is_video: bool,
+	caller: &str,
+	group_name: Option<&str>,
+) -> String {
+	let kind = if is_video { "video call" } else { "voice call" };
+	match (is_group, group_name) {
+		(true, Some(group)) => format!("group {} from {} in {}", kind, caller, group),
+		(true, None) => format!("group {} from {}", kind, caller),
+		(false, _) => format!("{} from {}", kind, caller),
+	}
+}
+
+/// Title of the call window, which NVDA reads when it takes focus.
+pub(crate) fn call_window_title(is_group: bool, is_video: bool) -> &'static str {
+	match (is_group, is_video) {
+		(false, false) => "Voice call",
+		(false, true) => "Video call",
+		(true, false) => "Group voice call",
+		(true, true) => "Group video call",
+	}
+}
+
+/// What to announce for a `call_video_state` event. `peer` is the other
+/// person's name on a 1:1 call and None on a group call (the stanza doesn't
+/// say who sent it). `was_on` is their last known camera state, so a
+/// repeated state isn't announced twice.
+pub(crate) fn peer_video_announcement(event: &str, was_on: Option<bool>, peer: Option<&str>) -> Option<String> {
+	let who = peer.unwrap_or("Someone");
+	match event {
+		"on" if was_on != Some(true) => Some(format!("{} turned their camera on.", who)),
+		"off" if was_on != Some(false) => Some(format!("{} turned their camera off.", who)),
+		"upgrade_requested" => {
+			Some(format!("{} wants to switch to video. Video isn't supported yet, so the call stays voice only.", who))
+		}
+		_ => None,
+	}
+}
+
 /// mic/speaker pickers and shows them, once a call has actually connected.
 pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 	use crate::ui::settings_dialog::set_device_combo;
@@ -135,5 +193,34 @@ mod call_participant_tests {
 			vec!["Asha joined the call.", "Ben declined the call.", "Dev left the call.", "Chris left the call."]
 		);
 		assert!(call_participant_changes(&new, &new).is_empty());
+	}
+
+	#[test]
+	fn incoming_description_names_call_kind() {
+		assert_eq!(incoming_call_description(false, false, "Asha", None), "voice call from Asha");
+		assert_eq!(incoming_call_description(false, true, "Asha", None), "video call from Asha");
+		assert_eq!(
+			incoming_call_description(true, true, "Asha", Some("Family")),
+			"group video call from Asha in Family"
+		);
+		assert_eq!(incoming_call_description(true, false, "Asha", None), "group voice call from Asha");
+		assert_eq!(call_window_title(false, true), "Video call");
+		assert_eq!(call_window_title(true, false), "Group voice call");
+	}
+
+	#[test]
+	fn peer_video_announces_changes_only() {
+		assert_eq!(
+			peer_video_announcement("on", Some(false), Some("Asha")).as_deref(),
+			Some("Asha turned their camera on.")
+		);
+		assert_eq!(peer_video_announcement("on", Some(true), Some("Asha")), None);
+		assert_eq!(peer_video_announcement("off", None, None).as_deref(), Some("Someone turned their camera off."));
+		assert_eq!(peer_video_announcement("off", Some(false), Some("Asha")), None);
+		assert_eq!(
+			peer_video_announcement("upgrade_requested", Some(false), Some("Asha")).as_deref(),
+			Some("Asha wants to switch to video. Video isn't supported yet, so the call stays voice only.")
+		);
+		assert_eq!(peer_video_announcement("bogus", None, Some("Asha")), None);
 	}
 }

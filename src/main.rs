@@ -295,6 +295,8 @@ struct AppState {
 	/// (excluding ourselves), empty for a 1:1 call. Kept so the next roster
 	/// can be diffed against it to announce who joined or left.
 	call_participants: Vec<CallParticipant>,
+	/// Video details of the active call, reset whenever the call is torn down.
+	call_video: CallVideo,
 	group_data_members: Vec<String>,
 	/// Action JIDs for `group_data_members`, aligned by index (unfiltered).
 	group_data_member_jids: Vec<String>,
@@ -560,6 +562,7 @@ fn main() {
 			call_ringing_sink: None,
 			incoming_call_caller: None,
 			call_participants: Vec::new(),
+			call_video: CallVideo::default(),
 			group_data_members: Vec::new(),
 			group_data_member_jids: Vec::new(),
 			group_data_member_admin: Vec::new(),
@@ -773,12 +776,12 @@ fn main() {
 					}
 					s.active_call_audio = None;
 					s.call_participants.clear();
+					s.call_video = CallVideo::default();
 					parts_typing_timer.call_parts.frame.show(false);
 					play_call_fail_sound(&mut s);
-					live_region::announce(
-						parts_typing_timer.conversations_parts.messages_announcer.clone(),
-						"No response - the call could not be answered.",
-					);
+					// The call window is hidden just above, so this falls back to the
+					// main window's announcer - which is the one with focus now.
+					call_helpers::announce_call(&parts_typing_timer, "No response - the call could not be answered.");
 				}
 			}
 		});

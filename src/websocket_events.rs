@@ -12,15 +12,16 @@ use whantv::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem, UiCommand,
+	AppState, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem,
+	UiCommand,
 	audio::{
 		decode_opus_file, ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringing_sound,
 		stop_call_ringing_sound,
 	},
 	call_audio,
 	call_helpers::{
-		call_participant_changes, get_status_rank, group_call_status_text, parse_call_participants,
-		show_call_device_combos,
+		announce_call, call_participant_changes, call_window_title, get_status_rank, group_call_status_text,
+		incoming_call_description, parse_call_participants, peer_video_announcement, show_call_device_combos,
 	},
 	chat_ui::show_toast_notification,
 	contact_picker::{
@@ -397,13 +398,18 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.settings.output_device_name.clone(),
 							) {
 								s.active_call_audio = Some(streams);
-								live_region::announce(
-									parts.conversations_parts.messages_announcer.clone(),
-									"Call connected.",
-								);
+								// Say so on a video call: the backend answers those with the
+								// camera off, and silence about it would leave the caller
+								// wondering whether they are being seen.
+								let connected_msg = if s.call_video.is_video {
+									"Video call connected. Your camera is off."
+								} else {
+									"Call connected."
+								};
+								announce_call(parts, connected_msg);
 
 								if s.call_participants.is_empty() {
-									parts.call_parts.status_label.set_label("Call connected.");
+									parts.call_parts.status_label.set_label(connected_msg);
 								} else {
 									parts
 										.call_parts
@@ -418,10 +424,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								show_call_device_combos(&s, parts);
 								parts.call_parts.frame.show(true);
 							} else {
-								live_region::announce(
-									parts.conversations_parts.messages_announcer.clone(),
-									"Failed to start audio stream.",
-								);
+								announce_call(parts, "Failed to start audio stream.");
 							}
 						}
 					}
@@ -445,6 +448,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							} else {
 								s.active_call_id = Some(call_id.to_string());
 								s.call_participants.clear();
+								s.call_video = CallVideo::default();
 								start_call_ringing_sound(&mut s, include_bytes!("../sounds/telefone.ogg"));
 							}
 						}
@@ -492,10 +496,31 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 						drop(s);
 						if !changes.is_empty() {
-							live_region::announce(
-								parts.conversations_parts.messages_announcer.clone(),
-								&changes.join(" "),
-							);
+							announce_call(parts, &changes.join(" "));
+						}
+					}
+				}
+				"call_video_state" => {
+					if let Some(data) = val.get("data") {
+						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+						let event = data.get("peer_video").and_then(|e| e.as_str()).unwrap_or("");
+						let mut s = state.borrow_mut();
+						if s.active_call_id.as_deref() != Some(call_id) {
+							return;
+						}
+						let announcement = peer_video_announcement(
+							event,
+							s.call_video.peer_camera_on,
+							s.call_video.peer_name.as_deref(),
+						);
+						match event {
+							"on" => s.call_video.peer_camera_on = Some(true),
+							"off" => s.call_video.peer_camera_on = Some(false),
+							_ => {}
+						}
+						drop(s);
+						if let Some(text) = announcement {
+							announce_call(parts, &text);
 						}
 					}
 				}
@@ -504,6 +529,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					if s.call_placing {
 						s.call_placing = false;
 						s.call_pending_cancel = false;
+						s.call_video = CallVideo::default();
 						parts.call_parts.frame.show(false);
 						stop_call_ringing_sound(&mut s);
 						play_call_fail_sound(&mut s);
@@ -512,7 +538,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							.and_then(|d| d.get("message"))
 							.and_then(|m| m.as_str())
 							.unwrap_or("Failed to place call.");
-						live_region::announce(parts.conversations_parts.messages_announcer.clone(), message);
+						announce_call(parts, message);
 					}
 				}
 				"call_ended" => {
@@ -523,6 +549,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.active_call_id = None;
 								s.active_call_audio = None;
 								s.call_participants.clear();
+								s.call_video = CallVideo::default();
 								s.call_answer_deadline = None;
 								parts.call_parts.frame.show(false);
 								stop_call_ringing_sound(&mut s);
@@ -531,10 +558,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								// being answered or rejected. No toast/announcement for
 								// this case - missed calls are silent, just clear state.
 								if s.incoming_call_caller.take().is_none() {
-									live_region::announce(
-										parts.conversations_parts.messages_announcer.clone(),
-										"Call ended.",
-									);
+									announce_call(parts, "Call ended.");
 								}
 							}
 						}
@@ -548,6 +572,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.active_call_id = None;
 								s.active_call_audio = None;
 								s.call_participants.clear();
+								s.call_video = CallVideo::default();
 								s.call_answer_deadline = None;
 								s.incoming_call_caller = None;
 								parts.call_parts.frame.show(false);
@@ -555,7 +580,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								play_call_fail_sound(&mut s);
 								let message =
 									data.get("message").and_then(|m| m.as_str()).unwrap_or("Failed to answer call.");
-								live_region::announce(parts.conversations_parts.messages_announcer.clone(), message);
+								announce_call(parts, message);
 							}
 						}
 					}
@@ -579,6 +604,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								.unwrap_or_else(|| caller.to_string());
 							s.incoming_call_caller = Some(name.clone());
 							s.call_participants.clear();
+							s.call_video = CallVideo::default();
 							let is_group = data.get("is_group").and_then(|g| g.as_bool()).unwrap_or(false);
 							let group_name = data
 								.get("group_name")
@@ -589,11 +615,15 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									let group_jid = data.get("group_jid").and_then(|j| j.as_str())?;
 									s.display_names.get(group_jid).or_else(|| s.contacts.get(group_jid)).cloned()
 								});
-							let description = match (is_group, group_name) {
-								(true, Some(group)) => format!("group voice call from {} in {}", name, group),
-								(true, None) => format!("group voice call from {}", name),
-								(false, _) => format!("voice call from {}", name),
+							let is_video = data.get("is_video").and_then(|v| v.as_bool()).unwrap_or(false);
+							let description =
+								incoming_call_description(is_group, is_video, &name, group_name.as_deref());
+							s.call_video = CallVideo {
+								is_video,
+								peer_name: if is_group { None } else { Some(name.clone()) },
+								peer_camera_on: Some(is_video),
 							};
+							parts.call_parts.frame.set_title(call_window_title(is_group, is_video));
 							parts.call_parts.status_label.set_label(&format!("Incoming {}", description));
 							parts.call_parts.accept_btn.show(true);
 							parts.call_parts.reject_btn.show(true);

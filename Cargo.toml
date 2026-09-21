@@ -10,7 +10,10 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.150", features = ["raw_value"] }
 wxdragon = "0.9.19"
 qrcode = "0.14.1"
-image = "0.25.10"
+# Only used to encode the pairing QR code as a PNG. Default features pull in
+# every format the crate supports, including rav1e (a full AV1 encoder), EXR,
+# WebP, TIFF and GIF - 63 crates that are compiled and then dead-stripped.
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 base64 = "0.22.1"
 live-region = "0.2.0"
 rodio = { version = "0.22.2", features = ["default", "symphonia-vorbis", "symphonia-all"] }
