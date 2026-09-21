@@ -5,14 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"net"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
+
+// pendingGroupDeletes marks groups mid-way through "delete chat and exit
+// group" (handleLeaveAndDeleteGroup) so the GroupInfo event LeaveGroup
+// triggers ("You left") doesn't resurrect the chat row this same request is
+// about to delete - see that handler and its check in the *events.GroupInfo
+// case in whatsapp_events.go.
+var pendingGroupDeletes sync.Map
 
 func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
 	var groupData CreateGroupCommandData
@@ -236,6 +245,41 @@ func handleLeaveGroup(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
+		db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
+		broadcastChats()
+	}()
+}
+
+// handleLeaveAndDeleteGroup backs "Delete chat and exit group": leaving then
+// deleting as two independent fire-and-forget commands (the frontend's old
+// approach) raced the group's own "You left" system-message notification
+// against the delete, which could resurrect the chat right after this
+// deleted it. Sequencing both in one goroutine, guarded by
+// pendingGroupDeletes, makes the delete always win.
+func handleLeaveAndDeleteGroup(raw json.RawMessage) {
+	var data JIDData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+	go func() {
+		pendingGroupDeletes.Store(data.JID, struct{}{})
+		defer pendingGroupDeletes.Delete(data.JID)
+
+		if err := client.LeaveGroup(context.Background(), jid); err != nil {
+			broadcastEvent("error", map[string]string{"message": "Failed to leave group: " + err.Error()})
+			return
+		}
+
+		lastTS, lastKey := getLastMessageKeyForChat(data.JID)
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildDeleteChat(jid, lastTS, lastKey, false)); err != nil {
+			broadcastEvent("error", map[string]string{"message": "Left the group, but failed to delete the chat: " + err.Error()})
+			return
+		}
+		db.Exec("DELETE FROM messages WHERE jid = ?", data.JID)
 		db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
 		broadcastChats()
 	}()

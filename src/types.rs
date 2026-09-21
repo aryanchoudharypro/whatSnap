@@ -1,6 +1,12 @@
 use whantv;
 
 use crate::voice_recorder;
+
+/// JID of WhatsApp's own Meta AI bot. Sending to a `@bot`-server JID makes
+/// whatsmeow's `SendMessage` automatically wrap the message with the bot
+/// metadata WhatsApp expects - see `open_chat_for_jid` callers.
+pub const META_AI_JID: &str = "867051314767696@bot";
+
 #[derive(Clone)]
 pub enum UiCommand {
 	RequestPairing(String),
@@ -187,6 +193,14 @@ pub enum UiCommand {
 		read: bool,
 	},
 	DeleteChat {
+		jid: String,
+	},
+	/// "Delete chat and exit group": leaving then deleting as two
+	/// independent commands raced the group's own "You left" system message
+	/// against the delete, sometimes resurrecting the chat right after this
+	/// removed it - see `handleLeaveAndDeleteGroup` on the backend, which
+	/// runs both in order under one guard instead.
+	DeleteChatAndLeaveGroup {
 		jid: String,
 	},
 	ClearChat {

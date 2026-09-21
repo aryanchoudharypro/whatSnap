@@ -137,6 +137,7 @@ pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	let is_open_chat = mode == ContactPickerMode::OpenChat;
 	parts.new_conv_dialog.new_group_btn.show(is_open_chat);
 	parts.new_conv_dialog.new_contact_btn.show(is_open_chat);
+	parts.new_conv_dialog.message_meta_ai_btn.show(is_open_chat && state.borrow().settings.meta_ai_enabled);
 	parts.new_conv_dialog.dialog.layout();
 	apply_contact_picker_filter("", state, parts);
 	let payload = serde_json::json!({ "action": "get_contacts" });

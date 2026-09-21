@@ -200,6 +200,8 @@ func handleConnection(conn net.Conn) {
 			handleDeleteChat(cmd.Data)
 		case "clear_chat":
 			handleClearChat(cmd.Data)
+		case "leave_and_delete_group":
+			handleLeaveAndDeleteGroup(cmd.Data)
 		case "request_history_sync":
 			handleRequestHistorySync(cmd.Data)
 		case "request_message_resend":

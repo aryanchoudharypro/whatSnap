@@ -655,6 +655,13 @@ pub fn bind_input_handlers(
 		new_contact_dialog.show_modal();
 	});
 
+	let new_conv_dlg_for_meta_ai = parts.new_conv_dialog.dialog;
+	let tx_meta_ai = ui_tx.clone();
+	parts.new_conv_dialog.message_meta_ai_btn.on_click(move |_| {
+		new_conv_dlg_for_meta_ai.end_modal(0);
+		let _ = tx_meta_ai.send(UiCommand::OpenChatByJid(crate::types::META_AI_JID.to_string()));
+	});
+
 	let tx_picker_filter = ui_tx.clone();
 	let picker_search_field = parts.new_conv_dialog.search_field;
 	picker_search_field.on_text_changed(move |_| {
@@ -948,6 +955,7 @@ pub fn bind_input_handlers(
 	let announce_recording_check = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check = parts.settings_dialog.tray_icon_check;
 	let autostart_check = parts.settings_dialog.autostart_check;
+	let meta_ai_enabled_check_open = parts.settings_dialog.meta_ai_enabled_check.clone();
 	let name_field_open = parts.settings_dialog.name_field.clone();
 	let about_field_open = parts.settings_dialog.about_field.clone();
 	let last_seen_combo_open = parts.settings_dialog.last_seen_combo.clone();
@@ -973,6 +981,7 @@ pub fn bind_input_handlers(
 		announce_typing_check.set_value(s.settings.announce_typing);
 		announce_recording_check.set_value(s.settings.announce_recording);
 		tray_icon_check.set_value(s.settings.show_tray_icon);
+		meta_ai_enabled_check_open.set_value(s.settings.meta_ai_enabled);
 		noise_suppression_check_open.set_value(s.settings.voice_message_noise_suppression);
 
 		name_field_open.set_value(&s.own_push_name);
@@ -1180,6 +1189,7 @@ pub fn bind_input_handlers(
 	let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
 	let autostart_check_ok = parts.settings_dialog.autostart_check;
+	let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check.clone();
 	let name_field_ok = parts.settings_dialog.name_field.clone();
 	let about_field_ok = parts.settings_dialog.about_field.clone();
 	let last_seen_combo_ok = parts.settings_dialog.last_seen_combo.clone();
@@ -1201,6 +1211,7 @@ pub fn bind_input_handlers(
 		s.settings.announce_typing = announce_typing_check_ok.is_checked();
 		s.settings.announce_recording = announce_recording_check_ok.is_checked();
 		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
+		s.settings.meta_ai_enabled = meta_ai_enabled_check_ok.is_checked();
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
 		s.settings.input_device_name = device_combo_value(&input_device_combo_ok);
 		let new_output_device = device_combo_value(&output_device_combo_ok);
@@ -2177,8 +2188,8 @@ pub fn bind_input_handlers(
 										let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
 									}
 									Some("Delete chat and exit group") => {
-										let _ = ui_tx_clone.send(UiCommand::LeaveGroup { jid: jid_clone.clone() });
-										let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
+										let _ = ui_tx_clone
+											.send(UiCommand::DeleteChatAndLeaveGroup { jid: jid_clone.clone() });
 									}
 									_ => {}
 								}
