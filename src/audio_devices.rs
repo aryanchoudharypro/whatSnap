@@ -1,13 +1,19 @@
 //! Lists audio input/output devices for the Settings "Input & Output" tab, and
 //! resolves a saved device name back to a live device at stream-open time.
 //!
-//! Devices are identified by their friendly name (e.g. "Microphone (Realtek
-//! Audio)") rather than a WASAPI endpoint ID, because the two audio backends
-//! this app uses - raw WASAPI in `call_audio.rs` for calls, and cpal (via
-//! rodio) for voice-message/notification playback - don't share an ID
-//! namespace; friendly name is the only identity both can resolve a device
-//! from. Duplicate friendly names on one machine are rare enough in practice
-//! not to worry about here.
+//! Devices are identified by their WASAPI friendly name (e.g. "Microphone
+//! (Realtek(R) Audio)") everywhere - both audio backends this app uses (raw
+//! WASAPI in `call_audio.rs`/`voice_recorder.rs` for calls and voice-message
+//! recording, and cpal via rodio for voice-message/notification playback)
+//! must agree on it, or a device picked in a combo silently fails to match
+//! and the call/recording side falls back to the default device instead.
+//! cpal's own `Device::description()`/`name()` are NOT used for this: on
+//! Windows they prefer the driver's terse `DeviceDesc` property ("Microphone")
+//! over `FriendlyName`, which doesn't match what `find_wasapi_device_by_name`
+//! searches for. Duplicate friendly names on one machine are rare enough in
+//! practice not to worry about here.
+
+use std::collections::HashMap;
 
 use rodio::cpal::{
 	self,
@@ -16,8 +22,10 @@ use rodio::cpal::{
 use windows::{
 	Win32::{
 		Devices::FunctionDiscovery::PKEY_Device_FriendlyName,
-		Media::Audio::{DEVICE_STATE_ACTIVE, EDataFlow, IMMDevice, IMMDeviceEnumerator},
-		System::Com::{STGM_READ, StructuredStorage::PropVariantToStringAlloc},
+		Media::Audio::{DEVICE_STATE_ACTIVE, EDataFlow, IMMDevice, IMMDeviceEnumerator, eCapture, eRender},
+		System::Com::{
+			CLSCTX_ALL, CoCreateInstance, CoTaskMemFree, STGM_READ, StructuredStorage::PropVariantToStringAlloc,
+		},
 	},
 	core::PWSTR,
 };
@@ -34,18 +42,49 @@ pub fn output_device_names() -> Vec<String> {
 	device_names(false)
 }
 
-fn device_name(device: &cpal::Device) -> Option<String> {
-	device.description().ok().map(|d| d.name().to_string())
+/// Maps every active WASAPI endpoint's stable device ID (what
+/// `cpal::Device::id()` also returns on the WASAPI backend - both call the
+/// same underlying `IMMDevice::GetId`) to its friendly name, so a cpal
+/// device can be named the same way `find_wasapi_device_by_name` searches.
+fn wasapi_friendly_names_by_id(dataflow: EDataFlow) -> HashMap<String, String> {
+	let mut map = HashMap::new();
+	unsafe {
+		use windows::Win32::Media::Audio::MMDeviceEnumerator;
+		let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else {
+			return map;
+		};
+		let Ok(collection) = enumerator.EnumAudioEndpoints(dataflow, DEVICE_STATE_ACTIVE) else {
+			return map;
+		};
+		let Ok(count) = collection.GetCount() else {
+			return map;
+		};
+		for i in 0..count {
+			let Ok(device) = collection.Item(i) else { continue };
+			let Ok(id_pwstr) = device.GetId() else { continue };
+			let id_str = id_pwstr.to_string().ok();
+			CoTaskMemFree(Some(id_pwstr.0 as *const core::ffi::c_void));
+			let (Some(id_str), Some(name)) = (id_str, device_friendly_name(&device)) else { continue };
+			map.insert(id_str, name);
+		}
+	}
+	map
+}
+
+fn device_name(device: &cpal::Device, names_by_id: &HashMap<String, String>) -> Option<String> {
+	let id = device.id().ok()?.1;
+	names_by_id.get(&id).cloned()
 }
 
 fn device_names(input: bool) -> Vec<String> {
 	let host = cpal::default_host();
+	let names_by_id = wasapi_friendly_names_by_id(if input { eCapture } else { eRender });
 	let devices = if input {
 		host.input_devices().map(|d| d.collect::<Vec<_>>())
 	} else {
 		host.output_devices().map(|d| d.collect::<Vec<_>>())
 	};
-	devices.unwrap_or_default().iter().filter_map(device_name).collect()
+	devices.unwrap_or_default().iter().filter_map(|d| device_name(d, &names_by_id)).collect()
 }
 
 /// Resolves a saved output device name to a live cpal device, falling back to
@@ -62,16 +101,19 @@ fn device_names(input: bool) -> Vec<String> {
 /// instead of silently falling back to the speakers.
 pub fn resolve_output_device(name: Option<&str>) -> Option<cpal::Device> {
 	let host = cpal::default_host();
+	let names_by_id = wasapi_friendly_names_by_id(eRender);
 	if let Some(name) = name {
 		if let Ok(devices) = host.output_devices() {
-			if let Some(d) = devices.into_iter().find(|d| device_name(d).as_deref() == Some(name)) {
+			if let Some(d) = devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(name)) {
 				return Some(d);
 			}
 		}
 	}
 	if let Some(comms_name) = communications_default_output_name() {
 		if let Ok(devices) = host.output_devices() {
-			if let Some(d) = devices.into_iter().find(|d| device_name(d).as_deref() == Some(comms_name.as_str())) {
+			if let Some(d) =
+				devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(comms_name.as_str()))
+			{
 				return Some(d);
 			}
 		}
@@ -105,7 +147,8 @@ fn communications_default_output_name() -> Option<String> {
 /// changed because headphones were unplugged/replugged; a stream opened
 /// against one concrete endpoint doesn't follow that change on its own).
 pub fn resolve_output_device_name(name: Option<&str>) -> Option<String> {
-	resolve_output_device(name).and_then(|d| device_name(&d))
+	let names_by_id = wasapi_friendly_names_by_id(eRender);
+	resolve_output_device(name).and_then(|d| device_name(&d, &names_by_id))
 }
 
 /// Finds the WASAPI endpoint whose friendly name matches `name` among active

@@ -4,6 +4,7 @@ pub use types::*;
 
 mod audio;
 use audio::*;
+mod audio_device_watch;
 mod audio_devices;
 mod autostart;
 mod backend_process;
@@ -71,6 +72,21 @@ struct AppState {
 	/// (headphones unplugged/replugged) and reopen instead of silently
 	/// writing to a now-stale stream until the app is restarted.
 	audio_stream_device_name: Option<String>,
+	/// When `audio_stream` was last (re)opened. A cached WASAPI stream can go
+	/// silently dead across a sleep/hibernate cycle even when the resolved
+	/// device name ends up unchanged (e.g. a transient enumeration race right
+	/// at wake, or the OS invalidating the session across suspend regardless
+	/// of name) - unlike notification sounds, which always open a stream
+	/// fresh and keep working. `ensure_audio_stream` treats a stream older
+	/// than `AUDIO_STREAM_MAX_AGE` as untrustworthy and reopens it rather
+	/// than reusing it forever based on name-match alone.
+	audio_stream_opened_at: Option<std::time::Instant>,
+	/// Flipped by `audio_stream`'s cpal error callback when the underlying
+	/// stream errors out (device removed/invalidated), so `ensure_audio_stream`
+	/// can reopen on the very next play instead of waiting to notice via a
+	/// name mismatch or `AUDIO_STREAM_MAX_AGE`, which don't catch every case
+	/// (e.g. the same device name, session invalidated anyway).
+	audio_stream_failed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 	audio_sink: Option<Player>,
 	playing_msg_id: Option<String>,
 	is_audio_paused: bool,
@@ -402,6 +418,8 @@ fn main() {
 		let ui_waker = UiWaker::new(frame, ui_alive.clone());
 		let ui_tx = UiCommandSender::new(ui_tx_raw, ui_waker.clone());
 
+		audio_device_watch::start(ui_tx.clone());
+
 		// Let future launches of the app (see `single_instance::acquire_or_activate_existing`
 		// at the top of `main`) hand off to this window instead of starting a second instance.
 		let ui_tx_activate = ui_tx.clone();
@@ -525,6 +543,8 @@ fn main() {
 			ui_tx: ui_tx.clone(),
 			audio_stream: None,
 			audio_stream_device_name: None,
+			audio_stream_opened_at: None,
+			audio_stream_failed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 			audio_sink: None,
 			playing_msg_id: None,
 			is_audio_paused: false,
@@ -962,6 +982,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::MuteCall => ui_commands::calls::mute_call(state, parts),
 		UiCommand::SetCallInputDevice(name) => ui_commands::calls::set_call_input_device(state, parts, name),
 		UiCommand::SetCallOutputDevice(name) => ui_commands::calls::set_call_output_device(state, parts, name),
+		UiCommand::AudioDeviceChanged => ui_commands::voice::handle_audio_device_changed(state),
 		UiCommand::PrepareContactPicker(mode) => {
 			ui_commands::contacts_groups::prepare_contact_picker(state, parts, mode)
 		}

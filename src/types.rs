@@ -124,6 +124,12 @@ pub enum UiCommand {
 	/// `None` means "System Default" (matches Settings' device combos).
 	SetCallInputDevice(Option<String>),
 	SetCallOutputDevice(Option<String>),
+	/// Windows reported the system default audio input or output device
+	/// changed (headphones plugged/unplugged, a new default picked in
+	/// Windows Settings) - see `audio_device_watch.rs`. Reopens any live
+	/// playback/call audio on the newly-current device instead of waiting
+	/// for the next unrelated action to notice.
+	AudioDeviceChanged,
 	UpdateGroupSettings {
 		name: String,
 		topic: String,
