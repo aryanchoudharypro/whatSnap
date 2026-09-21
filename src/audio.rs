@@ -1,5 +1,8 @@
 use std::{
-	sync::atomic::{AtomicU64, Ordering},
+	sync::{
+		Arc,
+		atomic::{AtomicBool, AtomicU64, Ordering},
+	},
 	time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -9,27 +12,68 @@ use rodio_wsola::WsolaSourceExt;
 use crate::{AppState, audio_devices, types::*};
 static LAST_SOUND_TIME: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) fn open_output_stream(preferred_name: Option<&str>) -> Result<MixerDeviceSink, rodio::DeviceSinkError> {
+// cpal/rodio don't otherwise tell a caller a stream died (device unplugged,
+// invalidated across sleep, etc) - by default the error just goes to a log
+// line and playback silently stops producing sound. Wiring this callback and
+// flipping `on_error` is what actually lets `ensure_audio_stream` learn a
+// stream needs reopening; without it, only a name-mismatch could trigger a
+// reopen, which doesn't cover "same device name, session invalidated anyway".
+pub(crate) fn open_output_stream(
+	preferred_name: Option<&str>,
+	on_error: Arc<AtomicBool>,
+) -> Result<MixerDeviceSink, rodio::DeviceSinkError> {
 	match audio_devices::resolve_output_device(preferred_name) {
-		Some(device) => DeviceSinkBuilder::from_device(device).and_then(|b| b.open_stream()),
+		Some(device) => DeviceSinkBuilder::from_device(device)?
+			.with_error_callback(move |err| {
+				log_line(&format!("output stream error, marking dead for reopen: {:?}", err));
+				on_error.store(true, Ordering::Relaxed);
+			})
+			.open_stream(),
 		None => DeviceSinkBuilder::open_default_sink(),
+	}
+}
+
+// A cached stream older than this is treated as untrustworthy and reopened
+// even if the resolved device name hasn't changed and no stream error fired -
+// see the doc comment on `AppState::audio_stream_opened_at`. Belt-and-braces
+// alongside the error callback above, short enough that a sleep/hibernate
+// cycle is always past it, long enough not to add a reopen to normal
+// back-to-back playback.
+const AUDIO_STREAM_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(20);
+
+fn log_line(msg: &str) {
+	use std::io::Write;
+	let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+	let line = format!("[{}.{:03}] {}\n", now.as_secs(), now.subsec_millis(), msg);
+	if let Ok(mut f) =
+		std::fs::OpenOptions::new().create(true).append(true).open(crate::paths::log_dir().join("audio.log"))
+	{
+		let _ = f.write_all(line.as_bytes());
 	}
 }
 
 pub(crate) fn ensure_audio_stream(s: &mut AppState) {
 	let current_name = audio_devices::resolve_output_device_name(s.settings.output_device_name.as_deref());
-	if s.audio_stream.is_some() && s.audio_stream_device_name == current_name {
+	let stream_errored = s.audio_stream_failed.swap(false, Ordering::Relaxed);
+	let fresh_enough = s.audio_stream_opened_at.map(|t| t.elapsed() < AUDIO_STREAM_MAX_AGE).unwrap_or(false);
+	if s.audio_stream.is_some() && s.audio_stream_device_name == current_name && fresh_enough && !stream_errored {
 		return;
 	}
-	match open_output_stream(s.settings.output_device_name.as_deref()) {
+	if stream_errored {
+		log_line("reopening output stream after a stream error");
+	}
+	match open_output_stream(s.settings.output_device_name.as_deref(), s.audio_stream_failed.clone()) {
 		Ok(stream) => {
 			s.audio_stream = Some(stream);
 			s.audio_stream_device_name = current_name;
+			s.audio_stream_opened_at = Some(std::time::Instant::now());
 		}
 		Err(e) => {
+			log_line(&format!("Failed to (re)open output stream (device {:?}): {:?}", current_name, e));
 			eprintln!("[AUDIO] Failed to (re)open output stream: {:?}", e);
 			s.audio_stream = None;
 			s.audio_stream_device_name = None;
+			s.audio_stream_opened_at = None;
 		}
 	}
 }
@@ -48,6 +92,22 @@ pub(crate) fn play_notification_sound(
 		return;
 	}
 	std::thread::spawn(move || {
+		// COM is per-thread; without initializing it here, resolve_output_device's
+		// CoCreateInstance(MMDeviceEnumerator) silently fails on this freshly
+		// spawned thread (unlike the UI thread, which wx already initializes COM
+		// on) and every notification sound falls back to cpal's plain Console-role
+		// default, which doesn't follow a headset that only repoints the
+		// Communications role.
+		use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
+		struct ComGuard(bool);
+		impl Drop for ComGuard {
+			fn drop(&mut self) {
+				if self.0 {
+					unsafe { CoUninitialize() };
+				}
+			}
+		}
+		let _com_guard = ComGuard(unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok());
 		// Honor the user's configured output device (and, for "System
 		// Default", the Communications-role default - see
 		// `audio_devices::resolve_output_device`) instead of always opening

@@ -7,10 +7,58 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState, NotificationSound, PendingVoiceRecording, UiCommand,
-	audio::{concat_wav_segments, convert_wav_to_opus_ogg, do_seek, play_notification_sound},
+	audio::{concat_wav_segments, convert_wav_to_opus_ogg, do_seek, ensure_audio_stream, play_notification_sound},
 	ui::window::WindowParts,
 	voice_recorder,
 };
+
+/// Reacts to a live "default audio device changed" notification (see
+/// `audio_device_watch.rs`). Forces the cached playback stream to reopen on
+/// its now-current device, reattaching any actively-playing voice message at
+/// its same position/pause state so the switch is inaudible-gap-free rather
+/// than silent until the next play, and nudges an active call's audio to do
+/// the same on its own capture/render threads.
+pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
+	let mut s = state.borrow_mut();
+	// Bypasses ensure_audio_stream's name-match/TTL shortcuts: this
+	// notification is itself the authoritative "something changed" signal.
+	s.audio_stream_opened_at = None;
+
+	if s.playing_msg_id.is_some() {
+		let was_paused = s.is_audio_paused;
+		let elapsed = if was_paused {
+			s.audio_elapsed_secs
+		} else {
+			s.audio_elapsed_secs + s.audio_start_instant.map(|i| i.elapsed().as_secs_f32()).unwrap_or(0.0)
+		};
+		if let Some(ref sink) = s.audio_sink {
+			sink.stop();
+		}
+		s.audio_sink = None;
+		let path = s.audio_path.clone().unwrap_or_default();
+		ensure_audio_stream(&mut s);
+		if let Some(ref stream_handle) = s.audio_stream {
+			let new_sink = do_seek(stream_handle, &path, elapsed, s.audio_speed);
+			if was_paused {
+				if let Some(ref sink) = new_sink {
+					sink.pause();
+				}
+			}
+			s.audio_sink = new_sink;
+		}
+		s.audio_elapsed_secs = elapsed;
+		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
+	} else {
+		// Nothing playing right now - just make sure the stream is fresh for
+		// whatever plays next (notification sounds already open fresh every
+		// time and don't need this).
+		ensure_audio_stream(&mut s);
+	}
+
+	if let Some(audio) = &s.active_call_audio {
+		audio.force_device_refresh();
+	}
+}
 
 pub(crate) fn start_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();

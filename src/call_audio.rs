@@ -109,6 +109,17 @@ pub struct CallAudioState {
 	stop: Arc<AtomicBool>,
 	preferred_input: Arc<Mutex<Option<String>>>,
 	preferred_output: Arc<Mutex<Option<String>>>,
+	/// Set by `force_device_refresh` to make the capture/render poll loops
+	/// reopen even though `preferred_input`/`preferred_output` didn't change -
+	/// needed for "System Default" (or a pinned device that just vanished):
+	/// the live Windows default-device-changed notification (see
+	/// `audio_device_watch.rs`) fires with the *name* unchanged from this
+	/// call's point of view, so the ordinary change-detection below would
+	/// otherwise never notice. Separate flags per direction - each session
+	/// loop clears its own via `swap`, so one loop polling first can't eat
+	/// the signal the other loop still needs to see.
+	force_reopen_input: Arc<AtomicBool>,
+	force_reopen_output: Arc<AtomicBool>,
 }
 
 impl CallAudioState {
@@ -126,6 +137,14 @@ impl CallAudioState {
 	/// Same as `set_input_device`, for the render (speaker) side.
 	pub fn set_output_device(&self, name: Option<String>) {
 		*self.preferred_output.lock().unwrap() = name;
+	}
+
+	/// Reopens both capture and render on their currently-resolved device
+	/// (system default, or a pinned device re-resolved in case the old one
+	/// came back or is still gone) without waiting for a name change.
+	pub fn force_device_refresh(&self) {
+		self.force_reopen_input.store(true, Ordering::Relaxed);
+		self.force_reopen_output.store(true, Ordering::Relaxed);
 	}
 }
 
@@ -433,9 +452,10 @@ fn run_capture(
 	socket_out: &UdpSocket,
 	target_addr: &str,
 	preferred_device: &Mutex<Option<String>>,
+	force_reopen: &AtomicBool,
 ) {
 	while !stop.load(Ordering::Relaxed) {
-		if let Err(e) = run_capture_session(stop, is_muted, socket_out, target_addr, preferred_device) {
+		if let Err(e) = run_capture_session(stop, is_muted, socket_out, target_addr, preferred_device, force_reopen) {
 			log_line(&format!("capture session ended with error, reopening: {:?}", e));
 			if stop.load(Ordering::Relaxed) {
 				break;
@@ -452,6 +472,7 @@ fn run_capture_session(
 	socket_out: &UdpSocket,
 	target_addr: &str,
 	preferred_device: &Mutex<Option<String>>,
+	force_reopen: &AtomicBool,
 ) -> anyhow::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
@@ -461,6 +482,9 @@ fn run_capture_session(
 		// through CallAudioState::set_input_device while this session is
 		// running is picked up by the poll loop below, not here.
 		let session_device = preferred_device.lock().unwrap().clone();
+		// A refresh requested while we were still opening the previous
+		// session belongs to this new session's open, not a reopen after it.
+		force_reopen.store(false, Ordering::Relaxed);
 		let wasapi = open_communications_stream(eCapture, "capture", session_device.as_deref(), true)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let capture_client: IAudioCaptureClient = wasapi.client.GetService()?;
@@ -474,6 +498,10 @@ fn run_capture_session(
 		while !stop.load(Ordering::Relaxed) {
 			if preferred_device.lock().unwrap().as_ref() != session_device.as_ref() {
 				log_line("capture: device switch requested, reopening");
+				break;
+			}
+			if force_reopen.swap(false, Ordering::Relaxed) {
+				log_line("capture: default device changed, reopening");
 				break;
 			}
 			if WaitForSingleObject(wasapi.event, 200) != WAIT_OBJECT_0 {
@@ -526,9 +554,12 @@ fn run_render(
 	starved: Arc<AtomicU64>,
 	accum_len: Arc<AtomicUsize>,
 	preferred_device: &Mutex<Option<String>>,
+	force_reopen: &AtomicBool,
 ) {
 	while !stop.load(Ordering::Relaxed) {
-		if let Err(e) = run_render_session(stop, &frame_rx, &played, &starved, &accum_len, preferred_device) {
+		if let Err(e) =
+			run_render_session(stop, &frame_rx, &played, &starved, &accum_len, preferred_device, force_reopen)
+		{
 			log_line(&format!("render session ended with error, reopening: {:?}", e));
 			if stop.load(Ordering::Relaxed) {
 				break;
@@ -546,6 +577,7 @@ fn run_render_session(
 	starved: &Arc<AtomicU64>,
 	accum_len: &Arc<AtomicUsize>,
 	preferred_device: &Mutex<Option<String>>,
+	force_reopen: &AtomicBool,
 ) -> anyhow::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
@@ -554,6 +586,7 @@ fn run_render_session(
 		// See run_capture_session: a later device switch is picked up by the
 		// poll loop below, not by re-reading this snapshot.
 		let session_device = preferred_device.lock().unwrap().clone();
+		force_reopen.store(false, Ordering::Relaxed);
 		let wasapi = open_communications_stream(eRender, "render", session_device.as_deref(), true)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let render_client: IAudioRenderClient = wasapi.client.GetService()?;
@@ -580,6 +613,10 @@ fn run_render_session(
 		while !stop.load(Ordering::Relaxed) {
 			if preferred_device.lock().unwrap().as_ref() != session_device.as_ref() {
 				log_line("render: device switch requested, reopening");
+				break;
+			}
+			if force_reopen.swap(false, Ordering::Relaxed) {
+				log_line("render: default device changed, reopening");
 				break;
 			}
 			if WaitForSingleObject(wasapi.event, 200) != WAIT_OBJECT_0 {
@@ -730,20 +767,28 @@ pub fn start_audio_streams(
 	let is_muted = Arc::new(AtomicBool::new(false));
 	let preferred_input = Arc::new(Mutex::new(preferred_input_device));
 	let preferred_output = Arc::new(Mutex::new(preferred_output_device));
+	// One shared flag for both directions: a default-device-changed
+	// notification doesn't say which direction changed, so refresh both -
+	// reopening a session that turns out to already be on the right device
+	// is cheap and harmless.
+	let force_reopen_input = Arc::new(AtomicBool::new(false));
+	let force_reopen_output = Arc::new(AtomicBool::new(false));
 
 	{
 		let stop = Arc::clone(&stop);
 		let is_muted = Arc::clone(&is_muted);
 		let target_addr = target_addr.clone();
 		let preferred_input = Arc::clone(&preferred_input);
+		let force_reopen_input = Arc::clone(&force_reopen_input);
 		std::thread::spawn(move || {
-			run_capture(&stop, &is_muted, &socket_out, &target_addr, &preferred_input);
+			run_capture(&stop, &is_muted, &socket_out, &target_addr, &preferred_input, &force_reopen_input);
 		});
 	}
 
 	{
 		let stop = Arc::clone(&stop);
 		let preferred_output = Arc::clone(&preferred_output);
+		let force_reopen_output = Arc::clone(&force_reopen_output);
 		std::thread::spawn(move || {
 			run_render(
 				&stop,
@@ -752,9 +797,10 @@ pub fn start_audio_streams(
 				output_starved_samples,
 				output_src_accum_len,
 				&preferred_output,
+				&force_reopen_output,
 			);
 		});
 	}
 
-	Ok(CallAudioState { is_muted, stop, preferred_input, preferred_output })
+	Ok(CallAudioState { is_muted, stop, preferred_input, preferred_output, force_reopen_input, force_reopen_output })
 }
