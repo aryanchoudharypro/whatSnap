@@ -285,6 +285,18 @@ pub(crate) struct StatusGroup {
 
 /// One other person in a group call, as sent by the backend's
 /// `call_participants` event. `state` is WhatsApp's roster state, e.g.
+/// Video details of the active call. We never send or show video; this only
+/// drives what's announced.
+#[derive(Default)]
+pub(crate) struct CallVideo {
+	/// The call was offered as a video call (the backend answers those camera-off).
+	pub(crate) is_video: bool,
+	/// The other person's name on a 1:1 call, None on a group call.
+	pub(crate) peer_name: Option<String>,
+	/// Their last known camera state, None when unknown.
+	pub(crate) peer_camera_on: Option<bool>,
+}
+
 /// "connected", "outgoing", "ringing", "invited" or "rejected".
 #[derive(Clone)]
 pub(crate) struct CallParticipant {

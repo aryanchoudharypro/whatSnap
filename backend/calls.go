@@ -98,8 +98,24 @@ func isOwnJID(jid types.JID) bool {
 	return false
 }
 
+// peerVideoEvent maps the raw state of a <video> stanza from the other side
+// of the call to the call_video_state event the frontend announces, or ""
+// for states that don't need announcing. 4/5 (upgrade accept/reject) only
+// answer an upgrade we asked for, and we never ask.
+func peerVideoEvent(raw int) string {
+	switch raw {
+	case signaling.VideoStateEnabled:
+		return "on"
+	case signaling.VideoStateDisabled, signaling.VideoStateStopped:
+		return "off"
+	case signaling.VideoStateUpgradeRequest, signaling.VideoStateUpgradeRequestV2:
+		return "upgrade_requested"
+	}
+	return ""
+}
+
 // attachCallHandlers wires the callbacks shared by incoming and outgoing
-// calls. OnReady/OnEnd/OnGroupState are single-slot on *meowcaller.Call
+// calls. OnReady/OnEnd/OnGroupState/OnVideoState are single-slot on *meowcaller.Call
 // (each registration overwrites the last), so this must be the only place
 // that registers them for a given call.
 func attachCallHandlers(call *meowcaller.Call) {
@@ -154,6 +170,18 @@ func attachCallHandlers(call *meowcaller.Call) {
 			"participants": participants,
 		})
 	})
+	// Only the other side's camera: we don't send video yet (video calls
+	// are answered with the camera off - see handleAnswerCall).
+	call.OnVideoState(func(vs meowcaller.VideoState) {
+		event := peerVideoEvent(vs.Raw)
+		if event == "" {
+			return
+		}
+		broadcastEvent("call_video_state", map[string]string{
+			"call_id":    call.ID(),
+			"peer_video": event,
+		})
+	})
 }
 
 func initCallClient() {
@@ -206,6 +234,7 @@ func initCallClient() {
 			"caller":      call.Peer().String(),
 			"caller_name": resolveDisplayName(call.Peer()),
 			"is_group":    isGroup,
+			"is_video":    call.IsVideo(),
 		}
 		if hasGroupJID {
 			payload["group_jid"] = groupJID.String()
@@ -325,6 +354,15 @@ func handleAnswerCall(data []byte) {
 		return
 	}
 
+	// meowcaller's accept always declares video as decode-only (no "enc"
+	// attribute, regardless of our local video-enabled state - see
+	// signaling.videoAcceptNode) when the offer was video, so the peer
+	// already learns we won't be sending anything: no separate camera-off
+	// signal is needed. Sending one anyway (an explicit <video state="0"/>
+	// right after answering) was tried and made the caller's own client
+	// collapse the whole call to voice - their camera went dark too, and
+	// they had to send an explicit upgrade request to get video back.
+	//
 	// The audio bridge is wired in the call.OnReady callback registered
 	// back in OnIncomingCall, once media is actually ready - not here.
 	err := call.Answer()

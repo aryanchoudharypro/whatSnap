@@ -4,6 +4,12 @@ use wxdragon::prelude::*;
 pub struct CallWindowParts {
 	pub frame: Frame,
 	pub status_label: StaticText,
+	/// Live region for anything announced while the call window has focus.
+	/// The call frame is its own top-level window, and a screen reader only
+	/// speaks live-region changes from the FOREGROUND window - announcing a
+	/// call event through the main window's announcer reaches nobody while
+	/// this frame is up.
+	pub announcer: StaticText,
 	pub accept_btn: Button,
 	pub reject_btn: Button,
 	pub mute_btn: Button,
@@ -21,6 +27,10 @@ pub fn build_call_window() -> CallWindowParts {
 
 	let status_label = StaticText::builder(&panel).with_label("Incoming call...").build();
 	sizer.add(&status_label, 0, SizerFlag::Expand | SizerFlag::All, 10);
+
+	let announcer = StaticText::builder(&panel).with_label("").build();
+	live_region::set_live_region(&announcer);
+	sizer.add(&announcer, 0, SizerFlag::Expand | SizerFlag::All, 0);
 
 	let btn_panel = Panel::builder(&panel).build();
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
@@ -70,6 +80,7 @@ pub fn build_call_window() -> CallWindowParts {
 	CallWindowParts {
 		frame,
 		status_label,
+		announcer,
 		accept_btn,
 		reject_btn,
 		mute_btn,

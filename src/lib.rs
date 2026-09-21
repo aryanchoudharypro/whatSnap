@@ -169,6 +169,13 @@ impl ChatMessage {
 		self.is_audio || self.text.starts_with("[Voice Message]") || self.text.starts_with("[Audio]")
 	}
 
+	/// A synced call-history row (a call placed or received on any of this
+	/// account's devices), rather than a message somebody sent. Enter on one
+	/// calls the chat back, the way Enter on a voice message plays it.
+	pub fn is_call(&self) -> bool {
+		self.media_type == "call"
+	}
+
 	/// Photos and videos only - matches what official WhatsApp's Media tab
 	/// shows (voice messages and documents get their own tabs).
 	pub fn is_photo_or_video(&self) -> bool {
@@ -1219,5 +1226,38 @@ mod tests {
 	#[test]
 	fn grouping_of_nothing_yields_nothing() {
 		assert!(group_messages_into_display_items(&[]).is_empty());
+	}
+}
+
+#[cfg(test)]
+mod call_row_tests {
+	use super::ChatMessage;
+
+	/// A call-history row is recognised by its media_type alone, so Enter on it
+	/// calls back instead of falling through to the list's default.
+	#[test]
+	fn call_rows_are_recognised_and_nothing_else_is() {
+		let call = ChatMessage { media_type: "call".to_string(), ..Default::default() };
+		assert!(call.is_call());
+		assert!(!call.is_voice(), "a call row must not be mistaken for a voice message");
+
+		for other in ["", "system", "image", "audio", "document"] {
+			let msg = ChatMessage { media_type: other.to_string(), ..Default::default() };
+			assert!(!msg.is_call(), "media_type {other:?} must not read as a call row");
+		}
+	}
+
+	/// The backend sends media_type; the alias keeps the camelCase form working.
+	#[test]
+	fn call_rows_parse_from_either_spelling() {
+		let bodies = [
+			r#"{"id":"call:abc","text":"Missed voice call","timestamp":1,"media_type":"call"}"#,
+			r#"{"id":"call:abc","text":"Missed voice call","timestamp":1,"mediaType":"call"}"#,
+		];
+		for body in bodies {
+			let msg: ChatMessage = serde_json::from_str(body).expect("parse");
+			assert!(msg.is_call(), "{body} should parse as a call row");
+			assert_eq!(msg.text, "Missed voice call");
+		}
 	}
 }

@@ -1732,6 +1732,8 @@ func eventHandler(evt interface{}) {
 		}
 	case *events.AppStateSyncError:
 		handleAppStateSyncError(v)
+	case *events.CallLogSync:
+		go handleCallLogSync(v)
 	case *events.Archive:
 		go func() {
 			if v.Action == nil {
