@@ -391,6 +391,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 							s.call_answer_deadline = None;
 							s.incoming_call_caller = None;
+							s.call_video_port =
+								data.get("video_port").and_then(|p| p.as_u64()).map(|p| p as u16).filter(|&p| p != 0);
 							stop_call_ringing_sound(&mut s);
 							if let Ok(streams) = call_audio::start_audio_streams(
 								audio_port as u16,
@@ -419,10 +421,22 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								parts.call_parts.accept_btn.show(false);
 								parts.call_parts.reject_btn.show(false);
 								parts.call_parts.mute_btn.show(true);
+								parts.call_parts.camera_btn.show(true);
+								parts.call_parts.camera_btn.set_label(if s.call_video.local_camera_on {
+									"Turn camera off"
+								} else {
+									"Turn camera on"
+								});
 								parts.call_parts.leave_btn.show(true);
 								parts.call_parts.add_participant_btn.show(true);
 								show_call_device_combos(&s, parts);
 								parts.call_parts.frame.show(true);
+								let autostart_camera = s.call_video.autostart_camera;
+								s.call_video.autostart_camera = false;
+								drop(s);
+								if autostart_camera {
+									crate::ui_commands::calls::toggle_camera(state, parts);
+								}
 							} else {
 								announce_call(parts, "Failed to start audio stream.");
 							}
@@ -449,6 +463,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.active_call_id = Some(call_id.to_string());
 								s.call_participants.clear();
 								s.call_video = CallVideo::default();
+								s.active_call_video_send = None;
+								s.call_video_port = None;
 								start_call_ringing_sound(&mut s, include_bytes!("../sounds/telefone.ogg"));
 							}
 						}
@@ -524,12 +540,39 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
+				"call_video_keyframe_request" => {
+					if let Some(data) = val.get("data") {
+						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+						let s = state.borrow();
+						if s.active_call_id.as_deref() == Some(call_id) {
+							if let Some(send) = &s.active_call_video_send {
+								send.request_keyframe();
+							}
+						}
+					}
+				}
+				"call_set_video_failed" => {
+					if let Some(data) = val.get("data") {
+						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+						let mut s = state.borrow_mut();
+						if s.active_call_id.as_deref() != Some(call_id) {
+							return;
+						}
+						s.active_call_video_send = None;
+						s.call_video.local_camera_on = false;
+						parts.call_parts.camera_btn.set_label("Turn camera on");
+						drop(s);
+						announce_call(parts, "Couldn't turn the camera on for this call.");
+					}
+				}
 				"call_failed" => {
 					let mut s = state.borrow_mut();
 					if s.call_placing {
 						s.call_placing = false;
 						s.call_pending_cancel = false;
 						s.call_video = CallVideo::default();
+						s.active_call_video_send = None;
+						s.call_video_port = None;
 						parts.call_parts.frame.show(false);
 						stop_call_ringing_sound(&mut s);
 						play_call_fail_sound(&mut s);
@@ -550,6 +593,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.active_call_audio = None;
 								s.call_participants.clear();
 								s.call_video = CallVideo::default();
+								s.active_call_video_send = None;
+								s.call_video_port = None;
 								s.call_answer_deadline = None;
 								parts.call_parts.frame.show(false);
 								stop_call_ringing_sound(&mut s);
@@ -573,6 +618,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.active_call_audio = None;
 								s.call_participants.clear();
 								s.call_video = CallVideo::default();
+								s.active_call_video_send = None;
+								s.call_video_port = None;
 								s.call_answer_deadline = None;
 								s.incoming_call_caller = None;
 								parts.call_parts.frame.show(false);
@@ -605,6 +652,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							s.incoming_call_caller = Some(name.clone());
 							s.call_participants.clear();
 							s.call_video = CallVideo::default();
+							s.active_call_video_send = None;
+							s.call_video_port = None;
 							let is_group = data.get("is_group").and_then(|g| g.as_bool()).unwrap_or(false);
 							let group_name = data
 								.get("group_name")
@@ -622,12 +671,15 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								is_video,
 								peer_name: if is_group { None } else { Some(name.clone()) },
 								peer_camera_on: Some(is_video),
+								local_camera_on: false,
+								autostart_camera: false,
 							};
 							parts.call_parts.frame.set_title(call_window_title(is_group, is_video));
 							parts.call_parts.status_label.set_label(&format!("Incoming {}", description));
 							parts.call_parts.accept_btn.show(true);
 							parts.call_parts.reject_btn.show(true);
 							parts.call_parts.mute_btn.show(false);
+							parts.call_parts.camera_btn.show(false);
 							parts.call_parts.leave_btn.show(false);
 							parts.call_parts.add_participant_btn.show(false);
 							parts.call_parts.devices_panel.show(false);

@@ -10,7 +10,10 @@ mod autostart;
 mod backend_process;
 mod call_audio;
 mod call_helpers;
+mod call_video_send;
 mod chat_ui;
+mod media_foundation;
+mod video_devices;
 use chat_ui::request_backend_shutdown;
 mod clipboard;
 pub use clipboard::copy_files_to_clipboard;
@@ -286,6 +289,13 @@ struct AppState {
 	// every composing stanza WhatsApp resends while the sender keeps typing.
 	typing_announce_state: std::collections::HashMap<String, u8>,
 	active_call_audio: Option<call_audio::CallAudioState>,
+	/// Running only while the local camera is on - see `call_video_send.rs`.
+	active_call_video_send: Option<call_video_send::CallVideoSendState>,
+	/// TCP port `call_connected` handed us for the video bridge - what
+	/// `active_call_video_send` connects to when the camera is turned on.
+	/// `None` before `call_connected`, or if the backend couldn't open the
+	/// bridge at all.
+	call_video_port: Option<u16>,
 	active_call_id: Option<String>,
 	// active_call_id is only known once call_placed arrives - Call() blocks until the
 	// offer is actually on the wire to WhatsApp, a real network round trip, so there's a
@@ -575,6 +585,8 @@ fn main() {
 			typing_timestamps: std::collections::HashMap::new(),
 			typing_announce_state: std::collections::HashMap::new(),
 			active_call_audio: None,
+			active_call_video_send: None,
+			call_video_port: None,
 			active_call_id: None,
 			call_placing: false,
 			call_pending_cancel: false,
@@ -795,6 +807,8 @@ fn main() {
 						let _ = s.ws_tx.send(msg.to_string());
 					}
 					s.active_call_audio = None;
+					s.active_call_video_send = None;
+					s.call_video_port = None;
 					s.call_participants.clear();
 					s.call_video = CallVideo::default();
 					parts_typing_timer.call_parts.frame.show(false);
@@ -963,9 +977,12 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			ui_commands::messaging::forward_message(state, parts, message_id, to_jids)
 		}
 		UiCommand::PlaceCall => ui_commands::calls::place_call(state, parts),
+		UiCommand::PlaceVideoCall => ui_commands::calls::place_video_call(state, parts),
 		UiCommand::AnswerCall => ui_commands::calls::answer_call(state, parts),
 		UiCommand::RejectCall => ui_commands::calls::reject_call(state, parts),
 		UiCommand::LeaveCall => ui_commands::calls::leave_call(state, parts),
+		UiCommand::ToggleCamera => ui_commands::calls::toggle_camera(state, parts),
+		UiCommand::CameraFailed(reason) => ui_commands::calls::camera_failed(state, parts, reason),
 		UiCommand::FilterGroupMembers(query) => ui_commands::contacts_groups::filter_group_members(state, parts, query),
 		UiCommand::GroupMemberSelectionChanged => {
 			ui_commands::contacts_groups::group_member_selection_changed(state, parts)
@@ -982,6 +999,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::MuteCall => ui_commands::calls::mute_call(state, parts),
 		UiCommand::SetCallInputDevice(name) => ui_commands::calls::set_call_input_device(state, parts, name),
 		UiCommand::SetCallOutputDevice(name) => ui_commands::calls::set_call_output_device(state, parts, name),
+		UiCommand::SetCallCameraDevice(name) => ui_commands::calls::set_call_camera_device(state, parts, name),
 		UiCommand::AudioDeviceChanged => ui_commands::voice::handle_audio_device_changed(state),
 		UiCommand::PrepareContactPicker(mode) => {
 			ui_commands::contacts_groups::prepare_contact_picker(state, parts, mode)

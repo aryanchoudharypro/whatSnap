@@ -117,13 +117,23 @@ pub enum UiCommand {
 	ChangeAudioSpeed,
 	SeekAudio(f32),
 	PlaceCall,
+	/// Places a call that offers video from the start (`CallOptions{Video:
+	/// true}` on the backend) - as opposed to `ToggleCamera` turning the
+	/// camera on mid-call, which upgrades a plain voice call instead.
+	PlaceVideoCall,
 	AnswerCall,
 	RejectCall,
 	MuteCall,
 	LeaveCall,
+	/// Turns the local camera on or off - the button, and Ctrl+Shift+V.
+	ToggleCamera,
 	/// `None` means "System Default" (matches Settings' device combos).
 	SetCallInputDevice(Option<String>),
 	SetCallOutputDevice(Option<String>),
+	SetCallCameraDevice(Option<String>),
+	/// The camera capture/encode thread couldn't open a camera at all (no
+	/// camera present, access denied, etc) - see `call_video_send.rs`.
+	CameraFailed(String),
 	/// Windows reported the system default audio input or output device
 	/// changed (headphones plugged/unplugged, a new default picked in
 	/// Windows Settings) - see `audio_device_watch.rs`. Reopens any live
@@ -301,6 +311,14 @@ pub(crate) struct CallVideo {
 	pub(crate) peer_name: Option<String>,
 	/// Their last known camera state, None when unknown.
 	pub(crate) peer_camera_on: Option<bool>,
+	/// Whether OUR camera is currently on - drives the toggle button/menu
+	/// label and whether `active_call_video_send` should exist.
+	pub(crate) local_camera_on: bool,
+	/// Set by `PlaceVideoCall` - once this outgoing call connects, the
+	/// camera turns on automatically instead of waiting for an explicit
+	/// toggle. Never set for an incoming call (those always answer
+	/// camera-off, see [[video_calls_work_status]] Phase 1).
+	pub(crate) autostart_camera: bool,
 }
 
 /// "connected", "outgoing", "ringing", "invited" or "rejected".

@@ -23,6 +23,11 @@ var callClient *meowcaller.Client
 var activeCalls = make(map[string]*meowcaller.Call)
 var activeCallsMutex sync.Mutex
 
+// Outbound video (our camera) bridges, one per active call, keyed the same
+// way as activeCalls. See video_bridge.go.
+var activeVideoBridges = make(map[string]*VideoBridge)
+var activeVideoBridgesMutex sync.Mutex
+
 // Debugging aid for call-audio issues reported in the field (e.g. one-sided
 // silence): the diag.Recorder dumps per-call JSONL (rtp/rtcp/srtp/relay/stun/
 // etc.) under logs/call-diag, and the zerolog logger writes meowcaller's own
@@ -131,9 +136,27 @@ func attachCallHandlers(call *meowcaller.Call) {
 		}
 		call.Play(bridge)
 		call.Receive(bridge)
+
+		// The video bridge is created here too (even for a call that starts
+		// as voice-only) so a mid-call camera toggle has a port ready to
+		// connect to immediately - nothing is sent over it until the
+		// frontend's encoder actually connects and meowcaller's own
+		// StartVideo/SetVideoEnabled gating decides whether it's live.
+		videoPort := 0
+		if videoBridge, vport, err := NewVideoBridge(); err != nil {
+			log.Println("Failed to create video bridge:", err)
+		} else {
+			videoPort = vport
+			activeVideoBridgesMutex.Lock()
+			activeVideoBridges[call.ID()] = videoBridge
+			activeVideoBridgesMutex.Unlock()
+			go videoBridge.Run(call)
+		}
+
 		broadcastEvent("call_connected", map[string]interface{}{
 			"call_id":    call.ID(),
 			"audio_port": port,
+			"video_port": videoPort,
 		})
 	})
 	call.OnEnd(func(reason string) {
@@ -144,6 +167,13 @@ func attachCallHandlers(call *meowcaller.Call) {
 		activeCallsMutex.Lock()
 		delete(activeCalls, call.ID())
 		activeCallsMutex.Unlock()
+
+		activeVideoBridgesMutex.Lock()
+		if bridge, ok := activeVideoBridges[call.ID()]; ok {
+			bridge.Close()
+			delete(activeVideoBridges, call.ID())
+		}
+		activeVideoBridgesMutex.Unlock()
 	})
 	// Fires for group calls (placed as one, or a 1:1 call that became an
 	// ad-hoc group through add_participant) with WhatsApp's authoritative
@@ -170,8 +200,8 @@ func attachCallHandlers(call *meowcaller.Call) {
 			"participants": participants,
 		})
 	})
-	// Only the other side's camera: we don't send video yet (video calls
-	// are answered with the camera off - see handleAnswerCall).
+	// The other side's camera, plus our own upgrade/enable acks land here
+	// too (peerVideoEvent only reports the ones worth announcing).
 	call.OnVideoState(func(vs meowcaller.VideoState) {
 		event := peerVideoEvent(vs.Raw)
 		if event == "" {
@@ -180,6 +210,14 @@ func attachCallHandlers(call *meowcaller.Call) {
 		broadcastEvent("call_video_state", map[string]string{
 			"call_id":    call.ID(),
 			"peer_video": event,
+		})
+	})
+	// WhatsApp's PLI/FIR feedback asking our camera for a fresh keyframe -
+	// forwarded to the frontend encoder, which has no other way to learn
+	// the network lost a frame and needs an IDR to recover.
+	call.OnVideoKeyframeRequest(func() {
+		broadcastEvent("call_video_keyframe_request", map[string]string{
+			"call_id": call.ID(),
 		})
 	})
 }
@@ -274,7 +312,8 @@ func placeGroupChatCall(ctx context.Context, groupJID types.JID) (*meowcaller.Ca
 
 func handlePlaceCall(data []byte) {
 	var req struct {
-		JID string `json:"jid"`
+		JID   string `json:"jid"`
+		Video bool   `json:"video"`
 	}
 	if err := json.Unmarshal(data, &req); err != nil {
 		log.Println("Invalid place_call format:", err)
@@ -293,7 +332,12 @@ func handlePlaceCall(data []byte) {
 	ctx := context.Background()
 	var call *meowcaller.Call
 	if parsedJID.Server == types.GroupServer {
+		// meowcaller's group call placement has no video option; a video
+		// group call is placed as voice and then upgraded with set_video
+		// once connected, same as a mid-call camera toggle.
 		call, err = placeGroupChatCall(ctx, parsedJID)
+	} else if req.Video {
+		call, err = callClient.CallWithOptions(ctx, parsedJID.String(), meowcaller.CallOptions{Video: true})
 	} else {
 		call, err = callClient.Call(ctx, parsedJID.String())
 	}
@@ -433,6 +477,52 @@ func handleMuteCall(data []byte) {
 	// Audio mute is handled locally in the Rust frontend by sending silence over UDP!
 	// We don't need to do anything here for audio mute, but we could log it.
 	log.Println("Mute toggled by frontend")
+}
+
+// handleSetVideo turns the local camera on or off for an active call. This is
+// the only place local video state is ever transitioned, so it's what both
+// "start video call" (once connected) and "toggle camera mid-call" go
+// through - see [[video_calls_work_status]] Phase 2.
+func handleSetVideo(data []byte) {
+	var req struct {
+		CallID  string `json:"call_id"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		log.Println("Invalid set_video format:", err)
+		return
+	}
+
+	activeCallsMutex.Lock()
+	call, exists := activeCalls[req.CallID]
+	activeCallsMutex.Unlock()
+
+	if !exists {
+		log.Println("Cannot set video, call not found:", req.CallID)
+		return
+	}
+
+	var err error
+	switch {
+	case req.Enabled && !call.IsVideo():
+		// A plain voice call has no video state yet - this is the only path
+		// that gets one started. StartVideo already gates outbound sending
+		// on, unlike SetVideoEnabled(true), which requires video to already
+		// be part of the call (see meowcaller's transitionVideo/
+		// setVideoEnabled) - using SetVideoEnabled here would silently no-op.
+		err = call.StartVideo()
+	default:
+		err = call.SetVideoEnabled(req.Enabled)
+	}
+	if err != nil {
+		log.Println("Failed to set video:", err)
+		broadcastEvent("call_set_video_failed", map[string]string{
+			"call_id": req.CallID,
+			"message": err.Error(),
+		})
+		return
+	}
+	log.Println("Set video for call:", req.CallID, "enabled:", req.Enabled)
 }
 
 func handleAddParticipant(data []byte) {

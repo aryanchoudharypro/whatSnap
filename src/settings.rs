@@ -18,6 +18,10 @@ pub struct Settings {
 	/// Friendly name of the preferred speaker/output device for calls and for
 	/// voice-message/notification playback, or `None` for the system default.
 	pub output_device_name: Option<String>,
+	/// Friendly name of the preferred camera for video calls, or `None` for
+	/// "System Default" (the first device Media Foundation enumerates - see
+	/// `video_devices.rs`).
+	pub camera_device_name: Option<String>,
 	/// Whether recording a voice message applies Windows' communications
 	/// audio-effects pipeline (echo cancellation/noise-suppression/AGC) - the
 	/// same processing calls always use. Off by default: a voice message has
@@ -42,6 +46,7 @@ impl Default for Settings {
 			show_tray_icon: true,
 			input_device_name: None,
 			output_device_name: None,
+			camera_device_name: None,
 			voice_message_noise_suppression: false,
 			archived_alert_levels: std::collections::HashMap::new(),
 		}
