@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"runtime/pprof"
 	"strings"
 	"sync"
@@ -804,6 +805,19 @@ func resetHistorySyncProgress() {
 }
 
 func eventHandler(evt interface{}) {
+	// whatsmeow calls this synchronously from its one event-dispatch
+	// goroutine, so an unrecovered panic here doesn't just drop one event -
+	// it's fatal to the whole process (silently, since the runtime's panic
+	// trace goes straight to the OS-level stderr fd, past our log file
+	// redirect in main()). Untrusted, ever-changing server data (e.g. a bot's
+	// rich-response JSON) flows through here, so one section this code
+	// doesn't expect must not be able to take the backend down.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC in eventHandler for %T: %v\n%s", evt, r, debug.Stack())
+		}
+	}()
+
 	switch evt.(type) {
 	case *events.Message, *events.Receipt, *events.HistorySync:
 		log.Printf("Event received in eventHandler: %T", evt)
