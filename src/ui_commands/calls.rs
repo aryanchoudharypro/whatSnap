@@ -8,11 +8,12 @@ use wxdragon::prelude::*;
 use crate::{
 	AppState, CallVideo,
 	audio::{play_call_fail_sound, stop_call_ringing_sound},
-	call_helpers::{announce_call, call_window_title},
+	call_helpers::{announce_call, call_window_title, local_camera_announcement},
+	call_video_send,
 	ui::window::WindowParts,
 };
 
-pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video: bool) {
 	let jid = {
 		let s = state.borrow();
 		if let Some(j) = s.selected_chat.as_ref() {
@@ -23,7 +24,7 @@ pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 	};
 	let msg = serde_json::json!({
 		"action": "place_call",
-		"data": { "jid": jid }
+		"data": { "jid": jid, "video": video }
 	});
 	let mut s = state.borrow_mut();
 	let _ = s.ws_tx.send(msg.to_string());
@@ -32,12 +33,19 @@ pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 
 	let is_group = jid.ends_with("@g.us");
 	let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+	// Group calls have no video option on the backend (see handlePlaceCall) -
+	// always placed as voice and, if a video group call was requested, only
+	// upgraded to video once connected via the same autostart_camera path a
+	// mid-call toggle uses, not declared video at signaling time.
+	let signals_video = video && !is_group;
 	s.call_video = CallVideo {
-		is_video: false,
+		is_video: signals_video,
 		peer_name: if is_group { None } else { Some(name.clone()) },
 		peer_camera_on: Some(false),
+		local_camera_on: false,
+		autostart_camera: video,
 	};
-	parts.call_parts.frame.set_title(call_window_title(is_group, false));
+	parts.call_parts.frame.set_title(call_window_title(is_group, video));
 	if is_group {
 		parts.call_parts.status_label.set_label(&format!("Starting group call in {}", name));
 	} else {
@@ -46,6 +54,11 @@ pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 	parts.call_parts.accept_btn.show(false);
 	parts.call_parts.reject_btn.show(false);
 	parts.call_parts.mute_btn.show(true);
+	parts.call_parts.camera_btn.set_label("Turn camera on");
+	// Shown by call_connected - it needs the video bridge port from
+	// call_connected before the button can do anything, same reasoning as
+	// add_participant_btn below.
+	parts.call_parts.camera_btn.show(false);
 	// Shown by call_connected - WhatsApp only accepts an invite into an
 	// established call, so offering it while ringing just fails.
 	parts.call_parts.add_participant_btn.show(false);
@@ -53,7 +66,20 @@ pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 	parts.call_parts.frame.show(true);
 	drop(s);
 
-	announce_call(parts, if is_group { "Placing group call..." } else { "Placing call..." });
+	let placing_msg = match (is_group, video) {
+		(true, _) => "Placing group call...",
+		(false, true) => "Placing video call...",
+		(false, false) => "Placing call...",
+	};
+	announce_call(parts, placing_msg);
+}
+
+pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	place_call_impl(state, parts, false);
+}
+
+pub(crate) fn place_video_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	place_call_impl(state, parts, true);
 }
 
 pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -80,6 +106,8 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		let _ = s.ws_tx.send(msg.to_string());
 		parts.call_parts.frame.show(false);
 		s.active_call_id = None;
+		s.active_call_video_send = None;
+		s.call_video_port = None;
 		s.call_participants.clear();
 		s.call_video = CallVideo::default();
 		s.call_answer_deadline = None;
@@ -100,6 +128,8 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		parts.call_parts.frame.show(false);
 		s.active_call_id = None;
 		s.active_call_audio = None;
+		s.active_call_video_send = None;
+		s.call_video_port = None;
 		s.call_participants.clear();
 		s.call_video = CallVideo::default();
 		s.call_answer_deadline = None;
@@ -156,4 +186,73 @@ pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 	s.settings.save();
 	announce_call(parts, "Speaker changed.");
+}
+
+pub(crate) fn set_call_camera_device(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, name: Option<String>) {
+	let mut s = state.borrow_mut();
+	if let Some(video_send) = &s.active_call_video_send {
+		video_send.set_device(name.clone());
+	}
+	s.settings.camera_device_name = name;
+	s.settings.save();
+	announce_call(parts, "Camera changed.");
+}
+
+/// Turns the local camera on or off - the button, Ctrl+Shift+V, and the
+/// auto-start after `PlaceVideoCall` connects (see `call_video.autostart_camera`).
+pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	let Some(call_id) = s.active_call_id.clone() else { return };
+
+	if s.call_video.local_camera_on {
+		s.active_call_video_send = None;
+		s.call_video.local_camera_on = false;
+		let msg = serde_json::json!({
+			"action": "set_video",
+			"data": { "call_id": call_id, "enabled": false }
+		});
+		let _ = s.ws_tx.send(msg.to_string());
+		parts.call_parts.camera_btn.set_label("Turn camera on");
+		drop(s);
+		announce_call(parts, local_camera_announcement(false));
+		return;
+	}
+
+	let Some(port) = s.call_video_port else {
+		drop(s);
+		announce_call(parts, "The camera isn't ready yet - wait for the call to connect.");
+		return;
+	};
+	let device = s.settings.camera_device_name.clone();
+	let ui_tx = s.ui_tx.clone();
+	let send_state = call_video_send::start_video_send(port, device, ui_tx);
+	s.active_call_video_send = Some(send_state);
+	s.call_video.local_camera_on = true;
+	let msg = serde_json::json!({
+		"action": "set_video",
+		"data": { "call_id": call_id, "enabled": true }
+	});
+	let _ = s.ws_tx.send(msg.to_string());
+	parts.call_parts.camera_btn.set_label("Turn camera off");
+	drop(s);
+	announce_call(parts, local_camera_announcement(true));
+}
+
+/// The capture/encode thread couldn't open a camera at all - see
+/// `call_video_send::start_video_send`'s doc comment for why this only
+/// fires once, for the very first open attempt.
+pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, reason: String) {
+	let mut s = state.borrow_mut();
+	s.active_call_video_send = None;
+	s.call_video.local_camera_on = false;
+	if let Some(call_id) = s.active_call_id.clone() {
+		let msg = serde_json::json!({
+			"action": "set_video",
+			"data": { "call_id": call_id, "enabled": false }
+		});
+		let _ = s.ws_tx.send(msg.to_string());
+	}
+	parts.call_parts.camera_btn.set_label("Turn camera on");
+	drop(s);
+	announce_call(parts, &format!("Couldn't start the camera: {reason}"));
 }

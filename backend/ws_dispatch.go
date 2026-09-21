@@ -216,6 +216,8 @@ func handleConnection(conn net.Conn) {
 			handleLeaveCall(cmd.Data)
 		case "add_participant":
 			handleAddParticipant(cmd.Data)
+		case "set_video":
+			handleSetVideo(cmd.Data)
 
 		// --- settings (unchanged) ---
 		case "update_settings":

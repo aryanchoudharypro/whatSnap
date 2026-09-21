@@ -717,6 +717,10 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.place_call_btn.on_click(move |_| {
 		let _ = tx_place_call.send(UiCommand::PlaceCall);
 	});
+	let tx_place_video_call = ui_tx.clone();
+	parts.conversations_parts.place_video_call_btn.on_click(move |_| {
+		let _ = tx_place_video_call.send(UiCommand::PlaceVideoCall);
+	});
 
 	let tx_answer = ui_tx.clone();
 	parts.call_parts.accept_btn.on_click(move |_| {
@@ -734,6 +738,10 @@ pub fn bind_input_handlers(
 	parts.call_parts.leave_btn.on_click(move |_| {
 		let _ = tx_leave.send(UiCommand::LeaveCall);
 	});
+	let tx_camera = ui_tx.clone();
+	parts.call_parts.camera_btn.on_click(move |_| {
+		let _ = tx_camera.send(UiCommand::ToggleCamera);
+	});
 	let tx_call_input = ui_tx.clone();
 	let call_input_combo = parts.call_parts.input_device_combo.clone();
 	parts.call_parts.input_device_combo.on_selection_changed(move |_| {
@@ -749,6 +757,25 @@ pub fn bind_input_handlers(
 	let tx_add_participant = ui_tx.clone();
 	parts.call_parts.add_participant_btn.on_click(move |_| {
 		let _ = tx_add_participant.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::AddCallParticipant));
+	});
+	let tx_call_camera = ui_tx.clone();
+	let call_camera_combo = parts.call_parts.camera_device_combo.clone();
+	parts.call_parts.camera_device_combo.on_selection_changed(move |_| {
+		use crate::ui::settings_dialog::device_combo_value;
+		let _ = tx_call_camera.send(UiCommand::SetCallCameraDevice(device_combo_value(&call_camera_combo)));
+	});
+	// Ctrl+Shift+V toggles the camera from anywhere in the call window,
+	// matching the "Turn camera on/off" button.
+	let tx_camera_key = ui_tx.clone();
+	parts.call_parts.frame.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			if key_event.get_key_code() == Some(86) && key_event.control_down() && key_event.shift_down() {
+				let _ = tx_camera_key.send(UiCommand::ToggleCamera);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
 	});
 
 	let conv_data_dialog_back = parts.conversation_data_dialog.dialog.clone();

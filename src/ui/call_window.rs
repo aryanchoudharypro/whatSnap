@@ -13,11 +13,13 @@ pub struct CallWindowParts {
 	pub accept_btn: Button,
 	pub reject_btn: Button,
 	pub mute_btn: Button,
+	pub camera_btn: Button,
 	pub add_participant_btn: Button,
 	pub leave_btn: Button,
 	pub devices_panel: Panel,
 	pub input_device_combo: ComboBox,
 	pub output_device_combo: ComboBox,
+	pub camera_device_combo: ComboBox,
 }
 
 pub fn build_call_window() -> CallWindowParts {
@@ -45,6 +47,11 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_sizer.add(&mute_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	mute_btn.show(false);
 
+	// Ctrl+Shift+V also toggles this - see keybindings.
+	let camera_btn = Button::builder(&btn_panel).with_label("Turn camera on").build();
+	btn_sizer.add(&camera_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	camera_btn.show(false);
+
 	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
 	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	add_participant_btn.show(false);
@@ -71,6 +78,11 @@ pub fn build_call_window() -> CallWindowParts {
 	let output_device_combo = ComboBox::builder(&devices_panel).with_style(ComboBoxStyle::ReadOnly).build();
 	devices_sizer.add(&output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
 
+	let camera_device_label = StaticText::builder(&devices_panel).with_label("Camera").build();
+	devices_sizer.add(&camera_device_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
+	let camera_device_combo = ComboBox::builder(&devices_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	devices_sizer.add(&camera_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
+
 	devices_panel.set_sizer(devices_sizer, true);
 	sizer.add(&devices_panel, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	devices_panel.show(false);
@@ -84,10 +96,12 @@ pub fn build_call_window() -> CallWindowParts {
 		accept_btn,
 		reject_btn,
 		mute_btn,
+		camera_btn,
 		add_participant_btn,
 		leave_btn,
 		devices_panel,
 		input_device_combo,
 		output_device_combo,
+		camera_device_combo,
 	}
 }

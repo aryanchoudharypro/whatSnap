@@ -135,16 +135,28 @@ pub(crate) fn call_window_title(is_group: bool, is_video: bool) -> &'static str 
 /// person's name on a 1:1 call and None on a group call (the stanza doesn't
 /// say who sent it). `was_on` is their last known camera state, so a
 /// repeated state isn't announced twice.
+///
+/// "upgrade_requested" means the PEER wants to add video so THEY can send
+/// us their camera - unrelated to whether we're sending ours. Receiving and
+/// rendering incoming video is a separate, later piece of work (see
+/// [[video_calls_work_status]]), so this app never calls `AcceptVideo()` and
+/// just says so.
 pub(crate) fn peer_video_announcement(event: &str, was_on: Option<bool>, peer: Option<&str>) -> Option<String> {
 	let who = peer.unwrap_or("Someone");
 	match event {
 		"on" if was_on != Some(true) => Some(format!("{} turned their camera on.", who)),
 		"off" if was_on != Some(false) => Some(format!("{} turned their camera off.", who)),
 		"upgrade_requested" => {
-			Some(format!("{} wants to switch to video. Video isn't supported yet, so the call stays voice only.", who))
+			Some(format!("{} wants to switch to video, but this app can't show incoming video yet.", who))
 		}
 		_ => None,
 	}
+}
+
+/// What to announce when OUR OWN camera changes state, for the toggle button
+/// (Ctrl+Shift+V) and the menu item.
+pub(crate) fn local_camera_announcement(on: bool) -> &'static str {
+	if on { "Camera on." } else { "Camera off." }
 }
 
 /// mic/speaker pickers and shows them, once a call has actually connected.
@@ -159,6 +171,11 @@ pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 		&parts.call_parts.output_device_combo,
 		&crate::audio_devices::output_device_names(),
 		s.settings.output_device_name.as_deref(),
+	);
+	set_device_combo(
+		&parts.call_parts.camera_device_combo,
+		&crate::video_devices::camera_names(),
+		s.settings.camera_device_name.as_deref(),
 	);
 	parts.call_parts.devices_panel.show(true);
 }
@@ -219,8 +236,14 @@ mod call_participant_tests {
 		assert_eq!(peer_video_announcement("off", Some(false), Some("Asha")), None);
 		assert_eq!(
 			peer_video_announcement("upgrade_requested", Some(false), Some("Asha")).as_deref(),
-			Some("Asha wants to switch to video. Video isn't supported yet, so the call stays voice only.")
+			Some("Asha wants to switch to video, but this app can't show incoming video yet.")
 		);
 		assert_eq!(peer_video_announcement("bogus", None, Some("Asha")), None);
+	}
+
+	#[test]
+	fn local_camera_announces_on_and_off() {
+		assert_eq!(local_camera_announcement(true), "Camera on.");
+		assert_eq!(local_camera_announcement(false), "Camera off.");
 	}
 }
