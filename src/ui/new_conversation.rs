@@ -12,6 +12,7 @@ pub struct NewConversationDialogParts {
 	pub results_list: ListBox,
 	pub new_group_btn: Button,
 	pub new_contact_btn: Button,
+	pub message_meta_ai_btn: Button,
 	pub close_btn: Button,
 }
 
@@ -47,6 +48,10 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 	let new_contact_btn = Button::builder(&panel).with_label("New Contact").build();
 	new_contact_btn.set_font(&theme::Fonts::body());
 	btn_sizer.add(&new_contact_btn, 0, SizerFlag::Right, 8);
+
+	let message_meta_ai_btn = Button::builder(&panel).with_label("Message Meta AI").build();
+	message_meta_ai_btn.set_font(&theme::Fonts::body());
+	btn_sizer.add(&message_meta_ai_btn, 0, SizerFlag::Right, 8);
 
 	btn_sizer.add_stretch_spacer(1);
 
@@ -86,6 +91,7 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 		results_list,
 		new_group_btn,
 		new_contact_btn,
+		message_meta_ai_btn,
 		close_btn,
 	}
 }

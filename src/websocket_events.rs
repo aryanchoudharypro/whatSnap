@@ -2962,6 +2962,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
 						let new_text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
 						let edited_at = data.get("edited_at").and_then(|e| e.as_i64()).unwrap_or(0);
+						// Meta AI (and other bots) stream a reply as several
+						// edits of the same bubble while "typing"; the backend
+						// marks all but the finished one `final: false` so
+						// NVDA doesn't read out every growing partial draft.
+						// Absent (a real edit, not a bot stream) means final.
+						let is_final_edit = data.get("final").and_then(|f| f.as_bool()).unwrap_or(true);
 
 						let norm_jid_edit = |jid: &str| -> String {
 							if let Some((user, server)) = jid.split_once('@') {
@@ -3043,10 +3049,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									if contains {
 										let updated_display = item.format_display(is_group);
 										parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-										live_region::announce(
-											parts.conversations_parts.messages_announcer.clone(),
-											&format!("Message edited: {}", updated_display),
-										);
+										if is_final_edit {
+											live_region::announce(
+												parts.conversations_parts.messages_announcer.clone(),
+												&format!("Message edited: {}", updated_display),
+											);
+										}
 										break;
 									}
 								}

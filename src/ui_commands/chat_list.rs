@@ -631,26 +631,32 @@ pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	);
 }
 
+/// Removes `jid` from every local chat-list bookkeeping structure and, if it
+/// was the open conversation, closes that view - the optimistic local half
+/// of both `delete_chat` and `delete_chat_and_leave_group`. Returns the
+/// chat's display name for the announcement each of those makes afterward.
+fn remove_chat_locally(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) -> String {
+	let mut s = state.borrow_mut();
+	s.chats.retain(|j| j != jid);
+	s.filtered_chats.retain(|j| j != jid);
+	s.archived_jids.remove(jid);
+	s.pinned_jids.remove(jid);
+	s.muted_jids.remove(jid);
+	s.unread_counts.remove(jid);
+	s.draft_messages.remove(jid);
+	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+	if s.selected_chat.as_deref() == Some(jid) {
+		s.selected_chat = None;
+		clear_pending_reply(&mut s, parts);
+		parts.conversations_parts.conversation_panel.show(false);
+	}
+	apply_chat_filter(&mut s, parts);
+	refresh_tray_tooltip(&s, parts);
+	name
+}
+
 pub(crate) fn delete_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
-	let chat_name = {
-		let mut s = state.borrow_mut();
-		s.chats.retain(|j| j != &jid);
-		s.filtered_chats.retain(|j| j != &jid);
-		s.archived_jids.remove(&jid);
-		s.pinned_jids.remove(&jid);
-		s.muted_jids.remove(&jid);
-		s.unread_counts.remove(&jid);
-		s.draft_messages.remove(&jid);
-		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-		if s.selected_chat.as_ref() == Some(&jid) {
-			s.selected_chat = None;
-			clear_pending_reply(&mut s, parts);
-			parts.conversations_parts.conversation_panel.show(false);
-		}
-		apply_chat_filter(&mut s, parts);
-		refresh_tray_tooltip(&s, parts);
-		name
-	};
+	let chat_name = remove_chat_locally(state, parts, &jid);
 	let payload = serde_json::json!({
 		"action": "delete_chat",
 		"data": {
@@ -661,6 +667,26 @@ pub(crate) fn delete_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	live_region::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Chat {} deleted.", chat_name),
+	);
+}
+
+/// "Delete chat and exit group": one backend action (`leave_and_delete_group`)
+/// that leaves the group before deleting the chat, in that order, guarded
+/// against the group's own "You left" system message resurrecting the chat
+/// in between - see `handleLeaveAndDeleteGroup` on the backend. The local
+/// side is the same optimistic removal as a plain delete.
+pub(crate) fn delete_chat_and_leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
+	let chat_name = remove_chat_locally(state, parts, &jid);
+	let payload = serde_json::json!({
+		"action": "leave_and_delete_group",
+		"data": {
+			"jid": jid
+		}
+	});
+	let _ = state.borrow().ws_tx.send(payload.to_string());
+	live_region::announce(
+		parts.conversations_parts.messages_announcer.clone(),
+		&format!("Left and deleted chat {}.", chat_name),
 	);
 }
 

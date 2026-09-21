@@ -871,6 +871,13 @@ func resolveDisplayName(jid types.JID) string {
 			return "You"
 		}
 	}
+	// Meta AI's bot JID has no phone number and whatsmeow only learns its
+	// pushname ("Meta AI") from the notify attribute on its first reply -
+	// until then this fell through to the "+<user>" phone-number fallback
+	// below, showing a bogus number for a JID that was never a phone number.
+	if jid.User == types.NewMetaAIJID.User && jid.Server == types.NewMetaAIJID.Server {
+		return "Meta AI"
+	}
 	contactJID := jid
 	if jid.Server == "lid" {
 		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {

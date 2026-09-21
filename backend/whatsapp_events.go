@@ -21,6 +21,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"go.mau.fi/whatsmeow/types/richresponse"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -401,7 +402,48 @@ func extractTextRaw(msg *waE2E.Message) string {
 			return text
 		}
 	}
+	if text := richResponseText(msg.GetRichResponseMessage()); text != "" {
+		return text
+	}
 	return "[Unsupported Message]"
+}
+
+// richResponseSection matches the real wire shape of one entry in a rich
+// response's "sections" array - unlike richresponse.RichResponse.Sections,
+// which expects "__typename" directly on the section and silently resolves
+// to an empty UnknownViewModel here, since WhatsApp nests it one level
+// deeper under "view_model".
+type richResponseSection struct {
+	ViewModel richresponse.ViewModelContainer `json:"view_model"`
+}
+
+// richResponseText renders a bot's AIRichResponseMessage (Meta AI and other
+// WhatsApp bots' replies) to plain text. The actual content isn't in any of
+// the normal Message oneof fields - it's JSON, describing a tree of
+// "primitives" (markdown text, code blocks, tables, ...), packed into
+// UnifiedResponse.Data.
+func richResponseText(rich *waE2E.AIRichResponseMessage) string {
+	data := rich.GetUnifiedResponse().GetData()
+	if len(data) == 0 {
+		return ""
+	}
+	var parsed struct {
+		Sections []richResponseSection `json:"sections"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		log.Printf("Failed to parse rich response JSON: %v", err)
+		return ""
+	}
+	parts := make([]string, 0, len(parsed.Sections))
+	for _, section := range parsed.Sections {
+		if section.ViewModel.Model == nil {
+			continue
+		}
+		if s := strings.TrimSpace(section.ViewModel.Model.String()); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // pollCreation returns whichever of the poll-creation fields is populated.
@@ -1335,6 +1377,38 @@ func eventHandler(evt interface{}) {
 		if text == "[Protocol Message]" {
 			return
 		}
+		if text == "[Unsupported Message]" && v.Info.Sender.IsBot() {
+			// Bots (Meta AI etc.) occasionally ship new response primitives
+			// richResponseText doesn't cover yet - dump the decrypted message
+			// so a new one can be identified and added there.
+			log.Printf("Unrecognized bot message content from %s: %s", v.Info.Sender, unwrapMessage(v.Message).String())
+		}
+		if (v.Info.MsgBotInfo.EditType == types.EditTypeInner || v.Info.MsgBotInfo.EditType == types.EditTypeLast) &&
+			v.Info.MsgBotInfo.EditTargetID != "" {
+			// A bot streams one reply as a sequence of frames sharing the
+			// first frame's message ID via edit_target_id ("first" once,
+			// then "inner" repeatedly as it generates, then "last") rather
+			// than sending the finished text once - collapse them into
+			// updates of that first bubble instead of a new one per frame.
+			resolvedChat, _ := resolveLIDChat(v)
+			jid := resolvedChat.String()
+			targetID := v.Info.MsgBotInfo.EditTargetID
+			editTime := v.Info.Timestamp.Unix()
+			rawBytes, _ := proto.Marshal(unwrapMessage(v.Message))
+			go markMessageEdited(targetID, jid, text, rawBytes, editTime)
+			broadcastEvent("message_edited", map[string]interface{}{
+				"jid":        jid,
+				"message_id": targetID,
+				"text":       text,
+				"edited_at":  editTime,
+				// "inner" frames are Meta AI still generating - the client
+				// updates the bubble's text from these but only announces
+				// the "last" one, or a screen reader would read out every
+				// growing partial draft of the answer as it streams in.
+				"final": v.Info.MsgBotInfo.EditType == types.EditTypeLast,
+			})
+			return
+		}
 		log.Printf("Received events.Message. ID: %s, Sender: %s, Chat: %s, text length: %d", v.Info.ID, v.Info.Sender.String(), v.Info.Chat.String(), len(text))
 
 		// Claimed here rather than inside the goroutine below so that media
@@ -1722,6 +1796,26 @@ func eventHandler(evt interface{}) {
 					broadcastChats()
 				}
 			}
+			// Deleting/clearing a chat from the phone or another linked
+			// device only reaches us as this app-state sync - unlike
+			// mute/archive/pin, which whatsmeow keeps in its own
+			// ChatSettings store that broadcastChats already reads fresh
+			// every time, whantv's messages/chats cache is its own and
+			// needs to be told about these explicitly or the chat never
+			// goes away locally (handleDeleteChat/handleClearChat cover the
+			// other direction: it happening here first).
+			if v.GetDeleteChatAction() != nil && len(v.Index) > 1 {
+				jid := v.Index[1]
+				db.Exec("DELETE FROM messages WHERE jid = ?", jid)
+				db.Exec("DELETE FROM chats WHERE jid = ?", jid)
+				broadcastChats()
+			}
+			if v.GetClearChatAction() != nil && len(v.Index) > 1 {
+				jid := v.Index[1]
+				db.Exec("DELETE FROM messages WHERE jid = ?", jid)
+				broadcastChats()
+				broadcastEvent("chat_cleared", map[string]interface{}{"jid": jid})
+			}
 		}()
 	case *events.AppStateSyncComplete:
 		if len(v.Name) > 0 {
@@ -1857,6 +1951,13 @@ func eventHandler(evt interface{}) {
 			"status": v.Status,
 		})
 	case *events.GroupInfo:
+		if _, deleting := pendingGroupDeletes.Load(v.JID.String()); deleting {
+			// This group is mid-"delete chat and exit group" - most likely
+			// this very event is the "You left" notification LeaveGroup just
+			// triggered. Applying it (as usual, an unconditional upsert)
+			// would resurrect the chat row the delete is about to remove.
+			return
+		}
 		go func() {
 			if v.Name != nil {
 				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.Name.Name)

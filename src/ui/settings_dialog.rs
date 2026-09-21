@@ -27,6 +27,7 @@ pub struct SettingsDialogParts {
 	pub announce_recording_check: CheckBox,
 	pub tray_icon_check: CheckBox,
 	pub autostart_check: CheckBox,
+	pub meta_ai_enabled_check: CheckBox,
 
 	// Profile & Privacy tab
 	pub privacy_panel: Panel,
@@ -104,6 +105,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let autostart_check = CheckBox::builder(&general_panel).with_label("Start whaNTV when Windows starts").build();
 	autostart_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&autostart_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
+	let meta_ai_enabled_check =
+		CheckBox::builder(&general_panel).with_label("Show a button to message Meta AI in New Conversation").build();
+	meta_ai_enabled_check.set_font(&theme::Fonts::body());
+	general_sizer.add(&meta_ai_enabled_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	general_panel.set_sizer(general_sizer, true);
 
@@ -225,6 +231,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		announce_recording_check,
 		tray_icon_check,
 		autostart_check,
+		meta_ai_enabled_check,
 		privacy_panel,
 		name_field,
 		about_field,

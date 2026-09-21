@@ -577,7 +577,10 @@ fn main() {
 			window_focused: true,
 			background_unread_message_ids: Vec::new(),
 			display_names: std::collections::HashMap::new(),
-			contacts: std::collections::HashMap::new(),
+			// Seeded so Meta AI's chat shows a proper name from the first
+			// message instead of running its bot JID's numeric user part
+			// through the phone-number formatter.
+			contacts: std::collections::HashMap::from([(types::META_AI_JID.to_string(), "Meta AI".to_string())]),
 			all_contacts: Vec::new(),
 			contact_picker_mode: ContactPickerMode::OpenChat,
 			contact_picker_current_jids: Vec::new(),
@@ -1076,6 +1079,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ToggleMuteChat { jid, mute } => ui_commands::chat_list::toggle_mute_chat(state, parts, jid, mute),
 		UiCommand::ToggleReadChat { jid, read } => ui_commands::chat_list::toggle_read_chat(state, parts, jid, read),
 		UiCommand::DeleteChat { jid } => ui_commands::chat_list::delete_chat(state, parts, jid),
+		UiCommand::DeleteChatAndLeaveGroup { jid } => {
+			ui_commands::chat_list::delete_chat_and_leave_group(state, parts, jid)
+		}
 		UiCommand::ClearChat { jid } => ui_commands::chat_list::clear_chat(state, parts, jid),
 		UiCommand::LeaveGroup { jid } => ui_commands::contacts_groups::leave_group(state, parts, jid),
 	}
