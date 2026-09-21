@@ -59,6 +59,20 @@ impl BackendProcess {
 	}
 
 	fn spawn(&self) -> Option<Child> {
+		// The backend redirects its own os.Stdout/os.Stderr to backend.log,
+		// but that only catches what Go code itself writes - an unrecovered
+		// panic's trace comes from the Go runtime, which writes straight to
+		// the OS-level stderr handle and never goes through os.Stderr. With
+		// that handle pointed at Stdio::null(), a crash used to leave no
+		// trace anywhere. Pointing it at a file instead is what makes a
+		// crash's actual cause recoverable rather than just "it restarted".
+		let stderr_file = std::fs::OpenOptions::new()
+			.create(true)
+			.append(true)
+			.open(crate::paths::log_dir().join("backend_stderr.log"))
+			.map(Stdio::from)
+			.unwrap_or_else(|_| Stdio::null());
+
 		let child = Command::new(&self.exe)
 			.arg("-db")
 			.arg(&self.db_path)
@@ -66,7 +80,7 @@ impl BackendProcess {
 			.arg(&self.pipe_name)
 			.current_dir(&self.dir)
 			.stdout(Stdio::null())
-			.stderr(Stdio::null())
+			.stderr(stderr_file)
 			.creation_flags(CREATE_NO_WINDOW)
 			.spawn()
 			.map_err(|e| log(&format!("Failed to start backend: {e}")))
