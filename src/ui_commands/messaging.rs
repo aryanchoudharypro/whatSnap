@@ -54,12 +54,11 @@ pub(crate) fn cancel_edit(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 }
 
 /// Puts the composer into edit mode for `message_id`: fills `message_field`
-/// with its current text (selected, so typing immediately replaces it),
-/// swaps the composer's label to "Edit message", and shows the "Cancel
-/// edit" button in place of "Add attachment" - editing an existing message
-/// can't also attach new media, and hiding that button puts "Cancel edit"
-/// right after the field in tab order (forward *and* shift+tab both reach
-/// it in one step, mirroring the single-line edit dialog this replaced).
+/// with its current text (caret at the end, nothing selected), swaps the
+/// composer's label to "Edit message", and shows the "Cancel edit" button in
+/// place of "Add attachment" - editing an existing message can't also attach
+/// new media, and hiding that button puts "Cancel edit" one Tab away from the
+/// field, mirroring the single-line edit dialog this replaced.
 pub(crate) fn begin_edit_message(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -72,7 +71,11 @@ pub(crate) fn begin_edit_message(
 	drop(s);
 	let field = &parts.conversations_parts.message_field;
 	field.set_value(&text);
-	field.set_selection(0, text.chars().count() as i64);
+	// Caret at the end, nothing selected - typing continues the message
+	// rather than replacing it outright, since most edits are small tweaks
+	// (a typo, an added word) rather than a full rewrite.
+	let end = text.chars().count() as i64;
+	field.set_selection(end, end);
 	parts.conversations_parts.message_label.set_label("Edit message");
 	parts.conversations_parts.add_attachment_btn.show(false);
 	parts.conversations_parts.cancel_edit_btn.show(true);
