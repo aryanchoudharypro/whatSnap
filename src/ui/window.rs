@@ -714,6 +714,27 @@ pub fn bind_input_handlers(
 		event.skip(true);
 	});
 
+	// Plain Enter on a ListBox row never reaches on_key_down at all here -
+	// this dialog's IsDialogMessage handling consumes it to activate the
+	// dialog's default button first (only Alt+Enter, which isn't a "default
+	// button" accelerator, got through) - same root cause the chat list and
+	// message list both work around by catching it here on key-up instead.
+	let tx_picker_select_key_up = ui_tx.clone();
+	let picker_results_list_key_up = parts.new_conv_dialog.results_list;
+	picker_results_list_key_up.on_key_up(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if code == Some(13) || code == Some(370) {
+				if let Some(idx) = picker_results_list_key_up.get_selection() {
+					let _ = tx_picker_select_key_up.send(UiCommand::SelectContactPickerResult(idx as usize));
+				}
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
 	let tx_conv_data = ui_tx.clone();
 	parts.conversations_parts.conv_data_btn.on_click(move |_| {
 		let _ = tx_conv_data.send(UiCommand::ShowConversationData);
@@ -956,6 +977,7 @@ pub fn bind_input_handlers(
 	let tray_icon_check = parts.settings_dialog.tray_icon_check;
 	let autostart_check = parts.settings_dialog.autostart_check;
 	let meta_ai_enabled_check_open = parts.settings_dialog.meta_ai_enabled_check.clone();
+	let verbose_logging_check_open = parts.settings_dialog.verbose_backend_logging_check.clone();
 	let name_field_open = parts.settings_dialog.name_field.clone();
 	let about_field_open = parts.settings_dialog.about_field.clone();
 	let last_seen_combo_open = parts.settings_dialog.last_seen_combo.clone();
@@ -982,6 +1004,7 @@ pub fn bind_input_handlers(
 		announce_recording_check.set_value(s.settings.announce_recording);
 		tray_icon_check.set_value(s.settings.show_tray_icon);
 		meta_ai_enabled_check_open.set_value(s.settings.meta_ai_enabled);
+		verbose_logging_check_open.set_value(s.settings.verbose_backend_logging);
 		noise_suppression_check_open.set_value(s.settings.voice_message_noise_suppression);
 
 		name_field_open.set_value(&s.own_push_name);
@@ -1190,6 +1213,7 @@ pub fn bind_input_handlers(
 	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
 	let autostart_check_ok = parts.settings_dialog.autostart_check;
 	let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check.clone();
+	let verbose_logging_check_ok = parts.settings_dialog.verbose_backend_logging_check.clone();
 	let name_field_ok = parts.settings_dialog.name_field.clone();
 	let about_field_ok = parts.settings_dialog.about_field.clone();
 	let last_seen_combo_ok = parts.settings_dialog.last_seen_combo.clone();
@@ -1212,6 +1236,7 @@ pub fn bind_input_handlers(
 		s.settings.announce_recording = announce_recording_check_ok.is_checked();
 		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
 		s.settings.meta_ai_enabled = meta_ai_enabled_check_ok.is_checked();
+		s.settings.verbose_backend_logging = verbose_logging_check_ok.is_checked();
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
 		s.settings.input_device_name = device_combo_value(&input_device_combo_ok);
 		let new_output_device = device_combo_value(&output_device_combo_ok);
@@ -3282,6 +3307,12 @@ pub fn bind_input_handlers(
 				} else {
 					event.skip(true);
 				}
+			} else if key_event.get_key_code() == Some(13) && key_event.shift_down() {
+				// Shift+Enter is handled on key-up below (see that handler's
+				// comment) - just make sure it doesn't fall through to plain
+				// Enter's voice-toggle/call-back handling if this does reach
+				// on_key_down in some configuration.
+				event.skip(false);
 			} else if key_event.get_key_code() == Some(13) {
 				// Enter key: play/pause a selected voice message directly,
 				// same as the Space handler below, instead of requiring a
@@ -3712,9 +3743,62 @@ pub fn bind_input_handlers(
 	let state_enter = state.clone();
 	let search_panel_enter = parts.conversations_parts.search_panel;
 	let msgs_announcer_enter = parts.conversations_parts.messages_announcer.clone();
+	let parent_frame_enter = parts.frame.clone();
 	parts.conversations_parts.messages_list.on_key_up(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			if code == Some(13) && key_event.shift_down() {
+				// Shift+Enter: show just the selected message's own content
+				// (no sender/time/status/reply-quote wrapper - see
+				// ChatMessage::body_text) in a read-only, multi-line field. A
+				// wxListBox row's text can be read by NVDA but not
+				// selected/copied out of directly - this gives NVDA users
+				// (and anyone reviewing a long message) a normal
+				// editable-looking field to browse and Ctrl+C from, without
+				// actually letting them change the message.
+				if let Some(idx) = msgs_list_enter.get_selection() {
+					let s = state_enter.borrow();
+					let text = s.display_items.get(idx as usize).map(|item| item.body_text());
+					drop(s);
+					if let Some(text) = text {
+						let dlg = Dialog::builder(&parent_frame_enter, "Message Text")
+							.with_size(480, 320)
+							.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+							.build();
+						let dlg_panel = Panel::builder(&dlg).build();
+						let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+						let text_view = TextCtrl::builder(&dlg_panel)
+							.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
+							.build();
+						text_view.set_value(&text);
+						dlg_sizer.add(&text_view, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+						let close_btn =
+							Button::builder(&dlg_panel).with_id(wxdragon::id::ID_OK).with_label("Close").build();
+						dlg_sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
+						dlg_panel.set_sizer(dlg_sizer, true);
+
+						let dlg_esc = dlg.clone();
+						text_view.on_key_down(move |event| {
+							if let WindowEventData::Keyboard(ref key) = event {
+								if key.get_key_code() == Some(27) {
+									dlg_esc.end_modal(wxdragon::id::ID_CANCEL);
+									event.skip(false);
+									return;
+								}
+							}
+							event.skip(true);
+						});
+
+						text_view.set_focus();
+						text_view.set_selection(0, 0);
+						dlg.show_modal();
+					}
+				}
+				event.skip(false);
+				return;
+			}
 			if code == Some(13) || code == Some(370) {
 				// Enter or numpad Enter
 				if search_panel_enter.is_shown() {

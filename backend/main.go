@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -46,14 +48,29 @@ var (
 	pairingCode      string
 	dbPathFlag       = flag.String("db", "", "SQLite db path (default: %LOCALAPPDATA%\\whaNTV\\session.db)")
 	pipeFlag         = flag.String("pipe", "", "Named pipe to listen on")
+	verboseLogFlag   = flag.Bool("verbose-logging", false,
+		"Log every WhatsApp protocol frame and SQL query (DEBUG level) instead of just warnings/errors")
 )
+
+// waLogLevel is whatsmeow's own client/database logger level: DEBUG logs
+// every protocol frame and every SQL query the store runs, which is exactly
+// the kind of continuous, high-volume logging worth being able to switch off
+// - it's real allocation churn and unbounded log-file growth for something
+// only needed while actively troubleshooting a connection issue, not during
+// normal use. WARN keeps genuine problems visible either way.
+func waLogLevel() string {
+	if *verboseLogFlag {
+		return "DEBUG"
+	}
+	return "WARN"
+}
 
 // buildClient wires up a *whatsmeow.Client with this app's fixed
 // configuration (delivery receipts, auto-reconnect, media resend, etc.)
 // around the given device store. Called once at startup and again by
 // handleLogout to hand the app a fresh, unlinked session after a log out.
 func buildClient(deviceStore *store.Device) *whatsmeow.Client {
-	clientLog := waLog.Stdout("Client", "DEBUG", true)
+	clientLog := waLog.Stdout("Client", waLogLevel(), true)
 	c := whatsmeow.NewClient(deviceStore, clientLog)
 	c.EnableAutoReconnect = true
 	c.AutoReconnectHook = autoReconnectHook(c)
@@ -90,7 +107,35 @@ func replaceWithFreshClient() {
 	initCallClient()
 }
 
+// scavengeIdleMemory periodically forces the Go runtime to return unused
+// heap spans back to the OS. The runtime's own scavenger does this too, but
+// lazily and on its own schedule; after a burst (history sync, opening a
+// huge chat) that can leave the process sitting on pages it no longer needs
+// for minutes. This just nudges that along on a period short enough that
+// Task Manager's number actually reflects what the app is using right now.
+func scavengeIdleMemory() {
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			debug.FreeOSMemory()
+		}
+	}()
+}
+
 func main() {
+	scavengeIdleMemory()
+
+	// This process spends almost all its life idle in the background, so
+	// trading a bit of GC CPU for a smaller steady-state heap is a clear win.
+	// The default GOGC=100 lets live heap double before collecting; 50 keeps
+	// roughly half that resident. SetMemoryLimit is a backstop for the real
+	// spikes (parsing tens of thousands of protobuf messages during a history
+	// sync) so the collector works harder to stay under it instead of just
+	// doubling whatever the spike's live set happened to be.
+	debug.SetGCPercent(50)
+	debug.SetMemoryLimit(128 << 20)
+
 	flag.Parse()
 
 	if *dbPathFlag == "" {
@@ -111,7 +156,7 @@ func main() {
 	if !strings.HasPrefix(sqlitePath, "file:") {
 		sqlitePath = "file:" + sqlitePath
 	}
-	dbLog := waLog.Stdout("Database", "DEBUG", true)
+	dbLog := waLog.Stdout("Database", waLogLevel(), true)
 	if !strings.Contains(sqlitePath, "?") {
 		// _txlock=immediate: every transaction (ours and whatsmeow's store)
 		// takes SQLite's write lock at BEGIN, waiting under busy_timeout,
@@ -119,7 +164,12 @@ func main() {
 		// an upgrade that can't wait for the lock and so fails outright with
 		// "database is locked" if another connection committed in between,
 		// and lets read-then-write transactions tangle with each other.
-		sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_txlock=immediate"
+		// cache_size(-1000): 1MB of page cache per connection instead of
+		// SQLite's own default of -2000 (2MB). Each idle pooled connection
+		// keeps its cache resident for as long as it's pooled, so this and
+		// the smaller idle pool below directly bound how much RAM sits there
+		// doing nothing between queries.
+		sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_pragma=cache_size(-1000)&_txlock=immediate"
 	}
 	db, err = sql.Open("sqlite", sqlitePath)
 	if err != nil {
@@ -132,8 +182,13 @@ func main() {
 	// independently burning into the busy_timeout above. Capping it keeps
 	// that contention bounded while still leaving room for WAL's concurrent
 	// reads (chat/message list queries) alongside the one active writer.
+	//
+	// MaxIdleConns is intentionally lower than MaxOpenConns: a burst can
+	// still open up to 8, but only a few stay pooled (and keep their page
+	// cache resident) once things go quiet again - the rest are closed back
+	// to the OS instead of sitting idle for the app's whole lifetime.
 	db.SetMaxOpenConns(8)
-	db.SetMaxIdleConns(8)
+	db.SetMaxIdleConns(3)
 	// Also set per connection via _pragma=foreign_keys(1) above - this only
 	// covers whichever pooled connection runs it. With just this, whatsmeow's
 	// ON DELETE CASCADE cleanup (e.g. dropping a logged-out device's message

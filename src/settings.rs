@@ -39,6 +39,13 @@ pub struct Settings {
 	/// unarchiving: re-archiving a chat shouldn't silently discard the choice
 	/// made for it last time.
 	pub archived_alert_levels: std::collections::HashMap<String, whantv::ArchivedAlert>,
+	/// Whether the backend logs every WhatsApp protocol frame and SQL query
+	/// (DEBUG level) instead of just warnings/errors. Off by default: it's
+	/// continuous, high-volume logging only useful while actively
+	/// troubleshooting a connection issue. Read once at startup when the
+	/// backend process is launched - toggling it takes effect the next time
+	/// whaNTV starts, not on the running backend.
+	pub verbose_backend_logging: bool,
 }
 
 impl Default for Settings {
@@ -55,6 +62,7 @@ impl Default for Settings {
 			camera_device_name: None,
 			voice_message_noise_suppression: false,
 			archived_alert_levels: std::collections::HashMap::new(),
+			verbose_backend_logging: false,
 		}
 	}
 }

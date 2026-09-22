@@ -404,8 +404,20 @@ fn main() {
 	let pipe_id = format!("whantv-{}", uuid::Uuid::new_v4().simple());
 	let go_pipe_name = format!(r"\\.\pipe\{}", pipe_id);
 
-	let backend = backend_exe
-		.map(|exe| Arc::new(backend_process::BackendProcess::start(exe, backend_dir, db_path_str, go_pipe_name)));
+	// Read directly rather than waiting for AppState's own Settings::load()
+	// further down: the backend process is spawned here, before AppState (and
+	// the window it lives in) exist, so this is the only place that can act
+	// on it before that first launch.
+	let verbose_backend_logging = crate::settings::Settings::load().verbose_backend_logging;
+	let backend = backend_exe.map(|exe| {
+		Arc::new(backend_process::BackendProcess::start(
+			exe,
+			backend_dir,
+			db_path_str,
+			go_pipe_name,
+			verbose_backend_logging,
+		))
+	});
 	let pipe_backend = backend.clone();
 	let shutdown_pipe_id = pipe_id.clone();
 

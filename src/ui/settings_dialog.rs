@@ -28,6 +28,7 @@ pub struct SettingsDialogParts {
 	pub tray_icon_check: CheckBox,
 	pub autostart_check: CheckBox,
 	pub meta_ai_enabled_check: CheckBox,
+	pub verbose_backend_logging_check: CheckBox,
 
 	// Profile & Privacy tab
 	pub privacy_panel: Panel,
@@ -110,6 +111,14 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		CheckBox::builder(&general_panel).with_label("Show a button to message Meta AI in New Conversation").build();
 	meta_ai_enabled_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&meta_ai_enabled_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
+	let verbose_backend_logging_check = CheckBox::builder(&general_panel)
+		.with_label(
+			"Verbose backend logging, for troubleshooting connection issues (takes effect next time whaNTV starts)",
+		)
+		.build();
+	verbose_backend_logging_check.set_font(&theme::Fonts::body());
+	general_sizer.add(&verbose_backend_logging_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	general_panel.set_sizer(general_sizer, true);
 
@@ -232,6 +241,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		tray_icon_check,
 		autostart_check,
 		meta_ai_enabled_check,
+		verbose_backend_logging_check,
 		privacy_panel,
 		name_field,
 		about_field,
