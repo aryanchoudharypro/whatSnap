@@ -3897,6 +3897,7 @@ pub fn bind_input_handlers(
 	let state_sel = state.clone();
 	let play_voice_btn_sel = parts.conversations_parts.play_voice_btn.clone();
 	let audio_slider_sel = parts.conversations_parts.audio_slider.clone();
+	let audio_speed_btn_sel = parts.conversations_parts.audio_speed_btn.clone();
 	let audio_progress_label_sel = parts.conversations_parts.audio_progress_label.clone();
 	let conv_parts_sel = parts.conversations_parts.clone();
 	let last_layout_time = std::cell::Cell::new(std::time::Instant::now());
@@ -3956,6 +3957,7 @@ pub fn bind_input_handlers(
 						}
 						if !audio_slider_sel.is_shown() {
 							audio_slider_sel.show(true);
+							audio_speed_btn_sel.show(true);
 							audio_progress_label_sel.show(true);
 							need_layout = true;
 						}
@@ -3963,12 +3965,14 @@ pub fn bind_input_handlers(
 						play_voice_btn_sel.set_label("Play voice message");
 						if audio_slider_sel.is_shown() {
 							audio_slider_sel.show(false);
+							audio_speed_btn_sel.show(false);
 							audio_progress_label_sel.show(false);
 							need_layout = true;
 						}
 					}
 				} else if audio_slider_sel.is_shown() {
 					audio_slider_sel.show(false);
+					audio_speed_btn_sel.show(false);
 					audio_progress_label_sel.show(false);
 					need_layout = true;
 				}
@@ -3979,6 +3983,7 @@ pub fn bind_input_handlers(
 				}
 				if audio_slider_sel.is_shown() {
 					audio_slider_sel.show(false);
+					audio_speed_btn_sel.show(false);
 					audio_progress_label_sel.show(false);
 					need_layout = true;
 				}
@@ -3990,7 +3995,8 @@ pub fn bind_input_handlers(
 				|| conv_parts_sel.action_open_btn.is_shown()
 				|| conv_parts_sel.action_save_as_btn.is_shown()
 				|| conv_parts_sel.action_download_btn.is_shown()
-				|| audio_slider_sel.is_shown();
+				|| audio_slider_sel.is_shown()
+				|| audio_speed_btn_sel.is_shown();
 			if conv_parts_sel.action_panel.is_shown() != any_action_visible {
 				conv_parts_sel.action_panel.show(any_action_visible);
 				need_layout = true;
@@ -4017,6 +4023,7 @@ pub fn bind_input_handlers(
 			}
 			if audio_slider_sel.is_shown() {
 				audio_slider_sel.show(false);
+				audio_speed_btn_sel.show(false);
 				audio_progress_label_sel.show(false);
 				need_layout = true;
 			}

@@ -48,6 +48,7 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 		senderJID = client.Store.ID.ToNonAD().String()
 	}
 	ts := time.Now().Unix()
+	quotedSenderDisplay := resolveQuotedSenderName(quotedSender)
 
 	// Persist and broadcast as "pending" immediately, before the network
 	// attempt: this is the local echo, and it's what makes a failed/offline
@@ -64,7 +65,7 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	saveMessage(StoredMessage{
 		ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
 		Text: data.Text, Timestamp: ts, Status: "pending",
-		QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
+		QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSenderDisplay,
 	})
 	broadcastEvent("message", map[string]interface{}{
 		"jid":          jid.String(),
@@ -77,7 +78,7 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 		"status":       "pending",
 		"quotedId":     quotedID,
 		"quotedText":   quotedText,
-		"quotedSender": quotedSender,
+		"quotedSender": quotedSenderDisplay,
 	})
 	broadcastChats()
 
@@ -112,7 +113,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 			participant = storedSenderJID
 		}
 		if qErr == nil {
-			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, participant
+			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, resolveQuotedSenderName(participant)
 			ctxInfo := &waE2E.ContextInfo{StanzaID: proto.String(quotedID), QuotedMessage: quotedMsg}
 			if participant != "" {
 				ctxInfo.Participant = proto.String(participant)
@@ -688,7 +689,7 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			text := extractText(&origMsg)
 			senderJID := client.Store.ID.ToNonAD().String()
 			fwdRawBytes, _ := proto.Marshal(&origMsg)
-			mediaType, mimetype, filename := mediaInfoFromMessage(&origMsg)
+			mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(&origMsg)
 			quotedID, quotedText, quotedSender := quotedPreview(&origMsg)
 
 			db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
@@ -704,7 +705,7 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			saveMessage(StoredMessage{
 				ID: resp.ID, JID: targetJID.String(), SenderJID: senderJID, FromMe: true,
 				Text: text, Timestamp: ts, Raw: fwdRawBytes, Status: "sent",
-				MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename,
+				MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
 				QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 			})
 
@@ -718,6 +719,7 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				"has_media":     mediaType != "",
 				"mediaType":     mediaType,
 				"mediaFilename": filename,
+				"mediaSize":     mediaSize,
 				"quotedId":      quotedID,
 				"quotedText":    quotedText,
 				"quotedSender":  quotedSender,

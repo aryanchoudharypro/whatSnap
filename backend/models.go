@@ -210,6 +210,7 @@ type MessageJSON struct {
 	MediaMimetype string         `json:"mediaMimetype"`
 	MediaFilename string         `json:"mediaFilename"`
 	MediaPath     string         `json:"mediaPath"`
+	MediaSize     int64          `json:"mediaSize"`
 	QuotedID      string         `json:"quotedId"`
 	QuotedText    string         `json:"quotedText"`
 	QuotedSender  string         `json:"quotedSender"`
@@ -242,6 +243,7 @@ type StoredMessage struct {
 	MediaMimetype string
 	MediaFilename string
 	MediaPath     string // local cache path, if already downloaded
+	MediaSize     int64  // sender-reported byte size, 0 if unknown
 	QuotedID      string
 	QuotedText    string
 	QuotedSender  string

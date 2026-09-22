@@ -281,6 +281,8 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 							}
 							let label = if let Some(pct) = s.downloads_in_progress.get(&msg.id) {
 								format!("Cancel download ({}%)", pct)
+							} else if let Some(size) = whantv::format_file_size(msg.media_size) {
+								format!("Download ({})", size)
 							} else {
 								"Download".to_string()
 							};
@@ -350,13 +352,20 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 								need_layout = true;
 							}
 
-							let uncollected = valid_messages.iter().filter(|m| !m.is_media_downloaded()).count();
+							let uncollected: Vec<_> =
+								valid_messages.iter().filter(|m| !m.is_media_downloaded()).collect();
 							let is_dl_in_progress =
 								valid_messages.iter().any(|m| s.downloads_in_progress.contains_key(&m.id));
 							let dl_label = if is_dl_in_progress {
-								format!("Downloading album ({} items remaining)", uncollected)
+								format!("Downloading album ({} items remaining)", uncollected.len())
 							} else {
-								format!("Download album ({} items remaining)", uncollected)
+								let total_size: i64 = uncollected.iter().map(|m| m.media_size).sum();
+								match whantv::format_file_size(total_size) {
+									Some(size) => {
+										format!("Download album ({} items remaining, {})", uncollected.len(), size)
+									}
+									None => format!("Download album ({} items remaining)", uncollected.len()),
+								}
 							};
 							parts.action_download_btn.set_label(&dl_label);
 						}
@@ -450,6 +459,7 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 			parts.play_voice_btn.set_label(if is_paused { "Play voice message" } else { "Pause voice message" });
 			if !parts.audio_slider.is_shown() {
 				parts.audio_slider.show(true);
+				parts.audio_speed_btn.show(true);
 				parts.audio_progress_label.show(true);
 				need_layout = true;
 			}
@@ -457,12 +467,14 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 			parts.play_voice_btn.set_label("Play voice message");
 			if parts.audio_slider.is_shown() {
 				parts.audio_slider.show(false);
+				parts.audio_speed_btn.show(false);
 				parts.audio_progress_label.show(false);
 				need_layout = true;
 			}
 		}
 	} else if parts.audio_slider.is_shown() {
 		parts.audio_slider.show(false);
+		parts.audio_speed_btn.show(false);
 		parts.audio_progress_label.show(false);
 		need_layout = true;
 	}
@@ -472,7 +484,8 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 		|| parts.action_open_btn.is_shown()
 		|| parts.action_save_as_btn.is_shown()
 		|| parts.action_download_btn.is_shown()
-		|| parts.audio_slider.is_shown();
+		|| parts.audio_slider.is_shown()
+		|| parts.audio_speed_btn.is_shown();
 	if parts.action_panel.is_shown() != any_action_visible {
 		parts.action_panel.show(any_action_visible);
 		need_layout = true;
