@@ -741,34 +741,61 @@ func quotedPreview(msg *waE2E.Message) (quotedID, quotedText, quotedSender strin
 	return
 }
 
-// mediaInfoFromMessage extracts a normalized (mediaType, mimetype, filename)
-// triple for the media-bearing message kinds, so we can tag rows in the
-// messages table for the frontend without it having to inspect raw protobuf.
-func mediaInfoFromMessage(msg *waE2E.Message) (mediaType, mimetype, filename string) {
+// resolveQuotedSenderName turns a reply's raw participant value - a JID
+// string, the literal "me", or empty - into the display name the frontend
+// shows in a "replied to X" suffix. It mirrors the resolveDisplayName(...)
+// call quotedPreview makes for *received* replies; the send paths below used
+// to skip it, leaving a raw JID (or "me") in QuotedSender until the chat was
+// reloaded and re-derived from the raw protobuf from scratch. The frontend
+// treats a QuotedSender containing '@' as unresolved and hides it behind a
+// generic "quoted message" instead of showing it, which is what made a reply
+// sent while the chat was open look different from one loaded on reopen.
+func resolveQuotedSenderName(participant string) string {
+	if participant == "" || participant == "me" {
+		return participant
+	}
+	if parsed, err := types.ParseJID(participant); err == nil {
+		return resolveDisplayName(parsed)
+	}
+	return participant
+}
+
+// mediaInfoFromMessage extracts a normalized (mediaType, mimetype, filename,
+// fileSize) tuple for the media-bearing message kinds, so we can tag rows in
+// the messages table for the frontend without it having to inspect raw
+// protobuf. fileSize is the sender-reported byte size (0 if unset) - the same
+// FileLength field downloadMessageMediaToFile uses, surfaced up front so the
+// frontend can show it before the user chooses to download.
+func mediaInfoFromMessage(msg *waE2E.Message) (mediaType, mimetype, filename string, fileSize int64) {
 	msg = mediaCarrier(msg)
 	if msg == nil {
-		return "", "", ""
+		return "", "", "", 0
 	}
 	switch {
 	case msg.GetImageMessage() != nil:
-		return "image", msg.GetImageMessage().GetMimetype(), ""
+		m := msg.GetImageMessage()
+		return "image", m.GetMimetype(), "", int64(m.GetFileLength())
 	case msg.GetVideoMessage() != nil:
-		return "video", msg.GetVideoMessage().GetMimetype(), ""
+		m := msg.GetVideoMessage()
+		return "video", m.GetMimetype(), "", int64(m.GetFileLength())
 	case msg.GetAudioMessage() != nil:
-		if msg.GetAudioMessage().GetPTT() {
-			return "voice", msg.GetAudioMessage().GetMimetype(), ""
+		m := msg.GetAudioMessage()
+		if m.GetPTT() {
+			return "voice", m.GetMimetype(), "", int64(m.GetFileLength())
 		}
-		return "audio", msg.GetAudioMessage().GetMimetype(), ""
+		return "audio", m.GetMimetype(), "", int64(m.GetFileLength())
 	case msg.GetDocumentMessage() != nil:
-		name := msg.GetDocumentMessage().GetFileName()
+		m := msg.GetDocumentMessage()
+		name := m.GetFileName()
 		if name == "" {
-			name = msg.GetDocumentMessage().GetTitle()
+			name = m.GetTitle()
 		}
-		return "document", msg.GetDocumentMessage().GetMimetype(), sanitizeFilename(name)
+		return "document", m.GetMimetype(), sanitizeFilename(name), int64(m.GetFileLength())
 	case msg.GetStickerMessage() != nil:
-		return "sticker", msg.GetStickerMessage().GetMimetype(), ""
+		m := msg.GetStickerMessage()
+		return "sticker", m.GetMimetype(), "", int64(m.GetFileLength())
 	}
-	return "", "", ""
+	return "", "", "", 0
 }
 
 func isIgnoredChatJID(jid string) bool {
@@ -1141,7 +1168,7 @@ func eventHandler(evt interface{}) {
 							}
 						}
 						rawBytes, _ := proto.Marshal(evtMsg.Message)
-						mediaType, mimetype, filename := mediaInfoFromMessage(evtMsg.Message)
+						mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(evtMsg.Message)
 						quotedID, quotedText, quotedSender := quotedPreview(evtMsg.Message)
 						status := ""
 						var sentAt, deliveredAt, readAt, playedAt int64
@@ -1206,18 +1233,18 @@ func eventHandler(evt interface{}) {
 						}
 						writes = append(writes, func(tx sqlExecer) {
 							_, err := tx.Exec(`INSERT INTO messages
-								(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at)
-							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+								(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_size, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at)
+							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 							ON CONFLICT(id) DO UPDATE SET text=excluded.text, timestamp=excluded.timestamp, sender_jid=excluded.sender_jid, raw=excluded.raw,
 								status=CASE WHEN excluded.status != '' THEN excluded.status ELSE messages.status END,
-								media_type=excluded.media_type, media_mimetype=excluded.media_mimetype, media_filename=excluded.media_filename,
+								media_type=excluded.media_type, media_mimetype=excluded.media_mimetype, media_filename=excluded.media_filename, media_size=excluded.media_size,
 								quoted_id=excluded.quoted_id, quoted_text=excluded.quoted_text, quoted_sender=excluded.quoted_sender,
 								sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END,
 								delivered_at=CASE WHEN messages.delivered_at != 0 THEN messages.delivered_at ELSE excluded.delivered_at END,
 								read_at=CASE WHEN messages.read_at != 0 THEN messages.read_at ELSE excluded.read_at END,
 								played_at=CASE WHEN messages.played_at != 0 THEN messages.played_at ELSE excluded.played_at END`,
 								msgID, msgJID, msgFromMe, msgText, msgTS, senderJID.String(), rawBytes, status,
-								mediaType, mimetype, filename, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt)
+								mediaType, mimetype, filename, mediaSize, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt)
 							if err != nil {
 								log.Println("Error inserting message from HistorySync:", err)
 							}
@@ -1429,7 +1456,7 @@ func eventHandler(evt interface{}) {
 		// gets stamped in arrival order, which is the order the album header
 		// counted them in.
 		albumID := ""
-		if mt, _, _ := mediaInfoFromMessage(v.Message); mt == "image" || mt == "video" {
+		if mt, _, _, _ := mediaInfoFromMessage(v.Message); mt == "image" || mt == "video" {
 			albumChat, albumSender := resolveLIDChat(v)
 			albumID = claimAlbumID(albumChat.String(), albumSender.String())
 		}
@@ -1470,7 +1497,7 @@ func eventHandler(evt interface{}) {
 				fmt.Println("Error updating chat timestamp:", err)
 			}
 			if v.Info.ID != "" {
-				mediaType, mimetype, filename := mediaInfoFromMessage(v.Message)
+				mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(v.Message)
 				quotedID, quotedText, quotedSender := quotedPreview(v.Message)
 				status := ""
 				if v.Info.IsFromMe {
@@ -1480,7 +1507,7 @@ func eventHandler(evt interface{}) {
 				err := saveMessage(StoredMessage{
 					ID: v.Info.ID, JID: jid, SenderJID: senderJID.String(),
 					FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,
-					MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename,
+					MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
 					QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 					AlbumID: albumID,
 				})
@@ -1495,7 +1522,7 @@ func eventHandler(evt interface{}) {
 			if isIgnoredChatJID(chatJID.String()) {
 				return
 			}
-			liveMediaType, _, liveMediaFilename := mediaInfoFromMessage(v.Message)
+			liveMediaType, _, liveMediaFilename, liveMediaSize := mediaInfoFromMessage(v.Message)
 
 			quotedID, quotedText, quotedSender := quotedPreview(v.Message)
 			senderName := ""
@@ -1513,6 +1540,7 @@ func eventHandler(evt interface{}) {
 				"has_media":     liveMediaType != "",
 				"mediaType":     liveMediaType,
 				"mediaFilename": liveMediaFilename,
+				"mediaSize":     liveMediaSize,
 				"albumId":       albumID,
 				"quotedId":      quotedID,
 				"quotedText":    quotedText,
@@ -2727,7 +2755,7 @@ func handleIncomingStatus(v *events.Message) {
 		text = ""
 	}
 	senderJID := v.Info.Sender.ToNonAD()
-	mediaType, mimetype, filename := mediaInfoFromMessage(v.Message)
+	mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(v.Message)
 	if text == "" && mediaType == "" {
 		return
 	}
@@ -2740,7 +2768,7 @@ func handleIncomingStatus(v *events.Message) {
 	if err := saveMessage(StoredMessage{
 		ID: v.Info.ID, JID: "status@broadcast", SenderJID: senderJID.String(),
 		FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,
-		MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename,
+		MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
 	}); err != nil {
 		log.Println("Error saving status update:", err)
 		return

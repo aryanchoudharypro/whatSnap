@@ -202,8 +202,8 @@ func saveMessage(sm StoredMessage) error {
 		sentAt = sm.Timestamp
 	}
 	_, err := db.Exec(`INSERT INTO messages
-			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, quoted_id, quoted_text, quoted_sender, sent_at, album_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, media_size, quoted_id, quoted_text, quoted_sender, sent_at, album_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			-- A message can be delivered more than once (reconnect resync, or a
 			-- group message whose two encrypted halves each raise an event), and
@@ -218,13 +218,14 @@ func saveMessage(sm StoredMessage) error {
 			media_mimetype=CASE WHEN excluded.text = '[Unsupported Message]' AND messages.text NOT IN ('', '[Unsupported Message]') THEN messages.media_mimetype ELSE excluded.media_mimetype END,
 			media_filename=CASE WHEN excluded.text = '[Unsupported Message]' AND messages.text NOT IN ('', '[Unsupported Message]') THEN messages.media_filename ELSE excluded.media_filename END,
 			media_path=CASE WHEN excluded.media_path != '' THEN excluded.media_path ELSE messages.media_path END,
+			media_size=CASE WHEN excluded.text = '[Unsupported Message]' AND messages.text NOT IN ('', '[Unsupported Message]') THEN messages.media_size ELSE excluded.media_size END,
 			quoted_id=excluded.quoted_id,
 			quoted_text=excluded.quoted_text,
 			quoted_sender=excluded.quoted_sender,
 			sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END,
 			album_id=CASE WHEN excluded.album_id != '' THEN excluded.album_id ELSE messages.album_id END`,
 		sm.ID, sm.JID, sm.FromMe, sm.Text, sm.Timestamp, sm.SenderJID, sm.Raw, sm.Status,
-		sm.MediaType, sm.MediaMimetype, sm.MediaFilename, sm.MediaPath,
+		sm.MediaType, sm.MediaMimetype, sm.MediaFilename, sm.MediaPath, sm.MediaSize,
 		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt, sm.AlbumID)
 	// Several call sites (local echo of a send, media/status messages) don't
 	// check this error themselves, so a write failure here would otherwise
@@ -459,6 +460,7 @@ func backfillTemplateMessages() {
 	}
 	type recovered struct {
 		id, jid, text, mediaType, mimetype, filename string
+		fileSize                                     int64
 	}
 	var fixed []recovered
 	for rows.Next() {
@@ -475,15 +477,15 @@ func backfillTemplateMessages() {
 		if text == "" || text == "[Unsupported Message]" {
 			continue
 		}
-		mediaType, mimetype, filename := mediaInfoFromMessage(msg)
-		fixed = append(fixed, recovered{id, jid, text, mediaType, mimetype, filename})
+		mediaType, mimetype, filename, fileSize := mediaInfoFromMessage(msg)
+		fixed = append(fixed, recovered{id, jid, text, mediaType, mimetype, filename, fileSize})
 	}
 	rows.Close()
 
 	chats := make(map[string]struct{}, len(fixed))
 	for _, msg := range fixed {
-		db.Exec(`UPDATE messages SET text = ?, media_type = ?, media_mimetype = ?, media_filename = ?
-			WHERE id = ?`, msg.text, msg.mediaType, msg.mimetype, msg.filename, msg.id)
+		db.Exec(`UPDATE messages SET text = ?, media_type = ?, media_mimetype = ?, media_filename = ?, media_size = ?
+			WHERE id = ?`, msg.text, msg.mediaType, msg.mimetype, msg.filename, msg.fileSize, msg.id)
 		chats[msg.jid] = struct{}{}
 	}
 	for jid := range chats {

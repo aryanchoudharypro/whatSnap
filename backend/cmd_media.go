@@ -464,7 +464,7 @@ func buildAttachmentContext(replyToID, replySender string) (ctxInfo *waE2E.Conte
 	if participant != "" {
 		ctxInfo.Participant = proto.String(participant)
 	}
-	return ctxInfo, replyToID, preview, participant
+	return ctxInfo, replyToID, preview, resolveQuotedSenderName(participant)
 }
 
 type ProgressReader struct {

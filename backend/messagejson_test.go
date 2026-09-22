@@ -13,7 +13,7 @@ import (
 func TestMessageJSONWireFormatIsUnchanged(t *testing.T) {
 	want := []string{
 		"id", "text", "timestamp", "fromMe", "senderJid", "senderName", "status",
-		"mediaType", "mediaMimetype", "mediaFilename", "mediaPath",
+		"mediaType", "mediaMimetype", "mediaFilename", "mediaPath", "mediaSize",
 		"quotedId", "quotedText", "quotedSender", "isEdited", "isDeleted",
 		"sentAt", "deliveredAt", "readAt", "playedAt", "editedAt", "starred",
 		"albumId", "reactions",

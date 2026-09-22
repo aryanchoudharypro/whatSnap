@@ -70,11 +70,30 @@ pub struct ChatMessage {
 	pub media_filename: String,
 	#[serde(rename = "mediaPath", alias = "media_path", default)]
 	pub media_path: String,
+	#[serde(rename = "mediaSize", alias = "media_size", default)]
+	pub media_size: i64,
 	/// ID of the album header the backend grouped this media under, empty for
 	/// standalone media. Authoritative when present: it comes from WhatsApp's
 	/// own album announcement rather than from guessing at timestamps.
 	#[serde(rename = "albumId", alias = "album_id", default)]
 	pub album_id: String,
+}
+
+/// Renders a byte count the way file managers do: whole numbers under 1000
+/// bytes, one decimal place from KB up. `0` (unknown size, e.g. an older
+/// message synced before the backend recorded it) renders as `None`.
+pub fn format_file_size(bytes: i64) -> Option<String> {
+	if bytes <= 0 {
+		return None;
+	}
+	const UNITS: [&str; 5] = ["bytes", "KB", "MB", "GB", "TB"];
+	let mut size = bytes as f64;
+	let mut unit = 0;
+	while size >= 1000.0 && unit < UNITS.len() - 1 {
+		size /= 1000.0;
+		unit += 1;
+	}
+	Some(if unit == 0 { format!("{} {}", bytes, UNITS[0]) } else { format!("{:.1} {}", size, UNITS[unit]) })
 }
 
 /// Label shown on a date-divider row: "Today" / "Yesterday" for the two most
