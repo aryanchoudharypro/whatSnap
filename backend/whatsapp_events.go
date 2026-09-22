@@ -2572,10 +2572,20 @@ func populateChatsFromStoreOnce() {
 	}
 	merged := make(map[string]*mergedContact, len(allContacts))
 	var order []string
+	// Once a @lid identity resolves to its phone-number JID, its contact gets
+	// merged into (and written under) the PN's jidStr below - but a *previous*
+	// run, before the mapping was known, may already have written that same
+	// @lid as its own separate contacts_cache row (usually nameless/push-name
+	// only). Nothing ever deleted that stale row, so the picker went on
+	// showing both the resolved "Name +91 xxx" entry and the leftover
+	// "PushName +1 <lid-as-fake-phone>" twin forever. Track every @lid that
+	// resolves this run and delete its stale row once the merge is written.
+	var resolvedLIDJIDs []string
 	for jid, contact := range allContacts {
 		targetJID := jid.ToNonAD()
 		if targetJID.Server == "lid" {
 			if pn, pnErr := client.Store.LIDs.GetPNForLID(context.Background(), targetJID); pnErr == nil && !pn.IsEmpty() {
+				resolvedLIDJIDs = append(resolvedLIDJIDs, targetJID.String())
 				targetJID = pn.ToNonAD()
 			}
 		}
@@ -2644,6 +2654,12 @@ func populateChatsFromStoreOnce() {
 			} else if entry.name != "" {
 				tx.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '')`, entry.name, jidStr)
 			}
+		})
+	}
+	for _, lidJIDStr := range resolvedLIDJIDs {
+		lidJIDStr := lidJIDStr
+		contactWrites = append(contactWrites, func(tx sqlExecer) {
+			tx.Exec(`DELETE FROM contacts_cache WHERE jid = ?`, lidJIDStr)
 		})
 	}
 	// Thousands of contacts, each its own autocommit write, made this the
