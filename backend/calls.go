@@ -28,6 +28,13 @@ var activeCallsMutex sync.Mutex
 var activeVideoBridges = make(map[string]*VideoBridge)
 var activeVideoBridgesMutex sync.Mutex
 
+// Audio bridges, one per active call, keyed the same way as activeCalls. Each
+// wraps a real UDP socket (see audio_udp.go), so it must be closed on
+// OnEnd just like activeVideoBridges - otherwise every call leaks the socket
+// for the rest of the process's life.
+var activeAudioBridges = make(map[string]*UDPBridge)
+var activeAudioBridgesMutex sync.Mutex
+
 // Debugging aid for call-audio issues reported in the field (e.g. one-sided
 // silence): the diag.Recorder dumps per-call JSONL (rtp/rtcp/srtp/relay/stun/
 // etc.) under logs/call-diag, and the zerolog logger writes meowcaller's own
@@ -136,6 +143,9 @@ func attachCallHandlers(call *meowcaller.Call) {
 		}
 		call.Play(bridge)
 		call.Receive(bridge)
+		activeAudioBridgesMutex.Lock()
+		activeAudioBridges[call.ID()] = bridge
+		activeAudioBridgesMutex.Unlock()
 
 		// The video bridge is created here too (even for a call that starts
 		// as voice-only) so a mid-call camera toggle has a port ready to
@@ -174,6 +184,13 @@ func attachCallHandlers(call *meowcaller.Call) {
 			delete(activeVideoBridges, call.ID())
 		}
 		activeVideoBridgesMutex.Unlock()
+
+		activeAudioBridgesMutex.Lock()
+		if bridge, ok := activeAudioBridges[call.ID()]; ok {
+			bridge.Close()
+			delete(activeAudioBridges, call.ID())
+		}
+		activeAudioBridgesMutex.Unlock()
 	})
 	// Fires for group calls (placed as one, or a 1:1 call that became an
 	// ad-hoc group through add_participant) with WhatsApp's authoritative
