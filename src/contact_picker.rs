@@ -12,6 +12,14 @@ use crate::{AppState, Contact, ui::window::WindowParts};
 /// of the raw JID when a chat has no saved contact name yet — most visibly
 /// hit right after `OpenChatByPhone` jumps to a number that isn't a contact.
 pub(crate) fn display_name_for_jid(jid: &str) -> String {
+	// Meta AI's bot JID's user part is coincidentally all digits, so without
+	// this it fell through to the phone-number formatter below and showed a
+	// bogus "+86 7051314767696"-style number - visible for a brand-new Meta
+	// AI chat, before it has a chats-list row of its own (with a name
+	// resolved server-side) to override this fallback via `s.contacts`.
+	if jid == crate::types::META_AI_JID {
+		return "Meta AI".to_string();
+	}
 	let raw_phone = jid.split('@').next().unwrap_or(jid);
 	if !raw_phone.is_empty() && raw_phone.chars().all(|c| c.is_ascii_digit()) {
 		if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {

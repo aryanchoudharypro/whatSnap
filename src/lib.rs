@@ -365,6 +365,59 @@ impl ChatMessage {
 		};
 		Self::sanitize_filename(&raw)
 	}
+
+	/// Just the message's own content — no sender name, timestamp, status,
+	/// reply-quote, or reaction suffixes. `format_display` builds its `body`
+	/// from this; it's also what a Shift+Enter "view/copy this message"
+	/// dialog should show, since a screen reader review field is for reading
+	/// the message that was sent, not repeating everything the row already
+	/// announced around it.
+	pub fn body_text(&self) -> String {
+		let is_deleted = self.is_deleted
+			|| self.text == "[You deleted this message]"
+			|| self.text == "[This message was deleted]"
+			|| self.text == "You deleted this message"
+			|| self.text == "This message was deleted";
+		if is_deleted {
+			return "This message was deleted".to_string();
+		}
+
+		let is_voice = self.is_audio || self.text.starts_with("[Voice Message]") || self.text.starts_with("[Audio]");
+		if is_voice {
+			let prefix = if self.text.starts_with("[Audio]") { "Audio" } else { "Voice message" };
+			let tag = if self.text.starts_with("[Audio]") { "[Audio]" } else { "[Voice Message]" };
+
+			if self.text == tag || self.text.is_empty() {
+				prefix.to_string()
+			} else if self.text.starts_with(tag) {
+				let rest = self.text[tag.len()..].trim();
+				if rest.is_empty() {
+					prefix.to_string()
+				} else if rest.starts_with('(') && rest.ends_with(')') {
+					format!("{} Duration: {}", prefix, &rest[1..rest.len() - 1])
+				} else {
+					format!("{} {}", prefix, rest)
+				}
+			} else {
+				self.text.clone()
+			}
+		} else if self.text.is_empty() {
+			if self.is_document() || self.media_type == "document" {
+				format!("Document: {}", self.display_filename())
+			} else {
+				"[Media]".to_string()
+			}
+		} else if self.text.starts_with('[') {
+			// text is the backend's "[Document] file.docx"-style placeholder
+			// (used for the chat-list preview and DB persistence), not a real
+			// caption — translate it the same way the chat list does instead
+			// of showing the bracket tag as if the user had typed it.
+			friendly_preview_text(&self.text)
+		} else {
+			self.text.clone()
+		}
+	}
+
 	pub fn format_display(&self, _is_group: bool) -> String {
 		if self.is_date_divider || self.is_unread_divider || self.is_system() {
 			return self.text.clone();
@@ -407,7 +460,6 @@ impl ChatMessage {
 			};
 		}
 
-		let is_voice = self.is_audio || self.text.starts_with("[Voice Message]") || self.text.starts_with("[Audio]");
 		let status_title = match self.status.as_str() {
 			"pending" => "Pending",
 			"uploading" => "Uploading",
@@ -420,39 +472,7 @@ impl ChatMessage {
 			other => other,
 		};
 
-		let body = if is_voice {
-			let prefix = if self.text.starts_with("[Audio]") { "Audio" } else { "Voice message" };
-			let tag = if self.text.starts_with("[Audio]") { "[Audio]" } else { "[Voice Message]" };
-
-			if self.text == tag || self.text.is_empty() {
-				prefix.to_string()
-			} else if self.text.starts_with(tag) {
-				let rest = self.text[tag.len()..].trim();
-				if rest.is_empty() {
-					prefix.to_string()
-				} else if rest.starts_with('(') && rest.ends_with(')') {
-					format!("{} Duration: {}", prefix, &rest[1..rest.len() - 1])
-				} else {
-					format!("{} {}", prefix, rest)
-				}
-			} else {
-				self.text.clone()
-			}
-		} else if self.text.is_empty() {
-			if self.is_document() || self.media_type == "document" {
-				format!("Document: {}", self.display_filename())
-			} else {
-				"[Media]".to_string()
-			}
-		} else if self.text.starts_with('[') {
-			// text is the backend's "[Document] file.docx"-style placeholder
-			// (used for the chat-list preview and DB persistence), not a real
-			// caption — translate it the same way the chat list does instead
-			// of showing the bracket tag as if the user had typed it.
-			friendly_preview_text(&self.text)
-		} else {
-			self.text.clone()
-		};
+		let body = self.body_text();
 
 		let reply_suffix = if !self.quoted_text.is_empty() || !self.quoted_id.is_empty() {
 			let q_sender = if self.quoted_sender == "me" || self.quoted_sender == "You" {
@@ -625,6 +645,32 @@ impl DisplayItem {
 					|| msg.text.contains("deleted")
 			}
 			DisplayItem::Album { messages, .. } => messages.is_empty() || messages.iter().all(|m| m.is_deleted),
+		}
+	}
+
+	/// Just this item's own content, with no sender/time/status wrapper — see
+	/// `ChatMessage::body_text`.
+	pub fn body_text(&self) -> String {
+		match self {
+			DisplayItem::Single(msg) => msg.body_text(),
+			DisplayItem::Album { messages, .. } => {
+				let photo_count = messages
+					.iter()
+					.filter(|m| {
+						m.media_type == "image" || m.text.starts_with("[Photo]") || m.text.starts_with("[Image]")
+					})
+					.count();
+				let video_count =
+					messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
+				let total = messages.len();
+				if photo_count > 0 && video_count == 0 {
+					format!("Album: {} photos", photo_count)
+				} else if video_count > 0 && photo_count == 0 {
+					format!("Album: {} videos", video_count)
+				} else {
+					format!("Album: {} media items", total)
+				}
+			}
 		}
 	}
 

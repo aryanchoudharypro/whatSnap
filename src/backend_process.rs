@@ -29,6 +29,7 @@ pub struct BackendProcess {
 	dir: PathBuf,
 	db_path: String,
 	pipe_name: String,
+	verbose_logging: bool,
 	job: Option<KillOnCloseJob>,
 	child: Mutex<Option<Child>>,
 	/// PID of the live backend (0 = none), for the pipe peer check.
@@ -39,12 +40,13 @@ pub struct BackendProcess {
 }
 
 impl BackendProcess {
-	pub fn start(exe: PathBuf, dir: PathBuf, db_path: String, pipe_name: String) -> Self {
+	pub fn start(exe: PathBuf, dir: PathBuf, db_path: String, pipe_name: String, verbose_logging: bool) -> Self {
 		let backend = Self {
 			exe,
 			dir,
 			db_path,
 			pipe_name,
+			verbose_logging,
 			job: KillOnCloseJob::new().ok(),
 			child: Mutex::new(None),
 			pid: AtomicU32::new(0),
@@ -73,11 +75,12 @@ impl BackendProcess {
 			.map(Stdio::from)
 			.unwrap_or_else(|_| Stdio::null());
 
-		let child = Command::new(&self.exe)
-			.arg("-db")
-			.arg(&self.db_path)
-			.arg("-pipe")
-			.arg(&self.pipe_name)
+		let mut cmd = Command::new(&self.exe);
+		cmd.arg("-db").arg(&self.db_path).arg("-pipe").arg(&self.pipe_name);
+		if self.verbose_logging {
+			cmd.arg("-verbose-logging");
+		}
+		let child = cmd
 			.current_dir(&self.dir)
 			.stdout(Stdio::null())
 			.stderr(stderr_file)
@@ -179,7 +182,7 @@ mod tests {
 	/// is exactly what a backend crashing on startup looks like.
 	fn crashing_backend() -> BackendProcess {
 		let exe = PathBuf::from(std::env::var("SystemRoot").unwrap()).join("System32").join("where.exe");
-		BackendProcess::start(exe, std::env::temp_dir(), "unused".into(), "unused".into())
+		BackendProcess::start(exe, std::env::temp_dir(), "unused".into(), "unused".into(), false)
 	}
 
 	fn wait_for_exit(b: &BackendProcess) {
