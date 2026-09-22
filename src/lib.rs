@@ -846,6 +846,57 @@ pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<Displa
 	items
 }
 
+/// Strips every existing date-divider row from `messages` and reinserts fresh
+/// ones on each calendar-day transition, in one pass over the whole list.
+///
+/// Building a page's date dividers only ever looked at that one page (see
+/// the divider-insertion loop in `websocket_events::apply_conversation_messages`),
+/// which is correct for a full chat load but not for prepending an older
+/// page onto messages already loaded: the older page's own trailing divider
+/// and the existing batch's leading divider can both name the same day (two
+/// "Yesterday" rows with nothing but real messages between them). Rebuilding
+/// across the merged list instead of patching at the seam sidesteps that
+/// case entirely - the divider set only ever depends on where the days
+/// actually change, never on which page a message came from.
+///
+/// `is_unread_divider` rows are left in place and untouched, and don't count
+/// as a "message" for day-transition purposes (their timestamp is 0, not a
+/// real send time).
+pub fn rebuild_date_dividers(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
+	let mut out = Vec::with_capacity(messages.len());
+	let mut last_date: Option<chrono::NaiveDate> = None;
+	for msg in messages.into_iter().filter(|m| !m.is_date_divider) {
+		if !msg.is_unread_divider {
+			if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
+				let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+				let day = date_key(local_datetime);
+				if last_date != Some(day) {
+					last_date = Some(day);
+					out.push(ChatMessage {
+						text: format_date_divider_label(local_datetime),
+						timestamp: msg.timestamp,
+						is_date_divider: true,
+						..Default::default()
+					});
+				}
+			}
+		}
+		out.push(msg);
+	}
+	out
+}
+
+/// Counts the real messages in `messages` - i.e. excluding date and unread
+/// dividers, which are synthetic display rows the backend's `messages` table
+/// has no concept of. This is what `get_messages`'s `offset` must be counted
+/// against: using `messages.len()` there previously (which does include the
+/// divider rows) overcounted the position by one for every divider already
+/// inserted, silently skipping that many real messages from every page after
+/// the first.
+pub fn real_message_count(messages: &[ChatMessage]) -> usize {
+	messages.iter().filter(|m| !m.is_date_divider && !m.is_unread_divider).count()
+}
+
 /// Inserts an "N unread messages" divider before the last `count` non-divider
 /// (real) messages in `messages`, e.g. to mark where messages that arrived
 /// while the chat was open but unread pick up. No-op if `count` is 0 or

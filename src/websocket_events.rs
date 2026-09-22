@@ -37,14 +37,20 @@ use crate::{
 };
 
 /// Applies a `conversation_messages` payload to the open chat: dedupes, adds
-/// date and unread dividers, replaces `messages`/`display_items`, repaints the
-/// message list and restores the right selection (a search jump target, the
-/// unread divider, or the bottom).
+/// date and unread dividers, replaces (or, for a `load_more` page, prepends
+/// onto) `messages`/`display_items`, repaints the message list and restores
+/// the right selection (a search jump target, the unread divider, or the
+/// bottom).
 ///
 /// Takes already-deserialized messages so the caller can parse them straight
 /// off the wire - see `process_websocket_message`'s fast path for why this one
 /// payload bypasses `serde_json::Value`.
-fn apply_conversation_messages(parsed_msgs: Vec<ChatMessage>, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+fn apply_conversation_messages(
+	parsed_msgs: Vec<ChatMessage>,
+	load_more: bool,
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+) {
 	let mut seen_ids = std::collections::HashSet::new();
 	let mut deduplicated = Vec::new();
 	for msg in parsed_msgs {
@@ -61,6 +67,39 @@ fn apply_conversation_messages(parsed_msgs: Vec<ChatMessage>, state: &Rc<RefCell
 	let chat_jid = s.selected_chat.clone().unwrap_or_default();
 	let chat_name = s.contacts.get(&chat_jid).cloned().unwrap_or_else(|| chat_jid.clone());
 	let is_group_chat = chat_jid.ends_with("@g.us");
+
+	if load_more {
+		// An offset-based local page should never overlap what's already
+		// loaded, but a page fetched after an on-demand phone request can:
+		// the phone's answer lands as ordinary messages the backend already
+		// wrote to the same table, so a plain offset re-query can hand back
+		// rows this chat already has. Drop those here rather than let them
+		// double up in the merged list.
+		let already_loaded: std::collections::HashSet<&str> = s.messages.iter().map(|m| m.id.as_str()).collect();
+		deduplicated.retain(|m| m.id.is_empty() || !already_loaded.contains(m.id.as_str()));
+	}
+
+	if load_more && deduplicated.is_empty() {
+		// Nothing new came back. Two possibilities: this was a plain local
+		// page and the database has nothing older left for this chat (first
+		// time seeing that for this jid - fall back to asking the phone), or
+		// it was the local re-query that follows a phone response, and the
+		// phone had nothing new either (give up on this chat for the
+		// session - see `phone_history_pending_jid`'s doc comment on why
+		// re-asking isn't safe).
+		if s.phone_history_pending_jid.as_deref() == Some(chat_jid.as_str()) {
+			eprintln!("[LOG UI] Phone had no older history for {}. Marking history complete.", chat_jid);
+			s.phone_history_pending_jid = None;
+			s.phone_history_deadline = None;
+			s.completed_history_chats.insert(chat_jid);
+			s.history_loading = false;
+		} else {
+			eprintln!("[LOG UI] Local database has no older history for {} yet; asking the phone.", chat_jid);
+			s.no_more_messages = true;
+			crate::ui_commands::chat_list::request_phone_history_sync(&mut s, &chat_jid);
+		}
+		return;
+	}
 
 	let mut with_dates = Vec::new();
 	let mut last_date: Option<chrono::NaiveDate> = None;
@@ -85,7 +124,7 @@ fn apply_conversation_messages(parsed_msgs: Vec<ChatMessage>, state: &Rc<RefCell
 		with_dates.push(msg);
 	}
 
-	if s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
+	if !load_more && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
 		whantv::insert_unread_divider(&mut with_dates, s.unread_divider_count);
 	}
 
@@ -94,6 +133,19 @@ fn apply_conversation_messages(parsed_msgs: Vec<ChatMessage>, state: &Rc<RefCell
 	s.history_loading = false;
 	let old_count = s.prev_msg_count;
 	let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+	if load_more {
+		// A successful page - local or phone-backed - means this jid is no
+		// longer known to be exhausted either way.
+		s.no_more_messages = false;
+		s.phone_history_pending_jid = None;
+		s.phone_history_deadline = None;
+		with_dates.append(&mut s.messages);
+		// The older page and the already-loaded batch each got their date
+		// dividers built independently (see `rebuild_date_dividers`'s doc
+		// comment) - rebuild once across the merged list instead of ending
+		// up with two adjacent dividers for the same day.
+		with_dates = whantv::rebuild_date_dividers(with_dates);
+	}
 	s.messages = with_dates;
 	// Apply any receipts that arrived before messages finished loading.
 	// Collect first to avoid simultaneous mutable borrows of s.
@@ -176,13 +228,6 @@ fn apply_conversation_messages(parsed_msgs: Vec<ChatMessage>, state: &Rc<RefCell
 	}
 	parts.conversations_parts.conversation_panel.thaw();
 	refresh_voice_action_button(&s, &parts.conversations_parts);
-
-	if was_history_loading && new_len == old_count {
-		if let Some(ref jid) = s.selected_chat.clone() {
-			eprintln!("[LOG UI] No new history messages received for {}. Marking history complete.", jid);
-			s.completed_history_chats.insert(jid.clone());
-		}
-	}
 }
 
 /// Just the `type` tag, with every other field skipped rather than
@@ -211,6 +256,12 @@ struct ConversationMessagesData<'a> {
 	jid: String,
 	#[serde(borrow, default)]
 	messages: Vec<&'a serde_json::value::RawValue>,
+	// Set only when this is a `load_more_messages` local page (offset > 0) -
+	// see `MESSAGE_PAGE_SIZE` and `ui_commands::chat_list::load_more_messages`.
+	// A fresh load (opening a chat, closing search, `get_messages_around`)
+	// replaces `s.messages`; this one prepends onto it instead.
+	#[serde(rename = "loadMore", default)]
+	load_more: bool,
 }
 
 /// Whether `raw` is a `conversation_messages` payload, read without
@@ -226,7 +277,7 @@ fn is_conversation_messages(raw: &str) -> bool {
 /// exactly as the old `Value`-walking path did, rather than failing the whole
 /// chat - `ChatMessage`'s `id`/`text`/`timestamp` have no serde default, so one
 /// bad row would otherwise blank the conversation.
-fn parse_conversation_messages(raw: &str) -> Option<(String, Vec<ChatMessage>)> {
+fn parse_conversation_messages(raw: &str) -> Option<(String, bool, Vec<ChatMessage>)> {
 	let envelope = serde_json::from_str::<ConversationMessagesEnvelope>(raw).ok()?;
 	let parsed = envelope
 		.data
@@ -239,7 +290,7 @@ fn parse_conversation_messages(raw: &str) -> Option<(String, Vec<ChatMessage>)> 
 			})
 		})
 		.collect();
-	Some((envelope.data.jid, parsed))
+	Some((envelope.data.jid, envelope.data.load_more, parsed))
 }
 
 pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -254,12 +305,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 	// fields it is not asked for instead of materializing them.
 	if is_conversation_messages(&raw) {
 		match parse_conversation_messages(&raw) {
-			Some((jid, parsed_msgs)) => {
+			Some((jid, load_more, parsed_msgs)) => {
 				// The chat may have been switched again while this request was
 				// in flight - applying a stale response would silently populate
 				// the wrong chat's history.
 				if state.borrow().selected_chat.as_deref() == Some(jid.as_str()) {
-					apply_conversation_messages(parsed_msgs, state, parts);
+					apply_conversation_messages(parsed_msgs, load_more, state, parts);
 				}
 			}
 			None => eprintln!("[LOG UI] Failed to parse a conversation_messages payload"),
@@ -843,15 +894,25 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 						if let Some(jids) = data.get("jids").and_then(|j| j.as_array()) {
 							let s = state.borrow();
-							if s.history_loading {
-								if let Some(selected_jid) = s.selected_chat.clone() {
-									if jids.iter().any(|j| j.as_str() == Some(&selected_jid)) {
-										let payload = serde_json::json!({
-											"action": "get_messages",
-											"data": { "jid": selected_jid, "limit": 9999999, "offset": 0 }
-										});
-										let _ = s.ws_tx.send(payload.to_string());
-									}
+							// Only react to a `history_sync` for the jid `load_more_messages`
+							// is actually waiting on an on-demand phone request for - not just
+							// "some chat is loading", which used to reload whatever chat
+							// happened to be open (even one that never asked the phone for
+							// anything) with a full `limit: 9999999` re-fetch.
+							if let Some(pending_jid) = s.phone_history_pending_jid.clone() {
+								if jids.iter().any(|j| j.as_str() == Some(pending_jid.as_str())) {
+									// The phone's answer, if any, is already in the local
+									// database by the time this broadcast arrives - re-run the
+									// same local offset query rather than reloading the whole
+									// chat. An empty result here (handled in
+									// apply_conversation_messages) is what finally marks the jid
+									// exhausted.
+									let offset = whantv::real_message_count(&s.messages) as i32;
+									let payload = serde_json::json!({
+										"action": "get_messages",
+										"data": { "jid": pending_jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": offset }
+									});
+									let _ = s.ws_tx.send(payload.to_string());
 								}
 							}
 						}
@@ -3674,8 +3735,9 @@ mod conversation_messages_tests {
 			{"id":"m1","text":"hi","timestamp":10,"fromMe":true,"mediaType":"image","albumId":"alb1"},
 			{"id":"m2","text":"yo","timestamp":11,"sender_jid":"b@s.whatsapp.net"}
 		]}}"#;
-		let (jid, msgs) = parse_conversation_messages(raw).expect("envelope should parse");
+		let (jid, load_more, msgs) = parse_conversation_messages(raw).expect("envelope should parse");
 		assert_eq!(jid, "a@s.whatsapp.net");
+		assert!(!load_more);
 		assert_eq!(msgs.len(), 2);
 		assert_eq!(msgs[0].id, "m1");
 		assert!(msgs[0].from_me);
@@ -3686,6 +3748,13 @@ mod conversation_messages_tests {
 	}
 
 	#[test]
+	fn parses_the_load_more_flag() {
+		let raw = r#"{"type":"conversation_messages","data":{"jid":"a","loadMore":true,"messages":[]}}"#;
+		let (_, load_more, _) = parse_conversation_messages(raw).expect("envelope should parse");
+		assert!(load_more);
+	}
+
+	#[test]
 	fn a_single_bad_message_becomes_a_placeholder_instead_of_failing_the_chat() {
 		// The middle message is missing `timestamp`, which has no serde default.
 		let raw = r#"{"type":"conversation_messages","data":{"jid":"a@s.whatsapp.net","messages":[
@@ -3693,7 +3762,7 @@ mod conversation_messages_tests {
 			{"id":"m2","text":"broken"},
 			{"id":"m3","text":"after","timestamp":12}
 		]}}"#;
-		let (_, msgs) = parse_conversation_messages(raw).expect("one bad row must not fail the envelope");
+		let (_, _, msgs) = parse_conversation_messages(raw).expect("one bad row must not fail the envelope");
 		assert_eq!(msgs.len(), 3);
 		assert_eq!(msgs[0].text, "before");
 		assert!(msgs[1].text.starts_with("Parse error:"), "got {:?}", msgs[1].text);
@@ -3703,13 +3772,13 @@ mod conversation_messages_tests {
 
 	#[test]
 	fn an_empty_or_absent_message_list_parses_to_nothing() {
-		let (jid, msgs) =
+		let (jid, _, msgs) =
 			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a","messages":[]}}"#)
 				.unwrap();
 		assert_eq!(jid, "a");
 		assert!(msgs.is_empty());
 
-		let (jid, msgs) =
+		let (jid, _, msgs) =
 			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a"}}"#).unwrap();
 		assert_eq!(jid, "a");
 		assert!(msgs.is_empty());

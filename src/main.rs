@@ -64,6 +64,21 @@ use crate::{
 /// can never ring, so it is never recorded and aged-out entries are dropped.
 const SENT_SOUND_WINDOW_SECS: i64 = 20;
 
+/// How many messages a single `get_messages` page request loads: opening a
+/// chat, closing search, and each "scrolled to the top" local page all use
+/// this instead of fetching a chat's entire history in one shot.
+pub const MESSAGE_PAGE_SIZE: i32 = 1000;
+
+/// How long `load_more_messages` waits for a `history_sync` broadcast
+/// covering an on-demand phone history request before giving up on it (see
+/// `AppState::phone_history_pending_jid`). WhatsApp simply stays quiet when
+/// there's nothing older to send back - there's no explicit "no more
+/// history" reply - so a timeout is the only way to notice that and stop
+/// asking, which matters because repeatedly re-requesting the same
+/// already-exhausted history is exactly the kind of on-demand traffic that
+/// risks tripping WhatsApp's abuse detection.
+const PHONE_HISTORY_TIMEOUT_SECS: u64 = 20;
+
 struct AppState {
 	settings: crate::settings::Settings,
 	ws_tx: mpsc::Sender<String>,
@@ -186,8 +201,21 @@ struct AppState {
 	initial_presence_received: bool,
 	messages: Vec<ChatMessage>,
 	loading_messages: bool,
+	/// True once a `get_messages` page for the open chat has come back
+	/// shorter than requested - the local database has nothing older left
+	/// for it, so `load_more_messages` should ask the phone instead of
+	/// paging locally again. Reset per chat switch.
 	no_more_messages: bool,
 	history_loading: bool,
+	/// Set while waiting on a `history_sync` broadcast for an on-demand
+	/// phone history request `load_more_messages` sent after
+	/// `no_more_messages` went true. Cleared once that jid's `history_sync`
+	/// arrives (successful or not) or `phone_history_deadline` elapses.
+	phone_history_pending_jid: Option<String>,
+	/// Deadline for `phone_history_pending_jid` - see
+	/// `PHONE_HISTORY_TIMEOUT_SECS`. Checked by the same periodic tick that
+	/// already polls `history_sync_last_update`.
+	phone_history_deadline: Option<std::time::Instant>,
 	/// Set to "now" on every "history_sync" update from the backend, cleared
 	/// (and the status bar reverted) once a timer tick finds it's gone stale.
 	/// WhatsApp delivers history in many independent chunks with no signal
@@ -661,6 +689,8 @@ fn main() {
 			loading_messages: false,
 			no_more_messages: false,
 			history_loading: false,
+			phone_history_pending_jid: None,
+			phone_history_deadline: None,
 			history_sync_last_update: None,
 			history_sync_armed_until: None,
 			db_size_last_seen: 0,
@@ -881,6 +911,24 @@ fn main() {
 				s.db_growth_last_seen = Some(now);
 			}
 			s.db_size_last_seen = db_size;
+
+			// The phone stays silent when there's nothing older to send back for
+			// an on-demand history request - no "history_sync" ever arrives to
+			// resolve `phone_history_pending_jid` one way or the other. Without
+			// this deadline, `load_more_messages` would wait on it forever (stuck
+			// spinner) and, worse, would be free to fire the same request again
+			// on the next scroll-to-top, which is exactly the repeated on-demand
+			// traffic that risks tripping WhatsApp's abuse detection.
+			if let Some(deadline) = s.phone_history_deadline {
+				if now >= deadline {
+					if let Some(jid) = s.phone_history_pending_jid.take() {
+						eprintln!("[LOG UI] Phone history request for {} timed out; not asking again.", jid);
+						s.completed_history_chats.insert(jid);
+					}
+					s.phone_history_deadline = None;
+					s.history_loading = false;
+				}
+			}
 
 			if !s.main_ui_shown {
 				return;

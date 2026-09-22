@@ -3311,10 +3311,17 @@ pub fn bind_input_handlers(
 				let _ = tx_close_list.send(UiCommand::CloseConversation);
 				event.skip(false);
 			} else if key_event.get_key_code() == Some(313) || key_event.get_key_code() == Some(384) {
-				// WXK_HOME (313) -> Oldest message at top
+				// WXK_HOME (313) -> Oldest message at top. set_selection() is a
+				// programmatic call - unlike the real keyboard-driven navigation
+				// Up/Down arrows go through, wxWidgets never fires
+				// on_selection_changed for it, so the idx==0 check that triggers
+				// LoadMoreMessages there never ran for Home on its own (only after
+				// a follow-up Down+Up, which IS native navigation). Send it here
+				// directly instead of relying on that handler for this case.
 				let count = msgs_list_play.get_count();
 				if count > 0 {
 					msgs_list_play.set_selection(0, true);
+					let _ = tx_close_list.send(UiCommand::LoadMoreMessages);
 				}
 				event.skip(false);
 			} else if key_event.get_key_code() == Some(312) || key_event.get_key_code() == Some(385) {
