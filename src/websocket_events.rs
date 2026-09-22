@@ -162,16 +162,39 @@ fn apply_conversation_messages(
 			}
 		}
 	}
-	s.display_items = whantv::group_messages_into_display_items(&s.messages);
-	let new_len = s.display_items.len();
+	let old_display_items = std::mem::take(&mut s.display_items);
+	let new_display_items = whantv::group_messages_into_display_items(&s.messages);
+	let new_len = new_display_items.len();
 	s.prev_msg_count = new_len;
 
+	// A load_more page only ever prepends older messages, so in the common
+	// case the tail of the rebuilt display list is exactly what was already
+	// on screen - rebuilding the whole wxListBox (clear + re-append
+	// everything loaded so far, which only gets more expensive the more
+	// pages have piled up) to add a handful of rows at the top is what made
+	// scrolling to the top of an already-paged-through chat feel freezy.
+	// Insert just the new leading rows instead when that holds; an album
+	// spanning the exact seam between the new page and what's already
+	// loaded can change the grouping there (rare), so this still falls back
+	// to a full rebuild whenever the tail doesn't line up.
+	let insert_count = new_len.saturating_sub(old_display_items.len());
+	let can_prepend_only = load_more
+		&& insert_count > 0
+		&& new_display_items[insert_count..].iter().map(|d| d.id()).eq(old_display_items.iter().map(|d| d.id()));
+
 	parts.conversations_parts.messages_list.freeze();
-	parts.conversations_parts.messages_list.clear();
-	for item in &s.display_items {
-		parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+	if can_prepend_only {
+		for (i, item) in new_display_items[..insert_count].iter().enumerate() {
+			parts.conversations_parts.messages_list.insert(&item.format_display(is_group), i);
+		}
+	} else {
+		parts.conversations_parts.messages_list.clear();
+		for item in &new_display_items {
+			parts.conversations_parts.messages_list.append(&item.format_display(is_group));
+		}
 	}
 	parts.conversations_parts.messages_list.thaw();
+	s.display_items = new_display_items;
 	refresh_selection_list(&mut s, parts);
 
 	let count = parts.conversations_parts.messages_list.get_count();
