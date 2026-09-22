@@ -174,6 +174,21 @@ pub(crate) fn clear_pending_reply(s: &mut AppState, parts: &WindowParts) {
 /// (`OpenChatByPhone`) — the latter's jid may not be in `filtered_chats` yet.
 pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
+	// An in-progress edit is tied to the message (and chat) it was started
+	// from - switching away must drop that link rather than leaving
+	// `editing_message_id` pointing at a message that isn't even on screen
+	// anymore.
+	if s.editing_message_id.take().is_some() {
+		s.editing_message_original_text = None;
+		parts.conversations_parts.cancel_edit_btn.show(false);
+		parts.conversations_parts.add_attachment_btn.show(true);
+		parts.conversations_parts.message_label.set_label("Type a message");
+		// An edit-in-progress is not a new message someone was composing -
+		// clear it rather than letting `save_composer_draft` below pick up
+		// the message's own (edited) text as if it were an ordinary unsent
+		// draft for the chat being left.
+		parts.conversations_parts.message_field.set_value("");
+	}
 	save_composer_draft(&mut s, parts);
 	// Leaving a chat with unsent text in the composer must not leave the
 	// recipient staring at a "typing…" indicator that never clears - real

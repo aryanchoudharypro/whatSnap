@@ -241,6 +241,16 @@ struct AppState {
 	pending_reply_id: Option<String>,
 	pending_reply_sender: Option<String>,
 	pending_reply_preview: Option<String>,
+	/// Set while the composer is editing an existing message in place
+	/// (rather than composing a new one) - the id of the message being
+	/// edited. `Some` swaps the composer's Enter/Escape/Tab handling and the
+	/// "Send"/"Type a message" wording over to editing, instead of opening
+	/// a separate dialog.
+	editing_message_id: Option<String>,
+	/// The message's text as it was when edit mode was entered, kept
+	/// alongside `editing_message_id` so saving with no actual change can be
+	/// treated like Cancel rather than sending a same-text edit.
+	editing_message_original_text: Option<String>,
 	/// Unsent composer text per chat, saved whenever the conversation is
 	/// switched away from (closing it, or opening a different chat) and
 	/// restored when that chat is opened again - so leaving mid-draft (e.g.
@@ -673,6 +683,8 @@ fn main() {
 			pending_reply_id: None,
 			pending_reply_sender: None,
 			pending_reply_preview: None,
+			editing_message_id: None,
+			editing_message_original_text: None,
 			draft_messages: std::collections::HashMap::new(),
 			pending_receipts: std::collections::HashMap::new(),
 			downloads_in_progress: std::collections::HashMap::new(),
@@ -983,6 +995,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::OpenMedia => ui_commands::attachments::open_media(state, parts),
 		UiCommand::SaveMediaAs => ui_commands::attachments::save_media_as(state, parts),
 		UiCommand::CancelEdit => ui_commands::messaging::cancel_edit(state, parts),
+		UiCommand::BeginEditMessage { message_id, text } => {
+			ui_commands::messaging::begin_edit_message(state, parts, message_id, text)
+		}
 		UiCommand::ShowConversationData => ui_commands::chat_list::show_conversation_data(state, parts),
 		UiCommand::RemoveQuote => ui_commands::messaging::remove_quote(state, parts),
 		UiCommand::SendTyping { jid, state: typing_state, media } => {

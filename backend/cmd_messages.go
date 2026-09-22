@@ -112,8 +112,22 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		if participant == "" {
 			participant = storedSenderJID
 		}
+		displayParticipant := participant
+		// The frontend uses the literal string "me" as its own-message sender
+		// sentinel everywhere (see resolveQuotedSenderName, which also expects
+		// it) - fine for local display, but ContextInfo.Participant goes out
+		// on the wire and has to be a real JID. Sending "me" there produced a
+		// malformed quoted-message context, which is why replying to your own
+		// message never rendered as a reply on the recipient's end.
+		if participant == "me" {
+			if client.Store.ID != nil {
+				participant = client.Store.ID.ToNonAD().String()
+			} else {
+				participant = ""
+			}
+		}
 		if qErr == nil {
-			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, resolveQuotedSenderName(participant)
+			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, resolveQuotedSenderName(displayParticipant)
 			ctxInfo := &waE2E.ContextInfo{StanzaID: proto.String(quotedID), QuotedMessage: quotedMsg}
 			if participant != "" {
 				ctxInfo.Participant = proto.String(participant)

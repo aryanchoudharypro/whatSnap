@@ -582,9 +582,12 @@ pub fn bind_input_handlers(
 
 	let tx_send = ui_tx.clone();
 	let msg_ctrl = parts.conversations_parts.message_field;
+	let state_send_btn = state.clone();
 	parts.conversations_parts.send_message_btn.on_click(move |_| {
 		let text = msg_ctrl.get_value();
-		if !text.is_empty() {
+		if let Some(message_id) = state_send_btn.borrow().editing_message_id.clone() {
+			let _ = tx_send.send(UiCommand::EditMessage { message_id, new_text: text });
+		} else if !text.is_empty() {
 			let _ = tx_send.send(UiCommand::SendMessage(text));
 		}
 	});
@@ -1937,23 +1940,48 @@ pub fn bind_input_handlers(
 
 	let tx_send_field = ui_tx.clone();
 	let conv_msg_field_esc = parts.conversations_parts.message_field;
+	let cancel_edit_btn_field = parts.conversations_parts.cancel_edit_btn;
+	let state_field = state.clone();
 	conv_msg_field_esc.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			let is_editing = state_field.borrow().editing_message_id.is_some();
 			if code == Some(13) || code == Some(370) {
 				// Enter key
 				if key_event.shift_down() {
 					event.skip(true); // Shift+Enter -> insert newline in multiline text box
 				} else {
 					let text = conv_msg_field_esc.get_value();
-					if !text.is_empty() {
+					if is_editing {
+						let message_id = state_field.borrow().editing_message_id.clone().unwrap_or_default();
+						let _ = tx_send_field.send(UiCommand::EditMessage { message_id, new_text: text });
+					} else if !text.is_empty() {
 						let _ = tx_send_field.send(UiCommand::SendMessage(text));
 					}
 					event.skip(false); // Suppress default Enter newline insertion
 				}
 			} else if code == Some(27) {
-				// Escape key
-				let _ = tx_send_field.send(UiCommand::CloseConversation);
+				// Escape key: cancel an in-progress edit instead of closing
+				// the conversation, so Escape always backs out of whatever
+				// the composer is currently doing.
+				if is_editing {
+					let _ = tx_send_field.send(UiCommand::CancelEdit);
+				} else {
+					let _ = tx_send_field.send(UiCommand::CloseConversation);
+				}
+				event.skip(false);
+			} else if code == Some(9) && is_editing && !key_event.shift_down() {
+				// Forward Tab while editing jumps straight to "Cancel edit" -
+				// native traversal would otherwise land on "Add attachment",
+				// which edit mode hides rather than removes from the tab
+				// order (see the same note on cancel_edit_btn's own handler).
+				// Shift+Tab is deliberately NOT overridden here: doing so
+				// bounced focus straight back to "Cancel edit" too, and since
+				// that button's own Shift+Tab handler sends focus right back
+				// to this field, the two together trapped keyboard users in
+				// an inescapable two-control loop with no way to tab out of
+				// the composer at all.
+				cancel_edit_btn_field.set_focus();
 				event.skip(false);
 			} else if code == Some(86) && key_event.control_down() {
 				// Ctrl+V
@@ -2001,7 +2029,17 @@ pub fn bind_input_handlers(
 					return;
 				}
 				if conv_panel_hook.is_shown() && !search_panel_hook.is_shown() && !state_hook.borrow().selection_mode {
-					let _ = tx_escape_hook.send(UiCommand::CloseConversation);
+					// This hook runs ahead of whichever control has focus, so
+					// it's the one place Escape reliably reaches regardless
+					// of where the user's focus is - including mid-edit,
+					// which is why the composer's own on_key_down Escape
+					// handling for editing never actually ran before: this
+					// unconditional CloseConversation always won the race.
+					if state_hook.borrow().editing_message_id.is_some() {
+						let _ = tx_escape_hook.send(UiCommand::CancelEdit);
+					} else {
+						let _ = tx_escape_hook.send(UiCommand::CloseConversation);
+					}
 					data.skip(false);
 					return;
 				}
@@ -2871,34 +2909,28 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
-							let can_edit = msg.from_me
-								&& !msg.is_deleted && !msg.is_audio
-								&& !msg.text.starts_with("[Voice Message]")
-								&& !msg.text.starts_with("[Audio]");
-							if !can_edit {
+							let now = std::time::SystemTime::now()
+								.duration_since(std::time::UNIX_EPOCH)
+								.unwrap_or_default()
+								.as_secs() as i64;
+							if !msg.is_editable(now) {
 								unsafe {
 									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 										windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
 									);
 								}
-								live_region::announce(msgs_announcer_clone.clone(), "Message can't be edited.");
+								let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
+								let reason = if still_eligible_otherwise {
+									"This message can no longer be edited - the 20 minute edit window has passed."
+								} else {
+									"Message can't be edited."
+								};
+								live_region::announce(msgs_announcer_clone.clone(), reason);
 							} else {
-								let dlg = TextEntryDialog::builder(
-									&parent_frame_clone,
-									"Enter updated message text:",
-									"Edit Message",
-								)
-								.with_default_value(&msg.text)
-								.build();
-								if dlg.show_modal() == wxdragon::id::ID_OK {
-									if let Some(val) = dlg.get_value() {
-										let new_text = val.trim().to_string();
-										if !new_text.is_empty() && new_text != msg.text {
-											let _ = tx_play_media_clone
-												.send(UiCommand::EditMessage { message_id: msg.id.clone(), new_text });
-										}
-									}
-								}
+								let _ = tx_play_media_clone.send(UiCommand::BeginEditMessage {
+									message_id: msg.id.clone(),
+									text: msg.text.clone(),
+								});
 							}
 						}
 					}
@@ -2917,7 +2949,12 @@ pub fn bind_input_handlers(
 								.as_ref()
 								.map(|jid| state_clone.borrow().admin_group_jids.contains(jid))
 								.unwrap_or(false);
-							let can_delete_for_everyone = msg.from_me || is_group_admin;
+							let now = std::time::SystemTime::now()
+								.duration_since(std::time::UNIX_EPOCH)
+								.unwrap_or_default()
+								.as_secs() as i64;
+							let can_delete_for_everyone =
+								(msg.from_me && msg.is_delete_for_everyone_eligible(now)) || is_group_admin;
 							if let Some(for_everyone) =
 								confirm_delete_choice(&parent_frame_clone, 1, can_delete_for_everyone)
 							{
@@ -3487,34 +3524,28 @@ pub fn bind_input_handlers(
 					drop(s);
 					if let Some(msg) = msg_opt {
 						if !msg.is_date_divider {
-							let can_edit = msg.from_me
-								&& !msg.is_deleted && !msg.is_audio
-								&& !msg.text.starts_with("[Voice Message]")
-								&& !msg.text.starts_with("[Audio]");
-							if !can_edit {
+							let now = std::time::SystemTime::now()
+								.duration_since(std::time::UNIX_EPOCH)
+								.unwrap_or_default()
+								.as_secs() as i64;
+							if !msg.is_editable(now) {
 								unsafe {
 									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 										windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
 									);
 								}
-								live_region::announce(msgs_announcer.clone(), "Message can't be edited.");
+								let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
+								let reason = if still_eligible_otherwise {
+									"This message can no longer be edited - the 20 minute edit window has passed."
+								} else {
+									"Message can't be edited."
+								};
+								live_region::announce(msgs_announcer.clone(), reason);
 							} else {
-								let dlg = TextEntryDialog::builder(
-									&parent_frame,
-									"Enter updated message text:",
-									"Edit Message",
-								)
-								.with_default_value(&msg.text)
-								.build();
-								if dlg.show_modal() == wxdragon::id::ID_OK {
-									if let Some(val) = dlg.get_value() {
-										let new_text = val.trim().to_string();
-										if !new_text.is_empty() && new_text != msg.text {
-											let _ = tx_play_media
-												.send(UiCommand::EditMessage { message_id: msg.id.clone(), new_text });
-										}
-									}
-								}
+								let _ = tx_play_media.send(UiCommand::BeginEditMessage {
+									message_id: msg.id.clone(),
+									text: msg.text.clone(),
+								});
 							}
 						}
 					}
@@ -3708,7 +3739,12 @@ pub fn bind_input_handlers(
 								.as_ref()
 								.map(|jid| state_play.borrow().admin_group_jids.contains(jid))
 								.unwrap_or(false);
-							let can_delete_for_everyone = msg.from_me || is_group_admin;
+							let now = std::time::SystemTime::now()
+								.duration_since(std::time::UNIX_EPOCH)
+								.unwrap_or_default()
+								.as_secs() as i64;
+							let can_delete_for_everyone =
+								(msg.from_me && msg.is_delete_for_everyone_eligible(now)) || is_group_admin;
 							if let Some(for_everyone) = confirm_delete_choice(&parent_frame, 1, can_delete_for_everyone)
 							{
 								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
@@ -4190,9 +4226,12 @@ pub fn bind_input_handlers(
 				.filter(|item| ids.contains(item.id()))
 				.flat_map(|item| item.messages())
 				.collect();
-			let all_from_me = !msgs.is_empty() && msgs.iter().all(|m| m.from_me);
+			let now =
+				std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+			let all_from_me_and_eligible =
+				!msgs.is_empty() && msgs.iter().all(|m| m.from_me && m.is_delete_for_everyone_eligible(now));
 			let is_group_admin = s.selected_chat.as_ref().map(|jid| s.admin_group_jids.contains(jid)).unwrap_or(false);
-			(msgs.len(), all_from_me || is_group_admin)
+			(msgs.len(), all_from_me_and_eligible || is_group_admin)
 		};
 		if count == 0 {
 			return;
@@ -4336,6 +4375,30 @@ pub fn bind_input_handlers(
 	let tx_cancel_edit = ui_tx.clone();
 	parts.conversations_parts.cancel_edit_btn.on_click(move |_| {
 		let _ = tx_cancel_edit.send(UiCommand::CancelEdit);
+	});
+
+	// Tabbing away from here would normally rely on native tab-traversal
+	// landing on whatever's next/previous in the panel - but the neighbors
+	// on both sides ("Add attachment" before it, "Remove quote" after it)
+	// are hidden rather than removed from the tab order while editing (this
+	// button is only ever visible during an edit), so native traversal tries
+	// to focus a hidden control and silently goes nowhere. Route both
+	// directions explicitly instead of depending on that.
+	let msg_field_shift_tab = parts.conversations_parts.message_field;
+	let send_btn_tab = parts.conversations_parts.send_message_btn;
+	parts.conversations_parts.cancel_edit_btn.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			if key_event.get_key_code() == Some(9) {
+				if key_event.shift_down() {
+					msg_field_shift_tab.set_focus();
+				} else {
+					send_btn_tab.set_focus();
+				}
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
 	});
 
 	let tx_remove_quote = ui_tx.clone();

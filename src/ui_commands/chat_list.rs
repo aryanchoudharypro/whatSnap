@@ -429,6 +429,20 @@ pub(crate) fn mark_read(
 
 pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
+	// See the matching guard in `open_chat_for_jid` - closing the
+	// conversation is just as much a "leave the message being edited" as
+	// switching to a different one is.
+	if s.editing_message_id.take().is_some() {
+		s.editing_message_original_text = None;
+		parts.conversations_parts.cancel_edit_btn.show(false);
+		parts.conversations_parts.add_attachment_btn.show(true);
+		parts.conversations_parts.message_label.set_label("Type a message");
+		// An edit-in-progress is not a new message someone was composing -
+		// clear it rather than letting the `save_composer_draft` call below
+		// pick up the message's own (edited) text as if it were an ordinary
+		// unsent draft for this chat.
+		parts.conversations_parts.message_field.set_value("");
+	}
 	save_composer_draft(&mut s, parts);
 	s.selected_chat = None;
 	clear_pending_reply(&mut s, parts);

@@ -460,11 +460,23 @@ func buildAttachmentContext(replyToID, replySender string) (ctxInfo *waE2E.Conte
 	if participant == "" {
 		participant = storedSenderJID
 	}
+	displayParticipant := participant
+	// The frontend uses the literal string "me" as its own-message sender
+	// sentinel (see resolveQuotedSenderName, which expects it for display) -
+	// but ContextInfo.Participant goes out on the wire and has to be a real
+	// JID, or the quote never renders as a reply for the recipient.
+	if participant == "me" {
+		if client.Store.ID != nil {
+			participant = client.Store.ID.ToNonAD().String()
+		} else {
+			participant = ""
+		}
+	}
 	ctxInfo = &waE2E.ContextInfo{StanzaID: proto.String(replyToID), QuotedMessage: quotedMsg}
 	if participant != "" {
 		ctxInfo.Participant = proto.String(participant)
 	}
-	return ctxInfo, replyToID, preview, resolveQuotedSenderName(participant)
+	return ctxInfo, replyToID, preview, resolveQuotedSenderName(displayParticipant)
 }
 
 type ProgressReader struct {
