@@ -2803,7 +2803,39 @@ var (
 	appStateResyncMu    sync.Mutex
 	lastAppStateResync  = make(map[appstate.WAPatchName]time.Time)
 	appStateResyncCount = make(map[appstate.WAPatchName]int)
+	// lastFatalRecoveryRequest tracks the last time we asked our own primary
+	// device (the phone) for an unencrypted snapshot of a collection, because
+	// that request is a message sent to the phone rather than a plain HTTP-ish
+	// IQ - worth a longer, separate backoff so a phone that's briefly offline
+	// doesn't get hit repeatedly while the regular resync loop keeps retrying.
+	lastFatalRecoveryRequest = make(map[appstate.WAPatchName]time.Time)
 )
+
+// requestAppStateFatalRecovery asks our own primary device (the phone, if
+// we're a companion) to send an unencrypted snapshot of an app-state
+// collection whose server-side copy has itself failed LTHash verification.
+// Gated by a 5-minute backoff separate from the regular resync counters,
+// since this reaches the phone rather than the server and shouldn't be
+// retried on the same tight loop.
+func requestAppStateFatalRecovery(name appstate.WAPatchName) {
+	appStateResyncMu.Lock()
+	if wait := 5*time.Minute - time.Since(lastFatalRecoveryRequest[name]); wait > 0 {
+		appStateResyncMu.Unlock()
+		log.Printf("Fatal recovery for %s: skipping, still within 5m of the last request (%s left)", name, wait.Round(time.Second))
+		return
+	}
+	lastFatalRecoveryRequest[name] = time.Now()
+	appStateResyncMu.Unlock()
+
+	if client == nil {
+		return
+	}
+	log.Printf("Requesting fatal recovery snapshot for %s from our primary device.", name)
+	req := whatsmeow.BuildAppStateRecoveryRequest(name)
+	if _, err := client.SendPeerMessage(context.Background(), req); err != nil {
+		log.Printf("Fatal recovery request for %s failed to send: %v", name, err)
+	}
+}
 
 func isDatabaseLocked(err error) bool {
 	if err == nil {
@@ -2891,6 +2923,20 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 				log.Printf("Mismatching LTHash for %s - forcing a full resync (fresh snapshot).", v.Name)
 				if resyncErr := client.FetchAppState(context.Background(), v.Name, true, false); resyncErr != nil {
 					log.Printf("Full resync for %s failed: %v", v.Name, resyncErr)
+					resyncErrMsg := resyncErr.Error()
+					if strings.Contains(resyncErrMsg, "mismatching LTHash") || strings.Contains(resyncErrMsg, "failed to verify snapshot") {
+						// A fresh snapshot straight from the server failing the
+						// exact same verification means the server's own copy
+						// of this collection has diverged, not just our local
+						// mirror of it - no amount of re-asking the server can
+						// fix that. The one source that's still authoritative
+						// is our own primary device's local copy, fetched via
+						// a COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY peer
+						// message; whatsmeow already parses the response in
+						// handleAppStateRecovery (wired from message.go), it
+						// just never had anything triggering the request.
+						requestAppStateFatalRecovery(v.Name)
+					}
 				} else {
 					log.Printf("Full resync for %s succeeded", v.Name)
 					appStateResyncMu.Lock()
