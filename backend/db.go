@@ -104,6 +104,7 @@ func migrateDB() error {
 	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0) OR COALESCE(is_deleted, 0) = 1) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0")
 	backfillTemplateMessages()
 	backfillAlbumMessages()
+	backfillMediaSizes()
 	removeKeyDistributionStubs()
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
@@ -444,6 +445,42 @@ func markMessageStarred(id, jid string, starred bool) error {
 	}
 	_, err := db.Exec(`UPDATE messages SET starred = ? WHERE id = ? AND jid = ?`, starredInt, id, jid)
 	return err
+}
+
+// backfillMediaSizes fills in media_size for messages stored before that
+// column existed. Their raw protobuf was already kept for other reasons
+// (quoting, forwarding, downloading), so the size can be re-derived from it
+// without a history resync; the query's own filter means this is a no-op
+// after the first run, once every row it can resolve has been resolved.
+func backfillMediaSizes() {
+	rows, err := db.Query(`SELECT id, raw FROM messages
+		WHERE media_type != '' AND COALESCE(media_size, 0) = 0 AND raw IS NOT NULL AND length(raw) > 0`)
+	if err != nil {
+		return
+	}
+	type sized struct {
+		id   string
+		size int64
+	}
+	var fixed []sized
+	for rows.Next() {
+		var id string
+		var raw []byte
+		if rows.Scan(&id, &raw) != nil {
+			continue
+		}
+		msg := &waE2E.Message{}
+		if proto.Unmarshal(raw, msg) != nil {
+			continue
+		}
+		if _, _, _, fileSize := mediaInfoFromMessage(msg); fileSize > 0 {
+			fixed = append(fixed, sized{id, fileSize})
+		}
+	}
+	rows.Close()
+	for _, m := range fixed {
+		db.Exec(`UPDATE messages SET media_size = ? WHERE id = ?`, m.size, m.id)
+	}
 }
 
 // backfillTemplateMessages re-derives the text and media info of messages that

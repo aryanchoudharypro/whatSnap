@@ -1354,6 +1354,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										.and_then(|m| m.as_str())
 										.unwrap_or("")
 										.to_string(),
+									media_size: data.get("mediaSize").and_then(|m| m.as_i64()).unwrap_or(0),
 									album_id: data.get("albumId").and_then(|m| m.as_str()).unwrap_or("").to_string(),
 									..Default::default()
 								};
