@@ -312,7 +312,7 @@ pub(crate) fn toggle_search_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 }
 
 pub(crate) fn prompt_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let dlg = TextEntryDialog::builder(&parts.frame, "Enter Secret Code:", "Locked Chats").build();
+	let dlg = TextEntryDialog::builder(&parts.frame, "Enter Secret Code:", "Locked Chats").password().build();
 	if dlg.show_modal() == wxdragon::id::ID_OK {
 		if let Some(val) = dlg.get_value() {
 			let text = val.trim().to_string();
