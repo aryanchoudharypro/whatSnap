@@ -42,9 +42,57 @@ pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	}
 }
 
-pub(crate) fn cancel_edit(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+pub(crate) fn cancel_edit(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	let was_editing = s.editing_message_id.take().is_some();
+	s.editing_message_original_text = None;
+	drop(s);
+	end_edit_mode(parts);
+	if was_editing {
+		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Editing cancelled.");
+	}
+}
+
+/// Puts the composer into edit mode for `message_id`: fills `message_field`
+/// with its current text (selected, so typing immediately replaces it),
+/// swaps the composer's label to "Edit message", and shows the "Cancel
+/// edit" button in place of "Add attachment" - editing an existing message
+/// can't also attach new media, and hiding that button puts "Cancel edit"
+/// right after the field in tab order (forward *and* shift+tab both reach
+/// it in one step, mirroring the single-line edit dialog this replaced).
+pub(crate) fn begin_edit_message(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	message_id: String,
+	text: String,
+) {
+	let mut s = state.borrow_mut();
+	s.editing_message_id = Some(message_id);
+	s.editing_message_original_text = Some(text.clone());
+	drop(s);
+	let field = &parts.conversations_parts.message_field;
+	field.set_value(&text);
+	field.set_selection(0, text.chars().count() as i64);
+	parts.conversations_parts.message_label.set_label("Edit message");
+	parts.conversations_parts.add_attachment_btn.show(false);
+	parts.conversations_parts.cancel_edit_btn.show(true);
+	parts.conversations_parts.conversation_panel.layout();
+	field.set_focus();
+	live_region::announce(
+		parts.conversations_parts.messages_announcer.clone(),
+		"Editing message. Press Enter to save, Escape to cancel.",
+	);
+}
+
+/// Restores the composer to its normal (not editing) state - shared by
+/// `cancel_edit` and `edit_message` (once the edit is sent, the composer
+/// goes back to normal too), so the two only ever agree on what
+/// "not editing" looks like in one place.
+fn end_edit_mode(parts: &Rc<WindowParts>) {
 	parts.conversations_parts.message_field.set_value("");
 	parts.conversations_parts.cancel_edit_btn.show(false);
+	parts.conversations_parts.add_attachment_btn.show(true);
+	parts.conversations_parts.message_label.set_label("Type a message");
 	parts.conversations_parts.conversation_panel.layout();
 	parts.conversations_parts.message_field.set_focus();
 }
@@ -94,24 +142,43 @@ pub(crate) fn forward_message(
 	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Message forwarded.");
 }
 
+/// Saves an edit typed into the composer's edit mode. A trimmed-empty or
+/// unchanged-from-original result is treated as an implicit Cancel (matching
+/// the single-line edit dialog this replaced, which just closed with no
+/// action for either) rather than sent as a no-op edit.
 pub(crate) fn edit_message(
 	state: &Rc<RefCell<AppState>>,
-	_parts: &Rc<WindowParts>,
+	parts: &Rc<WindowParts>,
 	message_id: String,
 	new_text: String,
 ) {
-	let jid = state.borrow().selected_chat.clone();
-	if let Some(jid) = jid {
-		let payload = serde_json::json!({
-			"action": "edit_message",
-			"data": {
-				"jid": jid,
-				"message_id": message_id,
-				"new_text": new_text
-			}
-		});
-		let _ = state.borrow().ws_tx.send(payload.to_string());
-	}
+	let new_text = new_text.trim().to_string();
+	let mut s = state.borrow_mut();
+	let original = s.editing_message_original_text.take();
+	s.editing_message_id = None;
+	let jid = s.selected_chat.clone();
+	drop(s);
+
+	let announcement = if new_text.is_empty() {
+		"Editing cancelled - message can't be empty."
+	} else if original.as_deref() == Some(new_text.as_str()) {
+		"Editing cancelled - no changes made."
+	} else {
+		if let Some(jid) = jid {
+			let payload = serde_json::json!({
+				"action": "edit_message",
+				"data": {
+					"jid": jid,
+					"message_id": message_id,
+					"new_text": new_text
+				}
+			});
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		"Message edited."
+	};
+	end_edit_mode(parts);
+	live_region::announce(parts.conversations_parts.messages_announcer.clone(), announcement);
 }
 
 pub(crate) fn delete_message(

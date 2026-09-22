@@ -64,6 +64,14 @@ pub enum UiCommand {
 	SaveMediaAs,
 	CancelEdit,
 	RemoveQuote,
+	/// Puts the composer into edit mode for an existing message: fills
+	/// `message_field` with its current text instead of opening a separate
+	/// dialog. Saving (Enter, or the Send button) while in this mode sends
+	/// `EditMessage` instead of a new `SendMessage`.
+	BeginEditMessage {
+		message_id: String,
+		text: String,
+	},
 	EditMessage {
 		message_id: String,
 		new_text: String,
