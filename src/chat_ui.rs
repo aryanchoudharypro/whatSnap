@@ -229,6 +229,15 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	s.loading_messages = false;
 	s.no_more_messages = false;
 	s.history_loading = false;
+	// Not resolving the outgoing chat's own pending phone-history wait here
+	// (e.g. marking it complete) - switching away mid-wait tells us nothing
+	// about whether that chat actually has more history, so leaving it
+	// unresolved (rather than guessing) just means asking again if the user
+	// scrolls to its top a second time. `completed_history_chats` is keyed
+	// by jid and untouched here, so a chat already known exhausted stays
+	// that way across switches.
+	s.phone_history_pending_jid = None;
+	s.phone_history_deadline = None;
 	s.pending_attachments.clear();
 	// Selection mode's row list is tied to the chat it was built from -
 	// switching chats mid-selection would leave it pointing at messages that
@@ -260,7 +269,13 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
 	parts.conversations_parts.panel.layout();
-	let limit = 9999999;
+	// A bounded initial page, not the whole chat: fetching/rendering all of a
+	// chat's history up front (previously `limit: 9999999`) is what made
+	// opening a chat with tens of thousands of messages take several
+	// seconds. Older messages page in on demand via `load_more_messages`
+	// (scrolling to the top), same as it already did for phone-side history
+	// beyond what's stored locally.
+	let limit = crate::MESSAGE_PAGE_SIZE;
 	let payload = serde_json::json!({
 		"action": "get_messages",
 		"data": { "jid": jid, "limit": limit, "offset": 0 }

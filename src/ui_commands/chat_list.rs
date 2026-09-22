@@ -241,20 +241,50 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 		eprintln!("[LOG UI] Request already in flight for chat, skipping duplicate trigger");
 		return;
 	}
-	if let Some(ref jid) = s.selected_chat.clone() {
-		if s.completed_history_chats.contains(jid) {
-			eprintln!("[LOG UI] All available history already loaded for chat {}, skipping request", jid);
-			return;
-		}
-		s.history_loading = true;
-		eprintln!("[LOG UI] Reached top of chat! Requesting older history from phone for: {}", jid);
-		let oldest_msg_id = s.messages.first().map(|m| m.id.clone()).unwrap_or_default();
+	let jid = match s.selected_chat.clone() {
+		Some(jid) => jid,
+		None => return,
+	};
+	if s.completed_history_chats.contains(&jid) {
+		eprintln!("[LOG UI] All available history already loaded for chat {}, skipping request", jid);
+		return;
+	}
+	s.history_loading = true;
+	if s.no_more_messages {
+		// Already know the local database has nothing older for this chat (a
+		// previous page came back short) - go straight to the phone instead
+		// of paying for another empty local query.
+		request_phone_history_sync(&mut s, &jid);
+	} else {
+		let offset = whantv::real_message_count(&s.messages) as i32;
+		eprintln!("[LOG UI] Reached top of chat! Requesting next local page for {} at offset {}", jid, offset);
 		let payload = serde_json::json!({
-			"action": "request_history_sync",
-			"data": { "jid": jid, "message_id": oldest_msg_id, "count": 50 }
+			"action": "get_messages",
+			"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": offset }
 		});
 		let _ = s.ws_tx.send(payload.to_string());
 	}
+}
+
+/// Asks the phone for WhatsApp history older than what's in the local
+/// database, once local pagination (`get_messages` with a growing `offset`)
+/// has come back short for the open chat. Arms `phone_history_deadline` so
+/// the app stops waiting - and stops asking again for this jid - if the
+/// phone never answers (see `PHONE_HISTORY_TIMEOUT_SECS`). The actual
+/// messages, if any, arrive later as a "history_sync" event handled in
+/// `websocket_events`, which re-queries the same local offset rather than
+/// reloading the whole chat.
+pub(crate) fn request_phone_history_sync(s: &mut AppState, jid: &str) {
+	eprintln!("[LOG UI] Requesting older history from phone for: {}", jid);
+	let oldest_msg_id = s.messages.first().map(|m| m.id.clone()).unwrap_or_default();
+	s.phone_history_pending_jid = Some(jid.to_string());
+	s.phone_history_deadline =
+		Some(std::time::Instant::now() + std::time::Duration::from_secs(crate::PHONE_HISTORY_TIMEOUT_SECS));
+	let payload = serde_json::json!({
+		"action": "request_history_sync",
+		"data": { "jid": jid, "message_id": oldest_msg_id, "count": 50 }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
 }
 
 pub(crate) fn search_in_conversation(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, query: String) {
@@ -311,10 +341,9 @@ pub(crate) fn close_search(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	parts.conversations_parts.search_panel.show(false);
 	parts.conversations_parts.search_conv_field.set_value("");
 	if let Some(jid) = state.borrow().selected_chat.clone() {
-		let limit = 9999999;
 		let payload = serde_json::json!({
 			"action": "get_messages",
-			"data": { "jid": jid, "limit": limit, "offset": 0 }
+			"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
 	}
@@ -333,15 +362,18 @@ pub(crate) fn jump_to_search_result(
 	{
 		let mut s = state.borrow_mut();
 		if !message_id.is_empty() {
-			s.search_target_id = Some(message_id);
+			s.search_target_id = Some(message_id.clone());
 		} else if !message_text.is_empty() {
-			s.search_target_text = Some(message_text);
+			s.search_target_text = Some(message_text.clone());
 		}
 		if let Some(jid) = s.selected_chat.clone() {
-			let limit = 9999999;
+			// Fetches a bounded window of local history centered on the target
+			// message instead of the whole chat - the existing
+			// `search_target_id`/`search_target_text` handling above finds it
+			// within whatever page comes back, same as it always has.
 			let payload = serde_json::json!({
-				"action": "get_messages",
-				"data": { "jid": jid, "limit": limit, "offset": 0 }
+				"action": "get_messages_around",
+				"data": { "jid": jid, "messageId": message_id, "text": message_text }
 			});
 			let _ = s.ws_tx.send(payload.to_string());
 		}
