@@ -836,6 +836,9 @@ pub fn bind_input_handlers(
 	// `show_tray_icon` setting, reconciled below and whenever Settings is saved.
 	let tray_icon = parts.tray_icon.clone();
 	let tray_bitmap = theme::build_app_icon(32);
+	// Whether an Enter release still to come has already been dealt with, so
+	// the chat list mustn't open a chat on it. See its uses on the chat list.
+	let enter_release_handled = Rc::new(std::cell::Cell::new(false));
 
 	let tray_open_id = 5001;
 	let tray_exit_id = 5002;
@@ -845,11 +848,11 @@ pub fn bind_input_handlers(
 		.build();
 	let frame_tray_menu = parts.frame;
 	let tx_tray_menu = ui_tx.clone();
+	let guard_tray_menu = enter_release_handled.clone();
 	tray_icon.on_menu(move |event| {
 		let id = event.get_id();
 		if id == tray_open_id {
-			frame_tray_menu.show(true);
-			frame_tray_menu.iconize(false);
+			crate::tray::restore_main_window(&frame_tray_menu, &guard_tray_menu);
 			let _ = tx_tray_menu.send(UiCommand::SetPresence(true));
 		} else if id == tray_exit_id {
 			// Closing just the main frame doesn't end the app on its own: wx only
@@ -868,25 +871,14 @@ pub fn bind_input_handlers(
 	tray_icon.set_popup_menu(&mut tray_menu);
 	std::mem::forget(tray_menu);
 
-	let frame_tray_restore = parts.frame;
-	let tx_tray_restore = ui_tx.clone();
-	tray_icon.on_left_double_click(move |_| {
-		frame_tray_restore.show(true);
-		frame_tray_restore.iconize(false);
-		frame_tray_restore.raise();
-		let _ = tx_tray_restore.send(UiCommand::SetPresence(true));
-	});
-
-	// A single left click also restores the window — this is what Explorer
-	// sends when the icon is "selected" via keyboard (Tab to it, then press
-	// Space/Enter) or touch, not a double-click, so without this the tray
-	// icon only responds to its context menu from the keyboard.
+	// A click on the icon, or Space/Enter on it from the keyboard, restores the
+	// window. See `tray::enable_keyboard_select` for why this isn't wx's
+	// on_left_up.
 	let frame_tray_select = parts.frame;
 	let tx_tray_select = ui_tx.clone();
-	tray_icon.on_left_up(move |_| {
-		frame_tray_select.show(true);
-		frame_tray_select.iconize(false);
-		frame_tray_select.raise();
+	let guard_tray_select = enter_release_handled.clone();
+	crate::tray::set_on_select(move || {
+		crate::tray::restore_main_window(&frame_tray_select, &guard_tray_select);
 		let _ = tx_tray_select.send(UiCommand::SetPresence(true));
 	});
 
@@ -910,6 +902,7 @@ pub fn bind_input_handlers(
 					&s.settings.archived_alert_levels,
 				);
 				tray_icon.set_icon(&tray_bitmap, &whantv::tray_tooltip_text(unread));
+				crate::tray::enable_keyboard_select();
 			} else {
 				tray_icon.remove_icon();
 			}
@@ -946,6 +939,11 @@ pub fn bind_input_handlers(
 			let logged_in = state_close.borrow().main_ui_shown;
 			if logged_in && ev.can_veto() && tray_icon_close.is_icon_installed() {
 				ev.veto();
+				// Minimizing first makes Windows hand activation to the next
+				// app, and takes the frame's owned windows down with it. A bare
+				// hide can leave keyboard focus inside the now-hidden window, so
+				// its controls stay reachable.
+				frame_close.iconize(true);
 				frame_close.show(false);
 				let _ = tx_close.send(UiCommand::WindowHidden);
 			} else {
@@ -2134,7 +2132,8 @@ pub fn bind_input_handlers(
 	// already opened the chat itself, and clears it for any other key, so a menu
 	// dismissed with the mouse (no key-up follows at all) can't leave it armed to
 	// swallow a later numpad Enter, which only ever opens from key-up.
-	let enter_release_handled = Rc::new(std::cell::Cell::new(false));
+	// (`enter_release_handled` is defined above the tray icon handlers, which
+	// arm it too.)
 
 	// Menu-bar items (Reconnect Now, Mute Chat, ...) close on Enter's key-down
 	// just like the context menu, so their release hits the list too. Arm the
