@@ -8,14 +8,19 @@ rust-version = "1.88.0"
 anyhow = "1.0.102"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.150", features = ["raw_value"] }
-wxdragon = "0.9.19"
+# All of wxdragon's optional wxWidgets parts are switched off
+# (default-features = false): no printing, TIFF/JPEG/GIF/XPM/... image
+# handlers, regex, Tango art icons or asserts. whaNTV builds every bitmap from
+# raw pixels and uses none of them; add a feature back here if something new
+# needs it. The source is pinned below in [patch.crates-io].
+wxdragon = { version = "0.9", default-features = false }
 qrcode = "0.14.1"
 # Only used to encode the pairing QR code as a PNG. Default features pull in
 # every format the crate supports, including rav1e (a full AV1 encoder), EXR,
 # WebP, TIFF and GIF - 63 crates that are compiled and then dead-stripped.
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 base64 = "0.22.1"
-live-region = "0.2.0"
+live-region = "0.3.0"
 rodio = { version = "0.22.2", features = ["default", "symphonia-vorbis", "symphonia-all"] }
 rodio-wsola = "0.2.0"
 hound = "3.5.1"
@@ -45,3 +50,13 @@ codegen-units = 1
 [build-dependencies]
 embed-manifest = "1.5.0"
 winres = "0.1.12"
+
+# wxDragon at the commit with AllenDang/wxDragon#225 (the wx-* features that
+# make the binary smaller) and #224. live-region is patched too, to a local
+# copy of 0.3.0 whose only change is `default-features = false` on wxdragon:
+# Cargo unions features across the graph, so its plain `wxdragon = "0.9.21"`
+# would switch every wx-* feature back on.
+[patch.crates-io]
+wxdragon = { git = "https://github.com/AllenDang/wxDragon", rev = "155b82700c92bb0610c63474779e4abf4b4723af" }
+wxdragon-sys = { git = "https://github.com/AllenDang/wxDragon", rev = "155b82700c92bb0610c63474779e4abf4b4723af" }
+live-region = { path = "patches/live-region" }

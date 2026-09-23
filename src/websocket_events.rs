@@ -694,7 +694,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.call_answer_deadline = None;
 								parts.call_parts.frame.show(false);
 								stop_call_ringing_sound(&mut s);
-								play_call_fail_sound(&mut s);
+								let reason = data.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+								// The person we called is on another call: WhatsApp
+								// plays its busy tone instead of the hang-up sound.
+								if reason == "busy" && s.incoming_call_caller.is_none() {
+									crate::audio::play_busy_tone(&mut s);
+								} else {
+									play_call_fail_sound(&mut s);
+								}
 								// Still set here means an incoming call stopped ringing
 								// without being answered here. A plain missed call stays
 								// silent; one picked up or declined on another device
@@ -703,7 +710,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								// above, so this goes to the main window's announcer.
 								let summary = data.get("summary").and_then(|s| s.as_str()).unwrap_or("");
 								if s.incoming_call_caller.take().is_none() {
-									announce_call(parts, "Call ended.");
+									announce_call(
+										parts,
+										if reason == "busy" { "Busy, on another call." } else { "Call ended." },
+									);
 								} else if summary.contains("on another device") {
 									announce_call(parts, &format!("{}.", summary));
 								}

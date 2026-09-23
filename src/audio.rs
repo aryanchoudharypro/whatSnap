@@ -199,6 +199,21 @@ pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
 	state.call_ringing_sink = Some(sink);
 }
 
+/// Plays WhatsApp's busy tone once (four beeps), for a call that ended
+/// because the person was on another call. Stopped with
+/// `stop_call_ringing_sound` like the others.
+pub(crate) fn play_busy_tone(state: &mut AppState) {
+	ensure_audio_stream(state);
+	let Some(ref stream_handle) = state.audio_stream else {
+		eprintln!("[AUDIO] No audio stream available");
+		return;
+	};
+	let sink = Player::connect_new(&stream_handle.mixer());
+	sink.append(crate::ringback::busy_tone());
+	sink.play();
+	state.call_ringing_sink = Some(sink);
+}
+
 pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 	if let Some(sink) = state.call_ringing_sink.take() {
 		sink.pause();
