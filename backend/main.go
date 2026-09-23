@@ -79,6 +79,16 @@ func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	// without it a message we couldn't decrypt is simply lost.
 	c.AutomaticMessageRerequestFromPhone = true
 	c.UseRetryMessageStore = true
+	// Keeps each decrypted message's plaintext until it has been handled.
+	// Without it, closing whaNTV between decrypting a message (which advances
+	// the Signal session for good) and acking it meant the server redelivered
+	// it on the next connect, it no longer decrypted, and it was dropped.
+	c.EnableDecryptedEventBuffer = true
+	// Official clients attach a message secret and a <reporting> token to
+	// every message they send (whatsapp-rust always does too), and receivers
+	// validate it - WA Web reports a MISSING_MESSAGE_SECRET failure for one
+	// without. whatsmeow leaves both off unless this is set.
+	c.SendReportingTokens = true
 	c.EmitAppStateEventsOnFullSync = true
 	// Deliberately not SetForceActiveDeliveryReceipts: whatsmeow's default
 	// sends ordinary delivery receipts only while we're marked available and
@@ -217,12 +227,16 @@ func main() {
 	}
 	removeOrphanedDeviceRows()
 
-	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
+	// UWP is what WA Web itself sends when it runs as the Windows app (the
+	// WebView2 wrapper, WAWebEnvironment.isWindows) - the same branch that
+	// turns on RequireFullSync and the phone's history-length choice below.
+	// Only sent in the registration payload, so it takes effect on the next
+	// link, never on an existing session.
+	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_UWP.Enum()
 	store.DeviceProps.Os = proto.String("Windows")
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)
-	store.DeviceProps.HistorySyncConfig.SupportAddOnHistorySyncMigration = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(3650)
 	store.DeviceProps.HistorySyncConfig.FullSyncSizeMbLimit = proto.Uint32(50000)
 	store.DeviceProps.HistorySyncConfig.StorageQuotaMb = proto.Uint32(102400)
@@ -234,6 +248,13 @@ func main() {
 	store.DeviceProps.HistorySyncConfig.SupportHostedGroupMsg = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportMessageAssociation = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportGroupHistory = proto.Bool(true)
+	// The rest of WA Web's static capability claims (WAWebClientPayload, per
+	// whatsapp-rust's default_history_sync_config). It does not claim
+	// SupportAddOnHistorySyncMigration, so neither do we.
+	store.DeviceProps.HistorySyncConfig.SupportRecentSyncChunkMessageCountTuning = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportFbidBotChatHistory = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportManusHistory = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportHatchHistory = proto.Bool(true)
 
 
 	deviceStore, err := container.GetFirstDevice(context.Background())

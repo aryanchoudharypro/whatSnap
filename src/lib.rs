@@ -651,17 +651,22 @@ impl ChatMessage {
 	}
 }
 
+/// Test helper: wraps plain messages as the shared `Msg`s the list code takes.
+#[cfg(test)]
+fn rc(msgs: &[ChatMessage]) -> Vec<Msg> {
+	msgs.iter().cloned().map(Msg::new).collect()
+}
+
+/// A loaded message, shared between the open chat's message list and the
+/// display items grouped from it rather than copied into both: a whole chat
+/// can be tens of thousands of messages, and the second copy was tens of MB.
+/// Code that changes a message goes through `Rc::make_mut`.
+pub type Msg = std::rc::Rc<ChatMessage>;
+
 #[derive(Clone, Debug)]
 pub enum DisplayItem {
-	Single(ChatMessage),
-	Album {
-		id: String,
-		sender_jid: String,
-		sender_name: String,
-		from_me: bool,
-		timestamp: i64,
-		messages: Vec<ChatMessage>,
-	},
+	Single(Msg),
+	Album { id: String, sender_jid: String, sender_name: String, from_me: bool, timestamp: i64, messages: Vec<Msg> },
 }
 
 impl DisplayItem {
@@ -678,8 +683,8 @@ impl DisplayItem {
 
 	pub fn messages(&self) -> Vec<ChatMessage> {
 		match self {
-			DisplayItem::Single(msg) => vec![msg.clone()],
-			DisplayItem::Album { messages, .. } => messages.clone(),
+			DisplayItem::Single(msg) => vec![(**msg).clone()],
+			DisplayItem::Album { messages, .. } => messages.iter().map(|m| (**m).clone()).collect(),
 		}
 	}
 
@@ -912,22 +917,22 @@ pub fn validate_poll(question: &str, options_text: &str) -> Result<Vec<String>, 
 /// (not an audio file). Anything else in between - text, a photo, a call row -
 /// ends the run. Date and unread dividers are ours, not messages, so they're
 /// looked past.
-pub fn next_sequential_voice<'a>(messages: &'a [ChatMessage], current_id: &str) -> Option<&'a ChatMessage> {
+pub fn next_sequential_voice<'a>(messages: &'a [Msg], current_id: &str) -> Option<&'a ChatMessage> {
 	let pos = messages.iter().position(|m| m.id == current_id)?;
-	let next = messages[pos + 1..].iter().find(|m| !m.is_date_divider && !m.is_unread_divider)?;
+	let next: &ChatMessage = messages[pos + 1..].iter().find(|m| !m.is_date_divider && !m.is_unread_divider)?;
 	let is_voice_note = next.media_type == "voice" || next.text.starts_with("[Voice Message]");
 	(is_voice_note && !next.is_deleted).then_some(next)
 }
 
-pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<DisplayItem> {
+pub fn group_messages_into_display_items(messages: &[Msg]) -> Vec<DisplayItem> {
 	let mut items = Vec::with_capacity(messages.len());
-	let mut current_album: Vec<ChatMessage> = Vec::new();
+	let mut current_album: Vec<Msg> = Vec::new();
 
 	// Turns the album accumulated so far into an item and hands the buffer back
 	// empty. Takes ownership of the run rather than cloning it: the old code
 	// cloned `current_album` into the Album and then immediately overwrote or
 	// cleared it, so every album's messages were allocated twice.
-	fn flush(current_album: &mut Vec<ChatMessage>, items: &mut Vec<DisplayItem>) {
+	fn flush(current_album: &mut Vec<Msg>, items: &mut Vec<DisplayItem>) {
 		match current_album.len() {
 			0 => {}
 			1 => items.push(DisplayItem::Single(current_album.remove(0))),
@@ -975,6 +980,55 @@ pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<Displa
 	items
 }
 
+/// The smallest change that turns the displayed rows `old` into `new` after an
+/// older page was prepended: drop `remove_leading` rows from the top, then
+/// insert `new[..insert]` there. The row `old[remove_leading]` ends up at
+/// index `insert`.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PrependPlan {
+	pub remove_leading: usize,
+	pub insert: usize,
+}
+
+fn is_date_divider_item(item: &DisplayItem) -> bool {
+	matches!(item, DisplayItem::Single(m) if m.is_date_divider)
+}
+
+/// Works out a [`PrependPlan`], or `None` when `new` isn't just `old` with older
+/// rows added on top (an album spanning the seam regrouped, say) and the list
+/// has to be rebuilt.
+///
+/// The seam is the reason this can't just compare tails: `old` always starts
+/// with the date divider for its oldest day, and when the older page ends on
+/// that same day, `rebuild_date_dividers` moves the divider up above the new
+/// page's messages. Matching whole tails failed on that for almost every page,
+/// so each one cleared and re-added every row loaded so far.
+pub fn prepend_plan(old: &[DisplayItem], new: &[DisplayItem]) -> Option<PrependPlan> {
+	// Only date dividers may sit above the first real row being kept.
+	let old_first_real = old.iter().position(|d| !is_date_divider_item(d))?;
+	if old[..old_first_real].iter().any(|d| !is_date_divider_item(d)) {
+		return None;
+	}
+	let anchor = old[old_first_real].id();
+	if anchor.is_empty() {
+		return None;
+	}
+	let k = new.iter().position(|d| d.id() == anchor)?;
+	let tail_matches = new.len() - k == old.len() - old_first_real
+		&& new[k..].iter().zip(&old[old_first_real..]).all(|(a, b)| a.id() == b.id());
+	if !tail_matches {
+		return None;
+	}
+	// The divider right above the anchor is the same day's either way - keep
+	// the one already on screen rather than removing and re-adding it.
+	let plan = if old_first_real > 0 && k > 0 && is_date_divider_item(&new[k - 1]) {
+		PrependPlan { remove_leading: old_first_real - 1, insert: k - 1 }
+	} else {
+		PrependPlan { remove_leading: old_first_real, insert: k }
+	};
+	(plan.insert > 0).then_some(plan)
+}
+
 /// Strips every existing date-divider row from `messages` and reinserts fresh
 /// ones on each calendar-day transition, in one pass over the whole list.
 ///
@@ -991,7 +1045,7 @@ pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<Displa
 /// `is_unread_divider` rows are left in place and untouched, and don't count
 /// as a "message" for day-transition purposes (their timestamp is 0, not a
 /// real send time).
-pub fn rebuild_date_dividers(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
+pub fn rebuild_date_dividers(messages: Vec<Msg>) -> Vec<Msg> {
 	let mut out = Vec::with_capacity(messages.len());
 	let mut last_date: Option<chrono::NaiveDate> = None;
 	for msg in messages.into_iter().filter(|m| !m.is_date_divider) {
@@ -1001,12 +1055,12 @@ pub fn rebuild_date_dividers(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
 				let day = date_key(local_datetime);
 				if last_date != Some(day) {
 					last_date = Some(day);
-					out.push(ChatMessage {
+					out.push(Msg::new(ChatMessage {
 						text: format_date_divider_label(local_datetime),
 						timestamp: msg.timestamp,
 						is_date_divider: true,
 						..Default::default()
-					});
+					}));
 				}
 			}
 		}
@@ -1027,14 +1081,26 @@ pub fn rebuild_date_dividers(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
 /// from. Paging by position instead of by offset means a message arriving in
 /// between two pages can't shift what the next one returns, and it still works
 /// for a window opened around a search hit in the middle of a chat.
-pub fn oldest_message_cursor(messages: &[ChatMessage]) -> Option<(i64, String)> {
+pub fn oldest_message_cursor<M: std::ops::Deref<Target = ChatMessage>>(messages: &[M]) -> Option<(i64, String)> {
 	messages
 		.iter()
 		.find(|m| !m.is_date_divider && !m.is_unread_divider && !m.id.is_empty())
 		.map(|m| (m.timestamp, m.id.clone()))
 }
 
-pub fn real_message_count(messages: &[ChatMessage]) -> usize {
+/// The newest real message loaded, as the `(after_timestamp, after_id)` cursor
+/// the next newer page is requested from - the mirror of
+/// [`oldest_message_cursor`] for a window that stops short of the latest
+/// message.
+pub fn newest_message_cursor<M: std::ops::Deref<Target = ChatMessage>>(messages: &[M]) -> Option<(i64, String)> {
+	messages
+		.iter()
+		.rev()
+		.find(|m| !m.is_date_divider && !m.is_unread_divider && !m.id.is_empty())
+		.map(|m| (m.timestamp, m.id.clone()))
+}
+
+pub fn real_message_count<M: std::ops::Deref<Target = ChatMessage>>(messages: &[M]) -> usize {
 	messages.iter().filter(|m| !m.is_date_divider && !m.is_unread_divider).count()
 }
 
@@ -1042,7 +1108,7 @@ pub fn real_message_count(messages: &[ChatMessage]) -> usize {
 /// (real) messages in `messages`, e.g. to mark where messages that arrived
 /// while the chat was open but unread pick up. No-op if `count` is 0 or
 /// exceeds the number of real messages present.
-pub fn insert_unread_divider(messages: &mut Vec<ChatMessage>, count: u64) {
+pub fn insert_unread_divider(messages: &mut Vec<Msg>, count: u64) {
 	let n = count as usize;
 	if n == 0 {
 		return;
@@ -1067,7 +1133,7 @@ pub fn insert_unread_divider(messages: &mut Vec<ChatMessage>, count: u64) {
 		})
 		.unwrap_or(messages.len());
 	let label = if n == 1 { "1 unread message".to_string() } else { format!("{} unread messages", n) };
-	messages.insert(insert_at, ChatMessage { text: label, is_unread_divider: true, ..Default::default() });
+	messages.insert(insert_at, Msg::new(ChatMessage { text: label, is_unread_divider: true, ..Default::default() }));
 }
 
 /// How much noise an archived chat may make when a message arrives in it.
@@ -1459,7 +1525,7 @@ mod tests {
 	#[test]
 	fn grouping_keeps_lone_media_and_plain_text_as_singles() {
 		let msgs = vec![text("a", "hi"), media("b", "", "x@s.whatsapp.net", 100), text("c", "bye")];
-		assert_eq!(ids(&group_messages_into_display_items(&msgs)), vec![vec!["a"], vec!["b"], vec!["c"]]);
+		assert_eq!(ids(&group_messages_into_display_items(&rc(&msgs))), vec![vec!["a"], vec!["b"], vec!["c"]]);
 	}
 
 	#[test]
@@ -1469,7 +1535,7 @@ mod tests {
 			media("b", "alb1", "x@s.whatsapp.net", 101),
 			media("c", "alb1", "x@s.whatsapp.net", 102),
 		];
-		let items = group_messages_into_display_items(&msgs);
+		let items = group_messages_into_display_items(&rc(&msgs));
 		assert_eq!(ids(&items), vec![vec!["a", "b", "c"]]);
 		// The album's identity comes from its first message.
 		match &items[0] {
@@ -1493,7 +1559,7 @@ mod tests {
 			media("f", "alb3", "x@s.whatsapp.net", 200),
 		];
 		assert_eq!(
-			ids(&group_messages_into_display_items(&msgs)),
+			ids(&group_messages_into_display_items(&rc(&msgs))),
 			vec![vec!["a", "b"], vec!["c", "d"], vec!["e"], vec!["f"]]
 		);
 	}
@@ -1506,13 +1572,13 @@ mod tests {
 			media("b", "", "x@s.whatsapp.net", 105),
 			media("c", "", "x@s.whatsapp.net", 200),
 		];
-		assert_eq!(ids(&group_messages_into_display_items(&msgs)), vec![vec!["a", "b"], vec!["c"]]);
+		assert_eq!(ids(&group_messages_into_display_items(&rc(&msgs))), vec![vec!["a", "b"], vec!["c"]]);
 	}
 
 	#[test]
 	fn grouping_never_merges_across_senders() {
 		let msgs = vec![media("a", "", "x@s.whatsapp.net", 100), media("b", "", "y@s.whatsapp.net", 101)];
-		assert_eq!(ids(&group_messages_into_display_items(&msgs)), vec![vec!["a"], vec!["b"]]);
+		assert_eq!(ids(&group_messages_into_display_items(&rc(&msgs))), vec![vec!["a"], vec!["b"]]);
 	}
 
 	#[test]
@@ -1579,8 +1645,8 @@ mod sequential_voice_tests {
 	#[test]
 	fn plays_the_voice_note_straight_after() {
 		let m = vec![msg("a", "[Voice Message] (0:05)", "voice"), msg("b", "[Voice Message] (0:03)", "voice")];
-		assert_eq!(next_sequential_voice(&m, "a").map(|m| m.id.as_str()), Some("b"));
-		assert!(next_sequential_voice(&m, "b").is_none());
+		assert_eq!(next_sequential_voice(&rc(&m), "a").map(|m| m.id.as_str()), Some("b"));
+		assert!(next_sequential_voice(&rc(&m), "b").is_none());
 	}
 
 	#[test]
@@ -1590,7 +1656,7 @@ mod sequential_voice_tests {
 			msg("t", "ok", ""),
 			msg("b", "[Voice Message] (0:03)", "voice"),
 		];
-		assert!(next_sequential_voice(&m, "a").is_none());
+		assert!(next_sequential_voice(&rc(&m), "a").is_none());
 	}
 
 	#[test]
@@ -1598,9 +1664,9 @@ mod sequential_voice_tests {
 		let mut deleted = msg("d", "[Voice Message] (0:03)", "voice");
 		deleted.is_deleted = true;
 		let m = vec![msg("a", "[Voice Message] (0:05)", "voice"), msg("f", "[Audio] (3:10)", "audio")];
-		assert!(next_sequential_voice(&m, "a").is_none());
+		assert!(next_sequential_voice(&rc(&m), "a").is_none());
 		let m = vec![msg("a", "[Voice Message] (0:05)", "voice"), deleted];
-		assert!(next_sequential_voice(&m, "a").is_none());
+		assert!(next_sequential_voice(&rc(&m), "a").is_none());
 	}
 
 	#[test]
@@ -1613,7 +1679,7 @@ mod sequential_voice_tests {
 			unread,
 			msg("b", "[Voice Message] (0:03)", "voice"),
 		];
-		assert_eq!(next_sequential_voice(&m, "a").map(|m| m.id.as_str()), Some("b"));
+		assert_eq!(next_sequential_voice(&rc(&m), "a").map(|m| m.id.as_str()), Some("b"));
 	}
 }
 
@@ -1647,5 +1713,64 @@ mod call_row_tests {
 			assert!(msg.is_call(), "{body} should parse as a call row");
 			assert_eq!(msg.text, "Missed voice call");
 		}
+	}
+}
+
+#[cfg(test)]
+mod prepend_plan_tests {
+	use super::*;
+
+	fn msg(id: &str) -> DisplayItem {
+		DisplayItem::Single(Msg::new(ChatMessage { id: id.to_string(), text: id.to_string(), ..Default::default() }))
+	}
+
+	fn day(label: &str) -> DisplayItem {
+		DisplayItem::Single(Msg::new(ChatMessage {
+			text: label.to_string(),
+			is_date_divider: true,
+			..Default::default()
+		}))
+	}
+
+	#[test]
+	fn older_page_ending_on_an_earlier_day_keeps_the_old_divider() {
+		let old = vec![day("Tue"), msg("c"), msg("d")];
+		let new = vec![day("Mon"), msg("a"), msg("b"), day("Tue"), msg("c"), msg("d")];
+		assert_eq!(prepend_plan(&old, &new), Some(PrependPlan { remove_leading: 0, insert: 3 }));
+	}
+
+	#[test]
+	fn older_page_ending_on_the_same_day_moves_the_divider_up() {
+		// The case the old whole-tail comparison missed on nearly every page.
+		let old = vec![day("Tue"), msg("c"), msg("d")];
+		let new = vec![day("Mon"), msg("a"), day("Tue"), msg("b"), msg("c"), msg("d")];
+		assert_eq!(prepend_plan(&old, &new), Some(PrependPlan { remove_leading: 1, insert: 4 }));
+	}
+
+	#[test]
+	fn applying_the_plan_reproduces_the_new_rows() {
+		let old = vec![day("Tue"), msg("c"), msg("d")];
+		let new = vec![day("Mon"), msg("a"), day("Tue"), msg("b"), msg("c"), msg("d")];
+		let plan = prepend_plan(&old, &new).unwrap();
+		let mut rows: Vec<String> = old.iter().map(|d| d.format_display(false)).collect();
+		rows.drain(..plan.remove_leading);
+		for (i, item) in new[..plan.insert].iter().enumerate() {
+			rows.insert(i, item.format_display(false));
+		}
+		let expected: Vec<String> = new.iter().map(|d| d.format_display(false)).collect();
+		assert_eq!(rows, expected);
+	}
+
+	#[test]
+	fn regrouped_seam_falls_back_to_a_rebuild() {
+		let old = vec![day("Tue"), msg("c"), msg("d")];
+		let new = vec![day("Tue"), msg("b"), msg("x"), msg("d")];
+		assert_eq!(prepend_plan(&old, &new), None);
+	}
+
+	#[test]
+	fn nothing_new_is_not_a_prepend() {
+		let old = vec![day("Tue"), msg("c")];
+		assert_eq!(prepend_plan(&old, &old.clone()), None);
 	}
 }

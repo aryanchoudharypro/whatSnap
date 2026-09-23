@@ -262,9 +262,52 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 	}
 }
 
+/// Pages in the messages just after the newest one loaded, when the open list
+/// is a window that stops short of the chat's latest message (opened around a
+/// search hit or starred message). Without it, arrowing down from such a hit
+/// ended at the window's edge with newer messages simply missing.
+pub(crate) fn load_newer_messages(state: &Rc<RefCell<AppState>>) {
+	let mut s = state.borrow_mut();
+	if s.messages_at_latest || s.newer_loading {
+		return;
+	}
+	let Some(jid) = s.selected_chat.clone() else { return };
+	let Some((after_ts, after_id)) = whantv::newest_message_cursor(&s.messages) else { return };
+	s.newer_loading = true;
+	let payload = serde_json::json!({
+		"action": "get_messages",
+		"data": {
+			"jid": jid,
+			"limit": crate::MESSAGE_PAGE_SIZE,
+			"after_id": after_id,
+			"after_timestamp": after_ts
+		}
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+}
+
+/// End from a window around a search hit: reload the chat's newest page and
+/// land on its last message, rather than paging forward to it one page at a
+/// time.
+pub(crate) fn jump_to_latest_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	if s.messages_at_latest {
+		return;
+	}
+	let Some(jid) = s.selected_chat.clone() else { return };
+	// Treated as a fresh open, so the reply selects and focuses the last row.
+	s.prev_msg_count = 0;
+	s.newer_loading = true;
+	let payload = serde_json::json!({
+		"action": "get_messages",
+		"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+}
+
 /// The `get_messages` request for the page just before the oldest message
 /// loaded (see `whantv::oldest_message_cursor`).
-pub(crate) fn older_page_request(messages: &[whantv::ChatMessage], jid: &str) -> serde_json::Value {
+pub(crate) fn older_page_request(messages: &[whantv::Msg], jid: &str) -> serde_json::Value {
 	let (before_ts, before_id) = whantv::oldest_message_cursor(messages).unwrap_or_default();
 	serde_json::json!({
 		"action": "get_messages",
@@ -288,7 +331,10 @@ pub(crate) fn older_page_request(messages: &[whantv::ChatMessage], jid: &str) ->
 /// reloading the whole chat.
 pub(crate) fn request_phone_history_sync(s: &mut AppState, jid: &str) {
 	eprintln!("[LOG UI] Requesting older history from phone for: {}", jid);
-	let oldest_msg_id = s.messages.first().map(|m| m.id.clone()).unwrap_or_default();
+	// Not `s.messages.first()`: that's always a date divider, with no ID.
+	// The backend picks the actual anchor itself (skipping rows the phone
+	// never sent, like group events); this is only a hint.
+	let oldest_msg_id = whantv::oldest_message_cursor(&s.messages).map(|(_, id)| id).unwrap_or_default();
 	s.phone_history_pending_jid = Some(jid.to_string());
 	s.phone_history_deadline =
 		Some(std::time::Instant::now() + std::time::Duration::from_secs(crate::PHONE_HISTORY_TIMEOUT_SECS));
@@ -379,13 +425,12 @@ pub(crate) fn jump_to_search_result(
 			s.search_target_text = Some(message_text.clone());
 		}
 		if let Some(jid) = s.selected_chat.clone() {
-			// Fetches a bounded window of local history centered on the target
-			// message instead of the whole chat - the existing
-			// `search_target_id`/`search_target_text` handling above finds it
-			// within whatever page comes back, same as it always has.
+			// The whole chat, like opening it: the target is found in it via
+			// `search_target_id`/`search_target_text`, and everything above
+			// and below it is there to arrow through.
 			let payload = serde_json::json!({
-				"action": "get_messages_around",
-				"data": { "jid": jid, "messageId": message_id, "text": message_text }
+				"action": "get_messages",
+				"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
 			});
 			let _ = s.ws_tx.send(payload.to_string());
 		}

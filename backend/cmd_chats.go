@@ -48,6 +48,14 @@ func fetchMessagesPage(jid string, limit, offset int) []MessageJSON {
 }
 
 func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) []MessageJSON {
+	return fetchMessagesPageAt(jid, limit, offset, before, nil)
+}
+
+// fetchMessagesPageAt returns one page of a chat, oldest first. With after
+// set, it's the messages strictly newer than that cursor - paging forward
+// from a window opened around a search hit; otherwise the newest ones (before
+// the before cursor, or skipping offset).
+func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCursor) []MessageJSON {
 	// raw is only needed for the rare voice row stored without a duration;
 	// selecting it unconditionally pulled every row's whole protobuf into
 	// memory just to throw it away.
@@ -59,7 +67,10 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 		FROM messages WHERE jid = ?`
 	var rows *sql.Rows
 	var queryErr error
-	if before != nil {
+	if after != nil {
+		rows, queryErr = db.Query(cols+` AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`,
+			jid, after.Timestamp, after.Timestamp, after.ID, limit)
+	} else if before != nil {
 		rows, queryErr = db.Query(cols+` AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`,
 			jid, before.Timestamp, before.Timestamp, before.ID, limit)
 	} else {
@@ -68,6 +79,21 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 
 	msgs := []MessageJSON{}
 	var ids []string
+	// A whole chat has thousands of rows from a handful of senders; resolving
+	// each row's names from scratch (a contact-store lookup, often a query
+	// too) was most of the cost of loading one.
+	names := map[string]string{}
+	nameFor := func(jidStr string) string {
+		if n, ok := names[jidStr]; ok {
+			return n
+		}
+		n := jidStr
+		if parsed, err := types.ParseJID(jidStr); err == nil {
+			n = resolveDisplayName(parsed)
+		}
+		names[jidStr] = n
+		return n
+	}
 	if queryErr == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -112,9 +138,7 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 
 			senderName := ""
 			if senderJID != "" {
-				if parsedSender, errP := types.ParseJID(senderJID); errP == nil {
-					senderName = resolveDisplayName(parsedSender)
-				}
+				senderName = nameFor(senderJID)
 			}
 			qSenderName := quotedSender
 			if quotedID != "" {
@@ -126,21 +150,21 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 				if origFromMe, origSenderJID, ok := lookupMessageOrigin(quotedID); ok {
 					if origFromMe {
 						qSenderName = "You"
-					} else if parsed, err := types.ParseJID(origSenderJID); err == nil {
-						qSenderName = resolveDisplayName(parsed)
+					} else if _, err := types.ParseJID(origSenderJID); err == nil {
+						qSenderName = nameFor(origSenderJID)
 					}
 				} else if quotedSender != "" {
 					if quotedSender == "me" {
 						qSenderName = "You"
-					} else if parsed, err := types.ParseJID(quotedSender); err == nil {
-						qSenderName = resolveDisplayName(parsed)
+					} else if _, err := types.ParseJID(quotedSender); err == nil {
+						qSenderName = nameFor(quotedSender)
 					}
 				}
 			} else if quotedSender == "me" {
 				qSenderName = "You"
 			} else if quotedSender != "" {
-				if parsed, err := types.ParseJID(quotedSender); err == nil {
-					qSenderName = resolveDisplayName(parsed)
+				if _, err := types.ParseJID(quotedSender); err == nil {
+					qSenderName = nameFor(quotedSender)
 				}
 			}
 			pollResults := ""
@@ -181,8 +205,11 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 		log.Println("Error querying messages:", queryErr)
 	}
 
-	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
-		msgs[i], msgs[j] = msgs[j], msgs[i]
+	if after == nil {
+		// Queried newest first; the page goes out oldest first.
+		for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+			msgs[i], msgs[j] = msgs[j], msgs[i]
+		}
 	}
 	if ids != nil {
 		reactions := getReactionsForMessageIDs(ids)
@@ -203,11 +230,31 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		// Page cursor (see pageCursor): the oldest message already loaded.
 		BeforeID        string `json:"before_id"`
 		BeforeTimestamp int64  `json:"before_timestamp"`
+		// The newest message already loaded, for paging forward from a
+		// window that stops short of the latest message.
+		AfterID        string `json:"after_id"`
+		AfterTimestamp int64  `json:"after_timestamp"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
+		if data.AfterID != "" {
+			limit := data.Limit
+			if limit == 0 {
+				limit = 50
+			}
+			msgs := fetchMessagesPageAt(data.JID, limit, 0, nil, &pageCursor{Timestamp: data.AfterTimestamp, ID: data.AfterID})
+			log.Printf("Got %d newer messages for %s", len(msgs), data.JID)
+			sendEvent(conn, "conversation_messages", map[string]interface{}{
+				"jid":       data.JID,
+				"messages":  msgs,
+				"loadNewer": true,
+				// A short page (or "all") means it reached the newest message.
+				"isLatest": limit < 0 || len(msgs) < limit,
+			})
+			return
+		}
 		var before *pageCursor
 		if data.BeforeID != "" {
 			before = &pageCursor{Timestamp: data.BeforeTimestamp, ID: data.BeforeID}
@@ -218,9 +265,13 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 			broadcastChats()
 		}
 
+		// A negative limit asks for every message (SQLite's LIMIT -1): the
+		// UI loads a whole chat when it's opened.
 		limit := data.Limit
-		if limit <= 0 {
+		if limit == 0 {
 			limit = 50
+		} else if limit < 0 {
+			limit = -1
 		}
 		offset := data.Offset
 		if offset < 0 {
@@ -228,8 +279,9 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		}
 
 		log.Printf("Getting messages for %s (Limit: %d, Offset: %d)", data.JID, limit, offset)
+		start := time.Now()
 		msgs := fetchMessagesPageBefore(data.JID, limit, offset, before)
-		log.Printf("Got %d messages for %s", len(msgs), data.JID)
+		log.Printf("Got %d messages for %s in %s", len(msgs), data.JID, time.Since(start).Round(time.Millisecond))
 		sendEvent(conn, "conversation_messages", map[string]interface{}{
 			"jid":      data.JID,
 			"messages": msgs,
@@ -695,10 +747,21 @@ func handleRequestHistorySync(raw json.RawMessage) {
 		return
 	}
 
-	var senderJID string
+	// The phone answers with what comes before the oldest message it's
+	// told about, so that has to be a real WhatsApp message it knows:
+	// the chat's oldest stored one, skipping the group-event and
+	// call-history rows whaNTV makes up itself. Chosen here rather than
+	// trusting the UI's pick - it used to send its first row, which is
+	// always a date divider with no ID, so the lookup failed and the
+	// request was silently never sent at all.
+	var msgID, senderJID string
 	var fromMe bool
-	err = db.QueryRow("SELECT COALESCE(sender_jid, ''), from_me FROM messages WHERE id = ?", data.MessageID).Scan(&senderJID, &fromMe)
+	var ts int64
+	err = db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), from_me, timestamp FROM messages
+		WHERE jid = ? AND COALESCE(media_type, '') NOT IN ('system', 'call')
+		ORDER BY timestamp ASC, id ASC LIMIT 1`, data.JID).Scan(&msgID, &senderJID, &fromMe, &ts)
 	if err != nil {
+		log.Printf("history sync request for %s: no message to anchor it on: %v", data.JID, err)
 		return
 	}
 
@@ -713,12 +776,61 @@ func handleRequestHistorySync(raw json.RawMessage) {
 			Sender:   sender,
 			IsFromMe: fromMe,
 		},
-		ID: data.MessageID,
+		ID: msgID,
+		// BuildHistorySyncRequest sends this as the anchor's time; left
+		// unset it went out as year 1.
+		Timestamp: time.Unix(ts, 0),
 	}
 
-	req := client.BuildHistorySyncRequest(msgInfo, data.Count)
-
-	if _, sendErr := client.SendPeerMessage(context.Background(), req); sendErr != nil {
-		log.Printf("history sync request for %s failed: %v", data.JID, sendErr)
+	// The UI asks at most once per time a chat is opened. This is the
+	// backstop under that: the same request (same chat, same anchor) is
+	// refused if it was sent moments ago, so a UI bug or a held-down key
+	// can never turn into a stream of identical requests to the phone.
+	var lastAnchor string
+	var lastAt int64
+	if db.QueryRow(`SELECT anchor_id, requested_at FROM history_requests WHERE jid = ?`, data.JID).Scan(&lastAnchor, &lastAt) == nil &&
+		lastAnchor == msgID && time.Since(time.Unix(lastAt, 0)) < historyRequestRepeatAfter {
+		log.Printf("Not re-requesting history for %s: already asked before %s at %s", data.JID, msgID, time.Unix(lastAt, 0).Format(time.RFC3339))
+		broadcastEvent("no_more_history", map[string]string{"jid": data.JID})
+		return
 	}
+	if _, err := db.Exec(`INSERT INTO history_requests (jid, anchor_id, requested_at) VALUES (?, ?, ?)
+		ON CONFLICT(jid) DO UPDATE SET anchor_id = excluded.anchor_id, requested_at = excluded.requested_at`,
+		data.JID, msgID, time.Now().Unix()); err != nil {
+		log.Printf("history sync request for %s: couldn't record it, not sending: %v", data.JID, err)
+		return
+	}
+
+	count := data.Count
+	if count <= 0 || count > 50 {
+		count = 50
+	}
+	log.Printf("Requesting older history for %s before %s (count %d)", data.JID, msgID, count)
+	req := client.BuildHistorySyncRequest(msgInfo, count)
+	go func() {
+		historyRequestMu.Lock()
+		defer historyRequestMu.Unlock()
+		// Spaced out even across different chats, so paging quickly through
+		// many of them can't turn into a burst.
+		if wait := historyRequestMinGap - time.Since(lastHistoryRequest); wait > 0 {
+			time.Sleep(wait)
+		}
+		lastHistoryRequest = time.Now()
+		if _, sendErr := client.SendPeerMessage(context.Background(), req); sendErr != nil {
+			log.Printf("history sync request for %s failed: %v", data.JID, sendErr)
+		}
+	}()
 }
+
+const (
+	// historyRequestRepeatAfter is how long before the same on-demand
+	// history request (same chat, same anchor message) may be sent again.
+	historyRequestRepeatAfter = 10 * time.Second
+	// historyRequestMinGap spaces out on-demand history requests.
+	historyRequestMinGap = 2 * time.Second
+)
+
+var (
+	historyRequestMu   sync.Mutex
+	lastHistoryRequest time.Time
+)

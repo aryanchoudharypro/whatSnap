@@ -67,10 +67,12 @@ use crate::{
 /// can never ring, so it is never recorded and aged-out entries are dropped.
 const SENT_SOUND_WINDOW_SECS: i64 = 20;
 
-/// How many messages a single `get_messages` page request loads: opening a
-/// chat, closing search, and each "scrolled to the top" local page all use
-/// this instead of fetching a chat's entire history in one shot.
-pub const MESSAGE_PAGE_SIZE: i32 = 1000;
+/// How many messages a `get_messages` request loads: -1 is every one. Opening
+/// a chat loads all of its stored history at once, so the only thing left for
+/// Home at the top to do is ask the phone (see `load_more_messages`). Paging
+/// a chat in 1000-message pages made reaching its start a long series of
+/// Home presses, each of which could strand the chat half-loaded.
+pub const MESSAGE_PAGE_SIZE: i32 = -1;
 
 /// How long `load_more_messages` waits for a `history_sync` broadcast
 /// covering an on-demand phone history request before giving up on it (see
@@ -272,7 +274,7 @@ struct AppState {
 	selected_chat: Option<String>,
 	admin_group_jids: std::collections::HashSet<String>,
 	initial_presence_received: bool,
-	messages: Vec<ChatMessage>,
+	messages: Vec<whantv::Msg>,
 	/// Whether `messages` runs right up to the chat's newest message. False
 	/// after jumping to an old search/starred hit (`get_messages_around`),
 	/// where newer messages exist that aren't loaded - live messages for the
@@ -285,6 +287,8 @@ struct AppState {
 	/// paging locally again. Reset per chat switch.
 	no_more_messages: bool,
 	history_loading: bool,
+	/// A newer page (see `load_newer_messages`) is in flight.
+	newer_loading: bool,
 	/// Set while waiting on a `history_sync` broadcast for an on-demand
 	/// phone history request `load_more_messages` sent after
 	/// `no_more_messages` went true. Cleared once that jid's `history_sync`
@@ -320,6 +324,10 @@ struct AppState {
 	/// some unrelated status message it doesn't own.
 	db_growth_status_shown: bool,
 	completed_history_chats: std::collections::HashSet<String>,
+	/// Set while the open chat is being reloaded because history sync just
+	/// wrote messages for it (it was opened before they arrived), so the
+	/// reload fills the list without moving focus off wherever the user is.
+	quiet_reload_jid: Option<String>,
 	prev_msg_count: usize,
 	/// 0 = Conversations, 1 = Status, 2 = Starred Messages, 3 = Archived Chats.
 	active_tab: usize,
@@ -778,6 +786,7 @@ fn main() {
 			loading_messages: false,
 			no_more_messages: false,
 			history_loading: false,
+			newer_loading: false,
 			phone_history_pending_jid: None,
 			phone_history_deadline: None,
 			history_sync_last_update: None,
@@ -786,6 +795,7 @@ fn main() {
 			db_growth_last_seen: None,
 			db_growth_status_shown: false,
 			completed_history_chats: std::collections::HashSet::new(),
+			quiet_reload_jid: None,
 			prev_msg_count: 0,
 			active_tab: 0,
 			starred_entries: Vec::new(),
@@ -1149,6 +1159,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			ui_commands::chat_list::delete_selected_messages(state, parts, for_everyone)
 		}
 		UiCommand::LoadMoreMessages => ui_commands::chat_list::load_more_messages(state, parts),
+		UiCommand::LoadNewerMessages => ui_commands::chat_list::load_newer_messages(state),
+		UiCommand::JumpToLatestMessage => ui_commands::chat_list::jump_to_latest_message(state, parts),
 		UiCommand::SearchInConversation(query) => ui_commands::chat_list::search_in_conversation(state, parts, query),
 		UiCommand::ToggleSearchPanel => ui_commands::chat_list::toggle_search_panel(state, parts),
 		UiCommand::PromptLockedChats => ui_commands::chat_list::prompt_locked_chats(state, parts),

@@ -2921,7 +2921,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 [[package]]
 name = "wxdragon"
 version = "0.9.22"
-source = "git+https://github.com/AllenDang/wxDragon?rev=155b82700c92bb0610c63474779e4abf4b4723af#155b82700c92bb0610c63474779e4abf4b4723af"
+source = "git+https://github.com/aryanchoudharypro/wxDragon?rev=155efd7e9ed31a47c6291271fb285b577a494ba0#155efd7e9ed31a47c6291271fb285b577a494ba0"
 dependencies = [
  "bitflags 2.13.1",
  "log",
@@ -2933,7 +2933,7 @@ dependencies = [
 [[package]]
 name = "wxdragon-macros"
 version = "0.9.22"
-source = "git+https://github.com/AllenDang/wxDragon?rev=155b82700c92bb0610c63474779e4abf4b4723af#155b82700c92bb0610c63474779e4abf4b4723af"
+source = "git+https://github.com/aryanchoudharypro/wxDragon?rev=155efd7e9ed31a47c6291271fb285b577a494ba0#155efd7e9ed31a47c6291271fb285b577a494ba0"
 dependencies = [
  "proc-macro2",
  "quick-xml 0.42.0",
@@ -2944,7 +2944,7 @@ dependencies = [
 [[package]]
 name = "wxdragon-sys"
 version = "0.9.22"
-source = "git+https://github.com/AllenDang/wxDragon?rev=155b82700c92bb0610c63474779e4abf4b4723af#155b82700c92bb0610c63474779e4abf4b4723af"
+source = "git+https://github.com/aryanchoudharypro/wxDragon?rev=155efd7e9ed31a47c6291271fb285b577a494ba0#155efd7e9ed31a47c6291271fb285b577a494ba0"
 dependencies = [
  "bindgen",
  "cmake",

@@ -226,15 +226,14 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	s.loading_messages = false;
 	s.no_more_messages = false;
 	s.history_loading = false;
-	// Not resolving the outgoing chat's own pending phone-history wait here
-	// (e.g. marking it complete) - switching away mid-wait tells us nothing
-	// about whether that chat actually has more history, so leaving it
-	// unresolved (rather than guessing) just means asking again if the user
-	// scrolls to its top a second time. `completed_history_chats` is keyed
-	// by jid and untouched here, so a chat already known exhausted stays
-	// that way across switches.
+	// Each time a chat is opened, Home at its top may ask the phone for
+	// older history once more (and at most once, until it's reopened) - a
+	// chat marked out of history by an earlier visit gets that one try back.
+	s.completed_history_chats.remove(jid);
 	s.phone_history_pending_jid = None;
 	s.phone_history_deadline = None;
+	s.quiet_reload_jid = None;
+	s.newer_loading = false;
 	s.pending_attachments.clear();
 	// Selection mode's row list is tied to the chat it was built from -
 	// switching chats mid-selection would leave it pointing at messages that
@@ -266,27 +265,13 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
 	parts.conversations_parts.panel.layout();
-	// A bounded initial page, not the whole chat: fetching/rendering all of a
-	// chat's history up front (previously `limit: 9999999`) is what made
-	// opening a chat with tens of thousands of messages take several
-	// seconds. Older messages page in on demand via `load_more_messages`
-	// (scrolling to the top), same as it already did for phone-side history
-	// beyond what's stored locally.
-	let limit = crate::MESSAGE_PAGE_SIZE;
-	// Opening straight onto a particular message (a starred entry) needs the
-	// window around it - it may be far older than the newest page, which is
-	// what a plain get_messages would return, and it'd never be found there.
-	let payload = if let Some(target_id) = s.search_target_id.clone() {
-		serde_json::json!({
-			"action": "get_messages_around",
-			"data": { "jid": jid, "messageId": target_id, "text": "" }
-		})
-	} else {
-		serde_json::json!({
-			"action": "get_messages",
-			"data": { "jid": jid, "limit": limit, "offset": 0 }
-		})
-	};
+	// The whole chat (see `MESSAGE_PAGE_SIZE`). Opening onto a starred
+	// message needs nothing extra: it's in there, and
+	// `apply_conversation_messages` selects it via `search_target_id`.
+	let payload = serde_json::json!({
+		"action": "get_messages",
+		"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
+	});
 	let _ = s.ws_tx.send(payload.to_string());
 	drop(s);
 	crate::handle_ui_command(UiCommand::SubscribePresence(jid.to_string()), state, parts);

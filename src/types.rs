@@ -140,6 +140,12 @@ pub enum UiCommand {
 		message_ids: Vec<String>,
 	},
 	LoadMoreMessages,
+	/// Reached the last loaded row of a window that stops short of the
+	/// newest message (a search hit): page in the next newer messages.
+	LoadNewerMessages,
+	/// End in the message list: go to the chat's actual newest message, even
+	/// from a window that doesn't hold it.
+	JumpToLatestMessage,
 	PlayVoiceMessage(String),
 	RefreshMessages,
 	DownloadAttachment(String), // message ID

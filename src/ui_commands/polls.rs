@@ -146,14 +146,14 @@ pub(crate) fn update_poll_results(
 ) {
 	let mut s = state.borrow_mut();
 	for msg in s.messages.iter_mut().filter(|m| m.id == message_id) {
-		msg.poll_results = results.to_string();
+		std::rc::Rc::make_mut(msg).poll_results = results.to_string();
 	}
 	let is_group = s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@g.us"));
 	let mut row = None;
 	for (i, item) in s.display_items.iter_mut().enumerate() {
 		if let whantv::DisplayItem::Single(m) = item {
 			if m.id == message_id {
-				m.poll_results = results.to_string();
+				std::rc::Rc::make_mut(m).poll_results = results.to_string();
 				row = Some((i, item.format_display(is_group)));
 				break;
 			}

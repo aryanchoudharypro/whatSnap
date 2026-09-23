@@ -926,6 +926,9 @@ func eventHandler(evt interface{}) {
 			}
 			var albumHeaders []syncedAlbum
 			var syncedJIDs []string
+			// The chats this chunk actually brought messages for - the only
+			// ones the UI is told about (see history_chats_synced below).
+			var jidsWithMessages []string
 
 			if gs := v.Data.GetGlobalSettings(); gs != nil {
 				if cls := gs.GetChatLockSettings(); cls != nil {
@@ -937,7 +940,27 @@ func eventHandler(evt interface{}) {
 				}
 			}
 
-			remapLIDRowsToPN(v.Data.GetPhoneNumberToLidMappings())
+			// whatsmeow stores this chunk's LID->phone mappings in a goroutine of
+			// its own (DownloadHistorySync with synchronousStorage=false), so
+			// the store may not have them yet while this chunk is written -
+			// its chats then landed under @lid JIDs, split off from the
+			// phone-JID chat the rest of the app looks up. Resolve against the
+			// chunk's own mappings first.
+			chunkPNs := historyChunkLIDMap(v.Data.GetPhoneNumberToLidMappings())
+			resolvePN := func(j types.JID) types.JID {
+				j = j.ToNonAD()
+				if j.Server != types.HiddenUserServer {
+					return j
+				}
+				if pn, ok := chunkPNs[j.User]; ok {
+					return pn
+				}
+				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), j); err == nil && !pn.IsEmpty() {
+					return pn.ToNonAD()
+				}
+				return j
+			}
+			remapLIDRowsToPN(chunkPNs)
 
 			// A push-name chunk can carry thousands of names; one autocommit
 			// write per name made it crawl. Resolve every LID first (that goes
@@ -956,12 +979,7 @@ func eventHandler(evt interface{}) {
 				if err != nil {
 					continue
 				}
-				targetJID := parsedJID.ToNonAD()
-				if targetJID.Server == "lid" {
-					if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), targetJID); err == nil && !pn.IsEmpty() {
-						targetJID = pn.ToNonAD()
-					}
-				}
+				targetJID := resolvePN(parsedJID)
 				// whatsmeow already put these push names in its contact store
 				// before dispatching the chunk; only our own tables need them.
 				pushNameWrites = append(pushNameWrites, func(tx sqlExecer) {
@@ -999,14 +1017,12 @@ func eventHandler(evt interface{}) {
 				if parseErr != nil {
 					continue
 				}
-				chatJID = chatJID.ToNonAD()
-				if chatJID.Server == "lid" {
-					if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
-						chatJID = pn.ToNonAD()
-					}
-				}
+				chatJID = resolvePN(chatJID)
 				jid = chatJID.String()
 				syncedJIDs = append(syncedJIDs, jid)
+				if len(conv.GetMessages()) > 0 {
+					jidsWithMessages = append(jidsWithMessages, jid)
+				}
 
 				name := conv.GetName()
 				if name == "" {
@@ -1211,8 +1227,8 @@ func eventHandler(evt interface{}) {
 						if senderJID.Server == "lid" {
 							if !evtMsg.Info.SenderAlt.IsEmpty() {
 								senderJID = evtMsg.Info.SenderAlt.ToNonAD()
-							} else if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
-								senderJID = pn.ToNonAD()
+							} else {
+								senderJID = resolvePN(senderJID)
 							}
 						}
 						rawBytes, _ := proto.Marshal(evtMsg.Message)
@@ -1335,7 +1351,21 @@ func eventHandler(evt interface{}) {
 					"status":    "syncing",
 					"chatsDone": historySyncChatsDone,
 					"msgsDone":  historySyncMsgsDone,
-					"jids":      syncedJIDs,
+				})
+			}
+			// Sent for every chunk, on-demand ones included: an on-demand
+			// chunk is the phone's answer to "load older messages", and the
+			// UI waits on exactly this to page them in. It used to ride on the
+			// progress event above, which on-demand chunks skip - so the answer
+			// was written but never announced, the UI timed out and marked the
+			// chat as having no more history until whaNTV was restarted.
+			// Only chats that got messages: an empty answer to an on-demand
+			// request (the phone has nothing older) must not look like new
+			// history, or the UI would un-mark the chat and ask again.
+			if len(jidsWithMessages) > 0 {
+				broadcastEvent("history_chats_synced", map[string]interface{}{
+					"jids":     jidsWithMessages,
+					"onDemand": v.Data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND,
 				})
 			}
 			if len(conversations) > 0 {
@@ -1619,8 +1649,18 @@ func eventHandler(evt interface{}) {
 			}
 		}()
 	case *events.Contact:
+		if v.FromFullSync && !v.Removed {
+			// A full app-state sync (first link, or a resync) delivers every
+			// address-book entry at once - thousands of events, each of which
+			// cost a goroutine, two single-row writes and a chat-list rebuild,
+			// all fighting history sync for SQLite's write lock. whatsmeow has
+			// already stored the name itself, and the AppStateSyncComplete that
+			// ends the sync reruns populateChatsFromStore, which writes every
+			// contact (LID twins merged) in batches.
+			return
+		}
 		go func() {
-			jidStr := v.JID.ToNonAD().String()
+			jidStr := preferPN(v.JID).String()
 			if v.Removed {
 				deleteContactCacheRow(jidStr)
 				db.Exec(`UPDATE chats SET name = '' WHERE jid = ?`, jidStr)
@@ -1636,8 +1676,13 @@ func eventHandler(evt interface{}) {
 				}
 			}
 			if fullName != "" {
-				client.Store.Contacts.PutContactName(context.Background(), v.JID.ToNonAD(), fullName, fullName)
-				upsertContactCacheRow(jidStr, fullName, v.JID.User, false)
+				// whatsmeow already stored this name (with the real first name)
+				// before dispatching the event.
+				phone := ""
+				if pj, err := types.ParseJID(jidStr); err == nil && pj.Server == types.DefaultUserServer {
+					phone = pj.User
+				}
+				upsertContactCacheRow(jidStr, fullName, phone, false)
 				db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, fullName, jidStr)
 				broadcastChats()
 			}
@@ -1899,7 +1944,7 @@ func eventHandler(evt interface{}) {
 			}
 			if lca := v.GetLockChatAction(); lca != nil {
 				if len(v.Index) > 1 {
-					jid := v.Index[1] // The JID is usually the second part of the index for chat actions
+					jid := appStateChatJID(v.Index[1])
 					isLockedInt := 0
 					if lca.GetLocked() {
 						isLockedInt = 1
@@ -1917,13 +1962,13 @@ func eventHandler(evt interface{}) {
 			// goes away locally (handleDeleteChat/handleClearChat cover the
 			// other direction: it happening here first).
 			if v.GetDeleteChatAction() != nil && len(v.Index) > 1 {
-				jid := v.Index[1]
+				jid := appStateChatJID(v.Index[1])
 				purgeMessages("jid = ?", jid)
 				db.Exec("DELETE FROM chats WHERE jid = ?", jid)
 				broadcastChats()
 			}
 			if v.GetClearChatAction() != nil && len(v.Index) > 1 {
-				jid := v.Index[1]
+				jid := appStateChatJID(v.Index[1])
 				purgeMessages("jid = ?", jid)
 				broadcastChats()
 				broadcastEvent("chat_cleared", map[string]interface{}{"jid": jid})
@@ -1949,7 +1994,7 @@ func eventHandler(evt interface{}) {
 			if v.Action.GetArchived() {
 				archivedInt = 1
 			}
-			db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", archivedInt, v.JID.String())
+			db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", archivedInt, preferPN(v.JID).String())
 			broadcastChats()
 		}()
 	case *events.Mute:
@@ -1961,7 +2006,7 @@ func eventHandler(evt interface{}) {
 			if v.Action.GetMuted() {
 				mutedInt = 1
 			}
-			db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", mutedInt, v.JID.String())
+			db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", mutedInt, preferPN(v.JID).String())
 			broadcastChats()
 		}()
 	case *events.Pin:
@@ -1973,7 +2018,7 @@ func eventHandler(evt interface{}) {
 			if v.Action.GetPinned() {
 				pinnedInt = 1
 			}
-			db.Exec("UPDATE chats SET pinned = ? WHERE jid = ?", pinnedInt, v.JID.String())
+			db.Exec("UPDATE chats SET pinned = ? WHERE jid = ?", pinnedInt, preferPN(v.JID).String())
 			broadcastChats()
 		}()
 	case *events.LockChat:
@@ -1990,7 +2035,7 @@ func eventHandler(evt interface{}) {
 			if v.Action.GetLocked() {
 				lockedInt = 1
 			}
-			db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", lockedInt, v.JID.String())
+			db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", lockedInt, preferPN(v.JID).String())
 			broadcastChats()
 		}()
 	case *events.MarkChatAsRead:
@@ -2002,10 +2047,14 @@ func eventHandler(evt interface{}) {
 			if v.Action == nil {
 				return
 			}
+			jidStr := preferPN(v.JID).String()
 			if v.Action.GetRead() {
-				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", v.JID.String())
+				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", jidStr)
 			} else {
-				db.Exec("UPDATE chats SET unread_count = 1 WHERE jid = ?", v.JID.String())
+				// "Mark as unread" only needs the chat to show as unread - it
+				// must not replace a real count history sync already gave it
+				// (a full app-state sync replays this for every such chat).
+				db.Exec("UPDATE chats SET unread_count = MAX(unread_count, 1) WHERE jid = ?", jidStr)
 			}
 			broadcastChats()
 		}()
@@ -2028,7 +2077,7 @@ func eventHandler(evt interface{}) {
 		// or another linked device left this app's copy of the chat's
 		// messages in place indefinitely.
 		go func() {
-			jidStr := v.JID.String()
+			jidStr := preferPN(v.JID).String()
 			purgeMessages("jid = ?", jidStr)
 			broadcastChats()
 			broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
@@ -2040,7 +2089,7 @@ func eventHandler(evt interface{}) {
 		// actions; it only ever meant the phone or another linked device
 		// deleted the chat.
 		go func() {
-			jidStr := v.JID.String()
+			jidStr := preferPN(v.JID).String()
 			purgeMessages("jid = ?", jidStr)
 			db.Exec("DELETE FROM chats WHERE jid = ?", jidStr)
 			broadcastChats()
@@ -2233,9 +2282,10 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 // Now it's one set-based UPDATE per column. (whatsmeow already saved the
 // mappings to its LID store before dispatching the chunk, so there's nothing
 // to store here.)
-func remapLIDRowsToPN(mappings []*waHistorySync.PhoneNumberToLIDMapping) {
-	type pair struct{ lid, pn string }
-	var pairs []pair
+// historyChunkLIDMap indexes a history-sync chunk's LID->phone mappings by
+// the LID's user part.
+func historyChunkLIDMap(mappings []*waHistorySync.PhoneNumberToLIDMapping) map[string]types.JID {
+	pns := make(map[string]types.JID, len(mappings))
 	for _, mapping := range mappings {
 		if mapping == nil {
 			continue
@@ -2243,8 +2293,17 @@ func remapLIDRowsToPN(mappings []*waHistorySync.PhoneNumberToLIDMapping) {
 		pnJID, err1 := types.ParseJID(mapping.GetPnJID())
 		lidJID, err2 := types.ParseJID(mapping.GetLidJID())
 		if err1 == nil && err2 == nil && !pnJID.IsEmpty() && !lidJID.IsEmpty() {
-			pairs = append(pairs, pair{lidJID.String(), pnJID.String()})
+			pns[lidJID.ToNonAD().User] = pnJID.ToNonAD()
 		}
+	}
+	return pns
+}
+
+func remapLIDRowsToPN(pns map[string]types.JID) {
+	type pair struct{ lid, pn string }
+	var pairs []pair
+	for lidUser, pn := range pns {
+		pairs = append(pairs, pair{types.NewJID(lidUser, types.HiddenUserServer).String(), pn.String()})
 	}
 	if len(pairs) == 0 {
 		return
@@ -2399,6 +2458,17 @@ func runHistorySyncCheckpointAfter(gen, attempt int) {
 			runHistorySyncCheckpointAfter(gen, attempt+1)
 		}
 	})
+}
+
+// appStateChatJID turns the chat JID in an app-state mutation index into the
+// phone JID the chats table is keyed by - newer accounts' indexes can carry
+// @lid JIDs.
+func appStateChatJID(raw string) string {
+	j, err := types.ParseJID(raw)
+	if err != nil {
+		return raw
+	}
+	return preferPN(j).String()
 }
 
 // preferPN swaps a @lid for the phone JID it maps to, when known - the

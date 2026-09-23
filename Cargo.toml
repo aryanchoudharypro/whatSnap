@@ -57,6 +57,8 @@ winres = "0.1.12"
 # Cargo unions features across the graph, so its plain `wxdragon = "0.9.21"`
 # would switch every wx-* feature back on.
 [patch.crates-io]
-wxdragon = { git = "https://github.com/AllenDang/wxDragon", rev = "155b82700c92bb0610c63474779e4abf4b4723af" }
-wxdragon-sys = { git = "https://github.com/AllenDang/wxDragon", rev = "155b82700c92bb0610c63474779e4abf4b4723af" }
+# Temporarily a fork: that rev plus ListBox::set_items/append_items/
+# insert_items (AllenDang/wxDragon#228). Back to an upstream rev once merged.
+wxdragon = { git = "https://github.com/aryanchoudharypro/wxDragon", rev = "155efd7e9ed31a47c6291271fb285b577a494ba0" }
+wxdragon-sys = { git = "https://github.com/aryanchoudharypro/wxDragon", rev = "155efd7e9ed31a47c6291271fb285b577a494ba0" }
 live-region = { path = "patches/live-region" }
