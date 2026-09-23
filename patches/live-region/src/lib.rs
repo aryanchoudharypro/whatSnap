@@ -1,0 +1,103 @@
+#![warn(clippy::all, clippy::cargo, clippy::nursery, clippy::pedantic, clippy::perf, unused_crate_dependencies)]
+#![deny(warnings)]
+
+use wxdragon::prelude::{StaticText, WxWidget};
+
+#[cfg_attr(target_os = "windows", path = "windows.rs")]
+#[cfg_attr(target_os = "macos", path = "macos.rs")]
+#[cfg_attr(target_os = "linux", path = "linux.rs")]
+#[cfg_attr(not(any(target_os = "windows", target_os = "macos", target_os = "linux")), path = "unsupported.rs")]
+mod platform_impl;
+
+/// How insistently a screen reader should deliver an announcement.
+///
+/// Acted on by every supported platform.
+///
+/// On Linux, AT-SPI screen readers receive it as an `AtkLive` politeness
+/// ([`Low`](Priority::Low) and [`Medium`](Priority::Medium) map to polite,
+/// [`High`](Priority::High) to assertive).
+///
+/// On Windows it becomes the processing mode of a UI Automation notification:
+/// [`Low`](Priority::Low) queues behind everything pending, [`Medium`](Priority::Medium) lets the
+/// current utterance finish and then supersedes anything staler, and [`High`](Priority::High)
+/// interrupts speech in progress. Verified against NVDA, which calls `speech.cancelSpeech()` for
+/// the mode [`High`](Priority::High) uses, and speaks at `Spri.NOW` instead of cancelling while a
+/// say all is running, so [`High`](Priority::High) does not chop up continuous reading. JAWS and
+/// Narrator honour the same UIA contract but their exact behaviour is untested here.
+///
+/// The caveats below are specific to `VoiceOver`.
+///
+/// Note that Voice Over's speech queuing implementation has significant issues. After extensive testing,
+/// I found that it seems to be governed by the following rules:
+///
+/// 1. The currently spoken announcement is not considered to be part of the speech queue. The queue only contains future announcements.
+/// 2. If an incoming announcement has the same priority as the current one, the current announcement is interrupted prior to the new one being enqueued.
+/// 3. If the new announcement has priority high, the current announcement is also interrupted, regardless of its priority.
+/// 4. The queue is flushed if, and only if, both the old and new announcements have priority high.
+///
+/// This leads to the following counterintuitive consequences:
+///
+/// 1. High interrupts low (because of rule 3), low also interrupts low (because of rule 2), but medium does not interrupt low.
+/// 2. If we have a low currently speaking and a medium in the queue, a new low or high
+///    interrupts the current low (rules 2 and 3), but it doesn't flush the queue (rule 4). This
+///    means that what we hear after the interruption is the previously-enqueued medium, not the newly-arriving low/high. This is utterly cursed behavior.
+/// 3. Under these rules, it is impossible to implement a polite / assertive system. There is no
+///    combination of priorities that guarantees queuing. always using high guarantees
+///    no queuing. This does not make priorities useless, you can
+///    still use them to queue announcements after standard `VoiceOver` speech, emitted in response to focus events and such, but it does
+///    significantly limit their usefullness.
+///
+/// Note that all of this is likely due to Apple bugs and may change from version to version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+#[repr(isize)]
+pub enum Priority {
+	/// macOS `NSAccessibilityPriorityLow`. Lowest urgency.
+	Low = 10,
+	/// macOS `NSAccessibilityPriorityMedium`.
+	Medium = 50,
+	/// macOS `NSAccessibilityPriorityHigh`. The level used by [`announce`].
+	High = 90,
+}
+
+fn sanitize_message(message: &str) -> String {
+	let mut cleaned = String::new();
+	for ch in message.chars() {
+		if matches!(ch, '\n' | '\r' | '\t') {
+			cleaned.push(' ');
+		} else if !ch.is_control() {
+			cleaned.push(ch);
+		}
+	}
+	let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+	collapsed.chars().take(512).collect()
+}
+
+/// Prepares `window` to be announced through.
+///
+/// Announcing does this on demand as well, so calling this up front is only useful to learn
+/// early whether announcements can work at all.
+pub fn set_live_region(window: &impl WxWidget) -> bool {
+	platform_impl::set_live_region(window)
+}
+
+/// Announce `message` via the screen reader at the default ([`Priority::High`]) priority.
+pub fn announce(label: StaticText, message: &str) {
+	announce_with_priority(label, message, Priority::High);
+}
+
+/// Announce `message` via the screen reader at an explicit [`Priority`].
+///
+/// Every platform acts on `priority`. See [`Priority`] for what each level means and for the
+/// `VoiceOver` caveats.
+///
+/// On macOS the announcement is delivered asynchronously, on the next main run loop iteration,
+/// so it isn't drowned out by accessibility notifications (such as caret moves) that the calling
+/// event handler produces after announcing.
+pub fn announce_with_priority(label: StaticText, message: &str, priority: Priority) {
+	let message = sanitize_message(message);
+	if message.is_empty() {
+		return;
+	}
+	let _ = platform_impl::announce(&label, &message, priority);
+}

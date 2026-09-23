@@ -218,6 +218,34 @@ pub(crate) fn ringback_cycle(self_phone: &str) -> SamplesBuffer {
 	SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(SAMPLE_RATE).unwrap(), samples)
 }
 
+/// The busy tone heard when the person you're calling is on another call.
+/// WhatsApp Web (WAWebCallBusyTone) plays one tone for every country, not one
+/// per country like the ringback: 480 Hz and 620 Hz together, each at gain
+/// 0.15, half a second on and half off, four times.
+pub(crate) fn busy_tone() -> SamplesBuffer {
+	const FREQS: [f32; 2] = [480.0, 620.0];
+	const GAIN: f32 = 0.15;
+	const HALF_MS: usize = 500;
+	const CYCLES: usize = 4;
+	let rate = SAMPLE_RATE as f32;
+	let fade = (FADE_SECS * rate) as usize;
+	let n = HALF_MS * SAMPLE_RATE as usize / 1000;
+	let mut samples = Vec::with_capacity(2 * n * CYCLES);
+	for cycle in 0..CYCLES {
+		let start = cycle * 2 * n;
+		for k in 0..n {
+			// Oscillators run from the start, as WhatsApp's do, gated on and off.
+			let t = (start + k) as f32 / rate;
+			let tone: f32 = FREQS.iter().map(|f| (std::f32::consts::TAU * f * t).sin()).sum();
+			let edge = k.min(n - 1 - k);
+			let gain = if edge < fade { edge as f32 / fade as f32 } else { 1.0 };
+			samples.push(tone * GAIN * gain);
+		}
+		samples.extend(std::iter::repeat_n(0.0, n));
+	}
+	SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(SAMPLE_RATE).unwrap(), samples)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -246,5 +274,18 @@ mod tests {
 		assert!(off.iter().all(|&s| s == 0.0));
 		let on = &samples[(0.1 * 48_000.0) as usize..(0.3 * 48_000.0) as usize];
 		assert!(on.iter().any(|s| s.abs() > LEVEL * 0.5));
+	}
+
+	#[test]
+	fn busy_tone_is_four_half_second_beeps() {
+		let samples: Vec<f32> = busy_tone().collect();
+		assert_eq!(samples.len(), 48_000 * 4);
+		assert!(samples.iter().all(|s| s.abs() <= 0.3));
+		for beep in 0..4 {
+			let on = &samples[(beep * 48_000 + 12_000)..(beep * 48_000 + 13_000)];
+			assert!(on.iter().any(|s| s.abs() > 0.1), "beep {beep} is silent");
+			let off = &samples[(beep * 48_000 + 25_000)..(beep * 48_000 + 47_000)];
+			assert!(off.iter().all(|&s| s == 0.0), "gap after beep {beep} isn't silent");
+		}
 	}
 }

@@ -262,6 +262,15 @@ func initCallClient() {
 		groupJID, hasGroupJID := takeIncomingGroupCallJID(call.ID())
 
 		activeCallsMutex.Lock()
+		// A call only leaves activeCalls through its OnEnd handler, and one
+		// that ended before attachCallHandlers registered it never gets
+		// there. Drop those here, or whaNTV stays "busy" and declines every
+		// call until it restarts.
+		for id, c := range activeCalls {
+			if c.State() == meowcaller.CallPhaseEnded {
+				delete(activeCalls, id)
+			}
+		}
 		alreadyOnACall := len(activeCalls) > 0
 		if !alreadyOnACall {
 			activeCalls[call.ID()] = call
@@ -279,15 +288,11 @@ func initCallClient() {
 			// Still goes in the history, as the official apps show it: a
 			// call that rang while you were on another one is a missed call.
 			defer finishLiveCall(call.ID(), "busy")
-			// meowcaller has no protocol-level "busy" reason to send back
-			// (WhatsApp's reject stanza doesn't carry one in this library),
-			// so the closest equivalent is declining it the same way a
-			// manual Reject does - this at least stops a second incoming
-			// call from silently clobbering the active call's UI state, and
-			// lets it go to voicemail/missed-call on the caller's end
-			// instead of ringing against someone who's already on a call.
-			log.Printf("Already on a call, auto-rejecting incoming call from %v\n", call.Peer())
-			if err := call.Reject(); err != nil {
+			// reason="busy" says only this device can't take the call. A
+			// plain reject would decline it for the user, ending the
+			// caller's call and silencing the phone's ringing too.
+			log.Printf("Already on a call, rejecting incoming call from %v as busy\n", call.Peer())
+			if err := call.RejectBusy(); err != nil {
 				log.Println("Failed to auto-reject incoming call while busy:", err)
 			}
 			return
