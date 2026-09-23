@@ -1092,7 +1092,7 @@ pub fn bind_input_handlers(
 		let _ = s.ws_tx.send(serde_json::json!({"action": "reconnect"}).to_string());
 		drop(s);
 		if !online {
-			live_region::announce(reconnect_announcer.clone(), "Reconnecting...");
+			crate::announce::announce(reconnect_announcer.clone(), "Reconnecting...");
 		}
 	});
 
@@ -1654,7 +1654,7 @@ pub fn bind_input_handlers(
 		}
 		if !gs.checked_jids.is_empty() {
 			let count = gs.checked_jids.len();
-			live_region::announce(
+			crate::announce::announce(
 				selection_announcer_search.clone(),
 				&format!(
 					"{} shown. {} contact{} selected.",
@@ -1692,7 +1692,7 @@ pub fn bind_input_handlers(
 				// to otherwise confirm it didn't - this running total is how
 				// they can tell it's still there.
 				let count = gs.checked_jids.len();
-				live_region::announce(
+				crate::announce::announce(
 					selection_announcer_toggle.clone(),
 					&format!(
 						"{}: {}. {} contact{} selected.",
@@ -1754,7 +1754,7 @@ pub fn bind_input_handlers(
 		}
 		if !ams.checked_jids.is_empty() {
 			let count = ams.checked_jids.len();
-			live_region::announce(
+			crate::announce::announce(
 				add_members_selection_announcer.clone(),
 				&format!(
 					"{} shown. {} contact{} selected.",
@@ -1788,7 +1788,7 @@ pub fn bind_input_handlers(
 				let label = add_members_listbox_toggle.get_string(idx as usize).unwrap_or_default();
 				let state_str = if checked { "selected" } else { "not selected" };
 				let count = ams.checked_jids.len();
-				live_region::announce(
+				crate::announce::announce(
 					add_members_selection_announcer_toggle.clone(),
 					&format!(
 						"{}: {}. {} contact{} selected.",
@@ -1891,7 +1891,7 @@ pub fn bind_input_handlers(
 		}
 		if !acs.checked_jids.is_empty() {
 			let count = acs.checked_jids.len();
-			live_region::announce(
+			crate::announce::announce(
 				attach_contact_selection_announcer.clone(),
 				&format!(
 					"{} shown. {} contact{} selected.",
@@ -1925,7 +1925,7 @@ pub fn bind_input_handlers(
 				let label = attach_contact_listbox_toggle.get_string(idx as usize).unwrap_or_default();
 				let state_str = if checked { "selected" } else { "not selected" };
 				let count = acs.checked_jids.len();
-				live_region::announce(
+				crate::announce::announce(
 					attach_contact_selection_announcer_toggle.clone(),
 					&format!(
 						"{}: {}. {} contact{} selected.",
@@ -2516,12 +2516,12 @@ pub fn bind_input_handlers(
 								};
 								if crate::copy_files_to_clipboard(&[path_to_copy]) {
 									let msg_kind = if is_voice { "voice message" } else { "file" };
-									live_region::announce(
+									crate::announce::announce(
 										msgs_announcer_copy.clone(),
 										&format!("Copied {} to clipboard.", msg_kind),
 									);
 								} else {
-									live_region::announce(
+									crate::announce::announce(
 										msgs_announcer_copy.clone(),
 										"Failed to copy file to clipboard.",
 									);
@@ -2533,7 +2533,7 @@ pub fn bind_input_handlers(
 						} else {
 							if let Some(_locker) = Clipboard::get().locker() {
 								if Clipboard::get().set_text(&msg.text) {
-									live_region::announce(
+									crate::announce::announce(
 										msgs_announcer_copy.clone(),
 										"Copied message text to clipboard.",
 									);
@@ -2794,7 +2794,7 @@ pub fn bind_input_handlers(
 
 							let status_msg =
 								format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
-							live_region::announce(msgs_announcer_clone.clone(), &status_msg);
+							crate::announce::announce(msgs_announcer_clone.clone(), &status_msg);
 							msg_input_field_clone.set_focus();
 							remove_quote_btn_ctx.show(true);
 							conv_panel_ctx.layout();
@@ -2978,7 +2978,7 @@ pub fn bind_input_handlers(
 								} else {
 									"Message can't be edited."
 								};
-								live_region::announce(msgs_announcer_clone.clone(), reason);
+								crate::announce::announce(msgs_announcer_clone.clone(), reason);
 							} else {
 								let _ = tx_play_media_clone.send(UiCommand::BeginEditMessage {
 									message_id: msg.id.clone(),
@@ -3086,7 +3086,7 @@ pub fn bind_input_handlers(
 					if let Some((_, digits)) = phone_match_clone.as_ref() {
 						if let Some(_locker) = Clipboard::get().locker() {
 							if Clipboard::get().set_text(&format!("+{}", digits)) {
-								live_region::announce(
+								crate::announce::announce(
 									msgs_announcer_clone.clone(),
 									"Copied phone number to clipboard.",
 								);
@@ -3577,7 +3577,7 @@ pub fn bind_input_handlers(
 
 							let status_msg =
 								format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
-							live_region::announce(msgs_announcer.clone(), &status_msg);
+							crate::announce::announce(msgs_announcer.clone(), &status_msg);
 							msg_input_field.set_focus();
 							remove_quote_btn_play.show(true);
 							conv_panel_play.layout();
@@ -3617,7 +3617,7 @@ pub fn bind_input_handlers(
 								} else {
 									"Message can't be edited."
 								};
-								live_region::announce(msgs_announcer.clone(), reason);
+								crate::announce::announce(msgs_announcer.clone(), reason);
 							} else {
 								let _ = tx_play_media.send(UiCommand::BeginEditMessage {
 									message_id: msg.id.clone(),
@@ -4017,7 +4017,7 @@ pub fn bind_input_handlers(
 									if sel_id == copy_num_id {
 										if let Some(_locker) = Clipboard::get().locker() {
 											if Clipboard::get().set_text(&format!("+{}", digits)) {
-												live_region::announce(
+												crate::announce::announce(
 													msgs_announcer_phone.clone(),
 													"Copied phone number to clipboard.",
 												);

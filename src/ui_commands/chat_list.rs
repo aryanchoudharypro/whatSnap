@@ -118,7 +118,7 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 					"data": { "jid": "status@broadcast", "message_id": message_id }
 				});
 				let _ = ws_tx.send(open_payload.to_string());
-				live_region::announce(
+				crate::announce::announce(
 					parts.conversations_parts.messages_announcer.clone(),
 					&format!("Opening {}'s status media...", poster_name),
 				);
@@ -128,7 +128,7 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				} else {
 					format!("{}: {}", poster_name, text)
 				};
-				live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+				crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
 			}
 		}
 		return;
@@ -231,7 +231,7 @@ pub(crate) fn delete_selected_messages(state: &Rc<RefCell<AppState>>, parts: &Rc
 		.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
 	parts.conversations_parts.conversation_panel.layout();
 	if !to_delete.is_empty() {
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Selected messages deleted.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Selected messages deleted.");
 	}
 }
 
@@ -311,7 +311,7 @@ pub(crate) fn search_in_conversation(state: &Rc<RefCell<AppState>>, _parts: &Rc<
 
 pub(crate) fn toggle_search_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	if state.borrow().selected_chat.is_none() {
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "No chat open.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "No chat open.");
 		return;
 	}
 	let visible = parts.conversations_parts.search_panel.is_shown();
@@ -344,7 +344,7 @@ pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	if s.chats_unlocked {
 		s.chats_unlocked = false;
 		apply_chat_filter(&mut s, parts);
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Locked chats hidden.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Locked chats hidden.");
 	}
 }
 
@@ -558,7 +558,7 @@ pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 	let action_str = if lock { "Locked" } else { "Unlocked" };
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("{} chat {}.", action_str, chat_name),
 	);
@@ -582,7 +582,7 @@ pub(crate) fn toggle_pin_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Chat {} {}.", chat_name, if pin { "pinned" } else { "unpinned" }),
 	);
@@ -608,7 +608,7 @@ pub(crate) fn toggle_archive_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Chat {} {}.", chat_name, if archive { "archived" } else { "unarchived" }),
 	);
@@ -635,7 +635,7 @@ pub(crate) fn set_archived_alert(
 		};
 		(name, spoken)
 	};
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Archived alerts for {} set to {}.", chat_name, spoken),
 	);
@@ -660,7 +660,7 @@ pub(crate) fn toggle_mute_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Notifications {} for {}.", if mute { "muted" } else { "unmuted" }, chat_name),
 	);
@@ -686,7 +686,7 @@ pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Chat {} marked as {}.", chat_name, if read { "read" } else { "unread" }),
 	);
@@ -726,7 +726,7 @@ pub(crate) fn delete_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Chat {} deleted.", chat_name),
 	);
@@ -746,7 +746,7 @@ pub(crate) fn delete_chat_and_leave_group(state: &Rc<RefCell<AppState>>, parts: 
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Left and deleted chat {}.", chat_name),
 	);
@@ -780,7 +780,7 @@ pub(crate) fn clear_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("Chat {} cleared.", chat_name),
 	);

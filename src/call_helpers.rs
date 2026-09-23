@@ -99,11 +99,14 @@ pub(crate) fn call_participant_changes(old: &[CallParticipant], new: &[CallParti
 /// toggles and "Call connected." were silent. Fall back to the main announcer
 /// once the call window is gone, so late teardown messages still land.
 pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
-	if parts.call_parts.frame.is_shown() {
-		live_region::announce(parts.call_parts.announcer.clone(), message);
+	// Calls interrupt whatever the screen reader is saying; everything else
+	// waits its turn (see announce.rs).
+	let label = if parts.call_parts.frame.is_shown() {
+		parts.call_parts.announcer.clone()
 	} else {
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), message);
-	}
+		parts.conversations_parts.messages_announcer.clone()
+	};
+	live_region::announce_with_priority(label, message, live_region::Priority::High);
 }
 
 /// incoming-call label, announcement and toast all use this.

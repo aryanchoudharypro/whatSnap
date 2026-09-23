@@ -18,7 +18,7 @@ pub(crate) fn open_poll_vote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	};
 	let is_poll = s.messages.iter().any(|m| m.id == message_id && m.is_poll() && !m.is_deleted);
 	if !is_poll {
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Not a poll.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Not a poll.");
 		return;
 	}
 	let payload = serde_json::json!({
@@ -126,7 +126,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		return;
 	}
 	if choice.is_empty() && selected.is_empty() {
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "No answer chosen.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "No answer chosen.");
 		return;
 	}
 	let payload = serde_json::json!({
@@ -134,7 +134,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		"data": { "jid": jid, "message_id": message_id, "options": choice }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Sending vote...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Sending vote...");
 }
 
 /// Updates a poll's results line wherever that poll is shown.

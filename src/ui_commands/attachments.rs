@@ -79,7 +79,7 @@ fn show_attachment_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		d.caption_field.show(captioned);
 		d.dialog.layout();
 	}
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		&format!("{}: {}", announcement, file_names.len()),
 	);
@@ -135,7 +135,7 @@ pub(crate) fn send_poll(
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Sending poll...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Sending poll...");
 }
 
 pub(crate) fn prepare_attach_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -173,7 +173,7 @@ pub(crate) fn send_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
 		let count = contact_jids.len();
-		live_region::announce(
+		crate::announce::announce(
 			parts.conversations_parts.messages_announcer.clone(),
 			&format!("Sending {} contact{}...", count, if count == 1 { "" } else { "s" }),
 		);
@@ -325,12 +325,12 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		if count == 1 {
-			live_region::announce(
+			crate::announce::announce(
 				parts.conversations_parts.messages_announcer.clone(),
 				&format!("Downloading {}", to_start[0].1),
 			);
 		} else {
-			live_region::announce(
+			crate::announce::announce(
 				parts.conversations_parts.messages_announcer.clone(),
 				&format!("Downloading album of {} files...", count),
 			);
@@ -379,7 +379,7 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 						if let Some(path) = dialog.get_path() {
 							if msg.is_media_downloaded() {
 								let _ = std::fs::copy(&msg.media_path, &path);
-								live_region::announce(
+								crate::announce::announce(
 									parts.conversations_parts.messages_announcer.clone(),
 									"File saved successfully.",
 								);
@@ -434,7 +434,7 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 								}
 							}
 						}
-						live_region::announce(
+						crate::announce::announce(
 							parts.conversations_parts.messages_announcer.clone(),
 							&format!("Saved {} {} to folder.", saved_count, noun),
 						);
@@ -462,7 +462,7 @@ pub(crate) fn download_media_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			"data": { "jid": jid, "message_id": message_id }
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
-		live_region::announce(
+		crate::announce::announce(
 			parts.conversations_parts.messages_announcer.clone(),
 			&format!("Downloading {}", filename),
 		);
@@ -502,7 +502,7 @@ pub(crate) fn save_media_message_as(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 			if let Some(path) = dialog.get_path() {
 				if msg.is_media_downloaded() {
 					let _ = std::fs::copy(&msg.media_path, &path);
-					live_region::announce(
+					crate::announce::announce(
 						parts.conversations_parts.messages_announcer.clone(),
 						"File saved successfully.",
 					);
@@ -568,9 +568,9 @@ pub(crate) fn copy_album_to_clipboard(
 			} else {
 				format!("Copied {} files to clipboard.", paths.len())
 			};
-			live_region::announce(parts.conversations_parts.messages_announcer.clone(), &ann_text);
+			crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &ann_text);
 		} else {
-			live_region::announce(
+			crate::announce::announce(
 				parts.conversations_parts.messages_announcer.clone(),
 				"Failed to copy file to clipboard.",
 			);
@@ -587,7 +587,7 @@ pub(crate) fn copy_album_to_clipboard(
 			}
 			let _ = s.ws_tx.send(payload.to_string());
 		}
-		live_region::announce(
+		crate::announce::announce(
 			parts.conversations_parts.messages_announcer.clone(),
 			"Downloading file before copying to clipboard...",
 		);
