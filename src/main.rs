@@ -2,6 +2,7 @@
 mod types;
 pub use types::*;
 
+mod announce;
 mod audio;
 use audio::*;
 mod audio_device_watch;

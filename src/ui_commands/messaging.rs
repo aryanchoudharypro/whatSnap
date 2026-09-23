@@ -60,7 +60,7 @@ pub(crate) fn cancel_edit(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	drop(s);
 	end_edit_mode(parts);
 	if was_editing {
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Editing cancelled.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Editing cancelled.");
 	}
 }
 
@@ -92,7 +92,7 @@ pub(crate) fn begin_edit_message(
 	parts.conversations_parts.cancel_edit_btn.show(true);
 	parts.conversations_parts.conversation_panel.layout();
 	field.set_focus();
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		"Editing message. Press Enter to save, Escape to cancel.",
 	);
@@ -114,7 +114,7 @@ fn end_edit_mode(parts: &Rc<WindowParts>) {
 pub(crate) fn remove_quote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	clear_pending_reply(&mut state.borrow_mut(), parts);
 	parts.conversations_parts.conversation_panel.layout();
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Quoted message removed.");
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Quoted message removed.");
 	parts.conversations_parts.message_field.set_focus();
 }
 
@@ -240,7 +240,7 @@ pub(crate) fn forward_message(
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Message forwarded.");
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Message forwarded.");
 }
 
 /// Saves an edit typed into the composer's edit mode. A trimmed-empty or
@@ -279,7 +279,7 @@ pub(crate) fn edit_message(
 		"Message edited."
 	};
 	end_edit_mode(parts);
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), announcement);
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), announcement);
 }
 
 pub(crate) fn delete_message(
@@ -334,7 +334,7 @@ pub(crate) fn export_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		"data": { "jid": jid, "dest_path": dest_path }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		"Exporting chat, this may take a while for chats with a lot of media...",
 	);
@@ -346,7 +346,7 @@ pub(crate) fn export_chat_text(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		"data": { "jid": jid, "dest_path": dest_path }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Exporting chat text...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Exporting chat text...");
 }
 
 pub(crate) fn post_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, text: String) {
@@ -355,7 +355,7 @@ pub(crate) fn post_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		"data": { "text": text }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Posting status update...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Posting status update...");
 }
 
 pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -390,7 +390,7 @@ pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				"data": { "type": media_type, "path": path, "filename": filename, "caption": caption }
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
-			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Posting status update...");
+			crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Posting status update...");
 		}
 	}
 }
@@ -437,7 +437,7 @@ pub(crate) fn retry_selected_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		let _ = s.ws_tx.send(payload.to_string());
 	}
 	if !failed.is_empty() {
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Retrying send...");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Retrying send...");
 	}
 }
 
@@ -449,7 +449,7 @@ pub(crate) fn request_message_resend(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			"data": { "jid": jid, "message_id": message_id }
 		});
 		let _ = s.ws_tx.send(payload.to_string());
-		live_region::announce(
+		crate::announce::announce(
 			parts.conversations_parts.messages_announcer.clone(),
 			"Requested this message from your phone",
 		);

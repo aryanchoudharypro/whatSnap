@@ -94,7 +94,7 @@ pub(crate) fn start_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 }
 
 pub(crate) fn stop_recording(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	live_region::announce(
+	crate::announce::announce(
 		parts.conversations_parts.messages_announcer.clone(),
 		"Voice recording stopped. Ready to send.",
 	);
@@ -155,7 +155,7 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				crate::ui_commands::messaging::mark_paused(&mut s, &jid);
 			}
 			parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
-			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording paused.");
+			crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording paused.");
 		}
 	}
 }
@@ -197,11 +197,14 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
 				}
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
-				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording resumed.");
+				crate::announce::announce(
+					parts.conversations_parts.messages_announcer.clone(),
+					"Voice recording resumed.",
+				);
 			}
 			Err(e) => {
 				eprintln!("[LOG UI] Failed to resume voice recording: {:?}", e);
-				live_region::announce(
+				crate::announce::announce(
 					parts.conversations_parts.messages_announcer.clone(),
 					"Failed to resume recording.",
 				);
@@ -234,14 +237,14 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
 				parts.conversations_parts.conversation_panel.layout();
 				parts.conversations_parts.send_voice_btn.set_focus();
-				live_region::announce(
+				crate::announce::announce(
 					parts.conversations_parts.messages_announcer.clone(),
 					"Recording voice message...",
 				);
 			}
 			Err(e) => {
 				eprintln!("[LOG UI] Failed to start voice recording: {:?}", e);
-				live_region::announce(
+				crate::announce::announce(
 					parts.conversations_parts.messages_announcer.clone(),
 					"Failed to start microphone recording.",
 				);
@@ -374,7 +377,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 			});
 
 			play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled, output_device_name);
-			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
+			crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
 		}
 	}
 
@@ -440,7 +443,7 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	parts.conversations_parts.send_voice_btn.show(false);
 
 	parts.conversations_parts.conversation_panel.layout();
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording discarded.");
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording discarded.");
 }
 
 pub(crate) fn play_voice_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, msg_id: String) {

@@ -464,7 +464,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								windows::Win32::UI::WindowsAndMessaging::MB_OK,
 							);
 						}
-						live_region::announce(
+						crate::announce::announce(
 							parts.pairing_announcer.clone(),
 							&format!("Pairing code updated: {}", code),
 						);
@@ -852,7 +852,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								windows::Win32::UI::WindowsAndMessaging::MB_OK,
 							);
 						}
-						live_region::announce(parts.qrcode_announcer.clone(), "QR code updated");
+						crate::announce::announce(parts.qrcode_announcer.clone(), "QR code updated");
 					}
 				}
 				"error" => {
@@ -935,7 +935,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					};
 					drop(s);
 					if let Some(text) = announcement {
-						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &text);
+						crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &text);
 					}
 				}
 				"history_sync" => {
@@ -984,7 +984,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							s.search_query.clear(); // Clear the search bar
 							parts.conversations_parts.search_field.set_value("");
 							apply_chat_filter(&mut s, parts);
-							live_region::announce(
+							crate::announce::announce(
 								parts.conversations_parts.messages_announcer.clone(),
 								"Locked chats shown.",
 							);
@@ -1355,7 +1355,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 								if let Some(di) = target_di {
 									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-									live_region::announce(
+									crate::announce::announce(
 										parts.conversations_parts.messages_announcer.clone(),
 										&updated_display,
 									);
@@ -1593,7 +1593,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									refresh_voice_action_button(&s, &parts.conversations_parts);
 								}
 								let formatted = chat_msg.format_display(is_group);
-								live_region::announce(parts.conversations_parts.messages_announcer.clone(), &formatted);
+								crate::announce::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									&formatted,
+								);
 
 								if !is_from_me {
 									let sounds_enabled = s.settings.sounds_enabled && !s.muted_jids.contains(jid);
@@ -1791,7 +1794,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									}
 									refresh_voice_action_button(&s, &parts.conversations_parts);
 									if !suppress_announce {
-										live_region::announce(
+										crate::announce::announce(
 											parts.conversations_parts.messages_announcer.clone(),
 											"Message deleted.",
 										);
@@ -1865,7 +1868,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									}
 								}
 								if !suppress_announce {
-									live_region::announce(
+									crate::announce::announce(
 										parts.conversations_parts.messages_announcer.clone(),
 										"Message deleted.",
 									);
@@ -2005,7 +2008,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							drop(s);
 							parts.conversations_parts.messages_list.clear();
 							update_action_buttons(&state.borrow(), &parts.conversations_parts);
-							live_region::announce(
+							crate::announce::announce(
 								parts.conversations_parts.messages_announcer.clone(),
 								"Chat cleared.",
 							);
@@ -2014,7 +2017,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				}
 				"play_audio_failed" => {
 					eprintln!("[LOG UI] Voice message audio failed to load or download");
-					live_region::announce(
+					crate::announce::announce(
 						parts.conversations_parts.messages_announcer.clone(),
 						"Could not load voice message",
 					);
@@ -2208,7 +2211,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if data.get("text_only").and_then(|t| t.as_bool()).unwrap_or(false) {
 							let count = data.get("message_count").and_then(|m| m.as_i64()).unwrap_or(0);
 							let msg = format!("Chat text exported to {}. {} messages.", path, count);
-							live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+							crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
 							return;
 						}
 						let media_exported = data.get("media_exported").and_then(|m| m.as_i64()).unwrap_or(0);
@@ -2221,7 +2224,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						} else {
 							format!("Chat exported to {}. {} media files included.", path, media_exported)
 						};
-						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+						crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
 					}
 				}
 				"statuses" => {
@@ -2462,7 +2465,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								};
 								if let Some(ann) = announcement {
 									if state_changed {
-										live_region::announce(
+										crate::announce::announce(
 											parts.conversations_parts.messages_announcer.clone(),
 											&ann,
 										);
@@ -2582,7 +2585,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								format!("{} is now online", name)
 							};
 							if should_announce {
-								live_region::announce(
+								crate::announce::announce(
 									parts.conversations_parts.messages_announcer.clone(),
 									&announcement,
 								);
@@ -2776,7 +2779,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						// failure paths for this same action all announce via the
 						// "error" event; this was the one success path that didn't).
 						let name = state.borrow().contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
-						live_region::announce(
+						crate::announce::announce(
 							parts.conversations_parts.messages_announcer.clone(),
 							&format!("Joined {}.", name),
 						);
@@ -2808,7 +2811,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						.and_then(|j| j.as_str())
 						.and_then(|jid| state.borrow().contacts.get(jid).cloned())
 						.unwrap_or_else(|| "the group".to_string());
-					live_region::announce(
+					crate::announce::announce(
 						parts.conversations_parts.messages_announcer.clone(),
 						&format!("Joined {}.", name),
 					);
@@ -2859,7 +2862,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 
 							parts.conversation_data_dialog.info_field.set_value(&text);
-							live_region::announce(
+							crate::announce::announce(
 								parts.conversations_parts.messages_announcer.clone(),
 								&format!("Conversation data loaded for {}", local_name),
 							);
@@ -3139,7 +3142,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let results = data.get("pollResults").and_then(|m| m.as_str()).unwrap_or("");
 						let retracted = data.get("retracted").and_then(|m| m.as_bool()).unwrap_or(false);
 						let lead = if retracted { "Vote removed." } else { "Voted." };
-						live_region::announce(
+						crate::announce::announce(
 							parts.conversations_parts.messages_announcer.clone(),
 							&format!("{} {}", lead, results),
 						);
@@ -3239,7 +3242,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										let updated_display = item.format_display(is_group);
 										parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
 										if is_final_edit {
-											live_region::announce(
+											crate::announce::announce(
 												parts.conversations_parts.messages_announcer.clone(),
 												&format!("Message edited: {}", updated_display),
 											);
@@ -3295,7 +3298,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								if matches {
 									let updated_display = item.format_display(is_group);
 									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-									live_region::announce(
+									crate::announce::announce(
 										parts.conversations_parts.messages_announcer.clone(),
 										if starred { "Message starred." } else { "Message unstarred." },
 									);
@@ -3433,7 +3436,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									} else {
 										format!("{} reacted with {}", resolved_name, emoji)
 									};
-									live_region::announce(
+									crate::announce::announce(
 										parts.conversations_parts.messages_announcer.clone(),
 										&announce_msg,
 									);
@@ -3522,7 +3525,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						"Copied file to clipboard.".to_string()
 					};
 
-					live_region::announce(parts.conversations_parts.messages_announcer.clone(), &ann_text);
+					crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &ann_text);
 				}
 				"media_downloaded" => {
 					if let Some(data) = val.get("data") {
@@ -3584,7 +3587,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let media_type = data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("");
 						if media_type != "voice" && !is_copy_pending {
 							let announce_name = if filename.is_empty() { "File".to_string() } else { filename };
-							live_region::announce(
+							crate::announce::announce(
 								parts.conversations_parts.messages_announcer.clone(),
 								&format!("{} downloaded", announce_name),
 							);
@@ -3607,7 +3610,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.conversations_parts.conversation_panel.thaw();
 						for milestone in [25, 50, 75] {
 							if !auto && prev.unwrap_or(0) < milestone && percent >= milestone {
-								live_region::announce(
+								crate::announce::announce(
 									parts.conversations_parts.messages_announcer.clone(),
 									&format!("Download {}%", percent),
 								);
@@ -3637,7 +3640,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								let err = data.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
 								format!("Download failed: {}", err)
 							};
-							live_region::announce(parts.conversations_parts.messages_announcer.clone(), &announcement);
+							crate::announce::announce(
+								parts.conversations_parts.messages_announcer.clone(),
+								&announcement,
+							);
 							parts.conversations_parts.play_voice_btn.set_label("Play voice message");
 						}
 					}
@@ -3645,7 +3651,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				"media_saved" => {
 					if let Some(data) = val.get("data") {
 						let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
-						live_region::announce(
+						crate::announce::announce(
 							parts.conversations_parts.messages_announcer.clone(),
 							&format!("File saved to {}", path),
 						);
@@ -3788,7 +3794,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								parts.conversations_parts.audio_speed_btn.show(false);
 								parts.conversations_parts.audio_progress_label.show(false);
 								parts.conversations_parts.conversation_panel.layout();
-								live_region::announce(
+								crate::announce::announce(
 									parts.conversations_parts.messages_announcer.clone(),
 									"Could not play voice message",
 								);
@@ -3833,7 +3839,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							format!("Uploading {}...", filename)
 						};
 						parts.attachment_dialog.attachment_info_label.set_label(&msg);
-						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
+						crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &msg);
 					}
 				}
 				"attachment_sent" => {

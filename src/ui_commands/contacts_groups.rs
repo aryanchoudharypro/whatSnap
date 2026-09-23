@@ -119,7 +119,7 @@ pub(crate) fn group_member_selection_changed(state: &Rc<RefCell<AppState>>, part
 
 pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, mode: ContactPickerMode) {
 	if mode == ContactPickerMode::AddCallParticipant && state.borrow().active_call_id.is_none() {
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "No active call.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "No active call.");
 		return;
 	}
 	state.borrow_mut().contact_picker_mode = mode;
@@ -173,7 +173,7 @@ pub(crate) fn select_contact_picker_result(state: &Rc<RefCell<AppState>>, parts:
 				drop(s);
 				// The outcome arrives as call_participant_added /
 				// call_participant_add_failed once WhatsApp has answered.
-				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Adding to call...");
+				crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Adding to call...");
 			}
 		}
 	}
@@ -215,7 +215,7 @@ pub(crate) fn update_group_settings(
 		});
 		let _ = s.ws_tx.send(msg_lock.to_string());
 
-		live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Group settings updated.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Group settings updated.");
 	}
 }
 
@@ -314,5 +314,8 @@ pub(crate) fn leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	live_region::announce(parts.conversations_parts.messages_announcer.clone(), &format!("Left group {}.", chat_name));
+	crate::announce::announce(
+		parts.conversations_parts.messages_announcer.clone(),
+		&format!("Left group {}.", chat_name),
+	);
 }
