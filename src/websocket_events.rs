@@ -1277,6 +1277,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("").to_string();
 								s.messages[idx].media_filename =
 									data.get("mediaFilename").and_then(|m| m.as_str()).unwrap_or("").to_string();
+								// Our own file is already on disk, so it gets Open and Save
+								// as rather than Download. Kept when an update leaves it out.
+								if let Some(path) =
+									data.get("mediaPath").and_then(|m| m.as_str()).filter(|p| !p.is_empty())
+								{
+									s.messages[idx].media_path = path.to_string();
+								}
 								s.messages[idx].quoted_id = data
 									.get("quoted_id")
 									.or_else(|| data.get("quotedId"))
@@ -1299,6 +1306,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								let status = s.messages[idx].status.clone();
 								let media_type = s.messages[idx].media_type.clone();
 								let media_filename = s.messages[idx].media_filename.clone();
+								let media_path = s.messages[idx].media_path.clone();
 								let quoted_id = s.messages[idx].quoted_id.clone();
 								let quoted_text = s.messages[idx].quoted_text.clone();
 								let quoted_sender = s.messages[idx].quoted_sender.clone();
@@ -1321,6 +1329,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 												m.status = status.clone();
 												m.media_type = media_type.clone();
 												m.media_filename = media_filename.clone();
+												m.media_path = media_path.clone();
 												m.quoted_id = quoted_id.clone();
 												m.quoted_text = quoted_text.clone();
 												m.quoted_sender = quoted_sender.clone();
@@ -1337,6 +1346,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 													m.status = status.clone();
 													m.media_type = media_type.clone();
 													m.media_filename = media_filename.clone();
+													m.media_path = media_path.clone();
 													m.quoted_id = quoted_id.clone();
 													m.quoted_text = quoted_text.clone();
 													m.quoted_sender = quoted_sender.clone();
@@ -1493,6 +1503,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										.to_string(),
 									media_filename: data
 										.get("mediaFilename")
+										.and_then(|m| m.as_str())
+										.unwrap_or("")
+										.to_string(),
+									media_path: data
+										.get("mediaPath")
 										.and_then(|m| m.as_str())
 										.unwrap_or("")
 										.to_string(),
