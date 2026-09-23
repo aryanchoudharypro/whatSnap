@@ -1,16 +1,17 @@
-//! WASAPI-based recorder for voice messages, replacing the old MCI/waveaudio
-//! backend so recording can honor the user's chosen input device and,
-//! optionally, Windows' own communications audio-effects pipeline (echo
-//! cancellation/noise-suppression/AGC) - both configured in Settings ->
-//! Input & Output. Off by default: unlike calls, a voice message has no
-//! speaker output to echo-cancel against, and the effects pipeline can make
-//! a raw voice sound processed/thin, so most users want the untouched mic
-//! signal here.
+//! WASAPI-based recorder for voice messages, honoring the user's chosen input
+//! device.
 //!
 //! Always writes 48kHz stereo 16-bit PCM, matching what the old MCI-based
 //! recorder always produced (it opened the waveaudio device with a hardcoded
 //! "channels 2", regardless of what the mic actually captured) and what
-//! `convert_wav_to_opus_ogg` (main.rs) requires of its input.
+//! `convert_wav_to_opus_ogg` (audio.rs) requires of its input.
+//!
+//! When Settings -> "Clean up voice messages" is on, the signal goes through
+//! `voice_dsp::VoiceCleanup` (high-pass, noise suppression, automatic gain,
+//! limiter) on its way to the file - the same processing the browser gives
+//! WhatsApp Web's recordings. Windows' own communications effects are not used
+//! here: they vary by driver, often do nothing, and would stack a second noise
+//! suppressor on top.
 
 use std::{
 	sync::{
@@ -32,7 +33,10 @@ use windows::Win32::{
 	},
 };
 
-use crate::call_audio::{ComGuard, EventGuard, log_line, open_communications_stream};
+use crate::{
+	call_audio::{ComGuard, EventGuard, log_line, open_communications_stream},
+	voice_dsp::VoiceCleanup,
+};
 
 const OUTPUT_SAMPLE_RATE: u32 = 48000;
 
@@ -48,14 +52,14 @@ impl RecordingSession {
 	/// until the device is confirmed open (or failed) so the caller can give
 	/// the same immediate success/failure feedback the old MCI-based
 	/// recorder gave.
-	pub fn start(path: &str, preferred_device_name: Option<String>, apply_effects: bool) -> anyhow::Result<Self> {
+	pub fn start(path: &str, preferred_device_name: Option<String>, clean_up: bool) -> anyhow::Result<Self> {
 		let stop = Arc::new(AtomicBool::new(false));
 		let stop_thread = Arc::clone(&stop);
 		let path = path.to_string();
 		let (ready_tx, ready_rx) = mpsc::channel::<anyhow::Result<()>>();
 
 		let thread = std::thread::spawn(move || {
-			run_recording_session(&stop_thread, &path, preferred_device_name.as_deref(), apply_effects, ready_tx);
+			run_recording_session(&stop_thread, &path, preferred_device_name.as_deref(), clean_up, ready_tx);
 		});
 
 		match ready_rx.recv_timeout(Duration::from_secs(3)) {
@@ -81,12 +85,12 @@ impl RecordingSession {
 	pub fn start_async(
 		path: &str,
 		preferred_device_name: Option<String>,
-		apply_effects: bool,
+		clean_up: bool,
 		on_ready: impl FnOnce(anyhow::Result<Self>) + Send + 'static,
 	) {
 		let path = path.to_string();
 		std::thread::spawn(move || {
-			let result = Self::start(&path, preferred_device_name, apply_effects);
+			let result = Self::start(&path, preferred_device_name, clean_up);
 			on_ready(result);
 		});
 	}
@@ -113,10 +117,10 @@ fn run_recording_session(
 	stop: &AtomicBool,
 	path: &str,
 	preferred_device_name: Option<&str>,
-	apply_effects: bool,
+	clean_up: bool,
 	ready_tx: mpsc::Sender<anyhow::Result<()>>,
 ) {
-	if let Err(e) = run_recording_session_inner(stop, path, preferred_device_name, apply_effects, ready_tx) {
+	if let Err(e) = run_recording_session_inner(stop, path, preferred_device_name, clean_up, ready_tx) {
 		log_line(&format!("voice recording session ended with error: {:?}", e));
 	}
 }
@@ -125,15 +129,14 @@ fn run_recording_session_inner(
 	stop: &AtomicBool,
 	path: &str,
 	preferred_device_name: Option<&str>,
-	apply_effects: bool,
+	clean_up: bool,
 	ready_tx: mpsc::Sender<anyhow::Result<()>>,
 ) -> anyhow::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
-		let wasapi = match open_communications_stream(eCapture, "voice-recording", preferred_device_name, apply_effects)
-		{
+		let wasapi = match open_communications_stream(eCapture, "voice-recording", preferred_device_name, false) {
 			Ok(w) => w,
 			Err(e) => {
 				let _ = ready_tx.send(Err(e));
@@ -158,7 +161,14 @@ fn run_recording_session_inner(
 		};
 
 		let mut resampler = StereoResampler::new(wasapi.sample_rate, wasapi.channels);
+		let mut cleanup = clean_up.then(VoiceCleanup::new);
 		let mut scratch: Vec<f32> = Vec::new();
+		let write = |writer: &mut WavWriter<_>, frames: &[[f32; 2]]| {
+			for [left, right] in frames {
+				let _ = writer.write_sample((left.clamp(-1.0, 1.0) * 32767.0) as i16);
+				let _ = writer.write_sample((right.clamp(-1.0, 1.0) * 32767.0) as i16);
+			}
+		};
 
 		wasapi.client.Start()?;
 		let _ = ready_tx.send(Ok(()));
@@ -194,14 +204,18 @@ fn run_recording_session_inner(
 
 				capture_client.ReleaseBuffer(num_frames)?;
 
-				for [left, right] in resampler.process(&scratch) {
-					let _ = writer.write_sample((left.clamp(-1.0, 1.0) * 32767.0) as i16);
-					let _ = writer.write_sample((right.clamp(-1.0, 1.0) * 32767.0) as i16);
+				let frames = resampler.process(&scratch);
+				match cleanup.as_mut() {
+					Some(c) => write(&mut writer, &c.process(&frames)),
+					None => write(&mut writer, &frames),
 				}
 			}
 		}
 
 		wasapi.client.Stop()?;
+		if let Some(c) = cleanup.as_mut() {
+			write(&mut writer, &c.finish());
+		}
 		let _ = writer.finalize();
 		log_line("voice recording session exiting (stop set)");
 	}

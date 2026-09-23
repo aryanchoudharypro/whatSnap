@@ -114,25 +114,111 @@ pub(crate) fn set_presence(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		}
 	}
 
-	// Going unavailable (blur, minimize, hide-to-tray) must pause any
-	// in-flight composing state too, for the same reason a chat switch
-	// does - otherwise backgrounding the app mid-compose leaves the
-	// other side seeing "typing…" indefinitely.
-	if !available {
-		if let Some(jid) = s.selected_chat.clone() {
-			let typing_payload = serde_json::json!({
-				"action": "send_typing",
-				"data": { "jid": jid, "state": "paused", "media": "" }
-			});
-			let _ = s.ws_tx.send(typing_payload.to_string());
+	if available {
+		// WAWebConversation: availability comes back only once focus has
+		// held for PRESENCE_FOCUS_SETTLE - a focus flicker isn't presence.
+		s.presence.hidden = false;
+		s.presence.focus_settle_since = Some(std::time::Instant::now());
+	} else {
+		// Losing focus stops typing right away (the other side shouldn't
+		// keep seeing "typing..." for text nobody is writing), but presence
+		// only drops after PRESENCE_BLUR_GRACE.
+		if let Some(jid) = s.composing.as_ref().map(|c| c.jid.clone()) {
+			crate::ui_commands::messaging::mark_paused(&mut s, &jid);
+		}
+		s.presence.focus_settle_since = None;
+		mark_unavailable_within(&mut s, crate::PRESENCE_BLUR_GRACE);
+	}
+}
+
+/// Stream.markUnavailable(ms): a shift timer - fires at the earlier of any
+/// already-pending deadline and this one.
+fn mark_unavailable_within(s: &mut AppState, within: std::time::Duration) {
+	let at = std::time::Instant::now() + within;
+	s.presence.unavailable_at = Some(s.presence.unavailable_at.map_or(at, |t| t.min(at)));
+}
+
+/// The window went to the tray: unavailable at once (WAWebStreamModel's
+/// isMinimizedToTray check), unless a call is connected.
+pub(crate) fn window_hidden(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	set_presence(state, parts, false);
+	let mut s = state.borrow_mut();
+	s.presence.hidden = true;
+	apply_presence(&mut s);
+}
+
+/// Milliseconds-since-boot tick of the last keyboard/mouse input anywhere
+/// (GetLastInputInfo) - WA Web's mousemove/scroll/keydown activity signal.
+fn last_input_tick() -> u32 {
+	use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+	let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+	if unsafe { GetLastInputInfo(&mut info) }.as_bool() { info.dwTime } else { 0 }
+}
+
+/// Periodic timer driving the availability model: focus settle, WA Web's
+/// idle loop, and the pending markUnavailable deadline.
+pub(crate) fn presence_tick(s: &mut AppState) {
+	let now = std::time::Instant::now();
+
+	if s.presence.focus_settle_since.is_some_and(|t| now.duration_since(t) >= crate::PRESENCE_FOCUS_SETTLE) {
+		s.presence.focus_settle_since = None;
+		if s.window_focused {
+			s.presence.available = true;
+			s.presence.unavailable_at = None;
+			// WA Web resubscribes the open chat's presence on coming back.
+			if let Some(jid) = s.selected_chat.clone() {
+				let payload = serde_json::json!({ "action": "subscribe_presence", "data": { "jid": jid } });
+				let _ = s.ws_tx.send(payload.to_string());
+			}
 		}
 	}
 
+	// Idle loop (WAWebMain): every PRESENCE_IDLE_CHECK_EVERY, arm
+	// markUnavailable(PRESENCE_IDLE_GRACE); any input cancels it (and, if
+	// focused, marks available again) and restarts the wait.
+	match s.presence.idle_armed_at_input {
+		None if now >= s.presence.next_idle_check => {
+			s.presence.idle_armed_at_input = Some(last_input_tick());
+			mark_unavailable_within(s, crate::PRESENCE_IDLE_GRACE);
+		}
+		Some(armed) if last_input_tick() != armed => {
+			s.presence.idle_armed_at_input = None;
+			s.presence.next_idle_check = now + crate::PRESENCE_IDLE_CHECK_EVERY;
+			if s.window_focused && !s.presence.hidden {
+				s.presence.available = true;
+				s.presence.unavailable_at = None;
+			}
+		}
+		_ => {}
+	}
+
+	if s.presence.unavailable_at.is_some_and(|t| now >= t) {
+		s.presence.unavailable_at = None;
+		s.presence.available = false;
+	}
+
+	apply_presence(s);
+}
+
+/// What WAWebStreamModel.sendAvailability would send right now.
+pub(crate) fn desired_presence(s: &AppState) -> bool {
+	let in_connected_call = s.active_call_audio.is_some();
+	in_connected_call || (!s.presence.hidden && s.presence.available)
+}
+
+fn apply_presence(s: &mut AppState) {
+	let want = desired_presence(s);
+	send_presence(s, want);
+}
+
+pub(crate) fn send_presence(s: &mut AppState, available: bool) {
+	if s.presence_sent == Some(available) {
+		return;
+	}
+	s.presence_sent = Some(available);
 	let payload = serde_json::json!({
 		"action": "set_presence",
-		"data": {
-			"available": available
-		}
+		"data": { "available": available }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
 }

@@ -256,14 +256,26 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 		// of paying for another empty local query.
 		request_phone_history_sync(&mut s, &jid);
 	} else {
-		let offset = whantv::real_message_count(&s.messages) as i32;
-		eprintln!("[LOG UI] Reached top of chat! Requesting next local page for {} at offset {}", jid, offset);
-		let payload = serde_json::json!({
-			"action": "get_messages",
-			"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": offset }
-		});
+		eprintln!("[LOG UI] Reached top of chat! Requesting next local page for {}", jid);
+		let payload = older_page_request(&s.messages, &jid);
 		let _ = s.ws_tx.send(payload.to_string());
 	}
+}
+
+/// The `get_messages` request for the page just before the oldest message
+/// loaded (see `whantv::oldest_message_cursor`).
+pub(crate) fn older_page_request(messages: &[whantv::ChatMessage], jid: &str) -> serde_json::Value {
+	let (before_ts, before_id) = whantv::oldest_message_cursor(messages).unwrap_or_default();
+	serde_json::json!({
+		"action": "get_messages",
+		"data": {
+			"jid": jid,
+			"limit": crate::MESSAGE_PAGE_SIZE,
+			"before_id": before_id,
+			"before_timestamp": before_ts,
+			"offset": if before_id.is_empty() { whantv::real_message_count(messages) as i32 } else { 0 }
+		}
+	})
 }
 
 /// Asks the phone for WhatsApp history older than what's in the local
@@ -498,6 +510,9 @@ pub(crate) fn release_conversation_buffers(s: &mut AppState, parts: &Rc<WindowPa
 	s.display_items = Vec::new();
 	s.selection_rows = Vec::new();
 	s.prev_msg_count = 0;
+	// Receipts parked for messages of this chat that never got loaded -
+	// nothing will ever claim them once it's closed.
+	s.pending_receipts = std::collections::HashMap::new();
 	// These hold full ChatMessage clones taken when an info dialog is opened
 	// and were never released - not on dialog close, not on chat switch.
 	s.group_data_media = Vec::new();
@@ -695,6 +710,7 @@ fn remove_chat_locally(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, j
 		s.selected_chat = None;
 		clear_pending_reply(&mut s, parts);
 		parts.conversations_parts.conversation_panel.show(false);
+		release_conversation_buffers(&mut s, parts);
 	}
 	apply_chat_filter(&mut s, parts);
 	refresh_tray_tooltip(&s, parts);

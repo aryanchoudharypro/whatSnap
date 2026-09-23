@@ -167,8 +167,8 @@ impl Drop for CallAudioState {
 // stream - the previous cpal-based implementation used the plain default multimedia-role
 // devices with no session category set, which never engaged any of that, so
 // speakerphone/laptop mic+speaker setups got raw, unprocessed audio (echo, room noise)
-// end to end. Calls always pass `apply_effects: true`; voice-message recording lets the
-// user choose, since some prefer the raw signal over what the effects pipeline does to it.
+// end to end. Calls always pass `apply_effects: true`; voice-message recording passes
+// false and does its own clean-up instead (voice_dsp.rs).
 pub(crate) struct WasapiOpen {
 	pub(crate) client: IAudioClient2,
 	pub(crate) event: HANDLE,
@@ -658,6 +658,7 @@ pub fn start_audio_streams(
 	preferred_input_device: Option<String>,
 	preferred_output_device: Option<String>,
 ) -> anyhow::Result<CallAudioState> {
+	crate::paths::rotate_log("call_audio.log");
 	let socket = UdpSocket::bind("127.0.0.1:0")?;
 	let target_addr = format!("127.0.0.1:{}", target_port);
 

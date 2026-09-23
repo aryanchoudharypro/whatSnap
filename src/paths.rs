@@ -37,3 +37,19 @@ pub fn db_and_wal_size() -> u64 {
 	std::fs::metadata(&db).map(|m| m.len()).unwrap_or(0)
 		+ std::fs::metadata(PathBuf::from(wal)).map(|m| m.len()).unwrap_or(0)
 }
+
+/// Where a frontend log file is rotated (to `<name>.1`) when it's opened for a
+/// new session - matching the backend's own `rotateLog`.
+const MAX_LOG_BYTES: u64 = 10 << 20;
+
+/// Moves a log file aside once it has grown past `MAX_LOG_BYTES`, so the
+/// append-only logs (a call's audio log gets a health line every 2 seconds)
+/// can't grow without bound.
+pub fn rotate_log(name: &str) {
+	let path = log_dir().join(name);
+	if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_LOG_BYTES) {
+		let rotated = log_dir().join(format!("{name}.1"));
+		let _ = std::fs::remove_file(&rotated);
+		let _ = std::fs::rename(&path, rotated);
+	}
+}

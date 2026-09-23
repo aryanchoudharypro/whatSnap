@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/purpshell/meowcaller"
 	"github.com/purpshell/meowcaller/diag"
@@ -136,6 +137,7 @@ func attachCallHandlers(call *meowcaller.Call) {
 	// instead of just "Answer() didn't error".
 	call.OnReady(func() {
 		log.Println("Call ready (connected):", call.ID())
+		updateLiveCall(call.ID(), func(c *liveCall) { c.connected = time.Now() })
 		bridge, port, err := NewUDPBridge()
 		if err != nil {
 			log.Println("Failed to create UDP bridge:", err)
@@ -170,9 +172,13 @@ func attachCallHandlers(call *meowcaller.Call) {
 		})
 	})
 	call.OnEnd(func(reason string) {
+		// summary is how the call ended in words ("Voice call, answered on
+		// another device"); it also lands in the chat as a history row.
+		summary := finishLiveCall(call.ID(), reason)
 		broadcastEvent("call_ended", map[string]string{
 			"call_id": call.ID(),
 			"reason":  reason,
+			"summary": summary,
 		})
 		activeCallsMutex.Lock()
 		delete(activeCalls, call.ID())
@@ -246,6 +252,7 @@ func initCallClient() {
 	// Must be registered before meowcaller.NewClient installs its own
 	// handler - see incomingGroupCallJIDs.
 	client.AddEventHandler(recordIncomingGroupCallJID)
+	client.AddEventHandler(noteOwnDeviceReject)
 	callClient = meowcaller.NewClient(client, newCallDiagnosticsOptions()...)
 
 	callClient.OnIncomingCall(func(call *meowcaller.Call) {
@@ -261,7 +268,17 @@ func initCallClient() {
 		}
 		activeCallsMutex.Unlock()
 
+		_, isGroupCall := call.GroupState()
+		chatJID := call.Peer()
+		if hasGroupJID {
+			chatJID = groupJID
+		}
+		trackLiveCall(call.ID(), chatJID, true, call.IsVideo(), isGroupCall)
+
 		if alreadyOnACall {
+			// Still goes in the history, as the official apps show it: a
+			// call that rang while you were on another one is a missed call.
+			defer finishLiveCall(call.ID(), "busy")
 			// meowcaller has no protocol-level "busy" reason to send back
 			// (WhatsApp's reject stanza doesn't carry one in this library),
 			// so the closest equivalent is declining it the same way a
@@ -276,8 +293,6 @@ func initCallClient() {
 			return
 		}
 
-		_, isGroup := call.GroupState()
-
 		attachCallHandlers(call)
 
 		// The peer JID is usually a @lid, which the frontend's contact map
@@ -288,7 +303,7 @@ func initCallClient() {
 			"call_id":     call.ID(),
 			"caller":      call.Peer().String(),
 			"caller_name": resolveDisplayName(call.Peer()),
-			"is_group":    isGroup,
+			"is_group":    isGroupCall,
 			"is_video":    call.IsVideo(),
 		}
 		if hasGroupJID {
@@ -377,12 +392,28 @@ func handlePlaceCall(data []byte) {
 	activeCalls[call.ID()] = call
 	activeCallsMutex.Unlock()
 
+	// A group chat's call belongs in the group, unless it went out as a 1:1
+	// (a group with just one other member) - then it's that person's.
+	chatJID := call.Peer()
+	_, isGroupCall := call.GroupState()
+	if parsedJID.Server == types.GroupServer && isGroupCall {
+		chatJID = parsedJID
+	}
+	trackLiveCall(call.ID(), chatJID, false, req.Video, isGroupCall)
+
 	// call_placed goes out before attachCallHandlers: OnGroupState replays
 	// the seeded roster immediately, and the frontend ignores
 	// call_participants for a call_id it hasn't learned yet.
+	// self_phone picks the ringback the frontend plays: WhatsApp rings in
+	// the tone of the caller's own country.
+	selfPhone := ""
+	if client.Store.ID != nil {
+		selfPhone = client.Store.ID.User
+	}
 	broadcastEvent("call_placed", map[string]string{
-		"call_id": call.ID(),
-		"peer":    parsedJID.String(),
+		"call_id":    call.ID(),
+		"peer":       parsedJID.String(),
+		"self_phone": selfPhone,
 	})
 	attachCallHandlers(call)
 
@@ -456,6 +487,7 @@ func handleRejectCall(data []byte) {
 		return
 	}
 
+	updateLiveCall(req.CallID, func(c *liveCall) { c.localReject = true })
 	err := call.Reject()
 	if err != nil {
 		log.Println("Failed to reject call:", err)
@@ -482,6 +514,7 @@ func handleLeaveCall(data []byte) {
 		return
 	}
 
+	updateLiveCall(req.CallID, func(c *liveCall) { c.localHangup = true })
 	err := call.Hangup()
 	if err != nil {
 		log.Println("Failed to leave call:", err)

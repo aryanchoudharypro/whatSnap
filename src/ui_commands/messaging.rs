@@ -20,6 +20,17 @@ pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		// opened.
 		clear_unread_divider_for_open_chat(&mut s, parts, jid);
 
+		// Sending from a window opened around an old search hit: jump back to
+		// the newest messages first, so the one being sent shows up where it
+		// belongs (live messages aren't appended under such a window).
+		if !s.messages_at_latest {
+			let reload = serde_json::json!({
+				"action": "get_messages",
+				"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
+			});
+			let _ = s.ws_tx.send(reload.to_string());
+		}
+
 		let reply_id = s.pending_reply_id.take().unwrap_or_default();
 		let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
 		s.pending_reply_preview = None;
@@ -107,6 +118,10 @@ pub(crate) fn remove_quote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	parts.conversations_parts.message_field.set_focus();
 }
 
+/// Mirrors WhatsApp Web's WAWebPresenceChatAction: a keystroke in a non-empty
+/// composer marks composing (sent once, then resent every
+/// CHATSTATE_RESEND_EVERY while typing goes on), and CHATSTATE_PAUSE_AFTER
+/// without a keystroke - or the composer emptying - sends "paused".
 pub(crate) fn send_typing(
 	state: &Rc<RefCell<AppState>>,
 	_parts: &Rc<WindowParts>,
@@ -114,17 +129,100 @@ pub(crate) fn send_typing(
 	typing_state: String,
 	media: String,
 ) {
-	let target_jid = if jid.is_empty() { state.borrow().selected_chat.clone() } else { Some(jid) };
-	if let Some(target) = target_jid {
-		let payload = serde_json::json!({
-			"action": "send_typing",
-			"data": {
-				"jid": target,
-				"state": typing_state,
-				"media": media
+	let mut s = state.borrow_mut();
+	let Some(target) = (if jid.is_empty() { s.selected_chat.clone() } else { Some(jid) }) else {
+		return;
+	};
+	if typing_state == "composing" {
+		mark_composing(&mut s, &target, &media);
+	} else {
+		mark_paused(&mut s, &target);
+	}
+}
+
+/// WA Web never sends chatstates to newsletters, bots or broadcast lists.
+fn chatstate_allowed(jid: &str) -> bool {
+	!(jid.ends_with("@newsletter")
+		|| jid.ends_with("@broadcast")
+		|| jid.ends_with("@bot")
+		|| jid == crate::types::META_AI_JID)
+}
+
+/// markComposing / markRecording: `media` empty for typing, "audio" while
+/// recording a voice note.
+pub(crate) fn mark_composing(s: &mut AppState, jid: &str, media: &str) {
+	if !chatstate_allowed(jid) {
+		return;
+	}
+	let now = std::time::Instant::now();
+	match s.composing.as_mut() {
+		Some(c) if c.jid == jid && c.media == media => c.last_key = now,
+		_ => {
+			// A different chat (or typing <-> recording): take the old one back first.
+			if let Some(old) = s.composing.as_ref().map(|c| c.jid.clone()) {
+				if old != jid {
+					send_chatstate(s, &old, "paused", "");
+				}
 			}
-		});
-		let _ = state.borrow().ws_tx.send(payload.to_string());
+			send_chatstate(s, jid, "composing", media);
+			s.composing = Some(crate::ComposingState {
+				jid: jid.to_string(),
+				media: media.to_string(),
+				last_sent: now,
+				last_key: now,
+			});
+		}
+	}
+}
+
+/// markPaused: only a chatstate we actually sent needs taking back.
+pub(crate) fn mark_paused(s: &mut AppState, jid: &str) {
+	if s.composing.as_ref().is_some_and(|c| c.jid == jid) {
+		send_chatstate(s, jid, "paused", "");
+	}
+}
+
+/// Sends one chatstate. A "paused" also clears the tracked state, whoever sends it.
+pub(crate) fn send_chatstate(s: &mut AppState, jid: &str, typing_state: &str, media: &str) {
+	if typing_state == "paused" {
+		s.composing = None;
+	}
+	let payload = serde_json::json!({
+		"action": "send_typing",
+		"data": { "jid": jid, "state": typing_state, "media": media }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+}
+
+/// Periodic timer: WA Web's paused timer (typing only - recording has none)
+/// and its resend timer, which only resends while the contact is online.
+pub(crate) fn chatstate_tick(s: &mut AppState) {
+	let Some((jid, media, last_sent, last_key)) =
+		s.composing.as_ref().map(|c| (c.jid.clone(), c.media.clone(), c.last_sent, c.last_key))
+	else {
+		return;
+	};
+	if media.is_empty() && last_key.elapsed() >= crate::CHATSTATE_PAUSE_AFTER {
+		send_chatstate(s, &jid, "paused", "");
+		return;
+	}
+	if last_sent.elapsed() >= crate::CHATSTATE_RESEND_EVERY && s.contact_online.get(&jid) != Some(&false) {
+		send_chatstate(s, &jid, "composing", &media);
+		if let Some(c) = s.composing.as_mut() {
+			c.last_sent = std::time::Instant::now();
+		}
+	}
+}
+
+/// WA Web's presenceOnlineChanged: a contact coming online while we're still
+/// typing to them gets the chatstate straight away.
+pub(crate) fn contact_came_online(s: &mut AppState, jid: &str) {
+	let resend = s.composing.as_ref().filter(|c| c.jid == jid).map(|c| c.media.clone());
+	if let Some(media) = resend {
+		send_chatstate(s, jid, "composing", &media);
+		if let Some(c) = s.composing.as_mut() {
+			c.last_sent = std::time::Instant::now();
+		}
 	}
 }
 

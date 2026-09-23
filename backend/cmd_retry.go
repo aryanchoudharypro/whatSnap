@@ -226,7 +226,9 @@ func retryOneMessage(conn net.Conn, id string) {
 
 	if mediaType == "voice" {
 		duration := parseVoiceDurationSeconds(text)
-		sendUploadedVoiceMessage(conn, id, jid, mediaPath, mediaMimetype, duration, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
+		var waveform []byte
+		db.QueryRow(`SELECT voice_waveform FROM messages WHERE id = ?`, id).Scan(&waveform)
+		sendUploadedVoiceMessage(conn, id, jid, mediaPath, mediaMimetype, duration, waveform, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
 	} else {
 		sendUploadedAttachment(conn, id, jid, mediaType, mediaPath, mediaMimetype, mediaFilename, text, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
 	}

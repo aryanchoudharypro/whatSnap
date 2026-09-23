@@ -118,7 +118,11 @@ pub enum UiCommand {
 		media: String,
 	},
 	SubscribePresence(String),
+	/// The main window gained (true) or lost (false) OS focus.
 	SetPresence(bool),
+	/// The main window was hidden to the tray - go unavailable right away
+	/// rather than after the focus-loss grace period.
+	WindowHidden,
 	ActivateWindow,
 	MarkRead {
 		jid: String,
@@ -278,6 +282,10 @@ pub(crate) enum NotificationSound {
 	MessageBackground,
 	MessageSent,
 	VoiceMessageSent,
+	/// WhatsApp's own tone as one voice message rolls on into the next.
+	VoiceSequenceNext,
+	/// WhatsApp's own tone when a run of voice messages has played out.
+	VoiceSequenceEnd,
 }
 
 impl NotificationSound {
@@ -287,6 +295,8 @@ impl NotificationSound {
 			Self::MessageBackground => include_bytes!("../sounds/message_background.ogg"),
 			Self::MessageSent => include_bytes!("../sounds/message_sent.ogg"),
 			Self::VoiceMessageSent => include_bytes!("../sounds/voicemsg_send.ogg"),
+			Self::VoiceSequenceNext => include_bytes!("../sounds/voice_seq_next.ogg"),
+			Self::VoiceSequenceEnd => include_bytes!("../sounds/voice_seq_end.ogg"),
 		}
 	}
 }

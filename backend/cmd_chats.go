@@ -33,12 +33,38 @@ var emptyReactions = []ReactionInfo{}
 // first" query used by both a plain get_messages and the around-a-target
 // variant below, so a single page's worth of local history is always built
 // the same way regardless of who's asking for it.
+// pageCursor, when set, pages by position instead of offset: only messages
+// strictly older than (Timestamp, ID) are returned. Offsets drift - a message
+// arriving between two pages shifts every later one, and an offset counted
+// from the newest message is meaningless for a window opened around a search
+// hit in the middle of the chat.
+type pageCursor struct {
+	Timestamp int64
+	ID        string
+}
+
 func fetchMessagesPage(jid string, limit, offset int) []MessageJSON {
-	rows, queryErr := db.Query(`SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
+	return fetchMessagesPageBefore(jid, limit, offset, nil)
+}
+
+func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) []MessageJSON {
+	// raw is only needed for the rare voice row stored without a duration;
+	// selecting it unconditionally pulled every row's whole protobuf into
+	// memory just to throw it away.
+	const cols = `SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 			COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''), COALESCE(media_size, 0),
 			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
-			COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''), raw
-		FROM messages WHERE jid = ? ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
+			COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''),
+			CASE WHEN media_type IN ('voice', 'audio') AND COALESCE(text, '') NOT LIKE '%(%' THEN raw ELSE NULL END
+		FROM messages WHERE jid = ?`
+	var rows *sql.Rows
+	var queryErr error
+	if before != nil {
+		rows, queryErr = db.Query(cols+` AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`,
+			jid, before.Timestamp, before.Timestamp, before.ID, limit)
+	} else {
+		rows, queryErr = db.Query(cols+` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
+	}
 
 	msgs := []MessageJSON{}
 	var ids []string
@@ -169,13 +195,23 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		JID    string `json:"jid"`
 		Limit  int    `json:"limit"`
 		Offset int    `json:"offset"`
+		// Page cursor (see pageCursor): the oldest message already loaded.
+		BeforeID        string `json:"before_id"`
+		BeforeTimestamp int64  `json:"before_timestamp"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
-		broadcastChats()
+		var before *pageCursor
+		if data.BeforeID != "" {
+			before = &pageCursor{Timestamp: data.BeforeTimestamp, ID: data.BeforeID}
+		}
+		loadMore := data.Offset > 0 || before != nil
+		if !loadMore {
+			db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
+			broadcastChats()
+		}
 
 		limit := data.Limit
 		if limit <= 0 {
@@ -187,12 +223,12 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		}
 
 		log.Printf("Getting messages for %s (Limit: %d, Offset: %d)", data.JID, limit, offset)
-		msgs := fetchMessagesPage(data.JID, limit, offset)
+		msgs := fetchMessagesPageBefore(data.JID, limit, offset, before)
 		log.Printf("Got %d messages for %s", len(msgs), data.JID)
 		sendEvent(conn, "conversation_messages", map[string]interface{}{
 			"jid":      data.JID,
 			"messages": msgs,
-			"loadMore": data.Offset > 0,
+			"loadMore": loadMore,
 		})
 		// Opening a large chat is by far this process's biggest allocation
 		// burst, and every byte of it is garbage the moment the response is on
@@ -239,8 +275,8 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND id = ?`,
 				data.JID, data.MessageID).Scan(&targetTS, &targetID)
 		} else if data.Text != "" {
-			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND text LIKE ?
-				ORDER BY timestamp DESC LIMIT 1`, data.JID, "%"+data.Text+"%").Scan(&targetTS, &targetID)
+			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND text LIKE ? ESCAPE '\'
+				ORDER BY timestamp DESC LIMIT 1`, data.JID, "%"+escapeLike(data.Text)+"%").Scan(&targetTS, &targetID)
 		} else {
 			lookupErr = sql.ErrNoRows
 		}
@@ -268,8 +304,17 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 			"jid":      data.JID,
 			"messages": msgs,
 			"loadMore": false,
+			// offset 0 means the window runs right up to the newest message;
+			// otherwise newer ones exist that this view doesn't hold.
+			"isLatest": offset == 0,
 		})
 	}()
+}
+
+// escapeLike makes a user's search text match literally in a LIKE pattern
+// (with ESCAPE '\'): otherwise "%" and "_" in it act as wildcards.
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
 // handleGetStarredMessages returns every starred message across all chats,
@@ -325,7 +370,7 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		like := "%" + data.Query + "%"
+		like := "%" + escapeLike(data.Query) + "%"
 		var rows *sql.Rows
 		var err error
 		if data.JID != "" {
@@ -333,13 +378,13 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
 				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
-				WHERE jid = ? AND text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, data.JID, like)
+				WHERE jid = ? AND text LIKE ? ESCAPE '\' AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, data.JID, like)
 		} else {
 			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
 				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
-				WHERE text LIKE ? AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, like)
+				WHERE text LIKE ? ESCAPE '\' AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, like)
 		}
 		results := []map[string]interface{}{}
 		if err == nil {
@@ -402,7 +447,12 @@ func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) 
 	var from_me bool
 	var sender_jid string
 	err := db.QueryRow(
-		`SELECT id, timestamp, from_me, COALESCE(sender_jid, '') FROM messages WHERE jid = ? ORDER BY timestamp DESC LIMIT 1`,
+		// Real messages only: a synthesized group-event line or call-history
+		// row has an ID WhatsApp never issued, and patches naming one as the
+		// chat's last message don't match what the phone has.
+		`SELECT id, timestamp, from_me, COALESCE(sender_jid, '') FROM messages
+			WHERE jid = ? AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\' AND id NOT LIKE 'call:%'
+			ORDER BY timestamp DESC LIMIT 1`,
 		jid_str,
 	).Scan(&msg_id, &msg_ts, &from_me, &sender_jid)
 	if err != nil {
@@ -575,7 +625,7 @@ func handleDeleteChat(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": "Failed to delete chat: " + err.Error()})
 			return
 		}
-		db.Exec("DELETE FROM messages WHERE jid = ?", data.JID)
+		purgeMessages("jid = ?", data.JID)
 		db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
 		broadcastChats()
 	}()
@@ -599,7 +649,7 @@ func handleClearChat(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": "Failed to clear chat: " + err.Error()})
 			return
 		}
-		db.Exec("DELETE FROM messages WHERE jid = ?", data.JID)
+		purgeMessages("jid = ?", data.JID)
 		broadcastChats()
 		broadcastEvent("chat_cleared", map[string]interface{}{"jid": data.JID})
 	}()

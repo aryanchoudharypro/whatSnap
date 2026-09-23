@@ -168,13 +168,13 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	audio_sizer.add(&input_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 
 	let voice_message_noise_suppression_check = CheckBox::builder(&audio_panel)
-		.with_label("Reduce background noise when recording voice messages (Windows communications audio effects)")
+		.with_label("Clean up voice messages: reduce background noise and even out the volume")
 		.build();
 	voice_message_noise_suppression_check.set_font(&theme::Fonts::body());
 	audio_sizer.add(&voice_message_noise_suppression_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 
 	let noise_suppression_note = StaticText::builder(&audio_panel)
-		.with_label("Off by default: keeps the raw mic signal. Calls always use this processing.")
+		.with_label("Like WhatsApp Web: removes background noise and brings quiet speech up to a steady, loud level. Off sends the raw mic signal.")
 		.build();
 	noise_suppression_note.set_font(&theme::Fonts::body());
 	audio_sizer.add(&noise_suppression_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);

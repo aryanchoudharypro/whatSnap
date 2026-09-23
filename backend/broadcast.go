@@ -13,61 +13,52 @@ import (
 )
 
 func broadcastEvent(evtType string, data interface{}) {
-	wsMutex.Lock()
-	defer wsMutex.Unlock()
-
-	var raw json.RawMessage
-	if data != nil {
-		bytes, err := json.Marshal(data)
-		if err == nil {
-			raw = bytes
-		}
-	}
-
-	if evtType == "message" {
-		log.Printf("Broadcasting 'message' event to WS: %s", string(raw))
-	}
-
-	evt := Event{
-		Type: evtType,
-		Data: raw,
-	}
-
-	bytes, err := json.Marshal(evt)
-	if err != nil {
+	line := encodeEvent(evtType, data)
+	if line == nil {
 		return
 	}
-
+	wsMutex.Lock()
+	defer wsMutex.Unlock()
 	for conn := range wsClients {
-		conn.Write(append(bytes, '\n'))
+		writeWithDeadline(conn, line)
 	}
 }
 
 func sendEvent(conn net.Conn, evtType string, data interface{}) {
+	// Encoded before taking wsMutex: marshalling a chat's history is the
+	// slow part, and nothing else could write to the pipe meanwhile.
+	line := encodeEvent(evtType, data)
+	if line == nil {
+		return
+	}
 	wsMutex.Lock()
 	defer wsMutex.Unlock()
-	var raw json.RawMessage
+	writeWithDeadline(conn, line)
+}
+
+// encodeEvent builds one newline-terminated {"type":..,"data":..} line.
+//
+// Assembled by hand rather than marshalling an Event: the payload is already
+// valid JSON once marshalled, so json.Marshal(evt) would copy the whole thing a
+// second time purely to wrap it, and a trailing append could copy it a third.
+// On a chat's full history that is tens of MB per copy. evtType still goes
+// through Marshal so it stays correctly escaped, and the empty-data case
+// matches Event's `omitempty`.
+func encodeEvent(evtType string, data interface{}) []byte {
+	var raw []byte
 	if data != nil {
 		bytes, err := json.Marshal(data)
 		if err != nil {
-			// Matches the previous behaviour: still send the bare event rather
-			// than dropping it, so the UI's dispatch is unchanged. Logged
-			// because it used to fail silently.
-			log.Println("sendEvent: failed to marshal", evtType, "payload:", err)
+			// Still send the bare event rather than dropping it, so the UI's
+			// dispatch is unchanged - but say so, it used to fail silently.
+			log.Println("encodeEvent: failed to marshal", evtType, "payload:", err)
 		} else {
 			raw = bytes
 		}
 	}
-
-	// Assembled by hand rather than marshalling an Event: `raw` is already
-	// valid JSON, so json.Marshal(evt) would copy the whole payload a second
-	// time purely to wrap it in {"type":..,"data":..}, and the trailing append
-	// could copy it a third. On a chat's full history that is tens of MB per
-	// copy. evtType still goes through Marshal so it stays correctly escaped,
-	// and the empty-data case matches Event's `omitempty`.
 	typeJSON, err := json.Marshal(evtType)
 	if err != nil {
-		return
+		return nil
 	}
 	buf := make([]byte, 0, len(raw)+len(typeJSON)+32)
 	buf = append(buf, `{"type":`...)
@@ -76,9 +67,24 @@ func sendEvent(conn net.Conn, evtType string, data interface{}) {
 		buf = append(buf, `,"data":`...)
 		buf = append(buf, raw...)
 	}
-	buf = append(buf, '}', '\n')
+	return append(buf, '}', '\n')
+}
 
-	conn.Write(buf)
+// pipeWriteTimeout bounds one write to the frontend. Writes happen under
+// wsMutex, so a frontend that stopped reading (a hung UI thread) used to block
+// every goroutine in the backend that tried to send anything, indefinitely.
+const pipeWriteTimeout = 15 * time.Second
+
+// writeWithDeadline writes buf to conn, dropping the connection if the
+// frontend doesn't take it in time - it reconnects and resyncs on its own.
+// Must be called with wsMutex held.
+func writeWithDeadline(conn net.Conn, buf []byte) {
+	conn.SetWriteDeadline(time.Now().Add(pipeWriteTimeout))
+	if _, err := conn.Write(buf); err != nil {
+		log.Println("Dropping IPC connection after failed write:", err)
+		delete(wsClients, conn)
+		conn.Close()
+	}
 }
 
 // broadcastChats re-reads the local chat list cache and pushes it to every

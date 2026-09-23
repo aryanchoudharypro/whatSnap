@@ -596,6 +596,13 @@ pub fn bind_input_handlers(
 	let msg_ctrl_typing = parts.conversations_parts.message_field;
 	msg_ctrl_typing.on_text_changed(move |_| {
 		let text = msg_ctrl_typing.get_value();
+		// set_value() fires this too - restoring a chat's saved draft on open,
+		// or entering edit mode, is not the user typing, and mustn't tell the
+		// chat "composing". Clearing the field still counts (it's how a
+		// "composing" we did send gets taken back).
+		if !text.is_empty() && !msg_ctrl_typing.has_focus() {
+			return;
+		}
 		let typing_state = if text.is_empty() { "paused" } else { "composing" };
 		let _ = tx_typing.send(UiCommand::SendTyping {
 			jid: String::new(),
@@ -936,7 +943,7 @@ pub fn bind_input_handlers(
 			if logged_in && ev.can_veto() && tray_icon_close.is_icon_installed() {
 				ev.veto();
 				frame_close.show(false);
-				let _ = tx_close.send(UiCommand::SetPresence(false));
+				let _ = tx_close.send(UiCommand::WindowHidden);
 			} else {
 				// A real close (tray icon disabled in Settings, so the X button
 				// actually quits) - see the tray Exit handler above for why this
@@ -2897,6 +2904,9 @@ pub fn bind_input_handlers(
 
 								search_ctrl.set_focus();
 								dlg.show_modal();
+								// The base Dialog has no Drop, so a dialog built per use must be
+								// destroyed or it (and every closure bound to it) lives on hidden.
+								dlg.destroy();
 							}
 						}
 					}
@@ -3174,6 +3184,9 @@ pub fn bind_input_handlers(
 
 						emoji_list.set_focus();
 						dlg.show_modal();
+						// The base Dialog has no Drop, so a dialog built per use must be
+						// destroyed or it (and every closure bound to it) lives on hidden.
+						dlg.destroy();
 					}
 				}
 			});
@@ -3724,6 +3737,9 @@ pub fn bind_input_handlers(
 
 								search_ctrl.set_focus();
 								dlg.show_modal();
+								// The base Dialog has no Drop, so a dialog built per use must be
+								// destroyed or it (and every closure bound to it) lives on hidden.
+								dlg.destroy();
 							}
 						}
 					}
@@ -3837,6 +3853,9 @@ pub fn bind_input_handlers(
 						text_view.set_focus();
 						text_view.set_selection(0, 0);
 						dlg.show_modal();
+						// The base Dialog has no Drop, so a dialog built per use must be
+						// destroyed or it (and every closure bound to it) lives on hidden.
+						dlg.destroy();
 					}
 				}
 				event.skip(false);

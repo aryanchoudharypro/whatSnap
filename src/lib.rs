@@ -204,7 +204,18 @@ impl ChatMessage {
 	/// clock reading, so every call site in one pass agrees on "now" instead
 	/// of each computing it separately.
 	pub fn is_editable(&self, now: i64) -> bool {
-		self.from_me && !self.is_deleted && !self.is_voice() && (now - self.timestamp) < Self::EDIT_WINDOW_SECS
+		// Plain text only. Caption edits on media go out in a different wire
+		// shape that hasn't been confirmed against the official apps yet, and
+		// sending an unusual edit is exactly the kind of thing worth not
+		// guessing at.
+		self.from_me
+			&& !self.is_deleted
+			&& !self.is_voice()
+			&& !self.is_system()
+			&& !self.is_call()
+			&& self.media_type.is_empty()
+			&& !self.text.starts_with('[')
+			&& (now - self.timestamp) < Self::EDIT_WINDOW_SECS
 	}
 
 	/// How long after sending WhatsApp lets a message be deleted for everyone.
@@ -677,7 +688,6 @@ impl DisplayItem {
 					|| msg.text == "[This message was deleted]"
 					|| msg.text == "You deleted this message"
 					|| msg.text == "This message was deleted"
-					|| msg.text.contains("deleted")
 			}
 			DisplayItem::Album { messages, .. } => messages.is_empty() || messages.iter().all(|m| m.is_deleted),
 		}
@@ -790,6 +800,19 @@ pub fn same_album(prev: &ChatMessage, msg: &ChatMessage) -> bool {
 	(msg.timestamp - prev.timestamp).abs() <= 10
 }
 
+/// The voice message to play automatically once `current_id` finishes, if
+/// any - WhatsApp's sequential playback (WAWebPttFindSequentialMsg): only the
+/// message straight after it counts, and only if that is itself a voice note
+/// (not an audio file). Anything else in between - text, a photo, a call row -
+/// ends the run. Date and unread dividers are ours, not messages, so they're
+/// looked past.
+pub fn next_sequential_voice<'a>(messages: &'a [ChatMessage], current_id: &str) -> Option<&'a ChatMessage> {
+	let pos = messages.iter().position(|m| m.id == current_id)?;
+	let next = messages[pos + 1..].iter().find(|m| !m.is_date_divider && !m.is_unread_divider)?;
+	let is_voice_note = next.media_type == "voice" || next.text.starts_with("[Voice Message]");
+	(is_voice_note && !next.is_deleted).then_some(next)
+}
+
 pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<DisplayItem> {
 	let mut items = Vec::with_capacity(messages.len());
 	let mut current_album: Vec<ChatMessage> = Vec::new();
@@ -819,7 +842,7 @@ pub fn group_messages_into_display_items(messages: &[ChatMessage]) -> Vec<Displa
 	}
 
 	for msg in messages {
-		let is_deleted = msg.is_deleted || msg.text.contains("deleted") || msg.text.contains("Deleted");
+		let is_deleted = msg.is_deleted;
 		let is_media = !is_deleted
 			&& (msg.media_type == "image"
 				|| msg.media_type == "video"
@@ -893,6 +916,18 @@ pub fn rebuild_date_dividers(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
 /// divider rows) overcounted the position by one for every divider already
 /// inserted, silently skipping that many real messages from every page after
 /// the first.
+/// The oldest real (non-divider, persisted) message loaded, as the
+/// `(before_timestamp, before_id)` cursor the next older page is requested
+/// from. Paging by position instead of by offset means a message arriving in
+/// between two pages can't shift what the next one returns, and it still works
+/// for a window opened around a search hit in the middle of a chat.
+pub fn oldest_message_cursor(messages: &[ChatMessage]) -> Option<(i64, String)> {
+	messages
+		.iter()
+		.find(|m| !m.is_date_divider && !m.is_unread_divider && !m.id.is_empty())
+		.map(|m| (m.timestamp, m.id.clone()))
+}
+
 pub fn real_message_count(messages: &[ChatMessage]) -> usize {
 	messages.iter().filter(|m| !m.is_date_divider && !m.is_unread_divider).count()
 }
@@ -1377,6 +1412,55 @@ mod tests {
 	#[test]
 	fn grouping_of_nothing_yields_nothing() {
 		assert!(group_messages_into_display_items(&[]).is_empty());
+	}
+}
+
+#[cfg(test)]
+mod sequential_voice_tests {
+	use super::*;
+
+	fn msg(id: &str, text: &str, media_type: &str) -> ChatMessage {
+		ChatMessage { id: id.into(), text: text.into(), media_type: media_type.into(), ..Default::default() }
+	}
+
+	#[test]
+	fn plays_the_voice_note_straight_after() {
+		let m = vec![msg("a", "[Voice Message] (0:05)", "voice"), msg("b", "[Voice Message] (0:03)", "voice")];
+		assert_eq!(next_sequential_voice(&m, "a").map(|m| m.id.as_str()), Some("b"));
+		assert!(next_sequential_voice(&m, "b").is_none());
+	}
+
+	#[test]
+	fn anything_in_between_ends_the_run() {
+		let m = vec![
+			msg("a", "[Voice Message] (0:05)", "voice"),
+			msg("t", "ok", ""),
+			msg("b", "[Voice Message] (0:03)", "voice"),
+		];
+		assert!(next_sequential_voice(&m, "a").is_none());
+	}
+
+	#[test]
+	fn audio_files_and_deleted_notes_are_not_played() {
+		let mut deleted = msg("d", "[Voice Message] (0:03)", "voice");
+		deleted.is_deleted = true;
+		let m = vec![msg("a", "[Voice Message] (0:05)", "voice"), msg("f", "[Audio] (3:10)", "audio")];
+		assert!(next_sequential_voice(&m, "a").is_none());
+		let m = vec![msg("a", "[Voice Message] (0:05)", "voice"), deleted];
+		assert!(next_sequential_voice(&m, "a").is_none());
+	}
+
+	#[test]
+	fn looks_past_dividers() {
+		let divider = ChatMessage { text: "Today".into(), is_date_divider: true, ..Default::default() };
+		let unread = ChatMessage { text: "1 unread".into(), is_unread_divider: true, ..Default::default() };
+		let m = vec![
+			msg("a", "[Voice Message] (0:05)", "voice"),
+			divider,
+			unread,
+			msg("b", "[Voice Message] (0:03)", "voice"),
+		];
+		assert_eq!(next_sequential_voice(&m, "a").map(|m| m.id.as_str()), Some("b"));
 	}
 }
 

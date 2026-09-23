@@ -231,7 +231,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 		if let Some(item) = s.display_items.get(idx as usize) {
 			match item {
 				whantv::DisplayItem::Single(msg) => {
-					let is_deleted = msg.is_deleted || msg.text.contains("deleted");
+					let is_deleted = msg.is_deleted;
 					let is_voice =
 						msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
 					let is_media = !is_deleted
@@ -292,8 +292,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 					}
 				}
 				whantv::DisplayItem::Album { messages, .. } => {
-					let valid_messages: Vec<_> =
-						messages.iter().filter(|m| !m.is_deleted && !m.text.contains("deleted")).collect();
+					let valid_messages: Vec<_> = messages.iter().filter(|m| !m.is_deleted).collect();
 					if !valid_messages.is_empty() {
 						let is_failed = valid_messages.iter().any(|m| m.from_me && m.status == "failed");
 						let is_uploading = valid_messages.iter().any(|m| m.from_me && m.status == "uploading");

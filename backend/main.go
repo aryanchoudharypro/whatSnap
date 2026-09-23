@@ -80,10 +80,17 @@ func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	c.AutomaticMessageRerequestFromPhone = true
 	c.UseRetryMessageStore = true
 	c.EmitAppStateEventsOnFullSync = true
-	c.SetForceActiveDeliveryReceipts(true)
+	// Deliberately not SetForceActiveDeliveryReceipts: whatsmeow's default
+	// sends ordinary delivery receipts only while we're marked available and
+	// "inactive" ones otherwise - the same thing WhatsApp Web does when it
+	// isn't in the foreground. Forcing active receipts from a backgrounded
+	// companion is behaviour no official client has.
 	c.GetMessageForRetry = func(requester, to types.JID, id types.MessageID) *waE2E.Message {
+		// Only a message we sent ourselves may be re-sent in answer to a retry
+		// receipt: looking up by ID alone let a crafted retry request pull
+		// back someone else's message to us, from any chat.
 		var rawBytes []byte
-		err := db.QueryRow("SELECT raw FROM messages WHERE id = ?", id).Scan(&rawBytes)
+		err := db.QueryRow("SELECT raw FROM messages WHERE id = ? AND from_me = 1", id).Scan(&rawBytes)
 		if err == nil && len(rawBytes) > 0 {
 			msg := &waE2E.Message{}
 			if proto.Unmarshal(rawBytes, msg) == nil {
@@ -142,6 +149,7 @@ func main() {
 		*dbPathFlag = defaultDBPath()
 	}
 
+	housekeepLogs()
 	logFile, err := os.OpenFile(logFilePath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err == nil {
 		log.SetOutput(logFile)
