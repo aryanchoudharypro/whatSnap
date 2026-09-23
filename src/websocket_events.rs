@@ -2937,8 +2937,15 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
-				"message_status" | "receipt" => {
+				kind @ ("message_status" | "receipt") => {
 					if let Some(data) = val.get("data") {
+						// A raw receipt in a group is one member's; the message's own
+						// ticks only move once the whole group has it, which the
+						// backend works out and sends as message_status.
+						let chat = data.get("jid").or_else(|| data.get("chat_jid")).and_then(|j| j.as_str());
+						if kind == "receipt" && chat.is_some_and(|j| j.ends_with("@g.us")) {
+							return;
+						}
 						let chat_jid =
 							data.get("jid").or_else(|| data.get("chat_jid")).and_then(|j| j.as_str()).unwrap_or("");
 						let raw_status =
