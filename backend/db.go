@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -46,6 +47,17 @@ func migrateDB() error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
 		value BLOB
+	)`); err != nil {
+		return err
+	}
+
+	// The last on-demand history request per chat (see
+	// handleRequestHistorySync): which message it asked for history before,
+	// and when.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS history_requests (
+		jid TEXT PRIMARY KEY,
+		anchor_id TEXT NOT NULL,
+		requested_at INTEGER NOT NULL
 	)`); err != nil {
 		return err
 	}
@@ -922,42 +934,47 @@ func getMessageForQuote(id string) (msg *waE2E.Message, senderJID string, previe
 // message IDs, keyed by message ID, for embedding into get_messages results.
 func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 	result := map[string][]ReactionInfo{}
-	if len(ids) == 0 {
-		return result
-	}
-	placeholders := ""
-	args := make([]interface{}, len(ids))
-	for i, id := range ids {
-		if i > 0 {
-			placeholders += ","
+	names := map[string]string{}
+	// In chunks: a whole chat can hold more IDs than SQLite allows bound
+	// parameters in one statement, and the query then failed outright -
+	// every reaction in the chat silently went missing.
+	const chunk = 900
+	for start := 0; start < len(ids); start += chunk {
+		part := ids[start:min(start+chunk, len(ids))]
+		args := make([]interface{}, len(part))
+		for i, id := range part {
+			args[i] = id
 		}
-		placeholders += "?"
-		args[i] = id
-	}
-	rows, err := db.Query(`SELECT message_id, reactor_jid, emoji, timestamp FROM reactions WHERE message_id IN (`+placeholders+`) AND emoji != ''`, args...)
-	if err != nil {
-		return result
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var messageID, reactorJID, emoji string
-		var ts int64
-		if err := rows.Scan(&messageID, &reactorJID, &emoji, &ts); err == nil {
-			name := "You"
-			if reactorJID != "me" {
-				if parsed, perr := types.ParseJID(reactorJID); perr == nil {
-					name = resolveDisplayName(parsed)
-				} else {
-					name = reactorJID
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
+		rows, err := db.Query(`SELECT message_id, reactor_jid, emoji, timestamp FROM reactions WHERE message_id IN (`+placeholders+`) AND emoji != ''`, args...)
+		if err != nil {
+			log.Println("Error loading reactions:", err)
+			continue
+		}
+		for rows.Next() {
+			var messageID, reactorJID, emoji string
+			var ts int64
+			if err := rows.Scan(&messageID, &reactorJID, &emoji, &ts); err == nil {
+				name := "You"
+				if reactorJID != "me" {
+					if cached, ok := names[reactorJID]; ok {
+						name = cached
+					} else if parsed, perr := types.ParseJID(reactorJID); perr == nil {
+						name = resolveDisplayName(parsed)
+						names[reactorJID] = name
+					} else {
+						name = reactorJID
+					}
 				}
+				result[messageID] = append(result[messageID], ReactionInfo{
+					ReactorJID:  reactorJID,
+					ReactorName: name,
+					Emoji:       emoji,
+					Timestamp:   ts,
+				})
 			}
-			result[messageID] = append(result[messageID], ReactionInfo{
-				ReactorJID:  reactorJID,
-				ReactorName: name,
-				Emoji:       emoji,
-				Timestamp:   ts,
-			})
 		}
+		rows.Close()
 	}
 	return result
 }

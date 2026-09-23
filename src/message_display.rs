@@ -6,16 +6,16 @@ use wxdragon::prelude::*;
 
 use crate::AppState;
 
-pub(crate) fn build_media_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
-	messages.iter().filter(|m| m.is_photo_or_video()).cloned().collect()
+pub(crate) fn build_media_messages(messages: &[whantv::Msg]) -> Vec<ChatMessage> {
+	messages.iter().filter(|m| m.is_photo_or_video()).map(|m| (**m).clone()).collect()
 }
 
-pub(crate) fn build_document_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
-	messages.iter().filter(|m| m.is_document()).cloned().collect()
+pub(crate) fn build_document_messages(messages: &[whantv::Msg]) -> Vec<ChatMessage> {
+	messages.iter().filter(|m| m.is_document()).map(|m| (**m).clone()).collect()
 }
 
-pub(crate) fn build_link_messages(messages: &[ChatMessage]) -> Vec<ChatMessage> {
-	messages.iter().filter(|m| m.first_link().is_some()).cloned().collect()
+pub(crate) fn build_link_messages(messages: &[whantv::Msg]) -> Vec<ChatMessage> {
+	messages.iter().filter(|m| m.first_link().is_some()).map(|m| (**m).clone()).collect()
 }
 
 pub(crate) fn populate_message_list(list: &ListBox, messages: &[ChatMessage], label: impl Fn(&ChatMessage) -> String) {

@@ -36,6 +36,85 @@ use crate::{
 	ui::window::WindowParts,
 };
 
+/// Appends one line to `logs/ui.log`: how long opening a chat's messages took,
+/// split by stage, so a slow load can be pinned down from a user's logs.
+fn ui_timing_log(msg: &str) {
+	use std::io::Write;
+	let now = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
+	if let Ok(mut f) =
+		std::fs::OpenOptions::new().create(true).append(true).open(crate::paths::log_dir().join("ui.log"))
+	{
+		let _ = writeln!(f, "{now} {msg}");
+	}
+}
+
+/// Applies a newer page (see `ui_commands::chat_list::load_newer_messages`)
+/// below what's loaded: appends only the new rows, leaving the selection where
+/// it is so the next Down arrow continues into them.
+fn apply_newer_messages(
+	parsed_msgs: Vec<ChatMessage>,
+	is_latest: bool,
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+) {
+	let mut s = state.borrow_mut();
+	s.newer_loading = false;
+	if is_latest {
+		s.messages_at_latest = true;
+	}
+	let chat_jid = s.selected_chat.clone().unwrap_or_default();
+	let is_group = chat_jid.ends_with("@g.us");
+	let chat_name = s.contacts.get(&chat_jid).cloned().unwrap_or_else(|| chat_jid.clone());
+	let mut loaded: std::collections::HashSet<String> = s.messages.iter().map(|m| m.id.clone()).collect();
+	let mut added: Vec<ChatMessage> =
+		parsed_msgs.into_iter().filter(|m| m.id.is_empty() || loaded.insert(m.id.clone())).collect();
+	if added.is_empty() {
+		return;
+	}
+	for msg in &mut added {
+		if !is_group && !msg.from_me && msg.sender_name.is_empty() && msg.sender_jid.is_empty() {
+			msg.sender_name = chat_name.clone();
+		}
+		if let Some(st) = s.pending_receipts.remove(&msg.id) {
+			if get_status_rank(&st) >= get_status_rank(&msg.status) {
+				msg.status = st;
+			}
+		}
+	}
+	let mut merged = std::mem::take(&mut s.messages);
+	merged.extend(added.into_iter().map(whantv::Msg::new));
+	s.messages = whantv::rebuild_date_dividers(merged);
+
+	let old_display_items = std::mem::take(&mut s.display_items);
+	let new_display_items = whantv::group_messages_into_display_items(&s.messages);
+	let old_len = old_display_items.len();
+	// Appending leaves every row already shown untouched unless an album
+	// regrouped across the seam; rebuild (keeping the selected row) if so.
+	let append_only = new_display_items.len() > old_len
+		&& new_display_items[..old_len].iter().zip(&old_display_items).all(|(a, b)| a.id() == b.id());
+	let list = &parts.conversations_parts.messages_list;
+	list.freeze();
+	if append_only {
+		let rows: Vec<String> = new_display_items[old_len..].iter().map(|d| d.format_display(is_group)).collect();
+		list.append_items(&rows.iter().map(String::as_str).collect::<Vec<_>>());
+	} else {
+		let selected_id = list
+			.get_selection()
+			.and_then(|i| old_display_items.get(i as usize))
+			.map(|d| d.id().to_string())
+			.filter(|id| !id.is_empty());
+		let rows: Vec<String> = new_display_items.iter().map(|d| d.format_display(is_group)).collect();
+		list.set_items(&rows.iter().map(String::as_str).collect::<Vec<_>>());
+		if let Some(pos) = selected_id.and_then(|id| new_display_items.iter().position(|d| d.id() == id)) {
+			list.set_selection(pos as u32, true);
+		}
+	}
+	list.thaw();
+	s.prev_msg_count = new_display_items.len();
+	s.display_items = new_display_items;
+	refresh_selection_list(&mut s, parts);
+}
+
 /// Applies a `conversation_messages` payload to the open chat: dedupes, adds
 /// date and unread dividers, replaces (or, for a `load_more` page, prepends
 /// onto) `messages`/`display_items`, repaints the message list and restores
@@ -51,6 +130,7 @@ fn apply_conversation_messages(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
 ) {
+	let started = std::time::Instant::now();
 	let mut seen_ids = std::collections::HashSet::new();
 	let mut deduplicated = Vec::new();
 	for msg in parsed_msgs {
@@ -113,15 +193,15 @@ fn apply_conversation_messages(
 			let day = whantv::date_key(local_datetime);
 			if last_date != Some(day) {
 				last_date = Some(day);
-				with_dates.push(ChatMessage {
+				with_dates.push(whantv::Msg::new(ChatMessage {
 					text: whantv::format_date_divider_label(local_datetime),
 					timestamp: msg.timestamp,
 					is_date_divider: true,
 					..Default::default()
-				});
+				}));
 			}
 		}
-		with_dates.push(msg);
+		with_dates.push(whantv::Msg::new(msg));
 	}
 
 	if !load_more && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
@@ -129,14 +209,17 @@ fn apply_conversation_messages(
 	}
 
 	s.loading_messages = false;
+	// Every request loads everything left in that direction (see
+	// `MESSAGE_PAGE_SIZE`), so after any page the local database has nothing
+	// older: Home at the top goes straight to the phone. A later history-sync
+	// chunk for this chat clears it again (`history_chats_synced`).
+	s.no_more_messages = true;
+	let quiet = !load_more && s.quiet_reload_jid.take().as_deref() == Some(chat_jid.as_str());
 	let was_history_loading = s.history_loading;
 	s.history_loading = false;
 	let old_count = s.prev_msg_count;
 	let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 	if load_more {
-		// A successful page - local or phone-backed - means this jid is no
-		// longer known to be exhausted either way.
-		s.no_more_messages = false;
 		s.phone_history_pending_jid = None;
 		s.phone_history_deadline = None;
 		with_dates.append(&mut s.messages);
@@ -158,7 +241,8 @@ fn apply_conversation_messages(
 		s.pending_receipts.remove(&id);
 		if let Some(msg) = s.messages.iter_mut().find(|m| m.id == id) {
 			if get_status_rank(&st) >= get_status_rank(&msg.status) {
-				msg.status = st;
+				// Not shared yet: the display items are built below.
+				std::rc::Rc::make_mut(msg).status = st;
 			}
 		}
 	}
@@ -173,27 +257,48 @@ fn apply_conversation_messages(
 	// everything loaded so far, which only gets more expensive the more
 	// pages have piled up) to add a handful of rows at the top is what made
 	// scrolling to the top of an already-paged-through chat feel freezy.
-	// Insert just the new leading rows instead when that holds; an album
-	// spanning the exact seam between the new page and what's already
-	// loaded can change the grouping there (rare), so this still falls back
-	// to a full rebuild whenever the tail doesn't line up.
-	let insert_count = new_len.saturating_sub(old_display_items.len());
-	let can_prepend_only = load_more
-		&& insert_count > 0
-		&& new_display_items[insert_count..].iter().map(|d| d.id()).eq(old_display_items.iter().map(|d| d.id()));
+	// Insert just the new leading rows instead (see `prepend_plan`, which
+	// also handles the date divider moving up across the seam); an album
+	// spanning the exact seam can change the grouping there (rare), so this
+	// still falls back to a full rebuild whenever the rest doesn't line up.
+	let prepend = if load_more { whantv::prepend_plan(&old_display_items, &new_display_items) } else { None };
 
+	// Rows go into the list in one call (`set_items`/`insert_items`), not one
+	// append per row: a whole chat is tens of thousands of rows, and adding
+	// them one at a time took over 2 seconds on a 27k-message chat.
+	let rows: Vec<String> = match prepend {
+		Some(plan) => &new_display_items[..plan.insert],
+		None => &new_display_items[..],
+	}
+	.iter()
+	.map(|item| item.format_display(is_group))
+	.collect();
+	let row_refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+	let prepared = started.elapsed();
 	parts.conversations_parts.messages_list.freeze();
-	if can_prepend_only {
-		for (i, item) in new_display_items[..insert_count].iter().enumerate() {
-			parts.conversations_parts.messages_list.insert(&item.format_display(is_group), i);
+	if let Some(plan) = prepend {
+		for _ in 0..plan.remove_leading {
+			parts.conversations_parts.messages_list.delete(0);
 		}
+		parts.conversations_parts.messages_list.insert_items(&row_refs, 0);
 	} else {
-		parts.conversations_parts.messages_list.clear();
-		for item in &new_display_items {
-			parts.conversations_parts.messages_list.append(&item.format_display(is_group));
-		}
+		parts.conversations_parts.messages_list.set_items(&row_refs);
 	}
 	parts.conversations_parts.messages_list.thaw();
+	ui_timing_log(&format!(
+		"Showed {} rows for {} ({}): preparing {} ms, filling the list {} ms",
+		new_len,
+		chat_jid,
+		if prepend.is_some() {
+			"prepended"
+		} else if load_more {
+			"rebuilt, older page"
+		} else {
+			"full load"
+		},
+		prepared.as_millis(),
+		(started.elapsed() - prepared).as_millis()
+	));
 	s.display_items = new_display_items;
 	refresh_selection_list(&mut s, parts);
 
@@ -212,7 +317,8 @@ fn apply_conversation_messages(
 		if is_generic {
 			None
 		} else {
-			s.display_items.iter().position(|item| match item {
+			// The newest match, as the old around-the-hit lookup picked.
+			s.display_items.iter().rposition(|item| match item {
 				whantv::DisplayItem::Single(m) => {
 					m.text == target_text || (!m.text.is_empty() && m.text.contains(&target_text))
 				}
@@ -231,10 +337,13 @@ fn apply_conversation_messages(
 	};
 	if let Some(pos) = target_pos {
 		parts.conversations_parts.messages_list.set_selection(pos as u32, true);
-		parts.conversations_parts.messages_list.set_focus();
+		if !quiet {
+			parts.conversations_parts.messages_list.set_focus();
+		}
 	} else if count > 0 {
 		if was_history_loading && new_len > old_count && old_count > 0 {
-			let keep_idx = (new_len - old_count) as u32;
+			// Where the row that was at the top before this page now sits.
+			let keep_idx = prepend.map_or(new_len - old_count, |p| p.insert) as u32;
 			if keep_idx < count {
 				parts.conversations_parts.messages_list.set_selection(keep_idx, true);
 			} else {
@@ -242,7 +351,9 @@ fn apply_conversation_messages(
 			}
 		} else if old_count == 0 {
 			parts.conversations_parts.messages_list.set_selection((count - 1) as u32, true);
-			parts.conversations_parts.messages_list.set_focus();
+			if !quiet {
+				parts.conversations_parts.messages_list.set_focus();
+			}
 		}
 	}
 	parts.conversations_parts.conversation_panel.freeze();
@@ -285,6 +396,10 @@ struct ConversationMessagesData<'a> {
 	// replaces `s.messages`; this one prepends onto it instead.
 	#[serde(rename = "loadMore", default)]
 	load_more: bool,
+	/// A page of messages newer than the ones loaded (see
+	/// `apply_newer_messages`).
+	#[serde(rename = "loadNewer", default)]
+	load_newer: bool,
 	/// False only for a `get_messages_around` window that stops short of the
 	/// newest message (see `AppState::messages_at_latest`).
 	#[serde(rename = "isLatest", default = "default_true")]
@@ -308,7 +423,7 @@ fn is_conversation_messages(raw: &str) -> bool {
 /// exactly as the old `Value`-walking path did, rather than failing the whole
 /// chat - `ChatMessage`'s `id`/`text`/`timestamp` have no serde default, so one
 /// bad row would otherwise blank the conversation.
-fn parse_conversation_messages(raw: &str) -> Option<(String, bool, bool, Vec<ChatMessage>)> {
+fn parse_conversation_messages(raw: &str) -> Option<(String, bool, bool, bool, Vec<ChatMessage>)> {
 	let envelope = serde_json::from_str::<ConversationMessagesEnvelope>(raw).ok()?;
 	let parsed = envelope
 		.data
@@ -321,7 +436,7 @@ fn parse_conversation_messages(raw: &str) -> Option<(String, bool, bool, Vec<Cha
 			})
 		})
 		.collect();
-	Some((envelope.data.jid, envelope.data.load_more, envelope.data.is_latest, parsed))
+	Some((envelope.data.jid, envelope.data.load_more, envelope.data.load_newer, envelope.data.is_latest, parsed))
 }
 
 pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -335,13 +450,29 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 	// Reading the tag first costs one scan and no allocations: serde skips the
 	// fields it is not asked for instead of materializing them.
 	if is_conversation_messages(&raw) {
-		match parse_conversation_messages(&raw) {
-			Some((jid, load_more, is_latest, parsed_msgs)) => {
+		let parse_started = std::time::Instant::now();
+		let parsed = parse_conversation_messages(&raw);
+		ui_timing_log(&format!(
+			"Parsed a {} KB conversation_messages payload in {} ms",
+			raw.len() / 1024,
+			parse_started.elapsed().as_millis()
+		));
+		// The parsed messages own their data; the JSON text (tens of MB for a
+		// whole chat) is dead weight from here, and used to stay alive through
+		// building and showing every row.
+		drop(raw);
+		match parsed {
+			Some((jid, load_more, load_newer, is_latest, parsed_msgs)) => {
 				// The chat may have been switched again while this request was
 				// in flight - applying a stale response would silently populate
 				// the wrong chat's history.
 				if state.borrow().selected_chat.as_deref() == Some(jid.as_str()) {
+					if load_newer {
+						apply_newer_messages(parsed_msgs, is_latest, state, parts);
+						return;
+					}
 					if !load_more {
+						state.borrow_mut().newer_loading = false;
 						state.borrow_mut().messages_at_latest = is_latest;
 					}
 					apply_conversation_messages(parsed_msgs, load_more, state, parts);
@@ -952,26 +1083,50 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							s.history_sync_last_update = Some(now);
 							s.history_sync_armed_until = Some(now + std::time::Duration::from_secs(60));
 						}
-						if let Some(jids) = data.get("jids").and_then(|j| j.as_array()) {
-							let s = state.borrow();
-							// Only react to a `history_sync` for the jid `load_more_messages`
-							// is actually waiting on an on-demand phone request for - not just
-							// "some chat is loading", which used to reload whatever chat
-							// happened to be open (even one that never asked the phone for
-							// anything) with a full `limit: 9999999` re-fetch.
-							if let Some(pending_jid) = s.phone_history_pending_jid.clone() {
-								if jids.iter().any(|j| j.as_str() == Some(pending_jid.as_str())) {
-									// The phone's answer, if any, is already in the local
-									// database by the time this broadcast arrives - re-run the
-									// same local offset query rather than reloading the whole
-									// chat. An empty result here (handled in
-									// apply_conversation_messages) is what finally marks the jid
-									// exhausted.
-									let payload =
-										crate::ui_commands::chat_list::older_page_request(&s.messages, &pending_jid);
-									let _ = s.ws_tx.send(payload.to_string());
-								}
-							}
+					}
+				}
+				"history_chats_synced" => {
+					// Sent after every history-sync chunk - bulk and on-demand alike -
+					// with the chats it just wrote messages for.
+					let jids: Vec<&str> = val
+						.get("data")
+						.and_then(|d| d.get("jids"))
+						.and_then(|j| j.as_array())
+						.map(|a| a.iter().filter_map(|j| j.as_str()).collect())
+						.unwrap_or_default();
+					let mut s = state.borrow_mut();
+					// A chat marked out of history (the phone answered too late, or
+					// its history hadn't synced yet when it was scrolled to the top)
+					// has more now - without this it stayed "complete" until whaNTV
+					// was restarted.
+					for jid in &jids {
+						s.completed_history_chats.remove(*jid);
+					}
+					let Some(open_jid) = s.selected_chat.clone() else { return };
+					if !jids.contains(&open_jid.as_str()) {
+						return;
+					}
+					if s.phone_history_pending_jid.as_deref() == Some(open_jid.as_str()) {
+						// The phone's answer, if any, is already in the local
+						// database by the time this broadcast arrives - re-run the
+						// same local page query rather than reloading the whole
+						// chat. An empty result here (handled in
+						// apply_conversation_messages) is what finally marks the jid
+						// exhausted.
+						let payload = crate::ui_commands::chat_list::older_page_request(&s.messages, &open_jid);
+						let _ = s.ws_tx.send(payload.to_string());
+					} else if !s.history_loading && s.quiet_reload_jid.is_none() {
+						// Older messages for the open chat can page in locally again.
+						s.no_more_messages = false;
+						// Opened before any of its history had arrived: fill it in
+						// now instead of leaving it blank until it's reopened.
+						if whantv::real_message_count(&s.messages) == 0 && s.messages_at_latest {
+							s.quiet_reload_jid = Some(open_jid.clone());
+							let payload = serde_json::json!({
+								"action": "get_messages",
+								"data": { "jid": open_jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
+							});
+							let _ = s.ws_tx.send(payload.to_string());
 						}
 					}
 				}
@@ -1263,40 +1418,40 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 
 							if let Some(idx) = temp_msg_idx {
-								s.messages[idx].id = msg_id.clone();
-								s.messages[idx].text = text.to_string();
-								s.messages[idx].timestamp = ts;
-								s.messages[idx].sent_at = ts;
-								s.messages[idx].status = data
+								std::rc::Rc::make_mut(&mut s.messages[idx]).id = msg_id.clone();
+								std::rc::Rc::make_mut(&mut s.messages[idx]).text = text.to_string();
+								std::rc::Rc::make_mut(&mut s.messages[idx]).timestamp = ts;
+								std::rc::Rc::make_mut(&mut s.messages[idx]).sent_at = ts;
+								std::rc::Rc::make_mut(&mut s.messages[idx]).status = data
 									.get("status")
 									.and_then(|st| st.as_str())
 									.filter(|st| !st.is_empty())
 									.unwrap_or("sent")
 									.to_string();
-								s.messages[idx].media_type =
+								std::rc::Rc::make_mut(&mut s.messages[idx]).media_type =
 									data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("").to_string();
-								s.messages[idx].media_filename =
+								std::rc::Rc::make_mut(&mut s.messages[idx]).media_filename =
 									data.get("mediaFilename").and_then(|m| m.as_str()).unwrap_or("").to_string();
 								// Our own file is already on disk, so it gets Open and Save
 								// as rather than Download. Kept when an update leaves it out.
 								if let Some(path) =
 									data.get("mediaPath").and_then(|m| m.as_str()).filter(|p| !p.is_empty())
 								{
-									s.messages[idx].media_path = path.to_string();
+									std::rc::Rc::make_mut(&mut s.messages[idx]).media_path = path.to_string();
 								}
-								s.messages[idx].quoted_id = data
+								std::rc::Rc::make_mut(&mut s.messages[idx]).quoted_id = data
 									.get("quoted_id")
 									.or_else(|| data.get("quotedId"))
 									.and_then(|q| q.as_str())
 									.unwrap_or("")
 									.to_string();
-								s.messages[idx].quoted_text = data
+								std::rc::Rc::make_mut(&mut s.messages[idx]).quoted_text = data
 									.get("quoted_text")
 									.or_else(|| data.get("quotedText"))
 									.and_then(|q| q.as_str())
 									.unwrap_or("")
 									.to_string();
-								s.messages[idx].quoted_sender = data
+								std::rc::Rc::make_mut(&mut s.messages[idx]).quoted_sender = data
 									.get("quoted_sender")
 									.or_else(|| data.get("quotedSender"))
 									.and_then(|q| q.as_str())
@@ -1322,34 +1477,34 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									match item {
 										whantv::DisplayItem::Single(m) => {
 											if m.id == msg_id || m.id.starts_with("temp_upload_") {
-												m.id = msg_id.clone();
-												m.text = text.to_string();
-												m.timestamp = ts;
-												m.sent_at = ts;
-												m.status = status.clone();
-												m.media_type = media_type.clone();
-												m.media_filename = media_filename.clone();
-												m.media_path = media_path.clone();
-												m.quoted_id = quoted_id.clone();
-												m.quoted_text = quoted_text.clone();
-												m.quoted_sender = quoted_sender.clone();
+												std::rc::Rc::make_mut(m).id = msg_id.clone();
+												std::rc::Rc::make_mut(m).text = text.to_string();
+												std::rc::Rc::make_mut(m).timestamp = ts;
+												std::rc::Rc::make_mut(m).sent_at = ts;
+												std::rc::Rc::make_mut(m).status = status.clone();
+												std::rc::Rc::make_mut(m).media_type = media_type.clone();
+												std::rc::Rc::make_mut(m).media_filename = media_filename.clone();
+												std::rc::Rc::make_mut(m).media_path = media_path.clone();
+												std::rc::Rc::make_mut(m).quoted_id = quoted_id.clone();
+												std::rc::Rc::make_mut(m).quoted_text = quoted_text.clone();
+												std::rc::Rc::make_mut(m).quoted_sender = quoted_sender.clone();
 												matched = true;
 											}
 										}
 										whantv::DisplayItem::Album { messages, .. } => {
 											for m in messages.iter_mut() {
 												if m.id == msg_id || m.id.starts_with("temp_upload_") {
-													m.id = msg_id.clone();
-													m.text = text.to_string();
-													m.timestamp = ts;
-													m.sent_at = ts;
-													m.status = status.clone();
-													m.media_type = media_type.clone();
-													m.media_filename = media_filename.clone();
-													m.media_path = media_path.clone();
-													m.quoted_id = quoted_id.clone();
-													m.quoted_text = quoted_text.clone();
-													m.quoted_sender = quoted_sender.clone();
+													std::rc::Rc::make_mut(m).id = msg_id.clone();
+													std::rc::Rc::make_mut(m).text = text.to_string();
+													std::rc::Rc::make_mut(m).timestamp = ts;
+													std::rc::Rc::make_mut(m).sent_at = ts;
+													std::rc::Rc::make_mut(m).status = status.clone();
+													std::rc::Rc::make_mut(m).media_type = media_type.clone();
+													std::rc::Rc::make_mut(m).media_filename = media_filename.clone();
+													std::rc::Rc::make_mut(m).media_path = media_path.clone();
+													std::rc::Rc::make_mut(m).quoted_id = quoted_id.clone();
+													std::rc::Rc::make_mut(m).quoted_text = quoted_text.clone();
+													std::rc::Rc::make_mut(m).quoted_sender = quoted_sender.clone();
 													matched = true;
 													break;
 												}
@@ -1462,19 +1617,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								}
 
 								if insert_date && !divider_label.is_empty() {
-									let divider = ChatMessage {
+									let divider = whantv::Msg::new(ChatMessage {
 										id: String::new(),
 										text: divider_label,
 										timestamp: ts,
 										is_date_divider: true,
 										..Default::default()
-									};
+									});
 									s.messages.push(divider.clone());
 									s.display_items.push(whantv::DisplayItem::Single(divider.clone()));
 									parts.conversations_parts.messages_list.append(&divider.format_display(is_group));
 								}
 
-								let chat_msg = ChatMessage {
+								// Shared by `messages` and `display_items` (see `whantv::Msg`).
+								let chat_msg = whantv::Msg::new(ChatMessage {
 									id: msg_id.clone(),
 									text: text.to_string(),
 									timestamp: ts,
@@ -1519,7 +1675,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										.unwrap_or("")
 										.to_string(),
 									..Default::default()
-								};
+								});
 								s.messages.push(chat_msg.clone());
 
 								// Incremental display_items update instead of full O(n) regrouping
@@ -1647,10 +1803,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 												format!("{} unread messages", count)
 											};
 											if let Some(m) = s.messages.iter_mut().find(|m| m.is_unread_divider) {
-												m.text = label.clone();
+												std::rc::Rc::make_mut(m).text = label.clone();
 											}
 											if let whantv::DisplayItem::Single(m) = &mut s.display_items[di] {
-												m.text = label.clone();
+												std::rc::Rc::make_mut(m).text = label.clone();
 											}
 											parts.conversations_parts.messages_list.set_string(di as u32, &label);
 										} else {
@@ -1659,11 +1815,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 											// The message that just triggered this branch was
 											// appended as the last entry above, so the divider
 											// belongs immediately before it.
-											let divider = ChatMessage {
+											let divider = whantv::Msg::new(ChatMessage {
 												text: "1 unread message".to_string(),
 												is_unread_divider: true,
 												..Default::default()
-											};
+											});
 											let insert_at = s.messages.len().saturating_sub(1);
 											s.messages.insert(insert_at, divider.clone());
 											let di_insert_at = s.display_items.len().saturating_sub(1);
@@ -1821,8 +1977,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							let mut changed = false;
 							for msg in s.messages.iter_mut() {
 								if msg.id == message_id {
-									msg.is_deleted = true;
-									msg.text = "".to_string();
+									std::rc::Rc::make_mut(msg).is_deleted = true;
+									std::rc::Rc::make_mut(msg).text = "".to_string();
 									changed = true;
 									break;
 								}
@@ -1832,14 +1988,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								for item in s.display_items.iter_mut() {
 									match item {
 										whantv::DisplayItem::Single(m) if m.id == message_id => {
-											m.is_deleted = true;
-											m.text = String::new();
+											std::rc::Rc::make_mut(m).is_deleted = true;
+											std::rc::Rc::make_mut(m).text = String::new();
 											break;
 										}
 										whantv::DisplayItem::Album { messages, .. } => {
 											if let Some(am) = messages.iter_mut().find(|am| am.id == message_id) {
-												am.is_deleted = true;
-												am.text = String::new();
+												std::rc::Rc::make_mut(am).is_deleted = true;
+												std::rc::Rc::make_mut(am).text = String::new();
 												break;
 											}
 										}
@@ -1999,12 +2155,19 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 				}
 				"no_more_history" => {
+					// The backend refused to ask the phone again for history
+					// before a message it already asked about - the phone had
+					// nothing older then.
 					let mut s = state.borrow_mut();
 					s.history_loading = false;
 					if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
 						if !jid.is_empty() {
 							eprintln!("[LOG UI] End of history reached on phone for chat: {}", jid);
 							s.completed_history_chats.insert(jid.to_string());
+							if s.phone_history_pending_jid.as_deref() == Some(jid) {
+								s.phone_history_pending_jid = None;
+								s.phone_history_deadline = None;
+							}
 						}
 					}
 				}
@@ -2397,15 +2560,15 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									let day = whantv::date_key(local_datetime);
 									if last_date != Some(day) {
 										last_date = Some(day);
-										with_dates.push(ChatMessage {
+										with_dates.push(whantv::Msg::new(ChatMessage {
 											text: whantv::format_date_divider_label(local_datetime),
 											timestamp: msg.timestamp,
 											is_date_divider: true,
 											..Default::default()
-										});
+										}));
 									}
 								}
-								with_dates.push(msg);
+								with_dates.push(whantv::Msg::new(msg));
 							}
 
 							let mut s = state.borrow_mut();
@@ -3016,22 +3179,22 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								for msg in s.messages.iter_mut() {
 									if msg.id == *target_id {
 										if get_status_rank(norm_status) >= get_status_rank(&msg.status) {
-											msg.status = norm_status.to_string();
+											std::rc::Rc::make_mut(msg).status = norm_status.to_string();
 											if receipt_ts > 0 {
 												match norm_status {
 													"delivered" => {
 														if msg.delivered_at == 0 {
-															msg.delivered_at = receipt_ts;
+															std::rc::Rc::make_mut(msg).delivered_at = receipt_ts;
 														}
 													}
 													"read" => {
 														if msg.read_at == 0 {
-															msg.read_at = receipt_ts;
+															std::rc::Rc::make_mut(msg).read_at = receipt_ts;
 														}
 													}
 													"played" => {
 														if msg.played_at == 0 {
-															msg.played_at = receipt_ts;
+															std::rc::Rc::make_mut(msg).played_at = receipt_ts;
 														}
 													}
 													_ => {}
@@ -3068,18 +3231,18 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									for item in s.display_items.iter_mut() {
 										match item {
 											whantv::DisplayItem::Single(m) if m.id == *upd_id => {
-												m.status = upd_status.clone();
-												m.delivered_at = *upd_del;
-												m.read_at = *upd_read;
-												m.played_at = *upd_played;
+												std::rc::Rc::make_mut(m).status = upd_status.clone();
+												std::rc::Rc::make_mut(m).delivered_at = *upd_del;
+												std::rc::Rc::make_mut(m).read_at = *upd_read;
+												std::rc::Rc::make_mut(m).played_at = *upd_played;
 												break;
 											}
 											whantv::DisplayItem::Album { messages, .. } => {
 												if let Some(am) = messages.iter_mut().find(|am| am.id == *upd_id) {
-													am.status = upd_status.clone();
-													am.delivered_at = *upd_del;
-													am.read_at = *upd_read;
-													am.played_at = *upd_played;
+													std::rc::Rc::make_mut(am).status = upd_status.clone();
+													std::rc::Rc::make_mut(am).delivered_at = *upd_del;
+													std::rc::Rc::make_mut(am).read_at = *upd_read;
+													std::rc::Rc::make_mut(am).played_at = *upd_played;
 													break;
 												}
 											}
@@ -3198,9 +3361,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							let mut changed = false;
 							for msg in s.messages.iter_mut() {
 								if msg.id == target_id {
-									msg.text = new_text.to_string();
-									msg.is_edited = true;
-									msg.edited_at = edited_at;
+									std::rc::Rc::make_mut(msg).text = new_text.to_string();
+									std::rc::Rc::make_mut(msg).is_edited = true;
+									std::rc::Rc::make_mut(msg).edited_at = edited_at;
 									changed = true;
 									break;
 								}
@@ -3208,23 +3371,23 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							if changed {
 								for msg in s.messages.iter_mut() {
 									if msg.quoted_id == target_id {
-										msg.quoted_text = new_text.to_string();
+										std::rc::Rc::make_mut(msg).quoted_text = new_text.to_string();
 									}
 								}
 								// Update display_items in-place instead of full O(n) regrouping
 								for item in s.display_items.iter_mut() {
 									match item {
 										whantv::DisplayItem::Single(m) if m.id == target_id => {
-											m.text = new_text.to_string();
-											m.is_edited = true;
-											m.edited_at = edited_at;
+											std::rc::Rc::make_mut(m).text = new_text.to_string();
+											std::rc::Rc::make_mut(m).is_edited = true;
+											std::rc::Rc::make_mut(m).edited_at = edited_at;
 											break;
 										}
 										whantv::DisplayItem::Album { messages, .. } => {
 											if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
-												am.text = new_text.to_string();
-												am.is_edited = true;
-												am.edited_at = edited_at;
+												std::rc::Rc::make_mut(am).text = new_text.to_string();
+												std::rc::Rc::make_mut(am).is_edited = true;
+												std::rc::Rc::make_mut(am).edited_at = edited_at;
 												break;
 											}
 										}
@@ -3234,12 +3397,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								for item in s.display_items.iter_mut() {
 									match item {
 										whantv::DisplayItem::Single(m) if m.quoted_id == target_id => {
-											m.quoted_text = new_text.to_string();
+											std::rc::Rc::make_mut(m).quoted_text = new_text.to_string();
 										}
 										whantv::DisplayItem::Album { messages, .. } => {
 											for am in messages.iter_mut() {
 												if am.quoted_id == target_id {
-													am.quoted_text = new_text.to_string();
+													std::rc::Rc::make_mut(am).quoted_text = new_text.to_string();
 												}
 											}
 										}
@@ -3296,14 +3459,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							let is_group = chat_jid.ends_with("@g.us");
 							for msg in s.messages.iter_mut() {
 								if msg.id == target_id {
-									msg.starred = starred;
+									std::rc::Rc::make_mut(msg).starred = starred;
 									break;
 								}
 							}
 							for item in s.display_items.iter_mut() {
 								if let whantv::DisplayItem::Single(m) = item {
 									if m.id == target_id {
-										m.starred = starred;
+										std::rc::Rc::make_mut(m).starred = starred;
 										break;
 									}
 								}
@@ -3371,6 +3534,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 							for msg in s.messages.iter_mut() {
 								if msg.id == target_id {
+									let msg = std::rc::Rc::make_mut(msg);
 									if emoji.is_empty() {
 										msg.reactions.retain(|r| {
 											if is_own_reaction {
@@ -3421,12 +3585,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								for item in s.display_items.iter_mut() {
 									match item {
 										whantv::DisplayItem::Single(m) if m.id == target_id => {
-											m.reactions = new_reactions.clone();
+											std::rc::Rc::make_mut(m).reactions = new_reactions.clone();
 											break;
 										}
 										whantv::DisplayItem::Album { messages, .. } => {
 											if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
-												am.reactions = new_reactions.clone();
+												std::rc::Rc::make_mut(am).reactions = new_reactions.clone();
 												break;
 											}
 										}
@@ -3555,26 +3719,26 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let mut s = state.borrow_mut();
 						s.downloads_in_progress.remove(&msg_id);
 						if let Some(msg) = s.messages.iter_mut().find(|m| m.id == msg_id) {
-							msg.media_path = path.clone();
+							std::rc::Rc::make_mut(msg).media_path = path.clone();
 							if !clean_filename.is_empty() {
-								msg.media_filename = clean_filename.clone();
+								std::rc::Rc::make_mut(msg).media_filename = clean_filename.clone();
 							}
 						}
 						// Update display_items in-place instead of full O(n) regrouping
 						for item in s.display_items.iter_mut() {
 							match item {
 								whantv::DisplayItem::Single(m) if m.id == msg_id => {
-									m.media_path = path.clone();
+									std::rc::Rc::make_mut(m).media_path = path.clone();
 									if !clean_filename.is_empty() {
-										m.media_filename = clean_filename.clone();
+										std::rc::Rc::make_mut(m).media_filename = clean_filename.clone();
 									}
 									break;
 								}
 								whantv::DisplayItem::Album { messages, .. } => {
 									if let Some(am) = messages.iter_mut().find(|am| am.id == msg_id) {
-										am.media_path = path.clone();
+										std::rc::Rc::make_mut(am).media_path = path.clone();
 										if !clean_filename.is_empty() {
-											am.media_filename = clean_filename.clone();
+											std::rc::Rc::make_mut(am).media_filename = clean_filename.clone();
 										}
 										break;
 									}
@@ -3888,7 +4052,7 @@ mod conversation_messages_tests {
 			{"id":"m1","text":"hi","timestamp":10,"fromMe":true,"mediaType":"image","albumId":"alb1"},
 			{"id":"m2","text":"yo","timestamp":11,"sender_jid":"b@s.whatsapp.net"}
 		]}}"#;
-		let (jid, load_more, _, msgs) = parse_conversation_messages(raw).expect("envelope should parse");
+		let (jid, load_more, _, _, msgs) = parse_conversation_messages(raw).expect("envelope should parse");
 		assert_eq!(jid, "a@s.whatsapp.net");
 		assert!(!load_more);
 		assert_eq!(msgs.len(), 2);
@@ -3903,8 +4067,18 @@ mod conversation_messages_tests {
 	#[test]
 	fn parses_the_load_more_flag() {
 		let raw = r#"{"type":"conversation_messages","data":{"jid":"a","loadMore":true,"messages":[]}}"#;
-		let (_, load_more, _, _) = parse_conversation_messages(raw).expect("envelope should parse");
+		let (_, load_more, _, _, _) = parse_conversation_messages(raw).expect("envelope should parse");
 		assert!(load_more);
+	}
+
+	#[test]
+	fn parses_the_load_newer_flag() {
+		let raw =
+			r#"{"type":"conversation_messages","data":{"jid":"a","loadNewer":true,"isLatest":false,"messages":[]}}"#;
+		let (_, load_more, load_newer, is_latest, _) = parse_conversation_messages(raw).expect("envelope should parse");
+		assert!(!load_more);
+		assert!(load_newer);
+		assert!(!is_latest);
 	}
 
 	#[test]
@@ -3915,7 +4089,7 @@ mod conversation_messages_tests {
 			{"id":"m2","text":"broken"},
 			{"id":"m3","text":"after","timestamp":12}
 		]}}"#;
-		let (_, _, _, msgs) = parse_conversation_messages(raw).expect("one bad row must not fail the envelope");
+		let (_, _, _, _, msgs) = parse_conversation_messages(raw).expect("one bad row must not fail the envelope");
 		assert_eq!(msgs.len(), 3);
 		assert_eq!(msgs[0].text, "before");
 		assert!(msgs[1].text.starts_with("Parse error:"), "got {:?}", msgs[1].text);
@@ -3925,13 +4099,13 @@ mod conversation_messages_tests {
 
 	#[test]
 	fn an_empty_or_absent_message_list_parses_to_nothing() {
-		let (jid, _, _, msgs) =
+		let (jid, _, _, _, msgs) =
 			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a","messages":[]}}"#)
 				.unwrap();
 		assert_eq!(jid, "a");
 		assert!(msgs.is_empty());
 
-		let (jid, _, _, msgs) =
+		let (jid, _, _, _, msgs) =
 			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a"}}"#).unwrap();
 		assert_eq!(jid, "a");
 		assert!(msgs.is_empty());

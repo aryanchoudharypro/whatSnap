@@ -3261,8 +3261,8 @@ pub fn bind_input_handlers(
 								if !msg.is_date_divider && (!msg.quoted_id.is_empty() || !msg.quoted_text.is_empty()) {
 									// Jump to the quoted message — pass both id and text so handler can try both
 									let _ = tx_close_list.send(UiCommand::JumpToSearchResult {
-										message_id: msg.quoted_id,
-										message_text: msg.quoted_text,
+										message_id: msg.quoted_id.clone(),
+										message_text: msg.quoted_text.clone(),
 									});
 								} else {
 									let _ = tx_close_list.send(UiCommand::CloseSearch);
@@ -3383,6 +3383,9 @@ pub fn bind_input_handlers(
 				if count > 0 {
 					msgs_list_play.set_selection((count - 1) as u32, true);
 				}
+				// A window around a search hit doesn't hold the newest message;
+				// this fetches it (a no-op when the list already runs to it).
+				let _ = tx_close_list.send(UiCommand::JumpToLatestMessage);
 				event.skip(false);
 			} else if (code == Some(67) || code == Some('c' as i32) || code == Some('C' as i32))
 				&& key_event.control_down()
@@ -3465,7 +3468,7 @@ pub fn bind_input_handlers(
 								s.is_audio_paused = false;
 								s.playing_msg_id = Some(msg.id.clone());
 								play_voice_btn_space.set_label("Loading voice message...");
-								let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id));
+								let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id.clone()));
 							}
 						}
 					}
@@ -3523,7 +3526,7 @@ pub fn bind_input_handlers(
 							s.is_audio_paused = false;
 							s.playing_msg_id = Some(msg.id.clone());
 							play_voice_btn_space.set_label("Loading voice message...");
-							let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id));
+							let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id.clone()));
 						}
 					}
 				}
@@ -3928,7 +3931,7 @@ pub fn bind_input_handlers(
 							drop(s);
 							if !msg.is_date_divider {
 								let _ = tx_jump_enter.send(UiCommand::JumpToSearchResult {
-									message_id: msg.id,
+									message_id: msg.id.clone(),
 									message_text: String::new(),
 								});
 							} else {
@@ -4089,7 +4092,7 @@ pub fn bind_input_handlers(
 				s.is_audio_paused = false;
 				s.playing_msg_id = Some(msg.id.clone());
 				play_voice_btn_ref.set_label("Loading voice message...");
-				let _ = tx_play_btn.send(UiCommand::PlayVoiceMessage(msg.id));
+				let _ = tx_play_btn.send(UiCommand::PlayVoiceMessage(msg.id.clone()));
 			}
 		}
 	});
@@ -4119,6 +4122,8 @@ pub fn bind_input_handlers(
 		if let Some(idx) = event.get_selection() {
 			if idx == 0 {
 				let _ = tx_sel.send(UiCommand::LoadMoreMessages);
+			} else if idx + 1 == conv_parts_sel.messages_list.get_count() as i32 {
+				let _ = tx_sel.send(UiCommand::LoadNewerMessages);
 			}
 			let s = state_sel.borrow();
 			conv_parts_sel.action_panel.freeze();
