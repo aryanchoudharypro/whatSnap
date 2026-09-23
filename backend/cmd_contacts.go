@@ -470,64 +470,7 @@ func handleSendContacts(conn net.Conn, raw json.RawMessage) {
 			displayText = "[Contact] " + strings.Join(names, ", ")
 		}
 
-		senderJID := ""
-		if client.Store.ID != nil {
-			senderJID = client.Store.ID.ToNonAD().String()
-		}
-		ts := time.Now().Unix()
-
-		saveMessage(StoredMessage{
-			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
-			Text: displayText, Timestamp: ts, Status: "pending",
-			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
-		})
-		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
-			ON CONFLICT(jid) DO UPDATE SET
-				timestamp=MAX(timestamp, excluded.timestamp),
-				preview_snippet=excluded.preview_snippet,
-				preview_sender=excluded.preview_sender,
-				preview_from_me=1,
-				preview_is_reaction=0,
-				preview_reaction_emoji=''`, jid.String(), ts, displayText, senderJID)
-		broadcastEvent("message", map[string]interface{}{
-			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
-			"from_me":      true,
-			"timestamp":    ts,
-			"has_media":    false,
-			"status":       "pending",
-			"quotedId":     quotedID,
-			"quotedText":   quotedText,
-			"quotedSender": quotedSender,
-		})
-		broadcastChats()
-
-		resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
-		if err != nil {
-			db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
-			if conn != nil {
-				sendEvent(conn, "error", map[string]string{"message": err.Error()})
-			}
-			broadcastEvent("message", map[string]interface{}{
-				"jid": jid.String(), "from": "me", "id": id, "text": displayText,
-				"from_me": true, "timestamp": time.Now().Unix(), "has_media": false, "status": "failed",
-				"quotedId": quotedID, "quotedText": quotedText, "quotedSender": quotedSender,
-			})
-			return
-		}
-
-		rawBytes, _ := proto.Marshal(msg)
-		sentTs := resp.Timestamp.Unix()
-		db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=? WHERE id=?`, sentTs, sentTs, rawBytes, id)
-		broadcastEvent("message", map[string]interface{}{
-			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
-			"from_me":      true,
-			"timestamp":    sentTs,
-			"has_media":    false,
-			"status":       "sent",
-			"quotedId":     quotedID,
-			"quotedText":   quotedText,
-			"quotedSender": quotedSender,
-		})
-		broadcastChats()
+		startSendingBuiltMessage(id, jid, msg, displayText, quotedID, quotedText, quotedSender)
+		finishSendingBuiltMessage(conn, id, jid, msg, displayText)
 	}()
 }

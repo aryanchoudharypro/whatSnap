@@ -13,9 +13,29 @@ use crate::{
 	ui::window::WindowParts,
 };
 
+/// An attach-menu option: pick files the way that option does.
+pub(crate) fn attach_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, kind: whantv::AttachKind) {
+	{
+		let mut s = state.borrow_mut();
+		if s.pending_attachments.is_empty() {
+			s.pending_attachment_kind = kind;
+		}
+	}
+	add_attachment(state, parts);
+}
+
+/// The file picker for the current batch's attach option (also "Add more
+/// files" in the attachment dialog, which stays with that option).
 pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let kind = state.borrow().pending_attachment_kind;
+	let message = match kind {
+		whantv::AttachKind::Media => "Choose photos or videos to send",
+		whantv::AttachKind::Audio => "Choose audio files to send",
+		_ => "Choose files to send as documents",
+	};
 	let file_dialog = FileDialog::builder(&parts.frame)
-		.with_message("Choose file(s) to attach")
+		.with_message(message)
+		.with_wildcard(&kind.file_filter())
 		.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist | FileDialogStyle::Multiple)
 		.build();
 	if file_dialog.show_modal() == wxdragon::id::ID_OK {
@@ -27,28 +47,95 @@ pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 					s.pending_attachments.push(path.clone());
 				}
 			}
-			let file_names: Vec<String> = s
-				.pending_attachments
-				.iter()
-				.map(|p| std::path::Path::new(p).file_name().unwrap_or_default().to_string_lossy().to_string())
-				.collect();
-			let label_text = format!("Files: {}", file_names.join(", "));
 			drop(s);
-			parts.attachment_dialog.attachment_info_label.set_label(&label_text);
-			parts.attachment_dialog.caption_field.set_value("");
-			live_region::announce(
-				parts.conversations_parts.messages_announcer.clone(),
-				&format!("Files attached: {}", file_names.len()),
-			);
-
-			if !parts.attachment_dialog.dialog.is_shown() {
-				parts.attachment_dialog.caption_field.set_focus();
-				parts.attachment_dialog.dialog.show_modal();
-			} else {
-				parts.attachment_dialog.caption_field.set_focus();
-			}
+			show_attachment_dialog(state, parts, "Files attached");
 		}
 	}
+}
+
+/// Fills in and shows the attachment dialog for the pending batch.
+fn show_attachment_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, announcement: &str) {
+	let (kind, file_names) = {
+		let s = state.borrow();
+		let names: Vec<String> = s
+			.pending_attachments
+			.iter()
+			.map(|p| std::path::Path::new(p).file_name().unwrap_or_default().to_string_lossy().to_string())
+			.collect();
+		(s.pending_attachment_kind, names)
+	};
+	let heading = match kind {
+		whantv::AttachKind::Document => "Documents",
+		whantv::AttachKind::Media => "Photos and videos",
+		whantv::AttachKind::Audio => "Audio",
+		whantv::AttachKind::Pasted => "Files",
+	};
+	let d = &parts.attachment_dialog;
+	d.attachment_info_label.set_label(&format!("{}: {}", heading, file_names.join(", ")));
+	d.caption_field.set_value("");
+	let captioned = kind.has_caption();
+	if d.caption_field.is_shown() != captioned {
+		d.caption_label.show(captioned);
+		d.caption_field.show(captioned);
+		d.dialog.layout();
+	}
+	live_region::announce(
+		parts.conversations_parts.messages_announcer.clone(),
+		&format!("{}: {}", announcement, file_names.len()),
+	);
+	if captioned {
+		d.caption_field.set_focus();
+	} else {
+		d.send_btn.set_focus();
+	}
+	if !d.dialog.is_shown() {
+		d.dialog.show_modal();
+	}
+}
+
+pub(crate) fn open_poll_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if state.borrow().selected_chat.is_none() {
+		return;
+	}
+	let d = &parts.poll_dialog;
+	d.question_field.set_value("");
+	d.options_field.set_value("");
+	d.multiple_check.set_value(true);
+	d.question_field.set_focus();
+	d.dialog.show_modal();
+}
+
+pub(crate) fn send_poll(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	question: String,
+	options: Vec<String>,
+	multiple_answers: bool,
+) {
+	let Some(jid) = state.borrow().selected_chat.clone() else {
+		return;
+	};
+	let (reply_id, reply_sender) = {
+		let mut s = state.borrow_mut();
+		let reply_id = s.pending_reply_id.take().unwrap_or_default();
+		let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
+		s.pending_reply_preview = None;
+		(reply_id, reply_sender)
+	};
+	parts.conversations_parts.remove_quote_btn.show(false);
+	let payload = serde_json::json!({
+		"action": "send_poll",
+		"data": {
+			"jid": jid,
+			"question": question,
+			"options": options,
+			"multiple_answers": multiple_answers,
+			"reply_to_id": reply_id,
+			"reply_to_sender": reply_sender
+		}
+	});
+	let _ = state.borrow().ws_tx.send(payload.to_string());
+	live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Sending poll...");
 }
 
 pub(crate) fn prepare_attach_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -100,31 +187,16 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 			let paths = fdo.get_files();
 			if !paths.is_empty() {
 				let mut s = state.borrow_mut();
+				if s.pending_attachments.is_empty() {
+					s.pending_attachment_kind = whantv::AttachKind::Pasted;
+				}
 				for path in paths {
 					if !path.is_empty() {
 						s.pending_attachments.push(path.clone());
 					}
 				}
-				let file_names: Vec<String> = s
-					.pending_attachments
-					.iter()
-					.map(|p| std::path::Path::new(p).file_name().unwrap_or_default().to_string_lossy().to_string())
-					.collect();
-				let label_text = format!("Files: {}", file_names.join(", "));
 				drop(s);
-				parts.attachment_dialog.attachment_info_label.set_label(&label_text);
-				parts.attachment_dialog.caption_field.set_value("");
-				live_region::announce(
-					parts.conversations_parts.messages_announcer.clone(),
-					&format!("Pasted files: {}", file_names.len()),
-				);
-
-				if !parts.attachment_dialog.dialog.is_shown() {
-					parts.attachment_dialog.caption_field.set_focus();
-					parts.attachment_dialog.dialog.show_modal();
-				} else {
-					parts.attachment_dialog.caption_field.set_focus();
-				}
+				show_attachment_dialog(state, parts, "Pasted files");
 			}
 		}
 	}
@@ -134,6 +206,7 @@ pub(crate) fn discard_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	{
 		let mut s = state.borrow_mut();
 		s.pending_attachments.clear();
+		s.pending_attachment_kind = whantv::AttachKind::default();
 	}
 	parts.attachment_dialog.attachment_info_label.set_label("");
 	parts.attachment_dialog.caption_field.set_value("");
@@ -142,13 +215,14 @@ pub(crate) fn discard_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 
 pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, caption: String) {
 	let jid = state.borrow().selected_chat.clone();
-	let (paths, reply_id, reply_sender) = {
+	let (paths, kind, reply_id, reply_sender) = {
 		let mut s = state.borrow_mut();
 		let paths = std::mem::take(&mut s.pending_attachments);
+		let kind = std::mem::take(&mut s.pending_attachment_kind);
 		let reply_id = s.pending_reply_id.take().unwrap_or_default();
 		let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
 		s.pending_reply_preview = None;
-		(paths, reply_id, reply_sender)
+		(paths, kind, reply_id, reply_sender)
 	};
 	parts.conversations_parts.remove_quote_btn.show(false);
 	if let Some(ref jid) = jid {
@@ -157,18 +231,14 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		// echo comes back through the normal "message" event handler
 		// with a real id from the start instead of a client-side
 		// placeholder here.
+		let caption = if kind.has_caption() { caption } else { String::new() };
 		for (idx, path) in paths.iter().enumerate() {
-			let ext = std::path::Path::new(path).extension().unwrap_or_default().to_string_lossy().to_lowercase();
-			let file_type = match ext.as_str() {
-				"jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" => "image",
-				"mp4" | "avi" | "mov" | "mkv" | "webm" | "3gp" => "video",
-				_ => "document",
-			};
+			let file_type = kind.send_type(path);
 			let filename = std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string();
 
 			// Only the first attachment in a multi-file batch carries the
 			// reply-to context, so a reply doesn't get quoted once per file.
-			let payload = serde_json::json!({
+			let mut payload = serde_json::json!({
 				"action": "send_attachment",
 				"data": {
 					"jid": jid,
@@ -180,7 +250,18 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 					"reply_to_sender": if idx == 0 { reply_sender.as_str() } else { "" }
 				}
 			});
-			let _ = state.borrow().ws_tx.send(payload.to_string());
+			let ws_tx = state.borrow().ws_tx.clone();
+			if file_type == "audio" {
+				// An audio message carries its length, which means reading
+				// the file - off the UI thread, it can be a long track.
+				let path = path.clone();
+				std::thread::spawn(move || {
+					payload["data"]["duration"] = serde_json::json!(crate::audio::audio_file_seconds(&path));
+					let _ = ws_tx.send(payload.to_string());
+				});
+			} else {
+				let _ = ws_tx.send(payload.to_string());
+			}
 		}
 		parts.attachment_dialog.attachment_info_label.set_label("");
 		parts.attachment_dialog.caption_field.set_value("");

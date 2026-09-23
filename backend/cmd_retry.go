@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 )
 
 // Auto-retry policy for pending text sends, mirroring official WhatsApp:
@@ -144,6 +146,9 @@ func retryPendingTextMessages() {
 			continue
 		}
 		log.Printf("Retrying pending message %s", p.id)
+		if resendStoredMessage(nil, p.id, p.jid, p.text) {
+			continue
+		}
 		sendPendingTextMessage(nil, p.id, p.jid, p.text, p.quotedID, p.quotedSender)
 	}
 }
@@ -174,6 +179,13 @@ func retryOneMessage(conn net.Conn, id string) {
 	}
 	if status != "pending" && status != "failed" {
 		return // already sent (or something else entirely) - nothing to do
+	}
+
+	// Polls and contact cards keep their built message from the start: their
+	// display text ("[Poll] ...") is only a label, so resending it as text -
+	// the plain-text path below - would post the label instead.
+	if mediaType == "" && resendStoredMessage(conn, id, jidStr, text) {
+		return
 	}
 
 	if mediaType == "" {
@@ -230,8 +242,38 @@ func retryOneMessage(conn net.Conn, id string) {
 		db.QueryRow(`SELECT voice_waveform FROM messages WHERE id = ?`, id).Scan(&waveform)
 		sendUploadedVoiceMessage(conn, id, jid, mediaPath, mediaMimetype, duration, waveform, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
 	} else {
-		sendUploadedAttachment(conn, id, jid, mediaType, mediaPath, mediaMimetype, mediaFilename, text, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
+		caption, seconds := attachmentFieldsFromDisplayText(mediaType, mediaFilename, text)
+		sendUploadedAttachment(conn, id, jid, mediaType, mediaPath, mediaMimetype, mediaFilename, caption, seconds, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
 	}
+}
+
+// attachmentFieldsFromDisplayText recovers the caption (and, for audio, the
+// length) from a stored attachment's display text - the inverse of
+// attachmentDisplayText. A retry used to pass the whole display text as the
+// caption, so a retried photo went out captioned "[Image] ...".
+func attachmentFieldsFromDisplayText(mediaType, filename, text string) (caption string, seconds int) {
+	switch mediaType {
+	case "audio":
+		return "", parseVoiceDurationSeconds(text)
+	case "sticker":
+		return "", 0
+	case "image", "video":
+		tag := "[Image]"
+		if mediaType == "video" {
+			tag = "[Video]"
+		}
+		return strings.TrimPrefix(strings.TrimPrefix(text, tag), " "), 0
+	}
+	rest := strings.TrimPrefix(strings.TrimPrefix(text, "[Document]"), " ")
+	if filename != "" {
+		if rest == filename {
+			return "", 0
+		}
+		if after, ok := strings.CutPrefix(rest, filename+": "); ok {
+			return after, 0
+		}
+	}
+	return rest, 0
 }
 
 // parseVoiceDurationSeconds pulls the "(m:ss)" duration back out of a stored
@@ -253,4 +295,37 @@ func parseVoiceDurationSeconds(text string) int {
 		return 0
 	}
 	return minutes*60 + seconds
+}
+
+// resendStoredMessage retries a failed message whose built protobuf was
+// stored with it (see storesBuiltMessage), sending that exact message again.
+// Reports whether the message was one of those.
+func resendStoredMessage(conn net.Conn, id, jidStr, text string) bool {
+	var raw []byte
+	db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw)
+	if len(raw) == 0 {
+		return false
+	}
+	msg := &waE2E.Message{}
+	if proto.Unmarshal(raw, msg) != nil || !storesBuiltMessage(msg) {
+		return false
+	}
+	jid, err := types.ParseJID(jidStr)
+	if err != nil {
+		return true
+	}
+	clearRetryState(id)
+	db.Exec(`UPDATE messages SET status = 'pending' WHERE id = ?`, id)
+	broadcastEvent("message", map[string]interface{}{
+		"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
+		"timestamp": time.Now().Unix(), "has_media": false, "status": "pending",
+	})
+	finishSendingBuiltMessage(conn, id, jid, msg, text)
+	return true
+}
+
+// storesBuiltMessage is true for the message kinds whose protobuf is saved
+// before sending so a retry can resend them as they are.
+func storesBuiltMessage(msg *waE2E.Message) bool {
+	return pollCreation(msg) != nil || msg.GetContactMessage() != nil || msg.GetContactsArrayMessage() != nil
 }

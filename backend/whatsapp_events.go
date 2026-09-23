@@ -1155,6 +1155,20 @@ func eventHandler(evt interface{}) {
 						}
 						continue
 					}
+					if update := unwrapMessage(evtMsg.Message).GetPollUpdateMessage(); update != nil {
+						// A vote is not a message of its own: record it on
+						// its poll instead of storing an empty row.
+						if vote, err := decryptPollVote(evtMsg); err == nil {
+							pollID, voter := update.GetPollCreationMessageKey().GetID(), pollVoterKey(evtMsg.Info.Sender)
+							ts := evtMsg.Info.Timestamp.Unix()
+							writes = append(writes, func(tx sqlExecer) { storePollVote(tx, pollID, voter, vote.GetSelectedOptions(), ts) })
+						}
+						continue
+					}
+					if len(webMsg.GetPollUpdates()) > 0 {
+						pollMsg := webMsg
+						writes = append(writes, func(tx sqlExecer) { historyPollVotes(tx, chatJID, pollMsg) })
+					}
 
 					if album := unwrapMessage(evtMsg.Message).GetAlbumMessage(); album != nil {
 						// Same header-only stanza as the live path, but here
@@ -1415,6 +1429,10 @@ func eventHandler(evt interface{}) {
 			applyReaction(v, reaction)
 			return
 		}
+		if unwrappedMsg.GetPollUpdateMessage() != nil {
+			go applyPollVote(v)
+			return
+		}
 		if unwrappedMsg.GetEncReactionMessage() != nil {
 			// Reactions in community announcement groups are delivered as
 			// EncReactionMessage (encrypted separately from the outer stanza,
@@ -1587,6 +1605,7 @@ func eventHandler(evt interface{}) {
 				"quotedId":      quotedID,
 				"quotedText":    quotedText,
 				"quotedSender":  quotedSender,
+				"pollResults":   newPollResults(unwrappedMsg),
 			})
 		}
 	case *events.PushName:
@@ -1652,6 +1671,7 @@ func eventHandler(evt interface{}) {
 			"for_everyone": false,
 		})
 	case *events.Connected:
+		convertStoredVotesOnce.Do(func() { go runOnce("convert_stored_poll_votes_v1", convertStoredPollVotes) })
 		appStateResyncMu.Lock()
 		for k := range appStateResyncCount {
 			delete(appStateResyncCount, k)

@@ -205,6 +205,24 @@ pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 	}
 }
 
+/// Length of an audio file in whole seconds (0 if it can't be read): from the
+/// container's own header when it has one, else by decoding it through.
+pub(crate) fn audio_file_seconds(path: &str) -> u64 {
+	use rodio::Source;
+	let Ok(file) = std::fs::File::open(path) else {
+		return 0;
+	};
+	if let Ok(decoder) = rodio::Decoder::new(std::io::BufReader::new(file)) {
+		if let Some(d) = decoder.total_duration() {
+			return d.as_secs_f64().round() as u64;
+		}
+		let (channels, rate) = (decoder.channels().get() as u64, decoder.sample_rate().get() as u64);
+		let samples = decoder.count() as u64;
+		return (samples / channels.max(1) + rate / 2) / rate.max(1);
+	}
+	decode_opus_file(path).and_then(|b| b.total_duration()).map(|d| d.as_secs_f64().round() as u64).unwrap_or(0)
+}
+
 pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> anyhow::Result<()> {
 	use hound::{WavReader, WavWriter};
 	let mut spec = None;

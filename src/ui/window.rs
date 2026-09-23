@@ -192,6 +192,7 @@ pub struct WindowParts {
 	pub pairing_cancel_btn: Button,
 	pub new_conv_dialog: crate::ui::new_conversation::NewConversationDialogParts,
 	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
+	pub poll_dialog: crate::ui::poll_dialog::PollDialogParts,
 	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
 	pub add_members_dialog: crate::ui::add_members::AddMembersDialogParts,
 	pub attach_contact_dialog: crate::ui::attach_contact::AttachContactDialogParts,
@@ -436,6 +437,7 @@ pub fn build_main_window() -> WindowParts {
 
 	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
+	let poll_dialog = crate::ui::poll_dialog::build_poll_dialog(&frame);
 	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
 	let add_members_dialog = crate::ui::add_members::build_add_members_dialog(&frame);
 	let attach_contact_dialog = crate::ui::attach_contact::build_attach_contact_dialog(&frame);
@@ -484,6 +486,7 @@ pub fn build_main_window() -> WindowParts {
 	set_dialog_owner(&pairing_dialog, &frame);
 	set_dialog_owner(&new_conv_dialog.dialog, &frame);
 	set_dialog_owner(&new_contact_dialog.dialog, &frame);
+	set_dialog_owner(&poll_dialog.dialog, &frame);
 	set_dialog_owner(&new_group_dialog.dialog, &frame);
 	set_dialog_owner(&add_members_dialog.dialog, &frame);
 	set_dialog_owner(&attach_contact_dialog.dialog, &frame);
@@ -514,6 +517,7 @@ pub fn build_main_window() -> WindowParts {
 		pairing_cancel_btn,
 		new_conv_dialog,
 		new_contact_dialog,
+		poll_dialog,
 		new_group_dialog,
 		add_members_dialog,
 		attach_contact_dialog,
@@ -1417,6 +1421,45 @@ pub fn bind_input_handlers(
 		|s, i| s.conversation_data_links.get(i).cloned(),
 		false,
 	);
+
+	let poll_dialog_cancel = parts.poll_dialog.dialog;
+	parts.poll_dialog.cancel_btn.on_click(move |_| {
+		poll_dialog_cancel.end_modal(ID_CANCEL);
+	});
+	let tx_poll = ui_tx.clone();
+	let poll_dlg = parts.poll_dialog.dialog;
+	let poll_question = parts.poll_dialog.question_field;
+	let poll_options = parts.poll_dialog.options_field;
+	let poll_multiple = parts.poll_dialog.multiple_check;
+	parts.poll_dialog.send_btn.on_click(move |_| {
+		let question = poll_question.get_value();
+		match whantv::validate_poll(&question, &poll_options.get_value()) {
+			Ok(options) => {
+				poll_dlg.end_modal(ID_OK);
+				let _ = tx_poll.send(UiCommand::SendPoll {
+					question: question.trim().to_string(),
+					options,
+					multiple_answers: poll_multiple.get_value(),
+				});
+			}
+			Err(problem) => {
+				unsafe {
+					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+						windows::Win32::UI::WindowsAndMessaging::MB_OK,
+					);
+				}
+				MessageDialog::builder(&poll_dlg, problem, "Poll")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
+				if question.trim().is_empty() || question.trim().chars().count() > whantv::POLL_MAX_QUESTION_CHARS {
+					poll_question.set_focus();
+				} else {
+					poll_options.set_focus();
+				}
+			}
+		}
+	});
 
 	let new_contact_dialog_cancel = parts.new_contact_dialog.dialog;
 	parts.new_contact_dialog.cancel_btn.on_click(move |_| {
@@ -3488,6 +3531,20 @@ pub fn bind_input_handlers(
 					}
 				}
 				event.skip(false);
+			} else if (code == Some('v' as i32) || code == Some(86))
+				&& !key_event.control_down()
+				&& !key_event.alt_down()
+			{
+				// 'v' -> vote in the poll
+				if let Some(idx) = msgs_list_play.get_selection() {
+					let s = state_play.borrow();
+					if let Some(whantv::DisplayItem::Single(m)) = s.display_items.get(idx as usize) {
+						if m.is_poll() {
+							let _ = tx_close_list.send(UiCommand::OpenPollVote(m.id.clone()));
+						}
+					}
+				}
+				event.skip(false);
 			} else if code == Some('r' as i32) || code == Some('R' as i32) || code == Some(82) {
 				// 'r' / 'R' -> Reply
 				if let Some(idx) = msgs_list_play.get_selection() {
@@ -4329,21 +4386,29 @@ pub fn bind_input_handlers(
 	let tx_attach = ui_tx.clone();
 	let attach_btn_menu = parts.conversations_parts.add_attachment_btn;
 	parts.conversations_parts.add_attachment_btn.on_click(move |_| {
+		// WhatsApp's attach menu, in its order.
 		const ATTACH_DOCUMENT_ID: i32 = 4201;
 		const ATTACH_CONTACT_ID: i32 = 4202;
+		const ATTACH_MEDIA_ID: i32 = 4203;
+		const ATTACH_AUDIO_ID: i32 = 4204;
+		const ATTACH_POLL_ID: i32 = 4205;
 		let mut popup_menu = Menu::builder()
-			.append_item(ATTACH_DOCUMENT_ID, "&Document", "Attach a file from this computer")
+			.append_item(ATTACH_DOCUMENT_ID, "&Document", "Send any file as a document, photos at full quality")
+			.append_item(ATTACH_MEDIA_ID, "&Photos && videos", "Send photos and videos")
+			.append_item(ATTACH_AUDIO_ID, "&Audio", "Send audio files to play in the chat")
 			.append_item(ATTACH_CONTACT_ID, "&Contact", "Attach a contact from your WhatsApp contacts")
+			.append_item(ATTACH_POLL_ID, "P&oll", "Create a poll")
 			.build();
 		let tx_menu = tx_attach.clone();
 		popup_menu.on_selected(move |menu_evt| {
 			let id = menu_evt.get_id();
-			let cmd = if id == ATTACH_DOCUMENT_ID {
-				Some(UiCommand::AddAttachment)
-			} else if id == ATTACH_CONTACT_ID {
-				Some(UiCommand::PrepareAttachContact)
-			} else {
-				None
+			let cmd = match id {
+				ATTACH_DOCUMENT_ID => Some(UiCommand::AttachFiles(whantv::AttachKind::Document)),
+				ATTACH_MEDIA_ID => Some(UiCommand::AttachFiles(whantv::AttachKind::Media)),
+				ATTACH_AUDIO_ID => Some(UiCommand::AttachFiles(whantv::AttachKind::Audio)),
+				ATTACH_CONTACT_ID => Some(UiCommand::PrepareAttachContact),
+				ATTACH_POLL_ID => Some(UiCommand::OpenPollDialog),
+				_ => None,
 			};
 			if let Some(cmd) = cmd {
 				let _ = tx_menu.send(cmd);
