@@ -228,7 +228,7 @@ func retryOneMessage(conn net.Conn, id string) {
 	broadcastEvent("message", map[string]interface{}{
 		"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
 		"timestamp": time.Now().Unix(), "has_media": true, "mediaType": mediaType,
-		"mediaFilename": mediaFilename, "status": "uploading",
+		"mediaFilename": mediaFilename, "mediaPath": mediaPath, "status": "uploading",
 	})
 
 	// Re-derive the ContextInfo from the still-referenced quoted message
