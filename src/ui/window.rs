@@ -4430,6 +4430,12 @@ pub fn bind_input_handlers(
 		let caption = caption_field_ref.get_value();
 		let _ = tx_send_attach.send(UiCommand::SendAttachment { caption });
 	});
+	// Enter in the caption box sends, like the Send button.
+	let tx_send_attach_enter = ui_tx.clone();
+	caption_field_ref.on_text_enter(move |_| {
+		let caption = caption_field_ref.get_value();
+		let _ = tx_send_attach_enter.send(UiCommand::SendAttachment { caption });
+	});
 
 	// Attachment dialog — Add more files button
 	let tx_add_more = ui_tx.clone();

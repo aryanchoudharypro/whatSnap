@@ -48,13 +48,20 @@ pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 				}
 			}
 			drop(s);
-			show_attachment_dialog(state, parts, "Files attached");
+			show_attachment_dialog(state, parts, "Files attached", None);
 		}
 	}
 }
 
-/// Fills in and shows the attachment dialog for the pending batch.
-fn show_attachment_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, announcement: &str) {
+/// Fills in and shows the attachment dialog for the pending batch. A new batch
+/// starts with `caption` (or an empty one); adding files to a batch that's
+/// already open keeps whatever caption has been typed.
+fn show_attachment_dialog(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	announcement: &str,
+	caption: Option<String>,
+) {
 	let (kind, file_names) = {
 		let s = state.borrow();
 		let names: Vec<String> = s
@@ -72,8 +79,11 @@ fn show_attachment_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	};
 	let d = &parts.attachment_dialog;
 	d.attachment_info_label.set_label(&format!("{}: {}", heading, file_names.join(", ")));
-	d.caption_field.set_value("");
 	let captioned = kind.has_caption();
+	if !d.dialog.is_shown() {
+		d.caption_field.set_value(caption.as_deref().unwrap_or(""));
+		d.caption_field.set_insertion_point_end();
+	}
 	if d.caption_field.is_shown() != captioned {
 		d.caption_label.show(captioned);
 		d.caption_field.show(captioned);
@@ -195,8 +205,20 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 						s.pending_attachments.push(path.clone());
 					}
 				}
+				let kind = s.pending_attachment_kind;
 				drop(s);
-				show_attachment_dialog(state, parts, "Pasted files");
+				// Text already typed in the message box becomes the caption,
+				// as in WhatsApp, rather than being left behind in the box.
+				let mut caption = None;
+				if !parts.attachment_dialog.dialog.is_shown() && kind.has_caption() {
+					let field = &parts.conversations_parts.message_field;
+					let typed = field.get_value();
+					if !typed.trim().is_empty() {
+						field.set_value("");
+						caption = Some(typed);
+					}
+				}
+				show_attachment_dialog(state, parts, "Pasted files", caption);
 			}
 		}
 	}
