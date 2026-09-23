@@ -237,12 +237,26 @@ func handleSetAbout(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		// WhatsApp Web always sends a 24h ephemeral_duration_sec on this
-		// mutation, even for a "permanent" about text; the server rejects
-		// the request with a 400 if it's left at zero.
-		input := types.SetStatusInput{Text: &data.Text, Duration: jsontime.S(24 * time.Hour)}
-		if err := client.SetStatusMessage(context.Background(), input); err != nil {
+		// ephemeral_duration_sec -1 is an About that never expires
+		// (WAWebTextStatusUtils.TEXT_STATUS_DURATION_INFINITE). 0 is not: the
+		// server takes it as "default" and stores 24h, which is what made
+		// every About set from here vanish after a day. 24h stays only as a
+		// fallback in case the server refuses -1.
+		input := types.SetStatusInput{Text: &data.Text, Duration: jsontime.SInt(-1)}
+		err := client.SetStatusMessage(context.Background(), input)
+		if err != nil {
+			log.Printf("Setting a permanent About failed (%v), retrying with a 24h expiry", err)
+			input.Duration = jsontime.S(24 * time.Hour)
+			err = client.SetStatusMessage(context.Background(), input)
+		}
+		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
+			return
+		}
+		if client.Store.ID != nil {
+			if st, gerr := client.GetTextStatus(context.Background(), client.Store.ID.ToNonAD()); gerr == nil && st != nil {
+				log.Printf("About updated, server reports expiry %ds (-1 = never expires)", st.EphemeralDurationSec)
+			}
 		}
 	}()
 }
