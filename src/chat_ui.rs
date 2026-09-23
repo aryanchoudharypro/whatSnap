@@ -194,13 +194,10 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	// recipient staring at a "typing…" indicator that never clears - real
 	// WhatsApp Web sends "paused" the moment you navigate away, not just
 	// when the text is deleted or sent.
-	if let Some(prev_jid) = s.selected_chat.clone() {
+	// Only if we actually told that chat we were typing.
+	if let Some(prev_jid) = s.composing.as_ref().map(|c| c.jid.clone()) {
 		if prev_jid != jid {
-			let payload = serde_json::json!({
-				"action": "send_typing",
-				"data": { "jid": prev_jid, "state": "paused", "media": "" }
-			});
-			let _ = s.ws_tx.send(payload.to_string());
+			crate::ui_commands::messaging::send_chatstate(&mut s, &prev_jid, "paused", "");
 		}
 	}
 	// Re-opening the same chat keeps the quote; any other chat drops it.
@@ -276,10 +273,20 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	// (scrolling to the top), same as it already did for phone-side history
 	// beyond what's stored locally.
 	let limit = crate::MESSAGE_PAGE_SIZE;
-	let payload = serde_json::json!({
-		"action": "get_messages",
-		"data": { "jid": jid, "limit": limit, "offset": 0 }
-	});
+	// Opening straight onto a particular message (a starred entry) needs the
+	// window around it - it may be far older than the newest page, which is
+	// what a plain get_messages would return, and it'd never be found there.
+	let payload = if let Some(target_id) = s.search_target_id.clone() {
+		serde_json::json!({
+			"action": "get_messages_around",
+			"data": { "jid": jid, "messageId": target_id, "text": "" }
+		})
+	} else {
+		serde_json::json!({
+			"action": "get_messages",
+			"data": { "jid": jid, "limit": limit, "offset": 0 }
+		})
+	};
 	let _ = s.ws_tx.send(payload.to_string());
 	drop(s);
 	crate::handle_ui_command(UiCommand::SubscribePresence(jid.to_string()), state, parts);

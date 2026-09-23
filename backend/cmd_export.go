@@ -155,14 +155,17 @@ func handleExportChat(conn net.Conn, raw json.RawMessage) {
 
 			if r.mediaType != "" {
 				if path, ok := downloadMediaForExportSync(r.id); ok {
-					if data2, readErr := os.ReadFile(path); readErr == nil {
+					// Streamed into the archive rather than read whole: a chat's
+					// videos would otherwise each sit fully in memory in turn.
+					if f, openErr := os.Open(path); openErr == nil {
 						entryName := "media/" + sanitizeFilenameComponent(r.id) + extForFilePath(path)
 						if w, zerr := zw.Create(entryName); zerr == nil {
-							if _, werr := w.Write(data2); werr == nil {
+							if _, werr := io.Copy(w, f); werr == nil {
 								body = fmt.Sprintf("%s (%s)", body, entryName)
 								mediaExported++
 							}
 						}
+						f.Close()
 					} else {
 						mediaSkipped++
 					}

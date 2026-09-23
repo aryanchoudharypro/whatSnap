@@ -279,7 +279,7 @@ func handleLeaveAndDeleteGroup(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": "Left the group, but failed to delete the chat: " + err.Error()})
 			return
 		}
-		db.Exec("DELETE FROM messages WHERE jid = ?", data.JID)
+		purgeMessages("jid = ?", data.JID)
 		db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
 		broadcastChats()
 	}()

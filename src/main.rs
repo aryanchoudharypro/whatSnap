@@ -22,12 +22,14 @@ mod countries;
 mod message_display;
 use message_display::update_action_buttons;
 mod paths;
+mod ringback;
 mod settings;
 mod single_instance;
 mod tray;
 mod ui;
 mod ui_commands;
 mod ui_wake;
+mod voice_dsp;
 mod voice_recorder;
 mod websocket_events;
 use websocket_events::process_websocket_message;
@@ -79,6 +81,62 @@ pub const MESSAGE_PAGE_SIZE: i32 = 1000;
 /// risks tripping WhatsApp's abuse detection.
 const PHONE_HISTORY_TIMEOUT_SECS: u64 = 20;
 
+// Presence and chatstate timing, taken verbatim from WhatsApp Web's own
+// bundle (2.3000.1047483476) so this client's traffic looks like it:
+// - WAWebConversation.react: window blur -> Stream.markUnavailable(15 * 1e3);
+//   focus -> after delayMs(500), if still focused, markAvailable().
+// - WAWebMain.react: an idle loop that waits 60s (w = 6e4), then arms
+//   markUnavailable(3e4) until mousemove/scroll/keydown/focus/resize.
+// - WAWebPresenceChatAction: p = 2500 (paused after the last keystroke),
+//   _ = 1e4 (composing/recording resent while still going, only while the
+//   contact is online).
+// - WAWebStreamModel: stays available through a connected call, and on
+//   Windows goes unavailable when minimised to tray unless in a call.
+const PRESENCE_BLUR_GRACE: Duration = Duration::from_millis(15_000);
+const PRESENCE_FOCUS_SETTLE: Duration = Duration::from_millis(500);
+const PRESENCE_IDLE_CHECK_EVERY: Duration = Duration::from_millis(60_000);
+const PRESENCE_IDLE_GRACE: Duration = Duration::from_millis(30_000);
+const CHATSTATE_PAUSE_AFTER: Duration = Duration::from_millis(2_500);
+const CHATSTATE_RESEND_EVERY: Duration = Duration::from_millis(10_000);
+
+/// An outgoing chatstate in progress: typing (`media` empty) or recording a
+/// voice note (`media` "audio").
+pub(crate) struct ComposingState {
+	jid: String,
+	media: String,
+	last_sent: std::time::Instant,
+	last_key: std::time::Instant,
+}
+
+/// WhatsApp Web's availability model (WAWebStreamModel), see the constants above.
+pub(crate) struct PresenceModel {
+	/// Stream.available: the user is considered present.
+	available: bool,
+	/// Pending markUnavailable() shift timer.
+	unavailable_at: Option<std::time::Instant>,
+	/// Focus regained, waiting out PRESENCE_FOCUS_SETTLE.
+	focus_settle_since: Option<std::time::Instant>,
+	/// Hidden to the tray (Windows' isMinimizedToTray).
+	hidden: bool,
+	/// Idle loop: when the next idle check arms.
+	next_idle_check: std::time::Instant,
+	/// Idle loop: armed, with the input tick it was armed at.
+	idle_armed_at_input: Option<u32>,
+}
+
+impl Default for PresenceModel {
+	fn default() -> Self {
+		Self {
+			available: true,
+			unavailable_at: None,
+			focus_settle_since: None,
+			hidden: false,
+			next_idle_check: std::time::Instant::now() + PRESENCE_IDLE_CHECK_EVERY,
+			idle_armed_at_input: None,
+		}
+	}
+}
+
 struct AppState {
 	settings: crate::settings::Settings,
 	ws_tx: mpsc::Sender<String>,
@@ -107,6 +165,9 @@ struct AppState {
 	audio_stream_failed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 	audio_sink: Option<Player>,
 	playing_msg_id: Option<String>,
+	/// The voice message autoplay last rolled on to, so the end-of-run tone
+	/// only sounds after a real run (WhatsApp plays it for sequences only).
+	voice_autoplay_id: Option<String>,
 	is_audio_paused: bool,
 	audio_path: Option<String>,
 	audio_total_secs: f32,
@@ -175,6 +236,17 @@ struct AppState {
 	/// for the open chat aren't marked read — the user isn't actually
 	/// looking at them.
 	window_focused: bool,
+	/// Availability, modelled on WhatsApp Web's (see `PresenceModel`).
+	presence: PresenceModel,
+	/// Last known online state of contacts, from "presence" events - a
+	/// chatstate resend only goes out while the contact is online, as in WA Web.
+	contact_online: std::collections::HashMap<String, bool>,
+	/// The presence last sent to the backend, so repeats are never re-sent.
+	presence_sent: Option<bool>,
+	/// The chat we last told "composing" and when (see `send_typing`), so a
+	/// held-down keyboard sends one chatstate every few seconds rather than one
+	/// per keystroke, and "paused" follows once typing stops.
+	composing: Option<ComposingState>,
 	/// Message IDs of incoming messages queued for the open chat while the
 	/// window was unfocused; drained into the unread divider + a batched
 	/// mark_read once focus returns.
@@ -200,6 +272,11 @@ struct AppState {
 	admin_group_jids: std::collections::HashSet<String>,
 	initial_presence_received: bool,
 	messages: Vec<ChatMessage>,
+	/// Whether `messages` runs right up to the chat's newest message. False
+	/// after jumping to an old search/starred hit (`get_messages_around`),
+	/// where newer messages exist that aren't loaded - live messages for the
+	/// chat then aren't appended beneath that window.
+	messages_at_latest: bool,
 	loading_messages: bool,
 	/// True once a `get_messages` page for the open chat has come back
 	/// shorter than requested - the local database has nothing older left
@@ -405,6 +482,9 @@ fn main() {
 		Some(lock) => lock,
 		None => return,
 	};
+	for name in ["backend_process.log", "call_audio.log"] {
+		paths::rotate_log(name);
+	}
 
 	let exe_dir = std::env::current_exe()
 		.ok()
@@ -607,6 +687,7 @@ fn main() {
 			audio_stream_failed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
 			audio_sink: None,
 			playing_msg_id: None,
+			voice_autoplay_id: None,
 			is_audio_paused: false,
 			audio_path: None,
 			audio_total_secs: 0.0,
@@ -625,6 +706,10 @@ fn main() {
 			unread_divider_jid: None,
 			unread_divider_count: 0,
 			window_focused: true,
+			presence: PresenceModel::default(),
+			contact_online: std::collections::HashMap::new(),
+			presence_sent: None,
+			composing: None,
 			background_unread_message_ids: Vec::new(),
 			display_names: std::collections::HashMap::new(),
 			// Seeded so Meta AI's chat shows a proper name from the first
@@ -686,6 +771,7 @@ fn main() {
 			admin_group_jids: std::collections::HashSet::new(),
 			initial_presence_received: false,
 			messages: Vec::new(),
+			messages_at_latest: true,
 			loading_messages: false,
 			no_more_messages: false,
 			history_loading: false,
@@ -766,12 +852,53 @@ fn main() {
 				Ok(s) => s,
 				Err(_) => return, // State already borrowed, skip this update
 			};
+			ui_commands::messaging::chatstate_tick(&mut s);
+			ui_commands::misc::presence_tick(&mut s);
 			if s.playing_msg_id.is_none() {
 				return;
 			}
 			// Check if sink finished naturally
 			let finished = s.audio_sink.as_ref().map(|sk| sk.empty()).unwrap_or(false);
 			if finished && !s.is_audio_paused {
+				// Voice notes sent one after another play on as a run, like
+				// WhatsApp. Selection follows along (when it was on the one
+				// that just ended), so NVDA reads out whose note is starting
+				// and Space pauses the one actually playing.
+				let finished_id = s.playing_msg_id.clone().unwrap_or_default();
+				if let Some(next_id) = whantv::next_sequential_voice(&s.messages, &finished_id).map(|m| m.id.clone()) {
+					let index_of = |id: &str| {
+						s.display_items.iter().position(|item| match item {
+							whantv::DisplayItem::Single(m) => m.id == id,
+							whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == id),
+						})
+					};
+					let list = &parts_timer.conversations_parts.messages_list;
+					if let (Some(from), Some(to)) = (index_of(&finished_id), index_of(&next_id)) {
+						if list.get_selection() == Some(from as u32) {
+							list.set_selection(to as u32, true);
+						}
+					}
+					s.audio_sink = None;
+					s.audio_elapsed_secs = 0.0;
+					s.audio_start_instant = None;
+					s.playing_msg_id = Some(next_id.clone());
+					s.voice_autoplay_id = Some(next_id.clone());
+					audio::play_notification_sound(
+						NotificationSound::VoiceSequenceNext,
+						s.settings.sounds_enabled,
+						s.settings.output_device_name.clone(),
+					);
+					parts_timer.conversations_parts.play_voice_btn.set_label("Loading voice message...");
+					let _ = s.ui_tx.send(UiCommand::PlayVoiceMessage(next_id));
+					return;
+				}
+				if s.voice_autoplay_id.take().is_some_and(|id| id == finished_id) {
+					audio::play_notification_sound(
+						NotificationSound::VoiceSequenceEnd,
+						s.settings.sounds_enabled,
+						s.settings.output_device_name.clone(),
+					);
+				}
 				s.playing_msg_id = None;
 				s.audio_start_instant = None;
 				s.audio_elapsed_secs = 0.0;
@@ -1091,6 +1218,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::SubscribePresence(jid) => ui_commands::misc::subscribe_presence(state, parts, jid),
 		UiCommand::ActivateWindow => ui_commands::misc::activate_window(state, parts),
 		UiCommand::SetPresence(available) => ui_commands::misc::set_presence(state, parts, available),
+		UiCommand::WindowHidden => ui_commands::misc::window_hidden(state, parts),
 		UiCommand::MarkRead { jid, message_ids } => ui_commands::chat_list::mark_read(state, parts, jid, message_ids),
 		UiCommand::PlayVoiceMessage(msg_id) => ui_commands::voice::play_voice_message(state, parts, msg_id),
 		UiCommand::CloseConversation => ui_commands::chat_list::close_conversation(state, parts),

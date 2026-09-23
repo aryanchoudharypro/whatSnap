@@ -27,11 +27,10 @@ pub struct Settings {
 	/// "System Default" (the first device Media Foundation enumerates - see
 	/// `video_devices.rs`).
 	pub camera_device_name: Option<String>,
-	/// Whether recording a voice message applies Windows' communications
-	/// audio-effects pipeline (echo cancellation/noise-suppression/AGC) - the
-	/// same processing calls always use. Off by default: a voice message has
-	/// no speaker output to echo-cancel against, and some prefer the raw mic
-	/// signal over what the effects pipeline does to it.
+	/// Whether recorded voice messages go through `voice_dsp::VoiceCleanup`
+	/// (high-pass, noise suppression, automatic gain, limiter) - the processing
+	/// a browser gives WhatsApp Web's voice notes. Off keeps the raw mic signal.
+	/// (The field name predates it; kept so saved settings carry over.)
 	pub voice_message_noise_suppression: bool,
 	/// Per-chat alert level for archived chats, keyed by JID. A chat with no
 	/// entry uses [`whantv::ArchivedAlert::default`] (silent), so archiving

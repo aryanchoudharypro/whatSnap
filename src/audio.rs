@@ -183,6 +183,22 @@ pub(crate) fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'stat
 	}
 }
 
+/// Starts the ringing heard while calling someone: WhatsApp's own ringback
+/// for the country of `self_phone` (see ringback.rs), looped until the call is
+/// answered or ends. Stopped with `stop_call_ringing_sound` like the others.
+pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
+	use rodio::Source;
+	ensure_audio_stream(state);
+	let Some(ref stream_handle) = state.audio_stream else {
+		eprintln!("[AUDIO] No audio stream available");
+		return;
+	};
+	let sink = Player::connect_new(&stream_handle.mixer());
+	sink.append(crate::ringback::ringback_cycle(self_phone).repeat_infinite());
+	sink.play();
+	state.call_ringing_sink = Some(sink);
+}
+
 pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 	if let Some(sink) = state.call_ringing_sink.take() {
 		sink.pause();
@@ -367,6 +383,55 @@ pub(crate) fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffe
 	))
 }
 
+/// The 64 loudness bars WhatsApp draws on a voice message, 0-100 each - the
+/// `waveform` field of the AudioMessage.
+///
+/// Built the way WhatsApp Web builds a recorded voice note's
+/// (WAPttComposerWaveformRecorder): level in dB mapped from the -60..-10 dB
+/// range onto 0..100, the loudest moment in each slice of the recording, the
+/// slices then evened out to 64. `None` if the file can't be read or holds no
+/// audio.
+pub(crate) fn compute_voice_waveform(wav_path: &str) -> Option<Vec<u8>> {
+	const BARS: usize = 64;
+	const MIN_DB: f32 = -60.0;
+	const MAX_DB: f32 = -10.0;
+
+	let mut reader = hound::WavReader::open(wav_path).ok()?;
+	let spec = reader.spec();
+	let channels = spec.channels.max(1) as usize;
+	// 10 ms windows, first channel only (WhatsApp measures a mono stream).
+	let window = (spec.sample_rate as usize / 100).max(1);
+	let mut levels = Vec::new();
+	let (mut sum, mut count) = (0.0f64, 0usize);
+	for (i, sample) in reader.samples::<i16>().enumerate() {
+		if i % channels != 0 {
+			continue;
+		}
+		let s = sample.ok()? as f64 / 32768.0;
+		sum += s * s;
+		count += 1;
+		if count == window {
+			levels.push(10.0 * (sum / count as f64 + 1e-12).log10() as f32);
+			(sum, count) = (0.0, 0);
+		}
+	}
+	if count > 0 {
+		levels.push(10.0 * (sum / count as f64 + 1e-12).log10() as f32);
+	}
+	if levels.is_empty() {
+		return None;
+	}
+	let bars = (0..BARS)
+		.map(|b| {
+			let start = b * levels.len() / BARS;
+			let end = ((b + 1) * levels.len() / BARS).max(start + 1).min(levels.len());
+			let peak = levels[start.min(levels.len() - 1)..end].iter().cloned().fold(f32::MIN, f32::max);
+			(((peak - MIN_DB) / (MAX_DB - MIN_DB)).clamp(0.0, 1.0) * 100.0) as u8
+		})
+		.collect();
+	Some(bars)
+}
+
 pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()> {
 	use std::{fs::File, io::BufWriter};
 
@@ -434,4 +499,54 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow:
 	}
 
 	Ok(())
+}
+
+#[cfg(test)]
+mod waveform_tests {
+	use super::compute_voice_waveform;
+
+	#[test]
+	fn waveform_is_64_bars_following_loudness() {
+		let path = std::env::temp_dir().join(format!("whantv_waveform_test_{}.wav", std::process::id()));
+		let spec = hound::WavSpec {
+			channels: 2,
+			sample_rate: 48_000,
+			bits_per_sample: 16,
+			sample_format: hound::SampleFormat::Int,
+		};
+		let mut w = hound::WavWriter::create(&path, spec).unwrap();
+		// 1 s silence, then 1 s of a loud tone.
+		for i in 0..96_000 {
+			let s = if i < 48_000 { 0.0 } else { 0.5 * (i as f32 * 0.05).sin() };
+			let v = (s * 32767.0) as i16;
+			w.write_sample(v).unwrap();
+			w.write_sample(v).unwrap();
+		}
+		w.finalize().unwrap();
+		let bars = compute_voice_waveform(path.to_str().unwrap()).unwrap();
+		let _ = std::fs::remove_file(&path);
+		assert_eq!(bars.len(), 64);
+		assert!(bars[..31].iter().all(|&b| b == 0), "{bars:?}");
+		assert!(bars[33..].iter().all(|&b| b == 100), "{bars:?}");
+	}
+}
+
+#[cfg(test)]
+mod sound_tests {
+	use crate::NotificationSound;
+
+	#[test]
+	fn every_built_in_sound_decodes() {
+		for sound in [
+			NotificationSound::MessageCurrent,
+			NotificationSound::MessageBackground,
+			NotificationSound::MessageSent,
+			NotificationSound::VoiceMessageSent,
+			NotificationSound::VoiceSequenceNext,
+			NotificationSound::VoiceSequenceEnd,
+		] {
+			let decoder = rodio::Decoder::new(std::io::Cursor::new(sound.ogg()));
+			assert!(decoder.is_ok_and(|mut d| d.next().is_some()), "{:?} doesn't decode", sound as u8);
+		}
+	}
 }

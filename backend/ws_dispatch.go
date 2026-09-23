@@ -95,7 +95,7 @@ func handleConnection(conn net.Conn) {
 		case "send_typing":
 			handleSendTyping(cmd.Data)
 		case "subscribe_presence":
-			handleSubscribePresence(cmd.Data)
+			go handleSubscribePresence(cmd.Data)
 		case "set_presence":
 			handleSetPresence(cmd.Data)
 		case "mark_read":
@@ -163,7 +163,9 @@ func handleConnection(conn net.Conn) {
 
 		// --- chats ---
 		case "verify_chat_lock_code":
-			handleVerifyChatLockCode(conn, cmd.Data)
+			// PBKDF2 with the server's iteration count can take a moment -
+			// never on the goroutine that reads every other command.
+			go handleVerifyChatLockCode(conn, cmd.Data)
 		case "set_chat_locked":
 			handleSetChatLocked(conn, cmd.Data)
 		case "get_chats":

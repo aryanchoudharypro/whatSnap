@@ -106,6 +106,7 @@ type SendVoiceMessageData struct {
 	Data        string `json:"data"` // base64 fallback
 	Mimetype    string `json:"mimetype"`
 	Duration    int    `json:"duration"` // seconds
+	Waveform    []int  `json:"waveform"` // 64 loudness bars, 0-100
 	ReplyToID   string `json:"reply_to_id"`
 	ReplySender string `json:"reply_to_sender"`
 }

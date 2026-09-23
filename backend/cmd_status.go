@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -44,8 +46,7 @@ type MarkStatusViewedData struct {
 // their existing message-ID-keyed code paths unchanged.
 func handleGetStatuses(conn net.Conn) {
 	go func() {
-		cutoff := time.Now().Add(-24 * time.Hour).Unix()
-		db.Exec("DELETE FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?", cutoff)
+		purgeExpiredStatuses()
 
 		rows, err := db.Query(`SELECT id, COALESCE(sender_jid, ''), from_me, COALESCE(text, ''),
 				COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
@@ -178,26 +179,49 @@ func handlePostMediaStatus(raw json.RawMessage) {
 	go func() {
 		id := client.GenerateMessageID()
 
-		fileBytes, err := readLocalFileOrDecode(data.Path, data.Data)
-		if err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
-			return
+		// Resolve to a file on disk and upload from it as a stream, like chat
+		// attachments do - reading a video whole (and handing that buffer to
+		// Upload) put the entire file in memory, twice over.
+		srcPath := data.Path
+		if srcPath == "" {
+			fileBytes, err := readLocalFileOrDecode("", data.Data)
+			if err != nil {
+				broadcastEvent("error", map[string]string{"message": err.Error()})
+				return
+			}
+			tmp, saveErr := saveMediaBytes("outgoing", id+"_src", detectMimeType(data.Filename, "", fileBytes), fileBytes)
+			if saveErr != nil {
+				broadcastEvent("error", map[string]string{"message": saveErr.Error()})
+				return
+			}
+			srcPath = tmp
 		}
 		mimetype := data.Mimetype
 		if mimetype == "" || mimetype == "application/octet-stream" || mimetype == "application/zip" {
-			mimetype = detectMimeType(data.Filename, "", fileBytes)
+			mimetype = detectMimeType(data.Filename, srcPath, sniffFileHeader(srcPath))
 		}
-		cachedPath, saveErr := saveMediaBytes("outgoing", id, mimetype, fileBytes)
-		if saveErr != nil {
-			broadcastEvent("error", map[string]string{"message": saveErr.Error()})
-			return
+		cachedPath := filepath.Join(mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+extForMime(mimetype))
+		if srcPath != cachedPath {
+			if err := copyFileStreaming(srcPath, cachedPath); err != nil {
+				broadcastEvent("error", map[string]string{"message": err.Error()})
+				return
+			}
+			if data.Path == "" {
+				os.Remove(srcPath)
+			}
 		}
 
 		waMediaType := whatsmeow.MediaImage
 		if data.Type == "video" {
 			waMediaType = whatsmeow.MediaVideo
 		}
-		uploaded, err := client.Upload(context.Background(), fileBytes, waMediaType)
+		f, err := os.Open(cachedPath)
+		if err != nil {
+			broadcastEvent("error", map[string]string{"message": err.Error()})
+			return
+		}
+		uploaded, err := client.UploadReader(context.Background(), f, nil, waMediaType)
+		f.Close()
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return

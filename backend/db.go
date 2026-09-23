@@ -38,6 +38,10 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE chats ADD COLUMN is_community INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN is_admin INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN is_locked INTEGER DEFAULT 0")
+	// Member count for groups (from the joined-groups list), so a group
+	// message's own status only reaches "delivered"/"read" once every other
+	// member got there - the way official WhatsApp shows ticks in groups.
+	db.Exec("ALTER TABLE chats ADD COLUMN participant_count INTEGER DEFAULT 0")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
@@ -58,6 +62,7 @@ func migrateDB() error {
 	}
 	db.Exec("ALTER TABLE messages ADD COLUMN sender_jid TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE messages ADD COLUMN raw BLOB")
+	db.Exec("ALTER TABLE messages ADD COLUMN voice_waveform BLOB")
 	// New columns added for the enhancement pass:
 	db.Exec("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
 	db.Exec("ALTER TABLE messages ADD COLUMN media_type TEXT DEFAULT ''")
@@ -91,7 +96,6 @@ func migrateDB() error {
 		jid TEXT NOT NULL,
 		timestamp INTEGER DEFAULT 0
 	)`)
-	db.Exec("DELETE FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?", time.Now().Add(-24*time.Hour).Unix())
 	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
 	// Excludes is_deleted=1 rows: those are deliberate "this message was
 	// deleted" tombstones (a revoke stub synced from history, or a live
@@ -102,10 +106,17 @@ func migrateDB() error {
 	// deleteMessageForMe, not through this startup sweep.
 	db.Exec("DELETE FROM messages WHERE COALESCE(is_deleted, 0) = 0 AND (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
 	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0) OR COALESCE(is_deleted, 0) = 1) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0")
-	backfillTemplateMessages()
-	backfillAlbumMessages()
-	backfillMediaSizes()
-	removeKeyDistributionStubs()
+	// These re-derive rows stored by older builds. Each one only ever has
+	// work to do once, but used to rescan and re-decode every matching row's
+	// raw protobuf on every single launch.
+	runOnce("backfill_template_messages_v1", backfillTemplateMessages)
+	runOnce("backfill_album_messages_v1", backfillAlbumMessages)
+	runOnce("backfill_media_sizes_v1", backfillMediaSizes)
+	runOnce("remove_key_distribution_stubs_v1", removeKeyDistributionStubs)
+	// An upload that was still running when the app last quit can never
+	// finish now - and retry only accepts pending/failed rows, so leaving it
+	// as "uploading" stranded it on screen forever with no way to resend.
+	db.Exec(`UPDATE messages SET status = 'failed' WHERE from_me = 1 AND status = 'uploading'`)
 
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
@@ -115,6 +126,10 @@ func migrateDB() error {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_sender_jid ON messages(sender_jid)`); err != nil {
 		return err
 	}
+	// The retry sweep (every 3s while connected) and read-receipt lookups
+	// filter on status; without these each one scanned the whole table.
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_outgoing_status ON messages(status) WHERE from_me = 1`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_incoming_status ON messages(jid, status) WHERE from_me = 0`)
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS reactions (
 		message_id TEXT NOT NULL,
@@ -165,7 +180,20 @@ func migrateDB() error {
 		return err
 	}
 
+	purgeExpiredStatuses()
+	cleanupScratchTempDirs(24 * time.Hour)
 	return nil
+}
+
+// runOnce runs fn the first time a database sees key, then records it in
+// app_settings so later launches skip it.
+func runOnce(key string, fn func()) {
+	var done int
+	if db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, "migration:"+key).Scan(&done) == nil && done > 0 {
+		return
+	}
+	fn()
+	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
 }
 
 // --- messages ---------------------------------------------------------------
@@ -294,6 +322,55 @@ func updateParticipantReceiptIfNewer(ids []string, participantJID, newStatus str
 	}
 }
 
+// updateGroupMessageStatuses advances our own group messages' overall status
+// from their per-member receipts, the way official WhatsApp draws group ticks:
+// "delivered" once every other member has it, "read"/"played" once every other
+// member has read/played it. Moving the whole message to "read" on the first
+// member's receipt (as for a 1:1 chat) showed blue ticks while most of the
+// group hadn't even opened it. Returns the IDs whose status changed and the
+// status they now have.
+func updateGroupMessageStatuses(ids []string, groupJID string, receiptTS int64) map[string][]string {
+	var members int
+	db.QueryRow(`SELECT COALESCE(participant_count, 0) FROM chats WHERE jid = ?`, groupJID).Scan(&members)
+	others := members - 1
+	changed := map[string][]string{}
+	for _, id := range ids {
+		if target := editTargetID(id); target != "" {
+			id = target
+		}
+		var delivered, read, played int
+		if db.QueryRow(`SELECT
+				COALESCE(SUM(CASE WHEN status IN ('delivered', 'read', 'played') THEN 1 ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN status IN ('read', 'played') THEN 1 ELSE 0 END), 0),
+				COALESCE(SUM(CASE WHEN status = 'played' THEN 1 ELSE 0 END), 0)
+			FROM message_receipts WHERE message_id = ?`, id).Scan(&delivered, &read, &played) != nil {
+			continue
+		}
+		status := ""
+		switch {
+		case others <= 0:
+			// Group size not known yet (the joined-groups list hasn't been
+			// fetched this session): never claim more than "delivered".
+			if delivered > 0 {
+				status = "delivered"
+			}
+		case played >= others:
+			status = "played"
+		case read >= others:
+			status = "read"
+		case delivered >= others:
+			status = "delivered"
+		}
+		if status == "" {
+			continue
+		}
+		for _, updatedID := range updateMessageStatusIfNewer([]string{id}, status, receiptTS) {
+			changed[status] = append(changed[status], updatedID)
+		}
+	}
+	return changed
+}
+
 type sqlExecer interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 }
@@ -412,11 +489,95 @@ func editTargetID(editID string) string {
 	return current
 }
 
-func markMessageEdited(id, jid, newText string, newRaw []byte, editTime int64) error {
-	_, err := db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, newText, newRaw, editTime, id, jid)
-	db.Exec(`UPDATE messages SET quoted_text = ? WHERE quoted_id = ?`, newText, id)
+// editPlainText is the bare new text an edit carries, whichever field it
+// arrived in (a text edit, or a caption on a media edit).
+func editPlainText(msg *waE2E.Message) string {
+	msg = unwrapMessage(msg)
+	switch {
+	case msg == nil:
+		return ""
+	case msg.GetConversation() != "":
+		return msg.GetConversation()
+	case msg.GetExtendedTextMessage() != nil:
+		return msg.GetExtendedTextMessage().GetText()
+	case msg.GetImageMessage() != nil:
+		return msg.GetImageMessage().GetCaption()
+	case msg.GetVideoMessage() != nil:
+		return msg.GetVideoMessage().GetCaption()
+	case msg.GetDocumentMessage() != nil:
+		return msg.GetDocumentMessage().GetCaption()
+	}
+	return ""
+}
+
+// mergeEdit applies an edit to the original message instead of replacing it.
+// An edit only carries the new text: storing it as the whole message (as this
+// used to) threw away a photo's media keys - so it could never be downloaded
+// again - and a reply's quote. Returns the raw protobuf to keep and the
+// display text for it, or ok=false if there's no usable original to merge
+// into (the edit's own content is then all there is).
+func mergeEdit(id string, newContent *waE2E.Message) (raw []byte, text string, ok bool) {
+	var origRaw []byte
+	if db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&origRaw) != nil || len(origRaw) == 0 {
+		return nil, "", false
+	}
+	orig := &waE2E.Message{}
+	if proto.Unmarshal(origRaw, orig) != nil {
+		return nil, "", false
+	}
+	newText := editPlainText(newContent)
+	carrier := mediaCarrier(orig)
+	switch {
+	case carrier.GetImageMessage() != nil:
+		carrier.GetImageMessage().Caption = proto.String(newText)
+	case carrier.GetVideoMessage() != nil:
+		carrier.GetVideoMessage().Caption = proto.String(newText)
+	case carrier.GetDocumentMessage() != nil:
+		carrier.GetDocumentMessage().Caption = proto.String(newText)
+	default:
+		inner := unwrapMessage(orig)
+		ctx := getContextInfo(inner)
+		if inner.GetExtendedTextMessage() != nil {
+			inner.GetExtendedTextMessage().Text = proto.String(newText)
+		} else if inner.Conversation != nil {
+			inner.Conversation = proto.String(newText)
+		} else {
+			// Something that isn't text at all (a poll, a bot's rich
+			// response...): the edit's content replaces it, keeping any quote.
+			orig = proto.Clone(newContent).(*waE2E.Message)
+			if ctx != nil && orig.GetConversation() != "" {
+				orig = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+					Text: proto.String(orig.GetConversation()), ContextInfo: ctx,
+				}}
+			}
+		}
+	}
+	merged, err := proto.Marshal(orig)
+	if err != nil {
+		return nil, "", false
+	}
+	return merged, extractText(orig), true
+}
+
+// markMessageEdited records an edit of message id. newContent is the edit's
+// payload (may be nil if it couldn't be decrypted, in which case only the text
+// is updated); fallbackText is used when there's nothing to merge into.
+// Returns the text the message now displays.
+func markMessageEdited(id, jid string, newContent *waE2E.Message, fallbackText string, editTime int64) (string, error) {
+	text := fallbackText
+	var err error
+	if newContent == nil {
+		_, err = db.Exec(`UPDATE messages SET text = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, editTime, id, jid)
+	} else if raw, merged, ok := mergeEdit(id, newContent); ok {
+		text = merged
+		_, err = db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, raw, editTime, id, jid)
+	} else {
+		raw, _ := proto.Marshal(newContent)
+		_, err = db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, raw, editTime, id, jid)
+	}
+	db.Exec(`UPDATE messages SET quoted_text = ? WHERE quoted_id = ?`, text, id)
 	UpdateChatSnippet(jid)
-	return err
+	return text, err
 }
 
 func markMessageDeleted(id, jid string) error {
@@ -795,7 +956,11 @@ func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 // reaction per person per message, so reactor_jid+message_id is the key.
 func upsertReaction(messageID, chatJID, reactorJID, emoji string, ts int64) error {
 	if emoji == "" {
-		_, err := db.Exec(`DELETE FROM reactions WHERE message_id = ? AND (reactor_jid = ? OR reactor_jid = 'me')`, messageID, reactorJID)
+		// Only this reactor's row. Our own reactions (from any of our
+		// devices) are always stored under "me", so a removal by us already
+		// arrives as reactorJID "me" - also matching 'me' here deleted *our*
+		// reaction whenever anyone else removed theirs.
+		_, err := db.Exec(`DELETE FROM reactions WHERE message_id = ? AND reactor_jid = ?`, messageID, reactorJID)
 		return err
 	}
 	_, err := db.Exec(`INSERT INTO reactions (message_id, chat_jid, reactor_jid, emoji, timestamp) VALUES (?, ?, ?, ?, ?)

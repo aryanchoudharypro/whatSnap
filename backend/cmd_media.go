@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +23,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"golang.org/x/sys/windows"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -46,54 +46,6 @@ func friendlyMediaError(err error) string {
 	}
 }
 
-// downloadMessageMedia loads a stored message's raw protobuf, figures out
-// which kind of media it carries, and downloads+decrypts it via whatsmeow.
-func downloadMessageMedia(messageID string) (data []byte, mediaType, mimetype, filename string, err error) {
-	rawBytes, _, _, _, dbErr := getMessageRaw(messageID)
-	if dbErr != nil {
-		err = dbErr
-		return
-	}
-	msg := &waE2E.Message{}
-	if perr := proto.Unmarshal(rawBytes, msg); perr != nil {
-		err = perr
-		return
-	}
-	msg = mediaCarrier(msg)
-	switch {
-	case msg.GetImageMessage() != nil:
-		m := msg.GetImageMessage()
-		data, err = client.Download(context.Background(), m)
-		return data, "image", m.GetMimetype(), "", err
-	case msg.GetVideoMessage() != nil:
-		m := msg.GetVideoMessage()
-		data, err = client.Download(context.Background(), m)
-		return data, "video", m.GetMimetype(), "", err
-	case msg.GetAudioMessage() != nil:
-		m := msg.GetAudioMessage()
-		data, err = client.Download(context.Background(), m)
-		mt := "audio"
-		if m.GetPTT() {
-			mt = "voice"
-		}
-		return data, mt, m.GetMimetype(), "", err
-	case msg.GetDocumentMessage() != nil:
-		m := msg.GetDocumentMessage()
-		data, err = client.Download(context.Background(), m)
-		fn := m.GetFileName()
-		if fn == "" {
-			fn = m.GetTitle()
-		}
-		return data, "document", m.GetMimetype(), fn, err
-	case msg.GetStickerMessage() != nil:
-		m := msg.GetStickerMessage()
-		data, err = client.Download(context.Background(), m)
-		return data, "sticker", m.GetMimetype(), "", err
-	}
-	err = fmt.Errorf("message has no downloadable media")
-	return
-}
-
 // ensureMediaCached returns the local path for a message's media, downloading
 // and caching it first if it isn't already on disk.
 func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename string, err error) {
@@ -107,7 +59,10 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 			return cached, mediaType, mimetype, filename, nil
 		}
 	}
-	data, mt, mime, fn, dErr := downloadMessageMedia(messageID)
+	// Streamed straight to disk (like handleDownloadMedia) rather than
+	// downloaded into memory first: a large video would otherwise sit whole
+	// in the heap, far past the backend's memory limit.
+	path, mt, mime, fn, dErr := downloadMessageMediaToFile(context.Background(), messageID, nil)
 	if dErr != nil {
 		if strings.Contains(dErr.Error(), "403") || strings.Contains(dErr.Error(), "404") || strings.Contains(dErr.Error(), "410") {
 			fmt.Printf("Requesting media retry (sync) for %s...\n", messageID)
@@ -118,14 +73,6 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 			return "", "", "", "", fmt.Errorf("Media URL expired. Requesting a fresh copy from the sender's phone, please wait a moment and try again.")
 		}
 		return "", "", "", "", dErr
-	}
-	path, err = saveMediaBytes("media", messageID, mime, data)
-	if err != nil {
-		return "", "", "", "", err
-	}
-	setMessageMediaPath(messageID, path)
-	if fn != "" {
-		db.Exec("UPDATE messages SET media_filename = ? WHERE id = ?", fn, messageID)
 	}
 	return path, mt, mime, fn, nil
 }
@@ -210,12 +157,15 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 		return
 	}
 	finalPath := filepath.Join(mediaDir(), sanitizeFilenameComponent(messageID)+extForMime(mimetype))
-	partPath := finalPath + ".part"
-	f, ferr := os.Create(partPath)
+	// A private part file per download: a voice note's automatic download
+	// and a play request can fetch the same message at the same moment, and
+	// sharing one ".part" had them truncating each other's data.
+	f, ferr := os.CreateTemp(filepath.Dir(finalPath), filepath.Base(finalPath)+".*.part")
 	if ferr != nil {
 		err = ferr
 		return
 	}
+	partPath := f.Name()
 	dlErr := client.DownloadToFile(ctx, dl, &progressFile{File: f, total: total, onProgress: onProgress})
 	f.Close()
 	if dlErr != nil {
@@ -225,8 +175,13 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 	}
 	if rerr := os.Rename(partPath, finalPath); rerr != nil {
 		os.Remove(partPath)
-		err = rerr
-		return
+		// The other download of it finished first (and the file may already
+		// be open for playback, which blocks replacing it) - its copy is
+		// just as good.
+		if _, statErr := os.Stat(finalPath); statErr != nil {
+			err = rerr
+			return
+		}
 	}
 	setMessageMediaPath(messageID, finalPath)
 	if filename != "" {
@@ -244,6 +199,23 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
+	startMediaDownload(data, false)
+}
+
+// autoDownloadVoiceNote fetches a voice message as soon as it arrives, the
+// way the official apps do by default, so playing it - or a run of them back
+// to back - starts at once. Only for live messages: history sync can carry
+// months of old ones.
+func autoDownloadVoiceNote(messageID, jid string) {
+	startMediaDownload(MessageRefData{MessageID: messageID, JID: jid}, true)
+}
+
+// startMediaDownload downloads a message's media into the cache in the
+// background, reporting progress and the result as media_* events. A no-op
+// if it is already cached (beyond re-announcing it) or already downloading.
+// auto marks a download nobody asked for, so the frontend keeps its progress
+// and failures quiet.
+func startMediaDownload(data MessageRefData, auto bool) {
 	var cached, mt, mm, fn string
 	db.QueryRow("SELECT COALESCE(media_path,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,'') FROM messages WHERE id = ?", data.MessageID).
 		Scan(&cached, &mt, &mm, &fn)
@@ -252,6 +224,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 			broadcastEvent("media_downloaded", map[string]interface{}{
 				"message_id": data.MessageID,
 				"jid":        data.JID,
+				"auto":       auto,
 				"path":       cached,
 				"mediaType":  mt,
 				"mimetype":   mm,
@@ -279,6 +252,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 			broadcastEvent("media_download_progress", map[string]interface{}{
 				"message_id": data.MessageID,
 				"jid":        data.JID,
+				"auto":       auto,
 				"percent":    percent,
 			})
 		}
@@ -288,6 +262,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 				broadcastEvent("media_downloaded", map[string]interface{}{
 					"message_id": data.MessageID,
 					"jid":        data.JID,
+					"auto":       auto,
 					"path":       path,
 					"mediaType":  mediaType,
 					"mimetype":   mimetype,
@@ -301,6 +276,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 				broadcastEvent("media_download_cancelled", map[string]interface{}{
 					"message_id": data.MessageID,
 					"jid":        data.JID,
+					"auto":       auto,
 				})
 				return
 			}
@@ -313,6 +289,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 					broadcastEvent("media_download_failed", map[string]interface{}{
 						"message_id": data.MessageID,
 						"jid":        data.JID,
+						"auto":       auto,
 						"message":    "URL expired and retry request failed: " + retryErr.Error(),
 					})
 					return
@@ -330,6 +307,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 						broadcastEvent("media_download_failed", map[string]interface{}{
 							"message_id": data.MessageID,
 							"jid":        data.JID,
+							"auto":       auto,
 							"message":    "Phone could not re-upload the media",
 						})
 						return
@@ -340,6 +318,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 					broadcastEvent("media_download_failed", map[string]interface{}{
 						"message_id": data.MessageID,
 						"jid":        data.JID,
+						"auto":       auto,
 						"message":    "Timeout waiting for phone to re-upload media",
 					})
 					retryWaitersMu.Lock()
@@ -350,6 +329,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 					broadcastEvent("media_download_cancelled", map[string]interface{}{
 						"message_id": data.MessageID,
 						"jid":        data.JID,
+						"auto":       auto,
 					})
 					retryWaitersMu.Lock()
 					delete(retryWaiters, data.MessageID)
@@ -362,6 +342,7 @@ func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 			broadcastEvent("media_download_failed", map[string]interface{}{
 				"message_id": data.MessageID,
 				"jid":        data.JID,
+				"auto":       auto,
 				"message":    friendlyMediaError(err),
 			})
 			return
@@ -387,17 +368,41 @@ func handleCancelDownload(conn net.Conn, raw json.RawMessage) {
 	}
 }
 
+// openFileInOS hands a file to its default handler. It goes straight to
+// ShellExecute rather than through `cmd /c start`: the temp copy's name comes
+// from whoever sent the document, and cmd.exe treats characters like & and ^
+// in an unquoted argument as command syntax - a document named
+// "report&calc&.pdf" ran calc when opened.
 func openFileInOS(path string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", path)
-	case "darwin":
-		cmd = exec.Command("open", path)
-	default:
-		cmd = exec.Command("xdg-open", path)
+	verb, err := windows.UTF16PtrFromString("open")
+	if err != nil {
+		return err
 	}
-	return cmd.Start()
+	file, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	return windows.ShellExecute(0, verb, file, nil, nil, windows.SW_SHOWNORMAL)
+}
+
+// copyFileStreaming copies src to dst without holding the whole file in
+// memory - media can be gigabytes, far past the backend's memory limit.
+func copyFileStreaming(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
 }
 
 func handleOpenMedia(conn net.Conn, raw json.RawMessage) {
@@ -433,12 +438,7 @@ func handleSaveMediaAs(conn net.Conn, raw json.RawMessage) {
 			sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
 			return
 		}
-		bytes, err := os.ReadFile(path)
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
-			return
-		}
-		if err := os.WriteFile(data.DestPath, bytes, 0644); err != nil {
+		if err := copyFileStreaming(path, data.DestPath); err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
@@ -641,10 +641,8 @@ func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimety
 	tempDir := filepath.Join(os.TempDir(), "whantv_open")
 	os.MkdirAll(tempDir, 0755)
 	tempPath := filepath.Join(tempDir, safeFilenameForFS(filename))
-	if bytes, readErr := os.ReadFile(path); readErr == nil {
-		if os.WriteFile(tempPath, bytes, 0644) == nil {
-			openPath = tempPath
-		}
+	if copyFileStreaming(path, tempPath) == nil {
+		openPath = tempPath
 	}
 
 	if err := openFileInOS(openPath); err != nil && conn != nil {
@@ -946,10 +944,15 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		if mimetype == "" {
 			mimetype = "audio/ogg; codecs=opus"
 		}
+		// Always keep our own copy in the outgoing cache. The frontend
+		// records into %TEMP%, which Disk Cleanup (or the frontend itself)
+		// is free to empty - and this path is what retry and replaying our
+		// own voice note rely on later.
 		localPath := data.Path
-		if localPath == "" {
-			if cachedPath, cacheErr := saveMediaBytes("outgoing", id, mimetype, fileBytes); cacheErr == nil {
-				localPath = cachedPath
+		if cachedPath, cacheErr := saveMediaBytes("outgoing", id, mimetype, fileBytes); cacheErr == nil {
+			localPath = cachedPath
+			if data.Path != "" && isInTempDir(data.Path) {
+				os.Remove(data.Path)
 			}
 		}
 
@@ -987,17 +990,37 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			"quotedText":   quotedText,
 			"quotedSender": quotedSender,
 		})
+		waveform := voiceWaveformBytes(data.Waveform)
+		if waveform != nil {
+			db.Exec(`UPDATE messages SET voice_waveform = ? WHERE id = ?`, waveform, id)
+		}
 		broadcastChats()
 
-		sendUploadedVoiceMessage(conn, id, jid, localPath, mimetype, data.Duration, ctxInfo, quotedID, quotedText, quotedSender)
+		sendUploadedVoiceMessage(conn, id, jid, localPath, mimetype, data.Duration, waveform, ctxInfo, quotedID, quotedText, quotedSender)
 	}()
+}
+
+// voiceWaveformBytes turns the frontend's measured waveform into the
+// AudioMessage field: 64 bars of 0-100, as WhatsApp's own clients send.
+// Anything else yields nil and the message goes without one - receivers then
+// draw a plain seek bar, rather than bars that don't match the audio (and a
+// fixed pattern would be identical on every voice note we ever sent).
+func voiceWaveformBytes(bars []int) []byte {
+	if len(bars) != 64 {
+		return nil
+	}
+	out := make([]byte, len(bars))
+	for i, v := range bars {
+		out[i] = byte(min(max(v, 0), 100))
+	}
+	return out
 }
 
 // sendUploadedVoiceMessage uploads the recording at path and sends it as a
 // PTT audio message, updating the row already persisted by
 // handleSendVoiceMessage (or reused by handleRetryMessage) to "sent" on
 // success or "failed" on error.
-func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mimetypeHint string, duration int, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mimetypeHint string, duration int, waveform []byte, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
 	voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", duration/60, duration%60)
 
 	fail := func(errMsg string) {
@@ -1027,14 +1050,6 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 	if err != nil {
 		fail(err.Error())
 		return
-	}
-
-	// WhatsApp strict requirement: Waveform MUST be exactly 64 bytes.
-	waveform := []byte{
-		0, 10, 20, 35, 50, 75, 90, 110, 100, 85, 70, 50, 30, 15, 5, 0,
-		5, 20, 45, 65, 80, 100, 120, 110, 95, 75, 50, 30, 20, 10, 5, 0,
-		10, 25, 40, 60, 85, 105, 115, 100, 80, 60, 45, 25, 15, 5, 0, 5,
-		15, 30, 55, 75, 95, 110, 90, 70, 50, 35, 20, 10, 5, 0, 0, 0,
 	}
 
 	msg := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
@@ -1159,10 +1174,8 @@ func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 			// would actually end up on the clipboard - looking like the
 			// same image copied over and over instead of the whole album.
 			tempPath := uniqueFileForDir(tempDir, destFilename)
-			if bytes, err := os.ReadFile(path); err == nil {
-				if os.WriteFile(tempPath, bytes, 0644) == nil {
-					paths = append(paths, tempPath)
-				}
+			if copyFileStreaming(path, tempPath) == nil {
+				paths = append(paths, tempPath)
 			}
 		}
 

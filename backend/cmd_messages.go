@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"net"
@@ -20,7 +21,8 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	log.Printf("Sending message to %s: %s", data.To, data.Text)
+	// Never the text itself: backend.log is a plain file on disk.
+	debugf("Sending message to %s (%d chars)", data.To, len(data.Text))
 	jid, err := types.ParseJID(data.To)
 	if err != nil {
 		return
@@ -243,11 +245,10 @@ func handleEditMessage(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		rawBytes, _ := proto.Marshal(newContent)
 		editTime := time.Now().Unix()
-		markMessageEdited(data.MessageID, data.JID, data.NewText, rawBytes, editTime)
+		shown, _ := markMessageEdited(data.MessageID, data.JID, newContent, data.NewText, editTime)
 		broadcastEvent("message_edited", map[string]interface{}{
-			"jid": data.JID, "message_id": data.MessageID, "text": data.NewText, "edited_at": editTime,
+			"jid": data.JID, "message_id": data.MessageID, "text": shown, "edited_at": editTime,
 		})
 	}()
 }
@@ -385,6 +386,17 @@ func handleSendTyping(raw json.RawMessage) {
 	go client.SendChatPresence(context.Background(), jid, pState, types.ChatPresenceMedia(data.Media))
 }
 
+// desiredPresence is what the frontend last asked for: available only while
+// its window is actually in use. It's replayed after every (re)connect instead
+// of always announcing "available" - which left the account showing online
+// around the clock while whaNTV sat in the tray, something no official client
+// does.
+var (
+	desiredPresenceMu sync.Mutex
+	desiredPresence   = types.PresenceUnavailable
+	sentPresence      types.Presence
+)
+
 func handleSetPresence(raw json.RawMessage) {
 	var data struct {
 		Available bool `json:"available"`
@@ -397,7 +409,35 @@ func handleSetPresence(raw json.RawMessage) {
 	if data.Available {
 		state = types.PresenceAvailable
 	}
-	go client.SendPresence(context.Background(), state)
+	desiredPresenceMu.Lock()
+	desiredPresence = state
+	desiredPresenceMu.Unlock()
+	go sendDesiredPresence(false)
+}
+
+// sendDesiredPresence sends the frontend's desired presence. Repeats of the
+// state already sent on this connection are skipped unless force is set (a
+// fresh connection has no presence yet, and whatsmeow needs one sent after
+// connecting so the server has our push name).
+func sendDesiredPresence(force bool) {
+	c := client
+	if c == nil || !c.IsLoggedIn() {
+		return
+	}
+	desiredPresenceMu.Lock()
+	state := desiredPresence
+	if !force && state == sentPresence {
+		desiredPresenceMu.Unlock()
+		return
+	}
+	sentPresence = state
+	desiredPresenceMu.Unlock()
+	if err := c.SendPresence(context.Background(), state); err != nil {
+		log.Printf("SendPresence(%s) failed: %v", state, err)
+		desiredPresenceMu.Lock()
+		sentPresence = ""
+		desiredPresenceMu.Unlock()
+	}
 }
 
 func handleSubscribePresence(raw json.RawMessage) {
@@ -408,7 +448,6 @@ func handleSubscribePresence(raw json.RawMessage) {
 		log.Printf("Failed to unmarshal subscribe_presence: %v", err)
 		return
 	}
-	log.Printf("Received subscribe_presence for JID: %s", data.JID)
 	jid, err := types.ParseJID(data.JID)
 	if err != nil {
 		log.Printf("Failed to parse JID for subscribe_presence: %v", err)
@@ -418,7 +457,7 @@ func handleSubscribePresence(raw json.RawMessage) {
 	if err != nil {
 		log.Printf("Error subscribing to presence: %v", err)
 	} else {
-		log.Printf("Successfully subscribed to presence for JID: %s", jid.String())
+		debugf("Subscribed to presence for %s", jid.String())
 	}
 }
 
@@ -452,6 +491,10 @@ func handleMarkRead(raw json.RawMessage) {
 			_ = db.QueryRow("SELECT sender_jid FROM messages WHERE id = ?", id).Scan(&senderStr)
 			sJID, _ := types.ParseJID(senderStr)
 			if sJID.IsEmpty() {
+				if chatJID.Server == types.GroupServer {
+					// A group receipt must name the member who sent it.
+					continue
+				}
 				sJID = chatJID
 			}
 			if sJID.Server == "lid" {
@@ -462,14 +505,24 @@ func handleMarkRead(raw json.RawMessage) {
 			items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
 		}
 	} else {
-		// Auto-detect incoming unread messages from DB
-		rows, err := db.Query("SELECT id, sender_jid FROM messages WHERE jid = ? AND from_me = 0 ORDER BY timestamp DESC LIMIT 100", data.JID)
+		// Opening a chat: read receipts for what's actually still unread, the
+		// way the official apps do - not a blanket re-send for the newest 100
+		// incoming messages every single time a chat is opened, most of them
+		// long since read. System lines and call rows have no real message
+		// behind them to acknowledge.
+		rows, err := db.Query(`SELECT id, sender_jid FROM messages
+			WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
+				AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
+			ORDER BY timestamp DESC LIMIT 100`, data.JID)
 		if err == nil {
 			for rows.Next() {
 				var id, senderStr string
 				if err := rows.Scan(&id, &senderStr); err == nil {
 					sJID, _ := types.ParseJID(senderStr)
 					if sJID.IsEmpty() {
+						if chatJID.Server == types.GroupServer {
+							continue
+						}
 						sJID = chatJID
 					}
 					if sJID.Server == "lid" {
@@ -494,6 +547,10 @@ func handleMarkRead(raw json.RawMessage) {
 	}
 
 	now := time.Now()
+	// Remember they're read, so the next open doesn't acknowledge them again.
+	for _, item := range items {
+		db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(item.id))
+	}
 	for key, ids := range bySender {
 		sJID := senderJIDMap[key]
 		go func(mIDs []types.MessageID, targetSender types.JID) {
@@ -652,59 +709,50 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 
-		if ctx := getContextInfo(&origMsg); ctx != nil {
-			ctx.IsForwarded = proto.Bool(true)
-		} else {
-			if origMsg.ExtendedTextMessage != nil {
-				origMsg.ExtendedTextMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.Conversation != nil {
-				txt := origMsg.GetConversation()
-				origMsg.Conversation = nil
-				origMsg.ExtendedTextMessage = &waE2E.ExtendedTextMessage{
-					Text:        &txt,
-					ContextInfo: &waE2E.ContextInfo{IsForwarded: proto.Bool(true)},
-				}
-			} else if origMsg.ImageMessage != nil {
-				origMsg.ImageMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.VideoMessage != nil {
-				origMsg.VideoMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.DocumentMessage != nil {
-				origMsg.DocumentMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.AudioMessage != nil {
-				origMsg.AudioMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.StickerMessage != nil {
-				origMsg.StickerMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.ContactMessage != nil {
-				origMsg.ContactMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.ContactsArrayMessage != nil {
-				origMsg.ContactsArrayMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.LocationMessage != nil {
-				origMsg.LocationMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.LiveLocationMessage != nil {
-				origMsg.LiveLocationMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.GroupInviteMessage != nil {
-				origMsg.GroupInviteMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			} else if origMsg.PollCreationMessage != nil {
-				origMsg.PollCreationMessage.ContextInfo = &waE2E.ContextInfo{IsForwarded: proto.Bool(true)}
-			}
+		// View-once media can't be forwarded in the official apps.
+		if origMsg.GetViewOnceMessage() != nil || origMsg.GetViewOnceMessageV2() != nil || origMsg.GetViewOnceMessageV2Extension() != nil {
+			sendEvent(conn, "error", map[string]string{"message": "View once messages can't be forwarded."})
+			return
 		}
-
+		// Forward the content itself, not the envelope it arrived in
+		// (disappearing-message wrapper, an edit, ...), with a fresh
+		// context: forwarded, forwarding score bumped the way official
+		// clients do, and none of the original's reply quote - which
+		// otherwise showed up for the recipient as a reply to a message
+		// from some other chat entirely.
+		content := proto.Clone(unwrapMessage(&origMsg)).(*waE2E.Message)
+		if content.Conversation != nil {
+			txt := content.GetConversation()
+			content.Conversation = nil
+			content.ExtendedTextMessage = &waE2E.ExtendedTextMessage{Text: &txt}
+		}
+		score := uint32(0)
+		if old := getContextInfo(content); old != nil {
+			score = old.GetForwardingScore()
+		}
+		if !setContextInfo(content, &waE2E.ContextInfo{
+			IsForwarded:     proto.Bool(true),
+			ForwardingScore: proto.Uint32(score + 1),
+		}) {
+			sendEvent(conn, "error", map[string]string{"message": "This kind of message can't be forwarded."})
+			return
+		}
 		for _, toJIDStr := range data.ToJIDs {
 			targetJID, parseErr := types.ParseJID(toJIDStr)
 			if parseErr != nil {
 				continue
 			}
-			resp, sendErr := client.SendMessage(context.Background(), targetJID, &origMsg)
+			resp, sendErr := client.SendMessage(context.Background(), targetJID, content)
 			if sendErr != nil {
 				log.Printf("Error forwarding message to %s: %v", toJIDStr, sendErr)
 				continue
 			}
 			ts := resp.Timestamp.Unix()
-			text := extractText(&origMsg)
+			text := extractText(content)
 			senderJID := client.Store.ID.ToNonAD().String()
-			fwdRawBytes, _ := proto.Marshal(&origMsg)
-			mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(&origMsg)
-			quotedID, quotedText, quotedSender := quotedPreview(&origMsg)
+			fwdRawBytes, _ := proto.Marshal(content)
+			mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(content)
+			quotedID, quotedText, quotedSender := quotedPreview(content)
 
 			db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 				ON CONFLICT(jid) DO UPDATE SET

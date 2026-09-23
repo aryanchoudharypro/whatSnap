@@ -21,7 +21,10 @@ import (
 
 func handleGetContacts(conn net.Conn) {
 	go func() {
-		populateChatsFromStore()
+		// Straight from the cache. contacts_cache is already kept current by
+		// contact/push-name events and the refreshes after connect and history
+		// sync; rebuilding it here (every contact, plus a network fetch of all
+		// our groups) on every contact-picker open was pure overhead.
 		rows, err := db.Query(`SELECT jid, name, phone, is_business, about, avatar_path, is_blocked FROM contacts_cache WHERE name != '' OR phone != '' ORDER BY name COLLATE NOCASE ASC`)
 
 		if err != nil {

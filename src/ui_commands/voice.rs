@@ -7,7 +7,10 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState, NotificationSound, PendingVoiceRecording, UiCommand,
-	audio::{concat_wav_segments, convert_wav_to_opus_ogg, do_seek, ensure_audio_stream, play_notification_sound},
+	audio::{
+		compute_voice_waveform, concat_wav_segments, convert_wav_to_opus_ogg, do_seek, ensure_audio_stream,
+		play_notification_sound,
+	},
 	ui::window::WindowParts,
 	voice_recorder,
 };
@@ -148,12 +151,8 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			// composing state had stopped - the recipient kept seeing
 			// "recording audio..." for the whole pause, not just until
 			// WhatsApp's own protocol-level timeout cleared it.
-			if let Some(ref jid) = s.selected_chat {
-				let payload = serde_json::json!({
-					"action": "send_typing",
-					"data": { "jid": jid, "state": "paused", "media": "" }
-				});
-				let _ = s.ws_tx.send(payload.to_string());
+			if let Some(jid) = s.selected_chat.clone() {
+				crate::ui_commands::messaging::mark_paused(&mut s, &jid);
 			}
 			parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
 			live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording paused.");
@@ -194,12 +193,8 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				if let Some(inst) = s.voice_pause_instant.take() {
 					s.voice_paused_duration += inst.elapsed();
 				}
-				if let Some(ref jid) = s.selected_chat {
-					let payload = serde_json::json!({
-						"action": "send_typing",
-						"data": { "jid": jid, "state": "composing", "media": "audio" }
-					});
-					let _ = s.ws_tx.send(payload.to_string());
+				if let Some(jid) = s.selected_chat.clone() {
+					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
 				}
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
 				live_region::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording resumed.");
@@ -225,12 +220,8 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				s.voice_paused_duration = std::time::Duration::ZERO;
 				s.voice_pause_instant = None;
 
-				if let Some(ref jid) = s.selected_chat {
-					let payload = serde_json::json!({
-						"action": "send_typing",
-						"data": { "jid": jid, "state": "composing", "media": "audio" }
-					});
-					let _ = s.ws_tx.send(payload.to_string());
+				if let Some(jid) = s.selected_chat.clone() {
+					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
 				}
 
 				parts.conversations_parts.message_field.show(false);
@@ -307,11 +298,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	parts.conversations_parts.remove_quote_btn.show(false);
 
 	if let Some(ref jid) = jid_opt {
-		let payload = serde_json::json!({
-			"action": "send_typing",
-			"data": { "jid": jid, "state": "paused", "media": "" }
-		});
-		let _ = ws_tx.send(payload.to_string());
+		crate::ui_commands::messaging::mark_paused(&mut state.borrow_mut(), jid);
 	}
 
 	if !segments.is_empty() {
@@ -354,16 +341,15 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 					return;
 				}
 
+				let waveform = compute_voice_waveform(&wav_path);
 				let ogg_path = wav_path.replace(".wav", ".ogg");
 				let (final_path, mimetype) = match convert_wav_to_opus_ogg(&wav_path, &ogg_path) {
 					Ok(_) => {
-						// wav_path is only an intermediate once
-						// converted; if it's the sole segment itself
-						// leave it (matches the single-segment path,
-						// which never deletes the source recording).
-						if is_multi_segment {
-							let _ = std::fs::remove_file(&wav_path);
-						}
+						// The WAV is only an intermediate once converted -
+						// keeping the single-segment one left a full
+						// uncompressed copy of every voice note in %TEMP%.
+						// (The backend moves the .ogg into its own cache.)
+						let _ = std::fs::remove_file(&wav_path);
 						(ogg_path, "audio/ogg; codecs=opus")
 					}
 					Err(e) => {
@@ -379,6 +365,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 						"path": final_path,
 						"mimetype": mimetype,
 						"duration": active_secs,
+						"waveform": waveform,
 						"reply_to_id": reply_id,
 						"reply_to_sender": reply_sender
 					}
@@ -432,12 +419,8 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		for seg in s.voice_recording_segments.drain(..) {
 			let _ = std::fs::remove_file(seg);
 		}
-		if let Some(ref jid) = s.selected_chat {
-			let payload = serde_json::json!({
-				"action": "send_typing",
-				"data": { "jid": jid, "state": "paused", "media": "" }
-			});
-			let _ = s.ws_tx.send(payload.to_string());
+		if let Some(jid) = s.selected_chat.clone() {
+			crate::ui_commands::messaging::mark_paused(&mut s, &jid);
 		}
 	}
 

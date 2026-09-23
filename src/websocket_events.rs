@@ -15,8 +15,8 @@ use crate::{
 	AppState, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem,
 	UiCommand,
 	audio::{
-		decode_opus_file, ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringing_sound,
-		stop_call_ringing_sound,
+		decode_opus_file, ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringback,
+		start_call_ringing_sound, stop_call_ringing_sound,
 	},
 	call_audio,
 	call_helpers::{
@@ -285,6 +285,14 @@ struct ConversationMessagesData<'a> {
 	// replaces `s.messages`; this one prepends onto it instead.
 	#[serde(rename = "loadMore", default)]
 	load_more: bool,
+	/// False only for a `get_messages_around` window that stops short of the
+	/// newest message (see `AppState::messages_at_latest`).
+	#[serde(rename = "isLatest", default = "default_true")]
+	is_latest: bool,
+}
+
+fn default_true() -> bool {
+	true
 }
 
 /// Whether `raw` is a `conversation_messages` payload, read without
@@ -300,7 +308,7 @@ fn is_conversation_messages(raw: &str) -> bool {
 /// exactly as the old `Value`-walking path did, rather than failing the whole
 /// chat - `ChatMessage`'s `id`/`text`/`timestamp` have no serde default, so one
 /// bad row would otherwise blank the conversation.
-fn parse_conversation_messages(raw: &str) -> Option<(String, bool, Vec<ChatMessage>)> {
+fn parse_conversation_messages(raw: &str) -> Option<(String, bool, bool, Vec<ChatMessage>)> {
 	let envelope = serde_json::from_str::<ConversationMessagesEnvelope>(raw).ok()?;
 	let parsed = envelope
 		.data
@@ -313,7 +321,7 @@ fn parse_conversation_messages(raw: &str) -> Option<(String, bool, Vec<ChatMessa
 			})
 		})
 		.collect();
-	Some((envelope.data.jid, envelope.data.load_more, parsed))
+	Some((envelope.data.jid, envelope.data.load_more, envelope.data.is_latest, parsed))
 }
 
 pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -328,11 +336,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 	// fields it is not asked for instead of materializing them.
 	if is_conversation_messages(&raw) {
 		match parse_conversation_messages(&raw) {
-			Some((jid, load_more, parsed_msgs)) => {
+			Some((jid, load_more, is_latest, parsed_msgs)) => {
 				// The chat may have been switched again while this request was
 				// in flight - applying a stale response would silently populate
 				// the wrong chat's history.
 				if state.borrow().selected_chat.as_deref() == Some(jid.as_str()) {
+					if !load_more {
+						state.borrow_mut().messages_at_latest = is_latest;
+					}
 					apply_conversation_messages(parsed_msgs, load_more, state, parts);
 				}
 			}
@@ -385,6 +396,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						"action": "get_chats"
 					});
 					let _ = state.borrow().ws_tx.send(payload.to_string());
+
+					// Re-state our presence on every connect: a restarted backend
+					// starts out unavailable and has no idea whether the window is
+					// in use.
+					{
+						let mut s = state.borrow_mut();
+						let in_use = crate::ui_commands::misc::desired_presence(&s);
+						s.presence_sent = None;
+						crate::ui_commands::misc::send_presence(&mut s, in_use);
+					}
 				}
 				"needs_login" => {
 					parts.frame.set_status_text("Status: Not logged in", 0);
@@ -539,7 +560,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.call_video = CallVideo::default();
 								s.active_call_video_send = None;
 								s.call_video_port = None;
-								start_call_ringing_sound(&mut s, include_bytes!("../sounds/telefone.ogg"));
+								let self_phone = data.get("self_phone").and_then(|p| p.as_str()).unwrap_or("");
+								start_call_ringback(&mut s, self_phone);
 							}
 						}
 					}
@@ -559,7 +581,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								.unwrap_or("Couldn't add that person to the call.")
 								.to_string()
 						};
-						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &message);
+						announce_call(parts, &message);
 					}
 				}
 				"call_participants" => {
@@ -673,11 +695,17 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								parts.call_parts.frame.show(false);
 								stop_call_ringing_sound(&mut s);
 								play_call_fail_sound(&mut s);
-								// Still set here means an incoming call rang out without
-								// being answered or rejected. No toast/announcement for
-								// this case - missed calls are silent, just clear state.
+								// Still set here means an incoming call stopped ringing
+								// without being answered here. A plain missed call stays
+								// silent; one picked up or declined on another device
+								// (the phone) says so, since otherwise the ringing just
+								// stops for no audible reason. The call window is hidden
+								// above, so this goes to the main window's announcer.
+								let summary = data.get("summary").and_then(|s| s.as_str()).unwrap_or("");
 								if s.incoming_call_caller.take().is_none() {
 									announce_call(parts, "Call ended.");
+								} else if summary.contains("on another device") {
+									announce_call(parts, &format!("{}.", summary));
 								}
 							}
 						}
@@ -771,10 +799,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								toast_body[..1].make_ascii_uppercase();
 								show_toast_notification("Incoming call", &toast_body);
 							}
-							live_region::announce(
-								parts.conversations_parts.messages_announcer.clone(),
-								&format!("Incoming {}", description),
-							);
+							// The call window was just raised, so this goes to its own
+							// announcer (announce_call picks it while it's shown).
+							announce_call(parts, &format!("Incoming {}", description));
 						}
 					}
 				}
@@ -930,11 +957,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									// chat. An empty result here (handled in
 									// apply_conversation_messages) is what finally marks the jid
 									// exhausted.
-									let offset = whantv::real_message_count(&s.messages) as i32;
-									let payload = serde_json::json!({
-										"action": "get_messages",
-										"data": { "jid": pending_jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": offset }
-									});
+									let payload =
+										crate::ui_commands::chat_list::older_page_request(&s.messages, &pending_jid);
 									let _ = s.ws_tx.send(payload.to_string());
 								}
 							}
@@ -1147,18 +1171,38 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								!= s.filtered_chats.len()
 								|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b));
 
-							if structure_changed {
+							// The Status and Starred tabs keep their own rows (and
+							// their own filtered_chats) - a chats refresh must leave
+							// them alone, or Enter on a row stops doing anything.
+							let own_rows_tab = s.active_tab == 1 || s.active_tab == 2;
+							if !own_rows_tab && structure_changed {
 								s.filtered_chats = new_filtered;
 								drop(s);
 								apply_chat_filter(&mut state.borrow_mut(), parts);
-							} else {
-								// In-place update: just refresh display strings
-								parts.conversations_parts.conversations_list.freeze();
-								for (i, dn) in new_display.iter().enumerate() {
-									parts.conversations_parts.conversations_list.set_string(i as u32, dn);
+							} else if !own_rows_tab {
+								// Same rows in the same order: rewrite only the ones
+								// whose text actually changed. A chats broadcast lands
+								// every ~200ms during a sync, and rewriting every row
+								// each time was pure churn (and a screen reader can
+								// re-read a row whose text is set, even to itself).
+								let changed: Vec<usize> = new_display
+									.iter()
+									.enumerate()
+									.filter(|(i, dn)| s.displayed_chat_labels.get(*i) != Some(*dn))
+									.map(|(i, _)| i)
+									.collect();
+								if !changed.is_empty() {
+									parts.conversations_parts.conversations_list.freeze();
+									for &i in &changed {
+										parts
+											.conversations_parts
+											.conversations_list
+											.set_string(i as u32, &new_display[i]);
+									}
+									parts.conversations_parts.conversations_list.thaw();
 								}
-								parts.conversations_parts.conversations_list.thaw();
 								s.filtered_chats = new_filtered;
+								s.displayed_chat_labels = new_display;
 							}
 						}
 					}
@@ -1171,7 +1215,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 						let mut s = state.borrow_mut();
 
-						if Some(jid.to_string()) == s.selected_chat {
+						// A window opened around a search hit stops short of the
+						// newest messages; appending a live one under it would put
+						// it right after an old message with a silent gap between.
+						// Treat the chat as a background one until it's reloaded.
+						if Some(jid.to_string()) == s.selected_chat && s.messages_at_latest {
 							let is_from_me = data
 								.get("from_me")
 								.and_then(|f| f.as_bool())
@@ -1445,7 +1493,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.messages.push(chat_msg.clone());
 
 								// Incremental display_items update instead of full O(n) regrouping
-								let is_deleted_msg = chat_msg.is_deleted || chat_msg.text.contains("deleted");
+								let is_deleted_msg = chat_msg.is_deleted;
 								let is_media_msg = !is_deleted_msg
 									&& (chat_msg.media_type == "image"
 										|| chat_msg.media_type == "video"
@@ -1458,13 +1506,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										match last_item {
 											whantv::DisplayItem::Single(prev_msg) => {
 												let prev_is_media = !prev_msg.is_deleted
-													&& !prev_msg.text.contains("deleted") && (prev_msg
-													.media_type
-													== "image"
-													|| prev_msg.media_type == "video"
-													|| prev_msg.text.starts_with("[Photo]")
-													|| prev_msg.text.starts_with("[Image]")
-													|| prev_msg.text.starts_with("[Video]"));
+													&& (prev_msg.media_type == "image"
+														|| prev_msg.media_type == "video" || prev_msg
+														.text
+														.starts_with("[Photo]") || prev_msg
+														.text
+														.starts_with("[Image]") || prev_msg
+														.text
+														.starts_with("[Video]"));
 												prev_is_media && whantv::same_album(prev_msg, &chat_msg)
 											}
 											whantv::DisplayItem::Album { messages, .. } => {
@@ -1727,7 +1776,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									}
 									refresh_voice_action_button(&s, &parts.conversations_parts);
 									if !suppress_announce {
-										live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+										live_region::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											"Message deleted.",
+										);
 									}
 								}
 								return;
@@ -1798,7 +1850,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									}
 								}
 								if !suppress_announce {
-									live_region::announce(parts.qrcode_announcer.clone(), "Message deleted.");
+									live_region::announce(
+										parts.conversations_parts.messages_announcer.clone(),
+										"Message deleted.",
+									);
 								}
 							}
 						}
@@ -2478,6 +2533,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 						s.presence_labels.insert(clean_jid.clone(), btn_label.clone());
 						s.presence_labels.insert(jid.to_string(), btn_label.clone());
+						let was_online = s.contact_online.insert(clean_jid.clone(), !unavailable);
+						if !unavailable && was_online != Some(true) {
+							crate::ui_commands::messaging::contact_came_online(&mut s, &clean_jid);
+						}
 
 						if Some(clean_jid.clone()) == s.selected_chat || Some(jid.to_string()) == s.selected_chat {
 							let mut should_announce = true;
@@ -3423,16 +3482,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				"media_downloaded" => {
 					if let Some(data) = val.get("data") {
 						let msg_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("").to_string();
-						let mut path = data.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
+						// The backend already names cached files with a proper
+						// extension; renaming one here left the database pointing
+						// at a path that no longer existed.
+						let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
 						let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("").to_string();
 						let clean_filename = ChatMessage::sanitize_filename(&filename);
-
-						let clean_path = ChatMessage::sanitize_filename(&path);
-						if clean_path != path && std::path::Path::new(&path).exists() {
-							if std::fs::rename(&path, &clean_path).is_ok() {
-								path = clean_path;
-							}
-						}
 
 						let mut s = state.borrow_mut();
 						s.downloads_in_progress.remove(&msg_id);
@@ -3495,6 +3550,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					if let Some(data) = val.get("data") {
 						let msg_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("").to_string();
 						let percent = data.get("percent").and_then(|p| p.as_i64()).unwrap_or(0);
+						// Voice notes download on their own as they arrive; only
+						// downloads the user asked for get spoken progress.
+						let auto = data.get("auto").and_then(|a| a.as_bool()).unwrap_or(false);
 						let mut s = state.borrow_mut();
 						let prev = s.downloads_in_progress.insert(msg_id.clone(), percent);
 						parts.conversations_parts.conversation_panel.freeze();
@@ -3503,7 +3561,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 						parts.conversations_parts.conversation_panel.thaw();
 						for milestone in [25, 50, 75] {
-							if prev.unwrap_or(0) < milestone && percent >= milestone {
+							if !auto && prev.unwrap_or(0) < milestone && percent >= milestone {
 								live_region::announce(
 									parts.conversations_parts.messages_announcer.clone(),
 									&format!("Download {}%", percent),
@@ -3523,14 +3581,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							parts.conversations_parts.action_panel.layout();
 						}
 						parts.conversations_parts.conversation_panel.thaw();
-						let announcement = if t == "media_download_cancelled" {
-							"Download cancelled".to_string()
-						} else {
-							let err = data.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
-							format!("Download failed: {}", err)
-						};
-						live_region::announce(parts.conversations_parts.messages_announcer.clone(), &announcement);
-						parts.conversations_parts.play_voice_btn.set_label("Play voice message");
+						// A background voice-note download failing is no news to
+						// anyone - playing it later simply tries again.
+						let quiet = data.get("auto").and_then(|a| a.as_bool()).unwrap_or(false)
+							&& s.playing_msg_id.as_deref() != Some(msg_id.as_str());
+						if !quiet {
+							let announcement = if t == "media_download_cancelled" {
+								"Download cancelled".to_string()
+							} else {
+								let err = data.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+								format!("Download failed: {}", err)
+							};
+							live_region::announce(parts.conversations_parts.messages_announcer.clone(), &announcement);
+							parts.conversations_parts.play_voice_btn.set_label("Play voice message");
+						}
 					}
 				}
 				"media_saved" => {
@@ -3758,7 +3822,7 @@ mod conversation_messages_tests {
 			{"id":"m1","text":"hi","timestamp":10,"fromMe":true,"mediaType":"image","albumId":"alb1"},
 			{"id":"m2","text":"yo","timestamp":11,"sender_jid":"b@s.whatsapp.net"}
 		]}}"#;
-		let (jid, load_more, msgs) = parse_conversation_messages(raw).expect("envelope should parse");
+		let (jid, load_more, _, msgs) = parse_conversation_messages(raw).expect("envelope should parse");
 		assert_eq!(jid, "a@s.whatsapp.net");
 		assert!(!load_more);
 		assert_eq!(msgs.len(), 2);
@@ -3773,7 +3837,7 @@ mod conversation_messages_tests {
 	#[test]
 	fn parses_the_load_more_flag() {
 		let raw = r#"{"type":"conversation_messages","data":{"jid":"a","loadMore":true,"messages":[]}}"#;
-		let (_, load_more, _) = parse_conversation_messages(raw).expect("envelope should parse");
+		let (_, load_more, _, _) = parse_conversation_messages(raw).expect("envelope should parse");
 		assert!(load_more);
 	}
 
@@ -3785,7 +3849,7 @@ mod conversation_messages_tests {
 			{"id":"m2","text":"broken"},
 			{"id":"m3","text":"after","timestamp":12}
 		]}}"#;
-		let (_, _, msgs) = parse_conversation_messages(raw).expect("one bad row must not fail the envelope");
+		let (_, _, _, msgs) = parse_conversation_messages(raw).expect("one bad row must not fail the envelope");
 		assert_eq!(msgs.len(), 3);
 		assert_eq!(msgs[0].text, "before");
 		assert!(msgs[1].text.starts_with("Parse error:"), "got {:?}", msgs[1].text);
@@ -3795,13 +3859,13 @@ mod conversation_messages_tests {
 
 	#[test]
 	fn an_empty_or_absent_message_list_parses_to_nothing() {
-		let (jid, _, msgs) =
+		let (jid, _, _, msgs) =
 			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a","messages":[]}}"#)
 				.unwrap();
 		assert_eq!(jid, "a");
 		assert!(msgs.is_empty());
 
-		let (jid, _, msgs) =
+		let (jid, _, _, msgs) =
 			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a"}}"#).unwrap();
 		assert_eq!(jid, "a");
 		assert!(msgs.is_empty());

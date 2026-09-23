@@ -123,7 +123,7 @@ func storeReactionTx(tx sqlExecer, jid string, evtMsg *events.Message, reaction 
 		ts = evtMsg.Info.Timestamp.Unix()
 	}
 	if emoji == "" {
-		tx.Exec(`DELETE FROM reactions WHERE message_id = ? AND (reactor_jid = ? OR reactor_jid = 'me')`, targetID, reactorJID)
+		tx.Exec(`DELETE FROM reactions WHERE message_id = ? AND reactor_jid = ?`, targetID, reactorJID)
 	} else {
 		tx.Exec(`INSERT INTO reactions (message_id, chat_jid, reactor_jid, emoji, timestamp) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT(message_id, reactor_jid) DO UPDATE SET emoji = excluded.emoji, timestamp = excluded.timestamp`,
@@ -721,6 +721,40 @@ func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 	return nil
 }
 
+// setContextInfo replaces the ContextInfo on whichever message type msg
+// carries. Returns false for a type that has no ContextInfo to set.
+func setContextInfo(msg *waE2E.Message, ctx *waE2E.ContextInfo) bool {
+	switch {
+	case msg.GetExtendedTextMessage() != nil:
+		msg.GetExtendedTextMessage().ContextInfo = ctx
+	case msg.GetImageMessage() != nil:
+		msg.GetImageMessage().ContextInfo = ctx
+	case msg.GetVideoMessage() != nil:
+		msg.GetVideoMessage().ContextInfo = ctx
+	case msg.GetDocumentMessage() != nil:
+		msg.GetDocumentMessage().ContextInfo = ctx
+	case msg.GetAudioMessage() != nil:
+		msg.GetAudioMessage().ContextInfo = ctx
+	case msg.GetStickerMessage() != nil:
+		msg.GetStickerMessage().ContextInfo = ctx
+	case msg.GetContactMessage() != nil:
+		msg.GetContactMessage().ContextInfo = ctx
+	case msg.GetContactsArrayMessage() != nil:
+		msg.GetContactsArrayMessage().ContextInfo = ctx
+	case msg.GetLocationMessage() != nil:
+		msg.GetLocationMessage().ContextInfo = ctx
+	case msg.GetLiveLocationMessage() != nil:
+		msg.GetLiveLocationMessage().ContextInfo = ctx
+	case msg.GetGroupInviteMessage() != nil:
+		msg.GetGroupInviteMessage().ContextInfo = ctx
+	case msg.GetPollCreationMessage() != nil:
+		msg.GetPollCreationMessage().ContextInfo = ctx
+	default:
+		return false
+	}
+	return true
+}
+
 // quotedPreview produces the small denormalized snapshot we store alongside
 // a message that replies to another one, so the frontend can render
 // "replying to: ..." without a second lookup.
@@ -847,7 +881,7 @@ func eventHandler(evt interface{}) {
 
 	switch evt.(type) {
 	case *events.Message, *events.Receipt, *events.HistorySync:
-		log.Printf("Event received in eventHandler: %T", evt)
+		debugf("Event received in eventHandler: %T", evt)
 	}
 
 	switch v := evt.(type) {
@@ -1351,15 +1385,17 @@ func eventHandler(evt interface{}) {
 					if v.Info.IsFromMe {
 						recordEditStanza(v.Info.ID, targetID, jid, editTime)
 					}
-					rawBytes, _ := proto.Marshal(newContent)
-					markMessageEdited(targetID, jid, newText, rawBytes, editTime)
+					// Broadcast the merged text, not the edit's bare text: a
+					// caption edit carries only the caption, and the row
+					// would otherwise lose its "[Image]" marker on screen.
+					shown, _ := markMessageEdited(targetID, jid, newContent, newText, editTime)
+					broadcastEvent("message_edited", map[string]interface{}{
+						"jid":        jid,
+						"message_id": targetID,
+						"text":       shown,
+						"edited_at":  editTime,
+					})
 				}()
-				broadcastEvent("message_edited", map[string]interface{}{
-					"jid":        jid,
-					"message_id": targetID,
-					"text":       newText,
-					"edited_at":  editTime,
-				})
 			}
 			return
 		}
@@ -1422,7 +1458,12 @@ func eventHandler(evt interface{}) {
 			// Bots (Meta AI etc.) occasionally ship new response primitives
 			// richResponseText doesn't cover yet - dump the decrypted message
 			// so a new one can be identified and added there.
-			log.Printf("Unrecognized bot message content from %s: %s", v.Info.Sender, unwrapMessage(v.Message).String())
+			// Structure only unless verbose logging is on - this is message content.
+			if *verboseLogFlag {
+				log.Printf("Unrecognized bot message content from %s: %s", v.Info.Sender, unwrapMessage(v.Message).String())
+			} else {
+				log.Printf("Unrecognized bot message content from %s (enable verbose logging to capture it)", v.Info.Sender)
+			}
 		}
 		if (v.Info.MsgBotInfo.EditType == types.EditTypeInner || v.Info.MsgBotInfo.EditType == types.EditTypeLast) &&
 			v.Info.MsgBotInfo.EditTargetID != "" {
@@ -1435,8 +1476,7 @@ func eventHandler(evt interface{}) {
 			jid := resolvedChat.String()
 			targetID := v.Info.MsgBotInfo.EditTargetID
 			editTime := v.Info.Timestamp.Unix()
-			rawBytes, _ := proto.Marshal(unwrapMessage(v.Message))
-			go markMessageEdited(targetID, jid, text, rawBytes, editTime)
+			go markMessageEdited(targetID, jid, unwrapMessage(v.Message), text, editTime)
 			broadcastEvent("message_edited", map[string]interface{}{
 				"jid":        jid,
 				"message_id": targetID,
@@ -1450,7 +1490,7 @@ func eventHandler(evt interface{}) {
 			})
 			return
 		}
-		log.Printf("Received events.Message. ID: %s, Sender: %s, Chat: %s, text length: %d", v.Info.ID, v.Info.Sender.String(), v.Info.Chat.String(), len(text))
+		debugf("Received events.Message. ID: %s, Sender: %s, Chat: %s, text length: %d", v.Info.ID, v.Info.Sender.String(), v.Info.Chat.String(), len(text))
 
 		// Claimed here rather than inside the goroutine below so that media
 		// gets stamped in arrival order, which is the order the album header
@@ -1513,6 +1553,8 @@ func eventHandler(evt interface{}) {
 				})
 				if err != nil {
 					fmt.Println("Error inserting message from live event:", err)
+				} else if mediaType == "voice" {
+					autoDownloadVoiceNote(v.Info.ID, jid)
 				}
 			}
 			broadcastChats()
@@ -1630,7 +1672,9 @@ func eventHandler(evt interface{}) {
 			// "Connected") on each one made the status look stalled or reset
 			// while it was still writing in the background.
 			broadcastEvent("connected", map[string]string{"jid": client.Store.ID.String()})
-			go client.SendPresence(context.Background(), types.PresenceAvailable)
+			// Whatever the window's actually doing - not "available" on every
+			// reconnect regardless (see desiredPresence).
+			go sendDesiredPresence(true)
 			go retryPendingTextMessages()
 			go flushPendingResends()
 			go func() {
@@ -1642,7 +1686,7 @@ func eventHandler(evt interface{}) {
 	case *events.PairSuccess:
 		log.Printf("Successfully paired with %s", v.ID.String())
 		broadcastEvent("pair_success", map[string]string{"jid": v.ID.String()})
-		go client.SendPresence(context.Background(), types.PresenceAvailable)
+		go sendDesiredPresence(true)
 		go func() {
 			time.Sleep(5 * time.Second)
 			populateChatsFromStore()
@@ -1769,7 +1813,7 @@ func eventHandler(evt interface{}) {
 			"type":        string(v.Type),
 			"timestamp":   v.Timestamp.Unix(),
 		})
-		log.Printf("Received Receipt event - Chat: %s, Sender: %s, Type: %s, MessageIDs: %v", chatJID.String(), senderJID.String(), string(v.Type), v.MessageIDs)
+		debugf("Received Receipt event - Chat: %s, Sender: %s, Type: %s, MessageIDs: %v", chatJID.String(), senderJID.String(), string(v.Type), v.MessageIDs)
 		status := "delivered"
 		if v.Type == types.ReceiptTypeRead || v.Type == types.ReceiptTypeReadSelf {
 			status = "read"
@@ -1788,21 +1832,27 @@ func eventHandler(evt interface{}) {
 				ids[i] = string(id)
 			}
 			receiptTS := v.Timestamp.Unix()
-			if chatJID.Server == "g.us" && !v.MessageSource.IsFromMe && (status == "delivered" || status == "read" || status == "played") {
-				updateParticipantReceiptIfNewer(ids, senderJID.String(), status, receiptTS)
-			}
-			updated := updateMessageStatusIfNewer(ids, status, receiptTS)
 			resolvedChatJID := v.MessageSource.Chat.ToNonAD()
 			if resolvedChatJID.Server == "lid" {
 				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), resolvedChatJID); err == nil && !pn.IsEmpty() {
 					resolvedChatJID = pn.ToNonAD()
 				}
 			}
-			if len(updated) > 0 {
+			// One member's receipt for our own group message only counts
+			// towards that member; the message's own ticks follow the whole
+			// group (see updateGroupMessageStatuses).
+			updatedByStatus := map[string][]string{}
+			if chatJID.Server == "g.us" && !v.MessageSource.IsFromMe && (status == "delivered" || status == "read" || status == "played") {
+				updateParticipantReceiptIfNewer(ids, senderJID.String(), status, receiptTS)
+				updatedByStatus = updateGroupMessageStatuses(ids, chatJID.String(), receiptTS)
+			} else if updated := updateMessageStatusIfNewer(ids, status, receiptTS); len(updated) > 0 {
+				updatedByStatus[status] = updated
+			}
+			for newStatus, updated := range updatedByStatus {
 				broadcastEvent("message_status", map[string]interface{}{
 					"jid":         resolvedChatJID.String(),
 					"message_ids": updated,
-					"status":      status,
+					"status":      newStatus,
 					"timestamp":   receiptTS,
 				})
 			}
@@ -1848,13 +1898,13 @@ func eventHandler(evt interface{}) {
 			// other direction: it happening here first).
 			if v.GetDeleteChatAction() != nil && len(v.Index) > 1 {
 				jid := v.Index[1]
-				db.Exec("DELETE FROM messages WHERE jid = ?", jid)
+				purgeMessages("jid = ?", jid)
 				db.Exec("DELETE FROM chats WHERE jid = ?", jid)
 				broadcastChats()
 			}
 			if v.GetClearChatAction() != nil && len(v.Index) > 1 {
 				jid := v.Index[1]
-				db.Exec("DELETE FROM messages WHERE jid = ?", jid)
+				purgeMessages("jid = ?", jid)
 				broadcastChats()
 				broadcastEvent("chat_cleared", map[string]interface{}{"jid": jid})
 			}
@@ -1959,7 +2009,7 @@ func eventHandler(evt interface{}) {
 		// messages in place indefinitely.
 		go func() {
 			jidStr := v.JID.String()
-			db.Exec("DELETE FROM messages WHERE jid = ?", jidStr)
+			purgeMessages("jid = ?", jidStr)
 			broadcastChats()
 			broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
 		}()
@@ -1971,7 +2021,7 @@ func eventHandler(evt interface{}) {
 		// deleted the chat.
 		go func() {
 			jidStr := v.JID.String()
-			db.Exec("DELETE FROM messages WHERE jid = ?", jidStr)
+			purgeMessages("jid = ?", jidStr)
 			db.Exec("DELETE FROM chats WHERE jid = ?", jidStr)
 			broadcastChats()
 		}()
@@ -2019,6 +2069,12 @@ func eventHandler(evt interface{}) {
 					isAdminChanged = true
 					break
 				}
+			}
+
+			// Keep the member count behind group ticks current between
+			// joined-groups refreshes.
+			if delta := len(v.Join) - len(v.Leave); delta != 0 {
+				db.Exec(`UPDATE chats SET participant_count = MAX(0, participant_count + ?) WHERE jid = ? AND participant_count > 0`, delta, v.JID.String())
 			}
 
 			for i, text := range groupChangeMessages(v) {
@@ -2674,13 +2730,15 @@ func populateChatsFromStoreOnce() {
 			jidStr := g.JID.ToNonAD().String()
 			isAdmin := isViewerAdmin(g)
 			groupName, isParent := g.GroupName.Name, g.IsParent
+			memberCount := len(g.Participants)
 			groupWrites = append(groupWrites, func(tx sqlExecer) {
-				if _, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin) VALUES (?, ?, 0, ?, ?)
+				if _, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin, participant_count) VALUES (?, ?, 0, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 				name=COALESCE(NULLIF(excluded.name, ''), chats.name),
 				is_community=excluded.is_community,
-				is_admin=excluded.is_admin`,
-					jidStr, groupName, boolToInt(isParent), boolToInt(isAdmin)); err != nil {
+				is_admin=excluded.is_admin,
+				participant_count=excluded.participant_count`,
+					jidStr, groupName, boolToInt(isParent), boolToInt(isAdmin), memberCount); err != nil {
 					fmt.Println("Error upserting group chat", jidStr, ":", err)
 				}
 			})
@@ -2789,10 +2847,7 @@ func handleIncomingStatus(v *events.Message) {
 		log.Println("Error saving status update:", err)
 		return
 	}
-	go func() {
-		cutoff := time.Now().Add(-24 * time.Hour).Unix()
-		db.Exec("DELETE FROM messages WHERE jid = 'status@broadcast' AND timestamp <= ?", cutoff)
-	}()
+	go purgeExpiredStatuses()
 	broadcastEvent("status_update", map[string]interface{}{
 		"id": v.Info.ID, "posterJid": senderJID.String(), "fromMe": v.Info.IsFromMe,
 		"text": text, "mediaType": mediaType, "timestamp": ts,
