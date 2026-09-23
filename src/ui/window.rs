@@ -838,7 +838,7 @@ pub fn bind_input_handlers(
 	let tray_bitmap = theme::build_app_icon(32);
 	// Whether an Enter release still to come has already been dealt with, so
 	// the chat list mustn't open a chat on it. See its uses on the chat list.
-	let enter_release_handled = Rc::new(std::cell::Cell::new(false));
+	let enter_release_handled = crate::tray::enter_release_guard();
 
 	let tray_open_id = 5001;
 	let tray_exit_id = 5002;
@@ -848,11 +848,10 @@ pub fn bind_input_handlers(
 		.build();
 	let frame_tray_menu = parts.frame;
 	let tx_tray_menu = ui_tx.clone();
-	let guard_tray_menu = enter_release_handled.clone();
 	tray_icon.on_menu(move |event| {
 		let id = event.get_id();
 		if id == tray_open_id {
-			crate::tray::restore_main_window(&frame_tray_menu, &guard_tray_menu);
+			crate::tray::restore_main_window(&frame_tray_menu);
 			let _ = tx_tray_menu.send(UiCommand::SetPresence(true));
 		} else if id == tray_exit_id {
 			// Closing just the main frame doesn't end the app on its own: wx only
@@ -876,9 +875,8 @@ pub fn bind_input_handlers(
 	// on_left_up.
 	let frame_tray_select = parts.frame;
 	let tx_tray_select = ui_tx.clone();
-	let guard_tray_select = enter_release_handled.clone();
 	crate::tray::set_on_select(move || {
-		crate::tray::restore_main_window(&frame_tray_select, &guard_tray_select);
+		crate::tray::restore_main_window(&frame_tray_select);
 		let _ = tx_tray_select.send(UiCommand::SetPresence(true));
 	});
 
