@@ -32,15 +32,28 @@ pub(crate) fn install_tray_icon(s: &AppState, parts: &WindowParts) {
 	enable_keyboard_select();
 }
 
-/// Brings the main window back from the tray. When Enter is what did it (on the
-/// icon, or on the menu's Open item), its release lands on whatever regains
-/// focus - the chat list, which opens a chat on Enter's release - so `enter_guard`
-/// is armed to swallow it.
-pub(crate) fn restore_main_window(frame: &wxdragon::prelude::Frame, enter_guard: &std::cell::Cell<bool>) {
+thread_local! {
+	static ENTER_RELEASE_HANDLED: std::rc::Rc<std::cell::Cell<bool>> =
+		std::rc::Rc::new(std::cell::Cell::new(false));
+}
+
+/// Whether an Enter release still to come has already been dealt with, so the
+/// chat list mustn't open a chat on it. One flag for the whole UI thread: the
+/// chat list reads it, and menus and every way of restoring the window arm it.
+pub(crate) fn enter_release_guard() -> std::rc::Rc<std::cell::Cell<bool>> {
+	ENTER_RELEASE_HANDLED.with(|guard| guard.clone())
+}
+
+/// Brings the main window back: from the tray (the icon or the menu's Open
+/// item) or when launching whaNTV again, say from the Start menu. When Enter is
+/// what did it, its release lands on whatever regains focus - the chat list,
+/// which opens a chat on Enter's release - so the Enter guard is armed to
+/// swallow it.
+pub(crate) fn restore_main_window(frame: &wxdragon::prelude::Frame) {
 	use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RETURN};
 	use wxdragon::prelude::*;
 	if unsafe { GetAsyncKeyState(VK_RETURN.0 as i32) } as u16 & 0x8000 != 0 {
-		enter_guard.set(true);
+		enter_release_guard().set(true);
 	}
 	frame.show(true);
 	frame.iconize(false);

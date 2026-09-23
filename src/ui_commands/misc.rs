@@ -3,8 +3,6 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use wxdragon::prelude::*;
-
 use crate::{AppState, UiCommand, handle_ui_command, tray::refresh_tray_tooltip, ui::window::WindowParts};
 
 pub(crate) fn request_qr(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>) {
@@ -74,9 +72,7 @@ pub(crate) fn activate_window(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	// the launcher process doing it directly would just flash the
 	// taskbar icon, since Windows only lets a process steal focus
 	// for itself (see single_instance::request_activate).
-	parts.frame.show(true);
-	parts.frame.iconize(false);
-	parts.frame.raise();
+	crate::tray::restore_main_window(&parts.frame);
 	handle_ui_command(UiCommand::SetPresence(true), state, parts);
 }
 
