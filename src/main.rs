@@ -343,6 +343,8 @@ struct AppState {
 	/// Set by Reconnect Now so the result of that attempt is always spoken.
 	conn_manual_reconnect: bool,
 	pending_attachments: Vec<String>,
+	/// The attach-menu option `pending_attachments` came from.
+	pending_attachment_kind: whantv::AttachKind,
 	pending_reply_id: Option<String>,
 	pending_reply_sender: Option<String>,
 	pending_reply_preview: Option<String>,
@@ -796,6 +798,7 @@ fn main() {
 			conn_outage_announced: false,
 			conn_manual_reconnect: false,
 			pending_attachments: Vec::new(),
+			pending_attachment_kind: whantv::AttachKind::default(),
 			pending_reply_id: None,
 			pending_reply_sender: None,
 			pending_reply_preview: None,
@@ -1162,7 +1165,13 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::DiscardRecording | UiCommand::DiscardVoiceMessage => {
 			ui_commands::voice::discard_recording(state, parts)
 		}
+		UiCommand::AttachFiles(kind) => ui_commands::attachments::attach_files(state, parts, kind),
 		UiCommand::AddAttachment => ui_commands::attachments::add_attachment(state, parts),
+		UiCommand::OpenPollDialog => ui_commands::attachments::open_poll_dialog(state, parts),
+		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
+		UiCommand::SendPoll { question, options, multiple_answers } => {
+			ui_commands::attachments::send_poll(state, parts, question, options, multiple_answers)
+		}
 		UiCommand::PasteAttachment => ui_commands::attachments::paste_attachment(state, parts),
 		UiCommand::DiscardAttachment => ui_commands::attachments::discard_attachment(state, parts),
 		UiCommand::SendAttachment { caption } => ui_commands::attachments::send_attachment(state, parts, caption),

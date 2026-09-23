@@ -83,14 +83,26 @@ type SaveMediaAsData struct {
 
 type SendAttachmentData struct {
 	JID         string `json:"jid"`
-	Type        string `json:"type"` // image | video | document | sticker
+	Type        string `json:"type"` // image | video | audio | document | sticker
 	Path        string `json:"path"` // local file path (preferred - frontend already has native file access)
 	Data        string `json:"data"` // base64 file bytes (fallback, e.g. clipboard paste)
 	Mimetype    string `json:"mimetype"`
 	Filename    string `json:"filename"`
 	Caption     string `json:"caption"`
+	Duration    int    `json:"duration"` // seconds, audio only
 	ReplyToID   string `json:"reply_to_id"`
 	ReplySender string `json:"reply_to_sender"`
+}
+
+// SendPollData creates a poll. MultipleAnswers is WhatsApp's "Allow multiple
+// answers" switch.
+type SendPollData struct {
+	JID             string   `json:"jid"`
+	Question        string   `json:"question"`
+	Options         []string `json:"options"`
+	MultipleAnswers bool     `json:"multiple_answers"`
+	ReplyToID       string   `json:"reply_to_id"`
+	ReplySender     string   `json:"reply_to_sender"`
 }
 
 type SendContactsData struct {
@@ -224,6 +236,8 @@ type MessageJSON struct {
 	EditedAt      int64          `json:"editedAt"`
 	Starred       bool           `json:"starred"`
 	AlbumID       string         `json:"albumId"`
+	// For a poll: each option's share of the votes, shown after the question.
+	PollResults string `json:"pollResults,omitempty"`
 	// Always a list, never null: the Rust side's `#[serde(default)]` covers a
 	// missing field but not an explicit null, which would fail to deserialize.
 	Reactions []ReactionInfo `json:"reactions"`

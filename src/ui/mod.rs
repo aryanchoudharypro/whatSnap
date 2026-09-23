@@ -8,6 +8,7 @@ pub mod group_data;
 pub mod new_contact;
 pub mod new_conversation;
 pub mod new_group;
+pub mod poll_dialog;
 pub mod settings_dialog;
 pub mod theme;
 

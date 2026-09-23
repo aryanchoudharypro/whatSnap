@@ -131,6 +131,17 @@ func migrateDB() error {
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_outgoing_status ON messages(status) WHERE from_me = 1`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_incoming_status ON messages(jid, status) WHERE from_me = 0`)
 
+	// One row per poll and voter: their current selection as comma-separated
+	// hex option hashes (see poll_votes.go).
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS poll_votes (
+		poll_id TEXT NOT NULL,
+		voter TEXT NOT NULL,
+		selected TEXT NOT NULL DEFAULT '',
+		timestamp INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (poll_id, voter)
+	)`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS reactions (
 		message_id TEXT NOT NULL,
 		chat_jid TEXT NOT NULL,

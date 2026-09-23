@@ -1488,6 +1488,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										.to_string(),
 									media_size: data.get("mediaSize").and_then(|m| m.as_i64()).unwrap_or(0),
 									album_id: data.get("albumId").and_then(|m| m.as_str()).unwrap_or("").to_string(),
+									poll_results: data
+										.get("pollResults")
+										.and_then(|m| m.as_str())
+										.unwrap_or("")
+										.to_string(),
 									..Default::default()
 								};
 								s.messages.push(chat_msg.clone());
@@ -3098,6 +3103,29 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								}
 							}
 						}
+					}
+				}
+				"poll_details" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::polls::show_poll_vote_dialog(state, parts, data);
+					}
+				}
+				"poll_updated" => {
+					if let Some(data) = val.get("data") {
+						let id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
+						let results = data.get("pollResults").and_then(|m| m.as_str()).unwrap_or("");
+						crate::ui_commands::polls::update_poll_results(state, parts, id, results);
+					}
+				}
+				"poll_voted" => {
+					if let Some(data) = val.get("data") {
+						let results = data.get("pollResults").and_then(|m| m.as_str()).unwrap_or("");
+						let retracted = data.get("retracted").and_then(|m| m.as_bool()).unwrap_or(false);
+						let lead = if retracted { "Vote removed." } else { "Voted." };
+						live_region::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							&format!("{} {}", lead, results),
+						);
 					}
 				}
 				"message_edited" => {

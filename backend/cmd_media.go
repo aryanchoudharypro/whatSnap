@@ -654,9 +654,17 @@ func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimety
 // incoming message type, so an outgoing attachment's local echo (and the
 // text persisted to the DB) shows the same "[Document] filename" style
 // instead of just the caption (which is usually empty).
-func attachmentDisplayText(mediaType, filename, caption string) string {
+func attachmentDisplayText(mediaType, filename, caption string, seconds int) string {
 	tag := "[Document]"
 	switch mediaType {
+	case "audio":
+		// Same shape as a received audio file, "[Audio] (m:ss)" - which is
+		// also where a retry reads the length back from. Audio messages
+		// carry no caption.
+		if seconds > 0 {
+			return fmt.Sprintf("[Audio] (%d:%02d)", seconds/60, seconds%60)
+		}
+		return "[Audio]"
 	case "image":
 		tag = "[Image]"
 	case "video":
@@ -732,7 +740,7 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		// local echo, and what makes a failed/offline upload recoverable
 		// (marked "failed", retryable from the message context menu)
 		// instead of just vanishing.
-		displayText := attachmentDisplayText(data.Type, data.Filename, data.Caption)
+		displayText := attachmentDisplayText(data.Type, data.Filename, data.Caption, data.Duration)
 		saveMessage(StoredMessage{
 			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
 			Text: displayText, Timestamp: ts, Status: "uploading",
@@ -761,7 +769,7 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		})
 		broadcastChats()
 
-		sendUploadedAttachment(conn, id, jid, data.Type, localPath, data.Mimetype, data.Filename, data.Caption, ctxInfo, quotedID, quotedText, quotedSender)
+		sendUploadedAttachment(conn, id, jid, data.Type, localPath, data.Mimetype, data.Filename, data.Caption, data.Duration, ctxInfo, quotedID, quotedText, quotedSender)
 	}()
 }
 
@@ -769,8 +777,8 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 // updating the row already persisted by handleSendAttachment (or reused by
 // handleRetryMessage) to "sent" on success or "failed" on error. Shared by
 // the initial send and a manual retry so both behave identically.
-func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
-	displayText := attachmentDisplayText(mediaType, filename, caption)
+func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, seconds int, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+	displayText := attachmentDisplayText(mediaType, filename, caption, seconds)
 	fail := func(errMsg string) {
 		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
 		if conn != nil {
@@ -790,6 +798,8 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		waMediaType = whatsmeow.MediaImage
 	case "video":
 		waMediaType = whatsmeow.MediaVideo
+	case "audio":
+		waMediaType = whatsmeow.MediaAudio
 	default:
 		waMediaType = whatsmeow.MediaDocument
 	}
@@ -873,6 +883,17 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 			vidMsg.Caption = proto.String(caption)
 		}
 		msg = &waE2E.Message{VideoMessage: vidMsg}
+	case "audio":
+		// An audio file, as WhatsApp's "Audio" attach option sends it: an
+		// AudioMessage that isn't PTT, so it shows as a playable track rather
+		// than a voice note.
+		msg = &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+			Mimetype: proto.String(mimetype), PTT: proto.Bool(false),
+			Seconds: proto.Uint32(uint32(max(seconds, 0))),
+			URL:     proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
+			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
+			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
+		}}
 	case "sticker":
 		msg = &waE2E.Message{StickerMessage: &waE2E.StickerMessage{
 			Mimetype: proto.String(mimetype),

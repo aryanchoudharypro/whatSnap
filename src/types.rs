@@ -53,8 +53,19 @@ pub enum UiCommand {
 	ForceSync,
 	SendVoiceMessage,
 	DiscardVoiceMessage,
+	/// Opens the file picker for one of the attach-menu options.
+	AttachFiles(whantv::AttachKind),
+	/// "Add more files" in the attachment dialog: same option as the batch.
 	AddAttachment,
 	PasteAttachment,
+	OpenPollDialog,
+	/// `V` on a message: vote in it, if it's a poll.
+	OpenPollVote(String),
+	SendPoll {
+		question: String,
+		options: Vec<String>,
+		multiple_answers: bool,
+	},
 	SendAttachment {
 		caption: String,
 	},

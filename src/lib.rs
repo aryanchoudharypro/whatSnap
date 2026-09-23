@@ -77,6 +77,10 @@ pub struct ChatMessage {
 	/// own album announcement rather than from guessing at timestamps.
 	#[serde(rename = "albumId", alias = "album_id", default)]
 	pub album_id: String,
+	/// For a poll: each option's share of the votes ("Yes 50%, 1 vote; ..."),
+	/// shown after the question.
+	#[serde(rename = "pollResults", alias = "poll_results", default)]
+	pub poll_results: String,
 }
 
 /// Renders a byte count the way file managers do: whole numbers under 1000
@@ -182,6 +186,10 @@ impl ChatMessage {
 	/// its copy - so these are the ones worth offering "Request again" on.
 	pub fn is_unreadable(&self) -> bool {
 		!self.from_me && !self.is_date_divider && self.text == "[Unsupported Message]"
+	}
+
+	pub fn is_poll(&self) -> bool {
+		self.text.starts_with("[Poll]")
 	}
 
 	pub fn is_voice(&self) -> bool {
@@ -453,6 +461,10 @@ impl ChatMessage {
 			} else {
 				"[Media]".to_string()
 			}
+		} else if self.is_poll() && !self.poll_results.is_empty() {
+			let question = friendly_preview_text(&self.text);
+			let sep = if question.ends_with(['?', '!', '.']) { " " } else { ". " };
+			format!("{question}{sep}{}", self.poll_results)
 		} else if self.text.starts_with('[') {
 			// text is the backend's "[Document] file.docx"-style placeholder
 			// (used for the chat-list preview and DB persistence), not a real
@@ -798,6 +810,100 @@ pub fn same_album(prev: &ChatMessage, msg: &ChatMessage) -> bool {
 		return prev.album_id == msg.album_id;
 	}
 	(msg.timestamp - prev.timestamp).abs() <= 10
+}
+
+/// Which attach-menu option a batch of files came from. Like WhatsApp's,
+/// each one sends differently: Document sends any file as a document (a photo
+/// too, at full quality), Photos & videos sends media, Audio sends playable
+/// audio files. Files pasted from the clipboard didn't come from the menu, so
+/// they're sorted by type.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AttachKind {
+	#[default]
+	Pasted,
+	Document,
+	Media,
+	Audio,
+}
+
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+/// What WhatsApp Web's Photos & videos picker takes without transcoding.
+const VIDEO_EXTS: &[&str] = &["mp4", "3gp", "mov"];
+/// WhatsApp Web's Audio picker (WAWebMimeTypes.AUDIO_MIMES), plus the other
+/// audio types it sends as audio messages (m4a, opus, amr).
+const AUDIO_EXTS: &[&str] = &["mp3", "wav", "ogg", "opus", "aac", "m4a", "amr"];
+
+fn ext_of(path: &str) -> String {
+	std::path::Path::new(path).extension().unwrap_or_default().to_string_lossy().to_lowercase()
+}
+
+impl AttachKind {
+	/// The file-dialog filter for this option.
+	pub fn file_filter(self) -> String {
+		let pattern = |exts: &[&str]| exts.iter().map(|e| format!("*.{e}")).collect::<Vec<_>>().join(";");
+		match self {
+			AttachKind::Media => {
+				let media: Vec<&str> = IMAGE_EXTS.iter().chain(VIDEO_EXTS).copied().collect();
+				format!("Photos and videos|{}", pattern(&media))
+			}
+			AttachKind::Audio => format!("Audio|{}", pattern(AUDIO_EXTS)),
+			AttachKind::Document | AttachKind::Pasted => "All files|*.*".to_string(),
+		}
+	}
+
+	/// The backend's message type for one file sent this way.
+	pub fn send_type(self, path: &str) -> &'static str {
+		let ext = ext_of(path);
+		let is = |exts: &[&str]| exts.contains(&ext.as_str());
+		match self {
+			AttachKind::Document => "document",
+			AttachKind::Audio => "audio",
+			AttachKind::Media | AttachKind::Pasted if is(IMAGE_EXTS) => "image",
+			AttachKind::Media | AttachKind::Pasted if is(VIDEO_EXTS) => "video",
+			// A pasted file of another kind goes as a document, as before;
+			// the Media picker's filter keeps anything else out.
+			AttachKind::Media | AttachKind::Pasted => "document",
+		}
+	}
+
+	/// Audio messages carry no caption in WhatsApp.
+	pub fn has_caption(self) -> bool {
+		self != AttachKind::Audio
+	}
+}
+
+/// WhatsApp Web's poll limits (WAWebPollsGatingUtils defaults).
+pub const POLL_MAX_QUESTION_CHARS: usize = 255;
+pub const POLL_MAX_OPTION_CHARS: usize = 100;
+pub const POLL_MAX_OPTIONS: usize = 12;
+
+/// Checks a poll the way WhatsApp's composer does and returns its options
+/// (one per non-blank line, trimmed), or what's wrong with it.
+pub fn validate_poll(question: &str, options_text: &str) -> Result<Vec<String>, &'static str> {
+	let question = question.trim();
+	if question.is_empty() {
+		return Err("Type a question for the poll.");
+	}
+	if question.chars().count() > POLL_MAX_QUESTION_CHARS {
+		return Err("The question is too long. Polls allow up to 255 characters.");
+	}
+	let options: Vec<String> =
+		options_text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
+	if options.len() < 2 {
+		return Err("A poll needs at least two options, one per line.");
+	}
+	if options.len() > POLL_MAX_OPTIONS {
+		return Err("A poll can have at most 12 options.");
+	}
+	if options.iter().any(|o| o.chars().count() > POLL_MAX_OPTION_CHARS) {
+		return Err("An option is too long. Each option allows up to 100 characters.");
+	}
+	for (i, o) in options.iter().enumerate() {
+		if options[..i].contains(o) {
+			return Err("Two options are the same. Each option must be different.");
+		}
+	}
+	Ok(options)
 }
 
 /// The voice message to play automatically once `current_id` finishes, if
@@ -1412,6 +1518,53 @@ mod tests {
 	#[test]
 	fn grouping_of_nothing_yields_nothing() {
 		assert!(group_messages_into_display_items(&[]).is_empty());
+	}
+}
+
+#[cfg(test)]
+mod attach_and_poll_tests {
+	use super::*;
+
+	#[test]
+	fn each_attach_option_sends_its_own_way() {
+		assert_eq!(AttachKind::Document.send_type("C:/a/photo.JPG"), "document");
+		assert_eq!(AttachKind::Media.send_type("C:/a/photo.JPG"), "image");
+		assert_eq!(AttachKind::Media.send_type("clip.mp4"), "video");
+		assert_eq!(AttachKind::Audio.send_type("song.mp3"), "audio");
+		assert_eq!(AttachKind::Pasted.send_type("notes.txt"), "document");
+		assert_eq!(AttachKind::Pasted.send_type("shot.png"), "image");
+		assert!(!AttachKind::Audio.has_caption());
+		assert!(AttachKind::Media.file_filter().contains("*.mov"));
+		assert!(AttachKind::Audio.file_filter().starts_with("Audio|*.mp3"));
+	}
+
+	#[test]
+	fn poll_results_follow_the_question() {
+		let poll = ChatMessage {
+			text: "[Poll] Lunch?".into(),
+			poll_results: "Yes 50%, 1 vote; No 50%, 1 vote. 2 people voted.".into(),
+			..Default::default()
+		};
+		let body = poll.body_text();
+		assert_eq!(body, "Poll: Lunch? Yes 50%, 1 vote; No 50%, 1 vote. 2 people voted.");
+		assert!(poll.is_poll());
+	}
+
+	#[test]
+	fn poll_options_come_one_per_line() {
+		assert_eq!(validate_poll(" Lunch? ", "Pizza\r\n\n  Pasta  \n"), Ok(vec!["Pizza".into(), "Pasta".into()]));
+	}
+
+	#[test]
+	fn polls_are_checked_like_whatsapp() {
+		let lines = |n: usize| (1..=n).map(|n| n.to_string()).collect::<Vec<_>>().join("\n");
+		assert!(validate_poll("", "a\nb").is_err());
+		assert!(validate_poll("Q", "a").is_err());
+		assert!(validate_poll("Q", "a\na").is_err());
+		assert!(validate_poll("Q", &lines(13)).is_err());
+		assert!(validate_poll(&"q".repeat(256), "a\nb").is_err());
+		assert!(validate_poll("Q", &format!("a\n{}", "o".repeat(101))).is_err());
+		assert!(validate_poll(&"q".repeat(255), &lines(12)).is_ok());
 	}
 }
 

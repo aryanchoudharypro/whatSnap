@@ -143,6 +143,10 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 					qSenderName = resolveDisplayName(parsed)
 				}
 			}
+			pollResults := ""
+			if strings.HasPrefix(text, "[Poll]") {
+				pollResults = pollResultsForMessage(id)
+			}
 			ids = append(ids, id)
 			msgs = append(msgs, MessageJSON{
 				ID:            id,
@@ -169,6 +173,7 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 				EditedAt:      editedAt,
 				Starred:       starred == 1,
 				AlbumID:       albumID,
+				PollResults:   pollResults,
 				Reactions:     emptyReactions,
 			})
 		}
