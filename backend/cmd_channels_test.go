@@ -24,7 +24,11 @@ func TestFormatChannelStats(t *testing.T) {
 }
 
 func TestRegionFromPhone(t *testing.T) {
-	for number, want := range map[string]string{"+919800000004": "IN", "+14155550100": "US", "+447700900123": "GB"} {
+	for number, want := range map[string]string{
+		"+919800000004": "IN", "+14155550100": "US", "+447700900123": "GB", "+14165550100": "CA",
+		"+17875550100": "PR", "+77015550100": "KZ", "+74955550100": "RU", "+358181234567": "AX",
+		"+971501234567": "AE", "+2348031234567": "NG", "+8005550100": "", "": "",
+	} {
 		if got := regionForPhone(number); got != want {
 			t.Errorf("%s: got %q, want %s", number, got, want)
 		}

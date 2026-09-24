@@ -366,6 +366,13 @@ func extractTextRaw(msg *waE2E.Message) string {
 		}
 		return "[Group Invite]"
 	}
+	if invite := msg.GetNewsletterAdminInviteMessage(); invite != nil {
+		text := "[Channel Admin Invite] " + invite.GetNewsletterName()
+		if caption := invite.GetCaption(); caption != "" {
+			text += ": " + caption
+		}
+		return text
+	}
 	if poll := pollCreation(msg); poll != nil {
 		return "[Poll] " + poll.GetName()
 	}

@@ -170,6 +170,14 @@ func handleConnection(conn net.Conn) {
 			handleChannelAdminChange(conn, cmd.Data, true)
 		case "demote_channel_admin":
 			handleChannelAdminChange(conn, cmd.Data, false)
+		case "invite_channel_admins":
+			handleInviteChannelAdmins(conn, cmd.Data)
+		case "get_channel_admin_invite":
+			handleGetChannelAdminInvite(conn, cmd.Data)
+		case "accept_channel_admin_invite":
+			handleChannelAdminInviteAnswer(conn, cmd.Data, true)
+		case "revoke_channel_admin_invite":
+			handleChannelAdminInviteAnswer(conn, cmd.Data, false)
 		case "get_group_link_info":
 			handleGetGroupLinkInfo(conn, cmd.Data)
 		case "join_group_link":

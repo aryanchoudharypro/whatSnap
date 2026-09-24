@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nyaruka/phonenumbers"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -546,19 +545,20 @@ func ownCountryCode() string {
 	return regionForPhone("+" + client.Store.ID.User)
 }
 
-// regionForPhone is the ISO country of a number, falling back to the main
-// country of its calling code when the number itself doesn't match a known
-// range (new or unusual allocations).
+// regionForPhone is the ISO country of a number ("+919812345678" is "IN"):
+// its calling code's main country, unless its leading digits belong to
+// another one sharing that code (a Canadian +1 area code, say).
 func regionForPhone(number string) string {
-	parsed, err := phonenumbers.Parse(number, "")
-	if err != nil {
-		return ""
+	digits := strings.TrimPrefix(number, "+")
+	for n := min(len(digits), 6); n > 0; n-- {
+		if region, ok := numberPrefixRegions[digits[:n]]; ok {
+			return region
+		}
 	}
-	if region := phonenumbers.GetRegionCodeForNumber(parsed); region != "" && region != "ZZ" {
-		return region
-	}
-	if region := phonenumbers.GetRegionCodeForCountryCode(int(parsed.GetCountryCode())); region != "ZZ" {
-		return region
+	for n := min(len(digits), 3); n > 0; n-- {
+		if region, ok := callingCodeRegions[digits[:n]]; ok {
+			return region
+		}
 	}
 	return ""
 }

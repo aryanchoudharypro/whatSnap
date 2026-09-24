@@ -3097,6 +3097,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						crate::ui_commands::links::show_channel_info(state, parts, data);
 					}
 				}
+				"channel_admin_invite" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::channel_admin::channel_admin_invite(state, parts, data);
+					}
+				}
+				"channel_notice" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::channel_admin::channel_notice(parts, data);
+					}
+				}
 				"channel_created" | "channel_updated" | "channel_deleted" | "channel_followers" => {
 					if let Some(data) = val.get("data") {
 						use crate::ui_commands::channel_admin as admin;
