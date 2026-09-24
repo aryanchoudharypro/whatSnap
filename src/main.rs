@@ -1339,6 +1339,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::CommunitySubgroupSelectionChanged => {
 			ui_commands::contacts_groups::community_subgroup_selection_changed(state, parts)
 		}
+		UiCommand::OpenChannelAdminInvite(message_id) => {
+			ui_commands::channel_admin::open_channel_admin_invite(state, message_id)
+		}
 		UiCommand::OpenGroupInvite(message_id) => {
 			ui_commands::contacts_groups::open_group_invite(state, parts, message_id)
 		}

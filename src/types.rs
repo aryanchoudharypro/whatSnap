@@ -256,6 +256,8 @@ pub enum UiCommand {
 	JoinCommunitySubgroup(u32),
 	CommunitySubgroupSelectionChanged,
 	OpenGroupInvite(String), // message id of a group-invite message
+	/// Enter on a channel admin invite message (its id): accept or cancel it.
+	OpenChannelAdminInvite(String),
 	JoinGroupInvite(String), // message id, confirmed via the invite-details dialog
 	DownloadMediaMessage(String),
 	OpenMediaMessage(String),

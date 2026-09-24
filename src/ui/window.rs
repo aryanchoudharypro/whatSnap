@@ -4014,6 +4014,11 @@ pub fn bind_input_handlers(
 								event.skip(false);
 								return;
 							}
+							if msg.text.starts_with("[Channel Admin Invite]") {
+								let _ = tx_invite_enter.send(UiCommand::OpenChannelAdminInvite(msg.id.clone()));
+								event.skip(false);
+								return;
+							}
 							let mut urls = Vec::new();
 							let text = &msg.text;
 							let mut start_idx = 0;

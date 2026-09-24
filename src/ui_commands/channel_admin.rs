@@ -17,13 +17,103 @@ use crate::{
 		channel_admin::{
 			ChannelFollower, FollowerAction, ask_channel_details, pick_channel_picture, show_channel_followers,
 		},
+		send_to::{SendTarget, show_send_to_dialog},
 		window::WindowParts,
 	},
 };
 
+/// The note an admin invite carries unless the owner writes their own.
+const ADMIN_INVITE_TEXT: &str = "I'd like you to be an admin of my WhatsApp channel.";
+
+/// The people an admin invite can go to: individual chats and contacts, not
+/// groups or channels.
+fn admin_invite_targets(s: &AppState) -> Vec<SendTarget> {
+	let person = |jid: &str| jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
+	let mut seen = std::collections::HashSet::new();
+	let mut targets = Vec::new();
+	for jid in s.chats.iter().filter(|j| person(j)) {
+		if seen.insert(jid.clone()) {
+			let label = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+			targets.push(SendTarget { jid: jid.clone(), label });
+		}
+	}
+	for contact in s.all_contacts.iter().filter(|c| person(&c.jid)) {
+		if seen.insert(contact.jid.clone()) {
+			targets.push(SendTarget {
+				jid: contact.jid.clone(),
+				label: crate::contact_picker::contact_picker_label(contact),
+			});
+		}
+	}
+	targets
+}
+
+/// Pressing Enter on an admin invite in a chat: ask the backend what it is.
+pub(crate) fn open_channel_admin_invite(state: &Rc<RefCell<AppState>>, message_id: String) {
+	send(state, "get_channel_admin_invite", serde_json::json!({ "message_id": message_id }));
+}
+
+/// The backend described an admin invite message: offer to accept one we
+/// got, or to cancel one we sent.
+pub(crate) fn channel_admin_invite(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
+	let text = |key: &str| data.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
+	let flag = |key: &str| data.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
+	let jid = text("jid");
+	let channel = Some(text("name")).filter(|n| !n.is_empty()).unwrap_or_else(|| "a channel".to_string());
+	let user_name = text("userName");
+	if jid.is_empty() {
+		return;
+	}
+	if flag("fromMe") {
+		let dlg = MessageDialog::builder(
+			&parts.frame,
+			&format!("You invited {} to be an admin of {}. Cancel this invite?", user_name, channel),
+			"Channel admin invite",
+		)
+		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+		.build();
+		if dlg.show_modal() == ID_YES {
+			send(state, "revoke_channel_admin_invite", serde_json::json!({ "jid": jid, "user": text("user") }));
+		}
+		return;
+	}
+	if flag("expired") {
+		MessageDialog::builder(
+			&parts.frame,
+			&format!("This invite to be an admin of {} has expired.", channel),
+			"Channel admin invite",
+		)
+		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+		.build()
+		.show_modal();
+		return;
+	}
+	let mut body = format!("{} invited you to be an admin of the channel {}.", user_name, channel);
+	let caption = text("caption");
+	if !caption.is_empty() {
+		body.push_str(&format!("\n\n{}", caption));
+	}
+	body.push_str("\n\nAccept? As an admin you can post updates and change the channel's details.");
+	let dlg = MessageDialog::builder(&parts.frame, &body, "Channel admin invite")
+		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+		.build();
+	if dlg.show_modal() == ID_YES {
+		send(state, "accept_channel_admin_invite", serde_json::json!({ "jid": jid }));
+		announce(parts, "Accepting...");
+	}
+}
+
+/// A short confirmation from the backend about one of our channels.
+pub(crate) fn channel_notice(parts: &Rc<WindowParts>, data: &serde_json::Value) {
+	if let Some(message) = data.get("message").and_then(|m| m.as_str()) {
+		announce(parts, message);
+	}
+}
+
 /// A "Manage channel..." menu choice.
 #[derive(Clone, Copy)]
 pub(crate) enum ChannelManage {
+	InviteAdmins,
 	Edit,
 	ChangePicture,
 	RemovePicture,
@@ -62,13 +152,16 @@ pub(crate) fn choose_manage_action(button: &Button, dialog: &Dialog, is_owner: b
 	const REMOVE_PICTURE: i32 = 3203;
 	const FOLLOWERS: i32 = 3204;
 	const DELETE: i32 = 3205;
+	const INVITE_ADMINS: i32 = 3206;
 	let mut builder = Menu::builder()
 		.append_item(EDIT, "&Edit name and description...", "Change the channel's name and description")
 		.append_item(PICTURE, "Change &picture...", "Choose a new picture for the channel")
 		.append_item(REMOVE_PICTURE, "&Remove picture", "Remove the channel's picture")
 		.append_item(FOLLOWERS, "&Followers and admins...", "See who follows the channel, and manage its admins");
 	if is_owner {
-		builder = builder.append_item(DELETE, "&Delete channel...", "Delete the channel for everyone");
+		builder = builder
+			.append_item(INVITE_ADMINS, "&Invite admins...", "Invite people to be admins of the channel")
+			.append_item(DELETE, "&Delete channel...", "Delete the channel for everyone");
 	}
 	let mut menu = builder.build();
 	let chosen = Rc::new(Cell::new(0));
@@ -81,6 +174,7 @@ pub(crate) fn choose_manage_action(button: &Button, dialog: &Dialog, is_owner: b
 		PICTURE => Some(ChannelManage::ChangePicture),
 		REMOVE_PICTURE => Some(ChannelManage::RemovePicture),
 		FOLLOWERS => Some(ChannelManage::Followers),
+		INVITE_ADMINS => Some(ChannelManage::InviteAdmins),
 		DELETE => {
 			let confirm = MessageDialog::builder(
 				dialog,
@@ -104,6 +198,18 @@ pub(crate) fn manage_channel(
 	action: ChannelManage,
 ) {
 	match action {
+		ChannelManage::InviteAdmins => {
+			let targets = admin_invite_targets(&state.borrow());
+			let Some(choice) = show_send_to_dialog(&parts.frame, "Invite admins", targets, ADMIN_INVITE_TEXT) else {
+				return;
+			};
+			send(
+				state,
+				"invite_channel_admins",
+				serde_json::json!({ "jid": jid, "users": choice.jids, "caption": choice.text }),
+			);
+			announce(parts, "Sending admin invites...");
+		}
 		ChannelManage::Edit => {
 			let Some(details) = ask_channel_details(&parts.frame, false, name, description) else { return };
 			let mut data = serde_json::json!({ "jid": jid });
@@ -202,6 +308,10 @@ pub(crate) fn channel_followers(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		)
 	};
 	match show_channel_followers(&parts.frame, &channel_name, followers, is_owner) {
+		Some(FollowerAction::InviteAdmin { jid: user, name }) => {
+			send(state, "invite_channel_admins", serde_json::json!({ "jid": jid, "users": [user], "caption": "" }));
+			announce(parts, &format!("Inviting {} to be an admin...", name));
+		}
 		Some(FollowerAction::RemoveAdmin { jid: user, name }) => {
 			send(state, "demote_channel_admin", serde_json::json!({ "jid": jid, "user": user }));
 			announce(parts, &format!("Removing {} as admin...", name));

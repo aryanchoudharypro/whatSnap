@@ -145,12 +145,13 @@ impl ChannelFollower {
 
 /// What was chosen in the followers dialog.
 pub enum FollowerAction {
+	InviteAdmin { jid: String, name: String },
 	RemoveAdmin { jid: String, name: String },
 	MakeOwner { jid: String, name: String },
 }
 
-/// Lists a channel's followers, admins first. The owner can remove an admin
-/// or hand the channel over to one.
+/// Lists a channel's followers, admins first. The owner can invite a
+/// follower to be an admin, remove an admin, or hand the channel over to one.
 pub fn show_channel_followers(
 	parent: &dyn WxWidget,
 	channel_name: &str,
@@ -202,9 +203,11 @@ pub fn show_channel_followers(
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+	let invite_btn = Button::builder(&panel).with_label("Make admin...").build();
 	let remove_btn = Button::builder(&panel).with_label("Remove as admin").build();
 	let owner_btn = Button::builder(&panel).with_label("Make owner...").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	buttons.add(&invite_btn, 0, SizerFlag::Right, 8);
 	buttons.add(&remove_btn, 0, SizerFlag::Right, 8);
 	buttons.add(&owner_btn, 0, SizerFlag::Right, 8);
 	buttons.add_stretch_spacer(1);
@@ -221,8 +224,10 @@ pub fn show_channel_followers(
 	let update_buttons = {
 		let followers = followers.clone();
 		move || {
-			let on_admin =
-				list.get_selection().and_then(|i| followers.get(i as usize)).is_some_and(|f| f.role == "admin");
+			let role = list.get_selection().and_then(|i| followers.get(i as usize)).map(|f| f.role.clone());
+			let on_admin = role.as_deref() == Some("admin");
+			let on_follower = role.is_some() && !on_admin && role.as_deref() != Some("owner");
+			invite_btn.show(is_owner && on_follower);
 			remove_btn.show(is_owner && on_admin);
 			owner_btn.show(is_owner && on_admin);
 			panel.layout();
@@ -237,6 +242,25 @@ pub fn show_channel_followers(
 		let followers = followers.clone();
 		move || list.get_selection().and_then(|i| followers.get(i as usize)).map(|f| (f.jid.clone(), f.name.clone()))
 	};
+	let chosen_invite = chosen.clone();
+	let selected_invite = selected.clone();
+	invite_btn.on_click(move |_| {
+		let Some((jid, name)) = selected_invite() else { return };
+		let confirm = MessageDialog::builder(
+			&dialog,
+			&format!(
+				"Invite {} to be an admin of this channel? They'll get the invite in your chat with them, and become an admin once they accept it.",
+				name
+			),
+			"Make admin",
+		)
+		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+		.build();
+		if confirm.show_modal() == ID_YES {
+			*chosen_invite.borrow_mut() = Some(FollowerAction::InviteAdmin { jid, name });
+			dialog.end_modal(ID_OK);
+		}
+	});
 	let chosen_remove = chosen.clone();
 	let selected_remove = selected.clone();
 	remove_btn.on_click(move |_| {

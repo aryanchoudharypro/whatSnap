@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 )
 
 // Creating and running our own channels: making one, changing its name,
@@ -303,5 +305,203 @@ func handleChannelAdminChange(conn net.Conn, raw json.RawMessage, makeOwner bool
 			broadcastChats()
 		}
 		sendEvent(conn, "channel_updated", map[string]string{"jid": data.JID, "message": what})
+	}()
+}
+
+// adminInviteCaption is the text that goes with an admin invite when the
+// owner doesn't write their own.
+const adminInviteCaption = "I'd like you to be an admin of my WhatsApp channel."
+
+// handleInviteChannelAdmins invites people to be admins of our channel: the
+// server records each invite, and it reaches them as an invite message in
+// our chat with them, the way WhatsApp sends it.
+func handleInviteChannelAdmins(conn net.Conn, raw json.RawMessage) {
+	var data struct {
+		JID     string   `json:"jid"`
+		Users   []string `json:"users"`
+		Caption string   `json:"caption"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	channel, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+	caption := strings.TrimSpace(data.Caption)
+	if caption == "" {
+		caption = adminInviteCaption
+	}
+	go func() {
+		var channelName string
+		db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, data.JID).Scan(&channelName)
+		sent, failed := 0, []string{}
+		for _, userStr := range data.Users {
+			user, err := types.ParseJID(userStr)
+			if err != nil {
+				continue
+			}
+			if err := sendChannelAdminInvite(channel, channelName, user, caption); err != nil {
+				log.Printf("Couldn't invite %s to be an admin of %s: %v", user, data.JID, err)
+				failed = append(failed, resolveDisplayName(user)+" ("+err.Error()+")")
+				continue
+			}
+			sent++
+		}
+		if len(failed) > 0 {
+			sendEvent(conn, "error", map[string]string{"message": "Couldn't send an admin invite to " + strings.Join(failed, ", ")})
+		}
+		if sent > 0 {
+			what := "Admin invite sent."
+			if sent > 1 {
+				what = fmt.Sprintf("Admin invites sent to %d people.", sent)
+			}
+			sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": what})
+		}
+	}()
+}
+
+func sendChannelAdminInvite(channel types.JID, channelName string, user types.JID, caption string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// The invite message goes to the person's phone-number chat when we know
+	// it, where our conversation with them lives.
+	chat := user.ToNonAD()
+	if chat.Server == types.HiddenUserServer {
+		if pn, err := client.Store.LIDs.GetPNForLID(ctx, chat); err == nil && !pn.IsEmpty() {
+			chat = pn
+		}
+	}
+	expiration, err := client.CreateNewsletterAdminInvite(ctx, channel, chat)
+	if err != nil {
+		return err
+	}
+	invite := &waE2E.NewsletterAdminInviteMessage{
+		NewsletterJID:  proto.String(channel.String()),
+		NewsletterName: proto.String(channelName),
+		Caption:        proto.String(caption),
+	}
+	if !expiration.IsZero() {
+		invite.InviteExpiration = proto.Int64(expiration.Unix())
+	}
+	msg := &waE2E.Message{NewsletterAdminInviteMessage: invite}
+	resp, err := client.SendMessage(ctx, chat, msg)
+	if err != nil {
+		return err
+	}
+	storeOwnSentMessage(chat.String(), resp.ID, msg, resp.Timestamp.Unix())
+	return nil
+}
+
+// storeOwnSentMessage saves a message we just sent that didn't go through the
+// normal compose path, and shows it in its chat.
+func storeOwnSentMessage(chatJID, id string, msg *waE2E.Message, ts int64) {
+	senderJID := ""
+	if client.Store.ID != nil {
+		senderJID = client.Store.ID.ToNonAD().String()
+	}
+	text := extractText(msg)
+	raw, _ := proto.Marshal(msg)
+	saveMessage(StoredMessage{ID: id, JID: chatJID, SenderJID: senderJID, FromMe: true, Text: text, Timestamp: ts, Raw: raw, Status: "sent"})
+	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+		ON CONFLICT(jid) DO UPDATE SET
+			timestamp=MAX(timestamp, excluded.timestamp),
+			preview_snippet=excluded.preview_snippet,
+			preview_sender=excluded.preview_sender,
+			preview_from_me=1,
+			preview_is_reaction=0,
+			preview_reaction_emoji=''`,
+		chatJID, ts, text, senderJID)
+	broadcastEvent("message", map[string]interface{}{
+		"jid": chatJID, "from": "me", "id": id, "text": text, "from_me": true,
+		"timestamp": ts, "has_media": false, "status": "sent",
+	})
+	broadcastChats()
+}
+
+// adminInviteFromMessage reads the invite out of a stored admin invite
+// message.
+func adminInviteFromMessage(messageID string) (*waE2E.NewsletterAdminInviteMessage, string, bool, error) {
+	raw, chatJID, _, fromMe, err := getMessageRaw(messageID)
+	if err != nil || len(raw) == 0 {
+		return nil, "", false, fmt.Errorf("message not found")
+	}
+	var msg waE2E.Message
+	if err := proto.Unmarshal(raw, &msg); err != nil {
+		return nil, "", false, fmt.Errorf("failed to parse message")
+	}
+	invite := unwrapMessage(&msg).GetNewsletterAdminInviteMessage()
+	if invite == nil {
+		return nil, "", false, fmt.Errorf("message is not a channel admin invite")
+	}
+	return invite, chatJID, fromMe, nil
+}
+
+// handleGetChannelAdminInvite describes an admin invite message: which
+// channel, whether it has expired, and whether we sent it or got it.
+func handleGetChannelAdminInvite(conn net.Conn, raw json.RawMessage) {
+	var data MessageRefData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	go func() {
+		invite, chatJID, fromMe, err := adminInviteFromMessage(data.MessageID)
+		if err != nil {
+			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			return
+		}
+		userName := chatJID
+		if parsed, err := types.ParseJID(chatJID); err == nil {
+			userName = resolveDisplayName(parsed)
+		}
+		expiry := invite.GetInviteExpiration()
+		sendEvent(conn, "channel_admin_invite", map[string]interface{}{
+			"messageId": data.MessageID,
+			"jid":       invite.GetNewsletterJID(),
+			"name":      invite.GetNewsletterName(),
+			"caption":   invite.GetCaption(),
+			"expired":   expiry > 0 && time.Unix(expiry, 0).Before(time.Now()),
+			"fromMe":    fromMe,
+			"user":      chatJID,
+			"userName":  userName,
+		})
+	}()
+}
+
+// handleChannelAdminInviteAnswer accepts an admin invite we were sent, or
+// cancels one we sent.
+func handleChannelAdminInviteAnswer(conn net.Conn, raw json.RawMessage, accept bool) {
+	var data struct {
+		JID  string `json:"jid"`
+		User string `json:"user"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	channel, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if accept {
+			if err := client.AcceptNewsletterAdminInvite(ctx, channel); err != nil {
+				sendEvent(conn, "error", map[string]string{"message": "Couldn't accept the invite: " + err.Error()})
+				return
+			}
+			syncFollowedChannels()
+			sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": "You're now an admin of this channel."})
+			return
+		}
+		user, err := types.ParseJID(data.User)
+		if err != nil {
+			return
+		}
+		if err := client.RevokeNewsletterAdminInvite(ctx, channel, user); err != nil {
+			sendEvent(conn, "error", map[string]string{"message": "Couldn't cancel the invite: " + err.Error()})
+			return
+		}
+		sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": "Admin invite cancelled."})
 	}()
 }
