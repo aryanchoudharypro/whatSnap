@@ -1411,6 +1411,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 						let from = data.get("from").and_then(|f| f.as_str()).unwrap_or("");
 						let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
+						// Group event lines ("X joined", "Y left", a new subject) never
+						// alert or count as unread in the official apps, muted or not.
+						let is_system = data.get("mediaType").and_then(|m| m.as_str()) == Some("system");
 
 						let mut s = state.borrow_mut();
 
@@ -1804,7 +1807,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								);
 
 								if !is_from_me {
-									let sounds_enabled = s.settings.sounds_enabled && !s.muted_jids.contains(jid);
+									let sounds_enabled =
+										s.settings.sounds_enabled && !s.muted_jids.contains(jid) && !is_system;
 									if s.window_focused {
 										let mark_jid = jid.to_string();
 										let mark_msg_id = msg_id.clone();
@@ -1814,7 +1818,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 											"data": { "jid": mark_jid, "message_ids": vec![mark_msg_id] }
 										});
 										let _ = tx.send(payload.to_string());
-									} else {
+									} else if !is_system {
 										// The window isn't focused, so the user hasn't actually
 										// seen this yet — don't send a read receipt. Queue it
 										// for a batched mark_read once focus returns, and show
@@ -1881,7 +1885,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									.get("from_me")
 									.and_then(|f| f.as_bool())
 									.unwrap_or_else(|| from == "me" || from == "You");
-								if !is_from_me {
+								if !is_from_me && !is_system {
 									// Archived chats default to silent and can be dialled back up per chat
 									// from the chat-list context menu; muting still overrides both.
 									let alert = whantv::incoming_alert(
@@ -3091,6 +3095,17 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				"channel_info" => {
 					if let Some(data) = val.get("data") {
 						crate::ui_commands::links::show_channel_info(state, parts, data);
+					}
+				}
+				"channel_created" | "channel_updated" | "channel_deleted" | "channel_followers" => {
+					if let Some(data) = val.get("data") {
+						use crate::ui_commands::channel_admin as admin;
+						match t {
+							"channel_created" => admin::channel_created(state, parts, data),
+							"channel_updated" => admin::channel_updated(state, parts, data),
+							"channel_deleted" => admin::channel_deleted(state, parts, data),
+							_ => admin::channel_followers(state, parts, data),
+						}
 					}
 				}
 				"channel_messages_updated" => {

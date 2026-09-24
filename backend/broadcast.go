@@ -172,13 +172,16 @@ func buildChatsList() []map[string]interface{} {
 				n = "+" + parsedJID.User
 			}
 
-			if chatSettings, errSettings := client.Store.ChatSettings.GetChatSettings(context.Background(), parsedJID); errSettings == nil && chatSettings.Found {
+			if chatSettings, found := chatSettingsFor(parsedJID); found {
 				if chatSettings.Archived {
 					archived = 1
 				}
 				if chatSettings.Pinned {
 					pinned = 1
 				}
+				// The synced mute end decides, not the stored flag: a mute "for 8
+				// hours" ends by itself, with no unmute ever sent.
+				muted = 0
 				if !chatSettings.MutedUntil.IsZero() && chatSettings.MutedUntil.After(time.Now()) {
 					muted = 1
 				}
@@ -235,4 +238,26 @@ func buildChatsList() []map[string]interface{} {
 		})
 	}
 	return chats
+}
+
+// chatSettingsFor reads a chat's synced settings (mute, pin, archive). A
+// one-to-one chat's settings can be stored under its LID rather than its
+// phone number JID, so the twin is tried too.
+func chatSettingsFor(jid types.JID) (types.LocalChatSettings, bool) {
+	ctx := context.Background()
+	if settings, err := client.Store.ChatSettings.GetChatSettings(ctx, jid); err == nil && settings.Found {
+		return settings, true
+	}
+	var twin types.JID
+	switch jid.Server {
+	case types.DefaultUserServer:
+		twin, _ = client.Store.LIDs.GetLIDForPN(ctx, jid)
+	case types.HiddenUserServer:
+		twin, _ = client.Store.LIDs.GetPNForLID(ctx, jid)
+	}
+	if twin.IsEmpty() {
+		return types.LocalChatSettings{}, false
+	}
+	settings, err := client.Store.ChatSettings.GetChatSettings(ctx, twin)
+	return settings, err == nil && settings.Found
 }

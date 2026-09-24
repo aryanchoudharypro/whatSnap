@@ -283,10 +283,13 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	if matches!(text("state").as_str(), "suspended" | "geosuspended") {
 		details.push("This channel is suspended".to_string());
 	}
+	let role = text("role");
+	let is_owner = role == "owner";
+	let can_manage = is_owner || role == "admin";
 	let description = text("description");
 	if !description.is_empty() {
 		details.push(String::new());
-		details.push(description);
+		details.push(description.clone());
 	}
 
 	// Over "Find channels" when it's open, so it isn't lost behind it.
@@ -318,14 +321,18 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let mute_btn = Button::builder(&panel).with_label(if muted { "Unmute" } else { "Mute" }).build();
 	let open_btn = Button::builder(&panel).with_label("Open channel").build();
 	let copy_btn = Button::builder(&panel).with_label("Copy link").build();
+	let manage_btn = Button::builder(&panel).with_label("Manage channel...").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	for button in [&follow_btn, &mute_btn, &open_btn, &copy_btn] {
+	for button in [&manage_btn, &follow_btn, &mute_btn, &open_btn, &copy_btn] {
 		buttons.add(button, 0, SizerFlag::Right, 8);
 	}
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
 	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	mute_btn.show(following);
+	// An owner can't unfollow their own channel, only delete it.
+	follow_btn.show(!is_owner);
+	manage_btn.show(can_manage);
 	open_btn.show(!is_open);
 	copy_btn.show(!link.is_empty());
 	let announcer = StaticText::builder(&panel).with_label("").build();
@@ -344,6 +351,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		Unfollow,
 		Mute(bool),
 		Open,
+		Manage(crate::ui_commands::channel_admin::ChannelManage),
 	}
 	let next = Rc::new(RefCell::new(Next::Nothing));
 	let next_follow = next.clone();
@@ -378,6 +386,13 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		let copied = Clipboard::get().locker().is_some_and(|_locker| Clipboard::get().set_text(&link_copy));
 		crate::announce::announce(announcer.clone(), if copied { "Link copied." } else { "Couldn't copy the link." });
 	});
+	let next_manage = next.clone();
+	manage_btn.on_click(move |_| {
+		if let Some(action) = crate::ui_commands::channel_admin::choose_manage_action(&manage_btn, &dialog, is_owner) {
+			*next_manage.borrow_mut() = Next::Manage(action);
+			dialog.end_modal(ID_OK);
+		}
+	});
 	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
 
 	details_field.set_focus();
@@ -403,6 +418,12 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			// the open chat's heading isn't a raw ID.
 			state.borrow_mut().contacts.entry(jid.clone()).or_insert(name);
 			open_chat_for_jid(&jid, state, parts);
+		}
+		Next::Manage(action) => {
+			if let Some(directory) = &directory {
+				directory.dialog.end_modal(ID_CANCEL);
+			}
+			crate::ui_commands::channel_admin::manage_channel(state, parts, &jid, &name, &description, action);
 		}
 		Next::Nothing => {}
 	}

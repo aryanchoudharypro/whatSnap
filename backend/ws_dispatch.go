@@ -158,6 +158,18 @@ func handleConnection(conn net.Conn) {
 			handleFollowChannel(cmd.Data, true)
 		case "unfollow_channel":
 			handleFollowChannel(cmd.Data, false)
+		case "create_channel":
+			handleCreateChannel(conn, cmd.Data)
+		case "update_channel":
+			handleUpdateChannel(conn, cmd.Data)
+		case "delete_channel":
+			handleDeleteChannel(conn, cmd.Data)
+		case "get_channel_followers":
+			handleGetChannelFollowers(conn, cmd.Data)
+		case "change_channel_owner":
+			handleChannelAdminChange(conn, cmd.Data, true)
+		case "demote_channel_admin":
+			handleChannelAdminChange(conn, cmd.Data, false)
 		case "get_group_link_info":
 			handleGetGroupLinkInfo(conn, cmd.Data)
 		case "join_group_link":

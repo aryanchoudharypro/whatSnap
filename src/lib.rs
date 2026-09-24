@@ -1928,6 +1928,10 @@ pub fn parse_whatsapp_link(link: &str) -> Option<WhatsAppLink> {
 	match (scheme.as_str(), host) {
 		("whatsapp", "send") => send(param("phone")),
 		("whatsapp", "chat") => invite(param("code")?),
+		("whatsapp", "channel") => {
+			let code = param("code").unwrap_or_else(|| path.split('/').next().unwrap_or("").to_string());
+			(!code.is_empty()).then_some(WhatsAppLink::Channel { code })
+		}
 		("http" | "https", "wa.me") if path.is_empty() => send(param("phone")),
 		("http" | "https", "wa.me") => send(Some(path.to_string())),
 		("http" | "https", "api.whatsapp.com" | "web.whatsapp.com") if path == "send" => send(param("phone")),
@@ -2001,6 +2005,12 @@ mod whatsapp_link_tests {
 	fn channel_links() {
 		let channel = |c: &str| Some(WhatsAppLink::Channel { code: c.to_string() });
 		assert_eq!(parse_whatsapp_link("https://whatsapp.com/channel/0029VaAbC"), channel("0029VaAbC"));
+		assert_eq!(parse_whatsapp_link("whatsapp://channel/0029VaAbC"), channel("0029VaAbC"));
+		assert_eq!(parse_whatsapp_link("whatsapp://channel?code=0029VaAbC"), channel("0029VaAbC"));
+		assert_eq!(
+			parse_whatsapp_link("https://whatsapp.com/channel/0029VbEF0hk0wajnFXjT4g2b"),
+			channel("0029VbEF0hk0wajnFXjT4g2b")
+		);
 		assert_eq!(parse_whatsapp_link("https://www.whatsapp.com/channel/0029VaAbC/123"), channel("0029VaAbC"));
 		assert_eq!(parse_whatsapp_link("https://whatsapp.com/download"), None);
 	}

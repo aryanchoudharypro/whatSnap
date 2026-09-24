@@ -13,10 +13,16 @@ use crate::{
 	ui::window::WindowParts,
 };
 
+/// Whether a chat can be called at all. Channels, broadcast lists and a
+/// community itself (as opposed to its groups) have no calls in WhatsApp.
+pub(crate) fn can_call(s: &AppState, jid: &str) -> bool {
+	!jid.ends_with("@newsletter") && !jid.ends_with("@broadcast") && !s.community_jids.contains(jid)
+}
+
 fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video: bool) {
 	let jid = {
 		let s = state.borrow();
-		if let Some(j) = s.selected_chat.as_ref() {
+		if let Some(j) = s.selected_chat.as_ref().filter(|j| can_call(&s, j)) {
 			j.clone()
 		} else {
 			return;
