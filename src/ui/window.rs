@@ -648,8 +648,14 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_post_media_status = ui_tx.clone();
+	let state_post_media_status = state.clone();
 	parts.conversations_parts.post_media_status_btn.on_click(move |_| {
-		let _ = tx_post_media_status.send(UiCommand::PostMediaStatus);
+		// The Channels tab borrows this second button for "Create channel".
+		if state_post_media_status.borrow().active_tab == 5 {
+			let _ = tx_post_media_status.send(UiCommand::CreateChannel);
+		} else {
+			let _ = tx_post_media_status.send(UiCommand::PostMediaStatus);
+		}
 	});
 
 	let tx_locked_chats = ui_tx.clone();
@@ -3036,7 +3042,12 @@ pub fn bind_input_handlers(
 								.borrow()
 								.selected_chat
 								.as_ref()
-								.map(|jid| state_clone.borrow().admin_group_jids.contains(jid))
+								.map(|jid| {
+									let s = state_clone.borrow();
+									// A channel's admins can delete any of its posts.
+									s.admin_group_jids.contains(jid)
+										|| crate::ui_commands::links::can_post_in_channel(&s, jid)
+								})
 								.unwrap_or(false);
 							let now = std::time::SystemTime::now()
 								.duration_since(std::time::UNIX_EPOCH)
@@ -3856,7 +3867,12 @@ pub fn bind_input_handlers(
 								.borrow()
 								.selected_chat
 								.as_ref()
-								.map(|jid| state_play.borrow().admin_group_jids.contains(jid))
+								.map(|jid| {
+									let s = state_play.borrow();
+									// A channel's admins can delete any of its posts.
+									s.admin_group_jids.contains(jid)
+										|| crate::ui_commands::links::can_post_in_channel(&s, jid)
+								})
 								.unwrap_or(false);
 							let now = std::time::SystemTime::now()
 								.duration_since(std::time::UNIX_EPOCH)
@@ -4020,11 +4036,21 @@ pub fn bind_input_handlers(
 								}
 							}
 
+							// A WhatsApp link (a chat, group invite or channel) opens
+							// here, the way it would in WhatsApp; anything else goes
+							// to the browser.
+							let open_url = |url: &str| {
+								if whantv::parse_whatsapp_link(url).is_some() {
+									let _ = tx_invite_enter.send(UiCommand::OpenWhatsAppLink(url.to_string()));
+								} else {
+									wxdragon::utils::launch_default_browser(
+										url,
+										wxdragon::utils::BrowserLaunchFlags::Default,
+									);
+								}
+							};
 							if urls.len() == 1 {
-								wxdragon::utils::launch_default_browser(
-									&urls[0],
-									wxdragon::utils::BrowserLaunchFlags::Default,
-								);
+								open_url(&urls[0]);
 							} else if urls.len() > 1 {
 								let url_strs: Vec<&str> = urls.iter().map(|s| s.as_str()).collect();
 								let dialog = wxdragon::prelude::SingleChoiceDialog::builder(
@@ -4036,10 +4062,7 @@ pub fn bind_input_handlers(
 								.build();
 								if dialog.show_modal() == wxdragon::id::ID_OK {
 									if let Some(selection) = dialog.get_string_selection() {
-										wxdragon::utils::launch_default_browser(
-											&selection,
-											wxdragon::utils::BrowserLaunchFlags::Default,
-										);
+										open_url(&selection);
 									}
 								}
 							} else if let Some((_, digits)) = msg.first_phone_number() {
@@ -4354,7 +4377,11 @@ pub fn bind_input_handlers(
 				std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 			let all_from_me_and_eligible =
 				!msgs.is_empty() && msgs.iter().all(|m| m.from_me && m.is_delete_for_everyone_eligible(now));
-			let is_group_admin = s.selected_chat.as_ref().map(|jid| s.admin_group_jids.contains(jid)).unwrap_or(false);
+			let is_group_admin = s
+				.selected_chat
+				.as_ref()
+				.map(|jid| s.admin_group_jids.contains(jid) || crate::ui_commands::links::can_post_in_channel(&s, jid))
+				.unwrap_or(false);
 			(msgs.len(), all_from_me_and_eligible || is_group_admin)
 		};
 		if count == 0 {

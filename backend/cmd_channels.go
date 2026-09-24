@@ -243,15 +243,32 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 		id := channelPostID(jid, post)
 		ts := post.Timestamp.Unix()
 		newest = max(newest, ts)
-		var exists int
-		db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ?`, id).Scan(&exists)
+		var exists, deleted int
+		var storedText string
+		db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(is_deleted), 0), COALESCE(MAX(text), '') FROM messages WHERE id = ?`, id).Scan(&exists, &deleted, &storedText)
+		if exists > 0 && deleted == 0 {
+			// Catch up on what happened to a post since we stored it.
+			switch {
+			case post.Edit == types.EditAttributeAdminRevoke:
+				changed++
+				markMessageDeleted(id, jid)
+			case post.Edit == types.EditAttributeAdminEdit && post.Message != nil:
+				if text := extractText(post.Message); text != storedText {
+					changed++
+					markMessageEdited(id, jid, post.Message, text, ts)
+				}
+			}
+		}
+		if exists > 0 && post.IsSender {
+			db.Exec(`UPDATE messages SET from_me = 1 WHERE id = ? AND from_me = 0`, id)
+		}
 		if exists == 0 && post.Message != nil {
 			changed++
 			text := extractText(post.Message)
 			mediaType, mimetype, filename, size := mediaInfoFromMessage(post.Message)
 			raw, _ := proto.Marshal(post.Message)
 			sm := StoredMessage{
-				ID: id, JID: jid, SenderJID: jid, Text: text, Timestamp: ts, Raw: raw, Status: "read",
+				ID: id, JID: jid, SenderJID: jid, FromMe: post.IsSender, Text: text, Timestamp: ts, Raw: raw, Status: "read",
 				MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: size,
 				ServerID: int64(post.MessageServerID),
 			}

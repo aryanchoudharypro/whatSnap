@@ -245,8 +245,11 @@ func handleEditMessage(raw json.RawMessage) {
 		// The edit travels as its own message with its own ID, and every
 		// receipt for it comes back under that ID. Note the pairing before
 		// sending - the first receipt can arrive before SendMessage returns.
+		// (A channel post's edit goes out under the post's own ID instead.)
 		editStanzaID := client.GenerateMessageID()
-		recordEditStanza(editStanzaID, data.MessageID, data.JID, time.Now().Unix())
+		if chatJID.Server != types.NewsletterServer {
+			recordEditStanza(editStanzaID, data.MessageID, data.JID, time.Now().Unix())
+		}
 
 		_, err := client.SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: editStanzaID})
 		if err != nil {
@@ -309,7 +312,8 @@ func handleDeleteMessage(raw json.RawMessage) {
 				broadcastEvent("error", map[string]string{"message": errMsg})
 				return
 			}
-		} else {
+		} else if targetChatJID.Server != types.NewsletterServer {
+			// Channel posts aren't in app state; hiding one is local only.
 			// "Delete for me": syncs the local hide via app-state so it also
 			// applies on the user's other linked devices, not just this one
 			// (see appstate.BuildDeleteMessageForMe).
@@ -500,8 +504,13 @@ func handleMarkRead(raw json.RawMessage) {
 
 	if len(data.MessageIDs) > 0 {
 		for _, id := range data.MessageIDs {
-			var senderStr string
-			_ = db.QueryRow("SELECT sender_jid FROM messages WHERE id = ?", id).Scan(&senderStr)
+			var senderStr, mediaType string
+			_ = db.QueryRow("SELECT COALESCE(sender_jid, ''), COALESCE(media_type, '') FROM messages WHERE id = ?", id).Scan(&senderStr, &mediaType)
+			// Event lines and call rows are ours, with no real message behind
+			// them to acknowledge.
+			if mediaType == "system" || mediaType == "call" {
+				continue
+			}
 			sJID, _ := types.ParseJID(senderStr)
 			if sJID.IsEmpty() {
 				if chatJID.Server == types.GroupServer {

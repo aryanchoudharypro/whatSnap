@@ -1288,6 +1288,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 				state_store.borrow_mut().channel_directory = dir;
 			});
 		}
+		UiCommand::CreateChannel => ui_commands::channel_admin::create_channel(state, parts),
 		UiCommand::JoinGroupLink(code) => {
 			let payload = serde_json::json!({ "action": "join_group_link", "data": { "code": code } });
 			let _ = state.borrow().ws_tx.send(payload.to_string());

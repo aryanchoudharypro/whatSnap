@@ -24,6 +24,7 @@ pub struct ConversationsPanelParts {
 	pub search_in_conv_btn: Button,
 	pub place_call_btn: Button,
 	pub place_video_call_btn: Button,
+	pub top_btns_panel: Panel,
 
 	pub search_panel: Panel,
 	pub search_close_btn: Button,
@@ -378,6 +379,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		search_in_conv_btn,
 		place_call_btn,
 		place_video_call_btn,
+		top_btns_panel,
 		search_panel,
 		search_close_btn,
 		search_conv_label,

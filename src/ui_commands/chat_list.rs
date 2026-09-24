@@ -32,6 +32,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 1;
 			parts.conversations_parts.new_conv_btn.set_label("Post Status Update...");
+			parts.conversations_parts.post_media_status_btn.set_label("Post Photo/Video Status...");
 			parts.conversations_parts.post_media_status_btn.show(true);
 			parts.conversations_parts.conversations_label.set_label("Status Updates");
 			let payload = serde_json::json!({ "action": "get_statuses" });
@@ -72,7 +73,8 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 5;
 			parts.conversations_parts.new_conv_btn.set_label("Find channels...");
-			parts.conversations_parts.post_media_status_btn.show(false);
+			parts.conversations_parts.post_media_status_btn.set_label("Create channel...");
+			parts.conversations_parts.post_media_status_btn.show(true);
 			parts.conversations_parts.conversations_label.set_label("Channels");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}

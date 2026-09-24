@@ -141,6 +141,8 @@ pub enum UiCommand {
 	ShowGroupInviteLink,
 	/// Open the "Find channels" directory.
 	FindChannels,
+	/// Ask for a new channel's details and create it.
+	CreateChannel,
 	/// Join a group from an invite link's code, once confirmed.
 	JoinGroupLink(String),
 	MarkRead {

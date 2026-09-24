@@ -1384,6 +1384,29 @@ func eventHandler(evt interface{}) {
 
 	case *events.Message:
 		unwrappedMsg := unwrapMessage(v.Message)
+		// A channel admin's edit or deletion of a post comes as the post's
+		// own ID with an edit attribute: the new content, or nothing.
+		if v.Info.Chat.Server == types.NewsletterServer {
+			switch v.Info.Edit {
+			case types.EditAttributeAdminRevoke:
+				jid := v.Info.Chat.String()
+				go markMessageDeleted(v.Info.ID, jid)
+				broadcastEvent("message_deleted", map[string]interface{}{
+					"jid": jid, "message_id": v.Info.ID, "by": jid,
+				})
+				return
+			case types.EditAttributeAdminEdit:
+				jid, id := v.Info.Chat.String(), v.Info.ID
+				editTime := v.Info.Timestamp.Unix()
+				go func() {
+					shown, _ := markMessageEdited(id, jid, v.Message, extractText(v.Message), editTime)
+					broadcastEvent("message_edited", map[string]interface{}{
+						"jid": jid, "message_id": id, "text": shown, "edited_at": editTime,
+					})
+				}()
+				return
+			}
+		}
 		isEdit := v.IsEdit || v.Info.Edit == types.EditAttributeMessageEdit || (unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT)
 		if isEdit {
 			var targetID string

@@ -266,6 +266,10 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.message_field.show(can_write);
 	parts.conversations_parts.add_attachment_btn.show(can_write);
 	parts.conversations_parts.record_voice_btn.show(can_write);
+	let can_call = crate::ui_commands::calls::can_call(&s, jid);
+	parts.conversations_parts.place_call_btn.show(can_call);
+	parts.conversations_parts.place_video_call_btn.show(can_call);
+	parts.conversations_parts.top_btns_panel.layout();
 	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
