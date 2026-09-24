@@ -3,6 +3,7 @@ pub mod attach_contact;
 pub mod attachment_dialog;
 pub mod call_window;
 pub mod channel_admin;
+pub mod channel_countries;
 pub mod channel_directory;
 pub mod conversation_data;
 pub mod conversations;

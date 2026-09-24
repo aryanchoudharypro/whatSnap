@@ -141,6 +141,11 @@ pub enum UiCommand {
 	ShowGroupInviteLink,
 	/// Open the "Find channels" directory.
 	FindChannels,
+	/// Find channels, listing the ones like this channel.
+	SimilarChannels {
+		jid: String,
+		name: String,
+	},
 	/// Ask for a new channel's details and create it.
 	CreateChannel,
 	/// Join a group from an invite link's code, once confirmed.

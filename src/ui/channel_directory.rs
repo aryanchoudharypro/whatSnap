@@ -1,5 +1,6 @@
 //! "Find channels": search WhatsApp's channel directory, or browse its
-//! recommended channels, and follow or look at one. Results come back from
+//! recommended channels in any country or its featured channels in a
+//! category, as WhatsApp Web's Discover does, and follow or look at one. Results come back from
 //! the backend while the dialog is open (`channel_directory` events), so the
 //! dialog's parts live in AppState for as long as it's shown.
 
@@ -7,7 +8,10 @@ use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::ui::{
+	channel_countries::{CATEGORIES, COUNTRIES},
+	theme,
+};
 
 #[derive(Clone)]
 struct Entry {
@@ -58,6 +62,14 @@ struct DirectoryState {
 	query: String,
 	next_cursor: String,
 	loading: bool,
+	/// Set while the list shows channels like this one (its name) rather
+	/// than the directory's.
+	similar_to: Option<String>,
+	/// Whose channels are listed (ISO code); empty until the first answer
+	/// says which country is ours.
+	country: String,
+	/// The category listed, or empty for recommended channels.
+	category: String,
 }
 
 /// The open "Find channels" dialog.
@@ -66,6 +78,8 @@ pub struct ChannelDirectory {
 	list: ListBox,
 	more_btn: Button,
 	follow_btn: Button,
+	country_combo: ComboBox,
+	category_combo: ComboBox,
 	announcer: StaticText,
 	state: RefCell<DirectoryState>,
 	ws_tx: std::sync::mpsc::Sender<String>,
@@ -79,16 +93,42 @@ impl ChannelDirectory {
 		}
 		s.loading = true;
 		s.query = query.to_string();
+		s.similar_to = None;
+		let (country, category) = (s.country.clone(), s.category.clone());
 		drop(s);
 		let payload = serde_json::json!({
 			"action": "channel_directory",
-			"data": { "query": query, "cursor": cursor }
+			"data": { "query": query, "cursor": cursor, "country": country, "category": category }
 		});
 		let _ = self.ws_tx.send(payload.to_string());
-		crate::announce::announce(
-			self.announcer.clone(),
-			if query.is_empty() { "Loading recommended channels..." } else { "Searching..." },
-		);
+		let place = COUNTRIES
+			.iter()
+			.find(|(code, _)| *code == country)
+			.map(|(_, name)| format!(" in {}", name))
+			.unwrap_or_default();
+		let loading = if !query.is_empty() {
+			"Searching...".to_string()
+		} else if let Some((_, name)) = CATEGORIES.iter().find(|(code, _)| *code == category) {
+			format!("Loading {} channels{}...", name, place)
+		} else {
+			format!("Loading recommended channels{}...", place)
+		};
+		crate::announce::announce(self.announcer.clone(), &loading);
+	}
+
+	/// Lists channels like the given one, as the official apps suggest on a
+	/// channel's info.
+	pub fn request_similar(&self, jid: &str, name: &str) {
+		let mut s = self.state.borrow_mut();
+		s.loading = true;
+		s.query.clear();
+		s.next_cursor.clear();
+		s.similar_to = Some(name.to_string());
+		drop(s);
+		let payload = serde_json::json!({ "action": "get_similar_channels", "data": { "jid": jid } });
+		let _ = self.ws_tx.send(payload.to_string());
+		self.dialog.set_label(&format!("Channels like {}", name));
+		crate::announce::announce(self.announcer.clone(), &format!("Loading channels like {}...", name));
 	}
 
 	/// Shows a page of results from the backend.
@@ -97,7 +137,17 @@ impl ChannelDirectory {
 		let append = data.get("append").and_then(|a| a.as_bool()).unwrap_or(false);
 		let mut s = self.state.borrow_mut();
 		s.loading = false;
-		if text(data, "query") != s.query {
+		// The first answer names our own country; show it as the chosen one.
+		let country = text(data, "country");
+		if s.country.is_empty() && !country.is_empty() {
+			s.country = country.clone();
+			if let Some(idx) = COUNTRIES.iter().position(|(code, _)| *code == country) {
+				self.country_combo.set_selection(idx as u32);
+			}
+		}
+		let stale_filter = text(data, "category") != s.category
+			|| (!s.country.is_empty() && !country.is_empty() && country != s.country);
+		if text(data, "query") != s.query || (s.similar_to.is_none() && stale_filter) {
 			// An answer to an older search the user has since replaced.
 			return;
 		}
@@ -136,6 +186,8 @@ impl ChannelDirectory {
 		}
 		let found = labels.len();
 		let message = match (found, append) {
+			(0, false) if s.similar_to.is_some() => "No similar channels found.".to_string(),
+			(0, false) if s.query.is_empty() && !s.category.is_empty() => "No channels in this category.".to_string(),
 			(0, false) if s.query.is_empty() => "No recommended channels.".to_string(),
 			(0, false) => format!("No channels found for {}.", s.query),
 			(0, true) => "No more channels.".to_string(),
@@ -176,6 +228,7 @@ impl ChannelDirectory {
 pub fn show_channel_directory(
 	parent: &impl WxWidget,
 	ws_tx: std::sync::mpsc::Sender<String>,
+	similar_to: Option<(String, String)>,
 	store: impl Fn(Option<Rc<ChannelDirectory>>),
 ) {
 	let dialog = Dialog::builder(parent, "Find channels")
@@ -193,6 +246,27 @@ pub fn show_channel_directory(
 	let search_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
 	search_field.set_font(&theme::Fonts::body());
 	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	// Where the channels come from, as in WhatsApp Web's Discover: a country
+	// and, optionally, one category of featured channels.
+	let filters = BoxSizer::builder(Orientation::Horizontal).build();
+	let country_label = StaticText::builder(&panel).with_label("Country:").build();
+	let country_names: Vec<&str> = COUNTRIES.iter().map(|(_, name)| *name).collect();
+	let country_combo =
+		ComboBox::builder(&panel).with_string_choices(&country_names).with_style(ComboBoxStyle::ReadOnly).build();
+	country_combo.set_font(&theme::Fonts::body());
+	let category_label = StaticText::builder(&panel).with_label("Category:").build();
+	let mut category_names = vec!["All (recommended)"];
+	category_names.extend(CATEGORIES.iter().map(|(_, name)| *name));
+	let category_combo =
+		ComboBox::builder(&panel).with_string_choices(&category_names).with_style(ComboBoxStyle::ReadOnly).build();
+	category_combo.set_font(&theme::Fonts::body());
+	category_combo.set_selection(0);
+	filters.add(&country_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+	filters.add(&country_combo, 1, SizerFlag::Right, 12);
+	filters.add(&category_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+	filters.add(&category_combo, 1, SizerFlag::empty(), 0);
+	sizer.add_sizer(&filters, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let list_label = StaticText::builder(&panel).with_label("Channels").build();
 	theme::style_muted_label(&list_label);
@@ -229,6 +303,8 @@ pub fn show_channel_directory(
 		list,
 		more_btn,
 		follow_btn,
+		country_combo,
+		category_combo,
 		announcer,
 		state: RefCell::new(DirectoryState::default()),
 		ws_tx: ws_tx.clone(),
@@ -239,6 +315,7 @@ pub fn show_channel_directory(
 	// servers, so not one per keystroke.
 	let dir_search = directory.clone();
 	search_field.on_text_enter(move |_| {
+		dir_search.dialog.set_label("Find channels");
 		dir_search.request(search_field.get_value().trim(), "");
 	});
 	let dir_more = directory.clone();
@@ -250,6 +327,52 @@ pub fn show_channel_directory(
 		if !cursor.is_empty() {
 			dir_more.request(&query, &cursor);
 		}
+	});
+	// Changing either filter lists that country's or category's channels
+	// again, leaving any search. Arrowing through a list changes the choice
+	// on every key, so the list is only asked for once the choice has
+	// settled, and only if it really changed: one request, not one per
+	// country passed on the way.
+	let settle = Rc::new(Timer::new(&dialog));
+	let dir_settle = directory.clone();
+	settle.on_tick(move |_| {
+		let country = dir_settle
+			.country_combo
+			.get_selection()
+			.and_then(|i| COUNTRIES.get(i as usize))
+			.map(|(code, _)| code.to_string());
+		let category = dir_settle
+			.category_combo
+			.get_selection()
+			.and_then(|i| (i as usize).checked_sub(1))
+			.and_then(|i| CATEGORIES.get(i))
+			.map(|(code, _)| code.to_string())
+			.unwrap_or_default();
+		{
+			let mut s = dir_settle.state.borrow_mut();
+			let country_changed = country.as_ref().is_some_and(|c| *c != s.country);
+			if !country_changed && category == s.category {
+				return;
+			}
+			if let Some(country) = country {
+				s.country = country;
+			}
+			s.category = category;
+			// A new filter replaces whatever was still loading.
+			s.loading = false;
+		}
+		dir_settle.dialog.set_label("Find channels");
+		dir_settle.request("", "");
+	});
+	let settle_country = settle.clone();
+	country_combo.on_selection_changed(move |_| {
+		settle_country.stop();
+		settle_country.start(700, true);
+	});
+	let settle_category = settle.clone();
+	category_combo.on_selection_changed(move |_| {
+		settle_category.stop();
+		settle_category.start(700, true);
 	});
 	let dir_select = directory.clone();
 	list.on_selection_changed(move |_| dir_select.selection_changed());
@@ -303,8 +426,13 @@ pub fn show_channel_directory(
 	};
 	search_field.on_key_down(escape_closes);
 	list.on_key_down(escape_closes);
+	country_combo.on_key_down(escape_closes);
+	category_combo.on_key_down(escape_closes);
 
-	directory.request("", "");
+	match similar_to {
+		Some((jid, name)) => directory.request_similar(&jid, &name),
+		None => directory.request("", ""),
+	}
 	search_field.set_focus();
 	dialog.show_modal();
 	store(None);

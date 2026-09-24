@@ -1747,6 +1747,7 @@ func eventHandler(evt interface{}) {
 		})
 	case *events.Connected:
 		convertStoredVotesOnce.Do(func() { go runOnce("convert_stored_poll_votes_v1", convertStoredPollVotes) })
+		go refreshServerFlags()
 		appStateResyncMu.Lock()
 		for k := range appStateResyncCount {
 			delete(appStateResyncCount, k)

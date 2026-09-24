@@ -162,6 +162,7 @@ func finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE
 	}
 	sentTs := resp.Timestamp.Unix()
 	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=? WHERE id=?`, sentTs, sentTs, id)
+	noteChannelPostSent(jid, id, resp)
 	broadcastEvent("message", map[string]interface{}{
 		"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 		"from_me":      true,

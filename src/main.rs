@@ -235,6 +235,9 @@ struct AppState {
 	/// "subscriber").
 	channel_jids: std::collections::HashSet<String>,
 	channel_roles: std::collections::HashMap<String, String>,
+	/// Whether the server lets us pin posts in our channels (its
+	/// channels_message_pin_admin_enabled flag, off unless it says so).
+	channel_pinning: bool,
 	/// The "Find channels" dialog while it's open, for results to land in.
 	channel_directory: Option<Rc<crate::ui::channel_directory::ChannelDirectory>>,
 	pinned_jids: std::collections::HashSet<String>,
@@ -747,6 +750,7 @@ fn main() {
 			announcement_jids: std::collections::HashSet::new(),
 			channel_jids: std::collections::HashSet::new(),
 			channel_roles: std::collections::HashMap::new(),
+			channel_pinning: false,
 			channel_directory: None,
 			pinned_jids: std::collections::HashSet::new(),
 			muted_jids: std::collections::HashSet::new(),
@@ -1281,12 +1285,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ActivateWindow => ui_commands::misc::activate_window(state, parts),
 		UiCommand::OpenWhatsAppLink(link) => ui_commands::links::open_whatsapp_link(state, parts, link),
 		UiCommand::ShowGroupInviteLink => ui_commands::links::request_group_invite_link(state),
-		UiCommand::FindChannels => {
-			let ws_tx = state.borrow().ws_tx.clone();
-			let state_store = state.clone();
-			crate::ui::channel_directory::show_channel_directory(&parts.frame, ws_tx, move |dir| {
-				state_store.borrow_mut().channel_directory = dir;
-			});
+		UiCommand::FindChannels => ui_commands::links::show_channel_directory(state, parts, None),
+		UiCommand::SimilarChannels { jid, name } => {
+			ui_commands::links::show_channel_directory(state, parts, Some((jid, name)))
 		}
 		UiCommand::CreateChannel => ui_commands::channel_admin::create_channel(state, parts),
 		UiCommand::JoinGroupLink(code) => {

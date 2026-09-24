@@ -299,3 +299,119 @@ pub fn show_channel_followers(
 	dialog.destroy();
 	chosen.borrow_mut().take()
 }
+
+/// Who reacted to a channel post, or who voted for each option of a channel
+/// poll, as one list: "👍: Alice", "Pizza: Bob". A group no one is in reads
+/// "Salad: no one". `summary` heads the list.
+pub fn show_channel_people(parent: &dyn WxWidget, title: &str, summary: &str, groups: &[(String, Vec<String>)]) {
+	let mut rows = Vec::new();
+	for (label, names) in groups {
+		if names.is_empty() {
+			rows.push(format!("{}: no one", label));
+		}
+		for name in names {
+			rows.push(format!("{}: {}", label, name));
+		}
+	}
+
+	let dialog = Dialog::builder(parent, title)
+		.with_size(420, 460)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	theme::style_content(&dialog);
+	let panel = Panel::builder(&dialog).build();
+	theme::style_content(&panel);
+	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let list_label = StaticText::builder(&panel).with_label(summary).build();
+	theme::style_muted_label(&list_label);
+	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 10);
+	let list = ListBox::builder(&panel).build();
+	list.set_font(&theme::Fonts::body());
+	let row_refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+	list.set_items(&row_refs);
+	if !rows.is_empty() {
+		list.set_selection(0, true);
+	}
+	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::All, 10);
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 10);
+	panel.set_sizer(sizer, true);
+	let outer = BoxSizer::builder(Orientation::Vertical).build();
+	outer.add(&panel, 1, SizerFlag::Expand, 0);
+	dialog.set_sizer(outer, true);
+	dialog.center();
+	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
+	list.set_focus();
+	dialog.show_modal();
+	dialog.destroy();
+}
+
+/// The admin invites of a channel no one has accepted yet. Returns the
+/// invite (JID and name) the owner chose to cancel.
+pub fn show_pending_admin_invites(
+	parent: &dyn WxWidget,
+	channel_name: &str,
+	invites: Vec<(String, String)>,
+) -> Option<(String, String)> {
+	let dialog = Dialog::builder(parent, &format!("Pending admin invites for {}", channel_name))
+		.with_size(420, 420)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	theme::style_content(&dialog);
+	let panel = Panel::builder(&dialog).build();
+	theme::style_content(&panel);
+	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let summary = match invites.len() {
+		0 => "No admin invites are waiting to be accepted.".to_string(),
+		1 => "1 invite waiting to be accepted".to_string(),
+		n => format!("{} invites waiting to be accepted", n),
+	};
+	let list_label = StaticText::builder(&panel).with_label(&summary).build();
+	theme::style_muted_label(&list_label);
+	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 10);
+	let list = ListBox::builder(&panel).build();
+	list.set_font(&theme::Fonts::body());
+	let names: Vec<&str> = invites.iter().map(|(_, name)| name.as_str()).collect();
+	list.set_items(&names);
+	if !invites.is_empty() {
+		list.set_selection(0, true);
+	}
+	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::All, 10);
+	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+	let cancel_invite_btn = Button::builder(&panel).with_label("Cancel invite...").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	buttons.add(&cancel_invite_btn, 0, SizerFlag::Right, 8);
+	buttons.add_stretch_spacer(1);
+	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
+	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	cancel_invite_btn.show(!invites.is_empty());
+	panel.set_sizer(sizer, true);
+	let outer = BoxSizer::builder(Orientation::Vertical).build();
+	outer.add(&panel, 1, SizerFlag::Expand, 0);
+	dialog.set_sizer(outer, true);
+	dialog.center();
+
+	let invites = std::rc::Rc::new(invites);
+	let chosen = std::rc::Rc::new(std::cell::RefCell::new(None::<(String, String)>));
+	let chosen_cancel = chosen.clone();
+	let invites_cancel = invites.clone();
+	cancel_invite_btn.on_click(move |_| {
+		let Some(invite) = list.get_selection().and_then(|i| invites_cancel.get(i as usize)).cloned() else { return };
+		let confirm = MessageDialog::builder(
+			&dialog,
+			&format!("Cancel the invite for {} to be an admin of this channel?", invite.1),
+			"Cancel invite",
+		)
+		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+		.build();
+		if confirm.show_modal() == ID_YES {
+			*chosen_cancel.borrow_mut() = Some(invite);
+			dialog.end_modal(ID_OK);
+		}
+	});
+	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
+	list.set_focus();
+	dialog.show_modal();
+	dialog.destroy();
+	chosen.borrow_mut().take()
+}

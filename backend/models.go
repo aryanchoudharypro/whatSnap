@@ -240,6 +240,8 @@ type MessageJSON struct {
 	PollResults string `json:"pollResults,omitempty"`
 	// For a channel post: its views and reaction totals.
 	ChannelStats string `json:"channelStats,omitempty"`
+	// A pinned channel post.
+	ChannelPinned bool `json:"channelPinned,omitempty"`
 	// Always a list, never null: the Rust side's `#[serde(default)]` covers a
 	// missing field but not an explicit null, which would fail to deserialize.
 	Reactions []ReactionInfo `json:"reactions"`

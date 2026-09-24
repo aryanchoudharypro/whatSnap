@@ -85,6 +85,9 @@ pub struct ChatMessage {
 	/// 👍 31, ❤️ 12"). Channels show counts, not who reacted.
 	#[serde(rename = "channelStats", alias = "channel_stats", default)]
 	pub channel_stats: String,
+	/// A pinned channel post.
+	#[serde(rename = "channelPinned", default)]
+	pub channel_pinned: bool,
 }
 
 /// Renders a byte count the way file managers do: whole numbers under 1000

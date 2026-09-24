@@ -504,6 +504,28 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// channelUploadReader reports upload progress for channel media, which is
+// read twice: once to hash it, then again (after a seek back) to upload it.
+// Only the second pass is the upload.
+type channelUploadReader struct {
+	*os.File
+	progress *ProgressReader
+	seeks    int
+}
+
+func (r *channelUploadReader) Read(p []byte) (int, error) {
+	if r.seeks == 0 {
+		return r.File.Read(p)
+	}
+	return r.progress.Read(p)
+}
+
+func (r *channelUploadReader) Seek(offset int64, whence int) (int64, error) {
+	r.seeks++
+	r.progress.read = 0
+	return r.File.Seek(offset, whence)
+}
+
 func detectMimeType(filename, path string, header []byte) string {
 	nameToTest := filename
 	if nameToTest == "" {
@@ -832,9 +854,10 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	}
 
 	var pr io.Reader = f
+	isChannel := jid.Server == types.NewsletterServer
 	if totalSize > 0 {
 		lastPct := -1
-		pr = &ProgressReader{
+		progress := &ProgressReader{
 			reader: f,
 			total:  totalSize,
 			onProgress: func(pct int) {
@@ -852,9 +875,24 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 				}
 			},
 		}
+		pr = progress
+		if isChannel {
+			pr = &channelUploadReader{File: f, progress: progress}
+		}
 	}
 
-	uploaded, err := client.UploadReader(context.Background(), pr, nil, waMediaType)
+	var uploaded whatsmeow.UploadResponse
+	if isChannel {
+		// Channel media isn't encrypted: it goes up as it is, and the post
+		// names it by the handle the upload returns.
+		seeker, ok := pr.(io.ReadSeeker)
+		if !ok {
+			seeker = f
+		}
+		uploaded, err = client.UploadNewsletterReader(context.Background(), seeker, waMediaType)
+	} else {
+		uploaded, err = client.UploadReader(context.Background(), pr, nil, waMediaType)
+	}
 	if err != nil {
 		fail(err.Error())
 		return
@@ -915,7 +953,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		msg = &waE2E.Message{DocumentMessage: docMsg}
 	}
 
-	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
+	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
 	if err != nil {
 		fail(err.Error())
 		return
@@ -925,6 +963,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	ts := resp.Timestamp.Unix()
 	db.Exec(`UPDATE messages SET status='sent', text=?, timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
 		displayText, ts, ts, rawBytes, path, mimetype, id)
+	noteChannelPostSent(jid, id, resp)
 
 	broadcastEvent("message", map[string]interface{}{
 		"jid": jid.String(), "from": "me", "id": id, "text": displayText,
@@ -1069,7 +1108,12 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 		mimetype = "audio/ogg; codecs=opus"
 	}
 
-	uploaded, err := client.Upload(context.Background(), fileBytes, whatsmeow.MediaAudio)
+	var uploaded whatsmeow.UploadResponse
+	if jid.Server == types.NewsletterServer {
+		uploaded, err = client.UploadNewsletter(context.Background(), fileBytes, whatsmeow.MediaAudio)
+	} else {
+		uploaded, err = client.Upload(context.Background(), fileBytes, whatsmeow.MediaAudio)
+	}
 	if err != nil {
 		fail(err.Error())
 		return
@@ -1085,7 +1129,7 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 		ContextInfo: ctxInfo,
 	}}
 
-	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
+	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
 	if err != nil {
 		fail(err.Error())
 		return
@@ -1095,6 +1139,7 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 	ts := resp.Timestamp.Unix()
 	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
 		ts, ts, rawBytes, path, mimetype, id)
+	noteChannelPostSent(jid, id, resp)
 
 	broadcastEvent("message", map[string]interface{}{
 		"jid": jid.String(), "from": "me", "id": id, "text": voiceText,

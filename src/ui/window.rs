@@ -2743,8 +2743,11 @@ pub fn bind_input_handlers(
 				menu_builder =
 					menu_builder.append_item(save_voice_id, "&Save voice message...", "Save voice message to device");
 			}
-			if is_from_me {
-				menu_builder = menu_builder.append_item(info_id, "Message &Info", "View message delivery info");
+			let is_poll_msg =
+				matches!(display_item, Some(whantv::DisplayItem::Single(ref m)) if m.is_poll() && !m.is_deleted);
+			if is_from_me || is_poll_msg {
+				menu_builder =
+					menu_builder.append_item(info_id, "Message &Info", "View delivery info, or a poll's votes");
 			}
 			if is_photo_album {
 				menu_builder =
@@ -2756,6 +2759,23 @@ pub fn bind_input_handlers(
 					.append_item(message_number_id, "Message Num&ber", "Start a chat with this phone number");
 			}
 			let mut popup_menu = menu_builder.build();
+
+			// A channel post has its own actions: pinning it and seeing who
+			// reacted or voted, for the channel's owner and admins.
+			let channel_post = match &display_item {
+				Some(whantv::DisplayItem::Single(m)) if !m.is_date_divider && !m.is_deleted => {
+					let s = state_ctx.borrow();
+					s.selected_chat
+						.clone()
+						.filter(|jid| crate::ui_commands::links::can_post_in_channel(&s, jid))
+						.map(|jid| (jid, m.clone()))
+				}
+				_ => None,
+			};
+			if let Some((channel_jid, post)) = channel_post {
+				let submenu = crate::ui_commands::channel_admin::channel_post_menu(&state_ctx, &channel_jid, &post);
+				popup_menu.append_submenu(submenu, "C&hannel post", "Pin this post, or see who reacted or voted");
+			}
 
 			// Same reasoning as the archived-alerts submenu on the chat-list
 			// context menu: a submenu can only be appended to an already-built
@@ -2858,14 +2878,16 @@ pub fn bind_input_handlers(
 							let mut labels = Vec::new();
 							let mut jids = Vec::new();
 							for jid in &s.chats {
-								if !jid.ends_with("@broadcast") {
+								if !jid.ends_with("@broadcast") && crate::ui_commands::links::can_forward_to(&s, jid) {
 									let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
 									labels.push(name);
 									jids.push(jid.clone());
 								}
 							}
 							for (jid, name) in &s.contacts {
-								if !jid.ends_with("@broadcast") && !jids.contains(jid) {
+								if !jid.ends_with("@broadcast")
+									&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
+								{
 									labels.push(name.clone());
 									jids.push(jid.clone());
 								}
@@ -3092,7 +3114,7 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt {
-						if msg.from_me && !msg.is_date_divider {
+						if (msg.from_me || msg.is_poll()) && !msg.is_date_divider {
 							let _ = tx_play_media_clone.send(UiCommand::GetMessageInfo { message_id: msg.id.clone() });
 						}
 					}
@@ -3713,14 +3735,16 @@ pub fn bind_input_handlers(
 							let mut labels = Vec::new();
 							let mut jids = Vec::new();
 							for jid in &s.chats {
-								if !jid.ends_with("@broadcast") {
+								if !jid.ends_with("@broadcast") && crate::ui_commands::links::can_forward_to(&s, jid) {
 									let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
 									labels.push(name);
 									jids.push(jid.clone());
 								}
 							}
 							for (jid, name) in &s.contacts {
-								if !jid.ends_with("@broadcast") && !jids.contains(jid) {
+								if !jid.ends_with("@broadcast")
+									&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
+								{
 									labels.push(name.clone());
 									jids.push(jid.clone());
 								}
@@ -4016,6 +4040,11 @@ pub fn bind_input_handlers(
 							}
 							if msg.text.starts_with("[Channel Admin Invite]") {
 								let _ = tx_invite_enter.send(UiCommand::OpenChannelAdminInvite(msg.id.clone()));
+								event.skip(false);
+								return;
+							}
+							if msg.is_poll() && !msg.is_deleted {
+								let _ = tx_invite_enter.send(UiCommand::OpenPollVote(msg.id.clone()));
 								event.skip(false);
 								return;
 							}

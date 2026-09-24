@@ -113,6 +113,10 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN server_id INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_views INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_reactions TEXT DEFAULT ''")
+	// A channel poll's vote counts as JSON, by option hash, and whether a
+	// channel post is pinned.
+	db.Exec("ALTER TABLE messages ADD COLUMN channel_poll_votes TEXT DEFAULT ''")
+	db.Exec("ALTER TABLE messages ADD COLUMN channel_pinned INTEGER DEFAULT 0")
 	// An edit is delivered as its own stanza with its own message ID, so every
 	// receipt for it names an ID no message row has. This maps those IDs back
 	// to the message being edited.

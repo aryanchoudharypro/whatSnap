@@ -164,6 +164,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	rawBytes, _ := proto.Marshal(msg)
 
 	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=? WHERE id=?`, ts, ts, rawBytes, id)
+	noteChannelPostSent(jid, id, resp)
 	senderJID := ""
 	if client.Store.ID != nil {
 		senderJID = client.Store.ID.ToNonAD().String()
@@ -631,6 +632,10 @@ func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 		}
 	}
 
+	if poll := pollInfoForMessage(data.ID); poll != nil {
+		result["poll"] = poll
+	}
+
 	sendEvent(conn, "message_info", result)
 }
 
@@ -720,7 +725,7 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		rawBytes, _, _, _, err := getMessageRaw(data.MessageID)
+		rawBytes, sourceJID, _, _, err := getMessageRaw(data.MessageID)
 		if err != nil || len(rawBytes) == 0 {
 			sendEvent(conn, "error", map[string]string{"message": "Message not found for forwarding"})
 			return
@@ -752,10 +757,17 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 		if old := getContextInfo(content); old != nil {
 			score = old.GetForwardingScore()
 		}
-		if !setContextInfo(content, &waE2E.ContextInfo{
+		forwardCtx := &waE2E.ContextInfo{
 			IsForwarded:     proto.Bool(true),
 			ForwardingScore: proto.Uint32(score + 1),
-		}) {
+		}
+		fromChannel := isChannelJID(sourceJID)
+		if fromChannel {
+			// Like the official apps, a post forwarded out of a channel says
+			// which channel, so it links back there.
+			forwardCtx.ForwardedNewsletterMessageInfo = forwardedChannelInfo(sourceJID, data.MessageID)
+		}
+		if !setContextInfo(content, forwardCtx) {
 			sendEvent(conn, "error", map[string]string{"message": "This kind of message can't be forwarded."})
 			return
 		}
@@ -764,7 +776,26 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			if parseErr != nil {
 				continue
 			}
-			resp, sendErr := client.SendMessage(context.Background(), targetJID, content)
+			toChannel := targetJID.Server == types.NewsletterServer
+			if toChannel && !canPostInChannel(targetJID.String()) {
+				sendEvent(conn, "error", map[string]string{"message": "You can only forward to channels you run."})
+				continue
+			}
+			outgoing := content
+			var extra whatsmeow.SendRequestExtra
+			if toChannel != fromChannel && mediaPart(content) != nil {
+				// Chat media is encrypted and channel media isn't, so media
+				// crossing between them has to go up again the other way.
+				outgoing = proto.Clone(content).(*waE2E.Message)
+				handle, reErr := reuploadMedia(context.Background(), outgoing, toChannel)
+				if reErr != nil {
+					log.Printf("Couldn't re-upload forwarded media for %s: %v", toJIDStr, reErr)
+					sendEvent(conn, "error", map[string]string{"message": "Couldn't forward the media: " + reErr.Error()})
+					continue
+				}
+				extra.MediaHandle = handle
+			}
+			resp, sendErr := client.SendMessage(context.Background(), targetJID, outgoing, extra)
 			if sendErr != nil {
 				log.Printf("Error forwarding message to %s: %v", toJIDStr, sendErr)
 				continue
@@ -772,9 +803,9 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			ts := resp.Timestamp.Unix()
 			text := extractText(content)
 			senderJID := client.Store.ID.ToNonAD().String()
-			fwdRawBytes, _ := proto.Marshal(content)
-			mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(content)
-			quotedID, quotedText, quotedSender := quotedPreview(content)
+			fwdRawBytes, _ := proto.Marshal(outgoing)
+			mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(outgoing)
+			quotedID, quotedText, quotedSender := quotedPreview(outgoing)
 
 			db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 				ON CONFLICT(jid) DO UPDATE SET
@@ -791,6 +822,7 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				Text: text, Timestamp: ts, Raw: fwdRawBytes, Status: "sent",
 				MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
 				QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
+				ServerID: int64(resp.ServerID),
 			})
 
 			broadcastEvent("message", map[string]interface{}{
