@@ -2369,6 +2369,55 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 						}
 
+						// A poll: its results, then who voted for what.
+						if let Some(poll) = data.get("poll") {
+							let from_me = state.borrow().messages.iter().any(|m| m.id == msg_id && m.from_me);
+							if !from_me {
+								// Receipts are only ours to know for what we sent.
+								lines.clear();
+							}
+							let mut poll_lines = Vec::new();
+							let question = poll.get("question").and_then(|v| v.as_str()).unwrap_or("");
+							poll_lines.push(format!("Poll: {}", question));
+							let results = poll.get("results").and_then(|v| v.as_str()).unwrap_or("");
+							if !results.is_empty() {
+								poll_lines.push(results.to_string());
+							}
+							let voters = poll.get("voters").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+							let is_channel = poll.get("channel").and_then(|v| v.as_bool()).unwrap_or(false);
+							poll_lines.push(String::new());
+							if voters.is_empty() {
+								poll_lines.push("No votes yet.".to_string());
+							} else {
+								poll_lines.push("Votes".to_string());
+								for v in &voters {
+									let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("");
+									let options: Vec<&str> = v
+										.get("options")
+										.and_then(|x| x.as_array())
+										.map(|a| a.iter().filter_map(|o| o.as_str()).collect())
+										.unwrap_or_default();
+									let when = fmt_ts(v.get("timestamp").and_then(|x| x.as_i64()).unwrap_or(0));
+									let entry = format!("  {} voted {}", name, options.join(" and "));
+									poll_lines.push(if when.is_empty() {
+										entry
+									} else {
+										format!("{}, {}", entry, when)
+									});
+								}
+							}
+							if is_channel {
+								poll_lines.push(
+									"Channels show vote totals, not who voted. Admins can see voters from the Channel post menu.".to_string(),
+								);
+							}
+							if !lines.is_empty() {
+								poll_lines.push(String::new());
+							}
+							poll_lines.append(&mut lines);
+							lines = poll_lines;
+						}
+
 						if lines.is_empty() {
 							lines.push("No receipt information available.".to_string());
 						}
@@ -3105,6 +3154,28 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				"channel_notice" => {
 					if let Some(data) = val.get("data") {
 						crate::ui_commands::channel_admin::channel_notice(parts, data);
+					}
+				}
+				"server_flags" => {
+					if let Some(data) = val.get("data") {
+						state.borrow_mut().channel_pinning =
+							data.get("channelPinning").and_then(|v| v.as_bool()).unwrap_or(false);
+					}
+				}
+				"channel_people" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::channel_admin::channel_people(parts, data);
+					}
+				}
+				"channel_pending_invites" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::channel_admin::channel_pending_invites(state, parts, data);
+					}
+				}
+				"similar_channels" => {
+					let directory = state.borrow().channel_directory.clone();
+					if let (Some(directory), Some(data)) = (directory, val.get("data")) {
+						directory.apply(data);
 					}
 				}
 				"channel_created" | "channel_updated" | "channel_deleted" | "channel_followers" => {

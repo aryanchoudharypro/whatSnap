@@ -246,6 +246,12 @@ pub(crate) fn request_group_invite_link(state: &Rc<RefCell<AppState>>) {
 }
 
 /// Whether we can post in a channel: only its owner and admins can.
+/// Whether a message can be forwarded to jid: anywhere but a channel we
+/// only follow.
+pub(crate) fn can_forward_to(s: &AppState, jid: &str) -> bool {
+	!jid.ends_with("@newsletter") || can_post_in_channel(s, jid)
+}
+
 pub(crate) fn can_post_in_channel(s: &AppState, jid: &str) -> bool {
 	matches!(s.channel_roles.get(jid).map(String::as_str), Some("owner" | "admin"))
 }
@@ -321,9 +327,10 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let mute_btn = Button::builder(&panel).with_label(if muted { "Unmute" } else { "Mute" }).build();
 	let open_btn = Button::builder(&panel).with_label("Open channel").build();
 	let copy_btn = Button::builder(&panel).with_label("Copy link").build();
+	let similar_btn = Button::builder(&panel).with_label("Similar channels...").build();
 	let manage_btn = Button::builder(&panel).with_label("Manage channel...").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	for button in [&manage_btn, &follow_btn, &mute_btn, &open_btn, &copy_btn] {
+	for button in [&manage_btn, &follow_btn, &mute_btn, &open_btn, &copy_btn, &similar_btn] {
 		buttons.add(button, 0, SizerFlag::Right, 8);
 	}
 	buttons.add_stretch_spacer(1);
@@ -351,6 +358,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		Unfollow,
 		Mute(bool),
 		Open,
+		Similar,
 		Manage(crate::ui_commands::channel_admin::ChannelManage),
 	}
 	let next = Rc::new(RefCell::new(Next::Nothing));
@@ -379,6 +387,11 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let next_open = next.clone();
 	open_btn.on_click(move |_| {
 		*next_open.borrow_mut() = Next::Open;
+		dialog.end_modal(ID_OK);
+	});
+	let next_similar = next.clone();
+	similar_btn.on_click(move |_| {
+		*next_similar.borrow_mut() = Next::Similar;
 		dialog.end_modal(ID_OK);
 	});
 	let link_copy = link.clone();
@@ -419,6 +432,11 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			state.borrow_mut().contacts.entry(jid.clone()).or_insert(name);
 			open_chat_for_jid(&jid, state, parts);
 		}
+		Next::Similar => match &directory {
+			// Find channels is already open under this: list them there.
+			Some(directory) => directory.request_similar(&jid, &name),
+			None => show_channel_directory(state, parts, Some((jid.clone(), name.clone()))),
+		},
 		Next::Manage(action) => {
 			if let Some(directory) = &directory {
 				directory.dialog.end_modal(ID_CANCEL);
@@ -427,4 +445,17 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		}
 		Next::Nothing => {}
 	}
+}
+
+/// Opens "Find channels", on the directory or on the channels like one.
+pub(crate) fn show_channel_directory(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	similar_to: Option<(String, String)>,
+) {
+	let ws_tx = state.borrow().ws_tx.clone();
+	let state_store = state.clone();
+	crate::ui::channel_directory::show_channel_directory(&parts.frame, ws_tx, similar_to, move |dir| {
+		state_store.borrow_mut().channel_directory = dir;
+	});
 }

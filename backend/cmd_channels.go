@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -150,13 +151,21 @@ func formatChannelStats(views int, reactions map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
-// channelStatsFromColumns renders stored counts for the message list.
-func channelStatsFromColumns(views int, reactionsJSON string) string {
+// channelStatsFromColumns renders stored counts for the message list,
+// starting with "Pinned" for a pinned post.
+func channelStatsFromColumns(views int, reactionsJSON string, pinned bool) string {
 	var reactions map[string]int
 	if reactionsJSON != "" {
 		json.Unmarshal([]byte(reactionsJSON), &reactions)
 	}
-	return formatChannelStats(views, reactions)
+	stats := formatChannelStats(views, reactions)
+	if pinned {
+		if stats == "" {
+			return "Pinned"
+		}
+		return "Pinned, " + stats
+	}
+	return stats
 }
 
 func groupThousands(n int) string {
@@ -167,13 +176,48 @@ func groupThousands(n int) string {
 	return s
 }
 
-// storeChannelCounts saves a post's views and reaction totals.
+// storeChannelCounts saves a post's views, reaction totals and poll votes.
 func storeChannelCounts(ex sqlExecer, jid string, msg *types.NewsletterMessage) {
 	reactions, _ := json.Marshal(msg.ReactionCounts)
 	ex.Exec(`UPDATE messages SET channel_views = CASE WHEN ? > 0 THEN ? ELSE channel_views END,
 			channel_reactions = CASE WHEN ? != 'null' THEN ? ELSE channel_reactions END
 		WHERE jid = ? AND server_id = ?`,
 		msg.ViewsCount, msg.ViewsCount, string(reactions), string(reactions), jid, msg.MessageServerID)
+	if msg.PollVotes != nil {
+		ex.Exec(`UPDATE messages SET channel_poll_votes = ? WHERE jid = ? AND server_id = ?`,
+			channelPollVotesJSON(msg.PollVotes), jid, msg.MessageServerID)
+	}
+}
+
+// channelPollVotesJSON stores a channel poll's counts by hex option hash,
+// the way chat poll votes name options.
+func channelPollVotesJSON(votes map[[32]byte]int) string {
+	byHash := make(map[string]int, len(votes))
+	for hash, n := range votes {
+		byHash[hex.EncodeToString(hash[:])] = n
+	}
+	out, _ := json.Marshal(byHash)
+	return string(out)
+}
+
+// storeChannelPins marks which of a channel's posts are pinned. The server
+// names pinned posts by server ID.
+func storeChannelPins(jid string, pins []types.NewsletterPinnedMessage) {
+	ids := make([]any, 0, len(pins))
+	marks := make([]string, 0, len(pins))
+	for _, pin := range pins {
+		if expiry := pin.Expiry(); !expiry.IsZero() && expiry.Before(time.Now()) {
+			continue
+		}
+		ids = append(ids, pin.MessageID())
+		marks = append(marks, "?")
+	}
+	if len(ids) == 0 {
+		db.Exec(`UPDATE messages SET channel_pinned = 0 WHERE jid = ? AND channel_pinned = 1`, jid)
+		return
+	}
+	db.Exec(`UPDATE messages SET channel_pinned = CASE WHEN CAST(server_id AS TEXT) IN (`+strings.Join(marks, ",")+`) THEN 1 ELSE 0 END
+		WHERE jid = ? AND server_id > 0`, append(ids, jid)...)
 }
 
 var (
@@ -225,6 +269,9 @@ func refreshChannel(jid string) {
 			log.Printf("Couldn't mark channel %s posts viewed: %v", jid, err)
 		}
 	}
+	// The official apps show a channel's pinned posts as it opens; they come
+	// with the channel's info.
+	refreshChannelPins(ctx, parsed)
 	broadcastChats()
 	broadcastEvent("channel_messages_updated", map[string]interface{}{"jid": jid, "newPosts": changed})
 }
@@ -261,6 +308,9 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 		if exists > 0 && post.IsSender {
 			db.Exec(`UPDATE messages SET from_me = 1 WHERE id = ? AND from_me = 0`, id)
 		}
+		if exists > 0 {
+			db.Exec(`UPDATE messages SET server_id = ? WHERE id = ? AND COALESCE(server_id, 0) = 0`, post.MessageServerID, id)
+		}
 		if exists == 0 && post.Message != nil {
 			changed++
 			text := extractText(post.Message)
@@ -280,6 +330,14 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 	}
 	writeBatch(writes)
 	return changed, newest, serverIDs
+}
+
+// noteChannelPostSent keeps the server ID of a post we just sent to a
+// channel, which reacting to it, pinning it and its counts all go by.
+func noteChannelPostSent(jid types.JID, id string, resp whatsmeow.SendResponse) {
+	if jid.Server == types.NewsletterServer && resp.ServerID != 0 {
+		db.Exec(`UPDATE messages SET server_id = ? WHERE id = ?`, resp.ServerID, id)
+	}
 }
 
 // loadOlderChannelPosts fetches the page of posts before the oldest one we
@@ -320,6 +378,11 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 		Query  string `json:"query"`
 		View   string `json:"view"`
 		Cursor string `json:"cursor"`
+		// Country is whose channels to list (ISO code); ours when empty.
+		Country string `json:"country"`
+		// Category lists that category's featured channels, as WhatsApp
+		// Web does when one is picked.
+		Category string `json:"category"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -327,14 +390,23 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		const pageSize = 30
+		const pageSize = 50 // what WhatsApp Web asks for
 		var page *whatsmeow.NewsletterDirectoryPage
 		var err error
 		query := strings.TrimSpace(data.Query)
-		if query != "" {
+		country := strings.ToUpper(strings.TrimSpace(data.Country))
+		if country == "" {
+			country = ownCountryCode()
+		}
+		log.Printf("Channel directory: query=%q country=%s category=%q next page=%v", query, country, data.Category, data.Cursor != "")
+		switch {
+		case query != "":
 			page, err = client.SearchNewsletterDirectory(ctx, query, data.Cursor, pageSize)
-		} else {
-			page, err = browseChannelDirectory(ctx, data.Cursor, pageSize)
+		case data.Category != "":
+			page, err = client.GetNewsletterDirectoryInCategories(ctx, whatsmeow.NewsletterDirectoryFeatured,
+				nonEmpty(country), []string{strings.ToUpper(data.Category)}, data.Cursor, pageSize)
+		default:
+			page, err = browseChannelDirectory(ctx, country, data.Cursor, pageSize)
 		}
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't load channels: " + err.Error()})
@@ -355,6 +427,8 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 		}
 		sendEvent(conn, "channel_directory", map[string]interface{}{
 			"query":      query,
+			"country":    country,
+			"category":   data.Category,
 			"view":       data.View,
 			"append":     data.Cursor != "",
 			"nextCursor": page.NextCursor,
@@ -563,15 +637,20 @@ func regionForPhone(number string) string {
 	return ""
 }
 
-// browseChannelDirectory lists channels to follow for our country: the
+// nonEmpty is a one-item list of s, or no list when s is empty.
+func nonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return []string{s}
+}
+
+// browseChannelDirectory lists channels to follow in a country: the
 // directory's recommended view, falling back to the separate
 // recommended-channels query WhatsApp Web also uses (which has no further
 // pages) if the server won't take the first.
-func browseChannelDirectory(ctx context.Context, cursor string, limit int) (*whatsmeow.NewsletterDirectoryPage, error) {
-	var countries []string
-	if cc := ownCountryCode(); cc != "" {
-		countries = []string{cc}
-	}
+func browseChannelDirectory(ctx context.Context, country, cursor string, limit int) (*whatsmeow.NewsletterDirectoryPage, error) {
+	countries := nonEmpty(country)
 	page, err := client.GetNewsletterDirectory(ctx, whatsmeow.NewsletterDirectoryRecommended, countries, cursor, limit)
 	if err == nil {
 		return page, nil

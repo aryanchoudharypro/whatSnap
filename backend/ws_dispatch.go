@@ -35,6 +35,7 @@ func handleConnection(conn net.Conn) {
 		// WhatsApp socket itself may still be down (no network at startup),
 		// so follow up with its real state for the status bar.
 		sendEvent(conn, "connection_state", currentConnState())
+		sendEvent(conn, "server_flags", serverFlagsPayload())
 		go func() {
 			populateChatsFromStore()
 			broadcastChats()
@@ -178,6 +179,16 @@ func handleConnection(conn net.Conn) {
 			handleChannelAdminInviteAnswer(conn, cmd.Data, true)
 		case "revoke_channel_admin_invite":
 			handleChannelAdminInviteAnswer(conn, cmd.Data, false)
+		case "pin_channel_post":
+			handlePinChannelPost(conn, cmd.Data)
+		case "get_channel_reactions":
+			handleGetChannelReactions(conn, cmd.Data)
+		case "get_channel_poll_voters":
+			handleGetChannelPollVoters(conn, cmd.Data)
+		case "get_channel_pending_invites":
+			handleGetChannelPendingInvites(conn, cmd.Data)
+		case "get_similar_channels":
+			handleGetSimilarChannels(conn, cmd.Data)
 		case "get_group_link_info":
 			handleGetGroupLinkInfo(conn, cmd.Data)
 		case "join_group_link":

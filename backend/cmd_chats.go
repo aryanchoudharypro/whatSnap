@@ -64,7 +64,7 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
 			COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''),
 			CASE WHEN media_type IN ('voice', 'audio') AND COALESCE(text, '') NOT LIKE '%(%' THEN raw ELSE NULL END,
-			COALESCE(channel_views, 0), COALESCE(channel_reactions, '')
+			COALESCE(channel_views, 0), COALESCE(channel_reactions, ''), COALESCE(channel_pinned, 0)
 		FROM messages WHERE jid = ?`
 	var rows *sql.Rows
 	var queryErr error
@@ -106,9 +106,10 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 			var rawBytes []byte
 			var channelViews int
 			var channelReactions string
+			var channelPinned bool
 			if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &mediaSize,
 				&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &albumID, &rawBytes,
-				&channelViews, &channelReactions); err != nil {
+				&channelViews, &channelReactions, &channelPinned); err != nil {
 				log.Println("Error scanning message row:", err)
 				continue
 			}
@@ -203,7 +204,8 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 				Starred:       starred == 1,
 				AlbumID:       albumID,
 				PollResults:   pollResults,
-				ChannelStats:  channelStatsFromColumns(channelViews, channelReactions),
+				ChannelStats:  channelStatsFromColumns(channelViews, channelReactions, channelPinned),
+				ChannelPinned: channelPinned,
 				Reactions:     emptyReactions,
 			})
 		}

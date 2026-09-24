@@ -172,7 +172,68 @@ func pollResultsForMessage(pollID string) string {
 	if !ok {
 		return ""
 	}
+	if counts, isChannel := channelPollCounts(pollID); isChannel {
+		return channelPollResultsText(p, counts, pollVotes(pollID)[ownVoterKey()])
+	}
 	return pollResultsText(p, pollVotes(pollID), ownVoterKey())
+}
+
+// channelPollCounts is a channel poll's vote counts from the server, by
+// option hash. Channel polls are counted by the server, which tells us the
+// totals but not who voted. The second result is false for a chat poll.
+func channelPollCounts(pollID string) (map[string]int, bool) {
+	var jid, raw string
+	db.QueryRow(`SELECT jid, COALESCE(channel_poll_votes, '') FROM messages WHERE id = ?`, pollID).Scan(&jid, &raw)
+	if !isChannelJID(jid) {
+		return nil, false
+	}
+	counts := map[string]int{}
+	if raw != "" {
+		json.Unmarshal([]byte(raw), &counts)
+	}
+	return counts, true
+}
+
+// channelPollResultsText is pollResultsText for a channel poll: each
+// option's share of the votes cast, and how we voted from here.
+func channelPollResultsText(p poll, counts map[string]int, mine []string) string {
+	if len(p.options) == 0 {
+		return ""
+	}
+	total := 0
+	for _, name := range p.options {
+		total += counts[optionHash(name)]
+	}
+	var text string
+	if total == 0 {
+		text = fmt.Sprintf("Options: %s. No votes yet", strings.Join(p.options, ", "))
+	} else {
+		parts := make([]string, len(p.options))
+		for i, name := range p.options {
+			n := counts[optionHash(name)]
+			noun := "votes"
+			if n == 1 {
+				noun = "vote"
+			}
+			parts[i] = fmt.Sprintf("%s %d%%, %d %s", name, int(math.Round(float64(n)*100/float64(total))), n, noun)
+		}
+		text = strings.Join(parts, "; ") + ". " + fmt.Sprintf("%d votes in all", total)
+		if total == 1 {
+			text = strings.Join(parts, "; ") + ". 1 vote in all"
+		}
+	}
+	var names []string
+	for _, h := range mine {
+		for _, name := range p.options {
+			if optionHash(name) == h {
+				names = append(names, name)
+			}
+		}
+	}
+	if len(names) > 0 {
+		text += ", you voted " + strings.Join(names, " and ")
+	}
+	return text + "."
 }
 
 func broadcastPollResults(chatJID, pollID string) string {
@@ -303,6 +364,10 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			fail("This poll takes only one answer.")
 			return
 		}
+		if isChannelJID(data.JID) {
+			sendChannelPollVote(conn, data, fail)
+			return
+		}
 		chat, err := types.ParseJID(data.JID)
 		if err != nil {
 			fail("invalid jid")
@@ -345,6 +410,96 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			"retracted":   len(data.Options) == 0,
 		})
 	}()
+}
+
+// sendChannelPollVote votes in a channel poll, which the server counts: the
+// vote names the post by server ID and the options by hash, unencrypted.
+func sendChannelPollVote(conn net.Conn, data PollRefData, fail func(string)) {
+	var serverID int64
+	db.QueryRow(`SELECT COALESCE(server_id, 0) FROM messages WHERE id = ?`, data.MessageID).Scan(&serverID)
+	chat, err := types.ParseJID(data.JID)
+	if err != nil || serverID == 0 {
+		fail("Can't vote in this poll: it hasn't finished loading from the channel.")
+		return
+	}
+	if err := client.NewsletterSendPollVote(context.Background(), chat, types.MessageServerID(serverID), data.Options); err != nil {
+		fail("Couldn't send the vote: " + err.Error())
+		return
+	}
+	// Until the server's next counts arrive, move our vote in the counts we
+	// have, so the results read right straight away.
+	if counts, ok := channelPollCounts(data.MessageID); ok {
+		for _, h := range pollVotes(data.MessageID)[ownVoterKey()] {
+			if counts[h] > 0 {
+				counts[h]--
+			}
+		}
+		for _, name := range data.Options {
+			counts[optionHash(name)]++
+		}
+		if out, err := json.Marshal(counts); err == nil {
+			db.Exec(`UPDATE messages SET channel_poll_votes = ? WHERE id = ?`, string(out), data.MessageID)
+		}
+	}
+	storePollVote(db, data.MessageID, ownVoterKey(), whatsmeow.HashPollOptions(data.Options), time.Now().Unix())
+	results := broadcastPollResults(data.JID, data.MessageID)
+	sendEvent(conn, "poll_voted", map[string]interface{}{
+		"message_id":  data.MessageID,
+		"pollResults": results,
+		"retracted":   len(data.Options) == 0,
+	})
+}
+
+// pollInfoForMessage is what Message Info shows for a poll: its results and
+// each voter with what they picked, latest vote first. Channel polls are
+// counted by the server, so only our own vote is known there. nil if
+// pollID isn't a poll.
+func pollInfoForMessage(pollID string) map[string]interface{} {
+	p, ok := loadPoll(pollID)
+	if !ok {
+		return nil
+	}
+	nameOf := map[string]string{}
+	for _, name := range p.options {
+		nameOf[optionHash(name)] = name
+	}
+	me := ownVoterKey()
+	voters := []map[string]interface{}{}
+	rows, err := db.Query(`SELECT voter, selected, timestamp FROM poll_votes WHERE poll_id = ? AND selected != '' ORDER BY timestamp DESC`, pollID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var voter, selected string
+			var ts int64
+			if rows.Scan(&voter, &selected, &ts) != nil {
+				continue
+			}
+			var picked []string
+			for _, h := range strings.Split(selected, ",") {
+				if name, ok := nameOf[h]; ok {
+					picked = append(picked, name)
+				}
+			}
+			if len(picked) == 0 {
+				continue
+			}
+			name := "You"
+			if voter != me {
+				name = voter
+				if jid, perr := types.ParseJID(voter); perr == nil {
+					name = resolveDisplayName(jid)
+				}
+			}
+			voters = append(voters, map[string]interface{}{"name": name, "options": picked, "timestamp": ts, "me": voter == me})
+		}
+	}
+	_, isChannel := channelPollCounts(pollID)
+	return map[string]interface{}{
+		"question": p.question,
+		"results":  pollResultsForMessage(pollID),
+		"voters":   voters,
+		"channel":  isChannel,
+	}
 }
 
 var convertStoredVotesOnce sync.Once

@@ -18,8 +18,38 @@ func TestFormatChannelStats(t *testing.T) {
 			t.Errorf("formatChannelStats(%d, %v) = %q, want %q", c.views, c.reactions, got, c.want)
 		}
 	}
-	if got := channelStatsFromColumns(3, `{"👍":2}`); got != "3 views, 👍 2" {
+	if got := channelStatsFromColumns(3, `{"👍":2}`, false); got != "3 views, 👍 2" {
 		t.Errorf("channelStatsFromColumns = %q", got)
+	}
+	if got := channelStatsFromColumns(3, "", true); got != "Pinned, 3 views" {
+		t.Errorf("pinned channelStatsFromColumns = %q", got)
+	}
+	if got := channelStatsFromColumns(0, "", true); got != "Pinned" {
+		t.Errorf("pinned channelStatsFromColumns with no counts = %q", got)
+	}
+}
+
+func TestChannelPollResultsText(t *testing.T) {
+	p := poll{question: "Lunch?", options: []string{"Pizza", "Salad"}}
+	counts := map[string]int{optionHash("Pizza"): 3, optionHash("Salad"): 1}
+	if got, want := channelPollResultsText(p, counts, nil), "Pizza 75%, 3 votes; Salad 25%, 1 vote. 4 votes in all."; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got, want := channelPollResultsText(p, counts, []string{optionHash("Salad")}), "Pizza 75%, 3 votes; Salad 25%, 1 vote. 4 votes in all, you voted Salad."; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got, want := channelPollResultsText(p, nil, nil), "Options: Pizza, Salad. No votes yet."; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestChannelPollVotesJSON(t *testing.T) {
+	var hash [32]byte
+	hash[0] = 0xab
+	got := channelPollVotesJSON(map[[32]byte]int{hash: 5})
+	want := `{"ab00000000000000000000000000000000000000000000000000000000000000":5}`
+	if got != want {
+		t.Errorf("got %s", got)
 	}
 }
 
