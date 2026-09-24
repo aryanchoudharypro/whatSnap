@@ -260,15 +260,37 @@ pub(crate) fn remove_group_member(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	}
 }
 
-pub(crate) fn join_community_subgroup(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, idx: u32) {
+/// Activates a row of a community's Groups list: opens a group we're in, or
+/// asks to join one we aren't.
+pub(crate) fn join_community_subgroup(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: u32) {
 	let s = state.borrow();
-	if let Some(subgroup_jid) = s.group_data_subgroup_jids.get(idx as usize).cloned() {
-		let msg = serde_json::json!({
-			"action": "join_community_subgroup",
-			"data": { "jid": subgroup_jid }
-		});
-		let _ = s.ws_tx.send(msg.to_string());
+	let Some(subgroup_jid) = s.group_data_subgroup_jids.get(idx as usize).cloned() else {
+		return;
+	};
+	if s.group_data_subgroup_joined.get(idx as usize).copied().unwrap_or(false) {
+		drop(s);
+		parts.group_data_dialog.dialog.end_modal(wxdragon::id::ID_OK);
+		open_chat_for_jid(&subgroup_jid, state, parts);
+		return;
 	}
+	let msg = serde_json::json!({
+		"action": "join_community_subgroup",
+		"data": { "jid": subgroup_jid, "community": s.group_data_community.clone().unwrap_or_default() }
+	});
+	let _ = s.ws_tx.send(msg.to_string());
+	drop(s);
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Joining group...");
+}
+
+/// Names the Groups tab's button after what it will do to the selected row.
+pub(crate) fn community_subgroup_selection_changed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let joined = parts
+		.group_data_dialog
+		.groups_list
+		.get_selection()
+		.and_then(|idx| state.borrow().group_data_subgroup_joined.get(idx as usize).copied())
+		.unwrap_or(false);
+	parts.group_data_dialog.join_group_btn.set_label(if joined { "Open group" } else { "Join group" });
 }
 
 pub(crate) fn open_group_invite(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, message_id: String) {

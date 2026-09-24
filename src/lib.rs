@@ -81,6 +81,10 @@ pub struct ChatMessage {
 	/// shown after the question.
 	#[serde(rename = "pollResults", alias = "poll_results", default)]
 	pub poll_results: String,
+	/// For a channel post: its view count and reaction totals ("1,204 views,
+	/// 👍 31, ❤️ 12"). Channels show counts, not who reacted.
+	#[serde(rename = "channelStats", alias = "channel_stats", default)]
+	pub channel_stats: String,
 }
 
 /// Renders a byte count the way file managers do: whole numbers under 1000
@@ -605,6 +609,11 @@ impl ChatMessage {
 
 		let edit_suffix = if self.is_edited { ", edited" } else { "" };
 		let star_suffix = if self.starred { ", starred" } else { "" };
+		let reactions_suffix = if self.channel_stats.is_empty() {
+			reactions_suffix
+		} else {
+			format!("{}, {}", reactions_suffix, self.channel_stats)
+		};
 
 		if self.from_me {
 			if !formatted_time.is_empty() {
@@ -1772,5 +1781,234 @@ mod prepend_plan_tests {
 	fn nothing_new_is_not_a_prepend() {
 		let old = vec![day("Tue"), msg("c")];
 		assert_eq!(prepend_plan(&old, &old.clone()), None);
+	}
+}
+
+/// Orders the Communities tab the way the official apps lay it out: each
+/// community, followed by the groups in it that we're in, its announcements
+/// group first. `chats` is the chat list in its usual order, which the
+/// communities and the groups under each keep. Groups whose community isn't
+/// in the list are left out.
+pub fn community_tab_order(
+	chats: &[String],
+	communities: &std::collections::HashSet<String>,
+	parents: &std::collections::HashMap<String, String>,
+	announcements: &std::collections::HashSet<String>,
+) -> Vec<String> {
+	let mut children: std::collections::HashMap<&str, Vec<&String>> = std::collections::HashMap::new();
+	for jid in chats {
+		if let Some(parent) = parents.get(jid) {
+			if communities.contains(parent) {
+				children.entry(parent.as_str()).or_default().push(jid);
+			}
+		}
+	}
+	let mut order = Vec::new();
+	for jid in chats.iter().filter(|j| communities.contains(*j)) {
+		order.push(jid.clone());
+		if let Some(groups) = children.get_mut(jid.as_str()) {
+			groups.sort_by_key(|g| !announcements.contains(*g));
+			order.extend(groups.iter().map(|g| (*g).clone()));
+		}
+	}
+	order
+}
+
+#[cfg(test)]
+mod community_tab_order_tests {
+	use super::community_tab_order;
+
+	fn strings(v: &[&str]) -> Vec<String> {
+		v.iter().map(|s| s.to_string()).collect()
+	}
+
+	#[test]
+	fn groups_follow_their_community_with_announcements_first() {
+		let chats = strings(&["g1", "c2", "g2", "ann1", "c1", "dm", "ann2"]);
+		let communities = ["c1", "c2"].iter().map(|s| s.to_string()).collect();
+		let parents = [("g1", "c1"), ("ann1", "c1"), ("g2", "c2"), ("ann2", "c2")]
+			.iter()
+			.map(|(a, b)| (a.to_string(), b.to_string()))
+			.collect();
+		let announcements = ["ann1", "ann2"].iter().map(|s| s.to_string()).collect();
+		assert_eq!(
+			community_tab_order(&chats, &communities, &parents, &announcements),
+			strings(&["c2", "ann2", "g2", "c1", "ann1", "g1"])
+		);
+	}
+
+	#[test]
+	fn groups_of_an_unknown_community_are_left_out() {
+		let chats = strings(&["g1", "c1"]);
+		let communities = ["c1"].iter().map(|s| s.to_string()).collect();
+		let parents = [("g1", "elsewhere")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+		let announcements = Default::default();
+		assert_eq!(community_tab_order(&chats, &communities, &parents, &announcements), strings(&["c1"]));
+	}
+}
+
+/// One row of a community's Groups list: the group's name and what it is to
+/// us, so a screen reader hears whether Enter will open it or join it.
+pub fn community_group_label(
+	name: &str,
+	announcements: bool,
+	general_chat: bool,
+	joined: bool,
+	participant_count: u64,
+) -> String {
+	let mut parts = vec![if name.is_empty() { "Unnamed group".to_string() } else { name.to_string() }];
+	if announcements {
+		parts.push("announcements".to_string());
+	} else if general_chat {
+		parts.push("general chat".to_string());
+	}
+	parts.push(if joined { "joined" } else { "not joined" }.to_string());
+	match participant_count {
+		0 => {}
+		1 => parts.push("1 member".to_string()),
+		n => parts.push(format!("{} members", n)),
+	}
+	parts.join(", ")
+}
+
+#[cfg(test)]
+mod community_group_label_tests {
+	use super::community_group_label;
+
+	#[test]
+	fn says_what_the_group_is_and_whether_we_are_in_it() {
+		assert_eq!(community_group_label("NAB", true, false, true, 0), "NAB, announcements, joined");
+		assert_eq!(community_group_label("Class 11", false, false, false, 42), "Class 11, not joined, 42 members");
+		assert_eq!(community_group_label("", false, true, true, 1), "Unnamed group, general chat, joined, 1 member");
+	}
+}
+
+/// A WhatsApp link we can act on: the whatsapp:// links that "Share on
+/// WhatsApp" buttons and wa.me pages open, and group invite links.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WhatsAppLink {
+	/// Send a message. With a phone number, the chat with that number opens
+	/// with the text ready to send; without one, the user picks who to send
+	/// it to.
+	Send { phone: Option<String>, text: String },
+	/// Join a group from its invite code.
+	Invite { code: String },
+	/// Look at (and maybe follow) a channel from its invite code.
+	Channel { code: String },
+}
+
+/// Understands whatsapp://send, whatsapp://chat?code=, wa.me/<number>,
+/// api.whatsapp.com/send, web.whatsapp.com/send and chat.whatsapp.com/<code>
+/// links. Returns None for anything else.
+pub fn parse_whatsapp_link(link: &str) -> Option<WhatsAppLink> {
+	let link = link.trim().trim_matches('"');
+	let (scheme, rest) = link.split_once("://")?;
+	let scheme = scheme.to_ascii_lowercase();
+	let (location, query) = rest.split_once('?').unwrap_or((rest, ""));
+	let location = location.split('#').next().unwrap_or("").trim_end_matches('/');
+	let query = query.split('#').next().unwrap_or("");
+	let param = |name: &str| {
+		query.split('&').find_map(|pair| {
+			let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+			(key.eq_ignore_ascii_case(name)).then(|| percent_decode_query(value))
+		})
+	};
+	let (host, path) = location.split_once('/').unwrap_or((location, ""));
+	let host = host.to_ascii_lowercase();
+	let host = host.strip_prefix("www.").unwrap_or(&host);
+	let path = path.trim_matches('/');
+
+	let send = |phone: Option<String>| {
+		let phone = phone.map(|p| p.chars().filter(char::is_ascii_digit).collect::<String>()).filter(|p| !p.is_empty());
+		let text = param("text").unwrap_or_default();
+		(phone.is_some() || !text.is_empty()).then_some(WhatsAppLink::Send { phone, text })
+	};
+	let invite = |code: String| (!code.is_empty()).then_some(WhatsAppLink::Invite { code });
+
+	match (scheme.as_str(), host) {
+		("whatsapp", "send") => send(param("phone")),
+		("whatsapp", "chat") => invite(param("code")?),
+		("http" | "https", "wa.me") if path.is_empty() => send(param("phone")),
+		("http" | "https", "wa.me") => send(Some(path.to_string())),
+		("http" | "https", "api.whatsapp.com" | "web.whatsapp.com") if path == "send" => send(param("phone")),
+		("http" | "https", "whatsapp.com") if path.starts_with("channel/") => {
+			let code = path["channel/".len()..].split('/').next().unwrap_or("").to_string();
+			(!code.is_empty()).then_some(WhatsAppLink::Channel { code })
+		}
+		("http" | "https", "chat.whatsapp.com") => {
+			invite(param("code").unwrap_or_else(|| path.strip_prefix("invite/").unwrap_or(path).to_string()))
+		}
+		_ => None,
+	}
+}
+
+/// Decodes a URL query value: %XX escapes (as UTF-8) and + for a space.
+fn percent_decode_query(value: &str) -> String {
+	let bytes = value.as_bytes();
+	let mut out = Vec::with_capacity(bytes.len());
+	let mut i = 0;
+	while i < bytes.len() {
+		match bytes[i] {
+			b'+' => out.push(b' '),
+			b'%' => {
+				let escape = bytes.get(i + 1..i + 3).and_then(|hex| std::str::from_utf8(hex).ok());
+				match escape.and_then(|hex| u8::from_str_radix(hex, 16).ok()) {
+					Some(byte) => {
+						out.push(byte);
+						i += 3;
+						continue;
+					}
+					None => out.push(b'%'),
+				}
+			}
+			byte => out.push(byte),
+		}
+		i += 1;
+	}
+	String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod whatsapp_link_tests {
+	use super::{WhatsAppLink, parse_whatsapp_link};
+
+	fn send(phone: Option<&str>, text: &str) -> Option<WhatsAppLink> {
+		Some(WhatsAppLink::Send { phone: phone.map(str::to_string), text: text.to_string() })
+	}
+
+	#[test]
+	fn share_links() {
+		assert_eq!(parse_whatsapp_link("whatsapp://send?text=Hello%20there%21"), send(None, "Hello there!"));
+		assert_eq!(parse_whatsapp_link("whatsapp://send/?text=a+b&phone=+91%2098100"), send(Some("9198100"), "a b"));
+		assert_eq!(
+			parse_whatsapp_link("https://api.whatsapp.com/send?phone=919810012345&text=Hi"),
+			send(Some("919810012345"), "Hi")
+		);
+		assert_eq!(parse_whatsapp_link("https://wa.me/919810012345?text=%E0%A4%A8"), send(Some("919810012345"), "न"));
+		assert_eq!(parse_whatsapp_link("https://wa.me/?text=news"), send(None, "news"));
+		assert_eq!(parse_whatsapp_link("\"whatsapp://send?text=100%\""), send(None, "100%"));
+	}
+
+	#[test]
+	fn invite_links() {
+		let invite = |c: &str| Some(WhatsAppLink::Invite { code: c.to_string() });
+		assert_eq!(parse_whatsapp_link("https://chat.whatsapp.com/AbC123"), invite("AbC123"));
+		assert_eq!(parse_whatsapp_link("https://chat.whatsapp.com/invite/AbC123/"), invite("AbC123"));
+		assert_eq!(parse_whatsapp_link("whatsapp://chat/?code=AbC123"), invite("AbC123"));
+	}
+
+	#[test]
+	fn channel_links() {
+		let channel = |c: &str| Some(WhatsAppLink::Channel { code: c.to_string() });
+		assert_eq!(parse_whatsapp_link("https://whatsapp.com/channel/0029VaAbC"), channel("0029VaAbC"));
+		assert_eq!(parse_whatsapp_link("https://www.whatsapp.com/channel/0029VaAbC/123"), channel("0029VaAbC"));
+		assert_eq!(parse_whatsapp_link("https://whatsapp.com/download"), None);
+	}
+
+	#[test]
+	fn not_ours() {
+		assert_eq!(parse_whatsapp_link("https://example.com/send?text=x"), None);
+		assert_eq!(parse_whatsapp_link("whatsapp://send"), None);
+		assert_eq!(parse_whatsapp_link("hello"), None);
 	}
 }

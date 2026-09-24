@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
@@ -43,6 +44,14 @@ func migrateDB() error {
 	// message's own status only reaches "delivered"/"read" once every other
 	// member got there - the way official WhatsApp shows ticks in groups.
 	db.Exec("ALTER TABLE chats ADD COLUMN participant_count INTEGER DEFAULT 0")
+	// Community structure, from the joined-groups list and link/unlink
+	// events: which community a group belongs to, and whether it is that
+	// community's announcement group.
+	db.Exec("ALTER TABLE chats ADD COLUMN parent_jid TEXT DEFAULT ''")
+	db.Exec("ALTER TABLE chats ADD COLUMN is_announce_group INTEGER DEFAULT 0")
+	// Channels we follow, and our role in each (owner, admin, subscriber).
+	db.Exec("ALTER TABLE chats ADD COLUMN is_channel INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN channel_role TEXT DEFAULT ''")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
@@ -99,6 +108,11 @@ func migrateDB() error {
 	// message ID here, so the frontend can group them without guessing from
 	// timestamps. Empty for standalone media.
 	db.Exec("ALTER TABLE messages ADD COLUMN album_id TEXT DEFAULT ''")
+	// Channel posts: the server's ID for the post (what reactions and view
+	// receipts name), its view count and reaction totals as JSON.
+	db.Exec("ALTER TABLE messages ADD COLUMN server_id INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN channel_views INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN channel_reactions TEXT DEFAULT ''")
 	// An edit is delivered as its own stanza with its own message ID, so every
 	// receipt for it names an ID no message row has. This maps those IDs back
 	// to the message being edited.
@@ -117,7 +131,7 @@ func migrateDB() error {
 	// me" removes the row outright, and that already happens immediately via
 	// deleteMessageForMe, not through this startup sweep.
 	db.Exec("DELETE FROM messages WHERE COALESCE(is_deleted, 0) = 0 AND (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
-	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0) OR COALESCE(is_deleted, 0) = 1) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0")
+	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0) OR COALESCE(is_deleted, 0) = 1) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0")
 	// These re-derive rows stored by older builds. Each one only ever has
 	// work to do once, but used to rescan and re-decode every matching row's
 	// raw protobuf on every single launch.
@@ -125,6 +139,7 @@ func migrateDB() error {
 	runOnce("backfill_album_messages_v1", backfillAlbumMessages)
 	runOnce("backfill_media_sizes_v1", backfillMediaSizes)
 	runOnce("remove_key_distribution_stubs_v1", removeKeyDistributionStubs)
+	runOnce("tokenize_system_line_names_v1", tokenizeBakedSystemLines)
 	// An upload that was still running when the app last quit can never
 	// finish now - and retry only accepts pending/failed rows, so leaving it
 	// as "uploading" stranded it on screen forever with no way to resend.
@@ -254,8 +269,8 @@ func saveMessage(sm StoredMessage) error {
 		sentAt = sm.Timestamp
 	}
 	_, err := db.Exec(`INSERT INTO messages
-			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, media_size, quoted_id, quoted_text, quoted_sender, sent_at, album_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, media_size, quoted_id, quoted_text, quoted_sender, sent_at, album_id, server_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			-- A message can be delivered more than once (reconnect resync, or a
 			-- group message whose two encrypted halves each raise an event), and
@@ -275,10 +290,11 @@ func saveMessage(sm StoredMessage) error {
 			quoted_text=excluded.quoted_text,
 			quoted_sender=excluded.quoted_sender,
 			sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END,
-			album_id=CASE WHEN excluded.album_id != '' THEN excluded.album_id ELSE messages.album_id END`,
+			album_id=CASE WHEN excluded.album_id != '' THEN excluded.album_id ELSE messages.album_id END,
+			server_id=CASE WHEN excluded.server_id != 0 THEN excluded.server_id ELSE messages.server_id END`,
 		sm.ID, sm.JID, sm.FromMe, sm.Text, sm.Timestamp, sm.SenderJID, sm.Raw, sm.Status,
 		sm.MediaType, sm.MediaMimetype, sm.MediaFilename, sm.MediaPath, sm.MediaSize,
-		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt, sm.AlbumID)
+		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt, sm.AlbumID, sm.ServerID)
 	// Several call sites (local echo of a send, media/status messages) don't
 	// check this error themselves, so a write failure here would otherwise
 	// vanish silently instead of just losing the message on screen.
@@ -1099,7 +1115,7 @@ func getCachedAvatarPath(jid string) string {
 // name -> push name -> business name -> "+<number>".
 func resolveDisplayName(jid types.JID) string {
 	if client != nil && client.Store != nil && client.Store.ID != nil {
-		if jid.User == client.Store.ID.User {
+		if jid.User == client.Store.ID.User || (jid.Server == types.HiddenUserServer && jid.User == client.Store.GetLID().User) {
 			return "You"
 		}
 	}
@@ -1110,21 +1126,53 @@ func resolveDisplayName(jid types.JID) string {
 	if jid.User == types.NewMetaAIJID.User && jid.Server == types.NewMetaAIJID.Server {
 		return "Meta AI"
 	}
+	// A channel is named by its own title, which we keep in the chat list.
+	if jid.Server == types.NewsletterServer {
+		var name string
+		if db != nil {
+			db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid.String()).Scan(&name)
+		}
+		return cmp.Or(name, "Channel")
+	}
 	contactJID := jid
-	if jid.Server == "lid" {
-		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
-			contactJID = pn
+	// twin is the same person's other address (their LID for a phone JID,
+	// or the reverse). Group members who hide their number are only ever
+	// seen as a LID, so their push name is often stored under that alone,
+	// while the address-book name is under the phone JID.
+	var twin types.JID
+	redactedPhone := ""
+	if client != nil && client.Store != nil && client.Store.LIDs != nil {
+		switch jid.Server {
+		case types.HiddenUserServer:
+			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
+				contactJID = pn
+				twin = jid
+			}
+		case types.DefaultUserServer:
+			if lid, err := client.Store.LIDs.GetLIDForPN(context.Background(), jid); err == nil && !lid.IsEmpty() {
+				twin = lid
+			}
 		}
 	}
 	if client != nil && client.Store != nil && client.Store.Contacts != nil {
-		if info, err := client.Store.Contacts.GetContact(context.Background(), contactJID); err == nil && info.Found {
+		pushName, businessName := "", ""
+		for _, candidate := range []types.JID{contactJID, twin} {
+			if candidate.IsEmpty() {
+				continue
+			}
+			info, err := client.Store.Contacts.GetContact(context.Background(), candidate)
+			if err != nil || !info.Found {
+				continue
+			}
 			if info.FullName != "" {
 				return info.FullName
-			} else if info.PushName != "" {
-				return info.PushName
-			} else if info.BusinessName != "" {
-				return info.BusinessName
 			}
+			pushName = cmp.Or(pushName, info.PushName)
+			businessName = cmp.Or(businessName, info.BusinessName)
+			redactedPhone = cmp.Or(redactedPhone, info.RedactedPhone)
+		}
+		if name := cmp.Or(pushName, businessName); name != "" {
+			return name
 		}
 	}
 	var name, phone string
@@ -1141,6 +1189,12 @@ func resolveDisplayName(jid types.JID) string {
 	// phone JID above, and "+<number>" beats showing a raw "<n>@lid".
 	if contactJID.Server != "g.us" && contactJID.Server != "lid" && contactJID.Server != "" && contactJID.User != "" {
 		return "+" + contactJID.User
+	}
+	// A member who hides their number in a community: WhatsApp gives us the
+	// number with most digits masked ("+91∙∙∙∙∙∙∙∙62"), which is what the
+	// official apps show too - far better than a raw "<n>@lid".
+	if redactedPhone != "" {
+		return redactedPhone
 	}
 	return jid.String()
 }

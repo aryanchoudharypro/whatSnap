@@ -1,0 +1,312 @@
+//! "Find channels": search WhatsApp's channel directory, or browse its
+//! recommended channels, and follow or look at one. Results come back from
+//! the backend while the dialog is open (`channel_directory` events), so the
+//! dialog's parts live in AppState for as long as it's shown.
+
+use std::{cell::RefCell, rc::Rc};
+
+use wxdragon::prelude::*;
+
+use crate::ui::theme;
+
+#[derive(Clone)]
+struct Entry {
+	jid: String,
+	name: String,
+	description: String,
+	followers: u64,
+	verified: bool,
+	following: bool,
+}
+
+impl Entry {
+	fn label(&self) -> String {
+		let mut parts = vec![if self.name.is_empty() { "Unnamed channel".to_string() } else { self.name.clone() }];
+		if self.verified {
+			parts.push("verified".to_string());
+		}
+		parts.push(match self.followers {
+			1 => "1 follower".to_string(),
+			n => format!("{} followers", whantv_group_thousands(n)),
+		});
+		if self.following {
+			parts.push("following".to_string());
+		}
+		if !self.description.is_empty() {
+			let short: String = self.description.chars().take(120).collect();
+			parts.push(short.replace('\n', " "));
+		}
+		parts.join(", ")
+	}
+}
+
+fn whantv_group_thousands(n: u64) -> String {
+	let s = n.to_string();
+	let mut out = String::new();
+	for (i, c) in s.chars().enumerate() {
+		if i > 0 && (s.len() - i) % 3 == 0 {
+			out.push(',');
+		}
+		out.push(c);
+	}
+	out
+}
+
+#[derive(Default)]
+struct DirectoryState {
+	entries: Vec<Entry>,
+	query: String,
+	next_cursor: String,
+	loading: bool,
+}
+
+/// The open "Find channels" dialog.
+pub struct ChannelDirectory {
+	pub dialog: Dialog,
+	list: ListBox,
+	more_btn: Button,
+	follow_btn: Button,
+	announcer: StaticText,
+	state: RefCell<DirectoryState>,
+	ws_tx: std::sync::mpsc::Sender<String>,
+}
+
+impl ChannelDirectory {
+	fn request(&self, query: &str, cursor: &str) {
+		let mut s = self.state.borrow_mut();
+		if s.loading {
+			return;
+		}
+		s.loading = true;
+		s.query = query.to_string();
+		drop(s);
+		let payload = serde_json::json!({
+			"action": "channel_directory",
+			"data": { "query": query, "cursor": cursor }
+		});
+		let _ = self.ws_tx.send(payload.to_string());
+		crate::announce::announce(
+			self.announcer.clone(),
+			if query.is_empty() { "Loading recommended channels..." } else { "Searching..." },
+		);
+	}
+
+	/// Shows a page of results from the backend.
+	pub fn apply(&self, data: &serde_json::Value) {
+		let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
+		let append = data.get("append").and_then(|a| a.as_bool()).unwrap_or(false);
+		let mut s = self.state.borrow_mut();
+		s.loading = false;
+		if text(data, "query") != s.query {
+			// An answer to an older search the user has since replaced.
+			return;
+		}
+		let page: Vec<Entry> = data
+			.get("channels")
+			.and_then(|c| c.as_array())
+			.map(|channels| {
+				channels
+					.iter()
+					.map(|c| Entry {
+						jid: text(c, "jid"),
+						name: text(c, "name"),
+						description: text(c, "description"),
+						followers: c.get("followers").and_then(|f| f.as_u64()).unwrap_or(0),
+						verified: c.get("verified").and_then(|f| f.as_bool()).unwrap_or(false),
+						following: c.get("following").and_then(|f| f.as_bool()).unwrap_or(false),
+					})
+					.filter(|e| !e.jid.is_empty())
+					.collect()
+			})
+			.unwrap_or_default();
+		s.next_cursor = text(data, "nextCursor");
+		let first_new = if append { s.entries.len() } else { 0 };
+		let labels: Vec<String> = page.iter().map(Entry::label).collect();
+		let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+		if append {
+			s.entries.extend(page);
+			self.list.append_items(&label_refs);
+		} else {
+			s.entries = page;
+			self.list.set_items(&label_refs);
+		}
+		self.more_btn.show(!s.next_cursor.is_empty());
+		if !s.entries.is_empty() && first_new < s.entries.len() {
+			self.list.set_selection(first_new as u32, true);
+		}
+		let found = labels.len();
+		let message = match (found, append) {
+			(0, false) if s.query.is_empty() => "No recommended channels.".to_string(),
+			(0, false) => format!("No channels found for {}.", s.query),
+			(0, true) => "No more channels.".to_string(),
+			(1, _) => "1 channel.".to_string(),
+			(n, true) => format!("{} more channels.", n),
+			(n, false) => format!("{} channels.", n),
+		};
+		drop(s);
+		self.selection_changed();
+		self.dialog.layout();
+		crate::announce::announce(self.announcer.clone(), &message);
+	}
+
+	/// Updates a row after following or unfollowing from anywhere.
+	pub fn set_following(&self, jid: &str, following: bool) {
+		let mut s = self.state.borrow_mut();
+		if let Some(idx) = s.entries.iter().position(|e| e.jid == jid) {
+			s.entries[idx].following = following;
+			self.list.set_string(idx as u32, &s.entries[idx].label());
+		}
+		drop(s);
+		self.selection_changed();
+	}
+
+	fn selected(&self) -> Option<Entry> {
+		let idx = self.list.get_selection()? as usize;
+		self.state.borrow().entries.get(idx).cloned()
+	}
+
+	fn selection_changed(&self) {
+		let following = self.selected().is_some_and(|e| e.following);
+		self.follow_btn.set_label(if following { "Unfollow" } else { "Follow" });
+	}
+}
+
+/// Builds and shows the dialog, and returns once it's closed. `store` keeps
+/// it reachable for incoming results while it's open.
+pub fn show_channel_directory(
+	parent: &impl WxWidget,
+	ws_tx: std::sync::mpsc::Sender<String>,
+	store: impl Fn(Option<Rc<ChannelDirectory>>),
+) {
+	let dialog = Dialog::builder(parent, "Find channels")
+		.with_size(520, 560)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	theme::style_content(&dialog);
+	let panel = Panel::builder(&dialog).build();
+	theme::style_content(&panel);
+	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	let search_label = StaticText::builder(&panel).with_label("Search channels, then press Enter").build();
+	theme::style_muted_label(&search_label);
+	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let search_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
+	search_field.set_font(&theme::Fonts::body());
+	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	let list_label = StaticText::builder(&panel).with_label("Channels").build();
+	theme::style_muted_label(&list_label);
+	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let list = ListBox::builder(&panel).build();
+	list.set_font(&theme::Fonts::body());
+	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	let announcer = StaticText::builder(&panel).with_label("").build();
+	live_region::set_live_region(&announcer);
+	theme::style_muted_label(&announcer);
+	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
+	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+	let view_btn = Button::builder(&panel).with_label("View channel...").build();
+	let follow_btn = Button::builder(&panel).with_label("Follow").build();
+	let more_btn = Button::builder(&panel).with_label("More channels").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	for button in [&view_btn, &follow_btn, &more_btn] {
+		buttons.add(button, 0, SizerFlag::Right, 8);
+	}
+	buttons.add_stretch_spacer(1);
+	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
+	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	more_btn.show(false);
+	panel.set_sizer(sizer, true);
+	let outer = BoxSizer::builder(Orientation::Vertical).build();
+	outer.add(&panel, 1, SizerFlag::Expand, 0);
+	dialog.set_sizer(outer, true);
+	dialog.center();
+
+	let directory = Rc::new(ChannelDirectory {
+		dialog,
+		list,
+		more_btn,
+		follow_btn,
+		announcer,
+		state: RefCell::new(DirectoryState::default()),
+		ws_tx: ws_tx.clone(),
+	});
+	store(Some(directory.clone()));
+
+	// Searches only on Enter: each search is a request to WhatsApp's
+	// servers, so not one per keystroke.
+	let dir_search = directory.clone();
+	search_field.on_text_enter(move |_| {
+		dir_search.request(search_field.get_value().trim(), "");
+	});
+	let dir_more = directory.clone();
+	more_btn.on_click(move |_| {
+		let (query, cursor) = {
+			let s = dir_more.state.borrow();
+			(s.query.clone(), s.next_cursor.clone())
+		};
+		if !cursor.is_empty() {
+			dir_more.request(&query, &cursor);
+		}
+	});
+	let dir_select = directory.clone();
+	list.on_selection_changed(move |_| dir_select.selection_changed());
+
+	let view_tx = ws_tx.clone();
+	let dir_view = directory.clone();
+	let view = Rc::new(move || {
+		if let Some(entry) = dir_view.selected() {
+			let payload = serde_json::json!({ "action": "get_channel_info", "data": { "jid": entry.jid } });
+			let _ = view_tx.send(payload.to_string());
+		}
+	});
+	let view_click = view.clone();
+	view_btn.on_click(move |_| view_click());
+	let view_double = view.clone();
+	list.on_item_double_clicked(move |_| view_double());
+	// Enter on a row: caught on key-up, since the dialog takes Enter's
+	// key-down for its default button.
+	let view_enter = view.clone();
+	list.on_key_up(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if matches!(key.get_key_code(), Some(13) | Some(370)) {
+				view_enter();
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
+
+	let dir_follow = directory.clone();
+	let follow_tx = ws_tx;
+	follow_btn.on_click(move |_| {
+		if let Some(entry) = dir_follow.selected() {
+			let action = if entry.following { "unfollow_channel" } else { "follow_channel" };
+			let payload = serde_json::json!({ "action": action, "data": { "jid": entry.jid } });
+			let _ = follow_tx.send(payload.to_string());
+		}
+	});
+	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
+
+	let escape_closes = move |event: WindowEventData| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			if key.get_key_code() == Some(27) {
+				dialog.end_modal(ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	};
+	search_field.on_key_down(escape_closes);
+	list.on_key_down(escape_closes);
+
+	directory.request("", "");
+	search_field.set_focus();
+	dialog.show_modal();
+	store(None);
+	dialog.destroy();
+}

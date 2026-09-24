@@ -148,7 +148,7 @@ func handleExportChat(conn net.Conn, raw json.RawMessage) {
 				continue
 			}
 
-			body := r.text
+			body := renderNames(r.text, nil)
 			if body == "" {
 				body = "[Media]"
 			}
@@ -244,11 +244,14 @@ func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 			}
 
 			t := time.Unix(ts, 0)
+			text = renderNames(text, nil)
 
 			var content string
 			switch {
 			case deletedInt == 1:
 				content = "This message was deleted"
+			case mediaType == "system":
+				content = text
 			case mediaType != "":
 				placeholder := "[media]"
 				switch mediaType {

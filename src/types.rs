@@ -135,6 +135,14 @@ pub enum UiCommand {
 	/// rather than after the focus-loss grace period.
 	WindowHidden,
 	ActivateWindow,
+	/// A WhatsApp link to act on (a share, a chat, or a group invite).
+	OpenWhatsAppLink(String),
+	/// Show the selected group's invite link.
+	ShowGroupInviteLink,
+	/// Open the "Find channels" directory.
+	FindChannels,
+	/// Join a group from an invite link's code, once confirmed.
+	JoinGroupLink(String),
 	MarkRead {
 		jid: String,
 		message_ids: Vec<String>,
@@ -242,7 +250,9 @@ pub enum UiCommand {
 	GroupMemberSelectionChanged,
 	ToggleGroupMemberAdmin(u32),
 	RemoveGroupMember(u32),
+	/// Open a community group we're in, or join one we aren't.
 	JoinCommunitySubgroup(u32),
+	CommunitySubgroupSelectionChanged,
 	OpenGroupInvite(String), // message id of a group-invite message
 	JoinGroupInvite(String), // message id, confirmed via the invite-details dialog
 	DownloadMediaMessage(String),

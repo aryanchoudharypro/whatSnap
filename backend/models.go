@@ -238,6 +238,8 @@ type MessageJSON struct {
 	AlbumID       string         `json:"albumId"`
 	// For a poll: each option's share of the votes, shown after the question.
 	PollResults string `json:"pollResults,omitempty"`
+	// For a channel post: its views and reaction totals.
+	ChannelStats string `json:"channelStats,omitempty"`
 	// Always a list, never null: the Rust side's `#[serde(default)]` covers a
 	// missing field but not an explicit null, which would fail to deserialize.
 	Reactions []ReactionInfo `json:"reactions"`
@@ -263,4 +265,5 @@ type StoredMessage struct {
 	QuotedText    string
 	QuotedSender  string
 	AlbumID       string // header message ID of the album this belongs to, "" if standalone
+	ServerID      int64  // channel posts: the server's ID for the post, 0 otherwise
 }

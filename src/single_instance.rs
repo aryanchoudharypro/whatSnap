@@ -11,7 +11,7 @@
 
 #![cfg(target_os = "windows")]
 
-use std::io::Write;
+use std::io::{Read, Write};
 
 use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName, prelude::*};
 use windows::{
@@ -46,7 +46,10 @@ impl Drop for InstanceLock {
 /// the UI command channel exists. Returns `None` if another instance is
 /// already running, after asking it to activate itself, so the caller
 /// should exit immediately without spawning the backend or opening a window.
-pub fn acquire_or_activate_existing() -> Option<InstanceLock> {
+///
+/// `link` is a WhatsApp link this launch was started with (whaNTV is the
+/// whatsapp:// handler); it's passed on to the running instance.
+pub fn acquire_or_activate_existing(link: Option<&str>) -> Option<InstanceLock> {
 	let Ok(handle) = (unsafe { CreateMutexW(None, true, MUTEX_NAME) }) else {
 		// Can't even tell whether another instance is running; err on the
 		// side of letting this one start rather than locking the user out.
@@ -58,15 +61,16 @@ pub fn acquire_or_activate_existing() -> Option<InstanceLock> {
 		return Some(InstanceLock { handle });
 	}
 
-	request_activate();
+	request_activate(link);
 	unsafe {
 		let _ = CloseHandle(handle);
 	}
 	None
 }
 
-/// Tells the already-running instance to raise its window.
-fn request_activate() {
+/// Tells the already-running instance to raise its window, and hands it the
+/// link this launch was given, if any.
+fn request_activate(link: Option<&str>) {
 	// Grant the existing instance's process temporary permission to steal
 	// the foreground: on Windows, a process can only call
 	// SetForegroundWindow successfully if it currently holds that right or
@@ -85,22 +89,32 @@ fn request_activate() {
 
 	let Ok(name) = ACTIVATE_PIPE_NAME.to_ns_name::<GenericNamespaced>() else { return };
 	if let Ok(mut stream) = LocalSocketStream::connect(name) {
-		let _ = stream.write_all(b"activate");
+		let message = match link {
+			Some(link) => format!("activate\n{}", link),
+			None => "activate".to_string(),
+		};
+		let _ = stream.write_all(message.as_bytes());
 	}
 }
 
 /// Starts listening (on a background thread) for activation requests from
-/// future launches of the app, invoking `on_activate` each time one arrives.
-/// Call once, after the UI command channel is ready to receive the result.
-pub fn listen_for_activation(on_activate: impl Fn() + Send + 'static) {
+/// future launches of the app, invoking `on_activate` each time one arrives,
+/// with the link that launch was given, if any. Call once, after the UI
+/// command channel is ready to receive the result.
+pub fn listen_for_activation(on_activate: impl Fn(Option<String>) + Send + 'static) {
 	let Ok(name) = ACTIVATE_PIPE_NAME.to_ns_name::<GenericNamespaced>() else { return };
 	let Ok(listener) = ListenerOptions::new().name(name).create_sync() else { return };
 
 	std::thread::spawn(move || {
 		for conn in listener.incoming() {
-			if conn.is_ok() {
-				on_activate();
-			}
+			let Ok(mut conn) = conn else { continue };
+			// The sender writes one short message and closes; a link is
+			// capped well above any real one so a stray client can't make
+			// this grow without bound.
+			let mut message = String::new();
+			let _ = (&mut conn).take(64 * 1024).read_to_string(&mut message);
+			let link = message.split_once('\n').map(|(_, link)| link.to_string()).filter(|l| !l.is_empty());
+			on_activate(link);
 		}
 	});
 }

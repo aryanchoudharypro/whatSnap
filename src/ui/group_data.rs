@@ -17,6 +17,7 @@ pub struct GroupDataDialogParts {
 	pub add_member_btn: Button,
 	pub make_admin_btn: Button,
 	pub remove_member_btn: Button,
+	pub invite_link_btn: Button,
 
 	// Media tab (photos and videos only, matching official WhatsApp)
 	pub media_panel: Panel,
@@ -89,6 +90,9 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 
 	let remove_member_btn = Button::builder(&members_panel).with_label("Remove member").build();
 	mem_btn_sizer.add(&remove_member_btn, 0, SizerFlag::Right, 5);
+
+	let invite_link_btn = Button::builder(&members_panel).with_label("Invite link...").build();
+	mem_btn_sizer.add(&invite_link_btn, 0, SizerFlag::Right, 5);
 
 	members_sizer.add_sizer(&mem_btn_sizer, 0, SizerFlag::All, 5);
 	members_panel.set_sizer(members_sizer, true);
@@ -181,6 +185,7 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		add_member_btn,
 		make_admin_btn,
 		remove_member_btn,
+		invite_link_btn,
 		media_panel,
 		media_label,
 		media_list,

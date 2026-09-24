@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -97,56 +99,54 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 
-		myJID := client.Store.ID.ToNonAD()
 		isMyAdmin := false
-		participantsList := make([]map[string]interface{}, 0, len(info.Participants))
+		participants := info.Participants
+		// A community's own member list holds only a few people (its
+		// admins); everyone else is in it through its groups.
+		if info.IsParent {
+			participants = append(slices.Clone(participants), communityMembers(jid, participants)...)
+		}
+		participantsList := make([]map[string]interface{}, 0, len(participants))
 
-		for _, p := range info.Participants {
-			// p.JID is whichever address WhatsApp uses to identify this
-			// participant in this group (a phone JID, or a @lid JID in
-			// privacy-mode groups) - it's what participant actions
-			// (add/remove/promote/demote) need to target. For display we
-			// want the phone number, which whatsmeow already resolves onto
-			// PhoneNumber; only fall back to a live LID store lookup if that
-			// wasn't populated.
-			displayJID := p.JID
-			if !p.PhoneNumber.IsEmpty() {
-				displayJID = p.PhoneNumber
-			} else if displayJID.Server == "lid" {
-				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), displayJID); err == nil && !pn.IsEmpty() {
-					displayJID = pn
+		for _, p := range participants {
+			// p.JID is whichever address WhatsApp uses for this participant
+			// in this group (a phone JID, or a @lid in groups that hide
+			// numbers) - participant actions (add/remove/promote/demote) need
+			// it as-is. PhoneJID is their phone number when known, and empty
+			// for someone who hides it from us; the UI formats it for display.
+			phoneJID := p.PhoneNumber
+			if phoneJID.IsEmpty() {
+				if pn := preferPN(p.JID); pn.Server == types.DefaultUserServer {
+					phoneJID = pn
 				}
 			}
 
-			if displayJID.User == myJID.User {
-				if p.IsAdmin || p.IsSuperAdmin {
-					isMyAdmin = true
-				}
+			if isParticipantMe(p) && (p.IsAdmin || p.IsSuperAdmin) {
+				isMyAdmin = true
 			}
 
-			name := ""
-			contact, err := client.Store.Contacts.GetContact(context.Background(), displayJID)
-			if err == nil && contact.Found {
-				if contact.FullName != "" {
-					name = contact.FullName
-				} else if contact.PushName != "" {
-					name = contact.PushName
-				} else if contact.BusinessName != "" {
-					name = contact.BusinessName
-				}
+			// resolveDisplayName tries the address book, then push names
+			// under either address, then the masked number WhatsApp gives
+			// for people who hide theirs. Its bare "+<number>" fallback is
+			// left to the UI, which formats the number properly.
+			name := resolveDisplayName(p.JID)
+			if !phoneJID.IsEmpty() && name == "+"+phoneJID.User {
+				name = ""
 			}
-			// Anonymous participants in announcement groups have no
-			// resolvable contact - only an obfuscated phone number.
-			if name == "" && p.DisplayName != "" {
+			if strings.HasSuffix(name, "@"+types.HiddenUserServer) {
 				name = p.DisplayName
 			}
 
+			phoneStr := ""
+			if !phoneJID.IsEmpty() {
+				phoneStr = phoneJID.ToNonAD().String()
+			}
 			participantsList = append(participantsList, map[string]interface{}{
-				"JID": p.JID.String(),
-				"PhoneJID": displayJID.String(),
-				"IsAdmin": p.IsAdmin,
+				"JID":          p.JID.String(),
+				"PhoneJID":     phoneStr,
+				"IsAdmin":      p.IsAdmin,
 				"IsSuperAdmin": p.IsSuperAdmin,
-				"Name": name,
+				"Name":         name,
 			})
 		}
 
@@ -158,76 +158,6 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			"Participants": participantsList,
 			"ViewerIsAdmin": isMyAdmin,
 		})
-	}()
-}
-
-// handleGetCommunitySubGroups lists the groups linked under a community JID,
-// for the read-only "Groups" tab in the group info dialog. Communities are
-// just groups with IsParent set, so the request JID is the same community
-// chat JID already shown in the chat list.
-func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
-	var data JIDData
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return
-	}
-	jid, err := types.ParseJID(data.JID)
-	if err != nil {
-		return
-	}
-	go func() {
-		subGroups, err := client.GetSubGroups(context.Background(), jid)
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
-			return
-		}
-		groups := make([]map[string]interface{}, 0, len(subGroups))
-		for _, g := range subGroups {
-			groups = append(groups, map[string]interface{}{
-				"JID":               g.JID.String(),
-				"Name":              g.Name,
-				"IsDefaultSubGroup": g.IsDefaultSubGroup,
-			})
-		}
-		sendEvent(conn, "community_subgroups", map[string]interface{}{"jid": data.JID, "groups": groups})
-	}()
-}
-
-// handleJoinCommunitySubgroup joins the caller into a group linked under a
-// community. WhatsApp lets community members self-join an open ("all_member_add")
-// linked group without an invite link - the server authorizes it based on
-// community membership, so this is just a normal add-participant request
-// targeting our own JID.
-func handleJoinCommunitySubgroup(raw json.RawMessage) {
-	var data JIDData
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return
-	}
-	jid, err := types.ParseJID(data.JID)
-	if err != nil {
-		return
-	}
-	go func() {
-		myJID := client.Store.ID.ToNonAD()
-		participants, err := client.UpdateGroupParticipants(context.Background(), jid, []types.JID{myJID}, whatsmeow.ParticipantChangeAdd)
-		if err != nil {
-			broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + err.Error()})
-			return
-		}
-		// A nil top-level err doesn't mean the add actually happened - WhatsApp
-		// reports per-participant failures (e.g. the subgroup requires admin
-		// approval, so we get an invite request queued instead of being added
-		// directly) via a non-zero Error code on our own entry.
-		if len(participants) > 0 && participants[0].Error != 0 {
-			if participants[0].AddRequest != nil {
-				broadcastEvent("error", map[string]string{"message": "This group requires admin approval to join. Your request has been sent."})
-			} else {
-				broadcastEvent("error", map[string]string{"message": "Couldn't join this group. It may be closed to new members or require an invite link."})
-			}
-			return
-		}
-		populateChatsFromStore()
-		broadcastChats()
-		broadcastEvent("community_subgroup_joined", map[string]interface{}{"jid": data.JID})
 	}()
 }
 
@@ -296,8 +226,12 @@ func handleGetGroupInviteLink(conn net.Conn, raw json.RawMessage) {
 	}
 	go func() {
 		link, err := client.GetGroupInviteLink(context.Background(), jid, data.Reset)
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+		switch {
+		case errors.Is(err, whatsmeow.ErrGroupInviteLinkUnauthorized):
+			sendEvent(conn, "error", map[string]string{"message": "Only group admins can see this group's invite link."})
+			return
+		case err != nil:
+			sendEvent(conn, "error", map[string]string{"message": "Couldn't get the invite link: " + err.Error()})
 			return
 		}
 		sendEvent(conn, "group_invite_link", map[string]interface{}{"jid": data.JID, "link": link})
@@ -452,13 +386,81 @@ func handleJoinGroupInvite(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		if joinErr := client.JoinGroupWithInvite(context.Background(), groupJID, inviterJID, code, expiration); joinErr != nil {
+		switch joinErr := client.JoinGroupWithInvite(context.Background(), groupJID, inviterJID, code, expiration); {
+		case errors.Is(joinErr, whatsmeow.ErrJoinRequiresApproval):
+			broadcastEvent("error", map[string]string{"message": "This group needs an admin to approve new members. Your request to join was sent."})
+			return
+		case errors.Is(joinErr, whatsmeow.ErrInviteExpired):
+			broadcastEvent("error", map[string]string{"message": "This group invite has expired."})
+			return
+		case joinErr != nil:
 			broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + joinErr.Error()})
 			return
 		}
 		populateChatsFromStore()
 		broadcastChats()
 		broadcastEvent("group_invite_joined", map[string]interface{}{"jid": groupJID.String()})
+	}()
+}
+
+// handleGetGroupLinkInfo looks up the group behind an invite link (opened
+// from outside the app), for the "join this group?" question.
+func handleGetGroupLinkInfo(conn net.Conn, raw json.RawMessage) {
+	var data struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil || data.Code == "" {
+		return
+	}
+	go func() {
+		info, err := client.GetGroupInfoFromLink(context.Background(), data.Code)
+		switch {
+		case errors.Is(err, whatsmeow.ErrInviteLinkRevoked):
+			sendEvent(conn, "error", map[string]string{"message": "This invite link was reset by a group admin and no longer works."})
+			return
+		case errors.Is(err, whatsmeow.ErrInviteLinkInvalid):
+			sendEvent(conn, "error", map[string]string{"message": "This invite link isn't valid."})
+			return
+		case err != nil:
+			sendEvent(conn, "error", map[string]string{"message": "Couldn't open this invite link: " + err.Error()})
+			return
+		}
+		size := info.ParticipantCount
+		if size == 0 {
+			size = len(info.Participants)
+		}
+		sendEvent(conn, "group_invite_info", map[string]interface{}{
+			"code":  data.Code,
+			"jid":   info.JID.String(),
+			"name":  info.Name,
+			"topic": info.Topic,
+			"size":  size,
+		})
+	}()
+}
+
+// handleJoinGroupLink joins a group (or community) from an invite link.
+func handleJoinGroupLink(raw json.RawMessage) {
+	var data struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil || data.Code == "" {
+		return
+	}
+	go func() {
+		jid, err := client.JoinGroupWithLink(context.Background(), data.Code)
+		switch {
+		case errors.Is(err, whatsmeow.ErrJoinRequiresApproval):
+			broadcastEvent("error", map[string]string{"message": "This group needs an admin to approve new members. Your request to join was sent."})
+			return
+		case err != nil:
+			broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + err.Error()})
+			return
+		}
+		markGroupJoined(jid.String(), true)
+		populateChatsFromStore()
+		broadcastChats()
+		broadcastEvent("group_invite_joined", map[string]interface{}{"jid": jid.String()})
 	}()
 }
 

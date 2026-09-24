@@ -261,6 +261,11 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	// The message list was already emptied by release_conversation_buffers
 	// above; clearing it a second time is dead work on a control a screen
 	// reader is watching.
+	// A channel is read-only unless we're one of its admins: no composer.
+	let can_write = !jid.ends_with("@newsletter") || crate::ui_commands::links::can_post_in_channel(&s, jid);
+	parts.conversations_parts.message_field.show(can_write);
+	parts.conversations_parts.add_attachment_btn.show(can_write);
+	parts.conversations_parts.record_voice_btn.show(can_write);
 	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());

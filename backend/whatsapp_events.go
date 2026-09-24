@@ -1554,7 +1554,7 @@ func eventHandler(evt interface{}) {
 
 			jid := chatJID.String()
 
-			if isIgnoredChatJID(jid) {
+			if isIgnoredChatJID(jid) && !isFollowedChannelPost(jid) {
 				return
 			}
 			ts := v.Info.Timestamp.Unix()
@@ -1597,7 +1597,7 @@ func eventHandler(evt interface{}) {
 					FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,
 					MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
 					QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
-					AlbumID: albumID,
+					AlbumID: albumID, ServerID: int64(v.Info.ServerID),
 				})
 				if err != nil {
 					fmt.Println("Error inserting message from live event:", err)
@@ -1609,7 +1609,7 @@ func eventHandler(evt interface{}) {
 		}()
 		if text != "" {
 			chatJID, senderJID := resolveLIDChat(v)
-			if isIgnoredChatJID(chatJID.String()) {
+			if isIgnoredChatJID(chatJID.String()) && !isFollowedChannelPost(chatJID.String()) {
 				return
 			}
 			liveMediaType, _, liveMediaFilename, liveMediaSize := mediaInfoFromMessage(v.Message)
@@ -2140,6 +2140,23 @@ func eventHandler(evt interface{}) {
 				}
 			}
 
+			for _, j := range v.Join {
+				if isParticipantMe(types.GroupParticipant{JID: j}) {
+					markGroupJoined(v.JID.String(), true)
+				}
+			}
+			for _, j := range v.Leave {
+				if isParticipantMe(types.GroupParticipant{JID: j}) {
+					markGroupJoined(v.JID.String(), false)
+				}
+			}
+			if v.Link != nil {
+				applyCommunityLinkChange(v, v.Link, true)
+			}
+			if v.Unlink != nil {
+				applyCommunityLinkChange(v, v.Unlink, false)
+			}
+
 			// Keep the member count behind group ticks current between
 			// joined-groups refreshes.
 			if delta := len(v.Join) - len(v.Leave); delta != 0 {
@@ -2157,18 +2174,38 @@ func eventHandler(evt interface{}) {
 		broadcastEvent("group_updated", map[string]interface{}{
 			"jid": v.JID.String(),
 		})
+	case *events.NewsletterJoin, *events.NewsletterLeave, *events.NewsletterMuteChange, *events.NewsletterLiveUpdate:
+		handleChannelEvent(v)
+	case *events.GroupsDirty:
+		// whatsmeow has dropped its cached info for these groups; refresh
+		// ours (names, admin status, community structure) the same way.
+		log.Printf("Server marked %d groups as out of date; refreshing", len(v.Groups))
+		go func() {
+			populateChatsFromStore()
+			broadcastChats()
+		}()
+	case *events.DirtyState:
+		if v.Type == whatsmeow.DirtyTypeGroups {
+			log.Printf("Server marked the group list as out of date; refreshing")
+			go func() {
+				populateChatsFromStore()
+				broadcastChats()
+			}()
+		}
 	case *events.JoinedGroup:
 		go func() {
 			if v.GroupName.Name != "" {
 				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.GroupName.Name)
 			}
+			recordGroupCommunity(&v.GroupInfo)
+			markGroupJoined(v.JID.ToNonAD().String(), true)
 			actor := ""
-			if v.Sender != nil {
-				actor = resolveDisplayName(*v.Sender)
+			if v.Sender != nil && !isParticipantMe(types.GroupParticipant{JID: *v.Sender}) {
+				actor = nameToken(*v.Sender)
 			}
 			msg := ""
 			if v.Type == "new" {
-				if actor != "" && actor != "You" {
+				if actor != "" {
 					msg = fmt.Sprintf("%s created the group", actor)
 				} else {
 					msg = "You created the group"
@@ -2176,7 +2213,7 @@ func eventHandler(evt interface{}) {
 			} else if v.Reason == "invite" {
 				msg = "You joined using this group's invite link"
 			} else {
-				if actor != "" && actor != "You" {
+				if actor != "" {
 					msg = fmt.Sprintf("%s added you", actor)
 				} else {
 					msg = "You joined the group"
@@ -2200,13 +2237,14 @@ func eventHandler(evt interface{}) {
 	}
 }
 
-// joinedNamesList formats a list of JIDs as display names, "A", "A and B", or
-// "A, B and C", matching how the official app lists multiple participants in
-// one group-change line.
+// joinedNamesList formats a list of JIDs as "A", "A and B", or "A, B and C",
+// matching how the official app lists multiple participants in one
+// group-change line. Each person is a name token (see nameToken), named when
+// the line is shown.
 func joinedNamesList(jids []types.JID) string {
 	names := make([]string, 0, len(jids))
 	for _, j := range jids {
-		names = append(names, resolveDisplayName(j))
+		names = append(names, nameToken(j))
 	}
 	switch len(names) {
 	case 0:
@@ -2226,7 +2264,7 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	var lines []string
 	actor := ""
 	if v.Sender != nil {
-		actor = resolveDisplayName(*v.Sender)
+		actor = nameToken(*v.Sender)
 	}
 
 	if len(v.Join) > 0 {
@@ -2257,6 +2295,11 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 		} else {
 			lines = append(lines, fmt.Sprintf("%s is now a group admin", names))
 		}
+	}
+
+	// The official apps name the person by their new number here.
+	for _, j := range v.Modify {
+		lines = append(lines, fmt.Sprintf("%s changed their phone number", nameToken(j)))
 	}
 
 	if len(v.Demote) > 0 {
@@ -2532,7 +2575,7 @@ func historyStubJIDs(params []string) []types.JID {
 func historyStubText(webMsg *waWeb.WebMessageInfo) string {
 	actor := ""
 	if a := historyStubActor(webMsg); !a.IsEmpty() {
-		actor = resolveDisplayName(a)
+		actor = nameToken(a)
 	}
 	params := webMsg.GetMessageStubParameters()
 	names := joinedNamesList(historyStubJIDs(params))
@@ -2644,7 +2687,7 @@ func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
 		"jid":       jid,
 		"from":      "",
 		"id":        id,
-		"text":      text,
+		"text":      renderNames(text, nil),
 		"from_me":   false,
 		"timestamp": tsUnix,
 		"has_media": false,
@@ -2816,24 +2859,34 @@ func populateChatsFromStoreOnce() {
 	groups, err := client.GetJoinedGroups(context.Background())
 	if err == nil {
 		var groupWrites []func(tx sqlExecer)
+		joined := make(map[string]bool, len(groups))
 		for _, g := range groups {
 			jidStr := g.JID.ToNonAD().String()
+			joined[jidStr] = true
 			isAdmin := isViewerAdmin(g)
 			groupName, isParent := g.GroupName.Name, g.IsParent
 			memberCount := len(g.Participants)
+			parentJID := ""
+			if !g.LinkedParentJID.IsEmpty() {
+				parentJID = g.LinkedParentJID.ToNonAD().String()
+			}
+			isAnnounceGroup := g.IsDefaultSubGroup
 			groupWrites = append(groupWrites, func(tx sqlExecer) {
-				if _, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin, participant_count) VALUES (?, ?, 0, ?, ?, ?)
+				if _, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin, participant_count, parent_jid, is_announce_group) VALUES (?, ?, 0, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 				name=COALESCE(NULLIF(excluded.name, ''), chats.name),
 				is_community=excluded.is_community,
 				is_admin=excluded.is_admin,
-				participant_count=excluded.participant_count`,
-					jidStr, groupName, boolToInt(isParent), boolToInt(isAdmin), memberCount); err != nil {
+				participant_count=excluded.participant_count,
+				parent_jid=excluded.parent_jid,
+				is_announce_group=excluded.is_announce_group`,
+					jidStr, groupName, boolToInt(isParent), boolToInt(isAdmin), memberCount, parentJID, boolToInt(isAnnounceGroup)); err != nil {
 					fmt.Println("Error upserting group chat", jidStr, ":", err)
 				}
 			})
 		}
 		writeBatch(groupWrites)
+		setJoinedGroups(joined)
 	}
 
 	rows, err := db.Query(`SELECT jid FROM chats WHERE name IS NULL OR name = '' OR name LIKE '+%' OR jid LIKE '%@lid'`)
@@ -2902,8 +2955,11 @@ func populateChatsFromStoreOnce() {
 	// member sub-groups), so this sweep would otherwise delete every one of
 	// them the moment populateChatsFromStore inserted it, and the Communities
 	// tab would always be empty.
-	db.Exec("DELETE FROM chats WHERE timestamp = 0 AND COALESCE(is_community, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)")
-	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR jid LIKE '%@newsletter' OR jid LIKE '%@broadcast'")
+	db.Exec("DELETE FROM chats WHERE timestamp = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)")
+	// Channels we follow stay (see syncFollowedChannels); any other channel
+	// row is one history sync brought in, and isn't ours to show.
+	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR (jid LIKE '%@newsletter' AND COALESCE(is_channel, 0) = 0) OR jid LIKE '%@broadcast'")
+	go syncFollowedChannels()
 }
 
 // handleIncomingStatus stores a Status/Stories post (someone else's, or our

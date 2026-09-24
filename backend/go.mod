@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
+	github.com/nyaruka/phonenumbers v1.8.1
 	github.com/purpshell/meowcaller v0.0.0-20260724091720-56f599712aaa
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/util v0.10.1
@@ -45,6 +46,6 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20260923144007-d0d68a9a99ee
+replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20260924010057-420f1c9579c1
 
 replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20260923060812-aeaba263374c

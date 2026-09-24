@@ -27,8 +27,9 @@ pub(crate) fn populate_message_list(list: &ListBox, messages: &[ChatMessage], la
 
 /// Whether a chat belongs in the list shown for `tab`. Conversations (0) hides
 /// archived chats, Archived (3) shows only those, and Communities (4) shows
-/// only the community parent groups. The Status and Starred tabs build their
-/// rows from something other than the chat list and never reach this.
+/// the communities and the groups inside them. The Status and Starred tabs
+/// build their rows from something other than the chat list and never reach
+/// this.
 ///
 /// Communities are kept out of Conversations as well: a community parent
 /// carries no messages of its own - everything is posted in its announcement
@@ -39,6 +40,8 @@ pub(crate) fn chat_visible_in_tab(
 	jid: &str,
 	archived: &std::collections::HashSet<String>,
 	communities: &std::collections::HashSet<String>,
+	parents: &std::collections::HashMap<String, String>,
+	channels: &std::collections::HashSet<String>,
 	locked: &std::collections::HashSet<String>,
 	chats_unlocked: bool,
 ) -> bool {
@@ -49,10 +52,22 @@ pub(crate) fn chat_visible_in_tab(
 		return false;
 	}
 	match tab {
-		0 => !archived.contains(jid) && !communities.contains(jid),
+		// Channels have their own tab, as in the official apps.
+		0 => !archived.contains(jid) && !communities.contains(jid) && !channels.contains(jid),
 		3 => archived.contains(jid),
-		4 => communities.contains(jid),
+		4 => communities.contains(jid) || parents.get(jid).is_some_and(|p| communities.contains(p)),
+		5 => channels.contains(jid),
 		_ => true,
+	}
+}
+
+/// The chat list in the order the active tab shows it: the usual order, except
+/// that the Communities tab puts each community's groups under it.
+pub(crate) fn chats_in_tab_order(s: &AppState) -> Vec<String> {
+	if s.active_tab == 4 {
+		whantv::community_tab_order(&s.chats, &s.community_jids, &s.chat_parents, &s.announcement_jids)
+	} else {
+		s.chats.clone()
 	}
 }
 
@@ -147,12 +162,14 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		}
 	} else {
-		for jid in &s.chats {
+		for jid in &chats_in_tab_order(s) {
 			if !chat_visible_in_tab(
 				s.active_tab,
 				jid,
 				&s.archived_jids,
 				&s.community_jids,
+				&s.chat_parents,
+				&s.channel_jids,
 				&s.locked_jids,
 				s.chats_unlocked,
 			) {
