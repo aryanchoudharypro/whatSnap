@@ -30,7 +30,7 @@ use crate::{
 	},
 	message_display::{
 		apply_chat_filter, build_document_messages, build_link_messages, build_media_messages, chat_visible_in_tab,
-		populate_message_list, refresh_voice_action_button, update_action_buttons,
+		chats_in_tab_order, populate_message_list, refresh_voice_action_button, update_action_buttons,
 	},
 	tray::{install_tray_icon, refresh_tray_tooltip},
 	ui::window::WindowParts,
@@ -1152,6 +1152,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							let mut chat_list = Vec::new();
 							let mut archived_jids = std::collections::HashSet::new();
 							let mut community_jids = std::collections::HashSet::new();
+							let mut chat_parents = std::collections::HashMap::new();
+							let mut announcement_jids = std::collections::HashSet::new();
+							let mut channel_jids = std::collections::HashSet::new();
+							let mut channel_roles = std::collections::HashMap::new();
 							let mut pinned_jids = std::collections::HashSet::new();
 							let mut muted_jids = std::collections::HashSet::new();
 							let mut admin_group_jids = std::collections::HashSet::new();
@@ -1209,24 +1213,46 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 									let mut tags = Vec::new();
 									if is_locked {
-										tags.push("Locked");
+										tags.push("Locked".to_string());
 										locked_jids.insert(jid.to_string());
 									}
 									if archived {
-										tags.push("Archived");
+										tags.push("Archived".to_string());
 										archived_jids.insert(jid.to_string());
 									}
 									if pinned {
-										tags.push("Pinned");
+										tags.push("Pinned".to_string());
 										pinned_jids.insert(jid.to_string());
 									}
 									if muted {
-										tags.push("Muted");
+										tags.push("Muted".to_string());
 										muted_jids.insert(jid.to_string());
 									}
 									if is_community {
-										tags.push("Community");
+										tags.push("Community".to_string());
 										community_jids.insert(jid.to_string());
+									}
+									if chat.get("IsChannel").and_then(|c| c.as_bool()).unwrap_or(false) {
+										tags.push("Channel".to_string());
+										channel_jids.insert(jid.to_string());
+										let role = chat.get("ChannelRole").and_then(|r| r.as_str()).unwrap_or("");
+										channel_roles.insert(jid.to_string(), role.to_string());
+									}
+									// A group inside a community says which one, and
+									// its announcements group says so - that group
+									// usually shares the community's own name.
+									let parent = chat.get("ParentJID").and_then(|p| p.as_str()).unwrap_or("");
+									if !parent.is_empty() {
+										chat_parents.insert(jid.to_string(), parent.to_string());
+										let community_name =
+											chat.get("CommunityName").and_then(|n| n.as_str()).unwrap_or("");
+										if chat.get("IsAnnouncements").and_then(|a| a.as_bool()).unwrap_or(false) {
+											announcement_jids.insert(jid.to_string());
+											tags.push("Announcements".to_string());
+										}
+										if !community_name.is_empty() && community_name != name {
+											tags.push(format!("In {}", community_name));
+										}
 									}
 									if chat.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false) {
 										admin_group_jids.insert(jid.to_string());
@@ -1299,6 +1325,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							s.archived_jids = archived_jids;
 							s.locked_jids = locked_jids;
 							s.community_jids = community_jids;
+							s.chat_parents = chat_parents;
+							s.announcement_jids = announcement_jids;
+							s.channel_jids = channel_jids;
+							s.channel_roles = channel_roles;
 							s.pinned_jids = pinned_jids;
 							s.muted_jids = muted_jids;
 							s.admin_group_jids = admin_group_jids;
@@ -1311,12 +1341,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							let mut new_filtered = Vec::new();
 							let mut new_display = Vec::new();
 							if s.active_tab != 1 && s.active_tab != 2 {
-								for jid in &s.chats {
+								for jid in &chats_in_tab_order(&s) {
 									if !chat_visible_in_tab(
 										s.active_tab,
 										jid,
 										&s.archived_jids,
 										&s.community_jids,
+										&s.chat_parents,
+										&s.channel_jids,
 										&s.locked_jids,
 										s.chats_unlocked,
 									) {
@@ -1371,6 +1403,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 						}
 					}
+					// A WhatsApp link opened before the chat list was ready.
+					crate::ui_commands::links::open_pending_whatsapp_link(state);
 				}
 				"message" => {
 					if let Some(data) = val.get("data") {
@@ -2791,6 +2825,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.group_data_dialog.add_member_btn.show(viewer_is_admin);
 						parts.group_data_dialog.make_admin_btn.show(viewer_is_admin);
 						parts.group_data_dialog.remove_member_btn.show(viewer_is_admin);
+						// Only admins can see or reset a group's invite link.
+						parts.group_data_dialog.invite_link_btn.show(viewer_is_admin);
 						parts.group_data_dialog.save_settings_btn.show(viewer_is_admin);
 						parts.group_data_dialog.announce_chk.enable(viewer_is_admin);
 						parts.group_data_dialog.locked_chk.enable(viewer_is_admin);
@@ -2805,9 +2841,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if let Some(is_locked) = info.get("IsLocked").and_then(|t| t.as_bool()) {
 							parts.group_data_dialog.locked_chk.set_value(is_locked);
 						}
+						// A community lists its groups; a group inside one lists
+						// its community's groups, so the tab works from either.
 						let is_community = info.get("IsParent").and_then(|t| t.as_bool()).unwrap_or(false);
+						let in_community =
+							info.get("LinkedParentJID").and_then(|t| t.as_str()).is_some_and(|p| !p.is_empty());
 						parts.group_data_dialog.groups_list.clear();
-						if is_community {
+						if is_community || in_community {
 							let s = state.borrow();
 							if let Some(ref jid) = s.selected_chat {
 								let payload = serde_json::json!({
@@ -2826,32 +2866,40 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if let Some(participants) = payload.get("Participants").and_then(|p| p.as_array()) {
 							for p in participants {
 								if let Some(jid) = p.get("JID").and_then(|j| j.as_str()) {
-									// PhoneJID is the participant's actual phone-number
-									// JID (backend-resolved from a @lid address when the
-									// group hides phone numbers) - display/contact lookups
-									// must use it, never the raw action JID, or a privacy
-									// group shows unreadable LIDs instead of names/numbers.
-									let phone_jid = p.get("PhoneJID").and_then(|j| j.as_str()).unwrap_or(jid);
+									// PhoneJID is the participant's phone-number JID
+									// (backend-resolved from a @lid address when the
+									// group hides phone numbers), or empty for someone
+									// who hides their number from us - never format the
+									// raw action JID as a number, a LID isn't one.
+									let phone_jid = p.get("PhoneJID").and_then(|j| j.as_str()).unwrap_or("");
 									let is_admin = p.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
 									let is_super = p.get("IsSuperAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
 
 									let backend_name = p.get("Name").and_then(|n| n.as_str()).unwrap_or("");
 
-									let mut local_name = if !backend_name.is_empty() {
-										backend_name.to_string()
+									let phone = if phone_jid.is_empty() {
+										String::new()
 									} else {
-										s.contacts.get(phone_jid).cloned().unwrap_or_else(|| phone_jid.to_string())
+										let raw_phone = phone_jid.split('@').next().unwrap_or(phone_jid);
+										match phonenumber::parse(None, format!("+{}", raw_phone)) {
+											Ok(parsed) => {
+												parsed.format().mode(phonenumber::Mode::International).to_string()
+											}
+											Err(_) => raw_phone.to_string(),
+										}
 									};
 
-									let raw_phone = phone_jid.split('@').next().unwrap_or(phone_jid);
-									let mut phone = raw_phone.to_string();
-									if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
-										phone = parsed.format().mode(phonenumber::Mode::International).to_string();
-									}
-
-									if local_name == phone_jid {
-										local_name = phone.clone();
-									}
+									let local_name = if !backend_name.is_empty() {
+										backend_name.to_string()
+									} else if let Some(contact) =
+										s.contacts.get(phone_jid).filter(|_| !phone_jid.is_empty())
+									{
+										contact.clone()
+									} else if !phone.is_empty() {
+										phone.clone()
+									} else {
+										"Unknown member".to_string()
+									};
 
 									let mut role = "";
 									if is_super {
@@ -2860,7 +2908,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										role = " (Admin)";
 									}
 
-									let display = if local_name == phone {
+									let display = if phone.is_empty() || local_name == phone {
 										format!("{}{}", local_name, role)
 									} else {
 										format!("{}{} - {}", local_name, role, phone)
@@ -2917,20 +2965,50 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown();
 						drop(s);
 						if is_relevant {
-							parts.group_data_dialog.groups_list.clear();
+							let community = data.get("community").and_then(|c| c.as_str()).unwrap_or(jid).to_string();
+							let community_name = data.get("communityName").and_then(|n| n.as_str()).unwrap_or("");
+							parts.group_data_dialog.groups_label.set_label(&if community_name.is_empty() {
+								"Groups in this community".to_string()
+							} else {
+								format!("Groups in {}", community_name)
+							});
 							let mut subgroup_jids = Vec::new();
+							let mut subgroup_joined = Vec::new();
+							let mut labels = Vec::new();
 							if let Some(groups) = data.get("groups").and_then(|g| g.as_array()) {
 								for g in groups {
-									let name = g.get("Name").and_then(|n| n.as_str()).unwrap_or("");
-									let is_default =
-										g.get("IsDefaultSubGroup").and_then(|d| d.as_bool()).unwrap_or(false);
-									let label =
-										if is_default { format!("{} (Announcements)", name) } else { name.to_string() };
-									parts.group_data_dialog.groups_list.append(&label);
+									let flag = |key: &str| g.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
+									let joined = flag("Joined");
+									let label = whantv::community_group_label(
+										g.get("Name").and_then(|n| n.as_str()).unwrap_or(""),
+										flag("IsDefaultSubGroup"),
+										flag("IsGeneralChat"),
+										joined,
+										g.get("ParticipantCount").and_then(|c| c.as_u64()).unwrap_or(0),
+									);
+									labels.push(label);
 									subgroup_jids.push(g.get("JID").and_then(|j| j.as_str()).unwrap_or("").to_string());
+									subgroup_joined.push(joined);
 								}
 							}
-							state.borrow_mut().group_data_subgroup_jids = subgroup_jids;
+							// A refresh (after joining one) keeps the user on the same
+							// group, wherever the new order puts it.
+							let groups_list = &parts.group_data_dialog.groups_list;
+							let previous_jid = groups_list
+								.get_selection()
+								.and_then(|i| state.borrow().group_data_subgroup_jids.get(i as usize).cloned());
+							groups_list.set_items(&labels.iter().map(String::as_str).collect::<Vec<_>>());
+							if let Some(idx) =
+								previous_jid.and_then(|prev| subgroup_jids.iter().position(|j| *j == prev))
+							{
+								groups_list.set_selection(idx as u32, true);
+							}
+							let mut s = state.borrow_mut();
+							s.group_data_subgroup_jids = subgroup_jids;
+							s.group_data_subgroup_joined = subgroup_joined;
+							s.group_data_community = Some(community);
+							drop(s);
+							crate::ui_commands::contacts_groups::community_subgroup_selection_changed(state, parts);
 						}
 					}
 				}
@@ -2950,6 +3028,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				}
 				"community_subgroup_joined" => {
 					if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+						// Refresh the Groups tab so the group now reads as joined
+						// and Enter opens it instead of joining again.
+						{
+							let s = state.borrow();
+							if parts.group_data_dialog.dialog.is_shown() {
+								if let Some(ref selected) = s.selected_chat {
+									let payload = serde_json::json!({
+										"action": "get_community_subgroups",
+										"data": { "jid": selected }
+									});
+									let _ = s.ws_tx.send(payload.to_string());
+								}
+							}
+						}
 						// The chat list itself already self-corrects via the
 						// broadcastChats() the backend fires right before this -
 						// but silence otherwise leaves a screen-reader user unable
@@ -2966,6 +3058,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				"group_invite_info" => {
 					if let Some(data) = val.get("data") {
 						let message_id = data.get("messageId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						// Set when the invite came from a link rather than an
+						// invite message.
+						let code = data.get("code").and_then(|v| v.as_str()).unwrap_or("").to_string();
 						let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
 						let topic = data.get("topic").and_then(|v| v.as_str()).unwrap_or("");
 						let size = data.get("size").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -2978,7 +3073,64 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 							.build();
 						if dlg.show_modal() == wxdragon::id::ID_YES {
-							let _ = state.borrow().ui_tx.send(UiCommand::JoinGroupInvite(message_id));
+							let command = if code.is_empty() {
+								UiCommand::JoinGroupInvite(message_id)
+							} else {
+								UiCommand::JoinGroupLink(code)
+							};
+							let _ = state.borrow().ui_tx.send(command);
+						}
+					}
+				}
+				"channel_directory" => {
+					let directory = state.borrow().channel_directory.clone();
+					if let (Some(directory), Some(data)) = (directory, val.get("data")) {
+						directory.apply(data);
+					}
+				}
+				"channel_info" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::links::show_channel_info(state, parts, data);
+					}
+				}
+				"channel_messages_updated" => {
+					// New posts or counts for a channel: reload it quietly if it's
+					// the one open.
+					let jid = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()).unwrap_or("");
+					let mut s = state.borrow_mut();
+					if s.selected_chat.as_deref() == Some(jid) && s.quiet_reload_jid.is_none() && !s.history_loading {
+						s.quiet_reload_jid = Some(jid.to_string());
+						let payload = serde_json::json!({
+							"action": "get_messages",
+							"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0, "no_server_fetch": true }
+						});
+						let _ = s.ws_tx.send(payload.to_string());
+					}
+				}
+				"channel_follow_changed" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let following = data.get("following").and_then(|f| f.as_bool()).unwrap_or(false);
+						let directory = state.borrow().channel_directory.clone();
+						if let Some(directory) = directory {
+							directory.set_following(jid, following);
+						}
+						let name =
+							state.borrow().contacts.get(jid).cloned().unwrap_or_else(|| "the channel".to_string());
+						let message = if following {
+							format!("Following {}. It's in the Channels tab, Alt+6.", name)
+						} else {
+							format!("Unfollowed {}.", name)
+						};
+						crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &message);
+					}
+				}
+				"group_invite_link" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let link = data.get("link").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						if !link.is_empty() {
+							crate::ui_commands::links::show_group_invite_link(state, parts, jid, link);
 						}
 					}
 				}

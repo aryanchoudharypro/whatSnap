@@ -150,6 +150,18 @@ func handleConnection(conn net.Conn) {
 			handleGetGroupInviteInfo(conn, cmd.Data)
 		case "join_group_invite":
 			handleJoinGroupInvite(cmd.Data)
+		case "channel_directory":
+			handleChannelDirectory(conn, cmd.Data)
+		case "get_channel_info":
+			handleGetChannelInfo(conn, cmd.Data)
+		case "follow_channel":
+			handleFollowChannel(cmd.Data, true)
+		case "unfollow_channel":
+			handleFollowChannel(cmd.Data, false)
+		case "get_group_link_info":
+			handleGetGroupLinkInfo(conn, cmd.Data)
+		case "join_group_link":
+			handleJoinGroupLink(cmd.Data)
 		case "set_group_name":
 			handleSetGroupName(cmd.Data)
 		case "set_group_topic":

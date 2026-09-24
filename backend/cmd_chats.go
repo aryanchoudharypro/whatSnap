@@ -63,7 +63,8 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 			COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''), COALESCE(media_size, 0),
 			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
 			COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''),
-			CASE WHEN media_type IN ('voice', 'audio') AND COALESCE(text, '') NOT LIKE '%(%' THEN raw ELSE NULL END
+			CASE WHEN media_type IN ('voice', 'audio') AND COALESCE(text, '') NOT LIKE '%(%' THEN raw ELSE NULL END,
+			COALESCE(channel_views, 0), COALESCE(channel_reactions, '')
 		FROM messages WHERE jid = ?`
 	var rows *sql.Rows
 	var queryErr error
@@ -103,8 +104,11 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 			var fromMe bool
 			var isEdited, isDeleted, starred int
 			var rawBytes []byte
+			var channelViews int
+			var channelReactions string
 			if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &mediaSize,
-				&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &albumID, &rawBytes); err != nil {
+				&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &albumID, &rawBytes,
+				&channelViews, &channelReactions); err != nil {
 				log.Println("Error scanning message row:", err)
 				continue
 			}
@@ -115,6 +119,7 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 					text = "[This message was deleted]"
 				}
 			}
+			text = renderNames(text, nameFor)
 
 			if mediaType == "voice" || mediaType == "audio" || strings.HasPrefix(text, "[Voice Message]") || strings.HasPrefix(text, "[Audio]") {
 				if !strings.Contains(text, "(") && len(rawBytes) > 0 {
@@ -198,6 +203,7 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 				Starred:       starred == 1,
 				AlbumID:       albumID,
 				PollResults:   pollResults,
+				ChannelStats:  channelStatsFromColumns(channelViews, channelReactions),
 				Reactions:     emptyReactions,
 			})
 		}
@@ -234,6 +240,9 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		// window that stops short of the latest message.
 		AfterID        string `json:"after_id"`
 		AfterTimestamp int64  `json:"after_timestamp"`
+		// Set on the reload that follows a channel fetch, so it doesn't
+		// start another one.
+		NoServerFetch bool `json:"no_server_fetch"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -282,6 +291,11 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		start := time.Now()
 		msgs := fetchMessagesPageBefore(data.JID, limit, offset, before)
 		log.Printf("Got %d messages for %s in %s", len(msgs), data.JID, time.Since(start).Round(time.Millisecond))
+		// A channel's posts come from the server, not the phone: fetch the
+		// latest when it's opened. The stored ones show meanwhile.
+		if !loadMore && !data.NoServerFetch && isChannelJID(data.JID) {
+			go refreshChannel(data.JID)
+		}
 		sendEvent(conn, "conversation_messages", map[string]interface{}{
 			"jid":      data.JID,
 			"messages": msgs,
@@ -399,7 +413,7 @@ func handleGetStarredMessages(conn net.Conn) {
 						"id":         id,
 						"jid":        jid,
 						"fromMe":     fromMe,
-						"text":       text,
+						"text":       renderNames(text, nil),
 						"timestamp":  ts,
 						"senderJid":  senderJID,
 						"senderName": senderName,
@@ -464,7 +478,7 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 						"id":            id,
 						"jid":           jid,
 						"fromMe":        fromMe,
-						"text":          text,
+						"text":          renderNames(text, nil),
 						"timestamp":     ts,
 						"senderJid":     senderJID,
 						"senderName":    senderName,
@@ -623,6 +637,10 @@ func handleSetChatMuted(raw json.RawMessage) {
 	if err != nil {
 		return
 	}
+	if isChannelJID(data.JID) {
+		go handleChannelMute(data.JID, data.Muted)
+		return
+	}
 	go func() {
 		duration := time.Duration(data.DurationSeconds) * time.Second
 		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMute(jid, data.Muted, duration)); err != nil {
@@ -744,6 +762,11 @@ func handleRequestHistorySync(raw json.RawMessage) {
 
 	chatJID, err := types.ParseJID(data.JID)
 	if err != nil {
+		return
+	}
+	// A channel's history is on the server, not the phone.
+	if chatJID.Server == types.NewsletterServer {
+		go loadOlderChannelPosts(data.JID)
 		return
 	}
 

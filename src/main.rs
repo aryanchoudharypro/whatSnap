@@ -22,6 +22,8 @@ mod contact_picker;
 mod countries;
 mod message_display;
 use message_display::update_action_buttons;
+#[cfg(target_os = "windows")]
+mod link_handler;
 mod paths;
 mod ringback;
 mod settings;
@@ -225,6 +227,16 @@ struct AppState {
 	/// tab lists. They stay in Conversations too, tagged "[Community]", the
 	/// way they always have.
 	community_jids: std::collections::HashSet<String>,
+	/// Group -> the community it's in, for groups inside a community.
+	chat_parents: std::collections::HashMap<String, String>,
+	/// Communities' announcement groups.
+	announcement_jids: std::collections::HashSet<String>,
+	/// Channels we follow, and our role in each ("owner", "admin",
+	/// "subscriber").
+	channel_jids: std::collections::HashSet<String>,
+	channel_roles: std::collections::HashMap<String, String>,
+	/// The "Find channels" dialog while it's open, for results to land in.
+	channel_directory: Option<Rc<crate::ui::channel_directory::ChannelDirectory>>,
 	pinned_jids: std::collections::HashSet<String>,
 	muted_jids: std::collections::HashSet<String>,
 	unread_counts: std::collections::HashMap<String, u64>,
@@ -342,6 +354,9 @@ struct AppState {
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
 	main_ui_shown: bool,
+	/// A WhatsApp link that arrived before we were logged in with the chat
+	/// list loaded; it runs once they are.
+	pending_whatsapp_link: Option<String>,
 	/// Whether the WhatsApp connection is up, as last reported by the
 	/// backend's "connection_state". Keeps the history-sync timer from
 	/// painting "Connected" back over an offline status.
@@ -467,6 +482,10 @@ struct AppState {
 	/// JIDs of the community subgroups shown in the Groups tab, aligned 1:1
 	/// with `groups_list` rows, so a list selection can be joined by JID.
 	group_data_subgroup_jids: Vec<String>,
+	/// Whether we're in each of those groups, aligned the same way.
+	group_data_subgroup_joined: Vec<bool>,
+	/// The community the Groups tab is listing.
+	group_data_community: Option<String>,
 	/// Same as the group_data_* trio above, but for the 1-on-1 conversation
 	/// data dialog.
 	conversation_data_media: Vec<ChatMessage>,
@@ -489,10 +508,17 @@ fn main() {
 
 	// If whaNTV is already running, activate its window (restoring it from
 	// the tray if needed) instead of launching a second instance.
-	let _instance_lock = match single_instance::acquire_or_activate_existing() {
+	// whaNTV is registered as the whatsapp:// link handler, so it can be
+	// started with a link to act on.
+	let launch_link = std::env::args().skip(1).find(|arg| whantv::parse_whatsapp_link(arg).is_some());
+	let _instance_lock = match single_instance::acquire_or_activate_existing(launch_link.as_deref()) {
 		Some(lock) => lock,
 		None => return,
 	};
+	// Keeps whaNTV registered for whatsapp:// links, at the path it now runs
+	// from. Off the startup path; it's a few registry writes.
+	#[cfg(target_os = "windows")]
+	std::thread::spawn(link_handler::register);
 	for name in ["backend_process.log", "call_audio.log"] {
 		paths::rotate_log(name);
 	}
@@ -574,9 +600,15 @@ fn main() {
 		// Let future launches of the app (see `single_instance::acquire_or_activate_existing`
 		// at the top of `main`) hand off to this window instead of starting a second instance.
 		let ui_tx_activate = ui_tx.clone();
-		single_instance::listen_for_activation(move || {
+		single_instance::listen_for_activation(move |link| {
 			let _ = ui_tx_activate.send(UiCommand::ActivateWindow);
+			if let Some(link) = link {
+				let _ = ui_tx_activate.send(UiCommand::OpenWhatsAppLink(link));
+			}
 		});
+		if let Some(link) = launch_link.clone() {
+			let _ = ui_tx.send(UiCommand::OpenWhatsAppLink(link));
+		}
 
 		let (ws_out_tx, ws_out_rx) = mpsc::channel::<String>();
 		let ui_tx_clone = ui_tx.clone();
@@ -711,6 +743,11 @@ fn main() {
 			locked_jids: std::collections::HashSet::new(),
 			chats_unlocked: false,
 			community_jids: std::collections::HashSet::new(),
+			chat_parents: std::collections::HashMap::new(),
+			announcement_jids: std::collections::HashSet::new(),
+			channel_jids: std::collections::HashSet::new(),
+			channel_roles: std::collections::HashMap::new(),
+			channel_directory: None,
 			pinned_jids: std::collections::HashSet::new(),
 			muted_jids: std::collections::HashSet::new(),
 			unread_counts: std::collections::HashMap::new(),
@@ -752,6 +789,8 @@ fn main() {
 			group_data_documents: Vec::new(),
 			group_data_links: Vec::new(),
 			group_data_subgroup_jids: Vec::new(),
+			group_data_subgroup_joined: Vec::new(),
+			group_data_community: None,
 			conversation_data_media: Vec::new(),
 			conversation_data_documents: Vec::new(),
 			conversation_data_links: Vec::new(),
@@ -805,6 +844,7 @@ fn main() {
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),
 			main_ui_shown: false,
+			pending_whatsapp_link: None,
 			conn_online: false,
 			conn_outage_announced: false,
 			conn_manual_reconnect: false,
@@ -1239,6 +1279,19 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		}
 		UiCommand::SubscribePresence(jid) => ui_commands::misc::subscribe_presence(state, parts, jid),
 		UiCommand::ActivateWindow => ui_commands::misc::activate_window(state, parts),
+		UiCommand::OpenWhatsAppLink(link) => ui_commands::links::open_whatsapp_link(state, parts, link),
+		UiCommand::ShowGroupInviteLink => ui_commands::links::request_group_invite_link(state),
+		UiCommand::FindChannels => {
+			let ws_tx = state.borrow().ws_tx.clone();
+			let state_store = state.clone();
+			crate::ui::channel_directory::show_channel_directory(&parts.frame, ws_tx, move |dir| {
+				state_store.borrow_mut().channel_directory = dir;
+			});
+		}
+		UiCommand::JoinGroupLink(code) => {
+			let payload = serde_json::json!({ "action": "join_group_link", "data": { "code": code } });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
 		UiCommand::SetPresence(available) => ui_commands::misc::set_presence(state, parts, available),
 		UiCommand::WindowHidden => ui_commands::misc::window_hidden(state, parts),
 		UiCommand::MarkRead { jid, message_ids } => ui_commands::chat_list::mark_read(state, parts, jid, message_ids),
@@ -1281,6 +1334,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::RemoveGroupMember(idx) => ui_commands::contacts_groups::remove_group_member(state, parts, idx),
 		UiCommand::JoinCommunitySubgroup(idx) => {
 			ui_commands::contacts_groups::join_community_subgroup(state, parts, idx)
+		}
+		UiCommand::CommunitySubgroupSelectionChanged => {
+			ui_commands::contacts_groups::community_subgroup_selection_changed(state, parts)
 		}
 		UiCommand::OpenGroupInvite(message_id) => {
 			ui_commands::contacts_groups::open_group_invite(state, parts, message_id)

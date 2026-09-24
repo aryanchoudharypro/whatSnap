@@ -27,6 +27,10 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	if err != nil {
 		return
 	}
+	if jid.Server == types.NewsletterServer && !canPostInChannel(jid.String()) {
+		broadcastEvent("error", map[string]string{"message": "Only this channel's admins can post in it."})
+		return
+	}
 
 	// Pick the message ID up front (instead of taking whatever whatsmeow
 	// generates on success) so the pending row we persist right now and the
@@ -204,6 +208,10 @@ func handleReactMessage(raw json.RawMessage) {
 		if parsed, perr := types.ParseJID(data.SenderJID); perr == nil {
 			senderJID = parsed
 		}
+	}
+	if isChannelJID(data.JID) {
+		go handleChannelReaction(data)
+		return
 	}
 	go func() {
 		msg := client.BuildReaction(chatJID, senderJID, data.MessageID, data.Emoji)
@@ -471,6 +479,11 @@ func handleMarkRead(raw json.RawMessage) {
 	}
 	chatJID, err := types.ParseJID(data.JID)
 	if err != nil {
+		return
+	}
+	// Channel posts get view receipts when they're fetched (refreshChannel),
+	// not read receipts.
+	if chatJID.Server == types.NewsletterServer {
 		return
 	}
 	if chatJID.Server == "lid" {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"net"
@@ -113,12 +114,24 @@ func broadcastChats() {
 // broadcastChats (pushed to everyone) and the get_chats command (requested
 // by one client). Keeping this in one place means the two can't drift.
 func buildChatsList() []map[string]interface{} {
-	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0) FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
+	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, '') FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
 	if err != nil {
 		fmt.Println("Error querying chats:", err)
 		return []map[string]interface{}{}
 	}
 	defer rows.Close()
+
+	// Community names, for labelling the groups inside each one.
+	communityNames := map[string]string{}
+	if nameRows, nameErr := db.Query(`SELECT jid, COALESCE(name, '') FROM chats WHERE COALESCE(is_community, 0) = 1`); nameErr == nil {
+		for nameRows.Next() {
+			var cj, cn string
+			if nameRows.Scan(&cj, &cn) == nil {
+				communityNames[cj] = cn
+			}
+		}
+		nameRows.Close()
+	}
 
 	chats := []map[string]interface{}{}
 	for rows.Next() {
@@ -137,8 +150,12 @@ func buildChatsList() []map[string]interface{} {
 		var isCommunity int
 		var isAdmin int
 		var isLocked int
+		var parentJID string
+		var isAnnounceGroup int
+		var isChannel int
+		var channelRole string
 
-		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity, &isAdmin, &isLocked); err != nil {
+		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity, &isAdmin, &isLocked, &parentJID, &isAnnounceGroup, &isChannel, &channelRole); err != nil {
 			continue
 		}
 		n := jid
@@ -182,7 +199,7 @@ func buildChatsList() []map[string]interface{} {
 
 		p := ""
 		if preview.Valid {
-			p = preview.String
+			p = renderNames(preview.String, nil)
 		}
 
 		ps := ""
@@ -210,6 +227,11 @@ func buildChatsList() []map[string]interface{} {
 			"IsCommunity":           isCommunity == 1,
 			"IsAdmin":               isAdmin == 1,
 			"IsLocked":              isLocked == 1,
+			"ParentJID":             parentJID,
+			"IsAnnouncements":       isAnnounceGroup == 1 && parentJID != "",
+			"CommunityName":         communityNames[parentJID],
+			"IsChannel":             isChannel == 1,
+			"ChannelRole":           strings.ToLower(channelRole),
 		})
 	}
 	return chats

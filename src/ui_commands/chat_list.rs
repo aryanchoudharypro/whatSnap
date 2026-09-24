@@ -67,6 +67,15 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.conversations_label.set_label("Communities");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
+		5 => {
+			// Channels
+			parts.conversations_parts.panel.show(true);
+			state.borrow_mut().active_tab = 5;
+			parts.conversations_parts.new_conv_btn.set_label("Find channels...");
+			parts.conversations_parts.post_media_status_btn.show(false);
+			parts.conversations_parts.conversations_label.set_label("Channels");
+			apply_chat_filter(&mut state.borrow_mut(), parts);
+		}
 		_ => {}
 	}
 	parts.content_panel.layout();
@@ -142,8 +151,16 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			}
 		}
 		open_chat_for_jid(jid, state, parts);
+		// Opening a community shows its groups, the way the official apps
+		// do - its own chat is always empty.
+		if state.borrow().community_jids.contains(jid) {
+			show_conversation_data(state, parts);
+		}
 	}
 }
+
+/// The Groups tab's page in the group info dialog's notebook.
+const GROUPS_TAB: usize = 4;
 
 pub(crate) fn open_chat_by_phone(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, digits: String) {
 	let jid = format!("{}@s.whatsapp.net", digits);
@@ -441,7 +458,10 @@ pub(crate) fn jump_to_search_result(
 pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let s = state.borrow();
 	if let Some(ref jid) = s.selected_chat {
-		if jid.ends_with("@g.us") {
+		if jid.ends_with("@newsletter") {
+			let payload = serde_json::json!({ "action": "get_channel_info", "data": { "jid": jid } });
+			let _ = s.ws_tx.send(payload.to_string());
+		} else if jid.ends_with("@g.us") {
 			let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
 			parts.group_data_dialog.group_name_field.set_value(&local_name);
 			parts.group_data_dialog.members_list.clear();
@@ -449,6 +469,13 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			parts.group_data_dialog.documents_list.clear();
 			parts.group_data_dialog.links_list.clear();
 			parts.group_data_dialog.groups_list.clear();
+			parts.group_data_dialog.groups_label.set_label("Groups in this community");
+			parts.group_data_dialog.join_group_btn.set_label("Join group");
+			// A community's own chat has nothing in it; what it holds is its
+			// groups, so its info opens on those.
+			if s.community_jids.contains(jid) {
+				parts.group_data_dialog.notebook.set_selection(GROUPS_TAB);
+			}
 
 			let payload = serde_json::json!({
 				"action": "get_group_info",
@@ -456,7 +483,11 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			});
 			let _ = s.ws_tx.send(payload.to_string());
 			drop(s);
-			state.borrow_mut().group_data_subgroup_jids.clear();
+			let mut s = state.borrow_mut();
+			s.group_data_subgroup_jids.clear();
+			s.group_data_subgroup_joined.clear();
+			s.group_data_community = None;
+			drop(s);
 
 			parts.group_data_dialog.dialog.show_modal();
 		} else {

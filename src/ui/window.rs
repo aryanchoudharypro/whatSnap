@@ -223,6 +223,7 @@ pub const MENU_ID_NAV_STATUS: i32 = 6011;
 pub const MENU_ID_NAV_COMMUNITIES: i32 = 6012;
 pub const MENU_ID_NAV_STARRED: i32 = 6013;
 pub const MENU_ID_NAV_ARCHIVED: i32 = 6014;
+pub const MENU_ID_NAV_CHANNELS: i32 = 6015;
 pub const MENU_ID_NEW_CHAT: i32 = 6020;
 pub const MENU_ID_NEW_GROUP: i32 = 6021;
 pub const MENU_ID_SEARCH_GLOBAL: i32 = 6022;
@@ -265,6 +266,7 @@ pub fn build_main_window() -> WindowParts {
 			"Starred Messages".to_string(),
 			"Archived Chats".to_string(),
 			"Communities".to_string(),
+			"Channels".to_string(),
 		])
 		.build();
 	nav_list.set_font(&theme::Fonts::body_strong());
@@ -293,6 +295,7 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_NAV_COMMUNITIES, "C&ommunities\tAlt+3", "Jump to Communities")
 		.append_item(MENU_ID_NAV_STARRED, "S&tarred Messages\tAlt+4", "Jump to Starred Messages")
 		.append_item(MENU_ID_NAV_ARCHIVED, "&Archived Chats\tAlt+5", "Jump to Archived Chats")
+		.append_item(MENU_ID_NAV_CHANNELS, "C&hannels\tAlt+6", "Jump to the channels you follow")
 		.build();
 	// Matches official WhatsApp's shortcuts, minus Alt on every combo that
 	// also has Ctrl (kept only on the Alt-only ones) - see the Alt+1..5
@@ -627,7 +630,9 @@ pub fn bind_input_handlers(
 	let state_new_conv = state.clone();
 	let frame_new_conv = parts.frame.clone();
 	parts.conversations_parts.new_conv_btn.on_click(move |_| {
-		if state_new_conv.borrow().active_tab == 1 {
+		if state_new_conv.borrow().active_tab == 5 {
+			let _ = tx_new_conv.send(UiCommand::FindChannels);
+		} else if state_new_conv.borrow().active_tab == 1 {
 			let dlg = TextEntryDialog::builder(&frame_new_conv, "What's on your mind?", "Post Status Update").build();
 			if dlg.show_modal() == wxdragon::id::ID_OK {
 				if let Some(val) = dlg.get_value() {
@@ -1102,6 +1107,7 @@ pub fn bind_input_handlers(
 			MENU_ID_NAV_STARRED => 2,
 			MENU_ID_NAV_ARCHIVED => 3,
 			MENU_ID_NAV_COMMUNITIES => 4,
+			MENU_ID_NAV_CHANNELS => 5,
 			_ => return,
 		};
 		// set_selection's bool means select-vs-deselect, not "fire the change
@@ -1346,12 +1352,45 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	let tx_invite_link = ui_tx.clone();
+	parts.group_data_dialog.invite_link_btn.on_click(move |_| {
+		let _ = tx_invite_link.send(UiCommand::ShowGroupInviteLink);
+	});
+
 	let tx_join_group = ui_tx.clone();
 	let groups_list_join = parts.group_data_dialog.groups_list.clone();
 	parts.group_data_dialog.join_group_btn.on_click(move |_| {
 		if let Some(idx) = groups_list_join.get_selection() {
 			let _ = tx_join_group.send(UiCommand::JoinCommunitySubgroup(idx));
 		}
+	});
+
+	let tx_group_selection = ui_tx.clone();
+	parts.group_data_dialog.groups_list.on_selection_changed(move |_| {
+		let _ = tx_group_selection.send(UiCommand::CommunitySubgroupSelectionChanged);
+	});
+	let tx_group_double_click = ui_tx.clone();
+	parts.group_data_dialog.groups_list.on_item_double_clicked(move |event| {
+		if let Some(idx) = event.get_selection() {
+			let _ = tx_group_double_click.send(UiCommand::JoinCommunitySubgroup(idx as u32));
+		}
+	});
+	// Enter on the row opens or joins it. Caught on key-up: the dialog eats
+	// Enter's key-down for its default button (see the contact picker).
+	let tx_group_enter = ui_tx.clone();
+	let groups_list_enter = parts.group_data_dialog.groups_list.clone();
+	parts.group_data_dialog.groups_list.on_key_up(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if code == Some(13) || code == Some(370) {
+				if let Some(idx) = groups_list_enter.get_selection() {
+					let _ = tx_group_enter.send(UiCommand::JoinCommunitySubgroup(idx));
+				}
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
 	});
 
 	wire_media_list(
