@@ -69,16 +69,7 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 	dialog.center();
 
 	let dlg_esc1 = dialog.clone();
-	search_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dlg_esc1.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	search_field.on_key_down(crate::ui::keys::escape_cancels(dlg_esc1));
 
 	// Enter-to-select and Escape-to-cancel for `results_list` are bound in
 	// `ui::window::bind_input_handlers`, which has access to the app state

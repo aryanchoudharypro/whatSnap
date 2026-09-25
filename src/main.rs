@@ -20,6 +20,8 @@ mod clipboard;
 pub use clipboard::copy_files_to_clipboard;
 mod contact_picker;
 mod countries;
+mod do_not_disturb;
+mod keymap;
 mod message_display;
 use message_display::update_action_buttons;
 #[cfg(target_os = "windows")]

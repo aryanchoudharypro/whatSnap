@@ -1191,6 +1191,32 @@ pub fn incoming_alert(muted: bool, archived: bool, level: ArchivedAlert) -> Inco
 	}
 }
 
+/// Whether Windows is holding its own notifications back, from the two
+/// readings `do_not_disturb` takes: `focus_assist` is the live Do Not Disturb
+/// / Focus Assist state, and `notification_state` is
+/// `SHQueryUserNotificationState`'s answer. `None` means that reading failed.
+///
+/// Full-screen games and presentation mode count. The legacy quiet-time state
+/// counts only when Focus Assist couldn't be read, because the old API
+/// predates Focus Assist and goes stale; a Focus Assist reading of off
+/// overrides it. `QUNS_BUSY` (2) never counts: it's reported in situations
+/// where Windows itself still sounds its notifications. Every doubt answers
+/// false, since a wrong false costs one sound and a wrong true silently hides
+/// every message.
+pub fn windows_is_quieting(focus_assist: Option<bool>, notification_state: Option<i32>) -> bool {
+	const QUNS_RUNNING_D3D_FULL_SCREEN: i32 = 3;
+	const QUNS_PRESENTATION_MODE: i32 = 4;
+	const QUNS_QUIET_TIME: i32 = 6;
+	if focus_assist == Some(true) {
+		return true;
+	}
+	match notification_state {
+		Some(QUNS_RUNNING_D3D_FULL_SCREEN | QUNS_PRESENTATION_MODE) => true,
+		Some(QUNS_QUIET_TIME) => focus_assist.is_none(),
+		_ => false,
+	}
+}
+
 /// Total unread across every chat that would actually have alerted about it, by
 /// the same [`incoming_alert`] rules the "message" event applies. Muted chats
 /// and silent archived ones are left out deliberately: this is a summary of what
@@ -1449,6 +1475,35 @@ mod tests {
 		// Muting beats a per-chat level that would otherwise have alerted.
 		let muted_full: std::collections::HashSet<String> = ["full@s.whatsapp.net".to_string()].into_iter().collect();
 		assert_eq!(unread_notification_total(&counts, &muted_full, &archived, &levels), 3);
+	}
+
+	#[test]
+	fn quieting_follows_focus_assist_first() {
+		assert!(windows_is_quieting(Some(true), None));
+		assert!(windows_is_quieting(Some(true), Some(5)));
+		assert!(!windows_is_quieting(Some(false), None));
+		assert!(!windows_is_quieting(None, None));
+	}
+
+	#[test]
+	fn quieting_counts_full_screen_and_presentations() {
+		assert!(windows_is_quieting(Some(false), Some(3)));
+		assert!(windows_is_quieting(Some(false), Some(4)));
+		assert!(windows_is_quieting(None, Some(4)));
+	}
+
+	#[test]
+	fn legacy_quiet_time_yields_to_a_live_focus_assist_reading() {
+		assert!(windows_is_quieting(None, Some(6)));
+		assert!(!windows_is_quieting(Some(false), Some(6)));
+	}
+
+	#[test]
+	fn busy_and_normal_states_never_quiet() {
+		for state in [1, 2, 5, 7] {
+			assert!(!windows_is_quieting(None, Some(state)));
+			assert!(!windows_is_quieting(Some(false), Some(state)));
+		}
 	}
 
 	#[test]

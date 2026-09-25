@@ -1,0 +1,22 @@
+[package]
+name = "ship-shape"
+version = "0.2.0"
+edition = "2024"
+description = "Universal auto-updater for wxDragon desktop apps"
+license = "MIT"
+repository = "https://github.com/trypsynth/ship-shape"
+readme = "README.md"
+keywords = ["updater", "wxdragon", "auto-update", "desktop", "github-releases"]
+categories = ["gui"]
+
+[package.metadata.patois]
+translatable = true
+
+[dependencies]
+minisign-verify = "0.2.5"
+patois = "0.2.1"
+pulldown-cmark = { version = "0.13.4", default-features = false }
+serde = { version = "1.0.229", default-features = false, features = ["derive"] }
+ureq = { version = "3.4.0", default-features = false, features = ["json", "rustls"] }
+# whaNTV patch: don't force wxdragon's default wx-* features back on.
+wxdragon = { version = "0.9.19", default-features = false }

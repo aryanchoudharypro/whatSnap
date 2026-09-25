@@ -8,6 +8,7 @@ pub mod channel_directory;
 pub mod conversation_data;
 pub mod conversations;
 pub mod group_data;
+pub mod keys;
 pub mod new_contact;
 pub mod new_conversation;
 pub mod new_group;

@@ -57,18 +57,7 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 	// CHAR_HOOK fires on this dialog (a top-level window) before the
 	// keypress reaches whichever control has focus, so Escape discards the
 	// attachment regardless of what's focused, not just caption_field.
-	let dlg_att = dialog.clone();
-	dialog.bind_internal(EventType::CHAR_HOOK, move |event| {
-		let data = WindowEventData::new(event);
-		if let WindowEventData::Keyboard(ref key) = data {
-			if key.get_key_code() == Some(27) {
-				dlg_att.end_modal(ID_CANCEL);
-				data.skip(false);
-				return;
-			}
-		}
-		data.skip(true);
-	});
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	AttachmentDialogParts {
 		dialog,

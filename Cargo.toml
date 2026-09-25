@@ -13,14 +13,16 @@ serde_json = { version = "1.0.150", features = ["raw_value"] }
 # handlers, regex, Tango art icons or asserts. whaNTV builds every bitmap from
 # raw pixels and uses none of them; add a feature back here if something new
 # needs it. The source is pinned below in [patch.crates-io].
-wxdragon = { version = "0.9", default-features = false }
+wxdragon = { version = "0.9.22", default-features = false }
 qrcode = "0.14.1"
 # Only used to encode the pairing QR code as a PNG. Default features pull in
 # every format the crate supports, including rav1e (a full AV1 encoder), EXR,
 # WebP, TIFF and GIF - 63 crates that are compiled and then dead-stripped.
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 base64 = "0.22.1"
-live-region = "0.3.0"
+live-region = "0.3.2"
+wx-utils = { version = "0.3.1", features = ["shortcuts"] }
+key-chord = "0.1.0"
 rodio = { version = "0.22.2", features = ["default", "symphonia-vorbis", "symphonia-all"] }
 rodio-wsola = "0.2.0"
 hound = "3.5.1"
@@ -54,11 +56,21 @@ winres = "0.1.12"
 # wxDragon at an upstream commit with AllenDang/wxDragon#225 (the wx-*
 # features that make the binary smaller), #224, #227 (taskbar events on every
 # platform) and #228 (ListBox::set_items/append_items/insert_items), until a
-# release has them. live-region is patched too, to a local
-# copy of 0.3.0 whose only change is `default-features = false` on wxdragon:
-# Cargo unions features across the graph, so its plain `wxdragon = "0.9.21"`
-# would switch every wx-* feature back on.
+# release has them.
+#
+# Cargo turns on every feature any crate in the graph asks for, and a
+# [patch] on wxdragon itself can't stop that: each crate below depends on a
+# plain `wxdragon = "0.9.x"`, which would switch every wx-* feature back on.
+# So each is a local copy of its published release whose only change is
+# `default-features = false` on wxdragon (marked "whaNTV patch" in its
+# Cargo.toml). ship-shape isn't a dependency yet; its patch is ready for the
+# updater. Check with `cargo tree -e features -i wxdragon`.
 [patch.crates-io]
 wxdragon = { git = "https://github.com/AllenDang/wxDragon", rev = "7c53768b77ca7c6d5b1b3a8a0da77b9791d6e701" }
-wxdragon-sys = { git = "https://github.com/AllenDang/wxDragon", rev = "7c53768b77ca7c6d5b1b3a8a0da77b9791d6e701" }
 live-region = { path = "patches/live-region" }
+wx-utils = { path = "patches/wx-utils" }
+ship-shape = { path = "patches/ship-shape" }
+# Not about features: key-chord 0.1.0 has the wrong wx codes for the numpad
+# navigation keys (numpad Up read as Home, Ctrl as Delete). Fixed in the copy
+# and marked "whaNTV patch" in its src/lib.rs.
+key-chord = { path = "patches/key-chord" }

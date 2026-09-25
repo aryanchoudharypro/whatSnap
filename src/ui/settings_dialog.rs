@@ -23,12 +23,14 @@ pub struct SettingsDialogParts {
 	pub general_panel: Panel,
 	pub sounds_check: CheckBox,
 	pub notifications_check: CheckBox,
+	pub follow_dnd_check: CheckBox,
 	pub announce_typing_check: CheckBox,
 	pub announce_recording_check: CheckBox,
 	pub tray_icon_check: CheckBox,
 	pub autostart_check: CheckBox,
 	pub meta_ai_enabled_check: CheckBox,
 	pub verbose_backend_logging_check: CheckBox,
+	pub shortcuts_btn: Button,
 
 	// Profile & Privacy tab
 	pub privacy_panel: Panel,
@@ -88,6 +90,12 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	notifications_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&notifications_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
+	let follow_dnd_check = CheckBox::builder(&general_panel)
+		.with_label("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on")
+		.build();
+	follow_dnd_check.set_font(&theme::Fonts::body());
+	general_sizer.add(&follow_dnd_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
 	let announce_typing_check = CheckBox::builder(&general_panel).with_label("Announce when someone is typing").build();
 	announce_typing_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&announce_typing_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
@@ -119,6 +127,10 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		.build();
 	verbose_backend_logging_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&verbose_backend_logging_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
+	let shortcuts_btn = Button::builder(&general_panel).with_label("&Keyboard Shortcuts...").build();
+	shortcuts_btn.set_font(&theme::Fonts::body());
+	general_sizer.add(&shortcuts_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	general_panel.set_sizer(general_sizer, true);
 
@@ -217,18 +229,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	// dialog regardless of which checkbox/combo/field/tab is focused -
 	// binding it per-widget (as this used to, on sounds_check only) misses
 	// everything else in the dialog.
-	let dlg_esc = dialog.clone();
-	dialog.bind_internal(EventType::CHAR_HOOK, move |event| {
-		let data = WindowEventData::new(event);
-		if let WindowEventData::Keyboard(ref key) = data {
-			if key.get_key_code() == Some(27) {
-				dlg_esc.end_modal(ID_CANCEL);
-				data.skip(false);
-				return;
-			}
-		}
-		data.skip(true);
-	});
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	SettingsDialogParts {
 		dialog,
@@ -236,12 +237,14 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		general_panel,
 		sounds_check,
 		notifications_check,
+		follow_dnd_check,
 		announce_typing_check,
 		announce_recording_check,
 		tray_icon_check,
 		autostart_check,
 		meta_ai_enabled_check,
 		verbose_backend_logging_check,
+		shortcuts_btn,
 		privacy_panel,
 		name_field,
 		about_field,

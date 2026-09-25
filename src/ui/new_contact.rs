@@ -68,40 +68,13 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 	dialog.center();
 
 	let dlg_e1 = dialog.clone();
-	name_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dlg_e1.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	name_field.on_key_down(crate::ui::keys::escape_cancels(dlg_e1));
 
 	let dlg_e2 = dialog.clone();
-	surname_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dlg_e2.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	surname_field.on_key_down(crate::ui::keys::escape_cancels(dlg_e2));
 
 	let dlg_e3 = dialog.clone();
-	phone_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dlg_e3.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	phone_field.on_key_down(crate::ui::keys::escape_cancels(dlg_e3));
 
 	NewContactDialogParts { dialog, name_field, surname_field, phone_field, sync_check, ok_btn, cancel_btn }
 }
