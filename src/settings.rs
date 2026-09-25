@@ -8,6 +8,10 @@ use std::path::PathBuf;
 pub struct Settings {
 	pub sounds_enabled: bool,
 	pub notifications_enabled: bool,
+	/// Whether the background message sound stays quiet while Windows is
+	/// holding its own notifications back (Do Not Disturb / Focus Assist, a
+	/// full-screen game, presentation mode). See [`crate::do_not_disturb`].
+	pub follow_windows_do_not_disturb: bool,
 	pub announce_typing: bool,
 	pub announce_recording: bool,
 	pub show_tray_icon: bool,
@@ -45,6 +49,9 @@ pub struct Settings {
 	/// backend process is launched - toggling it takes effect the next time
 	/// whaNTV starts, not on the running backend.
 	pub verbose_backend_logging: bool,
+	/// Menu shortcuts the user changed, by action id; see [`crate::keymap`].
+	/// Anything not listed keeps its default.
+	pub shortcuts: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -52,6 +59,7 @@ impl Default for Settings {
 		Self {
 			sounds_enabled: true,
 			notifications_enabled: true,
+			follow_windows_do_not_disturb: true,
 			announce_typing: true,
 			announce_recording: true,
 			show_tray_icon: true,
@@ -62,6 +70,7 @@ impl Default for Settings {
 			voice_message_noise_suppression: false,
 			archived_alert_levels: std::collections::HashMap::new(),
 			verbose_backend_logging: false,
+			shortcuts: std::collections::BTreeMap::new(),
 		}
 	}
 }

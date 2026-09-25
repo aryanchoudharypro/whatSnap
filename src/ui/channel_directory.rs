@@ -392,16 +392,7 @@ pub fn show_channel_directory(
 	// Enter on a row: caught on key-up, since the dialog takes Enter's
 	// key-down for its default button.
 	let view_enter = view.clone();
-	list.on_key_up(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if matches!(key.get_key_code(), Some(13) | Some(370)) {
-				view_enter();
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	crate::ui::keys::on_enter(&list, std::rc::Rc::default(), move || view_enter());
 
 	let dir_follow = directory.clone();
 	let follow_tx = ws_tx;
@@ -414,16 +405,7 @@ pub fn show_channel_directory(
 	});
 	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
 
-	let escape_closes = move |event: WindowEventData| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dialog.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	};
+	let escape_closes = crate::ui::keys::escape_cancels(dialog);
 	search_field.on_key_down(escape_closes);
 	list.on_key_down(escape_closes);
 	country_combo.on_key_down(escape_closes);

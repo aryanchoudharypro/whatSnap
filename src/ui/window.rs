@@ -5,7 +5,12 @@ use wxdragon::{
 	prelude::*,
 };
 
-use crate::{UiCommand, ui::theme, ui_wake::UiCommandSender};
+use crate::{
+	UiCommand,
+	keymap::{default_menu_label, message_list},
+	ui::{keys, theme},
+	ui_wake::UiCommandSender,
+};
 
 /// Whether Enter (main or numpad) is physically down right now.
 fn enter_key_held() -> bool {
@@ -100,23 +105,14 @@ fn wire_media_list(
 	let tx_enter = ui_tx.clone();
 	let state_enter = state.clone();
 	let get_message_enter = get_message.clone();
-	list.on_key_up(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			let code = key_event.get_key_code();
-			if code == Some(13) || code == Some(370) {
-				// Enter or numpad Enter
-				if let Some(idx) = list_enter.get_selection() {
-					if let Some(msg) = get_message_enter(&state_enter.borrow(), idx as usize) {
-						dialog_enter.end_modal(0);
-						let _ = tx_enter
-							.send(UiCommand::JumpToSearchResult { message_id: msg.id, message_text: String::new() });
-					}
-				}
-				event.skip(false);
-				return;
+	keys::on_enter(list, Rc::default(), move || {
+		if let Some(idx) = list_enter.get_selection() {
+			if let Some(msg) = get_message_enter(&state_enter.borrow(), idx as usize) {
+				dialog_enter.end_modal(0);
+				let _ =
+					tx_enter.send(UiCommand::JumpToSearchResult { message_id: msg.id, message_text: String::new() });
 			}
 		}
-		event.skip(true);
 	});
 
 	if with_media_actions {
@@ -278,8 +274,12 @@ pub fn build_main_window() -> WindowParts {
 	nav_panel.set_sizer(nav_sizer, true);
 
 	let account_menu = Menu::builder()
-		.append_item(MENU_ID_SETTINGS, "&Settings...\tCtrl+,", "Open settings")
-		.append_item(MENU_ID_RECONNECT, "&Reconnect Now\tF5", "Retry connecting to WhatsApp right away")
+		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), "Open settings")
+		.append_item(
+			MENU_ID_RECONNECT,
+			&default_menu_label(MENU_ID_RECONNECT),
+			"Retry connecting to WhatsApp right away",
+		)
 		.append_separator()
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
 		.build();
@@ -290,39 +290,59 @@ pub fn build_main_window() -> WindowParts {
 	// has focus) from the "\tAlt+1" accelerator syntax on a menu label; a
 	// plain key-down handler on a widget loses to that table for Alt-combos.
 	let go_menu = Menu::builder()
-		.append_item(MENU_ID_NAV_CONVERSATIONS, "&Conversations\tAlt+1", "Jump to the conversation list")
-		.append_item(MENU_ID_NAV_STATUS, "&Status\tAlt+2", "Jump to Status")
-		.append_item(MENU_ID_NAV_COMMUNITIES, "C&ommunities\tAlt+3", "Jump to Communities")
-		.append_item(MENU_ID_NAV_STARRED, "S&tarred Messages\tAlt+4", "Jump to Starred Messages")
-		.append_item(MENU_ID_NAV_ARCHIVED, "&Archived Chats\tAlt+5", "Jump to Archived Chats")
-		.append_item(MENU_ID_NAV_CHANNELS, "C&hannels\tAlt+6", "Jump to the channels you follow")
+		.append_item(
+			MENU_ID_NAV_CONVERSATIONS,
+			&default_menu_label(MENU_ID_NAV_CONVERSATIONS),
+			"Jump to the conversation list",
+		)
+		.append_item(MENU_ID_NAV_STATUS, &default_menu_label(MENU_ID_NAV_STATUS), "Jump to Status")
+		.append_item(MENU_ID_NAV_COMMUNITIES, &default_menu_label(MENU_ID_NAV_COMMUNITIES), "Jump to Communities")
+		.append_item(MENU_ID_NAV_STARRED, &default_menu_label(MENU_ID_NAV_STARRED), "Jump to Starred Messages")
+		.append_item(MENU_ID_NAV_ARCHIVED, &default_menu_label(MENU_ID_NAV_ARCHIVED), "Jump to Archived Chats")
+		.append_item(MENU_ID_NAV_CHANNELS, &default_menu_label(MENU_ID_NAV_CHANNELS), "Jump to the channels you follow")
 		.build();
 	// Matches official WhatsApp's shortcuts, minus Alt on every combo that
 	// also has Ctrl (kept only on the Alt-only ones) - see the Alt+1..5
 	// comment above for why these have to be real menu items.
 	let chat_menu = Menu::builder()
-		.append_item(MENU_ID_NEW_CHAT, "&New Chat\tCtrl+N", "Start a new chat")
-		.append_item(MENU_ID_NEW_GROUP, "New &Group\tCtrl+Shift+N", "Start a new group")
-		.append_item(MENU_ID_SEARCH_GLOBAL, "&Search\tCtrl+/", "Search chats")
-		.append_item(MENU_ID_SEARCH_CHAT, "Search in &Chat\tCtrl+Shift+F", "Search within the open chat")
+		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), "Start a new chat")
+		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), "Start a new group")
+		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), "Search chats")
+		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
 		.append_separator()
-		.append_item(MENU_ID_MUTE_CHAT, "&Mute Chat\tCtrl+Shift+M", "Mute the open chat")
-		.append_item(MENU_ID_ARCHIVE_CHAT, "&Archive Chat\tCtrl+Shift+E", "Archive the open chat")
-		.append_item(MENU_ID_PIN_CHAT, "&Pin Chat\tCtrl+Shift+P", "Pin the open chat")
-		.append_item(MENU_ID_LOCK_CHAT, "&Lock Chat\tCtrl+L", "Lock or unlock the open chat")
-		.append_item(MENU_ID_MARK_UNREAD, "Mark as &Unread\tCtrl+Shift+U", "Toggle read/unread on the open chat")
-		.append_item(MENU_ID_CHAT_INFO, "Chat &Info\tAlt+I", "Open info for the open chat")
+		.append_item(MENU_ID_MUTE_CHAT, &default_menu_label(MENU_ID_MUTE_CHAT), "Mute the open chat")
+		.append_item(MENU_ID_ARCHIVE_CHAT, &default_menu_label(MENU_ID_ARCHIVE_CHAT), "Archive the open chat")
+		.append_item(MENU_ID_PIN_CHAT, &default_menu_label(MENU_ID_PIN_CHAT), "Pin the open chat")
+		.append_item(MENU_ID_LOCK_CHAT, &default_menu_label(MENU_ID_LOCK_CHAT), "Lock or unlock the open chat")
+		.append_item(
+			MENU_ID_MARK_UNREAD,
+			&default_menu_label(MENU_ID_MARK_UNREAD),
+			"Toggle read/unread on the open chat",
+		)
+		.append_item(MENU_ID_CHAT_INFO, &default_menu_label(MENU_ID_CHAT_INFO), "Open info for the open chat")
 		.append_separator()
-		.append_item(MENU_ID_STAR_MESSAGE, "&Star Message\tAlt+8", "Star the selected message")
+		.append_item(MENU_ID_STAR_MESSAGE, &default_menu_label(MENU_ID_STAR_MESSAGE), "Star the selected message")
 		.build();
 	let voice_menu = Menu::builder()
-		.append_item(MENU_ID_START_RECORDING, "Start &Recording\tCtrl+Shift+R", "Start a voice message recording")
-		.append_item(MENU_ID_PAUSE_RECORDING, "&Pause Recording\tAlt+P", "Pause/resume the voice recording")
-		.append_item(MENU_ID_SEND_PTT, "Sen&d Voice Message\tCtrl+Enter", "Send the recorded voice message")
+		.append_item(
+			MENU_ID_START_RECORDING,
+			&default_menu_label(MENU_ID_START_RECORDING),
+			"Start a voice message recording",
+		)
+		.append_item(
+			MENU_ID_PAUSE_RECORDING,
+			&default_menu_label(MENU_ID_PAUSE_RECORDING),
+			"Pause/resume the voice recording",
+		)
+		.append_item(MENU_ID_SEND_PTT, &default_menu_label(MENU_ID_SEND_PTT), "Send the recorded voice message")
 		.build();
 	let call_menu = Menu::builder()
-		.append_item(MENU_ID_CALL_MUTE, "Toggle &Mute\tCtrl+M", "Mute/unmute the microphone during a call")
-		.append_item(MENU_ID_CALL_END, "&End Call\tCtrl+W", "End the active call")
+		.append_item(
+			MENU_ID_CALL_MUTE,
+			&default_menu_label(MENU_ID_CALL_MUTE),
+			"Mute/unmute the microphone during a call",
+		)
+		.append_item(MENU_ID_CALL_END, &default_menu_label(MENU_ID_CALL_END), "End the active call")
 		.build();
 	let menu_bar = MenuBar::builder()
 		.append(account_menu, "&Account")
@@ -427,16 +447,7 @@ pub fn build_main_window() -> WindowParts {
 	pairing_dialog.set_sizer(p_sizer, true);
 
 	let pairing_dlg_esc = pairing_dialog.clone();
-	pairing_code_display.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				pairing_dlg_esc.end_modal(wxdragon::id::ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	pairing_code_display.on_key_down(keys::escape_cancels(pairing_dlg_esc));
 
 	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
 	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
@@ -701,7 +712,7 @@ pub fn bind_input_handlers(
 	picker_search_field.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			if (code == Some(13) || code == Some(370)) && picker_results_list_from_search.get_count() > 0 {
+			if keys::is_enter(code) && picker_results_list_from_search.get_count() > 0 {
 				let _ = tx_picker_select_from_search.send(UiCommand::SelectContactPickerResult(0));
 				event.skip(false);
 				return;
@@ -721,44 +732,15 @@ pub fn bind_input_handlers(
 	let tx_picker_select_key = ui_tx.clone();
 	let picker_results_list_key = parts.new_conv_dialog.results_list;
 	let picker_dialog_esc = parts.new_conv_dialog.dialog;
-	picker_results_list_key.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			let code = key_event.get_key_code();
-			if code == Some(13) || code == Some(370) {
-				if let Some(idx) = picker_results_list_key.get_selection() {
-					let _ = tx_picker_select_key.send(UiCommand::SelectContactPickerResult(idx as usize));
-				}
-				event.skip(false);
-				return;
-			} else if code == Some(27) {
-				picker_dialog_esc.end_modal(wxdragon::id::ID_CANCEL);
-				event.skip(false);
-				return;
-			}
+	// Plain Enter on a ListBox row never reaches on_key_down here - this
+	// dialog's IsDialogMessage handling takes it for the default button (only
+	// Alt+Enter got through) - which is what on_enter's key-up half is for.
+	keys::on_enter(&picker_results_list_key, Rc::default(), move || {
+		if let Some(idx) = picker_results_list_key.get_selection() {
+			let _ = tx_picker_select_key.send(UiCommand::SelectContactPickerResult(idx as usize));
 		}
-		event.skip(true);
 	});
-
-	// Plain Enter on a ListBox row never reaches on_key_down at all here -
-	// this dialog's IsDialogMessage handling consumes it to activate the
-	// dialog's default button first (only Alt+Enter, which isn't a "default
-	// button" accelerator, got through) - same root cause the chat list and
-	// message list both work around by catching it here on key-up instead.
-	let tx_picker_select_key_up = ui_tx.clone();
-	let picker_results_list_key_up = parts.new_conv_dialog.results_list;
-	picker_results_list_key_up.on_key_up(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			let code = key_event.get_key_code();
-			if code == Some(13) || code == Some(370) {
-				if let Some(idx) = picker_results_list_key_up.get_selection() {
-					let _ = tx_picker_select_key_up.send(UiCommand::SelectContactPickerResult(idx as usize));
-				}
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	picker_results_list_key.on_key_down(keys::escape_cancels(picker_dialog_esc));
 
 	let tx_conv_data = ui_tx.clone();
 	parts.conversations_parts.conv_data_btn.on_click(move |_| {
@@ -822,7 +804,7 @@ pub fn bind_input_handlers(
 	let tx_camera_key = ui_tx.clone();
 	parts.call_parts.frame.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
-			if key_event.get_key_code() == Some(86) && key_event.control_down() && key_event.shift_down() {
+			if keys::is_letter(key_event.get_key_code(), 'V') && key_event.control_down() && key_event.shift_down() {
 				let _ = tx_camera_key.send(UiCommand::ToggleCamera);
 				event.skip(false);
 				return;
@@ -990,9 +972,15 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	crate::keymap::Keymap::from_saved(&state.borrow().settings.shortcuts).apply(&parts.frame);
+	// Edits from the Keyboard Shortcuts dialog wait here until Settings is
+	// confirmed, so Cancel on Settings throws them away like everything else.
+	let pending_shortcuts: Rc<std::cell::RefCell<Option<crate::keymap::Keymap>>> = Rc::default();
+
 	let settings_dialog = parts.settings_dialog.dialog;
 	let sounds_check = parts.settings_dialog.sounds_check;
 	let notifications_check = parts.settings_dialog.notifications_check;
+	let follow_dnd_check_open = parts.settings_dialog.follow_dnd_check;
 	let announce_typing_check = parts.settings_dialog.announce_typing_check;
 	let announce_recording_check = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check = parts.settings_dialog.tray_icon_check;
@@ -1013,14 +1001,17 @@ pub fn bind_input_handlers(
 	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check.clone();
 	let ok_btn_open = parts.settings_dialog.ok_btn.clone();
 	let state_settings_open = state.clone();
+	let pending_shortcuts_open = pending_shortcuts.clone();
 	parts.frame.on_menu_selected(move |evt| {
 		if evt.get_id() != MENU_ID_SETTINGS {
 			return;
 		}
+		pending_shortcuts_open.borrow_mut().take();
 		use crate::ui::settings_dialog::*;
 		let s = state_settings_open.borrow();
 		sounds_check.set_value(s.settings.sounds_enabled);
 		notifications_check.set_value(s.settings.notifications_enabled);
+		follow_dnd_check_open.set_value(s.settings.follow_windows_do_not_disturb);
 		announce_typing_check.set_value(s.settings.announce_typing);
 		announce_recording_check.set_value(s.settings.announce_recording);
 		tray_icon_check.set_value(s.settings.show_tray_icon);
@@ -1222,6 +1213,19 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	let settings_dialog_shortcuts = parts.settings_dialog.dialog;
+	let state_shortcuts = state.clone();
+	let pending_shortcuts_edit = pending_shortcuts.clone();
+	parts.settings_dialog.shortcuts_btn.on_click(move |_| {
+		let current = pending_shortcuts_edit
+			.borrow()
+			.clone()
+			.unwrap_or_else(|| crate::keymap::Keymap::from_saved(&state_shortcuts.borrow().settings.shortcuts));
+		if let Some(updated) = wx_utils::shortcuts::prompt_for_shortcuts(&settings_dialog_shortcuts, &current) {
+			*pending_shortcuts_edit.borrow_mut() = Some(updated);
+		}
+	});
+
 	let settings_dialog_cancel = parts.settings_dialog.dialog;
 	parts.settings_dialog.cancel_btn.on_click(move |_| {
 		settings_dialog_cancel.end_modal(wxdragon::id::ID_CANCEL);
@@ -1230,6 +1234,7 @@ pub fn bind_input_handlers(
 	let settings_dialog_ok = parts.settings_dialog.dialog;
 	let sounds_check_ok = parts.settings_dialog.sounds_check;
 	let notifications_check_ok = parts.settings_dialog.notifications_check;
+	let follow_dnd_check_ok = parts.settings_dialog.follow_dnd_check;
 	let announce_typing_check_ok = parts.settings_dialog.announce_typing_check;
 	let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
@@ -1249,11 +1254,17 @@ pub fn bind_input_handlers(
 	let output_device_combo_ok = parts.settings_dialog.output_device_combo.clone();
 	let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check.clone();
 	let state_settings_save = state.clone();
+	let frame_shortcuts_save = parts.frame;
 	parts.settings_dialog.ok_btn.on_click(move |_| {
 		use crate::ui::settings_dialog::*;
 		let mut s = state_settings_save.borrow_mut();
+		if let Some(keymap) = pending_shortcuts.borrow_mut().take() {
+			keymap.apply(&frame_shortcuts_save);
+			s.settings.shortcuts = keymap.saved();
+		}
 		s.settings.sounds_enabled = sounds_check_ok.is_checked();
 		s.settings.notifications_enabled = notifications_check_ok.is_checked();
+		s.settings.follow_windows_do_not_disturb = follow_dnd_check_ok.is_checked();
 		s.settings.announce_typing = announce_typing_check_ok.is_checked();
 		s.settings.announce_recording = announce_recording_check_ok.is_checked();
 		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
@@ -1385,18 +1396,10 @@ pub fn bind_input_handlers(
 	// Enter's key-down for its default button (see the contact picker).
 	let tx_group_enter = ui_tx.clone();
 	let groups_list_enter = parts.group_data_dialog.groups_list.clone();
-	parts.group_data_dialog.groups_list.on_key_up(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			let code = key_event.get_key_code();
-			if code == Some(13) || code == Some(370) {
-				if let Some(idx) = groups_list_enter.get_selection() {
-					let _ = tx_group_enter.send(UiCommand::JoinCommunitySubgroup(idx));
-				}
-				event.skip(false);
-				return;
-			}
+	keys::on_enter(&parts.group_data_dialog.groups_list, Rc::default(), move || {
+		if let Some(idx) = groups_list_enter.get_selection() {
+			let _ = tx_group_enter.send(UiCommand::JoinCommunitySubgroup(idx));
 		}
-		event.skip(true);
 	});
 
 	wire_media_list(
@@ -1423,20 +1426,6 @@ pub fn bind_input_handlers(
 		|s, i| s.group_data_links.get(i).cloned(),
 		false,
 	);
-
-	let conv_data_dialog_esc = parts.conversation_data_dialog.dialog.clone();
-	parts.conversation_data_dialog.info_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			if key_event.get_key_code() == Some(27) {
-				conv_data_dialog_esc.end_modal(0);
-				event.skip(false);
-			} else {
-				event.skip(true);
-			}
-		} else {
-			event.skip(true);
-		}
-	});
 
 	wire_media_list(
 		&parts.conversation_data_dialog.media_list,
@@ -2037,7 +2026,7 @@ pub fn bind_input_handlers(
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
 			let is_editing = state_field.borrow().editing_message_id.is_some();
-			if code == Some(13) || code == Some(370) {
+			if keys::is_enter(code) {
 				// Enter key
 				if key_event.shift_down() {
 					event.skip(true); // Shift+Enter -> insert newline in multiline text box
@@ -2051,7 +2040,7 @@ pub fn bind_input_handlers(
 					}
 					event.skip(false); // Suppress default Enter newline insertion
 				}
-			} else if code == Some(27) {
+			} else if keys::is_escape(code) {
 				// Escape key: cancel an in-progress edit instead of closing
 				// the conversation, so Escape always backs out of whatever
 				// the composer is currently doing.
@@ -2061,7 +2050,7 @@ pub fn bind_input_handlers(
 					let _ = tx_send_field.send(UiCommand::CloseConversation);
 				}
 				event.skip(false);
-			} else if code == Some(9) && is_editing && !key_event.shift_down() {
+			} else if keys::is_tab(code) && is_editing && !key_event.shift_down() {
 				// Forward Tab while editing jumps straight to "Cancel edit" -
 				// native traversal would otherwise land on "Add attachment",
 				// which edit mode hides rather than removes from the tab
@@ -2074,7 +2063,7 @@ pub fn bind_input_handlers(
 				// the composer at all.
 				cancel_edit_btn_field.set_focus();
 				event.skip(false);
-			} else if code == Some(86) && key_event.control_down() {
+			} else if keys::is_letter(code, 'V') && key_event.control_down() {
 				// Ctrl+V
 				let mut has_files = false;
 				if let Some(_locker) = Clipboard::get().locker() {
@@ -2113,7 +2102,7 @@ pub fn bind_input_handlers(
 	parts.frame.bind_internal(wxdragon::event::EventType::CHAR_HOOK, move |event| {
 		let data = WindowEventData::new(event);
 		if let WindowEventData::Keyboard(ref key_event) = data {
-			if key_event.get_key_code() == Some(27) {
+			if keys::is_escape(key_event.get_key_code()) {
 				if state_hook.borrow().chats_unlocked {
 					let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
 					data.skip(false);
@@ -2430,68 +2419,33 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	let open_chat_menu_key = open_chat_context_menu.clone();
+	// Enter opens the chat. The guard is the app-wide one: closing a context
+	// menu or a menu-bar item with Enter leaves its release behind on this
+	// list, and that release mustn't open a chat.
 	let conv_list_key = parts.conversations_parts.conversations_list.clone();
 	let tx_open_enter = ui_tx.clone();
-	let guard_key_down = enter_release_handled.clone();
-	parts.conversations_parts.conversations_list.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			let code = key_event.get_key_code();
-			if code == Some(13) {
-				if let Some(idx) = conv_list_key.get_selection() {
-					let _ = tx_open_enter.send(UiCommand::OpenConversation(idx as usize));
-				}
-				// This keystroke has opened the chat already; its release must
-				// not open it again.
-				guard_key_down.set(true);
-				event.skip(false);
-			} else if !key_event.meta_down()
-				&& (code == Some(395) || code == Some(93) || (key_event.shift_down() && code == Some(349)))
-			{
-				// Leaves the flag alone: the menu arms it itself once it closes.
-				open_chat_menu_key.as_ref()();
-				event.skip(false);
-			} else {
-				// Some other key went down on the list, so the list - not a menu
-				// we just dismissed - owns this keystroke, and whatever release
-				// follows is genuinely its own. This is what lets numpad Enter,
-				// which reaches us only as a key-up, still open a chat.
-				guard_key_down.set(false);
-				event.skip(true);
-			}
-		} else {
-			event.skip(true);
+	keys::on_enter(&parts.conversations_parts.conversations_list, enter_release_handled.clone(), move || {
+		if let Some(idx) = conv_list_key.get_selection() {
+			let _ = tx_open_enter.send(UiCommand::OpenConversation(idx as usize));
 		}
+	});
+
+	// The menu arms the Enter guard itself once it closes.
+	let open_chat_menu_key = open_chat_context_menu.clone();
+	parts.conversations_parts.conversations_list.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event
+			&& keys::is_context_menu_key(key_event)
+		{
+			open_chat_menu_key.as_ref()();
+			event.skip(false);
+			return;
+		}
+		event.skip(true);
 	});
 
 	let open_chat_menu_cb = open_chat_context_menu.clone();
 	parts.conversations_parts.conversations_list.bind_internal(EventType::CONTEXT_MENU, move |_event| {
 		open_chat_menu_cb.as_ref()();
-	});
-
-	let tx_open_enter_up = ui_tx.clone();
-	let conv_list_enter_up = parts.conversations_parts.conversations_list;
-	let guard_key_up = enter_release_handled.clone();
-	parts.conversations_parts.conversations_list.on_key_up(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			if key_event.get_key_code() == Some(13) || key_event.get_key_code() == Some(370) {
-				if guard_key_up.replace(false) {
-					// Already accounted for - either key-down opened the chat, or
-					// this is the release left over from closing a context menu
-					// or menu-bar item. See the flag's definition above.
-					event.skip(false);
-					return;
-				}
-				if let Some(idx) = conv_list_enter_up.get_selection() {
-					let _ = tx_open_enter_up.send(UiCommand::OpenConversation(idx as usize));
-				}
-				event.skip(false);
-			} else {
-				event.skip(true);
-			}
-		} else {
-			event.skip(true);
-		}
 	});
 
 	let tx_play_media = ui_tx.clone();
@@ -2936,28 +2890,10 @@ pub fn bind_input_handlers(
 								dlg_panel.set_sizer(dlg_sizer, true);
 
 								let dlg_esc_search = dlg.clone();
-								search_ctrl.on_key_down(move |event| {
-									if let WindowEventData::Keyboard(ref key) = event {
-										if key.get_key_code() == Some(27) {
-											dlg_esc_search.end_modal(wxdragon::id::ID_CANCEL);
-											event.skip(false);
-											return;
-										}
-									}
-									event.skip(true);
-								});
+								search_ctrl.on_key_down(keys::escape_cancels(dlg_esc_search));
 
 								let dlg_esc_list = dlg.clone();
-								contacts_listbox.on_key_down(move |event| {
-									if let WindowEventData::Keyboard(ref key) = event {
-										if key.get_key_code() == Some(27) {
-											dlg_esc_list.end_modal(wxdragon::id::ID_CANCEL);
-											event.skip(false);
-											return;
-										}
-									}
-									event.skip(true);
-								});
+								contacts_listbox.on_key_down(keys::escape_cancels(dlg_esc_list));
 
 								let current_labels = std::rc::Rc::new(std::cell::RefCell::new(labels.clone()));
 								let current_jids = std::rc::Rc::new(std::cell::RefCell::new(jids.clone()));
@@ -3259,40 +3195,12 @@ pub fn bind_input_handlers(
 
 						let on_select_key = on_select.clone();
 						let list_ref = emoji_list.clone();
-						let dlg_esc_down = dlg.clone();
-						emoji_list.on_key_down(move |event| {
-							if let WindowEventData::Keyboard(ref key) = event {
-								let code = key.get_key_code();
-								if code == Some(13) || code == Some(370) {
-									if let Some(sel) = list_ref.get_selection() {
-										on_select_key(sel as usize);
-										event.skip(false);
-										return;
-									}
-								} else if code == Some(27) {
-									dlg_esc_down.end_modal(wxdragon::id::ID_CANCEL);
-									event.skip(false);
-									return;
-								}
+						keys::on_enter(&emoji_list, Rc::default(), move || {
+							if let Some(sel) = list_ref.get_selection() {
+								on_select_key(sel as usize);
 							}
-							event.skip(true);
 						});
-
-						let on_select_enter = on_select.clone();
-						let list_ref_up = emoji_list.clone();
-						emoji_list.on_key_up(move |event| {
-							if let WindowEventData::Keyboard(ref key) = event {
-								let code = key.get_key_code();
-								if code == Some(13) || code == Some(370) {
-									if let Some(sel) = list_ref_up.get_selection() {
-										on_select_enter(sel as usize);
-										event.skip(false);
-										return;
-									}
-								}
-							}
-							event.skip(true);
-						});
+						emoji_list.on_key_down(keys::escape_cancels(dlg));
 
 						emoji_list.set_focus();
 						dlg.show_modal();
@@ -3312,8 +3220,10 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.messages_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			let keymap = crate::keymap::Keymap::from_saved(&state_play.borrow().settings.shortcuts);
+			let pressed = |id| keymap.is_pressed(id, key_event);
 
-			if code == Some(314) || code == Some(37) {
+			if keys::is_left(code) {
 				// Left Arrow
 				let now = std::time::Instant::now();
 				let prev = last_left_arrow.get();
@@ -3410,32 +3320,32 @@ pub fn bind_input_handlers(
 					}
 					event.skip(false);
 				}
-			} else if code == Some(316) || code == Some(39) {
+			} else if keys::is_right(code) {
 				if state_play.borrow().playing_msg_id.is_some() {
 					let _ = tx_close_list.send(UiCommand::SeekAudio(5.0));
 					event.skip(false);
 				} else {
 					event.skip(true);
 				}
-			} else if code == Some('j' as i32) || code == Some('J' as i32) || code == Some(74) || code == Some(106) {
+			} else if pressed(message_list::SEEK_BACK) {
 				if state_play.borrow().playing_msg_id.is_some() {
 					let _ = tx_close_list.send(UiCommand::SeekAudio(-5.0));
 					event.skip(false);
 				} else {
 					event.skip(true);
 				}
-			} else if code == Some('l' as i32) || code == Some('L' as i32) || code == Some(76) || code == Some(108) {
+			} else if pressed(message_list::SEEK_FORWARD) {
 				if state_play.borrow().playing_msg_id.is_some() {
 					let _ = tx_close_list.send(UiCommand::SeekAudio(5.0));
 					event.skip(false);
 				} else {
 					event.skip(true);
 				}
-			} else if key_event.get_key_code() == Some(27) {
+			} else if keys::is_escape(key_event.get_key_code()) {
 				// Escape
 				let _ = tx_close_list.send(UiCommand::CloseConversation);
 				event.skip(false);
-			} else if key_event.get_key_code() == Some(313) || key_event.get_key_code() == Some(384) {
+			} else if keys::is_home(key_event.get_key_code()) {
 				// WXK_HOME (313) -> Oldest message at top. set_selection() is a
 				// programmatic call - unlike the real keyboard-driven navigation
 				// Up/Down arrows go through, wxWidgets never fires
@@ -3449,7 +3359,7 @@ pub fn bind_input_handlers(
 					let _ = tx_close_list.send(UiCommand::LoadMoreMessages);
 				}
 				event.skip(false);
-			} else if key_event.get_key_code() == Some(312) || key_event.get_key_code() == Some(385) {
+			} else if keys::is_end(key_event.get_key_code()) {
 				// WXK_END (312) -> Newest message at bottom
 				let count = msgs_list_play.get_count();
 				if count > 0 {
@@ -3459,12 +3369,10 @@ pub fn bind_input_handlers(
 				// this fetches it (a no-op when the list already runs to it).
 				let _ = tx_close_list.send(UiCommand::JumpToLatestMessage);
 				event.skip(false);
-			} else if (code == Some(67) || code == Some('c' as i32) || code == Some('C' as i32))
-				&& key_event.control_down()
-			{
+			} else if keys::is_letter(code, 'C') && key_event.control_down() {
 				copy_for_key.as_ref()();
 				event.skip(false);
-			} else if key_event.get_key_code() == Some(86) && key_event.control_down() {
+			} else if keys::is_letter(key_event.get_key_code(), 'V') && key_event.control_down() {
 				// Ctrl+V
 				let mut has_files = false;
 				if let Some(_locker) = Clipboard::get().locker() {
@@ -3479,13 +3387,13 @@ pub fn bind_input_handlers(
 				} else {
 					event.skip(true);
 				}
-			} else if key_event.get_key_code() == Some(13) && key_event.shift_down() {
+			} else if key_event.get_key_code() == Some(WXK_RETURN) && key_event.shift_down() {
 				// Shift+Enter is handled on key-up below (see that handler's
 				// comment) - just make sure it doesn't fall through to plain
 				// Enter's voice-toggle/call-back handling if this does reach
 				// on_key_down in some configuration.
 				event.skip(false);
-			} else if key_event.get_key_code() == Some(13) {
+			} else if key_event.get_key_code() == Some(WXK_RETURN) {
 				// Enter key: play/pause a selected voice message directly,
 				// same as the Space handler below, instead of requiring a
 				// Tab to the play button. Non-voice messages keep whatever
@@ -3546,13 +3454,11 @@ pub fn bind_input_handlers(
 					}
 				}
 				event.skip(!handled);
-			} else if (key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32))
-				&& key_event.control_down()
-			{
+			} else if pressed(message_list::SELECTION_MODE) {
 				// Ctrl+Space: enter/exit selection mode.
 				let _ = tx_close_list.send(UiCommand::ToggleSelectionMode);
 				event.skip(false);
-			} else if key_event.get_key_code() == Some(32) || key_event.get_key_code() == Some(' ' as i32) {
+			} else if keys::is_space(key_event.get_key_code()) && !key_event.control_down() {
 				// Space
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
@@ -3603,10 +3509,7 @@ pub fn bind_input_handlers(
 					}
 				}
 				event.skip(false);
-			} else if (code == Some('v' as i32) || code == Some(86))
-				&& !key_event.control_down()
-				&& !key_event.alt_down()
-			{
+			} else if pressed(message_list::VOTE) {
 				// 'v' -> vote in the poll
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
@@ -3617,7 +3520,7 @@ pub fn bind_input_handlers(
 					}
 				}
 				event.skip(false);
-			} else if code == Some('r' as i32) || code == Some('R' as i32) || code == Some(82) {
+			} else if pressed(message_list::REPLY) {
 				// 'r' / 'R' -> Reply
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
@@ -3662,7 +3565,7 @@ pub fn bind_input_handlers(
 					}
 				}
 				event.skip(false);
-			} else if code == Some('e' as i32) || code == Some('E' as i32) || code == Some(69) {
+			} else if pressed(message_list::EDIT) {
 				// 'e' / 'E' -> Edit
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
@@ -3700,7 +3603,7 @@ pub fn bind_input_handlers(
 					}
 				}
 				event.skip(false);
-			} else if code == Some('s' as i32) || code == Some('S' as i32) || code == Some(83) || code == Some(115) {
+			} else if pressed(message_list::STAR) {
 				// 's' / 'S' -> Star/Unstar
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
@@ -3722,7 +3625,7 @@ pub fn bind_input_handlers(
 					}
 				}
 				event.skip(false);
-			} else if code == Some('f' as i32) || code == Some('F' as i32) || code == Some(70) || code == Some(102) {
+			} else if pressed(message_list::FORWARD) {
 				// 'f' / 'F' -> Forward
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
@@ -3793,28 +3696,10 @@ pub fn bind_input_handlers(
 								dlg_panel.set_sizer(dlg_sizer, true);
 
 								let dlg_esc_search = dlg.clone();
-								search_ctrl.on_key_down(move |event| {
-									if let WindowEventData::Keyboard(ref key) = event {
-										if key.get_key_code() == Some(27) {
-											dlg_esc_search.end_modal(wxdragon::id::ID_CANCEL);
-											event.skip(false);
-											return;
-										}
-									}
-									event.skip(true);
-								});
+								search_ctrl.on_key_down(keys::escape_cancels(dlg_esc_search));
 
 								let dlg_esc_list = dlg.clone();
-								contacts_listbox.on_key_down(move |event| {
-									if let WindowEventData::Keyboard(ref key) = event {
-										if key.get_key_code() == Some(27) {
-											dlg_esc_list.end_modal(wxdragon::id::ID_CANCEL);
-											event.skip(false);
-											return;
-										}
-									}
-									event.skip(true);
-								});
+								contacts_listbox.on_key_down(keys::escape_cancels(dlg_esc_list));
 
 								let current_labels = std::rc::Rc::new(std::cell::RefCell::new(labels.clone()));
 								let current_jids = std::rc::Rc::new(std::cell::RefCell::new(jids.clone()));
@@ -3876,7 +3761,7 @@ pub fn bind_input_handlers(
 					}
 				}
 				event.skip(false);
-			} else if code == Some(127) || code == Some(390) {
+			} else if pressed(message_list::DELETE) {
 				// Delete key -> Delete
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
@@ -3916,10 +3801,7 @@ pub fn bind_input_handlers(
 						}
 					}
 				}
-			} else if !key_event.meta_down()
-				&& (code == Some(395) || code == Some(93) || (key_event.shift_down() && code == Some(349)))
-			{
-				// Context Menu key or Shift+F10
+			} else if keys::is_context_menu_key(key_event) {
 				open_menu_key.as_ref()();
 				event.skip(false);
 			} else {
@@ -3942,7 +3824,7 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.messages_list.on_key_up(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			if code == Some(13) && key_event.shift_down() {
+			if code == Some(WXK_RETURN) && key_event.shift_down() {
 				// Shift+Enter: show just the selected message's own content
 				// (no sender/time/status/reply-quote wrapper - see
 				// ChatMessage::body_text) in a read-only, multi-line field. A
@@ -3975,16 +3857,7 @@ pub fn bind_input_handlers(
 						dlg_panel.set_sizer(dlg_sizer, true);
 
 						let dlg_esc = dlg.clone();
-						text_view.on_key_down(move |event| {
-							if let WindowEventData::Keyboard(ref key) = event {
-								if key.get_key_code() == Some(27) {
-									dlg_esc.end_modal(wxdragon::id::ID_CANCEL);
-									event.skip(false);
-									return;
-								}
-							}
-							event.skip(true);
-						});
+						text_view.on_key_down(keys::escape_cancels(dlg_esc));
 
 						text_view.set_focus();
 						text_view.set_selection(0, 0);
@@ -3997,7 +3870,7 @@ pub fn bind_input_handlers(
 				event.skip(false);
 				return;
 			}
-			if code == Some(13) || code == Some(370) {
+			if keys::is_enter(code) {
 				// Enter or numpad Enter
 				if search_panel_enter.is_shown() {
 					if let Some(idx) = msgs_list_enter.get_selection() {
@@ -4378,14 +4251,14 @@ pub fn bind_input_handlers(
 	});
 
 	// `messages_select_list` (not `messages_list`) has focus while selection
-	// mode is active, so the Ctrl+Space/Escape handling on `messages_list`
+	// mode is active, so the selection-mode/Escape handling on `messages_list`
 	// above never fires here - bind the same exit shortcuts on it directly.
 	let tx_selection_list_keys = ui_tx.clone();
+	let state_selection_list_keys = state.clone();
 	parts.conversations_parts.messages_select_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
-			let code = key_event.get_key_code();
-			let ctrl_space = (code == Some(32) || code == Some(' ' as i32)) && key_event.control_down();
-			if ctrl_space || code == Some(27) {
+			let keymap = crate::keymap::Keymap::from_saved(&state_selection_list_keys.borrow().settings.shortcuts);
+			if keymap.is_pressed(message_list::SELECTION_MODE, key_event) || keys::is_escape(key_event.get_key_code()) {
 				let _ = tx_selection_list_keys.send(UiCommand::ToggleSelectionMode);
 				event.skip(false);
 				return;
@@ -4587,7 +4460,7 @@ pub fn bind_input_handlers(
 	let send_btn_tab = parts.conversations_parts.send_message_btn;
 	parts.conversations_parts.cancel_edit_btn.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
-			if key_event.get_key_code() == Some(9) {
+			if keys::is_tab(key_event.get_key_code()) {
 				if key_event.shift_down() {
 					msg_field_shift_tab.set_focus();
 				} else {
@@ -4622,16 +4495,16 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.audio_slider.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key) = event {
 			let code = key.get_key_code();
-			if code == Some(314) || code == Some(37) || code == Some(317) || code == Some(40) {
+			if keys::is_left(code) || keys::is_down(code) {
 				let _ = tx_slider_key.send(UiCommand::SeekAudio(-5.0));
 				event.skip(false);
-			} else if code == Some(316) || code == Some(39) || code == Some(315) || code == Some(38) {
+			} else if keys::is_right(code) || keys::is_up(code) {
 				let _ = tx_slider_key.send(UiCommand::SeekAudio(5.0));
 				event.skip(false);
-			} else if code == Some(312) || code == Some(385) {
+			} else if keys::is_end(code) {
 				let _ = tx_slider_key.send(UiCommand::SeekAudio(5.0));
 				event.skip(false);
-			} else if code == Some(313) || code == Some(384) {
+			} else if keys::is_home(code) {
 				let _ = tx_slider_key.send(UiCommand::SeekAudio(-5.0));
 				event.skip(false);
 			} else {

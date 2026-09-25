@@ -1,0 +1,17 @@
+[package]
+name = "key-chord"
+version = "0.1.0"
+description = "Keyboard shortcut chords: parsing, formatting, and matching against wxWidgets key codes."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/trypsynth/key-chord"
+keywords = ["keyboard", "shortcut", "keybinding", "hotkey", "wxwidgets"]
+categories = ["accessibility", "gui", "config"]
+edition = "2024"
+rust-version = "1.88.0"
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1.0.229", default-features = false, features = ["derive", "std"], optional = true }

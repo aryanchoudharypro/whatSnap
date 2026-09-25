@@ -1893,7 +1893,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										s.archived_jids.contains(jid),
 										s.settings.archived_alert(jid),
 									);
-									if alert.sound {
+									if alert.sound && !crate::do_not_disturb::should_silence(&s.settings) {
 										play_notification_sound(
 											NotificationSound::MessageBackground,
 											s.settings.sounds_enabled,
@@ -3895,7 +3895,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										s.archived_jids.contains(chat_jid),
 										s.settings.archived_alert(chat_jid),
 									);
-									if alert.sound {
+									if alert.sound && !crate::do_not_disturb::should_silence(&s.settings) {
 										play_notification_sound(
 											NotificationSound::MessageBackground,
 											s.settings.sounds_enabled,

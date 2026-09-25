@@ -67,28 +67,10 @@ pub fn build_add_members_dialog(parent: &impl WxWidget) -> AddMembersDialogParts
 	dialog.center();
 
 	let dlg_esc1 = dialog.clone();
-	search_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dlg_esc1.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	search_field.on_key_down(crate::ui::keys::escape_cancels(dlg_esc1));
 
 	let dlg_esc2 = dialog.clone();
-	contacts_listbox.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dlg_esc2.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	contacts_listbox.on_key_down(crate::ui::keys::escape_cancels(dlg_esc2));
 
 	AddMembersDialogParts { dialog, search_field, contacts_listbox, selection_announcer, add_btn, cancel_btn }
 }

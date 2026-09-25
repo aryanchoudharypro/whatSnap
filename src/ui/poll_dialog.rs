@@ -65,18 +65,7 @@ pub fn build_poll_dialog(parent: &impl WxWidget) -> PollDialogParts {
 
 	// Escape cancels from any field, the options box included (a multi-line
 	// edit would otherwise keep it).
-	let dlg_esc = dialog.clone();
-	dialog.bind_internal(EventType::CHAR_HOOK, move |event| {
-		let data = WindowEventData::new(event);
-		if let WindowEventData::Keyboard(ref key) = data {
-			if key.get_key_code() == Some(27) {
-				dlg_esc.end_modal(ID_CANCEL);
-				data.skip(false);
-				return;
-			}
-		}
-		data.skip(true);
-	});
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	PollDialogParts { dialog, question_field, options_field, multiple_check, send_btn, cancel_btn }
 }

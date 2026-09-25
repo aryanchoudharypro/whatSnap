@@ -93,16 +93,7 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	dialog.set_sizer(main_sizer, true);
 
 	let dlg_info = dialog.clone();
-	info_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dlg_info.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
+	info_field.on_key_down(crate::ui::keys::escape_cancels(dlg_info));
 
 	ConversationDataDialogParts {
 		dialog,

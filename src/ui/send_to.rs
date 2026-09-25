@@ -176,16 +176,7 @@ pub fn show_send_to_dialog(
 		}
 	});
 
-	let escape_closes = move |event: WindowEventData| {
-		if let WindowEventData::Keyboard(ref key) = event {
-			if key.get_key_code() == Some(27) {
-				dialog.end_modal(ID_CANCEL);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	};
+	let escape_closes = crate::ui::keys::escape_cancels(dialog);
 	search_field.on_key_down(escape_closes);
 	list.on_key_down(escape_closes);
 
