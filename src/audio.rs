@@ -296,6 +296,7 @@ pub(crate) fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffe
 		pre_skip: &mut usize,
 		skipped: &mut usize,
 		samples: &mut Vec<f32>,
+		pcm: &mut Vec<i16>,
 	) {
 		if packet.len() >= 8 && &packet[0..8] == b"OpusHead" {
 			// Header packet, not audio - (re)establish the decoder from it.
@@ -314,17 +315,18 @@ pub(crate) fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffe
 			return;
 		}
 		let Some(dec) = decoder.as_mut() else { return };
-		let mut pcm = vec![0i16; 5760 * (*channels).max(1)]; // Max frame size for opus is 120ms at 48kHz
-		if let Ok(n) = dec.decode(packet, &mut pcm, false) {
-			pcm.truncate(n * (*channels).max(1));
-			let mut frame: Vec<f32> = pcm.into_iter().map(|s| (s as f32) / 32768.0).collect();
+		let ch = (*channels).max(1);
+		// Max frame size for opus is 120ms at 48kHz. One buffer serves every
+		// packet of the file.
+		pcm.resize(5760 * ch, 0);
+		if let Ok(n) = dec.decode(packet, pcm, false) {
+			let mut decoded = &pcm[..n * ch];
 			if *skipped < *pre_skip {
-				let frames_here = frame.len() / (*channels).max(1);
-				let to_skip = (*pre_skip - *skipped).min(frames_here);
-				frame.drain(0..to_skip * (*channels).max(1));
+				let to_skip = (*pre_skip - *skipped).min(n);
+				decoded = &decoded[to_skip * ch..];
 				*skipped += to_skip;
 			}
-			samples.extend(frame);
+			samples.extend(decoded.iter().map(|&s| s as f32 / 32768.0));
 		}
 	}
 
@@ -338,6 +340,7 @@ pub(crate) fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffe
 	let mut skipped: usize = 0;
 	let mut samples: Vec<f32> = Vec::new();
 	let mut pending: Vec<u8> = Vec::new(); // partial packet carried across a page boundary
+	let mut pcm: Vec<i16> = Vec::new();
 
 	while pos + 27 <= len {
 		if &data[pos..pos + 4] != b"OggS" {
@@ -389,11 +392,27 @@ pub(crate) fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffe
 						// it and move on to the next one.
 						continue;
 					}
-					let mut full = std::mem::take(&mut pending);
-					full.extend_from_slice(packet_bytes);
-					feed_packet(&full, &mut decoder, &mut channels, &mut pre_skip, &mut skipped, &mut samples);
+					pending.extend_from_slice(packet_bytes);
+					feed_packet(
+						&pending,
+						&mut decoder,
+						&mut channels,
+						&mut pre_skip,
+						&mut skipped,
+						&mut samples,
+						&mut pcm,
+					);
+					pending.clear();
 				} else {
-					feed_packet(packet_bytes, &mut decoder, &mut channels, &mut pre_skip, &mut skipped, &mut samples);
+					feed_packet(
+						packet_bytes,
+						&mut decoder,
+						&mut channels,
+						&mut pre_skip,
+						&mut skipped,
+						&mut samples,
+						&mut pcm,
+					);
 				}
 			} else if is_last_segment {
 				// Page ends mid-packet - stash it for the next page to

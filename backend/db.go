@@ -911,14 +911,44 @@ func getMessageRaw(id string) (raw []byte, jid string, senderJID string, fromMe 
 	return
 }
 
-// lookupMessageOrigin returns the authoritative from_me/sender_jid for a
-// message we still have locally, so quoted-reply display can trust the
-// actual original row instead of a denormalized quoted_sender snapshot that
-// may have been captured wrong or gone stale. ok is false if we don't have
-// that message (e.g. it's outside our synced history).
-func lookupMessageOrigin(id string) (fromMe bool, senderJID string, ok bool) {
-	err := db.QueryRow(`SELECT from_me, COALESCE(sender_jid, '') FROM messages WHERE id = ?`, id).Scan(&fromMe, &senderJID)
-	return fromMe, senderJID, err == nil
+// messageOrigin is the authoritative from_me/sender_jid of a message we still
+// have locally, so quoted-reply display can trust the actual original row
+// instead of a denormalized quoted_sender snapshot that may have been
+// captured wrong or gone stale.
+type messageOrigin struct {
+	FromMe    bool
+	SenderJID string
+}
+
+// lookupMessageOrigins is lookupMessageOrigin for a batch of messages, keyed
+// by id; ids we don't have are simply absent.
+func lookupMessageOrigins(ids []string) map[string]messageOrigin {
+	result := map[string]messageOrigin{}
+	// Chunked like getReactionsForMessageIDs, under SQLite's bound-parameter
+	// limit.
+	const chunk = 900
+	for start := 0; start < len(ids); start += chunk {
+		part := ids[start:min(start+chunk, len(ids))]
+		args := make([]interface{}, len(part))
+		for i, id := range part {
+			args[i] = id
+		}
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
+		rows, err := db.Query(`SELECT id, from_me, COALESCE(sender_jid, '') FROM messages WHERE id IN (`+placeholders+`)`, args...)
+		if err != nil {
+			log.Println("Error looking up quoted messages:", err)
+			continue
+		}
+		for rows.Next() {
+			var id string
+			var origin messageOrigin
+			if rows.Scan(&id, &origin.FromMe, &origin.SenderJID) == nil {
+				result[id] = origin
+			}
+		}
+		rows.Close()
+	}
+	return result
 }
 
 // getMessageForQuote loads and parses a stored message so it can be used as
