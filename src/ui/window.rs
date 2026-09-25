@@ -1588,6 +1588,9 @@ pub fn bind_input_handlers(
 		for jid in &gs.checked_jids {
 			participants.push(jid.clone());
 		}
+		// Let go of the state before the error box below: its modal loop
+		// handles incoming backend events, which borrow the state too.
+		drop(s);
 		let extra_raw = extra_ctrl.get_value();
 		for part in extra_raw.split(|c| c == ',' || c == '\n') {
 			let digits: String = part.chars().filter(|c| c.is_digit(10)).collect();
