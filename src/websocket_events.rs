@@ -656,8 +656,12 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		}
 		s.filtered_chats = new_filtered;
 		s.displayed_chat_labels = new_display;
+		drop(s);
+	} else {
+		drop(s);
 	}
-	// A WhatsApp link opened before the chat list was ready.
+	// A WhatsApp link opened before the chat list was ready. Needs the state
+	// free: it borrows it itself.
 	crate::ui_commands::links::open_pending_whatsapp_link(state);
 }
 
