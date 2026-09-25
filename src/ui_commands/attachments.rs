@@ -299,7 +299,7 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 			if let Some(item) = s.display_items.get(idx as usize) {
 				let pending: Vec<(String, String)> = item
 					.messages()
-					.into_iter()
+					.iter()
 					.filter(|m| !m.is_media_downloaded())
 					.map(|m| (m.id.clone(), m.display_filename()))
 					.collect();

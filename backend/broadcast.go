@@ -110,14 +110,42 @@ func broadcastChats() {
 	})
 }
 
+// ChatListEntry is one chat as sent to the UI in a "chats" event; the field
+// names must stay in sync with the Rust side's ChatRow. A struct rather than a
+// map per chat, for the same reason as MessageJSON: the whole list is rebuilt
+// and re-sent after every message (debounced to 200ms), and a map meant a Go
+// map plus a boxed value per field of every chat each time.
+type ChatListEntry struct {
+	JID                  string
+	FullName             string
+	Timestamp            int64
+	UnreadCount          int
+	Pinned               bool
+	Muted                bool
+	PreviewSnippet       string
+	Archived             bool
+	PreviewSender        string
+	PreviewFromMe        bool
+	PreviewIsReaction    bool
+	PreviewReactionEmoji string
+	IsCommunity          bool
+	IsAdmin              bool
+	IsLocked             bool
+	ParentJID            string
+	IsAnnouncements      bool
+	CommunityName        string
+	IsChannel            bool
+	ChannelRole          string
+}
+
 // buildChatsList is the shared query+formatting logic behind both
 // broadcastChats (pushed to everyone) and the get_chats command (requested
 // by one client). Keeping this in one place means the two can't drift.
-func buildChatsList() []map[string]interface{} {
+func buildChatsList() []ChatListEntry {
 	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, '') FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
 	if err != nil {
 		fmt.Println("Error querying chats:", err)
-		return []map[string]interface{}{}
+		return []ChatListEntry{}
 	}
 	defer rows.Close()
 
@@ -133,7 +161,10 @@ func buildChatsList() []map[string]interface{} {
 		nameRows.Close()
 	}
 
-	chats := []map[string]interface{}{}
+	// Preview senders repeat across chats (you, and the busiest people in
+	// your groups); each resolveDisplayName is several store lookups.
+	senderNames := map[string]string{}
+	chats := []ChatListEntry{}
 	for rows.Next() {
 		var jid string
 		var name sql.NullString
@@ -207,34 +238,37 @@ func buildChatsList() []map[string]interface{} {
 
 		ps := ""
 		if previewSender.Valid && previewSender.String != "" {
-			if parsedSender, sErr := types.ParseJID(previewSender.String); sErr == nil {
+			if cached, ok := senderNames[previewSender.String]; ok {
+				ps = cached
+			} else if parsedSender, sErr := types.ParseJID(previewSender.String); sErr == nil {
 				ps = resolveDisplayName(parsedSender)
+				senderNames[previewSender.String] = ps
 			} else {
 				ps = previewSender.String
 			}
 		}
 
-		chats = append(chats, map[string]interface{}{
-			"JID":            jid,
-			"FullName":       n,
-			"Timestamp":      ts,
-			"UnreadCount":    unread,
-			"Pinned":         pinned == 1,
-			"Muted":          muted == 1,
-			"PreviewSnippet": p,
-			"Archived":       archived == 1,
-			"PreviewSender":         ps,
-			"PreviewFromMe":         previewFromMe == 1,
-			"PreviewIsReaction":     previewIsReaction == 1,
-			"PreviewReactionEmoji":  previewReactionEmoji,
-			"IsCommunity":           isCommunity == 1,
-			"IsAdmin":               isAdmin == 1,
-			"IsLocked":              isLocked == 1,
-			"ParentJID":             parentJID,
-			"IsAnnouncements":       isAnnounceGroup == 1 && parentJID != "",
-			"CommunityName":         communityNames[parentJID],
-			"IsChannel":             isChannel == 1,
-			"ChannelRole":           strings.ToLower(channelRole),
+		chats = append(chats, ChatListEntry{
+			JID:                  jid,
+			FullName:             n,
+			Timestamp:            ts,
+			UnreadCount:          unread,
+			Pinned:               pinned == 1,
+			Muted:                muted == 1,
+			PreviewSnippet:       p,
+			Archived:             archived == 1,
+			PreviewSender:        ps,
+			PreviewFromMe:        previewFromMe == 1,
+			PreviewIsReaction:    previewIsReaction == 1,
+			PreviewReactionEmoji: previewReactionEmoji,
+			IsCommunity:          isCommunity == 1,
+			IsAdmin:              isAdmin == 1,
+			IsLocked:             isLocked == 1,
+			ParentJID:            parentJID,
+			IsAnnouncements:      isAnnounceGroup == 1 && parentJID != "",
+			CommunityName:        communityNames[parentJID],
+			IsChannel:            isChannel == 1,
+			ChannelRole:          strings.ToLower(channelRole),
 		})
 	}
 	return chats

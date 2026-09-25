@@ -145,20 +145,11 @@ pub(crate) fn update_poll_results(
 	results: &str,
 ) {
 	let mut s = state.borrow_mut();
-	for msg in s.messages.iter_mut().filter(|m| m.id == message_id) {
-		std::rc::Rc::make_mut(msg).poll_results = results.to_string();
-	}
 	let is_group = s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@g.us"));
-	let mut row = None;
-	for (i, item) in s.display_items.iter_mut().enumerate() {
-		if let whantv::DisplayItem::Single(m) = item {
-			if m.id == message_id {
-				std::rc::Rc::make_mut(m).poll_results = results.to_string();
-				row = Some((i, item.format_display(is_group)));
-				break;
-			}
-		}
-	}
+	let row = crate::message_display::update_loaded_message(&mut s, message_id, |m| {
+		m.poll_results = results.to_string();
+	})
+	.and_then(|i| s.display_items.get(i).map(|item| (i, item.format_display(is_group))));
 	if let Some((i, text)) = row {
 		parts.conversations_parts.messages_list.set_string(i as u32, &text);
 	}

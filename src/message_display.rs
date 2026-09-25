@@ -6,19 +6,61 @@ use wxdragon::prelude::*;
 
 use crate::AppState;
 
-pub(crate) fn build_media_messages(messages: &[whantv::Msg]) -> Vec<ChatMessage> {
-	messages.iter().filter(|m| m.is_photo_or_video()).map(|m| (**m).clone()).collect()
+/// Changes every loaded message `pick` selects, each one exactly once, and
+/// returns the display rows holding a changed message, in order. See
+/// [`whantv::update_shared_messages`] for why this, and not `Rc::make_mut` on
+/// each list in turn.
+pub(crate) fn update_loaded_messages(
+	s: &mut AppState,
+	pick: impl FnMut(&ChatMessage) -> bool,
+	change: impl FnMut(&mut ChatMessage),
+) -> Vec<usize> {
+	whantv::update_shared_messages(&mut s.messages, &mut s.display_items, &mut s.selection_rows, pick, change)
 }
 
-pub(crate) fn build_document_messages(messages: &[whantv::Msg]) -> Vec<ChatMessage> {
-	messages.iter().filter(|m| m.is_document()).map(|m| (**m).clone()).collect()
+/// [`update_loaded_messages`] for the one message with this id: its display
+/// row, if it's loaded.
+pub(crate) fn update_loaded_message(
+	s: &mut AppState,
+	id: &str,
+	change: impl FnOnce(&mut ChatMessage),
+) -> Option<usize> {
+	if id.is_empty() {
+		return None;
+	}
+	let mut change = Some(change);
+	let mut found = false;
+	let rows = update_loaded_messages(
+		s,
+		|m| {
+			// Ids are unique; stop at the first.
+			let hit = !found && m.id == id;
+			found |= hit;
+			hit
+		},
+		|m| {
+			if let Some(change) = change.take() {
+				change(m)
+			}
+		},
+	);
+	rows.first().copied()
 }
 
-pub(crate) fn build_link_messages(messages: &[whantv::Msg]) -> Vec<ChatMessage> {
-	messages.iter().filter(|m| m.first_link().is_some()).map(|m| (**m).clone()).collect()
+// These share the loaded messages rather than copying them (see `whantv::Msg`).
+pub(crate) fn build_media_messages(messages: &[whantv::Msg]) -> Vec<whantv::Msg> {
+	messages.iter().filter(|m| m.is_photo_or_video()).cloned().collect()
 }
 
-pub(crate) fn populate_message_list(list: &ListBox, messages: &[ChatMessage], label: impl Fn(&ChatMessage) -> String) {
+pub(crate) fn build_document_messages(messages: &[whantv::Msg]) -> Vec<whantv::Msg> {
+	messages.iter().filter(|m| m.is_document()).cloned().collect()
+}
+
+pub(crate) fn build_link_messages(messages: &[whantv::Msg]) -> Vec<whantv::Msg> {
+	messages.iter().filter(|m| m.first_link().is_some()).cloned().collect()
+}
+
+pub(crate) fn populate_message_list(list: &ListBox, messages: &[whantv::Msg], label: impl Fn(&ChatMessage) -> String) {
 	list.clear();
 	for msg in messages {
 		list.append(&label(msg));
@@ -63,11 +105,13 @@ pub(crate) fn chat_visible_in_tab(
 
 /// The chat list in the order the active tab shows it: the usual order, except
 /// that the Communities tab puts each community's groups under it.
-pub(crate) fn chats_in_tab_order(s: &AppState) -> Vec<String> {
+/// Borrowed rather than copied: this runs on every chat-list refresh and
+/// filter keystroke.
+pub(crate) fn chats_in_tab_order(s: &AppState) -> Vec<&String> {
 	if s.active_tab == 4 {
 		whantv::community_tab_order(&s.chats, &s.community_jids, &s.chat_parents, &s.announcement_jids)
 	} else {
-		s.chats.clone()
+		s.chats.iter().collect()
 	}
 }
 
@@ -162,7 +206,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		}
 	} else {
-		for jid in &chats_in_tab_order(s) {
+		for jid in chats_in_tab_order(s) {
 			if !chat_visible_in_tab(
 				s.active_tab,
 				jid,
@@ -176,9 +220,9 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				continue;
 			}
 
-			let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+			let name = s.contacts.get(jid).unwrap_or(jid);
 			if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
-				labels.push(s.display_names.get(jid).cloned().unwrap_or(name));
+				labels.push(s.display_names.get(jid).unwrap_or(name).clone());
 				filtered.push(jid.clone());
 			}
 		}

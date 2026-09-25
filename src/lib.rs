@@ -672,7 +672,8 @@ fn rc(msgs: &[ChatMessage]) -> Vec<Msg> {
 /// A loaded message, shared between the open chat's message list and the
 /// display items grouped from it rather than copied into both: a whole chat
 /// can be tens of thousands of messages, and the second copy was tens of MB.
-/// Code that changes a message goes through `Rc::make_mut`.
+/// Code that changes a loaded message goes through
+/// `message_display::update_loaded_messages`, which keeps it shared.
 pub type Msg = std::rc::Rc<ChatMessage>;
 
 #[derive(Clone, Debug)]
@@ -693,10 +694,18 @@ impl DisplayItem {
 		matches!(self, DisplayItem::Album { .. })
 	}
 
-	pub fn messages(&self) -> Vec<ChatMessage> {
+	/// The messages this row shows - shared, not copied.
+	pub fn messages(&self) -> &[Msg] {
 		match self {
-			DisplayItem::Single(msg) => vec![(**msg).clone()],
-			DisplayItem::Album { messages, .. } => messages.iter().map(|m| (**m).clone()).collect(),
+			DisplayItem::Single(msg) => std::slice::from_ref(msg),
+			DisplayItem::Album { messages, .. } => messages,
+		}
+	}
+
+	pub fn messages_mut(&mut self) -> &mut [Msg] {
+		match self {
+			DisplayItem::Single(msg) => std::slice::from_mut(msg),
+			DisplayItem::Album { messages, .. } => messages,
 		}
 	}
 
@@ -810,6 +819,127 @@ impl DisplayItem {
 			DisplayItem::Single(msg) => msg.format_display_with_progress(is_group, progress),
 			DisplayItem::Album { .. } => self.format_display(is_group),
 		}
+	}
+}
+
+/// Changes every message in `messages` that `pick` selects, each one exactly
+/// once, and returns the rows of `display` holding a changed message, in
+/// order. `display` and `other` are lists grouped from `messages` (the shown
+/// rows, and the selection-mode rows).
+///
+/// A message is one `Rc` shared by all three lists. `Rc::make_mut` on a
+/// shared one copies the whole message and leaves the other lists on the
+/// stale original, so changing it through each list in turn used to leave two
+/// or three copies of every edited, receipted or reacted-to message behind.
+/// Here the other lists let go of it first, it changes in place, and they all
+/// get it back.
+pub fn update_shared_messages(
+	messages: &mut [Msg],
+	display: &mut [DisplayItem],
+	other: &mut [DisplayItem],
+	mut pick: impl FnMut(&ChatMessage) -> bool,
+	mut change: impl FnMut(&mut ChatMessage),
+) -> Vec<usize> {
+	use std::{collections::HashMap, rc::Rc};
+
+	let hits: Vec<usize> = messages.iter().enumerate().filter(|(_, m)| pick(m)).map(|(i, _)| i).collect();
+	if hits.is_empty() {
+		return Vec::new();
+	}
+	// Keyed by the message's address, which is what every list shares.
+	let mut changed: HashMap<*const ChatMessage, Option<Msg>> =
+		hits.iter().map(|&i| (Rc::as_ptr(&messages[i]), None)).collect();
+	let placeholder = Msg::default();
+
+	let mut rows = Vec::new();
+	let mut held: Vec<(*const ChatMessage, &mut Msg)> = Vec::new();
+	for (row, item) in display.iter_mut().enumerate() {
+		let mut hit = false;
+		for slot in item.messages_mut() {
+			let ptr = Rc::as_ptr(slot);
+			if changed.contains_key(&ptr) {
+				*slot = placeholder.clone();
+				held.push((ptr, slot));
+				hit = true;
+			}
+		}
+		if hit {
+			rows.push(row);
+		}
+	}
+	for slot in other.iter_mut().flat_map(DisplayItem::messages_mut) {
+		let ptr = Rc::as_ptr(slot);
+		if changed.contains_key(&ptr) {
+			*slot = placeholder.clone();
+			held.push((ptr, slot));
+		}
+	}
+
+	for &i in &hits {
+		let ptr = Rc::as_ptr(&messages[i]);
+		change(Rc::make_mut(&mut messages[i]));
+		changed.insert(ptr, Some(messages[i].clone()));
+	}
+	for (ptr, slot) in held {
+		if let Some(Some(msg)) = changed.get(&ptr) {
+			*slot = msg.clone();
+		}
+	}
+	rows
+}
+
+#[cfg(test)]
+mod update_shared_messages_tests {
+	use super::*;
+
+	fn msg(id: &str, ts: i64, media: &str) -> ChatMessage {
+		ChatMessage { id: id.into(), timestamp: ts, media_type: media.into(), ..Default::default() }
+	}
+
+	#[test]
+	fn a_change_keeps_every_list_on_one_shared_copy() {
+		let mut messages = rc(&[msg("a", 1, ""), msg("p1", 100, "image"), msg("p2", 101, "image"), msg("b", 200, "")]);
+		let mut display = group_messages_into_display_items(&messages);
+		let mut selection = display.clone();
+		assert_eq!(display.len(), 3, "the two photos group into an album");
+
+		let rows = update_shared_messages(
+			&mut messages,
+			&mut display,
+			&mut selection,
+			|m| m.id == "p2" || m.id == "b",
+			|m| m.status = "read".into(),
+		);
+
+		assert_eq!(rows, vec![1, 2]);
+		for m in &messages {
+			assert_eq!(std::rc::Rc::strong_count(m), 3, "{} is shared by all three lists, not copied", m.id);
+		}
+		assert!(std::rc::Rc::ptr_eq(&messages[2], &display[1].messages()[1]));
+		assert!(std::rc::Rc::ptr_eq(&messages[3], &selection[2].messages()[0]));
+		assert_eq!(display[1].messages()[1].status, "read");
+		assert_eq!(display[2].messages()[0].status, "read");
+		assert_eq!(messages[0].status, "", "unpicked messages are untouched");
+	}
+
+	#[test]
+	fn a_message_held_elsewhere_is_copied_once_and_the_lists_follow_it() {
+		let mut messages = rc(&[msg("a", 1, "")]);
+		let mut display = group_messages_into_display_items(&messages);
+		let snapshot = messages[0].clone();
+
+		update_shared_messages(&mut messages, &mut display, &mut [], |_| true, |m| m.text = "edited".into());
+
+		assert_eq!(snapshot.text, "");
+		assert!(std::rc::Rc::ptr_eq(&messages[0], &display[0].messages()[0]));
+		assert_eq!(display[0].messages()[0].text, "edited");
+	}
+
+	#[test]
+	fn nothing_picked_changes_nothing() {
+		let mut messages = rc(&[msg("a", 1, "")]);
+		let mut display = group_messages_into_display_items(&messages);
+		assert!(update_shared_messages(&mut messages, &mut display, &mut [], |_| false, |_| unreachable!()).is_empty());
 	}
 }
 
@@ -1847,12 +1977,12 @@ mod prepend_plan_tests {
 /// group first. `chats` is the chat list in its usual order, which the
 /// communities and the groups under each keep. Groups whose community isn't
 /// in the list are left out.
-pub fn community_tab_order(
-	chats: &[String],
+pub fn community_tab_order<'a>(
+	chats: &'a [String],
 	communities: &std::collections::HashSet<String>,
 	parents: &std::collections::HashMap<String, String>,
 	announcements: &std::collections::HashSet<String>,
-) -> Vec<String> {
+) -> Vec<&'a String> {
 	let mut children: std::collections::HashMap<&str, Vec<&String>> = std::collections::HashMap::new();
 	for jid in chats {
 		if let Some(parent) = parents.get(jid) {
@@ -1863,10 +1993,10 @@ pub fn community_tab_order(
 	}
 	let mut order = Vec::new();
 	for jid in chats.iter().filter(|j| communities.contains(*j)) {
-		order.push(jid.clone());
+		order.push(jid);
 		if let Some(groups) = children.get_mut(jid.as_str()) {
 			groups.sort_by_key(|g| !announcements.contains(*g));
-			order.extend(groups.iter().map(|g| (*g).clone()));
+			order.extend(groups.iter().copied());
 		}
 	}
 	order
@@ -1880,6 +2010,15 @@ mod community_tab_order_tests {
 		v.iter().map(|s| s.to_string()).collect()
 	}
 
+	fn order(
+		chats: &[String],
+		communities: &std::collections::HashSet<String>,
+		parents: &std::collections::HashMap<String, String>,
+		announcements: &std::collections::HashSet<String>,
+	) -> Vec<String> {
+		community_tab_order(chats, communities, parents, announcements).into_iter().cloned().collect()
+	}
+
 	#[test]
 	fn groups_follow_their_community_with_announcements_first() {
 		let chats = strings(&["g1", "c2", "g2", "ann1", "c1", "dm", "ann2"]);
@@ -1890,7 +2029,7 @@ mod community_tab_order_tests {
 			.collect();
 		let announcements = ["ann1", "ann2"].iter().map(|s| s.to_string()).collect();
 		assert_eq!(
-			community_tab_order(&chats, &communities, &parents, &announcements),
+			order(&chats, &communities, &parents, &announcements),
 			strings(&["c2", "ann2", "g2", "c1", "ann1", "g1"])
 		);
 	}
@@ -1901,7 +2040,7 @@ mod community_tab_order_tests {
 		let communities = ["c1"].iter().map(|s| s.to_string()).collect();
 		let parents = [("g1", "elsewhere")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
 		let announcements = Default::default();
-		assert_eq!(community_tab_order(&chats, &communities, &parents, &announcements), strings(&["c1"]));
+		assert_eq!(order(&chats, &communities, &parents, &announcements), strings(&["c1"]));
 	}
 }
 

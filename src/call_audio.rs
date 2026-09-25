@@ -281,6 +281,9 @@ struct CaptureDsp {
 	resample_phase: f64,
 	downsample_step: f64,
 	sample_accum: Vec<f32>,
+	/// One frame as sent, reused so the capture thread doesn't allocate
+	/// every 20ms.
+	send_buf: Vec<u8>,
 }
 
 impl CaptureDsp {
@@ -311,6 +314,7 @@ impl CaptureDsp {
 			resample_phase: 0.0,
 			downsample_step: sample_rate as f64 / NETWORK_SAMPLE_RATE as f64,
 			sample_accum: Vec::with_capacity(FRAME_SAMPLES * 2),
+			send_buf: Vec::with_capacity(FRAME_SAMPLES * 4),
 		}
 	}
 
@@ -337,13 +341,11 @@ impl CaptureDsp {
 		}
 
 		while self.sample_accum.len() >= FRAME_SAMPLES {
-			let remainder = self.sample_accum.split_off(FRAME_SAMPLES);
-			let mut buf = Vec::with_capacity(FRAME_SAMPLES * 4);
-			for sample in &self.sample_accum {
-				buf.extend_from_slice(&sample.to_le_bytes());
+			self.send_buf.clear();
+			for sample in self.sample_accum.drain(..FRAME_SAMPLES) {
+				self.send_buf.extend_from_slice(&sample.to_le_bytes());
 			}
-			let _ = socket_out.send_to(&buf, target_addr);
-			self.sample_accum = remainder;
+			let _ = socket_out.send_to(&self.send_buf, target_addr);
 		}
 	}
 }
@@ -702,12 +704,8 @@ pub fn start_audio_streams(
 			match socket_read.recv_from(&mut buf) {
 				Ok((size, _)) => {
 					reader_recv_count_thread.fetch_add(1, Ordering::Relaxed);
-					let floats = size / 4;
-					let mut frame = Vec::with_capacity(floats);
-					for i in 0..floats {
-						let bytes = [buf[i * 4], buf[i * 4 + 1], buf[i * 4 + 2], buf[i * 4 + 3]];
-						frame.push(f32::from_le_bytes(bytes));
-					}
+					let frame: Vec<f32> =
+						buf[..size].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
 					// A full channel means playback is falling behind; drop
 					// the frame rather than block this thread's UDP reads.
 					if frame_tx.try_send(frame).is_err() {

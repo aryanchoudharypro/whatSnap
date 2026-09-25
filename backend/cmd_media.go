@@ -1098,11 +1098,14 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 		})
 	}
 
-	fileBytes, err := os.ReadFile(path)
+	// Streamed from the file like any other attachment, rather than read
+	// whole and then encrypted into a second in-memory copy.
+	f, err := os.Open(path)
 	if err != nil {
 		fail(err.Error())
 		return
 	}
+	defer f.Close()
 	mimetype := mimetypeHint
 	if mimetype == "" {
 		mimetype = "audio/ogg; codecs=opus"
@@ -1110,9 +1113,9 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 
 	var uploaded whatsmeow.UploadResponse
 	if jid.Server == types.NewsletterServer {
-		uploaded, err = client.UploadNewsletter(context.Background(), fileBytes, whatsmeow.MediaAudio)
+		uploaded, err = client.UploadNewsletterReader(context.Background(), f, whatsmeow.MediaAudio)
 	} else {
-		uploaded, err = client.Upload(context.Background(), fileBytes, whatsmeow.MediaAudio)
+		uploaded, err = client.UploadReader(context.Background(), f, nil, whatsmeow.MediaAudio)
 	}
 	if err != nil {
 		fail(err.Error())

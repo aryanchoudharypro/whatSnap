@@ -97,7 +97,7 @@ fn wire_media_list(
 	dialog: &Dialog,
 	ui_tx: &UiCommandSender,
 	state: &std::rc::Rc<std::cell::RefCell<crate::AppState>>,
-	get_message: impl Fn(&crate::AppState, usize) -> Option<whantv::ChatMessage> + Clone + 'static,
+	get_message: impl Fn(&crate::AppState, usize) -> Option<whantv::Msg> + Clone + 'static,
 	with_media_actions: bool,
 ) {
 	let list_enter = list.clone();
@@ -109,8 +109,8 @@ fn wire_media_list(
 		if let Some(idx) = list_enter.get_selection() {
 			if let Some(msg) = get_message_enter(&state_enter.borrow(), idx as usize) {
 				dialog_enter.end_modal(0);
-				let _ =
-					tx_enter.send(UiCommand::JumpToSearchResult { message_id: msg.id, message_text: String::new() });
+				let _ = tx_enter
+					.send(UiCommand::JumpToSearchResult { message_id: msg.id.clone(), message_text: String::new() });
 			}
 		}
 	});
@@ -972,7 +972,9 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	crate::keymap::Keymap::from_saved(&state.borrow().settings.shortcuts).apply(&parts.frame);
+	let keymap = Rc::new(crate::keymap::Keymap::from_saved(&state.borrow().settings.shortcuts));
+	keymap.apply(&parts.frame);
+	state.borrow_mut().keymap = keymap;
 	// Edits from the Keyboard Shortcuts dialog wait here until Settings is
 	// confirmed, so Cancel on Settings throws them away like everything else.
 	let pending_shortcuts: Rc<std::cell::RefCell<Option<crate::keymap::Keymap>>> = Rc::default();
@@ -1217,10 +1219,8 @@ pub fn bind_input_handlers(
 	let state_shortcuts = state.clone();
 	let pending_shortcuts_edit = pending_shortcuts.clone();
 	parts.settings_dialog.shortcuts_btn.on_click(move |_| {
-		let current = pending_shortcuts_edit
-			.borrow()
-			.clone()
-			.unwrap_or_else(|| crate::keymap::Keymap::from_saved(&state_shortcuts.borrow().settings.shortcuts));
+		let current =
+			pending_shortcuts_edit.borrow().clone().unwrap_or_else(|| (*state_shortcuts.borrow().keymap).clone());
 		if let Some(updated) = wx_utils::shortcuts::prompt_for_shortcuts(&settings_dialog_shortcuts, &current) {
 			*pending_shortcuts_edit.borrow_mut() = Some(updated);
 		}
@@ -1261,6 +1261,7 @@ pub fn bind_input_handlers(
 		if let Some(keymap) = pending_shortcuts.borrow_mut().take() {
 			keymap.apply(&frame_shortcuts_save);
 			s.settings.shortcuts = keymap.saved();
+			s.keymap = Rc::new(keymap);
 		}
 		s.settings.sounds_enabled = sounds_check_ok.is_checked();
 		s.settings.notifications_enabled = notifications_check_ok.is_checked();
@@ -3220,7 +3221,7 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.messages_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			let keymap = crate::keymap::Keymap::from_saved(&state_play.borrow().settings.shortcuts);
+			let keymap = state_play.borrow().keymap.clone();
 			let pressed = |id| keymap.is_pressed(id, key_event);
 
 			if keys::is_left(code) {
@@ -4238,11 +4239,11 @@ pub fn bind_input_handlers(
 	selection_list_toggle.on_toggled(move |event| {
 		if let Some(idx) = event.get_selection() {
 			let mut s = state_selection_toggle.borrow_mut();
-			if let Some(item) = s.selection_rows.get(idx as usize).cloned() {
+			if let Some(id) = s.selection_rows.get(idx as usize).map(|item| item.id().to_string()) {
 				if selection_list_toggle.is_checked(idx) {
-					s.selected_message_ids.insert(item.id().to_string());
+					s.selected_message_ids.insert(id);
 				} else {
-					s.selected_message_ids.remove(item.id());
+					s.selected_message_ids.remove(&id);
 				}
 				let count = s.selected_message_ids.len();
 				selection_count_label_toggle.set_label(&format!("{} selected", count));
@@ -4257,7 +4258,7 @@ pub fn bind_input_handlers(
 	let state_selection_list_keys = state.clone();
 	parts.conversations_parts.messages_select_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
-			let keymap = crate::keymap::Keymap::from_saved(&state_selection_list_keys.borrow().settings.shortcuts);
+			let keymap = state_selection_list_keys.borrow().keymap.clone();
 			if keymap.is_pressed(message_list::SELECTION_MODE, key_event) || keys::is_escape(key_event.get_key_code()) {
 				let _ = tx_selection_list_keys.send(UiCommand::ToggleSelectionMode);
 				event.skip(false);
@@ -4274,7 +4275,7 @@ pub fn bind_input_handlers(
 		let (count, can_delete_for_everyone) = {
 			let s = state_delete_selection.borrow();
 			let ids = &s.selected_message_ids;
-			let msgs: Vec<whantv::ChatMessage> = s
+			let msgs: Vec<&whantv::Msg> = s
 				.selection_rows
 				.iter()
 				.filter(|item| ids.contains(item.id()))

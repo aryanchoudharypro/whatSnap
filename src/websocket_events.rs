@@ -3,7 +3,7 @@
 //! JSON payload's `type` field: message,call,presence,contacts,chats sync,
 //! privacy settings, status updates, and friends.
 
-use std::{cell::RefCell, fs::File, io::BufReader, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, fs::File, io::BufReader, rc::Rc};
 
 use rodio::{Decoder, Player};
 use rodio_wsola::WsolaSourceExt;
@@ -31,6 +31,7 @@ use crate::{
 	message_display::{
 		apply_chat_filter, build_document_messages, build_link_messages, build_media_messages, chat_visible_in_tab,
 		chats_in_tab_order, populate_message_list, refresh_voice_action_button, update_action_buttons,
+		update_loaded_message, update_loaded_messages,
 	},
 	tray::{install_tray_icon, refresh_tray_tooltip},
 	ui::window::WindowParts,
@@ -46,6 +47,17 @@ fn ui_timing_log(msg: &str) {
 	{
 		let _ = writeln!(f, "{now} {msg}");
 	}
+}
+
+/// Drops the messages in `msgs` whose id is already in `seen` or earlier in
+/// `msgs` (messages without an id always stay). The ids are borrowed, not
+/// copied: a whole chat is tens of thousands of them.
+fn drop_seen_ids<'a>(msgs: Vec<ChatMessage>, seen: impl Iterator<Item = &'a str>) -> Vec<ChatMessage> {
+	let keep: Vec<bool> = {
+		let mut seen: std::collections::HashSet<&str> = seen.collect();
+		msgs.iter().map(|m| m.id.is_empty() || seen.insert(m.id.as_str())).collect()
+	};
+	msgs.into_iter().zip(keep).filter_map(|(m, keep)| keep.then_some(m)).collect()
 }
 
 /// Applies a newer page (see `ui_commands::chat_list::load_newer_messages`)
@@ -65,9 +77,7 @@ fn apply_newer_messages(
 	let chat_jid = s.selected_chat.clone().unwrap_or_default();
 	let is_group = chat_jid.ends_with("@g.us");
 	let chat_name = s.contacts.get(&chat_jid).cloned().unwrap_or_else(|| chat_jid.clone());
-	let mut loaded: std::collections::HashSet<String> = s.messages.iter().map(|m| m.id.clone()).collect();
-	let mut added: Vec<ChatMessage> =
-		parsed_msgs.into_iter().filter(|m| m.id.is_empty() || loaded.insert(m.id.clone())).collect();
+	let mut added = drop_seen_ids(parsed_msgs, s.messages.iter().map(|m| m.id.as_str()));
 	if added.is_empty() {
 		return;
 	}
@@ -131,17 +141,7 @@ fn apply_conversation_messages(
 	parts: &Rc<WindowParts>,
 ) {
 	let started = std::time::Instant::now();
-	let mut seen_ids = std::collections::HashSet::new();
-	let mut deduplicated = Vec::new();
-	for msg in parsed_msgs {
-		if !msg.id.is_empty() {
-			if seen_ids.insert(msg.id.clone()) {
-				deduplicated.push(msg);
-			}
-		} else {
-			deduplicated.push(msg);
-		}
-	}
+	let mut deduplicated = drop_seen_ids(parsed_msgs, std::iter::empty());
 
 	let mut s = state.borrow_mut();
 	let chat_jid = s.selected_chat.clone().unwrap_or_default();
@@ -364,6 +364,303 @@ fn apply_conversation_messages(
 	refresh_voice_action_button(&s, &parts.conversations_parts);
 }
 
+/// One chat of a `chats` payload (the backend's `buildChatsList`). The chat
+/// list arrives whole, every ~200ms during a sync, so it's read straight off
+/// the wire with its text borrowed, rather than built into a `Value` tree
+/// that the handler then copied again before reading.
+#[derive(Deserialize)]
+struct ChatRow<'a> {
+	#[serde(rename = "JID", borrow, default)]
+	jid: Cow<'a, str>,
+	#[serde(rename = "FullName", borrow, default)]
+	full_name: Option<Cow<'a, str>>,
+	#[serde(rename = "UnreadCount", default)]
+	unread_count: u64,
+	#[serde(rename = "Pinned", default)]
+	pinned: bool,
+	#[serde(rename = "Muted", default)]
+	muted: bool,
+	#[serde(rename = "Archived", default)]
+	archived: bool,
+	#[serde(rename = "IsLocked", default)]
+	is_locked: bool,
+	#[serde(rename = "IsCommunity", default)]
+	is_community: bool,
+	#[serde(rename = "PreviewSnippet", borrow, default)]
+	preview_snippet: Cow<'a, str>,
+	#[serde(rename = "Timestamp", default)]
+	timestamp: i64,
+	#[serde(rename = "PreviewSender", borrow, default)]
+	preview_sender: Cow<'a, str>,
+	#[serde(rename = "PreviewFromMe", default)]
+	preview_from_me: bool,
+	#[serde(rename = "PreviewIsReaction", default)]
+	preview_is_reaction: bool,
+	#[serde(rename = "PreviewReactionEmoji", borrow, default)]
+	preview_reaction_emoji: Cow<'a, str>,
+	#[serde(rename = "IsChannel", default)]
+	is_channel: bool,
+	#[serde(rename = "ChannelRole", borrow, default)]
+	channel_role: Cow<'a, str>,
+	#[serde(rename = "ParentJID", borrow, default)]
+	parent_jid: Cow<'a, str>,
+	#[serde(rename = "CommunityName", borrow, default)]
+	community_name: Cow<'a, str>,
+	#[serde(rename = "IsAnnouncements", default)]
+	is_announcements: bool,
+	#[serde(rename = "IsAdmin", default)]
+	is_admin: bool,
+}
+
+#[derive(Deserialize)]
+struct ChatsEnvelope<'a> {
+	#[serde(borrow, default)]
+	data: Option<Vec<ChatRow<'a>>>,
+}
+
+/// Applies a `chats` payload: rebuilds the per-chat lookups and updates the
+/// chat list, touching only the rows that changed.
+fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut chat_list = Vec::new();
+	let mut archived_jids = std::collections::HashSet::new();
+	let mut community_jids = std::collections::HashSet::new();
+	let mut chat_parents = std::collections::HashMap::new();
+	let mut announcement_jids = std::collections::HashSet::new();
+	let mut channel_jids = std::collections::HashSet::new();
+	let mut channel_roles = std::collections::HashMap::new();
+	let mut pinned_jids = std::collections::HashSet::new();
+	let mut muted_jids = std::collections::HashSet::new();
+	let mut admin_group_jids = std::collections::HashSet::new();
+	let mut locked_jids = std::collections::HashSet::new();
+	let mut unread_counts = std::collections::HashMap::new();
+	let mut display_names = std::collections::HashMap::new();
+	let mut contacts_map = std::collections::HashMap::new();
+	for chat in &chats {
+		let jid: &str = &chat.jid;
+		if !jid.is_empty() {
+			let name = chat.full_name.as_deref().unwrap_or(jid).to_string();
+			chat_list.push(jid.to_string());
+
+			let unread = chat.unread_count;
+			let pinned = chat.pinned;
+			let muted = chat.muted;
+			let archived = chat.archived;
+			let is_locked = chat.is_locked;
+			let is_community = chat.is_community;
+			let preview = &*chat.preview_snippet;
+
+			let ts = chat.timestamp;
+			let preview_sender = &*chat.preview_sender;
+			let preview_from_me = chat.preview_from_me;
+			let preview_is_reaction = chat.preview_is_reaction;
+			let preview_reaction_emoji = &*chat.preview_reaction_emoji;
+
+			let time_str = if ts > 0 {
+				if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
+					let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
+					let now_dt = chrono::Local::now();
+					let msg_date = local_dt.date_naive();
+					let today = now_dt.date_naive();
+					let yesterday = today.pred_opt().unwrap_or(today);
+					let num_days_ago = (today - msg_date).num_days();
+					if msg_date == today {
+						local_dt.format("%I:%M %p").to_string()
+					} else if msg_date == yesterday {
+						"Yesterday".to_string()
+					} else if num_days_ago > 1 && num_days_ago < 7 {
+						local_dt.format("%A").to_string()
+					} else {
+						local_dt.format("%d/%m/%Y").to_string()
+					}
+				} else {
+					String::new()
+				}
+			} else {
+				String::new()
+			};
+
+			let mut tags: Vec<Cow<str>> = Vec::new();
+			if is_locked {
+				tags.push("Locked".into());
+				locked_jids.insert(jid.to_string());
+			}
+			if archived {
+				tags.push("Archived".into());
+				archived_jids.insert(jid.to_string());
+			}
+			if pinned {
+				tags.push("Pinned".into());
+				pinned_jids.insert(jid.to_string());
+			}
+			if muted {
+				tags.push("Muted".into());
+				muted_jids.insert(jid.to_string());
+			}
+			if is_community {
+				tags.push("Community".into());
+				community_jids.insert(jid.to_string());
+			}
+			if chat.is_channel {
+				tags.push("Channel".into());
+				channel_jids.insert(jid.to_string());
+				let role = &*chat.channel_role;
+				channel_roles.insert(jid.to_string(), role.to_string());
+			}
+			// A group inside a community says which one, and
+			// its announcements group says so - that group
+			// usually shares the community's own name.
+			let parent = &*chat.parent_jid;
+			if !parent.is_empty() {
+				chat_parents.insert(jid.to_string(), parent.to_string());
+				let community_name = &*chat.community_name;
+				if chat.is_announcements {
+					announcement_jids.insert(jid.to_string());
+					tags.push("Announcements".into());
+				}
+				if !community_name.is_empty() && community_name != name {
+					tags.push(format!("In {}", community_name).into());
+				}
+			}
+			if chat.is_admin {
+				admin_group_jids.insert(jid.to_string());
+			}
+			unread_counts.insert(jid.to_string(), unread);
+
+			let name_line = if tags.is_empty() { name.clone() } else { format!("{} [{}]", name, tags.join("] [")) };
+
+			let unread_line = if unread == 1 {
+				"1 unread message".to_string()
+			} else if unread > 1 {
+				format!("{} unread messages", unread)
+			} else {
+				String::new()
+			};
+
+			let preview_line = if preview_is_reaction && !preview_reaction_emoji.is_empty() && !preview.is_empty() {
+				let who = if preview_from_me {
+					"You".to_string()
+				} else if !preview_sender.is_empty() {
+					preview_sender.to_string()
+				} else {
+					"Someone".to_string()
+				};
+				format!(
+					"{} reacted with {} to: {}",
+					who,
+					preview_reaction_emoji,
+					whantv::friendly_preview_text(preview)
+				)
+			} else if !preview.is_empty() {
+				let body = whantv::friendly_preview_text(preview);
+				if preview_from_me {
+					format!("You: {}", body)
+				} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
+					format!("{}: {}", preview_sender, body)
+				} else {
+					body
+				}
+			} else {
+				String::new()
+			};
+
+			let mut parts_vec: Vec<&str> = Vec::new();
+			parts_vec.push(&name_line);
+			if !unread_line.is_empty() {
+				parts_vec.push(&unread_line);
+			}
+			if !time_str.is_empty() {
+				parts_vec.push(&time_str);
+			}
+			if !preview_line.is_empty() {
+				parts_vec.push(&preview_line);
+			}
+			let display_name = parts_vec.join(" | ");
+			display_names.insert(jid.to_string(), display_name);
+			contacts_map.insert(jid.to_string(), name);
+		}
+	}
+	let mut s = state.borrow_mut();
+	s.chats = chat_list;
+	s.contacts = contacts_map;
+	s.archived_jids = archived_jids;
+	s.locked_jids = locked_jids;
+	s.community_jids = community_jids;
+	s.chat_parents = chat_parents;
+	s.announcement_jids = announcement_jids;
+	s.channel_jids = channel_jids;
+	s.channel_roles = channel_roles;
+	s.pinned_jids = pinned_jids;
+	s.muted_jids = muted_jids;
+	s.admin_group_jids = admin_group_jids;
+	s.unread_counts = unread_counts;
+	s.display_names = display_names;
+	refresh_tray_tooltip(&s, parts);
+
+	// Compute new filtered list
+	let lower_query = s.search_query.to_lowercase();
+	let mut new_filtered = Vec::new();
+	let mut new_display = Vec::new();
+	if s.active_tab != 1 && s.active_tab != 2 {
+		for jid in chats_in_tab_order(&s) {
+			if !chat_visible_in_tab(
+				s.active_tab,
+				jid,
+				&s.archived_jids,
+				&s.community_jids,
+				&s.chat_parents,
+				&s.channel_jids,
+				&s.locked_jids,
+				s.chats_unlocked,
+			) {
+				continue;
+			}
+			let name = s.contacts.get(jid).unwrap_or(jid);
+			if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
+				new_filtered.push(jid.clone());
+				new_display.push(s.display_names.get(jid).unwrap_or(name).clone());
+			}
+		}
+	}
+
+	let structure_changed = s.active_tab != 1
+		&& s.active_tab != 2
+		&& (new_filtered.len() != s.filtered_chats.len()
+			|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b));
+
+	// The Status and Starred tabs keep their own rows (and
+	// their own filtered_chats) - a chats refresh must leave
+	// them alone, or Enter on a row stops doing anything.
+	let own_rows_tab = s.active_tab == 1 || s.active_tab == 2;
+	if !own_rows_tab && structure_changed {
+		s.filtered_chats = new_filtered;
+		drop(s);
+		apply_chat_filter(&mut state.borrow_mut(), parts);
+	} else if !own_rows_tab {
+		// Same rows in the same order: rewrite only the ones
+		// whose text actually changed. A chats broadcast lands
+		// every ~200ms during a sync, and rewriting every row
+		// each time was pure churn (and a screen reader can
+		// re-read a row whose text is set, even to itself).
+		let changed: Vec<usize> = new_display
+			.iter()
+			.enumerate()
+			.filter(|(i, dn)| s.displayed_chat_labels.get(*i) != Some(*dn))
+			.map(|(i, _)| i)
+			.collect();
+		if !changed.is_empty() {
+			parts.conversations_parts.conversations_list.freeze();
+			for &i in &changed {
+				parts.conversations_parts.conversations_list.set_string(i as u32, &new_display[i]);
+			}
+			parts.conversations_parts.conversations_list.thaw();
+		}
+		s.filtered_chats = new_filtered;
+		s.displayed_chat_labels = new_display;
+	}
+	// A WhatsApp link opened before the chat list was ready.
+	crate::ui_commands::links::open_pending_whatsapp_link(state);
+}
+
 /// Just the `type` tag, with every other field skipped rather than
 /// materialized. Lets the dispatcher below route the one huge payload without
 /// first building a `serde_json::Value` for it.
@@ -410,10 +707,27 @@ fn default_true() -> bool {
 	true
 }
 
-/// Whether `raw` is a `conversation_messages` payload, read without
-/// materializing the rest of the document.
+/// The payloads read straight into typed structs instead of a `Value` tree.
+#[derive(Debug, PartialEq, Eq)]
+enum FastPath {
+	ConversationMessages,
+	Chats,
+	Other,
+}
+
+/// Which fast path `raw` takes, read without materializing the rest of the
+/// document.
+fn fast_path(raw: &str) -> FastPath {
+	match serde_json::from_str::<TypeTag>(raw).as_ref().map(|t| t.ty.as_ref()) {
+		Ok("conversation_messages") => FastPath::ConversationMessages,
+		Ok("chats") => FastPath::Chats,
+		_ => FastPath::Other,
+	}
+}
+
+#[cfg(test)]
 fn is_conversation_messages(raw: &str) -> bool {
-	serde_json::from_str::<TypeTag>(raw).is_ok_and(|t| t.ty == "conversation_messages")
+	fast_path(raw) == FastPath::ConversationMessages
 }
 
 /// Parses a `conversation_messages` payload into its chat jid and messages,
@@ -449,7 +763,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 	//
 	// Reading the tag first costs one scan and no allocations: serde skips the
 	// fields it is not asked for instead of materializing them.
-	if is_conversation_messages(&raw) {
+	let path = fast_path(&raw);
+	if path == FastPath::Chats {
+		match serde_json::from_str::<ChatsEnvelope>(&raw) {
+			Ok(ChatsEnvelope { data: Some(chats) }) => apply_chats(chats, state, parts),
+			Ok(ChatsEnvelope { data: None }) => crate::ui_commands::links::open_pending_whatsapp_link(state),
+			Err(e) => eprintln!("[LOG UI] Failed to parse a chats payload: {}", e),
+		}
+		return;
+	}
+	if path == FastPath::ConversationMessages {
 		let parse_started = std::time::Instant::now();
 		let parsed = parse_conversation_messages(&raw);
 		ui_timing_log(&format!(
@@ -1146,266 +1469,6 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
-				"chats" => {
-					if let Some(data) = val.get("data") {
-						if let Ok(chats_array) = serde_json::from_value::<Vec<serde_json::Value>>(data.clone()) {
-							let mut chat_list = Vec::new();
-							let mut archived_jids = std::collections::HashSet::new();
-							let mut community_jids = std::collections::HashSet::new();
-							let mut chat_parents = std::collections::HashMap::new();
-							let mut announcement_jids = std::collections::HashSet::new();
-							let mut channel_jids = std::collections::HashSet::new();
-							let mut channel_roles = std::collections::HashMap::new();
-							let mut pinned_jids = std::collections::HashSet::new();
-							let mut muted_jids = std::collections::HashSet::new();
-							let mut admin_group_jids = std::collections::HashSet::new();
-							let mut locked_jids = std::collections::HashSet::new();
-							let mut unread_counts = std::collections::HashMap::new();
-							let mut display_names = std::collections::HashMap::new();
-							let mut contacts_map = std::collections::HashMap::new();
-							for chat in chats_array {
-								if let Some(jid) = chat.get("JID").and_then(|j| j.as_str()) {
-									let name = chat.get("FullName").and_then(|n| n.as_str()).unwrap_or(jid).to_string();
-									chat_list.push(jid.to_string());
-
-									let unread = chat.get("UnreadCount").and_then(|u| u.as_u64()).unwrap_or(0);
-									let pinned = chat.get("Pinned").and_then(|p| p.as_bool()).unwrap_or(false);
-									let muted = chat.get("Muted").and_then(|m| m.as_bool()).unwrap_or(false);
-									let archived = chat.get("Archived").and_then(|a| a.as_bool()).unwrap_or(false);
-									let is_locked = chat.get("IsLocked").and_then(|l| l.as_bool()).unwrap_or(false);
-									let is_community =
-										chat.get("IsCommunity").and_then(|c| c.as_bool()).unwrap_or(false);
-									let preview = chat.get("PreviewSnippet").and_then(|p| p.as_str()).unwrap_or("");
-
-									let ts = chat.get("Timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
-									let preview_sender =
-										chat.get("PreviewSender").and_then(|p| p.as_str()).unwrap_or("");
-									let preview_from_me =
-										chat.get("PreviewFromMe").and_then(|p| p.as_bool()).unwrap_or(false);
-									let preview_is_reaction =
-										chat.get("PreviewIsReaction").and_then(|p| p.as_bool()).unwrap_or(false);
-									let preview_reaction_emoji =
-										chat.get("PreviewReactionEmoji").and_then(|p| p.as_str()).unwrap_or("");
-
-									let time_str = if ts > 0 {
-										if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
-											let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
-											let now_dt = chrono::Local::now();
-											let msg_date = local_dt.date_naive();
-											let today = now_dt.date_naive();
-											let yesterday = today.pred_opt().unwrap_or(today);
-											let num_days_ago = (today - msg_date).num_days();
-											if msg_date == today {
-												local_dt.format("%I:%M %p").to_string()
-											} else if msg_date == yesterday {
-												"Yesterday".to_string()
-											} else if num_days_ago > 1 && num_days_ago < 7 {
-												local_dt.format("%A").to_string()
-											} else {
-												local_dt.format("%d/%m/%Y").to_string()
-											}
-										} else {
-											String::new()
-										}
-									} else {
-										String::new()
-									};
-
-									let mut tags = Vec::new();
-									if is_locked {
-										tags.push("Locked".to_string());
-										locked_jids.insert(jid.to_string());
-									}
-									if archived {
-										tags.push("Archived".to_string());
-										archived_jids.insert(jid.to_string());
-									}
-									if pinned {
-										tags.push("Pinned".to_string());
-										pinned_jids.insert(jid.to_string());
-									}
-									if muted {
-										tags.push("Muted".to_string());
-										muted_jids.insert(jid.to_string());
-									}
-									if is_community {
-										tags.push("Community".to_string());
-										community_jids.insert(jid.to_string());
-									}
-									if chat.get("IsChannel").and_then(|c| c.as_bool()).unwrap_or(false) {
-										tags.push("Channel".to_string());
-										channel_jids.insert(jid.to_string());
-										let role = chat.get("ChannelRole").and_then(|r| r.as_str()).unwrap_or("");
-										channel_roles.insert(jid.to_string(), role.to_string());
-									}
-									// A group inside a community says which one, and
-									// its announcements group says so - that group
-									// usually shares the community's own name.
-									let parent = chat.get("ParentJID").and_then(|p| p.as_str()).unwrap_or("");
-									if !parent.is_empty() {
-										chat_parents.insert(jid.to_string(), parent.to_string());
-										let community_name =
-											chat.get("CommunityName").and_then(|n| n.as_str()).unwrap_or("");
-										if chat.get("IsAnnouncements").and_then(|a| a.as_bool()).unwrap_or(false) {
-											announcement_jids.insert(jid.to_string());
-											tags.push("Announcements".to_string());
-										}
-										if !community_name.is_empty() && community_name != name {
-											tags.push(format!("In {}", community_name));
-										}
-									}
-									if chat.get("IsAdmin").and_then(|a| a.as_bool()).unwrap_or(false) {
-										admin_group_jids.insert(jid.to_string());
-									}
-									unread_counts.insert(jid.to_string(), unread);
-
-									let name_line = if tags.is_empty() {
-										name.clone()
-									} else {
-										format!("{} [{}]", name, tags.join("] ["))
-									};
-
-									let unread_line = if unread == 1 {
-										"1 unread message".to_string()
-									} else if unread > 1 {
-										format!("{} unread messages", unread)
-									} else {
-										String::new()
-									};
-
-									let preview_line = if preview_is_reaction
-										&& !preview_reaction_emoji.is_empty()
-										&& !preview.is_empty()
-									{
-										let who = if preview_from_me {
-											"You".to_string()
-										} else if !preview_sender.is_empty() {
-											preview_sender.to_string()
-										} else {
-											"Someone".to_string()
-										};
-										format!(
-											"{} reacted with {} to: {}",
-											who,
-											preview_reaction_emoji,
-											whantv::friendly_preview_text(preview)
-										)
-									} else if !preview.is_empty() {
-										let body = whantv::friendly_preview_text(preview);
-										if preview_from_me {
-											format!("You: {}", body)
-										} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
-											format!("{}: {}", preview_sender, body)
-										} else {
-											body
-										}
-									} else {
-										String::new()
-									};
-
-									let mut parts_vec: Vec<&str> = Vec::new();
-									parts_vec.push(&name_line);
-									if !unread_line.is_empty() {
-										parts_vec.push(&unread_line);
-									}
-									if !time_str.is_empty() {
-										parts_vec.push(&time_str);
-									}
-									if !preview_line.is_empty() {
-										parts_vec.push(&preview_line);
-									}
-									let display_name = parts_vec.join(" | ");
-									display_names.insert(jid.to_string(), display_name);
-									contacts_map.insert(jid.to_string(), name);
-								}
-							}
-							let mut s = state.borrow_mut();
-							s.chats = chat_list;
-							s.contacts = contacts_map;
-							s.archived_jids = archived_jids;
-							s.locked_jids = locked_jids;
-							s.community_jids = community_jids;
-							s.chat_parents = chat_parents;
-							s.announcement_jids = announcement_jids;
-							s.channel_jids = channel_jids;
-							s.channel_roles = channel_roles;
-							s.pinned_jids = pinned_jids;
-							s.muted_jids = muted_jids;
-							s.admin_group_jids = admin_group_jids;
-							s.unread_counts = unread_counts;
-							s.display_names = display_names;
-							refresh_tray_tooltip(&s, parts);
-
-							// Compute new filtered list
-							let lower_query = s.search_query.to_lowercase();
-							let mut new_filtered = Vec::new();
-							let mut new_display = Vec::new();
-							if s.active_tab != 1 && s.active_tab != 2 {
-								for jid in &chats_in_tab_order(&s) {
-									if !chat_visible_in_tab(
-										s.active_tab,
-										jid,
-										&s.archived_jids,
-										&s.community_jids,
-										&s.chat_parents,
-										&s.channel_jids,
-										&s.locked_jids,
-										s.chats_unlocked,
-									) {
-										continue;
-									}
-									let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-									if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
-										let dn = s.display_names.get(jid).cloned().unwrap_or_else(|| name);
-										new_filtered.push(jid.clone());
-										new_display.push(dn);
-									}
-								}
-							}
-
-							let structure_changed = s.active_tab != 1
-								&& s.active_tab != 2 && (new_filtered.len()
-								!= s.filtered_chats.len()
-								|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b));
-
-							// The Status and Starred tabs keep their own rows (and
-							// their own filtered_chats) - a chats refresh must leave
-							// them alone, or Enter on a row stops doing anything.
-							let own_rows_tab = s.active_tab == 1 || s.active_tab == 2;
-							if !own_rows_tab && structure_changed {
-								s.filtered_chats = new_filtered;
-								drop(s);
-								apply_chat_filter(&mut state.borrow_mut(), parts);
-							} else if !own_rows_tab {
-								// Same rows in the same order: rewrite only the ones
-								// whose text actually changed. A chats broadcast lands
-								// every ~200ms during a sync, and rewriting every row
-								// each time was pure churn (and a screen reader can
-								// re-read a row whose text is set, even to itself).
-								let changed: Vec<usize> = new_display
-									.iter()
-									.enumerate()
-									.filter(|(i, dn)| s.displayed_chat_labels.get(*i) != Some(*dn))
-									.map(|(i, _)| i)
-									.collect();
-								if !changed.is_empty() {
-									parts.conversations_parts.conversations_list.freeze();
-									for &i in &changed {
-										parts
-											.conversations_parts
-											.conversations_list
-											.set_string(i as u32, &new_display[i]);
-									}
-									parts.conversations_parts.conversations_list.thaw();
-								}
-								s.filtered_chats = new_filtered;
-								s.displayed_chat_labels = new_display;
-							}
-						}
-					}
-					// A WhatsApp link opened before the chat list was ready.
-					crate::ui_commands::links::open_pending_whatsapp_link(state);
-				}
 				"message" => {
 					if let Some(data) = val.get("data") {
 						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
@@ -1421,7 +1484,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						// newest messages; appending a live one under it would put
 						// it right after an old message with a silent gap between.
 						// Treat the chat as a background one until it's reloaded.
-						if Some(jid.to_string()) == s.selected_chat && s.messages_at_latest {
+						if s.selected_chat.as_deref() == Some(jid) && s.messages_at_latest {
 							let is_from_me = data
 								.get("from_me")
 								.and_then(|f| f.as_bool())
@@ -1455,105 +1518,39 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 
 							if let Some(idx) = temp_msg_idx {
-								std::rc::Rc::make_mut(&mut s.messages[idx]).id = msg_id.clone();
-								std::rc::Rc::make_mut(&mut s.messages[idx]).text = text.to_string();
-								std::rc::Rc::make_mut(&mut s.messages[idx]).timestamp = ts;
-								std::rc::Rc::make_mut(&mut s.messages[idx]).sent_at = ts;
-								std::rc::Rc::make_mut(&mut s.messages[idx]).status = data
+								let pick_id = s.messages[idx].id.clone();
+								let status = data
 									.get("status")
 									.and_then(|st| st.as_str())
 									.filter(|st| !st.is_empty())
-									.unwrap_or("sent")
-									.to_string();
-								std::rc::Rc::make_mut(&mut s.messages[idx]).media_type =
-									data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("").to_string();
-								std::rc::Rc::make_mut(&mut s.messages[idx]).media_filename =
-									data.get("mediaFilename").and_then(|m| m.as_str()).unwrap_or("").to_string();
-								// Our own file is already on disk, so it gets Open and Save
-								// as rather than Download. Kept when an update leaves it out.
-								if let Some(path) =
-									data.get("mediaPath").and_then(|m| m.as_str()).filter(|p| !p.is_empty())
-								{
-									std::rc::Rc::make_mut(&mut s.messages[idx]).media_path = path.to_string();
-								}
-								std::rc::Rc::make_mut(&mut s.messages[idx]).quoted_id = data
-									.get("quoted_id")
-									.or_else(|| data.get("quotedId"))
-									.and_then(|q| q.as_str())
-									.unwrap_or("")
-									.to_string();
-								std::rc::Rc::make_mut(&mut s.messages[idx]).quoted_text = data
-									.get("quoted_text")
-									.or_else(|| data.get("quotedText"))
-									.and_then(|q| q.as_str())
-									.unwrap_or("")
-									.to_string();
-								std::rc::Rc::make_mut(&mut s.messages[idx]).quoted_sender = data
-									.get("quoted_sender")
-									.or_else(|| data.get("quotedSender"))
-									.and_then(|q| q.as_str())
-									.unwrap_or("")
-									.to_string();
-
-								let status = s.messages[idx].status.clone();
-								let media_type = s.messages[idx].media_type.clone();
-								let media_filename = s.messages[idx].media_filename.clone();
-								let media_path = s.messages[idx].media_path.clone();
-								let quoted_id = s.messages[idx].quoted_id.clone();
-								let quoted_text = s.messages[idx].quoted_text.clone();
-								let quoted_sender = s.messages[idx].quoted_sender.clone();
-
-								// Update display_items and UI. Matches by real id first (a
-								// message transitioning pending/uploading -> sent/failed);
-								// the temp_upload_ prefix check is kept only for backward
-								// compatibility with any leftover client-side placeholder.
-								let mut target_di = None;
-								let mut updated_display = String::new();
-								for (di, item) in s.display_items.iter_mut().enumerate() {
-									let mut matched = false;
-									match item {
-										whantv::DisplayItem::Single(m) => {
-											if m.id == msg_id || m.id.starts_with("temp_upload_") {
-												std::rc::Rc::make_mut(m).id = msg_id.clone();
-												std::rc::Rc::make_mut(m).text = text.to_string();
-												std::rc::Rc::make_mut(m).timestamp = ts;
-												std::rc::Rc::make_mut(m).sent_at = ts;
-												std::rc::Rc::make_mut(m).status = status.clone();
-												std::rc::Rc::make_mut(m).media_type = media_type.clone();
-												std::rc::Rc::make_mut(m).media_filename = media_filename.clone();
-												std::rc::Rc::make_mut(m).media_path = media_path.clone();
-												std::rc::Rc::make_mut(m).quoted_id = quoted_id.clone();
-												std::rc::Rc::make_mut(m).quoted_text = quoted_text.clone();
-												std::rc::Rc::make_mut(m).quoted_sender = quoted_sender.clone();
-												matched = true;
-											}
-										}
-										whantv::DisplayItem::Album { messages, .. } => {
-											for m in messages.iter_mut() {
-												if m.id == msg_id || m.id.starts_with("temp_upload_") {
-													std::rc::Rc::make_mut(m).id = msg_id.clone();
-													std::rc::Rc::make_mut(m).text = text.to_string();
-													std::rc::Rc::make_mut(m).timestamp = ts;
-													std::rc::Rc::make_mut(m).sent_at = ts;
-													std::rc::Rc::make_mut(m).status = status.clone();
-													std::rc::Rc::make_mut(m).media_type = media_type.clone();
-													std::rc::Rc::make_mut(m).media_filename = media_filename.clone();
-													std::rc::Rc::make_mut(m).media_path = media_path.clone();
-													std::rc::Rc::make_mut(m).quoted_id = quoted_id.clone();
-													std::rc::Rc::make_mut(m).quoted_text = quoted_text.clone();
-													std::rc::Rc::make_mut(m).quoted_sender = quoted_sender.clone();
-													matched = true;
-													break;
-												}
-											}
-										}
+									.unwrap_or("sent");
+								let field = |name: &str| data.get(name).and_then(|v| v.as_str()).unwrap_or("");
+								// The quote fields have gone by either spelling.
+								let quote_field = |snake: &str, camel: &str| {
+									data.get(snake).or_else(|| data.get(camel)).and_then(|v| v.as_str()).unwrap_or("")
+								};
+								let target_di = update_loaded_message(&mut s, &pick_id, |m| {
+									m.id = msg_id.clone();
+									m.text = text.to_string();
+									m.timestamp = ts;
+									m.sent_at = ts;
+									m.status = status.to_string();
+									m.media_type = field("mediaType").to_string();
+									m.media_filename = field("mediaFilename").to_string();
+									// Our own file is already on disk, so it gets Open and Save
+									// as rather than Download. Kept when an update leaves it out.
+									let path = field("mediaPath");
+									if !path.is_empty() {
+										m.media_path = path.to_string();
 									}
-									if matched {
-										target_di = Some(di);
-										updated_display = item.format_display(is_group);
-										break;
-									}
-								}
+									m.quoted_id = quote_field("quoted_id", "quotedId").to_string();
+									m.quoted_text = quote_field("quoted_text", "quotedText").to_string();
+									m.quoted_sender = quote_field("quoted_sender", "quotedSender").to_string();
+								});
+								let updated_display = target_di
+									.and_then(|di| s.display_items.get(di))
+									.map(|item| item.format_display(is_group))
+									.unwrap_or_default();
 
 								if let Some(di) = target_di {
 									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
@@ -1840,12 +1837,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 											} else {
 												format!("{} unread messages", count)
 											};
-											if let Some(m) = s.messages.iter_mut().find(|m| m.is_unread_divider) {
-												std::rc::Rc::make_mut(m).text = label.clone();
-											}
-											if let whantv::DisplayItem::Single(m) = &mut s.display_items[di] {
-												std::rc::Rc::make_mut(m).text = label.clone();
-											}
+											update_loaded_messages(
+												&mut s,
+												|m| m.is_unread_divider,
+												|m| m.text = label.clone(),
+											);
 											parts.conversations_parts.messages_list.set_string(di as u32, &label);
 										} else {
 											s.unread_divider_jid = Some(jid.to_string());
@@ -1990,11 +1986,15 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									s.display_items = whantv::group_messages_into_display_items(&s.messages);
 									s.prev_msg_count = s.display_items.len();
 
+									// One call for every row, not one append each (see
+									// `apply_conversation_messages`).
+									let rows: Vec<String> =
+										s.display_items.iter().map(|item| item.format_display(is_group)).collect();
 									parts.conversations_parts.messages_list.freeze();
-									parts.conversations_parts.messages_list.clear();
-									for item in &s.display_items {
-										parts.conversations_parts.messages_list.append(&item.format_display(is_group));
-									}
+									parts
+										.conversations_parts
+										.messages_list
+										.set_items(&rows.iter().map(String::as_str).collect::<Vec<_>>());
 									parts.conversations_parts.messages_list.thaw();
 									refresh_selection_list(&mut s, parts);
 									let count = parts.conversations_parts.messages_list.get_count();
@@ -2012,68 +2012,35 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								return;
 							}
 
-							let mut changed = false;
-							for msg in s.messages.iter_mut() {
-								if msg.id == message_id {
-									std::rc::Rc::make_mut(msg).is_deleted = true;
-									std::rc::Rc::make_mut(msg).text = "".to_string();
-									changed = true;
-									break;
-								}
-							}
-							if changed {
-								// Update display_items in-place instead of full O(n) regrouping
-								for item in s.display_items.iter_mut() {
-									match item {
-										whantv::DisplayItem::Single(m) if m.id == message_id => {
-											std::rc::Rc::make_mut(m).is_deleted = true;
-											std::rc::Rc::make_mut(m).text = String::new();
-											break;
-										}
-										whantv::DisplayItem::Album { messages, .. } => {
-											if let Some(am) = messages.iter_mut().find(|am| am.id == message_id) {
-												std::rc::Rc::make_mut(am).is_deleted = true;
-												std::rc::Rc::make_mut(am).text = String::new();
-												break;
-											}
-										}
-										_ => {}
-									}
-								}
-								for (di, item) in s.display_items.iter().enumerate() {
-									let contains = match item {
-										whantv::DisplayItem::Single(m) => m.id == message_id,
-										whantv::DisplayItem::Album { messages, .. } => {
-											messages.iter().any(|m| m.id == message_id)
-										}
-									};
-									if contains {
-										parts
-											.conversations_parts
-											.messages_list
-											.set_string(di as u32, &item.format_display(is_group));
+							if let Some(di) = update_loaded_message(&mut s, message_id, |m| {
+								m.is_deleted = true;
+								m.text = String::new();
+							}) {
+								if let Some(item) = s.display_items.get(di) {
+									parts
+										.conversations_parts
+										.messages_list
+										.set_string(di as u32, &item.format_display(is_group));
 
-										if let Some(sel_idx) = parts.conversations_parts.messages_list.get_selection() {
-											if sel_idx as u32 == di as u32 {
-												let mut need_layout =
-													crate::update_action_buttons(&s, &parts.conversations_parts);
-												if parts.conversations_parts.play_voice_btn.is_shown() {
-													parts.conversations_parts.play_voice_btn.show(false);
-													need_layout = true;
-												}
-												if parts.conversations_parts.audio_slider.is_shown() {
-													parts.conversations_parts.audio_slider.show(false);
-													parts.conversations_parts.audio_progress_label.show(false);
-													parts.conversations_parts.audio_speed_btn.show(false);
-													need_layout = true;
-												}
-												if need_layout {
-													parts.conversations_parts.action_panel.layout();
-													parts.conversations_parts.conversation_panel.layout();
-												}
+									if let Some(sel_idx) = parts.conversations_parts.messages_list.get_selection() {
+										if sel_idx as u32 == di as u32 {
+											let mut need_layout =
+												crate::update_action_buttons(&s, &parts.conversations_parts);
+											if parts.conversations_parts.play_voice_btn.is_shown() {
+												parts.conversations_parts.play_voice_btn.show(false);
+												need_layout = true;
+											}
+											if parts.conversations_parts.audio_slider.is_shown() {
+												parts.conversations_parts.audio_slider.show(false);
+												parts.conversations_parts.audio_progress_label.show(false);
+												parts.conversations_parts.audio_speed_btn.show(false);
+												need_layout = true;
+											}
+											if need_layout {
+												parts.conversations_parts.action_panel.layout();
+												parts.conversations_parts.conversation_panel.layout();
 											}
 										}
-										break;
 									}
 								}
 								if !suppress_announce {
@@ -3421,96 +3388,43 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							};
 							let receipt_ts = data.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
 
-							let mut any_updated = false;
-							for target_id in &msg_ids {
-								let mut found = false;
-								for msg in s.messages.iter_mut() {
-									if msg.id == *target_id {
-										if get_status_rank(norm_status) >= get_status_rank(&msg.status) {
-											std::rc::Rc::make_mut(msg).status = norm_status.to_string();
-											if receipt_ts > 0 {
-												match norm_status {
-													"delivered" => {
-														if msg.delivered_at == 0 {
-															std::rc::Rc::make_mut(msg).delivered_at = receipt_ts;
-														}
-													}
-													"read" => {
-														if msg.read_at == 0 {
-															std::rc::Rc::make_mut(msg).read_at = receipt_ts;
-														}
-													}
-													"played" => {
-														if msg.played_at == 0 {
-															std::rc::Rc::make_mut(msg).played_at = receipt_ts;
-														}
-													}
-													_ => {}
-												}
-											}
-										}
-										found = true;
-										any_updated = true;
-										break;
-									}
-								}
-								if !found {
-									s.pending_receipts.insert(target_id.clone(), norm_status.to_string());
-								}
+							let ids: std::collections::HashSet<&str> = msg_ids.iter().map(String::as_str).collect();
+							// Receipts for messages not loaded yet wait for them.
+							let mut missing = ids.clone();
+							for msg in &s.messages {
+								missing.remove(msg.id.as_str());
 							}
-							if any_updated {
-								// Update display items in-place instead of full O(n) regrouping
-								// Collect status updates first to avoid simultaneous borrows
-								let status_updates: Vec<(String, String, i64, i64, i64)> = s
-									.messages
-									.iter()
-									.filter(|msg| msg_ids.contains(&msg.id))
-									.map(|msg| {
-										(
-											msg.id.clone(),
-											msg.status.clone(),
-											msg.delivered_at,
-											msg.read_at,
-											msg.played_at,
-										)
-									})
-									.collect();
-								for (upd_id, upd_status, upd_del, upd_read, upd_played) in &status_updates {
-									for item in s.display_items.iter_mut() {
-										match item {
-											whantv::DisplayItem::Single(m) if m.id == *upd_id => {
-												std::rc::Rc::make_mut(m).status = upd_status.clone();
-												std::rc::Rc::make_mut(m).delivered_at = *upd_del;
-												std::rc::Rc::make_mut(m).read_at = *upd_read;
-												std::rc::Rc::make_mut(m).played_at = *upd_played;
-												break;
-											}
-											whantv::DisplayItem::Album { messages, .. } => {
-												if let Some(am) = messages.iter_mut().find(|am| am.id == *upd_id) {
-													std::rc::Rc::make_mut(am).status = upd_status.clone();
-													std::rc::Rc::make_mut(am).delivered_at = *upd_del;
-													std::rc::Rc::make_mut(am).read_at = *upd_read;
-													std::rc::Rc::make_mut(am).played_at = *upd_played;
-													break;
-												}
-											}
-											_ => {}
+							let any_updated = missing.len() < ids.len();
+							for id in missing {
+								s.pending_receipts.insert(id.to_string(), norm_status.to_string());
+							}
+							let rows = update_loaded_messages(
+								&mut s,
+								|m| {
+									ids.contains(m.id.as_str())
+										&& get_status_rank(norm_status) >= get_status_rank(&m.status)
+								},
+								|m| {
+									m.status = norm_status.to_string();
+									if receipt_ts > 0 {
+										let at = match norm_status {
+											"delivered" => &mut m.delivered_at,
+											"read" => &mut m.read_at,
+											"played" => &mut m.played_at,
+											_ => return,
+										};
+										if *at == 0 {
+											*at = receipt_ts;
 										}
 									}
-								}
-								for (di, item) in s.display_items.iter().enumerate() {
-									let contains = match item {
-										whantv::DisplayItem::Single(m) => msg_ids.contains(&m.id),
-										whantv::DisplayItem::Album { messages, .. } => {
-											messages.iter().any(|m| msg_ids.contains(&m.id))
-										}
-									};
-									if contains {
-										parts
-											.conversations_parts
-											.messages_list
-											.set_string(di as u32, &item.format_display(is_group));
-									}
+								},
+							);
+							for di in rows {
+								if let Some(item) = s.display_items.get(di) {
+									parts
+										.conversations_parts
+										.messages_list
+										.set_string(di as u32, &item.format_display(is_group));
 								}
 							}
 							if any_updated && (norm_status == "sent" || norm_status == "delivered") {
@@ -3530,13 +3444,18 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								// out, and never take a backlogged ID in the first place.
 								s.played_sent_sounds.retain(|_, acked_at| now_ts - *acked_at < SENT_SOUND_WINDOW_SECS);
 								let mut should_play = false;
-								for target_id in &msg_ids {
-									let is_recent = s
-										.messages
-										.iter()
-										.any(|m| m.id == *target_id && now_ts - m.sent_at < SENT_SOUND_WINDOW_SECS);
-									if is_recent && !s.played_sent_sounds.contains_key(target_id) {
-										s.played_sent_sounds.insert(target_id.clone(), now_ts);
+								// One pass over the chat, not one per acked id.
+								let recent: Vec<String> = s
+									.messages
+									.iter()
+									.filter(|m| {
+										ids.contains(m.id.as_str()) && now_ts - m.sent_at < SENT_SOUND_WINDOW_SECS
+									})
+									.map(|m| m.id.clone())
+									.collect();
+								for target_id in recent {
+									if !s.played_sent_sounds.contains_key(&target_id) {
+										s.played_sent_sounds.insert(target_id, now_ts);
 										should_play = true;
 									}
 								}
@@ -3606,74 +3525,34 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 						if is_match {
 							let is_group = chat_jid.ends_with("@g.us");
-							let mut changed = false;
-							for msg in s.messages.iter_mut() {
-								if msg.id == target_id {
-									std::rc::Rc::make_mut(msg).text = new_text.to_string();
-									std::rc::Rc::make_mut(msg).is_edited = true;
-									std::rc::Rc::make_mut(msg).edited_at = edited_at;
-									changed = true;
-									break;
-								}
-							}
-							if changed {
-								for msg in s.messages.iter_mut() {
-									if msg.quoted_id == target_id {
-										std::rc::Rc::make_mut(msg).quoted_text = new_text.to_string();
+							let edited_row = update_loaded_message(&mut s, target_id, |m| {
+								m.text = new_text.to_string();
+								m.is_edited = true;
+								m.edited_at = edited_at;
+							});
+							if let Some(di) = edited_row {
+								// Replies show the text they quote.
+								let quoting_rows = update_loaded_messages(
+									&mut s,
+									|m| m.quoted_id == target_id,
+									|m| m.quoted_text = new_text.to_string(),
+								);
+								if let Some(item) = s.display_items.get(di) {
+									let updated_display = item.format_display(is_group);
+									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
+									if is_final_edit {
+										crate::announce::announce(
+											parts.conversations_parts.messages_announcer.clone(),
+											&format!("Message edited: {}", updated_display),
+										);
 									}
 								}
-								// Update display_items in-place instead of full O(n) regrouping
-								for item in s.display_items.iter_mut() {
-									match item {
-										whantv::DisplayItem::Single(m) if m.id == target_id => {
-											std::rc::Rc::make_mut(m).text = new_text.to_string();
-											std::rc::Rc::make_mut(m).is_edited = true;
-											std::rc::Rc::make_mut(m).edited_at = edited_at;
-											break;
-										}
-										whantv::DisplayItem::Album { messages, .. } => {
-											if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
-												std::rc::Rc::make_mut(am).text = new_text.to_string();
-												std::rc::Rc::make_mut(am).is_edited = true;
-												std::rc::Rc::make_mut(am).edited_at = edited_at;
-												break;
-											}
-										}
-										_ => {}
-									}
-								}
-								for item in s.display_items.iter_mut() {
-									match item {
-										whantv::DisplayItem::Single(m) if m.quoted_id == target_id => {
-											std::rc::Rc::make_mut(m).quoted_text = new_text.to_string();
-										}
-										whantv::DisplayItem::Album { messages, .. } => {
-											for am in messages.iter_mut() {
-												if am.quoted_id == target_id {
-													std::rc::Rc::make_mut(am).quoted_text = new_text.to_string();
-												}
-											}
-										}
-										_ => {}
-									}
-								}
-								for (di, item) in s.display_items.iter().enumerate() {
-									let contains = match item {
-										whantv::DisplayItem::Single(m) => m.id == target_id || m.quoted_id == target_id,
-										whantv::DisplayItem::Album { messages, .. } => {
-											messages.iter().any(|m| m.id == target_id || m.quoted_id == target_id)
-										}
-									};
-									if contains {
-										let updated_display = item.format_display(is_group);
-										parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-										if is_final_edit {
-											crate::announce::announce(
-												parts.conversations_parts.messages_announcer.clone(),
-												&format!("Message edited: {}", updated_display),
-											);
-										}
-										break;
+								for row in quoting_rows.into_iter().filter(|&row| row != di) {
+									if let Some(item) = s.display_items.get(row) {
+										parts
+											.conversations_parts
+											.messages_list
+											.set_string(row as u32, &item.format_display(is_group));
 									}
 								}
 							}
@@ -3705,30 +3584,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 						if is_match {
 							let is_group = chat_jid.ends_with("@g.us");
-							for msg in s.messages.iter_mut() {
-								if msg.id == target_id {
-									std::rc::Rc::make_mut(msg).starred = starred;
-									break;
-								}
-							}
-							for item in s.display_items.iter_mut() {
-								if let whantv::DisplayItem::Single(m) = item {
-									if m.id == target_id {
-										std::rc::Rc::make_mut(m).starred = starred;
-										break;
-									}
-								}
-							}
-							for (di, item) in s.display_items.iter().enumerate() {
-								let matches = matches!(item, whantv::DisplayItem::Single(m) if m.id == target_id);
-								if matches {
+							if let Some(di) = update_loaded_message(&mut s, target_id, |m| m.starred = starred) {
+								if let Some(item) = s.display_items.get(di) {
 									let updated_display = item.format_display(is_group);
 									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
 									crate::announce::announce(
 										parts.conversations_parts.messages_announcer.clone(),
 										if starred { "Message starred." } else { "Message unstarred." },
 									);
-									break;
 								}
 							}
 						}
@@ -3780,95 +3643,63 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									.unwrap_or_else(|| "Contact".to_string())
 							};
 
-							for msg in s.messages.iter_mut() {
-								if msg.id == target_id {
-									let msg = std::rc::Rc::make_mut(msg);
-									if emoji.is_empty() {
-										msg.reactions.retain(|r| {
-											if is_own_reaction {
-												r.reactor_name != "You"
-													&& r.reactor_jid != "me" && r.reactor_name != "me"
-											} else {
-												r.reactor_jid != reactor && r.reactor_name != resolved_name
-											}
-										});
-									} else {
-										let mut found = false;
-										for r in msg.reactions.iter_mut() {
-											let r_is_own = r.reactor_name == "You" || r.reactor_jid == "me";
-											if (is_own_reaction && r_is_own)
-												|| (!is_own_reaction
-													&& (r.reactor_jid == reactor || r.reactor_name == resolved_name))
-											{
-												r.emoji = emoji.to_string();
-												r.reactor_name = resolved_name.clone();
-												found = true;
-												break;
-											}
+							let reacted_row = update_loaded_message(&mut s, target_id, |msg| {
+								if emoji.is_empty() {
+									msg.reactions.retain(|r| {
+										if is_own_reaction {
+											r.reactor_name != "You" && r.reactor_jid != "me" && r.reactor_name != "me"
+										} else {
+											r.reactor_jid != reactor && r.reactor_name != resolved_name
 										}
-										if !found {
-											msg.reactions.push(whantv::ChatReaction {
-												reactor_jid: if is_own_reaction {
-													"me".to_string()
-												} else {
-													reactor.to_string()
-												},
-												reactor_name: resolved_name.clone(),
-												emoji: emoji.to_string(),
-												timestamp: std::time::SystemTime::now()
-													.duration_since(std::time::UNIX_EPOCH)
-													.unwrap_or_default()
-													.as_secs() as i64,
-											});
-										}
-									}
-									break;
-								}
-							}
-
-							// Sync reactions into display_items in-place instead of full O(n) regrouping
-							let updated_reactions =
-								s.messages.iter().find(|m| m.id == target_id).map(|m| m.reactions.clone());
-							if let Some(new_reactions) = updated_reactions {
-								for item in s.display_items.iter_mut() {
-									match item {
-										whantv::DisplayItem::Single(m) if m.id == target_id => {
-											std::rc::Rc::make_mut(m).reactions = new_reactions.clone();
+									});
+								} else {
+									let mut found = false;
+									for r in msg.reactions.iter_mut() {
+										let r_is_own = r.reactor_name == "You" || r.reactor_jid == "me";
+										if (is_own_reaction && r_is_own)
+											|| (!is_own_reaction
+												&& (r.reactor_jid == reactor || r.reactor_name == resolved_name))
+										{
+											r.emoji = emoji.to_string();
+											r.reactor_name = resolved_name.clone();
+											found = true;
 											break;
 										}
-										whantv::DisplayItem::Album { messages, .. } => {
-											if let Some(am) = messages.iter_mut().find(|am| am.id == target_id) {
-												std::rc::Rc::make_mut(am).reactions = new_reactions.clone();
-												break;
-											}
-										}
-										_ => {}
+									}
+									if !found {
+										msg.reactions.push(whantv::ChatReaction {
+											reactor_jid: if is_own_reaction {
+												"me".to_string()
+											} else {
+												reactor.to_string()
+											},
+											reactor_name: resolved_name.clone(),
+											emoji: emoji.to_string(),
+											timestamp: std::time::SystemTime::now()
+												.duration_since(std::time::UNIX_EPOCH)
+												.unwrap_or_default()
+												.as_secs() as i64,
+										});
 									}
 								}
-							}
-							for (di, item) in s.display_items.iter().enumerate() {
-								let contains = match item {
-									whantv::DisplayItem::Single(m) => m.id == target_id,
-									whantv::DisplayItem::Album { messages, .. } => {
-										messages.iter().any(|m| m.id == target_id)
-									}
+							});
+
+							if let Some((di, item)) =
+								reacted_row.and_then(|di| s.display_items.get(di).map(|item| (di, item)))
+							{
+								parts
+									.conversations_parts
+									.messages_list
+									.set_string(di as u32, &item.format_display(is_group));
+								let announce_msg = if emoji.is_empty() {
+									format!("Reaction removed by {}", resolved_name)
+								} else {
+									format!("{} reacted with {}", resolved_name, emoji)
 								};
-								if contains {
-									parts
-										.conversations_parts
-										.messages_list
-										.set_string(di as u32, &item.format_display(is_group));
-									let announce_msg = if emoji.is_empty() {
-										format!("Reaction removed by {}", resolved_name)
-									} else {
-										format!("{} reacted with {}", resolved_name, emoji)
-									};
-									crate::announce::announce(
-										parts.conversations_parts.messages_announcer.clone(),
-										&announce_msg,
-									);
-									break;
-								}
+								crate::announce::announce(
+									parts.conversations_parts.messages_announcer.clone(),
+									&announce_msg,
+								);
 							}
 						} else if !emoji.is_empty() {
 							// Reaction on a chat that isn't currently open - there's no
@@ -3966,34 +3797,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 						let mut s = state.borrow_mut();
 						s.downloads_in_progress.remove(&msg_id);
-						if let Some(msg) = s.messages.iter_mut().find(|m| m.id == msg_id) {
-							std::rc::Rc::make_mut(msg).media_path = path.clone();
+						update_loaded_message(&mut s, &msg_id, |m| {
+							m.media_path = path;
 							if !clean_filename.is_empty() {
-								std::rc::Rc::make_mut(msg).media_filename = clean_filename.clone();
+								m.media_filename = clean_filename;
 							}
-						}
-						// Update display_items in-place instead of full O(n) regrouping
-						for item in s.display_items.iter_mut() {
-							match item {
-								whantv::DisplayItem::Single(m) if m.id == msg_id => {
-									std::rc::Rc::make_mut(m).media_path = path.clone();
-									if !clean_filename.is_empty() {
-										std::rc::Rc::make_mut(m).media_filename = clean_filename.clone();
-									}
-									break;
-								}
-								whantv::DisplayItem::Album { messages, .. } => {
-									if let Some(am) = messages.iter_mut().find(|am| am.id == msg_id) {
-										std::rc::Rc::make_mut(am).media_path = path.clone();
-										if !clean_filename.is_empty() {
-											std::rc::Rc::make_mut(am).media_filename = clean_filename.clone();
-										}
-										break;
-									}
-								}
-								_ => {}
-							}
-						}
+						});
 
 						let download_had_focus = parts.conversations_parts.action_download_btn.has_focus();
 						parts.conversations_parts.conversation_panel.freeze();
@@ -4283,6 +4092,32 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 #[cfg(test)]
 mod conversation_messages_tests {
 	use super::*;
+
+	#[test]
+	fn chats_take_their_own_fast_path() {
+		assert_eq!(fast_path(r#"{"type":"chats","data":[]}"#), FastPath::Chats);
+		assert_eq!(fast_path(r#"{"type":"chat_cleared","data":{}}"#), FastPath::Other);
+	}
+
+	#[test]
+	fn a_chats_payload_parses_with_escapes_and_missing_fields() {
+		let raw = r#"{"type":"chats","data":[
+			{"JID":"a@s.whatsapp.net","FullName":"A \"quoted\" name","UnreadCount":3,"Pinned":true,"Timestamp":5},
+			{"JID":"g@g.us","IsCommunity":true,"ChannelRole":""}
+		]}"#;
+		let chats = serde_json::from_str::<ChatsEnvelope>(raw).unwrap().data.unwrap();
+		assert_eq!(chats.len(), 2);
+		assert_eq!(chats[0].full_name.as_deref(), Some("A \"quoted\" name"));
+		assert_eq!(chats[0].unread_count, 3);
+		assert!(chats[0].pinned && !chats[0].muted);
+		assert_eq!(chats[1].full_name, None);
+		assert!(chats[1].is_community);
+	}
+
+	#[test]
+	fn a_chats_payload_without_data_has_none() {
+		assert!(serde_json::from_str::<ChatsEnvelope>(r#"{"type":"chats"}"#).unwrap().data.is_none());
+	}
 
 	#[test]
 	fn only_conversation_messages_takes_the_typed_fast_path() {

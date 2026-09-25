@@ -207,8 +207,13 @@ pub(crate) fn delete_selected_messages(state: &Rc<RefCell<AppState>>, parts: &Rc
 	let (jid_opt, ws_tx, to_delete) = {
 		let s = state.borrow();
 		let ids = &s.selected_message_ids;
-		let msgs: Vec<whantv::ChatMessage> =
-			s.selection_rows.iter().filter(|item| ids.contains(item.id())).flat_map(|item| item.messages()).collect();
+		let msgs: Vec<whantv::Msg> = s
+			.selection_rows
+			.iter()
+			.filter(|item| ids.contains(item.id()))
+			.flat_map(|item| item.messages())
+			.cloned()
+			.collect();
 		(s.selected_chat.clone(), s.ws_tx.clone(), msgs)
 	};
 	if let Some(jid) = jid_opt {
@@ -492,6 +497,12 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			drop(s);
 
 			parts.group_data_dialog.dialog.show_modal();
+			// The lists hold on to the chat's messages; a message still held
+			// here would be copied whole the next time it changes.
+			let mut s = state.borrow_mut();
+			s.group_data_media = Vec::new();
+			s.group_data_documents = Vec::new();
+			s.group_data_links = Vec::new();
 		} else {
 			let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
 			let raw_phone = jid.split('@').next().unwrap_or(jid);
@@ -529,6 +540,11 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 
 			parts.conversation_data_dialog.info_field.set_focus();
 			parts.conversation_data_dialog.dialog.show_modal();
+			// As for the group dialog above: let go of the shared messages.
+			let mut s = state.borrow_mut();
+			s.conversation_data_media = Vec::new();
+			s.conversation_data_documents = Vec::new();
+			s.conversation_data_links = Vec::new();
 		}
 	}
 }

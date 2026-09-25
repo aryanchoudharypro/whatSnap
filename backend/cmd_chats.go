@@ -78,8 +78,10 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 		rows, queryErr = db.Query(cols+` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
 	}
 
-	msgs := []MessageJSON{}
-	var ids []string
+	// A page's size is known up front (a whole chat, limit -1, isn't).
+	msgs := make([]MessageJSON, 0, min(max(limit, 0), 5000))
+	ids := make([]string, 0, cap(msgs))
+	var quotedIDs []string
 	// A whole chat has thousands of rows from a handful of senders; resolving
 	// each row's names from scratch (a contact-store lookup, often a query
 	// too) was most of the cost of loading one.
@@ -146,32 +148,8 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 			if senderJID != "" {
 				senderName = nameFor(senderJID)
 			}
-			qSenderName := quotedSender
 			if quotedID != "" {
-				// The quoted_sender column is a denormalized snapshot taken when
-				// this reply first arrived, and can go stale or wrong (e.g. a
-				// participant field missing at delivery time). When we still
-				// have the original message locally, its own from_me/sender_jid
-				// is the authoritative answer, so prefer it over the snapshot.
-				if origFromMe, origSenderJID, ok := lookupMessageOrigin(quotedID); ok {
-					if origFromMe {
-						qSenderName = "You"
-					} else if _, err := types.ParseJID(origSenderJID); err == nil {
-						qSenderName = nameFor(origSenderJID)
-					}
-				} else if quotedSender != "" {
-					if quotedSender == "me" {
-						qSenderName = "You"
-					} else if _, err := types.ParseJID(quotedSender); err == nil {
-						qSenderName = nameFor(quotedSender)
-					}
-				}
-			} else if quotedSender == "me" {
-				qSenderName = "You"
-			} else if quotedSender != "" {
-				if _, err := types.ParseJID(quotedSender); err == nil {
-					qSenderName = nameFor(quotedSender)
-				}
+				quotedIDs = append(quotedIDs, quotedID)
 			}
 			pollResults := ""
 			if strings.HasPrefix(text, "[Poll]") {
@@ -193,7 +171,9 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 				MediaSize:     mediaSize,
 				QuotedID:      quotedID,
 				QuotedText:    quotedText,
-				QuotedSender:  qSenderName,
+				// Resolved to a name below, once every quoted original
+				// has been looked up in one go.
+				QuotedSender:  quotedSender,
 				IsEdited:      isEdited == 1,
 				IsDeleted:     isDeleted == 1,
 				SentAt:        sentAt,
@@ -219,7 +199,17 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 			msgs[i], msgs[j] = msgs[j], msgs[i]
 		}
 	}
-	if ids != nil {
+	// The quoted_sender column is a denormalized snapshot taken when a reply
+	// first arrived, and can go stale or wrong (e.g. a participant field
+	// missing at delivery time). When we still have the original message
+	// locally, its own from_me/sender_jid is the authoritative answer, so
+	// prefer it over the snapshot. Looked up for the whole page at once:
+	// one query per reply was one query per reply in the chat.
+	origins := lookupMessageOrigins(quotedIDs)
+	for i := range msgs {
+		msgs[i].QuotedSender = quotedSenderName(msgs[i].QuotedID, msgs[i].QuotedSender, origins, nameFor)
+	}
+	if len(ids) > 0 {
 		reactions := getReactionsForMessageIDs(ids)
 		for i := range msgs {
 			if rs, ok := reactions[msgs[i].ID]; ok {
@@ -228,6 +218,31 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 		}
 	}
 	return msgs
+}
+
+// quotedSenderName is who a reply quotes, as shown: "You", their name, or the
+// stored snapshot when it isn't a JID.
+func quotedSenderName(quotedID, quotedSender string, origins map[string]messageOrigin, nameFor func(string) string) string {
+	if quotedID != "" {
+		if origin, ok := origins[quotedID]; ok {
+			if origin.FromMe {
+				return "You"
+			}
+			if _, err := types.ParseJID(origin.SenderJID); err == nil {
+				return nameFor(origin.SenderJID)
+			}
+			return quotedSender
+		}
+	}
+	if quotedSender == "me" {
+		return "You"
+	}
+	if quotedSender != "" {
+		if _, err := types.ParseJID(quotedSender); err == nil {
+			return nameFor(quotedSender)
+		}
+	}
+	return quotedSender
 }
 
 func handleGetMessages(conn net.Conn, raw json.RawMessage) {

@@ -432,17 +432,18 @@ fn send_sample(session: &mut Session, sample: &IMFSample) -> anyhow::Result<()> 
 		let mut ptr: *mut u8 = std::ptr::null_mut();
 		let mut len: u32 = 0;
 		buffer.Lock(&mut ptr, None, Some(&mut len))?;
-		let data = std::slice::from_raw_parts(ptr, len as usize).to_vec();
-		let _ = buffer.Unlock();
-
 		let duration_100ns = sample.GetSampleDuration().unwrap_or(0).max(0);
 		let duration_ms = (duration_100ns / 10_000) as u32;
 
-		let mut frame = Vec::with_capacity(8 + data.len());
-		frame.extend_from_slice(&(data.len() as u32).to_be_bytes());
-		frame.extend_from_slice(&duration_ms.to_be_bytes());
-		frame.extend_from_slice(&data);
-		session.tcp.write_all(&frame)?;
+		// Written straight from the locked buffer: copying the frame out and
+		// then again behind its header was two copies of every frame.
+		let mut header = [0u8; 8];
+		header[..4].copy_from_slice(&len.to_be_bytes());
+		header[4..].copy_from_slice(&duration_ms.to_be_bytes());
+		let data = std::slice::from_raw_parts(ptr, len as usize);
+		let written = session.tcp.write_all(&header).and_then(|_| session.tcp.write_all(data));
+		let _ = buffer.Unlock();
+		written?;
 	}
 	Ok(())
 }

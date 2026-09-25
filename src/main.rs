@@ -58,7 +58,6 @@ use interprocess::{
 	local_socket::{GenericNamespaced, ToNsName, prelude::*},
 };
 use rodio::{MixerDeviceSink, Player};
-use whantv::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
@@ -146,6 +145,9 @@ impl Default for PresenceModel {
 
 struct AppState {
 	settings: crate::settings::Settings,
+	/// `settings.shortcuts` as a keymap, built when they load or change
+	/// rather than on every key press.
+	keymap: Rc<crate::keymap::Keymap>,
 	ws_tx: mpsc::Sender<String>,
 	ui_tx: UiCommandSender,
 	audio_stream: Option<MixerDeviceSink>,
@@ -481,9 +483,9 @@ struct AppState {
 	/// Media/Documents/Links tabs in the group info dialog, aligned 1:1 with
 	/// what's shown in each ListBox (no search/filtering on these, matching
 	/// official WhatsApp).
-	group_data_media: Vec<ChatMessage>,
-	group_data_documents: Vec<ChatMessage>,
-	group_data_links: Vec<ChatMessage>,
+	group_data_media: Vec<whantv::Msg>,
+	group_data_documents: Vec<whantv::Msg>,
+	group_data_links: Vec<whantv::Msg>,
 	/// JIDs of the community subgroups shown in the Groups tab, aligned 1:1
 	/// with `groups_list` rows, so a list selection can be joined by JID.
 	group_data_subgroup_jids: Vec<String>,
@@ -493,9 +495,9 @@ struct AppState {
 	group_data_community: Option<String>,
 	/// Same as the group_data_* trio above, but for the 1-on-1 conversation
 	/// data dialog.
-	conversation_data_media: Vec<ChatMessage>,
-	conversation_data_documents: Vec<ChatMessage>,
-	conversation_data_links: Vec<ChatMessage>,
+	conversation_data_media: Vec<whantv::Msg>,
+	conversation_data_documents: Vec<whantv::Msg>,
+	conversation_data_links: Vec<whantv::Msg>,
 	own_push_name: String,
 	own_about: String,
 	privacy_settings: std::collections::HashMap<String, String>,
@@ -727,6 +729,7 @@ fn main() {
 
 		let state = Rc::new(RefCell::new(AppState {
 			settings: crate::settings::Settings::load(),
+			keymap: Rc::default(),
 			ws_tx: ws_out_tx,
 			ui_tx: ui_tx.clone(),
 			audio_stream: None,
