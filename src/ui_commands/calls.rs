@@ -104,6 +104,7 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 
 pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
+	crate::websocket_events::call_log(parts, &s, "reject pressed", "");
 	if let Some(call_id) = &s.active_call_id {
 		let msg = serde_json::json!({
 			"action": "reject_call",
@@ -125,6 +126,7 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 
 pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
+	crate::websocket_events::call_log(parts, &s, "leave pressed", "");
 	if let Some(call_id) = &s.active_call_id {
 		let msg = serde_json::json!({
 			"action": "leave_call",

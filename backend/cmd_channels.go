@@ -260,6 +260,7 @@ func refreshChannel(jid string) {
 	}
 
 	changed, newest, serverIDs := storeChannelPosts(jid, posts)
+	syncOwnChannelAddOns(ctx, parsed, jid)
 	if newest > 0 {
 		db.Exec(`UPDATE chats SET timestamp = MAX(timestamp, ?) WHERE jid = ?`, newest, jid)
 		UpdateChatSnippet(jid)
@@ -330,6 +331,41 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 	}
 	writeBatch(writes)
 	return changed, newest, serverIDs
+}
+
+// syncOwnChannelAddOns takes our own poll votes and reactions on a channel's
+// recent posts from the server, as WhatsApp Web does when a channel opens.
+// Poll counts are totals across every follower and can't say what we picked,
+// so without this a vote cast on the phone never showed as ours, and voting
+// again here counted it twice. Only posts we have something on come back, so
+// a missing post says nothing and nothing is cleared.
+func syncOwnChannelAddOns(ctx context.Context, parsed types.JID, jid string) {
+	addOns, err := client.GetNewsletterMyAddOns(ctx, parsed, channelPageSize)
+	if err != nil {
+		log.Printf("Couldn't fetch our own votes and reactions for channel %s: %v", jid, err)
+		return
+	}
+	me := ownVoterKey()
+	var writes []func(tx sqlExecer)
+	for _, addOn := range addOns {
+		var id string
+		db.QueryRow(`SELECT id FROM messages WHERE jid = ? AND server_id = ?`, jid, addOn.MessageServerID).Scan(&id)
+		if id == "" {
+			continue
+		}
+		if vote := addOn.PollVote; vote != nil {
+			selected := make([][]byte, len(vote.OptionHashes))
+			for i := range vote.OptionHashes {
+				selected[i] = vote.OptionHashes[i][:]
+			}
+			ts := vote.Timestamp.Unix()
+			writes = append(writes, func(tx sqlExecer) { storePollVote(tx, id, me, selected, ts) })
+		}
+		if reaction := addOn.Reaction; reaction != nil && reaction.Code != "" {
+			upsertReaction(id, jid, "me", reaction.Code, reaction.Timestamp.Unix())
+		}
+	}
+	writeBatch(writes)
 }
 
 // noteChannelPostSent keeps the server ID of a post we just sent to a

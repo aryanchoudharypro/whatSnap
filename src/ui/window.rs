@@ -799,6 +799,33 @@ pub fn bind_input_handlers(
 		use crate::ui::settings_dialog::device_combo_value;
 		let _ = tx_call_camera.send(UiCommand::SetCallCameraDevice(device_combo_value(&call_camera_combo)));
 	});
+	// Closing the call window (Alt+F4, its close box) must never destroy it:
+	// it's built once and reused for every call, so a destroyed one left
+	// every later call - incoming or outgoing - with no window at all until
+	// the app restarted. Closing hides it and does what the button on
+	// screen would: decline a call that's ringing, otherwise hang up.
+	let tx_call_close = ui_tx.clone();
+	let call_frame_close = parts.call_parts.frame;
+	let state_call_close = state.clone();
+	parts.call_parts.frame.on_close(move |event| {
+		if let WindowEventData::General(ref ev) = event {
+			if !ev.can_veto() {
+				return;
+			}
+			ev.veto();
+			call_frame_close.show(false);
+			let s = state_call_close.borrow();
+			let ringing_in = s.incoming_call_caller.is_some() && s.active_call_audio.is_none();
+			let in_call = s.active_call_id.is_some() || s.call_placing;
+			drop(s);
+			if ringing_in {
+				let _ = tx_call_close.send(UiCommand::RejectCall);
+			} else if in_call {
+				let _ = tx_call_close.send(UiCommand::LeaveCall);
+			}
+		}
+	});
+
 	// Ctrl+Shift+V toggles the camera from anywhere in the call window,
 	// matching the "Turn camera on/off" button.
 	let tx_camera_key = ui_tx.clone();
