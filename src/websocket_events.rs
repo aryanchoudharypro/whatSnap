@@ -37,6 +37,20 @@ use crate::{
 	ui::window::WindowParts,
 };
 
+/// Notes a call event in `logs/ui.log`, with whether the call window was up
+/// and what the UI thought the active call was. The backend logs its side, so
+/// the two together show whether an incoming call reached the window.
+pub(crate) fn call_log(parts: &WindowParts, state: &AppState, event: &str, call_id: &str) {
+	ui_timing_log(&format!(
+		"Call: {} {} (active call {:?}, placing {}, window shown {})",
+		event,
+		call_id,
+		state.active_call_id,
+		state.call_placing,
+		parts.call_parts.frame.is_shown()
+	));
+}
+
 /// Appends one line to `logs/ui.log`: how long opening a chat's messages took,
 /// split by stage, so a slow load can be pinned down from a user's logs.
 fn ui_timing_log(msg: &str) {
@@ -933,6 +947,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
 						if let Some(audio_port) = data.get("audio_port").and_then(|p| p.as_u64()) {
 							let mut s = state.borrow_mut();
+							call_log(parts, &s, "connected", call_id);
 							// Unlike call_ended/call_answer_failed, this used to act
 							// on any call_connected regardless of call_id - a
 							// call_connected arriving after we'd already given up on
@@ -1000,6 +1015,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					if let Some(data) = val.get("data") {
 						if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
 							let mut s = state.borrow_mut();
+							call_log(parts, &s, "placed", call_id);
 							s.call_placing = false;
 							if s.call_pending_cancel {
 								// Leave was pressed before we had a call_id to leave with (see
@@ -1142,6 +1158,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					if let Some(data) = val.get("data") {
 						if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
 							let mut s = state.borrow_mut();
+							call_log(parts, &s, "ended", call_id);
 							if s.active_call_id.as_deref() == Some(call_id) {
 								s.active_call_id = None;
 								s.active_call_audio = None;
@@ -1207,6 +1224,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let caller = data.get("caller").and_then(|c| c.as_str()).unwrap_or("Unknown");
 						if let Some(call_id) = data.get("call_id").and_then(|c| c.as_str()) {
 							let mut s = state.borrow_mut();
+							call_log(parts, &s, "incoming", call_id);
 							s.active_call_id = Some(call_id.to_string());
 							s.call_answer_deadline = None;
 							// Prefer the backend-resolved name: the caller JID is
@@ -1270,6 +1288,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							// The call window was just raised, so this goes to its own
 							// announcer (announce_call picks it while it's shown).
 							announce_call(parts, &format!("Incoming {}", description));
+							call_log(parts, &s, "incoming shown", call_id);
 						}
 					}
 				}
