@@ -152,7 +152,7 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 				quotedIDs = append(quotedIDs, quotedID)
 			}
 			pollResults := ""
-			if strings.HasPrefix(text, "[Poll]") {
+			if strings.HasPrefix(text, "[Poll]") || strings.HasPrefix(text, "[Quiz]") || strings.HasPrefix(text, "[Event]") {
 				pollResults = pollResultsForMessage(id)
 			}
 			ids = append(ids, id)

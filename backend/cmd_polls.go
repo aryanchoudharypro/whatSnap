@@ -30,7 +30,10 @@ const (
 // single-answer one in pollCreationMessageV3
 // (WAWebPollsGeneratePollCreationMessageProto); BuildPollCreation always uses
 // the original field, so a single-answer poll is moved over.
-func buildPoll(question string, options []string, multipleAnswers bool) (*waE2E.Message, error) {
+//
+// A non-empty correctAnswer makes it a quiz (single answer), built with
+// BuildQuizPollCreation.
+func buildPoll(question string, options []string, multipleAnswers bool, correctAnswer string) (*waE2E.Message, error) {
 	question = strings.TrimSpace(question)
 	if question == "" {
 		return nil, errors.New("the poll needs a question")
@@ -60,6 +63,14 @@ func buildPoll(question string, options []string, multipleAnswers bool) (*waE2E.
 	if len(cleaned) > pollMaxOptions {
 		return nil, errors.New("a poll can have at most twelve options")
 	}
+	if correctAnswer = strings.TrimSpace(correctAnswer); correctAnswer != "" {
+		for i, opt := range cleaned {
+			if opt == correctAnswer {
+				return wa().BuildQuizPollCreation(question, cleaned, i)
+			}
+		}
+		return nil, errors.New("the quiz's correct answer isn't one of its options")
+	}
 	selectable := 0
 	if !multipleAnswers {
 		selectable = 1
@@ -82,7 +93,7 @@ func handleSendPoll(conn net.Conn, raw json.RawMessage) {
 		sendEvent(conn, "error", map[string]string{"message": "invalid jid"})
 		return
 	}
-	msg, err := buildPoll(data.Question, data.Options, data.MultipleAnswers)
+	msg, err := buildPoll(data.Question, data.Options, data.MultipleAnswers, data.CorrectAnswer)
 	if err != nil {
 		sendEvent(conn, "error", map[string]string{"message": err.Error()})
 		return
@@ -90,7 +101,7 @@ func handleSendPoll(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
 		pollCreation(msg).ContextInfo = ctxInfo
-		displayText := "[Poll] " + pollCreation(msg).GetName()
+		displayText := extractTextRaw(msg)
 		id := wa().GenerateMessageID()
 		startSendingBuiltMessage(id, jid, msg, displayText, quotedID, quotedText, quotedSender)
 		finishSendingBuiltMessage(conn, id, jid, msg, displayText)

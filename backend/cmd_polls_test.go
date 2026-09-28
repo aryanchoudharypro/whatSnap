@@ -3,10 +3,12 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"go.mau.fi/whatsmeow/proto/waE2E"
 )
 
 func TestBuildPollUsesWhatsAppWebsFields(t *testing.T) {
-	multi, err := buildPoll(" Lunch? ", []string{"Pizza", " ", "Pasta"}, true)
+	multi, err := buildPoll(" Lunch? ", []string{"Pizza", " ", "Pasta"}, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +23,7 @@ func TestBuildPollUsesWhatsAppWebsFields(t *testing.T) {
 		t.Fatal("a poll needs its 32-byte message secret for votes to decrypt")
 	}
 
-	single, err := buildPoll("Lunch?", []string{"Pizza", "Pasta"}, false)
+	single, err := buildPoll("Lunch?", []string{"Pizza", "Pasta"}, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +52,7 @@ func TestBuildPollRejectsWhatWhatsAppWebWould(t *testing.T) {
 		"long option":       {"Q", []string{"a", strings.Repeat("o", 101)}},
 	}
 	for name, c := range cases {
-		if _, err := buildPoll(c.question, c.options, true); err == nil {
+		if _, err := buildPoll(c.question, c.options, true, ""); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
 	}
@@ -104,5 +106,48 @@ func TestPollResultsText(t *testing.T) {
 	want = "A 67%, 2 votes; B 33%, 1 vote; C 33%, 1 vote. 3 people voted."
 	if got := pollResultsText(multi, votes, "me"); got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildPollMakesAQuiz(t *testing.T) {
+	msg, err := buildPoll("Capital of France?", []string{"Lyon", "Paris", "Nice"}, true, " Paris ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc := msg.GetPollCreationMessageV3()
+	if pc == nil || pc.GetPollType() != waE2E.PollType_QUIZ || pc.GetSelectableOptionsCount() != 1 {
+		t.Fatalf("a quiz is a single-answer V3 poll of type QUIZ, got %v", msg)
+	}
+	if pc.GetCorrectAnswer().GetOptionName() != "Paris" || pc.GetCorrectAnswer().GetOptionHash() != optionHash("Paris") {
+		t.Fatalf("unexpected correct answer %v", pc.GetCorrectAnswer())
+	}
+	if extractTextRaw(msg) != "[Quiz] Capital of France?" {
+		t.Fatalf("got %q", extractTextRaw(msg))
+	}
+	if _, err := buildPoll("Q", []string{"a", "b"}, false, "c"); err == nil {
+		t.Fatal("a correct answer that isn't an option must be refused")
+	}
+}
+
+func TestQuizAnswerIsRevealedOnceAnswered(t *testing.T) {
+	msg, _ := buildPoll("Q", []string{"Right", "Wrong"}, false, "Right")
+	p, ok := pollFromMessage(msg)
+	if !ok || !p.quiz || p.multiple || p.correct != "Right" {
+		t.Fatalf("unexpected quiz %+v", p)
+	}
+	if got := pollResultsText(p, nil, "me"); strings.Contains(got, "Right.") {
+		t.Fatalf("the answer must stay hidden before answering: %q", got)
+	}
+	votes := map[string][]string{"me": {optionHash("Wrong")}}
+	if got := pollResultsText(p, votes, "me"); !strings.HasSuffix(got, "The correct answer is Right.") {
+		t.Fatalf("got %q", got)
+	}
+	votes["me"] = []string{optionHash("Right")}
+	if got := pollResultsText(p, votes, "me"); !strings.HasSuffix(got, "You got it right: the answer is Right.") {
+		t.Fatalf("got %q", got)
+	}
+	p.fromMe = true
+	if got := pollResultsText(p, nil, "me"); !strings.HasSuffix(got, "The correct answer is Right.") {
+		t.Fatalf("your own quiz shows its answer: %q", got)
 	}
 }

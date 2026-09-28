@@ -1503,15 +1503,30 @@ pub fn bind_input_handlers(
 	let poll_question = parts.poll_dialog.question_field;
 	let poll_options = parts.poll_dialog.options_field;
 	let poll_multiple = parts.poll_dialog.multiple_check;
+	let poll_quiz = parts.poll_dialog.quiz_check;
 	parts.poll_dialog.send_btn.on_click(move |_| {
 		let question = poll_question.get_value();
 		match whantv::validate_poll(&question, &poll_options.get_value()) {
 			Ok(options) => {
+				let quiz = poll_quiz.get_value();
+				let correct_answer = if quiz {
+					let labels: Vec<&str> = options.iter().map(String::as_str).collect();
+					let choose =
+						SingleChoiceDialog::builder(&poll_dlg, "Which answer is correct?", "Quiz", &labels).build();
+					if choose.show_modal() != ID_OK {
+						return;
+					}
+					let Some(answer) = choose.get_string_selection() else { return };
+					Some(answer)
+				} else {
+					None
+				};
 				poll_dlg.end_modal(ID_OK);
 				let _ = tx_poll.send(UiCommand::SendPoll {
 					question: question.trim().to_string(),
 					options,
-					multiple_answers: poll_multiple.get_value(),
+					multiple_answers: !quiz && poll_multiple.get_value(),
+					correct_answer,
 				});
 			}
 			Err(problem) => {
@@ -3594,11 +3609,11 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if pressed(message_list::VOTE) {
-				// 'v' -> vote in the poll
+				// 'v' -> vote in the poll, or answer the event
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					if let Some(whantv::DisplayItem::Single(m)) = s.display_items.get(idx as usize) {
-						if m.is_poll() {
+						if m.is_poll() || m.is_event() {
 							let _ = tx_close_list.send(UiCommand::OpenPollVote(m.id.clone()));
 						}
 					}
@@ -4001,7 +4016,7 @@ pub fn bind_input_handlers(
 								event.skip(false);
 								return;
 							}
-							if msg.is_poll() && !msg.is_deleted {
+							if (msg.is_poll() || msg.is_event()) && !msg.is_deleted {
 								let _ = tx_invite_enter.send(UiCommand::OpenPollVote(msg.id.clone()));
 								event.skip(false);
 								return;
@@ -4452,12 +4467,14 @@ pub fn bind_input_handlers(
 		const ATTACH_MEDIA_ID: i32 = 4203;
 		const ATTACH_AUDIO_ID: i32 = 4204;
 		const ATTACH_POLL_ID: i32 = 4205;
+		const ATTACH_EVENT_ID: i32 = 4206;
 		let mut popup_menu = Menu::builder()
 			.append_item(ATTACH_DOCUMENT_ID, "&Document", "Send any file as a document, photos at full quality")
 			.append_item(ATTACH_MEDIA_ID, "&Photos && videos", "Send photos and videos")
 			.append_item(ATTACH_AUDIO_ID, "&Audio", "Send audio files to play in the chat")
 			.append_item(ATTACH_CONTACT_ID, "&Contact", "Attach a contact from your WhatsApp contacts")
-			.append_item(ATTACH_POLL_ID, "P&oll", "Create a poll")
+			.append_item(ATTACH_POLL_ID, "P&oll", "Create a poll or a quiz")
+			.append_item(ATTACH_EVENT_ID, "&Event", "Create an event people can answer")
 			.build();
 		let tx_menu = tx_attach.clone();
 		popup_menu.on_selected(move |menu_evt| {
@@ -4468,6 +4485,7 @@ pub fn bind_input_handlers(
 				ATTACH_AUDIO_ID => Some(UiCommand::AttachFiles(whantv::AttachKind::Audio)),
 				ATTACH_CONTACT_ID => Some(UiCommand::PrepareAttachContact),
 				ATTACH_POLL_ID => Some(UiCommand::OpenPollDialog),
+				ATTACH_EVENT_ID => Some(UiCommand::OpenEventDialog),
 				_ => None,
 			};
 			if let Some(cmd) = cmd {

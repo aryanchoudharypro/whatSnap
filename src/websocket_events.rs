@@ -3578,6 +3578,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						crate::ui_commands::polls::show_poll_vote_dialog(state, parts, data);
 					}
 				}
+				"event_details" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::polls::show_event_rsvp_dialog(state, parts, data);
+					}
+				}
+				"event_answered" => {
+					if let Some(data) = val.get("data") {
+						let results = data.get("pollResults").and_then(|m| m.as_str()).unwrap_or("");
+						crate::announce::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							&format!("Answer sent. {}", results),
+						);
+					}
+				}
 				"poll_updated" => {
 					if let Some(data) = val.get("data") {
 						let id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");

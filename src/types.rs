@@ -59,12 +59,16 @@ pub enum UiCommand {
 	AddAttachment,
 	PasteAttachment,
 	OpenPollDialog,
-	/// `V` on a message: vote in it, if it's a poll.
+	/// "Event" in the attach menu: create an event in the chat.
+	OpenEventDialog,
+	/// `V` on a message: vote in it if it's a poll, answer it if it's an event.
 	OpenPollVote(String),
 	SendPoll {
 		question: String,
 		options: Vec<String>,
 		multiple_answers: bool,
+		/// Set for a quiz: the option that is the right answer.
+		correct_answer: Option<String>,
 	},
 	SendAttachment {
 		caption: String,
