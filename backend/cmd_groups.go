@@ -78,6 +78,7 @@ func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
 		db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, ?)
 			ON CONFLICT(jid) DO UPDATE SET name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
 			createResp.JID.String(), groupData.Name, time.Now().Unix())
+		invalidateJoinedGroups()
 		populateChatsFromStore()
 		broadcastChats()
 	}()
@@ -179,6 +180,7 @@ func handleLeaveGroup(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
+		invalidateJoinedGroups()
 		db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
 		broadcastChats()
 	}()
@@ -207,6 +209,7 @@ func handleLeaveAndDeleteGroup(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": "Failed to leave group: " + err.Error()})
 			return
 		}
+		invalidateJoinedGroups()
 
 		lastTS, lastKey := getLastMessageKeyForChat(data.JID)
 		if err := sendAppStateWithRetry(context.Background(), appstate.BuildDeleteChat(jid, lastTS, lastKey, false)); err != nil {
@@ -401,6 +404,7 @@ func handleJoinGroupInvite(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + joinErr.Error()})
 			return
 		}
+		invalidateJoinedGroups()
 		populateChatsFromStore()
 		broadcastChats()
 		broadcastEvent("group_invite_joined", map[string]interface{}{"jid": groupJID.String()})
@@ -462,6 +466,7 @@ func handleJoinGroupLink(raw json.RawMessage) {
 			return
 		}
 		markGroupJoined(jid.String(), true)
+		invalidateJoinedGroups()
 		populateChatsFromStore()
 		broadcastChats()
 		broadcastEvent("group_invite_joined", map[string]interface{}{"jid": jid.String()})

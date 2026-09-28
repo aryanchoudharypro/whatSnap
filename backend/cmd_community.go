@@ -271,6 +271,7 @@ func handleJoinCommunitySubgroup(raw json.RawMessage) {
 			return
 		}
 		markGroupJoined(child.String(), true)
+		invalidateJoinedGroups()
 		populateChatsFromStore()
 		broadcastChats()
 		broadcastEvent("community_subgroup_joined", map[string]interface{}{"jid": data.JID})

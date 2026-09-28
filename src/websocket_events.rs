@@ -1483,6 +1483,19 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
+				"history_access" => {
+					// The phone limited what it shares with this computer.
+					let none = val.get("data").and_then(|d| d.get("none")).and_then(|v| v.as_bool()).unwrap_or(false);
+					let msg = if none {
+						"Your phone didn't share any message history with whaNTV. New messages will still arrive."
+					} else {
+						"Your phone shared only your recent messages with whaNTV, not your full chat history. Older messages load from your phone when you scroll to the top of a chat."
+					};
+					MessageDialog::builder(&parts.frame, msg, "Chat history")
+						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+						.build()
+						.show_modal();
+				}
 				"history_chats_synced" => {
 					// Sent after every history-sync chunk - bulk and on-demand alike -
 					// with the chats it just wrote messages for.
