@@ -146,12 +146,11 @@ func main() {
 	// This process spends almost all its life idle in the background, so
 	// trading a bit of GC CPU for a smaller steady-state heap is a clear win.
 	// The default GOGC=100 lets live heap double before collecting; 50 keeps
-	// roughly half that resident. SetMemoryLimit is a backstop for the real
-	// spikes (parsing tens of thousands of protobuf messages during a history
-	// sync) so the collector works harder to stay under it instead of just
-	// doubling whatever the spike's live set happened to be.
+	// roughly half that resident. There is deliberately no memory limit: a
+	// chat is loaded whole when it's opened, and a big one legitimately needs
+	// more than any fixed cap - the old 128MB soft limit only made the
+	// collector thrash (near-constant GC) while such a chat was open.
 	debug.SetGCPercent(50)
-	debug.SetMemoryLimit(128 << 20)
 
 	flag.Parse()
 

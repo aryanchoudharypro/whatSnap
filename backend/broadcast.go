@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -94,18 +93,39 @@ func writeWithDeadline(conn net.Conn, buf []byte) {
 // this and get_chats can't drift apart.
 var (
 	chatBroadcastTimer *time.Timer
+	// When the oldest not-yet-sent request arrived; zero when none is pending.
+	chatBroadcastPendingSince time.Time
+)
+
+const (
+	chatBroadcastDebounce = 200 * time.Millisecond
+	// A steady stream of events (history sync, a busy group) re-armed the
+	// debounce forever, so the list never updated until things went quiet.
+	chatBroadcastMaxWait = time.Second
 )
 
 // broadcastChats re-reads the local chat list cache and pushes it to every
-// connected client. It is debounced to avoid flooding the UI during bulk syncs.
+// connected client. It is debounced to avoid flooding the UI during bulk
+// syncs, but never held back more than chatBroadcastMaxWait.
 func broadcastChats() {
 	wsMutex.Lock()
 	defer wsMutex.Unlock()
 
+	now := time.Now()
+	if chatBroadcastPendingSince.IsZero() {
+		chatBroadcastPendingSince = now
+	}
+	delay := chatBroadcastDebounce
+	if waited := now.Sub(chatBroadcastPendingSince); waited+delay > chatBroadcastMaxWait {
+		delay = max(chatBroadcastMaxWait-waited, 0)
+	}
 	if chatBroadcastTimer != nil {
 		chatBroadcastTimer.Stop()
 	}
-	chatBroadcastTimer = time.AfterFunc(200*time.Millisecond, func() {
+	chatBroadcastTimer = time.AfterFunc(delay, func() {
+		wsMutex.Lock()
+		chatBroadcastPendingSince = time.Time{}
+		wsMutex.Unlock()
 		broadcastEvent("chats", buildChatsList())
 	})
 }
@@ -164,6 +184,7 @@ func buildChatsList() []ChatListEntry {
 	// Preview senders repeat across chats (you, and the busiest people in
 	// your groups); each resolveDisplayName is several store lookups.
 	senderNames := map[string]string{}
+	settingsByChat := allChatSettings()
 	chats := []ChatListEntry{}
 	for rows.Next() {
 		var jid string
@@ -196,14 +217,18 @@ func buildChatsList() []ChatListEntry {
 
 		parsedJID, errJid := types.ParseJID(jid)
 		if errJid == nil {
-			resolved := resolveDisplayName(parsedJID)
-			if resolved != parsedJID.String() {
-				n = resolved
-			} else if n == jid && parsedJID.Server != "g.us" && parsedJID.Server != "lid" {
-				n = "+" + parsedJID.User
+			// A group is named by its own subject, kept in the chats
+			// table; only people (and channels) need resolving.
+			if parsedJID.Server != types.GroupServer {
+				resolved := cachedDisplayName(parsedJID)
+				if resolved != parsedJID.String() {
+					n = resolved
+				} else if n == jid && parsedJID.Server != "lid" {
+					n = "+" + parsedJID.User
+				}
 			}
 
-			if chatSettings, found := chatSettingsFor(parsedJID); found {
+			if chatSettings, found := chatSettingsFromMap(settingsByChat, parsedJID); found {
 				if chatSettings.Archived {
 					archived = 1
 				}
@@ -215,18 +240,6 @@ func buildChatsList() []ChatListEntry {
 				muted = 0
 				if !chatSettings.MutedUntil.IsZero() && chatSettings.MutedUntil.After(time.Now()) {
 					muted = 1
-				}
-			}
-			if unread > 0 {
-				var unreadMsgCount int
-				errCount := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND from_me = 0 AND status != 'read' AND status != 'played' AND (read_at IS NULL OR read_at = 0)`, jid).Scan(&unreadMsgCount)
-				if errCount == nil && unreadMsgCount == 0 {
-					var totalIncoming int
-					_ = db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND from_me = 0`, jid).Scan(&totalIncoming)
-					if totalIncoming > 0 {
-						unread = 0
-						db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", jid)
-					}
 				}
 			}
 		}
@@ -241,7 +254,7 @@ func buildChatsList() []ChatListEntry {
 			if cached, ok := senderNames[previewSender.String]; ok {
 				ps = cached
 			} else if parsedSender, sErr := types.ParseJID(previewSender.String); sErr == nil {
-				ps = resolveDisplayName(parsedSender)
+				ps = cachedDisplayName(parsedSender)
 				senderNames[previewSender.String] = ps
 			} else {
 				ps = previewSender.String
@@ -272,26 +285,4 @@ func buildChatsList() []ChatListEntry {
 		})
 	}
 	return chats
-}
-
-// chatSettingsFor reads a chat's synced settings (mute, pin, archive). A
-// one-to-one chat's settings can be stored under its LID rather than its
-// phone number JID, so the twin is tried too.
-func chatSettingsFor(jid types.JID) (types.LocalChatSettings, bool) {
-	ctx := context.Background()
-	if settings, err := client.Store.ChatSettings.GetChatSettings(ctx, jid); err == nil && settings.Found {
-		return settings, true
-	}
-	var twin types.JID
-	switch jid.Server {
-	case types.DefaultUserServer:
-		twin, _ = client.Store.LIDs.GetLIDForPN(ctx, jid)
-	case types.HiddenUserServer:
-		twin, _ = client.Store.LIDs.GetPNForLID(ctx, jid)
-	}
-	if twin.IsEmpty() {
-		return types.LocalChatSettings{}, false
-	}
-	settings, err := client.Store.ChatSettings.GetChatSettings(ctx, twin)
-	return settings, err == nil && settings.Found
 }
