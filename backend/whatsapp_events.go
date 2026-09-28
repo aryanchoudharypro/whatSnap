@@ -1138,6 +1138,9 @@ func eventHandler(evt interface{}) {
 				})
 			}
 			writeBatch(pushNameWrites)
+			if len(pushNameWrites) > 0 || len(chunkPNs) > 0 {
+				invalidateDisplayNames()
+			}
 
 			for convIdx, conv := range conversations {
 				if reportProgress && convIdx > 0 && convIdx%5 == 0 {
@@ -1853,6 +1856,7 @@ func eventHandler(evt interface{}) {
 	case *events.IdentityChange:
 		go noteSecurityCodeChange(v)
 	case *events.PushName:
+		invalidateDisplayNames()
 		go func() {
 			jidStr := v.JID.ToNonAD().String()
 			if v.NewPushName != "" {
@@ -1863,6 +1867,7 @@ func eventHandler(evt interface{}) {
 			}
 		}()
 	case *events.Contact:
+		invalidateDisplayNames()
 		if v.FromFullSync && !v.Removed {
 			// A full app-state sync (first link, or a resync) delivers every
 			// address-book entry at once - thousands of events, each of which
@@ -1902,6 +1907,7 @@ func eventHandler(evt interface{}) {
 			}
 		}()
 	case *events.BusinessName:
+		invalidateDisplayNames()
 		go func() {
 			jidStr := v.JID.ToNonAD().String()
 			if v.NewBusinessName != "" {
@@ -2269,7 +2275,7 @@ func eventHandler(evt interface{}) {
 				// "Mark as unread" only needs the chat to show as unread - it
 				// must not replace a real count history sync already gave it
 				// (a full app-state sync replays this for every such chat).
-				db.Exec("UPDATE chats SET unread_count = MAX(unread_count, 1) WHERE jid = ?", jidStr)
+				db.Exec("UPDATE chats SET unread_count = MAX(unread_count, 1), marked_unread = 1 WHERE jid = ?", jidStr)
 			}
 			broadcastChats()
 		}()
@@ -3142,6 +3148,9 @@ func populateChatsFromStoreOnce() {
 	// slowest part of every refresh. Everything above that touches
 	// whatsmeow's stores is already done, so these can be batched.
 	writeBatch(contactWrites)
+	// Names may have changed in the store or the cache above.
+	invalidateDisplayNames()
+	healStaleUnreadCounts()
 
 	groups, err := client.GetJoinedGroups(context.Background())
 	if err == nil {

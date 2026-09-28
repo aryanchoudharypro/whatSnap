@@ -60,6 +60,12 @@ func migrateDB() error {
 	// it was set, so an older setting can't undo a newer one.
 	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_expiration INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_setting_ts INTEGER DEFAULT 0")
+	// Set while a chat is marked unread on purpose, so healStaleUnreadCounts
+	// leaves it alone. Reading the chat (its count going to 0) clears it.
+	db.Exec("ALTER TABLE chats ADD COLUMN marked_unread INTEGER DEFAULT 0")
+	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_marked_unread AFTER UPDATE OF unread_count ON chats
+		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
+		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,

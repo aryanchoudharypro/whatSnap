@@ -150,6 +150,13 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	}
 
 	let lower_query = s.search_query.to_lowercase();
+	// The chat the user is on in the list (not necessarily the open one), so
+	// a reorder can put them back on the same chat rather than the same row.
+	let list_selected_jid = parts
+		.conversations_parts
+		.conversations_list
+		.get_selection()
+		.and_then(|i| s.filtered_chats.get(i as usize).cloned());
 
 	let mut filtered = Vec::new();
 	let mut labels = Vec::new();
@@ -256,16 +263,21 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		list.delete(idx as u32);
 		list.insert(&labels[0], 0);
 	} else {
-		list.clear();
-		for label in &labels {
-			list.append(label);
-		}
+		// One native call for the whole list rather than one per row.
+		list.set_items(&labels.iter().map(String::as_str).collect::<Vec<_>>());
 	}
 	list.thaw();
 
-	if let Some(idx) = s.selected_chat.as_ref().and_then(|sel| s.filtered_chats.iter().position(|j| j == sel)) {
+	// Stay on the chat the user was on in the list. Re-selecting the open
+	// chat instead made the list jump away from wherever they were arrowing
+	// every time a message moved some other chat to the top.
+	let target = list_selected_jid
+		.as_ref()
+		.and_then(|jid| s.filtered_chats.iter().position(|j| j == jid))
+		.or_else(|| s.selected_chat.as_ref().and_then(|sel| s.filtered_chats.iter().position(|j| j == sel)));
+	if let Some(idx) = target {
 		let count = list.get_count();
-		if count > 0 && (idx as u32) < count {
+		if count > 0 && (idx as u32) < count && list.get_selection() != Some(idx as u32) {
 			list.set_selection(idx as u32, true);
 		}
 	}

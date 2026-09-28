@@ -691,7 +691,7 @@ func handleSetChatRead(raw json.RawMessage) {
 		if data.Value {
 			db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
 		} else {
-			db.Exec("UPDATE chats SET unread_count = 1 WHERE jid = ?", data.JID)
+			db.Exec("UPDATE chats SET unread_count = 1, marked_unread = 1 WHERE jid = ?", data.JID)
 		}
 		broadcastChats()
 	}()
