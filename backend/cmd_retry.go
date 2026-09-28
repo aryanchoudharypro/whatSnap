@@ -42,7 +42,7 @@ func init() {
 		ticker := time.NewTicker(retrySweepPeriod)
 		defer ticker.Stop()
 		for range ticker.C {
-			if client == nil || !client.IsConnected() {
+			if wa() == nil || !wa().IsConnected() {
 				continue
 			}
 			retryPendingTextMessages()

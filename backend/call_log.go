@@ -169,12 +169,12 @@ func handleCallLogSync(v *events.CallLogSync) {
 		return
 	}
 	ownPN := types.EmptyJID
-	if client != nil && client.Store != nil {
-		ownPN = client.Store.GetJID()
+	if wa() != nil && wa().Store != nil {
+		ownPN = wa().Store.GetJID()
 	}
 	ownLID := types.EmptyJID
-	if client != nil && client.Store != nil {
-		ownLID = client.Store.GetLID()
+	if wa() != nil && wa().Store != nil {
+		ownLID = wa().Store.GetLID()
 	}
 	jid := callLogChatJID(rec, v.CallCreatorJID, v.FromMe, ownPN, ownLID, preferPN)
 	if jid == "" || isIgnoredChatJID(jid) {

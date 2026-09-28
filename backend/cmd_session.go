@@ -23,8 +23,8 @@ func handleShutdown() {
 	shutdownOnce.Do(func() {
 		log.Println("Shutdown requested")
 
-		if client != nil && client.IsConnected() {
-			client.Disconnect()
+		if wa() != nil && wa().IsConnected() {
+			wa().Disconnect()
 		}
 
 		if db != nil {
@@ -47,16 +47,16 @@ func handleShutdown() {
 
 func handleGetQR(conn net.Conn) {
 	go func() {
-		if client.Store.ID == nil {
-			if client != nil && client.IsConnected() {
-				client.Disconnect()
+		if wa().Store.ID == nil {
+			if wa() != nil && wa().IsConnected() {
+				wa().Disconnect()
 			}
-			qrChan, err := client.GetQRChannel(context.Background())
+			qrChan, err := wa().GetQRChannel(context.Background())
 			if err != nil {
 				sendEvent(conn, "error", map[string]string{"message": err.Error()})
 				return
 			}
-			err = client.Connect()
+			err = wa().Connect()
 			if err != nil {
 				sendEvent(conn, "error", map[string]string{"message": err.Error()})
 				return
@@ -72,8 +72,8 @@ func handleGetQR(conn net.Conn) {
 
 func handleCancelPairing() {
 	fmt.Println("Received cancel request")
-	if client.Store.ID == nil {
-		client.Disconnect()
+	if wa().Store.ID == nil {
+		wa().Disconnect()
 	}
 }
 
@@ -85,11 +85,11 @@ func handleCancelPairing() {
 // logging back into the same account brings it straight back.
 func handleLogout() {
 	go func() {
-		if client == nil || client.Store.ID == nil {
+		if wa() == nil || wa().Store.ID == nil {
 			broadcastEvent("needs_login", nil)
 			return
 		}
-		if err := client.Logout(context.Background()); err != nil {
+		if err := wa().Logout(context.Background()); err != nil {
 			broadcastEvent("error", map[string]string{"message": "Logout failed: " + err.Error()})
 			return
 		}
@@ -107,14 +107,14 @@ func handlePair(raw json.RawMessage) {
 	}
 	fmt.Println("Parsed phone:", data.Phone)
 	go func() {
-		if client.Store.ID == nil {
-			if !client.IsConnected() {
-				qrChan, qrErr := client.GetQRChannel(context.Background())
+		if wa().Store.ID == nil {
+			if !wa().IsConnected() {
+				qrChan, qrErr := wa().GetQRChannel(context.Background())
 				if qrErr != nil {
 					broadcastEvent("error", map[string]string{"message": qrErr.Error()})
 					return
 				}
-				err := client.Connect()
+				err := wa().Connect()
 				if err != nil {
 					broadcastEvent("error", map[string]string{"message": err.Error()})
 					return
@@ -127,7 +127,7 @@ func handlePair(raw json.RawMessage) {
 					}()
 				}
 			}
-			code, err := client.PairPhone(context.Background(), data.Phone, true, whatsmeow.PairClientFirefox, "Firefox (Windows)")
+			code, err := wa().PairPhone(context.Background(), data.Phone, true, whatsmeow.PairClientFirefox, "Firefox (Windows)")
 			if err != nil {
 				broadcastEvent("error", map[string]string{"message": err.Error()})
 				return

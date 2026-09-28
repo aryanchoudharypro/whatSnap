@@ -572,7 +572,7 @@ func sendAppStateWithRetry(ctx context.Context, patch appstate.PatchInfo) error 
 	appStateSendMu.Lock()
 	defer appStateSendMu.Unlock()
 
-	err := client.SendAppState(ctx, patch)
+	err := wa().SendAppState(ctx, patch)
 	if err == nil {
 		return nil
 	}
@@ -582,11 +582,11 @@ func sendAppStateWithRetry(ctx context.Context, patch appstate.PatchInfo) error 
 	lastAppStateResync[patch.Type] = time.Now()
 	appStateResyncMu.Unlock()
 
-	if sync_err := client.FetchAppState(ctx, patch.Type, false, false); sync_err != nil {
+	if sync_err := wa().FetchAppState(ctx, patch.Type, false, false); sync_err != nil {
 		log.Printf("Resync of %s failed: %v", patch.Type, sync_err)
 		return fmt.Errorf("app state sync failed for %s: %w", patch.Type, sync_err)
 	}
-	if retry_err := client.SendAppState(ctx, patch); retry_err != nil {
+	if retry_err := wa().SendAppState(ctx, patch); retry_err != nil {
 		log.Printf("SendAppState %s retry also failed: %v", patch.Type, retry_err)
 		return fmt.Errorf("app state retry failed for %s: %w", patch.Type, retry_err)
 	}
@@ -846,7 +846,7 @@ func handleRequestHistorySync(raw json.RawMessage) {
 		count = 50
 	}
 	log.Printf("Requesting older history for %s before %s (count %d)", data.JID, msgID, count)
-	req := client.BuildHistorySyncRequest(msgInfo, count)
+	req := wa().BuildHistorySyncRequest(msgInfo, count)
 	go func() {
 		historyRequestMu.Lock()
 		defer historyRequestMu.Unlock()
@@ -856,7 +856,7 @@ func handleRequestHistorySync(raw json.RawMessage) {
 			time.Sleep(wait)
 		}
 		lastHistoryRequest = time.Now()
-		if _, sendErr := client.SendPeerMessage(context.Background(), req); sendErr != nil {
+		if _, sendErr := wa().SendPeerMessage(context.Background(), req); sendErr != nil {
 			log.Printf("history sync request for %s failed: %v", data.JID, sendErr)
 		}
 	}()

@@ -34,10 +34,10 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 	if senderJID.Server == "lid" {
 		if !v.Info.SenderAlt.IsEmpty() {
 			senderJID = v.Info.SenderAlt.ToNonAD()
-		} else if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+		} else if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
 			senderJID = pn.ToNonAD()
-		} else if v.Info.IsFromMe && client.Store.ID != nil {
-			senderJID = client.Store.ID.ToNonAD()
+		} else if v.Info.IsFromMe && wa().Store.ID != nil {
+			senderJID = wa().Store.ID.ToNonAD()
 		}
 	}
 
@@ -45,7 +45,7 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 		if v.Info.IsFromMe {
 			if !v.Info.RecipientAlt.IsEmpty() {
 				chatJID = v.Info.RecipientAlt.ToNonAD()
-			} else if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+			} else if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 				chatJID = pn.ToNonAD()
 			}
 		} else {
@@ -81,11 +81,11 @@ func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 		ts = v.Info.Timestamp.Unix()
 	}
 
-	go func() {
-		upsertReaction(targetID, jid, reactorJID, emoji, ts)
-		updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
-		broadcastChats()
-	}()
+	// Written before returning, in arrival order: a reaction and its removal
+	// moments later must not land the other way round.
+	upsertReaction(targetID, jid, reactorJID, emoji, ts)
+	updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
+	broadcastChats()
 
 	// Included so clients can show a WhatsApp-style "<name> reacted <emoji>
 	// to: <text>" desktop notification without having the reacted-to
@@ -1105,7 +1105,7 @@ func eventHandler(evt interface{}) {
 				if pn, ok := chunkPNs[j.User]; ok {
 					return pn
 				}
-				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), j); err == nil && !pn.IsEmpty() {
+				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), j); err == nil && !pn.IsEmpty() {
 					return pn.ToNonAD()
 				}
 				return j
@@ -1179,7 +1179,7 @@ func eventHandler(evt interface{}) {
 
 				name := conv.GetName()
 				if name == "" {
-					if contact, err := client.Store.Contacts.GetContact(context.Background(), chatJID); err == nil && contact.Found {
+					if contact, err := wa().Store.Contacts.GetContact(context.Background(), chatJID); err == nil && contact.Found {
 						if contact.FullName != "" {
 							name = contact.FullName
 						} else if contact.PushName != "" {
@@ -1306,7 +1306,7 @@ func eventHandler(evt interface{}) {
 						}
 						continue
 					}
-					evtMsg, parseEvtErr := client.ParseWebMessage(chatJID, webMsg)
+					evtMsg, parseEvtErr := wa().ParseWebMessage(chatJID, webMsg)
 					if parseEvtErr != nil || evtMsg == nil {
 						continue
 					}
@@ -1333,7 +1333,7 @@ func eventHandler(evt interface{}) {
 						// live-event path below - decrypt it instead of letting
 						// it fall through to extractText's "[Unsupported
 						// Message]" and get inserted as a bogus chat message.
-						if reaction, err := client.DecryptReaction(context.Background(), evtMsg); err == nil {
+						if reaction, err := wa().DecryptReaction(context.Background(), evtMsg); err == nil {
 							writes = append(writes, func(tx sqlExecer) { storeReactionTx(tx, jid, evtMsg, reaction) })
 						} else {
 							log.Printf("Failed to decrypt announcement-group reaction from HistorySync: %v", err)
@@ -1377,6 +1377,9 @@ func eventHandler(evt interface{}) {
 					msgText := extractText(evtMsg.Message)
 					if msgText == "[Protocol Message]" {
 						continue
+					}
+					if evtMsg.IsViewOnce {
+						msgText = viewOnceText(msgText)
 					}
 					msgID := evtMsg.Info.ID
 					if msgID == "" && webMsg.Key != nil {
@@ -1483,6 +1486,9 @@ func eventHandler(evt interface{}) {
 								return
 							}
 							noteMessageExpiry(tx, msgID, msgTS, evtMsg.Message)
+							if evtMsg.IsViewOnce {
+								markViewOnce(tx, msgID)
+							}
 						})
 					}
 				}
@@ -1572,7 +1578,7 @@ func eventHandler(evt interface{}) {
 			switch v.Info.Edit {
 			case types.EditAttributeAdminRevoke:
 				jid := v.Info.Chat.String()
-				go markMessageDeleted(v.Info.ID, jid)
+				markMessageDeleted(v.Info.ID, jid)
 				broadcastEvent("message_deleted", map[string]interface{}{
 					"jid": jid, "message_id": v.Info.ID, "by": jid,
 				})
@@ -1580,7 +1586,7 @@ func eventHandler(evt interface{}) {
 			case types.EditAttributeAdminEdit:
 				jid, id := v.Info.Chat.String(), v.Info.ID
 				editTime := v.Info.Timestamp.Unix()
-				go func() {
+				func() {
 					shown, _ := markMessageEdited(id, jid, v.Message, extractText(v.Message), editTime)
 					broadcastEvent("message_edited", map[string]interface{}{
 						"jid": jid, "message_id": id, "text": shown, "edited_at": editTime,
@@ -1596,7 +1602,7 @@ func eventHandler(evt interface{}) {
 
 			if enc := v.Message.GetSecretEncryptedMessage(); enc != nil && enc.GetSecretEncType() == waE2E.SecretEncryptedMessage_MESSAGE_EDIT {
 				targetID = enc.GetTargetMessageKey().GetID()
-				decrypted, err := client.DecryptSecretEncryptedMessage(context.Background(), v)
+				decrypted, err := wa().DecryptSecretEncryptedMessage(context.Background(), v)
 				if err != nil {
 					log.Printf("Edit: failed to decrypt secret encrypted edit: %v", err)
 				} else {
@@ -1628,7 +1634,7 @@ func eventHandler(evt interface{}) {
 			jid := resolvedChat.String()
 			editTime := v.Info.Timestamp.Unix()
 			if targetID != "" {
-				go func() {
+				func() {
 					// An edit made on another of our devices reaches us as a
 					// normal message; its receipts will name this stanza too.
 					if v.Info.IsFromMe {
@@ -1649,14 +1655,14 @@ func eventHandler(evt interface{}) {
 			return
 		}
 		if pm := unwrappedMsg.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_EPHEMERAL_SETTING {
-			go applyEphemeralSettingMessage(v, pm)
+			applyEphemeralSettingMessage(v, pm)
 			return
 		}
 		if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
 			targetID := unwrappedMsg.GetProtocolMessage().GetKey().GetID()
 			resolvedChat, _ := resolveLIDChat(v)
 			jid := resolvedChat.String()
-			go markMessageDeleted(targetID, jid)
+			markMessageDeleted(targetID, jid)
 			broadcastEvent("message_deleted", map[string]interface{}{
 				"jid":        jid,
 				"message_id": targetID,
@@ -1669,7 +1675,7 @@ func eventHandler(evt interface{}) {
 			return
 		}
 		if unwrappedMsg.GetPollUpdateMessage() != nil {
-			go applyPollVote(v)
+			applyPollVote(v)
 			return
 		}
 		if unwrappedMsg.GetEncReactionMessage() != nil {
@@ -1679,7 +1685,7 @@ func eventHandler(evt interface{}) {
 			// GetReactionMessage() above is nil, extractText falls through to
 			// "[Unsupported Message]", and the reaction gets inserted as a
 			// bogus standalone chat message instead of being applied.
-			reaction, err := client.DecryptReaction(context.Background(), v)
+			reaction, err := wa().DecryptReaction(context.Background(), v)
 			if err != nil {
 				log.Printf("Failed to decrypt announcement-group reaction from %s: %v", v.Info.Sender, err)
 				return
@@ -1711,6 +1717,13 @@ func eventHandler(evt interface{}) {
 		if text == "[Protocol Message]" {
 			return
 		}
+		if v.IsViewOnce {
+			// Already opened here: a redelivered copy must not bring it back.
+			if viewOnceState(v.Info.ID) == viewOnceOpened {
+				return
+			}
+			text = viewOnceText(text)
+		}
 		if text == "[Unsupported Message]" && v.Info.Sender.IsBot() {
 			// Bots (Meta AI etc.) occasionally ship new response primitives
 			// richResponseText doesn't cover yet - dump the decrypted message
@@ -1733,7 +1746,7 @@ func eventHandler(evt interface{}) {
 			jid := resolvedChat.String()
 			targetID := v.Info.MsgBotInfo.EditTargetID
 			editTime := v.Info.Timestamp.Unix()
-			go markMessageEdited(targetID, jid, unwrapMessage(v.Message), text, editTime)
+			markMessageEdited(targetID, jid, unwrapMessage(v.Message), text, editTime)
 			broadcastEvent("message_edited", map[string]interface{}{
 				"jid":        jid,
 				"message_id": targetID,
@@ -1758,7 +1771,12 @@ func eventHandler(evt interface{}) {
 			albumID = claimAlbumID(albumChat.String(), albumSender.String())
 		}
 
-		go func() {
+		// Stored before the handler returns, not on a goroutine of its own:
+		// whatsmeow counts the event as handled (and drops its buffered
+		// plaintext) once we return, and events are handled in the order they
+		// arrive - so an edit or delete that follows this message can no longer
+		// be applied before the message itself exists.
+		func() {
 			chatJID, senderJID := resolveLIDChat(v)
 
 			jid := chatJID.String()
@@ -1813,6 +1831,9 @@ func eventHandler(evt interface{}) {
 				} else {
 					noteMessageExpiry(db, v.Info.ID, ts, v.Message)
 					adoptChatDisappearing(chatJID, v.Message)
+					if v.IsViewOnce {
+						markViewOnce(db, v.Info.ID)
+					}
 					if mediaType == "voice" {
 						autoDownloadVoiceNote(v.Info.ID, jid)
 					}
@@ -1860,7 +1881,7 @@ func eventHandler(evt interface{}) {
 		go func() {
 			jidStr := v.JID.ToNonAD().String()
 			if v.NewPushName != "" {
-				client.Store.Contacts.PutPushName(context.Background(), v.JID.ToNonAD(), v.NewPushName)
+				wa().Store.Contacts.PutPushName(context.Background(), v.JID.ToNonAD(), v.NewPushName)
 				upsertContactCacheRow(jidStr, v.NewPushName, v.JID.User, false)
 				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewPushName, jidStr)
 				broadcastChats()
@@ -1947,7 +1968,7 @@ func eventHandler(evt interface{}) {
 		}
 		appStateResyncMu.Unlock()
 		connFailures.Store(0)
-		if client.Store.ID != nil {
+		if wa().Store.ID != nil {
 			setConnState(connStateOnline, "", 0)
 			// Deliberately not resetting history-sync progress here: this event
 			// also fires on every keepalive-triggered auto-reconnect, not just
@@ -1957,7 +1978,7 @@ func eventHandler(evt interface{}) {
 			// clobbering its "Syncing history..." status text back to plain
 			// "Connected") on each one made the status look stalled or reset
 			// while it was still writing in the background.
-			broadcastEvent("connected", map[string]string{"jid": client.Store.ID.String()})
+			broadcastEvent("connected", map[string]string{"jid": wa().Store.ID.String()})
 			// Whatever the window's actually doing - not "available" on every
 			// reconnect regardless (see desiredPresence).
 			go sendDesiredPresence(true)
@@ -2041,12 +2062,12 @@ func eventHandler(evt interface{}) {
 		senderJID := v.MessageSource.Sender.ToNonAD()
 
 		if chatJID.Server == "lid" {
-			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 				chatJID = pn.ToNonAD()
 			}
 		}
 		if senderJID.Server == "lid" {
-			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
 				senderJID = pn.ToNonAD()
 			}
 		}
@@ -2067,7 +2088,7 @@ func eventHandler(evt interface{}) {
 
 		targetJID := v.From.ToNonAD()
 		if targetJID.Server == "lid" {
-			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), targetJID); err == nil && !pn.IsEmpty() {
+			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), targetJID); err == nil && !pn.IsEmpty() {
 				targetJID = pn.ToNonAD()
 			}
 		}
@@ -2082,12 +2103,12 @@ func eventHandler(evt interface{}) {
 		senderJID := v.MessageSource.Sender.ToNonAD()
 
 		if chatJID.Server == "lid" {
-			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 				chatJID = pn.ToNonAD()
 			}
 		}
 		if senderJID.Server == "lid" {
-			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
 				senderJID = pn.ToNonAD()
 			}
 		}
@@ -2120,7 +2141,7 @@ func eventHandler(evt interface{}) {
 			receiptTS := v.Timestamp.Unix()
 			resolvedChatJID := v.MessageSource.Chat.ToNonAD()
 			if resolvedChatJID.Server == "lid" {
-				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), resolvedChatJID); err == nil && !pn.IsEmpty() {
+				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), resolvedChatJID); err == nil && !pn.IsEmpty() {
 					resolvedChatJID = pn.ToNonAD()
 				}
 			}
@@ -2811,8 +2832,8 @@ func appStateChatJID(raw string) string {
 // messages table and the frontend's contact lookups are keyed by phone JID.
 func preferPN(jid types.JID) types.JID {
 	jid = jid.ToNonAD()
-	if jid.Server == types.HiddenUserServer && client != nil {
-		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
+	if jid.Server == types.HiddenUserServer && wa() != nil {
+		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
 			return pn.ToNonAD()
 		}
 	}
@@ -3027,11 +3048,11 @@ func populateChatsFromStore() {
 }
 
 func populateChatsFromStoreOnce() {
-	if client == nil || client.Store == nil || client.Store.Contacts == nil {
+	if wa() == nil || wa().Store == nil || wa().Store.Contacts == nil {
 		return
 	}
 
-	allContacts, err := client.Store.Contacts.GetAllContacts(context.Background())
+	allContacts, err := wa().Store.Contacts.GetAllContacts(context.Background())
 	if err != nil {
 		fmt.Println("Error getting contacts from store:", err)
 		return
@@ -3066,7 +3087,7 @@ func populateChatsFromStoreOnce() {
 	for jid, contact := range allContacts {
 		targetJID := jid.ToNonAD()
 		if targetJID.Server == "lid" {
-			if pn, pnErr := client.Store.LIDs.GetPNForLID(context.Background(), targetJID); pnErr == nil && !pn.IsEmpty() {
+			if pn, pnErr := wa().Store.LIDs.GetPNForLID(context.Background(), targetJID); pnErr == nil && !pn.IsEmpty() {
 				resolvedLIDJIDs = append(resolvedLIDJIDs, targetJID.String())
 				targetJID = pn.ToNonAD()
 			}
@@ -3152,7 +3173,7 @@ func populateChatsFromStoreOnce() {
 	invalidateDisplayNames()
 	healStaleUnreadCounts()
 
-	groups, err := client.GetJoinedGroups(context.Background())
+	groups, err := wa().GetJoinedGroups(context.Background())
 	if err == nil {
 		var groupWrites []func(tx sqlExecer)
 		joined := make(map[string]bool, len(groups))
@@ -3232,7 +3253,7 @@ func populateChatsFromStoreOnce() {
 			}
 			target := parsed.ToNonAD()
 			if target.Server == "lid" {
-				pn, err := client.Store.LIDs.GetPNForLID(context.Background(), target)
+				pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), target)
 				if err != nil || pn.IsEmpty() {
 					continue
 				}
@@ -3330,12 +3351,12 @@ func requestAppStateFatalRecovery(name appstate.WAPatchName) {
 	lastFatalRecoveryRequest[name] = time.Now()
 	appStateResyncMu.Unlock()
 
-	if client == nil {
+	if wa() == nil {
 		return
 	}
 	log.Printf("Requesting fatal recovery snapshot for %s from our primary device.", name)
 	req := whatsmeow.BuildAppStateRecoveryRequest(name)
-	if _, err := client.SendPeerMessage(context.Background(), req); err != nil {
+	if _, err := wa().SendPeerMessage(context.Background(), req); err != nil {
 		log.Printf("Fatal recovery request for %s failed to send: %v", name, err)
 	}
 }
@@ -3358,10 +3379,10 @@ func retryAppStateAfterLock(name appstate.WAPatchName, attempt int) {
 	delay := time.Duration(15*(attempt+1)) * time.Second
 	log.Printf("App state %s hit a database lock; retrying in %s", name, delay)
 	time.AfterFunc(delay, func() {
-		if client == nil {
+		if wa() == nil {
 			return
 		}
-		err := client.FetchAppState(context.Background(), name, false, false)
+		err := wa().FetchAppState(context.Background(), name, false, false)
 		switch {
 		case err == nil:
 			log.Printf("App state %s resync succeeded after database lock", name)
@@ -3400,7 +3421,7 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 
 	go func() {
 		log.Printf("AppStateSyncError for %s (attempt %d/3): %v.", v.Name, count+1, v.Error)
-		if client == nil {
+		if wa() == nil {
 			return
 		}
 		if v.Error != nil {
@@ -3424,7 +3445,7 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 				// index->valueMAC mapping from scratch, which is what a
 				// later patch actually needs.
 				log.Printf("Mismatching LTHash for %s - forcing a full resync (fresh snapshot).", v.Name)
-				if resyncErr := client.FetchAppState(context.Background(), v.Name, true, false); resyncErr != nil {
+				if resyncErr := wa().FetchAppState(context.Background(), v.Name, true, false); resyncErr != nil {
 					log.Printf("Full resync for %s failed: %v", v.Name, resyncErr)
 					resyncErrMsg := resyncErr.Error()
 					if strings.Contains(resyncErrMsg, "mismatching LTHash") || strings.Contains(resyncErrMsg, "failed to verify snapshot") {
@@ -3449,7 +3470,7 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 				return
 			}
 		}
-		err := client.FetchAppState(context.Background(), v.Name, false, false)
+		err := wa().FetchAppState(context.Background(), v.Name, false, false)
 		if err != nil {
 			if errors.Is(err, whatsmeow.ErrIQRateOverLimit) || strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate-overlimit") {
 				log.Printf("Rate limit 429 during resync of %s. Scheduling retry in 90s...", v.Name)
@@ -3457,8 +3478,8 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 					appStateResyncMu.Lock()
 					lastAppStateResync[v.Name] = time.Now()
 					appStateResyncMu.Unlock()
-					if client != nil {
-						if retryErr := client.FetchAppState(context.Background(), v.Name, false, false); retryErr != nil {
+					if wa() != nil {
+						if retryErr := wa().FetchAppState(context.Background(), v.Name, false, false); retryErr != nil {
 							log.Printf("Delayed retry for %s failed: %v", v.Name, retryErr)
 						} else {
 							log.Printf("Delayed resync for %s succeeded", v.Name)
@@ -3487,23 +3508,23 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 	}()
 }
 func isParticipantMe(p types.GroupParticipant) bool {
-	if client == nil || client.Store == nil || client.Store.ID == nil {
+	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
 		return false
 	}
-	myJID := client.Store.ID.ToNonAD()
+	myJID := wa().Store.ID.ToNonAD()
 	if p.JID.User == myJID.User || (!p.PhoneNumber.IsEmpty() && p.PhoneNumber.User == myJID.User) {
 		return true
 	}
 	// Note: in whatsmeow v0.2.x, LID might be a pointer or struct, but ID is a pointer in Device
 	// If the compiler complained about `client.Store.LID != nil`, it means LID is a struct in this fork.
-	if !client.Store.LID.IsEmpty() {
-		myLID := client.Store.LID.ToNonAD()
+	if !wa().Store.LID.IsEmpty() {
+		myLID := wa().Store.LID.ToNonAD()
 		if p.JID.User == myLID.User || (!p.LID.IsEmpty() && p.LID.User == myLID.User) {
 			return true
 		}
 	}
 	if p.JID.Server == "lid" {
-		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), p.JID); err == nil && !pn.IsEmpty() {
+		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), p.JID); err == nil && !pn.IsEmpty() {
 			if pn.User == myJID.User {
 				return true
 			}

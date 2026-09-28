@@ -244,7 +244,7 @@ func handleSetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
 	}
 	go func() {
 		now := time.Now()
-		if err := client.SetDisappearingTimer(context.Background(), jid, time.Duration(data.Seconds)*time.Second, now); err != nil {
+		if err := wa().SetDisappearingTimer(context.Background(), jid, time.Duration(data.Seconds)*time.Second, now); err != nil {
 			msg := err.Error()
 			if strings.Contains(msg, "not-authorized") || strings.Contains(msg, "403") {
 				msg = "Only group admins can change disappearing messages in this group."

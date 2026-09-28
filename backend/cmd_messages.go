@@ -35,7 +35,7 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	// Pick the message ID up front (instead of taking whatever whatsmeow
 	// generates on success) so the pending row we persist right now and the
 	// eventual sent/failed row are the same message throughout.
-	id := client.GenerateMessageID()
+	id := wa().GenerateMessageID()
 
 	quotedID, quotedText, quotedSender := "", "", ""
 	if data.ReplyToID != "" {
@@ -64,8 +64,8 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	}
 
 	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.ToNonAD().String()
+	if wa().Store.ID != nil {
+		senderJID = wa().Store.ID.ToNonAD().String()
 	}
 	ts := time.Now().Unix()
 	quotedSenderDisplay := resolveQuotedSenderName(quotedSender)
@@ -147,8 +147,8 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		// malformed quoted-message context, which is why replying to your own
 		// message never rendered as a reply on the recipient's end.
 		if participant == "me" {
-			if client.Store.ID != nil {
-				participant = client.Store.ID.ToNonAD().String()
+			if wa().Store.ID != nil {
+				participant = wa().Store.ID.ToNonAD().String()
 			} else {
 				participant = ""
 			}
@@ -178,7 +178,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	msg = applyDisappearingTimer(jid, msg)
 	// Mentioning Meta AI sends the message to it as well (whatsmeow's inline
 	// bot mode), which is what makes it answer in this chat.
-	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs)})
+	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs)})
 	if err != nil {
 		log.Printf("Error sending message %s: %v", id, err)
 		if conn != nil {
@@ -200,8 +200,8 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	noteMessageExpiry(db, id, ts, msg)
 	noteChannelPostSent(jid, id, resp)
 	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.ToNonAD().String()
+	if wa().Store.ID != nil {
+		senderJID = wa().Store.ID.ToNonAD().String()
 	}
 	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
@@ -253,8 +253,8 @@ func handleReactMessage(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		msg := client.BuildReaction(chatJID, senderJID, data.MessageID, data.Emoji)
-		resp, err := client.SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: client.GenerateMessageID()})
+		msg := wa().BuildReaction(chatJID, senderJID, data.MessageID, data.Emoji)
+		resp, err := wa().SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID()})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
@@ -292,18 +292,18 @@ func handleEditMessage(raw json.RawMessage) {
 				ContextInfo: &waE2E.ContextInfo{MentionedJID: jidStrings(mentionJIDs)},
 			}}
 		}
-		msg := client.BuildEdit(chatJID, data.MessageID, newContent)
+		msg := wa().BuildEdit(chatJID, data.MessageID, newContent)
 
 		// The edit travels as its own message with its own ID, and every
 		// receipt for it comes back under that ID. Note the pairing before
 		// sending - the first receipt can arrive before SendMessage returns.
 		// (A channel post's edit goes out under the post's own ID instead.)
-		editStanzaID := client.GenerateMessageID()
+		editStanzaID := wa().GenerateMessageID()
 		if chatJID.Server != types.NewsletterServer {
 			recordEditStanza(editStanzaID, data.MessageID, data.JID, time.Now().Unix())
 		}
 
-		_, err := client.SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: editStanzaID})
+		_, err := wa().SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: editStanzaID})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
@@ -350,13 +350,13 @@ func handleDeleteMessage(raw json.RawMessage) {
 						senderJID = parsed
 					}
 				}
-				if senderJID.IsEmpty() && client.Store.ID != nil {
-					senderJID = client.Store.ID.ToNonAD()
+				if senderJID.IsEmpty() && wa().Store.ID != nil {
+					senderJID = wa().Store.ID.ToNonAD()
 				}
 			}
 
-			msg := client.BuildRevoke(targetChatJID, senderJID, data.MessageID)
-			if _, err := client.SendMessage(context.Background(), targetChatJID, msg, whatsmeow.SendRequestExtra{ID: client.GenerateMessageID()}); err != nil {
+			msg := wa().BuildRevoke(targetChatJID, senderJID, data.MessageID)
+			if _, err := wa().SendMessage(context.Background(), targetChatJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID()}); err != nil {
 				errMsg := err.Error()
 				if strings.Contains(errMsg, "479") {
 					errMsg = "WhatsApp error 479: Failed to delete for everyone. The message key mismatch or the revoke time limit expired."
@@ -371,8 +371,8 @@ func handleDeleteMessage(raw json.RawMessage) {
 			// (see appstate.BuildDeleteMessageForMe).
 			originalSender := types.EmptyJID
 			if storedFromMe {
-				if client.Store.ID != nil {
-					originalSender = client.Store.ID.ToNonAD()
+				if wa().Store.ID != nil {
+					originalSender = wa().Store.ID.ToNonAD()
 				}
 			} else if storedSenderStr != "" {
 				if parsed, perr := types.ParseJID(storedSenderStr); perr == nil {
@@ -447,7 +447,7 @@ func handleSendTyping(raw json.RawMessage) {
 	if data.State == "paused" {
 		pState = types.ChatPresencePaused
 	}
-	go client.SendChatPresence(context.Background(), jid, pState, types.ChatPresenceMedia(data.Media))
+	go wa().SendChatPresence(context.Background(), jid, pState, types.ChatPresenceMedia(data.Media))
 }
 
 // desiredPresence is what the frontend last asked for: available only while
@@ -484,7 +484,7 @@ func handleSetPresence(raw json.RawMessage) {
 // fresh connection has no presence yet, and whatsmeow needs one sent after
 // connecting so the server has our push name).
 func sendDesiredPresence(force bool) {
-	c := client
+	c := wa()
 	if c == nil || !c.IsLoggedIn() {
 		return
 	}
@@ -517,7 +517,7 @@ func handleSubscribePresence(raw json.RawMessage) {
 		log.Printf("Failed to parse JID for subscribe_presence: %v", err)
 		return
 	}
-	err = client.SubscribePresence(context.Background(), jid)
+	err = wa().SubscribePresence(context.Background(), jid)
 	if err != nil {
 		log.Printf("Error subscribing to presence: %v", err)
 	} else {
@@ -543,7 +543,7 @@ func handleMarkRead(raw json.RawMessage) {
 		return
 	}
 	if chatJID.Server == "lid" {
-		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 			chatJID = pn
 		}
 	}
@@ -572,7 +572,7 @@ func handleMarkRead(raw json.RawMessage) {
 				sJID = chatJID
 			}
 			if sJID.Server == "lid" {
-				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), sJID); err == nil && !pn.IsEmpty() {
+				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), sJID); err == nil && !pn.IsEmpty() {
 					sJID = pn
 				}
 			}
@@ -600,7 +600,7 @@ func handleMarkRead(raw json.RawMessage) {
 						sJID = chatJID
 					}
 					if sJID.Server == "lid" {
-						if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), sJID); err == nil && !pn.IsEmpty() {
+						if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), sJID); err == nil && !pn.IsEmpty() {
 							sJID = pn
 						}
 					}
@@ -628,7 +628,7 @@ func handleMarkRead(raw json.RawMessage) {
 	for key, ids := range bySender {
 		sJID := senderJIDMap[key]
 		go func(mIDs []types.MessageID, targetSender types.JID) {
-			err := client.MarkRead(context.Background(), mIDs, now, chatJID, targetSender)
+			err := wa().MarkRead(context.Background(), mIDs, now, chatJID, targetSender)
 			if err != nil {
 				log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, targetSender, err)
 			}
@@ -700,11 +700,11 @@ func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]in
 	if err != nil {
 		return nil
 	}
-	info, err := client.GetGroupInfo(context.Background(), jid)
+	info, err := wa().GetGroupInfo(context.Background(), jid)
 	if err != nil {
 		return nil
 	}
-	myJID := client.Store.ID.ToNonAD()
+	myJID := wa().Store.ID.ToNonAD()
 
 	rows, err := db.Query(`SELECT participant_jid, status, timestamp,
 			COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0)
@@ -742,7 +742,7 @@ func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]in
 		if !p.PhoneNumber.IsEmpty() {
 			displayJID = p.PhoneNumber
 		} else if displayJID.Server == "lid" {
-			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), displayJID); err == nil && !pn.IsEmpty() {
+			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), displayJID); err == nil && !pn.IsEmpty() {
 				displayJID = pn
 			}
 		}
@@ -787,8 +787,9 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 
-		// View-once media can't be forwarded in the official apps.
-		if origMsg.GetViewOnceMessage() != nil || origMsg.GetViewOnceMessageV2() != nil || origMsg.GetViewOnceMessageV2Extension() != nil {
+		// View-once media can't be forwarded in the official apps. The stored
+		// message is already unwrapped, so the view_once column is what says so.
+		if viewOnceState(data.MessageID) != 0 || origMsg.GetViewOnceMessage() != nil || origMsg.GetViewOnceMessageV2() != nil || origMsg.GetViewOnceMessageV2Extension() != nil {
 			sendEvent(conn, "error", map[string]string{"message": "View once messages can't be forwarded."})
 			return
 		}
@@ -851,14 +852,14 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				// shared content can't carry one.
 				outgoing = applyDisappearingTimer(targetJID, proto.Clone(outgoing).(*waE2E.Message))
 			}
-			resp, sendErr := client.SendMessage(context.Background(), targetJID, outgoing, extra)
+			resp, sendErr := wa().SendMessage(context.Background(), targetJID, outgoing, extra)
 			if sendErr != nil {
 				log.Printf("Error forwarding message to %s: %v", toJIDStr, sendErr)
 				continue
 			}
 			ts := resp.Timestamp.Unix()
 			text := extractText(content)
-			senderJID := client.Store.ID.ToNonAD().String()
+			senderJID := wa().Store.ID.ToNonAD().String()
 			fwdRawBytes, _ := proto.Marshal(outgoing)
 			mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(outgoing)
 			quotedID, quotedText, quotedSender := quotedPreview(outgoing)

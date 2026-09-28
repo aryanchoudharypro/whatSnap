@@ -58,7 +58,7 @@ func handleGetAvatar(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		info, err := client.GetProfilePictureInfo(context.Background(), jid, &whatsmeow.GetProfilePictureParams{})
+		info, err := wa().GetProfilePictureInfo(context.Background(), jid, &whatsmeow.GetProfilePictureParams{})
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
@@ -99,7 +99,7 @@ func handleCheckContacts(conn net.Conn, raw json.RawMessage) {
 			sendEvent(conn, "contacts_checked", map[string]interface{}{"results": []interface{}{}})
 			return
 		}
-		resp, err := client.IsOnWhatsApp(context.Background(), cleaned)
+		resp, err := wa().IsOnWhatsApp(context.Background(), cleaned)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
@@ -124,7 +124,7 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		info, err := client.GetUserInfo(context.Background(), []types.JID{jid})
+		info, err := wa().GetUserInfo(context.Background(), []types.JID{jid})
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
@@ -136,7 +136,7 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 		}
 		pushName := ""
 		fullName := ""
-		if contactInfo, cErr := client.Store.Contacts.GetContact(context.Background(), jid); cErr == nil && contactInfo.Found {
+		if contactInfo, cErr := wa().Store.Contacts.GetContact(context.Background(), jid); cErr == nil && contactInfo.Found {
 			pushName = contactInfo.PushName
 			fullName = contactInfo.FullName
 		}
@@ -146,7 +146,7 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 		// counterpart of that mutation and gives a fresh value; fall back to
 		// the usync value if the fresh fetch fails.
 		status := userInfo.Status
-		if fresh, sErr := client.GetTextStatus(context.Background(), jid); sErr == nil && fresh != nil {
+		if fresh, sErr := wa().GetTextStatus(context.Background(), jid); sErr == nil && fresh != nil {
 			status = fresh.Text
 		}
 		go updateContactAboutCache(data.JID, status)
@@ -169,7 +169,7 @@ func handleGetBusinessProfile(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		profile, err := client.GetBusinessProfile(context.Background(), jid)
+		profile, err := wa().GetBusinessProfile(context.Background(), jid)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
@@ -180,7 +180,7 @@ func handleGetBusinessProfile(conn net.Conn, raw json.RawMessage) {
 
 func handleGetBlocklist(conn net.Conn) {
 	go func() {
-		bl, err := client.GetBlocklist(context.Background())
+		bl, err := wa().GetBlocklist(context.Background())
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
@@ -203,7 +203,7 @@ func handleBlockContact(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if _, err := client.UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionBlock); err != nil {
+		if _, err := wa().UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionBlock); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
@@ -222,7 +222,7 @@ func handleUnblockContact(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if _, err := client.UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionUnblock); err != nil {
+		if _, err := wa().UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionUnblock); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
@@ -243,18 +243,18 @@ func handleSetAbout(raw json.RawMessage) {
 		// every About set from here vanish after a day. 24h stays only as a
 		// fallback in case the server refuses -1.
 		input := types.SetStatusInput{Text: &data.Text, Duration: jsontime.SInt(-1)}
-		err := client.SetStatusMessage(context.Background(), input)
+		err := wa().SetStatusMessage(context.Background(), input)
 		if err != nil {
 			log.Printf("Setting a permanent About failed (%v), retrying with a 24h expiry", err)
 			input.Duration = jsontime.S(24 * time.Hour)
-			err = client.SetStatusMessage(context.Background(), input)
+			err = wa().SetStatusMessage(context.Background(), input)
 		}
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		if client.Store.ID != nil {
-			if st, gerr := client.GetTextStatus(context.Background(), client.Store.ID.ToNonAD()); gerr == nil && st != nil {
+		if wa().Store.ID != nil {
+			if st, gerr := wa().GetTextStatus(context.Background(), wa().Store.ID.ToNonAD()); gerr == nil && st != nil {
 				log.Printf("About updated, server reports expiry %ds (-1 = never expires)", st.EphemeralDurationSec)
 			}
 		}
@@ -278,13 +278,13 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 			}
 		}
 		phone := string(digits)
-		resp, err := client.IsOnWhatsApp(context.Background(), []string{phone})
+		resp, err := wa().IsOnWhatsApp(context.Background(), []string{phone})
 		if err != nil || len(resp) == 0 || !resp[0].IsIn {
 			sendEvent(conn, "new_contact_status", map[string]interface{}{"status": "error", "error": "Not on WhatsApp or query failed"})
 			return
 		}
 		jid := resp[0].JID
-		err = client.Store.Contacts.PutContactName(context.Background(), jid, data.Name, data.Name)
+		err = wa().Store.Contacts.PutContactName(context.Background(), jid, data.Name, data.Name)
 		if err != nil {
 			sendEvent(conn, "new_contact_status", map[string]interface{}{"status": "error", "error": err.Error()})
 			return
@@ -301,7 +301,7 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 			lidJID = jid
 		} else {
 			pnJID = jid
-			if resolved, lerr := client.Store.LIDs.GetLIDForPN(context.Background(), jid); lerr == nil {
+			if resolved, lerr := wa().Store.LIDs.GetLIDForPN(context.Background(), jid); lerr == nil {
 				lidJID = resolved
 			}
 		}
@@ -384,7 +384,7 @@ func syncContactToPhone(pnJID, lidJID types.JID, name string) error {
 		Type:      appstate.WAPatchCriticalUnblockLow,
 		Mutations: mutations,
 	}
-	return client.SendAppState(context.Background(), patch)
+	return wa().SendAppState(context.Background(), patch)
 }
 
 // vCardEscape escapes the characters vCard 3.0 (RFC 2426) requires escaped
@@ -435,7 +435,7 @@ func handleSendContacts(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		id := client.GenerateMessageID()
+		id := wa().GenerateMessageID()
 
 		vcards := make([]*waE2E.ContactMessage, 0, len(data.ContactJIDs))
 		names := make([]string, 0, len(data.ContactJIDs))

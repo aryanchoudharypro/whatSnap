@@ -47,7 +47,7 @@ func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
 					}
 				}
 				phoneStr := string(phoneDigits)
-				checkResp, checkErr := client.IsOnWhatsApp(context.Background(), []string{phoneStr})
+				checkResp, checkErr := wa().IsOnWhatsApp(context.Background(), []string{phoneStr})
 				if checkErr != nil || len(checkResp) == 0 || !checkResp[0].IsIn {
 					sendEvent(conn, "create_group_status", map[string]interface{}{"status": "error", "error": fmt.Sprintf("Participant %s is not on WhatsApp", participant)})
 					return
@@ -59,7 +59,7 @@ func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
 				}
 			}
 		}
-		createResp, createErr := client.CreateGroup(context.Background(), whatsmeow.ReqCreateGroup{
+		createResp, createErr := wa().CreateGroup(context.Background(), whatsmeow.ReqCreateGroup{
 			Name:         groupData.Name,
 			Participants: participantsJIDs,
 		})
@@ -93,7 +93,7 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		info, err := client.GetGroupInfo(context.Background(), jid)
+		info, err := wa().GetGroupInfo(context.Background(), jid)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
@@ -171,7 +171,7 @@ func handleLeaveGroup(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.LeaveGroup(context.Background(), jid); err != nil {
+		if err := wa().LeaveGroup(context.Background(), jid); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
@@ -199,7 +199,7 @@ func handleLeaveAndDeleteGroup(raw json.RawMessage) {
 		pendingGroupDeletes.Store(data.JID, struct{}{})
 		defer pendingGroupDeletes.Delete(data.JID)
 
-		if err := client.LeaveGroup(context.Background(), jid); err != nil {
+		if err := wa().LeaveGroup(context.Background(), jid); err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to leave group: " + err.Error()})
 			return
 		}
@@ -225,7 +225,7 @@ func handleGetGroupInviteLink(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		link, err := client.GetGroupInviteLink(context.Background(), jid, data.Reset)
+		link, err := wa().GetGroupInviteLink(context.Background(), jid, data.Reset)
 		switch {
 		case errors.Is(err, whatsmeow.ErrGroupInviteLinkUnauthorized):
 			sendEvent(conn, "error", map[string]string{"message": "Only group admins can see this group's invite link."})
@@ -277,7 +277,7 @@ func handleUpdateGroupParticipants(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		results, err := client.UpdateGroupParticipants(context.Background(), jid, participants, change)
+		results, err := wa().UpdateGroupParticipants(context.Background(), jid, participants, change)
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
@@ -360,7 +360,7 @@ func handleGetGroupInviteInfo(conn net.Conn, raw json.RawMessage) {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-		info, err := client.GetGroupInfoFromInvite(context.Background(), groupJID, inviterJID, code, expiration)
+		info, err := wa().GetGroupInfoFromInvite(context.Background(), groupJID, inviterJID, code, expiration)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "This invite is no longer valid: " + err.Error()})
 			return
@@ -386,7 +386,7 @@ func handleJoinGroupInvite(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		switch joinErr := client.JoinGroupWithInvite(context.Background(), groupJID, inviterJID, code, expiration); {
+		switch joinErr := wa().JoinGroupWithInvite(context.Background(), groupJID, inviterJID, code, expiration); {
 		case errors.Is(joinErr, whatsmeow.ErrJoinRequiresApproval):
 			broadcastEvent("error", map[string]string{"message": "This group needs an admin to approve new members. Your request to join was sent."})
 			return
@@ -413,7 +413,7 @@ func handleGetGroupLinkInfo(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		info, err := client.GetGroupInfoFromLink(context.Background(), data.Code)
+		info, err := wa().GetGroupInfoFromLink(context.Background(), data.Code)
 		switch {
 		case errors.Is(err, whatsmeow.ErrInviteLinkRevoked):
 			sendEvent(conn, "error", map[string]string{"message": "This invite link was reset by a group admin and no longer works."})
@@ -448,7 +448,7 @@ func handleJoinGroupLink(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		jid, err := client.JoinGroupWithLink(context.Background(), data.Code)
+		jid, err := wa().JoinGroupWithLink(context.Background(), data.Code)
 		switch {
 		case errors.Is(err, whatsmeow.ErrJoinRequiresApproval):
 			broadcastEvent("error", map[string]string{"message": "This group needs an admin to approve new members. Your request to join was sent."})
@@ -474,7 +474,7 @@ func handleSetGroupName(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SetGroupName(context.Background(), jid, data.Name); err != nil {
+		if err := wa().SetGroupName(context.Background(), jid, data.Name); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
@@ -493,7 +493,7 @@ func handleSetGroupTopic(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SetGroupTopic(context.Background(), jid, "", "", data.Topic); err != nil {
+		if err := wa().SetGroupTopic(context.Background(), jid, "", "", data.Topic); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
@@ -516,7 +516,7 @@ func handleSetGroupPhoto(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		pictureID, err := client.SetGroupPhoto(context.Background(), jid, photoBytes)
+		pictureID, err := wa().SetGroupPhoto(context.Background(), jid, photoBytes)
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
@@ -536,7 +536,7 @@ func handleSetGroupAnnounce(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SetGroupAnnounce(context.Background(), jid, data.Value); err != nil {
+		if err := wa().SetGroupAnnounce(context.Background(), jid, data.Value); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
@@ -554,7 +554,7 @@ func handleSetGroupLocked(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := client.SetGroupLocked(context.Background(), jid, data.Value); err != nil {
+		if err := wa().SetGroupLocked(context.Background(), jid, data.Value); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}

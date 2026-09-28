@@ -175,14 +175,14 @@ func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 				community = parsed
 			}
 		}
-		subGroups, err := client.GetSubGroups(context.Background(), community)
+		subGroups, err := wa().GetSubGroups(context.Background(), community)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't load the community's groups: " + err.Error()})
 			return
 		}
 		// Member counts come from a separate query, as in WhatsApp Web. The
 		// list is still worth showing without them.
-		counts, countErr := client.GetSubGroupParticipantCounts(context.Background(), community)
+		counts, countErr := wa().GetSubGroupParticipantCounts(context.Background(), community)
 		if countErr != nil {
 			log.Printf("Couldn't get member counts for %s's groups: %v", community, countErr)
 		}
@@ -261,7 +261,7 @@ func handleJoinCommunitySubgroup(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		err := client.JoinLinkedGroup(context.Background(), parent, child)
+		err := wa().JoinLinkedGroup(context.Background(), parent, child)
 		switch {
 		case errors.Is(err, whatsmeow.ErrJoinRequiresApproval):
 			broadcastEvent("error", map[string]string{"message": "This group needs an admin to approve new members. Your request to join was sent."})
@@ -283,7 +283,7 @@ func handleJoinCommunitySubgroup(raw json.RawMessage) {
 func communityMembers(community types.JID, known []types.GroupParticipant) []types.GroupParticipant {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	all, err := client.GetLinkedGroupsParticipants(ctx, community)
+	all, err := wa().GetLinkedGroupsParticipants(ctx, community)
 	if err != nil {
 		return nil
 	}
