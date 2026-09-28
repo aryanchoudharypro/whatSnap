@@ -241,6 +241,10 @@ func handleConnection(conn net.Conn) {
 			handleSetChatPinned(cmd.Data)
 		case "set_chat_archived":
 			handleSetChatArchived(cmd.Data)
+		case "set_disappearing_timer":
+			handleSetDisappearingTimer(conn, cmd.Data)
+		case "get_disappearing_timer":
+			handleGetDisappearingTimer(conn, cmd.Data)
 		case "set_chat_muted":
 			handleSetChatMuted(cmd.Data)
 		case "set_chat_read":
@@ -317,6 +321,7 @@ func handleConnection(conn net.Conn) {
 				}
 				appStateResyncMu.Unlock()
 				for _, name := range []appstate.WAPatchName{
+					appstate.WAPatchRegular,
 					appstate.WAPatchRegularLow,
 					appstate.WAPatchRegularHigh,
 					appstate.WAPatchCriticalBlock,

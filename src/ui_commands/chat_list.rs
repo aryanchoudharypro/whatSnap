@@ -632,6 +632,38 @@ pub(crate) fn release_conversation_buffers(s: &mut AppState, parts: &Rc<WindowPa
 	parts.conversation_data_dialog.links_list.clear();
 }
 
+/// Asks for a disappearing-messages timer for `jid` and hands it to the
+/// backend, which tells WhatsApp and adds the change to the chat.
+pub(crate) fn choose_disappearing_timer(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
+	// The only timers WhatsApp accepts, in seconds.
+	const CHOICES: [(&str, u32); 4] = [("Off", 0), ("24 hours", 86_400), ("7 days", 604_800), ("90 days", 7_776_000)];
+	let chat_name = state.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+	let labels: Vec<&str> = CHOICES.iter().map(|(label, _)| *label).collect();
+	let dialog = SingleChoiceDialog::builder(
+		&parts.frame,
+		&format!("Make new messages in {} disappear after:", chat_name),
+		"Disappearing Messages",
+		&labels,
+	)
+	.build();
+	if dialog.show_modal() != wxdragon::id::ID_OK {
+		return;
+	}
+	let Some(choice) = dialog.get_string_selection() else { return };
+	let Some(&(label, seconds)) = CHOICES.iter().find(|(l, _)| *l == choice) else { return };
+	let payload = serde_json::json!({
+		"action": "set_disappearing_timer",
+		"data": { "jid": jid, "seconds": seconds }
+	});
+	let _ = state.borrow().ws_tx.send(payload.to_string());
+	let spoken = if seconds == 0 {
+		format!("Disappearing messages turned off for {}.", chat_name)
+	} else {
+		format!("Disappearing messages set to {} for {}.", label, chat_name)
+	};
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &spoken);
+}
+
 pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, lock: bool) {
 	let chat_name = {
 		let mut s = state.borrow_mut();

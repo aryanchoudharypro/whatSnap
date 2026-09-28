@@ -175,6 +175,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		msg = &waE2E.Message{Conversation: &text}
 	}
 
+	msg = applyDisappearingTimer(jid, msg)
 	// Mentioning Meta AI sends the message to it as well (whatsmeow's inline
 	// bot mode), which is what makes it answer in this chat.
 	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs)})
@@ -196,6 +197,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	rawBytes, _ := proto.Marshal(msg)
 
 	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=? WHERE id=?`, ts, ts, rawBytes, id)
+	noteMessageExpiry(db, id, ts, msg)
 	noteChannelPostSent(jid, id, resp)
 	senderJID := ""
 	if client.Store.ID != nil {
@@ -236,8 +238,12 @@ func handleReactMessage(raw json.RawMessage) {
 	if err != nil {
 		return
 	}
+	// The frontend names our own messages' sender "me". Parsed as a JID that
+	// became {Server: "me"}, which BuildMessageKey took for someone else - so
+	// a reaction to our own message went out with fromMe=false (and a bogus
+	// "@me" participant in groups) and never showed up for anyone else.
 	senderJID := types.EmptyJID
-	if data.SenderJID != "" {
+	if data.SenderJID != "" && data.SenderJID != "me" {
 		if parsed, perr := types.ParseJID(data.SenderJID); perr == nil {
 			senderJID = parsed
 		}
@@ -840,6 +846,11 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				}
 				extra.MediaHandle = handle
 			}
+			if !toChannel {
+				// Each target chat has its own disappearing timer, so the
+				// shared content can't carry one.
+				outgoing = applyDisappearingTimer(targetJID, proto.Clone(outgoing).(*waE2E.Message))
+			}
 			resp, sendErr := client.SendMessage(context.Background(), targetJID, outgoing, extra)
 			if sendErr != nil {
 				log.Printf("Error forwarding message to %s: %v", toJIDStr, sendErr)
@@ -869,6 +880,7 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 				ServerID: int64(resp.ServerID),
 			})
+			noteMessageExpiry(db, resp.ID, ts, outgoing)
 
 			broadcastEvent("message", map[string]interface{}{
 				"jid":           targetJID.String(),

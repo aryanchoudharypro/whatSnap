@@ -324,7 +324,7 @@ func initCallClient() {
 // members, so a group that is just you and one other person gets an
 // ordinary 1:1 call to that person instead - the same people end up in the
 // call either way.
-func placeGroupChatCall(ctx context.Context, groupJID types.JID) (*meowcaller.Call, error) {
+func placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*meowcaller.Call, error) {
 	info, err := client.GetGroupInfo(ctx, groupJID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't load the group's members: %w", err)
@@ -340,11 +340,11 @@ func placeGroupChatCall(ctx context.Context, groupJID types.JID) (*meowcaller.Ca
 	case len(others) == 0:
 		return nil, errors.New("There's no one else in this group to call.")
 	case len(others) == 1:
-		return callClient.Call(ctx, others[0].String())
+		return callClient.CallWithOptions(ctx, others[0].String(), meowcaller.CallOptions{Video: video})
 	case len(others) > 31:
 		return nil, fmt.Errorf("This group has %d other members; WhatsApp group calls allow at most 32 people.", len(others))
 	}
-	return callClient.GroupCallByID(ctx, groupJID.String())
+	return callClient.GroupCallByIDWithOptions(ctx, groupJID.String(), meowcaller.GroupCallOptions{Video: video})
 }
 
 func handlePlaceCall(data []byte) {
@@ -369,10 +369,7 @@ func handlePlaceCall(data []byte) {
 	ctx := context.Background()
 	var call *meowcaller.Call
 	if parsedJID.Server == types.GroupServer {
-		// meowcaller's group call placement has no video option; a video
-		// group call is placed as voice and then upgraded with set_video
-		// once connected, same as a mid-call camera toggle.
-		call, err = placeGroupChatCall(ctx, parsedJID)
+		call, err = placeGroupChatCall(ctx, parsedJID, req.Video)
 	} else if req.Video {
 		call, err = callClient.CallWithOptions(ctx, parsedJID.String(), meowcaller.CallOptions{Video: true})
 	} else {

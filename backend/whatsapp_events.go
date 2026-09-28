@@ -199,6 +199,17 @@ func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
 			msg = msg.GetLottieStickerMessage().GetMessage()
 			continue
 		}
+		// An album item arrives wrapped as the album's associated child, and a
+		// Meta AI answer forwarded into a chat as a bot-forwarded wrapper;
+		// both carry an ordinary message inside.
+		if msg.GetAssociatedChildMessage() != nil && msg.GetAssociatedChildMessage().GetMessage() != nil {
+			msg = msg.GetAssociatedChildMessage().GetMessage()
+			continue
+		}
+		if msg.GetBotForwardedMessage() != nil && msg.GetBotForwardedMessage().GetMessage() != nil {
+			msg = msg.GetBotForwardedMessage().GetMessage()
+			continue
+		}
 		if msg.GetEditedMessage() != nil && msg.GetEditedMessage().GetMessage() != nil {
 			inner := msg.GetEditedMessage().GetMessage()
 			if inner.GetProtocolMessage() != nil && inner.GetProtocolMessage().GetEditedMessage() != nil {
@@ -291,6 +302,14 @@ func extractTextRaw(msg *waE2E.Message) string {
 		}
 		return "[Video]"
 	}
+	// A round "video note" - WhatsApp's video counterpart to a voice message -
+	// is a plain VideoMessage in a field of its own.
+	if ptv := msg.GetPtvMessage(); ptv != nil {
+		if sec := ptv.GetSeconds(); sec > 0 {
+			return fmt.Sprintf("[Video Note] (%d:%02d)", sec/60, sec%60)
+		}
+		return "[Video Note]"
+	}
 	if msg.GetDocumentMessage() != nil {
 		caption := msg.GetDocumentMessage().GetCaption()
 		title := msg.GetDocumentMessage().GetTitle()
@@ -376,8 +395,21 @@ func extractTextRaw(msg *waE2E.Message) string {
 	if poll := pollCreation(msg); poll != nil {
 		return "[Poll] " + poll.GetName()
 	}
+	if text := describeOtherMessage(msg); text != "" {
+		return text
+	}
 	// An advanced chat privacy toggle: recorded on the chat, not shown.
 	if msg.GetLimitSharingMessage() != nil {
+		return "[Protocol Message]"
+	}
+	// Bookkeeping with nothing to show as a bubble of its own: pinning or
+	// keeping a message, an RSVP to an event, a comment under a channel post,
+	// sticker-sync and scheduled-call edits. Left unhandled they were stored as
+	// "[Unsupported Message]" rows in the chat.
+	if msg.GetPinInChatMessage() != nil || msg.GetKeepInChatMessage() != nil ||
+		msg.GetEncEventResponseMessage() != nil || msg.GetEncCommentMessage() != nil ||
+		msg.GetStickerSyncRmrMessage() != nil || msg.GetScheduledCallEditMessage() != nil ||
+		msg.GetCallLogMesssage() != nil {
 		return "[Protocol Message]"
 	}
 	if msg.GetProtocolMessage() != nil {
@@ -424,6 +456,91 @@ func extractTextRaw(msg *waE2E.Message) string {
 		return "This message can only be seen on your phone. Open WhatsApp on your phone to view it."
 	}
 	return "[Unsupported Message]"
+}
+
+// describeOtherMessage renders the less common message kinds that carry
+// something worth reading - events, scheduled calls, business products and
+// orders, poll result snapshots, sticker packs, payments, status mentions and
+// channel invites - or "" for anything else.
+func describeOtherMessage(msg *waE2E.Message) string {
+	withDetail := func(label, detail string) string {
+		if detail = strings.TrimSpace(detail); detail != "" {
+			return label + " " + detail
+		}
+		return label
+	}
+	switch {
+	case msg.GetEventMessage() != nil:
+		event := msg.GetEventMessage()
+		label := "[Event]"
+		if event.GetIsCanceled() {
+			label = "[Event cancelled]"
+		}
+		parts := []string{strings.TrimSpace(event.GetName())}
+		if start := event.GetStartTime(); start > 0 {
+			parts = append(parts, time.Unix(start, 0).Format("Mon 2 Jan 2006, 15:04"))
+		}
+		if loc := strings.TrimSpace(event.GetLocation().GetName()); loc != "" {
+			parts = append(parts, loc)
+		}
+		if desc := strings.TrimSpace(event.GetDescription()); desc != "" {
+			parts = append(parts, desc)
+		}
+		if link := strings.TrimSpace(event.GetJoinLink()); link != "" {
+			parts = append(parts, link)
+		}
+		var kept []string
+		for _, p := range parts {
+			if p != "" {
+				kept = append(kept, p)
+			}
+		}
+		return withDetail(label, strings.Join(kept, "\n"))
+	case msg.GetScheduledCallCreationMessage() != nil:
+		call := msg.GetScheduledCallCreationMessage()
+		detail := call.GetTitle()
+		if ms := call.GetScheduledTimestampMS(); ms > 0 {
+			when := time.UnixMilli(ms).Format("Mon 2 Jan 2006, 15:04")
+			detail = strings.TrimSpace(detail + "\n" + when)
+		}
+		return withDetail("[Scheduled Call]", detail)
+	case msg.GetProductMessage() != nil:
+		product := msg.GetProductMessage()
+		detail := product.GetProduct().GetTitle()
+		if body := product.GetBody(); body != "" {
+			detail = strings.TrimSpace(detail + "\n" + body)
+		}
+		return withDetail("[Product]", detail)
+	case msg.GetOrderMessage() != nil:
+		order := msg.GetOrderMessage()
+		detail := order.GetOrderTitle()
+		if text := order.GetMessage(); text != "" {
+			detail = strings.TrimSpace(detail + "\n" + text)
+		}
+		return withDetail("[Order]", detail)
+	case msg.GetPollResultSnapshotMessage() != nil:
+		return withDetail("[Poll results]", msg.GetPollResultSnapshotMessage().GetName())
+	case msg.GetPollResultSnapshotMessageV3() != nil:
+		return withDetail("[Poll results]", msg.GetPollResultSnapshotMessageV3().GetName())
+	case msg.GetStickerPackMessage() != nil:
+		return withDetail("[Sticker Pack]", msg.GetStickerPackMessage().GetName())
+	case msg.GetRequestPhoneNumberMessage() != nil:
+		return "[Asked for your phone number]"
+	case msg.GetSendPaymentMessage() != nil, msg.GetRequestPaymentMessage() != nil,
+		msg.GetPaymentInviteMessage() != nil, msg.GetDeclinePaymentRequestMessage() != nil,
+		msg.GetCancelPaymentRequestMessage() != nil:
+		return "[Payment] Open WhatsApp on your phone to see this payment."
+	case msg.GetStatusMentionMessage() != nil, msg.GetGroupStatusMentionMessage() != nil:
+		return "[Mentioned you in a status update]"
+	case msg.GetNewsletterFollowerInviteMessageV2() != nil:
+		invite := msg.GetNewsletterFollowerInviteMessageV2()
+		detail := invite.GetNewsletterName()
+		if caption := invite.GetCaption(); caption != "" {
+			detail = strings.TrimSpace(detail + ": " + caption)
+		}
+		return withDetail("[Channel Invite]", detail)
+	}
+	return ""
 }
 
 // richResponseSection matches the real wire shape of one entry in a rich
@@ -687,6 +804,12 @@ func mediaCarrier(msg *waE2E.Message) *waE2E.Message {
 	if media, _, _ := templateParts(msg); media != nil {
 		return media
 	}
+	// A video note is downloaded, retried and played like any video. Shares
+	// the pointer, like templateParts, so a media retry's new DirectPath
+	// still lands in msg.
+	if ptv := msg.GetPtvMessage(); ptv != nil {
+		return &waE2E.Message{VideoMessage: ptv}
+	}
 	return msg
 }
 
@@ -734,6 +857,14 @@ func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 		return msg.GetOrderMessage().GetContextInfo()
 	case msg.GetInteractiveMessage() != nil:
 		return msg.GetInteractiveMessage().GetContextInfo()
+	case msg.GetPtvMessage() != nil:
+		return msg.GetPtvMessage().GetContextInfo()
+	case msg.GetEventMessage() != nil:
+		return msg.GetEventMessage().GetContextInfo()
+	case msg.GetStickerPackMessage() != nil:
+		return msg.GetStickerPackMessage().GetContextInfo()
+	case msg.GetPollResultSnapshotMessage() != nil:
+		return msg.GetPollResultSnapshotMessage().GetContextInfo()
 	}
 	return nil
 }
@@ -764,8 +895,10 @@ func setContextInfo(msg *waE2E.Message, ctx *waE2E.ContextInfo) bool {
 		msg.GetLiveLocationMessage().ContextInfo = ctx
 	case msg.GetGroupInviteMessage() != nil:
 		msg.GetGroupInviteMessage().ContextInfo = ctx
-	case msg.GetPollCreationMessage() != nil:
-		msg.GetPollCreationMessage().ContextInfo = ctx
+	case pollCreation(msg) != nil:
+		pollCreation(msg).ContextInfo = ctx
+	case msg.GetPtvMessage() != nil:
+		msg.GetPtvMessage().ContextInfo = ctx
 	default:
 		return false
 	}
@@ -1107,6 +1240,14 @@ func eventHandler(evt interface{}) {
 							limitSharing, limitSharingTS, jid, limitSharingTS)
 					})
 				}
+				// Disappearing messages, likewise only if newer than ours.
+				if conv.EphemeralExpiration != nil {
+					expiration, expirationTS := conv.GetEphemeralExpiration(), conv.GetEphemeralSettingTimestamp()
+					writes = append(writes, func(tx sqlExecer) {
+						tx.Exec(`UPDATE chats SET ephemeral_expiration = ?, ephemeral_setting_ts = ? WHERE jid = ? AND COALESCE(ephemeral_setting_ts, 0) <= ?`,
+							expiration, expirationTS, jid, expirationTS)
+					})
+				}
 
 				chunkMsgs += len(conv.GetMessages())
 				for _, historyMsg := range conv.GetMessages() {
@@ -1336,7 +1477,9 @@ func eventHandler(evt interface{}) {
 								mediaType, mimetype, filename, mediaSize, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt)
 							if err != nil {
 								log.Println("Error inserting message from HistorySync:", err)
+								return
 							}
+							noteMessageExpiry(tx, msgID, msgTS, evtMsg.Message)
 						})
 					}
 				}
@@ -1502,6 +1645,10 @@ func eventHandler(evt interface{}) {
 			}
 			return
 		}
+		if pm := unwrappedMsg.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_EPHEMERAL_SETTING {
+			go applyEphemeralSettingMessage(v, pm)
+			return
+		}
 		if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
 			targetID := unwrappedMsg.GetProtocolMessage().GetKey().GetID()
 			resolvedChat, _ := resolveLIDChat(v)
@@ -1660,8 +1807,12 @@ func eventHandler(evt interface{}) {
 				})
 				if err != nil {
 					fmt.Println("Error inserting message from live event:", err)
-				} else if mediaType == "voice" {
-					autoDownloadVoiceNote(v.Info.ID, jid)
+				} else {
+					noteMessageExpiry(db, v.Info.ID, ts, v.Message)
+					adoptChatDisappearing(chatJID, v.Message)
+					if mediaType == "voice" {
+						autoDownloadVoiceNote(v.Info.ID, jid)
+					}
 				}
 			}
 			broadcastChats()
@@ -1697,6 +1848,10 @@ func eventHandler(evt interface{}) {
 				"pollResults":   newPollResults(unwrappedMsg),
 			})
 		}
+	case *events.UndecryptableMessage:
+		go storeUndecryptablePlaceholder(v)
+	case *events.IdentityChange:
+		go noteSecurityCodeChange(v)
 	case *events.PushName:
 		go func() {
 			jidStr := v.JID.ToNonAD().String()
@@ -2160,6 +2315,12 @@ func eventHandler(evt interface{}) {
 			if v.Remove {
 				updateContactAvatarCache(jidStr, "", "")
 			}
+			// A group's icon change is also a line in the group, as in the
+			// official apps.
+			if v.JID.Server == types.GroupServer && !v.Timestamp.IsZero() {
+				insertGroupSystemMessage(jidStr, fmt.Sprintf("system_%s_%d_picture", v.JID.User, v.Timestamp.UnixNano()),
+					groupPictureChangeText(v.Author, v.Remove), v.Timestamp)
+			}
 			broadcastEvent("avatar_updated", map[string]interface{}{
 				"jid":     jidStr,
 				"removed": v.Remove,
@@ -2184,6 +2345,13 @@ func eventHandler(evt interface{}) {
 		go func() {
 			if v.Name != nil {
 				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.Name.Name)
+			}
+			if v.Ephemeral != nil {
+				seconds := uint32(0)
+				if v.Ephemeral.IsEphemeral {
+					seconds = v.Ephemeral.DisappearingTimer
+				}
+				setChatDisappearing(v.JID.String(), seconds, v.Timestamp.Unix())
 			}
 
 			isAdminChanged := false
@@ -2327,6 +2495,63 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	actor := ""
 	if v.Sender != nil {
 		actor = nameToken(*v.Sender)
+	}
+	// "Someone" never reads out a raw JID: settings changes can come with no
+	// sender (the server applying them, or an old notification).
+	who := actor
+	if who == "" {
+		who = "Someone"
+	}
+
+	// Settings first: a subject change is index 0, the same id history sync
+	// gives its GROUP_CHANGE_SUBJECT stub, so a resync doesn't repeat it.
+	if v.Name != nil && v.Name.Name != "" {
+		lines = append(lines, fmt.Sprintf("%s changed the group name to \"%s\"", who, v.Name.Name))
+	}
+	if v.Topic != nil {
+		if v.Topic.TopicDeleted || v.Topic.Topic == "" {
+			lines = append(lines, fmt.Sprintf("%s deleted the group description", who))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s changed the group description", who))
+		}
+	}
+	if v.Announce != nil {
+		if v.Announce.IsAnnounce {
+			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow only admins to send messages to this group", who))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow all members to send messages to this group", who))
+		}
+	}
+	if v.Locked != nil {
+		if v.Locked.IsLocked {
+			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow only admins to edit this group's info", who))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow all members to edit this group's info", who))
+		}
+	}
+	if v.Ephemeral != nil {
+		lines = append(lines, disappearingChangeText(who, v.Ephemeral.IsEphemeral, v.Ephemeral.DisappearingTimer))
+	}
+	if v.MembershipApprovalMode != nil {
+		if v.MembershipApprovalMode.IsJoinApprovalRequired {
+			lines = append(lines, fmt.Sprintf("%s turned on admin approval to join this group", who))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s turned off admin approval to join this group", who))
+		}
+	}
+	if v.MemberAddMode != nil {
+		switch *v.MemberAddMode {
+		case types.GroupMemberAddModeAdmin:
+			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow only admins to add others to this group", who))
+		case types.GroupMemberAddModeAllMember:
+			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow all members to add others to this group", who))
+		}
+	}
+	if v.Delete != nil && v.Delete.Deleted {
+		lines = append(lines, fmt.Sprintf("%s deleted this group", who))
+	}
+	if v.NewInviteLink != nil && actor != "" {
+		lines = append(lines, fmt.Sprintf("%s reset this group's invite link", actor))
 	}
 
 	if len(v.Join) > 0 {
@@ -2933,6 +3158,11 @@ func populateChatsFromStoreOnce() {
 				parentJID = g.LinkedParentJID.ToNonAD().String()
 			}
 			isAnnounceGroup := g.IsDefaultSubGroup
+			// The server's word on a group's timer is current by definition.
+			disappearing := uint32(0)
+			if g.IsEphemeral {
+				disappearing = g.DisappearingTimer
+			}
 			groupWrites = append(groupWrites, func(tx sqlExecer) {
 				if _, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin, participant_count, parent_jid, is_announce_group) VALUES (?, ?, 0, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
@@ -2945,6 +3175,7 @@ func populateChatsFromStoreOnce() {
 					jidStr, groupName, boolToInt(isParent), boolToInt(isAdmin), memberCount, parentJID, boolToInt(isAnnounceGroup)); err != nil {
 					fmt.Println("Error upserting group chat", jidStr, ":", err)
 				}
+				tx.Exec(`UPDATE chats SET ephemeral_expiration = ? WHERE jid = ?`, disappearing, jidStr)
 			})
 		}
 		writeBatch(groupWrites)

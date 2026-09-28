@@ -225,6 +225,10 @@ pub enum UiCommand {
 		jid: String,
 		mute: bool,
 	},
+	/// Chat menu's Disappearing Messages: pick a timer for the open chat.
+	ChooseDisappearingTimer {
+		jid: String,
+	},
 	/// Per-chat alert level for an archived chat, from the chat-list context
 	/// menu. Stored locally in settings.json rather than pushed to WhatsApp -
 	/// there's no protocol-level equivalent, unlike mute.

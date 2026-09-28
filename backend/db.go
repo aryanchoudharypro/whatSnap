@@ -56,6 +56,10 @@ func migrateDB() error {
 	// setting's own timestamp, so an older stamp can't undo a newer toggle.
 	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing_ts INTEGER DEFAULT 0")
+	// Disappearing messages: the chat's timer in seconds (0 = off) and when
+	// it was set, so an older setting can't undo a newer one.
+	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_expiration INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_setting_ts INTEGER DEFAULT 0")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
@@ -121,6 +125,8 @@ func migrateDB() error {
 	// channel post is pinned.
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_poll_votes TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_pinned INTEGER DEFAULT 0")
+	// When a disappearing message is due to vanish (unix seconds, 0 = never).
+	db.Exec("ALTER TABLE messages ADD COLUMN expires_at INTEGER DEFAULT 0")
 	// An edit is delivered as its own stanza with its own message ID, so every
 	// receipt for it names an ID no message row has. This maps those IDs back
 	// to the message being edited.
@@ -146,6 +152,9 @@ func migrateDB() error {
 	runOnce("backfill_template_messages_v1", backfillTemplateMessages)
 	// v2: messages withheld from linked devices (placeholders) now have text.
 	runOnce("backfill_template_messages_v2", backfillTemplateMessages)
+	// v3: video notes, events, products and the other kinds extractText now
+	// knows, plus pins/RSVPs that were stored as bubbles.
+	runOnce("backfill_template_messages_v3", backfillTemplateMessages)
 	runOnce("backfill_album_messages_v1", backfillAlbumMessages)
 	runOnce("backfill_media_sizes_v1", backfillMediaSizes)
 	runOnce("remove_key_distribution_stubs_v1", removeKeyDistributionStubs)
@@ -167,6 +176,14 @@ func migrateDB() error {
 	// filter on status; without these each one scanned the whole table.
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_outgoing_status ON messages(status) WHERE from_me = 1`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_incoming_status ON messages(jid, status) WHERE from_me = 0`)
+	// The disappearing-message sweep runs every minute; only the few rows
+	// with a timer belong in its index.
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON messages(expires_at) WHERE expires_at > 0`)
+	// purgeMessages drops a deleted message's edit mappings by target; without
+	// this, clearing a big chat scanned the whole table once per message.
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_message_edits_target ON message_edits(target_id)`)
+	// Starred Messages and the starred-message sync look these up directly.
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(timestamp DESC) WHERE starred = 1`)
 
 	// One row per poll and voter: their current selection as comma-separated
 	// hex option hashes (see poll_votes.go).
@@ -642,10 +659,12 @@ func markMessageDeleted(id, jid string) error {
 // another of your devices) deleted for yourself was never a "this message
 // was deleted" placeholder, it's simply gone from your view.
 func deleteMessageForMe(id, jid string) error {
-	db.Exec(`DELETE FROM reactions WHERE message_id = ?`, id)
-	_, err := db.Exec(`DELETE FROM messages WHERE id = ? AND jid = ?`, id, jid)
+	// Through purgeMessages so the row's receipts, edit mappings, poll votes
+	// and downloaded media file go with it - deleting just the row and its
+	// reactions left the rest (the media file on disk included) behind.
+	purgeMessages(`id = ? AND jid = ?`, id, jid)
 	UpdateChatSnippet(jid)
-	return err
+	return nil
 }
 
 func markMessageStarred(id, jid string, starred bool) error {
@@ -710,6 +729,9 @@ func backfillTemplateMessages() {
 		fileSize                                     int64
 	}
 	var fixed []recovered
+	// Bookkeeping messages (pins, event RSVPs, ...) that older builds stored
+	// as bubbles and that are now known to show nothing.
+	var bookkeeping []string
 	for rows.Next() {
 		var id, jid string
 		var raw []byte
@@ -721,6 +743,10 @@ func backfillTemplateMessages() {
 			continue
 		}
 		text := extractText(msg)
+		if text == "[Protocol Message]" {
+			bookkeeping = append(bookkeeping, id)
+			continue
+		}
 		if text == "" || text == "[Unsupported Message]" {
 			continue
 		}
@@ -734,6 +760,12 @@ func backfillTemplateMessages() {
 		db.Exec(`UPDATE messages SET text = ?, media_type = ?, media_mimetype = ?, media_filename = ?, media_size = ?
 			WHERE id = ?`, msg.text, msg.mediaType, msg.mimetype, msg.filename, msg.fileSize, msg.id)
 		chats[msg.jid] = struct{}{}
+	}
+	for _, id := range bookkeeping {
+		var jid string
+		db.QueryRow(`SELECT jid FROM messages WHERE id = ?`, id).Scan(&jid)
+		purgeMessages(`id = ?`, id)
+		chats[jid] = struct{}{}
 	}
 	for jid := range chats {
 		UpdateChatSnippet(jid)

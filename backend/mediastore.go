@@ -243,6 +243,7 @@ func purgeMessages(where string, args ...interface{}) {
 			tx.Exec(`DELETE FROM reactions WHERE message_id = ?`, id)
 			tx.Exec(`DELETE FROM message_receipts WHERE message_id = ?`, id)
 			tx.Exec(`DELETE FROM message_edits WHERE target_id = ?`, id)
+			tx.Exec(`DELETE FROM poll_votes WHERE poll_id = ?`, id)
 			tx.Exec(`DELETE FROM messages WHERE id = ?`, id)
 		})
 	}
