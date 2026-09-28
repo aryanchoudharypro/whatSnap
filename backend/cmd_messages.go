@@ -49,6 +49,20 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 		}
 	}
 
+	// The text keeps its "@Name" mentions for display; the wire text and the
+	// mentioned JIDs go with the pending row, so a retry sends them too.
+	var pendingRaw []byte
+	if wireText, mentionJIDs := applyMentions(data.Text, data.Mentions); len(mentionJIDs) > 0 {
+		if !invokedBot(mentionJIDs).IsEmpty() && chatLimitSharing(jid.String()) {
+			broadcastEvent("error", map[string]string{"message": "Advanced chat privacy is on in this chat, so Meta AI can't be mentioned here."})
+			return
+		}
+		pendingRaw, _ = proto.Marshal(&waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text:        proto.String(wireText),
+			ContextInfo: &waE2E.ContextInfo{MentionedJID: jidStrings(mentionJIDs)},
+		}})
+	}
+
 	senderJID := ""
 	if client.Store.ID != nil {
 		senderJID = client.Store.ID.ToNonAD().String()
@@ -70,7 +84,7 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 		jid.String(), ts, data.Text, senderJID)
 	saveMessage(StoredMessage{
 		ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
-		Text: data.Text, Timestamp: ts, Status: "pending",
+		Text: data.Text, Timestamp: ts, Status: "pending", Raw: pendingRaw,
 		QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSenderDisplay,
 	})
 	broadcastEvent("message", map[string]interface{}{
@@ -110,6 +124,13 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		return
 	}
 
+	// text is what's shown ("@Name"); a message with mentions was stored
+	// with its wire text ("@<JID user>") and mentioned JIDs.
+	wireText, mentionJIDs := storedMentionMessage(id)
+	if wireText == "" {
+		wireText = text
+	}
+
 	var msg *waE2E.Message
 	finalQuotedID, quotedText, finalQuotedSender := "", "", ""
 	if quotedID != "" {
@@ -138,14 +159,25 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 			if participant != "" {
 				ctxInfo.Participant = proto.String(participant)
 			}
-			msg = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: &text, ContextInfo: ctxInfo}}
+			if len(mentionJIDs) > 0 {
+				ctxInfo.MentionedJID = jidStrings(mentionJIDs)
+			}
+			msg = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: &wireText, ContextInfo: ctxInfo}}
 		}
+	}
+	if msg == nil && len(mentionJIDs) > 0 {
+		msg = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text:        &wireText,
+			ContextInfo: &waE2E.ContextInfo{MentionedJID: jidStrings(mentionJIDs)},
+		}}
 	}
 	if msg == nil {
 		msg = &waE2E.Message{Conversation: &text}
 	}
 
-	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
+	// Mentioning Meta AI sends the message to it as well (whatsmeow's inline
+	// bot mode), which is what makes it answer in this chat.
+	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs)})
 	if err != nil {
 		log.Printf("Error sending message %s: %v", id, err)
 		if conn != nil {
@@ -240,7 +272,20 @@ func handleEditMessage(raw json.RawMessage) {
 		return
 	}
 	go func() {
+		// An edit can't invoke Meta AI, so a bot mention stays plain text.
+		var mentions []MentionRef
+		for _, m := range editMentions(data.MessageID, data.Mentions) {
+			if jid, err := types.ParseJID(m.JID); err == nil && !jid.IsBot() {
+				mentions = append(mentions, m)
+			}
+		}
 		newContent := &waE2E.Message{Conversation: proto.String(data.NewText)}
+		if wireText, mentionJIDs := applyMentions(data.NewText, mentions); len(mentionJIDs) > 0 {
+			newContent = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text:        proto.String(wireText),
+				ContextInfo: &waE2E.ContextInfo{MentionedJID: jidStrings(mentionJIDs)},
+			}}
+		}
 		msg := client.BuildEdit(chatJID, data.MessageID, newContent)
 
 		// The edit travels as its own message with its own ID, and every

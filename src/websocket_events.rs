@@ -37,6 +37,43 @@ use crate::{
 	ui::window::WindowParts,
 };
 
+/// Formats the conversation data button label for a chat.
+///
+/// In 1-on-1 chats:
+/// - When typing: `<Chat Name> (typing...)`
+/// - When recording: `<Chat Name> (recording audio...)`
+/// - When idle: Presence label (e.g. `<Name> (online)` or `<Name> (last seen ...)`) or fallback `<Chat Name>`.
+///
+/// In group chats:
+/// - When typing: `<Group Name>, <Sender Name> is typing...`
+/// - When recording: `<Group Name>, <Sender Name> is recording audio...`
+/// - When idle: Presence label or fallback `<Group Name>`.
+pub(crate) fn format_conv_data_label(
+	chat_jid: &str,
+	chat_name: &str,
+	sender_name: &str,
+	is_typing: bool,
+	is_recording: bool,
+	presence_label: Option<&str>,
+) -> String {
+	if is_recording || is_typing {
+		let is_group = chat_jid.ends_with("@g.us");
+		if is_group {
+			let status = if is_recording {
+				format!("{} is recording audio...", sender_name)
+			} else {
+				format!("{} is typing...", sender_name)
+			};
+			format!("{}, {}", chat_name, status)
+		} else {
+			let status = if is_recording { "recording audio..." } else { "typing..." };
+			format!("{} ({})", chat_name, status)
+		}
+	} else {
+		presence_label.filter(|l| !l.is_empty()).map(|l| l.to_string()).unwrap_or_else(|| chat_name.to_string())
+	}
+}
+
 /// Notes a call event in `logs/ui.log`, with whether the call window was up
 /// and what the UI thought the active call was. The backend logs its side, so
 /// the two together show whether an incoming call reached the window.
@@ -2732,28 +2769,25 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								} else {
 									chat_jid.to_string()
 								};
-								let base_label = s
+								let chat_name = s
+									.contacts
+									.get(chat_jid)
+									.or_else(|| s.contacts.get(&norm_chat_jid))
+									.cloned()
+									.unwrap_or_else(|| display_name_for_jid(chat_jid));
+								let presence_label = s
 									.presence_labels
 									.get(chat_jid)
 									.or_else(|| s.presence_labels.get(&norm_chat_jid))
-									.cloned()
-									.unwrap_or_else(|| {
-										s.contacts
-											.get(chat_jid)
-											.cloned()
-											.unwrap_or_else(|| "Conversation data".to_string())
-									});
-
-								let btn_label = if is_recording || is_typing {
-									let status = if is_recording {
-										format!("{} is recording audio...", sender_name)
-									} else {
-										format!("{} is typing...", sender_name)
-									};
-									format!("{}, {}", base_label, status)
-								} else {
-									base_label
-								};
+									.map(|l| l.as_str());
+								let btn_label = format_conv_data_label(
+									chat_jid,
+									&chat_name,
+									&sender_name,
+									is_typing,
+									is_recording,
+									presence_label,
+								);
 								parts.conversations_parts.conv_data_btn.set_label(&btn_label);
 							}
 						}
@@ -2811,6 +2845,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							crate::ui_commands::messaging::contact_came_online(&mut s, &clean_jid);
 						}
 
+						let is_currently_typing = s
+							.typing_timestamps
+							.get(&clean_jid)
+							.or_else(|| s.typing_timestamps.get(jid))
+							.or_else(|| s.selected_chat.as_ref().and_then(|sel| s.typing_timestamps.get(sel)))
+							.map_or(false, |t| t.elapsed().as_secs() < 5);
+
+						if unavailable {
+							s.typing_timestamps.remove(&clean_jid);
+							s.typing_timestamps.remove(jid);
+							s.typing_announce_state.remove(&clean_jid);
+							s.typing_announce_state.remove(jid);
+						}
+
 						if Some(clean_jid.clone()) == s.selected_chat || Some(jid.to_string()) == s.selected_chat {
 							let mut should_announce = true;
 							if !s.initial_presence_received {
@@ -2845,8 +2893,22 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									&announcement,
 								);
 							}
-							parts.conversations_parts.conv_data_btn.set_label(&btn_label);
+							if unavailable || !is_currently_typing {
+								parts.conversations_parts.conv_data_btn.set_label(&btn_label);
+							}
 						}
+					}
+				}
+				"mention_candidates" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::mentions::on_candidates(state, &parts.conversations_parts, data);
+					}
+				}
+				"chat_limit_sharing" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or_default();
+						let enabled = data.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false);
+						crate::ui_commands::mentions::on_limit_sharing(state, &parts.conversations_parts, jid, enabled);
 					}
 				}
 				"group_info" => {
@@ -4221,5 +4283,86 @@ mod conversation_messages_tests {
 	fn a_malformed_envelope_is_rejected_rather_than_panicking() {
 		assert!(parse_conversation_messages(r#"{"type":"conversation_messages"}"#).is_none());
 		assert!(parse_conversation_messages("{").is_none());
+	}
+
+	#[test]
+	fn direct_chat_typing_replaces_presence_label() {
+		let label_online = format_conv_data_label(
+			"919876543210@s.whatsapp.net",
+			"Aman Kumar",
+			"Aman Kumar",
+			true,
+			false,
+			Some("Aman Kumar (online)"),
+		);
+		assert_eq!(label_online, "Aman Kumar (typing...)");
+
+		let label_last_seen = format_conv_data_label(
+			"919876543210@s.whatsapp.net",
+			"Aman Kumar",
+			"Aman Kumar",
+			true,
+			false,
+			Some("Aman Kumar (last seen today at 6:19 AM)"),
+		);
+		assert_eq!(label_last_seen, "Aman Kumar (typing...)");
+	}
+
+	#[test]
+	fn direct_chat_recording_replaces_presence_label() {
+		let label = format_conv_data_label(
+			"919876543210@s.whatsapp.net",
+			"Aman Kumar",
+			"Aman Kumar",
+			false,
+			true,
+			Some("Aman Kumar (online)"),
+		);
+		assert_eq!(label, "Aman Kumar (recording audio...)");
+	}
+
+	#[test]
+	fn direct_chat_idle_uses_presence_label() {
+		let label_online = format_conv_data_label(
+			"919876543210@s.whatsapp.net",
+			"Aman Kumar",
+			"Aman Kumar",
+			false,
+			false,
+			Some("Aman Kumar (online)"),
+		);
+		assert_eq!(label_online, "Aman Kumar (online)");
+
+		let label_last_seen = format_conv_data_label(
+			"919876543210@s.whatsapp.net",
+			"Aman Kumar",
+			"Aman Kumar",
+			false,
+			false,
+			Some("Aman Kumar (last seen today at 6:19 AM)"),
+		);
+		assert_eq!(label_last_seen, "Aman Kumar (last seen today at 6:19 AM)");
+
+		let label_no_presence =
+			format_conv_data_label("919876543210@s.whatsapp.net", "Aman Kumar", "Aman Kumar", false, false, None);
+		assert_eq!(label_no_presence, "Aman Kumar");
+	}
+
+	#[test]
+	fn group_chat_typing_appends_sender() {
+		let label = format_conv_data_label("123456789@g.us", "Family Group", "Aman Kumar", true, false, None);
+		assert_eq!(label, "Family Group, Aman Kumar is typing...");
+	}
+
+	#[test]
+	fn group_chat_recording_appends_sender() {
+		let label = format_conv_data_label("123456789@g.us", "Family Group", "Aman Kumar", false, true, None);
+		assert_eq!(label, "Family Group, Aman Kumar is recording audio...");
+	}
+
+	#[test]
+	fn group_chat_idle_shows_group_name() {
+		let label = format_conv_data_label("123456789@g.us", "Family Group", "", false, false, None);
+		assert_eq!(label, "Family Group");
 	}
 }

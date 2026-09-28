@@ -376,6 +376,10 @@ func extractTextRaw(msg *waE2E.Message) string {
 	if poll := pollCreation(msg); poll != nil {
 		return "[Poll] " + poll.GetName()
 	}
+	// An advanced chat privacy toggle: recorded on the chat, not shown.
+	if msg.GetLimitSharingMessage() != nil {
+		return "[Protocol Message]"
+	}
 	if msg.GetProtocolMessage() != nil {
 		if msg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
 			return "[Message deleted]"
@@ -412,6 +416,12 @@ func extractTextRaw(msg *waE2E.Message) string {
 	}
 	if text := richResponseText(msg.GetRichResponseMessage()); text != "" {
 		return text
+	}
+	// WhatsApp withholds some messages from linked devices on purpose -
+	// businesses' one-time login codes, for one - and sends them only a
+	// placeholder. There is nothing to fetch: the phone never shares them.
+	if msg.GetPlaceholderMessage() != nil {
+		return "This message can only be seen on your phone. Open WhatsApp on your phone to view it."
 	}
 	return "[Unsupported Message]"
 }
@@ -1089,6 +1099,14 @@ func eventHandler(evt interface{}) {
 						fmt.Println("Error inserting chat from HistorySync:", err)
 					}
 				})
+				// Advanced chat privacy, applied only if newer than what we have.
+				if conv.LimitSharing != nil {
+					limitSharing, limitSharingTS := boolToInt(conv.GetLimitSharing()), conv.GetLimitSharingSettingTimestamp()
+					writes = append(writes, func(tx sqlExecer) {
+						tx.Exec(`UPDATE chats SET limit_sharing = ?, limit_sharing_ts = ? WHERE jid = ? AND COALESCE(limit_sharing_ts, 0) <= ?`,
+							limitSharing, limitSharingTS, jid, limitSharingTS)
+					})
+				}
 
 				chunkMsgs += len(conv.GetMessages())
 				for _, historyMsg := range conv.GetMessages() {
@@ -1391,6 +1409,17 @@ func eventHandler(evt interface{}) {
 
 	case *events.Message:
 		unwrappedMsg := unwrapMessage(v.Message)
+		if setting, toggle := limitSharingInMessage(v.Message); setting != nil {
+			chat, _ := resolveLIDChat(v)
+			ts := setting.GetLimitSharingSettingTimestamp()
+			if ts == 0 {
+				ts = v.Info.Timestamp.UnixMilli()
+			}
+			go setChatLimitSharing(chat.String(), setting.GetSharingLimited(), ts)
+			if toggle {
+				return
+			}
+		}
 		// A channel admin's edit or deletion of a post comes as the post's
 		// own ID with an edit attribute: the new content, or nothing.
 		if v.Info.Chat.Server == types.NewsletterServer {
@@ -2142,6 +2171,8 @@ func eventHandler(evt interface{}) {
 			"jid":    v.JID.String(),
 			"status": v.Status,
 		})
+	case *events.GroupLimitSharingUpdate:
+		go setChatLimitSharing(v.JID.String(), v.Enabled(), 0)
 	case *events.GroupInfo:
 		if _, deleting := pendingGroupDeletes.Load(v.JID.String()); deleting {
 			// This group is mid-"delete chat and exit group" - most likely

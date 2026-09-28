@@ -85,6 +85,8 @@ func handleConnection(conn net.Conn) {
 			handleForwardMessage(conn, cmd.Data)
 		case "react_message":
 			handleReactMessage(cmd.Data)
+		case "get_mention_candidates":
+			handleGetMentionCandidates(conn, cmd.Data)
 		case "edit_message":
 			handleEditMessage(cmd.Data)
 		case "delete_message":

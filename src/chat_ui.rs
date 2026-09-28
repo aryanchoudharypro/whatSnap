@@ -149,10 +149,14 @@ pub(crate) fn clear_unread_divider_for_open_chat(s: &mut AppState, parts: &Windo
 pub(crate) fn save_composer_draft(s: &mut AppState, parts: &WindowParts) {
 	let Some(prev_jid) = s.selected_chat.clone() else { return };
 	let text = parts.conversations_parts.message_field.get_value();
+	let mentions = std::mem::take(&mut s.composer_mentions);
+	crate::ui_commands::mentions::close(s, &parts.conversations_parts);
 	if text.trim().is_empty() {
 		s.draft_messages.remove(&prev_jid);
+		s.draft_mentions.remove(&prev_jid);
 	} else {
-		s.draft_messages.insert(prev_jid, text);
+		s.draft_messages.insert(prev_jid.clone(), text);
+		s.draft_mentions.insert(prev_jid, mentions);
 	}
 }
 
@@ -253,8 +257,27 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.play_voice_btn.show(false);
 	parts.conversations_parts.action_panel.show(false);
 
-	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| display_name_for_jid(jid));
-	let label = s.presence_labels.get(jid).cloned().unwrap_or_else(|| name.clone());
+	let norm_jid = if let Some((user, server)) = jid.split_once('@') {
+		let base = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+		format!("{}@{}", base, server)
+	} else {
+		jid.to_string()
+	};
+	let name =
+		s.contacts.get(jid).or_else(|| s.contacts.get(&norm_jid)).cloned().unwrap_or_else(|| display_name_for_jid(jid));
+	let presence_label = s.presence_labels.get(jid).or_else(|| s.presence_labels.get(&norm_jid)).map(|s| s.as_str());
+	let is_typing_active = s
+		.typing_timestamps
+		.get(jid)
+		.or_else(|| s.typing_timestamps.get(&norm_jid))
+		.map_or(false, |t| t.elapsed().as_secs() < 5);
+	let kind = if is_typing_active {
+		s.typing_announce_state.get(jid).or_else(|| s.typing_announce_state.get(&norm_jid)).copied().unwrap_or(1)
+	} else {
+		0
+	};
+	let label =
+		crate::websocket_events::format_conv_data_label(jid, &name, &name, kind == 1, kind == 2, presence_label);
 	parts.conversations_parts.conv_data_btn.set_label(&label);
 
 	parts.attachment_dialog.attachment_info_label.set_label("");
@@ -271,6 +294,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.place_video_call_btn.show(can_call);
 	parts.conversations_parts.top_btns_panel.layout();
 	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();
+	s.composer_mentions = s.draft_mentions.get(jid).cloned().unwrap_or_default();
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
 	parts.conversations_parts.panel.layout();

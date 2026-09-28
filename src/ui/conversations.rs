@@ -47,6 +47,9 @@ pub struct ConversationsPanelParts {
 
 	pub message_label: StaticText,
 	pub message_field: TextCtrl,
+	/// @mention suggestions, shown above the composer while completing one.
+	/// Never focused: the composer keeps focus and announces the highlight.
+	pub mention_list: ListBox,
 	pub cancel_edit_btn: Button,
 	pub remove_quote_btn: Button,
 	pub send_message_btn: Button,
@@ -269,6 +272,12 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		.build();
 	message_field.set_font(&theme::Fonts::body());
 	message_field.set_min_size(Size::new(-1, 60));
+	// Created after the field, so it's never ahead of it in tab order.
+	let mention_list = ListBox::builder(&conversation_panel).build();
+	mention_list.set_font(&theme::Fonts::body());
+	mention_list.set_min_size(Size::new(-1, 120));
+	conv_sizer.add(&mention_list, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	mention_list.show(false);
 	conv_sizer.add(&message_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	// Composer toolbar: attach / edit-reply state / send / record, laid out as one
@@ -396,6 +405,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		read_more_btn,
 		message_label,
 		message_field,
+		mention_list,
 		cancel_edit_btn,
 		remove_quote_btn,
 		send_message_btn,

@@ -33,6 +33,8 @@ type SendCommandData struct {
 	Text        string `json:"text"`
 	ReplyToID   string `json:"reply_to_id"`     // optional: message ID being quoted
 	ReplySender string `json:"reply_to_sender"` // optional: JID of the quoted message's original sender (needed in groups)
+	// @mentions picked in the composer; Text holds them as "@Name".
+	Mentions []MentionRef `json:"mentions"`
 }
 
 type ReactMessageData struct {
@@ -46,6 +48,8 @@ type EditMessageData struct {
 	JID       string `json:"jid"`
 	MessageID string `json:"message_id"`
 	NewText   string `json:"new_text"`
+	// @mentions picked while editing (the message's own are kept too).
+	Mentions []MentionRef `json:"mentions"`
 }
 
 type DeleteMessageData struct {

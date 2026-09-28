@@ -35,17 +35,22 @@ pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		let reply_sender = s.pending_reply_sender.take().unwrap_or_default();
 		s.pending_reply_preview = None;
 
+		let mentions = crate::ui_commands::mentions::mentions_payload(&s, &text);
 		let payload = serde_json::json!({
 			"action": "send",
 			"data": {
 				"to": jid,
 				"text": text,
 				"reply_to_id": reply_id,
-				"reply_to_sender": reply_sender
+				"reply_to_sender": reply_sender,
+				"mentions": mentions
 			}
 		});
 		let _ = s.ws_tx.send(payload.to_string());
 		s.draft_messages.remove(jid);
+		s.draft_mentions.remove(jid);
+		s.composer_mentions.clear();
+		crate::ui_commands::mentions::close(&mut s, &parts.conversations_parts);
 		parts.conversations_parts.message_field.set_value("");
 		parts.conversations_parts.send_message_btn.show(false);
 		parts.conversations_parts.remove_quote_btn.show(false);
@@ -57,6 +62,7 @@ pub(crate) fn cancel_edit(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	let mut s = state.borrow_mut();
 	let was_editing = s.editing_message_id.take().is_some();
 	s.editing_message_original_text = None;
+	s.composer_mentions.clear();
 	drop(s);
 	end_edit_mode(parts);
 	if was_editing {
@@ -79,6 +85,9 @@ pub(crate) fn begin_edit_message(
 	let mut s = state.borrow_mut();
 	s.editing_message_id = Some(message_id);
 	s.editing_message_original_text = Some(text.clone());
+	// Mentions already in the message are kept by the backend; this holds
+	// only ones picked during the edit.
+	s.composer_mentions.clear();
 	drop(s);
 	let field = &parts.conversations_parts.message_field;
 	field.set_value(&text);
@@ -258,6 +267,8 @@ pub(crate) fn edit_message(
 	let original = s.editing_message_original_text.take();
 	s.editing_message_id = None;
 	let jid = s.selected_chat.clone();
+	let mentions = crate::ui_commands::mentions::mentions_payload(&s, &new_text);
+	s.composer_mentions.clear();
 	drop(s);
 
 	let announcement = if new_text.is_empty() {
@@ -271,7 +282,8 @@ pub(crate) fn edit_message(
 				"data": {
 					"jid": jid,
 					"message_id": message_id,
-					"new_text": new_text
+					"new_text": new_text,
+					"mentions": mentions
 				}
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());

@@ -395,6 +395,19 @@ struct AppState {
 	/// Escape) never loses what was typed. Cleared once the draft is
 	/// actually sent.
 	draft_messages: std::collections::HashMap<String, String>,
+	/// The @mentions picked in each saved draft, kept with `draft_messages`.
+	draft_mentions: std::collections::HashMap<String, Vec<ui_commands::mentions::MentionEntry>>,
+	/// @mentions picked in the composer's current text (see ui_commands::mentions).
+	composer_mentions: Vec<ui_commands::mentions::MentionEntry>,
+	/// Who can be mentioned in the open chat, once fetched.
+	mention_candidates: Option<ui_commands::mentions::MentionCandidates>,
+	/// Chat a mention_candidates request is out for.
+	mention_request_pending: Option<String>,
+	/// The open @mention suggestions.
+	mention_popup: Option<ui_commands::mentions::MentionPopup>,
+	/// The "@" whose suggestions were dismissed (Escape, or one was picked),
+	/// so typing on after it doesn't reopen them.
+	mention_dismissed_at: Option<usize>,
 	pending_receipts: std::collections::HashMap<String, String>,
 	downloads_in_progress: std::collections::HashMap<String, i64>,
 	pending_copy_announcements: std::collections::HashSet<String>,
@@ -865,6 +878,12 @@ fn main() {
 			editing_message_id: None,
 			editing_message_original_text: None,
 			draft_messages: std::collections::HashMap::new(),
+			draft_mentions: std::collections::HashMap::new(),
+			composer_mentions: Vec::new(),
+			mention_candidates: None,
+			mention_request_pending: None,
+			mention_popup: None,
+			mention_dismissed_at: None,
 			pending_receipts: std::collections::HashMap::new(),
 			downloads_in_progress: std::collections::HashMap::new(),
 			pending_copy_announcements: std::collections::HashSet::new(),
@@ -1020,14 +1039,25 @@ fn main() {
 					} else {
 						sel_jid.clone()
 					};
-					let label = s
+					let chat_name = s
+						.contacts
+						.get(sel_jid)
+						.or_else(|| s.contacts.get(&norm_jid))
+						.cloned()
+						.unwrap_or_else(|| contact_picker::display_name_for_jid(sel_jid));
+					let presence_label = s
 						.presence_labels
 						.get(sel_jid.as_str())
 						.or_else(|| s.presence_labels.get(&norm_jid))
-						.cloned()
-						.unwrap_or_else(|| {
-							s.contacts.get(sel_jid).cloned().unwrap_or_else(|| "Conversation data".to_string())
-						});
+						.map(|l| l.as_str());
+					let label = websocket_events::format_conv_data_label(
+						sel_jid,
+						&chat_name,
+						&chat_name,
+						false,
+						false,
+						presence_label,
+					);
 					parts_typing_timer.conversations_parts.conv_data_btn.set_label(&label);
 				}
 			}
