@@ -1390,6 +1390,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		}
 		UiCommand::ToggleAudioSpeed => ui_commands::voice::toggle_audio_speed(state, parts),
 		UiCommand::ToggleLockChat { jid, lock } => ui_commands::chat_list::toggle_lock_chat(state, parts, jid, lock),
+		UiCommand::ChooseDisappearingTimer { jid } => {
+			ui_commands::chat_list::choose_disappearing_timer(state, parts, jid)
+		}
 		UiCommand::TogglePinChat { jid, pin } => ui_commands::chat_list::toggle_pin_chat(state, parts, jid, pin),
 		UiCommand::ToggleArchiveChat { jid, archive } => {
 			ui_commands::chat_list::toggle_archive_chat(state, parts, jid, archive)

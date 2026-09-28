@@ -953,6 +953,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		msg = &waE2E.Message{DocumentMessage: docMsg}
 	}
 
+	msg = applyDisappearingTimer(jid, msg)
 	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
 	if err != nil {
 		fail(err.Error())
@@ -963,6 +964,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	ts := resp.Timestamp.Unix()
 	db.Exec(`UPDATE messages SET status='sent', text=?, timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
 		displayText, ts, ts, rawBytes, path, mimetype, id)
+	noteMessageExpiry(db, id, ts, msg)
 	noteChannelPostSent(jid, id, resp)
 
 	broadcastEvent("message", map[string]interface{}{
@@ -1132,6 +1134,7 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 		ContextInfo: ctxInfo,
 	}}
 
+	msg = applyDisappearingTimer(jid, msg)
 	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
 	if err != nil {
 		fail(err.Error())
@@ -1142,6 +1145,7 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 	ts := resp.Timestamp.Unix()
 	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
 		ts, ts, rawBytes, path, mimetype, id)
+	noteMessageExpiry(db, id, ts, msg)
 	noteChannelPostSent(jid, id, resp)
 
 	broadcastEvent("message", map[string]interface{}{

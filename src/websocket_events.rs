@@ -1567,13 +1567,17 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							// we already have that's transitioning status (pending/uploading
 							// -> sent/failed). Either way this is an update-in-place, not a
 							// new row.
+							// An incoming message can also replace a row we already show:
+							// the "Waiting for this message" placeholder the backend
+							// stores when a message can't be decrypted yet is swapped
+							// for the real one under the same id once it arrives.
 							let mut temp_msg_idx = None;
-							if is_from_me {
-								for (idx, msg) in s.messages.iter().enumerate() {
-									if msg.id == msg_id || msg.id.starts_with("temp_upload_") {
-										temp_msg_idx = Some(idx);
-										break;
-									}
+							for (idx, msg) in s.messages.iter().enumerate() {
+								if (!msg_id.is_empty() && msg.id == msg_id)
+									|| (is_from_me && msg.id.starts_with("temp_upload_"))
+								{
+									temp_msg_idx = Some(idx);
+									break;
 								}
 							}
 
@@ -1593,8 +1597,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									m.id = msg_id.clone();
 									m.text = text.to_string();
 									m.timestamp = ts;
-									m.sent_at = ts;
-									m.status = status.to_string();
+									if is_from_me {
+										m.sent_at = ts;
+										m.status = status.to_string();
+									}
 									m.media_type = field("mediaType").to_string();
 									m.media_filename = field("mediaFilename").to_string();
 									// Our own file is already on disk, so it gets Open and Save

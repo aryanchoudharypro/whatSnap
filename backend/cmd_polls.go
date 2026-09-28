@@ -146,6 +146,7 @@ func finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE
 	var quotedID, quotedText, quotedSender string
 	db.QueryRow(`SELECT COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,'') FROM messages WHERE id = ?`, id).
 		Scan(&quotedID, &quotedText, &quotedSender)
+	msg = applyDisappearingTimer(jid, msg)
 	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
 	if err != nil {
 		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
@@ -162,6 +163,7 @@ func finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE
 	}
 	sentTs := resp.Timestamp.Unix()
 	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=? WHERE id=?`, sentTs, sentTs, id)
+	noteMessageExpiry(db, id, sentTs, msg)
 	noteChannelPostSent(jid, id, resp)
 	broadcastEvent("message", map[string]interface{}{
 		"jid": jid.String(), "from": "me", "id": id, "text": displayText,

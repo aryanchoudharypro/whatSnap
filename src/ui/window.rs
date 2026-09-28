@@ -236,6 +236,7 @@ pub const MENU_ID_SEND_PTT: i32 = 6032;
 pub const MENU_ID_CALL_MUTE: i32 = 6033;
 pub const MENU_ID_CALL_END: i32 = 6034;
 pub const MENU_ID_LOCK_CHAT: i32 = 6035;
+pub const MENU_ID_DISAPPEARING: i32 = 6036;
 
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whaNTV").with_size(Size::new(1180, 760)).build();
@@ -314,6 +315,11 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_ARCHIVE_CHAT, &default_menu_label(MENU_ID_ARCHIVE_CHAT), "Archive the open chat")
 		.append_item(MENU_ID_PIN_CHAT, &default_menu_label(MENU_ID_PIN_CHAT), "Pin the open chat")
 		.append_item(MENU_ID_LOCK_CHAT, &default_menu_label(MENU_ID_LOCK_CHAT), "Lock or unlock the open chat")
+		.append_item(
+			MENU_ID_DISAPPEARING,
+			"&Disappearing Messages...",
+			"Turn disappearing messages on or off for the open chat",
+		)
 		.append_item(
 			MENU_ID_MARK_UNREAD,
 			&default_menu_label(MENU_ID_MARK_UNREAD),
@@ -1171,6 +1177,11 @@ pub fn bind_input_handlers(
 			let _ = tx_chat_menu.send(UiCommand::ToggleSearchPanel);
 		} else if id == MENU_ID_CHAT_INFO {
 			let _ = tx_chat_menu.send(UiCommand::ShowConversationData);
+		} else if id == MENU_ID_DISAPPEARING {
+			let jid = state_chat_menu.borrow().selected_chat.clone();
+			if let Some(jid) = jid {
+				let _ = tx_chat_menu.send(UiCommand::ChooseDisappearingTimer { jid });
+			}
 		} else if id == MENU_ID_MUTE_CHAT
 			|| id == MENU_ID_ARCHIVE_CHAT
 			|| id == MENU_ID_PIN_CHAT
