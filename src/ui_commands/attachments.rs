@@ -111,6 +111,8 @@ pub(crate) fn open_poll_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	d.question_field.set_value("");
 	d.options_field.set_value("");
 	d.multiple_check.set_value(true);
+	d.multiple_check.enable(true);
+	d.quiz_check.set_value(false);
 	d.question_field.set_focus();
 	d.dialog.show_modal();
 }
@@ -121,6 +123,7 @@ pub(crate) fn send_poll(
 	question: String,
 	options: Vec<String>,
 	multiple_answers: bool,
+	correct_answer: Option<String>,
 ) {
 	let Some(jid) = state.borrow().selected_chat.clone() else {
 		return;
@@ -140,12 +143,14 @@ pub(crate) fn send_poll(
 			"question": question,
 			"options": options,
 			"multiple_answers": multiple_answers,
+			"correct_answer": correct_answer,
 			"reply_to_id": reply_id,
 			"reply_to_sender": reply_sender
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Sending poll...");
+	let sending = if correct_answer.is_some() { "Sending quiz..." } else { "Sending poll..." };
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), sending);
 }
 
 pub(crate) fn prepare_attach_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {

@@ -1260,9 +1260,10 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::AttachFiles(kind) => ui_commands::attachments::attach_files(state, parts, kind),
 		UiCommand::AddAttachment => ui_commands::attachments::add_attachment(state, parts),
 		UiCommand::OpenPollDialog => ui_commands::attachments::open_poll_dialog(state, parts),
+		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
-		UiCommand::SendPoll { question, options, multiple_answers } => {
-			ui_commands::attachments::send_poll(state, parts, question, options, multiple_answers)
+		UiCommand::SendPoll { question, options, multiple_answers, correct_answer } => {
+			ui_commands::attachments::send_poll(state, parts, question, options, multiple_answers, correct_answer)
 		}
 		UiCommand::PasteAttachment => ui_commands::attachments::paste_attachment(state, parts),
 		UiCommand::DiscardAttachment => ui_commands::attachments::discard_attachment(state, parts),

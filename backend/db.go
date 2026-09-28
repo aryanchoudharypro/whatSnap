@@ -204,6 +204,18 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
+	// RSVPs to events, one row per event and responder (the latest answer
+	// wins). response is waE2E.EventResponseMessage_EventResponseType.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS event_responses (
+		event_id TEXT NOT NULL,
+		responder TEXT NOT NULL,
+		response INTEGER NOT NULL DEFAULT 0,
+		extra_guests INTEGER NOT NULL DEFAULT 0,
+		timestamp INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (event_id, responder)
+	)`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS reactions (
 		message_id TEXT NOT NULL,
 		chat_jid TEXT NOT NULL,

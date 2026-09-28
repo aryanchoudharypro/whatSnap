@@ -393,6 +393,9 @@ func extractTextRaw(msg *waE2E.Message) string {
 		return text
 	}
 	if poll := pollCreation(msg); poll != nil {
+		if poll.GetPollType() == waE2E.PollType_QUIZ {
+			return "[Quiz] " + poll.GetName()
+		}
 		return "[Poll] " + poll.GetName()
 	}
 	if text := describeOtherMessage(msg); text != "" {
@@ -1354,6 +1357,19 @@ func eventHandler(evt interface{}) {
 						pollMsg := webMsg
 						writes = append(writes, func(tx sqlExecer) { historyPollVotes(tx, chatJID, pollMsg) })
 					}
+					if enc := unwrapMessage(evtMsg.Message).GetEncEventResponseMessage(); enc != nil {
+						// An RSVP is recorded on its event, like a vote.
+						if resp, err := decryptEventResponse(evtMsg); err == nil {
+							eventID, responder := enc.GetEventCreationMessageKey().GetID(), pollVoterKey(evtMsg.Info.Sender)
+							ts := evtMsg.Info.Timestamp.Unix()
+							writes = append(writes, func(tx sqlExecer) { storeEventResponse(tx, eventID, responder, resp, ts) })
+						}
+						continue
+					}
+					if len(webMsg.GetEventResponses()) > 0 {
+						eventMsg := webMsg
+						writes = append(writes, func(tx sqlExecer) { historyEventResponses(tx, chatJID, eventMsg) })
+					}
 
 					if album := unwrapMessage(evtMsg.Message).GetAlbumMessage(); album != nil {
 						// Same header-only stanza as the live path, but here
@@ -1676,6 +1692,10 @@ func eventHandler(evt interface{}) {
 		}
 		if unwrappedMsg.GetPollUpdateMessage() != nil {
 			applyPollVote(v)
+			return
+		}
+		if unwrappedMsg.GetEncEventResponseMessage() != nil {
+			applyEventResponse(v)
 			return
 		}
 		if unwrappedMsg.GetEncReactionMessage() != nil {

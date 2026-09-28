@@ -105,8 +105,11 @@ type SendPollData struct {
 	Question        string   `json:"question"`
 	Options         []string `json:"options"`
 	MultipleAnswers bool     `json:"multiple_answers"`
-	ReplyToID       string   `json:"reply_to_id"`
-	ReplySender     string   `json:"reply_to_sender"`
+
+	// CorrectAnswer makes it a quiz: the option that is the right answer.
+	CorrectAnswer string `json:"correct_answer"`
+	ReplyToID     string `json:"reply_to_id"`
+	ReplySender   string `json:"reply_to_sender"`
 }
 
 type SendContactsData struct {

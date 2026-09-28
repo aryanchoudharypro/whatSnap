@@ -313,6 +313,12 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleGetPoll(conn, cmd.Data)
 	case "send_poll_vote":
 		handleSendPollVote(conn, cmd.Data)
+	case "send_event":
+		handleSendEvent(conn, cmd.Data)
+	case "get_event":
+		handleGetEvent(conn, cmd.Data)
+	case "send_event_response":
+		handleSendEventResponse(conn, cmd.Data)
 	case "send_voice_message":
 		handleSendVoiceMessage(conn, cmd.Data)
 	case "download_media":

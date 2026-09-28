@@ -340,7 +340,7 @@ pub(crate) fn channel_post_menu(state: &Rc<RefCell<AppState>>, channel_jid: &str
 	const PIN: i32 = 3301;
 	const REACTIONS: i32 = 3302;
 	const VOTERS: i32 = 3303;
-	let is_poll = post.text.starts_with("[Poll]");
+	let is_poll = post.text.starts_with("[Poll]") || post.text.starts_with("[Quiz]");
 	let mut builder = Menu::builder();
 	// Like WhatsApp Web, pinning is only offered once the server has turned
 	// it on for the account; it refuses pins otherwise. A post already pinned

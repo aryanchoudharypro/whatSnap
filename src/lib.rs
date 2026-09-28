@@ -168,6 +168,10 @@ pub fn friendly_preview_text(text: &str) -> String {
 		let rest = rest.trim();
 		return if rest.is_empty() { "Poll".to_string() } else { format!("Poll: {}", rest) };
 	}
+	if let Some(rest) = text.strip_prefix("[Quiz]") {
+		let rest = rest.trim();
+		return if rest.is_empty() { "Quiz".to_string() } else { format!("Quiz: {}", rest) };
+	}
 	match text {
 		"[Location]" => "Location".to_string(),
 		"[Sticker]" => "Sticker".to_string(),
@@ -196,7 +200,12 @@ impl ChatMessage {
 	}
 
 	pub fn is_poll(&self) -> bool {
-		self.text.starts_with("[Poll]")
+		self.text.starts_with("[Poll]") || self.text.starts_with("[Quiz]")
+	}
+
+	/// An event (not a cancelled one) - `V` answers it.
+	pub fn is_event(&self) -> bool {
+		self.text.starts_with("[Event]")
 	}
 
 	pub fn is_voice(&self) -> bool {
@@ -472,6 +481,11 @@ impl ChatMessage {
 			let question = friendly_preview_text(&self.text);
 			let sep = if question.ends_with(['?', '!', '.']) { " " } else { ". " };
 			format!("{question}{sep}{}", self.poll_results)
+		} else if self.is_event() && !self.poll_results.is_empty() {
+			// The RSVP tally, after the event's details.
+			let details = self.text.trim_end();
+			let sep = if details.ends_with(['?', '!', '.']) { " " } else { ". " };
+			format!("{details}{sep}{}", self.poll_results)
 		} else if self.text.starts_with('[') {
 			// text is the backend's "[Document] file.docx"-style placeholder
 			// (used for the chat-list preview and DB persistence), not a real
@@ -1811,6 +1825,24 @@ mod attach_and_poll_tests {
 		let body = poll.body_text();
 		assert_eq!(body, "Poll: Lunch? Yes 50%, 1 vote; No 50%, 1 vote. 2 people voted.");
 		assert!(poll.is_poll());
+	}
+
+	#[test]
+	fn quiz_and_event_results_follow_them() {
+		let quiz = ChatMessage {
+			text: "[Quiz] Capital of France?".into(),
+			poll_results: "Options: Lyon, Paris. No votes yet.".into(),
+			..Default::default()
+		};
+		assert!(quiz.is_poll());
+		assert_eq!(quiz.body_text(), "Quiz: Capital of France? Options: Lyon, Paris. No votes yet.");
+		let event = ChatMessage {
+			text: "[Event] Picnic\nSat 3 Oct 2026, 12:00".into(),
+			poll_results: "2 going, 0 maybe, 1 can't go.".into(),
+			..Default::default()
+		};
+		assert!(event.is_event() && !event.is_poll());
+		assert_eq!(event.body_text(), "[Event] Picnic\nSat 3 Oct 2026, 12:00. 2 going, 0 maybe, 1 can't go.");
 	}
 
 	#[test]

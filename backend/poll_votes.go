@@ -30,18 +30,26 @@ type poll struct {
 	question string
 	options  []string
 	multiple bool
+	// A quiz has one right answer (correct), which is revealed once you've
+	// answered - or straight away if it's your own quiz (fromMe).
+	quiz    bool
+	correct string
+	fromMe  bool
 }
 
 func loadPoll(pollID string) (poll, bool) {
 	var raw []byte
-	if db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, pollID).Scan(&raw) != nil || len(raw) == 0 {
+	var fromMe bool
+	if db.QueryRow(`SELECT raw, from_me FROM messages WHERE id = ?`, pollID).Scan(&raw, &fromMe) != nil || len(raw) == 0 {
 		return poll{}, false
 	}
 	msg := &waE2E.Message{}
 	if proto.Unmarshal(raw, msg) != nil {
 		return poll{}, false
 	}
-	return pollFromMessage(unwrapMessage(msg))
+	p, ok := pollFromMessage(unwrapMessage(msg))
+	p.fromMe = fromMe
+	return p, ok
 }
 
 func pollFromMessage(msg *waE2E.Message) (poll, bool) {
@@ -53,7 +61,35 @@ func pollFromMessage(msg *waE2E.Message) (poll, bool) {
 	for _, opt := range pc.GetOptions() {
 		p.options = append(p.options, opt.GetOptionName())
 	}
+	if pc.GetPollType() == waE2E.PollType_QUIZ {
+		p.quiz, p.multiple = true, false
+		p.correct = pc.GetCorrectAnswer().GetOptionName()
+		// The name may be missing; the hash names it too.
+		if hash := pc.GetCorrectAnswer().GetOptionHash(); p.correct == "" && hash != "" {
+			for _, name := range p.options {
+				if optionHash(name) == hash {
+					p.correct = name
+				}
+			}
+		}
+	}
 	return p, true
+}
+
+// quizAnswerText is the sentence revealing a quiz's right answer, once
+// mine (our vote's option hashes) shows we've answered or the quiz is ours.
+func quizAnswerText(p poll, mine []string) string {
+	if !p.quiz || p.correct == "" || (!p.fromMe && len(mine) == 0) {
+		return ""
+	}
+	if !p.fromMe {
+		for _, h := range mine {
+			if h == optionHash(p.correct) {
+				return " You got it right: the answer is " + p.correct + "."
+			}
+		}
+	}
+	return " The correct answer is " + p.correct + "."
 }
 
 func optionHash(name string) string {
@@ -114,7 +150,7 @@ func pollResultsText(p poll, votes map[string][]string, me string) string {
 		return ""
 	}
 	if len(votes) == 0 {
-		return fmt.Sprintf("Options: %s. No votes yet.", strings.Join(p.options, ", "))
+		return fmt.Sprintf("Options: %s. No votes yet.", strings.Join(p.options, ", ")) + quizAnswerText(p, nil)
 	}
 	counts := make([]int, len(p.options))
 	index := map[string]int{}
@@ -153,7 +189,7 @@ func pollResultsText(p poll, votes map[string][]string, me string) string {
 			text += ", you voted " + strings.Join(names, " and ")
 		}
 	}
-	return text + "."
+	return text + "." + quizAnswerText(p, votes[me])
 }
 
 // newPollResults is the results line for a poll that has just arrived or
@@ -162,15 +198,20 @@ func newPollResults(msg *waE2E.Message) string {
 	if p, ok := pollFromMessage(msg); ok {
 		return pollResultsText(p, nil, "")
 	}
+	if event := unwrapMessage(msg).GetEventMessage(); event != nil && !event.GetIsCanceled() {
+		return eventResponsesText(nil, "")
+	}
 	return ""
 }
 
 // pollResultsForMessage is the results line for a stored poll ("" if pollID
 // isn't one).
+//
+// For an event it is the RSVP line instead.
 func pollResultsForMessage(pollID string) string {
 	p, ok := loadPoll(pollID)
 	if !ok {
-		return ""
+		return eventResultsForMessage(pollID)
 	}
 	if counts, isChannel := channelPollCounts(pollID); isChannel {
 		return channelPollResultsText(p, counts, pollVotes(pollID)[ownVoterKey()])
@@ -233,7 +274,7 @@ func channelPollResultsText(p poll, counts map[string]int, mine []string) string
 	if len(names) > 0 {
 		text += ", you voted " + strings.Join(names, " and ")
 	}
-	return text + "."
+	return text + "." + quizAnswerText(p, mine)
 }
 
 func broadcastPollResults(chatJID, pollID string) string {
@@ -333,6 +374,7 @@ func handleGetPoll(conn net.Conn, raw json.RawMessage) {
 		"options":    p.options,
 		"multiple":   p.multiple,
 		"selected":   selected,
+		"quiz":       p.quiz,
 	})
 }
 
@@ -364,6 +406,15 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			fail("This poll takes only one answer.")
 			return
 		}
+		// As in WhatsApp, a quiz is answered once, for good.
+		if p.quiz && len(pollVotes(data.MessageID)[ownVoterKey()]) > 0 {
+			fail("You've already answered this quiz.")
+			return
+		}
+		if p.quiz && len(data.Options) == 0 {
+			fail("Choose an answer.")
+			return
+		}
 		if isChannelJID(data.JID) {
 			sendChannelPollVote(conn, data, fail)
 			return
@@ -373,25 +424,7 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			fail("invalid jid")
 			return
 		}
-		var fromMe bool
-		var senderStr string
-		db.QueryRow(`SELECT from_me, COALESCE(sender_jid,'') FROM messages WHERE id = ?`, data.MessageID).Scan(&fromMe, &senderStr)
-		sender := chat
-		if fromMe && wa().Store.ID != nil {
-			sender = wa().Store.ID.ToNonAD()
-		} else if s, perr := types.ParseJID(senderStr); perr == nil && !s.IsEmpty() {
-			sender = s
-		}
-		// Vote in the addressing the poll's secret was saved under: whatsmeow
-		// picks our own LID or phone number from the sender's server, and the
-		// other side decrypts with whichever the poll used.
-		if _, realSender, serr := wa().Store.MsgSecrets.GetMessageSecret(context.Background(), chat, sender, data.MessageID); serr == nil && !realSender.IsEmpty() {
-			sender = realSender
-		}
-		info := &types.MessageInfo{
-			MessageSource: types.MessageSource{Chat: chat, Sender: sender, IsFromMe: fromMe, IsGroup: chat.Server == types.GroupServer},
-			ID:            data.MessageID,
-		}
+		info := secretMessageInfo(chat, data.MessageID)
 		msg, err := wa().BuildPollVote(context.Background(), info, data.Options)
 		if err != nil {
 			fail("Couldn't vote: " + err.Error())
@@ -410,6 +443,30 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			"retracted":   len(data.Options) == 0,
 		})
 	}()
+}
+
+// secretMessageInfo describes a stored poll or event for answering it: an
+// answer is sealed with the message's secret, keyed by who sent it.
+func secretMessageInfo(chat types.JID, messageID string) *types.MessageInfo {
+	var fromMe bool
+	var senderStr string
+	db.QueryRow(`SELECT from_me, COALESCE(sender_jid,'') FROM messages WHERE id = ?`, messageID).Scan(&fromMe, &senderStr)
+	sender := chat
+	if fromMe && wa().Store.ID != nil {
+		sender = wa().Store.ID.ToNonAD()
+	} else if s, perr := types.ParseJID(senderStr); perr == nil && !s.IsEmpty() {
+		sender = s
+	}
+	// Answer in the addressing the secret was saved under: whatsmeow picks
+	// our own LID or phone number from the sender's server, and the other
+	// side decrypts with whichever the message used.
+	if _, realSender, serr := wa().Store.MsgSecrets.GetMessageSecret(context.Background(), chat, sender, messageID); serr == nil && !realSender.IsEmpty() {
+		sender = realSender
+	}
+	return &types.MessageInfo{
+		MessageSource: types.MessageSource{Chat: chat, Sender: sender, IsFromMe: fromMe, IsGroup: chat.Server == types.GroupServer},
+		ID:            messageID,
+	}
 }
 
 // sendChannelPollVote votes in a channel poll, which the server counts: the

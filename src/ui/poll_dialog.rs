@@ -10,6 +10,7 @@ pub struct PollDialogParts {
 	pub question_field: TextCtrl,
 	pub options_field: TextCtrl,
 	pub multiple_check: CheckBox,
+	pub quiz_check: CheckBox,
 	pub send_btn: Button,
 	pub cancel_btn: Button,
 }
@@ -47,6 +48,14 @@ pub fn build_poll_dialog(parent: &impl WxWidget) -> PollDialogParts {
 	multiple_check.set_font(&theme::Fonts::body());
 	sizer.add(&multiple_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
+	// A quiz has one right answer, asked for on Send; it takes one answer,
+	// so "Allow multiple answers" goes grey while it's on.
+	let quiz_check = CheckBox::builder(&panel).with_label("Quiz (one correct answer)").build();
+	quiz_check.set_font(&theme::Fonts::body());
+	sizer.add(&quiz_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let multiple_for_quiz = multiple_check;
+	quiz_check.on_toggled(move |event| multiple_for_quiz.enable(!event.is_checked()));
+
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let send_btn = Button::builder(&panel).with_label("Send").build();
 	theme::style_primary_button(&send_btn);
@@ -67,5 +76,5 @@ pub fn build_poll_dialog(parent: &impl WxWidget) -> PollDialogParts {
 	// edit would otherwise keep it).
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
-	PollDialogParts { dialog, question_field, options_field, multiple_check, send_btn, cancel_btn }
+	PollDialogParts { dialog, question_field, options_field, multiple_check, quiz_check, send_btn, cancel_btn }
 }
