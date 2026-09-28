@@ -67,11 +67,11 @@ type chatSettingsRow struct {
 // chat JID, instead of one lookup (plus a LID-twin retry) per chat.
 func allChatSettings() map[string]chatSettingsRow {
 	out := map[string]chatSettingsRow{}
-	if client == nil || client.Store == nil || client.Store.ID == nil {
+	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
 		return out
 	}
 	rows, err := db.Query(`SELECT chat_jid, muted_until, pinned, archived FROM whatsmeow_chat_settings WHERE our_jid = ?`,
-		client.Store.ID.String())
+		wa().Store.ID.String())
 	if err != nil {
 		return out
 	}
@@ -91,13 +91,13 @@ func allChatSettings() map[string]chatSettingsRow {
 // JID, so the twin is tried too (from whatsmeow's in-memory LID cache).
 func chatSettingsFromMap(all map[string]chatSettingsRow, jid types.JID) (types.LocalChatSettings, bool) {
 	row, ok := all[jid.String()]
-	if !ok && client != nil && client.Store != nil && client.Store.LIDs != nil {
+	if !ok && wa() != nil && wa().Store != nil && wa().Store.LIDs != nil {
 		var twin types.JID
 		switch jid.Server {
 		case types.DefaultUserServer:
-			twin, _ = client.Store.LIDs.GetLIDForPN(context.Background(), jid)
+			twin, _ = wa().Store.LIDs.GetLIDForPN(context.Background(), jid)
 		case types.HiddenUserServer:
-			twin, _ = client.Store.LIDs.GetPNForLID(context.Background(), jid)
+			twin, _ = wa().Store.LIDs.GetPNForLID(context.Background(), jid)
 		}
 		if !twin.IsEmpty() {
 			row, ok = all[twin.String()]

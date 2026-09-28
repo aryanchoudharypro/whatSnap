@@ -64,7 +64,7 @@ func buildPoll(question string, options []string, multipleAnswers bool) (*waE2E.
 	if !multipleAnswers {
 		selectable = 1
 	}
-	msg := client.BuildPollCreation(question, cleaned, selectable)
+	msg := wa().BuildPollCreation(question, cleaned, selectable)
 	if !multipleAnswers {
 		msg.PollCreationMessageV3 = msg.PollCreationMessage
 		msg.PollCreationMessage = nil
@@ -91,7 +91,7 @@ func handleSendPoll(conn net.Conn, raw json.RawMessage) {
 		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
 		pollCreation(msg).ContextInfo = ctxInfo
 		displayText := "[Poll] " + pollCreation(msg).GetName()
-		id := client.GenerateMessageID()
+		id := wa().GenerateMessageID()
 		startSendingBuiltMessage(id, jid, msg, displayText, quotedID, quotedText, quotedSender)
 		finishSendingBuiltMessage(conn, id, jid, msg, displayText)
 	}()
@@ -102,8 +102,8 @@ func handleSendPoll(conn net.Conn, raw json.RawMessage) {
 // message itself with the row so a retry can send exactly it again.
 func startSendingBuiltMessage(id string, jid types.JID, msg *waE2E.Message, displayText, quotedID, quotedText, quotedSender string) {
 	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.ToNonAD().String()
+	if wa().Store.ID != nil {
+		senderJID = wa().Store.ID.ToNonAD().String()
 	}
 	ts := time.Now().Unix()
 	rawBytes, _ := proto.Marshal(msg)
@@ -147,7 +147,7 @@ func finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE
 	db.QueryRow(`SELECT COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,'') FROM messages WHERE id = ?`, id).
 		Scan(&quotedID, &quotedText, &quotedSender)
 	msg = applyDisappearingTimer(jid, msg)
-	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
+	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id})
 	if err != nil {
 		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
 		if conn != nil {

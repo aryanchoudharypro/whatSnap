@@ -3593,6 +3593,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						// NVDA doesn't read out every growing partial draft.
 						// Absent (a real edit, not a bot stream) means final.
 						let is_final_edit = data.get("final").and_then(|f| f.as_bool()).unwrap_or(true);
+						// The backend's own rewrite of a row (a view-once message
+						// once opened), not an edit by its sender.
+						let not_an_edit = data.get("not_edit").and_then(|f| f.as_bool()).unwrap_or(false);
 
 						let norm_jid_edit = |jid: &str| -> String {
 							if let Some((user, server)) = jid.split_once('@') {
@@ -3615,8 +3618,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							let is_group = chat_jid.ends_with("@g.us");
 							let edited_row = update_loaded_message(&mut s, target_id, |m| {
 								m.text = new_text.to_string();
-								m.is_edited = true;
-								m.edited_at = edited_at;
+								if not_an_edit {
+									m.media_path.clear();
+								} else {
+									m.is_edited = true;
+									m.edited_at = edited_at;
+								}
 							});
 							if let Some(di) = edited_row {
 								// Replies show the text they quote.
@@ -3628,7 +3635,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								if let Some(item) = s.display_items.get(di) {
 									let updated_display = item.format_display(is_group);
 									parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-									if is_final_edit {
+									if is_final_edit && !not_an_edit {
 										crate::announce::announce(
 											parts.conversations_parts.messages_announcer.clone(),
 											&format!("Message edited: {}", updated_display),

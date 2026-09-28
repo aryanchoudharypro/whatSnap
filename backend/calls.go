@@ -100,10 +100,10 @@ func groupChatName(jid types.JID) string {
 }
 
 func isOwnJID(jid types.JID) bool {
-	if client == nil || client.Store == nil || jid.User == "" {
+	if wa() == nil || wa().Store == nil || jid.User == "" {
 		return false
 	}
-	for _, own := range []types.JID{client.Store.GetJID(), client.Store.GetLID()} {
+	for _, own := range []types.JID{wa().Store.GetJID(), wa().Store.GetLID()} {
 		if own.User != "" && own.User == jid.User {
 			return true
 		}
@@ -246,14 +246,14 @@ func attachCallHandlers(call *meowcaller.Call) {
 }
 
 func initCallClient() {
-	if client == nil {
+	if wa() == nil {
 		return
 	}
 	// Must be registered before meowcaller.NewClient installs its own
 	// handler - see incomingGroupCallJIDs.
-	client.AddEventHandler(recordIncomingGroupCallJID)
-	client.AddEventHandler(noteOwnDeviceReject)
-	callClient = meowcaller.NewClient(client, newCallDiagnosticsOptions()...)
+	wa().AddEventHandler(recordIncomingGroupCallJID)
+	wa().AddEventHandler(noteOwnDeviceReject)
+	callClient = meowcaller.NewClient(wa(), newCallDiagnosticsOptions()...)
 
 	callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())
@@ -325,7 +325,7 @@ func initCallClient() {
 // ordinary 1:1 call to that person instead - the same people end up in the
 // call either way.
 func placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*meowcaller.Call, error) {
-	info, err := client.GetGroupInfo(ctx, groupJID)
+	info, err := wa().GetGroupInfo(ctx, groupJID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't load the group's members: %w", err)
 	}
@@ -409,8 +409,8 @@ func handlePlaceCall(data []byte) {
 	// self_phone picks the ringback the frontend plays: WhatsApp rings in
 	// the tone of the caller's own country.
 	selfPhone := ""
-	if client.Store.ID != nil {
-		selfPhone = client.Store.ID.User
+	if wa().Store.ID != nil {
+		selfPhone = wa().Store.ID.User
 	}
 	broadcastEvent("call_placed", map[string]string{
 		"call_id":    call.ID(),

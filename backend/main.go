@@ -23,6 +23,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -40,7 +41,6 @@ import (
 )
 
 var (
-	client      *whatsmeow.Client
 	container   *sqlstore.Container
 	db          *sql.DB
 	wsClients   = make(map[net.Conn]bool)
@@ -51,6 +51,14 @@ var (
 	verboseLogFlag   = flag.Bool("verbose-logging", false,
 		"Log every WhatsApp protocol frame and SQL query (DEBUG level) instead of just warnings/errors")
 )
+
+// waClient is the WhatsApp client in use. Logging out (or being logged out)
+// swaps in a fresh, unpaired one while other goroutines are still using the
+// old one, so it's an atomic pointer rather than a plain variable.
+var waClient atomic.Pointer[whatsmeow.Client]
+
+// wa returns the WhatsApp client currently in use, or nil before startup.
+func wa() *whatsmeow.Client { return waClient.Load() }
 
 // waLogLevel is whatsmeow's own client/database logger level: DEBUG logs
 // every protocol frame and every SQL query the store runs, which is exactly
@@ -120,7 +128,7 @@ func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 // old device's credentials are already gone, so there's nothing to reuse.
 func replaceWithFreshClient() {
 	newDevice := container.NewDevice()
-	client = buildClient(newDevice)
+	waClient.Store(buildClient(newDevice))
 	initCallClient()
 }
 
@@ -264,10 +272,10 @@ func main() {
 		deviceStore = container.NewDevice()
 	}
 
-	client = buildClient(deviceStore)
+	waClient.Store(buildClient(deviceStore))
 	initCallClient()
 
-	if client.Store.ID != nil {
+	if wa().Store.ID != nil {
 		// First connect of the session: start history-sync progress from
 		// zero (events.Connected deliberately doesn't, see there). The
 		// supervisor in connection.go keeps retrying if this attempt fails,

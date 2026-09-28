@@ -68,10 +68,10 @@ func pollVoterKey(jid types.JID) string {
 }
 
 func ownVoterKey() string {
-	if client == nil || client.Store.ID == nil {
+	if wa() == nil || wa().Store.ID == nil {
 		return ""
 	}
-	return client.Store.ID.ToNonAD().String()
+	return wa().Store.ID.ToNonAD().String()
 }
 
 func storePollVote(exec sqlExecer, pollID, voter string, selected [][]byte, ts int64) {
@@ -272,7 +272,7 @@ func applyPollVote(v *events.Message) {
 func decryptPollVote(v *events.Message) (*waE2E.PollVoteMessage, error) {
 	evt := *v
 	evt.Message = unwrapMessage(v.Message)
-	return client.DecryptPollVote(context.Background(), &evt)
+	return wa().DecryptPollVote(context.Background(), &evt)
 }
 
 // historyPollVotes records the votes history sync delivers with a poll -
@@ -377,28 +377,28 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 		var senderStr string
 		db.QueryRow(`SELECT from_me, COALESCE(sender_jid,'') FROM messages WHERE id = ?`, data.MessageID).Scan(&fromMe, &senderStr)
 		sender := chat
-		if fromMe && client.Store.ID != nil {
-			sender = client.Store.ID.ToNonAD()
+		if fromMe && wa().Store.ID != nil {
+			sender = wa().Store.ID.ToNonAD()
 		} else if s, perr := types.ParseJID(senderStr); perr == nil && !s.IsEmpty() {
 			sender = s
 		}
 		// Vote in the addressing the poll's secret was saved under: whatsmeow
 		// picks our own LID or phone number from the sender's server, and the
 		// other side decrypts with whichever the poll used.
-		if _, realSender, serr := client.Store.MsgSecrets.GetMessageSecret(context.Background(), chat, sender, data.MessageID); serr == nil && !realSender.IsEmpty() {
+		if _, realSender, serr := wa().Store.MsgSecrets.GetMessageSecret(context.Background(), chat, sender, data.MessageID); serr == nil && !realSender.IsEmpty() {
 			sender = realSender
 		}
 		info := &types.MessageInfo{
 			MessageSource: types.MessageSource{Chat: chat, Sender: sender, IsFromMe: fromMe, IsGroup: chat.Server == types.GroupServer},
 			ID:            data.MessageID,
 		}
-		msg, err := client.BuildPollVote(context.Background(), info, data.Options)
+		msg, err := wa().BuildPollVote(context.Background(), info, data.Options)
 		if err != nil {
 			fail("Couldn't vote: " + err.Error())
 			return
 		}
 		msg.PollUpdateMessage.SenderTimestampMS = proto.Int64(time.Now().UnixMilli())
-		if _, err := client.SendMessage(context.Background(), chat, msg, whatsmeow.SendRequestExtra{}); err != nil {
+		if _, err := wa().SendMessage(context.Background(), chat, msg, whatsmeow.SendRequestExtra{}); err != nil {
 			fail("Couldn't send the vote: " + err.Error())
 			return
 		}
@@ -422,7 +422,7 @@ func sendChannelPollVote(conn net.Conn, data PollRefData, fail func(string)) {
 		fail("Can't vote in this poll: it hasn't finished loading from the channel.")
 		return
 	}
-	if err := client.NewsletterSendPollVote(context.Background(), chat, types.MessageServerID(serverID), data.Options); err != nil {
+	if err := wa().NewsletterSendPollVote(context.Background(), chat, types.MessageServerID(serverID), data.Options); err != nil {
 		fail("Couldn't send the vote: " + err.Error())
 		return
 	}
@@ -541,8 +541,8 @@ func convertStoredPollVotes() {
 			continue
 		}
 		sender := chat
-		if r.fromMe && client.Store.ID != nil {
-			sender = client.Store.ID.ToNonAD()
+		if r.fromMe && wa().Store.ID != nil {
+			sender = wa().Store.ID.ToNonAD()
 		} else if s, perr := types.ParseJID(r.sender); perr == nil && !s.IsEmpty() {
 			sender = s
 		}
@@ -555,7 +555,7 @@ func convertStoredPollVotes() {
 		// The row keeps the voter's phone number, but the vote may have been
 		// sealed to their LID - try that too.
 		if verr != nil && sender.Server == types.DefaultUserServer {
-			if lid, lerr := client.Store.LIDs.GetLIDForPN(context.Background(), sender); lerr == nil && !lid.IsEmpty() {
+			if lid, lerr := wa().Store.LIDs.GetLIDForPN(context.Background(), sender); lerr == nil && !lid.IsEmpty() {
 				evt.Info.Sender = lid
 				vote, verr = decryptPollVote(evt)
 			}

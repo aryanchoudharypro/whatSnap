@@ -29,7 +29,7 @@ func requestMessageResend(id, chatJID, senderJID string) {
 		return
 	}
 	target := resendTarget{id, chatJID, senderJID}
-	if client == nil || !client.IsConnected() {
+	if wa() == nil || !wa().IsConnected() {
 		pendingResendsMu.Lock()
 		pendingResends = append(pendingResends, target)
 		pendingResendsMu.Unlock()
@@ -49,8 +49,8 @@ func sendResendRequest(t resendTarget) {
 		sender = chat
 	}
 
-	req := client.BuildUnavailableMessageRequest(chat, sender, t.id)
-	if _, err := client.SendPeerMessage(context.Background(), req); err != nil {
+	req := wa().BuildUnavailableMessageRequest(chat, sender, t.id)
+	if _, err := wa().SendPeerMessage(context.Background(), req); err != nil {
 		log.Printf("Resend request for %s in %s failed: %v", t.id, t.chatJID, err)
 		return
 	}

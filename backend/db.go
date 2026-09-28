@@ -133,6 +133,8 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_pinned INTEGER DEFAULT 0")
 	// When a disappearing message is due to vanish (unix seconds, 0 = never).
 	db.Exec("ALTER TABLE messages ADD COLUMN expires_at INTEGER DEFAULT 0")
+	// View-once media: 1 = not opened yet, 2 = opened (see viewonce.go).
+	db.Exec("ALTER TABLE messages ADD COLUMN view_once INTEGER DEFAULT 0")
 	// An edit is delivered as its own stanza with its own message ID, so every
 	// receipt for it names an ID no message row has. This maps those IDs back
 	// to the message being edited.
@@ -1192,8 +1194,8 @@ func getCachedAvatarPath(jid string) string {
 // resolves LIDs to phone-number JIDs first, then falls back through contact
 // name -> push name -> business name -> "+<number>".
 func resolveDisplayName(jid types.JID) string {
-	if client != nil && client.Store != nil && client.Store.ID != nil {
-		if jid.User == client.Store.ID.User || (jid.Server == types.HiddenUserServer && jid.User == client.Store.GetLID().User) {
+	if wa() != nil && wa().Store != nil && wa().Store.ID != nil {
+		if jid.User == wa().Store.ID.User || (jid.Server == types.HiddenUserServer && jid.User == wa().Store.GetLID().User) {
 			return "You"
 		}
 	}
@@ -1219,26 +1221,26 @@ func resolveDisplayName(jid types.JID) string {
 	// while the address-book name is under the phone JID.
 	var twin types.JID
 	redactedPhone := ""
-	if client != nil && client.Store != nil && client.Store.LIDs != nil {
+	if wa() != nil && wa().Store != nil && wa().Store.LIDs != nil {
 		switch jid.Server {
 		case types.HiddenUserServer:
-			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
+			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
 				contactJID = pn
 				twin = jid
 			}
 		case types.DefaultUserServer:
-			if lid, err := client.Store.LIDs.GetLIDForPN(context.Background(), jid); err == nil && !lid.IsEmpty() {
+			if lid, err := wa().Store.LIDs.GetLIDForPN(context.Background(), jid); err == nil && !lid.IsEmpty() {
 				twin = lid
 			}
 		}
 	}
-	if client != nil && client.Store != nil && client.Store.Contacts != nil {
+	if wa() != nil && wa().Store != nil && wa().Store.Contacts != nil {
 		pushName, businessName := "", ""
 		for _, candidate := range []types.JID{contactJID, twin} {
 			if candidate.IsEmpty() {
 				continue
 			}
-			info, err := client.Store.Contacts.GetContact(context.Background(), candidate)
+			info, err := wa().Store.Contacts.GetContact(context.Background(), candidate)
 			if err != nil || !info.Found {
 				continue
 			}

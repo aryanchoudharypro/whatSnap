@@ -53,7 +53,7 @@ func channelPersonName(jid types.JID) string {
 
 // refreshChannelPins reads which posts are pinned from the channel's info.
 func refreshChannelPins(ctx context.Context, jid types.JID) {
-	meta, err := client.GetNewsletterInfo(ctx, jid)
+	meta, err := wa().GetNewsletterInfo(ctx, jid)
 	if err != nil || meta == nil {
 		if err != nil {
 			log.Printf("Couldn't read pinned posts of channel %s: %v", jid, err)
@@ -74,7 +74,7 @@ var (
 func refreshServerFlags() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	props, err := client.GetABProps(ctx)
+	props, err := wa().GetABProps(ctx)
 	if err != nil {
 		log.Printf("Couldn't fetch the server's feature flags: %v", err)
 		return
@@ -122,9 +122,9 @@ func handlePinChannelPost(conn net.Conn, raw json.RawMessage) {
 		ids := []types.MessageServerID{serverID}
 		var err error
 		if data.Pin {
-			_, err = client.PinNewsletterMessages(ctx, jid, ids)
+			_, err = wa().PinNewsletterMessages(ctx, jid, ids)
 		} else {
-			_, err = client.UnpinNewsletterMessages(ctx, jid, ids)
+			_, err = wa().UnpinNewsletterMessages(ctx, jid, ids)
 		}
 		if err != nil {
 			verb := "pin"
@@ -160,7 +160,7 @@ func handleGetChannelReactions(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		reactions, err := client.GetNewsletterReactionSenders(ctx, jid, serverID)
+		reactions, err := wa().GetNewsletterReactionSenders(ctx, jid, serverID)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't load who reacted: " + err.Error()})
 			return
@@ -202,7 +202,7 @@ func handleGetChannelPollVoters(conn net.Conn, raw json.RawMessage) {
 		defer cancel()
 		groups := make([]map[string]interface{}, 0, len(p.options))
 		for _, option := range p.options {
-			voters, err := client.GetNewsletterPollVoters(ctx, jid, serverID, option, channelPollVotersLimit)
+			voters, err := wa().GetNewsletterPollVoters(ctx, jid, serverID, option, channelPollVotersLimit)
 			if err != nil {
 				sendEvent(conn, "error", map[string]string{"message": "Couldn't load who voted: " + err.Error()})
 				return
@@ -235,7 +235,7 @@ func handleGetChannelPendingInvites(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		invites, err := client.GetNewsletterPendingAdminInvites(ctx, jid)
+		invites, err := wa().GetNewsletterPendingAdminInvites(ctx, jid)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't load the pending admin invites: " + err.Error()})
 			return
@@ -269,7 +269,7 @@ func handleGetSimilarChannels(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		similar, err := client.GetSimilarNewsletters(ctx, jid, similarChannelsLimit)
+		similar, err := wa().GetSimilarNewsletters(ctx, jid, similarChannelsLimit)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't load similar channels: " + err.Error()})
 			return
@@ -335,16 +335,16 @@ func reuploadMedia(ctx context.Context, msg *waE2E.Message, toChannel bool) (str
 	if media == nil {
 		return "", nil
 	}
-	data, err := client.Download(ctx, media)
+	data, err := wa().Download(ctx, media)
 	if err != nil {
 		return "", err
 	}
 	mediaType := whatsmeow.GetMediaType(media)
 	var up whatsmeow.UploadResponse
 	if toChannel {
-		up, err = client.UploadNewsletter(ctx, data, mediaType)
+		up, err = wa().UploadNewsletter(ctx, data, mediaType)
 	} else {
-		up, err = client.Upload(ctx, data, mediaType)
+		up, err = wa().Upload(ctx, data, mediaType)
 	}
 	if err != nil {
 		return "", err

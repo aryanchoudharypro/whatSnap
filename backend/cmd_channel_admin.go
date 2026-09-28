@@ -42,7 +42,7 @@ func acceptChannelNotice(ctx context.Context) {
 	if db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, channelNoticeAcceptedKey).Scan(&done) == nil && done > 0 {
 		return
 	}
-	if err := client.AcceptTOSNotice(ctx, whatsmeow.NewsletterCreationNoticeID, "5"); err != nil {
+	if err := wa().AcceptTOSNotice(ctx, whatsmeow.NewsletterCreationNoticeID, "5"); err != nil {
 		log.Printf("Couldn't accept the channel creation notice: %v", err)
 		return
 	}
@@ -118,7 +118,7 @@ func handleCreateChannel(conn net.Conn, raw json.RawMessage) {
 			params.Picture = picture
 		}
 		acceptChannelNotice(ctx)
-		meta, err := client.CreateNewsletter(ctx, params)
+		meta, err := wa().CreateNewsletter(ctx, params)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't create the channel: " + err.Error()})
 			return
@@ -171,7 +171,7 @@ func handleUpdateChannel(conn net.Conn, raw json.RawMessage) {
 			}
 			update.Picture = &picture
 		}
-		if err := client.UpdateNewsletter(ctx, jid, update); err != nil {
+		if err := wa().UpdateNewsletter(ctx, jid, update); err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't change the channel: " + err.Error()})
 			return
 		}
@@ -206,7 +206,7 @@ func handleDeleteChannel(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := client.DeleteNewsletter(ctx, jid); err != nil {
+		if err := wa().DeleteNewsletter(ctx, jid); err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't delete the channel: " + err.Error()})
 			return
 		}
@@ -229,7 +229,7 @@ func handleGetChannelFollowers(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		followers, err := client.GetNewsletterFollowers(ctx, jid, channelFollowersLimit)
+		followers, err := wa().GetNewsletterFollowers(ctx, jid, channelFollowersLimit)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't load the channel's followers: " + err.Error()})
 			return
@@ -291,10 +291,10 @@ func handleChannelAdminChange(conn net.Conn, raw json.RawMessage, makeOwner bool
 		defer cancel()
 		what := "Admin removed."
 		if makeOwner {
-			err = client.ChangeNewsletterOwner(ctx, jid, user)
+			err = wa().ChangeNewsletterOwner(ctx, jid, user)
 			what = "Ownership handed over. You're now an admin."
 		} else {
-			err = client.DemoteNewsletterAdmin(ctx, jid, user)
+			err = wa().DemoteNewsletterAdmin(ctx, jid, user)
 		}
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't change the channel's admins: " + err.Error()})
@@ -368,11 +368,11 @@ func sendChannelAdminInvite(channel types.JID, channelName string, user types.JI
 	// it, where our conversation with them lives.
 	chat := user.ToNonAD()
 	if chat.Server == types.HiddenUserServer {
-		if pn, err := client.Store.LIDs.GetPNForLID(ctx, chat); err == nil && !pn.IsEmpty() {
+		if pn, err := wa().Store.LIDs.GetPNForLID(ctx, chat); err == nil && !pn.IsEmpty() {
 			chat = pn
 		}
 	}
-	expiration, err := client.CreateNewsletterAdminInvite(ctx, channel, chat)
+	expiration, err := wa().CreateNewsletterAdminInvite(ctx, channel, chat)
 	if err != nil {
 		return err
 	}
@@ -385,7 +385,7 @@ func sendChannelAdminInvite(channel types.JID, channelName string, user types.JI
 		invite.InviteExpiration = proto.Int64(expiration.Unix())
 	}
 	msg := &waE2E.Message{NewsletterAdminInviteMessage: invite}
-	resp, err := client.SendMessage(ctx, chat, msg)
+	resp, err := wa().SendMessage(ctx, chat, msg)
 	if err != nil {
 		return err
 	}
@@ -397,8 +397,8 @@ func sendChannelAdminInvite(channel types.JID, channelName string, user types.JI
 // normal compose path, and shows it in its chat.
 func storeOwnSentMessage(chatJID, id string, msg *waE2E.Message, ts int64) {
 	senderJID := ""
-	if client.Store.ID != nil {
-		senderJID = client.Store.ID.ToNonAD().String()
+	if wa().Store.ID != nil {
+		senderJID = wa().Store.ID.ToNonAD().String()
 	}
 	text := extractText(msg)
 	raw, _ := proto.Marshal(msg)
@@ -486,7 +486,7 @@ func handleChannelAdminInviteAnswer(conn net.Conn, raw json.RawMessage, accept b
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if accept {
-			if err := client.AcceptNewsletterAdminInvite(ctx, channel); err != nil {
+			if err := wa().AcceptNewsletterAdminInvite(ctx, channel); err != nil {
 				sendEvent(conn, "error", map[string]string{"message": "Couldn't accept the invite: " + err.Error()})
 				return
 			}
@@ -498,7 +498,7 @@ func handleChannelAdminInviteAnswer(conn net.Conn, raw json.RawMessage, accept b
 		if err != nil {
 			return
 		}
-		if err := client.RevokeNewsletterAdminInvite(ctx, channel, user); err != nil {
+		if err := wa().RevokeNewsletterAdminInvite(ctx, channel, user); err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't cancel the invite: " + err.Error()})
 			return
 		}

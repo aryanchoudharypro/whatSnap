@@ -227,7 +227,7 @@ func handleGetMentionCandidates(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		members := []map[string]string{}
 		if jid.Server == types.GroupServer {
-			info, err := client.GetGroupInfo(context.Background(), jid)
+			info, err := wa().GetGroupInfo(context.Background(), jid)
 			if err != nil {
 				sendEvent(conn, "error", map[string]string{"message": "Couldn't load the group's members to mention: " + err.Error()})
 			} else {

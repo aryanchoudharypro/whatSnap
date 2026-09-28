@@ -70,7 +70,7 @@ func reconnectNow() {
 
 // handleReconnect is the frontend's "Reconnect Now" menu command.
 func handleReconnect() {
-	if c := client; c != nil && c.IsLoggedIn() {
+	if c := wa(); c != nil && c.IsLoggedIn() {
 		setConnState(connStateOnline, "", 0) // still answer, so the UI can confirm
 		return
 	}
@@ -109,7 +109,7 @@ func runConnectionSupervisor() {
 			timerC = nil
 		}
 
-		c := client
+		c := wa()
 		// Unpaired: the QR / phone-number pairing flow owns Connect().
 		if c == nil || c.Store.ID == nil || c.IsLoggedIn() {
 			continue
@@ -147,7 +147,7 @@ func autoReconnectHook(c *whatsmeow.Client) func(error) bool {
 		if c.AutoReconnectErrors > maxAutoReconnectSteps {
 			c.AutoReconnectErrors = maxAutoReconnectSteps
 		}
-		if c == client {
+		if c == wa() {
 			setConnState(connStateOffline, describeConnError(err), time.Duration(c.AutoReconnectErrors)*2*time.Second)
 		}
 		return true
@@ -212,7 +212,7 @@ func watchNetworkChanges() {
 		if currentConnState()["state"] == connStateStopped {
 			continue
 		}
-		if c := client; c != nil && c.Store.ID != nil && !c.IsLoggedIn() {
+		if c := wa(); c != nil && c.Store.ID != nil && !c.IsLoggedIn() {
 			log.Println("Network change detected; reconnecting now")
 			reconnectNow()
 		}

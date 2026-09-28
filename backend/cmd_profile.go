@@ -13,23 +13,23 @@ import (
 // text, for populating the privacy tab's profile fields.
 func handleGetOwnProfile(conn net.Conn) {
 	go func() {
-		if client.Store.ID == nil {
+		if wa().Store.ID == nil {
 			sendEvent(conn, "error", map[string]string{"message": "not logged in"})
 			return
 		}
-		myJID := client.Store.ID.ToNonAD()
+		myJID := wa().Store.ID.ToNonAD()
 		about := ""
 		// GetUserInfo's Status comes from the legacy usync <status/> node,
 		// which the server stops keeping in sync with SetStatusMessage's
 		// newer mex mutation - GetTextStatus is the read-side counterpart
 		// of that mutation and is the only reliable way to get a fresh
 		// value.
-		if status, err := client.GetTextStatus(context.Background(), myJID); err == nil && status != nil {
+		if status, err := wa().GetTextStatus(context.Background(), myJID); err == nil && status != nil {
 			about = status.Text
 		}
 		sendEvent(conn, "own_profile", map[string]interface{}{
 			"jid":      myJID.String(),
-			"pushName": client.Store.PushName,
+			"pushName": wa().Store.PushName,
 			"about":    about,
 		})
 	}()
@@ -42,25 +42,25 @@ func handleSetPushName(raw json.RawMessage) {
 	}
 	go func() {
 		ctx := context.Background()
-		if err := client.SendAppState(ctx, appstate.BuildSettingPushName(data.Name)); err != nil {
+		if err := wa().SendAppState(ctx, appstate.BuildSettingPushName(data.Name)); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		client.Store.PushName = data.Name
-		if err := client.Store.Save(ctx); err != nil {
+		wa().Store.PushName = data.Name
+		if err := wa().Store.Save(ctx); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
 		broadcastEvent("own_profile", map[string]interface{}{
-			"jid":      client.Store.ID.ToNonAD().String(),
-			"pushName": client.Store.PushName,
+			"jid":      wa().Store.ID.ToNonAD().String(),
+			"pushName": wa().Store.PushName,
 		})
 	}()
 }
 
 func handleGetPrivacySettings(conn net.Conn) {
 	go func() {
-		settings, err := client.TryFetchPrivacySettings(context.Background(), true)
+		settings, err := wa().TryFetchPrivacySettings(context.Background(), true)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
@@ -75,7 +75,7 @@ func handleSetPrivacySetting(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		settings, err := client.SetPrivacySetting(
+		settings, err := wa().SetPrivacySetting(
 			context.Background(),
 			types.PrivacySettingType(data.Name),
 			types.PrivacySetting(data.Value),

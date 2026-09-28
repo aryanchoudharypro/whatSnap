@@ -37,7 +37,7 @@ func isChannelJID(jid string) bool {
 func syncFollowedChannels() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	channels, err := client.GetSubscribedNewsletters(ctx)
+	channels, err := wa().GetSubscribedNewsletters(ctx)
 	if err != nil {
 		log.Printf("Couldn't list followed channels: %v", err)
 		return
@@ -249,13 +249,13 @@ func refreshChannel(jid string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	posts, err := client.GetNewsletterMessages(ctx, parsed, &whatsmeow.GetNewsletterMessagesParams{Count: channelPageSize})
+	posts, err := wa().GetNewsletterMessages(ctx, parsed, &whatsmeow.GetNewsletterMessagesParams{Count: channelPageSize})
 	if err != nil {
 		log.Printf("Couldn't fetch posts for channel %s: %v", jid, err)
 		broadcastEvent("error", map[string]string{"message": "Couldn't load this channel's posts: " + err.Error()})
 		return
 	}
-	if _, err := client.NewsletterSubscribeLiveUpdates(ctx, parsed); err != nil {
+	if _, err := wa().NewsletterSubscribeLiveUpdates(ctx, parsed); err != nil {
 		log.Printf("Couldn't subscribe to live updates for channel %s: %v", jid, err)
 	}
 
@@ -266,7 +266,7 @@ func refreshChannel(jid string) {
 		UpdateChatSnippet(jid)
 	}
 	if len(serverIDs) > 0 {
-		if err := client.NewsletterMarkViewed(ctx, parsed, serverIDs); err != nil {
+		if err := wa().NewsletterMarkViewed(ctx, parsed, serverIDs); err != nil {
 			log.Printf("Couldn't mark channel %s posts viewed: %v", jid, err)
 		}
 	}
@@ -340,7 +340,7 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 // again here counted it twice. Only posts we have something on come back, so
 // a missing post says nothing and nothing is cleared.
 func syncOwnChannelAddOns(ctx context.Context, parsed types.JID, jid string) {
-	addOns, err := client.GetNewsletterMyAddOns(ctx, parsed, channelPageSize)
+	addOns, err := wa().GetNewsletterMyAddOns(ctx, parsed, channelPageSize)
 	if err != nil {
 		log.Printf("Couldn't fetch our own votes and reactions for channel %s: %v", jid, err)
 		return
@@ -392,7 +392,7 @@ func loadOlderChannelPosts(jid string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	posts, err := client.GetNewsletterMessages(ctx, parsed, params)
+	posts, err := wa().GetNewsletterMessages(ctx, parsed, params)
 	if err != nil {
 		log.Printf("Couldn't fetch older posts for channel %s: %v", jid, err)
 		broadcastEvent("no_more_history", map[string]string{"jid": jid})
@@ -437,9 +437,9 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 		log.Printf("Channel directory: query=%q country=%s category=%q next page=%v", query, country, data.Category, data.Cursor != "")
 		switch {
 		case query != "":
-			page, err = client.SearchNewsletterDirectory(ctx, query, data.Cursor, pageSize)
+			page, err = wa().SearchNewsletterDirectory(ctx, query, data.Cursor, pageSize)
 		case data.Category != "":
-			page, err = client.GetNewsletterDirectoryInCategories(ctx, whatsmeow.NewsletterDirectoryFeatured,
+			page, err = wa().GetNewsletterDirectoryInCategories(ctx, whatsmeow.NewsletterDirectoryFeatured,
 				nonEmpty(country), []string{strings.ToUpper(data.Category)}, data.Cursor, pageSize)
 		default:
 			page, err = browseChannelDirectory(ctx, country, data.Cursor, pageSize)
@@ -486,7 +486,7 @@ func handleChannelReaction(data ReactMessageData) {
 	if err != nil {
 		return
 	}
-	if err := client.NewsletterSendReaction(context.Background(), jid, types.MessageServerID(serverID), data.Emoji, ""); err != nil {
+	if err := wa().NewsletterSendReaction(context.Background(), jid, types.MessageServerID(serverID), data.Emoji, ""); err != nil {
 		broadcastEvent("error", map[string]string{"message": "Couldn't react: " + err.Error()})
 		return
 	}
@@ -503,7 +503,7 @@ func handleChannelMute(jidStr string, muted bool) {
 	if err != nil {
 		return
 	}
-	if err := client.NewsletterToggleMute(context.Background(), jid, muted); err != nil {
+	if err := wa().NewsletterToggleMute(context.Background(), jid, muted); err != nil {
 		broadcastEvent("error", map[string]string{"message": "Couldn't change this channel's mute setting: " + err.Error()})
 		broadcastChats()
 		return
@@ -563,9 +563,9 @@ func handleGetChannelInfo(conn net.Conn, raw json.RawMessage) {
 		var meta *types.NewsletterMetadata
 		var err error
 		if data.Code != "" {
-			meta, err = client.GetNewsletterInfoWithInvite(ctx, data.Code)
+			meta, err = wa().GetNewsletterInfoWithInvite(ctx, data.Code)
 		} else if jid, perr := types.ParseJID(data.JID); perr == nil {
-			meta, err = client.GetNewsletterInfo(ctx, jid)
+			meta, err = wa().GetNewsletterInfo(ctx, jid)
 		} else {
 			return
 		}
@@ -592,9 +592,9 @@ func handleFollowChannel(raw json.RawMessage, follow bool) {
 	}
 	go func() {
 		if follow {
-			err = client.FollowNewsletter(context.Background(), jid)
+			err = wa().FollowNewsletter(context.Background(), jid)
 		} else {
-			err = client.UnfollowNewsletter(context.Background(), jid)
+			err = wa().UnfollowNewsletter(context.Background(), jid)
 		}
 		if err != nil {
 			verb := "follow"
@@ -649,10 +649,10 @@ func isFollowedChannelPost(jid string) bool {
 // ownCountryCode is the ISO country of our own phone number ("IN" for a +91
 // number), which picks whose channels the directory lists.
 func ownCountryCode() string {
-	if client == nil || client.Store == nil || client.Store.ID == nil {
+	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
 		return ""
 	}
-	return regionForPhone("+" + client.Store.ID.User)
+	return regionForPhone("+" + wa().Store.ID.User)
 }
 
 // regionForPhone is the ISO country of a number ("+919812345678" is "IN"):
@@ -687,7 +687,7 @@ func nonEmpty(s string) []string {
 // pages) if the server won't take the first.
 func browseChannelDirectory(ctx context.Context, country, cursor string, limit int) (*whatsmeow.NewsletterDirectoryPage, error) {
 	countries := nonEmpty(country)
-	page, err := client.GetNewsletterDirectory(ctx, whatsmeow.NewsletterDirectoryRecommended, countries, cursor, limit)
+	page, err := wa().GetNewsletterDirectory(ctx, whatsmeow.NewsletterDirectoryRecommended, countries, cursor, limit)
 	if err == nil {
 		return page, nil
 	}
@@ -695,7 +695,7 @@ func browseChannelDirectory(ctx context.Context, country, cursor string, limit i
 	if cursor != "" {
 		return nil, err
 	}
-	page, fallbackErr := client.GetRecommendedNewsletters(ctx, countries, limit)
+	page, fallbackErr := wa().GetRecommendedNewsletters(ctx, countries, limit)
 	if fallbackErr != nil {
 		log.Printf("Recommended channels failed too: %v", fallbackErr)
 		return nil, err

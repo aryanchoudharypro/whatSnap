@@ -142,14 +142,14 @@ func handlePostStatus(raw json.RawMessage) {
 				BackgroundArgb: proto.Uint32(whatsappTeal),
 			},
 		}
-		resp, err := client.SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: client.GenerateMessageID()})
+		resp, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID()})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
 		}
 		ownJID := ""
-		if client.Store.ID != nil {
-			ownJID = client.Store.ID.ToNonAD().String()
+		if wa().Store.ID != nil {
+			ownJID = wa().Store.ID.ToNonAD().String()
 		}
 		rawBytes, _ := proto.Marshal(msg)
 		saveMessage(StoredMessage{
@@ -177,7 +177,7 @@ func handlePostMediaStatus(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		id := client.GenerateMessageID()
+		id := wa().GenerateMessageID()
 
 		// Resolve to a file on disk and upload from it as a stream, like chat
 		// attachments do - reading a video whole (and handing that buffer to
@@ -220,7 +220,7 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		uploaded, err := client.UploadReader(context.Background(), f, nil, waMediaType)
+		uploaded, err := wa().UploadReader(context.Background(), f, nil, waMediaType)
 		f.Close()
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
@@ -258,15 +258,15 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			msg = &waE2E.Message{VideoMessage: vidMsg}
 		}
 
-		resp, err := client.SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id})
+		resp, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
 		}
 
 		ownJID := ""
-		if client.Store.ID != nil {
-			ownJID = client.Store.ID.ToNonAD().String()
+		if wa().Store.ID != nil {
+			ownJID = wa().Store.ID.ToNonAD().String()
 		}
 		rawBytes, _ := proto.Marshal(msg)
 		saveMessage(StoredMessage{
@@ -292,9 +292,9 @@ func handleMarkStatusViewed(raw json.RawMessage) {
 		if err != nil || poster.IsEmpty() {
 			return
 		}
-		if client.Store.ID != nil && poster.User == client.Store.ID.User {
+		if wa().Store.ID != nil && poster.User == wa().Store.ID.User {
 			return
 		}
-		_ = client.MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), types.StatusBroadcastJID, poster, types.ReceiptTypeRead)
+		_ = wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), types.StatusBroadcastJID, poster, types.ReceiptTypeRead)
 	}()
 }

@@ -49,6 +49,10 @@ func friendlyMediaError(err error) string {
 // ensureMediaCached returns the local path for a message's media, downloading
 // and caching it first if it isn't already on disk.
 func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename string, err error) {
+	if viewOnceState(messageID) == viewOnceOpened {
+		err = fmt.Errorf("this view once message has already been opened")
+		return
+	}
 	var cached string
 	db.QueryRow("SELECT COALESCE(media_path, '') FROM messages WHERE id = ?", messageID).Scan(&cached)
 	if cached != "" {
@@ -166,7 +170,7 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 		return
 	}
 	partPath := f.Name()
-	dlErr := client.DownloadToFile(ctx, dl, &progressFile{File: f, total: total, onProgress: onProgress})
+	dlErr := wa().DownloadToFile(ctx, dl, &progressFile{File: f, total: total, onProgress: onProgress})
 	f.Close()
 	if dlErr != nil {
 		os.Remove(partPath)
@@ -432,6 +436,10 @@ func handleSaveMediaAs(conn net.Conn, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
+	if msg := viewOnceBlocked(data.MessageID); msg != "" {
+		sendEvent(conn, "error", map[string]string{"message": msg})
+		return
+	}
 	go func() {
 		path, _, _, _, err := ensureMediaCached(data.MessageID)
 		if err != nil {
@@ -466,8 +474,8 @@ func buildAttachmentContext(replyToID, replySender string) (ctxInfo *waE2E.Conte
 	// but ContextInfo.Participant goes out on the wire and has to be a real
 	// JID, or the quote never renders as a reply for the recipient.
 	if participant == "me" {
-		if client.Store.ID != nil {
-			participant = client.Store.ID.ToNonAD().String()
+		if wa().Store.ID != nil {
+			participant = wa().Store.ID.ToNonAD().String()
 		} else {
 			participant = ""
 		}
@@ -649,6 +657,13 @@ func uniqueFileForDir(dir, filename string) string {
 // OS default handler. filename may be empty (true for anything but a
 // WhatsApp DocumentMessage), in which case a display name is synthesized.
 func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimetype, filename string) {
+	viewOnce := viewOnceState(messageID)
+	if viewOnce == viewOnceOpened {
+		if conn != nil {
+			sendEvent(conn, "error", map[string]string{"message": "You've already opened this view once message."})
+		}
+		return
+	}
 	if filename == "" {
 		var ts int64
 		db.QueryRow("SELECT COALESCE(timestamp, 0) FROM messages WHERE id = ?", messageID).Scan(&ts)
@@ -669,6 +684,14 @@ func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimety
 
 	if err := openFileInOS(openPath); err != nil && conn != nil {
 		sendEvent(conn, "error", map[string]string{"message": err.Error()})
+		return
+	}
+	if viewOnce == viewOnceUnopened {
+		scratch := ""
+		if openPath != path {
+			scratch = openPath
+		}
+		consumeViewOnce(messageID, path, scratch)
 	}
 }
 
@@ -725,7 +748,7 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		id := client.GenerateMessageID()
+		id := wa().GenerateMessageID()
 
 		// Resolve to a real local file up front, including decoding+caching
 		// base64 (e.g. clipboard-pasted) payloads immediately. That way the
@@ -753,8 +776,8 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
 
 		senderJID := ""
-		if client.Store.ID != nil {
-			senderJID = client.Store.ID.ToNonAD().String()
+		if wa().Store.ID != nil {
+			senderJID = wa().Store.ID.ToNonAD().String()
 		}
 		ts := time.Now().Unix()
 
@@ -889,9 +912,9 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		if !ok {
 			seeker = f
 		}
-		uploaded, err = client.UploadNewsletterReader(context.Background(), seeker, waMediaType)
+		uploaded, err = wa().UploadNewsletterReader(context.Background(), seeker, waMediaType)
 	} else {
-		uploaded, err = client.UploadReader(context.Background(), pr, nil, waMediaType)
+		uploaded, err = wa().UploadReader(context.Background(), pr, nil, waMediaType)
 	}
 	if err != nil {
 		fail(err.Error())
@@ -954,7 +977,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	}
 
 	msg = applyDisappearingTimer(jid, msg)
-	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
+	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
 	if err != nil {
 		fail(err.Error())
 		return
@@ -997,7 +1020,7 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		id := client.GenerateMessageID()
+		id := wa().GenerateMessageID()
 
 		fileBytes, err := readLocalFileOrDecode(data.Path, data.Data)
 		if err != nil {
@@ -1023,8 +1046,8 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
 
 		senderJID := ""
-		if client.Store.ID != nil {
-			senderJID = client.Store.ID.ToNonAD().String()
+		if wa().Store.ID != nil {
+			senderJID = wa().Store.ID.ToNonAD().String()
 		}
 		voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", data.Duration/60, data.Duration%60)
 		ts := time.Now().Unix()
@@ -1115,9 +1138,9 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 
 	var uploaded whatsmeow.UploadResponse
 	if jid.Server == types.NewsletterServer {
-		uploaded, err = client.UploadNewsletterReader(context.Background(), f, whatsmeow.MediaAudio)
+		uploaded, err = wa().UploadNewsletterReader(context.Background(), f, whatsmeow.MediaAudio)
 	} else {
-		uploaded, err = client.UploadReader(context.Background(), f, nil, whatsmeow.MediaAudio)
+		uploaded, err = wa().UploadReader(context.Background(), f, nil, whatsmeow.MediaAudio)
 	}
 	if err != nil {
 		fail(err.Error())
@@ -1135,7 +1158,7 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 	}}
 
 	msg = applyDisappearingTimer(jid, msg)
-	resp, err := client.SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
+	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
 	if err != nil {
 		fail(err.Error())
 		return
@@ -1173,6 +1196,10 @@ func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
+	if viewOnceState(data.ID) == viewOnceOpened {
+		sendEvent(conn, "error", map[string]string{"message": "You've already played this view once voice message."})
+		return
+	}
 	go func() {
 		_, jidStr, senderJidStr, _, dbErr := getMessageRaw(data.ID)
 		if dbErr == nil {
@@ -1182,18 +1209,18 @@ func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 				senderJID = chatJID
 			}
 			if chatJID.Server == "lid" {
-				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 					chatJID = pn
 				}
 			}
 			if senderJID.Server == "lid" {
-				if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
 					senderJID = pn
 				}
 			}
 
 			go func() {
-				err := client.MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), chatJID, senderJID, types.ReceiptTypePlayed)
+				err := wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), chatJID, senderJID, types.ReceiptTypePlayed)
 				if err != nil {
 					log.Printf("MarkRead played error for message %s: %v", data.ID, err)
 				}
@@ -1214,6 +1241,11 @@ func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 		sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": data.ID})
+		if viewOnceState(data.ID) == viewOnceUnopened {
+			// Played straight from the cache, so it goes once the player
+			// has let go of it rather than right away.
+			consumeViewOnce(data.ID, "", path)
+		}
 	}()
 }
 
@@ -1232,6 +1264,10 @@ func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 
 		var paths []string
 		for _, msgID := range data.MessageIDs {
+			if msg := viewOnceBlocked(msgID); msg != "" {
+				sendEvent(conn, "error", map[string]string{"message": msg})
+				continue
+			}
 			path, mediaType, mimetype, filename, err := ensureMediaCached(msgID)
 			if err != nil {
 				continue
@@ -1292,12 +1328,12 @@ func requestMediaRetry(messageID string) error {
 	}
 
 	if chatJID.Server == "lid" {
-		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 			chatJID = pn
 		}
 	}
 	if senderJID.Server == "lid" {
-		if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
 			senderJID = pn
 		}
 	}
@@ -1328,7 +1364,7 @@ func requestMediaRetry(messageID string) error {
 	if mediaKey == nil {
 		return fmt.Errorf("no media key found")
 	}
-	return client.SendMediaRetryReceipt(context.Background(), msgInfo, mediaKey)
+	return wa().SendMediaRetryReceipt(context.Background(), msgInfo, mediaKey)
 }
 
 func handleMediaRetryEvent(evt *events.MediaRetry) {
