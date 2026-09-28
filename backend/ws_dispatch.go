@@ -230,6 +230,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleSetGroupAnnounce(cmd.Data)
 	case "set_group_locked":
 		handleSetGroupLocked(cmd.Data)
+	case "set_member_label":
+		handleSetMemberLabel(conn, cmd.Data)
 	case "set_group_moderation":
 		handleSetGroupModeration(cmd.Data)
 	case "report_to_admins":

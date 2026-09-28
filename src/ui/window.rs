@@ -1390,6 +1390,15 @@ pub fn bind_input_handlers(
 		});
 	});
 
+	let tx_set_tag = ui_tx.clone();
+	let tag_field = parts.group_data_dialog.my_tag_field;
+	let send_tag = move || {
+		let _ = tx_set_tag.send(UiCommand::SetMemberLabel(tag_field.get_value().trim().to_string()));
+	};
+	let send_tag_enter = send_tag.clone();
+	parts.group_data_dialog.set_tag_btn.on_click(move |_| send_tag());
+	parts.group_data_dialog.my_tag_field.on_text_enter(move |_| send_tag_enter());
+
 	let tx_reported = ui_tx.clone();
 	parts.group_data_dialog.reported_btn.on_click(move |_| {
 		let _ = tx_reported.send(UiCommand::ShowReportedMessages);

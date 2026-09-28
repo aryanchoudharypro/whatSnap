@@ -204,6 +204,16 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
+	// Group member tags, one row per group and member (the newest wins).
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS group_member_labels (
+		group_jid TEXT NOT NULL,
+		member TEXT NOT NULL,
+		label TEXT NOT NULL DEFAULT '',
+		set_at INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (group_jid, member)
+	)`); err != nil {
+		return err
+	}
 	// RSVPs to events, one row per event and responder (the latest answer
 	// wins). response is waE2E.EventResponseMessage_EventResponseType.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS event_responses (

@@ -1406,6 +1406,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			)
 		}
 		UiCommand::ShowReportedMessages => ui_commands::report::request_reported_messages(state),
+		UiCommand::SetMemberLabel(label) => ui_commands::contacts_groups::set_member_label(state, parts, label),
 		UiCommand::TogglePinChat { jid, pin } => ui_commands::chat_list::toggle_pin_chat(state, parts, jid, pin),
 		UiCommand::ToggleArchiveChat { jid, archive } => {
 			ui_commands::chat_list::toggle_archive_chat(state, parts, jid, archive)

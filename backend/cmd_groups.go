@@ -107,6 +107,8 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			participants = append(slices.Clone(participants), communityMembers(jid, participants)...)
 		}
 		participantsList := make([]map[string]interface{}, 0, len(participants))
+		noteParticipantLabels(jid, info.Participants)
+		labels := memberLabels(jid.String())
 
 		for _, p := range participants {
 			// p.JID is whichever address WhatsApp uses for this participant
@@ -147,6 +149,7 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 				"IsAdmin":      p.IsAdmin,
 				"IsSuperAdmin": p.IsSuperAdmin,
 				"Name":         name,
+				"Label":        labels[memberLabelKey(p.JID)],
 			})
 		}
 
@@ -157,6 +160,7 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			"Info": info,
 			"Participants": participantsList,
 			"ViewerIsAdmin": isMyAdmin,
+			"MyLabel": labels[ownVoterKey()],
 		})
 	}()
 }

@@ -18,6 +18,9 @@ pub struct GroupDataDialogParts {
 	pub make_admin_btn: Button,
 	pub remove_member_btn: Button,
 	pub invite_link_btn: Button,
+	pub my_tag_label: StaticText,
+	pub my_tag_field: TextCtrl,
+	pub set_tag_btn: Button,
 
 	// Media tab (photos and videos only, matching official WhatsApp)
 	pub media_panel: Panel,
@@ -99,6 +102,17 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	mem_btn_sizer.add(&invite_link_btn, 0, SizerFlag::Right, 5);
 
 	members_sizer.add_sizer(&mem_btn_sizer, 0, SizerFlag::All, 5);
+
+	// Your own member tag in this group, shown next to your name to everyone
+	// in it. Empty removes it.
+	let my_tag_label = StaticText::builder(&members_panel).with_label("Your tag in this group").build();
+	members_sizer.add(&my_tag_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
+	let tag_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let my_tag_field = TextCtrl::builder(&members_panel).with_style(TextCtrlStyle::ProcessEnter).build();
+	tag_sizer.add(&my_tag_field, 1, SizerFlag::Right, 5);
+	let set_tag_btn = Button::builder(&members_panel).with_label("Set tag").build();
+	tag_sizer.add(&set_tag_btn, 0, SizerFlag::Right, 5);
+	members_sizer.add_sizer(&tag_sizer, 0, SizerFlag::Expand | SizerFlag::All, 5);
 	members_panel.set_sizer(members_sizer, true);
 
 	// --- Media Tab ---
@@ -205,6 +219,9 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		make_admin_btn,
 		remove_member_btn,
 		invite_link_btn,
+		my_tag_label,
+		my_tag_field,
+		set_tag_btn,
 		media_panel,
 		media_label,
 		media_list,

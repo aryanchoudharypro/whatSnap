@@ -2962,6 +2962,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.group_data_dialog.admin_reports_chk.set_value(flag("AllowAdminReports"));
 						parts.group_data_dialog.history_chk.set_value(flag("HasGroupHistory"));
 
+						// Only overwrite the tag field when it isn't being edited.
+						let my_tag = payload.get("MyLabel").and_then(|t| t.as_str()).unwrap_or("");
+						if !parts.group_data_dialog.my_tag_field.has_focus() {
+							parts.group_data_dialog.my_tag_field.set_value(my_tag);
+						}
+
 						// Set basic settings
 						if let Some(topic) = info.get("Topic").and_then(|t| t.as_str()) {
 							parts.group_data_dialog.group_desc_field.set_value(topic);
@@ -3007,6 +3013,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									let is_super = p.get("IsSuperAdmin").and_then(|a| a.as_bool()).unwrap_or(false);
 
 									let backend_name = p.get("Name").and_then(|n| n.as_str()).unwrap_or("");
+									let tag = p.get("Label").and_then(|n| n.as_str()).unwrap_or("").trim();
 
 									let phone = if phone_jid.is_empty() {
 										String::new()
@@ -3039,10 +3046,17 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										role = " (Admin)";
 									}
 
-									let display = if phone.is_empty() || local_name == phone {
-										format!("{}{}", local_name, role)
+									// The member tag reads right after the name, as
+									// WhatsApp shows it under the name.
+									let tagged = if tag.is_empty() {
+										local_name.clone()
 									} else {
-										format!("{}{} - {}", local_name, role, phone)
+										format!("{}, tag: {}", local_name, tag)
+									};
+									let display = if phone.is_empty() || local_name == phone {
+										format!("{}{}", tagged, role)
+									} else {
+										format!("{}{} - {}", tagged, role, phone)
 									};
 									member_strings.push(display);
 									member_jids.push(jid.to_string());
@@ -3140,6 +3154,29 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							s.group_data_community = Some(community);
 							drop(s);
 							crate::ui_commands::contacts_groups::community_subgroup_selection_changed(state, parts);
+						}
+					}
+				}
+				"member_label" => {
+					if let Some(data) = val.get("data") {
+						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+						let s = state.borrow();
+						if data.get("mine").and_then(|m| m.as_bool()).unwrap_or(false) {
+							let label = data.get("label").and_then(|l| l.as_str()).unwrap_or("");
+							let text = if label.is_empty() {
+								"Your tag was removed.".to_string()
+							} else {
+								format!("Your tag is now {}.", label)
+							};
+							crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &text);
+						}
+						// Show the change if this group's info is open.
+						if s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown() {
+							let payload = serde_json::json!({
+								"action": "get_group_info",
+								"data": { "jid": jid }
+							});
+							let _ = s.ws_tx.send(payload.to_string());
 						}
 					}
 				}
