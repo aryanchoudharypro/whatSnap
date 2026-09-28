@@ -189,13 +189,12 @@ func main() {
 		// an upgrade that can't wait for the lock and so fails outright with
 		// "database is locked" if another connection committed in between,
 		// and lets read-then-write transactions tangle with each other.
-		// cache_size(-16000): up to 16MB of page cache per connection,
-		// against SQLite's default of 2MB. History sync inserts messages
-		// across many chats at once, touching index pages all over the
-		// messages table; with a small cache each of those is re-read on
-		// every insert. The cache only grows as pages are used, and the
-		// smaller idle pool below still closes connections that go quiet.
-		sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_pragma=cache_size(-16000)&_txlock=immediate"
+		// cache_size(-1000): 1MB of page cache per connection instead of
+		// SQLite's own default of -2000 (2MB). Each idle pooled connection
+		// keeps its cache resident for as long as it's pooled, so this and
+		// the smaller idle pool below directly bound how much RAM sits there
+		// doing nothing between queries.
+		sqlitePath += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)&_pragma=cache_size(-1000)&_txlock=immediate"
 	}
 	db, err = sql.Open("sqlite", sqlitePath)
 	if err != nil {
