@@ -48,7 +48,11 @@ pub struct GroupDataDialogParts {
 	pub group_desc_field: TextCtrl,
 	pub announce_chk: CheckBox,
 	pub locked_chk: CheckBox,
+	pub forwarded_chk: CheckBox,
+	pub admin_reports_chk: CheckBox,
+	pub history_chk: CheckBox,
 	pub save_settings_btn: Button,
+	pub reported_btn: Button,
 }
 
 pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
@@ -157,8 +161,23 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let locked_chk = CheckBox::builder(&settings_panel).with_label("Only admins can edit group info").build();
 	settings_sizer.add(&locked_chk, 0, SizerFlag::All, 5);
 
+	let forwarded_chk =
+		CheckBox::builder(&settings_panel).with_label("Don't allow messages forwarded many times").build();
+	settings_sizer.add(&forwarded_chk, 0, SizerFlag::All, 5);
+
+	let admin_reports_chk =
+		CheckBox::builder(&settings_panel).with_label("Members can report messages to admins").build();
+	settings_sizer.add(&admin_reports_chk, 0, SizerFlag::All, 5);
+
+	let history_chk = CheckBox::builder(&settings_panel).with_label("Share recent messages with people added").build();
+	settings_sizer.add(&history_chk, 0, SizerFlag::All, 5);
+
+	let settings_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let save_settings_btn = Button::builder(&settings_panel).with_label("Save settings").build();
-	settings_sizer.add(&save_settings_btn, 0, SizerFlag::All, 5);
+	settings_btn_sizer.add(&save_settings_btn, 0, SizerFlag::Right, 5);
+	let reported_btn = Button::builder(&settings_panel).with_label("Reported messages...").build();
+	settings_btn_sizer.add(&reported_btn, 0, SizerFlag::Right, 5);
+	settings_sizer.add_sizer(&settings_btn_sizer, 0, SizerFlag::All, 5);
 
 	settings_panel.set_sizer(settings_sizer, true);
 
@@ -206,6 +225,10 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		group_desc_field,
 		announce_chk,
 		locked_chk,
+		forwarded_chk,
+		admin_reports_chk,
+		history_chk,
 		save_settings_btn,
+		reported_btn,
 	}
 }

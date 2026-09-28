@@ -1394,6 +1394,18 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ChooseDisappearingTimer { jid } => {
 			ui_commands::chat_list::choose_disappearing_timer(state, parts, jid)
 		}
+		UiCommand::ReportMessage { message_id } => ui_commands::report::report_message(state, parts, message_id),
+		UiCommand::ReportToAdmins { message_id } => ui_commands::report::report_to_admins(state, parts, message_id),
+		UiCommand::ReportChat { jid } => ui_commands::report::report_chat(state, parts, jid),
+		UiCommand::UpdateGroupModeration { no_frequently_forwarded, allow_admin_reports, group_history } => {
+			ui_commands::report::update_group_moderation(
+				state,
+				no_frequently_forwarded,
+				allow_admin_reports,
+				group_history,
+			)
+		}
+		UiCommand::ShowReportedMessages => ui_commands::report::request_reported_messages(state),
 		UiCommand::TogglePinChat { jid, pin } => ui_commands::chat_list::toggle_pin_chat(state, parts, jid, pin),
 		UiCommand::ToggleArchiveChat { jid, archive } => {
 			ui_commands::chat_list::toggle_archive_chat(state, parts, jid, archive)

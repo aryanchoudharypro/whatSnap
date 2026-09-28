@@ -142,6 +142,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleGetBusinessProfile(conn, cmd.Data)
 	case "get_blocklist":
 		handleGetBlocklist(conn)
+	case "report":
+		handleReport(conn, cmd.Data)
 	case "block_contact":
 		handleBlockContact(cmd.Data)
 	case "unblock_contact":
@@ -228,6 +230,12 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleSetGroupAnnounce(cmd.Data)
 	case "set_group_locked":
 		handleSetGroupLocked(cmd.Data)
+	case "set_group_moderation":
+		handleSetGroupModeration(cmd.Data)
+	case "report_to_admins":
+		handleReportToAdmins(conn, cmd.Data)
+	case "get_reported_messages":
+		handleGetReportedMessages(conn, cmd.Data)
 
 	// --- chats ---
 	case "verify_chat_lock_code":
