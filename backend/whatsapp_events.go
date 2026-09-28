@@ -1040,6 +1040,8 @@ func eventHandler(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.MediaRetry:
 		go handleMediaRetryEvent(v)
+	case *events.HistorySyncStatus:
+		handleHistorySyncStatus(v.Notification)
 	case *events.HistorySync:
 		historySyncPending.Add(1)
 		go func() {
@@ -1561,7 +1563,7 @@ func eventHandler(evt interface{}) {
 					"onDemand": v.Data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND,
 				})
 			}
-			if len(conversations) > 0 {
+			if len(conversations) > 0 || v.Data.GetSyncType() == waHistorySync.HistorySync_FULL {
 				stats := db.Stats()
 				log.Printf("History sync chunk written: type=%s chunk=%d progress=%d chats=%d msgs=%d took=%s (messages %s, snippets %s) queued=%d dbWait=%d/%s inUse=%d",
 					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), len(conversations), chunkMsgs,
@@ -2386,6 +2388,7 @@ func eventHandler(evt interface{}) {
 	case *events.GroupLimitSharingUpdate:
 		go setChatLimitSharing(v.JID.String(), v.Enabled(), 0)
 	case *events.GroupInfo:
+		invalidateJoinedGroups()
 		if _, deleting := pendingGroupDeletes.Load(v.JID.String()); deleting {
 			// This group is mid-"delete chat and exit group" - most likely
 			// this very event is the "You left" notification LeaveGroup just
@@ -2462,6 +2465,7 @@ func eventHandler(evt interface{}) {
 		// ours (names, admin status, community structure) the same way.
 		log.Printf("Server marked %d groups as out of date; refreshing", len(v.Groups))
 		go func() {
+			invalidateJoinedGroups()
 			populateChatsFromStore()
 			broadcastChats()
 		}()
@@ -2469,11 +2473,13 @@ func eventHandler(evt interface{}) {
 		if v.Type == whatsmeow.DirtyTypeGroups {
 			log.Printf("Server marked the group list as out of date; refreshing")
 			go func() {
+				invalidateJoinedGroups()
 				populateChatsFromStore()
 				broadcastChats()
 			}()
 		}
 	case *events.JoinedGroup:
+		invalidateJoinedGroups()
 		go func() {
 			if v.GroupName.Name != "" {
 				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.GroupName.Name)
@@ -2502,6 +2508,7 @@ func eventHandler(evt interface{}) {
 			}
 			insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d", v.JID.User, time.Now().UnixNano()), msg, time.Now())
 
+			invalidateJoinedGroups()
 			populateChatsFromStore()
 			broadcastChats()
 		}()
@@ -3197,7 +3204,7 @@ func populateChatsFromStoreOnce() {
 	invalidateDisplayNames()
 	healStaleUnreadCounts()
 
-	groups, err := wa().GetJoinedGroups(context.Background())
+	groups, err := serverGroupList()
 	if err == nil {
 		var groupWrites []func(tx sqlExecer)
 		joined := make(map[string]bool, len(groups))
@@ -3306,7 +3313,7 @@ func populateChatsFromStoreOnce() {
 	// Channels we follow stay (see syncFollowedChannels); any other channel
 	// row is one history sync brought in, and isn't ours to show.
 	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR (jid LIKE '%@newsletter' AND COALESCE(is_channel, 0) = 0) OR jid LIKE '%@broadcast'")
-	go syncFollowedChannels()
+	go syncFollowedChannelsThrottled()
 }
 
 // handleIncomingStatus stores a Status/Stories post (someone else's, or our

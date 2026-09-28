@@ -128,6 +128,7 @@ func handleReport(conn net.Conn, raw json.RawMessage) {
 			if err := wa().LeaveGroup(context.Background(), chat); err != nil {
 				fail("Reported, but couldn't exit the group: " + err.Error())
 			} else {
+				invalidateJoinedGroups()
 				db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
 				broadcastChats()
 				result["left"] = true
