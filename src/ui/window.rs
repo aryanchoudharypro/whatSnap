@@ -2911,7 +2911,8 @@ pub fn bind_input_handlers(
 							}
 							for (jid, name) in &s.contacts {
 								if !jid.ends_with("@broadcast")
-									&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
+									&& !jids.contains(jid)
+									&& crate::ui_commands::links::can_forward_to(&s, jid)
 								{
 									labels.push(name.clone());
 									jids.push(jid.clone());
@@ -3351,7 +3352,8 @@ pub fn bind_input_handlers(
 									let is_generic = msg.quoted_text == "[Voice Message]"
 										|| msg.quoted_text == "[Audio]"
 										|| msg.quoted_text == "Voice message"
-										|| msg.quoted_text == "Audio" || msg.quoted_text == "[Media]";
+										|| msg.quoted_text == "Audio"
+										|| msg.quoted_text == "[Media]";
 									if !is_generic && (idx as usize) < s.display_items.len() {
 										target = s.display_items[..idx as usize].iter().rposition(|item| match item {
 											whantv::DisplayItem::Single(m) => {
@@ -3717,7 +3719,8 @@ pub fn bind_input_handlers(
 							}
 							for (jid, name) in &s.contacts {
 								if !jid.ends_with("@broadcast")
-									&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
+									&& !jids.contains(jid)
+									&& crate::ui_commands::links::can_forward_to(&s, jid)
 								{
 									labels.push(name.clone());
 									jids.push(jid.clone());

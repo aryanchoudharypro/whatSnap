@@ -206,7 +206,8 @@ unsafe fn activate_camera_source(
 			let mut len: u32 = 0;
 			if activate
 				.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, &mut ptr, &mut len)
-				.is_err() || ptr.is_null()
+				.is_err()
+				|| ptr.is_null()
 			{
 				continue;
 			}
