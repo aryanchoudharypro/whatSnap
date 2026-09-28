@@ -1674,6 +1674,10 @@ func eventHandler(evt interface{}) {
 			applyEphemeralSettingMessage(v, pm)
 			return
 		}
+		if pm := unwrappedMsg.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_GROUP_MEMBER_LABEL_CHANGE {
+			applyMemberLabelChange(v)
+			return
+		}
 		if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
 			targetID := unwrappedMsg.GetProtocolMessage().GetKey().GetID()
 			resolvedChat, _ := resolveLIDChat(v)

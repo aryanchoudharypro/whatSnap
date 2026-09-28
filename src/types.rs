@@ -253,6 +253,8 @@ pub enum UiCommand {
 	},
 	/// Group Info's "Reported messages...": what members reported to admins.
 	ShowReportedMessages,
+	/// Group Info's "Set tag": our own member tag in the open group ("" clears).
+	SetMemberLabel(String),
 	/// Per-chat alert level for an archived chat, from the chat-list context
 	/// menu. Stored locally in settings.json rather than pushed to WhatsApp -
 	/// there's no protocol-level equivalent, unlike mute.

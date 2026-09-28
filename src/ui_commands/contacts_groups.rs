@@ -341,3 +341,18 @@ pub(crate) fn leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		&format!("Left group {}.", chat_name),
 	);
 }
+
+/// Sets our own member tag in the open group; an empty tag removes it.
+pub(crate) fn set_member_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, label: String) {
+	let s = state.borrow();
+	let Some(jid) = s.selected_chat.clone().filter(|j| j.ends_with("@g.us")) else {
+		return;
+	};
+	let payload = serde_json::json!({
+		"action": "set_member_label",
+		"data": { "jid": jid, "label": label }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+	let text = if label.is_empty() { "Removing your tag..." } else { "Setting your tag..." };
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), text);
+}
