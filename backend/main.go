@@ -234,16 +234,18 @@ func main() {
 	}
 	removeOrphanedDeviceRows()
 
-	// UWP is what WA Web itself sends when it runs as the Windows app (the
-	// WebView2 wrapper, WAWebEnvironment.isWindows) - the same branch that
-	// turns on RequireFullSync and the phone's history-length choice below.
-	// Only sent in the registration payload, so it takes effect on the next
-	// link, never on an existing session.
-	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_UWP.Enum()
+	// How whaNTV introduces itself to the phone when linking. Only sent in the
+	// registration payload, so a change takes effect on the next link, never
+	// on an existing session. These are the values full history syncs worked
+	// with: claiming to be the Windows app (UWP) with WA Web's newer
+	// capability flags instead got only recent messages and an empty full
+	// sync from the phone.
+	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 	store.DeviceProps.Os = proto.String("Windows")
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)
+	store.DeviceProps.HistorySyncConfig.SupportAddOnHistorySyncMigration = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(3650)
 	store.DeviceProps.HistorySyncConfig.FullSyncSizeMbLimit = proto.Uint32(50000)
 	store.DeviceProps.HistorySyncConfig.StorageQuotaMb = proto.Uint32(102400)
@@ -255,13 +257,6 @@ func main() {
 	store.DeviceProps.HistorySyncConfig.SupportHostedGroupMsg = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportMessageAssociation = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportGroupHistory = proto.Bool(true)
-	// The rest of WA Web's static capability claims (WAWebClientPayload, per
-	// whatsapp-rust's default_history_sync_config). It does not claim
-	// SupportAddOnHistorySyncMigration, so neither do we.
-	store.DeviceProps.HistorySyncConfig.SupportRecentSyncChunkMessageCountTuning = proto.Bool(true)
-	store.DeviceProps.HistorySyncConfig.SupportFbidBotChatHistory = proto.Bool(true)
-	store.DeviceProps.HistorySyncConfig.SupportManusHistory = proto.Bool(true)
-	store.DeviceProps.HistorySyncConfig.SupportHatchHistory = proto.Bool(true)
 
 
 	deviceStore, err := container.GetFirstDevice(context.Background())
