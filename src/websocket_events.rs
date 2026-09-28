@@ -2953,6 +2953,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.group_data_dialog.save_settings_btn.show(viewer_is_admin);
 						parts.group_data_dialog.announce_chk.enable(viewer_is_admin);
 						parts.group_data_dialog.locked_chk.enable(viewer_is_admin);
+						parts.group_data_dialog.forwarded_chk.enable(viewer_is_admin);
+						parts.group_data_dialog.admin_reports_chk.enable(viewer_is_admin);
+						parts.group_data_dialog.history_chk.enable(viewer_is_admin);
+						parts.group_data_dialog.reported_btn.show(viewer_is_admin);
+						let flag = |k: &str| info.get(k).and_then(|t| t.as_bool()).unwrap_or(false);
+						parts.group_data_dialog.forwarded_chk.set_value(flag("NoFrequentlyForwarded"));
+						parts.group_data_dialog.admin_reports_chk.set_value(flag("AllowAdminReports"));
+						parts.group_data_dialog.history_chk.set_value(flag("HasGroupHistory"));
 
 						// Set basic settings
 						if let Some(topic) = info.get("Topic").and_then(|t| t.as_str()) {
@@ -3576,6 +3584,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				"poll_details" => {
 					if let Some(data) = val.get("data") {
 						crate::ui_commands::polls::show_poll_vote_dialog(state, parts, data);
+					}
+				}
+				"reported_messages" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::report::show_reported_messages(state, parts, data);
+					}
+				}
+				"reported" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::report::reported(parts, data);
 					}
 				}
 				"event_details" => {

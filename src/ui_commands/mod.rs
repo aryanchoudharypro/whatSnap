@@ -8,4 +8,5 @@ pub(crate) mod mentions;
 pub(crate) mod messaging;
 pub(crate) mod misc;
 pub(crate) mod polls;
+pub(crate) mod report;
 pub(crate) mod voice;

@@ -233,6 +233,26 @@ pub enum UiCommand {
 	ChooseDisappearingTimer {
 		jid: String,
 	},
+	/// "Report..." on a message: report it to WhatsApp.
+	ReportMessage {
+		message_id: String,
+	},
+	/// "Report to group admins" on a message in a group.
+	ReportToAdmins {
+		message_id: String,
+	},
+	/// "Report..." on a chat: report the contact or group to WhatsApp.
+	ReportChat {
+		jid: String,
+	},
+	/// Group Info's moderation switches, saved with the other settings.
+	UpdateGroupModeration {
+		no_frequently_forwarded: bool,
+		allow_admin_reports: bool,
+		group_history: bool,
+	},
+	/// Group Info's "Reported messages...": what members reported to admins.
+	ShowReportedMessages,
 	/// Per-chat alert level for an archived chat, from the chat-list context
 	/// menu. Stored locally in settings.json rather than pushed to WhatsApp -
 	/// there's no protocol-level equivalent, unlike mute.

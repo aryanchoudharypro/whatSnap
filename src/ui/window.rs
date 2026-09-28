@@ -237,6 +237,7 @@ pub const MENU_ID_CALL_MUTE: i32 = 6033;
 pub const MENU_ID_CALL_END: i32 = 6034;
 pub const MENU_ID_LOCK_CHAT: i32 = 6035;
 pub const MENU_ID_DISAPPEARING: i32 = 6036;
+pub const MENU_ID_REPORT_CHAT: i32 = 6037;
 
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whaNTV").with_size(Size::new(1180, 760)).build();
@@ -326,6 +327,7 @@ pub fn build_main_window() -> WindowParts {
 			"Toggle read/unread on the open chat",
 		)
 		.append_item(MENU_ID_CHAT_INFO, &default_menu_label(MENU_ID_CHAT_INFO), "Open info for the open chat")
+		.append_item(MENU_ID_REPORT_CHAT, "&Report...", "Report the open chat's contact or group to WhatsApp")
 		.append_separator()
 		.append_item(MENU_ID_STAR_MESSAGE, &default_menu_label(MENU_ID_STAR_MESSAGE), "Star the selected message")
 		.build();
@@ -1182,6 +1184,11 @@ pub fn bind_input_handlers(
 			if let Some(jid) = jid {
 				let _ = tx_chat_menu.send(UiCommand::ChooseDisappearingTimer { jid });
 			}
+		} else if id == MENU_ID_REPORT_CHAT {
+			let jid = state_chat_menu.borrow().selected_chat.clone();
+			if let Some(jid) = jid {
+				let _ = tx_chat_menu.send(UiCommand::ReportChat { jid });
+			}
 		} else if id == MENU_ID_MUTE_CHAT
 			|| id == MENU_ID_ARCHIVE_CHAT
 			|| id == MENU_ID_PIN_CHAT
@@ -1367,12 +1374,25 @@ pub fn bind_input_handlers(
 	let group_desc_field = parts.group_data_dialog.group_desc_field.clone();
 	let announce_chk = parts.group_data_dialog.announce_chk.clone();
 	let locked_chk = parts.group_data_dialog.locked_chk.clone();
+	let forwarded_chk = parts.group_data_dialog.forwarded_chk.clone();
+	let admin_reports_chk = parts.group_data_dialog.admin_reports_chk.clone();
+	let history_chk = parts.group_data_dialog.history_chk.clone();
 	parts.group_data_dialog.save_settings_btn.on_click(move |_| {
 		let name = group_name_field.get_value();
 		let topic = group_desc_field.get_value();
 		let announce = announce_chk.is_checked();
 		let locked = locked_chk.is_checked();
 		let _ = tx_group_settings.send(UiCommand::UpdateGroupSettings { name, topic, announce, locked });
+		let _ = tx_group_settings.send(UiCommand::UpdateGroupModeration {
+			no_frequently_forwarded: forwarded_chk.is_checked(),
+			allow_admin_reports: admin_reports_chk.is_checked(),
+			group_history: history_chk.is_checked(),
+		});
+	});
+
+	let tx_reported = ui_tx.clone();
+	parts.group_data_dialog.reported_btn.on_click(move |_| {
+		let _ = tx_reported.send(UiCommand::ShowReportedMessages);
 	});
 
 	let tx_group_members_search = ui_tx.clone();
@@ -2294,6 +2314,7 @@ pub fn bind_input_handlers(
 			let alert_silent_id = 4009;
 			let alert_sound_id = 4010;
 			let alert_full_id = 4011;
+			let report_id = 4014;
 
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
@@ -2337,6 +2358,11 @@ pub fn bind_input_handlers(
 					"Clea&r chat...",
 					"Delete this chat's messages, keeping the chat itself",
 				);
+				if !jid.ends_with("@newsletter") && !jid.ends_with("@broadcast") {
+					let what =
+						if is_group { "Report this group to WhatsApp" } else { "Report this contact to WhatsApp" };
+					menu_builder = menu_builder.append_item(report_id, "Re&port...", what);
+				}
 				menu_builder = menu_builder.append_item(delete_id, "&Delete chat...", "Delete chat history");
 
 				let mut popup_menu = menu_builder.build();
@@ -2408,6 +2434,8 @@ pub fn bind_input_handlers(
 					} else if id == lock_id {
 						let _ =
 							ui_tx_clone.send(UiCommand::ToggleLockChat { jid: jid_clone.clone(), lock: !is_locked });
+					} else if id == report_id {
+						let _ = ui_tx_clone.send(UiCommand::ReportChat { jid: jid_clone.clone() });
 					} else if id == mute_id {
 						let _ = ui_tx_clone.send(UiCommand::ToggleMuteChat { jid: jid_clone.clone(), mute: !is_muted });
 					} else if id == read_id {
@@ -2664,11 +2692,29 @@ pub fn bind_input_handlers(
 			let resend_id = 3013;
 			let copy_number_id = 3014;
 			let message_number_id = 3015;
+			let report_id = 3016;
+			let report_admins_id = 3017;
 
 			let s = state_ctx.borrow();
 			let display_item = s.display_items.get(idx as usize).cloned();
 			let is_group_chat = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
+			let is_channel_chat = s.selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
 			drop(s);
+
+			// A message someone else sent, which can be reported to WhatsApp
+			// (or, in a group, to its admins).
+			let reportable_id = display_item
+				.as_ref()
+				.and_then(|item| match item {
+					whantv::DisplayItem::Single(m) => {
+						(!m.from_me && !m.is_date_divider && !m.is_system() && !m.is_deleted && m.media_type != "call")
+							.then(|| m.id.clone())
+					}
+					whantv::DisplayItem::Album { messages, .. } => {
+						messages.first().filter(|m| !m.from_me).map(|m| m.id.clone())
+					}
+				})
+				.filter(|_| !is_channel_chat);
 
 			let is_starred = display_item
 				.as_ref()
@@ -2808,6 +2854,16 @@ pub fn bind_input_handlers(
 				menu_builder = menu_builder
 					.append_item(copy_number_id, "Copy Nu&mber", "Copy phone number to clipboard")
 					.append_item(message_number_id, "Message Num&ber", "Start a chat with this phone number");
+			}
+			if reportable_id.is_some() {
+				menu_builder = menu_builder.append_item(report_id, "Re&port...", "Report this message to WhatsApp");
+				if is_group_chat {
+					menu_builder = menu_builder.append_item(
+						report_admins_id,
+						"Report to group &admins",
+						"Send this message to the group's admins to review",
+					);
+				}
 			}
 			let mut popup_menu = menu_builder.build();
 
@@ -3140,6 +3196,15 @@ pub fn bind_input_handlers(
 								starred: !msg.starred,
 							});
 						}
+					}
+				} else if id == report_id || id == report_admins_id {
+					if let Some(message_id) = reportable_id.clone() {
+						let cmd = if id == report_id {
+							UiCommand::ReportMessage { message_id }
+						} else {
+							UiCommand::ReportToAdmins { message_id }
+						};
+						let _ = tx_play_media_clone.send(cmd);
 					}
 				} else if id == info_id {
 					let s = state_clone.borrow();
