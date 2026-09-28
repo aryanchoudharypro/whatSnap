@@ -612,7 +612,10 @@ pub fn bind_input_handlers(
 
 	let tx_typing = ui_tx.clone();
 	let msg_ctrl_typing = parts.conversations_parts.message_field;
+	let state_typing = state.clone();
+	let conv_parts_typing = parts.conversations_parts;
 	msg_ctrl_typing.on_text_changed(move |_| {
+		crate::ui_commands::mentions::refresh(&state_typing, &conv_parts_typing);
 		let text = msg_ctrl_typing.get_value();
 		// set_value() fires this too - restoring a chat's saved draft on open,
 		// or entering edit mode, is not the user typing, and mustn't tell the
@@ -2053,9 +2056,22 @@ pub fn bind_input_handlers(
 	let conv_msg_field_esc = parts.conversations_parts.message_field;
 	let cancel_edit_btn_field = parts.conversations_parts.cancel_edit_btn;
 	let state_field = state.clone();
+	let conv_parts_field = parts.conversations_parts;
 	conv_msg_field_esc.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			// Open @mention suggestions get first say over arrows, Enter, Tab
+			// and Escape.
+			if crate::ui_commands::mentions::handle_key(
+				&state_field,
+				&conv_parts_field,
+				code,
+				key_event.shift_down(),
+				key_event.control_down(),
+			) {
+				event.skip(false);
+				return;
+			}
 			let is_editing = state_field.borrow().editing_message_id.is_some();
 			if keys::is_enter(code) {
 				// Enter key
@@ -2117,6 +2133,23 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	// Suggestions stay put while focus is away (a click on one moves focus to
+	// the list first) and are worked out afresh from the caret on return.
+	let state_mention_focus = state.clone();
+	let conv_parts_focus = parts.conversations_parts;
+	parts.conversations_parts.message_field.on_set_focus(move |event| {
+		crate::ui_commands::mentions::refresh(&state_mention_focus, &conv_parts_focus);
+		event.skip(true);
+	});
+	// A click on a suggestion picks it, the way Enter would.
+	let state_mention_click = state.clone();
+	let conv_parts_click = parts.conversations_parts;
+	parts.conversations_parts.mention_list.on_selection_changed(move |event| {
+		if let Some(idx) = event.get_selection() {
+			crate::ui_commands::mentions::pick(&state_mention_click, &conv_parts_click, idx as usize);
+		}
+	});
+
 	// Escape only closed the conversation when the message list or composer
 	// itself had focus - hitting it from any other control in the
 	// conversation panel (a toolbar button, the "Conversation data" field,
@@ -2130,10 +2163,17 @@ pub fn bind_input_handlers(
 	let conv_panel_hook = parts.conversations_parts.conversation_panel;
 	let search_panel_hook = parts.conversations_parts.search_panel;
 	let state_hook = state.clone();
+	let composer_hook = parts.conversations_parts.message_field;
 	parts.frame.bind_internal(wxdragon::event::EventType::CHAR_HOOK, move |event| {
 		let data = WindowEventData::new(event);
 		if let WindowEventData::Keyboard(ref key_event) = data {
 			if keys::is_escape(key_event.get_key_code()) {
+				// Escape closes open @mention suggestions first; the composer's
+				// own key handler does that.
+				if state_hook.borrow().mention_popup.is_some() && composer_hook.has_focus() {
+					data.skip(true);
+					return;
+				}
 				if state_hook.borrow().chats_unlocked {
 					let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
 					data.skip(false);

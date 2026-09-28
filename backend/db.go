@@ -52,6 +52,10 @@ func migrateDB() error {
 	// Channels we follow, and our role in each (owner, admin, subscriber).
 	db.Exec("ALTER TABLE chats ADD COLUMN is_channel INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN channel_role TEXT DEFAULT ''")
+	// Advanced chat privacy ("limit sharing"), and for a 1:1 chat the
+	// setting's own timestamp, so an older stamp can't undo a newer toggle.
+	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing_ts INTEGER DEFAULT 0")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
@@ -140,6 +144,8 @@ func migrateDB() error {
 	// work to do once, but used to rescan and re-decode every matching row's
 	// raw protobuf on every single launch.
 	runOnce("backfill_template_messages_v1", backfillTemplateMessages)
+	// v2: messages withheld from linked devices (placeholders) now have text.
+	runOnce("backfill_template_messages_v2", backfillTemplateMessages)
 	runOnce("backfill_album_messages_v1", backfillAlbumMessages)
 	runOnce("backfill_media_sizes_v1", backfillMediaSizes)
 	runOnce("remove_key_distribution_stubs_v1", removeKeyDistributionStubs)

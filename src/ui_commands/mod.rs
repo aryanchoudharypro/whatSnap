@@ -4,6 +4,7 @@ pub(crate) mod channel_admin;
 pub(crate) mod chat_list;
 pub(crate) mod contacts_groups;
 pub(crate) mod links;
+pub(crate) mod mentions;
 pub(crate) mod messaging;
 pub(crate) mod misc;
 pub(crate) mod polls;
