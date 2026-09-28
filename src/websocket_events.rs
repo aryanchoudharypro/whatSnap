@@ -1787,13 +1787,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 											whantv::DisplayItem::Single(prev_msg) => {
 												let prev_is_media = !prev_msg.is_deleted
 													&& (prev_msg.media_type == "image"
-														|| prev_msg.media_type == "video" || prev_msg
-														.text
-														.starts_with("[Photo]") || prev_msg
-														.text
-														.starts_with("[Image]") || prev_msg
-														.text
-														.starts_with("[Video]"));
+														|| prev_msg.media_type == "video"
+														|| prev_msg.text.starts_with("[Photo]")
+														|| prev_msg.text.starts_with("[Image]")
+														|| prev_msg.text.starts_with("[Video]"));
 												prev_is_media && whantv::same_album(prev_msg, &chat_msg)
 											}
 											whantv::DisplayItem::Album { messages, .. } => {
@@ -3763,7 +3760,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 											timestamp: std::time::SystemTime::now()
 												.duration_since(std::time::UNIX_EPOCH)
 												.unwrap_or_default()
-												.as_secs() as i64,
+												.as_secs()
+												as i64,
 										});
 									}
 								}
@@ -3849,7 +3847,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							s.pending_copy_announcements.remove(id);
 							if let Some(m) = s.messages.iter().find(|msg| msg.id == *id) {
 								if m.is_audio
-									|| m.media_type == "voice" || m.media_type == "audio"
+									|| m.media_type == "voice"
+									|| m.media_type == "audio"
 									|| m.text.starts_with("[Voice Message]")
 									|| m.text.starts_with("[Audio]")
 								{

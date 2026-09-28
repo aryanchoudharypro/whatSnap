@@ -296,14 +296,16 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 					let is_voice =
 						msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
 					let is_media = !is_deleted
-						&& !is_voice && !msg.is_system()
-						&& !msg.is_call() && (!msg.media_type.is_empty()
-						|| msg.is_document()
-						|| msg.text.starts_with("[Photo]")
-						|| msg.text.starts_with("[Image]")
-						|| msg.text.starts_with("[Video]")
-						|| msg.text.starts_with("[Document]")
-						|| msg.text.starts_with("[Media]"));
+						&& !is_voice
+						&& !msg.is_system()
+						&& !msg.is_call()
+						&& (!msg.media_type.is_empty()
+							|| msg.is_document()
+							|| msg.text.starts_with("[Photo]")
+							|| msg.text.starts_with("[Image]")
+							|| msg.text.starts_with("[Video]")
+							|| msg.text.starts_with("[Document]")
+							|| msg.text.starts_with("[Media]"));
 
 					let is_failed = msg.from_me && !msg.is_date_divider && msg.status == "failed";
 					let is_uploading = msg.from_me && msg.status == "uploading";
