@@ -236,15 +236,16 @@ func main() {
 
 	// How whaNTV introduces itself to the phone when linking. Only sent in the
 	// registration payload, so a change takes effect on the next link, never
-	// on an existing session. These are the values full history syncs worked
-	// with: claiming to be the Windows app (UWP) with WA Web's newer
-	// capability flags instead got only recent messages and an empty full
-	// sync from the phone.
+	// on an existing session.
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_DESKTOP.Enum()
 	store.DeviceProps.Os = proto.String("Windows")
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
+	// OnDemandReady lets whaNTV ask the phone for a chat's older messages
+	// (scrolling to the top). CompleteOnDemandReady is deliberately not
+	// claimed: with it, the phone answers a new link with "complete access
+	// granted", the recent messages and an empty FULL history, leaving the
+	// rest to be fetched chat by chat, instead of pushing the full history.
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
-	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportAddOnHistorySyncMigration = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(3650)
 	store.DeviceProps.HistorySyncConfig.FullSyncSizeMbLimit = proto.Uint32(50000)
