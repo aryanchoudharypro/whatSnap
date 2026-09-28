@@ -164,6 +164,15 @@ pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 		let status = if !current { "Microphone muted." } else { "Microphone unmuted." };
 		parts.call_parts.mute_btn.set_label(if !current { "Unmute microphone" } else { "Mute microphone" });
 		announce_call(parts, status);
+		// The local silence above is what actually mutes; this tells the other
+		// side, whose call screen then shows us muted.
+		if let Some(call_id) = &s.active_call_id {
+			let payload = serde_json::json!({
+				"action": "mute_call",
+				"data": { "call_id": call_id, "muted": !current }
+			});
+			let _ = s.ws_tx.send(payload.to_string());
+		}
 	}
 }
 

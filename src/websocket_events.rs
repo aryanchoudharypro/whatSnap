@@ -1077,6 +1077,21 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
+				"call_audio_health" => {
+					if let Some(data) = val.get("data") {
+						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+						if state.borrow().active_call_id.as_deref() != Some(call_id) {
+							return;
+						}
+						let stalled = data.get("stalled").and_then(|s| s.as_bool()).unwrap_or(false);
+						let message = if stalled {
+							"No sound is reaching you from the call. Check your internet connection."
+						} else {
+							"Sound from the call isn't getting through."
+						};
+						announce_call(parts, message);
+					}
+				}
 				"call_participant_added" | "call_participant_add_failed" => {
 					if let Some(data) = val.get("data") {
 						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");

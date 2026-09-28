@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/purpshell/meowcaller"
@@ -233,6 +234,22 @@ func attachCallHandlers(call *meowcaller.Call) {
 		broadcastEvent("call_video_state", map[string]string{
 			"call_id":    call.ID(),
 			"peer_video": event,
+		})
+	})
+	// No sound getting through: say so, rather than leaving the user
+	// wondering whether the other person is just quiet. Not while they've
+	// muted themselves - some clients stop sending altogether then.
+	var peerMuted atomic.Bool
+	call.OnMuteState(func(muted bool) { peerMuted.Store(muted) })
+	call.OnAudioHealth(func(health meowcaller.AudioHealth) {
+		if peerMuted.Load() {
+			return
+		}
+		broadcastEvent("call_audio_health", map[string]interface{}{
+			"call_id":    call.ID(),
+			"stalled":    health.Stalled,
+			"reason":     string(health.Reason),
+			"silent_for": int(health.SilentFor.Seconds()),
 		})
 	})
 	// WhatsApp's PLI/FIR feedback asking our camera for a fresh keyframe -
@@ -525,10 +542,29 @@ func handleLeaveCall(data []byte) {
 	}
 }
 
+// handleMuteCall tells the other side of a call that our microphone was
+// muted or unmuted. The frontend already silences the audio itself; without
+// this the peer's call screen never showed us as muted.
 func handleMuteCall(data []byte) {
-	// Audio mute is handled locally in the Rust frontend by sending silence over UDP!
-	// We don't need to do anything here for audio mute, but we could log it.
-	log.Println("Mute toggled by frontend")
+	var req struct {
+		CallID string `json:"call_id"`
+		Muted  bool   `json:"muted"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		log.Println("Invalid mute_call format:", err)
+		return
+	}
+	activeCallsMutex.Lock()
+	call, exists := activeCalls[req.CallID]
+	activeCallsMutex.Unlock()
+	if !exists {
+		return
+	}
+	go func() {
+		if err := call.SetMuted(req.Muted); err != nil {
+			log.Println("Failed to announce mute state:", err)
+		}
+	}()
 }
 
 // handleSetVideo turns the local camera on or off for an active call. This is
