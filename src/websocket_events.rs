@@ -2244,6 +2244,27 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
+				"history_start_reached" => {
+					// The phone had nothing older even from a second anchor: the
+					// chat starts here. Stop asking until it's reopened.
+					let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) else { return };
+					let open = {
+						let mut s = state.borrow_mut();
+						s.history_start_chats.insert(jid.to_string());
+						if s.phone_history_pending_jid.as_deref() == Some(jid) {
+							s.phone_history_pending_jid = None;
+							s.phone_history_deadline = None;
+							s.history_loading = false;
+						}
+						s.selected_chat.as_deref() == Some(jid)
+					};
+					if open {
+						crate::announce::announce(
+							parts.conversations_parts.messages_announcer.clone(),
+							"This is the start of the chat.",
+						);
+					}
+				}
 				"no_more_history" => {
 					// The backend refused to ask the phone again so soon after
 					// the last request for this chat. Only this attempt ends;

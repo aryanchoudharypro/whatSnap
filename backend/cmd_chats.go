@@ -870,10 +870,8 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 	req := wa().BuildHistorySyncRequest(msgInfo, count)
 	go func() {
 		answered := make(chan struct{}, 1)
-		if autoRetry {
-			onDemandWaiters.Store(data.JID, answered)
-			defer onDemandWaiters.CompareAndDelete(data.JID, answered)
-		}
+		onDemandWaiters.Store(data.JID, answered)
+		defer onDemandWaiters.CompareAndDelete(data.JID, answered)
 		historyRequestMu.Lock()
 		// Spaced out even across different chats, so paging quickly through
 		// many of them can't turn into a burst.
@@ -887,17 +885,31 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 			log.Printf("history sync request for %s failed: %v", data.JID, sendErr)
 			return
 		}
-		if !autoRetry {
+		if autoRetry {
+			// Silence means the phone won't use this anchor, or there's nothing
+			// older: try another anchor now rather than waiting for another
+			// scroll to the top.
+			select {
+			case <-answered:
+			case <-time.After(onDemandRetryAfter):
+				log.Printf("No answer from the phone for %s before %s after %s; retrying with another anchor", data.JID, msgID, onDemandRetryAfter)
+				requestOlderHistory(chatJID, data.JID, count, false)
+			}
 			return
 		}
-		// Silence means the phone won't use this anchor: try the next one now
-		// rather than waiting for another scroll to the top.
+		// This was that retry. If it also went unanswered, or its answer held
+		// nothing older than what's already here, both anchors came up empty:
+		// the chat really starts here.
 		select {
 		case <-answered:
-		case <-time.After(onDemandRetryAfter):
-			log.Printf("No answer from the phone for %s before %s after %s; retrying with another anchor", data.JID, msgID, onDemandRetryAfter)
-			requestOlderHistory(chatJID, data.JID, count, false)
+			if now, err := oldestHistoryAnchor(data.JID, nil); err != nil || now.id != oldest.id {
+				return
+			}
+			log.Printf("The phone's answer for %s held nothing older than %s; this is the start of the chat", data.JID, oldest.id)
+		case <-time.After(onDemandStartAfter):
+			log.Printf("No answer from the phone for %s after a retry either; this is the start of the chat", data.JID)
 		}
+		broadcastEvent("history_start_reached", map[string]string{"jid": data.JID})
 	}()
 }
 
@@ -925,8 +937,12 @@ const (
 	// onDemandRetryAfter is how long an on-demand history request waits for
 	// the phone before being retried with another anchor. It's longer than
 	// historyRequestRepeatAfter, so the retry isn't refused as a repeat, and
-	// leaves the retry time to be answered before the UI's 20s timeout.
+	// leaves the retry time to be answered before the UI's timeout.
 	onDemandRetryAfter = 12 * time.Second
+	// onDemandStartAfter is how long that retry waits before the chat is
+	// taken to start where it does. Both waits together stay inside the
+	// UI's 30s timeout for an older-history request.
+	onDemandStartAfter = 10 * time.Second
 )
 
 var (

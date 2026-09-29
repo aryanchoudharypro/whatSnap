@@ -232,6 +232,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	s.history_loading = false;
 	s.phone_history_pending_jid = None;
 	s.phone_history_deadline = None;
+	s.history_start_chats.remove(jid);
 	s.quiet_reload_jid = None;
 	s.newer_loading = false;
 	s.pending_attachments.clear();

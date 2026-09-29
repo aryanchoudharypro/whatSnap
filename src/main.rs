@@ -85,7 +85,7 @@ pub const MESSAGE_PAGE_SIZE: i32 = -1;
 /// asking, which matters because repeatedly re-requesting the same
 /// already-exhausted history is exactly the kind of on-demand traffic that
 /// risks tripping WhatsApp's abuse detection.
-const PHONE_HISTORY_TIMEOUT_SECS: u64 = 20;
+const PHONE_HISTORY_TIMEOUT_SECS: u64 = 30;
 
 // Presence and chatstate timing, taken verbatim from WhatsApp Web's own
 // bundle (2.3000.1047483476) so this client's traffic looks like it:
@@ -342,6 +342,10 @@ struct AppState {
 	/// so the timer knows it's safe to clear it later without clobbering
 	/// some unrelated status message it doesn't own.
 	db_growth_status_shown: bool,
+	/// Chats whose start the phone has confirmed this visit (see the
+	/// "history_start_reached" event): Home at the top says so instead of
+	/// asking the phone again. Cleared when the chat is reopened.
+	history_start_chats: std::collections::HashSet<String>,
 	/// Set while the open chat is being reloaded because history sync just
 	/// wrote messages for it (it was opened before they arrived), so the
 	/// reload fills the list without moving focus off wherever the user is.
@@ -854,6 +858,7 @@ fn main() {
 			db_size_last_seen: 0,
 			db_growth_last_seen: None,
 			db_growth_status_shown: false,
+			history_start_chats: std::collections::HashSet::new(),
 			quiet_reload_jid: None,
 			prev_msg_count: 0,
 			active_tab: 0,
