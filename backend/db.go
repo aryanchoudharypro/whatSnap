@@ -84,6 +84,9 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
+	// The chat's oldest message when that request went out: if it's still
+	// the oldest next time, the phone sent nothing older for that anchor.
+	db.Exec("ALTER TABLE history_requests ADD COLUMN oldest_id TEXT DEFAULT ''")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
