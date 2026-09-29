@@ -1557,6 +1557,11 @@ func eventHandler(evt interface{}) {
 			// Only chats that got messages: an empty answer to an on-demand
 			// request (the phone has nothing older) must not look like new
 			// history, or the UI would un-mark the chat and ask again.
+			if v.Data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND {
+				for _, j := range jidsWithMessages {
+					noteOnDemandAnswer(j)
+				}
+			}
 			if len(jidsWithMessages) > 0 {
 				broadcastEvent("history_chats_synced", map[string]interface{}{
 					"jids":     jidsWithMessages,

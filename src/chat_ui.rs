@@ -230,10 +230,6 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	s.loading_messages = false;
 	s.no_more_messages = false;
 	s.history_loading = false;
-	// Each time a chat is opened, Home at its top may ask the phone for
-	// older history once more (and at most once, until it's reopened) - a
-	// chat marked out of history by an earlier visit gets that one try back.
-	s.completed_history_chats.remove(jid);
 	s.phone_history_pending_jid = None;
 	s.phone_history_deadline = None;
 	s.quiet_reload_jid = None;

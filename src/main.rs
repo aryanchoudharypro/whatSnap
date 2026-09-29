@@ -342,7 +342,6 @@ struct AppState {
 	/// so the timer knows it's safe to clear it later without clobbering
 	/// some unrelated status message it doesn't own.
 	db_growth_status_shown: bool,
-	completed_history_chats: std::collections::HashSet<String>,
 	/// Set while the open chat is being reloaded because history sync just
 	/// wrote messages for it (it was opened before they arrived), so the
 	/// reload fills the list without moving focus off wherever the user is.
@@ -855,7 +854,6 @@ fn main() {
 			db_size_last_seen: 0,
 			db_growth_last_seen: None,
 			db_growth_status_shown: false,
-			completed_history_chats: std::collections::HashSet::new(),
 			quiet_reload_jid: None,
 			prev_msg_count: 0,
 			active_tab: 0,
@@ -1139,11 +1137,17 @@ fn main() {
 			// spinner) and, worse, would be free to fire the same request again
 			// on the next scroll-to-top, which is exactly the repeated on-demand
 			// traffic that risks tripping WhatsApp's abuse detection.
+			//
+			// A timeout only ends this attempt: the phone also stays silent when
+			// it won't use the message a request was anchored on, and the next
+			// request (the next Home at the top) goes out with a different anchor.
+			// Marking the chat finished here left it stuck until whaNTV was
+			// restarted. The backend spaces requests out and refuses quick
+			// repeats, so asking again on the next Home is safe.
 			if let Some(deadline) = s.phone_history_deadline {
 				if now >= deadline {
 					if let Some(jid) = s.phone_history_pending_jid.take() {
-						eprintln!("[LOG UI] Phone history request for {} timed out; not asking again.", jid);
-						s.completed_history_chats.insert(jid);
+						eprintln!("[LOG UI] Phone history request for {} timed out; Home at the top asks again.", jid);
 					}
 					s.phone_history_deadline = None;
 					s.history_loading = false;
