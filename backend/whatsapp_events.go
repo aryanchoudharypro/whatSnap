@@ -1537,7 +1537,15 @@ func eventHandler(evt interface{}) {
 			// meant nearly every chunk, since the phone sends slower than we
 			// write - all while holding historySyncMutex. They now run once the
 			// sync has gone quiet, outside the lock.
-			scheduleHistorySyncRefresh()
+			//
+			// Not for an on-demand chunk: that's older messages for one chat,
+			// whose preview (its newest message) can't change from them, and it
+			// brings no new chats, contacts or groups. Refreshing after each one
+			// re-read every chat's preview and fetched the group list again for
+			// every 50 older messages loaded.
+			if v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND {
+				scheduleHistorySyncRefresh()
+			}
 			broadcastChats()
 			tailTook := time.Since(tailStart)
 
