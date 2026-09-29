@@ -794,16 +794,38 @@ func handleRequestHistorySync(raw json.RawMessage) {
 	// trusting the UI's pick - it used to send its first row, which is
 	// always a date divider with no ID, so the lookup failed and the
 	// request was silently never sent at all.
-	var msgID, senderJID string
-	var fromMe bool
-	var ts int64
-	err = db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), from_me, timestamp FROM messages
-		WHERE jid = ? AND COALESCE(media_type, '') NOT IN ('system', 'call')
-		ORDER BY timestamp ASC, id ASC LIMIT 1`, data.JID).Scan(&msgID, &senderJID, &fromMe, &ts)
+	oldest, err := oldestHistoryAnchor(data.JID, nil)
 	if err != nil {
 		log.Printf("history sync request for %s: no message to anchor it on: %v", data.JID, err)
 		return
 	}
+
+	// The UI asks at most once per time a chat is opened. This is the
+	// backstop under that: the same request (same chat, same anchor) is
+	// refused if it was sent moments ago, so a UI bug or a held-down key
+	// can never turn into a stream of identical requests to the phone.
+	var lastAnchor, lastOldest string
+	var lastAt int64
+	haveLast := db.QueryRow(`SELECT anchor_id, COALESCE(oldest_id, ''), requested_at FROM history_requests WHERE jid = ?`,
+		data.JID).Scan(&lastAnchor, &lastOldest, &lastAt) == nil
+	if haveLast && lastOldest == oldest.id && time.Since(time.Unix(lastAt, 0)) < historyRequestRepeatAfter {
+		log.Printf("Not re-requesting history for %s: already asked before %s at %s", data.JID, lastAnchor, time.Unix(lastAt, 0).Format(time.RFC3339))
+		broadcastEvent("no_more_history", map[string]string{"jid": data.JID})
+		return
+	}
+	anchor := oldest
+	// The phone sends nothing at all when it can't use an anchor, and asking
+	// again with the same one gets nothing again, so a chat stayed stuck at
+	// that message for good. If the last request brought nothing older, anchor
+	// on a different message this time - preferably a plain one, not a photo
+	// in an album or a deleted message - and the phone answers from there.
+	if haveLast && lastOldest == oldest.id {
+		if alt, altErr := oldestHistoryAnchor(data.JID, []string{oldest.id, lastAnchor}); altErr == nil {
+			log.Printf("History request for %s before %s got nothing; trying %s instead", data.JID, lastAnchor, alt.id)
+			anchor = alt
+		}
+	}
+	msgID, senderJID, fromMe, ts := anchor.id, anchor.sender, anchor.fromMe, anchor.ts
 
 	sender, _ := types.ParseJID(senderJID)
 	if sender.IsEmpty() {
@@ -822,21 +844,9 @@ func handleRequestHistorySync(raw json.RawMessage) {
 		Timestamp: time.Unix(ts, 0),
 	}
 
-	// The UI asks at most once per time a chat is opened. This is the
-	// backstop under that: the same request (same chat, same anchor) is
-	// refused if it was sent moments ago, so a UI bug or a held-down key
-	// can never turn into a stream of identical requests to the phone.
-	var lastAnchor string
-	var lastAt int64
-	if db.QueryRow(`SELECT anchor_id, requested_at FROM history_requests WHERE jid = ?`, data.JID).Scan(&lastAnchor, &lastAt) == nil &&
-		lastAnchor == msgID && time.Since(time.Unix(lastAt, 0)) < historyRequestRepeatAfter {
-		log.Printf("Not re-requesting history for %s: already asked before %s at %s", data.JID, msgID, time.Unix(lastAt, 0).Format(time.RFC3339))
-		broadcastEvent("no_more_history", map[string]string{"jid": data.JID})
-		return
-	}
-	if _, err := db.Exec(`INSERT INTO history_requests (jid, anchor_id, requested_at) VALUES (?, ?, ?)
-		ON CONFLICT(jid) DO UPDATE SET anchor_id = excluded.anchor_id, requested_at = excluded.requested_at`,
-		data.JID, msgID, time.Now().Unix()); err != nil {
+	if _, err := db.Exec(`INSERT INTO history_requests (jid, anchor_id, oldest_id, requested_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(jid) DO UPDATE SET anchor_id = excluded.anchor_id, oldest_id = excluded.oldest_id, requested_at = excluded.requested_at`,
+		data.JID, msgID, oldest.id, time.Now().Unix()); err != nil {
 		log.Printf("history sync request for %s: couldn't record it, not sending: %v", data.JID, err)
 		return
 	}
@@ -874,3 +884,35 @@ var (
 	historyRequestMu   sync.Mutex
 	lastHistoryRequest time.Time
 )
+
+// historyAnchor is a stored message an on-demand history request can name as
+// "send me what came before this".
+type historyAnchor struct {
+	id, sender string
+	fromMe     bool
+	ts         int64
+}
+
+// oldestHistoryAnchor is the chat's oldest real WhatsApp message (not one of
+// the group-event or call rows whaNTV makes up). With exclude set, it's the
+// oldest other than those, preferring plain ones: not deleted, not media, not
+// part of an album, falling back to any other message.
+func oldestHistoryAnchor(jid string, exclude []string) (historyAnchor, error) {
+	var a historyAnchor
+	if len(exclude) == 0 {
+		err := db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), from_me, timestamp FROM messages
+			WHERE jid = ? AND COALESCE(media_type, '') NOT IN ('system', 'call')
+			ORDER BY timestamp ASC, id ASC LIMIT 1`, jid).Scan(&a.id, &a.sender, &a.fromMe, &a.ts)
+		return a, err
+	}
+	args := []interface{}{jid}
+	notIn := strings.TrimSuffix(strings.Repeat("?, ", len(exclude)), ", ")
+	for _, id := range exclude {
+		args = append(args, id)
+	}
+	err := db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), from_me, timestamp FROM messages
+		WHERE jid = ? AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT IN (`+notIn+`)
+		ORDER BY (COALESCE(is_deleted, 0) = 0 AND COALESCE(media_type, '') = '' AND COALESCE(album_id, '') = '') DESC,
+			timestamp ASC, id ASC LIMIT 1`, args...).Scan(&a.id, &a.sender, &a.fromMe, &a.ts)
+	return a, err
+}
