@@ -259,7 +259,7 @@ pub(crate) fn delete_selected_messages(state: &Rc<RefCell<AppState>>, parts: &Rc
 	}
 }
 
-pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>) {
+pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	if s.history_loading {
 		eprintln!("[LOG UI] Request already in flight for chat, skipping duplicate trigger");
@@ -269,6 +269,14 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 		Some(jid) => jid,
 		None => return,
 	};
+	if s.no_more_messages && s.history_start_chats.contains(&jid) {
+		drop(s);
+		crate::announce::announce(
+			parts.conversations_parts.messages_announcer.clone(),
+			"This is the start of the chat.",
+		);
+		return;
+	}
 	s.history_loading = true;
 	if s.no_more_messages {
 		// Already know the local database has nothing older for this chat (a
