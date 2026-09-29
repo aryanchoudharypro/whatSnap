@@ -269,10 +269,6 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 		Some(jid) => jid,
 		None => return,
 	};
-	if s.completed_history_chats.contains(&jid) {
-		eprintln!("[LOG UI] All available history already loaded for chat {}, skipping request", jid);
-		return;
-	}
 	s.history_loading = true;
 	if s.no_more_messages {
 		// Already know the local database has nothing older for this chat (a

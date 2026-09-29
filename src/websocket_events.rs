@@ -219,10 +219,11 @@ fn apply_conversation_messages(
 		// session - see `phone_history_pending_jid`'s doc comment on why
 		// re-asking isn't safe).
 		if s.phone_history_pending_jid.as_deref() == Some(chat_jid.as_str()) {
-			eprintln!("[LOG UI] Phone had no older history for {}. Marking history complete.", chat_jid);
+			// Not marked finished: an answer anchored further forward can hold
+			// only messages already here, and the next one reaches past them.
+			eprintln!("[LOG UI] Phone sent nothing new for {} this time.", chat_jid);
 			s.phone_history_pending_jid = None;
 			s.phone_history_deadline = None;
-			s.completed_history_chats.insert(chat_jid);
 			s.history_loading = false;
 		} else {
 			eprintln!("[LOG UI] Local database has no older history for {} yet; asking the phone.", chat_jid);
@@ -1506,13 +1507,6 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						.map(|a| a.iter().filter_map(|j| j.as_str()).collect())
 						.unwrap_or_default();
 					let mut s = state.borrow_mut();
-					// A chat marked out of history (the phone answered too late, or
-					// its history hadn't synced yet when it was scrolled to the top)
-					// has more now - without this it stayed "complete" until whaNTV
-					// was restarted.
-					for jid in &jids {
-						s.completed_history_chats.remove(*jid);
-					}
 					let Some(open_jid) = s.selected_chat.clone() else { return };
 					if !jids.contains(&open_jid.as_str()) {
 						return;
@@ -2251,15 +2245,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 				}
 				"no_more_history" => {
-					// The backend refused to ask the phone again for history
-					// before a message it already asked about - the phone had
-					// nothing older then.
+					// The backend refused to ask the phone again so soon after
+					// the last request for this chat. Only this attempt ends;
+					// the next Home at the top asks again.
 					let mut s = state.borrow_mut();
 					s.history_loading = false;
 					if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
 						if !jid.is_empty() {
-							eprintln!("[LOG UI] End of history reached on phone for chat: {}", jid);
-							s.completed_history_chats.insert(jid.to_string());
+							eprintln!("[LOG UI] Backend held back a repeat history request for chat: {}", jid);
 							if s.phone_history_pending_jid.as_deref() == Some(jid) {
 								s.phone_history_pending_jid = None;
 								s.phone_history_deadline = None;

@@ -786,6 +786,18 @@ func handleRequestHistorySync(raw json.RawMessage) {
 		go loadOlderChannelPosts(data.JID)
 		return
 	}
+	requestOlderHistory(chatJID, data.JID, data.Count, true)
+}
+
+// requestOlderHistory asks the phone for the messages before the chat's
+// oldest stored one. With autoRetry, a request the phone doesn't answer
+// within onDemandRetryAfter is sent once more with a different anchor (see
+// below), still inside the time the UI waits for an answer.
+func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry bool) {
+	data := struct {
+		JID   string
+		Count int
+	}{jid, count}
 
 	// The phone answers with what comes before the oldest message it's
 	// told about, so that has to be a real WhatsApp message it knows:
@@ -851,25 +863,57 @@ func handleRequestHistorySync(raw json.RawMessage) {
 		return
 	}
 
-	count := data.Count
 	if count <= 0 || count > 50 {
 		count = 50
 	}
 	log.Printf("Requesting older history for %s before %s (count %d)", data.JID, msgID, count)
 	req := wa().BuildHistorySyncRequest(msgInfo, count)
 	go func() {
+		answered := make(chan struct{}, 1)
+		if autoRetry {
+			onDemandWaiters.Store(data.JID, answered)
+			defer onDemandWaiters.CompareAndDelete(data.JID, answered)
+		}
 		historyRequestMu.Lock()
-		defer historyRequestMu.Unlock()
 		// Spaced out even across different chats, so paging quickly through
 		// many of them can't turn into a burst.
 		if wait := historyRequestMinGap - time.Since(lastHistoryRequest); wait > 0 {
 			time.Sleep(wait)
 		}
 		lastHistoryRequest = time.Now()
-		if _, sendErr := wa().SendPeerMessage(context.Background(), req); sendErr != nil {
+		_, sendErr := wa().SendPeerMessage(context.Background(), req)
+		historyRequestMu.Unlock()
+		if sendErr != nil {
 			log.Printf("history sync request for %s failed: %v", data.JID, sendErr)
+			return
+		}
+		if !autoRetry {
+			return
+		}
+		// Silence means the phone won't use this anchor: try the next one now
+		// rather than waiting for another scroll to the top.
+		select {
+		case <-answered:
+		case <-time.After(onDemandRetryAfter):
+			log.Printf("No answer from the phone for %s before %s after %s; retrying with another anchor", data.JID, msgID, onDemandRetryAfter)
+			requestOlderHistory(chatJID, data.JID, count, false)
 		}
 	}()
+}
+
+// onDemandWaiters holds, per chat, the channel an on-demand history request
+// is waiting on for the phone's answer (see noteOnDemandAnswer).
+var onDemandWaiters sync.Map
+
+// noteOnDemandAnswer tells a waiting on-demand request for jid that the
+// phone answered it.
+func noteOnDemandAnswer(jid string) {
+	if ch, ok := onDemandWaiters.Load(jid); ok {
+		select {
+		case ch.(chan struct{}) <- struct{}{}:
+		default:
+		}
+	}
 }
 
 const (
@@ -878,6 +922,11 @@ const (
 	historyRequestRepeatAfter = 10 * time.Second
 	// historyRequestMinGap spaces out on-demand history requests.
 	historyRequestMinGap = 2 * time.Second
+	// onDemandRetryAfter is how long an on-demand history request waits for
+	// the phone before being retried with another anchor. It's longer than
+	// historyRequestRepeatAfter, so the retry isn't refused as a repeat, and
+	// leaves the retry time to be answered before the UI's 20s timeout.
+	onDemandRetryAfter = 12 * time.Second
 )
 
 var (
