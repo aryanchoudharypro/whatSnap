@@ -652,6 +652,11 @@ func handleAddParticipant(data []byte) {
 	}
 
 	err = call.AddParticipant(context.Background(), parsedJID.String())
+	if err != nil && strings.Contains(err.Error(), "already in the call roster") {
+		// Someone who was invited but never picked up, or who left, is still
+		// on the roster: adding them again means ringing them again.
+		err = call.RingParticipant(context.Background(), parsedJID.String())
+	}
 	if err != nil {
 		log.Println("Failed to add participant:", err)
 		fail(addParticipantErrorMessage(err, name))
@@ -673,8 +678,12 @@ func addParticipantErrorMessage(err error, name string) string {
 	switch {
 	case strings.Contains(msg, "call is not connected"):
 		return "Wait for the call to connect before adding someone."
-	case strings.Contains(msg, "already in the call roster"):
+	case strings.Contains(msg, "already in the call roster"), strings.Contains(msg, "already connected"):
 		return name + " is already in the call."
+	case strings.Contains(msg, "limit reached"):
+		return "Couldn't add " + name + ": the call is full."
+	case strings.Contains(msg, "has no devices"):
+		return "Couldn't add " + name + ": they have no device that can take a call."
 	case strings.Contains(msg, "cannot add this client to its own call"):
 		return "You can't add yourself to the call."
 	case strings.Contains(msg, "capability is unavailable"):
