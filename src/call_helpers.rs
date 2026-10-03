@@ -45,16 +45,21 @@ pub(crate) fn join_names(names: &[&str]) -> String {
 	}
 }
 
+/// Whether a roster state means the person's phone is being rung right now.
+/// WhatsApp moves someone "outgoing" (offer sent) -> "receipt" (their phone
+/// is ringing) and, once the ring times out unanswered, to "invited": still
+/// welcome to join, but no longer ringing.
+fn is_ringing_state(state: &str) -> bool {
+	matches!(state, "outgoing" | "receipt" | "ringing")
+}
+
 /// Status line for the call window during a group call, e.g.
 /// "In group call with Asha and Ben. Ringing Chris."
 pub(crate) fn group_call_status_text(participants: &[CallParticipant]) -> String {
 	let connected: Vec<&str> =
 		participants.iter().filter(|p| p.state == "connected").map(|p| p.name.as_str()).collect();
-	let ringing: Vec<&str> = participants
-		.iter()
-		.filter(|p| p.state != "connected" && p.state != "rejected")
-		.map(|p| p.name.as_str())
-		.collect();
+	let ringing: Vec<&str> =
+		participants.iter().filter(|p| is_ringing_state(&p.state)).map(|p| p.name.as_str()).collect();
 	match (connected.is_empty(), ringing.is_empty()) {
 		(true, true) => "In group call. No one else is here yet.".to_string(),
 		(true, false) => format!("Calling {}.", join_names(&ringing)),
@@ -77,6 +82,8 @@ pub(crate) fn call_participant_changes(old: &[CallParticipant], new: &[CallParti
 			changes.push(format!("{} left the call.", p.name));
 		} else if p.state == "rejected" && before != Some("rejected") {
 			changes.push(format!("{} declined the call.", p.name));
+		} else if p.state == "invited" && before.is_some_and(is_ringing_state) {
+			changes.push(format!("{} didn't answer.", p.name));
 		}
 	}
 	for o in old {
@@ -197,6 +204,16 @@ mod call_participant_tests {
 		assert_eq!(group_call_status_text(&roster), "In group call with Asha and Ben. Ringing Chris.");
 		let roster = [p("1@lid", "Asha", "outgoing"), p("2@lid", "Ben", "outgoing"), p("3@lid", "Chris", "outgoing")];
 		assert_eq!(group_call_status_text(&roster), "Calling Asha, Ben and Chris.");
+	}
+
+	#[test]
+	fn unanswered_invite_stops_ringing() {
+		let ringing = [p("1@lid", "Asha", "connected"), p("2@lid", "Ben", "receipt"), p("3@lid", "Chris", "outgoing")];
+		assert_eq!(group_call_status_text(&ringing), "In group call with Asha. Ringing Ben and Chris.");
+		let timed_out = [p("1@lid", "Asha", "connected"), p("2@lid", "Ben", "invited"), p("3@lid", "Chris", "invited")];
+		assert_eq!(group_call_status_text(&timed_out), "In group call with Asha.");
+		assert_eq!(call_participant_changes(&ringing, &timed_out), vec!["Ben didn't answer.", "Chris didn't answer."]);
+		assert!(call_participant_changes(&timed_out, &timed_out).is_empty());
 	}
 
 	#[test]
