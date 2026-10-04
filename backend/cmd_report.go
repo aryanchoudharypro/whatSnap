@@ -7,7 +7,6 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
 )
 
 // Reporting to WhatsApp, as the official apps' "Report" does: a message
@@ -116,11 +115,9 @@ func handleReport(conn net.Conn, raw json.RawMessage) {
 		}
 		result := map[string]interface{}{"jid": data.JID, "message_id": data.MessageID}
 		if data.Block && chat.Server != types.GroupServer {
-			if _, err := wa().UpdateBlocklist(context.Background(), chat, events.BlocklistChangeActionBlock); err != nil {
+			if err := setBlocked(chat, true); err != nil {
 				fail("Reported, but couldn't block them: " + err.Error())
 			} else {
-				setContactBlocked(data.JID, true)
-				broadcastEvent("blocklist_updated", nil)
 				result["blocked"] = true
 			}
 		}

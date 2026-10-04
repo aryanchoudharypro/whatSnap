@@ -15,7 +15,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -25,7 +24,7 @@ func handleGetContacts(conn net.Conn) {
 		// contact/push-name events and the refreshes after connect and history
 		// sync; rebuilding it here (every contact, plus a network fetch of all
 		// our groups) on every contact-picker open was pure overhead.
-		rows, err := db.Query(`SELECT jid, name, phone, is_business, about, avatar_path, is_blocked FROM contacts_cache WHERE name != '' OR phone != '' ORDER BY name COLLATE NOCASE ASC`)
+		rows, err := db.Query(`SELECT jid, name, phone, is_business, about, avatar_path FROM contacts_cache WHERE name != '' OR phone != '' ORDER BY name COLLATE NOCASE ASC`)
 
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": err.Error()})
@@ -35,12 +34,12 @@ func handleGetContacts(conn net.Conn) {
 		contacts := []map[string]interface{}{}
 		for rows.Next() {
 			var jid, name, phone, about, avatarPath string
-			var isBusiness, isBlocked int
-			if err := rows.Scan(&jid, &name, &phone, &isBusiness, &about, &avatarPath, &isBlocked); err == nil {
+			var isBusiness int
+			if err := rows.Scan(&jid, &name, &phone, &isBusiness, &about, &avatarPath); err == nil {
 				contacts = append(contacts, map[string]interface{}{
 					"jid": jid, "name": name, "phone": phone,
 					"isBusiness": isBusiness == 1, "about": about,
-					"avatarPath": avatarPath, "isBlocked": isBlocked == 1,
+					"avatarPath": avatarPath,
 				})
 			}
 		}
@@ -180,20 +179,15 @@ func handleGetBusinessProfile(conn net.Conn, raw json.RawMessage) {
 
 func handleGetBlocklist(conn net.Conn) {
 	go func() {
-		bl, err := wa().GetBlocklist(context.Background())
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
-			return
-		}
-		jids := make([]string, len(bl.JIDs))
-		for i, j := range bl.JIDs {
-			jids[i] = j.String()
-		}
-		sendEvent(conn, "blocklist", map[string]interface{}{"jids": jids})
+		// What's stored answers at once (and is all there is offline); the
+		// server's copy follows as a broadcast.
+		sendEvent(conn, "blocklist", blocklistPayload())
+		refreshBlocklist()
 	}()
 }
 
-func handleBlockContact(raw json.RawMessage) {
+// handleSetBlocked blocks or unblocks a contact and reports how it went.
+func handleSetBlocked(raw json.RawMessage, block bool) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -203,31 +197,13 @@ func handleBlockContact(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if _, err := wa().UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionBlock); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
-			return
+		result := map[string]interface{}{"jid": data.JID, "name": resolveDisplayName(jid), "blocked": block}
+		if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+			result["error"] = "Only contacts can be blocked."
+		} else if err := setBlocked(jid, block); err != nil {
+			result["error"] = err.Error()
 		}
-		setContactBlocked(data.JID, true)
-		broadcastEvent("blocklist_updated", nil)
-	}()
-}
-
-func handleUnblockContact(raw json.RawMessage) {
-	var data JIDData
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return
-	}
-	jid, err := types.ParseJID(data.JID)
-	if err != nil {
-		return
-	}
-	go func() {
-		if _, err := wa().UpdateBlocklist(context.Background(), jid, events.BlocklistChangeActionUnblock); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
-			return
-		}
-		setContactBlocked(data.JID, false)
-		broadcastEvent("blocklist_updated", nil)
+		broadcastEvent("block_result", result)
 	}()
 }
 

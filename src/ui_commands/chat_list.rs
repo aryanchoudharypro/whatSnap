@@ -515,8 +515,12 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				phone = parsed.format().mode(phonenumber::Mode::International).to_string();
 			}
 
-			let initial_text =
-				format!("Name: {}\nPhone: {}\nWhatsApp Name: Loading...\nAbout/Status: Loading...", local_name, phone);
+			let initial_text = format!(
+				"Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...",
+				local_name,
+				phone,
+				crate::ui_commands::blocking::info_line(&s, jid)
+			);
 			parts.conversation_data_dialog.info_field.set_value(&initial_text);
 
 			let payload = serde_json::json!({

@@ -2023,6 +2023,7 @@ func eventHandler(evt interface{}) {
 			go sendDesiredPresence(true)
 			go retryPendingTextMessages()
 			go flushPendingResends()
+			go refreshBlocklist()
 			go func() {
 				time.Sleep(3 * time.Second)
 				populateChatsFromStore()
@@ -2529,12 +2530,7 @@ func eventHandler(evt interface{}) {
 			"jid": v.JID.String(),
 		})
 	case *events.Blocklist:
-		go func() {
-			for _, change := range v.Changes {
-				setContactBlocked(change.JID.String(), change.Action == events.BlocklistChangeActionBlock)
-			}
-		}()
-		broadcastEvent("blocklist_updated", nil)
+		go handleBlocklistEvent(v)
 	}
 }
 

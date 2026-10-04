@@ -278,6 +278,11 @@ func migrateDB() error {
 		return err
 	}
 
+	// The blocked list as the server gives it (mostly LIDs); see blocklist.go.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY)`); err != nil {
+		return err
+	}
+
 	purgeExpiredStatuses()
 	cleanupScratchTempDirs(24 * time.Hour)
 	return nil
@@ -1198,13 +1203,6 @@ func updateContactAboutCache(jid, about string) error {
 	_, err := db.Exec(`INSERT INTO contacts_cache (jid, about, updated_at) VALUES (?, ?, ?)
 		ON CONFLICT(jid) DO UPDATE SET about=excluded.about, updated_at=excluded.updated_at`,
 		jid, about, time.Now().Unix())
-	return err
-}
-
-func setContactBlocked(jid string, blocked bool) error {
-	_, err := db.Exec(`INSERT INTO contacts_cache (jid, is_blocked, updated_at) VALUES (?, ?, ?)
-		ON CONFLICT(jid) DO UPDATE SET is_blocked=excluded.is_blocked, updated_at=excluded.updated_at`,
-		jid, blocked, time.Now().Unix())
 	return err
 }
 

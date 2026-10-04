@@ -12,6 +12,9 @@ use crate::{
 };
 
 pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, text: String) {
+	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+		return;
+	}
 	let mut s = state.borrow_mut();
 	if let Some(ref jid) = s.selected_chat.clone() {
 		// Sending a reply means the unread messages have obviously been

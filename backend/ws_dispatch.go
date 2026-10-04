@@ -37,6 +37,7 @@ func handleConnection(conn net.Conn) {
 		// so follow up with its real state for the status bar.
 		sendEvent(conn, "connection_state", currentConnState())
 		sendEvent(conn, "server_flags", serverFlagsPayload())
+		sendEvent(conn, "blocklist", blocklistPayload())
 		go func() {
 			populateChatsFromStore()
 			broadcastChats()
@@ -145,9 +146,9 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 	case "report":
 		handleReport(conn, cmd.Data)
 	case "block_contact":
-		handleBlockContact(cmd.Data)
+		handleSetBlocked(cmd.Data, true)
 	case "unblock_contact":
-		handleUnblockContact(cmd.Data)
+		handleSetBlocked(cmd.Data, false)
 	case "set_about":
 		handleSetAbout(cmd.Data)
 	case "get_own_profile":

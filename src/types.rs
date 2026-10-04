@@ -245,6 +245,12 @@ pub enum UiCommand {
 	ReportChat {
 		jid: String,
 	},
+	/// "Block" / "Unblock" on a chat with one person.
+	ToggleBlockChat {
+		jid: String,
+	},
+	/// Account > "Blocked contacts...".
+	ShowBlockedContacts,
 	/// Group Info's moderation switches, saved with the other settings.
 	UpdateGroupModeration {
 		no_frequently_forwarded: bool,
@@ -340,6 +346,8 @@ pub struct Contact {
 pub enum ContactPickerMode {
 	OpenChat,
 	AddCallParticipant,
+	/// "Block a contact..." in Blocked contacts.
+	BlockContact,
 }
 
 #[derive(Clone, Copy)]
