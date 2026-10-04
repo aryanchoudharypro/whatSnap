@@ -1,7 +1,8 @@
 //! Blocking contacts, as in WhatsApp: block or unblock a chat's contact from
 //! its menus, and see everyone blocked under Account > Blocked contacts.
 //! WhatsApp keeps the list by LID while chats mostly go by phone JID, so the
-//! backend sends both of each person's addresses and either one matches.
+//! backend sends every address each person is blocked under and any of them
+//! matches.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -97,9 +98,10 @@ pub(crate) fn blocklist_received(state: &Rc<RefCell<AppState>>, data: &serde_jso
 		if jid.is_empty() {
 			continue;
 		}
-		let alt = text(e, "alt");
-		if !alt.is_empty() {
-			jids.insert(alt);
+		for alt in e.get("alts").and_then(|a| a.as_array()).into_iter().flatten() {
+			if let Some(alt) = alt.as_str() {
+				jids.insert(alt.to_string());
+			}
 		}
 		jids.insert(jid.clone());
 		entries.push(BlockedEntry { jid, name: text(e, "name"), phone: text(e, "phone") });

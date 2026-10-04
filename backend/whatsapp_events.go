@@ -2530,7 +2530,8 @@ func eventHandler(evt interface{}) {
 			"jid": v.JID.String(),
 		})
 	case *events.Blocklist:
-		go handleBlocklistEvent(v)
+		// Whatever changed, the server's list says who it is by number too.
+		go refreshBlocklist()
 	}
 }
 

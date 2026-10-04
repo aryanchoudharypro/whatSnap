@@ -246,7 +246,7 @@ struct AppState {
 	channel_directory: Option<Rc<crate::ui::channel_directory::ChannelDirectory>>,
 	pinned_jids: std::collections::HashSet<String>,
 	muted_jids: std::collections::HashSet<String>,
-	/// Everyone blocked, under both of their addresses (phone JID and LID).
+	/// Everyone blocked, under each of their addresses (phone JID and LIDs).
 	blocked_jids: std::collections::HashSet<String>,
 	blocked_entries: Vec<crate::ui::blocked_contacts::BlockedEntry>,
 	/// The "Blocked contacts" dialog while it is open, for list changes to land in.
