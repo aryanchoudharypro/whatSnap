@@ -11,10 +11,11 @@ import (
 )
 
 // The blocked-contacts list. WhatsApp keeps it keyed by LID, while chats here
-// are mostly keyed by phone JID, so the list is stored exactly as the server
-// gave it and every entry is sent to the frontend with both of the person's
-// addresses (whatsapp-rust hit the same mismatch: a phone-number lookup never
-// matched a LID-keyed block).
+// are mostly keyed by phone JID, and one person can be in it under several
+// LIDs (ones their number used to go by). So the list is stored as the server
+// gave it, phone numbers included, and sent to the frontend as one entry per
+// person carrying every address they're blocked under (whatsapp-rust hit the
+// same mismatch: a phone-number lookup never matched a LID-keyed block).
 
 // jidTwin returns the same person's other address (their LID for a phone
 // JID, or the reverse), or an empty JID when it isn't known.
@@ -38,39 +39,57 @@ func storeTwin(jid types.JID) types.JID {
 	return types.EmptyJID
 }
 
+// blockedRow is one item of the server's list: the address blocked, and the
+// phone JID the server gave with it (empty if it gave none).
+type blockedRow struct {
+	JID types.JID
+	PN  types.JID
+}
+
+// person is the address a blocked row is shown and matched under: the phone
+// JID whenever one is known.
+func (r blockedRow) person(twin jidTwin) types.JID {
+	if !r.PN.IsEmpty() {
+		return r.PN.ToNonAD()
+	}
+	if r.JID.Server == types.HiddenUserServer {
+		if pn := twin(r.JID.ToNonAD()); !pn.IsEmpty() {
+			return pn.ToNonAD()
+		}
+	}
+	return r.JID.ToNonAD()
+}
+
 type blockedEntry struct {
 	// JID is the address chats use: the phone JID when it's known.
 	JID string `json:"jid"`
-	// Alt is their other address, empty when unknown.
-	Alt   string `json:"alt"`
-	Name  string `json:"name"`
-	Phone string `json:"phone"`
+	// Alts are the other addresses they're blocked under.
+	Alts  []string `json:"alts"`
+	Name  string   `json:"name"`
+	Phone string   `json:"phone"`
 }
 
 // buildBlockedEntries turns the stored list into one entry per person, named
 // and sorted for display.
-func buildBlockedEntries(stored []types.JID, twin jidTwin, nameFor func(types.JID) string) []blockedEntry {
+func buildBlockedEntries(rows []blockedRow, twin jidTwin, nameFor func(types.JID) string) []blockedEntry {
 	entries := []blockedEntry{}
-	seen := map[string]bool{}
-	for _, jid := range stored {
-		jid = jid.ToNonAD()
-		other := twin(jid).ToNonAD()
-		if jid.Server == types.HiddenUserServer && !other.IsEmpty() {
-			jid, other = other, jid
+	index := map[string]int{}
+	for _, row := range rows {
+		person := row.person(twin)
+		key := person.String()
+		i, ok := index[key]
+		if !ok {
+			i = len(entries)
+			index[key] = i
+			entry := blockedEntry{JID: key, Alts: []string{}, Name: nameFor(person)}
+			if person.Server == types.DefaultUserServer {
+				entry.Phone = "+" + person.User
+			}
+			entries = append(entries, entry)
 		}
-		if seen[jid.String()] {
-			continue
+		if alt := row.JID.ToNonAD().String(); alt != key {
+			entries[i].Alts = append(entries[i].Alts, alt)
 		}
-		seen[jid.String()] = true
-		entry := blockedEntry{JID: jid.String(), Name: nameFor(jid)}
-		if !other.IsEmpty() {
-			entry.Alt = other.String()
-			seen[entry.Alt] = true
-		}
-		if jid.Server == types.DefaultUserServer {
-			entry.Phone = "+" + jid.User
-		}
-		entries = append(entries, entry)
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
@@ -78,73 +97,78 @@ func buildBlockedEntries(stored []types.JID, twin jidTwin, nameFor func(types.JI
 	return entries
 }
 
-// withBlockChange applies one block or unblock to the stored list. An unblock
-// removes both of the person's addresses, whichever one the list holds.
-func withBlockChange(stored []types.JID, jid types.JID, block bool, twin jidTwin) []types.JID {
-	jid = jid.ToNonAD()
-	other := twin(jid).ToNonAD()
-	out := make([]types.JID, 0, len(stored)+1)
-	for _, s := range stored {
-		if s.ToNonAD() == jid || (!other.IsEmpty() && s.ToNonAD() == other) {
-			continue
+// blockedAddressesOf returns every address the list holds for the person
+// behind jid: unblocking someone means unblocking all of them, or they stay
+// listed under an old LID.
+func blockedAddressesOf(rows []blockedRow, jid types.JID, twin jidTwin) []types.JID {
+	target := blockedRow{JID: jid}.person(twin)
+	// The list itself may be the only place that pairs this LID with a number.
+	for _, row := range rows {
+		if row.JID.ToNonAD() == jid.ToNonAD() {
+			target = row.person(twin)
+			break
 		}
-		out = append(out, s)
 	}
-	if block {
-		out = append(out, jid)
+	var out []types.JID
+	for _, row := range rows {
+		if row.person(twin) == target {
+			out = append(out, row.JID.ToNonAD())
+		}
 	}
 	return out
 }
 
 var blocklistMu sync.Mutex
 
-func loadBlockedJIDs() []types.JID {
-	rows, err := db.Query(`SELECT jid FROM blocked_contacts`)
+func loadBlockedRows() []blockedRow {
+	rows, err := db.Query(`SELECT jid, pn FROM blocked_contacts`)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	var jids []types.JID
+	var out []blockedRow
 	for rows.Next() {
-		var s string
-		if rows.Scan(&s) != nil {
+		var jid, pn string
+		if rows.Scan(&jid, &pn) != nil {
 			continue
 		}
-		if jid, err := types.ParseJID(s); err == nil {
-			jids = append(jids, jid)
+		row := blockedRow{}
+		if row.JID, err = types.ParseJID(jid); err != nil {
+			continue
 		}
+		if pn != "" {
+			row.PN, _ = types.ParseJID(pn)
+		}
+		out = append(out, row)
 	}
-	return jids
+	return out
 }
 
-func storeBlockedJIDs(jids []types.JID) {
+func storeBlockedRows(rows []blockedRow) {
 	tx, err := db.Begin()
 	if err != nil {
 		return
 	}
 	tx.Exec(`DELETE FROM blocked_contacts`)
-	for _, jid := range jids {
-		tx.Exec(`INSERT OR IGNORE INTO blocked_contacts (jid) VALUES (?)`, jid.ToNonAD().String())
+	for _, row := range rows {
+		pn := ""
+		if !row.PN.IsEmpty() {
+			pn = row.PN.ToNonAD().String()
+		}
+		tx.Exec(`INSERT OR REPLACE INTO blocked_contacts (jid, pn) VALUES (?, ?)`, row.JID.ToNonAD().String(), pn)
 	}
 	tx.Commit()
 }
 
 func blocklistPayload() map[string]interface{} {
 	return map[string]interface{}{
-		"entries": buildBlockedEntries(loadBlockedJIDs(), storeTwin, resolveDisplayName),
+		"entries": buildBlockedEntries(loadBlockedRows(), storeTwin, resolveDisplayName),
 	}
 }
 
-// replaceBlocklist stores the server's whole list and tells the frontend.
-func replaceBlocklist(jids []types.JID) {
-	blocklistMu.Lock()
-	storeBlockedJIDs(jids)
-	blocklistMu.Unlock()
-	broadcastEvent("blocklist", blocklistPayload())
-}
-
-// refreshBlocklist asks the server for the list. Blocks made on the phone
-// before this device was linked only ever arrive this way.
+// refreshBlocklist asks the server for the list, stores it and tells the
+// frontend. Blocks made on the phone before this device was linked only ever
+// arrive this way.
 func refreshBlocklist() {
 	c := wa()
 	if c == nil || !c.IsLoggedIn() {
@@ -154,41 +178,33 @@ func refreshBlocklist() {
 	if err != nil {
 		return
 	}
-	replaceBlocklist(bl.JIDs)
-}
-
-// handleBlocklistEvent applies a change another device made.
-func handleBlocklistEvent(evt *events.Blocklist) {
-	// "modify" carries no changes: the whole list has to be asked for again.
-	if evt.Action == events.BlocklistActionModify || len(evt.Changes) == 0 {
-		refreshBlocklist()
-		return
+	rows := make([]blockedRow, 0, len(bl.Entries))
+	for _, entry := range bl.Entries {
+		rows = append(rows, blockedRow{JID: entry.JID, PN: entry.PN})
 	}
 	blocklistMu.Lock()
-	stored := loadBlockedJIDs()
-	for _, change := range evt.Changes {
-		stored = withBlockChange(stored, change.JID, change.Action == events.BlocklistChangeActionBlock, storeTwin)
-	}
-	storeBlockedJIDs(stored)
+	storeBlockedRows(rows)
 	blocklistMu.Unlock()
 	broadcastEvent("blocklist", blocklistPayload())
 }
 
-// setBlocked blocks or unblocks someone on the server, then updates the list.
+// setBlocked blocks or unblocks someone on the server, then fetches the list
+// again rather than trusting the shape of the server's answer.
 func setBlocked(jid types.JID, block bool) error {
-	action := events.BlocklistChangeActionUnblock
-	if block {
-		action = events.BlocklistChangeActionBlock
+	jid = jid.ToNonAD()
+	targets := []types.JID{jid}
+	action := events.BlocklistChangeActionBlock
+	if !block {
+		action = events.BlocklistChangeActionUnblock
+		if listed := blockedAddressesOf(loadBlockedRows(), jid, storeTwin); len(listed) > 0 {
+			targets = listed
+		}
 	}
-	if _, err := wa().UpdateBlocklist(context.Background(), jid.ToNonAD(), action); err != nil {
-		return err
+	for _, target := range targets {
+		if _, err := wa().UpdateBlocklist(context.Background(), target, action); err != nil {
+			return err
+		}
 	}
-	// Applied here first so the frontend hears at once, then checked against
-	// the server's own list rather than trusting the shape of its answer.
-	blocklistMu.Lock()
-	storeBlockedJIDs(withBlockChange(loadBlockedJIDs(), jid, block, storeTwin))
-	blocklistMu.Unlock()
-	broadcastEvent("blocklist", blocklistPayload())
-	go refreshBlocklist()
+	refreshBlocklist()
 	return nil
 }

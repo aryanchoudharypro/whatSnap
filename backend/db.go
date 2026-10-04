@@ -279,9 +279,10 @@ func migrateDB() error {
 	}
 
 	// The blocked list as the server gives it (mostly LIDs); see blocklist.go.
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY, pn TEXT DEFAULT '')`); err != nil {
 		return err
 	}
+	db.Exec("ALTER TABLE blocked_contacts ADD COLUMN pn TEXT DEFAULT ''")
 
 	purgeExpiredStatuses()
 	cleanupScratchTempDirs(24 * time.Hour)

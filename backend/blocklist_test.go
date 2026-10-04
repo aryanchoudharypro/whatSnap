@@ -7,53 +7,66 @@ import (
 )
 
 var (
-	testPN  = types.NewJID("919800000001", types.DefaultUserServer)
-	testLID = types.NewJID("100000012345678", types.HiddenUserServer)
-	loneLID = types.NewJID("100000099999999", types.HiddenUserServer)
+	testPN     = types.NewJID("919800000001", types.DefaultUserServer)
+	testLID    = types.NewJID("100000012345678", types.HiddenUserServer)
+	testOldLID = types.NewJID("10000000000002", types.HiddenUserServer)
+	mappedLID  = types.NewJID("100000055555555", types.HiddenUserServer)
+	mappedPN   = types.NewJID("919800000002", types.DefaultUserServer)
+	loneLID    = types.NewJID("100000099999999", types.HiddenUserServer)
 )
 
+// testTwin knows one pair the server's list doesn't spell out.
 func testTwin(jid types.JID) types.JID {
 	switch jid {
-	case testPN:
-		return testLID
-	case testLID:
-		return testPN
+	case mappedPN:
+		return mappedLID
+	case mappedLID:
+		return mappedPN
 	}
 	return types.EmptyJID
 }
 
-func TestBuildBlockedEntriesResolvesLIDToPhone(t *testing.T) {
-	names := map[types.JID]string{testPN: "Zoya", loneLID: "asha"}
-	nameFor := func(j types.JID) string { return names[j] }
-	// The same person under both addresses must come out once.
-	got := buildBlockedEntries([]types.JID{testLID, loneLID, testPN}, testTwin, nameFor)
-	if len(got) != 2 {
-		t.Fatalf("want 2 entries, got %+v", got)
-	}
-	if got[0].Name != "asha" || got[0].JID != loneLID.String() || got[0].Alt != "" || got[0].Phone != "" {
-		t.Fatalf("unmapped LID entry: %+v", got[0])
-	}
-	if got[1].JID != testPN.String() || got[1].Alt != testLID.String() || got[1].Phone != "+919800000001" {
-		t.Fatalf("LID-keyed block should surface under the phone JID: %+v", got[1])
+func testRows() []blockedRow {
+	return []blockedRow{
+		{JID: testLID, PN: testPN},
+		{JID: loneLID},
+		{JID: testOldLID, PN: testPN},
+		{JID: mappedLID},
 	}
 }
 
-func TestWithBlockChange(t *testing.T) {
-	stored := []types.JID{testLID, loneLID}
-	// Unblocking by phone JID removes the LID-keyed entry.
-	got := withBlockChange(stored, testPN, false, testTwin)
-	if len(got) != 1 || got[0] != loneLID {
-		t.Fatalf("unblock by phone JID: %v", got)
+func TestBuildBlockedEntriesOnePerPerson(t *testing.T) {
+	names := map[types.JID]string{testPN: "Zoya", loneLID: "asha", mappedPN: "Meera"}
+	got := buildBlockedEntries(testRows(), testTwin, func(j types.JID) string { return names[j] })
+	if len(got) != 3 {
+		t.Fatalf("want 3 people, got %+v", got)
 	}
-	// Blocking someone already listed under their other address doesn't
-	// leave them in twice.
-	got = withBlockChange(stored, testPN, true, testTwin)
-	if len(got) != 2 || got[0] != loneLID || got[1] != testPN {
-		t.Fatalf("re-block by phone JID: %v", got)
+	if got[0].Name != "asha" || got[0].JID != loneLID.String() || len(got[0].Alts) != 0 || got[0].Phone != "" {
+		t.Fatalf("LID with no known number: %+v", got[0])
 	}
-	// A device suffix on the notification's JID is ignored.
-	withDevice := types.JID{User: loneLID.User, Server: loneLID.Server, Device: 3}
-	if got = withBlockChange(stored, withDevice, false, testTwin); len(got) != 1 || got[0] != testLID {
-		t.Fatalf("unblock with device suffix: %v", got)
+	if got[1].Name != "Meera" || got[1].JID != mappedPN.String() || got[1].Phone != "+919800000002" {
+		t.Fatalf("LID resolved through the store: %+v", got[1])
+	}
+	// Both of their LIDs fold into the one entry under the server's number.
+	z := got[2]
+	if z.Name != "Zoya" || z.JID != testPN.String() || z.Phone != "+919800000001" ||
+		len(z.Alts) != 2 || z.Alts[0] != testLID.String() || z.Alts[1] != testOldLID.String() {
+		t.Fatalf("person under two LIDs: %+v", z)
+	}
+}
+
+func TestBlockedAddressesOf(t *testing.T) {
+	// By phone JID or by either LID, unblocking reaches both LIDs.
+	for _, jid := range []types.JID{testPN, testLID, testOldLID} {
+		got := blockedAddressesOf(testRows(), jid, testTwin)
+		if len(got) != 2 || got[0] != testLID || got[1] != testOldLID {
+			t.Fatalf("addresses of %s: %v", jid, got)
+		}
+	}
+	if got := blockedAddressesOf(testRows(), mappedPN, testTwin); len(got) != 1 || got[0] != mappedLID {
+		t.Fatalf("addresses through the store's mapping: %v", got)
+	}
+	if got := blockedAddressesOf(testRows(), types.NewJID("911", types.DefaultUserServer), testTwin); len(got) != 0 {
+		t.Fatalf("someone not blocked: %v", got)
 	}
 }
