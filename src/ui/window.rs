@@ -238,6 +238,8 @@ pub const MENU_ID_CALL_END: i32 = 6034;
 pub const MENU_ID_LOCK_CHAT: i32 = 6035;
 pub const MENU_ID_DISAPPEARING: i32 = 6036;
 pub const MENU_ID_REPORT_CHAT: i32 = 6037;
+pub const MENU_ID_BLOCK_CHAT: i32 = 6038;
+pub const MENU_ID_BLOCKED_CONTACTS: i32 = 6039;
 
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whaNTV").with_size(Size::new(1180, 760)).build();
@@ -282,6 +284,7 @@ pub fn build_main_window() -> WindowParts {
 			&default_menu_label(MENU_ID_RECONNECT),
 			"Retry connecting to WhatsApp right away",
 		)
+		.append_item(MENU_ID_BLOCKED_CONTACTS, "&Blocked Contacts...", "See and change who you have blocked")
 		.append_separator()
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
 		.build();
@@ -328,6 +331,7 @@ pub fn build_main_window() -> WindowParts {
 		)
 		.append_item(MENU_ID_CHAT_INFO, &default_menu_label(MENU_ID_CHAT_INFO), "Open info for the open chat")
 		.append_item(MENU_ID_REPORT_CHAT, "&Report...", "Report the open chat's contact or group to WhatsApp")
+		.append_item(MENU_ID_BLOCK_CHAT, "&Block or Unblock Contact", "Block or unblock the open chat's contact")
 		.append_separator()
 		.append_item(MENU_ID_STAR_MESSAGE, &default_menu_label(MENU_ID_STAR_MESSAGE), "Star the selected message")
 		.build();
@@ -1189,6 +1193,13 @@ pub fn bind_input_handlers(
 			if let Some(jid) = jid {
 				let _ = tx_chat_menu.send(UiCommand::ReportChat { jid });
 			}
+		} else if id == MENU_ID_BLOCK_CHAT {
+			let jid = state_chat_menu.borrow().selected_chat.clone();
+			if let Some(jid) = jid {
+				let _ = tx_chat_menu.send(UiCommand::ToggleBlockChat { jid });
+			}
+		} else if id == MENU_ID_BLOCKED_CONTACTS {
+			let _ = tx_chat_menu.send(UiCommand::ShowBlockedContacts);
 		} else if id == MENU_ID_MUTE_CHAT
 			|| id == MENU_ID_ARCHIVE_CHAT
 			|| id == MENU_ID_PIN_CHAT
@@ -2302,7 +2313,7 @@ pub fn bind_input_handlers(
 	// click has no Enter release to swallow.
 	let guard_menu_bar = enter_release_handled.clone();
 	parts.frame.on_menu_selected(move |evt| {
-		if (MENU_ID_SETTINGS..=MENU_ID_CALL_END).contains(&evt.get_id()) && enter_key_held() {
+		if (MENU_ID_SETTINGS..=MENU_ID_BLOCKED_CONTACTS).contains(&evt.get_id()) && enter_key_held() {
 			guard_menu_bar.set(true);
 		}
 	});
@@ -2324,6 +2335,7 @@ pub fn bind_input_handlers(
 			let alert_sound_id = 4010;
 			let alert_full_id = 4011;
 			let report_id = 4014;
+			let block_id = 4015;
 
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
@@ -2332,6 +2344,7 @@ pub fn bind_input_handlers(
 				let is_archived = s.archived_jids.contains(&jid);
 				let is_locked = s.locked_jids.contains(&jid);
 				let is_muted = s.muted_jids.contains(&jid);
+				let is_blocked = s.blocked_jids.contains(&jid);
 				let unread_count = s.unread_counts.get(&jid).copied().unwrap_or(0);
 				let is_unread = unread_count > 0;
 				let is_group = jid.ends_with("@g.us");
@@ -2371,6 +2384,21 @@ pub fn bind_input_handlers(
 					let what =
 						if is_group { "Report this group to WhatsApp" } else { "Report this contact to WhatsApp" };
 					menu_builder = menu_builder.append_item(report_id, "Re&port...", what);
+				}
+				if jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid") {
+					menu_builder = if is_blocked {
+						menu_builder.append_item(
+							block_id,
+							"Un&block contact",
+							"Let this contact message and call you again",
+						)
+					} else {
+						menu_builder.append_item(
+							block_id,
+							"&Block contact...",
+							"Stop this contact messaging and calling you",
+						)
+					};
 				}
 				menu_builder = menu_builder.append_item(delete_id, "&Delete chat...", "Delete chat history");
 
@@ -2445,6 +2473,8 @@ pub fn bind_input_handlers(
 							ui_tx_clone.send(UiCommand::ToggleLockChat { jid: jid_clone.clone(), lock: !is_locked });
 					} else if id == report_id {
 						let _ = ui_tx_clone.send(UiCommand::ReportChat { jid: jid_clone.clone() });
+					} else if id == block_id {
+						let _ = ui_tx_clone.send(UiCommand::ToggleBlockChat { jid: jid_clone.clone() });
 					} else if id == mute_id {
 						let _ = ui_tx_clone.send(UiCommand::ToggleMuteChat { jid: jid_clone.clone(), mute: !is_muted });
 					} else if id == read_id {

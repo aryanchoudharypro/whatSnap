@@ -3415,6 +3415,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 
 							let mut text = format!("Name: {}\nPhone: {}\n", local_name, phone);
+							text.push_str(crate::ui_commands::blocking::info_line(&s, jid));
 							if !push_name.is_empty() {
 								text.push_str(&format!("WhatsApp Name: {}\n", push_name));
 							} else if !full_name.is_empty() {
@@ -3658,6 +3659,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				"reported" => {
 					if let Some(data) = val.get("data") {
 						crate::ui_commands::report::reported(parts, data);
+					}
+				}
+				"blocklist" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::blocking::blocklist_received(state, data);
+					}
+				}
+				"block_result" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::blocking::block_result(state, parts, data);
 					}
 				}
 				"event_details" => {

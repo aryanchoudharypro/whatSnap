@@ -1,6 +1,7 @@
 pub mod add_members;
 pub mod attach_contact;
 pub mod attachment_dialog;
+pub mod blocked_contacts;
 pub mod call_window;
 pub mod channel_admin;
 pub mod channel_countries;

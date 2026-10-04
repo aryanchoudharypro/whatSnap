@@ -64,6 +64,9 @@ pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 }
 
 pub(crate) fn start_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+		return;
+	}
 	let mut s = state.borrow_mut();
 	if s.selected_chat.is_some() && !s.is_voice_recording && !s.voice_recording_opening {
 		let temp_dir = std::env::temp_dir();

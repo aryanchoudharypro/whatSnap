@@ -20,6 +20,9 @@ pub(crate) fn can_call(s: &AppState, jid: &str) -> bool {
 }
 
 fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video: bool) {
+	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+		return;
+	}
 	let jid = {
 		let s = state.borrow();
 		if let Some(j) = s.selected_chat.as_ref().filter(|j| can_call(&s, j)) {

@@ -127,6 +127,7 @@ pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	let heading = match mode {
 		ContactPickerMode::OpenChat => "Search name or number",
 		ContactPickerMode::AddCallParticipant => "Search a contact to add to the call, then press Enter",
+		ContactPickerMode::BlockContact => "Search a contact to block, then press Enter",
 	};
 	parts.new_conv_dialog.search_label.set_label(heading);
 	// "New Group" and "New Contact" only make sense when this dialog
@@ -176,6 +177,7 @@ pub(crate) fn select_contact_picker_result(state: &Rc<RefCell<AppState>>, parts:
 				crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Adding to call...");
 			}
 		}
+		ContactPickerMode::BlockContact => crate::ui_commands::blocking::block_picked_contact(state, parts, jid),
 	}
 }
 

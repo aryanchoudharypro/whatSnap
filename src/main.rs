@@ -246,6 +246,11 @@ struct AppState {
 	channel_directory: Option<Rc<crate::ui::channel_directory::ChannelDirectory>>,
 	pinned_jids: std::collections::HashSet<String>,
 	muted_jids: std::collections::HashSet<String>,
+	/// Everyone blocked, under both of their addresses (phone JID and LID).
+	blocked_jids: std::collections::HashSet<String>,
+	blocked_entries: Vec<crate::ui::blocked_contacts::BlockedEntry>,
+	/// The "Blocked contacts" dialog while it is open, for list changes to land in.
+	blocked_contacts: Option<Rc<crate::ui::blocked_contacts::BlockedContacts>>,
 	unread_counts: std::collections::HashMap<String, u64>,
 	/// The chat and count an "N unread messages" divider was captured for
 	/// when it was opened, so the divider stays put in the message list even
@@ -775,6 +780,9 @@ fn main() {
 			channel_directory: None,
 			pinned_jids: std::collections::HashSet::new(),
 			muted_jids: std::collections::HashSet::new(),
+			blocked_jids: std::collections::HashSet::new(),
+			blocked_entries: Vec::new(),
+			blocked_contacts: None,
 			unread_counts: std::collections::HashMap::new(),
 			unread_divider_jid: None,
 			unread_divider_count: 0,
@@ -1406,6 +1414,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ReportMessage { message_id } => ui_commands::report::report_message(state, parts, message_id),
 		UiCommand::ReportToAdmins { message_id } => ui_commands::report::report_to_admins(state, parts, message_id),
 		UiCommand::ReportChat { jid } => ui_commands::report::report_chat(state, parts, jid),
+		UiCommand::ToggleBlockChat { jid } => ui_commands::blocking::toggle_block(state, parts, jid),
+		UiCommand::ShowBlockedContacts => ui_commands::blocking::show_blocked_contacts(state, parts),
 		UiCommand::UpdateGroupModeration { no_frequently_forwarded, allow_admin_reports, group_history } => {
 			ui_commands::report::update_group_moderation(
 				state,
