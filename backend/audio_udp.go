@@ -19,10 +19,39 @@ import (
 // entirely instead of just a moment of silence.
 const readTimeout = 100 * time.Millisecond
 
+// maxOpusPacket is the largest standard Opus packet one frame can encode to.
+const maxOpusPacket = 1275
+
+// UDPBridge carries call audio between the frontend's sound devices and
+// meowcaller. The frontend sends each 60 ms mic frame as PCM followed by the
+// same frame as one standard Opus packet. meowcaller encodes MLow from the PCM
+// itself; it takes the Opus packet (see OpusFrame) for a call with someone
+// whose WhatsApp decodes Opus instead of MLow, which it has no encoder for.
 type UDPBridge struct {
 	conn       *net.UDPConn
 	peerAddr   *net.UDPAddr
 	peerAddrMu sync.Mutex
+	// opusFrame is the Opus packet that came with the frame ReadFrame last
+	// returned. Read and written only by the call's send loop.
+	opusFrame []byte
+}
+
+var _ meowcaller.OpusFrameSource = (*UDPBridge)(nil)
+
+// splitMicDatagram splits one datagram from the frontend into the frame's PCM
+// bytes and the Opus packet that follows them, if there is one.
+func splitMicDatagram(datagram []byte) (pcm, opusFrame []byte) {
+	const pcmBytes = meowcaller.FrameSamples * 4
+	if len(datagram) <= pcmBytes {
+		return datagram, nil
+	}
+	return datagram[:pcmBytes], datagram[pcmBytes:]
+}
+
+// OpusFrame returns the frame ReadFrame last returned as a standard Opus
+// packet, or nil if the frontend sent none with it.
+func (b *UDPBridge) OpusFrame() []byte {
+	return b.opusFrame
 }
 
 func NewUDPBridge() (*UDPBridge, int, error) {
@@ -39,7 +68,8 @@ func NewUDPBridge() (*UDPBridge, int, error) {
 
 func (b *UDPBridge) ReadFrame() ([]float32, error) {
 	b.conn.SetReadDeadline(time.Now().Add(readTimeout))
-	buf := make([]byte, meowcaller.FrameSamples*4)
+	b.opusFrame = nil
+	buf := make([]byte, meowcaller.FrameSamples*4+maxOpusPacket)
 	n, raddr, err := b.conn.ReadFromUDP(buf)
 	if err != nil {
 		// meowcaller's Player treats any non-nil ReadFrame error as fatal
@@ -63,11 +93,11 @@ func (b *UDPBridge) ReadFrame() ([]float32, error) {
 	}
 	b.peerAddrMu.Unlock()
 
+	pcm, opusFrame := splitMicDatagram(buf[:n])
+	b.opusFrame = opusFrame
 	frame := make([]float32, meowcaller.FrameSamples)
-	for i := 0; i < n/4; i++ {
-		if i < meowcaller.FrameSamples {
-			frame[i] = math.Float32frombits(binary.LittleEndian.Uint32(buf[i*4:]))
-		}
+	for i := 0; i < len(pcm)/4; i++ {
+		frame[i] = math.Float32frombits(binary.LittleEndian.Uint32(pcm[i*4:]))
 	}
 	return frame, nil
 }

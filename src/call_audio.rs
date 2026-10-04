@@ -37,6 +37,16 @@ use crate::paths;
 const FRAME_SAMPLES: usize = 960;
 const NETWORK_SAMPLE_RATE: u32 = 16000;
 
+// Each mic frame also goes out as one standard Opus packet, after its PCM in
+// the same datagram. The backend encodes MLow itself from the PCM; the Opus
+// copy is for a call with someone whose WhatsApp isn't on MLow (WhatsApp for
+// Windows, for one) and decodes Opus instead, which the backend can't encode.
+// 24 kbit/s at complexity 5 is what the official clients use at 16 kHz.
+const OPUS_BITRATE: i32 = 24_000;
+const OPUS_COMPLEXITY: i32 = 5;
+// The largest packet libopus can produce for one frame.
+const OPUS_MAX_PACKET: usize = 1275;
+
 // Debugging aid for call-audio issues reported in the field (e.g. one-sided
 // silence). Appends timestamped lines to call_audio.log alongside the main
 // backend.log; safe to call from any thread, but never from a WASAPI
@@ -281,9 +291,33 @@ struct CaptureDsp {
 	resample_phase: f64,
 	downsample_step: f64,
 	sample_accum: Vec<f32>,
-	/// One frame as sent, reused so the capture thread doesn't allocate
-	/// every 20ms.
+	/// One frame's samples, then the datagram built from it; both reused so
+	/// the capture thread doesn't allocate every 20ms.
+	frame: Vec<f32>,
 	send_buf: Vec<u8>,
+	/// None if libopus refused to start: frames then go out as PCM alone.
+	opus: Option<opus::Encoder>,
+}
+
+fn new_call_opus_encoder() -> Option<opus::Encoder> {
+	let mut encoder = opus::Encoder::new(NETWORK_SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip).ok()?;
+	encoder.set_bitrate(opus::Bitrate::Bits(OPUS_BITRATE)).ok()?;
+	encoder.set_complexity(OPUS_COMPLEXITY).ok()?;
+	Some(encoder)
+}
+
+/// Builds one datagram for the backend: the frame as little-endian f32 PCM,
+/// then the same frame as a standard Opus packet when there's an encoder.
+fn pack_call_frame(frame: &[f32], opus: Option<&mut opus::Encoder>, out: &mut Vec<u8>) {
+	out.clear();
+	for sample in frame {
+		out.extend_from_slice(&sample.to_le_bytes());
+	}
+	let Some(encoder) = opus else { return };
+	let pcm_len = out.len();
+	out.resize(pcm_len + OPUS_MAX_PACKET, 0);
+	let encoded = encoder.encode_float(frame, &mut out[pcm_len..]).unwrap_or(0);
+	out.truncate(pcm_len + encoded);
 }
 
 impl CaptureDsp {
@@ -314,7 +348,9 @@ impl CaptureDsp {
 			resample_phase: 0.0,
 			downsample_step: sample_rate as f64 / NETWORK_SAMPLE_RATE as f64,
 			sample_accum: Vec::with_capacity(FRAME_SAMPLES * 2),
-			send_buf: Vec::with_capacity(FRAME_SAMPLES * 4),
+			frame: Vec::with_capacity(FRAME_SAMPLES),
+			send_buf: Vec::with_capacity(FRAME_SAMPLES * 4 + OPUS_MAX_PACKET),
+			opus: new_call_opus_encoder(),
 		}
 	}
 
@@ -341,10 +377,9 @@ impl CaptureDsp {
 		}
 
 		while self.sample_accum.len() >= FRAME_SAMPLES {
-			self.send_buf.clear();
-			for sample in self.sample_accum.drain(..FRAME_SAMPLES) {
-				self.send_buf.extend_from_slice(&sample.to_le_bytes());
-			}
+			self.frame.clear();
+			self.frame.extend(self.sample_accum.drain(..FRAME_SAMPLES));
+			pack_call_frame(&self.frame, self.opus.as_mut(), &mut self.send_buf);
 			let _ = socket_out.send_to(&self.send_buf, target_addr);
 		}
 	}
@@ -802,4 +837,55 @@ pub fn start_audio_streams(
 	}
 
 	Ok(CallAudioState { is_muted, stop, preferred_input, preferred_output, force_reopen_input, force_reopen_output })
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn tone_frame(offset: usize) -> Vec<f32> {
+		(0..FRAME_SAMPLES)
+			.map(|i| {
+				let t = (offset + i) as f32 / NETWORK_SAMPLE_RATE as f32;
+				0.4 * (2.0 * std::f32::consts::PI * 220.0 * t).sin()
+			})
+			.collect()
+	}
+
+	#[test]
+	fn a_call_frame_carries_its_pcm_then_one_60ms_opus_packet() {
+		let mut encoder = new_call_opus_encoder().expect("libopus encoder");
+		let mut decoder = opus::Decoder::new(NETWORK_SAMPLE_RATE, opus::Channels::Mono).expect("libopus decoder");
+		let mut datagram = Vec::new();
+		let mut energy = 0.0f32;
+		for n in 0..10 {
+			let frame = tone_frame(n * FRAME_SAMPLES);
+			pack_call_frame(&frame, Some(&mut encoder), &mut datagram);
+
+			let (pcm, packet) = datagram.split_at(FRAME_SAMPLES * 4);
+			let sent: Vec<f32> = pcm.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+			assert_eq!(sent, frame, "the PCM half is the frame, untouched");
+
+			// What the other side's WhatsApp expects on this payload type: one
+			// packet for the whole 60 ms, wideband (the official clients send
+			// SILK wideband, TOC 0x58).
+			assert!(!packet.is_empty(), "frame {n} has no Opus packet");
+			assert_eq!(opus::packet::get_nb_samples(packet, NETWORK_SAMPLE_RATE).unwrap(), FRAME_SAMPLES);
+			assert_eq!(packet[0], 0x58, "frame {n} is not one 60 ms SILK wideband frame");
+
+			let mut decoded = vec![0.0f32; FRAME_SAMPLES];
+			assert_eq!(decoder.decode_float(packet, &mut decoded, false).unwrap(), FRAME_SAMPLES);
+			if n >= 2 {
+				energy += decoded.iter().map(|s| s * s).sum::<f32>();
+			}
+		}
+		assert!(energy > 1.0, "the Opus packets decode back to the tone, not silence");
+	}
+
+	#[test]
+	fn a_call_frame_without_an_encoder_is_pcm_alone() {
+		let mut datagram = vec![1, 2, 3];
+		pack_call_frame(&tone_frame(0), None, &mut datagram);
+		assert_eq!(datagram.len(), FRAME_SAMPLES * 4);
+	}
 }
