@@ -282,6 +282,18 @@ fn apply_conversation_messages(
 		with_dates = whantv::rebuild_date_dividers(with_dates);
 	}
 	s.messages = with_dates;
+	// A chat with nothing stored (a group nobody has written in since
+	// linking, say) asks the phone for its latest messages by itself, once
+	// per run. If the phone has none either, the chat just stays empty.
+	let from_phone = chat_jid.ends_with("@g.us") || chat_jid.ends_with("@s.whatsapp.net") || chat_jid.ends_with("@lid");
+	if !load_more
+		&& from_phone
+		&& whantv::real_message_count(&s.messages) == 0
+		&& s.empty_chat_history_asked.insert(chat_jid.clone())
+	{
+		s.history_loading = true;
+		crate::ui_commands::chat_list::request_phone_history_sync(&mut s, &chat_jid);
+	}
 	// Apply any receipts that arrived before messages finished loading.
 	// Collect first to avoid simultaneous mutable borrows of s.
 	let pending_ids: Vec<(String, String)> = s

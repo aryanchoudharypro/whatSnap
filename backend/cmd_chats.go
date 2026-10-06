@@ -808,7 +808,7 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 	// request was silently never sent at all.
 	oldest, err := oldestHistoryAnchor(data.JID, nil)
 	if err != nil {
-		log.Printf("history sync request for %s: no message to anchor it on: %v", data.JID, err)
+		requestHistoryForEmptyChat(chatJID, data.JID, count)
 		return
 	}
 
@@ -910,6 +910,57 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 			log.Printf("No answer from the phone for %s after a retry either; this is the start of the chat", data.JID)
 		}
 		broadcastEvent("history_start_reached", map[string]string{"jid": data.JID})
+	}()
+}
+
+// emptyChatHistoryAsked is the chats with no stored message whose history
+// has been asked for since whaNTV started.
+var emptyChatHistoryAsked sync.Map
+
+// requestHistoryForEmptyChat asks the phone for the latest messages of a
+// chat that has none stored, which leaves nothing to anchor the request on:
+// it names only the chat and the present moment. Whether the phone answers
+// such a request is its own business, so this is tried once per chat per
+// run; silence ends the attempt quietly, and asking again is answered with
+// "this is the start of the chat" without troubling the phone.
+func requestHistoryForEmptyChat(chatJID types.JID, jid string, count int) {
+	if _, asked := emptyChatHistoryAsked.LoadOrStore(jid, true); asked {
+		broadcastEvent("history_start_reached", map[string]string{"jid": jid})
+		return
+	}
+	if count <= 0 || count > 50 {
+		count = 50
+	}
+	req := wa().BuildHistorySyncRequest(&types.MessageInfo{
+		MessageSource: types.MessageSource{Chat: chatJID},
+		Timestamp:     time.Now(),
+	}, count)
+	onDemand := req.GetProtocolMessage().GetPeerDataOperationRequestMessage().GetHistorySyncOnDemandRequest()
+	onDemand.OldestMsgID, onDemand.OldestMsgFromMe = nil, nil
+	log.Printf("Requesting the latest history for %s, which has no messages yet (count %d)", jid, count)
+	go func() {
+		answered := make(chan struct{}, 1)
+		onDemandWaiters.Store(jid, answered)
+		defer onDemandWaiters.CompareAndDelete(jid, answered)
+		historyRequestMu.Lock()
+		if wait := historyRequestMinGap - time.Since(lastHistoryRequest); wait > 0 {
+			time.Sleep(wait)
+		}
+		lastHistoryRequest = time.Now()
+		_, sendErr := wa().SendPeerMessage(context.Background(), req)
+		historyRequestMu.Unlock()
+		if sendErr != nil {
+			log.Printf("history sync request for %s failed: %v", jid, sendErr)
+			emptyChatHistoryAsked.Delete(jid)
+			broadcastEvent("no_more_history", map[string]string{"jid": jid})
+			return
+		}
+		select {
+		case <-answered:
+		case <-time.After(onDemandRetryAfter):
+			log.Printf("No answer from the phone for %s, which has no messages; leaving it empty", jid)
+			broadcastEvent("no_more_history", map[string]string{"jid": jid})
+		}
 	}()
 }
 
