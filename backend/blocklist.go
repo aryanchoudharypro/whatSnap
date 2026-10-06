@@ -174,7 +174,7 @@ func refreshBlocklist() {
 	if c == nil || !c.IsLoggedIn() {
 		return
 	}
-	bl, err := c.GetBlocklist(context.Background())
+	bl, err := c.GetBlocklist(context.Background(), "")
 	if err != nil {
 		return
 	}

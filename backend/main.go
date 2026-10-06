@@ -92,6 +92,10 @@ func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	// the Signal session for good) and acking it meant the server redelivered
 	// it on the next connect, it no longer decrypted, and it was dropped.
 	c.EnableDecryptedEventBuffer = true
+	// The phone never re-uploads a history chunk it has a receipt for, so
+	// the receipt waits until the chunk's blob has actually been downloaded.
+	// A chunk whose download failed stays unacknowledged and comes again.
+	c.AckHistorySyncAfterDispatch = true
 	// Official clients attach a message secret and a <reporting> token to
 	// every message they send (whatsapp-rust always does too), and receivers
 	// validate it - WA Web reports a MISSING_MESSAGE_SECRET failure for one
