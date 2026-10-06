@@ -3215,9 +3215,11 @@ func populateChatsFromStoreOnce() {
 	healStaleUnreadCounts()
 
 	groups, err := serverGroupList()
+	var joinedGroupsSnapshot map[string]bool
 	if err == nil {
 		var groupWrites []func(tx sqlExecer)
 		joined := make(map[string]bool, len(groups))
+		joinedGroupsSnapshot = joined
 		for _, g := range groups {
 			jidStr := g.JID.ToNonAD().String()
 			joined[jidStr] = true
@@ -3319,7 +3321,33 @@ func populateChatsFromStoreOnce() {
 	// member sub-groups), so this sweep would otherwise delete every one of
 	// them the moment populateChatsFromStore inserted it, and the Communities
 	// tab would always be empty.
-	db.Exec("DELETE FROM chats WHERE timestamp = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)")
+	//
+	// Groups we are in are exempt too. The phone no longer sends every
+	// chat's history when linking, so a group nobody has written in lately
+	// arrives with no messages and no timestamp, and this used to delete it:
+	// the group couldn't be found in whaNTV at all. Being in the group is
+	// reason enough to list it (at the bottom, having no activity to sort
+	// by). The same can't be done for people: the phone also sends an empty
+	// entry for contacts who were never chatted with, and those must go.
+	const emptyChat = `timestamp = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)`
+	db.Exec("DELETE FROM chats WHERE jid NOT LIKE '%@g.us' AND " + emptyChat)
+	// Without the server's list there is no telling which groups we are in,
+	// so no group is removed on a refresh where fetching it failed.
+	if joinedGroupsSnapshot != nil {
+		if emptyGroups, qErr := db.Query("SELECT jid FROM chats WHERE jid LIKE '%@g.us' AND " + emptyChat); qErr == nil {
+			var left []string
+			for emptyGroups.Next() {
+				var j string
+				if emptyGroups.Scan(&j) == nil && !joinedGroupsSnapshot[j] {
+					left = append(left, j)
+				}
+			}
+			emptyGroups.Close()
+			for _, j := range left {
+				db.Exec("DELETE FROM chats WHERE jid = ?", j)
+			}
+		}
+	}
 	// Channels we follow stay (see syncFollowedChannels); any other channel
 	// row is one history sync brought in, and isn't ours to show.
 	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR (jid LIKE '%@newsletter' AND COALESCE(is_channel, 0) = 0) OR jid LIKE '%@broadcast'")

@@ -351,6 +351,9 @@ struct AppState {
 	/// "history_start_reached" event): Home at the top says so instead of
 	/// asking the phone again. Cleared when the chat is reopened.
 	history_start_chats: std::collections::HashSet<String>,
+	/// Chats that were opened with no messages and had the phone asked for
+	/// their history automatically. Never cleared: once per run is enough.
+	empty_chat_history_asked: std::collections::HashSet<String>,
 	/// Set while the open chat is being reloaded because history sync just
 	/// wrote messages for it (it was opened before they arrived), so the
 	/// reload fills the list without moving focus off wherever the user is.
@@ -867,6 +870,7 @@ fn main() {
 			db_growth_last_seen: None,
 			db_growth_status_shown: false,
 			history_start_chats: std::collections::HashSet::new(),
+			empty_chat_history_asked: std::collections::HashSet::new(),
 			quiet_reload_jid: None,
 			prev_msg_count: 0,
 			active_tab: 0,
