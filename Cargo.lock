@@ -1032,7 +1032,9 @@ dependencies = [
 
 [[package]]
 name = "key-chord"
-version = "0.1.0"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f0b9fc9ea91fa687a6702b248bae651b2781b173c5b9e41b2a719527c9283c0"
 
 [[package]]
 name = "lazy_static"
@@ -1082,7 +1084,9 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
 name = "live-region"
-version = "0.3.2"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b3c726b63a8bc31584b55bd512caf673fe65215420cac2e1fc8d3901ccf5203"
 dependencies = [
  "objc",
  "pkg-config",
@@ -1527,9 +1531,9 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "patois"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d8a7a8ed1b780906a3ee4cfb797cf467c0a758176701c10fd783ca0f2d39938"
+checksum = "75b8d37756e8066067907b01d2cb1ffb7f2886707af4909280a523b2f98f59cc"
 dependencies = [
  "inventory",
  "patois-macros",
@@ -2966,7 +2970,9 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "wx-utils"
-version = "0.3.1"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9ec56dbb82e24c9eff07f9e637f5a44410a4166ac9c8f25fe0fce34d8c58d17"
 dependencies = [
  "key-chord",
  "live-region",
@@ -3100,7 +3106,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "ship-shape"
-version = "0.2.0"

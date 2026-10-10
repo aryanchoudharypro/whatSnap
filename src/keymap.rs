@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use key_chord::KeyChord;
-use wx_utils::shortcuts::{ShortcutModel, TabKind};
+use wx_utils::shortcuts::{ShortcutModel, TabScope};
 use wxdragon::{event::KeyboardEvent, prelude::*};
 
 use crate::ui::window::*;
@@ -268,8 +268,8 @@ impl ShortcutModel for Keymap {
 	/// One keymap across every tab: the menu tabs share wx's single
 	/// accelerator table, and that table sees keys before the message list
 	/// does, so a message-list key taken by a menu would never fire.
-	fn tab_kind(&self) -> TabKind {
-		TabKind::SharedKeymap
+	fn tab_scope(&self, _tab: usize) -> TabScope {
+		TabScope::Mode(0)
 	}
 
 	fn actions(&self, tab: usize) -> Vec<usize> {

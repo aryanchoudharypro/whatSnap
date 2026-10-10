@@ -12,7 +12,7 @@ BSD, Zlib, or dual MIT/Apache-2.0):
 |---|---|
 | wxDragon | MIT |
 | wxWidgets (linked by wxDragon) | wxWindows Library Licence (LGPL-2.1 + static-linking exception) |
-| live-region (local copy in `patches/live-region`, see its `LICENSE`) | MIT |
+| live-region | MIT |
 | AccessKit | MIT / Apache-2.0 |
 | rodio, symphonia | MIT / Apache-2.0 |
 | opus (libopus bindings) | BSD-3-Clause |
