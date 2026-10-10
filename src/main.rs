@@ -433,6 +433,14 @@ struct AppState {
 	/// user actually opens that chat - matching official WhatsApp's behavior
 	/// of clearing a chat's notifications the moment you read it.
 	active_notifications: std::collections::HashMap<String, Vec<wxdragon::prelude::NotificationMessage>>,
+	/// Messages and missed calls replayed from a backlog (after a long time
+	/// closed or offline), waiting to be answered with a single sound and
+	/// notification rather than one per message. See
+	/// [`chat_ui::flush_catch_up_alerts`].
+	catch_up_alerts: whantv::CatchUpAlerts,
+	/// When the last backlog entry was tallied; the summary goes out once the
+	/// replay has been quiet for a moment.
+	catch_up_last_at: Option<std::time::Instant>,
 	display_items: Vec<whantv::DisplayItem>,
 	/// Whether the message list is showing checkboxes for a batch action
 	/// (currently just delete), entered via `UiCommand::ToggleSelectionMode`.
@@ -906,6 +914,8 @@ fn main() {
 			search_target_text: None,
 			played_sent_sounds: std::collections::HashMap::new(),
 			active_notifications: std::collections::HashMap::new(),
+			catch_up_alerts: whantv::CatchUpAlerts::default(),
+			catch_up_last_at: None,
 			is_voice_recording: false,
 			is_voice_paused: false,
 			voice_recording_path: None,
@@ -950,6 +960,7 @@ fn main() {
 				Err(_) => return, // State already borrowed, skip this update
 			};
 			ui_commands::messaging::chatstate_tick(&mut s);
+			chat_ui::flush_catch_up_alerts(&mut s);
 			ui_commands::misc::presence_tick(&mut s);
 			if s.playing_msg_id.is_none() {
 				return;

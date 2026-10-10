@@ -56,6 +56,47 @@ pub(crate) fn show_toast_notification(title: &str, body: &str) -> Option<wxdrago
 	}
 }
 
+/// How long a backlog replay has to go quiet before its summary goes out.
+const CATCH_UP_QUIET: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Tallies one message replayed from a backlog instead of alerting for it.
+/// `missed_call` is a call-history line for a call that went unanswered.
+pub(crate) fn record_catch_up_alert(s: &mut AppState, jid: &str, missed_call: bool, alert: whantv::IncomingAlert) {
+	if missed_call {
+		s.catch_up_alerts.record_missed_call(jid, alert);
+	} else {
+		s.catch_up_alerts.record_message(jid, alert);
+	}
+	if !s.catch_up_alerts.is_empty() {
+		s.catch_up_last_at = Some(std::time::Instant::now());
+	}
+}
+
+/// Answers a finished backlog replay with one sound and one notification
+/// covering everything in it. Called from the UI timer; does nothing until the
+/// replay has been quiet for [`CATCH_UP_QUIET`].
+pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
+	match s.catch_up_last_at {
+		Some(last) if last.elapsed() >= CATCH_UP_QUIET => {}
+		_ => return,
+	}
+	s.catch_up_last_at = None;
+	let tally = std::mem::take(&mut s.catch_up_alerts);
+	if tally.is_empty() {
+		return;
+	}
+	if tally.sound() {
+		crate::audio::play_notification_sound(
+			crate::types::NotificationSound::MessageBackground,
+			s.settings.sounds_enabled,
+			s.settings.output_device_name.clone(),
+		);
+	}
+	if tally.toast() {
+		show_toast_notification(whantv::TRAY_APP_NAME, &tally.summary());
+	}
+}
+
 /// Toasts kept per chat so opening it can dismiss them.
 ///
 /// Set well above what Windows itself retains in Action Center for one app: a

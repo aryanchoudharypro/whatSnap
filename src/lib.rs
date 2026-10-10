@@ -1413,6 +1413,99 @@ pub fn tray_tooltip_text(unread: u64) -> String {
 	}
 }
 
+/// How old a message has to be on arrival to count as part of a backlog rather
+/// than as live traffic. A live message lands within a second or two of being
+/// sent; anything this stale was queued on the server while whaNTV was closed or
+/// offline and is now being replayed in a burst.
+pub const BACKLOG_MESSAGE_AGE_SECS: i64 = 60;
+
+/// Whether a message stamped `timestamp` (Unix seconds) and arriving at `now`
+/// is being replayed from a backlog. A missing timestamp (0) reads as live:
+/// alerting once too often beats swallowing a real message.
+pub fn is_backlog_message(timestamp: i64, now: i64) -> bool {
+	timestamp > 0 && now - timestamp > BACKLOG_MESSAGE_AGE_SECS
+}
+
+/// What piled up while whaNTV was away, tallied as the backlog is replayed so
+/// it can be answered with one sound and one notification once the replay goes
+/// quiet, instead of one of each per message.
+///
+/// Only things that would have alerted on their own are recorded - a muted
+/// chat adds nothing here, same as it adds nothing live.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CatchUpAlerts {
+	messages: u32,
+	missed_calls: u32,
+	chats: std::collections::HashSet<String>,
+	sound: bool,
+	toast: bool,
+}
+
+impl CatchUpAlerts {
+	/// Adds one replayed message from `jid`, which was allowed the given alert.
+	pub fn record_message(&mut self, jid: &str, alert: IncomingAlert) {
+		if !alert.sound && !alert.toast {
+			return;
+		}
+		self.messages += 1;
+		self.note(jid, alert);
+	}
+
+	/// Adds one replayed missed call from `jid`, which was allowed the given alert.
+	pub fn record_missed_call(&mut self, jid: &str, alert: IncomingAlert) {
+		if !alert.sound && !alert.toast {
+			return;
+		}
+		self.missed_calls += 1;
+		self.note(jid, alert);
+	}
+
+	fn note(&mut self, jid: &str, alert: IncomingAlert) {
+		self.chats.insert(jid.to_string());
+		self.sound |= alert.sound;
+		self.toast |= alert.toast;
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.messages == 0 && self.missed_calls == 0
+	}
+
+	/// Whether anything recorded was allowed to make a sound.
+	pub fn sound(&self) -> bool {
+		self.sound
+	}
+
+	/// Whether anything recorded was allowed to raise a notification.
+	pub fn toast(&self) -> bool {
+		self.toast
+	}
+
+	/// One line for the single notification, e.g.
+	/// "12 new messages in 3 chats and 2 missed calls".
+	pub fn summary(&self) -> String {
+		let mut segments = Vec::new();
+		if self.messages > 0 {
+			let messages = match self.messages {
+				1 => "1 new message".to_string(),
+				n => format!("{} new messages", n),
+			};
+			// With calls in the tally the chat count covers both, so it would
+			// misdescribe the messages alone.
+			if self.missed_calls == 0 && self.chats.len() > 1 {
+				segments.push(format!("{} in {} chats", messages, self.chats.len()));
+			} else {
+				segments.push(messages);
+			}
+		}
+		match self.missed_calls {
+			0 => {}
+			1 => segments.push("1 missed call".to_string()),
+			n => segments.push(format!("{} missed calls", n)),
+		}
+		segments.join(" and ")
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -1675,6 +1768,46 @@ mod tests {
 		assert_eq!(serde_json::to_string(&ArchivedAlert::Full).unwrap(), "\"full\"");
 		assert_eq!(serde_json::from_str::<ArchivedAlert>("\"sound_only\"").unwrap(), ArchivedAlert::SoundOnly);
 		assert_eq!(ArchivedAlert::default(), ArchivedAlert::Silent);
+	}
+
+	#[test]
+	fn test_is_backlog_message() {
+		assert!(!is_backlog_message(1_000, 1_000));
+		assert!(!is_backlog_message(1_000, 1_000 + BACKLOG_MESSAGE_AGE_SECS));
+		assert!(is_backlog_message(1_000, 1_001 + BACKLOG_MESSAGE_AGE_SECS));
+		// A clock running behind the sender's, or no timestamp at all, is live.
+		assert!(!is_backlog_message(2_000, 1_000));
+		assert!(!is_backlog_message(0, 1_000_000));
+	}
+
+	#[test]
+	fn test_catch_up_alerts_summary() {
+		let full = IncomingAlert { sound: true, toast: true };
+		let silent = IncomingAlert { sound: false, toast: false };
+		let mut tally = CatchUpAlerts::default();
+		assert!(tally.is_empty());
+
+		tally.record_message("muted@g.us", silent);
+		tally.record_missed_call("muted@g.us", silent);
+		assert!(tally.is_empty());
+
+		tally.record_message("a@s.whatsapp.net", IncomingAlert { sound: true, toast: false });
+		assert_eq!(tally.summary(), "1 new message");
+		assert!(tally.sound() && !tally.toast());
+
+		tally.record_message("a@s.whatsapp.net", full);
+		assert_eq!(tally.summary(), "2 new messages");
+		tally.record_message("b@g.us", full);
+		assert_eq!(tally.summary(), "3 new messages in 2 chats");
+		assert!(tally.toast());
+
+		tally.record_missed_call("c@s.whatsapp.net", full);
+		assert_eq!(tally.summary(), "3 new messages and 1 missed call");
+
+		let mut calls = CatchUpAlerts::default();
+		calls.record_missed_call("c@s.whatsapp.net", full);
+		calls.record_missed_call("c@s.whatsapp.net", full);
+		assert_eq!(calls.summary(), "2 missed calls");
 	}
 
 	#[test]

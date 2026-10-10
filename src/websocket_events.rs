@@ -1571,6 +1571,21 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						// Group event lines ("X joined", "Y left", a new subject) never
 						// alert or count as unread in the official apps, muted or not.
 						let is_system = data.get("mediaType").and_then(|m| m.as_str()) == Some("system");
+						// Replayed after a long time closed or offline, along with
+						// everything else that queued up: tallied and answered once
+						// for the lot (see chat_ui::flush_catch_up_alerts) rather
+						// than with a sound and a notification each.
+						let is_backlog = whantv::is_backlog_message(
+							data.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0),
+							std::time::SystemTime::now()
+								.duration_since(std::time::UNIX_EPOCH)
+								.unwrap_or_default()
+								.as_secs() as i64,
+						);
+						// Call history arrives as messages too. Only a missed call is
+						// news once it's old; "Incoming voice call, 5 minutes" isn't.
+						let is_call_line = data.get("mediaType").and_then(|m| m.as_str()) == Some("call");
+						let is_missed_call = is_call_line && text.starts_with("Missed");
 
 						let mut s = state.borrow_mut();
 
@@ -1962,11 +1977,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 												.insert(&divider.format_display(is_group), di_insert_at);
 										}
 									}
-									play_notification_sound(
-										NotificationSound::MessageCurrent,
-										sounds_enabled,
-										s.settings.output_device_name.clone(),
-									);
+									if !is_backlog {
+										play_notification_sound(
+											NotificationSound::MessageCurrent,
+											sounds_enabled,
+											s.settings.output_device_name.clone(),
+										);
+									} else if is_missed_call || !is_call_line {
+										crate::chat_ui::record_catch_up_alert(
+											&mut s,
+											jid,
+											is_missed_call,
+											whantv::IncomingAlert { sound: sounds_enabled, toast: false },
+										);
+									}
 								}
 							}
 						} else {
@@ -1986,6 +2010,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										s.archived_jids.contains(jid),
 										s.settings.archived_alert(jid),
 									);
+									let alert = if is_backlog {
+										if is_missed_call || !is_call_line {
+											let allowed = whantv::IncomingAlert {
+												sound: alert.sound
+													&& s.settings.sounds_enabled
+													&& !crate::do_not_disturb::should_silence(&s.settings),
+												toast: alert.toast && s.settings.notifications_enabled,
+											};
+											crate::chat_ui::record_catch_up_alert(&mut s, jid, is_missed_call, allowed);
+										}
+										whantv::IncomingAlert { sound: false, toast: false }
+									} else {
+										alert
+									};
 									if alert.sound && !crate::do_not_disturb::should_silence(&s.settings) {
 										play_notification_sound(
 											NotificationSound::MessageBackground,
