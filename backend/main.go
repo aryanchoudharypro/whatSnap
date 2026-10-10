@@ -31,7 +31,6 @@ import (
 	"net"
 	"github.com/Microsoft/go-winio"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -80,6 +79,7 @@ func waLogLevel() string {
 func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	clientLog := waLog.Stdout("Client", waLogLevel(), true)
 	c := whatsmeow.NewClient(deviceStore, clientLog)
+	c.UserAgent = webViewUserAgent()
 	c.EnableAutoReconnect = true
 	c.AutoReconnectHook = autoReconnectHook(c)
 	c.AutoTrustIdentity = true
@@ -238,13 +238,12 @@ func main() {
 	}
 	removeOrphanedDeviceRows()
 
-	// UWP is what WA Web itself sends when it runs as the Windows app (the
-	// WebView2 wrapper, WAWebEnvironment.isWindows) - the same branch that
-	// turns on RequireFullSync and the phone's history-length choice below.
-	// Only sent in the registration payload, so it takes effect on the next
-	// link, never on an existing session.
-	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_UWP.Enum()
-	store.DeviceProps.Os = proto.String("Windows")
+	// whaNTV presents itself as the Windows app (see applyClientIdentity) -
+	// the same branch of WA Web that turns on RequireFullSync and the phone's
+	// history-length choice below. These are only sent in the registration
+	// payload, so they take effect on the next link, never on an existing
+	// session.
+	applyClientIdentity()
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)

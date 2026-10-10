@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -166,18 +167,53 @@ func blocklistPayload() map[string]interface{} {
 	}
 }
 
+// The hash of the list as last fetched over this session, which the server
+// compares against its own so an unchanged list isn't sent again (WA Web's
+// WAWebGetBlocklistJob does the same).
+var (
+	blocklistSyncMu    sync.Mutex
+	blocklistSyncedFor *whatsmeow.Client
+	blocklistDHash     string
+)
+
+// refreshBlocklistOnConnect fetches the list the first time a session
+// connects. Blocks made on the phone before this device was linked only ever
+// arrive this way. After that the server announces every change (a blocklist
+// notification, or an account_sync dirty bit for ones missed while offline),
+// so a reconnect asks for nothing, as in the official apps.
+func refreshBlocklistOnConnect() {
+	blocklistSyncMu.Lock()
+	synced := blocklistSyncedFor != nil && blocklistSyncedFor == wa()
+	blocklistSyncMu.Unlock()
+	if !synced {
+		refreshBlocklist()
+	}
+}
+
 // refreshBlocklist asks the server for the list, stores it and tells the
-// frontend. Blocks made on the phone before this device was linked only ever
-// arrive this way.
+// frontend.
 func refreshBlocklist() {
 	c := wa()
 	if c == nil || !c.IsLoggedIn() {
 		return
 	}
-	bl, err := c.GetBlocklist(context.Background(), "")
+	blocklistSyncMu.Lock()
+	dhash := ""
+	if blocklistSyncedFor == c {
+		dhash = blocklistDHash
+	}
+	blocklistSyncMu.Unlock()
+	bl, err := c.GetBlocklist(context.Background(), dhash)
 	if err != nil {
 		return
 	}
+	if bl == nil {
+		// The server's list has the hash we sent: nothing changed.
+		return
+	}
+	blocklistSyncMu.Lock()
+	blocklistSyncedFor, blocklistDHash = c, bl.DHash
+	blocklistSyncMu.Unlock()
 	rows := make([]blockedRow, 0, len(bl.Entries))
 	for _, entry := range bl.Entries {
 		rows = append(rows, blockedRow{JID: entry.JID, PN: entry.PN})
