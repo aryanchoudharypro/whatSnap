@@ -540,6 +540,20 @@ func (r *channelUploadReader) Seek(offset int64, whence int) (int64, error) {
 	return r.File.Seek(offset, whence)
 }
 
+// encryptedUploadFile is the temp file whatsmeow encrypts an attachment into
+// and then uploads from. Encrypting only writes to it, so every read is the
+// upload itself taking data for the network - which makes it the place to
+// measure progress. Reads of the original file measure the encryption, which
+// finishes in a moment however long the upload then takes.
+type encryptedUploadFile struct {
+	*os.File
+	progress *ProgressReader
+}
+
+func (u *encryptedUploadFile) Read(p []byte) (int, error) {
+	return u.progress.Read(p)
+}
+
 func detectMimeType(filename, path string, header []byte) string {
 	nameToTest := filename
 	if nameToTest == "" {
@@ -1040,13 +1054,35 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		sendEvent(conn, "attachment_uploading", map[string]interface{}{"id": id, "jid": jid.String(), "filename": filename, "status": "uploading", "percent": 0})
 	}
 
-	var pr io.Reader = f
 	isChannel := jid.Server == types.NewsletterServer
+	// Channel media goes up as it is, read straight from f. Anything else is
+	// encrypted into a temp file first and uploaded from there.
+	var encrypted *os.File
+	if !isChannel {
+		encrypted, err = os.CreateTemp("", "whantv-upload-*")
+		if err != nil {
+			fail(err.Error())
+			return
+		}
+		defer func() {
+			encrypted.Close()
+			os.Remove(encrypted.Name())
+		}()
+	}
+
+	var pr io.Reader = f
+	var uploadFile io.ReadWriteSeeker = encrypted
 	if totalSize > 0 {
 		lastPct := -1
+		source, uploadSize := f, totalSize
+		if !isChannel {
+			// Encrypted, it is padded to a whole 16-byte block and followed
+			// by a 10-byte checksum.
+			source, uploadSize = encrypted, totalSize+16-totalSize%16+10
+		}
 		progress := &ProgressReader{
-			reader: f,
-			total:  totalSize,
+			reader: source,
+			total:  uploadSize,
 			onProgress: func(pct int) {
 				if pct != lastPct {
 					lastPct = pct
@@ -1062,12 +1098,14 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 				}
 			},
 		}
-		pr = progress
 		if isChannel {
 			pr = &channelUploadReader{File: f, progress: progress}
+		} else {
+			uploadFile = &encryptedUploadFile{File: encrypted, progress: progress}
 		}
 	}
 
+	uploadStarted := time.Now()
 	var uploaded whatsmeow.UploadResponse
 	if isChannel {
 		// Channel media isn't encrypted: it goes up as it is, and the post
@@ -1078,12 +1116,17 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		}
 		uploaded, err = wa().UploadNewsletterReader(context.Background(), seeker, waMediaType)
 	} else {
-		uploaded, err = wa().UploadReader(context.Background(), pr, nil, waMediaType)
+		uploaded, err = wa().UploadReader(context.Background(), f, uploadFile, waMediaType)
 	}
+	// Includes encrypting, which is a moment next to the upload itself.
+	uploadTook := time.Since(uploadStarted)
 	if err != nil {
+		log.Printf("Attachment upload of %d bytes failed after %s: %v", totalSize, uploadTook.Round(time.Millisecond), err)
 		fail(err.Error())
 		return
 	}
+	log.Printf("Attachment upload: %d bytes in %s (%.0f KB/s)", totalSize, uploadTook.Round(time.Millisecond),
+		float64(totalSize)/1024/max(uploadTook.Seconds(), 0.001))
 
 	var msg *waE2E.Message
 	switch mediaType {
