@@ -2023,7 +2023,7 @@ func eventHandler(evt interface{}) {
 			go sendDesiredPresence(true)
 			go retryPendingTextMessages()
 			go flushPendingResends()
-			go refreshBlocklist()
+			go refreshBlocklistOnConnect()
 			go func() {
 				time.Sleep(3 * time.Second)
 				populateChatsFromStore()
@@ -2484,13 +2484,18 @@ func eventHandler(evt interface{}) {
 			broadcastChats()
 		}()
 	case *events.DirtyState:
-		if v.Type == whatsmeow.DirtyTypeGroups {
+		switch v.Type {
+		case whatsmeow.DirtyTypeGroups:
 			log.Printf("Server marked the group list as out of date; refreshing")
 			go func() {
 				invalidateJoinedGroups()
 				populateChatsFromStore()
 				broadcastChats()
 			}()
+		case whatsmeow.DirtyTypeAccountSync:
+			// Account data changed while we were away; the blocklist is the
+			// part of it kept here.
+			go refreshBlocklist()
 		}
 	case *events.JoinedGroup:
 		invalidateJoinedGroups()
@@ -2532,6 +2537,8 @@ func eventHandler(evt interface{}) {
 	case *events.Blocklist:
 		// Whatever changed, the server's list says who it is by number too.
 		go refreshBlocklist()
+	case *events.ABPropsRefreshed:
+		go refreshServerFlags()
 	}
 }
 

@@ -63,26 +63,27 @@ func refreshChannelPins(ctx context.Context, jid types.JID) {
 	storeChannelPins(jid.String(), meta.ThreadMeta.PinnedMessages)
 }
 
-// serverFlags are the server's feature flags for this account, fetched on
-// each connect like the official apps do, so whaNTV only offers what the
-// server has turned on.
+// serverFlags are the server's feature flags for this account, so whaNTV only
+// offers what the server has turned on. whatsmeow fetches them after
+// connecting, and only when the server says they changed, as the official
+// apps do; this takes whatever it holds rather than asking a second time.
 var (
 	serverFlagsMu sync.RWMutex
 	serverFlags   whatsmeow.ABProps
 )
 
+// refreshServerFlags runs on each connect and whenever whatsmeow fetched a
+// new set. Right after the first connect there is nothing cached yet; the
+// fetch that follows brings it back here.
 func refreshServerFlags() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	props, err := wa().GetABProps(ctx)
-	if err != nil {
-		log.Printf("Couldn't fetch the server's feature flags: %v", err)
+	props := wa().CachedABProps()
+	if len(props) == 0 {
 		return
 	}
 	serverFlagsMu.Lock()
 	serverFlags = props
 	serverFlagsMu.Unlock()
-	log.Printf("Fetched %d server feature flags; channel pinning for admins: %v", len(props), channelPinningEnabled())
+	log.Printf("Have %d server feature flags; channel pinning for admins: %v", len(props), channelPinningEnabled())
 	broadcastEvent("server_flags", serverFlagsPayload())
 }
 

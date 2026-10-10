@@ -16,8 +16,15 @@ import (
 // windows the refresh reuses what it last fetched; anything that knows the
 // group list changed (joining, creating, the server saying it's dirty) drops
 // the cached copy first.
+//
+// The group list keeps for hours because every change to it is announced: a
+// group notification, or the "groups" dirty bit for ones missed while
+// offline. The official apps ask for the whole list only on that dirty bit
+// (WAWebHandleDirtyBits), never just for having reconnected, so neither does
+// a reconnect here. The age limit is only a backstop for a missed
+// announcement.
 const (
-	groupListMaxAge       = 30 * time.Second
+	groupListMaxAge       = 6 * time.Hour
 	followedChannelsEvery = time.Minute
 )
 
