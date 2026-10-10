@@ -55,9 +55,112 @@ pub(crate) fn restore_main_window(frame: &wxdragon::prelude::Frame) {
 	if unsafe { GetAsyncKeyState(VK_RETURN.0 as i32) } as u16 & 0x8000 != 0 {
 		enter_release_guard().set(true);
 	}
+	HIDDEN_TO_TRAY.set(false);
 	frame.show(true);
 	frame.iconize(false);
 	frame.raise();
+}
+
+thread_local! {
+	static HIDDEN_TO_TRAY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the main window is put away in the tray, as opposed to open or
+/// merely minimized.
+pub(crate) fn is_hidden_to_tray() -> bool {
+	HIDDEN_TO_TRAY.get()
+}
+
+/// Puts the main window away in the tray and makes sure it stays there until
+/// [`restore_main_window`].
+///
+/// Hiding alone isn't enough. With nothing else open, Windows has no next app
+/// to hand activation to, so the hidden window stays the foreground one - and
+/// the next program to close (a clipboard manager dismissed with Alt+F4, say)
+/// hands focus "back" to it, restoring it with a ShowWindow of its own. wx
+/// never hears about that and goes on believing the window is hidden, so the
+/// Alt+F4 that should put it away again does nothing at all. So the
+/// foreground is given up to the desktop here, and while hidden the window
+/// refuses every attempt to show it that didn't come from us.
+pub(crate) fn hide_main_window(frame: &wxdragon::prelude::Frame) {
+	use windows::Win32::{
+		Foundation::HWND,
+		UI::{
+			Shell::SetWindowSubclass,
+			WindowsAndMessaging::{SW_HIDE, ShowWindow},
+		},
+	};
+	use wxdragon::prelude::*;
+	// Minimizing first takes the frame's owned windows down with it. A bare
+	// hide can leave keyboard focus inside the now-hidden window, so its
+	// controls stay reachable.
+	frame.iconize(true);
+	frame.show(false);
+	HIDDEN_TO_TRAY.set(true);
+	let hwnd = HWND(frame.get_handle());
+	unsafe {
+		let _ = SetWindowSubclass(hwnd, Some(hidden_frame_subclass_proc), FRAME_SUBCLASS_ID, 0);
+		// Whatever wx believes: if something else showed the window behind its
+		// back, wx's own hide above was a no-op.
+		let _ = ShowWindow(hwnd, SW_HIDE);
+	}
+	release_foreground(hwnd);
+}
+
+/// Hands the foreground to the desktop if `hwnd` holds it.
+fn release_foreground(hwnd: windows::Win32::Foundation::HWND) {
+	use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetShellWindow, SetForegroundWindow};
+	unsafe {
+		if GetForegroundWindow() == hwnd {
+			let _ = SetForegroundWindow(GetShellWindow());
+		}
+	}
+}
+
+const FRAME_SUBCLASS_ID: usize = 0x6672_616d;
+/// Posted to the frame by itself to give the foreground up once the
+/// activation that prompted it has finished.
+const WM_RELEASE_FOREGROUND: u32 = 0x8000 + 0x3a71;
+
+unsafe extern "system" fn hidden_frame_subclass_proc(
+	hwnd: windows::Win32::Foundation::HWND,
+	msg: u32,
+	wparam: windows::Win32::Foundation::WPARAM,
+	lparam: windows::Win32::Foundation::LPARAM,
+	_id: usize,
+	_data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+	use windows::Win32::UI::{
+		Shell::DefSubclassProc,
+		WindowsAndMessaging::{PostMessageW, SWP_SHOWWINDOW, WINDOWPOS, WM_ACTIVATE, WM_WINDOWPOSCHANGING},
+	};
+	if msg == WM_RELEASE_FOREGROUND {
+		if is_hidden_to_tray() {
+			release_foreground(hwnd);
+		}
+		return windows::Win32::Foundation::LRESULT(0);
+	}
+	if is_hidden_to_tray() {
+		if msg == WM_WINDOWPOSCHANGING {
+			// Every way of showing a window comes through here first.
+			let pos = lparam.0 as *mut WINDOWPOS;
+			if !pos.is_null() {
+				unsafe { (*pos).flags &= !SWP_SHOWWINDOW };
+			}
+		} else if msg == WM_ACTIVATE && wparam.0 & 0xFFFF != 0 {
+			// Activated while invisible: keyboard focus would sit in a window
+			// nobody can see. Not from inside the activation itself.
+			unsafe {
+				let _ = PostMessageW(
+					Some(hwnd),
+					WM_RELEASE_FOREGROUND,
+					windows::Win32::Foundation::WPARAM(0),
+					windows::Win32::Foundation::LPARAM(0),
+				);
+			}
+		}
+	}
+	unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
 
 pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
