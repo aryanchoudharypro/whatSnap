@@ -972,12 +972,7 @@ pub fn bind_input_handlers(
 			let logged_in = state_close.borrow().main_ui_shown;
 			if logged_in && ev.can_veto() && tray_icon_close.is_icon_installed() {
 				ev.veto();
-				// Minimizing first makes Windows hand activation to the next
-				// app, and takes the frame's owned windows down with it. A bare
-				// hide can leave keyboard focus inside the now-hidden window, so
-				// its controls stay reachable.
-				frame_close.iconize(true);
-				frame_close.show(false);
+				crate::tray::hide_main_window(&frame_close);
 				let _ = tx_close.send(UiCommand::WindowHidden);
 			} else {
 				// A real close (tray icon disabled in Settings, so the X button
@@ -1010,6 +1005,11 @@ pub fn bind_input_handlers(
 	let tx_activate = ui_tx.clone();
 	parts.frame.on_activate(move |event| {
 		if let WindowEventData::Activate(ref ev) = event {
+			// Something else activating the window while it's put away in the
+			// tray isn't the user coming back - see tray::hide_main_window.
+			if ev.is_active() && crate::tray::is_hidden_to_tray() {
+				return;
+			}
 			let _ = tx_activate.send(UiCommand::SetPresence(ev.is_active()));
 		}
 	});
