@@ -1,0 +1,153 @@
+name: Build whaNTV
+on:
+  # Every branch builds, so a change can be tried from its artifacts before it reaches master.
+  # Only master publishes a release (see the release job).
+  push:
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+# One run per branch at a time. The release job below keeps its own queue, so a cancelled run
+# cannot leave a half-published set of assets behind.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    # build.rs runs `go build` for backend.exe, so Go has to be on PATH before cargo starts.
+    - name: Install Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: backend/go.mod
+        cache-dependency-path: backend/go.sum
+    - name: Cache Rust build artifacts
+      uses: Swatinem/rust-cache@v2
+    - name: Install CMake, Ninja, and Inno Setup
+      run: |
+        choco install cmake ninja innosetup -y --no-progress
+        # Put ISCC.exe on PATH whichever Inno Setup version the package installed, since
+        # build-release.ps1 looks for it there first.
+        $iscc = Get-ChildItem "${env:ProgramFiles(x86)}", "$env:ProgramFiles" -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
+        echo $iscc.DirectoryName >> $env:GITHUB_PATH
+    # Produces dist\whaNTV-<version>-portable.zip and dist\whaNTV-<version>-setup.exe.
+    - name: Build
+      run: packaging\build-release.ps1
+    - name: Check the build produced both packages
+      run: |
+        foreach ($pattern in 'whaNTV-*-setup.exe', 'whaNTV-*-portable.zip') {
+          if (-not (Get-ChildItem dist -Filter $pattern)) { throw "dist\$pattern is missing" }
+        }
+        Get-ChildItem dist | Format-Table Name, Length
+    - name: Upload installer
+      id: upload-setup
+      uses: actions/upload-artifact@v7
+      with:
+        name: whaNTV-windows-setup
+        path: dist/whaNTV-*-setup.exe
+        if-no-files-found: error
+        retention-days: 30
+    - name: Upload portable zip
+      uses: actions/upload-artifact@v7
+      with:
+        name: whaNTV-windows-portable
+        path: dist/whaNTV-*-portable.zip
+        if-no-files-found: error
+        retention-days: 30
+    - name: Link the installer in the run summary
+      run: |
+        echo "Installer: ${{ steps.upload-setup.outputs.artifact-url }}" >> $env:GITHUB_STEP_SUMMARY
+
+  release:
+    needs: [build-windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: write
+    # Every run publishes to the same `latest` release, so two of them uploading at once
+    # interleave their assets. Queue them instead of cancelling, so each run publishes a
+    # complete, self-consistent set.
+    concurrency:
+      group: dev-release
+      cancel-in-progress: false
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - name: Download installer
+      uses: actions/download-artifact@v8
+      with:
+        name: whaNTV-windows-setup
+        path: windows-build
+    - name: Download portable zip
+      uses: actions/download-artifact@v8
+      with:
+        name: whaNTV-windows-portable
+        path: windows-build
+    - name: Get latest tag reachable from HEAD
+      id: get_tag
+      shell: bash
+      run: |
+        TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+    - name: Generate release notes
+      id: release_notes
+      shell: bash
+      run: |
+        PREV_TAG="${{ steps.get_tag.outputs.tag }}"
+        if [ -z "$PREV_TAG" ]; then
+          COMMITS=$(git log -1 --pretty=format:"- %h: %s" HEAD)
+        else
+          COMMITS=$(git log --pretty=format:"- %h: %s" "$PREV_TAG"..HEAD)
+        fi
+        COMMITS="${COMMITS//'%'/'%25'}"
+        echo "commits<<EOF" >> $GITHUB_OUTPUT
+        echo "$COMMITS" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    # A queued run whose commit has since been superseded would otherwise replace the newer
+    # build with its own older one.
+    - name: Check this is still the head of master
+      id: freshness
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        HEAD_SHA=$(gh api "repos/${{ github.repository }}/commits/master" --jq .sha)
+        if [ "$HEAD_SHA" = "${{ github.sha }}" ]; then
+          echo "current=true" >> $GITHUB_OUTPUT
+        else
+          echo "current=false" >> $GITHUB_OUTPUT
+          echo "::notice::master has moved on to $HEAD_SHA, leaving the release to that build"
+        fi
+    - name: Create or update latest release
+      if: steps.freshness.outputs.current == 'true'
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: latest
+        name: Development Build
+        body: |
+          ## Commits since last release
+          ${{ steps.release_notes.outputs.commits }}
+        files: |
+          windows-build/whaNTV-*-setup.exe
+          windows-build/whaNTV-*-portable.zip
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
