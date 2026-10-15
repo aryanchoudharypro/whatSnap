@@ -977,9 +977,9 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	}
 
 	msg = applyDisappearingTimer(jid, msg)
-	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
+	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
 	if err != nil {
-		fail(err.Error())
+		fail(sendErrorText(err))
 		return
 	}
 
@@ -1158,9 +1158,9 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 	}}
 
 	msg = applyDisappearingTimer(jid, msg)
-	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle})
+	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
 	if err != nil {
-		fail(err.Error())
+		fail(sendErrorText(err))
 		return
 	}
 

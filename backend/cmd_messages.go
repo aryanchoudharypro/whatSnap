@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"strings"
 	"sync"
@@ -178,11 +179,16 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	msg = applyDisappearingTimer(jid, msg)
 	// Mentioning Meta AI sends the message to it as well (whatsmeow's inline
 	// bot mode), which is what makes it answer in this chat.
-	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs)})
+	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs), CheckPermissions: true})
 	if err != nil {
 		log.Printf("Error sending message %s: %v", id, err)
 		if conn != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			sendEvent(conn, "error", map[string]string{"message": sendErrorText(err)})
+		}
+		// Retrying won't help until an admin opens the group up.
+		if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) {
+			markSendFailed(id, jidStr, text, quotedID, quotedSender)
+			return
 		}
 		// Stays "pending" in the DB while auto-retries remain; the periodic
 		// sweep (backend/cmd_retry.go) will pick it up again with backoff,

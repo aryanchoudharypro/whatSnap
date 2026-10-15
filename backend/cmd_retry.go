@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -88,16 +90,8 @@ func recordSendFailure(id, jidStr, text, quotedID, quotedSender string) {
 	attempts := retryAttempts[id] + 1
 	retryAttempts[id] = attempts
 	if attempts >= maxAutoRetries {
-		delete(retryAttempts, id)
-		delete(retryNextAt, id)
 		retryMu.Unlock()
-
-		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
-		broadcastEvent("message", map[string]interface{}{
-			"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
-			"timestamp": time.Now().Unix(), "has_media": false, "status": "failed",
-			"quotedId": quotedID, "quotedSender": quotedSender,
-		})
+		markSendFailed(id, jidStr, text, quotedID, quotedSender)
 		return
 	}
 	delay := retryBaseDelay * time.Duration(uint64(1)<<uint(attempts-1))
@@ -106,6 +100,26 @@ func recordSendFailure(id, jidStr, text, quotedID, quotedSender string) {
 	}
 	retryNextAt[id] = time.Now().Add(delay)
 	retryMu.Unlock()
+}
+
+// markSendFailed stops retrying a text message and marks it "failed", for
+// when retries are used up or the send can never succeed.
+func markSendFailed(id, jidStr, text, quotedID, quotedSender string) {
+	clearRetryState(id)
+	db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+	broadcastEvent("message", map[string]interface{}{
+		"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
+		"timestamp": time.Now().Unix(), "has_media": false, "status": "failed",
+		"quotedId": quotedID, "quotedSender": quotedSender,
+	})
+}
+
+// sendErrorText is what the user is told when a send fails.
+func sendErrorText(err error) string {
+	if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) {
+		return "Only admins can send messages to this group."
+	}
+	return err.Error()
 }
 
 // retryPendingTextMessages resends every text message still marked "pending"
