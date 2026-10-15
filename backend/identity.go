@@ -13,15 +13,15 @@ import (
 
 // windowsAppBuild is the build number of the WhatsApp Windows app whaNTV
 // presents itself as. The app hands it to WhatsApp Web as the windowsBuild
-// query parameter: Store version 2.2638.102.0 is 263802, 2.2637.100.0 was
-// 263700 (minor version, then the third part minus 100 as two digits).
+// query parameter: Store version 2.2639.100.0 is 263900, 2.2638.102.0 was
+// 263802 (minor version, then the third part minus 100 as two digits).
 //
 // To refresh it, install the current Store app and read the number from the
 // URL in its WebView history
 // (%LOCALAPPDATA%\Packages\5319275A.WhatsAppDesktop_*\LocalCache\EBWebView\Default\History).
 // A real install stays on one build until the Store updates it, so being a
 // release or two behind is ordinary.
-const windowsAppBuild = 263802
+const windowsAppBuild = 263900
 
 // webViewFallbackMajor is the WebView2 major version used in the User-Agent
 // when this machine has no WebView2 runtime to read it from.
