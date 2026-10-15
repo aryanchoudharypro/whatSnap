@@ -385,6 +385,11 @@ impl CaptureDsp {
 	}
 }
 
+// How much received audio the speaker side holds before it starts playing, and
+// again after it runs dry. Without refilling after an underrun the queue stays
+// near empty and every late packet is another gap.
+const PLAYOUT_REFILL_SAMPLES: usize = FRAME_SAMPLES * 2;
+
 // Speaker-side DSP: pulls 16 kHz mono frames off frame_rx into a jitter-absorbing
 // queue, then linear-interpolation upsamples to the device's native rate on demand.
 // Identical to the filter design previously run inside cpal's output callback.
@@ -394,6 +399,8 @@ struct RenderDsp {
 	resample_phase: f64,
 	upsample_step: f64,
 	max_buffered_src: usize,
+	/// Playing silence until PLAYOUT_REFILL_SAMPLES have arrived.
+	refilling: bool,
 	played: Arc<AtomicU64>,
 	starved: Arc<AtomicU64>,
 	accum_len: Arc<AtomicUsize>,
@@ -413,6 +420,7 @@ impl RenderDsp {
 			resample_phase: 0.0,
 			upsample_step: NETWORK_SAMPLE_RATE as f64 / sample_rate as f64,
 			max_buffered_src: FRAME_SAMPLES * 8,
+			refilling: true,
 			played,
 			starved,
 			accum_len,
@@ -428,7 +436,7 @@ impl RenderDsp {
 		// output frame.
 		let needed =
 			self.resample_phase.floor() as usize + 1 + (out_frames as f64 * self.upsample_step).ceil() as usize;
-		while self.src_accum.len() < needed {
+		while self.src_accum.len() < needed.max(PLAYOUT_REFILL_SAMPLES) {
 			match frame_rx.try_recv() {
 				Ok(frame) => self.src_accum.extend(frame),
 				Err(_) => break,
@@ -438,6 +446,17 @@ impl RenderDsp {
 			self.src_accum.pop_front();
 		}
 
+		if self.refilling {
+			if self.src_accum.len() < PLAYOUT_REFILL_SAMPLES {
+				data.fill(0.0);
+				self.starved.fetch_add(out_frames as u64, Ordering::Relaxed);
+				self.accum_len.store(self.src_accum.len(), Ordering::Relaxed);
+				return;
+			}
+			self.refilling = false;
+		}
+
+		let (mut played, mut starved) = (0u64, 0u64);
 		for out_frame in data.chunks_mut(channels) {
 			let idx = self.resample_phase.floor() as usize;
 			let sample = if idx + 1 < self.src_accum.len() {
@@ -450,11 +469,13 @@ impl RenderDsp {
 				// NOT advance resample_phase past what's actually in src_accum (see the
 				// cpal-era version of this comment for why: it's what previously caused
 				// playback to go silent for the rest of a call after any starvation).
-				self.starved.fetch_add(1, Ordering::Relaxed);
+				// Refill before playing again.
+				starved += 1;
+				self.refilling = true;
 				0.0
 			};
 			if idx < self.src_accum.len() {
-				self.played.fetch_add(1, Ordering::Relaxed);
+				played += 1;
 			}
 			for slot in out_frame.iter_mut() {
 				*slot = sample;
@@ -471,6 +492,8 @@ impl RenderDsp {
 		if self.src_accum.is_empty() && self.resample_phase > 0.0 {
 			self.resample_phase = 0.0;
 		}
+		self.played.fetch_add(played, Ordering::Relaxed);
+		self.starved.fetch_add(starved, Ordering::Relaxed);
 		self.accum_len.store(self.src_accum.len(), Ordering::Relaxed);
 	}
 }
@@ -880,6 +903,41 @@ mod tests {
 			}
 		}
 		assert!(energy > 1.0, "the Opus packets decode back to the tone, not silence");
+	}
+
+	fn render_dsp() -> RenderDsp {
+		let counter = || Arc::new(AtomicU64::new(0));
+		RenderDsp::new(NETWORK_SAMPLE_RATE, 1, counter(), counter(), Arc::new(AtomicUsize::new(0)))
+	}
+
+	#[test]
+	fn playback_waits_for_the_refill_level_again_after_running_dry() {
+		let mut dsp = render_dsp();
+		let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(8);
+		let mut out = vec![0.0f32; 160];
+
+		// One frame is not enough to start on.
+		tx.send(vec![0.5; FRAME_SAMPLES]).unwrap();
+		dsp.process(&mut out, &rx);
+		assert!(out.iter().all(|&s| s == 0.0), "started before the refill level");
+
+		tx.send(vec![0.5; FRAME_SAMPLES]).unwrap();
+		dsp.process(&mut out, &rx);
+		assert!(out.iter().all(|&s| s == 0.5), "did not start once the refill level arrived");
+
+		// Play everything that is buffered, and run dry.
+		for _ in 0..(2 * FRAME_SAMPLES / out.len()) {
+			dsp.process(&mut out, &rx);
+		}
+		assert!(dsp.refilling, "running dry did not start a refill");
+
+		// A single late frame is held back instead of played straight away.
+		tx.send(vec![0.25; FRAME_SAMPLES]).unwrap();
+		dsp.process(&mut out, &rx);
+		assert!(out.iter().all(|&s| s == 0.0), "played a lone frame before refilling");
+		tx.send(vec![0.25; FRAME_SAMPLES]).unwrap();
+		dsp.process(&mut out, &rx);
+		assert!(out.iter().all(|&s| s == 0.25), "did not resume after refilling");
 	}
 
 	#[test]
