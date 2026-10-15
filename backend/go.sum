@@ -8,8 +8,8 @@ github.com/agnivade/levenshtein v1.2.1 h1:EHBY3UOn1gwdy/VbFwgo4cxecRznFk7fKWN1KO
 github.com/agnivade/levenshtein v1.2.1/go.mod h1:QVVI16kDrtSuwcpd0p1+xMC6Z/VfhtCyDIjcwga4/DU=
 github.com/aryanchoudharypro/meowcaller v0.0.0-20261015010514-afe9f2071de6 h1:b68qPXOZ8sJcRvWGxqIutT39JzSEAPeZwlmNQULm6nA=
 github.com/aryanchoudharypro/meowcaller v0.0.0-20261015010514-afe9f2071de6/go.mod h1:AEldy1Su7IQc6njQRcugYTsa33gxZalfmrF5EDSfsNo=
-github.com/aryanchoudharypro/whatsmeow v0.0.0-20261015004836-d0e0fb2ddcf7 h1:HBkXj5vcL4u8CiU6AySP00aDgyW+MxaHis+5/H/5pqo=
-github.com/aryanchoudharypro/whatsmeow v0.0.0-20261015004836-d0e0fb2ddcf7/go.mod h1:7G7AeRACrC8Se+01+SQbdOp2J/Ce0DUMGxTKFKfRHW4=
+github.com/aryanchoudharypro/whatsmeow v0.0.0-20261015022444-6a7e0f945785 h1:TjNw79ARPUBogDdfGoz/qx5KDNAXONXaa7SuyFWRTDU=
+github.com/aryanchoudharypro/whatsmeow v0.0.0-20261015022444-6a7e0f945785/go.mod h1:7G7AeRACrC8Se+01+SQbdOp2J/Ce0DUMGxTKFKfRHW4=
 github.com/beeper/argo-go v1.1.2 h1:UQI2G8F+NLfGTOmTUI0254pGKx/HUU/etbUGTJv91Fs=
 github.com/beeper/argo-go v1.1.2/go.mod h1:M+LJAnyowKVQ6Rdj6XYGEn+qcVFkb3R/MUpqkGR0hM4=
 github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=

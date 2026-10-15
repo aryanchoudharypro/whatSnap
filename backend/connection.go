@@ -22,14 +22,9 @@ import (
 // This loop owns every connect attempt we start ourselves and keeps retrying
 // with capped backoff, so the app always finds its way back online.
 
-const (
-	connBackoffBase = 2 * time.Second
-	connBackoffMax  = 60 * time.Second
-	// whatsmeow's own reconnect loop waits AutoReconnectErrors*2s between
-	// tries and never caps it - after an hour offline that's minutes between
-	// attempts. Clamping the counter keeps its gap at 30s at most.
-	maxAutoReconnectSteps = 15
-)
+// connBackoffMax caps the wait between attempts, as WA Web does (900 s).
+// A network change or "Reconnect Now" skips whatever wait is pending.
+const connBackoffMax = 900 * time.Second
 
 // Connection states reported to the frontend via "connection_state".
 const (
@@ -77,12 +72,20 @@ func handleReconnect() {
 	reconnectNow()
 }
 
+// connBackoff is the wait after the given number of failed attempts in a row:
+// WA Web's Fibonacci seconds (1, 1, 2, 3, 5, 8, ...) up to 15 minutes, the
+// same schedule whatsmeow's own reconnect loop now follows. Retrying a server
+// that keeps refusing the connection every minute forever is what a
+// misbehaving client looks like.
 func connBackoff(failures int32) time.Duration {
-	d := connBackoffBase
-	for i := int32(1); i < failures && d < connBackoffMax; i++ {
-		d *= 2
+	if failures <= 0 {
+		return 0
 	}
-	return min(d, connBackoffMax)
+	a, b := 1, 1
+	for i := int32(1); i < failures && time.Duration(a)*time.Second < connBackoffMax; i++ {
+		a, b = b, a+b
+	}
+	return min(time.Duration(a)*time.Second, connBackoffMax)
 }
 
 func runConnectionSupervisor() {
@@ -144,11 +147,8 @@ func scheduleRetryAfterFailure(message string) {
 // failed attempt. Returning true keeps that loop going.
 func autoReconnectHook(c *whatsmeow.Client) func(error) bool {
 	return func(err error) bool {
-		if c.AutoReconnectErrors > maxAutoReconnectSteps {
-			c.AutoReconnectErrors = maxAutoReconnectSteps
-		}
 		if c == wa() {
-			setConnState(connStateOffline, describeConnError(err), time.Duration(c.AutoReconnectErrors)*2*time.Second)
+			setConnState(connStateOffline, describeConnError(err), connBackoff(int32(c.AutoReconnectErrors)))
 		}
 		return true
 	}

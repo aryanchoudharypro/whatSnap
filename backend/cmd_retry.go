@@ -26,6 +26,9 @@ const (
 	retryBaseDelay   = 3 * time.Second
 	retryMaxDelay    = 2 * time.Minute
 	retrySweepPeriod = 3 * time.Second
+	// A send the server rate-limited waits at least this long before
+	// it's tried again.
+	rateLimitedRetryDelay = time.Minute
 )
 
 var (
@@ -85,7 +88,7 @@ func clearRetryState(id string) {
 // recordSendFailure schedules the next backoff attempt, or - once
 // maxAutoRetries is exhausted - marks the message "failed" so the UI stops
 // silently retrying and asks the user to retry manually instead.
-func recordSendFailure(id, jidStr, text, quotedID, quotedSender string) {
+func recordSendFailure(id, jidStr, text, quotedID, quotedSender string, err error) {
 	retryMu.Lock()
 	attempts := retryAttempts[id] + 1
 	retryAttempts[id] = attempts
@@ -97,6 +100,9 @@ func recordSendFailure(id, jidStr, text, quotedID, quotedSender string) {
 	delay := retryBaseDelay * time.Duration(uint64(1)<<uint(attempts-1))
 	if delay > retryMaxDelay {
 		delay = retryMaxDelay
+	}
+	if sendServerErrorCode(err) == sendErrorRateLimited {
+		delay = max(delay, rateLimitedRetryDelay)
 	}
 	retryNextAt[id] = time.Now().Add(delay)
 	retryMu.Unlock()
@@ -114,10 +120,53 @@ func markSendFailed(id, jidStr, text, quotedID, quotedSender string) {
 	})
 }
 
+// Error codes in the server's ack that refuse a message for good. WA Web
+// marks such a message failed and never resends it on its own; resending
+// into a limit is the kind of behaviour that gets an account flagged.
+const (
+	sendErrorRateLimited   = 429 // too many messages, slow down
+	sendErrorNoTrustToken  = 463 // contact not reachable without a privacy token
+	sendErrorNewChatCapped = 475 // too many messages to new chats
+)
+
+// sendServerErrorCode is the error code from the server's ack for a failed
+// send, or 0 when the failure was something else.
+func sendServerErrorCode(err error) int {
+	if !errors.Is(err, whatsmeow.ErrServerReturnedError) {
+		return 0
+	}
+	msg := err.Error()
+	code, convErr := strconv.Atoi(strings.TrimSpace(msg[strings.LastIndex(msg, " ")+1:]))
+	if convErr != nil {
+		return 0
+	}
+	return code
+}
+
+// sendRefusedForGood reports whether retrying a send can't help.
+func sendRefusedForGood(err error) bool {
+	if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) {
+		return true
+	}
+	switch sendServerErrorCode(err) {
+	case sendErrorNoTrustToken, sendErrorNewChatCapped:
+		return true
+	}
+	return false
+}
+
 // sendErrorText is what the user is told when a send fails.
 func sendErrorText(err error) string {
 	if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) {
 		return "Only admins can send messages to this group."
+	}
+	switch sendServerErrorCode(err) {
+	case sendErrorRateLimited:
+		return "WhatsApp says you're sending too fast. Wait a little before sending more."
+	case sendErrorNewChatCapped:
+		return "WhatsApp is limiting messages to new chats on this account for now. Try again later."
+	case sendErrorNoTrustToken:
+		return "WhatsApp won't deliver this message to this contact right now."
 	}
 	return err.Error()
 }

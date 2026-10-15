@@ -1996,6 +1996,8 @@ func eventHandler(evt interface{}) {
 			"for_everyone": false,
 		})
 	case *events.Connected:
+		forgetPresenceSubscriptions()
+		forgetChannelRefreshes()
 		convertStoredVotesOnce.Do(func() { go runOnce("convert_stored_poll_votes_v1", convertStoredPollVotes) })
 		go refreshServerFlags()
 		appStateResyncMu.Lock()

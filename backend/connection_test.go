@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-func TestConnBackoffDoublesThenCaps(t *testing.T) {
-	want := []time.Duration{2, 4, 8, 16, 32, 60, 60, 60}
+func TestConnBackoffFollowsWAWeb(t *testing.T) {
+	want := []time.Duration{1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 900, 900}
 	for i, w := range want {
 		if got := connBackoff(int32(i + 1)); got != w*time.Second {
 			t.Errorf("connBackoff(%d) = %v, want %v", i+1, got, w*time.Second)

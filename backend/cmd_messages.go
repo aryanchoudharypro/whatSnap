@@ -3,18 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
 
-	"net"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
+	"net"
 )
 
 func handleSend(conn net.Conn, raw json.RawMessage) {
@@ -185,8 +185,9 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		if conn != nil {
 			sendEvent(conn, "error", map[string]string{"message": sendErrorText(err)})
 		}
-		// Retrying won't help until an admin opens the group up.
-		if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) {
+		// Retrying won't help: an admins-only group, or the server refusing
+		// the message outright.
+		if sendRefusedForGood(err) {
 			markSendFailed(id, jidStr, text, quotedID, quotedSender)
 			return
 		}
@@ -194,7 +195,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		// sweep (backend/cmd_retry.go) will pick it up again with backoff,
 		// or a manual retry from the context menu. Once retries are
 		// exhausted, recordSendFailure marks it "failed" instead.
-		recordSendFailure(id, jidStr, text, quotedID, quotedSender)
+		recordSendFailure(id, jidStr, text, quotedID, quotedSender, err)
 		return
 	}
 	log.Printf("Message %s sent successfully", id)
@@ -502,12 +503,26 @@ func sendDesiredPresence(force bool) {
 	}
 	sentPresence = state
 	desiredPresenceMu.Unlock()
+	if state == types.PresenceUnavailable {
+		// WA Web drops every presence subscription when it goes unavailable
+		// and subscribes again when a chat is next looked at.
+		forgetPresenceSubscriptions()
+	}
 	if err := c.SendPresence(context.Background(), state); err != nil {
 		log.Printf("SendPresence(%s) failed: %v", state, err)
 		desiredPresenceMu.Lock()
 		sentPresence = ""
 		desiredPresenceMu.Unlock()
 	}
+}
+
+// presenceSubscribed is who has been sent a presence subscribe since the
+// connection came up (or since we last went unavailable). WA Web subscribes
+// once per contact per such period, not on every chat open.
+var presenceSubscribed sync.Map
+
+func forgetPresenceSubscriptions() {
+	presenceSubscribed.Clear()
 }
 
 func handleSubscribePresence(raw json.RawMessage) {
@@ -523,13 +538,30 @@ func handleSubscribePresence(raw json.RawMessage) {
 		log.Printf("Failed to parse JID for subscribe_presence: %v", err)
 		return
 	}
+	// Only people have presence; WA Web sends no subscribes for groups,
+	// channels or broadcast lists.
+	if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+		return
+	}
+	jid = jid.ToNonAD()
+	if own := wa().Store.ID; own != nil && jid.User == own.User || jid.User == wa().Store.GetLID().User {
+		return
+	}
+	if _, already := presenceSubscribed.LoadOrStore(jid, struct{}{}); already {
+		return
+	}
 	err = wa().SubscribePresence(context.Background(), jid)
 	if err != nil {
+		presenceSubscribed.Delete(jid)
 		log.Printf("Error subscribing to presence: %v", err)
 	} else {
 		debugf("Subscribed to presence for %s", jid.String())
 	}
 }
+
+// maxOpenChatReceipts caps how many unread messages opening a chat
+// acknowledges (WA Web puts at most 256 IDs in one receipt).
+const maxOpenChatReceipts = 256
 
 func handleMarkRead(raw json.RawMessage) {
 	var data struct {
@@ -585,36 +617,48 @@ func handleMarkRead(raw json.RawMessage) {
 			items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
 		}
 	} else {
-		// Opening a chat: read receipts for what's actually still unread, the
-		// way the official apps do - not a blanket re-send for the newest 100
-		// incoming messages every single time a chat is opened, most of them
-		// long since read. System lines and call rows have no real message
-		// behind them to acknowledge.
-		rows, err := db.Query(`SELECT id, sender_jid FROM messages
-			WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
-				AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
-			ORDER BY timestamp DESC LIMIT 100`, data.JID)
-		if err == nil {
-			for rows.Next() {
-				var id, senderStr string
-				if err := rows.Scan(&id, &senderStr); err == nil {
-					sJID, _ := types.ParseJID(senderStr)
-					if sJID.IsEmpty() {
-						if chatJID.Server == types.GroupServer {
-							continue
-						}
-						sJID = chatJID
-					}
-					if sJID.Server == "lid" {
-						if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), sJID); err == nil && !pn.IsEmpty() {
-							sJID = pn
-						}
-					}
-					items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
-				}
-			}
-			rows.Close()
+		// Opening a chat acknowledges only what the chat really has unread -
+		// its unread count, which history sync, live messages and the phone's
+		// own reads keep current. Incoming messages from history sync are
+		// stored without a read time, so going by that alone re-sent "read"
+		// for up to 100 messages the phone read long ago on the first open of
+		// every chat - hundreds of receipts when flicking through chats. WA
+		// Web sends nothing for a chat with nothing unread.
+		var unread int
+		_ = db.QueryRow("SELECT COALESCE(unread_count, 0) FROM chats WHERE jid = ?", data.JID).Scan(&unread)
+		if unread > maxOpenChatReceipts {
+			unread = maxOpenChatReceipts
 		}
+		if unread > 0 {
+			rows, err := db.Query(`SELECT id, sender_jid FROM messages
+				WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
+					AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
+				ORDER BY timestamp DESC LIMIT ?`, data.JID, unread)
+			if err == nil {
+				for rows.Next() {
+					var id, senderStr string
+					if err := rows.Scan(&id, &senderStr); err == nil {
+						sJID, _ := types.ParseJID(senderStr)
+						if sJID.IsEmpty() {
+							if chatJID.Server == types.GroupServer {
+								continue
+							}
+							sJID = chatJID
+						}
+						if sJID.Server == "lid" {
+							if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), sJID); err == nil && !pn.IsEmpty() {
+								sJID = pn
+							}
+						}
+						items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
+					}
+				}
+				rows.Close()
+			}
+		}
+		// Everything older was read elsewhere; note it locally so no later
+		// open picks it up.
+		db.Exec(`UPDATE messages SET read_at = ? WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, time.Now().Unix(), data.JID)
 	}
 
 	bySender := map[string][]types.MessageID{}
@@ -631,14 +675,17 @@ func handleMarkRead(raw json.RawMessage) {
 	for _, item := range items {
 		db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(item.id))
 	}
-	for key, ids := range bySender {
-		sJID := senderJIDMap[key]
-		go func(mIDs []types.MessageID, targetSender types.JID) {
-			err := wa().MarkRead(context.Background(), mIDs, now, chatJID, targetSender)
-			if err != nil {
-				log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, targetSender, err)
+	// One receipt per sender, sent one after another as WA Web does (each
+	// waits for the server's ack), not all at once.
+	if len(bySender) > 0 {
+		go func() {
+			for key, ids := range bySender {
+				targetSender := senderJIDMap[key]
+				if err := wa().MarkRead(context.Background(), ids, now, chatJID, targetSender); err != nil {
+					log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, targetSender, err)
+				}
 			}
-		}(ids, sJID)
+		}()
 	}
 
 	// Always clear unread_count when chat is marked read
@@ -776,6 +823,11 @@ type ForwardMessageData struct {
 	ToJIDs    []string `json:"to_jids"`
 }
 
+const (
+	maxForwardTargets        = 5
+	frequentlyForwardedScore = 5
+)
+
 func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 	var data ForwardMessageData
 	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" || len(data.ToJIDs) == 0 {
@@ -827,6 +879,16 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 		}
 		if !setContextInfo(content, forwardCtx) {
 			sendEvent(conn, "error", map[string]string{"message": "This kind of message can't be forwarded."})
+			return
+		}
+		// WA Web's limits: 5 chats at a time, only 1 for a message that's
+		// already been forwarded many times.
+		limit := maxForwardTargets
+		if score >= frequentlyForwardedScore {
+			limit = 1
+		}
+		if len(data.ToJIDs) > limit {
+			sendEvent(conn, "error", map[string]string{"message": fmt.Sprintf("This message can only be forwarded to %d chat(s) at a time.", limit)})
 			return
 		}
 		for _, toJIDStr := range data.ToJIDs {

@@ -223,7 +223,24 @@ func storeChannelPins(jid string, pins []types.NewsletterPinnedMessage) {
 var (
 	channelFetchMu      sync.Mutex
 	channelFetchRunning = map[string]bool{}
+	// channelFreshUntil is when each channel's last refresh stops covering
+	// it: as long as its live-updates subscription runs, new posts and
+	// counts arrive on their own, so reopening it needs no fetch. Without
+	// this, every open cost about five requests.
+	channelFreshUntil = map[string]time.Time{}
 )
+
+// channelRefreshMinGap is the shortest time between two refreshes of one
+// channel when the server didn't say how long live updates last.
+const channelRefreshMinGap = 5 * time.Minute
+
+// forgetChannelRefreshes drops the freshness of every channel; live-updates
+// subscriptions end with the connection.
+func forgetChannelRefreshes() {
+	channelFetchMu.Lock()
+	clear(channelFreshUntil)
+	channelFetchMu.Unlock()
+}
 
 // refreshChannel fetches a channel's recent posts from the server when it's
 // opened, stores the new ones and their counts, marks them viewed the way
@@ -231,7 +248,7 @@ var (
 // if anything changed. It also subscribes to live count updates for a while.
 func refreshChannel(jid string) {
 	channelFetchMu.Lock()
-	if channelFetchRunning[jid] {
+	if channelFetchRunning[jid] || time.Now().Before(channelFreshUntil[jid]) {
 		channelFetchMu.Unlock()
 		return
 	}
@@ -255,9 +272,15 @@ func refreshChannel(jid string) {
 		broadcastEvent("error", map[string]string{"message": "Couldn't load this channel's posts: " + err.Error()})
 		return
 	}
-	if _, err := wa().NewsletterSubscribeLiveUpdates(ctx, parsed); err != nil {
+	fresh := channelRefreshMinGap
+	if dur, err := wa().NewsletterSubscribeLiveUpdates(ctx, parsed); err != nil {
 		log.Printf("Couldn't subscribe to live updates for channel %s: %v", jid, err)
+	} else if dur > fresh {
+		fresh = dur
 	}
+	channelFetchMu.Lock()
+	channelFreshUntil[jid] = time.Now().Add(fresh)
+	channelFetchMu.Unlock()
 
 	changed, newest, serverIDs := storeChannelPosts(jid, posts)
 	syncOwnChannelAddOns(ctx, parsed, jid)
