@@ -186,6 +186,24 @@ pub(crate) fn stop_if_blocked(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	true
 }
 
+/// Called before sending in the open chat: `stop_if_blocked`, and for a group
+/// we can't send in (see `chat_ui::group_send_block_reason`) says why instead.
+/// Returns true when the send should stop here.
+pub(crate) fn stop_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
+	if stop_if_blocked(state, parts) {
+		return true;
+	}
+	let reason = {
+		let s = state.borrow();
+		s.selected_chat.as_deref().and_then(|jid| crate::chat_ui::group_send_block_reason(&s, jid))
+	};
+	if let Some(reason) = reason {
+		announce(state, parts, reason);
+		return true;
+	}
+	false
+}
+
 /// The line Chat Info adds for a blocked contact.
 pub(crate) fn info_line(s: &AppState, jid: &str) -> &'static str {
 	if is_blocked(s, jid) { "Blocked: Yes\n" } else { "" }

@@ -474,6 +474,10 @@ struct ChatRow<'a> {
 	is_announcements: bool,
 	#[serde(rename = "IsAdmin", default)]
 	is_admin: bool,
+	#[serde(rename = "AdminsOnly", default)]
+	admins_only: bool,
+	#[serde(rename = "NotMember", default)]
+	not_member: bool,
 }
 
 #[derive(Deserialize)]
@@ -495,6 +499,8 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	let mut pinned_jids = std::collections::HashSet::new();
 	let mut muted_jids = std::collections::HashSet::new();
 	let mut admin_group_jids = std::collections::HashSet::new();
+	let mut admins_only_jids = std::collections::HashSet::new();
+	let mut not_member_jids = std::collections::HashSet::new();
 	let mut locked_jids = std::collections::HashSet::new();
 	let mut unread_counts = std::collections::HashMap::new();
 	let mut display_names = std::collections::HashMap::new();
@@ -588,6 +594,12 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 			if chat.is_admin {
 				admin_group_jids.insert(jid.to_string());
 			}
+			if chat.admins_only {
+				admins_only_jids.insert(jid.to_string());
+			}
+			if chat.not_member {
+				not_member_jids.insert(jid.to_string());
+			}
 			unread_counts.insert(jid.to_string(), unread);
 
 			let name_line = if tags.is_empty() { name.clone() } else { format!("{} [{}]", name, tags.join("] [")) };
@@ -656,6 +668,11 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	s.pinned_jids = pinned_jids;
 	s.muted_jids = muted_jids;
 	s.admin_group_jids = admin_group_jids;
+	s.admins_only_jids = admins_only_jids;
+	s.not_member_jids = not_member_jids;
+	if let Some(jid) = s.selected_chat.clone() {
+		crate::chat_ui::apply_composer_access(&s, parts, &jid);
+	}
 	s.unread_counts = unread_counts;
 	s.display_names = display_names;
 	refresh_tray_tooltip(&s, parts);

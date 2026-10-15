@@ -15,7 +15,7 @@ use crate::{
 
 /// An attach-menu option: pick files the way that option does.
 pub(crate) fn attach_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, kind: whantv::AttachKind) {
-	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
 	{
@@ -30,7 +30,7 @@ pub(crate) fn attach_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 /// The file picker for the current batch's attach option (also "Add more
 /// files" in the attachment dialog, which stays with that option).
 pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
 	let kind = state.borrow().pending_attachment_kind;
@@ -110,7 +110,7 @@ fn show_attachment_dialog(
 }
 
 pub(crate) fn open_poll_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
 	if state.borrow().selected_chat.is_none() {
@@ -163,7 +163,7 @@ pub(crate) fn send_poll(
 }
 
 pub(crate) fn prepare_attach_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
 	if state.borrow().selected_chat.is_none() {
@@ -208,7 +208,7 @@ pub(crate) fn send_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 }
 
 pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
 	if let Some(_locker) = wxdragon::prelude::Clipboard::get().locker() {

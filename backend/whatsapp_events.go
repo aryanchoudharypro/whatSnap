@@ -2422,6 +2422,12 @@ func eventHandler(evt interface{}) {
 				setChatDisappearing(v.JID.String(), seconds, v.Timestamp.Unix())
 			}
 
+			// Who may send here changed: the chat list carries it to the composer.
+			sendRightsChanged := false
+			if v.Announce != nil {
+				db.Exec("UPDATE chats SET admins_only = ? WHERE jid = ?", boolToInt(v.Announce.IsAnnounce), v.JID.String())
+				sendRightsChanged = true
+			}
 			isAdminChanged := false
 			for _, j := range v.Promote {
 				if isParticipantMe(types.GroupParticipant{JID: j}) {
@@ -2441,11 +2447,13 @@ func eventHandler(evt interface{}) {
 			for _, j := range v.Join {
 				if isParticipantMe(types.GroupParticipant{JID: j}) {
 					markGroupJoined(v.JID.String(), true)
+					sendRightsChanged = true
 				}
 			}
 			for _, j := range v.Leave {
 				if isParticipantMe(types.GroupParticipant{JID: j}) {
 					markGroupJoined(v.JID.String(), false)
+					sendRightsChanged = true
 				}
 			}
 			if v.Link != nil {
@@ -2465,7 +2473,7 @@ func eventHandler(evt interface{}) {
 				insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d_%d", v.JID.User, v.Timestamp.UnixNano(), i), text, v.Timestamp)
 			}
 
-			if isAdminChanged {
+			if isAdminChanged || sendRightsChanged {
 				broadcastChats()
 			}
 		}()
@@ -3238,21 +3246,23 @@ func populateChatsFromStoreOnce() {
 				parentJID = g.LinkedParentJID.ToNonAD().String()
 			}
 			isAnnounceGroup := g.IsDefaultSubGroup
+			adminsOnly := g.IsAnnounce
 			// The server's word on a group's timer is current by definition.
 			disappearing := uint32(0)
 			if g.IsEphemeral {
 				disappearing = g.DisappearingTimer
 			}
 			groupWrites = append(groupWrites, func(tx sqlExecer) {
-				if _, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin, participant_count, parent_jid, is_announce_group) VALUES (?, ?, 0, ?, ?, ?, ?, ?)
+				if _, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin, participant_count, parent_jid, is_announce_group, admins_only) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 				name=COALESCE(NULLIF(excluded.name, ''), chats.name),
 				is_community=excluded.is_community,
 				is_admin=excluded.is_admin,
 				participant_count=excluded.participant_count,
 				parent_jid=excluded.parent_jid,
-				is_announce_group=excluded.is_announce_group`,
-					jidStr, groupName, boolToInt(isParent), boolToInt(isAdmin), memberCount, parentJID, boolToInt(isAnnounceGroup)); err != nil {
+				is_announce_group=excluded.is_announce_group,
+				admins_only=excluded.admins_only`,
+					jidStr, groupName, boolToInt(isParent), boolToInt(isAdmin), memberCount, parentJID, boolToInt(isAnnounceGroup), boolToInt(adminsOnly)); err != nil {
 					fmt.Println("Error upserting group chat", jidStr, ":", err)
 				}
 				tx.Exec(`UPDATE chats SET ephemeral_expiration = ? WHERE jid = ?`, disappearing, jidStr)

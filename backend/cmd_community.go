@@ -55,6 +55,15 @@ func markGroupJoined(jid string, joined bool) {
 	}
 }
 
+// knownNotMember reports whether the last joined-groups refresh, plus the
+// join/leave events since, say we're not in a group. Before the first refresh
+// nothing is known and it reports false.
+func knownNotMember(jid string) bool {
+	joinedGroupsMu.RLock()
+	defer joinedGroupsMu.RUnlock()
+	return joinedGroups != nil && !joinedGroups[jid]
+}
+
 // isJoinedGroup reports whether we're a member of a group. Before the first
 // joined-groups refresh it falls back on having a chat row for it.
 func isJoinedGroup(jid string) bool {

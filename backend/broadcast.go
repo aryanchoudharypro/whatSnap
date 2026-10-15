@@ -156,13 +156,17 @@ type ChatListEntry struct {
 	CommunityName        string
 	IsChannel            bool
 	ChannelRole          string
+	// AdminsOnly is a group where only admins can send messages, and
+	// NotMember one we've left or been removed from.
+	AdminsOnly bool
+	NotMember  bool
 }
 
 // buildChatsList is the shared query+formatting logic behind both
 // broadcastChats (pushed to everyone) and the get_chats command (requested
 // by one client). Keeping this in one place means the two can't drift.
 func buildChatsList() []ChatListEntry {
-	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, '') FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
+	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, ''), COALESCE(admins_only, 0) FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
 	if err != nil {
 		fmt.Println("Error querying chats:", err)
 		return []ChatListEntry{}
@@ -204,10 +208,11 @@ func buildChatsList() []ChatListEntry {
 		var isLocked int
 		var parentJID string
 		var isAnnounceGroup int
+		var adminsOnly int
 		var isChannel int
 		var channelRole string
 
-		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity, &isAdmin, &isLocked, &parentJID, &isAnnounceGroup, &isChannel, &channelRole); err != nil {
+		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity, &isAdmin, &isLocked, &parentJID, &isAnnounceGroup, &isChannel, &channelRole, &adminsOnly); err != nil {
 			continue
 		}
 		n := jid
@@ -282,6 +287,8 @@ func buildChatsList() []ChatListEntry {
 			CommunityName:        communityNames[parentJID],
 			IsChannel:            isChannel == 1,
 			ChannelRole:          strings.ToLower(channelRole),
+			AdminsOnly:           adminsOnly == 1,
+			NotMember:            strings.HasSuffix(jid, "@g.us") && isCommunity == 0 && knownNotMember(jid),
 		})
 	}
 	return chats

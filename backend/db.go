@@ -49,6 +49,8 @@ func migrateDB() error {
 	// community's announcement group.
 	db.Exec("ALTER TABLE chats ADD COLUMN parent_jid TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE chats ADD COLUMN is_announce_group INTEGER DEFAULT 0")
+	// A group where only admins can send messages.
+	db.Exec("ALTER TABLE chats ADD COLUMN admins_only INTEGER DEFAULT 0")
 	// Channels we follow, and our role in each (owner, admin, subscriber).
 	db.Exec("ALTER TABLE chats ADD COLUMN is_channel INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN channel_role TEXT DEFAULT ''")

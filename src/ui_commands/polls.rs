@@ -271,7 +271,7 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 /// "Event" in the attach menu: name, description, when, where, and whether
 /// people may bring guests. The backend checks the date and time.
 pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
 	let Some(jid) = state.borrow().selected_chat.clone() else {

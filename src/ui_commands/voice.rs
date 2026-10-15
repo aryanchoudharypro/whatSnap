@@ -64,7 +64,7 @@ pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 }
 
 pub(crate) fn start_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
 	let mut s = state.borrow_mut();

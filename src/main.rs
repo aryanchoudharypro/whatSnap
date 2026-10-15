@@ -297,6 +297,10 @@ struct AppState {
 	attach_contact_state: crate::ui::attach_contact::AttachContactState,
 	selected_chat: Option<String>,
 	admin_group_jids: std::collections::HashSet<String>,
+	/// Groups where only admins can send messages.
+	admins_only_jids: std::collections::HashSet<String>,
+	/// Groups we've left or been removed from.
+	not_member_jids: std::collections::HashSet<String>,
 	initial_presence_received: bool,
 	messages: Vec<whantv::Msg>,
 	/// Whether `messages` runs right up to the chat's newest message. False
@@ -863,6 +867,8 @@ fn main() {
 			},
 			selected_chat: None,
 			admin_group_jids: std::collections::HashSet::new(),
+			admins_only_jids: std::collections::HashSet::new(),
+			not_member_jids: std::collections::HashSet::new(),
 			initial_presence_received: false,
 			messages: Vec::new(),
 			messages_at_latest: true,

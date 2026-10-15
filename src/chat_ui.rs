@@ -330,6 +330,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	let can_call = crate::ui_commands::calls::can_call(&s, jid);
 	parts.conversations_parts.place_call_btn.show(can_call);
 	parts.conversations_parts.place_video_call_btn.show(can_call);
+	apply_composer_access(&s, parts, jid);
 	parts.conversations_parts.top_btns_panel.layout();
 	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();
 	s.composer_mentions = s.draft_mentions.get(jid).cloned().unwrap_or_default();
@@ -348,4 +349,38 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	crate::handle_ui_command(UiCommand::SubscribePresence(jid.to_string()), state, parts);
 	crate::handle_ui_command(UiCommand::MarkRead { jid: jid.to_string(), message_ids: Vec::new() }, state, parts);
 	parts.conversations_parts.messages_list.set_focus();
+}
+
+/// Why messages can't be sent in a group, when they can't: we left or were
+/// removed, or only its admins can send and we aren't one.
+pub(crate) fn group_send_block_reason(s: &AppState, jid: &str) -> Option<&'static str> {
+	if !jid.ends_with("@g.us") {
+		None
+	} else if s.not_member_jids.contains(jid) {
+		Some("You can't send messages to this group because you're no longer a member")
+	} else if s.admins_only_jids.contains(jid) && !s.admin_group_jids.contains(jid) {
+		Some("Only admins can send messages to this group")
+	} else {
+		None
+	}
+}
+
+/// Disables the composer for a chat that can't take messages, with the
+/// reason as the message field's label so a screen reader says why, and
+/// enables it again everywhere else.
+pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str) {
+	let reason = group_send_block_reason(s, jid);
+	let enabled = reason.is_none();
+	let cp = &parts.conversations_parts;
+	cp.message_field.enable(enabled);
+	cp.send_message_btn.enable(enabled);
+	cp.add_attachment_btn.enable(enabled);
+	cp.record_voice_btn.enable(enabled);
+	// An edit in progress keeps its "Edit message" label.
+	if s.editing_message_id.is_none() {
+		let label = reason.unwrap_or("Type a message");
+		if cp.message_label.get_label() != label {
+			cp.message_label.set_label(label);
+		}
+	}
 }

@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, text: String) {
-	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
+	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
 	let mut s = state.borrow_mut();
@@ -85,6 +85,9 @@ pub(crate) fn begin_edit_message(
 	message_id: String,
 	text: String,
 ) {
+	if stop_edit_if_cant_send(state, parts) {
+		return;
+	}
 	let mut s = state.borrow_mut();
 	s.editing_message_id = Some(message_id);
 	s.editing_message_original_text = Some(text.clone());
@@ -121,6 +124,19 @@ fn end_edit_mode(parts: &Rc<WindowParts>) {
 	parts.conversations_parts.message_label.set_label("Type a message");
 	parts.conversations_parts.conversation_panel.layout();
 	parts.conversations_parts.message_field.set_focus();
+}
+
+/// Stops an edit from starting where nothing can be sent; says why.
+fn stop_edit_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
+	let reason = {
+		let s = state.borrow();
+		s.selected_chat.as_deref().and_then(|jid| crate::chat_ui::group_send_block_reason(&s, jid))
+	};
+	if let Some(reason) = reason {
+		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), reason);
+		return true;
+	}
+	false
 }
 
 pub(crate) fn remove_quote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {

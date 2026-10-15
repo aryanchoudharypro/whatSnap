@@ -78,6 +78,7 @@ func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
 		db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, ?)
 			ON CONFLICT(jid) DO UPDATE SET name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
 			createResp.JID.String(), groupData.Name, time.Now().Unix())
+		markGroupJoined(createResp.JID.String(), true)
 		invalidateJoinedGroups()
 		populateChatsFromStore()
 		broadcastChats()
@@ -154,7 +155,7 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			})
 		}
 
-		db.Exec("UPDATE chats SET is_admin = ? WHERE jid = ?", boolToInt(isMyAdmin), jid.String())
+		db.Exec("UPDATE chats SET is_admin = ?, admins_only = ? WHERE jid = ?", boolToInt(isMyAdmin), boolToInt(info.IsAnnounce), jid.String())
 		broadcastChats()
 
 		sendEvent(conn, "group_info", map[string]interface{}{
@@ -404,6 +405,7 @@ func handleJoinGroupInvite(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + joinErr.Error()})
 			return
 		}
+		markGroupJoined(groupJID.String(), true)
 		invalidateJoinedGroups()
 		populateChatsFromStore()
 		broadcastChats()
