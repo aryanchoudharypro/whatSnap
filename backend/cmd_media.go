@@ -1201,8 +1201,11 @@ func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		_, jidStr, senderJidStr, _, dbErr := getMessageRaw(data.ID)
-		if dbErr == nil {
+		_, jidStr, senderJidStr, fromMe, dbErr := getMessageRaw(data.ID)
+		// Playing back our own voice note mustn't tell the other side we
+		// "played" it: that receipt is for the recipient's copy, and sending
+		// it for a message we sent claims a play that never happened.
+		if dbErr == nil && !fromMe {
 			chatJID, _ := types.ParseJID(jidStr)
 			senderJID, _ := types.ParseJID(senderJidStr)
 			if senderJID.IsEmpty() {
