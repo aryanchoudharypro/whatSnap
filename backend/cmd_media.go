@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -583,6 +584,58 @@ func detectMimeType(filename, path string, header []byte) string {
 	return "application/octet-stream"
 }
 
+// audioMimetype labels an audio attachment the way WhatsApp Web does. Web
+// sends audio messages only as these types (its media-type table in
+// WAWebMimeTypes: audio/aac, audio/mp4, audio/amr, audio/mpeg,
+// "audio/ogg; codecs=opus", audio/wav), but detectMimeType yields other
+// names for the same files - sniffing gives "application/ogg" for Ogg,
+// "video/mp4" for M4A and "audio/wave" for WAV, and the Windows registry
+// often has no .ogg entry or maps .aac to "audio/vnd.dlna.adts". Phones
+// don't play an AudioMessage labelled with a type they don't expect.
+// The file's own bytes decide first; the extension is the fallback.
+func audioMimetype(mimetype, filename string, header []byte) string {
+	switch {
+	case bytes.HasPrefix(header, []byte("OggS")):
+		// The first packet starts after the first page's 27-byte header
+		// and its one-entry segment table.
+		if len(header) >= 36 && bytes.Equal(header[28:36], []byte("OpusHead")) {
+			return "audio/ogg; codecs=opus"
+		}
+		return "audio/ogg"
+	case bytes.HasPrefix(header, []byte("ID3")):
+		return "audio/mpeg"
+	case len(header) >= 2 && header[0] == 0xFF && header[1]&0xF6 == 0xF0:
+		// ADTS sync word: a raw AAC stream.
+		return "audio/aac"
+	case len(header) >= 2 && header[0] == 0xFF && header[1]&0xE0 == 0xE0:
+		// MPEG audio frame sync, an MP3 without an ID3 tag.
+		return "audio/mpeg"
+	case len(header) >= 8 && bytes.Equal(header[4:8], []byte("ftyp")):
+		return "audio/mp4"
+	case len(header) >= 12 && bytes.HasPrefix(header, []byte("RIFF")) && bytes.Equal(header[8:12], []byte("WAVE")):
+		return "audio/wav"
+	case bytes.HasPrefix(header, []byte("#!AMR")):
+		return "audio/amr"
+	}
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".opus":
+		return "audio/ogg; codecs=opus"
+	case ".ogg":
+		return "audio/ogg"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".aac":
+		return "audio/aac"
+	case ".m4a":
+		return "audio/mp4"
+	case ".wav":
+		return "audio/wav"
+	case ".amr":
+		return "audio/amr"
+	}
+	return mimetype
+}
+
 // synthesizeMediaFilename builds a WhatsApp-style display filename ("WhatsApp
 // Image 2026-08-14-150405.jpg") for media that never carries a real filename
 // from WhatsApp itself: images, videos, voice notes, audio, and stickers
@@ -870,6 +923,9 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	mimetype := mimetypeHint
 	if mimetype == "" || mimetype == "application/octet-stream" || mimetype == "application/zip" {
 		mimetype = detectMimeType(filename, path, header[:n])
+	}
+	if mediaType == "audio" {
+		mimetype = audioMimetype(mimetype, filename, header[:n])
 	}
 
 	if conn != nil {
