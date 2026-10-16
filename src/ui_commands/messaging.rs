@@ -392,14 +392,15 @@ pub(crate) fn post_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let file_dialog = FileDialog::builder(&parts.frame)
 		.with_message("Choose a photo or video to post as a status")
-		.with_wildcard("Photos and videos|*.jpg;*.jpeg;*.png;*.gif;*.webp;*.bmp;*.mp4;*.avi;*.mov;*.mkv;*.webm;*.3gp")
+		.with_wildcard(&whantv::AttachKind::Media.file_filter())
 		.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
 		.build();
 	if file_dialog.show_modal() == wxdragon::id::ID_OK {
 		if let Some(path) = file_dialog.get_path() {
-			let ext = std::path::Path::new(&path).extension().unwrap_or_default().to_string_lossy().to_lowercase();
-			let media_type = match ext.as_str() {
-				"mp4" | "avi" | "mov" | "mkv" | "webm" | "3gp" => "video",
+			// The same photos and videos the attach menu sends; AVI, MKV and
+			// WebM don't play on phones, and a BMP isn't a photo to WhatsApp.
+			let media_type = match whantv::AttachKind::Media.send_type(&path) {
+				"video" => "video",
 				_ => "image",
 			};
 			let filename = std::path::Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();

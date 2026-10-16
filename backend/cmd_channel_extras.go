@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -93,6 +94,17 @@ func channelPinningEnabled() bool {
 	serverFlagsMu.RLock()
 	defer serverFlagsMu.RUnlock()
 	return serverFlags.Bool(whatsmeow.ABPropChannelsPinAdminEnabled, false)
+}
+
+// serverFlagInt reads a number flag, with def when the server didn't send it
+// (WhatsApp Web falls back to the flag's own default the same way).
+func serverFlagInt(code, def int) int {
+	serverFlagsMu.RLock()
+	defer serverFlagsMu.RUnlock()
+	if n, err := strconv.Atoi(serverFlags[code]); err == nil {
+		return n
+	}
+	return def
 }
 
 func serverFlagsPayload() map[string]interface{} {

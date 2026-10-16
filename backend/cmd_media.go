@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -584,6 +585,45 @@ func detectMimeType(filename, path string, header []byte) string {
 	return "application/octet-stream"
 }
 
+// The server's size limits for media, by config code, as WhatsApp Web reads
+// them (WAWebMediaGatingUtils); each is in MB, 16 when the server sends none.
+const (
+	abPropAudioLimitMB = 3657 // default_audio_limit_mb
+	abPropMediaLimitMB = 3660 // default_media_limit_mb (images and stickers)
+	abPropVideoLimitMB = 3185 // default_video_limit_mb
+	// Photos and videos posted as a status.
+	abPropStatusMediaLimitMB = 3659 // default_status_media_limit_mb
+	defaultMediaLimitMB      = 16
+	// Documents have one fixed limit (WAWebServerPropConstants.MAX_FILE_SIZE_BYTES).
+	maxDocumentBytes = 2000 << 20
+)
+
+// attachmentSizeLimit is the largest file WhatsApp Web lets you send as
+// mediaType, in bytes.
+func attachmentSizeLimit(mediaType string) int64 {
+	code := 0
+	switch mediaType {
+	case "image", "sticker":
+		code = abPropMediaLimitMB
+	case "video":
+		code = abPropVideoLimitMB
+	case "audio":
+		code = abPropAudioLimitMB
+	default:
+		return maxDocumentBytes
+	}
+	return int64(serverFlagInt(code, defaultMediaLimitMB)) << 20
+}
+
+func attachmentTooLargeText(mediaType string, size, limit int64) string {
+	mb := func(n int64) string { return strconv.FormatFloat(float64(n)/(1<<20), 'f', 1, 64) + " MB" }
+	switch mediaType {
+	case "image", "sticker", "video", "audio":
+		return fmt.Sprintf("This %s is %s; WhatsApp sends %ss up to %s. Send it with the Document option instead.", mediaType, mb(size), mediaType, mb(limit))
+	}
+	return fmt.Sprintf("This file is %s; WhatsApp sends files up to %s.", mb(size), mb(limit))
+}
+
 // audioMimetype labels an audio attachment the way WhatsApp Web does. Web
 // sends audio messages only as these types (its media-type table in
 // WAWebMimeTypes: audio/aac, audio/mp4, audio/amr, audio/mpeg,
@@ -914,6 +954,11 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	totalSize := int64(0)
 	if stat != nil {
 		totalSize = stat.Size()
+	}
+
+	if limit := attachmentSizeLimit(mediaType); totalSize > limit {
+		fail(attachmentTooLargeText(mediaType, totalSize, limit))
+		return
 	}
 
 	header := make([]byte, 512)

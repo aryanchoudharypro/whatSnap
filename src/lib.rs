@@ -987,7 +987,9 @@ pub enum AttachKind {
 	Audio,
 }
 
-const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+/// What WhatsApp Web sends as photos (its image check takes JPEG, PNG, WebP
+/// and GIF; a BMP isn't one, so it goes as a document).
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp"];
 /// What WhatsApp Web's Photos & videos picker takes without transcoding.
 const VIDEO_EXTS: &[&str] = &["mp4", "3gp", "mov"];
 /// WhatsApp Web's Audio picker (WAWebMimeTypes.AUDIO_MIMES), plus the other

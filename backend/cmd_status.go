@@ -196,6 +196,17 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			}
 			srcPath = tmp
 		}
+		// Statuses have their own size limit (WAWebMediaGatingUtils, for the
+		// status tab), for photos and videos alike.
+		if st, err := os.Stat(srcPath); err == nil {
+			if limit := int64(serverFlagInt(abPropStatusMediaLimitMB, defaultMediaLimitMB)) << 20; st.Size() > limit {
+				if data.Path == "" {
+					os.Remove(srcPath)
+				}
+				broadcastEvent("error", map[string]string{"message": attachmentTooLargeText(data.Type, st.Size(), limit)})
+				return
+			}
+		}
 		mimetype := data.Mimetype
 		if mimetype == "" || mimetype == "application/octet-stream" || mimetype == "application/zip" {
 			mimetype = detectMimeType(data.Filename, srcPath, sniffFileHeader(srcPath))
