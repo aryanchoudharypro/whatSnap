@@ -1222,12 +1222,22 @@ func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 				}
 			}
 
-			go func() {
-				err := wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), chatJID, senderJID, types.ReceiptTypePlayed)
-				if err != nil {
-					log.Printf("MarkRead played error for message %s: %v", data.ID, err)
+			// Only the first play sends the receipt. played_at doubles as the
+			// claim, so replaying (or playing it after our phone already did,
+			// which sets it from the played-self receipt) sends nothing more.
+			now := time.Now()
+			if res, err := db.Exec(`UPDATE messages SET played_at = ? WHERE id = ? AND COALESCE(played_at, 0) = 0`, now.Unix(), data.ID); err == nil {
+				if n, _ := res.RowsAffected(); n == 1 {
+					go func() {
+						err := wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, now, chatJID, senderJID, types.ReceiptTypePlayed)
+						if err != nil {
+							log.Printf("MarkRead played error for message %s: %v", data.ID, err)
+							// Let the next play try again.
+							db.Exec(`UPDATE messages SET played_at = 0 WHERE id = ? AND played_at = ?`, data.ID, now.Unix())
+						}
+					}()
 				}
-			}()
+			}
 		}
 
 		path, _, _, _, err := ensureMediaCached(data.ID)
