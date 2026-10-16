@@ -47,15 +47,40 @@ pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	if file_dialog.show_modal() == wxdragon::id::ID_OK {
 		let paths = file_dialog.get_paths();
 		if !paths.is_empty() {
-			let mut s = state.borrow_mut();
-			for path in paths {
-				if !path.is_empty() {
-					s.pending_attachments.push(path.clone());
-				}
-			}
-			drop(s);
+			let left_out = add_to_batch(&mut state.borrow_mut(), paths);
+			announce_left_out(parts, left_out);
 			show_attachment_dialog(state, parts, "Files attached", None);
 		}
+	}
+}
+
+/// How many files one batch can send, as in WhatsApp Web's attach picker
+/// (its media_picker_select_limit).
+const MAX_BATCH_FILES: usize = 30;
+
+/// Adds files to the pending batch, up to MAX_BATCH_FILES; returns how many
+/// didn't fit.
+fn add_to_batch(s: &mut AppState, paths: Vec<String>) -> usize {
+	let mut left_out = 0;
+	for path in paths.into_iter().filter(|p| !p.is_empty()) {
+		if s.pending_attachments.len() < MAX_BATCH_FILES {
+			s.pending_attachments.push(path);
+		} else {
+			left_out += 1;
+		}
+	}
+	left_out
+}
+
+fn announce_left_out(parts: &Rc<WindowParts>, left_out: usize) {
+	if left_out > 0 {
+		crate::announce::announce(
+			parts.conversations_parts.messages_announcer.clone(),
+			&format!(
+				"You can send up to {MAX_BATCH_FILES} files at once; {left_out} file{} weren't added.",
+				if left_out == 1 { "" } else { "s" }
+			),
+		);
 	}
 }
 
@@ -220,13 +245,10 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 				if s.pending_attachments.is_empty() {
 					s.pending_attachment_kind = whantv::AttachKind::Pasted;
 				}
-				for path in paths {
-					if !path.is_empty() {
-						s.pending_attachments.push(path.clone());
-					}
-				}
+				let left_out = add_to_batch(&mut s, paths);
 				let kind = s.pending_attachment_kind;
 				drop(s);
+				announce_left_out(parts, left_out);
 				// Text already typed in the message box becomes the caption,
 				// as in WhatsApp, rather than being left behind in the box.
 				let mut caption = None;
