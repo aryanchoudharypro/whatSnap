@@ -96,6 +96,10 @@ func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	// the receipt waits until the chunk's blob has actually been downloaded.
 	// A chunk whose download failed stays unacknowledged and comes again.
 	c.AckHistorySyncAfterDispatch = true
+	// History chunks of a full sync hold tens of thousands of messages; have
+	// them handed over encoded and decode one chat at a time instead of the
+	// whole chunk at once (over 100 MB on a big chunk).
+	c.StreamHistorySyncConversations = true
 	// Official clients attach a message secret and a <reporting> token to
 	// every message they send (whatsapp-rust always does too), and receivers
 	// validate it - WA Web reports a MISSING_MESSAGE_SECRET failure for one

@@ -32,6 +32,10 @@ backend binary as a whole must be distributed under GPLv3, and complete
 corresponding source must be offered to anyone who receives it. The public
 repository satisfies that obligation.
 
+A copy of `go.mau.fi/libsignal` v0.2.2 with one small change (debug logging that
+is discarded anyway is skipped) lives in `backend/third_party/libsignal`, with its
+own GPLv3 LICENSE; see `PATCHED.md` there.
+
 | Component | License |
 |---|---|
 | go.mau.fi/libsignal | **GPL-3.0** |

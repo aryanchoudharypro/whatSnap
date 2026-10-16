@@ -1060,12 +1060,38 @@ func eventHandler(evt interface{}) {
 				return
 			}
 
-			conversations := v.Data.GetConversations()
+			// With StreamHistorySyncConversations on, the chats arrive still
+			// encoded and are decoded one at a time below, so a big chunk
+			// never sits in memory whole.
+			convCount := len(v.Data.GetConversations())
+			conversations := func(yield func(int, *waHistorySync.Conversation) bool) {
+				for i, conv := range v.Data.GetConversations() {
+					if !yield(i, conv) {
+						return
+					}
+				}
+			}
+			if v.Conversations != nil {
+				convCount = v.Conversations.Len()
+				conversations = func(yield func(int, *waHistorySync.Conversation) bool) {
+					i := 0
+					for conv, err := range v.Conversations.All() {
+						if err != nil {
+							log.Println("Skipping history sync conversation:", err)
+							continue
+						}
+						if !yield(i, conv) {
+							return
+						}
+						i++
+					}
+				}
+			}
 			// On-demand syncs (fetching one older chat's history when it's
 			// opened) and chunks with no chat data (push names, app state)
 			// shouldn't flash the "Syncing history..." status - they're not
 			// part of the bulk sync the user is waiting on.
-			reportProgress := v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND && len(conversations) > 0
+			reportProgress := v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND && convCount > 0
 			if reportProgress {
 				broadcastEvent("history_sync", map[string]interface{}{
 					"status":    "syncing",
@@ -1576,10 +1602,10 @@ func eventHandler(evt interface{}) {
 					"onDemand": v.Data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND,
 				})
 			}
-			if len(conversations) > 0 || v.Data.GetSyncType() == waHistorySync.HistorySync_FULL {
+			if convCount > 0 || v.Data.GetSyncType() == waHistorySync.HistorySync_FULL {
 				stats := db.Stats()
 				log.Printf("History sync chunk written: type=%s chunk=%d progress=%d chats=%d msgs=%d took=%s (messages %s, snippets %s) queued=%d dbWait=%d/%s inUse=%d",
-					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), len(conversations), chunkMsgs,
+					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), convCount, chunkMsgs,
 					time.Since(chunkStart).Round(time.Millisecond), loopTook.Round(time.Millisecond), tailTook.Round(time.Millisecond),
 					historySyncPending.Load()-1,
 					stats.WaitCount-statsAtStart.WaitCount, (stats.WaitDuration - statsAtStart.WaitDuration).Round(time.Millisecond),
