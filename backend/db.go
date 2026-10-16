@@ -1056,7 +1056,42 @@ func getMessageForQuote(id string) (msg *waE2E.Message, senderJID string, previe
 	} else {
 		msg = &waE2E.Message{Conversation: proto.String(text)}
 	}
+	msg = prepareForQuote(msg)
 	return
+}
+
+// prepareForQuote trims a stored message down to what WhatsApp Web puts in
+// ContextInfo.QuotedMessage. Web rebuilds the quote from its message model
+// (WAWebE2EProtoGenerator, msgContext "quoted") rather than copying the
+// message as received, so the quote never carries:
+//   - messageContextInfo: Web leaves the messageSecret out of quotes, and the
+//     device-list metadata is per-send, not part of the message;
+//   - the quoted message's own reply chain or other context - its
+//     ContextInfo is rebuilt with nothing but its mentions;
+//   - the device-sent/ephemeral wrappers it arrived in.
+func prepareForQuote(msg *waE2E.Message) *waE2E.Message {
+	if msg == nil {
+		return nil
+	}
+	msg = proto.Clone(msg).(*waE2E.Message)
+	for {
+		if inner := msg.GetDeviceSentMessage().GetMessage(); inner != nil {
+			msg = inner
+			continue
+		}
+		if inner := msg.GetEphemeralMessage().GetMessage(); inner != nil {
+			msg = inner
+			continue
+		}
+		break
+	}
+	msg.MessageContextInfo = nil
+	if ctx := getContextInfo(msg); ctx != nil {
+		mentioned, groupMentions := ctx.GetMentionedJID(), ctx.GetGroupMentions()
+		proto.Reset(ctx)
+		ctx.MentionedJID, ctx.GroupMentions = mentioned, groupMentions
+	}
+	return msg
 }
 
 // getReactionsForMessageIDs returns all current reactions for a batch of
