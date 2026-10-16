@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"image"
 	"log"
 	"net"
 	"os"
@@ -32,6 +35,9 @@ type PostMediaStatusData struct {
 	Mimetype string `json:"mimetype"`
 	Filename string `json:"filename"`
 	Caption  string `json:"caption"`
+	// Thumbnail is a base64 PNG of a video's first frame, as for a chat
+	// attachment (SendAttachmentData.Thumbnail).
+	Thumbnail string `json:"thumbnail"`
 }
 
 type MarkStatusViewedData struct {
@@ -240,6 +246,24 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			}
 		}
 
+		// A video's details and preview, as for a chat (sendUploadedAttachment);
+		// cachedPath is our own copy, so an H.264 .mov can be relabelled.
+		var video *videoInfo
+		var videoThumb []byte
+		if data.Type == "video" {
+			if info, err := readVideoInfo(cachedPath); err == nil {
+				video = info
+				if info.brand == "qt  " && (info.codec == "avc1" || info.codec == "avc3") && mp4Brand(cachedPath) == nil {
+					mimetype = "video/mp4"
+				}
+			}
+			if png, err := base64.StdEncoding.DecodeString(data.Thumbnail); err == nil {
+				if img, _, err := image.Decode(bytes.NewReader(png)); err == nil {
+					videoThumb = jpegThumbnail(img)
+				}
+			}
+		}
+
 		waMediaType := whatsmeow.MediaImage
 		if data.Type == "video" {
 			waMediaType = whatsmeow.MediaVideo
@@ -284,6 +308,13 @@ func handlePostMediaStatus(raw json.RawMessage) {
 				FileEncSHA256: uploaded.FileEncSHA256,
 				FileSHA256:    uploaded.FileSHA256,
 				FileLength:    proto.Uint64(uploaded.FileLength),
+			}
+			if video != nil {
+				vidMsg.Seconds = proto.Uint32(uint32(video.seconds))
+				vidMsg.Width, vidMsg.Height = proto.Uint32(uint32(video.width)), proto.Uint32(uint32(video.height))
+			}
+			if videoThumb != nil {
+				vidMsg.JPEGThumbnail = videoThumb
 			}
 			if data.Caption != "" {
 				vidMsg.Caption = proto.String(data.Caption)

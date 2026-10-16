@@ -93,7 +93,9 @@ type SendAttachmentData struct {
 	Mimetype    string `json:"mimetype"`
 	Filename    string `json:"filename"`
 	Caption     string `json:"caption"`
-	Duration    int    `json:"duration"` // seconds, audio only
+	Duration    int    `json:"duration"`     // seconds, audio only
+	Thumbnail   string `json:"thumbnail"`    // base64 PNG of a video's first frame, decoded by the frontend; video only
+	GifPlayback bool   `json:"gif_playback"` // a GIF the frontend turned into this (temporary) MP4; loops, silent
 	ReplyToID   string `json:"reply_to_id"`
 	ReplySender string `json:"reply_to_sender"`
 }

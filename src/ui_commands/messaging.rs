@@ -417,11 +417,24 @@ pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				String::new()
 			};
 
-			let payload = serde_json::json!({
+			let mut payload = serde_json::json!({
 				"action": "post_media_status",
 				"data": { "type": media_type, "path": path, "filename": filename, "caption": caption }
 			});
-			let _ = state.borrow().ws_tx.send(payload.to_string());
+			let ws_tx = state.borrow().ws_tx.clone();
+			if media_type == "video" {
+				// A preview of the first frame, as for a video sent to a chat.
+				std::thread::spawn(move || {
+					if let Some(png) = crate::video_thumbnail::first_frame_png(&path) {
+						use base64::Engine;
+						payload["data"]["thumbnail"] =
+							serde_json::json!(base64::engine::general_purpose::STANDARD.encode(png));
+					}
+					let _ = ws_tx.send(payload.to_string());
+				});
+			} else {
+				let _ = ws_tx.send(payload.to_string());
+			}
 			crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Posting status update...");
 		}
 	}

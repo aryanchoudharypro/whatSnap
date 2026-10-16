@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"log"
 	"mime"
@@ -865,6 +867,15 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 			}
 			localPath = cached
 		}
+		// A GIF's video is made in %TEMP%, which may be emptied: keep our
+		// own copy, as for a voice note.
+		if data.GifPlayback && isInTempDir(localPath) {
+			cached := filepath.Join(mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+".mp4")
+			if copyFileStreaming(localPath, cached) == nil {
+				os.Remove(localPath)
+				localPath = cached
+			}
+		}
 
 		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
 
@@ -908,7 +919,8 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		})
 		broadcastChats()
 
-		sendUploadedAttachment(conn, id, jid, data.Type, localPath, data.Mimetype, data.Filename, data.Caption, data.Duration, ctxInfo, quotedID, quotedText, quotedSender)
+		thumbPNG, _ := base64.StdEncoding.DecodeString(data.Thumbnail)
+		sendUploadedAttachment(conn, id, jid, data.Type, localPath, data.Mimetype, data.Filename, data.Caption, data.Duration, thumbPNG, data.GifPlayback, ctxInfo, quotedID, quotedText, quotedSender)
 	}()
 }
 
@@ -916,7 +928,7 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 // updating the row already persisted by handleSendAttachment (or reused by
 // handleRetryMessage) to "sent" on success or "failed" on error. Shared by
 // the initial send and a manual retry so both behave identically.
-func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, seconds int, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, seconds int, thumbPNG []byte, gifPlayback bool, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
 	displayText := attachmentDisplayText(mediaType, filename, caption, seconds)
 	fail := func(errMsg string) {
 		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
@@ -955,6 +967,28 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 			}
 		} else {
 			log.Printf("Sending photo %s unprepared: %v", id, err)
+		}
+	}
+
+	// A video carries its length, size and a preview (the first frame, which
+	// the frontend decodes). An H.264 .mov goes as an .mp4, as WhatsApp Web
+	// sends it; that's done to a copy, never the picked file itself.
+	var video *videoInfo
+	var videoThumb []byte
+	if mediaType == "video" {
+		if info, err := readVideoInfo(path); err == nil {
+			video = info
+			if info.brand == "qt  " && (info.codec == "avc1" || info.codec == "avc3") {
+				copyPath := filepath.Join(mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+".mp4")
+				if copyFileStreaming(path, copyPath) == nil && mp4Brand(copyPath) == nil {
+					path, mimetypeHint = copyPath, "video/mp4"
+				}
+			}
+		} else {
+			log.Printf("Sending video %s without its details: %v", id, err)
+		}
+		if img, _, err := image.Decode(bytes.NewReader(thumbPNG)); err == nil {
+			videoThumb = jpegThumbnail(img)
 		}
 	}
 
@@ -1060,6 +1094,16 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 			URL: proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
 			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
 			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
+		}
+		if video != nil {
+			vidMsg.Seconds = proto.Uint32(uint32(video.seconds))
+			vidMsg.Width, vidMsg.Height = proto.Uint32(uint32(video.width)), proto.Uint32(uint32(video.height))
+		}
+		if videoThumb != nil {
+			vidMsg.JPEGThumbnail = videoThumb
+		}
+		if gifPlayback {
+			vidMsg.GifPlayback = proto.Bool(true)
 		}
 		if caption != "" {
 			vidMsg.Caption = proto.String(caption)

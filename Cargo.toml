@@ -15,10 +15,11 @@ serde_json = { version = "1.0.150", features = ["raw_value"] }
 # needs it. The source is pinned below in [patch.crates-io].
 wxdragon = { version = "0.9.22", default-features = false }
 qrcode = "0.14.1"
-# Only used to encode the pairing QR code as a PNG. Default features pull in
-# every format the crate supports, including rav1e (a full AV1 encoder), EXR,
-# WebP, TIFF and GIF - 63 crates that are compiled and then dead-stripped.
-image = { version = "0.25.10", default-features = false, features = ["png"] }
+# Encodes PNGs (the pairing QR code, video previews) and decodes GIFs to send
+# them as looping videos. Default features pull in every format the crate
+# supports, including rav1e (a full AV1 encoder), EXR, WebP and TIFF - dozens
+# of crates that are compiled and then dead-stripped.
+image = { version = "0.25.10", default-features = false, features = ["png", "gif"] }
 base64 = "0.22.1"
 live-region = "0.3.3"
 wx-utils = { version = "0.4.2", features = ["shortcuts"] }

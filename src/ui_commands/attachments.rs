@@ -301,6 +301,38 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 					payload["data"]["duration"] = serde_json::json!(crate::audio::audio_file_seconds(&path));
 					let _ = ws_tx.send(payload.to_string());
 				});
+			} else if file_type == "image" && path.to_lowercase().ends_with(".gif") {
+				// A GIF goes as a looping video, the way WhatsApp sends one; if
+				// it can't be converted it goes as a photo, as before.
+				let path = path.clone();
+				std::thread::spawn(move || {
+					let mp4 = std::env::temp_dir().join(format!("whantv_gif_{}.mp4", uuid::Uuid::new_v4()));
+					let mp4 = mp4.to_string_lossy().to_string();
+					match crate::gif_video::gif_to_mp4(&path, &mp4) {
+						Ok(first_png) => {
+							use base64::Engine;
+							payload["data"]["type"] = serde_json::json!("video");
+							payload["data"]["path"] = serde_json::json!(mp4);
+							payload["data"]["gif_playback"] = serde_json::json!(true);
+							payload["data"]["thumbnail"] =
+								serde_json::json!(base64::engine::general_purpose::STANDARD.encode(first_png));
+						}
+						Err(e) => eprintln!("[LOG UI] Couldn't turn {path} into a video, sending it as a photo: {e}"),
+					}
+					let _ = ws_tx.send(payload.to_string());
+				});
+			} else if file_type == "video" {
+				// A video message carries a preview of its first frame; the
+				// backend shrinks it to WhatsApp's preview size.
+				let path = path.clone();
+				std::thread::spawn(move || {
+					if let Some(png) = crate::video_thumbnail::first_frame_png(&path) {
+						use base64::Engine;
+						payload["data"]["thumbnail"] =
+							serde_json::json!(base64::engine::general_purpose::STANDARD.encode(png));
+					}
+					let _ = ws_tx.send(payload.to_string());
+				});
 			} else {
 				let _ = ws_tx.send(payload.to_string());
 			}

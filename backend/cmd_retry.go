@@ -306,7 +306,7 @@ func retryOneMessage(conn net.Conn, id string) {
 		sendUploadedVoiceMessage(conn, id, jid, mediaPath, mediaMimetype, duration, waveform, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
 	} else {
 		caption, seconds := attachmentFieldsFromDisplayText(mediaType, mediaFilename, text)
-		sendUploadedAttachment(conn, id, jid, mediaType, mediaPath, mediaMimetype, mediaFilename, caption, seconds, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
+		sendUploadedAttachment(conn, id, jid, mediaType, mediaPath, mediaMimetype, mediaFilename, caption, seconds, nil, false, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
 	}
 }
 
