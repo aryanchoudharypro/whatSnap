@@ -943,6 +943,21 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		waMediaType = whatsmeow.MediaDocument
 	}
 
+	// A photo goes out the way WhatsApp Web sends one: upright, resized,
+	// re-encoded, with its size and a preview. One that can't be read is
+	// sent as it is, without them.
+	var photo *preparedPhoto
+	if mediaType == "image" {
+		if p, err := preparePhoto(id, path); err == nil {
+			photo = p
+			if p.path != path {
+				path, mimetypeHint = p.path, "image/jpeg"
+			}
+		} else {
+			log.Printf("Sending photo %s unprepared: %v", id, err)
+		}
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		fail(err.Error())
@@ -1030,6 +1045,10 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 			URL: proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
 			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
 			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
+		}
+		if photo != nil {
+			imgMsg.Width, imgMsg.Height = proto.Uint32(uint32(photo.width)), proto.Uint32(uint32(photo.height))
+			imgMsg.JPEGThumbnail = photo.thumbnail
 		}
 		if caption != "" {
 			imgMsg.Caption = proto.String(caption)

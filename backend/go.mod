@@ -9,6 +9,7 @@ require (
 	go.mau.fi/util v0.11.0
 	go.mau.fi/whatsmeow v0.0.0-20260814123134-0dcf1f50f4b1
 	golang.org/x/crypto v0.58.0
+	golang.org/x/image v0.47.0
 	golang.org/x/sys v0.49.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.53.0

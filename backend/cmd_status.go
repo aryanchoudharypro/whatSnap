@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -196,6 +197,23 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			}
 			srcPath = tmp
 		}
+		// A photo is prepared as for a chat (preparePhoto). The prepared copy
+		// is only an intermediate here: it's copied into the cache below.
+		var photo *preparedPhoto
+		preparedCopy := ""
+		if data.Type == "image" {
+			if p, err := preparePhoto(id+"_status", srcPath); err == nil {
+				photo = p
+				if p.path != srcPath {
+					if data.Path == "" {
+						os.Remove(srcPath)
+					}
+					srcPath, preparedCopy, data.Mimetype = p.path, p.path, "image/jpeg"
+				}
+			} else {
+				log.Printf("Posting status photo %s unprepared: %v", id, err)
+			}
+		}
 		// Statuses have their own size limit (WAWebMediaGatingUtils, for the
 		// status tab), for photos and videos alike.
 		if st, err := os.Stat(srcPath); err == nil {
@@ -217,7 +235,7 @@ func handlePostMediaStatus(raw json.RawMessage) {
 				broadcastEvent("error", map[string]string{"message": err.Error()})
 				return
 			}
-			if data.Path == "" {
+			if data.Path == "" || srcPath == preparedCopy {
 				os.Remove(srcPath)
 			}
 		}
@@ -248,6 +266,10 @@ func handlePostMediaStatus(raw json.RawMessage) {
 				FileEncSHA256: uploaded.FileEncSHA256,
 				FileSHA256:    uploaded.FileSHA256,
 				FileLength:    proto.Uint64(uploaded.FileLength),
+			}
+			if photo != nil {
+				imgMsg.Width, imgMsg.Height = proto.Uint32(uint32(photo.width)), proto.Uint32(uint32(photo.height))
+				imgMsg.JPEGThumbnail = photo.thumbnail
 			}
 			if data.Caption != "" {
 				imgMsg.Caption = proto.String(data.Caption)
