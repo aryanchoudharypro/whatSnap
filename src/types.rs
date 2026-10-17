@@ -263,7 +263,13 @@ pub enum UiCommand {
 		no_frequently_forwarded: bool,
 		allow_admin_reports: bool,
 		group_history: bool,
+		admins_add_only: bool,
+		approve_members: bool,
 	},
+	/// One of Group Info's join request and community buttons, by name.
+	GroupAction(&'static str),
+	/// Chat menu > "New Community...".
+	NewCommunity,
 	/// Group Info's "Reported messages...": what members reported to admins.
 	ShowReportedMessages,
 	/// Group Info's "Set tag": our own member tag in the open group ("" clears).

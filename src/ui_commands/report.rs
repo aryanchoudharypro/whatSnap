@@ -112,6 +112,8 @@ pub(crate) fn update_group_moderation(
 	no_frequently_forwarded: bool,
 	allow_admin_reports: bool,
 	group_history: bool,
+	admins_add_only: bool,
+	approve_members: bool,
 ) {
 	let s = state.borrow();
 	let Some(jid) = s.selected_chat.clone().filter(|j| j.ends_with("@g.us")) else {
@@ -124,6 +126,8 @@ pub(crate) fn update_group_moderation(
 			"no_frequently_forwarded": no_frequently_forwarded,
 			"allow_admin_reports": allow_admin_reports,
 			"group_history": group_history,
+			"admins_add_only": admins_add_only,
+			"approve_members": approve_members,
 		}
 	});
 	let _ = s.ws_tx.send(payload.to_string());

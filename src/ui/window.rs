@@ -241,6 +241,7 @@ pub const MENU_ID_REPORT_CHAT: i32 = 6037;
 pub const MENU_ID_BLOCK_CHAT: i32 = 6038;
 pub const MENU_ID_BLOCKED_CONTACTS: i32 = 6039;
 pub const MENU_ID_PINNED_MESSAGES: i32 = 6040;
+pub const MENU_ID_NEW_COMMUNITY: i32 = 6042;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
 pub fn build_main_window() -> WindowParts {
@@ -314,6 +315,7 @@ pub fn build_main_window() -> WindowParts {
 	let chat_menu = Menu::builder()
 		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), "Start a new chat")
 		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), "Start a new group")
+		.append_item(MENU_ID_NEW_COMMUNITY, "New C&ommunity...", "Start a community to bring groups together")
 		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), "Search chats")
 		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
 		.append_separator()
@@ -1180,6 +1182,8 @@ pub fn bind_input_handlers(
 			let _ = tx_chat_menu.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::OpenChat));
 		} else if id == MENU_ID_NEW_GROUP {
 			let _ = tx_chat_menu.send(UiCommand::PrepareNewGroup);
+		} else if id == MENU_ID_NEW_COMMUNITY {
+			let _ = tx_chat_menu.send(UiCommand::NewCommunity);
 		} else if id == MENU_ID_SEARCH_GLOBAL {
 			search_field_for_menu.set_focus();
 		} else if id == MENU_ID_SEARCH_CHAT {
@@ -1450,6 +1454,8 @@ pub fn bind_input_handlers(
 	let forwarded_chk = parts.group_data_dialog.forwarded_chk.clone();
 	let admin_reports_chk = parts.group_data_dialog.admin_reports_chk.clone();
 	let history_chk = parts.group_data_dialog.history_chk.clone();
+	let admins_add_chk = parts.group_data_dialog.admins_add_chk.clone();
+	let approve_members_chk = parts.group_data_dialog.approve_members_chk.clone();
 	parts.group_data_dialog.save_settings_btn.on_click(move |_| {
 		let name = group_name_field.get_value();
 		let topic = group_desc_field.get_value();
@@ -1460,8 +1466,23 @@ pub fn bind_input_handlers(
 			no_frequently_forwarded: forwarded_chk.is_checked(),
 			allow_admin_reports: admin_reports_chk.is_checked(),
 			group_history: history_chk.is_checked(),
+			admins_add_only: admins_add_chk.is_checked(),
+			approve_members: approve_members_chk.is_checked(),
 		});
 	});
+
+	let gd = &parts.group_data_dialog;
+	for (button, action) in [
+		(gd.join_requests_btn, "join_requests"),
+		(gd.link_group_btn, "link_group"),
+		(gd.unlink_group_btn, "unlink_group"),
+		(gd.deactivate_btn, "deactivate_community"),
+	] {
+		let tx = ui_tx.clone();
+		button.on_click(move |_| {
+			let _ = tx.send(UiCommand::GroupAction(action));
+		});
+	}
 
 	let tx_set_tag = ui_tx.clone();
 	let tag_field = parts.group_data_dialog.my_tag_field;

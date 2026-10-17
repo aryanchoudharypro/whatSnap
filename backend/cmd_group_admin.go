@@ -20,6 +20,9 @@ type GroupModerationData struct {
 	NoFrequentlyForwarded bool   `json:"no_frequently_forwarded"`
 	AllowAdminReports     bool   `json:"allow_admin_reports"`
 	HasGroupHistory       bool   `json:"group_history"`
+	// Nil from an older frontend: left as they are.
+	AdminsAddOnly  *bool `json:"admins_add_only"`
+	ApproveMembers *bool `json:"approve_members"`
 }
 
 // handleSetGroupModeration applies the settings that differ from the group's
@@ -47,6 +50,24 @@ func handleSetGroupModeration(raw json.RawMessage) {
 			{info.NoFrequentlyForwarded, data.NoFrequentlyForwarded, wa().SetGroupNoFrequentlyForwarded},
 			{info.AllowAdminReports, data.AllowAdminReports, wa().SetGroupAllowAdminReports},
 			{info.HasGroupHistory, data.HasGroupHistory, wa().SetGroupHistorySharing},
+		}
+		if data.ApproveMembers != nil {
+			changes = append(changes, struct {
+				current, wanted bool
+				apply           func(context.Context, types.JID, bool) error
+			}{info.IsJoinApprovalRequired, *data.ApproveMembers, wa().SetGroupJoinApprovalMode})
+		}
+		if data.AdminsAddOnly != nil {
+			changes = append(changes, struct {
+				current, wanted bool
+				apply           func(context.Context, types.JID, bool) error
+			}{info.MemberAddMode == types.GroupMemberAddModeAdmin, *data.AdminsAddOnly, func(ctx context.Context, jid types.JID, adminsOnly bool) error {
+				mode := types.GroupMemberAddModeAllMember
+				if adminsOnly {
+					mode = types.GroupMemberAddModeAdmin
+				}
+				return wa().SetGroupMemberAddMode(ctx, jid, mode)
+			}})
 		}
 		changed := false
 		for _, c := range changes {

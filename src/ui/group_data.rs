@@ -18,6 +18,8 @@ pub struct GroupDataDialogParts {
 	pub make_admin_btn: Button,
 	pub remove_member_btn: Button,
 	pub invite_link_btn: Button,
+	/// People asking to join a group that approves new members.
+	pub join_requests_btn: Button,
 	pub my_tag_label: StaticText,
 	pub my_tag_field: TextCtrl,
 	pub set_tag_btn: Button,
@@ -42,6 +44,9 @@ pub struct GroupDataDialogParts {
 	pub groups_label: StaticText,
 	pub groups_list: ListBox,
 	pub join_group_btn: Button,
+	/// A community's admins: add one of their groups, or take one out.
+	pub link_group_btn: Button,
+	pub unlink_group_btn: Button,
 
 	// Settings tab
 	pub settings_panel: Panel,
@@ -54,6 +59,10 @@ pub struct GroupDataDialogParts {
 	pub forwarded_chk: CheckBox,
 	pub admin_reports_chk: CheckBox,
 	pub history_chk: CheckBox,
+	pub admins_add_chk: CheckBox,
+	pub approve_members_chk: CheckBox,
+	/// A community's admins only.
+	pub deactivate_btn: Button,
 	pub save_settings_btn: Button,
 	pub reported_btn: Button,
 }
@@ -100,6 +109,9 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 
 	let invite_link_btn = Button::builder(&members_panel).with_label("Invite link...").build();
 	mem_btn_sizer.add(&invite_link_btn, 0, SizerFlag::Right, 5);
+
+	let join_requests_btn = Button::builder(&members_panel).with_label("Join requests...").build();
+	mem_btn_sizer.add(&join_requests_btn, 0, SizerFlag::Right, 5);
 
 	members_sizer.add_sizer(&mem_btn_sizer, 0, SizerFlag::All, 5);
 
@@ -150,7 +162,13 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let groups_list = ListBox::builder(&groups_panel).build();
 	groups_sizer.add(&groups_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	let join_group_btn = Button::builder(&groups_panel).with_label("Join group").build();
-	groups_sizer.add(&join_group_btn, 0, SizerFlag::All, 5);
+	let groups_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	groups_btn_sizer.add(&join_group_btn, 0, SizerFlag::Right, 5);
+	let link_group_btn = Button::builder(&groups_panel).with_label("Add existing group...").build();
+	groups_btn_sizer.add(&link_group_btn, 0, SizerFlag::Right, 5);
+	let unlink_group_btn = Button::builder(&groups_panel).with_label("Remove from community...").build();
+	groups_btn_sizer.add(&unlink_group_btn, 0, SizerFlag::Right, 5);
+	groups_sizer.add_sizer(&groups_btn_sizer, 0, SizerFlag::All, 5);
 	groups_panel.set_sizer(groups_sizer, true);
 
 	// --- Settings Tab ---
@@ -186,11 +204,19 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let history_chk = CheckBox::builder(&settings_panel).with_label("Share recent messages with people added").build();
 	settings_sizer.add(&history_chk, 0, SizerFlag::All, 5);
 
+	let admins_add_chk = CheckBox::builder(&settings_panel).with_label("Only admins can add members").build();
+	settings_sizer.add(&admins_add_chk, 0, SizerFlag::All, 5);
+
+	let approve_members_chk = CheckBox::builder(&settings_panel).with_label("Approve new members").build();
+	settings_sizer.add(&approve_members_chk, 0, SizerFlag::All, 5);
+
 	let settings_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let save_settings_btn = Button::builder(&settings_panel).with_label("Save settings").build();
 	settings_btn_sizer.add(&save_settings_btn, 0, SizerFlag::Right, 5);
 	let reported_btn = Button::builder(&settings_panel).with_label("Reported messages...").build();
 	settings_btn_sizer.add(&reported_btn, 0, SizerFlag::Right, 5);
+	let deactivate_btn = Button::builder(&settings_panel).with_label("Deactivate community...").build();
+	settings_btn_sizer.add(&deactivate_btn, 0, SizerFlag::Right, 5);
 	settings_sizer.add_sizer(&settings_btn_sizer, 0, SizerFlag::All, 5);
 
 	settings_panel.set_sizer(settings_sizer, true);
@@ -219,6 +245,7 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		make_admin_btn,
 		remove_member_btn,
 		invite_link_btn,
+		join_requests_btn,
 		my_tag_label,
 		my_tag_field,
 		set_tag_btn,
@@ -235,6 +262,8 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		groups_label,
 		groups_list,
 		join_group_btn,
+		link_group_btn,
+		unlink_group_btn,
 		settings_panel,
 		name_label,
 		group_name_field,
@@ -245,6 +274,9 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		forwarded_chk,
 		admin_reports_chk,
 		history_chk,
+		admins_add_chk,
+		approve_members_chk,
+		deactivate_btn,
 		save_settings_btn,
 		reported_btn,
 	}

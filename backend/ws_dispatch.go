@@ -187,6 +187,20 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleGetGroupInfo(conn, cmd.Data)
 	case "get_community_subgroups":
 		handleGetCommunitySubGroups(conn, cmd.Data)
+	case "get_join_requests":
+		go handleGetJoinRequests(conn, cmd.Data)
+	case "answer_join_requests":
+		handleAnswerJoinRequests(conn, cmd.Data)
+	case "create_community":
+		handleCreateCommunity(conn, cmd.Data)
+	case "get_linkable_groups":
+		go handleGetLinkableGroups(conn, cmd.Data)
+	case "link_community_group":
+		handleLinkCommunityGroup(conn, cmd.Data, true)
+	case "unlink_community_group":
+		handleLinkCommunityGroup(conn, cmd.Data, false)
+	case "deactivate_community":
+		handleDeactivateCommunity(conn, cmd.Data)
 	case "join_community_subgroup":
 		handleJoinCommunitySubgroup(cmd.Data)
 	case "leave_group":

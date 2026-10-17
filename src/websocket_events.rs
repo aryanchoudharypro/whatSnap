@@ -3057,6 +3057,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						crate::ui_commands::status_extras::on_event(state, parts, t, data);
 					}
 				}
+				"join_requests"
+				| "join_requests_answered"
+				| "linkable_groups"
+				| "community_groups_changed"
+				| "community_created"
+				| "community_deactivated" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::group_extras::on_event(state, parts, t, data);
+					}
+				}
 				"stickers" => {
 					if let Some(data) = val.get("data") {
 						crate::ui_commands::stickers::stickers(state, parts, data);
@@ -3128,6 +3138,19 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let is_community = info.get("IsParent").and_then(|t| t.as_bool()).unwrap_or(false);
 						let in_community =
 							info.get("LinkedParentJID").and_then(|t| t.as_str()).is_some_and(|p| !p.is_empty());
+						let gd = &parts.group_data_dialog;
+						gd.join_requests_btn.show(viewer_is_admin && !is_community);
+						gd.link_group_btn.show(viewer_is_admin && is_community);
+						gd.unlink_group_btn.show(viewer_is_admin && is_community);
+						gd.deactivate_btn.show(viewer_is_admin && is_community);
+						gd.admins_add_chk.enable(viewer_is_admin);
+						gd.approve_members_chk.enable(viewer_is_admin);
+						gd.admins_add_chk
+							.set_value(info.get("MemberAddMode").and_then(|m| m.as_str()) == Some("admin_add"));
+						gd.approve_members_chk.set_value(flag("IsJoinApprovalRequired"));
+						gd.members_panel.layout();
+						gd.groups_panel.layout();
+						gd.settings_panel.layout();
 						parts.group_data_dialog.groups_list.clear();
 						if is_community || in_community {
 							let s = state.borrow();

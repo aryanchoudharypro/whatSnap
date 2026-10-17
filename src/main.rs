@@ -1472,14 +1472,22 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ReportChat { jid } => ui_commands::report::report_chat(state, parts, jid),
 		UiCommand::ToggleBlockChat { jid } => ui_commands::blocking::toggle_block(state, parts, jid),
 		UiCommand::ShowBlockedContacts => ui_commands::blocking::show_blocked_contacts(state, parts),
-		UiCommand::UpdateGroupModeration { no_frequently_forwarded, allow_admin_reports, group_history } => {
-			ui_commands::report::update_group_moderation(
-				state,
-				no_frequently_forwarded,
-				allow_admin_reports,
-				group_history,
-			)
-		}
+		UiCommand::UpdateGroupModeration {
+			no_frequently_forwarded,
+			allow_admin_reports,
+			group_history,
+			admins_add_only,
+			approve_members,
+		} => ui_commands::report::update_group_moderation(
+			state,
+			no_frequently_forwarded,
+			allow_admin_reports,
+			group_history,
+			admins_add_only,
+			approve_members,
+		),
+		UiCommand::GroupAction(action) => ui_commands::group_extras::group_action(state, parts, action),
+		UiCommand::NewCommunity => ui_commands::group_extras::new_community(state, parts),
 		UiCommand::ShowReportedMessages => ui_commands::report::request_reported_messages(state),
 		UiCommand::SetMemberLabel(label) => ui_commands::contacts_groups::set_member_label(state, parts, label),
 		UiCommand::TogglePinChat { jid, pin } => ui_commands::chat_list::toggle_pin_chat(state, parts, jid, pin),
