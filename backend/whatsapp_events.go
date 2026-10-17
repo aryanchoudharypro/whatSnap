@@ -2525,6 +2525,8 @@ func eventHandler(evt interface{}) {
 		go noteStatusMute(v)
 	case *events.StatusPrivacy:
 		go noteStatusPrivacy(v)
+	case *events.DefaultDisappearingTimer:
+		broadcastEvent("default_timer", map[string]interface{}{"seconds": int(v.Timer.Seconds())})
 	case *events.LabelEdit:
 		go noteLabelEdit(v)
 	case *events.LabelAssociationChat:
