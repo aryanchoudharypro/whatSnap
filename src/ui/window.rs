@@ -4783,7 +4783,6 @@ pub fn bind_input_handlers(
 		const ATTACH_POLL_ID: i32 = 4205;
 		const ATTACH_EVENT_ID: i32 = 4206;
 		const ATTACH_STICKER_ID: i32 = 4207;
-		const ATTACH_GIF_ID: i32 = 4208;
 		let mut popup_menu = Menu::builder()
 			.append_item(ATTACH_DOCUMENT_ID, "&Document", "Send any file as a document, photos at full quality")
 			.append_item(ATTACH_MEDIA_ID, "&Photos && videos", "Send photos and videos")
@@ -4792,7 +4791,6 @@ pub fn bind_input_handlers(
 			.append_item(ATTACH_POLL_ID, "P&oll", "Create a poll or a quiz")
 			.append_item(ATTACH_EVENT_ID, "&Event", "Create an event people can answer")
 			.append_item(ATTACH_STICKER_ID, "&Sticker", "Send a favorite or recent sticker, or a sticker file")
-			.append_item(ATTACH_GIF_ID, "&GIF", "Search GIFs on Giphy and send one")
 			.build();
 		let tx_menu = tx_attach.clone();
 		popup_menu.on_selected(move |menu_evt| {
@@ -4805,7 +4803,6 @@ pub fn bind_input_handlers(
 				ATTACH_POLL_ID => Some(UiCommand::OpenPollDialog),
 				ATTACH_EVENT_ID => Some(UiCommand::OpenEventDialog),
 				ATTACH_STICKER_ID => Some(UiCommand::OpenStickerPicker),
-				ATTACH_GIF_ID => Some(UiCommand::OpenGifSearch),
 				_ => None,
 			};
 			if let Some(cmd) = cmd {

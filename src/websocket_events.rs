@@ -3069,11 +3069,6 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						crate::ui_commands::status_extras::on_event(state, parts, t, data);
 					}
 				}
-				"gifs" | "gif_ready" | "gifs_failed" => {
-					if let Some(data) = val.get("data") {
-						crate::ui_commands::gifs::on_event(state, parts, t, data);
-					}
-				}
 				"call_link_created" | "call_hand" | "call_reaction" | "call_screen_share" | "call_waiting_room"
 				| "call_action_done" | "call_action_failed" => {
 					if let Some(data) = val.get("data") {
