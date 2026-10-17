@@ -484,72 +484,120 @@ pub(crate) fn compute_voice_waveform(wav_path: &str) -> Option<Vec<u8>> {
 	Some(bars)
 }
 
+/// Encodes a recorded voice note laid out the way libopusenc and WhatsApp's
+/// own voice notes are, since the phone's player is far stricter than the Ogg
+/// spec: a page per second of audio, closed early rather than ever splitting
+/// a packet across two pages, granule positions that count the encoder's
+/// pre-skip, and a last page that always ends the stream. Four second pages
+/// with packets spanning them made the phone call some notes broken.
 pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()> {
-	use std::{fs::File, io::BufWriter};
+	use std::{
+		fs::File,
+		io::{BufWriter, Write},
+	};
 
 	use hound::WavReader;
-	use ogg::PacketWriter;
+	use ogg::{PacketWriteEndInfo, PacketWriter};
 	use opus::{Application, Channels, Encoder};
+
+	const FRAME: usize = 960; // 20 ms at 48 kHz
+	const PACKETS_PER_PAGE: usize = 50; // one second
 
 	let mut reader = WavReader::open(wav_path)?;
 	let spec = reader.spec();
-
 	if spec.sample_rate != 48000 {
 		return Err(anyhow::anyhow!("Sample rate must be 48000"));
 	}
 	let is_stereo = spec.channels == 2;
-	let opus_channels = if is_stereo { Channels::Stereo } else { Channels::Mono };
+	let ch = if is_stereo { 2 } else { 1 };
 
-	let mut encoder = Encoder::new(48000, opus_channels, Application::Voip)?;
-	let out_file = File::create(ogg_path)?;
-	let mut writer = PacketWriter::new(BufWriter::new(out_file));
+	let mut encoder =
+		Encoder::new(48000, if is_stereo { Channels::Stereo } else { Channels::Mono }, Application::Voip)?;
+	let pre_skip = encoder.get_lookahead()?.max(0) as usize;
+
+	let mut writer = PacketWriter::new(BufWriter::new(File::create(ogg_path)?));
 	let serial = 12345;
 
-	// OpusHead
-	let mut head = Vec::new();
+	let mut head = Vec::with_capacity(19);
 	head.extend_from_slice(b"OpusHead");
 	head.push(1); // Version
-	head.push(spec.channels as u8); // Channels
-	head.extend_from_slice(&384_u16.to_le_bytes()); // Preskip
+	head.push(ch as u8); // Channels
+	head.extend_from_slice(&(pre_skip as u16).to_le_bytes());
 	head.extend_from_slice(&48000_u32.to_le_bytes()); // Input sample rate
 	head.extend_from_slice(&0_u16.to_le_bytes()); // Gain
 	head.push(0); // Channel mapping family
-	writer.write_packet(head, serial, ogg::PacketWriteEndInfo::EndPage, 0)?;
+	writer.write_packet(head, serial, PacketWriteEndInfo::EndPage, 0)?;
 
-	// OpusTags
-	let mut tags = Vec::new();
+	let mut tags = Vec::with_capacity(24);
 	tags.extend_from_slice(b"OpusTags");
 	tags.extend_from_slice(&8_u32.to_le_bytes()); // Vendor length
 	tags.extend_from_slice(b"whaNTV  ");
 	tags.extend_from_slice(&0_u32.to_le_bytes()); // User comments list length
-	writer.write_packet(tags, serial, ogg::PacketWriteEndInfo::EndPage, 0)?;
+	writer.write_packet(tags, serial, PacketWriteEndInfo::EndPage, 0)?;
 
-	let mut granule = 0;
-	let mut samples = Vec::new();
-	let samples_per_frame = if is_stereo { 960 * 2 } else { 960 };
-
-	for sample in reader.samples::<i16>() {
-		samples.push(sample?);
-		if samples.len() == samples_per_frame {
-			let mut out = vec![0u8; 1024];
-			let len = encoder.encode(&samples, &mut out)?;
-			out.truncate(len);
-			granule += 960;
-			writer.write_packet(out, serial, ogg::PacketWriteEndInfo::NormalPacket, granule)?;
-			samples.clear();
+	// Lacing values a packet takes up in a page.
+	let segments = |len: usize| len / 255 + 1;
+	let mut samples = reader.samples::<i16>();
+	let mut frame = [0i16; FRAME * 2];
+	let mut out = [0u8; 1275]; // the most one Opus frame can take
+	// Each packet is held back until the next one exists, so it's known
+	// whether the page has room for that one, and the last packet can go out
+	// as the end of the stream.
+	let mut held: Option<(Vec<u8>, u64)> = None;
+	let (mut page_packets, mut page_segments) = (0, 0);
+	let mut input_done = false;
+	// Silence fed after the recording so its tail clears the encoder's
+	// lookahead instead of being cut off.
+	let mut pad = pre_skip;
+	let mut total = 0u64;
+	let mut encoded = 0u64;
+	loop {
+		let mut filled = 0;
+		while filled < FRAME * ch && !input_done {
+			match samples.next() {
+				Some(s) => {
+					frame[filled] = s?;
+					filled += 1;
+				}
+				None => input_done = true,
+			}
+		}
+		// A frame ending half way through a stereo pair drops that half.
+		filled -= filled % ch;
+		total += (filled / ch) as u64;
+		let pad_now = pad.min(FRAME - filled / ch);
+		pad -= pad_now;
+		filled += pad_now * ch;
+		if filled == 0 {
+			break;
+		}
+		frame[filled..].fill(0);
+		let len = encoder.encode(&frame[..FRAME * ch], &mut out)?;
+		encoded += FRAME as u64;
+		if let Some((packet, granule)) = held.take() {
+			page_packets += 1;
+			page_segments += segments(packet.len());
+			let end = if page_packets == PACKETS_PER_PAGE || page_segments + segments(len) > 255 {
+				(page_packets, page_segments) = (0, 0);
+				PacketWriteEndInfo::EndPage
+			} else {
+				PacketWriteEndInfo::NormalPacket
+			};
+			writer.write_packet(packet, serial, end, granule)?;
+		}
+		held = Some((out[..len].to_vec(), encoded));
+		if input_done && pad == 0 {
+			break;
 		}
 	}
-
-	if !samples.is_empty() {
-		let remaining_frames = samples.len() / (if is_stereo { 2 } else { 1 });
-		samples.resize(samples_per_frame, 0);
-		let mut out = vec![0u8; 1024];
-		let len = encoder.encode(&samples, &mut out)?;
-		out.truncate(len);
-		granule += remaining_frames as u64;
-		writer.write_packet(out, serial, ogg::PacketWriteEndInfo::EndStream, granule)?;
+	if total == 0 {
+		return Err(anyhow::anyhow!("no audio in the voice recording"));
 	}
-
+	if let Some((packet, _)) = held {
+		// The last page's granule marks where the audio really ends.
+		writer.write_packet(packet, serial, PacketWriteEndInfo::EndStream, pre_skip as u64 + total)?;
+	}
+	writer.into_inner().flush()?;
 	Ok(())
 }
 
@@ -599,6 +647,63 @@ mod sound_tests {
 		] {
 			let decoder = rodio::Decoder::new(std::io::Cursor::new(sound.ogg()));
 			assert!(decoder.is_ok_and(|mut d| d.next().is_some()), "{:?} doesn't decode", sound as u8);
+		}
+	}
+}
+
+#[cfg(test)]
+mod voice_note_tests {
+	use super::{convert_wav_to_opus_ogg, decode_opus_file};
+
+	#[test]
+	fn voice_note_is_laid_out_like_whatsapps() {
+		// One ending on a partial frame, one on a whole frame.
+		for total in [350_000u64, 96_000] {
+			let dir = std::env::temp_dir();
+			let wav = dir.join(format!("whantv_voice_test_{}_{total}.wav", std::process::id()));
+			let ogg = wav.with_extension("ogg");
+			let spec = hound::WavSpec {
+				channels: 2,
+				sample_rate: 48_000,
+				bits_per_sample: 16,
+				sample_format: hound::SampleFormat::Int,
+			};
+			let mut w = hound::WavWriter::create(&wav, spec).unwrap();
+			for i in 0..total {
+				let v = (0.4 * (i as f32 * 0.03).sin() * 32767.0) as i16;
+				w.write_sample(v).unwrap();
+				w.write_sample(v / 2).unwrap();
+			}
+			w.finalize().unwrap();
+			convert_wav_to_opus_ogg(wav.to_str().unwrap(), ogg.to_str().unwrap()).unwrap();
+			let data = std::fs::read(&ogg).unwrap();
+			let decoded = decode_opus_file(ogg.to_str().unwrap()).unwrap().count() as u64;
+			let _ = std::fs::remove_file(&wav);
+			let _ = std::fs::remove_file(&ogg);
+
+			assert_eq!(&data[28..36], b"OpusHead");
+			assert_eq!(data[37], 2, "stereo, as recorded");
+			let pre_skip = u16::from_le_bytes([data[38], data[39]]) as u64;
+
+			let (mut pos, mut pages, mut last) = (0, 0, (0u8, 0i64));
+			while pos < data.len() {
+				assert_eq!(&data[pos..pos + 4], b"OggS");
+				let flags = data[pos + 5];
+				let granule = i64::from_le_bytes(data[pos + 6..pos + 14].try_into().unwrap());
+				let segs = data[pos + 26] as usize;
+				let lacing = &data[pos + 27..pos + 27 + segs];
+				assert_eq!(flags & 1, 0, "page {pages} continues a packet");
+				assert!(lacing.last().is_some_and(|&l| l < 255), "page {pages} ends mid-packet");
+				assert!(lacing.iter().filter(|&&l| l < 255).count() <= 50, "page {pages} is over a second");
+				last = (flags, granule);
+				pos += 27 + segs + lacing.iter().map(|&l| l as usize).sum::<usize>();
+				pages += 1;
+			}
+			assert_eq!(pos, data.len());
+			assert_eq!(last.0 & 4, 4, "last page ends the stream");
+			assert_eq!(last.1 as u64, pre_skip + total);
+			// Every sample comes back once the decoder's pre-skip is dropped.
+			assert!(decoded >= total * 2, "{decoded} < {}", total * 2);
 		}
 	}
 }
