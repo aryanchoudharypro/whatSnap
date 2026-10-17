@@ -158,6 +158,9 @@ type CheckContactsData struct {
 
 type SetAboutData struct {
 	Text string `json:"text"`
+	// Duration is how long the About shows before it clears, in seconds;
+	// -1 (or leaving it out) keeps it until it's changed.
+	Duration *int `json:"duration,omitempty"`
 }
 
 type SetPushNameData struct {
@@ -166,7 +169,7 @@ type SetPushNameData struct {
 
 type SetPrivacySettingData struct {
 	Name  string `json:"name"`  // groupadd | last | status | profile | readreceipts | online | calladd
-	Value string `json:"value"` // all | contacts | contact_blacklist | none | known | match_last_seen
+	Value string `json:"value"` // all | contacts | none | known | match_last_seen (contact_blacklist goes through set_privacy_list)
 }
 
 // --- Groups ------------------------------------------------------------------

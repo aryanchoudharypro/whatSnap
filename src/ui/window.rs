@@ -1032,18 +1032,10 @@ pub fn bind_input_handlers(
 	let meta_ai_enabled_check_open = parts.settings_dialog.meta_ai_enabled_check.clone();
 	let verbose_logging_check_open = parts.settings_dialog.verbose_backend_logging_check.clone();
 	let name_field_open = parts.settings_dialog.name_field.clone();
-	let about_field_open = parts.settings_dialog.about_field.clone();
-	let last_seen_combo_open = parts.settings_dialog.last_seen_combo.clone();
-	let profile_photo_combo_open = parts.settings_dialog.profile_photo_combo.clone();
-	let about_privacy_combo_open = parts.settings_dialog.about_privacy_combo.clone();
-	let read_receipts_combo_open = parts.settings_dialog.read_receipts_combo.clone();
-	let groups_combo_open = parts.settings_dialog.groups_combo.clone();
-	let calls_combo_open = parts.settings_dialog.calls_combo.clone();
-	let online_combo_open = parts.settings_dialog.online_combo.clone();
+	let settings_parts_open = parts.settings_dialog;
 	let input_device_combo_open = parts.settings_dialog.input_device_combo.clone();
 	let output_device_combo_open = parts.settings_dialog.output_device_combo.clone();
 	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check.clone();
-	let ok_btn_open = parts.settings_dialog.ok_btn.clone();
 	let state_settings_open = state.clone();
 	let pending_shortcuts_open = pending_shortcuts.clone();
 	parts.frame.on_menu_selected(move |evt| {
@@ -1052,7 +1044,7 @@ pub fn bind_input_handlers(
 		}
 		pending_shortcuts_open.borrow_mut().take();
 		use crate::ui::settings_dialog::*;
-		let s = state_settings_open.borrow();
+		let mut s = state_settings_open.borrow_mut();
 		sounds_check.set_value(s.settings.sounds_enabled);
 		notifications_check.set_value(s.settings.notifications_enabled);
 		follow_dnd_check_open.set_value(s.settings.follow_windows_do_not_disturb);
@@ -1064,15 +1056,16 @@ pub fn bind_input_handlers(
 		noise_suppression_check_open.set_value(s.settings.voice_message_noise_suppression);
 
 		name_field_open.set_value(&s.own_push_name);
-		about_field_open.set_value(&s.own_about);
-		let get = |k: &str| s.privacy_settings.get(k).map(|v| v.as_str()).unwrap_or("all");
-		set_combo_from_value(&last_seen_combo_open, VISIBILITY_CHOICES, get("last"));
-		set_combo_from_value(&profile_photo_combo_open, VISIBILITY_CHOICES, get("profile"));
-		set_combo_from_value(&about_privacy_combo_open, VISIBILITY_CHOICES, get("status"));
-		set_combo_from_value(&read_receipts_combo_open, READ_RECEIPTS_CHOICES, get("readreceipts"));
-		set_combo_from_value(&groups_combo_open, VISIBILITY_CHOICES, get("groupadd"));
-		set_combo_from_value(&calls_combo_open, CALL_CHOICES, get("calladd"));
-		set_combo_from_value(&online_combo_open, ONLINE_CHOICES, get("online"));
+		// Everything on the privacy tab is fetched fresh on every open, and
+		// stays disabled until it arrives: a value cached from an earlier
+		// open (or a dropdown's placeholder) may not be what the phone has
+		// set since, and saving it would overwrite the real one.
+		s.own_about_loaded = false;
+		s.privacy_settings_loaded = false;
+		s.privacy_lists.clear();
+		s.privacy_list_edits.clear();
+		settings_parts_open.show_about(None);
+		settings_parts_open.show_privacy(None);
 
 		// Re-enumerated on every open since WASAPI device lists can change
 		// (USB headset plugged/unplugged, etc) while the app is running.
@@ -1087,14 +1080,16 @@ pub fn bind_input_handlers(
 			s.settings.output_device_name.as_deref(),
 		);
 
-		// Until a real response to `get_privacy_settings` lands, the combos
-		// above are showing whatever was cached from a previous load (or, on
-		// first run, the "all"/Everyone placeholder from `get()`'s fallback).
-		// Keep Save disabled so a quick press before the fetch completes
-		// can't silently push that placeholder to the server.
-		ok_btn_open.enable(s.privacy_settings_loaded);
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_own_profile"}).to_string());
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_privacy_settings"}).to_string());
+		for control in settings_parts_open.privacy_controls() {
+			if control.except_btn.is_some() {
+				let payload = serde_json::json!({"action": "get_privacy_list", "data": {"name": control.name}});
+				let _ = s.ws_tx.send(payload.to_string());
+			}
+		}
+		// The excluded-contacts picker offers every contact.
+		let _ = s.ws_tx.send(serde_json::json!({"action": "get_contacts"}).to_string());
 		drop(s);
 		autostart_check.set_value(crate::autostart::is_enabled());
 		settings_dialog.show_modal();
@@ -1290,6 +1285,27 @@ pub fn bind_input_handlers(
 		settings_dialog_cancel.end_modal(wxdragon::id::ID_CANCEL);
 	});
 
+	for control in parts.settings_dialog.privacy_controls() {
+		let Some(except_btn) = control.except_btn else { continue };
+		let settings_parts = parts.settings_dialog;
+		let name = control.name;
+		let find = move || settings_parts.privacy_controls().into_iter().find(|c| c.name == name);
+		// Picking "My Contacts Except..." only enables the button: a combo
+		// fires this for every arrow-key step through it, so opening the
+		// picker from here would pop it up on the way past.
+		control.combo.on_selection_changed(move |_| {
+			if let Some(control) = find() {
+				except_btn.enable(control.is_except());
+			}
+		});
+		let state_except = state.clone();
+		except_btn.on_click(move |_| {
+			if let Some(control) = find() {
+				choose_excluded_contacts(&state_except, settings_parts.dialog, &control);
+			}
+		});
+	}
+
 	let settings_dialog_ok = parts.settings_dialog.dialog;
 	let sounds_check_ok = parts.settings_dialog.sounds_check;
 	let notifications_check_ok = parts.settings_dialog.notifications_check;
@@ -1301,14 +1317,7 @@ pub fn bind_input_handlers(
 	let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check.clone();
 	let verbose_logging_check_ok = parts.settings_dialog.verbose_backend_logging_check.clone();
 	let name_field_ok = parts.settings_dialog.name_field.clone();
-	let about_field_ok = parts.settings_dialog.about_field.clone();
-	let last_seen_combo_ok = parts.settings_dialog.last_seen_combo.clone();
-	let profile_photo_combo_ok = parts.settings_dialog.profile_photo_combo.clone();
-	let about_privacy_combo_ok = parts.settings_dialog.about_privacy_combo.clone();
-	let read_receipts_combo_ok = parts.settings_dialog.read_receipts_combo.clone();
-	let groups_combo_ok = parts.settings_dialog.groups_combo.clone();
-	let calls_combo_ok = parts.settings_dialog.calls_combo.clone();
-	let online_combo_ok = parts.settings_dialog.online_combo.clone();
+	let settings_parts_ok = parts.settings_dialog;
 	let input_device_combo_ok = parts.settings_dialog.input_device_combo.clone();
 	let output_device_combo_ok = parts.settings_dialog.output_device_combo.clone();
 	let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check.clone();
@@ -1317,6 +1326,31 @@ pub fn bind_input_handlers(
 	parts.settings_dialog.ok_btn.on_click(move |_| {
 		use crate::ui::settings_dialog::*;
 		let mut s = state_settings_save.borrow_mut();
+		// "My Contacts Except..." needs someone to exclude: checked before
+		// anything is saved, so Save either saves everything or nothing.
+		if s.privacy_settings_loaded {
+			for control in settings_parts_ok.privacy_controls() {
+				let already_except = s.privacy_settings.get(control.name).map(String::as_str) == Some(EXCEPT_VALUE);
+				if control.is_except() && !already_except && !s.privacy_list_edits.contains_key(control.name) {
+					drop(s);
+					MessageDialog::builder(
+						&settings_dialog_ok,
+						&format!(
+							"Choose the contacts excluded from {} first, with the button under it.",
+							control.label
+						),
+						"Settings",
+					)
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+					.build()
+					.show_modal();
+					if let Some(btn) = control.except_btn {
+						btn.set_focus();
+					}
+					return;
+				}
+			}
+		}
 		if let Some(keymap) = pending_shortcuts.borrow_mut().take() {
 			keymap.apply(&frame_shortcuts_save);
 			s.settings.shortcuts = keymap.saved();
@@ -1348,26 +1382,42 @@ pub fn bind_input_handlers(
 			let _ =
 				s.ws_tx.send(serde_json::json!({"action": "set_push_name", "data": {"name": new_name}}).to_string());
 		}
-		let new_about = about_field_ok.get_value();
-		if new_about != s.own_about {
-			s.own_about = new_about.clone();
-			let _ = s.ws_tx.send(serde_json::json!({"action": "set_about", "data": {"text": new_about}}).to_string());
+		// The About and privacy settings are only saved once they've loaded,
+		// and only what was changed is sent.
+		if s.own_about_loaded {
+			let new_about = settings_parts_ok.about_field.get_value();
+			let picked = combo_value(&settings_parts_ok.about_duration_combo, ABOUT_DURATION_CHOICES);
+			// A time the dropdown can't show is kept unless another is picked.
+			let duration = if picked == shown_value(ABOUT_DURATION_CHOICES, &s.own_about_duration.to_string()) {
+				s.own_about_duration
+			} else {
+				picked.parse().unwrap_or(-1)
+			};
+			if new_about != s.own_about || duration != s.own_about_duration {
+				s.own_about = new_about.clone();
+				s.own_about_duration = duration;
+				let payload =
+					serde_json::json!({"action": "set_about", "data": {"text": new_about, "duration": duration}});
+				let _ = s.ws_tx.send(payload.to_string());
+			}
 		}
-		for (name, value) in [
-			("last", combo_value(&last_seen_combo_ok, VISIBILITY_CHOICES)),
-			("profile", combo_value(&profile_photo_combo_ok, VISIBILITY_CHOICES)),
-			("status", combo_value(&about_privacy_combo_ok, VISIBILITY_CHOICES)),
-			("readreceipts", combo_value(&read_receipts_combo_ok, READ_RECEIPTS_CHOICES)),
-			("groupadd", combo_value(&groups_combo_ok, VISIBILITY_CHOICES)),
-			("calladd", combo_value(&calls_combo_ok, CALL_CHOICES)),
-			("online", combo_value(&online_combo_ok, ONLINE_CHOICES)),
-		] {
-			if s.privacy_settings.get(name).map(|v| v.as_str()) != Some(value.as_str()) {
-				s.privacy_settings.insert(name.to_string(), value.clone());
-				let _ = s.ws_tx.send(
-					serde_json::json!({"action": "set_privacy_setting", "data": {"name": name, "value": value}})
-						.to_string(),
-				);
+		if s.privacy_settings_loaded {
+			for control in settings_parts_ok.privacy_controls() {
+				let server = s.privacy_settings.get(control.name).cloned().unwrap_or_default();
+				if control.is_except() {
+					// Sent whole; the backend works out who to add and remove.
+					if let Some(jids) = s.privacy_list_edits.get(control.name) {
+						let payload = serde_json::json!({"action": "set_privacy_list", "data": {"name": control.name, "jids": jids}});
+						let _ = s.ws_tx.send(payload.to_string());
+					}
+					continue;
+				}
+				let value = combo_value(&control.combo, control.choices);
+				if value != shown_value(control.choices, &server) {
+					s.privacy_settings.insert(control.name.to_string(), value.clone());
+					let payload = serde_json::json!({"action": "set_privacy_setting", "data": {"name": control.name, "value": value}});
+					let _ = s.ws_tx.send(payload.to_string());
+				}
 			}
 		}
 		let logged_in = s.main_ui_shown;
@@ -4728,4 +4778,70 @@ pub fn bind_input_handlers(
 			event.skip(true);
 		}
 	});
+}
+
+/// Opens the "My Contacts Except..." picker for one privacy setting, starting
+/// from the list as last picked or as the server has it. The choice is kept
+/// until Settings is saved.
+fn choose_excluded_contacts(
+	state: &std::rc::Rc<std::cell::RefCell<crate::AppState>>,
+	dialog: Dialog,
+	control: &crate::ui::settings_dialog::PrivacyControl,
+) {
+	let tell = |message: &str| {
+		MessageDialog::builder(&dialog, message, "Settings")
+			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+			.build()
+			.show_modal();
+	};
+	let start: Result<(Vec<crate::Contact>, Vec<crate::Contact>), String> = {
+		let s = state.borrow();
+		let loaded = s.privacy_lists.get(control.name);
+		let is_except =
+			s.privacy_settings.get(control.name).map(String::as_str) == Some(crate::ui::settings_dialog::EXCEPT_VALUE);
+		let excluded = if let Some(jids) = s.privacy_list_edits.get(control.name) {
+			let known = loaded.and_then(|l| l.as_ref().ok());
+			Ok(jids
+				.iter()
+				.map(|jid| {
+					s.all_contacts
+						.iter()
+						.chain(known.into_iter().flatten())
+						.find(|c| c.jid == *jid)
+						.cloned()
+						.unwrap_or_else(|| crate::Contact {
+							jid: jid.clone(),
+							name: String::new(),
+							phone: String::new(),
+						})
+				})
+				.collect())
+		} else {
+			match loaded {
+				Some(Ok(list)) => Ok(list.clone()),
+				// With no list in use there's nothing to lose by starting
+				// from an empty one; with one in use, an empty start would
+				// drop everyone on it.
+				Some(Err(_)) if !is_except => Ok(Vec::new()),
+				Some(Err(_)) => Err(format!(
+					"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later.",
+					control.label
+				)),
+				None => Err(format!("Still loading who's excluded from {}. Try again in a moment.", control.label)),
+			}
+		};
+		excluded.map(|excluded| (s.all_contacts.clone(), excluded))
+	};
+	let (contacts, excluded) = match start {
+		Ok(start) => start,
+		Err(message) => {
+			tell(&message);
+			return;
+		}
+	};
+	if let Some(jids) =
+		crate::ui::privacy_list_picker::pick_excluded_contacts(&dialog, control.label, &contacts, &excluded)
+	{
+		state.borrow_mut().privacy_list_edits.insert(control.name.to_string(), jids);
+	}
 }

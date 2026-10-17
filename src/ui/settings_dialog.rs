@@ -3,18 +3,48 @@ use wxdragon::prelude::*;
 use crate::{audio_devices::DEFAULT_LABEL, ui::theme};
 
 /// Display label -> wire value pairs for a privacy dropdown, matching the
-/// subset of `types.PrivacySetting` values whatsmeow documents as valid for
-/// that category. "Except specific contacts" isn't offered here since it
-/// needs its own contact picker; only the plain All/Contacts/Nobody-style
-/// choices are exposed.
-pub const VISIBILITY_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("My Contacts", "contacts"), ("Nobody", "none")];
+/// values WhatsApp Web offers for that category (WAWebPrivacySettings).
+/// "My Contacts Except..." comes with its own contact picker.
+pub const VISIBILITY_CHOICES: &[(&str, &str)] =
+	&[("Everyone", "all"), ("My Contacts", "contacts"), ("My Contacts Except...", EXCEPT_VALUE), ("Nobody", "none")];
+/// The wire value of "My Contacts Except...".
+pub const EXCEPT_VALUE: &str = "contact_blacklist";
 pub const READ_RECEIPTS_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("Nobody", "none")];
 pub const ONLINE_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("Same as Last Seen", "match_last_seen")];
 pub const CALL_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("My Contacts", "known")];
+/// How long an About shows before it clears, in seconds: WhatsApp's
+/// text_status_ttl_seconds_allowlist, plus -1 for one that stays.
+pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
+	("Never", "-1"),
+	("30 Minutes", "1800"),
+	("1 Hour", "3600"),
+	("2 Hours", "7200"),
+	("4 Hours", "14400"),
+	("8 Hours", "28800"),
+	("24 Hours", "86400"),
+];
+
+/// One privacy dropdown: the setting's wire name, what it's called, and its
+/// "My Contacts Except..." button for the settings that have one.
+pub struct PrivacyControl {
+	pub name: &'static str,
+	pub label: &'static str,
+	pub combo: ComboBox,
+	pub choices: &'static [(&'static str, &'static str)],
+	pub except_btn: Option<Button>,
+}
+
+impl PrivacyControl {
+	/// Whether the dropdown is on "My Contacts Except...".
+	pub fn is_except(&self) -> bool {
+		self.except_btn.is_some() && combo_value(&self.combo, self.choices) == EXCEPT_VALUE
+	}
+}
 
 /// Every constructed widget is kept here for consistency, matching this
 /// codebase's convention for dialog parts structs.
 #[allow(dead_code)]
+#[derive(Clone, Copy)]
 pub struct SettingsDialogParts {
 	pub dialog: Dialog,
 	pub notebook: Notebook,
@@ -36,11 +66,16 @@ pub struct SettingsDialogParts {
 	pub privacy_panel: Panel,
 	pub name_field: TextCtrl,
 	pub about_field: TextCtrl,
+	pub about_duration_combo: ComboBox,
 	pub last_seen_combo: ComboBox,
+	pub last_seen_except_btn: Button,
 	pub profile_photo_combo: ComboBox,
+	pub profile_photo_except_btn: Button,
 	pub about_privacy_combo: ComboBox,
+	pub about_privacy_except_btn: Button,
 	pub read_receipts_combo: ComboBox,
 	pub groups_combo: ComboBox,
+	pub groups_except_btn: Button,
 	pub calls_combo: ComboBox,
 	pub online_combo: ComboBox,
 
@@ -65,6 +100,17 @@ fn visibility_combo(panel: &Panel, sizer: &BoxSizer, label: &str, choices: &[(&s
 	combo.set_selection(0);
 	sizer.add(&combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 	combo
+}
+
+/// The "Choose Excluded Contacts..." button under a dropdown that has
+/// "My Contacts Except...". It's named for its setting, since a screen reader
+/// reads buttons on their own.
+fn except_button(panel: &Panel, sizer: &BoxSizer, setting: &str) -> Button {
+	let btn = Button::builder(panel).with_label(&format!("Choose Contacts Excluded From {}...", setting)).build();
+	btn.set_font(&theme::Fonts::body());
+	btn.enable(false);
+	sizer.add(&btn, 0, SizerFlag::Left | SizerFlag::Bottom, 8);
+	btn
 }
 
 pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
@@ -152,14 +198,23 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let about_field = TextCtrl::builder(&privacy_panel).build();
 	about_field.set_font(&theme::Fonts::body());
 	privacy_sizer.add(&about_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+	let about_duration_combo =
+		visibility_combo(&privacy_panel, &privacy_sizer, "Clear About After", ABOUT_DURATION_CHOICES);
 
-	let last_seen_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Last Seen & Online", VISIBILITY_CHOICES);
-	let profile_photo_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Profile Photo", VISIBILITY_CHOICES);
-	let about_privacy_combo = visibility_combo(&privacy_panel, &privacy_sizer, "About", VISIBILITY_CHOICES);
+	let last_seen_combo =
+		visibility_combo(&privacy_panel, &privacy_sizer, "Who Can See My Last Seen", VISIBILITY_CHOICES);
+	let last_seen_except_btn = except_button(&privacy_panel, &privacy_sizer, "Last Seen");
+	let online_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can See When I'm Online", ONLINE_CHOICES);
+	let profile_photo_combo =
+		visibility_combo(&privacy_panel, &privacy_sizer, "Who Can See My Profile Photo", VISIBILITY_CHOICES);
+	let profile_photo_except_btn = except_button(&privacy_panel, &privacy_sizer, "Profile Photo");
+	let about_privacy_combo =
+		visibility_combo(&privacy_panel, &privacy_sizer, "Who Can See My About", VISIBILITY_CHOICES);
+	let about_privacy_except_btn = except_button(&privacy_panel, &privacy_sizer, "About");
 	let read_receipts_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Read Receipts", READ_RECEIPTS_CHOICES);
 	let groups_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Add Me to Groups", VISIBILITY_CHOICES);
+	let groups_except_btn = except_button(&privacy_panel, &privacy_sizer, "Groups");
 	let calls_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Call Me", CALL_CHOICES);
-	let online_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Online", ONLINE_CHOICES);
 
 	privacy_panel.set_sizer(privacy_sizer, true);
 
@@ -248,11 +303,16 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		privacy_panel,
 		name_field,
 		about_field,
+		about_duration_combo,
 		last_seen_combo,
+		last_seen_except_btn,
 		profile_photo_combo,
+		profile_photo_except_btn,
 		about_privacy_combo,
+		about_privacy_except_btn,
 		read_receipts_combo,
 		groups_combo,
+		groups_except_btn,
 		calls_combo,
 		online_combo,
 		audio_panel,
@@ -286,11 +346,72 @@ pub fn device_combo_value(combo: &ComboBox) -> Option<String> {
 }
 
 /// Sets a ReadOnly combo box's selection to whichever choice's wire value
-/// matches `value`, defaulting to the first choice if there's no match
-/// (e.g. the setting hasn't loaded from the server yet).
+/// matches `value`, defaulting to the first choice if there's no match.
 pub fn set_combo_from_value(combo: &ComboBox, choices: &[(&str, &str)], value: &str) {
 	let idx = choices.iter().position(|(_, v)| *v == value).unwrap_or(0);
 	combo.set_selection(idx as u32);
+}
+
+/// The wire value a combo shows for `value`: `value` itself, or the first
+/// choice when it isn't one of them. Saving compares against this, so a
+/// setting the dropdown can't show is only sent if the user picks another.
+pub fn shown_value<'a>(choices: &[(&'a str, &'a str)], value: &str) -> &'a str {
+	choices.iter().find(|(_, v)| *v == value).unwrap_or(&choices[0]).1
+}
+
+impl SettingsDialogParts {
+	pub fn privacy_controls(&self) -> [PrivacyControl; 7] {
+		let control =
+			|name, label, combo, choices, except_btn| PrivacyControl { name, label, combo, choices, except_btn };
+		[
+			control("last", "Last Seen", self.last_seen_combo, VISIBILITY_CHOICES, Some(self.last_seen_except_btn)),
+			control("online", "Online", self.online_combo, ONLINE_CHOICES, None),
+			control(
+				"profile",
+				"Profile Photo",
+				self.profile_photo_combo,
+				VISIBILITY_CHOICES,
+				Some(self.profile_photo_except_btn),
+			),
+			control(
+				"status",
+				"About",
+				self.about_privacy_combo,
+				VISIBILITY_CHOICES,
+				Some(self.about_privacy_except_btn),
+			),
+			control("readreceipts", "Read Receipts", self.read_receipts_combo, READ_RECEIPTS_CHOICES, None),
+			control("groupadd", "Groups", self.groups_combo, VISIBILITY_CHOICES, Some(self.groups_except_btn)),
+			control("calladd", "Calls", self.calls_combo, CALL_CHOICES, None),
+		]
+	}
+
+	/// Shows the privacy settings as the server has them, or, with None,
+	/// disables the dropdowns until they arrive, so nothing is shown (or
+	/// saved) that isn't the real setting.
+	pub fn show_privacy(&self, settings: Option<&std::collections::HashMap<String, String>>) {
+		for control in self.privacy_controls() {
+			if let Some(settings) = settings {
+				let value = settings.get(control.name).map(String::as_str).unwrap_or("");
+				set_combo_from_value(&control.combo, control.choices, value);
+			}
+			control.combo.enable(settings.is_some());
+			if let Some(btn) = control.except_btn {
+				btn.enable(settings.is_some() && control.is_except());
+			}
+		}
+	}
+
+	/// Shows the About and how long it lasts, or, with None, disables them
+	/// until the real one arrives.
+	pub fn show_about(&self, about: Option<(&str, i64)>) {
+		if let Some((text, duration)) = about {
+			self.about_field.set_value(text);
+			set_combo_from_value(&self.about_duration_combo, ABOUT_DURATION_CHOICES, &duration.to_string());
+		}
+		self.about_field.enable(about.is_some());
+		self.about_duration_combo.enable(about.is_some());
+	}
 }
 
 /// The wire value for a ReadOnly combo box's current selection.

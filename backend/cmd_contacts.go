@@ -217,10 +217,15 @@ func handleSetAbout(raw json.RawMessage) {
 		// (WAWebTextStatusUtils.TEXT_STATUS_DURATION_INFINITE). 0 is not: the
 		// server takes it as "default" and stores 24h, which is what made
 		// every About set from here vanish after a day. 24h stays only as a
-		// fallback in case the server refuses -1.
-		input := types.SetStatusInput{Text: &data.Text, Duration: jsontime.SInt(-1)}
+		// fallback in case the server refuses -1. Anything else is one of
+		// the times WhatsApp offers (text_status_ttl_seconds_allowlist).
+		duration := -1
+		if data.Duration != nil && *data.Duration > 0 {
+			duration = *data.Duration
+		}
+		input := types.SetStatusInput{Text: &data.Text, Duration: jsontime.SInt(duration)}
 		err := wa().SetStatusMessage(context.Background(), input)
-		if err != nil {
+		if err != nil && duration == -1 {
 			log.Printf("Setting a permanent About failed (%v), retrying with a 24h expiry", err)
 			input.Duration = jsontime.S(24 * time.Hour)
 			err = wa().SetStatusMessage(context.Background(), input)

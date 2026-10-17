@@ -538,12 +538,22 @@ struct AppState {
 	conversation_data_links: Vec<whantv::Msg>,
 	own_push_name: String,
 	own_about: String,
+	/// How long the About lasts, in seconds; -1 is until it's changed.
+	own_about_duration: i64,
+	/// Whether `own_about` came from the server since Settings was last
+	/// opened. Until then the About can't be edited or saved.
+	own_about_loaded: bool,
 	privacy_settings: std::collections::HashMap<String, String>,
-	/// Whether `privacy_settings` reflects a real server response yet. Until
-	/// this is true the settings dialog's Save button stays disabled, so a
-	/// user who presses it before the fetch lands can't silently overwrite
-	/// their real privacy settings with the dropdowns' placeholder defaults.
+	/// Whether `privacy_settings` came from the server since Settings was
+	/// last opened. Until then the privacy dropdowns are disabled and Save
+	/// leaves the privacy settings alone, so a dropdown's placeholder can
+	/// never overwrite the real setting.
 	privacy_settings_loaded: bool,
+	/// Who each "My Contacts Except..." setting leaves out, fetched when
+	/// Settings opens: missing until it arrives, Err if it couldn't be.
+	privacy_lists: std::collections::HashMap<String, Result<Vec<Contact>, String>>,
+	/// Lists picked in Settings, sent when it's saved.
+	privacy_list_edits: std::collections::HashMap<String, Vec<String>>,
 }
 
 fn main() {
@@ -846,8 +856,12 @@ fn main() {
 			conversation_data_links: Vec::new(),
 			own_push_name: String::new(),
 			own_about: String::new(),
+			own_about_duration: -1,
+			own_about_loaded: false,
 			privacy_settings: std::collections::HashMap::new(),
 			privacy_settings_loaded: false,
+			privacy_lists: std::collections::HashMap::new(),
+			privacy_list_edits: std::collections::HashMap::new(),
 			group_state: crate::ui::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),

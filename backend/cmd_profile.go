@@ -19,19 +19,34 @@ func handleGetOwnProfile(conn net.Conn) {
 		}
 		myJID := wa().Store.ID.ToNonAD()
 		about := ""
+		aboutDuration := -1
+		aboutLoaded := false
 		// GetUserInfo's Status comes from the legacy usync <status/> node,
 		// which the server stops keeping in sync with SetStatusMessage's
 		// newer mex mutation - GetTextStatus is the read-side counterpart
 		// of that mutation and is the only reliable way to get a fresh
 		// value.
-		if status, err := wa().GetTextStatus(context.Background(), myJID); err == nil && status != nil {
-			about = status.Text
+		if status, err := wa().GetTextStatus(context.Background(), myJID); err == nil {
+			// No entry at all is an empty About, not a failure.
+			aboutLoaded = true
+			if status != nil {
+				about = status.Text
+				if status.EphemeralDurationSec > 0 {
+					aboutDuration = status.EphemeralDurationSec
+				}
+			}
 		}
-		sendEvent(conn, "own_profile", map[string]interface{}{
+		profile := map[string]interface{}{
 			"jid":      myJID.String(),
 			"pushName": wa().Store.PushName,
-			"about":    about,
-		})
+		}
+		// Without the real About, the settings dialog leaves it alone
+		// rather than show (and then save) an empty one.
+		if aboutLoaded {
+			profile["about"] = about
+			profile["aboutDuration"] = aboutDuration
+		}
+		sendEvent(conn, "own_profile", profile)
 	}()
 }
 

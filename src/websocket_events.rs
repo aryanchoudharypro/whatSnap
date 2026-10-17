@@ -3511,69 +3511,75 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if let Some(push_name) = data.get("pushName").and_then(|p| p.as_str()) {
 							s.own_push_name = push_name.to_string();
 						}
-						if let Some(about) = data.get("about").and_then(|a| a.as_str()) {
+						// Only sent when the backend could read the About; a reply
+						// to a name change carries just the name.
+						let about_arrived = if let Some(about) = data.get("about").and_then(|a| a.as_str()) {
 							s.own_about = about.to_string();
-						}
+							s.own_about_duration = data.get("aboutDuration").and_then(|d| d.as_i64()).unwrap_or(-1);
+							s.own_about_loaded = true;
+							true
+						} else {
+							false
+						};
 						let push_name = s.own_push_name.clone();
-						let about = s.own_about.clone();
+						let about = (s.own_about.clone(), s.own_about_duration);
 						drop(s);
 						if parts.settings_dialog.dialog.is_shown() {
 							parts.settings_dialog.name_field.set_value(&push_name);
-							parts.settings_dialog.about_field.set_value(&about);
+							if about_arrived {
+								parts.settings_dialog.show_about(Some((&about.0, about.1)));
+							}
 						}
 					}
 				}
 				"privacy_settings" => {
 					if let Some(data) = val.get("data") {
 						let mut s = state.borrow_mut();
-						for (key, ptr) in [
-							("groupadd", "groupadd"),
-							("last", "last"),
-							("status", "status"),
-							("profile", "profile"),
-							("readreceipts", "readreceipts"),
-							("online", "online"),
-							("calladd", "calladd"),
-						] {
+						for key in ["groupadd", "last", "status", "profile", "readreceipts", "online", "calladd"] {
 							if let Some(v) = data.get(key).and_then(|v| v.as_str()) {
-								s.privacy_settings.insert(ptr.to_string(), v.to_string());
+								s.privacy_settings.insert(key.to_string(), v.to_string());
 							}
 						}
 						s.privacy_settings_loaded = true;
 						let privacy_settings = s.privacy_settings.clone();
 						drop(s);
 						if parts.settings_dialog.dialog.is_shown() {
-							use crate::ui::settings_dialog::*;
-							parts.settings_dialog.ok_btn.enable(true);
-							let get = |k: &str| privacy_settings.get(k).map(|s| s.as_str()).unwrap_or("all");
-							set_combo_from_value(
-								&parts.settings_dialog.last_seen_combo,
-								VISIBILITY_CHOICES,
-								get("last"),
-							);
-							set_combo_from_value(
-								&parts.settings_dialog.profile_photo_combo,
-								VISIBILITY_CHOICES,
-								get("profile"),
-							);
-							set_combo_from_value(
-								&parts.settings_dialog.about_privacy_combo,
-								VISIBILITY_CHOICES,
-								get("status"),
-							);
-							set_combo_from_value(
-								&parts.settings_dialog.read_receipts_combo,
-								READ_RECEIPTS_CHOICES,
-								get("readreceipts"),
-							);
-							set_combo_from_value(
-								&parts.settings_dialog.groups_combo,
-								VISIBILITY_CHOICES,
-								get("groupadd"),
-							);
-							set_combo_from_value(&parts.settings_dialog.calls_combo, CALL_CHOICES, get("calladd"));
-							set_combo_from_value(&parts.settings_dialog.online_combo, ONLINE_CHOICES, get("online"));
+							parts.settings_dialog.show_privacy(Some(&privacy_settings));
 						}
+					}
+				}
+				"privacy_list" => {
+					if let Some(data) = val.get("data") {
+						let Some(name) = data.get("name").and_then(|n| n.as_str()) else { return };
+						let list: Result<Vec<Contact>, String> = match data.get("error").and_then(|e| e.as_str()) {
+							Some(err) => Err(err.to_string()),
+							None => Ok(data
+								.get("entries")
+								.and_then(|e| e.as_array())
+								.map(|entries| {
+									entries
+										.iter()
+										.filter_map(|entry| {
+											let field = |k: &str| {
+												entry.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string()
+											};
+											let jid = field("jid");
+											(!jid.is_empty()).then(|| Contact {
+												jid,
+												name: field("name"),
+												phone: field("phone"),
+											})
+										})
+										.collect()
+								})
+								.unwrap_or_default()),
+						};
+						let mut s = state.borrow_mut();
+						// A fresh list after a save replaces what was picked.
+						if list.is_ok() {
+							s.privacy_list_edits.remove(name);
+						}
+						s.privacy_lists.insert(name.to_string(), list);
 					}
 				}
 				kind @ ("message_status" | "receipt") => {

@@ -159,6 +159,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleGetPrivacySettings(conn)
 	case "set_privacy_setting":
 		handleSetPrivacySetting(cmd.Data)
+	case "get_privacy_list":
+		handleGetPrivacyList(conn, cmd.Data)
+	case "set_privacy_list":
+		handleSetPrivacyList(cmd.Data)
 
 	// --- groups ---
 	case "create_group":
