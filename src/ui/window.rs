@@ -1633,7 +1633,14 @@ pub fn bind_input_handlers(
 		let full_name = format!("{} {}", name, surname).trim().to_string();
 		let sync = sync_check.get_value();
 		dlg.end_modal(wxdragon::id::ID_OK);
-		let _ = tx_new_contact.send(UiCommand::NewContact { name: full_name, phone: clean_phone, sync });
+		// The number goes as typed: without a + it's read as one from your own
+		// country, as WhatsApp's own add-contact form does.
+		let _ = tx_new_contact.send(UiCommand::NewContact {
+			name: full_name,
+			first_name: name,
+			phone: phone.trim().to_string(),
+			sync,
+		});
 	});
 
 	let tx_prepare = ui_tx.clone();

@@ -16,6 +16,9 @@ pub enum UiCommand {
 	ExitApp,
 	NewContact {
 		name: String,
+		first_name: String,
+		/// As typed, keeping a leading + (or 00) so the backend can tell an
+		/// international number from one of your own country.
 		phone: String,
 		sync: bool,
 	},

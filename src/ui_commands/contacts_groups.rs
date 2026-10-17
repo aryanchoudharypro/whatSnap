@@ -81,6 +81,7 @@ pub(crate) fn new_contact(
 	state: &Rc<RefCell<AppState>>,
 	_parts: &Rc<WindowParts>,
 	name: String,
+	first_name: String,
 	phone: String,
 	sync: bool,
 ) {
@@ -89,6 +90,7 @@ pub(crate) fn new_contact(
 		"data": {
 			"phone": phone,
 			"name": name,
+			"first_name": first_name,
 			"sync": sync
 		}
 	});

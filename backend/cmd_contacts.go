@@ -247,18 +247,33 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		var digits []rune
-		for _, r := range data.Phone {
-			if r >= '0' && r <= '9' {
-				digits = append(digits, r)
-			}
+		var candidates []string
+		for _, c := range phoneCandidates(data.Phone, ownCallingCode()) {
+			candidates = append(candidates, "+"+c)
 		}
-		phone := string(digits)
-		resp, err := wa().IsOnWhatsApp(context.Background(), []string{phone})
-		if err != nil || len(resp) == 0 || !resp[0].IsIn {
+		if len(candidates) == 0 {
 			sendEvent(conn, "new_contact_status", map[string]interface{}{"status": "error", "error": "Not on WhatsApp or query failed"})
 			return
 		}
+		results, err := wa().IsOnWhatsApp(context.Background(), candidates)
+		var found *types.IsOnWhatsAppResponse
+		for _, candidate := range candidates {
+			for i := range results {
+				if results[i].IsIn && results[i].Query == candidate {
+					found = &results[i]
+					break
+				}
+			}
+			if found != nil {
+				break
+			}
+		}
+		if err != nil || found == nil {
+			sendEvent(conn, "new_contact_status", map[string]interface{}{"status": "error", "error": "Not on WhatsApp or query failed"})
+			return
+		}
+		resp := []types.IsOnWhatsAppResponse{*found}
+		phone := strings.TrimPrefix(resp[0].Query, "+")
 		jid := resp[0].JID
 		err = wa().Store.Contacts.PutContactName(context.Background(), jid, data.Name, data.Name)
 		if err != nil {
@@ -301,7 +316,11 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 		// contact was already created successfully above either way, so a
 		// failure here is only logged, not surfaced as an error to the user.
 		if data.Sync {
-			if syncErr := syncContactToPhone(pnJID, lidJID, data.Name); syncErr != nil {
+			firstName := data.FirstName
+			if firstName == "" {
+				firstName = data.Name
+			}
+			if syncErr := syncContactToPhone(pnJID, lidJID, data.Name, firstName); syncErr != nil {
 				log.Printf("Contact sync (app-state) failed for %s: %v", jid, syncErr)
 			}
 		}
@@ -327,7 +346,7 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 // IsOnWhatsApp (queried with addressing_mode=lid, its primary .JID is
 // typically already the LID form, not the phone number - .PhoneNumber holds
 // the actual PN JID). Either may be the zero JID if unknown.
-func syncContactToPhone(pnJID, lidJID types.JID, name string) error {
+func syncContactToPhone(pnJID, lidJID types.JID, name, firstName string) error {
 	if pnJID.IsEmpty() && lidJID.IsEmpty() {
 		return fmt.Errorf("no known jid to sync contact under")
 	}
@@ -335,7 +354,7 @@ func syncContactToPhone(pnJID, lidJID types.JID, name string) error {
 	newMutation := func(index types.JID, includeLidField bool) appstate.MutationInfo {
 		action := &waSyncAction.ContactAction{
 			FullName:                 proto.String(name),
-			FirstName:                proto.String(name),
+			FirstName:                proto.String(firstName),
 			SaveOnPrimaryAddressbook: proto.Bool(true),
 		}
 		if includeLidField && !lidJID.IsEmpty() {
@@ -370,34 +389,149 @@ func vCardEscape(s string) string {
 	return r.Replace(s)
 }
 
-// buildVCard renders a minimal WhatsApp-compatible vCard 3.0 for a contact,
-// matching the shape official WhatsApp clients send in a ContactMessage.
-func buildVCard(name, phone, jid string) string {
-	displayName := name
-	if displayName == "" {
-		displayName = phone
+// callingCodeOf is the calling code a number in international digits starts
+// with ("44" for "447700900123"), or "" when none matches.
+func callingCodeOf(digits string) string {
+	for n := 3; n >= 1; n-- {
+		if len(digits) > n {
+			if _, ok := callingCodeRegions[digits[:n]]; ok {
+				return digits[:n]
+			}
+		}
 	}
-	waid := phone
-	if waid == "" {
-		waid = strings.SplitN(jid, "@", 2)[0]
-	}
-	telValue := waid
-	if telValue != "" {
-		telValue = "+" + telValue
-	}
-	return fmt.Sprintf("BEGIN:VCARD\nVERSION:3.0\nFN:%s\nTEL;type=CELL;type=VOICE;waid=%s:%s\nEND:VCARD",
-		vCardEscape(displayName), waid, telValue)
+	return ""
 }
 
-// contactDisplayInfo resolves a contact jid to (name, phone) using the local
-// contacts cache, falling back to the jid's own user part as the phone when
-// nothing better is known.
-func contactDisplayInfo(jidStr string) (name, phone string) {
-	db.QueryRow(`SELECT COALESCE(name, ''), COALESCE(phone, '') FROM contacts_cache WHERE jid = ?`, jidStr).Scan(&name, &phone)
-	if phone == "" {
-		phone = strings.SplitN(jidStr, "@", 2)[0]
+// ownCallingCode is the calling code of our own number, which a number typed
+// without one is taken to be from.
+func ownCallingCode() string {
+	if wa().Store.ID == nil {
+		return ""
 	}
-	return name, phone
+	return callingCodeOf(wa().Store.ID.User)
+}
+
+// phoneCandidates are the ways a typed number can be read, most likely first,
+// as WhatsApp's own add-contact form reads it with the country picker on your
+// own country. A + or 00 prefix means the number is already international;
+// otherwise it's your country's number (its national trunk 0 dropped) or, as
+// before, the digits as typed. WhatsApp itself says which one is registered.
+func phoneCandidates(typed, ownCode string) []string {
+	typed = strings.TrimSpace(typed)
+	var digits strings.Builder
+	for _, r := range typed {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+	d := digits.String()
+	if d == "" {
+		return nil
+	}
+	switch {
+	case strings.HasPrefix(typed, "+"):
+		return []string{d}
+	case strings.HasPrefix(d, "00"):
+		return []string{d[2:]}
+	}
+	var out []string
+	if ownCode != "" {
+		local := strings.TrimLeft(d, "0")
+		if !strings.HasPrefix(d, ownCode) || len(d) <= len(ownCode)+7 {
+			out = append(out, ownCode+local)
+		}
+	}
+	if len(out) == 0 || out[0] != d {
+		out = append(out, d)
+	}
+	return out
+}
+
+// formatPhone shows international digits as a contact card does: the
+// calling code apart from the rest ("+44 7700900123").
+func formatPhone(digits string) string {
+	if code := callingCodeOf(digits); code != "" {
+		return "+" + code + " " + digits[len(code):]
+	}
+	return "+" + digits
+}
+
+// sharedContact is what a shared contact card says about someone.
+type sharedContact struct {
+	name       string
+	phone      string // international digits, "" when their number is hidden from us
+	lid        string // their LID's user part, used only when there's no number
+	isBusiness bool
+}
+
+// buildVCard renders a contact card the way WhatsApp Web does
+// (WAWebFrontendVcardUtils vcardFromContactModel): N and FN, the number as a
+// waid TEL, or the LID when the number isn't known, and the business name
+// for a business.
+func buildVCard(c sharedContact) string {
+	display := c.name
+	if display == "" {
+		display = formatPhone(c.phone)
+	}
+	first, last := display, ""
+	if i := strings.IndexByte(display, ' '); i > 0 {
+		first, last = display[:i], strings.TrimSpace(display[i+1:])
+	}
+	lines := []string{"BEGIN:VCARD", "VERSION:3.0", "N:" + vCardEscape(last) + ";" + vCardEscape(first) + ";;;", "FN:" + vCardEscape(display)}
+	switch {
+	case c.phone != "":
+		lines = append(lines, "TEL;type=CELL;waid="+c.phone+":"+formatPhone(c.phone))
+	case c.lid != "":
+		lines = append(lines, "X-WA-LID:"+c.lid)
+	}
+	if c.isBusiness {
+		lines = append(lines, "X-WA-BIZ-NAME:"+vCardEscape(display))
+	}
+	return strings.Join(append(lines, "END:VCARD"), "\n")
+}
+
+// contactToShare resolves a contact's name, number and kind from the
+// local contacts cache. A contact known by their LID gets their number
+// from the LID mapping, as WhatsApp Web does: the LID itself is no phone
+// number.
+func contactToShare(jidStr string) sharedContact {
+	var c sharedContact
+	jid, err := types.ParseJID(jidStr)
+	if err != nil {
+		return c
+	}
+	pn, lid := jid, types.JID{}
+	if jid.Server == types.HiddenUserServer {
+		lid, pn = jid, types.JID{}
+		if mapped, err := wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil {
+			pn = mapped
+		}
+	}
+	keys := []string{jid.ToNonAD().String()}
+	if !pn.IsEmpty() && pn.ToNonAD() != jid.ToNonAD() {
+		keys = append(keys, pn.ToNonAD().String())
+	}
+	for _, key := range keys {
+		var name, phone string
+		var business bool
+		if db.QueryRow(`SELECT COALESCE(name, ''), COALESCE(phone, ''), COALESCE(is_business, 0) FROM contacts_cache WHERE jid = ?`, key).
+			Scan(&name, &phone, &business) == nil {
+			if c.name == "" {
+				c.name = name
+			}
+			if c.phone == "" {
+				c.phone = strings.TrimPrefix(phone, "+")
+			}
+			c.isBusiness = c.isBusiness || business
+		}
+	}
+	if c.phone == "" && !pn.IsEmpty() {
+		c.phone = pn.User
+	}
+	if c.phone == "" && !lid.IsEmpty() {
+		c.lid = lid.User
+	}
+	return c
 }
 
 func handleSendContacts(conn net.Conn, raw json.RawMessage) {
@@ -416,14 +550,14 @@ func handleSendContacts(conn net.Conn, raw json.RawMessage) {
 		vcards := make([]*waE2E.ContactMessage, 0, len(data.ContactJIDs))
 		names := make([]string, 0, len(data.ContactJIDs))
 		for _, cjid := range data.ContactJIDs {
-			name, phone := contactDisplayInfo(cjid)
-			display := name
+			c := contactToShare(cjid)
+			display := c.name
 			if display == "" {
-				display = phone
+				display = formatPhone(c.phone)
 			}
 			vcards = append(vcards, &waE2E.ContactMessage{
 				DisplayName: proto.String(display),
-				Vcard:       proto.String(buildVCard(name, phone, cjid)),
+				Vcard:       proto.String(buildVCard(c)),
 			})
 			names = append(names, display)
 		}
@@ -437,9 +571,9 @@ func handleSendContacts(conn net.Conn, raw json.RawMessage) {
 			msg = &waE2E.Message{ContactMessage: vcards[0]}
 			displayText = "[Contact] " + names[0]
 		} else {
-			arrayDisplayName := fmt.Sprintf("%d contacts", len(vcards))
+			// WhatsApp Web sends only the cards (WAWebGenerateMultiVcardMessageProto);
+			// receivers title them themselves.
 			msg = &waE2E.Message{ContactsArrayMessage: &waE2E.ContactsArrayMessage{
-				DisplayName: proto.String(arrayDisplayName),
 				Contacts:    vcards,
 				ContextInfo: ctxInfo,
 			}}

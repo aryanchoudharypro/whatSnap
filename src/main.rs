@@ -1255,8 +1255,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::CreateGroup { name, participants } => {
 			ui_commands::contacts_groups::create_group(state, parts, name, participants)
 		}
-		UiCommand::NewContact { name, phone, sync } => {
-			ui_commands::contacts_groups::new_contact(state, parts, name, phone, sync)
+		UiCommand::NewContact { name, first_name, phone, sync } => {
+			ui_commands::contacts_groups::new_contact(state, parts, name, first_name, phone, sync)
 		}
 		UiCommand::PrepareAttachContact => ui_commands::attachments::prepare_attach_contact(state, parts),
 		UiCommand::SendContacts(jids) => ui_commands::attachments::send_contacts(state, parts, jids),
