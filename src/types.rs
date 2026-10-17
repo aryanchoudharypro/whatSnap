@@ -64,6 +64,8 @@ pub enum UiCommand {
 	OpenPollDialog,
 	/// "Sticker" in the attach menu: pick a sticker to send.
 	OpenStickerPicker,
+	/// "GIF" in the attach menu: search Giphy and send one.
+	OpenGifSearch,
 	/// The context menu of a row in the Status tab.
 	ShowStatusMenu(usize),
 	/// The Conversations filter dropdown changed.

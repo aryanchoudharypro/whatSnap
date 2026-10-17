@@ -52,6 +52,9 @@ pub struct Settings {
 	/// Menu shortcuts the user changed, by action id; see [`crate::keymap`].
 	/// Anything not listed keeps its default.
 	pub shortcuts: std::collections::BTreeMap<String, String>,
+	/// The user's own Giphy API key, for the attach menu's GIF search. Empty
+	/// until they enter one there.
+	pub giphy_api_key: String,
 }
 
 impl Default for Settings {
@@ -71,6 +74,7 @@ impl Default for Settings {
 			archived_alert_levels: std::collections::HashMap::new(),
 			verbose_backend_logging: false,
 			shortcuts: std::collections::BTreeMap::new(),
+			giphy_api_key: String::new(),
 		}
 	}
 }

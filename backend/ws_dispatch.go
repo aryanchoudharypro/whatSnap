@@ -359,6 +359,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleRequestHistorySync(cmd.Data)
 	case "request_message_resend":
 		handleRequestMessageResend(cmd.Data)
+	case "search_gifs":
+		handleSearchGifs(conn, cmd.Data)
+	case "fetch_gif":
+		handleFetchGif(conn, cmd.Data)
 	case "create_call_link":
 		handleCreateCallLink(conn, cmd.Data)
 	case "join_call_link":
