@@ -15,6 +15,9 @@ pub struct CallWindowParts {
 	pub mute_btn: Button,
 	pub camera_btn: Button,
 	pub add_participant_btn: Button,
+	pub raise_hand_btn: Button,
+	pub react_btn: Button,
+	pub screen_share_btn: Button,
 	pub leave_btn: Button,
 	pub devices_panel: Panel,
 	pub input_device_combo: ComboBox,
@@ -55,6 +58,17 @@ pub fn build_call_window() -> CallWindowParts {
 	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
 	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	add_participant_btn.show(false);
+
+	// Shown once the call connects, like add_participant_btn.
+	let raise_hand_btn = Button::builder(&btn_panel).with_label("Raise hand").build();
+	btn_sizer.add(&raise_hand_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	raise_hand_btn.show(false);
+	let react_btn = Button::builder(&btn_panel).with_label("React...").build();
+	btn_sizer.add(&react_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	react_btn.show(false);
+	let screen_share_btn = Button::builder(&btn_panel).with_label("Share screen").build();
+	btn_sizer.add(&screen_share_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	screen_share_btn.show(false);
 
 	let leave_btn = Button::builder(&btn_panel).with_label("Leave call").build();
 	btn_sizer.add(&leave_btn, 1, SizerFlag::Expand | SizerFlag::Left, 5);
@@ -98,6 +112,9 @@ pub fn build_call_window() -> CallWindowParts {
 		mute_btn,
 		camera_btn,
 		add_participant_btn,
+		raise_hand_btn,
+		react_btn,
+		screen_share_btn,
 		leave_btn,
 		devices_panel,
 		input_device_combo,

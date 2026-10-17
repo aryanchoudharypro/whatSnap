@@ -79,6 +79,13 @@ pub enum UiCommand {
 	ManageChatLists,
 	/// Enter on one of contact info's groups in common.
 	OpenCommonGroup(usize),
+	/// Call > "Create Call Link..." and "Join Call Link...".
+	CreateCallLink,
+	AskCallLink,
+	/// The call window's "Raise hand", "React..." and "Share screen".
+	ToggleCallHand,
+	CallReact,
+	ToggleScreenShare,
 	/// "Event" in the attach menu: create an event in the chat.
 	OpenEventDialog,
 	/// `V` on a message: vote in it if it's a poll, answer it if it's an event.
@@ -459,6 +466,13 @@ pub(crate) struct CallVideo {
 	/// toggle. Never set for an incoming call (those always answer
 	/// camera-off, see [[video_calls_work_status]] Phase 1).
 	pub(crate) autostart_camera: bool,
+	/// Whether our hand is raised.
+	pub(crate) hand_raised: bool,
+	/// Whether we're sharing our screen, and so whether the video sender is
+	/// on the screen instead of the camera.
+	pub(crate) screen_sharing: bool,
+	/// People in a call link's waiting room we've already asked about.
+	pub(crate) admit_asked: Vec<String>,
 }
 
 /// "connected", "outgoing", "ringing", "invited" or "rejected".

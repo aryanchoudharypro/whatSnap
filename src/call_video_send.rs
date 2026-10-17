@@ -47,6 +47,14 @@ const TARGET_WIDTH: u32 = 1280;
 const TARGET_HEIGHT: u32 = 720;
 const TARGET_FPS: u32 = 30;
 const TARGET_BITRATE: u32 = 1_500_000;
+/// Screen sharing sends fewer frames: what's on a screen changes far less
+/// often than a face, and every frame is a full-screen GDI copy.
+const SCREEN_FPS: u64 = 15;
+
+/// The "device" that makes the sender capture the main screen instead of a
+/// camera (`set_device` with it starts a screen share, any other name goes
+/// back to that camera).
+pub(crate) const SCREEN_SOURCE: &str = "\u{1}screen";
 
 pub(crate) fn log_line(msg: &str) {
 	let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
@@ -169,7 +177,9 @@ fn run(
 }
 
 struct Session {
-	reader: IMFSourceReader,
+	/// The camera's reader, or None when sharing the screen.
+	reader: Option<IMFSourceReader>,
+	screen: Option<screen::ScreenGrabber>,
 	encoder: IMFTransform,
 	codec_api: ICodecAPI,
 	tcp: TcpStream,
@@ -243,13 +253,9 @@ fn build_video_type(
 	}
 }
 
-fn open_session(target_port: u16, device_name: Option<&str>) -> anyhow::Result<Session> {
-	let Some(symbolic_link) = video_devices::resolve_camera_symbolic_link(device_name) else {
-		anyhow::bail!("no camera available");
-	};
-
+fn open_reader(symbolic_link: &str) -> anyhow::Result<IMFSourceReader> {
 	unsafe {
-		let source = activate_camera_source(&symbolic_link)?;
+		let source = activate_camera_source(symbolic_link)?;
 
 		let mut reader_attrs: Option<windows::Win32::Media::MediaFoundation::IMFAttributes> = None;
 		MFCreateAttributes(&mut reader_attrs, 1)?;
@@ -259,7 +265,21 @@ fn open_session(target_port: u16, device_name: Option<&str>) -> anyhow::Result<S
 
 		let capture_type = build_video_type(&MFVideoFormat_NV12, |_| Ok(()))?;
 		reader.SetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32, None, &capture_type)?;
+		Ok(reader)
+	}
+}
 
+fn open_session(target_port: u16, device_name: Option<&str>) -> anyhow::Result<Session> {
+	let (reader, screen, symbolic_link) = if device_name == Some(SCREEN_SOURCE) {
+		(None, Some(screen::ScreenGrabber::new(TARGET_WIDTH, TARGET_HEIGHT)?), SCREEN_SOURCE.to_string())
+	} else {
+		let Some(symbolic_link) = video_devices::resolve_camera_symbolic_link(device_name) else {
+			anyhow::bail!("no camera available");
+		};
+		(Some(open_reader(&symbolic_link)?), None, symbolic_link)
+	};
+
+	unsafe {
 		let encoder: IMFTransform =
 			CoCreateInstance(&windows::Win32::Media::MediaFoundation::CLSID_MSH264EncoderMFT, None, CLSCTX_ALL)?;
 
@@ -283,7 +303,7 @@ fn open_session(target_port: u16, device_name: Option<&str>) -> anyhow::Result<S
 
 		let tcp = connect_with_retry(target_port)?;
 
-		Ok(Session { reader, encoder, codec_api, tcp, opened_symbolic_link: symbolic_link })
+		Ok(Session { reader, screen, encoder, codec_api, tcp, opened_symbolic_link: symbolic_link })
 	}
 }
 
@@ -345,24 +365,51 @@ fn encode_loop(
 		{
 			let current_pref = preferred_device.lock().unwrap().clone();
 			// Reopen if the explicit selection changed underneath us.
+			let on_screen = session.opened_symbolic_link == SCREEN_SOURCE;
 			let device_matches = match &current_pref {
+				Some(name) if name == SCREEN_SOURCE => on_screen,
 				Some(name) => {
 					video_devices::resolve_camera_symbolic_link(Some(name)).as_deref()
 						== Some(session.opened_symbolic_link.as_str())
 				}
-				None => true,
+				None => !on_screen,
 			};
 			if !device_matches {
 				return;
 			}
 		}
 
+		let Some(reader) = &session.reader else {
+			// Sharing the screen: one frame per tick, timed by us.
+			let Some(screen) = session.screen.as_mut() else { return };
+			std::thread::sleep(screen.until_next_frame(SCREEN_FPS));
+			let captured = match screen.grab(SCREEN_FPS) {
+				Ok(sample) => sample,
+				Err(e) => {
+					log_line(&format!("Screen capture error (reopening): {e}"));
+					return;
+				}
+			};
+			if force_keyframe.swap(false, Ordering::Relaxed) {
+				let _ = unsafe { session.codec_api.SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &VARIANT::from(true)) };
+			}
+			if let Err(e) = unsafe { session.encoder.ProcessInput(0, &captured, 0) } {
+				log_line(&format!("ProcessInput error (reopening): {e}"));
+				return;
+			}
+			if let Err(e) = drain_encoder_output(session) {
+				log_line(&format!("Encoder output error (reopening): {e}"));
+				return;
+			}
+			continue;
+		};
+
 		let mut stream_index = 0u32;
 		let mut flags = 0u32;
 		let mut timestamp = 0i64;
 		let mut sample: Option<IMFSample> = None;
 		let read_result = unsafe {
-			session.reader.ReadSample(
+			reader.ReadSample(
 				MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32,
 				0,
 				Some(&mut stream_index),
@@ -447,4 +494,177 @@ fn send_sample(session: &mut Session, sample: &IMFSample) -> anyhow::Result<()> 
 		written?;
 	}
 	Ok(())
+}
+
+/// The main screen as NV12 frames, scaled (keeping its shape) into the
+/// call's frame size with GDI: a DIB section the screen is StretchBlt'd
+/// into, converted by hand. The primary monitor only.
+mod screen {
+	use std::time::{Duration, Instant};
+
+	use windows::Win32::{
+		Graphics::Gdi::{
+			BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
+			DeleteDC, DeleteObject, GdiFlush, GetDC, HALFTONE, HBITMAP, HDC, HGDIOBJ, PatBlt, ReleaseDC, SRCCOPY,
+			SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt,
+		},
+		Media::MediaFoundation::{IMFSample, MFCreateMemoryBuffer, MFCreateSample},
+		UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN},
+	};
+
+	pub(super) struct ScreenGrabber {
+		width: u32,
+		height: u32,
+		screen_dc: HDC,
+		mem_dc: HDC,
+		bitmap: HBITMAP,
+		old: HGDIOBJ,
+		bits: *const u8,
+		frames: u64,
+		started: Instant,
+	}
+
+	impl ScreenGrabber {
+		pub(super) fn new(width: u32, height: u32) -> anyhow::Result<Self> {
+			unsafe {
+				let screen_dc = GetDC(None);
+				if screen_dc.is_invalid() {
+					anyhow::bail!("couldn't get the screen");
+				}
+				let mem_dc = CreateCompatibleDC(Some(screen_dc));
+				let info = BITMAPINFO {
+					bmiHeader: BITMAPINFOHEADER {
+						biSize: size_of::<BITMAPINFOHEADER>() as u32,
+						biWidth: width as i32,
+						// Negative: rows top to bottom.
+						biHeight: -(height as i32),
+						biPlanes: 1,
+						biBitCount: 32,
+						biCompression: BI_RGB.0,
+						..Default::default()
+					},
+					..Default::default()
+				};
+				let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+				let bitmap = match CreateDIBSection(Some(mem_dc), &info, DIB_RGB_COLORS, &mut bits, None, 0) {
+					Ok(bitmap) if !bits.is_null() => bitmap,
+					_ => {
+						let _ = DeleteDC(mem_dc);
+						ReleaseDC(None, screen_dc);
+						anyhow::bail!("couldn't make a bitmap for the screen");
+					}
+				};
+				let old = SelectObject(mem_dc, bitmap.into());
+				SetStretchBltMode(mem_dc, HALFTONE);
+				let _ = SetBrushOrgEx(mem_dc, 0, 0, None);
+				Ok(Self {
+					width,
+					height,
+					screen_dc,
+					mem_dc,
+					bitmap,
+					old,
+					bits: bits as *const u8,
+					frames: 0,
+					started: Instant::now(),
+				})
+			}
+		}
+
+		pub(super) fn until_next_frame(&self, fps: u64) -> Duration {
+			let due = Duration::from_micros(self.frames * 1_000_000 / fps);
+			due.saturating_sub(self.started.elapsed())
+		}
+
+		pub(super) fn grab(&mut self, fps: u64) -> anyhow::Result<IMFSample> {
+			let (w, h) = (self.width as i32, self.height as i32);
+			unsafe {
+				let sw = GetSystemMetrics(SM_CXSCREEN).max(1);
+				let sh = GetSystemMetrics(SM_CYSCREEN).max(1);
+				// Fit the screen in the frame, bars where its shape differs.
+				let (mut dw, mut dh) = (w, (sh as i64 * w as i64 / sw as i64) as i32);
+				if dh > h {
+					dh = h;
+					dw = (sw as i64 * h as i64 / sh as i64) as i32;
+				}
+				let (dx, dy) = ((w - dw) / 2, (h - dh) / 2);
+				if dw != w || dh != h {
+					let _ = PatBlt(self.mem_dc, 0, 0, w, h, BLACKNESS);
+				}
+				if !StretchBlt(self.mem_dc, dx, dy, dw, dh, Some(self.screen_dc), 0, 0, sw, sh, SRCCOPY).as_bool() {
+					anyhow::bail!("couldn't copy the screen");
+				}
+				let _ = GdiFlush();
+
+				let len = (self.width * self.height * 3 / 2) as usize;
+				let buffer = MFCreateMemoryBuffer(len as u32)?;
+				let mut ptr: *mut u8 = std::ptr::null_mut();
+				buffer.Lock(&mut ptr, None, None)?;
+				let bgra = std::slice::from_raw_parts(self.bits, (self.width * self.height * 4) as usize);
+				bgra_to_nv12(bgra, std::slice::from_raw_parts_mut(ptr, len), self.width as usize, self.height as usize);
+				buffer.Unlock()?;
+				buffer.SetCurrentLength(len as u32)?;
+
+				let sample = MFCreateSample()?;
+				sample.AddBuffer(&buffer)?;
+				let duration = 10_000_000 / fps as i64;
+				sample.SetSampleTime(self.frames as i64 * duration)?;
+				sample.SetSampleDuration(duration)?;
+				self.frames += 1;
+				Ok(sample)
+			}
+		}
+	}
+
+	impl Drop for ScreenGrabber {
+		fn drop(&mut self) {
+			unsafe {
+				SelectObject(self.mem_dc, self.old);
+				let _ = DeleteObject(self.bitmap.into());
+				let _ = DeleteDC(self.mem_dc);
+				ReleaseDC(None, self.screen_dc);
+			}
+		}
+	}
+
+	/// BT.601 limited range, as the camera path's NV12 is: a Y per pixel,
+	/// then a U/V pair per 2x2 block from the block's average colour.
+	fn bgra_to_nv12(bgra: &[u8], out: &mut [u8], width: usize, height: usize) {
+		let (luma, chroma) = out.split_at_mut(width * height);
+		for (i, px) in bgra.chunks_exact(4).enumerate() {
+			let (b, g, r) = (px[0] as i32, px[1] as i32, px[2] as i32);
+			luma[i] = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16) as u8;
+		}
+		for y in (0..height).step_by(2) {
+			for x in (0..width).step_by(2) {
+				let (mut r, mut g, mut b) = (0i32, 0i32, 0i32);
+				for (dy, dx) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+					let o = ((y + dy).min(height - 1) * width + (x + dx).min(width - 1)) * 4;
+					b += bgra[o] as i32;
+					g += bgra[o + 1] as i32;
+					r += bgra[o + 2] as i32;
+				}
+				let (r, g, b) = (r / 4, g / 4, b / 4);
+				let o = (y / 2) * width + x;
+				chroma[o] = (((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128) as u8;
+				chroma[o + 1] = (((112 * r - 94 * g - 18 * b + 128) >> 8) + 128) as u8;
+			}
+		}
+	}
+
+	#[cfg(test)]
+	mod tests {
+		use super::bgra_to_nv12;
+
+		#[test]
+		fn white_and_black() {
+			let white = [255u8; 2 * 2 * 4];
+			let mut out = [0u8; 6];
+			bgra_to_nv12(&white, &mut out, 2, 2);
+			assert_eq!(out, [235, 235, 235, 235, 128, 128]);
+			let black = [0u8; 2 * 2 * 4];
+			bgra_to_nv12(&black, &mut out, 2, 2);
+			assert_eq!(out, [16, 16, 16, 16, 128, 128]);
+		}
+	}
 }

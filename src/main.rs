@@ -1354,6 +1354,11 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ChooseChatLists(jid) => ui_commands::chat_lists::choose_lists(state, parts, jid),
 		UiCommand::ManageChatLists => ui_commands::chat_lists::manage_lists(state, parts),
 		UiCommand::OpenCommonGroup(idx) => ui_commands::chat_lists::open_common_group(state, parts, idx),
+		UiCommand::CreateCallLink => ui_commands::call_extras::create_call_link(state, parts),
+		UiCommand::AskCallLink => ui_commands::call_extras::ask_call_link(state, parts),
+		UiCommand::ToggleCallHand => ui_commands::call_extras::toggle_hand(state, parts),
+		UiCommand::CallReact => ui_commands::call_extras::react(state, parts),
+		UiCommand::ToggleScreenShare => ui_commands::call_extras::toggle_screen_share(state, parts),
 		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
 		UiCommand::SendPoll { question, options, multiple_answers, correct_answer } => {

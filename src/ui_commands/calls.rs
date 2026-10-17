@@ -53,6 +53,7 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 		peer_camera_on: Some(false),
 		local_camera_on: false,
 		autostart_camera: video,
+		..Default::default()
 	};
 	parts.call_parts.frame.set_title(call_window_title(is_group, video));
 	if is_group {
@@ -71,6 +72,7 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 	// Shown by call_connected - WhatsApp only accepts an invite into an
 	// established call, so offering it while ringing just fails.
 	parts.call_parts.add_participant_btn.show(false);
+	crate::ui_commands::call_extras::hide_call_buttons(parts);
 	parts.call_parts.leave_btn.show(true);
 	parts.call_parts.frame.show(true);
 	drop(s);
@@ -223,6 +225,22 @@ pub(crate) fn set_call_camera_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	let Some(call_id) = s.active_call_id.clone() else { return };
+
+	// While the screen is shared the video sender is on the screen; the
+	// camera choice waits for the share to stop.
+	if s.call_video.screen_sharing {
+		s.call_video.local_camera_on = !s.call_video.local_camera_on;
+		let on = s.call_video.local_camera_on;
+		parts.call_parts.camera_btn.set_label(if on { "Turn camera off" } else { "Turn camera on" });
+		drop(s);
+		let message = if on {
+			"Your camera turns on when you stop sharing your screen."
+		} else {
+			"Your camera stays off when you stop sharing your screen."
+		};
+		announce_call(parts, message);
+		return;
+	}
 
 	if s.call_video.local_camera_on {
 		s.active_call_video_send = None;

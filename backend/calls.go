@@ -260,6 +260,7 @@ func attachCallHandlers(call *meowcaller.Call) {
 			"call_id": call.ID(),
 		})
 	})
+	attachCallExtras(call)
 }
 
 func initCallClient() {

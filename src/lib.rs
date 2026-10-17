@@ -2279,11 +2279,14 @@ pub enum WhatsAppLink {
 	Invite { code: String },
 	/// Look at (and maybe follow) a channel from its invite code.
 	Channel { code: String },
+	/// Join a call from its call link: call.whatsapp.com/voice/<token>, or
+	/// /audio/ as whatsapp-rust and meowcaller write it.
+	Call { token: String, video: bool },
 }
 
 /// Understands whatsapp://send, whatsapp://chat?code=, wa.me/<number>,
-/// api.whatsapp.com/send, web.whatsapp.com/send and chat.whatsapp.com/<code>
-/// links. Returns None for anything else.
+/// api.whatsapp.com/send, web.whatsapp.com/send, chat.whatsapp.com/<code>
+/// and call.whatsapp.com/<voice|video>/<token> links. Returns None for anything else.
 pub fn parse_whatsapp_link(link: &str) -> Option<WhatsAppLink> {
 	let link = link.trim().trim_matches('"');
 	let (scheme, rest) = link.split_once("://")?;
@@ -2322,6 +2325,15 @@ pub fn parse_whatsapp_link(link: &str) -> Option<WhatsAppLink> {
 		("http" | "https", "whatsapp.com") if path.starts_with("channel/") => {
 			let code = path["channel/".len()..].split('/').next().unwrap_or("").to_string();
 			(!code.is_empty()).then_some(WhatsAppLink::Channel { code })
+		}
+		("https", "call.whatsapp.com") => {
+			let (media, token) = path.split_once('/')?;
+			let video = match media.to_ascii_lowercase().as_str() {
+				"voice" | "audio" => false,
+				"video" => true,
+				_ => return None,
+			};
+			(!token.is_empty() && !token.contains('/')).then(|| WhatsAppLink::Call { token: token.to_string(), video })
 		}
 		("http" | "https", "chat.whatsapp.com") => {
 			invite(param("code").unwrap_or_else(|| path.strip_prefix("invite/").unwrap_or(path).to_string()))
@@ -2397,6 +2409,16 @@ mod whatsapp_link_tests {
 		);
 		assert_eq!(parse_whatsapp_link("https://www.whatsapp.com/channel/0029VaAbC/123"), channel("0029VaAbC"));
 		assert_eq!(parse_whatsapp_link("https://whatsapp.com/download"), None);
+	}
+
+	#[test]
+	fn call_links() {
+		let call = |t: &str, video| Some(WhatsAppLink::Call { token: t.to_string(), video });
+		assert_eq!(parse_whatsapp_link("https://call.whatsapp.com/voice/AbC123"), call("AbC123", false));
+		assert_eq!(parse_whatsapp_link("https://call.whatsapp.com/audio/AbC123?x=1"), call("AbC123", false));
+		assert_eq!(parse_whatsapp_link("https://call.whatsapp.com/video/AbC123/"), call("AbC123", true));
+		assert_eq!(parse_whatsapp_link("https://call.whatsapp.com/AbC123"), None);
+		assert_eq!(parse_whatsapp_link("https://call.whatsapp.com/fax/AbC123"), None);
 	}
 
 	#[test]

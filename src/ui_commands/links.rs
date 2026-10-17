@@ -51,6 +51,9 @@ pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
+		WhatsAppLink::Call { token, video } => {
+			crate::ui_commands::call_extras::join_call_link(state, parts, token, video);
+		}
 		WhatsAppLink::Invite { code } => {
 			let payload = serde_json::json!({
 				"action": "get_group_link_info",

@@ -1,5 +1,6 @@
 pub(crate) mod attachments;
 pub(crate) mod blocking;
+pub(crate) mod call_extras;
 pub(crate) mod calls;
 pub(crate) mod channel_admin;
 pub(crate) mod chat_list;

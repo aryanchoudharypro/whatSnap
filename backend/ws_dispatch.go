@@ -359,6 +359,18 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleRequestHistorySync(cmd.Data)
 	case "request_message_resend":
 		handleRequestMessageResend(cmd.Data)
+	case "create_call_link":
+		handleCreateCallLink(conn, cmd.Data)
+	case "join_call_link":
+		handleJoinCallLink(cmd.Data)
+	case "raise_hand":
+		handleCallToggle(conn, cmd.Data, "hand")
+	case "call_reaction":
+		handleCallToggle(conn, cmd.Data, "reaction")
+	case "screen_share":
+		handleCallToggle(conn, cmd.Data, "screen")
+	case "admit_call_participant":
+		handleCallToggle(conn, cmd.Data, "admit")
 	case "place_call":
 		handlePlaceCall(cmd.Data)
 	case "answer_call":

@@ -243,6 +243,8 @@ pub const MENU_ID_BLOCKED_CONTACTS: i32 = 6039;
 pub const MENU_ID_PINNED_MESSAGES: i32 = 6040;
 pub const MENU_ID_NEW_COMMUNITY: i32 = 6042;
 pub const MENU_ID_MANAGE_LISTS: i32 = 6043;
+pub const MENU_ID_CREATE_CALL_LINK: i32 = 6044;
+pub const MENU_ID_JOIN_CALL_LINK: i32 = 6045;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
 pub fn build_main_window() -> WindowParts {
@@ -367,6 +369,9 @@ pub fn build_main_window() -> WindowParts {
 			"Mute/unmute the microphone during a call",
 		)
 		.append_item(MENU_ID_CALL_END, &default_menu_label(MENU_ID_CALL_END), "End the active call")
+		.append_separator()
+		.append_item(MENU_ID_CREATE_CALL_LINK, "&Create Call Link...", "Make a link anyone can use to join a call")
+		.append_item(MENU_ID_JOIN_CALL_LINK, "&Join Call Link...", "Join a call from a link someone shared")
 		.build();
 	let menu_bar = MenuBar::builder()
 		.append(account_menu, "&Account")
@@ -819,6 +824,18 @@ pub fn bind_input_handlers(
 	let tx_add_participant = ui_tx.clone();
 	parts.call_parts.add_participant_btn.on_click(move |_| {
 		let _ = tx_add_participant.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::AddCallParticipant));
+	});
+	let tx_raise_hand = ui_tx.clone();
+	parts.call_parts.raise_hand_btn.on_click(move |_| {
+		let _ = tx_raise_hand.send(UiCommand::ToggleCallHand);
+	});
+	let tx_call_react = ui_tx.clone();
+	parts.call_parts.react_btn.on_click(move |_| {
+		let _ = tx_call_react.send(UiCommand::CallReact);
+	});
+	let tx_screen_share = ui_tx.clone();
+	parts.call_parts.screen_share_btn.on_click(move |_| {
+		let _ = tx_screen_share.send(UiCommand::ToggleScreenShare);
 	});
 	let tx_call_camera = ui_tx.clone();
 	let call_camera_combo = parts.call_parts.camera_device_combo.clone();
@@ -1289,6 +1306,10 @@ pub fn bind_input_handlers(
 			let _ = tx_call_menu.send(UiCommand::MuteCall);
 		} else if id == MENU_ID_CALL_END {
 			let _ = tx_call_menu.send(UiCommand::LeaveCall);
+		} else if id == MENU_ID_CREATE_CALL_LINK {
+			let _ = tx_call_menu.send(UiCommand::CreateCallLink);
+		} else if id == MENU_ID_JOIN_CALL_LINK {
+			let _ = tx_call_menu.send(UiCommand::AskCallLink);
 		}
 	});
 

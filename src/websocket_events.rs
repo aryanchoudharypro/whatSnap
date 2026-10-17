@@ -1067,6 +1067,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								});
 								parts.call_parts.leave_btn.show(true);
 								parts.call_parts.add_participant_btn.show(true);
+								crate::ui_commands::call_extras::show_call_buttons(&s, parts);
 								show_call_device_combos(&s, parts);
 								parts.call_parts.frame.show(true);
 								let autostart_camera = s.call_video.autostart_camera;
@@ -1101,11 +1102,17 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							} else {
 								s.active_call_id = Some(call_id.to_string());
 								s.call_participants.clear();
-								s.call_video = CallVideo::default();
+								// call_video was just set up for this call by whatever
+								// placed it (its video flag and the camera autostart),
+								// so it isn't reset here.
 								s.active_call_video_send = None;
 								s.call_video_port = None;
-								let self_phone = data.get("self_phone").and_then(|p| p.as_str()).unwrap_or("");
-								start_call_ringback(&mut s, self_phone);
+								// Joining a call link joins a call already going, with
+								// nobody to ring.
+								if data.get("link").and_then(|l| l.as_bool()) != Some(true) {
+									let self_phone = data.get("self_phone").and_then(|p| p.as_str()).unwrap_or("");
+									start_call_ringback(&mut s, self_phone);
+								}
 							}
 						}
 					}
@@ -1346,11 +1353,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								peer_camera_on: Some(is_video),
 								local_camera_on: false,
 								autostart_camera: false,
+								..Default::default()
 							};
 							parts.call_parts.frame.set_title(call_window_title(is_group, is_video));
 							parts.call_parts.status_label.set_label(&format!("Incoming {}", description));
 							parts.call_parts.accept_btn.show(true);
 							parts.call_parts.reject_btn.show(true);
+							crate::ui_commands::call_extras::hide_call_buttons(parts);
 							parts.call_parts.mute_btn.show(false);
 							parts.call_parts.camera_btn.show(false);
 							parts.call_parts.leave_btn.show(false);
@@ -3058,6 +3067,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				| "status_privacy_saved" => {
 					if let Some(data) = val.get("data") {
 						crate::ui_commands::status_extras::on_event(state, parts, t, data);
+					}
+				}
+				"call_link_created" | "call_hand" | "call_reaction" | "call_screen_share" | "call_waiting_room"
+				| "call_action_done" | "call_action_failed" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::call_extras::on_event(state, parts, t, data);
 					}
 				}
 				"chat_lists" | "favorite_saved" | "list_saved" | "list_deleted" | "list_member_saved"
