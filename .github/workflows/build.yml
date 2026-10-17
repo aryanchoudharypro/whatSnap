@@ -62,14 +62,14 @@ jobs:
         name: whaNTV-windows-setup
         path: dist/whaNTV-*-setup.exe
         if-no-files-found: error
-        retention-days: 30
+        retention-days: 7
     - name: Upload portable zip
       uses: actions/upload-artifact@v7
       with:
         name: whaNTV-windows-portable
         path: dist/whaNTV-*-portable.zip
         if-no-files-found: error
-        retention-days: 30
+        retention-days: 7
     - name: Link the installer in the run summary
       run: |
         echo "Installer: ${{ steps.upload-setup.outputs.artifact-url }}" >> $env:GITHUB_STEP_SUMMARY
