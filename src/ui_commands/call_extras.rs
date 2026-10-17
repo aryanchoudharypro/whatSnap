@@ -1,9 +1,9 @@
 //! Call links (Call > "Create Call Link..." and "Join Call Link...", and
-//! call.whatsapp.com links), and the call window's "Raise hand", "React..."
-//! and "Share screen", plus letting people in from a call link's waiting
-//! room. What the backend answers: `call_link_created`, `call_hand`,
-//! `call_reaction`, `call_screen_share`, `call_waiting_room`,
-//! `call_action_done` and `call_action_failed`.
+//! call.whatsapp.com links), and the call window's "Raise hand" and
+//! "React...", plus letting people in from a call link's waiting room. What
+//! the backend answers: `call_link_created`, `call_hand`, `call_reaction`,
+//! `call_waiting_room`, `call_action_done` and `call_action_failed`. Screen
+//! sharing lives with the camera in `calls.rs`.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -12,7 +12,6 @@ use wxdragon::prelude::*;
 use crate::{
 	AppState, CallVideo,
 	call_helpers::{announce_call, call_window_title},
-	call_video_send,
 	ui::window::WindowParts,
 };
 
@@ -32,24 +31,21 @@ fn this_call(s: &AppState, data: &serde_json::Value) -> bool {
 	s.active_call_id.as_deref() == Some(text(data, "call_id").as_str())
 }
 
-/// Raising a hand and sharing the screen are group call things.
+/// Raising a hand is a group call thing.
 pub(crate) fn show_call_buttons(s: &AppState, parts: &WindowParts) {
 	let group = s.call_video.peer_name.is_none();
 	let c = &parts.call_parts;
 	c.raise_hand_btn.set_label(if s.call_video.hand_raised { "Lower hand" } else { "Raise hand" });
 	c.raise_hand_btn.show(group);
 	c.react_btn.show(true);
-	c.screen_share_btn.set_label(if s.call_video.screen_sharing { "Stop sharing screen" } else { "Share screen" });
-	c.screen_share_btn.show(group);
 	c.frame.layout();
 }
 
-/// Until a call connects there's no hand to raise or screen to share.
+/// Until a call connects there's no hand to raise.
 pub(crate) fn hide_call_buttons(parts: &WindowParts) {
 	let c = &parts.call_parts;
 	c.raise_hand_btn.show(false);
 	c.react_btn.show(false);
-	c.screen_share_btn.show(false);
 }
 
 /// Call > "Create Call Link...": a voice or video link to share.
@@ -126,56 +122,6 @@ pub(crate) fn react(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	announce_call(parts, &format!("You reacted {}.", emoji));
 }
 
-/// "Share screen": the video sender moves to the screen (starting it if
-/// the camera was off), then WhatsApp is told. "Stop sharing screen" moves
-/// it back to the camera, or stops it if the camera wasn't on.
-pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let mut s = state.borrow_mut();
-	let Some(call_id) = s.active_call_id.clone() else { return };
-	if s.call_video.screen_sharing {
-		send(&s, "screen_share", serde_json::json!({ "call_id": call_id, "on": false }));
-		stop_screen_source(&mut s);
-		s.call_video.screen_sharing = false;
-		show_call_buttons(&s, parts);
-		drop(s);
-		announce_call(parts, "You stopped sharing your screen.");
-		return;
-	}
-	let Some(port) = s.call_video_port else {
-		drop(s);
-		announce_call(parts, "Wait for the call to connect.");
-		return;
-	};
-	match &s.active_call_video_send {
-		Some(sender) => sender.set_device(Some(call_video_send::SCREEN_SOURCE.to_string())),
-		None => {
-			let ui_tx = s.ui_tx.clone();
-			s.active_call_video_send =
-				Some(call_video_send::start_video_send(port, Some(call_video_send::SCREEN_SOURCE.to_string()), ui_tx));
-			send(&s, "set_video", serde_json::json!({ "call_id": call_id, "enabled": true }));
-		}
-	}
-	s.call_video.screen_sharing = true;
-	send(&s, "screen_share", serde_json::json!({ "call_id": call_id, "on": true }));
-	show_call_buttons(&s, parts);
-}
-
-/// Puts the video sender back on the camera, or stops it when the camera
-/// wasn't on before sharing.
-fn stop_screen_source(s: &mut AppState) {
-	if s.call_video.local_camera_on {
-		let device = s.settings.camera_device_name.clone();
-		if let Some(sender) = &s.active_call_video_send {
-			sender.set_device(device);
-		}
-	} else {
-		s.active_call_video_send = None;
-		if let Some(call_id) = s.active_call_id.clone() {
-			send(s, "set_video", serde_json::json!({ "call_id": call_id, "enabled": false }));
-		}
-	}
-}
-
 pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t: &str, data: &serde_json::Value) {
 	if t == "call_link_created" {
 		show_call_link(state, parts, text(data, "url"), data.get("video").and_then(|v| v.as_bool()).unwrap_or(false));
@@ -192,11 +138,6 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 			announce_call(parts, &format!("{} {} their hand.", text(data, "name"), verb));
 		}
 		"call_reaction" => announce_call(parts, &format!("{} reacted {}.", text(data, "name"), text(data, "emoji"))),
-		"call_screen_share" => {
-			let active = data.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
-			let what = if active { "is sharing their screen" } else { "stopped sharing their screen" };
-			announce_call(parts, &format!("{} {}.", text(data, "name"), what));
-		}
 		"call_waiting_room" => waiting_room(state, parts, data),
 		"call_action_done" => match text(data, "what").as_str() {
 			"hand" => {
@@ -206,20 +147,9 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 				drop(s);
 				announce_call(parts, if on { "Your hand is raised." } else { "You lowered your hand." });
 			}
-			"screen" if on => announce_call(parts, "You're sharing your screen."),
 			_ => {}
 		},
-		"call_action_failed" => {
-			if text(data, "what") == "screen" {
-				let mut s = state.borrow_mut();
-				if s.call_video.screen_sharing {
-					stop_screen_source(&mut s);
-					s.call_video.screen_sharing = false;
-					show_call_buttons(&s, parts);
-				}
-			}
-			announce_call(parts, &text(data, "message"));
-		}
+		"call_action_failed" => announce_call(parts, &text(data, "message")),
 		_ => {}
 	}
 }

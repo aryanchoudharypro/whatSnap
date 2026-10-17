@@ -84,10 +84,9 @@ pub enum UiCommand {
 	/// Call > "Create Call Link..." and "Join Call Link...".
 	CreateCallLink,
 	AskCallLink,
-	/// The call window's "Raise hand", "React..." and "Share screen".
+	/// The call window's "Raise hand" and "React...".
 	ToggleCallHand,
 	CallReact,
-	ToggleScreenShare,
 	/// "Event" in the attach menu: create an event in the chat.
 	OpenEventDialog,
 	/// `V` on a message: vote in it if it's a poll, answer it if it's an event.
@@ -210,6 +209,8 @@ pub enum UiCommand {
 	LeaveCall,
 	/// Turns the local camera on or off - the button, and Ctrl+Shift+V.
 	ToggleCamera,
+	/// Starts or stops sharing the screen - the button, and Ctrl+Shift+S.
+	ToggleScreenShare,
 	/// `None` means "System Default" (matches Settings' device combos).
 	SetCallInputDevice(Option<String>),
 	SetCallOutputDevice(Option<String>),
@@ -217,6 +218,11 @@ pub enum UiCommand {
 	/// The camera capture/encode thread couldn't open a camera at all (no
 	/// camera present, access denied, etc) - see `call_video_send.rs`.
 	CameraFailed(String),
+	/// The same, for a screen share whose capture couldn't start.
+	ScreenShareFailed(String),
+	/// The shared screen started (`true`) or stopped coming out completely
+	/// black - what a screen reader's screen curtain does to a capture.
+	ScreenShareBlack(bool),
 	/// Windows reported the system default audio input or output device
 	/// changed (headphones plugged/unplugged, a new default picked in
 	/// Windows Settings) - see `audio_device_watch.rs`. Reopens any live
@@ -457,8 +463,9 @@ pub(crate) struct StatusGroup {
 
 /// One other person in a group call, as sent by the backend's
 /// `call_participants` event. `state` is WhatsApp's roster state, e.g.
-/// Video details of the active call. We never send or show video; this only
-/// drives what's announced.
+/// Video details of the active call: what we're sending (camera or screen)
+/// and what's known about the other side, which drives what's announced.
+/// Incoming video is never shown.
 #[derive(Default)]
 pub(crate) struct CallVideo {
 	/// The call was offered as a video call (the backend answers those camera-off).
@@ -470,6 +477,12 @@ pub(crate) struct CallVideo {
 	/// Whether OUR camera is currently on - drives the toggle button/menu
 	/// label and whether `active_call_video_send` should exist.
 	pub(crate) local_camera_on: bool,
+	/// Whether we're sharing the screen. A call has one video stream, so
+	/// this and `local_camera_on` are never both true.
+	pub(crate) local_screen_on: bool,
+	/// The camera was on when the screen share started, so it comes back on
+	/// when the share stops.
+	pub(crate) camera_before_share: bool,
 	/// Set by `PlaceVideoCall` - once this outgoing call connects, the
 	/// camera turns on automatically instead of waiting for an explicit
 	/// toggle. Never set for an incoming call (those always answer
@@ -477,9 +490,6 @@ pub(crate) struct CallVideo {
 	pub(crate) autostart_camera: bool,
 	/// Whether our hand is raised.
 	pub(crate) hand_raised: bool,
-	/// Whether we're sharing our screen, and so whether the video sender is
-	/// on the screen instead of the camera.
-	pub(crate) screen_sharing: bool,
 	/// People in a call link's waiting room we've already asked about.
 	pub(crate) admit_asked: Vec<String>,
 }

@@ -8,8 +8,8 @@ use wxdragon::prelude::*;
 use crate::{
 	AppState, CallVideo,
 	audio::{play_call_fail_sound, stop_call_ringing_sound},
-	call_helpers::{announce_call, call_window_title, local_camera_announcement},
-	call_video_send,
+	call_helpers::{announce_call, call_window_title, local_camera_announcement, local_screen_share_announcement},
+	call_video_send::{self, VideoSource},
 	ui::window::WindowParts,
 };
 
@@ -52,6 +52,8 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 		peer_name: if is_group { None } else { Some(name.clone()) },
 		peer_camera_on: Some(false),
 		local_camera_on: false,
+		local_screen_on: false,
+		camera_before_share: false,
 		autostart_camera: video,
 		..Default::default()
 	};
@@ -69,6 +71,8 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 	// call_connected before the button can do anything, same reasoning as
 	// add_participant_btn below.
 	parts.call_parts.camera_btn.show(false);
+	parts.call_parts.screen_btn.set_label("Share screen");
+	parts.call_parts.screen_btn.show(false);
 	// Shown by call_connected - WhatsApp only accepts an invite into an
 	// established call, so offering it while ringing just fails.
 	parts.call_parts.add_participant_btn.show(false);
@@ -226,30 +230,10 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let mut s = state.borrow_mut();
 	let Some(call_id) = s.active_call_id.clone() else { return };
 
-	// While the screen is shared the video sender is on the screen; the
-	// camera choice waits for the share to stop.
-	if s.call_video.screen_sharing {
-		s.call_video.local_camera_on = !s.call_video.local_camera_on;
-		let on = s.call_video.local_camera_on;
-		parts.call_parts.camera_btn.set_label(if on { "Turn camera off" } else { "Turn camera on" });
-		drop(s);
-		let message = if on {
-			"Your camera turns on when you stop sharing your screen."
-		} else {
-			"Your camera stays off when you stop sharing your screen."
-		};
-		announce_call(parts, message);
-		return;
-	}
-
 	if s.call_video.local_camera_on {
 		s.active_call_video_send = None;
 		s.call_video.local_camera_on = false;
-		let msg = serde_json::json!({
-			"action": "set_video",
-			"data": { "call_id": call_id, "enabled": false }
-		});
-		let _ = s.ws_tx.send(msg.to_string());
+		send_call_toggle(&s, "set_video", &call_id, false);
 		parts.call_parts.camera_btn.set_label("Turn camera on");
 		drop(s);
 		announce_call(parts, local_camera_announcement(false));
@@ -261,19 +245,124 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		announce_call(parts, "The camera isn't ready yet - wait for the call to connect.");
 		return;
 	};
-	let device = s.settings.camera_device_name.clone();
-	let ui_tx = s.ui_tx.clone();
-	let send_state = call_video_send::start_video_send(port, device, ui_tx);
-	s.active_call_video_send = Some(send_state);
-	s.call_video.local_camera_on = true;
-	let msg = serde_json::json!({
-		"action": "set_video",
-		"data": { "call_id": call_id, "enabled": true }
-	});
-	let _ = s.ws_tx.send(msg.to_string());
+	// The call's one video stream goes back to the camera: the share ends,
+	// and video is already on, so there's nothing to turn on.
+	let was_sharing = s.call_video.local_screen_on;
+	start_camera(&mut s, port);
+	if was_sharing {
+		s.call_video.local_screen_on = false;
+		s.call_video.camera_before_share = false;
+		send_call_toggle(&s, "set_screen_share", &call_id, false);
+		parts.call_parts.screen_btn.set_label("Share screen");
+	} else {
+		send_call_toggle(&s, "set_video", &call_id, true);
+	}
 	parts.call_parts.camera_btn.set_label("Turn camera off");
 	drop(s);
-	announce_call(parts, local_camera_announcement(true));
+	announce_call(
+		parts,
+		if was_sharing { local_screen_share_announcement(false, true) } else { local_camera_announcement(true) },
+	);
+}
+
+/// Sends one of the backend's `{call_id, enabled}` call commands.
+fn send_call_toggle(s: &AppState, action: &str, call_id: &str, enabled: bool) {
+	let msg = serde_json::json!({
+		"action": action,
+		"data": { "call_id": call_id, "enabled": enabled }
+	});
+	let _ = s.ws_tx.send(msg.to_string());
+}
+
+/// Points the call's video stream at the camera, replacing whatever session
+/// was sending before.
+fn start_camera(s: &mut AppState, port: u16) {
+	let device = s.settings.camera_device_name.clone();
+	let ui_tx = s.ui_tx.clone();
+	s.active_call_video_send = Some(call_video_send::start_video_send(port, VideoSource::Camera, device, ui_tx));
+	s.call_video.local_camera_on = true;
+}
+
+/// Starts or stops sharing the screen - the button and Ctrl+Shift+S. The
+/// screen takes over the call's video stream from the camera, which comes
+/// back on afterwards if it was on before.
+pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	let Some(call_id) = s.active_call_id.clone() else { return };
+	let Some(port) = s.call_video_port else {
+		drop(s);
+		announce_call(parts, "Screen sharing isn't ready yet - wait for the call to connect.");
+		return;
+	};
+
+	if s.call_video.local_screen_on {
+		let camera_returns = s.call_video.camera_before_share;
+		s.call_video.local_screen_on = false;
+		s.call_video.camera_before_share = false;
+		send_call_toggle(&s, "set_screen_share", &call_id, false);
+		if camera_returns {
+			start_camera(&mut s, port);
+			parts.call_parts.camera_btn.set_label("Turn camera off");
+		} else {
+			s.active_call_video_send = None;
+			send_call_toggle(&s, "set_video", &call_id, false);
+		}
+		parts.call_parts.screen_btn.set_label("Share screen");
+		drop(s);
+		announce_call(parts, local_screen_share_announcement(false, camera_returns));
+		return;
+	}
+
+	let camera_was_on = s.call_video.local_camera_on;
+	let ui_tx = s.ui_tx.clone();
+	s.active_call_video_send = Some(call_video_send::start_video_send(port, VideoSource::Screen, None, ui_tx));
+	s.call_video.local_screen_on = true;
+	s.call_video.local_camera_on = false;
+	s.call_video.camera_before_share = camera_was_on;
+	if !camera_was_on {
+		send_call_toggle(&s, "set_video", &call_id, true);
+	}
+	send_call_toggle(&s, "set_screen_share", &call_id, true);
+	parts.call_parts.screen_btn.set_label("Stop sharing screen");
+	parts.call_parts.camera_btn.set_label("Turn camera on");
+	drop(s);
+	announce_call(parts, local_screen_share_announcement(true, camera_was_on));
+}
+
+/// The capture thread couldn't read the screen at all, so the share never
+/// started - the screen counterpart of `camera_failed`.
+pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, reason: String) {
+	let mut s = state.borrow_mut();
+	if !s.call_video.local_screen_on {
+		return;
+	}
+	s.active_call_video_send = None;
+	s.call_video.local_screen_on = false;
+	s.call_video.camera_before_share = false;
+	if let Some(call_id) = s.active_call_id.clone() {
+		send_call_toggle(&s, "set_screen_share", &call_id, false);
+		send_call_toggle(&s, "set_video", &call_id, false);
+	}
+	parts.call_parts.screen_btn.set_label("Share screen");
+	drop(s);
+	announce_call(parts, &format!("Couldn't share the screen: {reason}"));
+}
+
+/// The screen being shared is reaching the others as a black picture, or has
+/// stopped doing so. Said out loud because nothing else would tell someone
+/// using a screen reader's screen curtain that the curtain is all anyone sees.
+pub(crate) fn screen_share_black(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, black: bool) {
+	if !state.borrow().call_video.local_screen_on {
+		return;
+	}
+	announce_call(
+		parts,
+		if black {
+			"Your screen is being shared as a black picture. If your screen reader's screen curtain is on, turn it off so the others can see your screen."
+		} else {
+			"Your screen is visible to the others now."
+		},
+	);
 }
 
 /// The capture/encode thread couldn't open a camera at all - see
@@ -281,14 +370,15 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 /// fires once, for the very first open attempt.
 pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, reason: String) {
 	let mut s = state.borrow_mut();
+	// A camera session that was already replaced by a screen share reports
+	// nothing worth acting on.
+	if s.call_video.local_screen_on {
+		return;
+	}
 	s.active_call_video_send = None;
 	s.call_video.local_camera_on = false;
 	if let Some(call_id) = s.active_call_id.clone() {
-		let msg = serde_json::json!({
-			"action": "set_video",
-			"data": { "call_id": call_id, "enabled": false }
-		});
-		let _ = s.ws_tx.send(msg.to_string());
+		send_call_toggle(&s, "set_video", &call_id, false);
 	}
 	parts.call_parts.camera_btn.set_label("Turn camera on");
 	drop(s);

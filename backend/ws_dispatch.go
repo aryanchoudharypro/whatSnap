@@ -369,8 +369,6 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleCallToggle(conn, cmd.Data, "hand")
 	case "call_reaction":
 		handleCallToggle(conn, cmd.Data, "reaction")
-	case "screen_share":
-		handleCallToggle(conn, cmd.Data, "screen")
 	case "admit_call_participant":
 		handleCallToggle(conn, cmd.Data, "admit")
 	case "place_call":
@@ -387,6 +385,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleAddParticipant(cmd.Data)
 	case "set_video":
 		handleSetVideo(cmd.Data)
+	case "set_screen_share":
+		handleSetScreenShare(cmd.Data)
 
 	// --- settings (unchanged) ---
 	case "update_settings":

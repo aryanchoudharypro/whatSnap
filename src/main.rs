@@ -15,6 +15,7 @@ mod call_video_send;
 mod chat_ui;
 mod gif_video;
 mod media_foundation;
+mod screen_capture;
 mod video_devices;
 mod video_thumbnail;
 use chat_ui::request_backend_shutdown;
@@ -477,7 +478,8 @@ struct AppState {
 	// every composing stanza WhatsApp resends while the sender keeps typing.
 	typing_announce_state: std::collections::HashMap<String, u8>,
 	active_call_audio: Option<call_audio::CallAudioState>,
-	/// Running only while the local camera is on - see `call_video_send.rs`.
+	/// Running only while the local camera is on or the screen is being
+	/// shared - see `call_video_send.rs`.
 	active_call_video_send: Option<call_video_send::CallVideoSendState>,
 	/// TCP port `call_connected` handed us for the video bridge - what
 	/// `active_call_video_send` connects to when the camera is turned on.
@@ -1362,7 +1364,6 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::AskCallLink => ui_commands::call_extras::ask_call_link(state, parts),
 		UiCommand::ToggleCallHand => ui_commands::call_extras::toggle_hand(state, parts),
 		UiCommand::CallReact => ui_commands::call_extras::react(state, parts),
-		UiCommand::ToggleScreenShare => ui_commands::call_extras::toggle_screen_share(state, parts),
 		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
 		UiCommand::SendPoll { question, options, multiple_answers, correct_answer } => {
@@ -1397,6 +1398,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::LeaveCall => ui_commands::calls::leave_call(state, parts),
 		UiCommand::ToggleCamera => ui_commands::calls::toggle_camera(state, parts),
 		UiCommand::CameraFailed(reason) => ui_commands::calls::camera_failed(state, parts, reason),
+		UiCommand::ToggleScreenShare => ui_commands::calls::toggle_screen_share(state, parts),
+		UiCommand::ScreenShareFailed(reason) => ui_commands::calls::screen_share_failed(state, parts, reason),
+		UiCommand::ScreenShareBlack(black) => ui_commands::calls::screen_share_black(state, parts, black),
 		UiCommand::FilterGroupMembers(query) => ui_commands::contacts_groups::filter_group_members(state, parts, query),
 		UiCommand::GroupMemberSelectionChanged => {
 			ui_commands::contacts_groups::group_member_selection_changed(state, parts)

@@ -169,6 +169,30 @@ pub(crate) fn local_camera_announcement(on: bool) -> &'static str {
 	if on { "Camera on." } else { "Camera off." }
 }
 
+/// What to announce when someone else in a group call starts or stops
+/// sharing their screen. Incoming video isn't shown, so this is all there is
+/// to it.
+pub(crate) fn peer_screen_share_announcement(name: &str, active: bool) -> String {
+	let who = if name.is_empty() { "Someone" } else { name };
+	if active {
+		format!("{} started sharing their screen.", who)
+	} else {
+		format!("{} stopped sharing their screen.", who)
+	}
+}
+
+/// What to announce when OUR OWN screen share starts or stops. A call has one
+/// video stream, so the camera going off or coming back on with the share
+/// is said in the same breath (`camera_changed`).
+pub(crate) fn local_screen_share_announcement(sharing: bool, camera_changed: bool) -> &'static str {
+	match (sharing, camera_changed) {
+		(true, false) => "Sharing your screen.",
+		(true, true) => "Sharing your screen. Camera off.",
+		(false, false) => "Stopped sharing your screen.",
+		(false, true) => "Stopped sharing your screen. Camera on.",
+	}
+}
+
 /// mic/speaker pickers and shows them, once a call has actually connected.
 pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 	use crate::ui::settings_dialog::set_device_combo;
@@ -259,6 +283,14 @@ mod call_participant_tests {
 			Some("Asha wants to switch to video, but this app can't show incoming video yet.")
 		);
 		assert_eq!(peer_video_announcement("bogus", None, Some("Asha")), None);
+	}
+
+	#[test]
+	fn screen_share_announcements_name_the_sharer_and_the_camera() {
+		assert_eq!(peer_screen_share_announcement("Asha", true), "Asha started sharing their screen.");
+		assert_eq!(peer_screen_share_announcement("", false), "Someone stopped sharing their screen.");
+		assert_eq!(local_screen_share_announcement(true, true), "Sharing your screen. Camera off.");
+		assert_eq!(local_screen_share_announcement(false, false), "Stopped sharing your screen.");
 	}
 
 	#[test]

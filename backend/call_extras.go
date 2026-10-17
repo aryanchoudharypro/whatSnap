@@ -6,14 +6,13 @@ import (
 	"errors"
 	"log"
 	"net"
-	"time"
 
 	"github.com/purpshell/meowcaller"
 	"go.mau.fi/whatsmeow/types"
 )
 
-// Call links, raising a hand, reactions, screen sharing and a call link's
-// waiting room, all of which meowcaller does; this is the IPC around them.
+// Call links, raising a hand, reactions, others' screen shares and a call
+// link's waiting room, all of which meowcaller does; this is the IPC around them.
 
 type CallLinkData struct {
 	Link  string `json:"link"`
@@ -160,20 +159,6 @@ func handleCallToggle(conn net.Conn, raw json.RawMessage, what string) {
 			err = call.SetHandRaised(data.On)
 		case "reaction":
 			err = call.SendReaction(data.Emoji)
-		case "screen":
-			if data.On {
-				// The frontend turns video on just before asking for this
-				// when the camera was off, and the video plane can take a
-				// moment to open.
-				for try := 0; try < 10; try++ {
-					if err = call.StartScreenShare(nil); !errors.Is(err, meowcaller.ErrScreenShareNeedsVideo) {
-						break
-					}
-					time.Sleep(300 * time.Millisecond)
-				}
-			} else {
-				err = call.StopScreenShare()
-			}
 		case "admit":
 			if data.On {
 				err = call.AdmitParticipant(context.Background(), data.JID)
@@ -182,14 +167,7 @@ func handleCallToggle(conn net.Conn, raw json.RawMessage, what string) {
 			}
 		}
 		if err != nil {
-			message := err.Error()
-			switch {
-			case errors.Is(err, meowcaller.ErrScreenShareNeedsGroupCall):
-				message = "Screen sharing works in group calls."
-			case errors.Is(err, meowcaller.ErrScreenShareNeedsVideo):
-				message = "Screen sharing needs a video call with your video on."
-			}
-			sendEvent(conn, "call_action_failed", map[string]string{"call_id": data.CallID, "what": what, "message": message})
+			sendEvent(conn, "call_action_failed", map[string]string{"call_id": data.CallID, "what": what, "message": err.Error()})
 			return
 		}
 		sendEvent(conn, "call_action_done", map[string]interface{}{"call_id": data.CallID, "what": what, "on": data.On})

@@ -14,10 +14,10 @@ pub struct CallWindowParts {
 	pub reject_btn: Button,
 	pub mute_btn: Button,
 	pub camera_btn: Button,
+	pub screen_btn: Button,
 	pub add_participant_btn: Button,
 	pub raise_hand_btn: Button,
 	pub react_btn: Button,
-	pub screen_share_btn: Button,
 	pub leave_btn: Button,
 	pub devices_panel: Panel,
 	pub input_device_combo: ComboBox,
@@ -55,6 +55,11 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_sizer.add(&camera_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	camera_btn.show(false);
 
+	// Ctrl+Shift+S also toggles this.
+	let screen_btn = Button::builder(&btn_panel).with_label("Share screen").build();
+	btn_sizer.add(&screen_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	screen_btn.show(false);
+
 	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
 	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	add_participant_btn.show(false);
@@ -66,9 +71,6 @@ pub fn build_call_window() -> CallWindowParts {
 	let react_btn = Button::builder(&btn_panel).with_label("React...").build();
 	btn_sizer.add(&react_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	react_btn.show(false);
-	let screen_share_btn = Button::builder(&btn_panel).with_label("Share screen").build();
-	btn_sizer.add(&screen_share_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
-	screen_share_btn.show(false);
 
 	let leave_btn = Button::builder(&btn_panel).with_label("Leave call").build();
 	btn_sizer.add(&leave_btn, 1, SizerFlag::Expand | SizerFlag::Left, 5);
@@ -111,10 +113,10 @@ pub fn build_call_window() -> CallWindowParts {
 		reject_btn,
 		mute_btn,
 		camera_btn,
+		screen_btn,
 		add_participant_btn,
 		raise_hand_btn,
 		react_btn,
-		screen_share_btn,
 		leave_btn,
 		devices_panel,
 		input_device_combo,

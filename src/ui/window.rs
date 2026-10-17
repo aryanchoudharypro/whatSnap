@@ -862,6 +862,10 @@ pub fn bind_input_handlers(
 	parts.call_parts.camera_btn.on_click(move |_| {
 		let _ = tx_camera.send(UiCommand::ToggleCamera);
 	});
+	let tx_screen = ui_tx.clone();
+	parts.call_parts.screen_btn.on_click(move |_| {
+		let _ = tx_screen.send(UiCommand::ToggleScreenShare);
+	});
 	let tx_call_input = ui_tx.clone();
 	let call_input_combo = parts.call_parts.input_device_combo.clone();
 	parts.call_parts.input_device_combo.on_selection_changed(move |_| {
@@ -885,10 +889,6 @@ pub fn bind_input_handlers(
 	let tx_call_react = ui_tx.clone();
 	parts.call_parts.react_btn.on_click(move |_| {
 		let _ = tx_call_react.send(UiCommand::CallReact);
-	});
-	let tx_screen_share = ui_tx.clone();
-	parts.call_parts.screen_share_btn.on_click(move |_| {
-		let _ = tx_screen_share.send(UiCommand::ToggleScreenShare);
 	});
 	let tx_call_camera = ui_tx.clone();
 	let call_camera_combo = parts.call_parts.camera_device_combo.clone();
@@ -923,15 +923,24 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// Ctrl+Shift+V toggles the camera from anywhere in the call window,
-	// matching the "Turn camera on/off" button.
+	// Ctrl+Shift+V toggles the camera and Ctrl+Shift+S the screen share from
+	// anywhere in the call window, matching their buttons.
 	let tx_camera_key = ui_tx.clone();
 	parts.call_parts.frame.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
-			if keys::is_letter(key_event.get_key_code(), 'V') && key_event.control_down() && key_event.shift_down() {
-				let _ = tx_camera_key.send(UiCommand::ToggleCamera);
-				event.skip(false);
-				return;
+			if key_event.control_down() && key_event.shift_down() {
+				let command = if keys::is_letter(key_event.get_key_code(), 'V') {
+					Some(UiCommand::ToggleCamera)
+				} else if keys::is_letter(key_event.get_key_code(), 'S') {
+					Some(UiCommand::ToggleScreenShare)
+				} else {
+					None
+				};
+				if let Some(command) = command {
+					let _ = tx_camera_key.send(command);
+					event.skip(false);
+					return;
+				}
 			}
 		}
 		event.skip(true);

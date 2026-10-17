@@ -1076,6 +1076,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								} else {
 									"Turn camera on"
 								});
+								parts.call_parts.screen_btn.show(true);
+								parts.call_parts.screen_btn.set_label(if s.call_video.local_screen_on {
+									"Stop sharing screen"
+								} else {
+									"Share screen"
+								});
 								parts.call_parts.leave_btn.show(true);
 								parts.call_parts.add_participant_btn.show(true);
 								crate::ui_commands::call_extras::show_call_buttons(&s, parts);
@@ -1231,11 +1237,40 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if s.active_call_id.as_deref() != Some(call_id) {
 							return;
 						}
+						let was_sharing = s.call_video.local_screen_on;
 						s.active_call_video_send = None;
 						s.call_video.local_camera_on = false;
+						s.call_video.local_screen_on = false;
+						s.call_video.camera_before_share = false;
+						if was_sharing {
+							let msg = serde_json::json!({
+								"action": "set_screen_share",
+								"data": { "call_id": call_id, "enabled": false }
+							});
+							let _ = s.ws_tx.send(msg.to_string());
+						}
 						parts.call_parts.camera_btn.set_label("Turn camera on");
+						parts.call_parts.screen_btn.set_label("Share screen");
 						drop(s);
-						announce_call(parts, "Couldn't turn the camera on for this call.");
+						announce_call(
+							parts,
+							if was_sharing {
+								"Couldn't share the screen on this call."
+							} else {
+								"Couldn't turn the camera on for this call."
+							},
+						);
+					}
+				}
+				"call_screen_share" => {
+					if let Some(data) = val.get("data") {
+						let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+						let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("");
+						let active = data.get("active").and_then(|a| a.as_bool()).unwrap_or(false);
+						if state.borrow().active_call_id.as_deref() != Some(call_id) {
+							return;
+						}
+						announce_call(parts, &crate::call_helpers::peer_screen_share_announcement(name, active));
 					}
 				}
 				"call_failed" => {
@@ -1363,6 +1398,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								peer_name: if is_group { None } else { Some(name.clone()) },
 								peer_camera_on: Some(is_video),
 								local_camera_on: false,
+								local_screen_on: false,
+								camera_before_share: false,
 								autostart_camera: false,
 								..Default::default()
 							};
@@ -1373,6 +1410,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							crate::ui_commands::call_extras::hide_call_buttons(parts);
 							parts.call_parts.mute_btn.show(false);
 							parts.call_parts.camera_btn.show(false);
+							parts.call_parts.screen_btn.show(false);
 							parts.call_parts.leave_btn.show(false);
 							parts.call_parts.add_participant_btn.show(false);
 							parts.call_parts.devices_panel.show(false);
@@ -3083,8 +3121,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						crate::ui_commands::status_extras::on_event(state, parts, t, data);
 					}
 				}
-				"call_link_created" | "call_hand" | "call_reaction" | "call_screen_share" | "call_waiting_room"
-				| "call_action_done" | "call_action_failed" => {
+				"call_link_created" | "call_hand" | "call_reaction" | "call_waiting_room" | "call_action_done"
+				| "call_action_failed" => {
 					if let Some(data) = val.get("data") {
 						crate::ui_commands::call_extras::on_event(state, parts, t, data);
 					}

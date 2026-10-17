@@ -191,6 +191,7 @@ func attachCallHandlers(call *meowcaller.Call) {
 			delete(activeVideoBridges, call.ID())
 		}
 		activeVideoBridgesMutex.Unlock()
+		forgetScreenShare(call.ID())
 
 		activeAudioBridgesMutex.Lock()
 		if bridge, ok := activeAudioBridges[call.ID()]; ok {
@@ -612,6 +613,117 @@ func handleSetVideo(data []byte) {
 		return
 	}
 	log.Println("Set video for call:", req.CallID, "enabled:", req.Enabled)
+}
+
+// localScreenShare is what whaNTV has told a call about its own screen share.
+type localScreenShare struct {
+	wanted    bool // the user is sharing; cleared when they stop
+	announced bool // the call's other participants were told
+}
+
+var (
+	localScreenShares      = make(map[string]*localScreenShare)
+	localScreenSharesMutex sync.Mutex
+)
+
+func forgetScreenShare(callID string) {
+	localScreenSharesMutex.Lock()
+	delete(localScreenShares, callID)
+	localScreenSharesMutex.Unlock()
+}
+
+// screenShareAnnounceWindow is how long a share waits for the call's video to
+// be accepted before giving up on telling the other participants about it.
+const screenShareAnnounceWindow = 15 * time.Second
+
+// handleSetScreenShare tells a group call that our video is now a screen
+// share, or no longer one. The pictures themselves travel as the call's
+// ordinary video (the frontend sends set_video for that), so this only covers
+// the announcement, and a 1:1 call, which has none, simply shows the screen
+// as our video.
+func handleSetScreenShare(data []byte) {
+	var req struct {
+		CallID  string `json:"call_id"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		log.Println("Invalid set_screen_share format:", err)
+		return
+	}
+
+	activeCallsMutex.Lock()
+	call, exists := activeCalls[req.CallID]
+	activeCallsMutex.Unlock()
+	if !exists {
+		log.Println("Cannot set screen share, call not found:", req.CallID)
+		return
+	}
+
+	localScreenSharesMutex.Lock()
+	share := localScreenShares[req.CallID]
+	if share == nil {
+		share = &localScreenShare{}
+		localScreenShares[req.CallID] = share
+	}
+	alreadyWanted := share.wanted
+	share.wanted = req.Enabled
+	announced := share.announced
+	if !req.Enabled {
+		share.announced = false
+	}
+	localScreenSharesMutex.Unlock()
+
+	if req.Enabled {
+		if !alreadyWanted {
+			go announceScreenShare(call, share)
+		}
+		return
+	}
+	if announced {
+		go func() {
+			if err := call.StopScreenShare(); err != nil {
+				log.Println("Failed to announce the end of the screen share:", err)
+			}
+		}()
+	}
+}
+
+// announceScreenShare tells a group call about our screen share once its
+// video is flowing: turning video on is only complete when the other side
+// accepts it, and the announcement is refused until then.
+func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
+	deadline := time.Now().Add(screenShareAnnounceWindow)
+	for {
+		localScreenSharesMutex.Lock()
+		wanted := share.wanted
+		localScreenSharesMutex.Unlock()
+		if !wanted || call.State() == meowcaller.CallPhaseEnded {
+			return
+		}
+		err := call.StartScreenShare(nil)
+		switch {
+		case err == nil:
+			localScreenSharesMutex.Lock()
+			stillWanted := share.wanted
+			share.announced = stillWanted
+			localScreenSharesMutex.Unlock()
+			if !stillWanted {
+				// Stopped while the announcement was on its way out.
+				if err := call.StopScreenShare(); err != nil {
+					log.Println("Failed to announce the end of the screen share:", err)
+				}
+			}
+			return
+		case errors.Is(err, meowcaller.ErrScreenShareNeedsGroupCall):
+			log.Println("Screen share on a 1:1 call is sent as plain video:", call.ID())
+			return
+		case errors.Is(err, meowcaller.ErrScreenShareNeedsVideo) && time.Now().Before(deadline):
+			time.Sleep(250 * time.Millisecond)
+		default:
+			log.Println("Failed to announce the screen share:", err)
+			return
+		}
+	}
 }
 
 func handleAddParticipant(data []byte) {
