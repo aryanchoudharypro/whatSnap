@@ -545,6 +545,9 @@ struct AppState {
 	/// Whether `own_about` came from the server since Settings was last
 	/// opened. Until then the About can't be edited or saved.
 	own_about_loaded: bool,
+	/// The default disappearing message timer, in seconds, once it has
+	/// loaded since Settings was opened.
+	default_timer: Option<i64>,
 	privacy_settings: std::collections::HashMap<String, String>,
 	/// Whether `privacy_settings` came from the server since Settings was
 	/// last opened. Until then the privacy dropdowns are disabled and Save
@@ -875,6 +878,7 @@ fn main() {
 			own_about: String::new(),
 			own_about_duration: -1,
 			own_about_loaded: false,
+			default_timer: None,
 			privacy_settings: std::collections::HashMap::new(),
 			privacy_settings_loaded: false,
 			privacy_lists: std::collections::HashMap::new(),

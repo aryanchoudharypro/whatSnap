@@ -12,6 +12,10 @@ pub const EXCEPT_VALUE: &str = "contact_blacklist";
 pub const READ_RECEIPTS_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("Nobody", "none")];
 pub const ONLINE_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("Same as Last Seen", "match_last_seen")];
 pub const CALL_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("My Contacts", "known")];
+/// The default timer for disappearing messages in new chats, in seconds, as
+/// WhatsApp offers it.
+pub const DEFAULT_TIMER_CHOICES: &[(&str, &str)] =
+	&[("Off", "0"), ("24 Hours", "86400"), ("7 Days", "604800"), ("90 Days", "7776000")];
 /// How long an About shows before it clears, in seconds: WhatsApp's
 /// text_status_ttl_seconds_allowlist, plus -1 for one that stays.
 pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
@@ -67,6 +71,10 @@ pub struct SettingsDialogParts {
 	pub name_field: TextCtrl,
 	pub about_field: TextCtrl,
 	pub about_duration_combo: ComboBox,
+	pub change_photo_btn: Button,
+	pub remove_photo_btn: Button,
+	/// Disabled until the current timer has loaded.
+	pub default_timer_combo: ComboBox,
 	pub last_seen_combo: ComboBox,
 	pub last_seen_except_btn: Button,
 	pub profile_photo_combo: ComboBox,
@@ -201,6 +209,19 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let about_duration_combo =
 		visibility_combo(&privacy_panel, &privacy_sizer, "Clear About After", ABOUT_DURATION_CHOICES);
 
+	let photo_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let change_photo_btn = Button::builder(&privacy_panel).with_label("Change Profile Photo...").build();
+	change_photo_btn.set_font(&theme::Fonts::body());
+	photo_sizer.add(&change_photo_btn, 0, SizerFlag::Right, 8);
+	let remove_photo_btn = Button::builder(&privacy_panel).with_label("Remove Profile Photo...").build();
+	remove_photo_btn.set_font(&theme::Fonts::body());
+	photo_sizer.add(&remove_photo_btn, 0, SizerFlag::Right, 8);
+	privacy_sizer.add_sizer(&photo_sizer, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 8);
+
+	let default_timer_combo =
+		visibility_combo(&privacy_panel, &privacy_sizer, "Default Message Timer for New Chats", DEFAULT_TIMER_CHOICES);
+	default_timer_combo.enable(false);
+
 	let last_seen_combo =
 		visibility_combo(&privacy_panel, &privacy_sizer, "Who Can See My Last Seen", VISIBILITY_CHOICES);
 	let last_seen_except_btn = except_button(&privacy_panel, &privacy_sizer, "Last Seen");
@@ -304,6 +325,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		name_field,
 		about_field,
 		about_duration_combo,
+		change_photo_btn,
+		remove_photo_btn,
+		default_timer_combo,
 		last_seen_combo,
 		last_seen_except_btn,
 		profile_photo_combo,

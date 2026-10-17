@@ -3606,6 +3606,37 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
+				"default_timer" => {
+					if let Some(data) = val.get("data") {
+						// Left disabled when it couldn't be read, so it isn't saved.
+						if let Some(seconds) = data.get("seconds").and_then(|s| s.as_i64()) {
+							state.borrow_mut().default_timer = Some(seconds);
+							let combo = &parts.settings_dialog.default_timer_combo;
+							crate::ui::settings_dialog::set_combo_from_value(
+								combo,
+								crate::ui::settings_dialog::DEFAULT_TIMER_CHOICES,
+								&seconds.to_string(),
+							);
+							combo.enable(true);
+						}
+					}
+				}
+				"own_photo_changed" => {
+					let removed =
+						val.get("data").and_then(|d| d.get("removed")).and_then(|r| r.as_bool()) == Some(true);
+					let parent = &parts.settings_dialog.dialog;
+					let message =
+						if removed { "Your profile photo was removed." } else { "Your profile photo was changed." };
+					if parent.is_shown() {
+						MessageDialog::builder(parent, message, "Profile Photo")
+							.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+							.build()
+							.show_modal();
+					} else {
+						crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), message);
+					}
+				}
+				"default_timer_saved" => {}
 				"privacy_settings" => {
 					if let Some(data) = val.get("data") {
 						let mut s = state.borrow_mut();

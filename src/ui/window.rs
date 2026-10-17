@@ -1071,6 +1071,8 @@ pub fn bind_input_handlers(
 		// open (or a dropdown's placeholder) may not be what the phone has
 		// set since, and saving it would overwrite the real one.
 		s.own_about_loaded = false;
+		s.default_timer = None;
+		settings_parts_open.default_timer_combo.enable(false);
 		s.privacy_settings_loaded = false;
 		s.privacy_lists.clear();
 		s.privacy_list_edits.clear();
@@ -1091,6 +1093,7 @@ pub fn bind_input_handlers(
 		);
 
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_own_profile"}).to_string());
+		let _ = s.ws_tx.send(serde_json::json!({"action": "get_default_timer"}).to_string());
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_privacy_settings"}).to_string());
 		for control in settings_parts_open.privacy_controls() {
 			if control.except_btn.is_some() {
@@ -1417,6 +1420,15 @@ pub fn bind_input_handlers(
 				let _ = s.ws_tx.send(payload.to_string());
 			}
 		}
+		if let Some(current) = s.default_timer {
+			let picked = combo_value(&settings_parts_ok.default_timer_combo, DEFAULT_TIMER_CHOICES);
+			if picked != shown_value(DEFAULT_TIMER_CHOICES, &current.to_string()) {
+				let seconds: i64 = picked.parse().unwrap_or(0);
+				s.default_timer = Some(seconds);
+				let payload = serde_json::json!({"action": "set_default_timer", "data": {"seconds": seconds}});
+				let _ = s.ws_tx.send(payload.to_string());
+			}
+		}
 		if s.privacy_settings_loaded {
 			for control in settings_parts_ok.privacy_controls() {
 				let server = s.privacy_settings.get(control.name).cloned().unwrap_or_default();
@@ -1444,6 +1456,34 @@ pub fn bind_input_handlers(
 			crate::autostart::set_enabled(autostart_check_ok.is_checked());
 		}
 		settings_dialog_ok.end_modal(wxdragon::id::ID_OK);
+	});
+
+	// Your own profile photo, changed or removed straight away.
+	let state_photo = state.clone();
+	let settings_dialog_photo = parts.settings_dialog.dialog;
+	parts.settings_dialog.change_photo_btn.on_click(move |_| {
+		let file_dialog = FileDialog::builder(&settings_dialog_photo)
+			.with_message("Choose a profile photo")
+			.with_wildcard("Pictures (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif")
+			.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
+			.build();
+		if file_dialog.show_modal() != wxdragon::id::ID_OK {
+			return;
+		}
+		let Some(path) = file_dialog.get_path() else { return };
+		let payload = serde_json::json!({"action": "set_own_photo", "data": {"path": path}});
+		let _ = state_photo.borrow().ws_tx.send(payload.to_string());
+	});
+	let state_photo_remove = state.clone();
+	parts.settings_dialog.remove_photo_btn.on_click(move |_| {
+		let dialog = MessageDialog::builder(&settings_dialog_photo, "Remove your profile photo?", "Profile Photo")
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build();
+		dialog.set_yes_no_labels("Remove", "Cancel");
+		if dialog.show_modal() == ID_YES {
+			let payload = serde_json::json!({"action": "set_own_photo", "data": {"remove": true}});
+			let _ = state_photo_remove.borrow().ws_tx.send(payload.to_string());
+		}
 	});
 
 	let tx_group_settings = ui_tx.clone();

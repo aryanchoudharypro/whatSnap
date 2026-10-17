@@ -167,6 +167,12 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleSetBlocked(cmd.Data, false)
 	case "set_about":
 		handleSetAbout(cmd.Data)
+	case "set_own_photo":
+		handleSetOwnPhoto(conn, cmd.Data)
+	case "get_default_timer":
+		go handleGetDefaultTimer(conn)
+	case "set_default_timer":
+		handleSetDefaultTimer(conn, cmd.Data)
 	case "get_own_profile":
 		handleGetOwnProfile(conn)
 	case "set_push_name":
