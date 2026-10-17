@@ -2744,6 +2744,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								}
 								let from_me = item.get("fromMe").and_then(|f| f.as_bool()).unwrap_or(false);
 								let sender_name = item.get("senderName").and_then(|n| n.as_str()).unwrap_or("");
+								let sender_jid =
+									item.get("senderJid").and_then(|n| n.as_str()).unwrap_or("").to_string();
 								let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
 								let quoted_text = item.get("quotedText").and_then(|t| t.as_str()).unwrap_or("");
 								let media_type = item.get("mediaType").and_then(|t| t.as_str()).unwrap_or("");
@@ -2782,7 +2784,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									format!("{} ({}): {}, {}", chat_name, sender, body, date_str)
 								};
 
-								entries.push(StarredEntry { jid, message_id, label });
+								entries.push(StarredEntry { jid, message_id, sender_jid, from_me, label });
 							}
 							s.starred_entries = entries;
 							if s.active_tab == 2 {

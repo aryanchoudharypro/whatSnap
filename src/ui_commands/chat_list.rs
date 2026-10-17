@@ -595,6 +595,7 @@ pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 	save_composer_draft(&mut s, parts);
 	s.selected_chat = None;
+	crate::ui::window::refresh_menu_bar(&s, &parts.frame);
 	clear_pending_reply(&mut s, parts);
 	parts.conversations_parts.conversation_panel.show(false);
 	// Hiding the panel does not release anything: without this the closed

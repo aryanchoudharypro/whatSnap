@@ -66,6 +66,8 @@ pub enum UiCommand {
 	OpenStickerPicker,
 	/// The context menu of a row in the Status tab.
 	ShowStatusMenu(usize),
+	/// The context menu of a row in the Starred Messages tab.
+	ShowStarredMenu(usize),
 	/// The Conversations filter dropdown changed.
 	SetChatFilter(usize),
 	/// A chat's context menu: add it to the favorites or take it off.
@@ -416,6 +418,8 @@ impl NotificationSound {
 pub(crate) struct StarredEntry {
 	pub(crate) jid: String,
 	pub(crate) message_id: String,
+	pub(crate) sender_jid: String,
+	pub(crate) from_me: bool,
 	pub(crate) label: String,
 }
 

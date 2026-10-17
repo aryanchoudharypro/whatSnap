@@ -1349,6 +1349,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::OpenPollDialog => ui_commands::attachments::open_poll_dialog(state, parts),
 		UiCommand::OpenStickerPicker => ui_commands::stickers::open_sticker_picker(state, parts),
 		UiCommand::ShowStatusMenu(idx) => ui_commands::status_extras::show_status_menu(state, parts, idx),
+		UiCommand::ShowStarredMenu(idx) => ui_commands::starred::show_starred_menu(state, parts, idx),
 		UiCommand::SetChatFilter(idx) => ui_commands::chat_lists::set_filter(state, parts, idx),
 		UiCommand::SetFavorite { jid, favorite } => ui_commands::chat_lists::set_favorite(state, parts, jid, favorite),
 		UiCommand::ChooseChatLists(jid) => ui_commands::chat_lists::choose_lists(state, parts, jid),

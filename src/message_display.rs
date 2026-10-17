@@ -162,6 +162,7 @@ pub(crate) fn chat_passes_filter(s: &AppState, jid: &str) -> bool {
 }
 
 pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
+	crate::ui::window::refresh_menu_bar(s, &parts.frame);
 	let show_locked_btn = s.active_tab == 0 && !s.locked_jids.is_empty();
 	let show_filter = s.active_tab == 0 && !s.chats_unlocked;
 	let conv = &parts.conversations_parts;

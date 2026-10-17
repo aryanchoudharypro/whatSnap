@@ -247,6 +247,51 @@ pub const MENU_ID_CREATE_CALL_LINK: i32 = 6044;
 pub const MENU_ID_JOIN_CALL_LINK: i32 = 6045;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
+/// The Conversation menu's items, which all act on the open chat.
+const CONVERSATION_MENU_IDS: [i32; 13] = [
+	MENU_ID_CHAT_INFO,
+	MENU_ID_SEARCH_CHAT,
+	MENU_ID_PINNED_MESSAGES,
+	MENU_ID_MUTE_CHAT,
+	MENU_ID_ARCHIVE_CHAT,
+	MENU_ID_PIN_CHAT,
+	MENU_ID_LOCK_CHAT,
+	MENU_ID_MARK_UNREAD,
+	MENU_ID_DISAPPEARING,
+	MENU_ID_CHAT_PRIVACY,
+	MENU_ID_REPORT_CHAT,
+	MENU_ID_BLOCK_CHAT,
+	MENU_ID_STAR_MESSAGE,
+];
+
+/// The chat the Conversation menu acts on: the open one, unless the Status
+/// or Starred tab is showing, whose rows aren't chats.
+pub(crate) fn conversation_menu_chat(s: &crate::AppState) -> Option<&str> {
+	if s.active_tab == 1 || s.active_tab == 2 {
+		return None;
+	}
+	s.selected_chat.as_deref()
+}
+
+/// Greys out what doesn't apply right now. A disabled item's shortcut does
+/// nothing either, so this runs whenever the tab or the open chat changes,
+/// not only when a menu opens.
+pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
+	let Some(menu_bar) = frame.get_menu_bar() else { return };
+	let chat = conversation_menu_chat(s);
+	for id in CONVERSATION_MENU_IDS {
+		menu_bar.enable_item(id, chat.is_some());
+	}
+	let Some(jid) = chat else { return };
+	let is_contact = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
+	let is_channel = jid.ends_with("@newsletter");
+	let is_broadcast = jid.ends_with("@broadcast");
+	menu_bar.enable_item(MENU_ID_BLOCK_CHAT, is_contact);
+	menu_bar.enable_item(MENU_ID_REPORT_CHAT, !is_channel && !is_broadcast);
+	menu_bar.enable_item(MENU_ID_DISAPPEARING, !is_channel);
+	menu_bar.enable_item(MENU_ID_CHAT_PRIVACY, !is_channel && !is_broadcast);
+}
+
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whaNTV").with_size(Size::new(1180, 760)).build();
 	frame.set_min_size(Size::new(900, 600));
@@ -315,35 +360,42 @@ pub fn build_main_window() -> WindowParts {
 	// Matches official WhatsApp's shortcuts, minus Alt on every combo that
 	// also has Ctrl (kept only on the Alt-only ones) - see the Alt+1..5
 	// comment above for why these have to be real menu items.
-	let chat_menu = Menu::builder()
+	let chats_menu = Menu::builder()
 		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), "Start a new chat")
 		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), "Start a new group")
 		.append_item(MENU_ID_NEW_COMMUNITY, "New C&ommunity...", "Start a community to bring groups together")
-		.append_item(MENU_ID_MANAGE_LISTS, "Manage &Lists...", "Make, rename or delete your chat lists")
+		.append_separator()
 		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), "Search chats")
+		.append_item(MENU_ID_MANAGE_LISTS, "Manage &Lists...", "Make, rename or delete your chat lists")
+		.build();
+	// Everything here acts on the open chat, so `refresh_menu_bar` greys it
+	// out on the Status and Starred tabs and when no chat is open.
+	let conversation_menu = Menu::builder()
+		.append_item(MENU_ID_CHAT_INFO, &default_menu_label(MENU_ID_CHAT_INFO), "Open info for the open chat")
 		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
+		.append_item(MENU_ID_PINNED_MESSAGES, "Pi&nned Messages...", "See and go to the open chat's pinned messages")
 		.append_separator()
 		.append_item(MENU_ID_MUTE_CHAT, &default_menu_label(MENU_ID_MUTE_CHAT), "Mute the open chat")
 		.append_item(MENU_ID_ARCHIVE_CHAT, &default_menu_label(MENU_ID_ARCHIVE_CHAT), "Archive the open chat")
 		.append_item(MENU_ID_PIN_CHAT, &default_menu_label(MENU_ID_PIN_CHAT), "Pin the open chat")
 		.append_item(MENU_ID_LOCK_CHAT, &default_menu_label(MENU_ID_LOCK_CHAT), "Lock or unlock the open chat")
 		.append_item(
+			MENU_ID_MARK_UNREAD,
+			&default_menu_label(MENU_ID_MARK_UNREAD),
+			"Toggle read/unread on the open chat",
+		)
+		.append_separator()
+		.append_item(
 			MENU_ID_DISAPPEARING,
 			"&Disappearing Messages...",
 			"Turn disappearing messages on or off for the open chat",
 		)
 		.append_item(
-			MENU_ID_MARK_UNREAD,
-			&default_menu_label(MENU_ID_MARK_UNREAD),
-			"Toggle read/unread on the open chat",
-		)
-		.append_item(MENU_ID_CHAT_INFO, &default_menu_label(MENU_ID_CHAT_INFO), "Open info for the open chat")
-		.append_item(MENU_ID_PINNED_MESSAGES, "Pinned Me&ssages...", "See and go to the open chat's pinned messages")
-		.append_item(
 			MENU_ID_CHAT_PRIVACY,
-			"Advanced Chat &Privacy...",
+			"Ad&vanced Chat Privacy...",
 			"Turn advanced chat privacy on or off for the open chat",
 		)
+		.append_separator()
 		.append_item(MENU_ID_REPORT_CHAT, "&Report...", "Report the open chat's contact or group to WhatsApp")
 		.append_item(MENU_ID_BLOCK_CHAT, "&Block or Unblock Contact", "Block or unblock the open chat's contact")
 		.append_separator()
@@ -376,7 +428,8 @@ pub fn build_main_window() -> WindowParts {
 	let menu_bar = MenuBar::builder()
 		.append(account_menu, "&Account")
 		.append(go_menu, "&Go")
-		.append(chat_menu, "&Chat")
+		.append(chats_menu, "&Chats")
+		.append(conversation_menu, "C&onversation")
 		.append(voice_menu, "&Voice")
 		.append(call_menu, "Ca&ll")
 		.build();
@@ -1200,6 +1253,11 @@ pub fn bind_input_handlers(
 	let search_field_for_menu = parts.conversations_parts.search_field;
 	parts.frame.on_menu_selected(move |evt| {
 		let id = evt.get_id();
+		// Belt and braces for the greying out: never act on a chat that
+		// isn't the one being looked at.
+		if CONVERSATION_MENU_IDS.contains(&id) && conversation_menu_chat(&state_chat_menu.borrow()).is_none() {
+			return;
+		}
 		if id == MENU_ID_NEW_CHAT {
 			let _ = tx_chat_menu.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::OpenChat));
 		} else if id == MENU_ID_NEW_GROUP {
@@ -2486,20 +2544,45 @@ pub fn bind_input_handlers(
 	// event (Windows turns it into an IDOK command), and arming on that
 	// swallowed the list's own Enter so chats stopped opening; F5 or a mouse
 	// click has no Enter release to swallow.
+	let state_menu_open = state.clone();
+	let frame_menu_open = parts.frame.clone();
+	// Popup menus open with the state sometimes still borrowed, so this
+	// only tries.
+	parts.frame.on_menu_opened(move |_| {
+		if let Ok(s) = state_menu_open.try_borrow() {
+			refresh_menu_bar(&s, &frame_menu_open);
+		}
+	});
+
 	let guard_menu_bar = enter_release_handled.clone();
 	parts.frame.on_menu_selected(move |evt| {
-		if (MENU_ID_SETTINGS..=MENU_ID_BLOCKED_CONTACTS).contains(&evt.get_id()) && enter_key_held() {
+		if (MENU_ID_SETTINGS..=MENU_ID_JOIN_CALL_LINK).contains(&evt.get_id()) && enter_key_held() {
 			guard_menu_bar.set(true);
 		}
 	});
 
 	let guard_ctx = enter_release_handled.clone();
 	let tx_status_menu = ui_tx.clone();
+	// The Applications key reaches the list twice: as a key-down, and as a
+	// context-menu event once it's released. A menu shown straight away
+	// swallows the release, but the Status and Starred menus are shown from
+	// the command queue, so the release would open a second one.
+	let last_queued_menu =
+		Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
 	let open_chat_context_menu = Rc::new(move || {
 		if let Some(idx) = convs_list_ctx.get_selection() {
-			// A status update has its own actions.
-			if state_chat_ctx.borrow().active_tab == 1 {
-				let _ = tx_status_menu.send(UiCommand::ShowStatusMenu(idx as usize));
+			// Only chat rows get the chat menu: a status update or a starred
+			// message is not a chat.
+			let queued = match state_chat_ctx.borrow().active_tab {
+				1 => Some(UiCommand::ShowStatusMenu(idx as usize)),
+				2 => Some(UiCommand::ShowStarredMenu(idx as usize)),
+				_ => None,
+			};
+			if let Some(cmd) = queued {
+				if last_queued_menu.get().elapsed() > std::time::Duration::from_millis(700) {
+					last_queued_menu.set(std::time::Instant::now());
+					let _ = tx_status_menu.send(cmd);
+				}
 				return;
 			}
 			let pin_id = 4001;

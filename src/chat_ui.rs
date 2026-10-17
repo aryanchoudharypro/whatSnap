@@ -250,6 +250,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		clear_pending_reply(&mut s, parts);
 	}
 	s.selected_chat = Some(jid.to_string());
+	crate::ui::window::refresh_menu_bar(&s, &parts.frame);
 	// Mirrors official WhatsApp: opening a chat clears any of its
 	// notifications still sitting in Action Center.
 	if let Some(notifications) = s.active_notifications.remove(jid) {
