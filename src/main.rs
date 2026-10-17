@@ -558,6 +558,8 @@ struct AppState {
 	/// Favorite chats and the user's own lists, as the phone syncs them.
 	favorite_jids: Vec<String>,
 	chat_lists: Vec<ui_commands::chat_lists::ChatList>,
+	/// Manage Lists, while it's open.
+	list_manager: Option<Rc<ui_commands::chat_lists::ListManager>>,
 	/// The groups contact info lists as in common, by row.
 	common_group_jids: Vec<String>,
 	privacy_settings: std::collections::HashMap<String, String>,
@@ -895,6 +897,7 @@ fn main() {
 			chat_filter: 0,
 			favorite_jids: Vec::new(),
 			chat_lists: Vec::new(),
+			list_manager: None,
 			common_group_jids: Vec::new(),
 			privacy_settings: std::collections::HashMap::new(),
 			privacy_settings_loaded: false,

@@ -77,7 +77,8 @@ pub enum UiCommand {
 	},
 	/// A chat's context menu: which of our lists it's in.
 	ChooseChatLists(String),
-	/// Chat menu > "Manage Lists...": make, rename or delete lists.
+	/// Chat menu > "Manage Lists...": make, rename or delete lists, and pick
+	/// the chats in each.
 	ManageChatLists,
 	/// Enter on one of contact info's groups in common.
 	OpenCommonGroup(usize),

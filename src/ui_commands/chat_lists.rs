@@ -26,8 +26,11 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
-fn announce(parts: &WindowParts, message: &str) {
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), message);
+/// Says `message` in Manage Lists while it's open, or the main window.
+fn announce(state: &Rc<RefCell<AppState>>, parts: &WindowParts, message: &str) {
+	let announcer = state.borrow().list_manager.as_ref().map(|m| m.announcer());
+	let announcer = announcer.unwrap_or_else(|| parts.conversations_parts.messages_announcer.clone());
+	crate::announce::announce(announcer, message);
 }
 
 fn text(data: &serde_json::Value, key: &str) -> String {
@@ -42,7 +45,7 @@ fn strings(data: &serde_json::Value, key: &str) -> Vec<String> {
 }
 
 fn chat_name(s: &AppState, jid: &str) -> String {
-	s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string())
+	s.contacts.get(jid).cloned().unwrap_or_else(|| crate::contact_picker::display_name_for_jid(jid))
 }
 
 fn ask_name(parent: &impl WxWidget, prompt: &str, title: &str, value: &str) -> Option<String> {
@@ -60,7 +63,7 @@ pub(crate) fn set_filter(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 	apply_chat_filter(&mut s, parts);
 	let count = s.filtered_chats.len();
 	drop(s);
-	announce(parts, &if count == 1 { "1 chat".to_string() } else { format!("{} chats", count) });
+	announce(state, parts, &count_chats(count));
 }
 
 pub(crate) fn set_favorite(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, jid: String, favorite: bool) {
@@ -147,52 +150,350 @@ fn new_list(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: Option<
 	send(state, "create_list", serde_json::json!({ "name": name, "jids": jids }));
 }
 
-/// Chat menu > "Manage Lists...": make a list, or rename or delete one.
-pub(crate) fn manage_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let lists: Vec<(String, String, usize)> =
-		state.borrow().chat_lists.iter().map(|l| (l.id.clone(), l.name.clone(), l.jids.len())).collect();
-	let mut labels = vec!["New list...".to_string()];
-	for (_, name, count) in &lists {
-		labels.push(format!(
-			"{}, {}",
-			name,
-			if *count == 1 { "1 chat".to_string() } else { format!("{} chats", count) }
-		));
+/// The open "Manage Lists" dialog: the lists in one list box, with buttons
+/// that act on the selected one, as Fedra's List Manager has them. The lists
+/// change while it's open (`chat_lists` events), so it lives in AppState for
+/// as long as it's shown.
+pub(crate) struct ListManager {
+	dialog: Dialog,
+	list: ListBox,
+	list_label: StaticText,
+	rename_btn: Button,
+	chats_btn: Button,
+	delete_btn: Button,
+	announcer: StaticText,
+	/// The ids of the lists shown, in list order.
+	ids: RefCell<Vec<String>>,
+	/// "Chats in ...", while it's open over this.
+	chats: RefCell<Option<Rc<ListChats>>>,
+}
+
+/// "Chats in ...": the chats in one list, to add to or take out of it.
+struct ListChats {
+	dialog: Dialog,
+	list: ListBox,
+	list_label: StaticText,
+	remove_btn: Button,
+	announcer: StaticText,
+	list_id: String,
+	jids: RefCell<Vec<String>>,
+}
+
+fn count_chats(count: usize) -> String {
+	if count == 1 { "1 chat".to_string() } else { format!("{} chats", count) }
+}
+
+/// Selects row `idx` of `list` (kept in range), or, with no rows, moves the
+/// focus off any of `buttons`, since a disabled button can't keep it.
+fn keep_selection(list: &ListBox, idx: usize, buttons: &[&Button]) {
+	let count = list.get_count() as usize;
+	if count > 0 {
+		list.set_selection(idx.min(count - 1) as u32, true);
+	} else if buttons.iter().any(|b| b.has_focus()) {
+		list.set_focus();
 	}
-	let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-	let choice = SingleChoiceDialog::builder(&parts.frame, "Your lists:", "Manage Lists", &refs).build();
-	if choice.show_modal() != wxdragon::id::ID_OK {
-		return;
+	for b in buttons {
+		b.enable(count > 0);
 	}
-	let Ok(picked) = usize::try_from(choice.get_selection()) else { return };
-	if picked == 0 {
-		new_list(state, parts, None, "");
-		return;
-	}
-	let Some((id, name, _)) = lists.get(picked - 1).cloned() else { return };
-	let what = SingleChoiceDialog::builder(&parts.frame, &name, "Manage Lists", &["Rename...", "Delete..."]).build();
-	if what.show_modal() != wxdragon::id::ID_OK {
-		return;
-	}
-	if what.get_selection() == 0 {
-		if let Some(new_name) = ask_name(&parts.frame, "List name:", "Rename List", &name) {
-			if new_name != name {
-				send(state, "rename_list", serde_json::json!({ "id": id, "name": new_name }));
+}
+
+impl ListManager {
+	/// Shows the lists as they now stand, keeping the same list selected.
+	fn apply(&self, s: &AppState) {
+		let previous = self.selected_id();
+		let previous_idx = self.list.get_selection().unwrap_or(0) as usize;
+		let labels: Vec<String> =
+			s.chat_lists.iter().map(|l| format!("{}, {}", l.name, count_chats(l.jids.len()))).collect();
+		let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+		self.list.set_items(&refs);
+		*self.ids.borrow_mut() = s.chat_lists.iter().map(|l| l.id.clone()).collect();
+		self.list_label.set_label(&match s.chat_lists.len() {
+			0 => "Your lists: none yet".to_string(),
+			n => format!("Your lists ({})", n),
+		});
+		let idx = previous.and_then(|id| self.ids.borrow().iter().position(|i| *i == id)).unwrap_or(previous_idx);
+		keep_selection(&self.list, idx, &[&self.rename_btn, &self.chats_btn, &self.delete_btn]);
+		let chats = self.chats.borrow().clone();
+		if let Some(chats) = chats {
+			match s.chat_lists.iter().find(|l| l.id == chats.list_id) {
+				Some(l) => chats.apply(s, l),
+				// Deleted from the phone while it was open.
+				None => chats.dialog.end_modal(ID_CANCEL),
 			}
 		}
-		return;
 	}
-	let dialog = MessageDialog::builder(
-		&parts.frame,
-		&format!("Delete the list {}? The chats in it stay as they are.", name),
-		"Delete List",
-	)
-	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-	.build();
-	dialog.set_yes_no_labels("Delete", "Cancel");
-	if dialog.show_modal() == ID_YES {
-		send(state, "delete_list", serde_json::json!({ "id": id }));
+
+	fn select(&self, id: &str) {
+		if let Some(idx) = self.ids.borrow().iter().position(|i| i == id) {
+			self.list.set_selection(idx as u32, true);
+		}
 	}
+
+	fn selected_id(&self) -> Option<String> {
+		let idx = self.list.get_selection()? as usize;
+		self.ids.borrow().get(idx).cloned()
+	}
+
+	/// Where to say what happened: whichever of its dialogs is in front.
+	fn announcer(&self) -> StaticText {
+		self.chats.borrow().as_ref().map_or(self.announcer.clone(), |c| c.announcer.clone())
+	}
+}
+
+impl ListChats {
+	fn apply(&self, s: &AppState, l: &ChatList) {
+		let previous_idx = self.list.get_selection().unwrap_or(0) as usize;
+		let labels: Vec<String> = l.jids.iter().map(|j| chat_name(s, j)).collect();
+		let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+		self.list.set_items(&refs);
+		self.dialog.set_label(&format!("Chats in {}", l.name));
+		self.list_label.set_label(&match l.jids.len() {
+			0 => format!("Chats in {}: none yet", l.name),
+			n => format!("Chats in {} ({})", l.name, n),
+		});
+		keep_selection(&self.list, previous_idx, &[&self.remove_btn]);
+		*self.jids.borrow_mut() = l.jids.clone();
+	}
+
+	fn selected(&self) -> Option<String> {
+		let idx = self.list.get_selection()? as usize;
+		self.jids.borrow().get(idx).cloned()
+	}
+}
+
+/// A dialog with a labelled list box, a line that reads out what happened,
+/// and a row of buttons, the last of them Close on the far side.
+fn list_dialog(
+	parent: &impl WxWidget,
+	title: &str,
+	labels: &[&str],
+) -> (Dialog, StaticText, ListBox, StaticText, Vec<Button>) {
+	let dialog = Dialog::builder(parent, title)
+		.with_size(480, 420)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	theme::style_content(&dialog);
+	let panel = Panel::builder(&dialog).build();
+	theme::style_content(&panel);
+	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let list_label = StaticText::builder(&panel).with_label(title).build();
+	theme::style_muted_label(&list_label);
+	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let list = ListBox::builder(&panel).build();
+	list.set_font(&theme::Fonts::body());
+	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	let announcer = StaticText::builder(&panel).with_label("").build();
+	live_region::set_live_region(&announcer);
+	theme::style_muted_label(&announcer);
+	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let row = BoxSizer::builder(Orientation::Horizontal).build();
+	let mut buttons: Vec<Button> = labels.iter().map(|l| Button::builder(&panel).with_label(l).build()).collect();
+	for b in &buttons {
+		row.add(b, 0, SizerFlag::Right, 8);
+	}
+	row.add_stretch_spacer(1);
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	row.add(&close_btn, 0, SizerFlag::empty(), 0);
+	sizer.add_sizer(&row, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	panel.set_sizer(sizer, true);
+	let outer = BoxSizer::builder(Orientation::Vertical).build();
+	outer.add(&panel, 1, SizerFlag::Expand, 0);
+	dialog.set_sizer(outer, true);
+	dialog.center();
+	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
+	buttons.push(close_btn);
+	(dialog, list_label, list, announcer, buttons)
+}
+
+type Action = Rc<dyn Fn()>;
+
+/// Runs `action` on a click of `button`, and hands it back for a key to run.
+fn on_press(button: &Button, action: impl Fn() + 'static) -> Action {
+	let action: Action = Rc::new(action);
+	let on_click = action.clone();
+	button.on_click(move |_| on_click());
+	action
+}
+
+/// Escape closes `dialog`, Delete runs `delete`, F2 `rename` and Enter
+/// `open`, the last two when given. Each does nothing with no row selected.
+fn list_keys(dialog: Dialog, list: ListBox, delete: Action, rename: Option<Action>, open: Option<Action>) {
+	list.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event {
+			let action = match key.get_key_code() {
+				Some(WXK_DELETE | WXK_NUMPAD_DELETE) => Some(&delete),
+				Some(WXK_F2) => rename.as_ref(),
+				_ => None,
+			};
+			if let Some(action) = action {
+				if list.get_selection().is_some() {
+					action();
+				}
+				event.skip(false);
+				return;
+			}
+		}
+		crate::ui::keys::escape_cancels(dialog)(event);
+	});
+	if let Some(open) = open {
+		crate::ui::keys::on_enter(&list, Rc::default(), move || {
+			if list.get_selection().is_some() {
+				open();
+			}
+		});
+	}
+}
+
+/// Chat menu > "Manage Lists...": every list on one screen, with Add list,
+/// Rename, Chats and Delete buttons for the selected one.
+pub(crate) fn manage_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let (dialog, list_label, list, announcer, buttons) =
+		list_dialog(&parts.frame, "Manage Lists", &["&Add list...", "&Rename...", "&Chats...", "&Delete"]);
+	let [add_btn, rename_btn, chats_btn, delete_btn, _close] = buttons[..] else { return };
+	let manager = Rc::new(ListManager {
+		dialog,
+		list,
+		list_label,
+		rename_btn,
+		chats_btn,
+		delete_btn,
+		announcer,
+		ids: RefCell::new(Vec::new()),
+		chats: RefCell::new(None),
+	});
+	manager.apply(&state.borrow());
+	state.borrow_mut().list_manager = Some(manager.clone());
+
+	let state_add = state.clone();
+	on_press(&add_btn, move || {
+		if let Some(name) = ask_name(&dialog, "List name:", "New List", "") {
+			send(&state_add, "create_list", serde_json::json!({ "name": name, "jids": [] }));
+		}
+	});
+
+	let (state_rename, manager_rename) = (state.clone(), manager.clone());
+	let rename = on_press(&rename_btn, move || {
+		let Some(id) = manager_rename.selected_id() else { return };
+		let Some(name) = list_name(&state_rename, &id) else { return };
+		if let Some(new_name) = ask_name(&dialog, "List name:", "Rename List", &name)
+			&& new_name != name
+		{
+			send(&state_rename, "rename_list", serde_json::json!({ "id": id, "name": new_name }));
+		}
+	});
+
+	let (state_delete, manager_delete) = (state.clone(), manager.clone());
+	let delete = on_press(&delete_btn, move || {
+		let Some(id) = manager_delete.selected_id() else { return };
+		let Some(name) = list_name(&state_delete, &id) else { return };
+		let confirm = MessageDialog::builder(
+			&dialog,
+			&format!("Delete the list {}? The chats in it stay as they are.", name),
+			"Delete List",
+		)
+		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+		.build();
+		confirm.set_yes_no_labels("Delete", "Cancel");
+		if confirm.show_modal() == ID_YES {
+			send(&state_delete, "delete_list", serde_json::json!({ "id": id }));
+		}
+	});
+
+	let (state_chats, manager_chats) = (state.clone(), manager.clone());
+	let open = on_press(&chats_btn, move || {
+		if let Some(id) = manager_chats.selected_id() {
+			show_list_chats(&state_chats, &manager_chats, id);
+		}
+	});
+
+	list_keys(dialog, list, delete, Some(rename), Some(open));
+	list.set_focus();
+	dialog.show_modal();
+	state.borrow_mut().list_manager = None;
+	dialog.destroy();
+}
+
+fn list_name(state: &Rc<RefCell<AppState>>, id: &str) -> Option<String> {
+	state.borrow().chat_lists.iter().find(|l| l.id == id).map(|l| l.name.clone())
+}
+
+/// Manage Lists > "Chats...": the chats in the list, with Add chats and Remove.
+fn show_list_chats(state: &Rc<RefCell<AppState>>, manager: &Rc<ListManager>, id: String) {
+	let Some(name) = list_name(state, &id) else { return };
+	let title = format!("Chats in {}", name);
+	let (dialog, list_label, list, announcer, buttons) =
+		list_dialog(&manager.dialog, &title, &["&Add chats...", "&Remove"]);
+	let [add_btn, remove_btn, _close] = buttons[..] else { return };
+	let chats = Rc::new(ListChats {
+		dialog,
+		list,
+		list_label,
+		remove_btn,
+		announcer,
+		list_id: id.clone(),
+		jids: RefCell::new(Vec::new()),
+	});
+	{
+		let s = state.borrow();
+		if let Some(l) = s.chat_lists.iter().find(|l| l.id == id) {
+			chats.apply(&s, l);
+		}
+	}
+	*manager.chats.borrow_mut() = Some(chats.clone());
+
+	let (state_add, chats_add, id_add) = (state.clone(), chats.clone(), id.clone());
+	on_press(&add_btn, move || {
+		let offered: Vec<crate::Contact> = {
+			let s = state_add.borrow();
+			let members = chats_add.jids.borrow();
+			s.chats
+				.iter()
+				.filter(|j| !members.contains(j))
+				.map(|j| crate::Contact {
+					jid: j.clone(),
+					name: s.contacts.get(j).cloned().unwrap_or_default(),
+					phone: String::new(),
+				})
+				.collect()
+		};
+		let name = list_name(&state_add, &id_add).unwrap_or_default();
+		let words = crate::ui::privacy_list_picker::PickerWords {
+			search: "Search chats",
+			on: "chosen",
+			off: "not chosen",
+			one: "chat",
+			many: "chats",
+			require_one: None,
+		};
+		let picked = crate::ui::privacy_list_picker::pick_with(
+			&dialog,
+			&format!("Add Chats to {}", name),
+			"Check the chats to add",
+			&offered,
+			&[],
+			&words,
+		);
+		if let Some(jids) = picked.filter(|j| !j.is_empty()) {
+			send(&state_add, "set_list_member", serde_json::json!({ "id": id_add, "jids": jids, "member": true }));
+		}
+	});
+
+	let (state_remove, chats_remove) = (state.clone(), chats.clone());
+	let remove = on_press(&remove_btn, move || {
+		if let Some(jid) = chats_remove.selected() {
+			send(
+				&state_remove,
+				"set_list_member",
+				serde_json::json!({ "id": chats_remove.list_id, "jid": jid, "member": false }),
+			);
+		}
+	});
+
+	list_keys(dialog, list, remove, None, None);
+	list.set_focus();
+	dialog.show_modal();
+	*manager.chats.borrow_mut() = None;
+	dialog.destroy();
 }
 
 pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t: &str, data: &serde_json::Value) {
@@ -202,6 +503,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 			let name = chat_name(&state.borrow(), &text(data, "jid"));
 			let favorite = data.get("favorite").and_then(|f| f.as_bool()).unwrap_or(false);
 			announce(
+				state,
 				parts,
 				&if favorite {
 					format!("{} added to favorites.", name)
@@ -213,20 +515,25 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"list_saved" => {
 			let created = data.get("created").and_then(|c| c.as_bool()).unwrap_or(false);
 			let verb = if created { "created" } else { "renamed" };
-			announce(parts, &format!("List {} {}.", text(data, "name"), verb));
+			// The new list is on Manage Lists by now: select it, to go on to
+			// its chats.
+			let manager = state.borrow().list_manager.clone();
+			if let Some(manager) = manager.filter(|_| created) {
+				manager.select(&text(data, "id"));
+			}
+			announce(state, parts, &format!("List {} {}.", text(data, "name"), verb));
 		}
-		"list_deleted" => announce(parts, &format!("List {} deleted.", text(data, "name"))),
+		"list_deleted" => announce(state, parts, &format!("List {} deleted.", text(data, "name"))),
 		"list_member_saved" => {
 			let name = chat_name(&state.borrow(), &text(data, "jid"));
 			let member = data.get("member").and_then(|m| m.as_bool()).unwrap_or(false);
+			let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(1);
 			let list = text(data, "name");
+			let who = if count > 1 { count_chats(count as usize) } else { name };
 			announce(
+				state,
 				parts,
-				&if member {
-					format!("{} added to {}.", name, list)
-				} else {
-					format!("{} removed from {}.", name, list)
-				},
+				&if member { format!("{} added to {}.", who, list) } else { format!("{} removed from {}.", who, list) },
 			);
 		}
 		"common_groups" => show_common_groups(state, parts, data),
@@ -269,6 +576,11 @@ fn update_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 		combo.set_selection(s.chat_filter as u32);
 	}
 	apply_chat_filter(&mut s, parts);
+	drop(s);
+	let s = state.borrow();
+	if let Some(manager) = &s.list_manager {
+		manager.apply(&s);
+	}
 }
 
 fn show_common_groups(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {

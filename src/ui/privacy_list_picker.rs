@@ -60,6 +60,27 @@ pub fn pick_excluded_contacts(
 	)
 }
 
+/// What the picker calls its rows and a checked one, and what it says when
+/// Done is pressed with none checked (if that isn't allowed).
+pub struct PickerWords<'a> {
+	pub search: &'a str,
+	pub on: &'a str,
+	pub off: &'a str,
+	pub one: &'a str,
+	pub many: &'a str,
+	pub require_one: Option<&'a str>,
+}
+
+const EXCLUDED: PickerWords<'static> = PickerWords {
+	search: "Search contacts",
+	on: "excluded",
+	off: "not excluded",
+	one: "contact",
+	many: "contacts",
+	// WhatsApp's own picker won't save "except" with nobody excluded.
+	require_one: Some("Choose at least one contact to exclude."),
+};
+
 /// The same picker with its own title and hint, `listed` starting checked.
 pub fn pick_contacts(
 	parent: &impl WxWidget,
@@ -67,6 +88,18 @@ pub fn pick_contacts(
 	hint: &str,
 	contacts: &[Contact],
 	listed: &[Contact],
+) -> Option<Vec<String>> {
+	pick_with(parent, title, hint, contacts, listed, &EXCLUDED)
+}
+
+/// The picker with its own words, for rows that needn't be contacts.
+pub fn pick_with(
+	parent: &impl WxWidget,
+	title: &str,
+	hint: &str,
+	contacts: &[Contact],
+	listed: &[Contact],
+	words: &PickerWords,
 ) -> Option<Vec<String>> {
 	let excluded = listed;
 	let dialog = Dialog::builder(parent, title)
@@ -78,7 +111,7 @@ pub fn pick_contacts(
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label("Search contacts").build();
+	let search_label = StaticText::builder(&panel).with_label(words.search).build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let search_field = TextCtrl::builder(&panel).build();
@@ -141,18 +174,20 @@ pub fn pick_contacts(
 		}
 	};
 	fill("");
-	crate::announce::announce(announcer.clone(), &excluded_summary(state.borrow().checked.len()));
+	let counts = (words.on.to_string(), words.one.to_string(), words.many.to_string());
+	crate::announce::announce(announcer.clone(), &counted(&counts, state.borrow().checked.len()));
 
 	// Rebuilt only once typing pauses, as in the other contact pickers:
 	// rebuilding a check list per keystroke leaves NVDA querying rows that
 	// no longer exist.
 	let search_timer = Rc::new(Timer::new(&dialog));
 	let state_search = state.clone();
+	let search_words = counts.clone();
 	search_timer.on_tick(move |_| {
 		let query = search_field.get_value().to_lowercase().trim().to_string();
 		let shown = fill(&query);
 		let count = state_search.borrow().checked.len();
-		crate::announce::announce(announcer.clone(), &format!("{} shown. {}", shown, excluded_summary(count)));
+		crate::announce::announce(announcer.clone(), &format!("{} shown. {}", shown, counted(&search_words, count)));
 	});
 	let timer_for_typing = search_timer.clone();
 	search_field.on_text_changed(move |_| {
@@ -161,6 +196,8 @@ pub fn pick_contacts(
 	});
 
 	let state_toggle = state.clone();
+	let toggle_words = counts;
+	let off = words.off.to_string();
 	list.on_toggled(move |event| {
 		let Some(idx) = event.get_selection() else { return };
 		let mut s = state_toggle.borrow_mut();
@@ -168,14 +205,14 @@ pub fn pick_contacts(
 		let label = list.get_string(idx as usize).unwrap_or_default();
 		let now = if list.is_checked(idx) {
 			s.checked.insert(jid);
-			"excluded"
+			toggle_words.0.as_str()
 		} else {
 			s.checked.remove(&jid);
-			"not excluded"
+			off.as_str()
 		};
 		crate::announce::announce(
 			announcer.clone(),
-			&format!("{}: {}. {}", label, now, excluded_summary(s.checked.len())),
+			&format!("{}: {}. {}", label, now, counted(&toggle_words, s.checked.len())),
 		);
 	});
 
@@ -184,10 +221,12 @@ pub fn pick_contacts(
 	list.on_key_down(escape_closes);
 
 	let state_done = state.clone();
+	let require_one = words.require_one.map(str::to_string);
 	done_btn.on_click(move |_| {
-		// WhatsApp's own picker won't save "except" with nobody excluded.
-		if state_done.borrow().checked.is_empty() {
-			crate::announce::announce(announcer.clone(), "Choose at least one contact to exclude.");
+		if let Some(message) = &require_one
+			&& state_done.borrow().checked.is_empty()
+		{
+			crate::announce::announce(announcer.clone(), message);
 			return;
 		}
 		dialog.end_modal(ID_OK);
@@ -208,11 +247,12 @@ pub fn pick_contacts(
 	chosen
 }
 
-fn excluded_summary(count: usize) -> String {
+/// "No contacts excluded.", "1 contact excluded.", "3 contacts excluded."
+fn counted((on, one, many): &(String, String, String), count: usize) -> String {
 	match count {
-		0 => "No contacts excluded.".to_string(),
-		1 => "1 contact excluded.".to_string(),
-		n => format!("{} contacts excluded.", n),
+		0 => format!("No {} {}.", many, on),
+		1 => format!("1 {} {}.", one, on),
+		n => format!("{} {} {}.", n, many, on),
 	}
 }
 

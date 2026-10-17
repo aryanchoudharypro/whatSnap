@@ -345,14 +345,28 @@ func handleDeleteList(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleSetListMember adds a chat to a list or takes it out.
+// handleSetListMember adds chats to a list or takes them out: one as jid,
+// or several as jids (Manage Lists adds a few at once), said as one change.
 func handleSetListMember(conn net.Conn, raw json.RawMessage) {
 	var data ChatListData
-	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" || data.JID == "" {
+	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" {
+		return
+	}
+	jids := data.JIDs
+	if data.JID != "" {
+		jids = append(jids, data.JID)
+	}
+	if len(jids) == 0 {
 		return
 	}
 	go func() {
-		if !sendListMember(data.ID, data.JID, data.Member) {
+		var changed []string
+		for _, jid := range jids {
+			if sendListMember(data.ID, jid, data.Member) {
+				changed = append(changed, jid)
+			}
+		}
+		if len(changed) == 0 {
 			return
 		}
 		broadcastChatLists()
@@ -361,7 +375,7 @@ func handleSetListMember(conn net.Conn, raw json.RawMessage) {
 			name = l.GetName()
 		}
 		sendEvent(conn, "list_member_saved", map[string]interface{}{
-			"id": data.ID, "name": name, "jid": data.JID, "member": data.Member,
+			"id": data.ID, "name": name, "jid": changed[0], "count": len(changed), "member": data.Member,
 		})
 	}()
 }
