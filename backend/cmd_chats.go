@@ -538,7 +538,7 @@ func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) 
 		// Real messages only: a synthesized group-event line or call-history
 		// row has an ID WhatsApp never issued, and patches naming one as the
 		// chat's last message don't match what the phone has.
-		`SELECT id, timestamp, from_me, COALESCE(sender_jid, '') FROM messages
+		`SELECT id, timestamp, from_me, COALESCE(NULLIF(wire_sender, ''), sender_jid, '') FROM messages
 			WHERE jid = ? AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\' AND id NOT LIKE 'call:%'
 			ORDER BY timestamp DESC LIMIT 1`,
 		jid_str,
@@ -546,8 +546,13 @@ func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) 
 	if err != nil {
 		return time.Time{}, nil
 	}
+	// The key names the chat the way the patch carrying it does.
+	remote := jid_str
+	if parsed, perr := types.ParseJID(jid_str); perr == nil {
+		remote = syncdChatJID(parsed).String()
+	}
 	key := &waCommon.MessageKey{
-		RemoteJID: proto.String(jid_str),
+		RemoteJID: proto.String(remote),
 		ID:        proto.String(msg_id),
 		FromMe:    proto.Bool(from_me),
 	}
@@ -608,7 +613,7 @@ func handleSetChatPinned(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildPin(jid, data.Value)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildPin(syncdChatJID(jid), data.Value)); err != nil {
 			broadcastChats()
 			return
 		}
@@ -632,7 +637,7 @@ func handleSetChatArchived(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildArchive(jid, data.Value, last_ts, last_key)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildArchive(syncdChatJID(jid), data.Value, last_ts, last_key)); err != nil {
 			broadcastChats()
 			return
 		}
@@ -660,7 +665,7 @@ func handleSetChatMuted(raw json.RawMessage) {
 	}
 	go func() {
 		duration := time.Duration(data.DurationSeconds) * time.Second
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMute(jid, data.Muted, duration)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMute(syncdChatJID(jid), data.Muted, duration)); err != nil {
 			broadcastChats()
 			return
 		}
@@ -684,7 +689,7 @@ func handleSetChatRead(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMarkChatAsRead(jid, data.Value, last_ts, last_key)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMarkChatAsRead(syncdChatJID(jid), data.Value, last_ts, last_key)); err != nil {
 			broadcastChats()
 			return
 		}
@@ -713,7 +718,7 @@ func handleDeleteChat(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildDeleteChat(jid, last_ts, last_key, false)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildDeleteChat(syncdChatJID(jid), last_ts, last_key, false)); err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to delete chat: " + err.Error()})
 			return
 		}
@@ -737,7 +742,7 @@ func handleClearChat(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildClearChat(jid, last_ts, last_key, false, false)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), appstate.BuildClearChat(syncdChatJID(jid), last_ts, last_key, false, false)); err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to clear chat: " + err.Error()})
 			return
 		}

@@ -194,15 +194,36 @@ func handleCallLogSync(v *events.CallLogSync) {
 		log.Printf("call log: storing %s failed: %v", v.CallID, err)
 		return
 	}
-	db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
-		ON CONFLICT(jid) DO UPDATE SET
-			timestamp=MAX(timestamp, excluded.timestamp),
-			preview_snippet=excluded.preview_snippet,
-			preview_sender='',
-			preview_from_me=excluded.preview_from_me,
-			preview_is_reaction=0,
-			preview_reaction_emoji=''`,
-		jid, ts, text, boolToInt(v.FromMe))
+	// A call is the chat's latest line only if nothing newer is there - a
+	// full sync replays calls from long ago.
+	if v.FromFullSync {
+		// The phone's call history is the Calls tab's, not a list of chats:
+		// WhatsApp Web doesn't start a chat for everyone ever called. The
+		// row above still puts the call in that chat's history, should it
+		// exist or be started later.
+		res, err := db.Exec(`UPDATE chats SET
+				preview_snippet = CASE WHEN ? >= COALESCE(timestamp, 0) THEN ? ELSE preview_snippet END,
+				preview_sender = CASE WHEN ? >= COALESCE(timestamp, 0) THEN '' ELSE preview_sender END,
+				preview_from_me = CASE WHEN ? >= COALESCE(timestamp, 0) THEN ? ELSE preview_from_me END,
+				preview_is_reaction = CASE WHEN ? >= COALESCE(timestamp, 0) THEN 0 ELSE preview_is_reaction END,
+				timestamp = MAX(COALESCE(timestamp, 0), ?)
+			WHERE jid = ?`, ts, text, ts, ts, boolToInt(v.FromMe), ts, ts, jid)
+		if err != nil {
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return
+		}
+	} else {
+		db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
+			ON CONFLICT(jid) DO UPDATE SET
+				preview_snippet=CASE WHEN excluded.timestamp >= COALESCE(chats.timestamp, 0) THEN excluded.preview_snippet ELSE chats.preview_snippet END,
+				preview_sender=CASE WHEN excluded.timestamp >= COALESCE(chats.timestamp, 0) THEN '' ELSE chats.preview_sender END,
+				preview_from_me=CASE WHEN excluded.timestamp >= COALESCE(chats.timestamp, 0) THEN excluded.preview_from_me ELSE chats.preview_from_me END,
+				preview_is_reaction=CASE WHEN excluded.timestamp >= COALESCE(chats.timestamp, 0) THEN 0 ELSE chats.preview_is_reaction END,
+				timestamp=MAX(timestamp, excluded.timestamp)`,
+			jid, ts, text, boolToInt(v.FromMe))
+	}
 	var chatName string
 	db.QueryRow(`SELECT name FROM chats WHERE jid = ?`, jid).Scan(&chatName)
 
@@ -220,4 +241,16 @@ func handleCallLogSync(v *events.CallLogSync) {
 		"call_id":   v.CallID,
 		"is_video":  rec.GetIsVideo(),
 	})
+}
+
+// dropCallHistoryOnlyChats removes the chats older builds started for every
+// call in the phone's synced call history: people only ever called, never
+// written to. Their call lines stay in the messages table, so a chat started
+// with them later still shows its calls.
+func dropCallHistoryOnlyChats() {
+	db.Exec(`DELETE FROM chats
+		WHERE jid NOT LIKE '%@g.us' AND jid NOT LIKE '%@newsletter'
+			AND COALESCE(pinned, 0) = 0 AND COALESCE(archived, 0) = 0 AND COALESCE(muted, 0) = 0 AND COALESCE(is_locked, 0) = 0
+			AND EXISTS (SELECT 1 FROM messages m WHERE m.jid = chats.jid AND m.media_type = 'call')
+			AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.jid = chats.jid AND COALESCE(m.media_type, '') != 'call')`)
 }

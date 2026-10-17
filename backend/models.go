@@ -266,6 +266,7 @@ type StoredMessage struct {
 	ID            string
 	JID           string
 	SenderJID     string
+	WireSender    string // the sender as WhatsApp named them, when not SenderJID (see wire.go)
 	FromMe        bool
 	Text          string
 	Timestamp     int64

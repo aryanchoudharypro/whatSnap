@@ -65,6 +65,9 @@ func migrateDB() error {
 	// Set while a chat is marked unread on purpose, so healStaleUnreadCounts
 	// leaves it alone. Reading the chat (its count going to 0) clears it.
 	db.Exec("ALTER TABLE chats ADD COLUMN marked_unread INTEGER DEFAULT 0")
+	// The address WhatsApp uses for a 1:1 chat when that isn't the phone JID
+	// the row is keyed by - the person's LID (see wire.go).
+	db.Exec("ALTER TABLE chats ADD COLUMN wire_jid TEXT DEFAULT ''")
 	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_marked_unread AFTER UPDATE OF unread_count ON chats
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
 		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)
@@ -123,6 +126,9 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN starred INTEGER DEFAULT 0")
 	// "viewed" only has meaning for jid = 'status@broadcast' rows (Status/Stories).
 	db.Exec("ALTER TABLE messages ADD COLUMN viewed INTEGER DEFAULT 0")
+	// A group message's sender as WhatsApp named them (their LID), when
+	// sender_jid holds their phone JID instead; empty otherwise (see wire.go).
+	db.Exec("ALTER TABLE messages ADD COLUMN wire_sender TEXT DEFAULT ''")
 	// Media that arrived as one WhatsApp album share the album header's
 	// message ID here, so the frontend can group them without guessing from
 	// timestamps. Empty for standalone media.
@@ -158,7 +164,13 @@ func migrateDB() error {
 	// me" removes the row outright, and that already happens immediately via
 	// deleteMessageForMe, not through this startup sweep.
 	db.Exec("DELETE FROM messages WHERE COALESCE(is_deleted, 0) = 0 AND (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
-	db.Exec("DELETE FROM chats WHERE jid NOT IN (SELECT DISTINCT jid FROM messages WHERE (text != '' AND text IS NOT NULL AND text != '[Unsupported Message]' AND text != '[Protocol Message]') OR (media_type != '' AND media_type IS NOT NULL) OR (raw IS NOT NULL AND length(raw) > 0) OR COALESCE(is_deleted, 0) = 1) AND pinned = 0 AND muted = 0 AND archived = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0")
+	// Chats with no messages stored here are kept: the phone no longer sends
+	// every chat's history, so a chat last used months ago arrives as a
+	// timestamp and nothing else, and WhatsApp Web lists it all the same.
+	// Deleting them on every launch (as this used to) emptied the list of
+	// everyone not written to lately. Entries that aren't chats at all are
+	// kept out when history sync writes them (historyConversationIsChat), and
+	// populateChatsFromStoreOnce drops the empty leftovers.
 	// These re-derive rows stored by older builds. Each one only ever has
 	// work to do once, but used to rescan and re-decode every matching row's
 	// raw protobuf on every single launch.
@@ -172,6 +184,12 @@ func migrateDB() error {
 	runOnce("backfill_media_sizes_v1", backfillMediaSizes)
 	runOnce("remove_key_distribution_stubs_v1", removeKeyDistributionStubs)
 	runOnce("tokenize_system_line_names_v1", tokenizeBakedSystemLines)
+	// Push names for @lid senders were cached with the LID's digits as the
+	// phone number, shown as a "+<15 digits>" that was nobody's number.
+	runOnce("clear_lid_fake_phones_v1", func() {
+		db.Exec(`UPDATE contacts_cache SET phone = '' WHERE jid LIKE '%@lid'`)
+	})
+	runOnce("drop_call_history_only_chats_v1", dropCallHistoryOnlyChats)
 	// An upload that was still running when the app last quit can never
 	// finish now - and retry only accepts pending/failed rows, so leaving it
 	// as "uploading" stranded it on screen forever with no way to resend.
@@ -302,6 +320,15 @@ func runOnce(key string, fn func()) {
 	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
 }
 
+// cachePhone is the phone number to cache for a contact: the JID's own for a
+// phone JID, nothing for anything else (a LID's digits aren't a number).
+func cachePhone(jid types.JID) string {
+	if jid.Server == types.DefaultUserServer {
+		return jid.User
+	}
+	return ""
+}
+
 // --- messages ---------------------------------------------------------------
 
 // statusRank lets us avoid a late/out-of-order receipt regressing a message's
@@ -337,8 +364,8 @@ func saveMessage(sm StoredMessage) error {
 		sentAt = sm.Timestamp
 	}
 	_, err := db.Exec(`INSERT INTO messages
-			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, media_size, quoted_id, quoted_text, quoted_sender, sent_at, album_id, server_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, media_size, quoted_id, quoted_text, quoted_sender, sent_at, album_id, server_id, wire_sender)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			-- A message can be delivered more than once (reconnect resync, or a
 			-- group message whose two encrypted halves each raise an event), and
@@ -359,10 +386,11 @@ func saveMessage(sm StoredMessage) error {
 			quoted_sender=excluded.quoted_sender,
 			sent_at=CASE WHEN excluded.sent_at != 0 THEN excluded.sent_at ELSE messages.sent_at END,
 			album_id=CASE WHEN excluded.album_id != '' THEN excluded.album_id ELSE messages.album_id END,
-			server_id=CASE WHEN excluded.server_id != 0 THEN excluded.server_id ELSE messages.server_id END`,
+			server_id=CASE WHEN excluded.server_id != 0 THEN excluded.server_id ELSE messages.server_id END,
+			wire_sender=COALESCE(NULLIF(excluded.wire_sender, ''), messages.wire_sender)`,
 		sm.ID, sm.JID, sm.FromMe, sm.Text, sm.Timestamp, sm.SenderJID, sm.Raw, sm.Status,
 		sm.MediaType, sm.MediaMimetype, sm.MediaFilename, sm.MediaPath, sm.MediaSize,
-		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt, sm.AlbumID, sm.ServerID)
+		sm.QuotedID, sm.QuotedText, sm.QuotedSender, sentAt, sm.AlbumID, sm.ServerID, sm.WireSender)
 	// Several call sites (local echo of a send, media/status messages) don't
 	// check this error themselves, so a write failure here would otherwise
 	// vanish silently instead of just losing the message on screen.
@@ -1256,7 +1284,7 @@ func getCachedAvatarPath(jid string) string {
 // name -> push name -> business name -> "+<number>".
 func resolveDisplayName(jid types.JID) string {
 	if wa() != nil && wa().Store != nil && wa().Store.ID != nil {
-		if jid.User == wa().Store.ID.User || (jid.Server == types.HiddenUserServer && jid.User == wa().Store.GetLID().User) {
+		if (jid.Server == types.DefaultUserServer && jid.User == wa().Store.ID.User) || (jid.Server == types.HiddenUserServer && jid.User == wa().Store.GetLID().User) {
 			return "You"
 		}
 	}

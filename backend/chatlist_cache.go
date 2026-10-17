@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -127,4 +128,34 @@ func healStaleUnreadCounts() {
 			AND EXISTS (SELECT 1 FROM messages m WHERE m.jid = chats.jid AND m.from_me = 0)
 			AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.jid = chats.jid AND m.from_me = 0
 				AND m.status NOT IN ('read', 'played') AND COALESCE(m.read_at, 0) = 0)`)
+}
+
+// historyConversationIsChat reports whether a history-sync conversation is a
+// chat to list. The phone sends more than its chat list: entries that carry
+// only a contact's privacy token, identity key or name, for people never
+// chatted with. A chat has a timestamp (however old, and whether or not any
+// of its messages came along), or messages, or state of its own. Groups are
+// always taken; which ones we're still in is settled against the server's
+// group list (populateChatsFromStoreOnce).
+func historyConversationIsChat(conv *waHistorySync.Conversation, jid types.JID) bool {
+	if jid.Server == types.GroupServer {
+		return true
+	}
+	return conv.GetConversationTimestamp() > 0 || conv.GetLastMsgTimestamp() > 0 || len(conv.GetMessages()) > 0 ||
+		conv.GetPinned() > 0 || conv.GetArchived() || conv.GetMarkedAsUnread() || conv.GetUnreadCount() > 0 ||
+		historyMuteActive(conv.GetMuteEndTime())
+}
+
+// historyMuteActive reports whether a history-sync mute end time is still in
+// the future. -1 (as a uint64) is "muted forever"; some phones send
+// milliseconds.
+func historyMuteActive(end uint64) bool {
+	e := int64(end)
+	if e < 0 {
+		return true
+	}
+	if e > 1e12 {
+		e /= 1000
+	}
+	return e > time.Now().Unix()
 }

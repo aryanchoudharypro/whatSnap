@@ -20,6 +20,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waWeb"
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"go.mau.fi/whatsmeow/types/richresponse"
@@ -57,6 +58,33 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 		chatJID = senderJID
 	}
 
+	return
+}
+
+// resolveSourcePN is resolveLIDChat for events that only carry a message
+// source (receipts, typing): the chat and sender as the phone JIDs the app
+// keys by, using the addresses the stanza itself paired them with first.
+func resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
+	chatJID = src.Chat.ToNonAD()
+	senderJID = src.Sender.ToNonAD()
+	rawSender := senderJID
+	if senderJID.Server == types.HiddenUserServer {
+		if src.SenderAlt.Server == types.DefaultUserServer {
+			senderJID = src.SenderAlt.ToNonAD()
+		} else {
+			senderJID = preferPN(senderJID)
+		}
+	}
+	if chatJID.Server == types.HiddenUserServer {
+		switch {
+		case chatJID == rawSender:
+			chatJID = senderJID
+		case src.RecipientAlt.Server == types.DefaultUserServer:
+			chatJID = src.RecipientAlt.ToNonAD()
+		default:
+			chatJID = preferPN(chatJID)
+		}
+	}
 	return
 }
 
@@ -1110,6 +1138,12 @@ func eventHandler(evt interface{}) {
 			// The chats this chunk actually brought messages for - the only
 			// ones the UI is told about (see history_chats_synced below).
 			var jidsWithMessages []string
+			// What this chunk's conversation entries turned out to be (see
+			// historyConversationIsChat), logged once per chunk.
+			var chunkListed, chunkSkipped, chunkTokenOnly int
+			// LID pairs that only the conversations themselves named, handed
+			// to whatsmeow's store once the chunk is written.
+			var convLIDPairs []store.LIDMapping
 
 			if gs := v.Data.GetGlobalSettings(); gs != nil {
 				if cls := gs.GetChatLockSettings(); cls != nil {
@@ -1141,7 +1175,7 @@ func eventHandler(evt interface{}) {
 				}
 				return j
 			}
-			remapLIDRowsToPN(chunkPNs)
+			mergeLIDRowsIntoPN(chunkPNs)
 
 			// A push-name chunk can carry thousands of names; one autocommit
 			// write per name made it crawl. Resolve every LID first (that goes
@@ -1161,10 +1195,11 @@ func eventHandler(evt interface{}) {
 					continue
 				}
 				targetJID := resolvePN(parsedJID)
+				phone := cachePhone(targetJID)
 				// whatsmeow already put these push names in its contact store
 				// before dispatching the chunk; only our own tables need them.
 				pushNameWrites = append(pushNameWrites, func(tx sqlExecer) {
-					upsertContactCacheRowWith(tx, targetJID.String(), pushname, targetJID.User, false)
+					upsertContactCacheRowWith(tx, targetJID.String(), pushname, phone, false)
 					tx.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, pushname, targetJID.String())
 				})
 			}
@@ -1201,15 +1236,45 @@ func eventHandler(evt interface{}) {
 				if parseErr != nil {
 					continue
 				}
+				// Each chat names its own other address too; the chunk-wide
+				// mapping list doesn't always include it.
+				if pair, ok := conversationLIDPair(conv, chatJID); ok {
+					if _, known := chunkPNs[pair.LID.User]; !known {
+						chunkPNs[pair.LID.User] = pair.PN
+						convLIDPairs = append(convLIDPairs, pair)
+					}
+				}
+				wireJID := ""
+				if chatJID.Server == types.HiddenUserServer {
+					wireJID = chatJID.ToNonAD().String()
+				}
 				chatJID = resolvePN(chatJID)
 				jid = chatJID.String()
-				syncedJIDs = append(syncedJIDs, jid)
+				if wireJID == jid {
+					wireJID = ""
+				}
+				listed := historyConversationIsChat(conv, chatJID)
+				if listed {
+					chunkListed++
+				} else {
+					chunkSkipped++
+					if conv.GetTcToken() != nil {
+						chunkTokenOnly++
+					}
+				}
+				if listed {
+					syncedJIDs = append(syncedJIDs, jid)
+				}
 				if len(conv.GetMessages()) > 0 {
 					jidsWithMessages = append(jidsWithMessages, jid)
 				}
 
 				name := conv.GetName()
-				if name == "" {
+				if name == "" && chatJID.Server == types.GroupServer && listed {
+					// A group's name is its subject, which only the server has.
+					requestGroupMetadata(chatJID)
+				}
+				if name == "" && chatJID.Server != types.GroupServer {
 					if contact, err := wa().Store.Contacts.GetContact(context.Background(), chatJID); err == nil && contact.Found {
 						if contact.FullName != "" {
 							name = contact.FullName
@@ -1239,10 +1304,7 @@ func eventHandler(evt interface{}) {
 				if conv.GetPinned() > 0 {
 					pinned = 1
 				}
-				muted := 0
-				if conv.GetMuteEndTime() > 0 {
-					muted = 1
-				}
+				muted := boolToInt(historyMuteActive(conv.GetMuteEndTime()))
 				archived := 0
 				if conv.GetArchived() {
 					archived = 1
@@ -1251,21 +1313,29 @@ func eventHandler(evt interface{}) {
 				if conv.GetLocked() {
 					locked = 1
 				}
-				writes = append(writes, func(tx sqlExecer) {
-					_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-						ON CONFLICT(jid) DO UPDATE SET
-						timestamp=MAX(timestamp, excluded.timestamp),
-						name=CASE WHEN chats.name IS NULL OR chats.name = '' OR chats.name LIKE '+%' THEN COALESCE(NULLIF(excluded.name, ''), chats.name) ELSE chats.name END,
-						unread_count=MAX(chats.unread_count, excluded.unread_count),
-						pinned=MAX(chats.pinned, excluded.pinned),
-						muted=MAX(chats.muted, excluded.muted),
-						archived=MAX(chats.archived, excluded.archived),
-						is_locked=MAX(chats.is_locked, excluded.is_locked)`,
-						jid, name, ts, unread, pinned, muted, archived, locked)
-					if err != nil {
-						fmt.Println("Error inserting chat from HistorySync:", err)
-					}
-				})
+				markedUnread := boolToInt(conv.GetMarkedAsUnread())
+				if markedUnread == 1 && unread == 0 {
+					unread = 1
+				}
+				if listed {
+					writes = append(writes, func(tx sqlExecer) {
+						_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived, is_locked, marked_unread, wire_jid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+							ON CONFLICT(jid) DO UPDATE SET
+							timestamp=MAX(timestamp, excluded.timestamp),
+							name=CASE WHEN chats.name IS NULL OR chats.name = '' OR chats.name LIKE '+%' THEN COALESCE(NULLIF(excluded.name, ''), chats.name) ELSE chats.name END,
+							unread_count=MAX(chats.unread_count, excluded.unread_count),
+							pinned=MAX(chats.pinned, excluded.pinned),
+							muted=MAX(chats.muted, excluded.muted),
+							archived=MAX(chats.archived, excluded.archived),
+							is_locked=MAX(chats.is_locked, excluded.is_locked),
+							marked_unread=MAX(COALESCE(chats.marked_unread, 0), excluded.marked_unread),
+							wire_jid=COALESCE(NULLIF(chats.wire_jid, ''), excluded.wire_jid)`,
+							jid, name, ts, unread, pinned, muted, archived, locked, markedUnread, wireJID)
+						if err != nil {
+							fmt.Println("Error inserting chat from HistorySync:", err)
+						}
+					})
+				}
 				// Advanced chat privacy, applied only if newer than what we have.
 				if conv.LimitSharing != nil {
 					limitSharing, limitSharingTS := boolToInt(conv.GetLimitSharing()), conv.GetLimitSharingSettingTimestamp()
@@ -1447,6 +1517,7 @@ func eventHandler(evt interface{}) {
 								senderJID = resolvePN(senderJID)
 							}
 						}
+						msgWireSender := wireSender(chatJID, evtMsg.Info.Sender, senderJID)
 						rawBytes, _ := proto.Marshal(evtMsg.Message)
 						mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(evtMsg.Message)
 						quotedID, quotedText, quotedSender := quotedPreview(evtMsg.Message)
@@ -1513,9 +1584,10 @@ func eventHandler(evt interface{}) {
 						}
 						writes = append(writes, func(tx sqlExecer) {
 							_, err := tx.Exec(`INSERT INTO messages
-								(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_size, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at)
-							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+								(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_size, quoted_id, quoted_text, quoted_sender, sent_at, delivered_at, read_at, played_at, wire_sender)
+							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 							ON CONFLICT(id) DO UPDATE SET text=excluded.text, timestamp=excluded.timestamp, sender_jid=excluded.sender_jid, raw=excluded.raw,
+								wire_sender=COALESCE(NULLIF(excluded.wire_sender, ''), messages.wire_sender),
 								status=CASE WHEN excluded.status != '' THEN excluded.status ELSE messages.status END,
 								media_type=excluded.media_type, media_mimetype=excluded.media_mimetype, media_filename=excluded.media_filename, media_size=excluded.media_size,
 								quoted_id=excluded.quoted_id, quoted_text=excluded.quoted_text, quoted_sender=excluded.quoted_sender,
@@ -1524,7 +1596,7 @@ func eventHandler(evt interface{}) {
 								read_at=CASE WHEN messages.read_at != 0 THEN messages.read_at ELSE excluded.read_at END,
 								played_at=CASE WHEN messages.played_at != 0 THEN messages.played_at ELSE excluded.played_at END`,
 								msgID, msgJID, msgFromMe, msgText, msgTS, senderJID.String(), rawBytes, status,
-								mediaType, mimetype, filename, mediaSize, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt)
+								mediaType, mimetype, filename, mediaSize, quotedID, quotedText, quotedSender, sentAt, deliveredAt, readAt, playedAt, msgWireSender)
 							if err != nil {
 								log.Println("Error inserting message from HistorySync:", err)
 								return
@@ -1550,6 +1622,11 @@ func eventHandler(evt interface{}) {
 			}
 			for _, album := range albumHeaders {
 				stampAlbumMembers(album.id, album.jid, album.senderJID, album.timestamp, album.expected)
+			}
+			if len(convLIDPairs) > 0 {
+				if err := wa().Store.LIDs.PutManyLIDMappings(context.Background(), convLIDPairs); err != nil {
+					log.Println("Error storing LID mappings from history-sync conversations:", err)
+				}
 			}
 			loopTook := time.Since(chunkStart)
 			tailStart := time.Now()
@@ -1604,8 +1681,8 @@ func eventHandler(evt interface{}) {
 			}
 			if convCount > 0 || v.Data.GetSyncType() == waHistorySync.HistorySync_FULL {
 				stats := db.Stats()
-				log.Printf("History sync chunk written: type=%s chunk=%d progress=%d chats=%d msgs=%d took=%s (messages %s, snippets %s) queued=%d dbWait=%d/%s inUse=%d",
-					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), convCount, chunkMsgs,
+				log.Printf("History sync chunk written: type=%s chunk=%d progress=%d chats=%d (listed=%d skipped=%d tokenOnly=%d) msgs=%d took=%s (messages %s, snippets %s) queued=%d dbWait=%d/%s inUse=%d",
+					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), convCount, chunkListed, chunkSkipped, chunkTokenOnly, chunkMsgs,
 					time.Since(chunkStart).Round(time.Millisecond), loopTook.Round(time.Millisecond), tailTook.Round(time.Millisecond),
 					historySyncPending.Load()-1,
 					stats.WaitCount-statsAtStart.WaitCount, (stats.WaitDuration - statsAtStart.WaitDuration).Round(time.Millisecond),
@@ -1863,7 +1940,7 @@ func eventHandler(evt interface{}) {
 					increment = 0
 				}
 			}
-			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, ?, ?)
+			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me, wire_jid) VALUES (?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 					timestamp=MAX(timestamp, excluded.timestamp),
 					unread_count=chats.unread_count + excluded.unread_count,
@@ -1871,10 +1948,21 @@ func eventHandler(evt interface{}) {
 					preview_sender=excluded.preview_sender,
 					preview_from_me=excluded.preview_from_me,
 					preview_is_reaction=0,
-					preview_reaction_emoji=''`,
-				jid, ts, increment, text, senderJID.String(), v.Info.IsFromMe)
+					preview_reaction_emoji='',
+					wire_jid=COALESCE(NULLIF(excluded.wire_jid, ''), chats.wire_jid)`,
+				jid, ts, increment, text, senderJID.String(), v.Info.IsFromMe, wireChat(v.Info.Chat, chatJID))
 			if err != nil {
 				fmt.Println("Error updating chat timestamp:", err)
+			}
+			// A group we have no name for - just joined, or the join notice
+			// hasn't been handled yet - is looked up, as WhatsApp Web does,
+			// rather than listed as its bare JID.
+			if chatJID.Server == types.GroupServer {
+				var name string
+				db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid).Scan(&name)
+				if name == "" {
+					requestGroupMetadata(chatJID)
+				}
 			}
 			if v.Info.ID != "" {
 				mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(v.Message)
@@ -1885,7 +1973,7 @@ func eventHandler(evt interface{}) {
 				}
 				rawBytes, _ := proto.Marshal(v.Message)
 				err := saveMessage(StoredMessage{
-					ID: v.Info.ID, JID: jid, SenderJID: senderJID.String(),
+					ID: v.Info.ID, JID: jid, SenderJID: senderJID.String(), WireSender: wireSender(chatJID, v.Info.Sender, senderJID),
 					FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,
 					MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
 					QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
@@ -1944,10 +2032,16 @@ func eventHandler(evt interface{}) {
 	case *events.PushName:
 		invalidateDisplayNames()
 		go func() {
-			jidStr := v.JID.ToNonAD().String()
+			// whatsmeow has already stored the name. A sender named only by
+			// LID is cached under their phone JID when that's known, and a
+			// LID's digits are never cached as a phone number.
+			target := preferPN(v.JID)
+			if target.Server == types.HiddenUserServer && v.JIDAlt.Server == types.DefaultUserServer {
+				target = v.JIDAlt.ToNonAD()
+			}
+			jidStr := target.String()
 			if v.NewPushName != "" {
-				wa().Store.Contacts.PutPushName(context.Background(), v.JID.ToNonAD(), v.NewPushName)
-				upsertContactCacheRow(jidStr, v.NewPushName, v.JID.User, false)
+				upsertContactCacheRow(jidStr, v.NewPushName, cachePhone(target), false)
 				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewPushName, jidStr)
 				broadcastChats()
 			}
@@ -1995,9 +2089,10 @@ func eventHandler(evt interface{}) {
 	case *events.BusinessName:
 		invalidateDisplayNames()
 		go func() {
-			jidStr := v.JID.ToNonAD().String()
+			target := preferPN(v.JID)
+			jidStr := target.String()
 			if v.NewBusinessName != "" {
-				upsertContactCacheRow(jidStr, v.NewBusinessName, v.JID.User, true)
+				upsertContactCacheRow(jidStr, v.NewBusinessName, cachePhone(target), true)
 				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewBusinessName, jidStr)
 				broadcastChats()
 			}
@@ -2126,19 +2221,7 @@ func eventHandler(evt interface{}) {
 		isRecording := isComposing && v.Media == types.ChatPresenceMediaAudio
 		isTyping := isComposing && !isRecording
 
-		chatJID := v.MessageSource.Chat.ToNonAD()
-		senderJID := v.MessageSource.Sender.ToNonAD()
-
-		if chatJID.Server == "lid" {
-			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
-				chatJID = pn.ToNonAD()
-			}
-		}
-		if senderJID.Server == "lid" {
-			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
-				senderJID = pn.ToNonAD()
-			}
-		}
+		chatJID, senderJID := resolveSourcePN(v.MessageSource)
 
 		broadcastEvent("typing", map[string]interface{}{
 			"chat_jid":   chatJID.String(),
@@ -2167,19 +2250,7 @@ func eventHandler(evt interface{}) {
 			"last_seen":   lastSeenUnix,
 		})
 	case *events.Receipt:
-		chatJID := v.MessageSource.Chat.ToNonAD()
-		senderJID := v.MessageSource.Sender.ToNonAD()
-
-		if chatJID.Server == "lid" {
-			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
-				chatJID = pn.ToNonAD()
-			}
-		}
-		if senderJID.Server == "lid" {
-			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
-				senderJID = pn.ToNonAD()
-			}
-		}
+		chatJID, senderJID := resolveSourcePN(v.MessageSource)
 
 		broadcastEvent("receipt", map[string]interface{}{
 			"chat_jid":    chatJID.String(),
@@ -2207,12 +2278,7 @@ func eventHandler(evt interface{}) {
 				ids[i] = string(id)
 			}
 			receiptTS := v.Timestamp.Unix()
-			resolvedChatJID := v.MessageSource.Chat.ToNonAD()
-			if resolvedChatJID.Server == "lid" {
-				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), resolvedChatJID); err == nil && !pn.IsEmpty() {
-					resolvedChatJID = pn.ToNonAD()
-				}
-			}
+			resolvedChatJID := chatJID
 			// One member's receipt for our own group message only counts
 			// towards that member; the message's own ticks follow the whole
 			// group (see updateGroupMessageStatuses).
@@ -2379,7 +2445,7 @@ func eventHandler(evt interface{}) {
 			}
 			db.Exec("UPDATE messages SET starred = ? WHERE id = ?", starredInt, v.MessageID)
 			broadcastEvent("message_starred", map[string]interface{}{
-				"jid": v.ChatJID.String(), "message_id": v.MessageID, "starred": v.Action.GetStarred(),
+				"jid": preferPN(v.ChatJID).String(), "message_id": v.MessageID, "starred": v.Action.GetStarred(),
 			})
 		}()
 	case *events.ClearChat:
@@ -2476,6 +2542,10 @@ func eventHandler(evt interface{}) {
 				if isParticipantMe(types.GroupParticipant{JID: j}) {
 					markGroupJoined(v.JID.String(), true)
 					sendRightsChanged = true
+					// Being added to a group (or let in after asking) comes as
+					// this member change, not as JoinedGroup, and carries no
+					// name: ask the server, as WhatsApp Web does.
+					requestGroupMetadata(v.JID)
 				}
 			}
 			for _, j := range v.Leave {
@@ -2538,6 +2608,8 @@ func eventHandler(evt interface{}) {
 		go func() {
 			if v.GroupName.Name != "" {
 				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.GroupName.Name)
+			} else {
+				requestGroupMetadata(v.JID)
 			}
 			recordGroupCommunity(&v.GroupInfo)
 			markGroupJoined(v.JID.ToNonAD().String(), true)
@@ -2710,71 +2782,6 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	}
 
 	return lines
-}
-
-// remapLIDRowsToPN moves chat and message rows stored under a @lid over to
-// the phone JID a history-sync chunk says it maps to.
-//
-// This used to run three UPDATEs per mapping. messages.sender_jid has no
-// index, so each of those scanned the whole messages table - thousands of
-// full scans per chunk, every one holding SQLite's write lock, getting slower
-// as the sync filled the table. whatsmeow's own store writes timed out behind
-// them ("database is locked"), which once cost a whole history-sync chunk.
-// Now it's one set-based UPDATE per column. (whatsmeow already saved the
-// mappings to its LID store before dispatching the chunk, so there's nothing
-// to store here.)
-// historyChunkLIDMap indexes a history-sync chunk's LID->phone mappings by
-// the LID's user part.
-func historyChunkLIDMap(mappings []*waHistorySync.PhoneNumberToLIDMapping) map[string]types.JID {
-	pns := make(map[string]types.JID, len(mappings))
-	for _, mapping := range mappings {
-		if mapping == nil {
-			continue
-		}
-		pnJID, err1 := types.ParseJID(mapping.GetPnJID())
-		lidJID, err2 := types.ParseJID(mapping.GetLidJID())
-		if err1 == nil && err2 == nil && !pnJID.IsEmpty() && !lidJID.IsEmpty() {
-			pns[lidJID.ToNonAD().User] = pnJID.ToNonAD()
-		}
-	}
-	return pns
-}
-
-func remapLIDRowsToPN(pns map[string]types.JID) {
-	type pair struct{ lid, pn string }
-	var pairs []pair
-	for lidUser, pn := range pns {
-		pairs = append(pairs, pair{types.NewJID(lidUser, types.HiddenUserServer).String(), pn.String()})
-	}
-	if len(pairs) == 0 {
-		return
-	}
-	// A temp table lives on one connection, so everything here has to go
-	// through the same transaction.
-	tx, err := db.Begin()
-	if err != nil {
-		log.Println("Error starting LID remap transaction:", err)
-		return
-	}
-	defer tx.Rollback()
-	tx.Exec(`CREATE TEMP TABLE IF NOT EXISTS hs_lid_map (lid TEXT PRIMARY KEY, pn TEXT NOT NULL)`)
-	tx.Exec(`DELETE FROM hs_lid_map`)
-	for _, p := range pairs {
-		tx.Exec(`INSERT OR REPLACE INTO hs_lid_map (lid, pn) VALUES (?, ?)`, p.lid, p.pn)
-	}
-	for _, stmt := range []string{
-		`UPDATE OR IGNORE chats SET jid = (SELECT pn FROM hs_lid_map WHERE lid = chats.jid) WHERE jid IN (SELECT lid FROM hs_lid_map)`,
-		`UPDATE OR IGNORE messages SET jid = (SELECT pn FROM hs_lid_map WHERE lid = messages.jid) WHERE jid IN (SELECT lid FROM hs_lid_map)`,
-		`UPDATE OR IGNORE messages SET sender_jid = (SELECT pn FROM hs_lid_map WHERE lid = messages.sender_jid) WHERE sender_jid IN (SELECT lid FROM hs_lid_map)`,
-	} {
-		if _, err := tx.Exec(stmt); err != nil {
-			log.Println("Error remapping LID rows:", err)
-		}
-	}
-	tx.Exec(`DELETE FROM hs_lid_map`)
-	if err := tx.Commit(); err != nil {
-		log.Println("Error committing LID remap:", err)
-	}
 }
 
 // historySyncStallThreshold is how long one chunk may take to write before
@@ -3264,37 +3271,8 @@ func populateChatsFromStoreOnce() {
 		joined := make(map[string]bool, len(groups))
 		joinedGroupsSnapshot = joined
 		for _, g := range groups {
-			jidStr := g.JID.ToNonAD().String()
-			joined[jidStr] = true
-			isAdmin := isViewerAdmin(g)
-			groupName, isParent := g.GroupName.Name, g.IsParent
-			memberCount := len(g.Participants)
-			parentJID := ""
-			if !g.LinkedParentJID.IsEmpty() {
-				parentJID = g.LinkedParentJID.ToNonAD().String()
-			}
-			isAnnounceGroup := g.IsDefaultSubGroup
-			adminsOnly := g.IsAnnounce
-			// The server's word on a group's timer is current by definition.
-			disappearing := uint32(0)
-			if g.IsEphemeral {
-				disappearing = g.DisappearingTimer
-			}
-			groupWrites = append(groupWrites, func(tx sqlExecer) {
-				if _, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_community, is_admin, participant_count, parent_jid, is_announce_group, admins_only) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT(jid) DO UPDATE SET
-				name=COALESCE(NULLIF(excluded.name, ''), chats.name),
-				is_community=excluded.is_community,
-				is_admin=excluded.is_admin,
-				participant_count=excluded.participant_count,
-				parent_jid=excluded.parent_jid,
-				is_announce_group=excluded.is_announce_group,
-				admins_only=excluded.admins_only`,
-					jidStr, groupName, boolToInt(isParent), boolToInt(isAdmin), memberCount, parentJID, boolToInt(isAnnounceGroup), boolToInt(adminsOnly)); err != nil {
-					fmt.Println("Error upserting group chat", jidStr, ":", err)
-				}
-				tx.Exec(`UPDATE chats SET ephemeral_expiration = ? WHERE jid = ?`, disappearing, jidStr)
-			})
+			joined[g.JID.ToNonAD().String()] = true
+			groupWrites = append(groupWrites, groupInfoWrite(g))
 		}
 		writeBatch(groupWrites)
 		setJoinedGroups(joined)
@@ -3314,6 +3292,15 @@ func populateChatsFromStoreOnce() {
 		for _, jStr := range jidsToResolve {
 			pj, err := types.ParseJID(jStr)
 			if err != nil {
+				continue
+			}
+			// Only the server knows a group's name; a person's can be
+			// worked out here. The group list just written named every group
+			// we're in, so this is only for when fetching it failed.
+			if pj.Server == types.GroupServer {
+				if joinedGroupsSnapshot == nil {
+					requestGroupMetadata(pj)
+				}
 				continue
 			}
 			resName := resolveDisplayName(pj)
@@ -3625,23 +3612,25 @@ func isParticipantMe(p types.GroupParticipant) bool {
 	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
 		return false
 	}
+	// Each address is compared with ours of the same kind: a LID whose digits
+	// happen to spell our phone number is somebody else.
 	myJID := wa().Store.ID.ToNonAD()
-	if p.JID.User == myJID.User || (!p.PhoneNumber.IsEmpty() && p.PhoneNumber.User == myJID.User) {
+	myLID := wa().Store.GetLID().ToNonAD()
+	isMe := func(j types.JID) bool {
+		switch j.Server {
+		case types.DefaultUserServer:
+			return j.User == myJID.User
+		case types.HiddenUserServer:
+			return !myLID.IsEmpty() && j.User == myLID.User
+		}
+		return false
+	}
+	if isMe(p.JID) || isMe(p.PhoneNumber) || isMe(p.LID) {
 		return true
 	}
-	// Note: in whatsmeow v0.2.x, LID might be a pointer or struct, but ID is a pointer in Device
-	// If the compiler complained about `client.Store.LID != nil`, it means LID is a struct in this fork.
-	if !wa().Store.LID.IsEmpty() {
-		myLID := wa().Store.LID.ToNonAD()
-		if p.JID.User == myLID.User || (!p.LID.IsEmpty() && p.LID.User == myLID.User) {
-			return true
-		}
-	}
-	if p.JID.Server == "lid" {
+	if p.JID.Server == types.HiddenUserServer {
 		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), p.JID); err == nil && !pn.IsEmpty() {
-			if pn.User == myJID.User {
-				return true
-			}
+			return isMe(pn)
 		}
 	}
 	return false

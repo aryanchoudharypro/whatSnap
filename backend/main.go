@@ -78,6 +78,8 @@ func waLogLevel() string {
 // handleLogout to hand the app a fresh, unlinked session after a log out.
 func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	clientLog := waLog.Stdout("Client", waLogLevel(), true)
+	// Before the client exists, so every LID mapping it stores is seen.
+	hookLIDStore(deviceStore)
 	c := whatsmeow.NewClient(deviceStore, clientLog)
 	c.UserAgent = webViewUserAgent()
 	c.EnableAutoReconnect = true
@@ -281,6 +283,8 @@ func main() {
 
 	waClient.Store(buildClient(deviceStore))
 	initCallClient()
+	// Rows a past session left under a LID whose number is known by now.
+	go mergeAllKnownLIDRows()
 
 	if wa().Store.ID != nil {
 		// First connect of the session: start history-sync progress from

@@ -406,6 +406,9 @@ func handleJoinGroupInvite(raw json.RawMessage) {
 			return
 		}
 		markGroupJoined(groupJID.String(), true)
+		// The group's own metadata, rather than counting on the full group
+		// list (which can fail, or not have it yet) to name it.
+		fetchGroupMetadata(groupJID)
 		invalidateJoinedGroups()
 		populateChatsFromStore()
 		broadcastChats()
@@ -468,6 +471,7 @@ func handleJoinGroupLink(raw json.RawMessage) {
 			return
 		}
 		markGroupJoined(jid.String(), true)
+		fetchGroupMetadata(jid)
 		invalidateJoinedGroups()
 		populateChatsFromStore()
 		broadcastChats()

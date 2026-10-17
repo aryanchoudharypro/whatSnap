@@ -106,7 +106,7 @@ func handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
 	}
 
 	go func() {
-		if err := sendAppStateWithRetry(context.Background(), buildLockChat(jid, data.Value)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), buildLockChat(syncdChatJID(jid), data.Value)); err != nil {
 			broadcastChats()
 			return
 		}

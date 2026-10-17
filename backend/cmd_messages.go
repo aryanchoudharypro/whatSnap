@@ -154,6 +154,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 				participant = ""
 			}
 		}
+		participant = wireParticipantFor(quotedID, participant)
 		if qErr == nil {
 			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, resolveQuotedSenderName(displayParticipant)
 			ctxInfo := &waE2E.ContextInfo{StanzaID: proto.String(quotedID), QuotedMessage: quotedMsg}
@@ -260,6 +261,13 @@ func handleReactMessage(raw json.RawMessage) {
 		return
 	}
 	go func() {
+		// Name the message's sender the way the message did (their LID in a
+		// group that hides numbers), or the reaction doesn't attach to it.
+		if chatJID.Server == types.GroupServer && !senderJID.IsEmpty() {
+			if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
+				senderJID = wire
+			}
+		}
 		msg := wa().BuildReaction(chatJID, senderJID, data.MessageID, data.Emoji)
 		resp, err := wa().SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID()})
 		if err != nil {
@@ -360,6 +368,9 @@ func handleDeleteMessage(raw json.RawMessage) {
 				if senderJID.IsEmpty() && wa().Store.ID != nil {
 					senderJID = wa().Store.ID.ToNonAD()
 				}
+				if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
+					senderJID = wire
+				}
 			}
 
 			msg := wa().BuildRevoke(targetChatJID, senderJID, data.MessageID)
@@ -390,7 +401,12 @@ func handleDeleteMessage(raw json.RawMessage) {
 			if storedTimestamp > 0 {
 				msgTimestamp = time.Unix(storedTimestamp, 0)
 			}
-			patch := appstate.BuildDeleteMessageForMe(targetChatJID, originalSender, data.MessageID, storedFromMe, true, msgTimestamp)
+			if !storedFromMe && targetChatJID.Server == types.GroupServer && !originalSender.IsEmpty() {
+				if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, originalSender.String())); perr == nil && !wire.IsEmpty() {
+					originalSender = wire
+				}
+			}
+			patch := appstate.BuildDeleteMessageForMe(syncdChatJID(targetChatJID), originalSender, data.MessageID, storedFromMe, true, msgTimestamp)
 			if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
 				log.Printf("Delete-for-me app-state sync failed for %s: %v", data.MessageID, err)
 				// Fall through to the local delete below regardless - at
@@ -425,7 +441,12 @@ func handleStarMessage(raw json.RawMessage) {
 		}
 	}
 	go func() {
-		patch := appstate.BuildStar(chatJID, senderJID, types.MessageID(data.MessageID), data.FromMe, data.Starred)
+		if chatJID.Server == types.GroupServer && !data.FromMe && !senderJID.IsEmpty() {
+			if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
+				senderJID = wire
+			}
+		}
+		patch := appstate.BuildStar(syncdChatJID(chatJID), senderJID, types.MessageID(data.MessageID), data.FromMe, data.Starred)
 		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
@@ -580,11 +601,11 @@ func handleMarkRead(raw json.RawMessage) {
 	if chatJID.Server == types.NewsletterServer {
 		return
 	}
-	if chatJID.Server == "lid" {
-		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
-			chatJID = pn
-		}
-	}
+	// Receipts go to the address the messages came in on, naming each
+	// sender as their message did - in a group that hides numbers, by LID.
+	// Swapping in the phone JID (as this used to) addressed a receipt to
+	// someone the message never named.
+	chatJID = receiptChatJID(chatJID)
 
 	type msgSender struct {
 		id        types.MessageID
@@ -595,7 +616,7 @@ func handleMarkRead(raw json.RawMessage) {
 	if len(data.MessageIDs) > 0 {
 		for _, id := range data.MessageIDs {
 			var senderStr, mediaType string
-			_ = db.QueryRow("SELECT COALESCE(sender_jid, ''), COALESCE(media_type, '') FROM messages WHERE id = ?", id).Scan(&senderStr, &mediaType)
+			_ = db.QueryRow("SELECT COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(media_type, '') FROM messages WHERE id = ?", id).Scan(&senderStr, &mediaType)
 			// Event lines and call rows are ours, with no real message behind
 			// them to acknowledge.
 			if mediaType == "system" || mediaType == "call" {
@@ -608,11 +629,6 @@ func handleMarkRead(raw json.RawMessage) {
 					continue
 				}
 				sJID = chatJID
-			}
-			if sJID.Server == "lid" {
-				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), sJID); err == nil && !pn.IsEmpty() {
-					sJID = pn
-				}
 			}
 			items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
 		}
@@ -630,7 +646,7 @@ func handleMarkRead(raw json.RawMessage) {
 			unread = maxOpenChatReceipts
 		}
 		if unread > 0 {
-			rows, err := db.Query(`SELECT id, sender_jid FROM messages
+			rows, err := db.Query(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, '') FROM messages
 				WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
 					AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
 				ORDER BY timestamp DESC LIMIT ?`, data.JID, unread)
@@ -644,11 +660,6 @@ func handleMarkRead(raw json.RawMessage) {
 								continue
 							}
 							sJID = chatJID
-						}
-						if sJID.Server == "lid" {
-							if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), sJID); err == nil && !pn.IsEmpty() {
-								sJID = pn
-							}
 						}
 						items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
 					}

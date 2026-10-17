@@ -484,6 +484,7 @@ func buildAttachmentContext(replyToID, replySender string) (ctxInfo *waE2E.Conte
 			participant = ""
 		}
 	}
+	participant = wireParticipantFor(replyToID, participant)
 	ctxInfo = &waE2E.ContextInfo{StanzaID: proto.String(replyToID), QuotedMessage: quotedMsg}
 	if participant != "" {
 		ctxInfo.Participant = proto.String(participant)
