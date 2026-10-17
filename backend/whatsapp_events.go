@@ -92,6 +92,11 @@ func resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
 // It never creates a standalone chat message - if the reacted-to message isn't
 // in the local DB, updateChatReactionPreview silently leaves the preview alone.
 func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
+	// A reaction to a status update comes to its poster alone.
+	if reaction.GetKey().GetRemoteJID() == types.StatusBroadcastJID.String() {
+		noteStatusReaction(v, reaction)
+		return
+	}
 	targetID := reaction.GetKey().GetID()
 	chatJID, senderJID := resolveLIDChat(v)
 	jid := chatJID.ToNonAD().String()
@@ -1802,6 +1807,10 @@ func eventHandler(evt interface{}) {
 		}
 		if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
 			targetID := unwrappedMsg.GetProtocolMessage().GetKey().GetID()
+			if v.Info.Chat == types.StatusBroadcastJID {
+				go removeStatus(targetID)
+				return
+			}
 			resolvedChat, _ := resolveLIDChat(v)
 			jid := resolvedChat.String()
 			markMessageDeleted(targetID, jid)
@@ -2262,6 +2271,9 @@ func eventHandler(evt interface{}) {
 			"last_seen":   lastSeenUnix,
 		})
 	case *events.Receipt:
+		if v.MessageSource.Chat == types.StatusBroadcastJID && !v.MessageSource.IsFromMe {
+			go noteStatusViewers(v)
+		}
 		chatJID, senderJID := resolveSourcePN(v.MessageSource)
 
 		broadcastEvent("receipt", map[string]interface{}{
@@ -2509,6 +2521,10 @@ func eventHandler(evt interface{}) {
 		go noteDisableLinkPreviews(v)
 	case *events.FavoriteSticker:
 		go noteFavoriteSticker(v)
+	case *events.UserStatusMute:
+		go noteStatusMute(v)
+	case *events.StatusPrivacy:
+		go noteStatusPrivacy(v)
 	case *events.GroupLimitSharingUpdate:
 		go func() {
 			if setChatLimitSharing(v.JID.String(), v.Enabled(), 0) {

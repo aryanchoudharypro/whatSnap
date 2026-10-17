@@ -2388,8 +2388,14 @@ pub fn bind_input_handlers(
 	});
 
 	let guard_ctx = enter_release_handled.clone();
+	let tx_status_menu = ui_tx.clone();
 	let open_chat_context_menu = Rc::new(move || {
 		if let Some(idx) = convs_list_ctx.get_selection() {
+			// A status update has its own actions.
+			if state_chat_ctx.borrow().active_tab == 1 {
+				let _ = tx_status_menu.send(UiCommand::ShowStatusMenu(idx as usize));
+				return;
+			}
 			let pin_id = 4001;
 			let archive_id = 4002;
 			let lock_id = 4012;

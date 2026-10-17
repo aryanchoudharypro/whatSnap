@@ -51,7 +51,25 @@ pub fn pick_excluded_contacts(
 	contacts: &[Contact],
 	excluded: &[Contact],
 ) -> Option<Vec<String>> {
-	let dialog = Dialog::builder(parent, &format!("{}: My Contacts Except...", setting))
+	pick_contacts(
+		parent,
+		&format!("{}: My Contacts Except...", setting),
+		"Checked contacts won't be able to see it",
+		contacts,
+		excluded,
+	)
+}
+
+/// The same picker with its own title and hint, `listed` starting checked.
+pub fn pick_contacts(
+	parent: &impl WxWidget,
+	title: &str,
+	hint: &str,
+	contacts: &[Contact],
+	listed: &[Contact],
+) -> Option<Vec<String>> {
+	let excluded = listed;
+	let dialog = Dialog::builder(parent, title)
 		.with_size(440, 560)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -67,7 +85,7 @@ pub fn pick_excluded_contacts(
 	search_field.set_font(&theme::Fonts::body());
 	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let list_label = StaticText::builder(&panel).with_label("Checked contacts won't be able to see it").build();
+	let list_label = StaticText::builder(&panel).with_label(hint).build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let list = CheckListBox::builder(&panel).build();

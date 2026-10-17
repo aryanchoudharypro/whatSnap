@@ -72,6 +72,22 @@ func migrateDB() error {
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
 		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)
 
+	// Who saw (and how they reacted to) a status update: ours, or with
+	// viewer 'me', our own reaction to someone else's.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS status_viewers (
+		status_id TEXT,
+		viewer TEXT,
+		viewed_at INTEGER,
+		reaction TEXT,
+		PRIMARY KEY (status_id, viewer)
+	)`); err != nil {
+		return err
+	}
+	// People whose status updates are muted (userStatusMute app state).
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS status_mutes (jid TEXT PRIMARY KEY)`); err != nil {
+		return err
+	}
+
 	// Favorite stickers, synced from app state: the base64 SHA-256 of each
 	// sticker's file, and its StickerAction (where to download it).
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS sticker_favorites (

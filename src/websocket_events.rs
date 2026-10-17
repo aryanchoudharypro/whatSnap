@@ -2653,10 +2653,18 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 												.to_string(),
 											timestamp: it.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
 											viewed: it.get("viewed").and_then(|v| v.as_bool()).unwrap_or(false),
+											viewers: it.get("viewers").and_then(|v| v.as_i64()).unwrap_or(0),
+											my_reaction: it
+												.get("myReaction")
+												.and_then(|v| v.as_str())
+												.unwrap_or("")
+												.to_string(),
 										});
 									}
 								}
-								parsed.push(StatusGroup { poster_jid, poster_name, all_viewed, items });
+								let muted = g.get("muted").and_then(|v| v.as_bool()).unwrap_or(false);
+								let from_me = g.get("fromMe").and_then(|v| v.as_bool()).unwrap_or(false);
+								parsed.push(StatusGroup { poster_jid, poster_name, all_viewed, from_me, muted, items });
 							}
 							let mut s = state.borrow_mut();
 							s.status_groups = parsed;
@@ -2684,7 +2692,15 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							.get(&poster_jid)
 							.cloned()
 							.unwrap_or_else(|| if from_me { "You".to_string() } else { poster_jid.clone() });
-						let item = StatusItem { id, text, media_type, timestamp, viewed: from_me };
+						let item = StatusItem {
+							id,
+							text,
+							media_type,
+							timestamp,
+							viewed: from_me,
+							viewers: 0,
+							my_reaction: String::new(),
+						};
 						if let Some(group) = s.status_groups.iter_mut().find(|g| g.poster_jid == poster_jid) {
 							group.items.push(item);
 							group.all_viewed = group.items.iter().all(|it| it.viewed);
@@ -2693,6 +2709,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								poster_jid,
 								poster_name,
 								all_viewed: from_me,
+								from_me,
+								muted: false,
 								items: vec![item],
 							});
 						}
@@ -3025,6 +3043,18 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							"pinned_messages" => extras::pinned_messages(state, parts, data),
 							_ => extras::chat_privacy(state, parts, data),
 						}
+					}
+				}
+				"status_viewers"
+				| "status_deleted"
+				| "status_muted"
+				| "status_viewed"
+				| "status_reaction"
+				| "status_reacted"
+				| "status_privacy"
+				| "status_privacy_saved" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::status_extras::on_event(state, parts, t, data);
 					}
 				}
 				"stickers" => {

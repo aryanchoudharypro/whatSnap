@@ -64,6 +64,8 @@ pub enum UiCommand {
 	OpenPollDialog,
 	/// "Sticker" in the attach menu: pick a sticker to send.
 	OpenStickerPicker,
+	/// The context menu of a row in the Status tab.
+	ShowStatusMenu(usize),
 	/// "Event" in the attach menu: create an event in the chat.
 	OpenEventDialog,
 	/// `V` on a message: vote in it if it's a poll, answer it if it's an event.
@@ -399,6 +401,10 @@ pub(crate) struct StatusItem {
 	pub(crate) media_type: String,
 	pub(crate) timestamp: i64,
 	pub(crate) viewed: bool,
+	/// How many have seen it (our own updates).
+	pub(crate) viewers: i64,
+	/// Our reaction to it, if any.
+	pub(crate) my_reaction: String,
 }
 
 /// All of one contact's (or our own) live status updates, in post order.
@@ -407,6 +413,10 @@ pub(crate) struct StatusGroup {
 	pub(crate) poster_jid: String,
 	pub(crate) poster_name: String,
 	pub(crate) all_viewed: bool,
+	/// Ours.
+	pub(crate) from_me: bool,
+	/// Their status updates are muted.
+	pub(crate) muted: bool,
 	pub(crate) items: Vec<StatusItem>,
 }
 

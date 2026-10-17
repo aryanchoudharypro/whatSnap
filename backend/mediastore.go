@@ -257,6 +257,7 @@ func purgeMessages(where string, args ...interface{}) {
 // purgeExpiredStatuses drops Status posts older than 24 hours, media included.
 func purgeExpiredStatuses() {
 	purgeMessages(`jid = 'status@broadcast' AND timestamp <= ?`, time.Now().Add(-24*time.Hour).Unix())
+	db.Exec(`DELETE FROM status_viewers WHERE status_id NOT IN (SELECT id FROM messages WHERE jid = 'status@broadcast')`)
 }
 
 // sniffFileHeader returns up to the first 512 bytes of a file, for content

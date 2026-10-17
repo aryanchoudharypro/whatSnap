@@ -158,6 +158,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		if qErr == nil {
 			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, resolveQuotedSenderName(displayParticipant)
 			ctxInfo := &waE2E.ContextInfo{StanzaID: proto.String(quotedID), QuotedMessage: quotedMsg}
+			quoteStatus(ctxInfo, quotedID)
 			if participant != "" {
 				ctxInfo.Participant = proto.String(participant)
 			}

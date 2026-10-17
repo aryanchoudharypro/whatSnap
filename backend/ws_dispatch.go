@@ -289,6 +289,18 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handlePostStatus(cmd.Data)
 	case "post_media_status":
 		handlePostMediaStatus(cmd.Data)
+	case "get_status_viewers":
+		go handleGetStatusViewers(conn, cmd.Data)
+	case "react_status":
+		handleReactStatus(cmd.Data)
+	case "delete_status":
+		handleDeleteStatus(cmd.Data)
+	case "set_status_mute":
+		handleSetStatusMute(cmd.Data)
+	case "get_status_privacy":
+		go handleGetStatusPrivacy(conn)
+	case "set_status_privacy":
+		handleSetStatusPrivacy(conn, cmd.Data)
 	case "mark_status_viewed":
 		handleMarkStatusViewed(cmd.Data)
 	case "set_chat_pinned":

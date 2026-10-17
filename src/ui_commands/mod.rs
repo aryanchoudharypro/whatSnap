@@ -11,5 +11,6 @@ pub(crate) mod messaging;
 pub(crate) mod misc;
 pub(crate) mod polls;
 pub(crate) mod report;
+pub(crate) mod status_extras;
 pub(crate) mod stickers;
 pub(crate) mod voice;

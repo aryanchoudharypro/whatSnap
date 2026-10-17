@@ -57,12 +57,15 @@ func handleGetStatuses(conn net.Conn) {
 
 		rows, err := db.Query(`SELECT id, COALESCE(sender_jid, ''), from_me, COALESCE(text, ''),
 				COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
-				timestamp, COALESCE(viewed, 0)
-			FROM messages WHERE jid = 'status@broadcast' ORDER BY timestamp ASC`)
+				timestamp, COALESCE(viewed, 0),
+				(SELECT COUNT(*) FROM status_viewers v WHERE v.status_id = messages.id AND v.viewer != 'me'),
+				COALESCE((SELECT reaction FROM status_viewers v WHERE v.status_id = messages.id AND v.viewer = 'me'), '')
+			FROM messages WHERE jid = 'status@broadcast' AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC`)
+		muted := statusMuted()
 
 		type groupMeta struct {
 			posterJID, posterName string
-			fromMe                bool
+			fromMe, muted         bool
 			items                 []map[string]interface{}
 		}
 		order := []string{}
@@ -74,8 +77,9 @@ func handleGetStatuses(conn net.Conn) {
 				var id, senderJID, text, mediaType, mediaMimetype, mediaFilename, mediaPath string
 				var ts int64
 				var fromMe bool
-				var viewed int
-				if scanErr := rows.Scan(&id, &senderJID, &fromMe, &text, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &ts, &viewed); scanErr != nil {
+				var viewed, viewers int
+				var myReaction string
+				if scanErr := rows.Scan(&id, &senderJID, &fromMe, &text, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &ts, &viewed, &viewers, &myReaction); scanErr != nil {
 					continue
 				}
 				key := senderJID
@@ -92,7 +96,7 @@ func handleGetStatuses(conn net.Conn) {
 							name = senderJID
 						}
 					}
-					g = &groupMeta{posterJID: senderJID, posterName: name, fromMe: fromMe}
+					g = &groupMeta{posterJID: senderJID, posterName: name, fromMe: fromMe, muted: !fromMe && statusMutedFor(muted, senderJID)}
 					groups[key] = g
 					order = append(order, key)
 				}
@@ -101,6 +105,7 @@ func handleGetStatuses(conn net.Conn) {
 				g.items = append(g.items, map[string]interface{}{
 					"id": id, "text": text, "mediaType": mediaType, "mediaMimetype": mediaMimetype,
 					"mediaFilename": mediaFilename, "mediaPath": mediaPath, "timestamp": ts, "viewed": viewed == 1 || fromMe,
+					"viewers": viewers, "myReaction": myReaction,
 				})
 			}
 		}
@@ -117,13 +122,17 @@ func handleGetStatuses(conn net.Conn) {
 			}
 			result = append(result, map[string]interface{}{
 				"posterJid": g.posterJID, "posterName": g.posterName, "fromMe": g.fromMe,
-				"allViewed": allViewed, "statuses": g.items,
+				"allViewed": allViewed, "muted": g.muted, "statuses": g.items,
 			})
 		}
 		sort.SliceStable(result, func(i, j int) bool {
 			fi, fj := result[i]["fromMe"].(bool), result[j]["fromMe"].(bool)
 			if fi != fj {
 				return fi
+			}
+			// Muted updates come last, as in WhatsApp's own "Muted updates".
+			if mi, mj := result[i]["muted"].(bool), result[j]["muted"].(bool); mi != mj {
+				return mj
 			}
 			si, sj := result[i]["statuses"].([]map[string]interface{}), result[j]["statuses"].([]map[string]interface{})
 			return si[len(si)-1]["timestamp"].(int64) > sj[len(sj)-1]["timestamp"].(int64)
@@ -149,7 +158,7 @@ func handlePostStatus(raw json.RawMessage) {
 				BackgroundArgb: proto.Uint32(whatsappTeal),
 			},
 		}
-		resp, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID()})
+		resp, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID(), StatusRecipients: statusRecipients(context.Background())})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
@@ -322,7 +331,7 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			msg = &waE2E.Message{VideoMessage: vidMsg}
 		}
 
-		resp, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id})
+		resp, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id, StatusRecipients: statusRecipients(context.Background())})
 		if err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return

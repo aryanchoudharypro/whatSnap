@@ -171,7 +171,12 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		// the status message id, so OpenConversation can look either up by idx.
 		for group in &s.status_groups {
 			for item in &group.items {
-				let viewed_tag = if item.viewed { "Viewed" } else { "New" };
+				let viewed_tag = match (item.viewed, group.muted) {
+					(true, false) => "Viewed",
+					(false, false) => "New",
+					(true, true) => "Viewed, muted",
+					(false, true) => "New, muted",
+				};
 				let preview = if !item.text.is_empty() {
 					item.text.clone()
 				} else if !item.media_type.is_empty() {
@@ -189,11 +194,17 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				} else {
 					String::new()
 				};
-				let label = if time_str.is_empty() {
+				let mut label = if time_str.is_empty() {
 					format!("{} [{}]: {}", group.poster_name, viewed_tag, preview)
 				} else {
 					format!("{} [{}]: {}, {}", group.poster_name, viewed_tag, preview, time_str)
 				};
+				if group.from_me && item.viewers > 0 {
+					label.push_str(&format!(", {} view{}", item.viewers, if item.viewers == 1 { "" } else { "s" }));
+				}
+				if !item.my_reaction.is_empty() {
+					label.push_str(&format!(", you reacted {}", item.my_reaction));
+				}
 				if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) {
 					labels.push(label);
 					filtered.push(group.poster_jid.clone());
