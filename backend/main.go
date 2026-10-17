@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -236,6 +237,17 @@ func main() {
 	if err := migrateDB(); err != nil {
 		panic(err)
 	}
+
+	// An installer replacing this exe asks it to stop through the Restart
+	// Manager, which reaches a console process as Ctrl+C. Go would just exit
+	// on that, stranding the -wal/-shm files, so take the same clean path as
+	// the app's own shutdown request.
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+	go func() {
+		<-interrupt
+		handleShutdown()
+	}()
 
 	container = sqlstore.NewWithDB(db, "sqlite", dbLog)
 	err = container.Upgrade(context.Background())

@@ -43,9 +43,12 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 
 ; Offer to close a running instance rather than failing or silently leaving a
-; stale exe in place.
-CloseApplications=yes
-RestartApplications=no
+; stale exe in place, and start it again afterwards (whaNTV registers itself
+; for that with RegisterApplicationRestart). "force" ends whatever hasn't
+; closed by the Restart Manager's timeout, so a stuck backend can't block the
+; update.
+CloseApplications=force
+RestartApplications=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

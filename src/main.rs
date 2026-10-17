@@ -23,6 +23,8 @@ pub use clipboard::copy_files_to_clipboard;
 mod contact_picker;
 mod countries;
 mod do_not_disturb;
+#[cfg(target_os = "windows")]
+mod end_session;
 mod keymap;
 mod message_display;
 use message_display::update_action_buttons;
@@ -630,6 +632,8 @@ fn main() {
 	});
 	let pipe_backend = backend.clone();
 	let shutdown_pipe_id = pipe_id.clone();
+	let end_session_backend = backend.clone();
+	let end_session_pipe_id = pipe_id.clone();
 
 	let res = wxdragon::main(move |_| {
 		// Registers (or repairs) a Start Menu shortcut carrying our Application
@@ -644,6 +648,19 @@ fn main() {
 
 		let parts = build_main_window();
 		let frame = parts.frame;
+
+		// An installer closing whaNTV to update it, or Windows signing out.
+		#[cfg(target_os = "windows")]
+		{
+			let tray_icon = parts.tray_icon.clone();
+			end_session::install(&frame, move || {
+				// The shell keeps a dead process's icon until the mouse passes over it.
+				tray_icon.remove_icon();
+				if let Some(backend) = &end_session_backend {
+					backend.shutdown(|| request_backend_shutdown(&end_session_pipe_id));
+				}
+			});
+		}
 
 		let (ui_tx_raw, ui_rx) = mpsc::channel();
 		let ui_alive = Arc::new(AtomicBool::new(true));
