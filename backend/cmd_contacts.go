@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -133,11 +134,20 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 			sendEvent(conn, "error", map[string]string{"message": "user info not found"})
 			return
 		}
-		pushName := ""
-		fullName := ""
-		if contactInfo, cErr := wa().Store.Contacts.GetContact(context.Background(), jid); cErr == nil && contactInfo.Found {
-			pushName = contactInfo.PushName
-			fullName = contactInfo.FullName
+		pnJID, lidJID := contactForms(jid)
+		var pushName, fullName, firstName string
+		for _, form := range []types.JID{jid, pnJID, lidJID} {
+			if form.IsEmpty() {
+				continue
+			}
+			if c, cErr := wa().Store.Contacts.GetContact(context.Background(), form); cErr == nil && c.Found {
+				if pushName == "" {
+					pushName = c.PushName
+				}
+				if fullName == "" && firstName == "" {
+					fullName, firstName = c.FullName, c.FirstName
+				}
+			}
 		}
 		// userInfo.Status comes from the legacy usync <status/> node, which
 		// the server stops keeping in sync once a contact updates their
@@ -154,6 +164,11 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 			"deviceCount": len(userInfo.Devices),
 			"pushName":    pushName,
 			"fullName":    fullName,
+			"firstName":   firstName,
+			// In the address book, so the info page offers Edit and Delete
+			// rather than Add.
+			"saved": fullName != "" || firstName != "",
+			"phone": pnJID.User,
 		})
 	}()
 }
@@ -280,7 +295,11 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 		resp := []types.IsOnWhatsAppResponse{*found}
 		phone := strings.TrimPrefix(resp[0].Query, "+")
 		jid := resp[0].JID
-		err = wa().Store.Contacts.PutContactName(context.Background(), jid, data.Name, data.Name)
+		firstName := data.FirstName
+		if firstName == "" {
+			firstName = data.Name
+		}
+		err = wa().Store.Contacts.PutContactName(context.Background(), jid, firstName, data.Name)
 		if err != nil {
 			sendEvent(conn, "new_contact_status", map[string]interface{}{"status": "error", "error": err.Error()})
 			return
@@ -321,14 +340,67 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 		// contact was already created successfully above either way, so a
 		// failure here is only logged, not surfaced as an error to the user.
 		if data.Sync {
-			firstName := data.FirstName
-			if firstName == "" {
-				firstName = data.Name
-			}
 			if syncErr := syncContactToPhone(pnJID, lidJID, data.Name, firstName); syncErr != nil {
 				log.Printf("Contact sync (app-state) failed for %s: %v", jid, syncErr)
 			}
 		}
+	}()
+}
+
+// contactForms are the phone number and LID forms of a person, either of
+// which may be empty when unknown.
+func contactForms(jid types.JID) (pn, lid types.JID) {
+	jid = jid.ToNonAD()
+	ctx := context.Background()
+	if jid.Server == types.HiddenUserServer {
+		lid = jid
+		if resolved, err := wa().Store.LIDs.GetPNForLID(ctx, jid); err == nil {
+			pn = resolved
+		}
+	} else {
+		pn = jid
+		if resolved, err := wa().Store.LIDs.GetLIDForPN(ctx, jid); err == nil {
+			lid = resolved
+		}
+	}
+	return pn, lid
+}
+
+// handleDeleteContact deletes a saved contact, as WA Web's "Delete contact"
+// does: a REMOVE of the contact's app-state record, which the phone takes out
+// of its address book too. The chat stays and goes back to showing the
+// number and WhatsApp name.
+func handleDeleteContact(conn net.Conn, raw json.RawMessage) {
+	var data JIDData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil {
+		return
+	}
+	go func() {
+		pn, lid := contactForms(jid)
+		var forms []types.JID
+		for _, form := range []types.JID{pn, lid} {
+			if !form.IsEmpty() {
+				forms = append(forms, form)
+			}
+		}
+		// Nothing to send means it was only ever saved here, never synced.
+		if err := wa().SendAppState(context.Background(), appstate.BuildRemoveContact(forms...)); err != nil && !errors.Is(err, appstate.ErrNothingToSend) {
+			sendEvent(conn, "error", map[string]string{"message": "Couldn't delete the contact: " + err.Error()})
+			return
+		}
+		for _, form := range forms {
+			wa().Store.Contacts.PutContactName(context.Background(), form, "", "")
+			deleteContactCacheRow(form.String())
+			db.Exec(`UPDATE chats SET name = '' WHERE jid = ?`, form.String())
+		}
+		invalidateDisplayNames()
+		populateChatsFromStore()
+		broadcastChats()
+		sendEvent(conn, "contact_deleted", map[string]string{"jid": data.JID})
 	}()
 }
 

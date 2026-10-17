@@ -299,7 +299,9 @@ func handleGetChatPrivacy(conn net.Conn, raw json.RawMessage) {
 				setChatLimitSharing(jid.String(), info.IsLimitSharingEnabled, 0)
 			}
 		}
-		sendEvent(conn, "chat_privacy", map[string]interface{}{"jid": data.JID, "enabled": chatLimitSharing(data.JID)})
+		sendEvent(conn, "chat_privacy", map[string]interface{}{
+			"jid": data.JID, "enabled": chatLimitSharing(data.JID), "restricted": chatRestricted(data.JID),
+		})
 	}()
 }
 
@@ -347,6 +349,20 @@ func handleSetChatPrivacy(raw json.RawMessage) {
 			noteChatPrivacyChange(data.JID, types.EmptyJID, data.Enabled, now)
 		}
 	}()
+}
+
+// noteRestrictedChatChange adds the line for restricted chat being turned
+// on or off. While it's on, what's sent in the chat stays on the phones.
+func noteRestrictedChatChange(jid string, by types.JID, enabled bool, ts time.Time) {
+	who := "You"
+	if !by.IsEmpty() && !isOwnJID(by) {
+		who = nameToken(by)
+	}
+	text := who + " turned off restricted chat"
+	if enabled {
+		text = who + " turned on restricted chat. New messages in this chat won't appear on linked devices like this one"
+	}
+	insertGroupSystemMessage(jid, fmt.Sprintf("system_restricted_%d", ts.UnixMilli()), text, ts)
 }
 
 // noteChatPrivacyChange adds the line WhatsApp shows when someone turns

@@ -54,8 +54,8 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	// mentioned JIDs go with the pending row, so a retry sends them too.
 	var pendingRaw []byte
 	if wireText, mentionJIDs := applyMentions(data.Text, data.Mentions); len(mentionJIDs) > 0 {
-		if !invokedBot(mentionJIDs).IsEmpty() && chatLimitSharing(jid.String()) {
-			broadcastEvent("error", map[string]string{"message": "Advanced chat privacy is on in this chat, so Meta AI can't be mentioned here."})
+		if !invokedBot(mentionJIDs).IsEmpty() && chatSharingLimited(jid.String()) {
+			broadcastEvent("error", map[string]string{"message": chatPrivacyName(jid.String()) + " is on in this chat, so Meta AI can't be mentioned here."})
 			return
 		}
 		pendingRaw, _ = proto.Marshal(&waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{

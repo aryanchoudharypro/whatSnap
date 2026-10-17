@@ -538,6 +538,8 @@ struct AppState {
 	conversation_data_media: Vec<whantv::Msg>,
 	conversation_data_documents: Vec<whantv::Msg>,
 	conversation_data_links: Vec<whantv::Msg>,
+	/// Who the open 1:1 info page is about, once `user_info` has said.
+	conversation_data_contact: Option<ui_commands::contacts_groups::ContactCard>,
 	own_push_name: String,
 	own_about: String,
 	/// How long the About lasts, in seconds; -1 is until it's changed.
@@ -882,6 +884,7 @@ fn main() {
 			conversation_data_media: Vec::new(),
 			conversation_data_documents: Vec::new(),
 			conversation_data_links: Vec::new(),
+			conversation_data_contact: None,
 			own_push_name: String::new(),
 			own_about: String::new(),
 			own_about_duration: -1,
@@ -1376,6 +1379,10 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			ui_commands::messaging::begin_edit_message(state, parts, message_id, text)
 		}
 		UiCommand::ShowConversationData => ui_commands::chat_list::show_conversation_data(state, parts),
+		UiCommand::AddOrEditContact => ui_commands::contacts_groups::add_or_edit_contact(state, parts),
+		UiCommand::OpenNewContactForm => ui_commands::contacts_groups::open_new_contact_form(parts),
+		UiCommand::DeleteContact => ui_commands::contacts_groups::delete_contact(state, parts),
+		UiCommand::ShowChatPrivacy => ui_commands::message_extras::show_chat_privacy(state),
 		UiCommand::RemoveQuote => ui_commands::messaging::remove_quote(state, parts),
 		UiCommand::SendTyping { jid, state: typing_state, media } => {
 			ui_commands::messaging::send_typing(state, parts, jid, typing_state, media)

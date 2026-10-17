@@ -90,6 +90,17 @@ pub(crate) fn call_log(parts: &WindowParts, state: &AppState, event: &str, call_
 
 /// Appends one line to `logs/ui.log`: how long opening a chat's messages took,
 /// split by stage, so a slow load can be pinned down from a user's logs.
+/// Asks again about the person whose info page is open, after saving or
+/// deleting them as a contact changed what it shows.
+fn refresh_open_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let s = state.borrow();
+	let Some(jid) = s.selected_chat.as_deref() else { return };
+	if parts.conversation_data_dialog.dialog.is_shown() {
+		let payload = serde_json::json!({ "action": "get_user_info", "data": { "jid": jid } });
+		let _ = s.ws_tx.send(payload.to_string());
+	}
+}
+
 fn ui_timing_log(msg: &str) {
 	use std::io::Write;
 	let now = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
@@ -2225,6 +2236,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									"action": "get_chats"
 								});
 								let _ = state.borrow().ws_tx.send(payload.to_string());
+								refresh_open_contact_info(state, parts);
 							} else if status == "error" {
 								let err_msg = data.get("error").and_then(|e| e.as_str()).unwrap_or("Unknown error");
 								unsafe {
@@ -3565,6 +3577,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 					}
 				}
+				"contact_deleted" => {
+					refresh_open_contact_info(state, parts);
+					crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Contact deleted.");
+				}
 				"user_info" => {
 					if let Some(data) = val.get("data") {
 						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
@@ -3575,7 +3591,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let s = state.borrow();
 						if Some(jid.to_string()) == s.selected_chat {
 							let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
-							let raw_phone = jid.split('@').next().unwrap_or(jid);
+							// The backend's number is right for a chat kept by LID too.
+							let raw_phone = data
+								.get("phone")
+								.and_then(|p| p.as_str())
+								.filter(|p| !p.is_empty())
+								.unwrap_or_else(|| jid.split('@').next().unwrap_or(jid));
 							let mut phone = raw_phone.to_string();
 							if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
 								phone = parsed.format().mode(phonenumber::Mode::International).to_string();
@@ -3598,6 +3619,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 
 							parts.conversation_data_dialog.info_field.set_value(&text);
+							drop(s);
+							let card = crate::ui_commands::contacts_groups::ContactCard::from_user_info(data);
+							crate::ui_commands::contacts_groups::show_contact_card(parts, Some(&card));
+							state.borrow_mut().conversation_data_contact = Some(card);
 							crate::announce::announce(
 								parts.conversations_parts.messages_announcer.clone(),
 								&format!("Conversation data loaded for {}", local_name),

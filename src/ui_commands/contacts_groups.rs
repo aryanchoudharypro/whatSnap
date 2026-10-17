@@ -360,3 +360,139 @@ pub(crate) fn set_member_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	let text = if label.is_empty() { "Removing your tag..." } else { "Setting your tag..." };
 	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), text);
 }
+
+/// Who the open 1:1 chat's info page is about, as `user_info` described them:
+/// enough to offer Add, Edit or Delete contact and fill the form.
+#[derive(Clone, Default)]
+pub(crate) struct ContactCard {
+	pub jid: String,
+	pub saved: bool,
+	pub first_name: String,
+	pub full_name: String,
+	/// The name they gave WhatsApp, which an added contact starts from.
+	pub push_name: String,
+	/// International digits, empty when WhatsApp hasn't shared the number.
+	pub phone: String,
+}
+
+impl ContactCard {
+	pub(crate) fn from_user_info(data: &serde_json::Value) -> Self {
+		let text = |key: &str| data.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+		ContactCard {
+			jid: text("jid"),
+			saved: data.get("saved").and_then(|v| v.as_bool()).unwrap_or(false),
+			first_name: text("firstName"),
+			full_name: text("fullName"),
+			push_name: text("pushName"),
+			phone: text("phone"),
+		}
+	}
+
+	/// The form's Name and Surname: a saved contact's own, or for a new one
+	/// their WhatsApp name, as WhatsApp fills its add-contact form.
+	pub(crate) fn form_names(&self) -> (String, String) {
+		if !self.saved {
+			return (self.push_name.trim().to_string(), String::new());
+		}
+		let first = if self.first_name.is_empty() { &self.full_name } else { &self.first_name };
+		let surname = self.full_name.strip_prefix(first.as_str()).unwrap_or_default().trim();
+		(first.trim().to_string(), surname.to_string())
+	}
+}
+
+/// Labels the info page's contact buttons for what they'll do.
+pub(crate) fn show_contact_card(parts: &Rc<WindowParts>, card: Option<&ContactCard>) {
+	let info = &parts.conversation_data_dialog;
+	let saved = card.is_some_and(|c| c.saved);
+	info.contact_btn.set_label(if saved { "Edit contact" } else { "Add contact" });
+	info.contact_btn.enable(card.is_some());
+	info.delete_contact_btn.show(saved);
+	info.info_panel.layout();
+}
+
+/// Opens the contact form, cleared, to save a new number.
+pub(crate) fn open_new_contact_form(parts: &Rc<WindowParts>) {
+	open_contact_form(parts, "New Contact", "Create", "", "", "", true);
+}
+
+fn open_contact_form(
+	parts: &Rc<WindowParts>,
+	title: &str,
+	ok_label: &str,
+	name: &str,
+	surname: &str,
+	phone: &str,
+	phone_editable: bool,
+) {
+	let form = &parts.new_contact_dialog;
+	form.dialog.set_label(title);
+	form.ok_btn.set_label(ok_label);
+	form.name_field.set_value(name);
+	form.surname_field.set_value(surname);
+	form.phone_field.set_value(phone);
+	form.phone_field.set_editable(phone_editable);
+	form.name_field.set_focus();
+	form.dialog.show_modal();
+}
+
+/// Contact info > "Add contact" or "Edit contact": the contact form, filled
+/// in. The number is who it's for, so it can't be changed here.
+pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let Some(card) = state.borrow().conversation_data_contact.clone() else { return };
+	if card.phone.is_empty() {
+		MessageDialog::builder(
+			&parts.conversation_data_dialog.dialog,
+			"WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact.",
+			"Add Contact",
+		)
+		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+		.build()
+		.show_modal();
+		return;
+	}
+	let (name, surname) = card.form_names();
+	let phone = format!("+{}", card.phone);
+	let title = if card.saved { "Edit Contact" } else { "Add Contact" };
+	open_contact_form(parts, title, "Save", &name, &surname, &phone, false);
+}
+
+/// Contact info > "Delete contact", once it's confirmed. The chat stays.
+pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let Some(card) = state.borrow().conversation_data_contact.clone().filter(|c| c.saved) else { return };
+	let name = if card.full_name.is_empty() { &card.first_name } else { &card.full_name };
+	let confirm = MessageDialog::builder(
+		&parts.conversation_data_dialog.dialog,
+		&format!("Delete {} from your contacts? They'll be removed from your phone's contacts too.", name),
+		"Delete Contact",
+	)
+	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+	.build();
+	confirm.set_yes_no_labels("Delete", "Cancel");
+	if confirm.show_modal() != wxdragon::id::ID_YES {
+		return;
+	}
+	let payload = serde_json::json!({ "action": "delete_contact", "data": { "jid": card.jid } });
+	let _ = state.borrow().ws_tx.send(payload.to_string());
+	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Deleting contact...");
+}
+
+#[cfg(test)]
+mod tests {
+	use super::ContactCard;
+
+	#[test]
+	fn form_names_split_a_saved_name_and_start_a_new_one_from_the_whatsapp_name() {
+		let saved = ContactCard {
+			saved: true,
+			first_name: "Alex".into(),
+			full_name: "Alex Doe".into(),
+			push_name: "Al".into(),
+			..Default::default()
+		};
+		assert_eq!(saved.form_names(), ("Alex".into(), "Doe".into()));
+		let only_full = ContactCard { saved: true, full_name: "Alex Doe".into(), ..Default::default() };
+		assert_eq!(only_full.form_names(), ("Alex Doe".into(), String::new()));
+		let unsaved = ContactCard { push_name: " Al ".into(), ..Default::default() };
+		assert_eq!(unsaved.form_names(), ("Al".into(), String::new()));
+	}
+}

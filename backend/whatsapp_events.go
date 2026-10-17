@@ -434,8 +434,8 @@ func extractTextRaw(msg *waE2E.Message) string {
 	if text := describeOtherMessage(msg); text != "" {
 		return text
 	}
-	// An advanced chat privacy toggle: recorded on the chat, not shown.
-	if msg.GetLimitSharingMessage() != nil {
+	// A chat privacy toggle: recorded on the chat, not shown.
+	if msg.GetLimitSharingMessage() != nil || msg.GetAcp2SettingMessage() != nil {
 		return "[Protocol Message]"
 	}
 	// Bookkeeping with nothing to show as a bubble of its own: pinning or
@@ -1349,6 +1349,14 @@ func eventHandler(evt interface{}) {
 							limitSharing, limitSharingTS, jid, limitSharingTS)
 					})
 				}
+				// Restricted chat, the same way.
+				if conv.Acp2Setting != nil {
+					restricted, restrictedTS := boolToInt(conv.GetAcp2Setting().GetEnabled()), conv.GetAcp2Setting().GetSettingTimestamp()
+					writes = append(writes, func(tx sqlExecer) {
+						tx.Exec(`UPDATE chats SET restricted = ?, restricted_ts = ? WHERE jid = ? AND COALESCE(restricted_ts, 0) <= ?`,
+							restricted, restrictedTS, jid, restrictedTS)
+					})
+				}
 				// Disappearing messages, likewise only if newer than ours.
 				if conv.EphemeralExpiration != nil {
 					expiration, expirationTS := conv.GetEphemeralExpiration(), conv.GetEphemeralSettingTimestamp()
@@ -1709,6 +1717,21 @@ func eventHandler(evt interface{}) {
 			go func() {
 				if setChatLimitSharing(chat.String(), setting.GetSharingLimited(), ts) && toggle {
 					noteChatPrivacyChange(chat.String(), v.Info.Sender, setting.GetSharingLimited(), time.UnixMilli(ts))
+				}
+			}()
+			if toggle {
+				return
+			}
+		}
+		if setting, toggle := acp2InMessage(v.Message); setting != nil {
+			chat, _ := resolveLIDChat(v)
+			ts := setting.GetSettingTimestamp()
+			if ts == 0 {
+				ts = v.Info.Timestamp.UnixMilli()
+			}
+			go func() {
+				if setChatRestricted(chat.String(), setting.GetEnabled(), ts) && toggle {
+					noteRestrictedChatChange(chat.String(), v.Info.Sender, setting.GetEnabled(), time.UnixMilli(ts))
 				}
 			}()
 			if toggle {

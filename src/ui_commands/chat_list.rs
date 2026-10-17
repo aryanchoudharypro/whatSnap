@@ -537,6 +537,9 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			let documents = build_document_messages(&s.messages);
 			let links = build_link_messages(&s.messages);
 			drop(s);
+			// Add or Edit contact waits for user_info to say which applies.
+			state.borrow_mut().conversation_data_contact = None;
+			crate::ui_commands::contacts_groups::show_contact_card(parts, None);
 
 			populate_message_list(&parts.conversation_data_dialog.media_list, &media, |m| m.display_filename());
 			populate_message_list(&parts.conversation_data_dialog.documents_list, &documents, |m| m.display_filename());

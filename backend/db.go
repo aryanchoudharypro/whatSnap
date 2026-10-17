@@ -58,6 +58,10 @@ func migrateDB() error {
 	// setting's own timestamp, so an older stamp can't undo a newer toggle.
 	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing_ts INTEGER DEFAULT 0")
+	// Restricted chat (WhatsApp's "ACP2", the newer advanced chat privacy
+	// that also keeps the chat off linked devices), likewise with its stamp.
+	db.Exec("ALTER TABLE chats ADD COLUMN restricted INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN restricted_ts INTEGER DEFAULT 0")
 	// Disappearing messages: the chat's timer in seconds (0 = off) and when
 	// it was set, so an older setting can't undo a newer one.
 	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_expiration INTEGER DEFAULT 0")

@@ -225,9 +225,27 @@ pub(crate) fn show_chat_privacy(state: &Rc<RefCell<AppState>>) {
 }
 
 /// The backend said whether advanced chat privacy is on: offer to switch it.
+/// Restricted chat, the newer kind, can only be switched on a phone, so
+/// that's only explained.
 pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|v| v.as_str()).unwrap_or("").to_string();
 	if !state.borrow().selected_chat.as_deref().is_some_and(|sel| same_chat(sel, &jid)) {
+		return;
+	}
+	// Over the contact info page when it was asked from there.
+	let info = &parts.conversation_data_dialog.dialog;
+	let parent: &dyn WxWidget = if info.is_shown() { info } else { &parts.frame };
+	if data.get("restricted").and_then(|v| v.as_bool()).unwrap_or(false) {
+		MessageDialog::builder(
+			parent,
+			"Restricted chat is on in this chat. It keeps the chat on the phone that turned it on: new messages \
+			 don't come to linked devices like this one, nobody in the chat can export it or save its media \
+			 automatically, and its messages can't be used with AI features. It can only be turned off from a phone.",
+			"Restricted Chat",
+		)
+		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+		.build()
+		.show_modal();
 		return;
 	}
 	let enabled = data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -239,7 +257,7 @@ pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	} else {
 		(format!("Advanced chat privacy is off in this chat. {} Turn it on?", what), "Turn on")
 	};
-	let dialog = MessageDialog::builder(&parts.frame, &question, "Advanced Chat Privacy")
+	let dialog = MessageDialog::builder(parent, &question, "Advanced Chat Privacy")
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 		.build();
 	dialog.set_yes_no_labels(action, "Cancel");

@@ -769,11 +769,11 @@ pub fn bind_input_handlers(
 		new_conv_dialog_close.end_modal(0);
 	});
 
-	let new_contact_dialog = parts.new_contact_dialog.dialog;
+	let tx_new_contact_form = ui_tx.clone();
 	let new_conv_dlg_for_contact = parts.new_conv_dialog.dialog;
 	parts.new_conv_dialog.new_contact_btn.on_click(move |_| {
 		new_conv_dlg_for_contact.end_modal(0);
-		new_contact_dialog.show_modal();
+		let _ = tx_new_contact_form.send(UiCommand::OpenNewContactForm);
 	});
 
 	let new_conv_dlg_for_meta_ai = parts.new_conv_dialog.dialog;
@@ -935,6 +935,19 @@ pub fn bind_input_handlers(
 			}
 		}
 		event.skip(true);
+	});
+
+	let tx_contact = ui_tx.clone();
+	parts.conversation_data_dialog.contact_btn.on_click(move |_| {
+		let _ = tx_contact.send(UiCommand::AddOrEditContact);
+	});
+	let tx_delete_contact = ui_tx.clone();
+	parts.conversation_data_dialog.delete_contact_btn.on_click(move |_| {
+		let _ = tx_delete_contact.send(UiCommand::DeleteContact);
+	});
+	let tx_info_privacy = ui_tx.clone();
+	parts.conversation_data_dialog.chat_privacy_btn.on_click(move |_| {
+		let _ = tx_info_privacy.send(UiCommand::ShowChatPrivacy);
 	});
 
 	let conv_data_dialog_back = parts.conversation_data_dialog.dialog.clone();

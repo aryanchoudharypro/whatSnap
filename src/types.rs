@@ -238,6 +238,11 @@ pub enum UiCommand {
 	},
 	ToggleAudioSpeed,
 	ShowConversationData,
+	/// Contact info's "Add contact" / "Edit contact".
+	AddOrEditContact,
+	OpenNewContactForm,
+	DeleteContact,
+	ShowChatPrivacy,
 	ForwardMessage {
 		message_id: String,
 		to_jids: Vec<String>,

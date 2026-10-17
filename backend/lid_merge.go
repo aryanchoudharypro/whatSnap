@@ -261,6 +261,8 @@ func mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 			ephemeral_setting_ts = MAX(COALESCE(chats.ephemeral_setting_ts, 0), COALESCE(l.ephemeral_setting_ts, 0)),
 			limit_sharing = CASE WHEN COALESCE(l.limit_sharing_ts, 0) > COALESCE(chats.limit_sharing_ts, 0) THEN l.limit_sharing ELSE chats.limit_sharing END,
 			limit_sharing_ts = MAX(COALESCE(chats.limit_sharing_ts, 0), COALESCE(l.limit_sharing_ts, 0)),
+			restricted = CASE WHEN COALESCE(l.restricted_ts, 0) > COALESCE(chats.restricted_ts, 0) THEN l.restricted ELSE chats.restricted END,
+			restricted_ts = MAX(COALESCE(chats.restricted_ts, 0), COALESCE(l.restricted_ts, 0)),
 			wire_jid = COALESCE(NULLIF(chats.wire_jid, ''), NULLIF(l.wire_jid, ''), l.jid)
 		FROM (SELECT c.*, m.pn AS merge_pn FROM chats c JOIN lid_merge_map m ON m.lid = c.jid) AS l
 		WHERE chats.jid = l.merge_pn`,

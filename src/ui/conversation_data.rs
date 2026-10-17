@@ -14,6 +14,11 @@ pub struct ConversationDataDialogParts {
 	// Info tab
 	pub info_panel: Panel,
 	pub info_field: TextCtrl,
+	/// "Add contact" when the person isn't saved, "Edit contact" when they are.
+	pub contact_btn: Button,
+	/// Only shown while the person is saved.
+	pub delete_contact_btn: Button,
+	pub chat_privacy_btn: Button,
 
 	// Media tab (photos and videos only, matching official WhatsApp)
 	pub media_panel: Panel,
@@ -57,6 +62,16 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 		TextCtrl::builder(&info_panel).with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly).build();
 	info_field.set_font(&theme::Fonts::body());
 	info_sizer.add(&info_field, 1, SizerFlag::Expand | SizerFlag::All, 5);
+
+	// What WhatsApp's contact info offers for the person and the chat.
+	let actions_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let contact_btn = Button::builder(&info_panel).with_label("Edit contact").build();
+	actions_sizer.add(&contact_btn, 0, SizerFlag::Right, 5);
+	let delete_contact_btn = Button::builder(&info_panel).with_label("Delete contact").build();
+	actions_sizer.add(&delete_contact_btn, 0, SizerFlag::Right, 5);
+	let chat_privacy_btn = Button::builder(&info_panel).with_label("Advanced chat privacy...").build();
+	actions_sizer.add(&chat_privacy_btn, 0, SizerFlag::Right, 5);
+	info_sizer.add_sizer(&actions_sizer, 0, SizerFlag::All, 5);
 
 	info_panel.set_sizer(info_sizer, true);
 
@@ -116,6 +131,9 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 		notebook,
 		info_panel,
 		info_field,
+		contact_btn,
+		delete_contact_btn,
+		chat_privacy_btn,
 		media_panel,
 		media_label,
 		media_list,

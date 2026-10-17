@@ -188,10 +188,73 @@ func setChatLimitSharing(jid string, enabled bool, ts int64) (changed bool) {
 		return false
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		broadcastEvent("chat_limit_sharing", map[string]interface{}{"jid": jid, "enabled": enabled})
+		broadcastEvent("chat_limit_sharing", map[string]interface{}{"jid": jid, "enabled": chatSharingLimited(jid)})
 		return true
 	}
 	return false
+}
+
+// --- Restricted chat (WhatsApp's "ACP2") ---
+//
+// The newer advanced chat privacy: everything the old one stops, and the
+// chat stays on the phone that turned it on, off WhatsApp Web and other
+// linked devices. Only the phone can turn it on or off, so here it's only
+// followed: an ACP2_SETTING protocol message, an acp2Setting stamp on any
+// message, or history sync.
+
+func chatRestricted(jid string) bool {
+	var on int
+	db.QueryRow(`SELECT COALESCE(restricted, 0) FROM chats WHERE jid = ?`, jid).Scan(&on)
+	return on == 1
+}
+
+// chatSharingLimited is whether either kind of chat privacy is on, which is
+// what stops exporting the chat and mentioning Meta AI in it.
+func chatSharingLimited(jid string) bool {
+	return chatLimitSharing(jid) || chatRestricted(jid)
+}
+
+// setChatRestricted records a chat's restricted setting if ts is newer than
+// what's stored, as setChatLimitSharing does for a 1:1 chat.
+func setChatRestricted(jid string, enabled bool, ts int64) (changed bool) {
+	res, err := db.Exec(`UPDATE chats SET restricted = ?, restricted_ts = ? WHERE jid = ? AND COALESCE(restricted_ts, 0) < ?`,
+		boolToInt(enabled), ts, jid, ts)
+	if err != nil {
+		return false
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		broadcastEvent("chat_limit_sharing", map[string]interface{}{"jid": jid, "enabled": chatSharingLimited(jid)})
+		return true
+	}
+	return false
+}
+
+// chatPrivacyName names whichever chat privacy is on, for error messages.
+func chatPrivacyName(jid string) string {
+	if chatRestricted(jid) {
+		return "Restricted chat"
+	}
+	return "Advanced chat privacy"
+}
+
+// acp2InMessage finds a restricted-chat setting a message carries, as
+// limitSharingInMessage does for the older setting: the ACP2_SETTING toggle
+// (possibly wrapped in acp2SettingMessage) or the stamp on any message.
+func acp2InMessage(msg *waE2E.Message) (setting *waCommon.ACP2Setting, toggle bool) {
+	if msg == nil {
+		return nil, false
+	}
+	pm := msg.GetAcp2SettingMessage().GetMessage().GetProtocolMessage()
+	if pm.GetAcp2Setting() == nil {
+		pm = unwrapMessage(msg).GetProtocolMessage()
+	}
+	if pm.GetType() == waE2E.ProtocolMessage_ACP2_SETTING && pm.GetAcp2Setting() != nil {
+		return pm.GetAcp2Setting(), true
+	}
+	if stamp := msg.GetMessageContextInfo().GetAcp2Setting(); stamp != nil {
+		return stamp, false
+	}
+	return nil, false
 }
 
 // limitSharingInMessage finds a chat-privacy setting a message carries: a
@@ -252,7 +315,7 @@ func handleGetMentionCandidates(conn net.Conn, raw json.RawMessage) {
 		sendEvent(conn, "mention_candidates", map[string]interface{}{
 			"jid":           jid.String(),
 			"members":       members,
-			"limit_sharing": chatLimitSharing(jid.String()),
+			"limit_sharing": chatSharingLimited(jid.String()),
 		})
 	}()
 }

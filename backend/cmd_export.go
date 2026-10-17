@@ -79,8 +79,8 @@ func handleExportChat(conn net.Conn, raw json.RawMessage) {
 	}
 
 	// Advanced chat privacy stops anyone in the chat exporting it.
-	if chatLimitSharing(jid.String()) {
-		broadcastEvent("error", map[string]string{"message": "Advanced chat privacy is on in this chat, so it can't be exported."})
+	if chatSharingLimited(jid.String()) {
+		broadcastEvent("error", map[string]string{"message": chatPrivacyName(jid.String()) + " is on in this chat, so it can't be exported."})
 		return
 	}
 	go func() {
@@ -221,8 +221,8 @@ func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 	}
 
 	// Advanced chat privacy stops anyone in the chat exporting it.
-	if chatLimitSharing(jid.String()) {
-		broadcastEvent("error", map[string]string{"message": "Advanced chat privacy is on in this chat, so it can't be exported."})
+	if chatSharingLimited(jid.String()) {
+		broadcastEvent("error", map[string]string{"message": chatPrivacyName(jid.String()) + " is on in this chat, so it can't be exported."})
 		return
 	}
 	go func() {

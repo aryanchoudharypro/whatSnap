@@ -153,6 +153,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleGetAvatar(conn, cmd.Data)
 	case "check_contacts":
 		handleCheckContacts(conn, cmd.Data)
+	case "delete_contact":
+		handleDeleteContact(conn, cmd.Data)
 	case "get_user_info":
 		handleGetUserInfo(conn, cmd.Data)
 	case "get_business_profile":
