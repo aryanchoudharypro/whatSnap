@@ -88,6 +88,18 @@ pub struct ChatMessage {
 	/// A pinned channel post.
 	#[serde(rename = "channelPinned", default)]
 	pub channel_pinned: bool,
+	/// Pinned in its chat.
+	#[serde(default)]
+	pub pinned: bool,
+	/// Kept in a chat with disappearing messages, so it won't disappear.
+	#[serde(default)]
+	pub kept: bool,
+	/// Will disappear (so can be kept).
+	#[serde(default)]
+	pub expiring: bool,
+	/// A sticker that's one of our favorites.
+	#[serde(default)]
+	pub sticker_favorite: bool,
 }
 
 /// Renders a byte count the way file managers do: whole numbers under 1000
@@ -168,13 +180,16 @@ pub fn friendly_preview_text(text: &str) -> String {
 		let rest = rest.trim();
 		return if rest.is_empty() { "Poll".to_string() } else { format!("Poll: {}", rest) };
 	}
+	if let Some(rest) = text.strip_prefix("[Sticker]") {
+		let rest = rest.trim();
+		return if rest.is_empty() { "Sticker".to_string() } else { format!("Sticker: {}", rest) };
+	}
 	if let Some(rest) = text.strip_prefix("[Quiz]") {
 		let rest = rest.trim();
 		return if rest.is_empty() { "Quiz".to_string() } else { format!("Quiz: {}", rest) };
 	}
 	match text {
 		"[Location]" => "Location".to_string(),
-		"[Sticker]" => "Sticker".to_string(),
 		"[Message deleted]" => "This message was deleted".to_string(),
 		"[Unsupported Message]" => "Message".to_string(),
 		_ => text.to_string(),
@@ -625,7 +640,12 @@ impl ChatMessage {
 		};
 
 		let edit_suffix = if self.is_edited { ", edited" } else { "" };
-		let star_suffix = if self.starred { ", starred" } else { "" };
+		let star_suffix = format!(
+			"{}{}{}",
+			if self.starred { ", starred" } else { "" },
+			if self.pinned { ", pinned" } else { "" },
+			if self.kept { ", kept" } else { "" }
+		);
 		let reactions_suffix = if self.channel_stats.is_empty() {
 			reactions_suffix
 		} else {

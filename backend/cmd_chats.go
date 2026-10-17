@@ -56,15 +56,20 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 // from a window opened around a search hit; otherwise the newest ones (before
 // the before cursor, or skipping offset).
 func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCursor) []MessageJSON {
-	// raw is only needed for the rare voice row stored without a duration;
-	// selecting it unconditionally pulled every row's whole protobuf into
-	// memory just to throw it away.
+	now := time.Now().Unix()
+	var favorites map[string]bool // favorite stickers, read at the first sticker
+	// raw is only needed for the rare voice row stored without a duration,
+	// and for stickers (whether each is a favorite); selecting it
+	// unconditionally pulled every row's whole protobuf into memory just to
+	// throw it away.
 	const cols = `SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 			COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''), COALESCE(media_size, 0),
 			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
 			COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''),
-			CASE WHEN media_type IN ('voice', 'audio') AND COALESCE(text, '') NOT LIKE '%(%' THEN raw ELSE NULL END,
-			COALESCE(channel_views, 0), COALESCE(channel_reactions, ''), COALESCE(channel_pinned, 0)
+			CASE WHEN media_type IN ('voice', 'audio') AND COALESCE(text, '') NOT LIKE '%(%' THEN raw
+				WHEN media_type = 'sticker' THEN raw ELSE NULL END,
+			COALESCE(channel_views, 0), COALESCE(channel_reactions, ''), COALESCE(channel_pinned, 0),
+			COALESCE(pinned_until, 0), COALESCE(kept, 0), COALESCE(expires_at, 0)
 		FROM messages WHERE jid = ?`
 	var rows *sql.Rows
 	var queryErr error
@@ -108,10 +113,11 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 			var rawBytes []byte
 			var channelViews int
 			var channelReactions string
-			var channelPinned bool
+			var channelPinned, kept bool
+			var pinnedUntil, expiresAt int64
 			if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &mediaSize,
 				&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &albumID, &rawBytes,
-				&channelViews, &channelReactions, &channelPinned); err != nil {
+				&channelViews, &channelReactions, &channelPinned, &pinnedUntil, &kept, &expiresAt); err != nil {
 				log.Println("Error scanning message row:", err)
 				continue
 			}
@@ -151,6 +157,16 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 			if quotedID != "" {
 				quotedIDs = append(quotedIDs, quotedID)
 			}
+			stickerFavorite := false
+			if mediaType == "sticker" && len(rawBytes) > 0 {
+				if favorites == nil {
+					favorites = favoriteStickerHashes()
+				}
+				var pbMsg waE2E.Message
+				if proto.Unmarshal(rawBytes, &pbMsg) == nil {
+					stickerFavorite = favorites[stickerHash(unwrapMessage(&pbMsg).GetStickerMessage())]
+				}
+			}
 			pollResults := ""
 			if strings.HasPrefix(text, "[Poll]") || strings.HasPrefix(text, "[Quiz]") || strings.HasPrefix(text, "[Event]") {
 				pollResults = pollResultsForMessage(id)
@@ -186,6 +202,10 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 				PollResults:   pollResults,
 				ChannelStats:  channelStatsFromColumns(channelViews, channelReactions, channelPinned),
 				ChannelPinned: channelPinned,
+				Pinned:        pinnedUntil > now,
+				Kept:          kept,
+				Expiring:      expiresAt > 0,
+				StickerFav:    stickerFavorite,
 				Reactions:     emptyReactions,
 			})
 		}

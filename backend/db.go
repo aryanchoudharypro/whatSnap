@@ -72,6 +72,16 @@ func migrateDB() error {
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
 		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)
 
+	// Favorite stickers, synced from app state: the base64 SHA-256 of each
+	// sticker's file, and its StickerAction (where to download it).
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS sticker_favorites (
+		hash TEXT PRIMARY KEY,
+		action BLOB,
+		ts INTEGER
+	)`); err != nil {
+		return err
+	}
+
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
 		value BLOB
@@ -146,6 +156,12 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN expires_at INTEGER DEFAULT 0")
 	// View-once media: 1 = not opened yet, 2 = opened (see viewonce.go).
 	db.Exec("ALTER TABLE messages ADD COLUMN view_once INTEGER DEFAULT 0")
+	// A pinned message: until when (0 = not pinned) and when it was pinned,
+	// which decides the oldest pin to drop past the limit. kept = kept in a
+	// chat with disappearing messages, so it doesn't disappear.
+	db.Exec("ALTER TABLE messages ADD COLUMN pinned_until INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN pinned_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE messages ADD COLUMN kept INTEGER DEFAULT 0")
 	// An edit is delivered as its own stanza with its own message ID, so every
 	// receipt for it names an ID no message row has. This maps those IDs back
 	// to the message being edited.

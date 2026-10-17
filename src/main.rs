@@ -1331,6 +1331,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::AttachFiles(kind) => ui_commands::attachments::attach_files(state, parts, kind),
 		UiCommand::AddAttachment => ui_commands::attachments::add_attachment(state, parts),
 		UiCommand::OpenPollDialog => ui_commands::attachments::open_poll_dialog(state, parts),
+		UiCommand::OpenStickerPicker => ui_commands::stickers::open_sticker_picker(state, parts),
 		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
 		UiCommand::SendPoll { question, options, multiple_answers, correct_answer } => {

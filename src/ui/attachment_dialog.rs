@@ -10,6 +10,8 @@ pub struct AttachmentDialogParts {
 	pub attachment_info_label: StaticText,
 	pub caption_label: StaticText,
 	pub caption_field: TextCtrl,
+	/// Photos and videos only: open once, then gone.
+	pub view_once_check: CheckBox,
 	pub add_more_btn: Button,
 	pub discard_btn: Button,
 	pub send_btn: Button,
@@ -35,6 +37,10 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 	let caption_field = TextCtrl::builder(&dialog).with_style(TextCtrlStyle::ProcessEnter).build();
 	caption_field.set_font(&theme::Fonts::body());
 	sizer.add(&caption_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	let view_once_check = CheckBox::builder(&dialog).with_label("&View once").build();
+	view_once_check.set_font(&theme::Fonts::body());
+	sizer.add(&view_once_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
@@ -64,6 +70,7 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 		attachment_info_label,
 		caption_label,
 		caption_field,
+		view_once_check,
 		add_more_btn,
 		discard_btn,
 		send_btn,

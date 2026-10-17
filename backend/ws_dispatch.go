@@ -117,6 +117,22 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleDeleteMessage(cmd.Data)
 	case "star_message":
 		handleStarMessage(cmd.Data)
+	case "pin_message":
+		handlePinMessage(cmd.Data)
+	case "get_pinned_messages":
+		go handleGetPinnedMessages(conn, cmd.Data)
+	case "keep_message":
+		handleKeepMessage(cmd.Data)
+	case "get_stickers":
+		go handleGetStickers(conn)
+	case "send_sticker":
+		handleSendSticker(conn, cmd.Data)
+	case "set_sticker_favorite":
+		handleSetStickerFavorite(conn, cmd.Data)
+	case "get_chat_privacy":
+		handleGetChatPrivacy(conn, cmd.Data)
+	case "set_chat_privacy":
+		handleSetChatPrivacy(cmd.Data)
 	case "retry_message":
 		handleRetryMessage(conn, cmd.Data)
 	case "send_typing":

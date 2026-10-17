@@ -890,13 +890,21 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		// local echo, and what makes a failed/offline upload recoverable
 		// (marked "failed", retryable from the message context menu)
 		// instead of just vanishing.
+		viewOnce := data.ViewOnce && (data.Type == "image" || data.Type == "video") && jid.Server != types.NewsletterServer
 		displayText := attachmentDisplayText(data.Type, data.Filename, data.Caption, data.Duration)
+		if viewOnce {
+			displayText = viewOnceText(displayText)
+		}
 		saveMessage(StoredMessage{
 			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
 			Text: displayText, Timestamp: ts, Status: "uploading",
 			MediaType: data.Type, MediaMimetype: data.Mimetype, MediaFilename: data.Filename, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
+		// Remembered on the row, so a retry sends it view once too.
+		if viewOnce {
+			markViewOnce(db, id)
+		}
 		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
@@ -931,6 +939,10 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 // the initial send and a manual retry so both behave identically.
 func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, seconds int, thumbPNG []byte, gifPlayback bool, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
 	displayText := attachmentDisplayText(mediaType, filename, caption, seconds)
+	viewOnce := (mediaType == "image" || mediaType == "video") && viewOnceState(id) == viewOnceUnopened
+	if viewOnce {
+		displayText = viewOnceText(displayText)
+	}
 	fail := func(errMsg string) {
 		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
 		if conn != nil {
@@ -1088,6 +1100,9 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		if caption != "" {
 			imgMsg.Caption = proto.String(caption)
 		}
+		if viewOnce {
+			imgMsg.ViewOnce = proto.Bool(true)
+		}
 		msg = &waE2E.Message{ImageMessage: imgMsg}
 	case "video":
 		vidMsg := &waE2E.VideoMessage{
@@ -1108,6 +1123,9 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		}
 		if caption != "" {
 			vidMsg.Caption = proto.String(caption)
+		}
+		if viewOnce {
+			vidMsg.ViewOnce = proto.Bool(true)
 		}
 		msg = &waE2E.Message{VideoMessage: vidMsg}
 	case "audio":
@@ -1142,6 +1160,11 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	}
 
 	msg = applyDisappearingTimer(jid, msg)
+	// WA Web sends view-once media inside a viewOnceMessageV2 as well as
+	// flagging the media itself.
+	if viewOnce {
+		msg = &waE2E.Message{ViewOnceMessageV2: &waE2E.FutureProofMessage{Message: msg}}
+	}
 	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
 	if err != nil {
 		fail(sendErrorText(err))

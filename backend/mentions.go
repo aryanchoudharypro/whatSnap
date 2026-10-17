@@ -174,7 +174,7 @@ func chatLimitSharing(jid string) bool {
 // timestamp; a nonzero one is only applied when newer than what's stored
 // (WAWebLimitSharingProtoUtils.updateChatWithLimitSharingIfNewer). Zero means
 // authoritative (group metadata), applied as is.
-func setChatLimitSharing(jid string, enabled bool, ts int64) {
+func setChatLimitSharing(jid string, enabled bool, ts int64) (changed bool) {
 	var res interface{ RowsAffected() (int64, error) }
 	var err error
 	if ts == 0 {
@@ -185,11 +185,13 @@ func setChatLimitSharing(jid string, enabled bool, ts int64) {
 			boolToInt(enabled), ts, jid, ts)
 	}
 	if err != nil {
-		return
+		return false
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
 		broadcastEvent("chat_limit_sharing", map[string]interface{}{"jid": jid, "enabled": enabled})
+		return true
 	}
+	return false
 }
 
 // limitSharingInMessage finds a chat-privacy setting a message carries: a

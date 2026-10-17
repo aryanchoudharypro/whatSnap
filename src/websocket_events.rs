@@ -3016,6 +3016,27 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						crate::ui_commands::mentions::on_candidates(state, &parts.conversations_parts, data);
 					}
 				}
+				"message_pinned" | "message_kept" | "pinned_messages" | "chat_privacy" => {
+					if let Some(data) = val.get("data") {
+						use crate::ui_commands::message_extras as extras;
+						match t {
+							"message_pinned" => extras::message_pinned(state, parts, data),
+							"message_kept" => extras::message_kept(state, parts, data),
+							"pinned_messages" => extras::pinned_messages(state, parts, data),
+							_ => extras::chat_privacy(state, parts, data),
+						}
+					}
+				}
+				"stickers" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::stickers::stickers(state, parts, data);
+					}
+				}
+				"sticker_favorite" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::stickers::sticker_favorite(state, parts, data);
+					}
+				}
 				"chat_limit_sharing" => {
 					if let Some(data) = val.get("data") {
 						let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or_default();

@@ -240,6 +240,8 @@ pub const MENU_ID_DISAPPEARING: i32 = 6036;
 pub const MENU_ID_REPORT_CHAT: i32 = 6037;
 pub const MENU_ID_BLOCK_CHAT: i32 = 6038;
 pub const MENU_ID_BLOCKED_CONTACTS: i32 = 6039;
+pub const MENU_ID_PINNED_MESSAGES: i32 = 6040;
+pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
 pub fn build_main_window() -> WindowParts {
 	let frame = Frame::builder().with_title("whaNTV").with_size(Size::new(1180, 760)).build();
@@ -330,6 +332,12 @@ pub fn build_main_window() -> WindowParts {
 			"Toggle read/unread on the open chat",
 		)
 		.append_item(MENU_ID_CHAT_INFO, &default_menu_label(MENU_ID_CHAT_INFO), "Open info for the open chat")
+		.append_item(MENU_ID_PINNED_MESSAGES, "Pinned Me&ssages...", "See and go to the open chat's pinned messages")
+		.append_item(
+			MENU_ID_CHAT_PRIVACY,
+			"Advanced Chat &Privacy...",
+			"Turn advanced chat privacy on or off for the open chat",
+		)
 		.append_item(MENU_ID_REPORT_CHAT, "&Report...", "Report the open chat's contact or group to WhatsApp")
 		.append_item(MENU_ID_BLOCK_CHAT, "&Block or Unblock Contact", "Block or unblock the open chat's contact")
 		.append_separator()
@@ -1195,6 +1203,10 @@ pub fn bind_input_handlers(
 			}
 		} else if id == MENU_ID_BLOCKED_CONTACTS {
 			let _ = tx_chat_menu.send(UiCommand::ShowBlockedContacts);
+		} else if id == MENU_ID_PINNED_MESSAGES {
+			crate::ui_commands::message_extras::show_pinned_messages(&state_chat_menu);
+		} else if id == MENU_ID_CHAT_PRIVACY {
+			crate::ui_commands::message_extras::show_chat_privacy(&state_chat_menu);
 		} else if id == MENU_ID_MUTE_CHAT
 			|| id == MENU_ID_ARCHIVE_CHAT
 			|| id == MENU_ID_PIN_CHAT
@@ -2962,6 +2974,11 @@ pub fn bind_input_handlers(
 				}
 			}
 			let mut popup_menu = menu_builder.build();
+			let extras_msg = crate::ui_commands::message_extras::append_message_actions(
+				&popup_menu,
+				&state_ctx,
+				display_item.as_ref(),
+			);
 
 			// A channel post has its own actions: pinning it and seeing who
 			// reacted or voted, for the channel's owner and admins.
@@ -3030,6 +3047,15 @@ pub fn bind_input_handlers(
 
 			popup_menu.on_selected(move |menu_evt| {
 				let id = menu_evt.get_id();
+				if let Some(msg) = extras_msg.as_ref()
+					&& crate::ui_commands::message_extras::handle_message_action(
+						id,
+						&state_clone,
+						&parent_frame_clone,
+						msg,
+					) {
+					return;
+				}
 				if id == reply_id {
 					let mut s = state_clone.borrow_mut();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -4629,6 +4655,7 @@ pub fn bind_input_handlers(
 		const ATTACH_AUDIO_ID: i32 = 4204;
 		const ATTACH_POLL_ID: i32 = 4205;
 		const ATTACH_EVENT_ID: i32 = 4206;
+		const ATTACH_STICKER_ID: i32 = 4207;
 		let mut popup_menu = Menu::builder()
 			.append_item(ATTACH_DOCUMENT_ID, "&Document", "Send any file as a document, photos at full quality")
 			.append_item(ATTACH_MEDIA_ID, "&Photos && videos", "Send photos and videos")
@@ -4636,6 +4663,7 @@ pub fn bind_input_handlers(
 			.append_item(ATTACH_CONTACT_ID, "&Contact", "Attach a contact from your WhatsApp contacts")
 			.append_item(ATTACH_POLL_ID, "P&oll", "Create a poll or a quiz")
 			.append_item(ATTACH_EVENT_ID, "&Event", "Create an event people can answer")
+			.append_item(ATTACH_STICKER_ID, "&Sticker", "Send a favorite or recent sticker, or a sticker file")
 			.build();
 		let tx_menu = tx_attach.clone();
 		popup_menu.on_selected(move |menu_evt| {
@@ -4647,6 +4675,7 @@ pub fn bind_input_handlers(
 				ATTACH_CONTACT_ID => Some(UiCommand::PrepareAttachContact),
 				ATTACH_POLL_ID => Some(UiCommand::OpenPollDialog),
 				ATTACH_EVENT_ID => Some(UiCommand::OpenEventDialog),
+				ATTACH_STICKER_ID => Some(UiCommand::OpenStickerPicker),
 				_ => None,
 			};
 			if let Some(cmd) = cmd {

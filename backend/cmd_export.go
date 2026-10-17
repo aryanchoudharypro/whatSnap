@@ -78,6 +78,11 @@ func handleExportChat(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
+	// Advanced chat privacy stops anyone in the chat exporting it.
+	if chatLimitSharing(jid.String()) {
+		broadcastEvent("error", map[string]string{"message": "Advanced chat privacy is on in this chat, so it can't be exported."})
+		return
+	}
 	go func() {
 		var chatName string
 		db.QueryRow("SELECT COALESCE(name, '') FROM chats WHERE jid = ?", data.JID).Scan(&chatName)
@@ -215,6 +220,11 @@ func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
+	// Advanced chat privacy stops anyone in the chat exporting it.
+	if chatLimitSharing(jid.String()) {
+		broadcastEvent("error", map[string]string{"message": "Advanced chat privacy is on in this chat, so it can't be exported."})
+		return
+	}
 	go func() {
 		var chatName string
 		db.QueryRow("SELECT COALESCE(name, '') FROM chats WHERE jid = ?", data.JID).Scan(&chatName)

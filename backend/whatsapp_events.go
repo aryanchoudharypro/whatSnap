@@ -401,8 +401,8 @@ func extractTextRaw(msg *waE2E.Message) string {
 		}
 		return "[Contact]"
 	}
-	if msg.GetStickerMessage() != nil {
-		return "[Sticker]"
+	if sticker := msg.GetStickerMessage(); sticker != nil {
+		return stickerText(sticker)
 	}
 	if msg.GetReactionMessage() != nil {
 		return "[Reaction]"
@@ -1701,7 +1701,11 @@ func eventHandler(evt interface{}) {
 			if ts == 0 {
 				ts = v.Info.Timestamp.UnixMilli()
 			}
-			go setChatLimitSharing(chat.String(), setting.GetSharingLimited(), ts)
+			go func() {
+				if setChatLimitSharing(chat.String(), setting.GetSharingLimited(), ts) && toggle {
+					noteChatPrivacyChange(chat.String(), v.Info.Sender, setting.GetSharingLimited(), time.UnixMilli(ts))
+				}
+			}()
 			if toggle {
 				return
 			}
@@ -1810,6 +1814,14 @@ func eventHandler(evt interface{}) {
 		}
 		if reaction := unwrappedMsg.GetReactionMessage(); reaction != nil {
 			applyReaction(v, reaction)
+			return
+		}
+		if pin := unwrappedMsg.GetPinInChatMessage(); pin != nil {
+			applyPinInChat(v, pin)
+			return
+		}
+		if keep := unwrappedMsg.GetKeepInChatMessage(); keep != nil {
+			applyKeepInChat(v, keep)
 			return
 		}
 		if unwrappedMsg.GetPollUpdateMessage() != nil {
@@ -2493,8 +2505,27 @@ func eventHandler(evt interface{}) {
 			"jid":    v.JID.String(),
 			"status": v.Status,
 		})
+	case *events.DisableLinkPreviews:
+		go noteDisableLinkPreviews(v)
+	case *events.FavoriteSticker:
+		go noteFavoriteSticker(v)
 	case *events.GroupLimitSharingUpdate:
-		go setChatLimitSharing(v.JID.String(), v.Enabled(), 0)
+		go func() {
+			if setChatLimitSharing(v.JID.String(), v.Enabled(), 0) {
+				by := types.EmptyJID
+				for _, s := range []string{v.UpdatedBy.PN, v.UpdatedBy.ID} {
+					if parsed, err := types.ParseJID(s); err == nil && !parsed.IsEmpty() {
+						by = parsed
+						break
+					}
+				}
+				ts := time.Now()
+				if secs, err := v.UpdateTime.Int64(); err == nil && secs > 0 {
+					ts = time.Unix(secs, 0)
+				}
+				noteChatPrivacyChange(v.JID.String(), by, v.Enabled(), ts)
+			}
+		}()
 	case *events.GroupInfo:
 		invalidateJoinedGroups()
 		if _, deleting := pendingGroupDeletes.Load(v.JID.String()); deleting {

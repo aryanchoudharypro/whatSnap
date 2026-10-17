@@ -174,7 +174,7 @@ func adoptChatDisappearing(chat types.JID, msg *waE2E.Message) {
 // Starred ones stay, as the official apps keep them.
 func expireDisappearingMessages() {
 	now := time.Now().Unix()
-	rows, err := db.Query(`SELECT id, jid FROM messages WHERE expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0`, now)
+	rows, err := db.Query(`SELECT id, jid FROM messages WHERE expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0 AND COALESCE(kept, 0) = 0`, now)
 	if err != nil {
 		return
 	}
@@ -190,7 +190,7 @@ func expireDisappearingMessages() {
 	if len(gone) == 0 {
 		return
 	}
-	purgeMessages(`expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0`, now)
+	purgeMessages(`expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0 AND COALESCE(kept, 0) = 0`, now)
 	chats := map[string]bool{}
 	for _, e := range gone {
 		chats[e.jid] = true

@@ -62,6 +62,8 @@ pub enum UiCommand {
 	AddAttachment,
 	PasteAttachment,
 	OpenPollDialog,
+	/// "Sticker" in the attach menu: pick a sticker to send.
+	OpenStickerPicker,
 	/// "Event" in the attach menu: create an event in the chat.
 	OpenEventDialog,
 	/// `V` on a message: vote in it if it's a poll, answer it if it's an event.

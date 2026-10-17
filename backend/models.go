@@ -97,6 +97,7 @@ type SendAttachmentData struct {
 	Duration    int    `json:"duration"`     // seconds, audio only
 	Thumbnail   string `json:"thumbnail"`    // base64 PNG of a video's first frame, decoded by the frontend; video only
 	GifPlayback bool   `json:"gif_playback"` // a GIF the frontend turned into this (temporary) MP4; loops, silent
+	ViewOnce    bool   `json:"view_once"`    // photos and videos: can be opened once
 	ReplyToID   string `json:"reply_to_id"`
 	ReplySender string `json:"reply_to_sender"`
 }
@@ -225,36 +226,42 @@ type ReactionInfo struct {
 // whose only purpose was to be marshalled once and thrown away. A flat struct
 // is one allocation per message and marshals without reflection over a map.
 type MessageJSON struct {
-	ID            string         `json:"id"`
-	Text          string         `json:"text"`
-	Timestamp     int64          `json:"timestamp"`
-	FromMe        bool           `json:"fromMe"`
-	SenderJID     string         `json:"senderJid"`
-	SenderName    string         `json:"senderName"`
-	Status        string         `json:"status"`
-	MediaType     string         `json:"mediaType"`
-	MediaMimetype string         `json:"mediaMimetype"`
-	MediaFilename string         `json:"mediaFilename"`
-	MediaPath     string         `json:"mediaPath"`
-	MediaSize     int64          `json:"mediaSize"`
-	QuotedID      string         `json:"quotedId"`
-	QuotedText    string         `json:"quotedText"`
-	QuotedSender  string         `json:"quotedSender"`
-	IsEdited      bool           `json:"isEdited"`
-	IsDeleted     bool           `json:"isDeleted"`
-	SentAt        int64          `json:"sentAt"`
-	DeliveredAt   int64          `json:"deliveredAt"`
-	ReadAt        int64          `json:"readAt"`
-	PlayedAt      int64          `json:"playedAt"`
-	EditedAt      int64          `json:"editedAt"`
-	Starred       bool           `json:"starred"`
-	AlbumID       string         `json:"albumId"`
+	ID            string `json:"id"`
+	Text          string `json:"text"`
+	Timestamp     int64  `json:"timestamp"`
+	FromMe        bool   `json:"fromMe"`
+	SenderJID     string `json:"senderJid"`
+	SenderName    string `json:"senderName"`
+	Status        string `json:"status"`
+	MediaType     string `json:"mediaType"`
+	MediaMimetype string `json:"mediaMimetype"`
+	MediaFilename string `json:"mediaFilename"`
+	MediaPath     string `json:"mediaPath"`
+	MediaSize     int64  `json:"mediaSize"`
+	QuotedID      string `json:"quotedId"`
+	QuotedText    string `json:"quotedText"`
+	QuotedSender  string `json:"quotedSender"`
+	IsEdited      bool   `json:"isEdited"`
+	IsDeleted     bool   `json:"isDeleted"`
+	SentAt        int64  `json:"sentAt"`
+	DeliveredAt   int64  `json:"deliveredAt"`
+	ReadAt        int64  `json:"readAt"`
+	PlayedAt      int64  `json:"playedAt"`
+	EditedAt      int64  `json:"editedAt"`
+	Starred       bool   `json:"starred"`
+	AlbumID       string `json:"albumId"`
 	// For a poll: each option's share of the votes, shown after the question.
 	PollResults string `json:"pollResults,omitempty"`
 	// For a channel post: its views and reaction totals.
 	ChannelStats string `json:"channelStats,omitempty"`
 	// A pinned channel post.
 	ChannelPinned bool `json:"channelPinned,omitempty"`
+	// Pinned in the chat, kept in a chat with disappearing messages, and
+	// whether it disappears at all (so can be kept).
+	Pinned     bool `json:"pinned,omitempty"`
+	Kept       bool `json:"kept,omitempty"`
+	Expiring   bool `json:"expiring,omitempty"`
+	StickerFav bool `json:"sticker_favorite,omitempty"`
 	// Always a list, never null: the Rust side's `#[serde(default)]` covers a
 	// missing field but not an explicit null, which would fail to deserialize.
 	Reactions []ReactionInfo `json:"reactions"`

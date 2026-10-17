@@ -177,6 +177,9 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		msg = &waE2E.Message{Conversation: &text}
 	}
 
+	if !jid.IsBot() {
+		msg = withLinkPreview(msg)
+	}
 	msg = applyDisappearingTimer(jid, msg)
 	// Mentioning Meta AI sends the message to it as well (whatsmeow's inline
 	// bot mode), which is what makes it answer in this chat.

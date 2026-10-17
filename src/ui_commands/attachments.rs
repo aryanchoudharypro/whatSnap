@@ -114,6 +114,17 @@ fn show_attachment_dialog(
 	if !d.dialog.is_shown() {
 		d.caption_field.set_value(caption.as_deref().unwrap_or(""));
 		d.caption_field.set_insertion_point_end();
+		d.view_once_check.set_value(false);
+	}
+	// View once is for photos and videos, and not in a channel.
+	let view_once = {
+		let s = state.borrow();
+		!s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@newsletter"))
+			&& s.pending_attachments.iter().any(|p| matches!(kind.send_type(p), "image" | "video"))
+	};
+	if d.view_once_check.is_shown() != view_once {
+		d.view_once_check.show(view_once);
+		d.dialog.layout();
 	}
 	if d.caption_field.is_shown() != captioned {
 		d.caption_label.show(captioned);
@@ -296,6 +307,8 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		// with a real id from the start instead of a client-side
 		// placeholder here.
 		let caption = if kind.has_caption() { caption } else { String::new() };
+		let view_once =
+			parts.attachment_dialog.view_once_check.is_shown() && parts.attachment_dialog.view_once_check.get_value();
 		for (idx, path) in paths.iter().enumerate() {
 			let file_type = kind.send_type(path);
 			let filename = std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -311,7 +324,8 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 					"filename": filename,
 					"caption": caption,
 					"reply_to_id": if idx == 0 { reply_id.as_str() } else { "" },
-					"reply_to_sender": if idx == 0 { reply_sender.as_str() } else { "" }
+					"reply_to_sender": if idx == 0 { reply_sender.as_str() } else { "" },
+					"view_once": view_once && matches!(file_type, "image" | "video")
 				}
 			});
 			let ws_tx = state.borrow().ws_tx.clone();
