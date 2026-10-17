@@ -29,6 +29,11 @@ pub struct ConversationDataDialogParts {
 	pub links_panel: Panel,
 	pub links_label: StaticText,
 	pub links_list: ListBox,
+
+	// Groups in common tab
+	pub common_groups_panel: Panel,
+	pub common_groups_label: StaticText,
+	pub common_groups_list: ListBox,
 }
 
 pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDataDialogParts {
@@ -82,11 +87,21 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	links_sizer.add(&links_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	links_panel.set_sizer(links_sizer, true);
 
+	// --- Groups in common Tab ---
+	let common_groups_panel = Panel::builder(&notebook).build();
+	let common_groups_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let common_groups_label = StaticText::builder(&common_groups_panel).with_label("Groups in common").build();
+	common_groups_sizer.add(&common_groups_label, 0, SizerFlag::All, 5);
+	let common_groups_list = ListBox::builder(&common_groups_panel).build();
+	common_groups_sizer.add(&common_groups_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	common_groups_panel.set_sizer(common_groups_sizer, true);
+
 	// Add pages to notebook
 	notebook.add_page(&info_panel, "Info", true, None);
 	notebook.add_page(&media_panel, "Media", false, None);
 	notebook.add_page(&documents_panel, "Documents", false, None);
 	notebook.add_page(&links_panel, "Links", false, None);
+	notebook.add_page(&common_groups_panel, "Groups in Common", false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
@@ -110,5 +125,8 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 		links_panel,
 		links_label,
 		links_list,
+		common_groups_panel,
+		common_groups_label,
+		common_groups_list,
 	}
 }

@@ -142,11 +142,34 @@ pub(crate) fn find_single_removal_offset(old: &[String], new: &[String]) -> Opti
 	Some(skipped.unwrap_or(oi))
 }
 
+/// The Conversations tab's filters that are always there; the user's own
+/// lists follow them in the dropdown.
+pub(crate) const BUILT_IN_CHAT_FILTERS: [&str; 4] = ["All chats", "Unread", "Favorites", "Groups"];
+
+/// Whether the chat filter picked above the list lets this chat through.
+/// It only applies to Conversations, as WA Web's filter chips do.
+pub(crate) fn chat_passes_filter(s: &AppState, jid: &str) -> bool {
+	if s.active_tab != 0 || s.chats_unlocked {
+		return true;
+	}
+	match s.chat_filter {
+		0 => true,
+		1 => s.unread_counts.get(jid).is_some_and(|&n| n > 0) || s.selected_chat.as_deref() == Some(jid),
+		2 => s.favorite_jids.iter().any(|f| f == jid),
+		3 => jid.ends_with("@g.us"),
+		n => s.chat_lists.get(n - BUILT_IN_CHAT_FILTERS.len()).is_none_or(|l| l.jids.iter().any(|j| j == jid)),
+	}
+}
+
 pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	let show_locked_btn = s.active_tab == 0 && !s.locked_jids.is_empty();
-	if parts.conversations_parts.locked_chats_btn.is_shown() != show_locked_btn {
-		parts.conversations_parts.locked_chats_btn.show(show_locked_btn);
-		parts.conversations_parts.panel.layout();
+	let show_filter = s.active_tab == 0 && !s.chats_unlocked;
+	let conv = &parts.conversations_parts;
+	if conv.locked_chats_btn.is_shown() != show_locked_btn || conv.chat_filter_combo.is_shown() != show_filter {
+		conv.locked_chats_btn.show(show_locked_btn);
+		conv.chat_filter_label.show(show_filter);
+		conv.chat_filter_combo.show(show_filter);
+		conv.panel.layout();
 	}
 
 	let lower_query = s.search_query.to_lowercase();
@@ -234,7 +257,8 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				&s.channel_jids,
 				&s.locked_jids,
 				s.chats_unlocked,
-			) {
+			) || !chat_passes_filter(s, jid)
+			{
 				continue;
 			}
 

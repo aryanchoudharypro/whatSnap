@@ -317,6 +317,20 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleDeleteStatus(cmd.Data)
 	case "set_status_mute":
 		handleSetStatusMute(cmd.Data)
+	case "get_chat_lists":
+		go handleGetChatLists(conn)
+	case "set_favorite":
+		handleSetFavorite(conn, cmd.Data)
+	case "create_list":
+		handleCreateList(conn, cmd.Data)
+	case "rename_list":
+		handleRenameList(conn, cmd.Data)
+	case "delete_list":
+		handleDeleteList(conn, cmd.Data)
+	case "set_list_member":
+		handleSetListMember(conn, cmd.Data)
+	case "get_common_groups":
+		go handleGetCommonGroups(conn, cmd.Data)
 	case "get_status_privacy":
 		go handleGetStatusPrivacy(conn)
 	case "set_status_privacy":

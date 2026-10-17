@@ -11,6 +11,10 @@ pub struct ConversationsPanelParts {
 
 	pub search_label: StaticText,
 	pub search_field: TextCtrl,
+	/// All chats, Unread, Favorites, Groups, then the user's own lists.
+	/// Only shown in Conversations.
+	pub chat_filter_label: StaticText,
+	pub chat_filter_combo: ComboBox,
 	pub new_conv_btn: Button,
 	pub locked_chats_btn: Button,
 	pub post_media_status_btn: Button,
@@ -89,6 +93,17 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let search_field = TextCtrl::builder(&panel).build();
 	search_field.set_font(&theme::Fonts::body());
 	outer_sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	let chat_filter_label = StaticText::builder(&panel).with_label("Show").build();
+	theme::style_muted_label(&chat_filter_label);
+	outer_sizer.add(&chat_filter_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let chat_filter_combo = ComboBox::builder(&panel)
+		.with_string_choices(&crate::message_display::BUILT_IN_CHAT_FILTERS)
+		.with_style(ComboBoxStyle::ReadOnly)
+		.build();
+	chat_filter_combo.set_font(&theme::Fonts::body());
+	chat_filter_combo.set_selection(0);
+	outer_sizer.add(&chat_filter_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let new_conv_btn = Button::builder(&panel).with_label("New Conversation").build();
 	theme::style_primary_button(&new_conv_btn);
@@ -377,6 +392,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		panel,
 		search_label,
 		search_field,
+		chat_filter_label,
+		chat_filter_combo,
 		new_conv_btn,
 		locked_chats_btn,
 		post_media_status_btn,

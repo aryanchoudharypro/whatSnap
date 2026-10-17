@@ -3,6 +3,7 @@ pub(crate) mod blocking;
 pub(crate) mod calls;
 pub(crate) mod channel_admin;
 pub(crate) mod chat_list;
+pub(crate) mod chat_lists;
 pub(crate) mod contacts_groups;
 pub(crate) mod group_extras;
 pub(crate) mod links;

@@ -66,6 +66,19 @@ pub enum UiCommand {
 	OpenStickerPicker,
 	/// The context menu of a row in the Status tab.
 	ShowStatusMenu(usize),
+	/// The Conversations filter dropdown changed.
+	SetChatFilter(usize),
+	/// A chat's context menu: add it to the favorites or take it off.
+	SetFavorite {
+		jid: String,
+		favorite: bool,
+	},
+	/// A chat's context menu: which of our lists it's in.
+	ChooseChatLists(String),
+	/// Chat menu > "Manage Lists...": make, rename or delete lists.
+	ManageChatLists,
+	/// Enter on one of contact info's groups in common.
+	OpenCommonGroup(usize),
 	/// "Event" in the attach menu: create an event in the chat.
 	OpenEventDialog,
 	/// `V` on a message: vote in it if it's a poll, answer it if it's an event.

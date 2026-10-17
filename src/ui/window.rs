@@ -242,6 +242,7 @@ pub const MENU_ID_BLOCK_CHAT: i32 = 6038;
 pub const MENU_ID_BLOCKED_CONTACTS: i32 = 6039;
 pub const MENU_ID_PINNED_MESSAGES: i32 = 6040;
 pub const MENU_ID_NEW_COMMUNITY: i32 = 6042;
+pub const MENU_ID_MANAGE_LISTS: i32 = 6043;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
 pub fn build_main_window() -> WindowParts {
@@ -316,6 +317,7 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), "Start a new chat")
 		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), "Start a new group")
 		.append_item(MENU_ID_NEW_COMMUNITY, "New C&ommunity...", "Start a community to bring groups together")
+		.append_item(MENU_ID_MANAGE_LISTS, "Manage &Lists...", "Make, rename or delete your chat lists")
 		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), "Search chats")
 		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
 		.append_separator()
@@ -1187,6 +1189,8 @@ pub fn bind_input_handlers(
 			let _ = tx_chat_menu.send(UiCommand::PrepareNewGroup);
 		} else if id == MENU_ID_NEW_COMMUNITY {
 			let _ = tx_chat_menu.send(UiCommand::NewCommunity);
+		} else if id == MENU_ID_MANAGE_LISTS {
+			let _ = tx_chat_menu.send(UiCommand::ManageChatLists);
 		} else if id == MENU_ID_SEARCH_GLOBAL {
 			search_field_for_menu.set_focus();
 		} else if id == MENU_ID_SEARCH_CHAT {
@@ -1584,6 +1588,26 @@ pub fn bind_input_handlers(
 	parts.group_data_dialog.join_group_btn.on_click(move |_| {
 		if let Some(idx) = groups_list_join.get_selection() {
 			let _ = tx_join_group.send(UiCommand::JoinCommunitySubgroup(idx));
+		}
+	});
+
+	let tx_common_click = ui_tx.clone();
+	parts.conversation_data_dialog.common_groups_list.on_item_double_clicked(move |event| {
+		if let Some(idx) = event.get_selection() {
+			let _ = tx_common_click.send(UiCommand::OpenCommonGroup(idx as usize));
+		}
+	});
+	let tx_common_enter = ui_tx.clone();
+	let common_list_enter = parts.conversation_data_dialog.common_groups_list.clone();
+	keys::on_enter(&parts.conversation_data_dialog.common_groups_list, Rc::default(), move || {
+		if let Some(idx) = common_list_enter.get_selection() {
+			let _ = tx_common_enter.send(UiCommand::OpenCommonGroup(idx as usize));
+		}
+	});
+	let tx_chat_filter = ui_tx.clone();
+	parts.conversations_parts.chat_filter_combo.on_selection_changed(move |event| {
+		if let Some(idx) = event.get_selection() {
+			let _ = tx_chat_filter.send(UiCommand::SetChatFilter(idx as usize));
 		}
 	});
 
@@ -2472,6 +2496,8 @@ pub fn bind_input_handlers(
 			let alert_full_id = 4011;
 			let report_id = 4014;
 			let block_id = 4015;
+			let favorite_id = 4016;
+			let lists_id = 4017;
 
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
@@ -2481,6 +2507,7 @@ pub fn bind_input_handlers(
 				let is_locked = s.locked_jids.contains(&jid);
 				let is_muted = s.muted_jids.contains(&jid);
 				let is_blocked = s.blocked_jids.contains(&jid);
+				let is_favorite = s.favorite_jids.contains(&jid);
 				let unread_count = s.unread_counts.get(&jid).copied().unwrap_or(0);
 				let is_unread = unread_count > 0;
 				let is_group = jid.ends_with("@g.us");
@@ -2501,7 +2528,14 @@ pub fn bind_input_handlers(
 					.append_item(archive_id, archive_label, "Archive or unarchive chat")
 					.append_item(lock_id, lock_label, "Lock or unlock chat")
 					.append_item(mute_id, mute_label, "Mute or unmute notifications")
-					.append_item(read_id, read_label, "Mark chat as read or unread")
+					.append_item(read_id, read_label, "Mark chat as read or unread");
+				if !jid.ends_with("@broadcast") {
+					let favorite_label = if is_favorite { "Remove from fa&vorites" } else { "Add to fa&vorites" };
+					menu_builder = menu_builder
+						.append_item(favorite_id, favorite_label, "Show or stop showing this chat under Favorites")
+						.append_item(lists_id, "Add to l&ist...", "Choose which of your lists this chat is in");
+				}
+				menu_builder = menu_builder
 					.append_item(export_id, "&Export chat...", "Export this chat's transcript and media")
 					.append_item(
 						export_text_id,
@@ -2609,6 +2643,11 @@ pub fn bind_input_handlers(
 							ui_tx_clone.send(UiCommand::ToggleLockChat { jid: jid_clone.clone(), lock: !is_locked });
 					} else if id == report_id {
 						let _ = ui_tx_clone.send(UiCommand::ReportChat { jid: jid_clone.clone() });
+					} else if id == favorite_id {
+						let _ =
+							ui_tx_clone.send(UiCommand::SetFavorite { jid: jid_clone.clone(), favorite: !is_favorite });
+					} else if id == lists_id {
+						let _ = ui_tx_clone.send(UiCommand::ChooseChatLists(jid_clone.clone()));
 					} else if id == block_id {
 						let _ = ui_tx_clone.send(UiCommand::ToggleBlockChat { jid: jid_clone.clone() });
 					} else if id == mute_id {

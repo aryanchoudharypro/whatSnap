@@ -98,6 +98,22 @@ func migrateDB() error {
 		return err
 	}
 
+	// Chat lists (label_edit app state, the LabelEditAction as synced),
+	// which chats are in each (label_jid), and the favorite chats in order.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chat_lists (id TEXT PRIMARY KEY, action BLOB)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chat_list_members (
+		list_id TEXT,
+		jid TEXT,
+		PRIMARY KEY (list_id, jid)
+	)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chat_favorites (jid TEXT PRIMARY KEY, position INTEGER)`); err != nil {
+		return err
+	}
+
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
 		value BLOB

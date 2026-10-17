@@ -692,7 +692,8 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				&s.channel_jids,
 				&s.locked_jids,
 				s.chats_unlocked,
-			) {
+			) || !crate::message_display::chat_passes_filter(&s, jid)
+			{
 				continue;
 			}
 			let name = s.contacts.get(jid).unwrap_or(jid);
@@ -934,6 +935,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					let payload = serde_json::json!({
 						"action": "get_chats"
 					});
+					let _ = state.borrow().ws_tx.send(payload.to_string());
+					let payload = serde_json::json!({ "action": "get_chat_lists" });
 					let _ = state.borrow().ws_tx.send(payload.to_string());
 
 					// Re-state our presence on every connect: a restarted backend
@@ -3055,6 +3058,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				| "status_privacy_saved" => {
 					if let Some(data) = val.get("data") {
 						crate::ui_commands::status_extras::on_event(state, parts, t, data);
+					}
+				}
+				"chat_lists" | "favorite_saved" | "list_saved" | "list_deleted" | "list_member_saved"
+				| "common_groups" => {
+					if let Some(data) = val.get("data") {
+						crate::ui_commands::chat_lists::on_event(state, parts, t, data);
 					}
 				}
 				"join_requests"

@@ -548,6 +548,14 @@ struct AppState {
 	/// The default disappearing message timer, in seconds, once it has
 	/// loaded since Settings was opened.
 	default_timer: Option<i64>,
+	/// The Conversations filter's selection: 0-3 are
+	/// `message_display::BUILT_IN_CHAT_FILTERS`, then `chat_lists` in order.
+	chat_filter: usize,
+	/// Favorite chats and the user's own lists, as the phone syncs them.
+	favorite_jids: Vec<String>,
+	chat_lists: Vec<ui_commands::chat_lists::ChatList>,
+	/// The groups contact info lists as in common, by row.
+	common_group_jids: Vec<String>,
 	privacy_settings: std::collections::HashMap<String, String>,
 	/// Whether `privacy_settings` came from the server since Settings was
 	/// last opened. Until then the privacy dropdowns are disabled and Save
@@ -879,6 +887,10 @@ fn main() {
 			own_about_duration: -1,
 			own_about_loaded: false,
 			default_timer: None,
+			chat_filter: 0,
+			favorite_jids: Vec::new(),
+			chat_lists: Vec::new(),
+			common_group_jids: Vec::new(),
 			privacy_settings: std::collections::HashMap::new(),
 			privacy_settings_loaded: false,
 			privacy_lists: std::collections::HashMap::new(),
@@ -1337,6 +1349,11 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::OpenPollDialog => ui_commands::attachments::open_poll_dialog(state, parts),
 		UiCommand::OpenStickerPicker => ui_commands::stickers::open_sticker_picker(state, parts),
 		UiCommand::ShowStatusMenu(idx) => ui_commands::status_extras::show_status_menu(state, parts, idx),
+		UiCommand::SetChatFilter(idx) => ui_commands::chat_lists::set_filter(state, parts, idx),
+		UiCommand::SetFavorite { jid, favorite } => ui_commands::chat_lists::set_favorite(state, parts, jid, favorite),
+		UiCommand::ChooseChatLists(jid) => ui_commands::chat_lists::choose_lists(state, parts, jid),
+		UiCommand::ManageChatLists => ui_commands::chat_lists::manage_lists(state, parts),
+		UiCommand::OpenCommonGroup(idx) => ui_commands::chat_lists::open_common_group(state, parts, idx),
 		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
 		UiCommand::SendPoll { question, options, multiple_answers, correct_answer } => {

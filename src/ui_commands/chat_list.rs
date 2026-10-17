@@ -528,6 +528,10 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				"data": { "jid": jid }
 			});
 			let _ = s.ws_tx.send(payload.to_string());
+			let payload = serde_json::json!({ "action": "get_common_groups", "data": { "jid": jid } });
+			let _ = s.ws_tx.send(payload.to_string());
+			parts.conversation_data_dialog.common_groups_list.clear();
+			parts.conversation_data_dialog.common_groups_list.append("Loading...");
 
 			let media = build_media_messages(&s.messages);
 			let documents = build_document_messages(&s.messages);

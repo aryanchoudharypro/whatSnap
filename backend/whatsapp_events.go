@@ -2525,6 +2525,12 @@ func eventHandler(evt interface{}) {
 		go noteStatusMute(v)
 	case *events.StatusPrivacy:
 		go noteStatusPrivacy(v)
+	case *events.LabelEdit:
+		go noteLabelEdit(v)
+	case *events.LabelAssociationChat:
+		go noteLabelChat(v)
+	case *events.Favorites:
+		go noteFavorites(v)
 	case *events.GroupLimitSharingUpdate:
 		go func() {
 			if setChatLimitSharing(v.JID.String(), v.Enabled(), 0) {
