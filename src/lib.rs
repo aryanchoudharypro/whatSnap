@@ -1389,6 +1389,10 @@ pub fn windows_is_quieting(focus_assist: Option<bool>, notification_state: Optio
 /// is waiting for attention, not a raw count of everything unopened, and a
 /// tooltip advertising chats that are set never to make a sound would contradict
 /// the setting that silenced them.
+///
+/// Channels and broadcast lists are left out too: their posts never alert, and
+/// a followed channel's unread posts used to be added in, so the total jumped
+/// to 20-odd whenever a busy channel posted.
 pub fn unread_notification_total(
 	unread_counts: &std::collections::HashMap<String, u64>,
 	muted_jids: &std::collections::HashSet<String>,
@@ -1397,6 +1401,7 @@ pub fn unread_notification_total(
 ) -> u64 {
 	unread_counts
 		.iter()
+		.filter(|(jid, _)| !jid.ends_with("@newsletter") && !jid.ends_with("@broadcast"))
 		.filter(|(jid, _)| {
 			let level = archived_levels.get(*jid).copied().unwrap_or_default();
 			let alert = incoming_alert(muted_jids.contains(*jid), archived_jids.contains(*jid), level);
@@ -1704,6 +1709,19 @@ mod tests {
 		let zeroed: std::collections::HashMap<String, u64> =
 			[("a@s.whatsapp.net".to_string(), 0u64)].into_iter().collect();
 		assert_eq!(unread_notification_total(&zeroed, &none, &none, &no_levels), 0);
+	}
+
+	#[test]
+	fn test_unread_notification_total_excludes_channels() {
+		let counts: std::collections::HashMap<String, u64> = [
+			("a@s.whatsapp.net".to_string(), 2u64),
+			("123@newsletter".to_string(), 19u64),
+			("status@broadcast".to_string(), 4u64),
+		]
+		.into_iter()
+		.collect();
+		let none = std::collections::HashSet::new();
+		assert_eq!(unread_notification_total(&counts, &none, &none, &std::collections::HashMap::new()), 2);
 	}
 
 	#[test]
