@@ -1019,7 +1019,7 @@ pub fn bind_input_handlers(
 		let _ = tx_tray_select.send(UiCommand::SetPresence(true));
 	});
 
-	let apply_tray_setting = {
+	let apply_tray_setting = Rc::new({
 		let tray_icon = tray_icon.clone();
 		let tray_bitmap = tray_bitmap.clone();
 		let state = state.clone();
@@ -1044,7 +1044,27 @@ pub fn bind_input_handlers(
 				tray_icon.remove_icon();
 			}
 		}
-	};
+	});
+	// When Explorer restarts, or the taskbar is recreated after a display or
+	// DPI change, wx adds the icon back with its last tooltip - the count - and
+	// that becomes the icon's name. Add it back under the app name instead.
+	{
+		let apply_tray_setting = apply_tray_setting.clone();
+		let tray_icon = tray_icon.clone();
+		let state = state.clone();
+		crate::tray::set_on_taskbar_created(move || {
+			let Ok(s) = state.try_borrow() else {
+				return false;
+			};
+			let shown = s.settings.show_tray_icon && s.main_ui_shown;
+			drop(s);
+			if shown {
+				tray_icon.remove_icon();
+				apply_tray_setting(true);
+			}
+			true
+		});
+	}
 	// Only ever install the tray icon while logged in - there's nothing to
 	// keep running in the background for otherwise, and a tray icon for an
 	// unpaired app is just clutter (and one more stray thing for a screen

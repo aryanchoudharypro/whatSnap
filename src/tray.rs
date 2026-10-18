@@ -243,6 +243,18 @@ pub(crate) fn set_on_select(f: impl Fn() + 'static) {
 	ON_SELECT.with(|cell| *cell.borrow_mut() = Some(Box::new(f)));
 }
 
+thread_local! {
+	static ON_TASKBAR_CREATED: std::cell::RefCell<Option<Box<dyn Fn() -> bool>>> = std::cell::RefCell::new(None);
+}
+
+/// What to do when the taskbar is recreated (Explorer restarting, or a display
+/// or DPI change). Left to wx, the icon comes back carrying its last tooltip,
+/// so the shell names it "20 unread messages" instead of "whaNTV", and at
+/// version 0 again. Returns false to let wx handle it after all.
+pub(crate) fn set_on_taskbar_created(f: impl Fn() -> bool + 'static) {
+	ON_TASKBAR_CREATED.with(|cell| *cell.borrow_mut() = Some(Box::new(f)));
+}
+
 /// The icon id wxWidgets' MSW wxTaskBarIcon always uses.
 const WX_TRAY_ICON_ID: u32 = 99;
 const TRAY_SUBCLASS_ID: usize = 0x7472_6179;
@@ -265,6 +277,18 @@ unsafe extern "system" fn tray_subclass_proc(
 	};
 	thread_local! {
 		static WX_TRAY_MSG: u32 = unsafe { RegisterWindowMessageW(windows::core::w!("wxTaskBarIconMessage")) };
+		static TASKBAR_CREATED_MSG: u32 = unsafe { RegisterWindowMessageW(windows::core::w!("TaskbarCreated")) };
+	}
+	if msg == TASKBAR_CREATED_MSG.with(|m| *m) {
+		if let Some(f) = ON_TASKBAR_CREATED.with(|cell| cell.borrow_mut().take()) {
+			let handled = f();
+			ON_TASKBAR_CREATED.with(|cell| {
+				cell.borrow_mut().get_or_insert(f);
+			});
+			if handled {
+				return windows::Win32::Foundation::LRESULT(0);
+			}
+		}
 	}
 	if msg == WX_TRAY_MSG.with(|m| *m) {
 		let event = lparam.0 & 0xFFFF;
