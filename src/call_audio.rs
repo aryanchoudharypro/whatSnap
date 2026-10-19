@@ -194,7 +194,7 @@ pub(crate) unsafe fn open_communications_stream(
 	tag: &str,
 	preferred_device_name: Option<&str>,
 	apply_effects: bool,
-) -> anyhow::Result<WasapiOpen> {
+) -> crate::error::Result<WasapiOpen> {
 	unsafe {
 		let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
 		// Falls back to the default communications-role device if no preference is
@@ -533,7 +533,7 @@ fn run_capture_session(
 	target_addr: &str,
 	preferred_device: &Mutex<Option<String>>,
 	force_reopen: &AtomicBool,
-) -> anyhow::Result<()> {
+) -> crate::error::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
@@ -638,7 +638,7 @@ fn run_render_session(
 	accum_len: &Arc<AtomicUsize>,
 	preferred_device: &Mutex<Option<String>>,
 	force_reopen: &AtomicBool,
-) -> anyhow::Result<()> {
+) -> crate::error::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
@@ -717,7 +717,7 @@ pub fn start_audio_streams(
 	target_port: u16,
 	preferred_input_device: Option<String>,
 	preferred_output_device: Option<String>,
-) -> anyhow::Result<CallAudioState> {
+) -> crate::error::Result<CallAudioState> {
 	crate::paths::rotate_log("call_audio.log");
 	let socket = UdpSocket::bind("127.0.0.1:0")?;
 	let target_addr = format!("127.0.0.1:{}", target_port);

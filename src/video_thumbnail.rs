@@ -30,7 +30,7 @@ pub(crate) fn first_frame_png(path: &str) -> Option<Vec<u8>> {
 	Some(png)
 }
 
-fn first_frame_rgba(path: &str) -> anyhow::Result<(u32, u32, Vec<u8>)> {
+fn first_frame_rgba(path: &str) -> crate::error::Result<(u32, u32, Vec<u8>)> {
 	unsafe {
 		// This runs on a worker thread of its own, which needs COM.
 		let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -39,7 +39,7 @@ fn first_frame_rgba(path: &str) -> anyhow::Result<(u32, u32, Vec<u8>)> {
 	unsafe {
 		let mut attrs: Option<windows::Win32::Media::MediaFoundation::IMFAttributes> = None;
 		MFCreateAttributes(&mut attrs, 1)?;
-		let attrs = attrs.ok_or_else(|| anyhow::anyhow!("MFCreateAttributes returned no attributes"))?;
+		let attrs = attrs.ok_or_else(|| crate::error::err!("MFCreateAttributes returned no attributes"))?;
 		attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)?;
 		let reader = MFCreateSourceReaderFromURL(&HSTRING::from(path), &attrs)?;
 
@@ -52,7 +52,7 @@ fn first_frame_rgba(path: &str) -> anyhow::Result<(u32, u32, Vec<u8>)> {
 		let size = current.GetUINT64(&MF_MT_FRAME_SIZE)?;
 		let (width, height) = ((size >> 32) as u32, size as u32);
 		if width == 0 || height == 0 {
-			anyhow::bail!("video reports no frame size");
+			crate::error::bail!("video reports no frame size");
 		}
 
 		// A few reads can come back without a sample (stream ticks, format
@@ -68,14 +68,14 @@ fn first_frame_rgba(path: &str) -> anyhow::Result<(u32, u32, Vec<u8>)> {
 				return Ok((width, height, sample_to_rgba(&sample, width, height)?));
 			}
 		}
-		anyhow::bail!("no frame decoded")
+		crate::error::bail!("no frame decoded")
 	}
 }
 
 /// Copies an RGB32 (BGRX) frame out as top-down RGBA. A 2D buffer says where
 /// its top row is and how far apart rows are, which also covers bottom-up
 /// frames (negative pitch) and padded rows.
-unsafe fn sample_to_rgba(sample: &IMFSample, width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
+unsafe fn sample_to_rgba(sample: &IMFSample, width: u32, height: u32) -> crate::error::Result<Vec<u8>> {
 	let (w, h) = (width as usize, height as usize);
 	let mut rgba = vec![0u8; w * h * 4];
 	let buffer = unsafe { sample.GetBufferByIndex(0)? };

@@ -1439,8 +1439,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
 						use image::ImageEncoder;
 						if encoder.write_image(&data, width, height, image::ExtendedColorType::Rgba8).is_ok() {
-							use base64::{Engine as _, engine::general_purpose};
-							let b64 = general_purpose::STANDARD.encode(&png_bytes);
+							let b64 = crate::util::base64(&png_bytes);
 							println!("{{'data': {{'qrcode': {{'base64': 'data:image/png;base64,{}'}}}}}}", b64);
 						}
 						if let Some(bitmap) = wxdragon::bitmap::Bitmap::from_rgba(&data, width, height) {

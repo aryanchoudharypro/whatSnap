@@ -52,11 +52,11 @@ impl RecordingSession {
 	/// until the device is confirmed open (or failed) so the caller can give
 	/// the same immediate success/failure feedback the old MCI-based
 	/// recorder gave.
-	pub fn start(path: &str, preferred_device_name: Option<String>, clean_up: bool) -> anyhow::Result<Self> {
+	pub fn start(path: &str, preferred_device_name: Option<String>, clean_up: bool) -> crate::error::Result<Self> {
 		let stop = Arc::new(AtomicBool::new(false));
 		let stop_thread = Arc::clone(&stop);
 		let path = path.to_string();
-		let (ready_tx, ready_rx) = mpsc::channel::<anyhow::Result<()>>();
+		let (ready_tx, ready_rx) = mpsc::channel::<crate::error::Result<()>>();
 
 		let thread = std::thread::spawn(move || {
 			run_recording_session(&stop_thread, &path, preferred_device_name.as_deref(), clean_up, ready_tx);
@@ -71,7 +71,7 @@ impl RecordingSession {
 			Err(_) => {
 				stop.store(true, Ordering::Relaxed);
 				let _ = thread.join();
-				Err(anyhow::anyhow!("timed out opening the recording device"))
+				Err(crate::error::err!("timed out opening the recording device"))
 			}
 		}
 	}
@@ -86,7 +86,7 @@ impl RecordingSession {
 		path: &str,
 		preferred_device_name: Option<String>,
 		clean_up: bool,
-		on_ready: impl FnOnce(anyhow::Result<Self>) + Send + 'static,
+		on_ready: impl FnOnce(crate::error::Result<Self>) + Send + 'static,
 	) {
 		let path = path.to_string();
 		std::thread::spawn(move || {
@@ -118,7 +118,7 @@ fn run_recording_session(
 	path: &str,
 	preferred_device_name: Option<&str>,
 	clean_up: bool,
-	ready_tx: mpsc::Sender<anyhow::Result<()>>,
+	ready_tx: mpsc::Sender<crate::error::Result<()>>,
 ) {
 	if let Err(e) = run_recording_session_inner(stop, path, preferred_device_name, clean_up, ready_tx) {
 		log_line(&format!("voice recording session ended with error: {:?}", e));
@@ -130,8 +130,8 @@ fn run_recording_session_inner(
 	path: &str,
 	preferred_device_name: Option<&str>,
 	clean_up: bool,
-	ready_tx: mpsc::Sender<anyhow::Result<()>>,
-) -> anyhow::Result<()> {
+	ready_tx: mpsc::Sender<crate::error::Result<()>>,
+) -> crate::error::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
@@ -155,7 +155,7 @@ fn run_recording_session_inner(
 		let mut writer = match WavWriter::create(path, spec) {
 			Ok(w) => w,
 			Err(e) => {
-				let _ = ready_tx.send(Err(anyhow::anyhow!("failed to create wav file: {}", e)));
+				let _ = ready_tx.send(Err(crate::error::err!("failed to create wav file: {}", e)));
 				return Ok(());
 			}
 		};

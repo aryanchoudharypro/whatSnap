@@ -99,16 +99,16 @@ pub(crate) struct ScreenCapture {
 }
 
 impl ScreenCapture {
-	pub(crate) fn new(width: u32, height: u32) -> anyhow::Result<Self> {
+	pub(crate) fn new(width: u32, height: u32) -> crate::error::Result<Self> {
 		unsafe {
 			let screen_dc = GetDC(None);
 			if screen_dc.is_invalid() {
-				anyhow::bail!("couldn't open the screen for capture");
+				crate::error::bail!("couldn't open the screen for capture");
 			}
 			let mem_dc = CreateCompatibleDC(Some(screen_dc));
 			if mem_dc.is_invalid() {
 				ReleaseDC(None, screen_dc);
-				anyhow::bail!("couldn't create a capture surface");
+				crate::error::bail!("couldn't create a capture surface");
 			}
 			let info = BITMAPINFO {
 				bmiHeader: BITMAPINFOHEADER {
@@ -129,7 +129,7 @@ impl ScreenCapture {
 				_ => {
 					let _ = DeleteDC(mem_dc);
 					ReleaseDC(None, screen_dc);
-					anyhow::bail!("couldn't allocate the capture bitmap");
+					crate::error::bail!("couldn't allocate the capture bitmap");
 				}
 			};
 			let previous = SelectObject(mem_dc, bitmap.into());
@@ -150,7 +150,7 @@ impl ScreenCapture {
 	}
 
 	/// Copies the screen as it is right now into `out` as one NV12 frame.
-	pub(crate) fn grab_nv12(&mut self, out: &mut [u8]) -> anyhow::Result<()> {
+	pub(crate) fn grab_nv12(&mut self, out: &mut [u8]) -> crate::error::Result<()> {
 		let (screen_w, screen_h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
 		let placement = fit(screen_w, screen_h, self.width, self.height);
 		let copied = unsafe {
@@ -171,7 +171,7 @@ impl ScreenCapture {
 		// Fails while the secure desktop is up (a UAC prompt, the lock
 		// screen): the caller sends the previous picture again.
 		if !copied.as_bool() {
-			anyhow::bail!("the screen couldn't be read");
+			crate::error::bail!("the screen couldn't be read");
 		}
 		self.draw_pointer(placement, screen_w, screen_h);
 		let bgra = unsafe { std::slice::from_raw_parts(self.pixels, (self.width * self.height * 4) as usize) };

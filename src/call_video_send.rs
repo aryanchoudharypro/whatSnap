@@ -212,18 +212,18 @@ fn pack(high: u32, low: u32) -> u64 {
 /// objects per call and they can't usefully be cached across sessions.
 unsafe fn activate_camera_source(
 	symbolic_link: &str,
-) -> anyhow::Result<windows::Win32::Media::MediaFoundation::IMFMediaSource> {
+) -> crate::error::Result<windows::Win32::Media::MediaFoundation::IMFMediaSource> {
 	unsafe {
 		let mut attributes: Option<windows::Win32::Media::MediaFoundation::IMFAttributes> = None;
 		MFCreateAttributes(&mut attributes, 1)?;
-		let attributes = attributes.ok_or_else(|| anyhow::anyhow!("MFCreateAttributes returned no attributes"))?;
+		let attributes = attributes.ok_or_else(|| crate::error::err!("MFCreateAttributes returned no attributes"))?;
 		attributes.SetGUID(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID)?;
 
 		let mut activates: *mut Option<windows::Win32::Media::MediaFoundation::IMFActivate> = std::ptr::null_mut();
 		let mut count: u32 = 0;
 		MFEnumDeviceSources(&attributes, &mut activates, &mut count)?;
 		if activates.is_null() {
-			anyhow::bail!("no cameras available");
+			crate::error::bail!("no cameras available");
 		}
 		let slice = std::slice::from_raw_parts(activates, count as usize);
 		let mut found = None;
@@ -248,7 +248,7 @@ unsafe fn activate_camera_source(
 		windows::Win32::System::Com::CoTaskMemFree(Some(activates as *const core::ffi::c_void));
 
 		let Some(activate) = found else {
-			anyhow::bail!("camera is no longer available");
+			crate::error::bail!("camera is no longer available");
 		};
 		Ok(activate.ActivateObject::<windows::Win32::Media::MediaFoundation::IMFMediaSource>()?)
 	}
@@ -257,8 +257,8 @@ unsafe fn activate_camera_source(
 fn build_video_type(
 	subtype: &GUID,
 	fps: u32,
-	extra: impl FnOnce(&IMFMediaType) -> anyhow::Result<()>,
-) -> anyhow::Result<IMFMediaType> {
+	extra: impl FnOnce(&IMFMediaType) -> crate::error::Result<()>,
+) -> crate::error::Result<IMFMediaType> {
 	unsafe {
 		let mt = MFCreateMediaType()?;
 		mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
@@ -271,7 +271,7 @@ fn build_video_type(
 	}
 }
 
-fn open_session(target_port: u16, source: VideoSource, device_name: Option<&str>) -> anyhow::Result<Session> {
+fn open_session(target_port: u16, source: VideoSource, device_name: Option<&str>) -> crate::error::Result<Session> {
 	let capture = match source {
 		VideoSource::Camera => open_camera(device_name)?,
 		VideoSource::Screen => Capture::Screen(ScreenCapture::new(TARGET_WIDTH, TARGET_HEIGHT)?),
@@ -283,9 +283,9 @@ fn open_session(target_port: u16, source: VideoSource, device_name: Option<&str>
 	Ok(Session { capture, output: open_output(target_port, fps)? })
 }
 
-fn open_camera(device_name: Option<&str>) -> anyhow::Result<Capture> {
+fn open_camera(device_name: Option<&str>) -> crate::error::Result<Capture> {
 	let Some(symbolic_link) = video_devices::resolve_camera_symbolic_link(device_name) else {
-		anyhow::bail!("no camera available");
+		crate::error::bail!("no camera available");
 	};
 
 	unsafe {
@@ -293,7 +293,8 @@ fn open_camera(device_name: Option<&str>) -> anyhow::Result<Capture> {
 
 		let mut reader_attrs: Option<windows::Win32::Media::MediaFoundation::IMFAttributes> = None;
 		MFCreateAttributes(&mut reader_attrs, 1)?;
-		let reader_attrs = reader_attrs.ok_or_else(|| anyhow::anyhow!("MFCreateAttributes returned no attributes"))?;
+		let reader_attrs =
+			reader_attrs.ok_or_else(|| crate::error::err!("MFCreateAttributes returned no attributes"))?;
 		reader_attrs.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)?;
 		let reader = MFCreateSourceReaderFromMediaSource(&source, &reader_attrs)?;
 
@@ -304,7 +305,7 @@ fn open_camera(device_name: Option<&str>) -> anyhow::Result<Capture> {
 	}
 }
 
-fn open_output(target_port: u16, fps: u32) -> anyhow::Result<Output> {
+fn open_output(target_port: u16, fps: u32) -> crate::error::Result<Output> {
 	unsafe {
 		let encoder: IMFTransform =
 			CoCreateInstance(&windows::Win32::Media::MediaFoundation::CLSID_MSH264EncoderMFT, None, CLSCTX_ALL)?;
@@ -333,7 +334,7 @@ fn open_output(target_port: u16, fps: u32) -> anyhow::Result<Output> {
 	}
 }
 
-fn connect_with_retry(target_port: u16) -> anyhow::Result<TcpStream> {
+fn connect_with_retry(target_port: u16) -> crate::error::Result<TcpStream> {
 	let mut last_err = None;
 	for attempt in 0..5 {
 		match TcpStream::connect(("127.0.0.1", target_port)) {
@@ -508,7 +509,8 @@ fn screen_loop(
 				.SetSampleTime(started.elapsed().as_nanos() as i64 / 100)
 				.and_then(|_| sample.SetSampleDuration(frame_duration_100ns))
 		};
-		if let Err(e) = stamped.map_err(anyhow::Error::from).and_then(|_| encode(output, &sample, force_keyframe)) {
+		if let Err(e) = stamped.map_err(crate::error::Error::from).and_then(|_| encode(output, &sample, force_keyframe))
+		{
 			log_line(&format!("Encoder error (reopening): {e}"));
 			return;
 		}
@@ -517,7 +519,7 @@ fn screen_loop(
 
 /// Grabs the screen straight into a new Media Foundation sample's buffer, and
 /// says whether what it got was a black screen.
-fn screen_sample(screen: &mut ScreenCapture, frame_bytes: usize) -> anyhow::Result<(IMFSample, bool)> {
+fn screen_sample(screen: &mut ScreenCapture, frame_bytes: usize) -> crate::error::Result<(IMFSample, bool)> {
 	unsafe {
 		let buffer = MFCreateMemoryBuffer(frame_bytes as u32)?;
 		let mut ptr: *mut u8 = std::ptr::null_mut();
@@ -535,7 +537,7 @@ fn screen_sample(screen: &mut ScreenCapture, frame_bytes: usize) -> anyhow::Resu
 }
 
 /// Runs one captured frame through the encoder and sends whatever comes out.
-fn encode(output: &mut Output, captured: &IMFSample, force_keyframe: &Arc<AtomicBool>) -> anyhow::Result<()> {
+fn encode(output: &mut Output, captured: &IMFSample, force_keyframe: &Arc<AtomicBool>) -> crate::error::Result<()> {
 	if force_keyframe.swap(false, Ordering::Relaxed) {
 		let _ = unsafe { output.codec_api.SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &VARIANT::from(true)) };
 	}
@@ -543,7 +545,7 @@ fn encode(output: &mut Output, captured: &IMFSample, force_keyframe: &Arc<Atomic
 	drain_encoder_output(output)
 }
 
-fn drain_encoder_output(output: &mut Output) -> anyhow::Result<()> {
+fn drain_encoder_output(output: &mut Output) -> crate::error::Result<()> {
 	loop {
 		let stream_info = unsafe { output.encoder.GetOutputStreamInfo(0)? };
 		let out_sample = unsafe { MFCreateSample()? };
@@ -573,7 +575,7 @@ fn drain_encoder_output(output: &mut Output) -> anyhow::Result<()> {
 	}
 }
 
-fn send_sample(output: &mut Output, sample: &IMFSample) -> anyhow::Result<()> {
+fn send_sample(output: &mut Output, sample: &IMFSample) -> crate::error::Result<()> {
 	unsafe {
 		let buffer = sample.ConvertToContiguousBuffer()?;
 		let mut ptr: *mut u8 = std::ptr::null_mut();

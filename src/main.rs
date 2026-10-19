@@ -20,6 +20,7 @@ mod video_devices;
 mod video_thumbnail;
 use chat_ui::request_backend_shutdown;
 mod clipboard;
+mod error;
 pub use clipboard::copy_files_to_clipboard;
 mod contact_picker;
 mod countries;
@@ -39,6 +40,7 @@ mod tray;
 mod ui;
 mod ui_commands;
 mod ui_wake;
+mod util;
 mod voice_dsp;
 mod voice_recorder;
 mod websocket_events;
@@ -630,7 +632,7 @@ fn main() {
 	// Random rather than PID-derived: on Windows the first process to create a
 	// pipe name owns it, so a predictable name can be squatted by a local
 	// process that would then receive our commands.
-	let pipe_id = format!("whantv-{}", uuid::Uuid::new_v4().simple());
+	let pipe_id = format!("whantv-{}", util::random_hex());
 	let go_pipe_name = format!(r"\\.\pipe\{}", pipe_id);
 
 	// Read directly rather than waiting for AppState's own Settings::load()

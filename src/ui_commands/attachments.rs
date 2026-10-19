@@ -342,16 +342,14 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 				// it can't be converted it goes as a photo, as before.
 				let path = path.clone();
 				std::thread::spawn(move || {
-					let mp4 = std::env::temp_dir().join(format!("whantv_gif_{}.mp4", uuid::Uuid::new_v4()));
+					let mp4 = std::env::temp_dir().join(format!("whantv_gif_{}.mp4", crate::util::random_hex()));
 					let mp4 = mp4.to_string_lossy().to_string();
 					match crate::gif_video::gif_to_mp4(&path, &mp4) {
 						Ok(first_png) => {
-							use base64::Engine;
 							payload["data"]["type"] = serde_json::json!("video");
 							payload["data"]["path"] = serde_json::json!(mp4);
 							payload["data"]["gif_playback"] = serde_json::json!(true);
-							payload["data"]["thumbnail"] =
-								serde_json::json!(base64::engine::general_purpose::STANDARD.encode(first_png));
+							payload["data"]["thumbnail"] = serde_json::json!(crate::util::base64(&first_png));
 						}
 						Err(e) => eprintln!("[LOG UI] Couldn't turn {path} into a video, sending it as a photo: {e}"),
 					}
@@ -363,9 +361,7 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 				let path = path.clone();
 				std::thread::spawn(move || {
 					if let Some(png) = crate::video_thumbnail::first_frame_png(&path) {
-						use base64::Engine;
-						payload["data"]["thumbnail"] =
-							serde_json::json!(base64::engine::general_purpose::STANDARD.encode(png));
+						payload["data"]["thumbnail"] = serde_json::json!(crate::util::base64(&png));
 					}
 					let _ = ws_tx.send(payload.to_string());
 				});

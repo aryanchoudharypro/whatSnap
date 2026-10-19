@@ -421,9 +421,7 @@ pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			// A preview of the first frame, as for a video sent to a chat.
 			std::thread::spawn(move || {
 				if let Some(png) = crate::video_thumbnail::first_frame_png(&path) {
-					use base64::Engine;
-					payload["data"]["thumbnail"] =
-						serde_json::json!(base64::engine::general_purpose::STANDARD.encode(png));
+					payload["data"]["thumbnail"] = serde_json::json!(crate::util::base64(&png));
 				}
 				let _ = ws_tx.send(payload.to_string());
 			});

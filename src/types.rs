@@ -371,7 +371,7 @@ pub(crate) struct PendingVoiceRecording {
 	pub(crate) generation: u64,
 	pub(crate) wav_path: String,
 	pub(crate) is_resume: bool,
-	pub(crate) result: anyhow::Result<voice_recorder::RecordingSession>,
+	pub(crate) result: crate::error::Result<voice_recorder::RecordingSession>,
 }
 
 /// A synced WhatsApp contact, as returned by the backend's `get_contacts`.

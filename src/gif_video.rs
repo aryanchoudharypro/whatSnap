@@ -35,7 +35,7 @@ const NOMINAL_FPS: u32 = 25;
 
 /// Converts the GIF at `gif_path` into an MP4 at `mp4_path`, returning its
 /// first frame as PNG bytes (for the message's preview).
-pub(crate) fn gif_to_mp4(gif_path: &str, mp4_path: &str) -> anyhow::Result<Vec<u8>> {
+pub(crate) fn gif_to_mp4(gif_path: &str, mp4_path: &str) -> crate::error::Result<Vec<u8>> {
 	let decoder = GifDecoder::new(BufReader::new(std::fs::File::open(gif_path)?))?;
 	let mut frames = Vec::new();
 	for frame in decoder.into_frames().take(MAX_FRAMES) {
@@ -46,7 +46,7 @@ pub(crate) fn gif_to_mp4(gif_path: &str, mp4_path: &str) -> anyhow::Result<Vec<u
 		frames.push((frame.into_buffer(), ms));
 	}
 	let Some((first, _)) = frames.first() else {
-		anyhow::bail!("GIF has no frames");
+		crate::error::bail!("GIF has no frames");
 	};
 	let (width, height) = encoded_size(first.width(), first.height());
 	let frames: Vec<(RgbaImage, u32)> = frames
@@ -91,7 +91,7 @@ fn encoded_size(width: u32, height: u32) -> (u32, u32) {
 	(w & !1, h & !1)
 }
 
-fn encode(frames: &[(RgbaImage, u32)], width: u32, height: u32, mp4_path: &str) -> anyhow::Result<()> {
+fn encode(frames: &[(RgbaImage, u32)], width: u32, height: u32, mp4_path: &str) -> crate::error::Result<()> {
 	unsafe {
 		// Runs on a worker thread of its own, which needs COM.
 		let _ = CoInitializeEx(None, COINIT_MULTITHREADED);

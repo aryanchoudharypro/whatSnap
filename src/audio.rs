@@ -238,7 +238,7 @@ pub(crate) fn audio_file_seconds(path: &str) -> u64 {
 	decode_opus_file(path).and_then(|b| b.total_duration()).map(|d| d.as_secs_f64().round() as u64).unwrap_or(0)
 }
 
-pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> anyhow::Result<()> {
+pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> crate::error::Result<()> {
 	use hound::{WavReader, WavWriter};
 	let mut spec = None;
 	let mut writer: Option<WavWriter<std::io::BufWriter<std::fs::File>>> = None;
@@ -263,7 +263,7 @@ pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> anyhow
 			w.finalize()?;
 			Ok(())
 		}
-		None => Err(anyhow::anyhow!("no valid voice recording segments to concatenate")),
+		None => Err(crate::error::err!("no valid voice recording segments to concatenate")),
 	}
 }
 
@@ -490,7 +490,7 @@ pub(crate) fn compute_voice_waveform(wav_path: &str) -> Option<Vec<u8>> {
 /// a packet across two pages, granule positions that count the encoder's
 /// pre-skip, and a last page that always ends the stream. Four second pages
 /// with packets spanning them made the phone call some notes broken.
-pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow::Result<()> {
+pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::error::Result<()> {
 	use std::{
 		fs::File,
 		io::{BufWriter, Write},
@@ -506,7 +506,7 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow:
 	let mut reader = WavReader::open(wav_path)?;
 	let spec = reader.spec();
 	if spec.sample_rate != 48000 {
-		return Err(anyhow::anyhow!("Sample rate must be 48000"));
+		return Err(crate::error::err!("Sample rate must be 48000"));
 	}
 	let is_stereo = spec.channels == 2;
 	let ch = if is_stereo { 2 } else { 1 };
@@ -591,7 +591,7 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> anyhow:
 		}
 	}
 	if total == 0 {
-		return Err(anyhow::anyhow!("no audio in the voice recording"));
+		return Err(crate::error::err!("no audio in the voice recording"));
 	}
 	if let Some((packet, _)) = held {
 		// The last page's granule marks where the audio really ends.
