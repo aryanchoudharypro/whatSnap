@@ -53,16 +53,3 @@ codegen-units = 1
 [build-dependencies]
 embed-manifest = "1.5.0"
 winres = "0.1.12"
-
-# wxDragon at an upstream commit with AllenDang/wxDragon#225 (the wx-*
-# features that make the binary smaller), #224, #227 (taskbar events on every
-# platform) and #228 (ListBox::set_items/append_items/insert_items), until a
-# release has them.
-#
-# Cargo turns on every feature any crate in the graph asks for, so the wx-*
-# features only stay off while every crate depending on wxdragon does so with
-# `default-features = false`. live-region, wx-utils and key-chord do as
-# published; check with `cargo tree -e features -i wxdragon` when adding
-# another.
-[patch.crates-io]
-wxdragon = { git = "https://github.com/AllenDang/wxDragon", rev = "7c53768b77ca7c6d5b1b3a8a0da77b9791d6e701" }
