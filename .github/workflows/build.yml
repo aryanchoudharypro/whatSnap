@@ -1,8 +1,10 @@
 name: Build whaNTV
 on:
-  # Every branch builds, so a change can be tried from its artifacts before it reaches master.
+  # Only master and pull requests into it build, to keep artifact storage under the quota.
   # Only master publishes a release (see the release job).
   push:
+    branches:
+      - master
   pull_request:
     branches:
       - master
@@ -62,14 +64,14 @@ jobs:
         name: whaNTV-windows-setup
         path: dist/whaNTV-*-setup.exe
         if-no-files-found: error
-        retention-days: 7
+        retention-days: 1
     - name: Upload portable zip
       uses: actions/upload-artifact@v7
       with:
         name: whaNTV-windows-portable
         path: dist/whaNTV-*-portable.zip
         if-no-files-found: error
-        retention-days: 7
+        retention-days: 1
     - name: Link the installer in the run summary
       run: |
         echo "Installer: ${{ steps.upload-setup.outputs.artifact-url }}" >> $env:GITHUB_STEP_SUMMARY
