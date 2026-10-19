@@ -25,7 +25,7 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 }
 
 fn announce(parts: &WindowParts, message: &str) {
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), message);
+	crate::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
 /// What a row of the Status tab is.

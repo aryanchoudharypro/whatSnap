@@ -82,7 +82,7 @@ unsafe fn sample_to_rgba(sample: &IMFSample, width: u32, height: u32) -> anyhow:
 	let copy_rows = |top: *const u8, pitch: isize, rgba: &mut [u8]| {
 		for y in 0..h {
 			let row = unsafe { std::slice::from_raw_parts(top.offset(pitch * y as isize), w * 4) };
-			for (x, px) in row.chunks_exact(4).enumerate() {
+			for (x, px) in row.as_chunks::<4>().0.iter().enumerate() {
 				let o = (y * w + x) * 4;
 				rgba[o] = px[2];
 				rgba[o + 1] = px[1];

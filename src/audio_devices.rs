@@ -102,21 +102,18 @@ fn device_names(input: bool) -> Vec<String> {
 pub fn resolve_output_device(name: Option<&str>) -> Option<cpal::Device> {
 	let host = cpal::default_host();
 	let names_by_id = wasapi_friendly_names_by_id(eRender);
-	if let Some(name) = name {
-		if let Ok(devices) = host.output_devices() {
-			if let Some(d) = devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(name)) {
-				return Some(d);
-			}
-		}
+	if let Some(name) = name
+		&& let Ok(devices) = host.output_devices()
+		&& let Some(d) = devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(name))
+	{
+		return Some(d);
 	}
-	if let Some(comms_name) = communications_default_output_name() {
-		if let Ok(devices) = host.output_devices() {
-			if let Some(d) =
-				devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(comms_name.as_str()))
-			{
-				return Some(d);
-			}
-		}
+	if let Some(comms_name) = communications_default_output_name()
+		&& let Ok(devices) = host.output_devices()
+		&& let Some(d) =
+			devices.into_iter().find(|d| device_name(d, &names_by_id).as_deref() == Some(comms_name.as_str()))
+	{
+		return Some(d);
 	}
 	host.default_output_device()
 }

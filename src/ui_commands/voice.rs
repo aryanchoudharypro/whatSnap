@@ -42,10 +42,8 @@ pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 		ensure_audio_stream(&mut s);
 		if let Some(ref stream_handle) = s.audio_stream {
 			let new_sink = do_seek(stream_handle, &path, elapsed, s.audio_speed);
-			if was_paused {
-				if let Some(ref sink) = new_sink {
-					sink.pause();
-				}
+			if was_paused && let Some(ref sink) = new_sink {
+				sink.pause();
 			}
 			s.audio_sink = new_sink;
 		}
@@ -97,10 +95,7 @@ pub(crate) fn start_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 }
 
 pub(crate) fn stop_recording(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	crate::announce::announce(
-		parts.conversations_parts.messages_announcer.clone(),
-		"Voice recording stopped. Ready to send.",
-	);
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording stopped. Ready to send.");
 }
 
 pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -158,7 +153,7 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				crate::ui_commands::messaging::mark_paused(&mut s, &jid);
 			}
 			parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
-			crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording paused.");
+			crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording paused.");
 		}
 	}
 }
@@ -200,17 +195,11 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
 				}
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
-				crate::announce::announce(
-					parts.conversations_parts.messages_announcer.clone(),
-					"Voice recording resumed.",
-				);
+				crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording resumed.");
 			}
 			Err(e) => {
 				eprintln!("[LOG UI] Failed to resume voice recording: {:?}", e);
-				crate::announce::announce(
-					parts.conversations_parts.messages_announcer.clone(),
-					"Failed to resume recording.",
-				);
+				crate::announce::announce(parts.conversations_parts.messages_announcer, "Failed to resume recording.");
 			}
 		}
 	} else {
@@ -240,15 +229,12 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
 				parts.conversations_parts.conversation_panel.layout();
 				parts.conversations_parts.send_voice_btn.set_focus();
-				crate::announce::announce(
-					parts.conversations_parts.messages_announcer.clone(),
-					"Recording voice message...",
-				);
+				crate::announce::announce(parts.conversations_parts.messages_announcer, "Recording voice message...");
 			}
 			Err(e) => {
 				eprintln!("[LOG UI] Failed to start voice recording: {:?}", e);
 				crate::announce::announce(
-					parts.conversations_parts.messages_announcer.clone(),
+					parts.conversations_parts.messages_announcer,
 					"Failed to start microphone recording.",
 				);
 			}
@@ -307,81 +293,77 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		crate::ui_commands::messaging::mark_paused(&mut state.borrow_mut(), jid);
 	}
 
-	if !segments.is_empty() {
-		if let (Some(start_inst), Some(jid)) = (rec_start, jid_opt) {
-			let total_elapsed = start_inst.elapsed();
-			let total_paused = paused_dur
-				+ if is_paused {
-					pause_inst.map(|i| i.elapsed()).unwrap_or_default()
-				} else {
-					std::time::Duration::ZERO
-				};
-			let active_secs = total_elapsed.saturating_sub(total_paused).as_secs().max(1);
+	if !segments.is_empty()
+		&& let (Some(start_inst), Some(jid)) = (rec_start, jid_opt)
+	{
+		let total_elapsed = start_inst.elapsed();
+		let total_paused = paused_dur
+			+ if is_paused { pause_inst.map(|i| i.elapsed()).unwrap_or_default() } else { std::time::Duration::ZERO };
+		let active_secs = total_elapsed.saturating_sub(total_paused).as_secs().max(1);
 
-			thread::spawn(move || {
-				// Splice pause/resume segments into one continuous
-				// WAV before encoding (a single-segment recording,
-				// the common case, needs no splicing).
-				let is_multi_segment = segments.len() > 1;
-				let wav_path = if !is_multi_segment {
-					segments[0].clone()
-				} else {
-					let merged_path = segments[0].replace(".wav", "_merged.wav");
-					let result = concat_wav_segments(&segments, &merged_path);
-					// The originals are fully absorbed into
-					// `merged_path` now (or, on failure, no longer
-					// useful) - clean them up either way.
-					for seg in &segments {
-						let _ = std::fs::remove_file(seg);
-					}
-					match result {
-						Ok(()) => merged_path,
-						Err(e) => {
-							eprintln!("[LOG UI] Failed to splice voice recording segments: {}", e);
-							String::new()
-						}
-					}
-				};
-				if wav_path.is_empty() {
-					eprintln!("[LOG UI] No usable audio to send for voice message");
-					return;
+		thread::spawn(move || {
+			// Splice pause/resume segments into one continuous
+			// WAV before encoding (a single-segment recording,
+			// the common case, needs no splicing).
+			let is_multi_segment = segments.len() > 1;
+			let wav_path = if !is_multi_segment {
+				segments[0].clone()
+			} else {
+				let merged_path = segments[0].replace(".wav", "_merged.wav");
+				let result = concat_wav_segments(&segments, &merged_path);
+				// The originals are fully absorbed into
+				// `merged_path` now (or, on failure, no longer
+				// useful) - clean them up either way.
+				for seg in &segments {
+					let _ = std::fs::remove_file(seg);
 				}
-
-				let waveform = compute_voice_waveform(&wav_path);
-				let ogg_path = wav_path.replace(".wav", ".ogg");
-				let (final_path, mimetype) = match convert_wav_to_opus_ogg(&wav_path, &ogg_path) {
-					Ok(_) => {
-						// The WAV is only an intermediate once converted -
-						// keeping the single-segment one left a full
-						// uncompressed copy of every voice note in %TEMP%.
-						// (The backend moves the .ogg into its own cache.)
-						let _ = std::fs::remove_file(&wav_path);
-						(ogg_path, "audio/ogg; codecs=opus")
-					}
+				match result {
+					Ok(()) => merged_path,
 					Err(e) => {
-						eprintln!("[LOG UI] Error converting wav to opus natively: {}", e);
-						(wav_path.clone(), "audio/wav")
+						eprintln!("[LOG UI] Failed to splice voice recording segments: {}", e);
+						String::new()
 					}
-				};
+				}
+			};
+			if wav_path.is_empty() {
+				eprintln!("[LOG UI] No usable audio to send for voice message");
+				return;
+			}
 
-				let payload = serde_json::json!({
-					"action": "send_voice_message",
-					"data": {
-						"jid": jid,
-						"path": final_path,
-						"mimetype": mimetype,
-						"duration": active_secs,
-						"waveform": waveform,
-						"reply_to_id": reply_id,
-						"reply_to_sender": reply_sender
-					}
-				});
-				let _ = ws_tx.send(payload.to_string());
+			let waveform = compute_voice_waveform(&wav_path);
+			let ogg_path = wav_path.replace(".wav", ".ogg");
+			let (final_path, mimetype) = match convert_wav_to_opus_ogg(&wav_path, &ogg_path) {
+				Ok(_) => {
+					// The WAV is only an intermediate once converted -
+					// keeping the single-segment one left a full
+					// uncompressed copy of every voice note in %TEMP%.
+					// (The backend moves the .ogg into its own cache.)
+					let _ = std::fs::remove_file(&wav_path);
+					(ogg_path, "audio/ogg; codecs=opus")
+				}
+				Err(e) => {
+					eprintln!("[LOG UI] Error converting wav to opus natively: {}", e);
+					(wav_path.clone(), "audio/wav")
+				}
+			};
+
+			let payload = serde_json::json!({
+				"action": "send_voice_message",
+				"data": {
+					"jid": jid,
+					"path": final_path,
+					"mimetype": mimetype,
+					"duration": active_secs,
+					"waveform": waveform,
+					"reply_to_id": reply_id,
+					"reply_to_sender": reply_sender
+				}
 			});
+			let _ = ws_tx.send(payload.to_string());
+		});
 
-			play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled, output_device_name);
-			crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Voice message sent.");
-		}
+		play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled, output_device_name);
+		crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice message sent.");
 	}
 
 	parts.conversations_parts.message_field.show(true);
@@ -446,7 +428,7 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	parts.conversations_parts.send_voice_btn.show(false);
 
 	parts.conversations_parts.conversation_panel.layout();
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Voice recording discarded.");
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording discarded.");
 }
 
 pub(crate) fn play_voice_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, msg_id: String) {
@@ -543,10 +525,8 @@ pub(crate) fn toggle_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		let path = s.audio_path.clone().unwrap_or_default();
 		if let Some(ref stream_handle) = s.audio_stream {
 			let new_sink = do_seek(stream_handle, &path, target, new_speed);
-			if was_paused {
-				if let Some(ref sink) = new_sink {
-					sink.pause();
-				}
+			if was_paused && let Some(ref sink) = new_sink {
+				sink.pause();
 			}
 			s.audio_sink = new_sink;
 		}

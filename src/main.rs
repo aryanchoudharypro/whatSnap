@@ -1044,10 +1044,10 @@ fn main() {
 						})
 					};
 					let list = &parts_timer.conversations_parts.messages_list;
-					if let (Some(from), Some(to)) = (index_of(&finished_id), index_of(&next_id)) {
-						if list.get_selection() == Some(from as u32) {
-							list.set_selection(to as u32, true);
-						}
+					if let (Some(from), Some(to)) = (index_of(&finished_id), index_of(&next_id))
+						&& list.get_selection() == Some(from as u32)
+					{
+						list.set_selection(to as u32, true);
 					}
 					s.audio_sink = None;
 					s.audio_elapsed_secs = 0.0;
@@ -1080,16 +1080,16 @@ fn main() {
 				parts_timer.conversations_parts.audio_progress_label.show(false);
 				return;
 			}
-			if !s.is_audio_paused {
-				if let Some(inst) = s.audio_start_instant {
-					let elapsed = s.audio_elapsed_secs + inst.elapsed().as_secs_f32() * s.audio_speed;
-					let total = s.audio_total_secs;
-					let max_sec = (total as i32).max(1);
-					let pos = (elapsed as i32).max(0).min(max_sec);
-					if parts_timer.conversations_parts.audio_slider.is_shown() {
-						parts_timer.conversations_parts.audio_slider.set_range(0, max_sec);
-						parts_timer.conversations_parts.audio_slider.set_value(pos);
-					}
+			if !s.is_audio_paused
+				&& let Some(inst) = s.audio_start_instant
+			{
+				let elapsed = s.audio_elapsed_secs + inst.elapsed().as_secs_f32() * s.audio_speed;
+				let total = s.audio_total_secs;
+				let max_sec = (total as i32).max(1);
+				let pos = (elapsed as i32).max(0).min(max_sec);
+				if parts_timer.conversations_parts.audio_slider.is_shown() {
+					parts_timer.conversations_parts.audio_slider.set_range(0, max_sec);
+					parts_timer.conversations_parts.audio_slider.set_value(pos);
 				}
 			}
 		});
@@ -1120,35 +1120,35 @@ fn main() {
 				s.typing_timestamps.remove(jid);
 				s.typing_announce_state.remove(jid);
 			}
-			if let Some(ref sel_jid) = selected {
-				if expired.iter().any(|j| j == sel_jid) {
-					let norm_jid = if let Some((user, server)) = sel_jid.split_once('@') {
-						let base = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
-						format!("{}@{}", base, server)
-					} else {
-						sel_jid.clone()
-					};
-					let chat_name = s
-						.contacts
-						.get(sel_jid)
-						.or_else(|| s.contacts.get(&norm_jid))
-						.cloned()
-						.unwrap_or_else(|| contact_picker::display_name_for_jid(sel_jid));
-					let presence_label = s
-						.presence_labels
-						.get(sel_jid.as_str())
-						.or_else(|| s.presence_labels.get(&norm_jid))
-						.map(|l| l.as_str());
-					let label = websocket_events::format_conv_data_label(
-						sel_jid,
-						&chat_name,
-						&chat_name,
-						false,
-						false,
-						presence_label,
-					);
-					parts_typing_timer.conversations_parts.conv_data_btn.set_label(&label);
-				}
+			if let Some(ref sel_jid) = selected
+				&& expired.iter().any(|j| j == sel_jid)
+			{
+				let norm_jid = if let Some((user, server)) = sel_jid.split_once('@') {
+					let base = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+					format!("{}@{}", base, server)
+				} else {
+					sel_jid.clone()
+				};
+				let chat_name = s
+					.contacts
+					.get(sel_jid)
+					.or_else(|| s.contacts.get(&norm_jid))
+					.cloned()
+					.unwrap_or_else(|| contact_picker::display_name_for_jid(sel_jid));
+				let presence_label = s
+					.presence_labels
+					.get(sel_jid.as_str())
+					.or_else(|| s.presence_labels.get(&norm_jid))
+					.map(|l| l.as_str());
+				let label = websocket_events::format_conv_data_label(
+					sel_jid,
+					&chat_name,
+					&chat_name,
+					false,
+					false,
+					presence_label,
+				);
+				parts_typing_timer.conversations_parts.conv_data_btn.set_label(&label);
 			}
 
 			// Watchdog for a silently-failed call answer: if the backend never
@@ -1156,33 +1156,33 @@ fn main() {
 			// all (e.g. the callee's media path never comes up), the UI would
 			// otherwise sit on "Answering..." forever with no way to tell the
 			// Accept press did nothing.
-			if let Some(deadline) = s.call_answer_deadline {
-				if deadline.elapsed() >= std::time::Duration::from_secs(15) {
-					s.call_answer_deadline = None;
-					// Giving up locally doesn't mean the call is actually gone on
-					// the backend/network - if we don't also tell it to hang up,
-					// the call can still connect moments later (call_connected
-					// doesn't check active_call_id - see below) and reopen the UI
-					// for a call the user was just told had failed, with no way
-					// to leave it since active_call_id is about to become None.
-					if let Some(call_id) = s.active_call_id.take() {
-						let msg = serde_json::json!({
-							"action": "leave_call",
-							"data": { "call_id": call_id }
-						});
-						let _ = s.ws_tx.send(msg.to_string());
-					}
-					s.active_call_audio = None;
-					s.active_call_video_send = None;
-					s.call_video_port = None;
-					s.call_participants.clear();
-					s.call_video = CallVideo::default();
-					parts_typing_timer.call_parts.frame.show(false);
-					play_call_fail_sound(&mut s);
-					// The call window is hidden just above, so this falls back to the
-					// main window's announcer - which is the one with focus now.
-					call_helpers::announce_call(&parts_typing_timer, "No response - the call could not be answered.");
+			if let Some(deadline) = s.call_answer_deadline
+				&& deadline.elapsed() >= std::time::Duration::from_secs(15)
+			{
+				s.call_answer_deadline = None;
+				// Giving up locally doesn't mean the call is actually gone on
+				// the backend/network - if we don't also tell it to hang up,
+				// the call can still connect moments later (call_connected
+				// doesn't check active_call_id - see below) and reopen the UI
+				// for a call the user was just told had failed, with no way
+				// to leave it since active_call_id is about to become None.
+				if let Some(call_id) = s.active_call_id.take() {
+					let msg = serde_json::json!({
+						"action": "leave_call",
+						"data": { "call_id": call_id }
+					});
+					let _ = s.ws_tx.send(msg.to_string());
 				}
+				s.active_call_audio = None;
+				s.active_call_video_send = None;
+				s.call_video_port = None;
+				s.call_participants.clear();
+				s.call_video = CallVideo::default();
+				parts_typing_timer.call_parts.frame.show(false);
+				play_call_fail_sound(&mut s);
+				// The call window is hidden just above, so this falls back to the
+				// main window's announcer - which is the one with focus now.
+				call_helpers::announce_call(&parts_typing_timer, "No response - the call could not be answered.");
 			}
 		});
 		typing_timer.start(5000, false);
@@ -1235,14 +1235,14 @@ fn main() {
 			// Marking the chat finished here left it stuck until whaNTV was
 			// restarted. The backend spaces requests out and refuses quick
 			// repeats, so asking again on the next Home is safe.
-			if let Some(deadline) = s.phone_history_deadline {
-				if now >= deadline {
-					if let Some(jid) = s.phone_history_pending_jid.take() {
-						eprintln!("[LOG UI] Phone history request for {} timed out; Home at the top asks again.", jid);
-					}
-					s.phone_history_deadline = None;
-					s.history_loading = false;
+			if let Some(deadline) = s.phone_history_deadline
+				&& now >= deadline
+			{
+				if let Some(jid) = s.phone_history_pending_jid.take() {
+					eprintln!("[LOG UI] Phone history request for {} timed out; Home at the top asks again.", jid);
 				}
+				s.phone_history_deadline = None;
+				s.history_loading = false;
 			}
 
 			if !s.main_ui_shown {

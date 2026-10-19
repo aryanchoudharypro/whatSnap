@@ -18,10 +18,6 @@ use windows::{
 
 use crate::media_foundation;
 
-/// "System Default" sentinel shown as the first entry in the camera combo;
-/// stored in Settings as `None` - matches `audio_devices::DEFAULT_LABEL`.
-pub const DEFAULT_LABEL: &str = "System Default";
-
 /// One enumerated camera: the human-readable name shown in the UI, and the
 /// stable symbolic link Media Foundation uses to reopen the same physical
 /// device even if its friendly name is duplicated across devices.
@@ -96,10 +92,10 @@ pub fn camera_names() -> Vec<String> {
 /// at all.
 pub fn resolve_camera_symbolic_link(name: Option<&str>) -> Option<String> {
 	let devices = list_cameras();
-	if let Some(name) = name {
-		if let Some(d) = devices.iter().find(|d| d.name == name) {
-			return Some(d.symbolic_link.clone());
-		}
+	if let Some(name) = name
+		&& let Some(d) = devices.iter().find(|d| d.name == name)
+	{
+		return Some(d.symbolic_link.clone());
 	}
 	devices.into_iter().next().map(|d| d.symbolic_link)
 }

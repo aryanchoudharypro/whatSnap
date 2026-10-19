@@ -122,7 +122,7 @@ pub(crate) fn play_notification_sound(
 		let Ok(stream) = stream_result else {
 			return;
 		};
-		let sink = Player::connect_new(&stream.mixer());
+		let sink = Player::connect_new(stream.mixer());
 		let cursor = std::io::Cursor::new(sound.ogg());
 		if let Ok(decoder) = rodio::Decoder::new(cursor) {
 			sink.append(decoder);
@@ -137,7 +137,7 @@ pub(crate) fn play_notification_sound(
 pub(crate) fn play_call_fail_sound(state: &mut AppState) {
 	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
-		let sink = Player::connect_new(&stream_handle.mixer());
+		let sink = Player::connect_new(stream_handle.mixer());
 		let cursor = std::io::Cursor::new(include_bytes!("../sounds/whatsapp_windows_hangup_01_705kbps.ogg"));
 		match rodio::Decoder::new(cursor) {
 			Ok(decoder) => {
@@ -155,7 +155,7 @@ pub(crate) fn play_call_fail_sound(state: &mut AppState) {
 pub(crate) fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'static [u8]) {
 	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
-		let sink = Player::connect_new(&stream_handle.mixer());
+		let sink = Player::connect_new(stream_handle.mixer());
 		let cursor = std::io::Cursor::new(sound_bytes);
 		match rodio::Decoder::new(cursor) {
 			Ok(decoder) => {
@@ -193,7 +193,7 @@ pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
 		eprintln!("[AUDIO] No audio stream available");
 		return;
 	};
-	let sink = Player::connect_new(&stream_handle.mixer());
+	let sink = Player::connect_new(stream_handle.mixer());
 	sink.append(crate::ringback::ringback_cycle(self_phone).repeat_infinite());
 	sink.play();
 	state.call_ringing_sink = Some(sink);
@@ -208,7 +208,7 @@ pub(crate) fn play_busy_tone(state: &mut AppState) {
 		eprintln!("[AUDIO] No audio stream available");
 		return;
 	};
-	let sink = Player::connect_new(&stream_handle.mixer());
+	let sink = Player::connect_new(stream_handle.mixer());
 	sink.append(crate::ringback::busy_tone());
 	sink.play();
 	state.call_ringing_sink = Some(sink);
@@ -269,7 +269,7 @@ pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> anyhow
 
 pub(crate) fn do_seek(stream_handle: &MixerDeviceSink, path: &str, target_secs: f32, speed: f32) -> Option<Player> {
 	use rodio::Source;
-	let sink = Player::connect_new(&stream_handle.mixer());
+	let sink = Player::connect_new(stream_handle.mixer());
 	if let Ok(file) = std::fs::File::open(path) {
 		if let Ok(decoder) = rodio::Decoder::new(std::io::BufReader::new(file)) {
 			let source = decoder.skip_duration(std::time::Duration::from_secs_f32(target_secs.max(0.0))).wsola(speed);

@@ -67,13 +67,13 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	let dlg_e1 = dialog.clone();
+	let dlg_e1 = dialog;
 	name_field.on_key_down(crate::ui::keys::escape_cancels(dlg_e1));
 
-	let dlg_e2 = dialog.clone();
+	let dlg_e2 = dialog;
 	surname_field.on_key_down(crate::ui::keys::escape_cancels(dlg_e2));
 
-	let dlg_e3 = dialog.clone();
+	let dlg_e3 = dialog;
 	phone_field.on_key_down(crate::ui::keys::escape_cancels(dlg_e3));
 
 	NewContactDialogParts { dialog, name_field, surname_field, phone_field, sync_check, ok_btn, cancel_btn }

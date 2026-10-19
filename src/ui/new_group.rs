@@ -87,16 +87,16 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	let dlg_g1 = dialog.clone();
+	let dlg_g1 = dialog;
 	name_field.on_key_down(crate::ui::keys::escape_cancels(dlg_g1));
 
-	let dlg_g2 = dialog.clone();
+	let dlg_g2 = dialog;
 	search_field.on_key_down(crate::ui::keys::escape_cancels(dlg_g2));
 
-	let dlg_g3 = dialog.clone();
+	let dlg_g3 = dialog;
 	contacts_listbox.on_key_down(crate::ui::keys::escape_cancels(dlg_g3));
 
-	let dlg_g4 = dialog.clone();
+	let dlg_g4 = dialog;
 	extra_number_field.on_key_down(crate::ui::keys::escape_cancels(dlg_g4));
 
 	NewGroupDialogParts {

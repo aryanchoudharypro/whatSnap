@@ -100,23 +100,23 @@ fn wire_media_list(
 	get_message: impl Fn(&crate::AppState, usize) -> Option<whantv::Msg> + Clone + 'static,
 	with_media_actions: bool,
 ) {
-	let list_enter = list.clone();
-	let dialog_enter = dialog.clone();
+	let list_enter = *list;
+	let dialog_enter = *dialog;
 	let tx_enter = ui_tx.clone();
 	let state_enter = state.clone();
 	let get_message_enter = get_message.clone();
 	keys::on_enter(list, Rc::default(), move || {
-		if let Some(idx) = list_enter.get_selection() {
-			if let Some(msg) = get_message_enter(&state_enter.borrow(), idx as usize) {
-				dialog_enter.end_modal(0);
-				let _ = tx_enter
-					.send(UiCommand::JumpToSearchResult { message_id: msg.id.clone(), message_text: String::new() });
-			}
+		if let Some(idx) = list_enter.get_selection()
+			&& let Some(msg) = get_message_enter(&state_enter.borrow(), idx as usize)
+		{
+			dialog_enter.end_modal(0);
+			let _ = tx_enter
+				.send(UiCommand::JumpToSearchResult { message_id: msg.id.clone(), message_text: String::new() });
 		}
 	});
 
 	if with_media_actions {
-		let list_ctx = list.clone();
+		let list_ctx = *list;
 		let tx_ctx = ui_tx.clone();
 		let state_ctx = state.clone();
 		list.bind_internal(EventType::CONTEXT_MENU, move |_event| {
@@ -528,7 +528,7 @@ pub fn build_main_window() -> WindowParts {
 	p_sizer.add(&pairing_cancel_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	pairing_dialog.set_sizer(p_sizer, true);
 
-	let pairing_dlg_esc = pairing_dialog.clone();
+	let pairing_dlg_esc = pairing_dialog;
 	pairing_code_display.on_key_down(keys::escape_cancels(pairing_dlg_esc));
 
 	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
@@ -648,7 +648,7 @@ pub fn bind_input_handlers(
 	let phone_ctrl2 = parts.phone_field;
 	parts.pair_btn.on_click(move |_| {
 		let phone = phone_ctrl2.get_value();
-		let clean_phone: String = phone.chars().filter(|c| c.is_digit(10)).collect();
+		let clean_phone: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
 		if !clean_phone.is_empty() {
 			let _ = tx_pair.send(UiCommand::RequestPairing(clean_phone));
 		}
@@ -724,18 +724,18 @@ pub fn bind_input_handlers(
 	let tx_post_status = ui_tx.clone();
 	let tx_new_conv = ui_tx.clone();
 	let state_new_conv = state.clone();
-	let frame_new_conv = parts.frame.clone();
+	let frame_new_conv = parts.frame;
 	parts.conversations_parts.new_conv_btn.on_click(move |_| {
 		if state_new_conv.borrow().active_tab == 5 {
 			let _ = tx_new_conv.send(UiCommand::FindChannels);
 		} else if state_new_conv.borrow().active_tab == 1 {
 			let dlg = TextEntryDialog::builder(&frame_new_conv, "What's on your mind?", "Post Status Update").build();
-			if dlg.show_modal() == wxdragon::id::ID_OK {
-				if let Some(val) = dlg.get_value() {
-					let text = val.trim().to_string();
-					if !text.is_empty() {
-						let _ = tx_post_status.send(UiCommand::PostStatus { text });
-					}
+			if dlg.show_modal() == wxdragon::id::ID_OK
+				&& let Some(val) = dlg.get_value()
+			{
+				let text = val.trim().to_string();
+				if !text.is_empty() {
+					let _ = tx_post_status.send(UiCommand::PostStatus { text });
 				}
 			}
 		} else {
@@ -867,13 +867,13 @@ pub fn bind_input_handlers(
 		let _ = tx_screen.send(UiCommand::ToggleScreenShare);
 	});
 	let tx_call_input = ui_tx.clone();
-	let call_input_combo = parts.call_parts.input_device_combo.clone();
+	let call_input_combo = parts.call_parts.input_device_combo;
 	parts.call_parts.input_device_combo.on_selection_changed(move |_| {
 		use crate::ui::settings_dialog::device_combo_value;
 		let _ = tx_call_input.send(UiCommand::SetCallInputDevice(device_combo_value(&call_input_combo)));
 	});
 	let tx_call_output = ui_tx.clone();
-	let call_output_combo = parts.call_parts.output_device_combo.clone();
+	let call_output_combo = parts.call_parts.output_device_combo;
 	parts.call_parts.output_device_combo.on_selection_changed(move |_| {
 		use crate::ui::settings_dialog::device_combo_value;
 		let _ = tx_call_output.send(UiCommand::SetCallOutputDevice(device_combo_value(&call_output_combo)));
@@ -891,7 +891,7 @@ pub fn bind_input_handlers(
 		let _ = tx_call_react.send(UiCommand::CallReact);
 	});
 	let tx_call_camera = ui_tx.clone();
-	let call_camera_combo = parts.call_parts.camera_device_combo.clone();
+	let call_camera_combo = parts.call_parts.camera_device_combo;
 	parts.call_parts.camera_device_combo.on_selection_changed(move |_| {
 		use crate::ui::settings_dialog::device_combo_value;
 		let _ = tx_call_camera.send(UiCommand::SetCallCameraDevice(device_combo_value(&call_camera_combo)));
@@ -927,20 +927,21 @@ pub fn bind_input_handlers(
 	// anywhere in the call window, matching their buttons.
 	let tx_camera_key = ui_tx.clone();
 	parts.call_parts.frame.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			if key_event.control_down() && key_event.shift_down() {
-				let command = if keys::is_letter(key_event.get_key_code(), 'V') {
-					Some(UiCommand::ToggleCamera)
-				} else if keys::is_letter(key_event.get_key_code(), 'S') {
-					Some(UiCommand::ToggleScreenShare)
-				} else {
-					None
-				};
-				if let Some(command) = command {
-					let _ = tx_camera_key.send(command);
-					event.skip(false);
-					return;
-				}
+		if let WindowEventData::Keyboard(ref key_event) = event
+			&& key_event.control_down()
+			&& key_event.shift_down()
+		{
+			let command = if keys::is_letter(key_event.get_key_code(), 'V') {
+				Some(UiCommand::ToggleCamera)
+			} else if keys::is_letter(key_event.get_key_code(), 'S') {
+				Some(UiCommand::ToggleScreenShare)
+			} else {
+				None
+			};
+			if let Some(command) = command {
+				let _ = tx_camera_key.send(command);
+				event.skip(false);
+				return;
 			}
 		}
 		event.skip(true);
@@ -959,12 +960,12 @@ pub fn bind_input_handlers(
 		let _ = tx_info_privacy.send(UiCommand::ShowChatPrivacy);
 	});
 
-	let conv_data_dialog_back = parts.conversation_data_dialog.dialog.clone();
+	let conv_data_dialog_back = parts.conversation_data_dialog.dialog;
 	parts.conversation_data_dialog.back_btn.on_click(move |_| {
 		conv_data_dialog_back.end_modal(0);
 	});
 
-	let group_data_dialog_back = parts.group_data_dialog.dialog.clone();
+	let group_data_dialog_back = parts.group_data_dialog.dialog;
 	parts.group_data_dialog.back_btn.on_click(move |_| {
 		group_data_dialog_back.end_modal(0);
 	});
@@ -1115,10 +1116,10 @@ pub fn bind_input_handlers(
 	// could land on the dialog rather than the frame and fall through to wx's
 	// default hide, leaving an invisible, still-running app behind.
 	parts.login_panel.on_close(move |event| {
-		if let WindowEventData::General(_) = event {
-			if let Some(app) = wxdragon::get_app_instance() {
-				app.exit_main_loop();
-			}
+		if let WindowEventData::General(_) = event
+			&& let Some(app) = wxdragon::get_app_instance()
+		{
+			app.exit_main_loop();
 		}
 	});
 
@@ -1153,13 +1154,13 @@ pub fn bind_input_handlers(
 	let announce_recording_check = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check = parts.settings_dialog.tray_icon_check;
 	let autostart_check = parts.settings_dialog.autostart_check;
-	let meta_ai_enabled_check_open = parts.settings_dialog.meta_ai_enabled_check.clone();
-	let verbose_logging_check_open = parts.settings_dialog.verbose_backend_logging_check.clone();
-	let name_field_open = parts.settings_dialog.name_field.clone();
+	let meta_ai_enabled_check_open = parts.settings_dialog.meta_ai_enabled_check;
+	let verbose_logging_check_open = parts.settings_dialog.verbose_backend_logging_check;
+	let name_field_open = parts.settings_dialog.name_field;
 	let settings_parts_open = parts.settings_dialog;
-	let input_device_combo_open = parts.settings_dialog.input_device_combo.clone();
-	let output_device_combo_open = parts.settings_dialog.output_device_combo.clone();
-	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check.clone();
+	let input_device_combo_open = parts.settings_dialog.input_device_combo;
+	let output_device_combo_open = parts.settings_dialog.output_device_combo;
+	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check;
 	let state_settings_open = state.clone();
 	let pending_shortcuts_open = pending_shortcuts.clone();
 	parts.frame.on_menu_selected(move |evt| {
@@ -1243,7 +1244,7 @@ pub fn bind_input_handlers(
 	});
 
 	let state_reconnect = state.clone();
-	let reconnect_announcer = parts.conversations_parts.messages_announcer.clone();
+	let reconnect_announcer = parts.conversations_parts.messages_announcer;
 	parts.frame.on_menu_selected(move |evt| {
 		if evt.get_id() != MENU_ID_RECONNECT {
 			return;
@@ -1256,11 +1257,11 @@ pub fn bind_input_handlers(
 		let _ = s.ws_tx.send(serde_json::json!({"action": "reconnect"}).to_string());
 		drop(s);
 		if !online {
-			crate::announce::announce(reconnect_announcer.clone(), "Reconnecting...");
+			crate::announce::announce(reconnect_announcer, "Reconnecting...");
 		}
 	});
 
-	let nav_list_for_menu = parts.nav_list.clone();
+	let nav_list_for_menu = parts.nav_list;
 	let tx_nav_menu = ui_tx.clone();
 	let conv_list_for_nav_menu = parts.conversations_parts.conversations_list;
 	parts.frame.on_menu_selected(move |evt| {
@@ -1291,7 +1292,7 @@ pub fn bind_input_handlers(
 
 	let state_chat_menu = state.clone();
 	let tx_chat_menu = ui_tx.clone();
-	let messages_list_for_menu = parts.conversations_parts.messages_list.clone();
+	let messages_list_for_menu = parts.conversations_parts.messages_list;
 	let search_field_for_menu = parts.conversations_parts.search_field;
 	parts.frame.on_menu_selected(move |evt| {
 		let id = evt.get_id();
@@ -1364,25 +1365,25 @@ pub fn bind_input_handlers(
 				drop(s);
 				let _ = tx_chat_menu.send(UiCommand::ToggleReadChat { jid, read: !read });
 			}
-		} else if id == MENU_ID_STAR_MESSAGE {
-			if let Some(idx) = messages_list_for_menu.get_selection() {
-				let s = state_chat_menu.borrow();
-				let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-					whantv::DisplayItem::Single(m) => Some(m.clone()),
-					whantv::DisplayItem::Album { .. } => None,
+		} else if id == MENU_ID_STAR_MESSAGE
+			&& let Some(idx) = messages_list_for_menu.get_selection()
+		{
+			let s = state_chat_menu.borrow();
+			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
+				whantv::DisplayItem::Single(m) => Some(m.clone()),
+				whantv::DisplayItem::Album { .. } => None,
+			});
+			drop(s);
+			if let Some(msg) = msg_opt
+				&& !msg.is_date_divider
+			{
+				let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+				let _ = tx_chat_menu.send(UiCommand::StarMessage {
+					message_id: msg.id.clone(),
+					sender_jid,
+					from_me: msg.from_me,
+					starred: !msg.starred,
 				});
-				drop(s);
-				if let Some(msg) = msg_opt {
-					if !msg.is_date_divider {
-						let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-						let _ = tx_chat_menu.send(UiCommand::StarMessage {
-							message_id: msg.id.clone(),
-							sender_jid,
-							from_me: msg.from_me,
-							starred: !msg.starred,
-						});
-					}
-				}
 			}
 		}
 	});
@@ -1458,13 +1459,13 @@ pub fn bind_input_handlers(
 	let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
 	let autostart_check_ok = parts.settings_dialog.autostart_check;
-	let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check.clone();
-	let verbose_logging_check_ok = parts.settings_dialog.verbose_backend_logging_check.clone();
-	let name_field_ok = parts.settings_dialog.name_field.clone();
+	let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check;
+	let verbose_logging_check_ok = parts.settings_dialog.verbose_backend_logging_check;
+	let name_field_ok = parts.settings_dialog.name_field;
 	let settings_parts_ok = parts.settings_dialog;
-	let input_device_combo_ok = parts.settings_dialog.input_device_combo.clone();
-	let output_device_combo_ok = parts.settings_dialog.output_device_combo.clone();
-	let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check.clone();
+	let input_device_combo_ok = parts.settings_dialog.input_device_combo;
+	let output_device_combo_ok = parts.settings_dialog.output_device_combo;
+	let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check;
 	let state_settings_save = state.clone();
 	let frame_shortcuts_save = parts.frame;
 	parts.settings_dialog.ok_btn.on_click(move |_| {
@@ -1612,15 +1613,15 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_group_settings = ui_tx.clone();
-	let group_name_field = parts.group_data_dialog.group_name_field.clone();
-	let group_desc_field = parts.group_data_dialog.group_desc_field.clone();
-	let announce_chk = parts.group_data_dialog.announce_chk.clone();
-	let locked_chk = parts.group_data_dialog.locked_chk.clone();
-	let forwarded_chk = parts.group_data_dialog.forwarded_chk.clone();
-	let admin_reports_chk = parts.group_data_dialog.admin_reports_chk.clone();
-	let history_chk = parts.group_data_dialog.history_chk.clone();
-	let admins_add_chk = parts.group_data_dialog.admins_add_chk.clone();
-	let approve_members_chk = parts.group_data_dialog.approve_members_chk.clone();
+	let group_name_field = parts.group_data_dialog.group_name_field;
+	let group_desc_field = parts.group_data_dialog.group_desc_field;
+	let announce_chk = parts.group_data_dialog.announce_chk;
+	let locked_chk = parts.group_data_dialog.locked_chk;
+	let forwarded_chk = parts.group_data_dialog.forwarded_chk;
+	let admin_reports_chk = parts.group_data_dialog.admin_reports_chk;
+	let history_chk = parts.group_data_dialog.history_chk;
+	let admins_add_chk = parts.group_data_dialog.admins_add_chk;
+	let approve_members_chk = parts.group_data_dialog.approve_members_chk;
 	parts.group_data_dialog.save_settings_btn.on_click(move |_| {
 		let name = group_name_field.get_value();
 		let topic = group_desc_field.get_value();
@@ -1664,7 +1665,7 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_group_members_search = ui_tx.clone();
-	let members_search = parts.group_data_dialog.members_search.clone();
+	let members_search = parts.group_data_dialog.members_search;
 	members_search.on_text_changed(move |_| {
 		let query = members_search.get_value();
 		let _ = tx_group_members_search.send(UiCommand::FilterGroupMembers(query));
@@ -1676,7 +1677,7 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_make_admin = ui_tx.clone();
-	let members_list_admin = parts.group_data_dialog.members_list.clone();
+	let members_list_admin = parts.group_data_dialog.members_list;
 	parts.group_data_dialog.make_admin_btn.on_click(move |_| {
 		if let Some(idx) = members_list_admin.get_selection() {
 			let _ = tx_make_admin.send(UiCommand::ToggleGroupMemberAdmin(idx));
@@ -1692,7 +1693,7 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_remove_member = ui_tx.clone();
-	let members_list_remove = parts.group_data_dialog.members_list.clone();
+	let members_list_remove = parts.group_data_dialog.members_list;
 	parts.group_data_dialog.remove_member_btn.on_click(move |_| {
 		if let Some(idx) = members_list_remove.get_selection() {
 			let _ = tx_remove_member.send(UiCommand::RemoveGroupMember(idx));
@@ -1705,7 +1706,7 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_join_group = ui_tx.clone();
-	let groups_list_join = parts.group_data_dialog.groups_list.clone();
+	let groups_list_join = parts.group_data_dialog.groups_list;
 	parts.group_data_dialog.join_group_btn.on_click(move |_| {
 		if let Some(idx) = groups_list_join.get_selection() {
 			let _ = tx_join_group.send(UiCommand::JoinCommunitySubgroup(idx));
@@ -1719,7 +1720,7 @@ pub fn bind_input_handlers(
 		}
 	});
 	let tx_common_enter = ui_tx.clone();
-	let common_list_enter = parts.conversation_data_dialog.common_groups_list.clone();
+	let common_list_enter = parts.conversation_data_dialog.common_groups_list;
 	keys::on_enter(&parts.conversation_data_dialog.common_groups_list, Rc::default(), move || {
 		if let Some(idx) = common_list_enter.get_selection() {
 			let _ = tx_common_enter.send(UiCommand::OpenCommonGroup(idx as usize));
@@ -1745,7 +1746,7 @@ pub fn bind_input_handlers(
 	// Enter on the row opens or joins it. Caught on key-up: the dialog eats
 	// Enter's key-down for its default button (see the contact picker).
 	let tx_group_enter = ui_tx.clone();
-	let groups_list_enter = parts.group_data_dialog.groups_list.clone();
+	let groups_list_enter = parts.group_data_dialog.groups_list;
 	keys::on_enter(&parts.group_data_dialog.groups_list, Rc::default(), move || {
 		if let Some(idx) = groups_list_enter.get_selection() {
 			let _ = tx_group_enter.send(UiCommand::JoinCommunitySubgroup(idx));
@@ -1884,7 +1885,7 @@ pub fn bind_input_handlers(
 			name_field.set_focus();
 			return;
 		}
-		let clean_phone: String = phone.chars().filter(|c| c.is_digit(10)).collect();
+		let clean_phone: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
 		if clean_phone.len() < 7 {
 			unsafe {
 				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
@@ -1963,8 +1964,8 @@ pub fn bind_input_handlers(
 		// handles incoming backend events, which borrow the state too.
 		drop(s);
 		let extra_raw = extra_ctrl.get_value();
-		for part in extra_raw.split(|c| c == ',' || c == '\n') {
-			let digits: String = part.chars().filter(|c| c.is_digit(10)).collect();
+		for part in extra_raw.split([',', '\n']) {
+			let digits: String = part.chars().filter(|c| c.is_ascii_digit()).collect();
 			if digits.len() >= 7 {
 				participants.push(digits);
 			}
@@ -2060,7 +2061,7 @@ pub fn bind_input_handlers(
 		if !gs.checked_jids.is_empty() {
 			let count = gs.checked_jids.len();
 			crate::announce::announce(
-				selection_announcer_search.clone(),
+				selection_announcer_search,
 				&format!(
 					"{} shown. {} contact{} selected.",
 					gs.current_jids.len(),
@@ -2098,7 +2099,7 @@ pub fn bind_input_handlers(
 				// they can tell it's still there.
 				let count = gs.checked_jids.len();
 				crate::announce::announce(
-					selection_announcer_toggle.clone(),
+					selection_announcer_toggle,
 					&format!(
 						"{}: {}. {} contact{} selected.",
 						label,
@@ -2160,7 +2161,7 @@ pub fn bind_input_handlers(
 		if !ams.checked_jids.is_empty() {
 			let count = ams.checked_jids.len();
 			crate::announce::announce(
-				add_members_selection_announcer.clone(),
+				add_members_selection_announcer,
 				&format!(
 					"{} shown. {} contact{} selected.",
 					ams.current_jids.len(),
@@ -2194,7 +2195,7 @@ pub fn bind_input_handlers(
 				let state_str = if checked { "selected" } else { "not selected" };
 				let count = ams.checked_jids.len();
 				crate::announce::announce(
-					add_members_selection_announcer_toggle.clone(),
+					add_members_selection_announcer_toggle,
 					&format!(
 						"{}: {}. {} contact{} selected.",
 						label,
@@ -2297,7 +2298,7 @@ pub fn bind_input_handlers(
 		if !acs.checked_jids.is_empty() {
 			let count = acs.checked_jids.len();
 			crate::announce::announce(
-				attach_contact_selection_announcer.clone(),
+				attach_contact_selection_announcer,
 				&format!(
 					"{} shown. {} contact{} selected.",
 					acs.current_jids.len(),
@@ -2331,7 +2332,7 @@ pub fn bind_input_handlers(
 				let state_str = if checked { "selected" } else { "not selected" };
 				let count = acs.checked_jids.len();
 				crate::announce::announce(
-					attach_contact_selection_announcer_toggle.clone(),
+					attach_contact_selection_announcer_toggle,
 					&format!(
 						"{}: {}. {} contact{} selected.",
 						label,
@@ -2455,8 +2456,8 @@ pub fn bind_input_handlers(
 				// Ctrl+V
 				let mut has_files = false;
 				if let Some(_locker) = Clipboard::get().locker() {
-					let mut fdo = FileDataObject::new();
-					if Clipboard::get().get_data(&mut fdo) && fdo.get_file_count() > 0 {
+					let fdo = FileDataObject::new();
+					if Clipboard::get().get_data(&fdo) && fdo.get_file_count() > 0 {
 						has_files = true;
 					}
 				}
@@ -2507,34 +2508,34 @@ pub fn bind_input_handlers(
 	let composer_hook = parts.conversations_parts.message_field;
 	parts.frame.bind_internal(wxdragon::event::EventType::CHAR_HOOK, move |event| {
 		let data = WindowEventData::new(event);
-		if let WindowEventData::Keyboard(ref key_event) = data {
-			if keys::is_escape(key_event.get_key_code()) {
-				// Escape closes open @mention suggestions first; the composer's
-				// own key handler does that.
-				if state_hook.borrow().mention_popup.is_some() && composer_hook.has_focus() {
-					data.skip(true);
-					return;
+		if let WindowEventData::Keyboard(ref key_event) = data
+			&& keys::is_escape(key_event.get_key_code())
+		{
+			// Escape closes open @mention suggestions first; the composer's
+			// own key handler does that.
+			if state_hook.borrow().mention_popup.is_some() && composer_hook.has_focus() {
+				data.skip(true);
+				return;
+			}
+			if state_hook.borrow().chats_unlocked {
+				let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
+				data.skip(false);
+				return;
+			}
+			if conv_panel_hook.is_shown() && !search_panel_hook.is_shown() && !state_hook.borrow().selection_mode {
+				// This hook runs ahead of whichever control has focus, so
+				// it's the one place Escape reliably reaches regardless
+				// of where the user's focus is - including mid-edit,
+				// which is why the composer's own on_key_down Escape
+				// handling for editing never actually ran before: this
+				// unconditional CloseConversation always won the race.
+				if state_hook.borrow().editing_message_id.is_some() {
+					let _ = tx_escape_hook.send(UiCommand::CancelEdit);
+				} else {
+					let _ = tx_escape_hook.send(UiCommand::CloseConversation);
 				}
-				if state_hook.borrow().chats_unlocked {
-					let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
-					data.skip(false);
-					return;
-				}
-				if conv_panel_hook.is_shown() && !search_panel_hook.is_shown() && !state_hook.borrow().selection_mode {
-					// This hook runs ahead of whichever control has focus, so
-					// it's the one place Escape reliably reaches regardless
-					// of where the user's focus is - including mid-edit,
-					// which is why the composer's own on_key_down Escape
-					// handling for editing never actually ran before: this
-					// unconditional CloseConversation always won the race.
-					if state_hook.borrow().editing_message_id.is_some() {
-						let _ = tx_escape_hook.send(UiCommand::CancelEdit);
-					} else {
-						let _ = tx_escape_hook.send(UiCommand::CloseConversation);
-					}
-					data.skip(false);
-					return;
-				}
+				data.skip(false);
+				return;
 			}
 		}
 		data.skip(true);
@@ -2554,7 +2555,7 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	let convs_list_ctx = parts.conversations_parts.conversations_list.clone();
+	let convs_list_ctx = parts.conversations_parts.conversations_list;
 	let state_chat_ctx = state.clone();
 	let ui_tx_chat_ctx = ui_tx.clone();
 	let parent_frame_chat_ctx = parts.frame;
@@ -2587,7 +2588,7 @@ pub fn bind_input_handlers(
 	// swallowed the list's own Enter so chats stopped opening; F5 or a mouse
 	// click has no Enter release to swallow.
 	let state_menu_open = state.clone();
-	let frame_menu_open = parts.frame.clone();
+	let frame_menu_open = parts.frame;
 	// Popup menus open with the state sometimes still borrowed, so this
 	// only tries.
 	parts.frame.on_menu_opened(move |_| {
@@ -2775,7 +2776,7 @@ pub fn bind_input_handlers(
 
 				let ui_tx_clone = ui_tx_chat_ctx.clone();
 				let jid_clone = jid.clone();
-				let parent_clone = parent_frame_chat_ctx.clone();
+				let parent_clone = parent_frame_chat_ctx;
 
 				popup_menu.on_selected(move |menu_evt| {
 					let id = menu_evt.get_id();
@@ -2874,11 +2875,10 @@ pub fn bind_input_handlers(
 							.with_wildcard("Zip archive (*.zip)|*.zip")
 							.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 							.build();
-						if dialog.show_modal() == wxdragon::id::ID_OK {
-							if let Some(path) = dialog.get_path() {
-								let _ =
-									ui_tx_clone.send(UiCommand::ExportChat { jid: jid_clone.clone(), dest_path: path });
-							}
+						if dialog.show_modal() == wxdragon::id::ID_OK
+							&& let Some(path) = dialog.get_path()
+						{
+							let _ = ui_tx_clone.send(UiCommand::ExportChat { jid: jid_clone.clone(), dest_path: path });
 						}
 					} else if id == export_text_id {
 						let default_name = format!("{}.md", sanitize_export_filename(&chat_name));
@@ -2888,11 +2888,11 @@ pub fn bind_input_handlers(
 							.with_wildcard("Markdown file (*.md)|*.md")
 							.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 							.build();
-						if dialog.show_modal() == wxdragon::id::ID_OK {
-							if let Some(path) = dialog.get_path() {
-								let _ = ui_tx_clone
-									.send(UiCommand::ExportChatText { jid: jid_clone.clone(), dest_path: path });
-							}
+						if dialog.show_modal() == wxdragon::id::ID_OK
+							&& let Some(path) = dialog.get_path()
+						{
+							let _ =
+								ui_tx_clone.send(UiCommand::ExportChatText { jid: jid_clone.clone(), dest_path: path });
 						}
 					}
 				});
@@ -2907,7 +2907,7 @@ pub fn bind_input_handlers(
 	// Enter opens the chat. The guard is the app-wide one: closing a context
 	// menu or a menu-bar item with Enter leaves its release behind on this
 	// list, and that release mustn't open a chat.
-	let conv_list_key = parts.conversations_parts.conversations_list.clone();
+	let conv_list_key = parts.conversations_parts.conversations_list;
 	let tx_open_enter = ui_tx.clone();
 	keys::on_enter(&parts.conversations_parts.conversations_list, enter_release_handled.clone(), move || {
 		if let Some(idx) = conv_list_key.get_selection() {
@@ -2934,32 +2934,32 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_play_media = ui_tx.clone();
-	let msgs_list_play = parts.conversations_parts.messages_list.clone();
+	let msgs_list_play = parts.conversations_parts.messages_list;
 	let state_play = state.clone();
-	let play_voice_btn_space = parts.conversations_parts.play_voice_btn.clone();
+	let play_voice_btn_space = parts.conversations_parts.play_voice_btn;
 	let tx_close_list = ui_tx.clone();
-	let parent_frame = parts.frame.clone();
-	let msgs_announcer = parts.conversations_parts.messages_announcer.clone();
-	let msg_input_field = parts.conversations_parts.message_field.clone();
+	let parent_frame = parts.frame;
+	let msgs_announcer = parts.conversations_parts.messages_announcer;
+	let msg_input_field = parts.conversations_parts.message_field;
 	let search_panel_key = parts.conversations_parts.search_panel;
 	let remove_quote_btn_play = parts.conversations_parts.remove_quote_btn;
 	let conv_panel_play = parts.conversations_parts.conversation_panel;
 	let _conv_panel_key = parts.conversations_parts.conversation_panel;
 	let last_left_arrow =
 		std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
-	let msgs_list_ctx = parts.conversations_parts.messages_list.clone();
+	let msgs_list_ctx = parts.conversations_parts.messages_list;
 	let state_ctx = state.clone();
-	let parent_frame_ctx = parts.frame.clone();
-	let msgs_announcer_ctx = parts.conversations_parts.messages_announcer.clone();
-	let msg_input_field_ctx = parts.conversations_parts.message_field.clone();
+	let parent_frame_ctx = parts.frame;
+	let msgs_announcer_ctx = parts.conversations_parts.messages_announcer;
+	let msg_input_field_ctx = parts.conversations_parts.message_field;
 	let tx_play_media_ctx = ui_tx.clone();
 	let remove_quote_btn_ctx = parts.conversations_parts.remove_quote_btn;
 	let conv_panel_ctx = parts.conversations_parts.conversation_panel;
 
 	let state_copy = state.clone();
 	let tx_copy = ui_tx.clone();
-	let msgs_announcer_copy = parts.conversations_parts.messages_announcer.clone();
-	let msgs_list_copy = parts.conversations_parts.messages_list.clone();
+	let msgs_announcer_copy = parts.conversations_parts.messages_announcer;
+	let msgs_list_copy = parts.conversations_parts.messages_list;
 
 	let perform_copy_selected = std::rc::Rc::new(move || {
 		if let Some(idx) = msgs_list_copy.get_selection() {
@@ -2998,27 +2998,21 @@ pub fn bind_input_handlers(
 								if crate::copy_files_to_clipboard(&[path_to_copy]) {
 									let msg_kind = if is_voice { "voice message" } else { "file" };
 									crate::announce::announce(
-										msgs_announcer_copy.clone(),
+										msgs_announcer_copy,
 										&format!("Copied {} to clipboard.", msg_kind),
 									);
 								} else {
-									crate::announce::announce(
-										msgs_announcer_copy.clone(),
-										"Failed to copy file to clipboard.",
-									);
+									crate::announce::announce(msgs_announcer_copy, "Failed to copy file to clipboard.");
 								}
 							} else {
 								let _ =
 									tx_copy.send(UiCommand::CopyAlbumToClipboard { message_ids: vec![msg.id.clone()] });
 							}
 						} else {
-							if let Some(_locker) = Clipboard::get().locker() {
-								if Clipboard::get().set_text(&msg.text) {
-									crate::announce::announce(
-										msgs_announcer_copy.clone(),
-										"Copied message text to clipboard.",
-									);
-								}
+							if let Some(_locker) = Clipboard::get().locker()
+								&& Clipboard::get().set_text(&msg.text)
+							{
+								crate::announce::announce(msgs_announcer_copy, "Copied message text to clipboard.");
 							}
 						}
 					}
@@ -3156,9 +3150,9 @@ pub fn bind_input_handlers(
 			let sender_name = sender_jid.as_ref().map(|jid| {
 				let msg_name = display_item
 					.as_ref()
-					.and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.sender_name.clone()),
-						whantv::DisplayItem::Album { sender_name, .. } => Some(sender_name.clone()),
+					.map(|item| match item {
+						whantv::DisplayItem::Single(m) => m.sender_name.clone(),
+						whantv::DisplayItem::Album { sender_name, .. } => sender_name.clone(),
 					})
 					.filter(|n| !n.is_empty() && n != jid);
 
@@ -3290,9 +3284,9 @@ pub fn bind_input_handlers(
 			}
 
 			let state_clone = state_ctx.clone();
-			let parent_frame_clone = parent_frame_ctx.clone();
-			let msgs_announcer_clone = msgs_announcer_ctx.clone();
-			let msg_input_field_clone = msg_input_field_ctx.clone();
+			let parent_frame_clone = parent_frame_ctx;
+			let msgs_announcer_clone = msgs_announcer_ctx;
+			let msg_input_field_clone = msg_input_field_ctx;
 			let tx_play_media_clone = tx_play_media_ctx.clone();
 			let phone_match_clone = phone_match.clone();
 			let copy_for_menu = copy_for_ctx.clone();
@@ -3314,38 +3308,39 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider && !msg.is_deleted {
-							let sender = if msg.from_me {
-								"You".to_string()
-							} else if !msg.sender_name.is_empty() {
-								msg.sender_name.clone()
-							} else {
-								msg.sender_jid.clone()
-							};
-							let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
-								"Voice message".to_string()
-							} else if msg.text.is_empty() {
-								"Media".to_string()
-							} else {
-								msg.text.clone()
-							};
-							s.pending_reply_id = Some(msg.id.clone());
-							s.pending_reply_sender =
-								Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
-							s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+						&& !msg.is_deleted
+					{
+						let sender = if msg.from_me {
+							"You".to_string()
+						} else if !msg.sender_name.is_empty() {
+							msg.sender_name.clone()
+						} else {
+							msg.sender_jid.clone()
+						};
+						let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
+							"Voice message".to_string()
+						} else if msg.text.is_empty() {
+							"Media".to_string()
+						} else {
+							msg.text.clone()
+						};
+						s.pending_reply_id = Some(msg.id.clone());
+						s.pending_reply_sender =
+							Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
+						s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
 
-							let status_msg =
-								format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
-							crate::announce::announce(msgs_announcer_clone.clone(), &status_msg);
-							msg_input_field_clone.set_focus();
-							remove_quote_btn_ctx.show(true);
-							conv_panel_ctx.layout();
-							unsafe {
-								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-									windows::Win32::UI::WindowsAndMessaging::MB_OK,
-								);
-							}
+						let status_msg =
+							format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
+						crate::announce::announce(msgs_announcer_clone, &status_msg);
+						msg_input_field_clone.set_focus();
+						remove_quote_btn_ctx.show(true);
+						conv_panel_ctx.layout();
+						unsafe {
+							let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+								windows::Win32::UI::WindowsAndMessaging::MB_OK,
+							);
 						}
 					}
 				} else if id == forward_id {
@@ -3354,131 +3349,129 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider && !msg.is_deleted {
-							let mut labels = Vec::new();
-							let mut jids = Vec::new();
-							for jid in &s.chats {
-								if !jid.ends_with("@broadcast") && crate::ui_commands::links::can_forward_to(&s, jid) {
-									let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-									labels.push(name);
-									jids.push(jid.clone());
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+						&& !msg.is_deleted
+					{
+						let mut labels = Vec::new();
+						let mut jids = Vec::new();
+						for jid in &s.chats {
+							if !jid.ends_with("@broadcast") && crate::ui_commands::links::can_forward_to(&s, jid) {
+								let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+								labels.push(name);
+								jids.push(jid.clone());
+							}
+						}
+						for (jid, name) in &s.contacts {
+							if !jid.ends_with("@broadcast")
+								&& !jids.contains(jid)
+								&& crate::ui_commands::links::can_forward_to(&s, jid)
+							{
+								labels.push(name.clone());
+								jids.push(jid.clone());
+							}
+						}
+						drop(s);
+
+						if !jids.is_empty() {
+							let dlg = Dialog::builder(&parent_frame_clone, "Forward Message")
+								.with_size(400, 450)
+								.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+								.build();
+							let dlg_panel = Panel::builder(&dlg).build();
+							let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+							let search_label =
+								StaticText::builder(&dlg_panel).with_label("Search contacts or chats:").build();
+							dlg_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
+
+							let search_ctrl = TextCtrl::builder(&dlg_panel).build();
+							dlg_sizer.add(&search_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
+							let contacts_listbox = ListBox::builder(&dlg_panel).with_choices(labels.clone()).build();
+							dlg_sizer.add(
+								&contacts_listbox,
+								1,
+								SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right,
+								8,
+							);
+
+							let btn_panel = Panel::builder(&dlg_panel).build();
+							let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+							let ok_btn =
+								Button::builder(&btn_panel).with_id(wxdragon::id::ID_OK).with_label("Forward").build();
+							let cancel_btn = Button::builder(&btn_panel)
+								.with_id(wxdragon::id::ID_CANCEL)
+								.with_label("Cancel")
+								.build();
+							btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 5);
+							btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
+							btn_panel.set_sizer(btn_sizer, true);
+
+							dlg_sizer.add(&btn_panel, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
+							dlg_panel.set_sizer(dlg_sizer, true);
+
+							let dlg_esc_search = dlg;
+							search_ctrl.on_key_down(keys::escape_cancels(dlg_esc_search));
+
+							let dlg_esc_list = dlg;
+							contacts_listbox.on_key_down(keys::escape_cancels(dlg_esc_list));
+
+							let current_labels = std::rc::Rc::new(std::cell::RefCell::new(labels.clone()));
+							let current_jids = std::rc::Rc::new(std::cell::RefCell::new(jids.clone()));
+
+							let all_labels = labels;
+							let all_jids = jids;
+							let current_labels_search = current_labels.clone();
+							let current_jids_search = current_jids.clone();
+							let listbox_search = contacts_listbox;
+
+							search_ctrl.on_text_changed(move |_| {
+								let q = search_ctrl.get_value().to_lowercase().trim().to_string();
+								let mut fl = Vec::new();
+								let mut fj = Vec::new();
+								for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
+									if q.is_empty() || lbl.to_lowercase().contains(&q) {
+										fl.push(lbl.clone());
+										fj.push(jid.clone());
+									}
 								}
-							}
-							for (jid, name) in &s.contacts {
-								if !jid.ends_with("@broadcast")
-									&& !jids.contains(jid)
-									&& crate::ui_commands::links::can_forward_to(&s, jid)
-								{
-									labels.push(name.clone());
-									jids.push(jid.clone());
+								listbox_search.clear();
+								for l in &fl {
+									listbox_search.append(l);
 								}
-							}
-							drop(s);
+								*current_labels_search.borrow_mut() = fl;
+								*current_jids_search.borrow_mut() = fj;
+							});
 
-							if !jids.is_empty() {
-								let dlg = Dialog::builder(&parent_frame_clone, "Forward Message")
-									.with_size(400, 450)
-									.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-									.build();
-								let dlg_panel = Panel::builder(&dlg).build();
-								let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
+							let dlg_cancel = dlg;
+							cancel_btn.on_click(move |_| {
+								dlg_cancel.end_modal(0);
+							});
 
-								let search_label =
-									StaticText::builder(&dlg_panel).with_label("Search contacts or chats:").build();
-								dlg_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
-
-								let search_ctrl = TextCtrl::builder(&dlg_panel).build();
-								dlg_sizer.add(&search_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 8);
-
-								let contacts_listbox =
-									ListBox::builder(&dlg_panel).with_choices(labels.clone()).build();
-								dlg_sizer.add(
-									&contacts_listbox,
-									1,
-									SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right,
-									8,
-								);
-
-								let btn_panel = Panel::builder(&dlg_panel).build();
-								let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-								let ok_btn = Button::builder(&btn_panel)
-									.with_id(wxdragon::id::ID_OK)
-									.with_label("Forward")
-									.build();
-								let cancel_btn = Button::builder(&btn_panel)
-									.with_id(wxdragon::id::ID_CANCEL)
-									.with_label("Cancel")
-									.build();
-								btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 5);
-								btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
-								btn_panel.set_sizer(btn_sizer, true);
-
-								dlg_sizer.add(&btn_panel, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
-								dlg_panel.set_sizer(dlg_sizer, true);
-
-								let dlg_esc_search = dlg.clone();
-								search_ctrl.on_key_down(keys::escape_cancels(dlg_esc_search));
-
-								let dlg_esc_list = dlg.clone();
-								contacts_listbox.on_key_down(keys::escape_cancels(dlg_esc_list));
-
-								let current_labels = std::rc::Rc::new(std::cell::RefCell::new(labels.clone()));
-								let current_jids = std::rc::Rc::new(std::cell::RefCell::new(jids.clone()));
-
-								let all_labels = labels;
-								let all_jids = jids;
-								let current_labels_search = current_labels.clone();
-								let current_jids_search = current_jids.clone();
-								let listbox_search = contacts_listbox;
-
-								search_ctrl.on_text_changed(move |_| {
-									let q = search_ctrl.get_value().to_lowercase().trim().to_string();
-									let mut fl = Vec::new();
-									let mut fj = Vec::new();
-									for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
-										if q.is_empty() || lbl.to_lowercase().contains(&q) {
-											fl.push(lbl.clone());
-											fj.push(jid.clone());
-										}
+							let dlg_ok = dlg;
+							let tx_fwd = tx_play_media_clone.clone();
+							let msg_id = msg.id.clone();
+							let current_jids_ok = current_jids;
+							ok_btn.on_click(move |_| {
+								if let Some(sel_idx) = contacts_listbox.get_selection() {
+									let cj = current_jids_ok.borrow();
+									if (sel_idx as usize) < cj.len() {
+										let target_jid = cj[sel_idx as usize].clone();
+										dlg_ok.end_modal(wxdragon::id::ID_OK);
+										let _ = tx_fwd.send(UiCommand::ForwardMessage {
+											message_id: msg_id.clone(),
+											to_jids: vec![target_jid],
+										});
 									}
-									listbox_search.clear();
-									for l in &fl {
-										listbox_search.append(l);
-									}
-									*current_labels_search.borrow_mut() = fl;
-									*current_jids_search.borrow_mut() = fj;
-								});
+								}
+							});
 
-								let dlg_cancel = dlg.clone();
-								cancel_btn.on_click(move |_| {
-									dlg_cancel.end_modal(0);
-								});
-
-								let dlg_ok = dlg.clone();
-								let tx_fwd = tx_play_media_clone.clone();
-								let msg_id = msg.id.clone();
-								let current_jids_ok = current_jids;
-								ok_btn.on_click(move |_| {
-									if let Some(sel_idx) = contacts_listbox.get_selection() {
-										let cj = current_jids_ok.borrow();
-										if (sel_idx as usize) < cj.len() {
-											let target_jid = cj[sel_idx as usize].clone();
-											dlg_ok.end_modal(wxdragon::id::ID_OK);
-											let _ = tx_fwd.send(UiCommand::ForwardMessage {
-												message_id: msg_id.clone(),
-												to_jids: vec![target_jid],
-											});
-										}
-									}
-								});
-
-								search_ctrl.set_focus();
-								dlg.show_modal();
-								// The base Dialog has no Drop, so a dialog built per use must be
-								// destroyed or it (and every closure bound to it) lives on hidden.
-								dlg.destroy();
-							}
+							search_ctrl.set_focus();
+							dlg.show_modal();
+							// The base Dialog has no Drop, so a dialog built per use must be
+							// destroyed or it (and every closure bound to it) lives on hidden.
+							dlg.destroy();
 						}
 					}
 				} else if id == edit_id {
@@ -3488,31 +3481,31 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
-							let now = std::time::SystemTime::now()
-								.duration_since(std::time::UNIX_EPOCH)
-								.unwrap_or_default()
-								.as_secs() as i64;
-							if !msg.is_editable(now) {
-								unsafe {
-									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-										windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
-									);
-								}
-								let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
-								let reason = if still_eligible_otherwise {
-									"This message can no longer be edited - the 20 minute edit window has passed."
-								} else {
-									"Message can't be edited."
-								};
-								crate::announce::announce(msgs_announcer_clone.clone(), reason);
-							} else {
-								let _ = tx_play_media_clone.send(UiCommand::BeginEditMessage {
-									message_id: msg.id.clone(),
-									text: msg.text.clone(),
-								});
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+					{
+						let now = std::time::SystemTime::now()
+							.duration_since(std::time::UNIX_EPOCH)
+							.unwrap_or_default()
+							.as_secs() as i64;
+						if !msg.is_editable(now) {
+							unsafe {
+								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+									windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
+								);
 							}
+							let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
+							let reason = if still_eligible_otherwise {
+								"This message can no longer be edited - the 20 minute edit window has passed."
+							} else {
+								"Message can't be edited."
+							};
+							crate::announce::announce(msgs_announcer_clone, reason);
+						} else {
+							let _ = tx_play_media_clone.send(UiCommand::BeginEditMessage {
+								message_id: msg.id.clone(),
+								text: msg.text.clone(),
+							});
 						}
 					}
 				} else if id == delete_id {
@@ -3522,35 +3515,35 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
-							let is_group_admin = state_clone
-								.borrow()
-								.selected_chat
-								.as_ref()
-								.map(|jid| {
-									let s = state_clone.borrow();
-									// A channel's admins can delete any of its posts.
-									s.admin_group_jids.contains(jid)
-										|| crate::ui_commands::links::can_post_in_channel(&s, jid)
-								})
-								.unwrap_or(false);
-							let now = std::time::SystemTime::now()
-								.duration_since(std::time::UNIX_EPOCH)
-								.unwrap_or_default()
-								.as_secs() as i64;
-							let can_delete_for_everyone =
-								(msg.from_me && msg.is_delete_for_everyone_eligible(now)) || is_group_admin;
-							if let Some(for_everyone) =
-								confirm_delete_choice(&parent_frame_clone, 1, can_delete_for_everyone)
-							{
-								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-								let _ = tx_play_media_clone.send(UiCommand::DeleteMessage {
-									message_id: msg.id.clone(),
-									sender_jid,
-									for_everyone,
-								});
-							}
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+					{
+						let is_group_admin = state_clone
+							.borrow()
+							.selected_chat
+							.as_ref()
+							.map(|jid| {
+								let s = state_clone.borrow();
+								// A channel's admins can delete any of its posts.
+								s.admin_group_jids.contains(jid)
+									|| crate::ui_commands::links::can_post_in_channel(&s, jid)
+							})
+							.unwrap_or(false);
+						let now = std::time::SystemTime::now()
+							.duration_since(std::time::UNIX_EPOCH)
+							.unwrap_or_default()
+							.as_secs() as i64;
+						let can_delete_for_everyone =
+							(msg.from_me && msg.is_delete_for_everyone_eligible(now)) || is_group_admin;
+						if let Some(for_everyone) =
+							confirm_delete_choice(&parent_frame_clone, 1, can_delete_for_everyone)
+						{
+							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+							let _ = tx_play_media_clone.send(UiCommand::DeleteMessage {
+								message_id: msg.id.clone(),
+								sender_jid,
+								for_everyone,
+							});
 						}
 					}
 				} else if id == star_id {
@@ -3560,16 +3553,16 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { .. } => None,
 					});
 					drop(s);
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
-							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-							let _ = tx_play_media_clone.send(UiCommand::StarMessage {
-								message_id: msg.id.clone(),
-								sender_jid,
-								from_me: msg.from_me,
-								starred: !msg.starred,
-							});
-						}
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+					{
+						let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+						let _ = tx_play_media_clone.send(UiCommand::StarMessage {
+							message_id: msg.id.clone(),
+							sender_jid,
+							from_me: msg.from_me,
+							starred: !msg.starred,
+						});
 					}
 				} else if id == report_id || id == report_admins_id {
 					if let Some(message_id) = reportable_id.clone() {
@@ -3586,10 +3579,11 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
-					if let Some(msg) = msg_opt {
-						if (msg.from_me || msg.is_poll()) && !msg.is_date_divider {
-							let _ = tx_play_media_clone.send(UiCommand::GetMessageInfo { message_id: msg.id.clone() });
-						}
+					if let Some(msg) = msg_opt
+						&& (msg.from_me || msg.is_poll())
+						&& !msg.is_date_divider
+					{
+						let _ = tx_play_media_clone.send(UiCommand::GetMessageInfo { message_id: msg.id.clone() });
 					}
 				} else if id == copy_id {
 					copy_for_menu.as_ref()();
@@ -3625,15 +3619,11 @@ pub fn bind_input_handlers(
 						}
 					}
 				} else if id == copy_number_id {
-					if let Some((_, digits)) = phone_match_clone.as_ref() {
-						if let Some(_locker) = Clipboard::get().locker() {
-							if Clipboard::get().set_text(&format!("+{}", digits)) {
-								crate::announce::announce(
-									msgs_announcer_clone.clone(),
-									"Copied phone number to clipboard.",
-								);
-							}
-						}
+					if let Some((_, digits)) = phone_match_clone.as_ref()
+						&& let Some(_locker) = Clipboard::get().locker()
+						&& Clipboard::get().set_text(&format!("+{}", digits))
+					{
+						crate::announce::announce(msgs_announcer_clone, "Copied phone number to clipboard.");
 					}
 				} else if id == message_number_id {
 					if let Some((_, digits)) = phone_match_clone.as_ref() {
@@ -3675,11 +3665,11 @@ pub fn bind_input_handlers(
 
 						dlg_panel.set_sizer(dlg_sizer, true);
 
-						let dlg_ref = dlg.clone();
+						let dlg_ref = dlg;
 						let tx_react = tx_play_media_clone.clone();
 						let msg_id = msg.id.clone();
 						let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-						let parent_ref = parent_frame_clone.clone();
+						let parent_ref = parent_frame_clone;
 
 						let on_select = Rc::new(move |choice_idx: usize| {
 							dlg_ref.end_modal(wxdragon::id::ID_OK);
@@ -3699,16 +3689,16 @@ pub fn bind_input_handlers(
 										"React with Emoji",
 									)
 									.build();
-									if custom_dlg.show_modal() == wxdragon::id::ID_OK {
-										if let Some(val) = custom_dlg.get_value() {
-											let emoji = val.trim().to_string();
-											if !emoji.is_empty() {
-												let _ = tx_react.send(UiCommand::ReactToMessage {
-													message_id: msg_id.clone(),
-													sender_jid: sender_jid.clone(),
-													emoji,
-												});
-											}
+									if custom_dlg.show_modal() == wxdragon::id::ID_OK
+										&& let Some(val) = custom_dlg.get_value()
+									{
+										let emoji = val.trim().to_string();
+										if !emoji.is_empty() {
+											let _ = tx_react.send(UiCommand::ReactToMessage {
+												message_id: msg_id.clone(),
+												sender_jid: sender_jid.clone(),
+												emoji,
+											});
 										}
 									}
 								}
@@ -3731,7 +3721,7 @@ pub fn bind_input_handlers(
 						});
 
 						let on_select_key = on_select.clone();
-						let list_ref = emoji_list.clone();
+						let list_ref = emoji_list;
 						keys::on_enter(&emoji_list, Rc::default(), move || {
 							if let Some(sel) = list_ref.get_selection() {
 								on_select_key(sel as usize);
@@ -3800,52 +3790,52 @@ pub fn bind_input_handlers(
 							whantv::DisplayItem::Single(m) => Some(m.clone()),
 							whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 						});
-						if let Some(msg) = msg_opt {
-							if !msg.quoted_id.is_empty() || !msg.quoted_text.is_empty() {
-								let mut target = if !msg.quoted_id.is_empty() {
-									s.display_items.iter().position(|item| match item {
-										whantv::DisplayItem::Single(m) => m.id == msg.quoted_id,
-										whantv::DisplayItem::Album { messages, .. } => {
-											messages.iter().any(|m| m.id == msg.quoted_id)
+						if let Some(msg) = msg_opt
+							&& (!msg.quoted_id.is_empty() || !msg.quoted_text.is_empty())
+						{
+							let mut target = if !msg.quoted_id.is_empty() {
+								s.display_items.iter().position(|item| match item {
+									whantv::DisplayItem::Single(m) => m.id == msg.quoted_id,
+									whantv::DisplayItem::Album { messages, .. } => {
+										messages.iter().any(|m| m.id == msg.quoted_id)
+									}
+								})
+							} else {
+								None
+							};
+
+							if target.is_none() && !msg.quoted_text.is_empty() {
+								let is_generic = msg.quoted_text == "[Voice Message]"
+									|| msg.quoted_text == "[Audio]"
+									|| msg.quoted_text == "Voice message"
+									|| msg.quoted_text == "Audio"
+									|| msg.quoted_text == "[Media]";
+								if !is_generic && (idx as usize) < s.display_items.len() {
+									target = s.display_items[..idx as usize].iter().rposition(|item| match item {
+										whantv::DisplayItem::Single(m) => {
+											m.text == msg.quoted_text
+												|| (!m.text.is_empty() && m.text.contains(&msg.quoted_text))
 										}
-									})
-								} else {
-									None
-								};
-
-								if target.is_none() && !msg.quoted_text.is_empty() {
-									let is_generic = msg.quoted_text == "[Voice Message]"
-										|| msg.quoted_text == "[Audio]"
-										|| msg.quoted_text == "Voice message"
-										|| msg.quoted_text == "Audio"
-										|| msg.quoted_text == "[Media]";
-									if !is_generic && (idx as usize) < s.display_items.len() {
-										target = s.display_items[..idx as usize].iter().rposition(|item| match item {
-											whantv::DisplayItem::Single(m) => {
-												m.text == msg.quoted_text
-													|| (!m.text.is_empty() && m.text.contains(&msg.quoted_text))
-											}
-											whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| {
-												m.text == msg.quoted_text
-													|| (!m.text.is_empty() && m.text.contains(&msg.quoted_text))
-											}),
-										});
-									}
+										whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| {
+											m.text == msg.quoted_text
+												|| (!m.text.is_empty() && m.text.contains(&msg.quoted_text))
+										}),
+									});
 								}
+							}
 
-								if let Some(target_idx) = target {
-									msgs_list_play.set_selection(target_idx as u32, true);
-									unsafe {
-										let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-											windows::Win32::UI::WindowsAndMessaging::MB_OK,
-										);
-									}
-								} else {
-									unsafe {
-										let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-											windows::Win32::UI::WindowsAndMessaging::MB_ICONASTERISK,
-										);
-									}
+							if let Some(target_idx) = target {
+								msgs_list_play.set_selection(target_idx as u32, true);
+								unsafe {
+									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+										windows::Win32::UI::WindowsAndMessaging::MB_OK,
+									);
+								}
+							} else {
+								unsafe {
+									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+										windows::Win32::UI::WindowsAndMessaging::MB_ICONASTERISK,
+									);
 								}
 							}
 						}
@@ -3901,7 +3891,7 @@ pub fn bind_input_handlers(
 				// WXK_END (312) -> Newest message at bottom
 				let count = msgs_list_play.get_count();
 				if count > 0 {
-					msgs_list_play.set_selection((count - 1) as u32, true);
+					msgs_list_play.set_selection(count - 1, true);
 				}
 				// A window around a search hit doesn't hold the newest message;
 				// this fetches it (a no-op when the list already runs to it).
@@ -3914,8 +3904,8 @@ pub fn bind_input_handlers(
 				// Ctrl+V
 				let mut has_files = false;
 				if let Some(_locker) = Clipboard::get().locker() {
-					let mut fdo = FileDataObject::new();
-					if Clipboard::get().get_data(&mut fdo) && fdo.get_file_count() > 0 {
+					let fdo = FileDataObject::new();
+					if Clipboard::get().get_data(&fdo) && fdo.get_file_count() > 0 {
 						has_files = true;
 					}
 				}
@@ -4051,10 +4041,10 @@ pub fn bind_input_handlers(
 				// 'v' -> vote in the poll, or answer the event
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
-					if let Some(whantv::DisplayItem::Single(m)) = s.display_items.get(idx as usize) {
-						if m.is_poll() || m.is_event() {
-							let _ = tx_close_list.send(UiCommand::OpenPollVote(m.id.clone()));
-						}
+					if let Some(whantv::DisplayItem::Single(m)) = s.display_items.get(idx as usize)
+						&& (m.is_poll() || m.is_event())
+					{
+						let _ = tx_close_list.send(UiCommand::OpenPollVote(m.id.clone()));
 					}
 				}
 				event.skip(false);
@@ -4066,39 +4056,40 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider && !msg.is_deleted {
-							let sender = if msg.from_me {
-								"You".to_string()
-							} else if !msg.sender_name.is_empty() {
-								msg.sender_name.clone()
-							} else {
-								msg.sender_jid.clone()
-							};
-							let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
-								"Voice message".to_string()
-							} else if msg.text.is_empty() {
-								"Media".to_string()
-							} else {
-								msg.text.clone()
-							};
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+						&& !msg.is_deleted
+					{
+						let sender = if msg.from_me {
+							"You".to_string()
+						} else if !msg.sender_name.is_empty() {
+							msg.sender_name.clone()
+						} else {
+							msg.sender_jid.clone()
+						};
+						let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
+							"Voice message".to_string()
+						} else if msg.text.is_empty() {
+							"Media".to_string()
+						} else {
+							msg.text.clone()
+						};
 
-							s.pending_reply_id = Some(msg.id.clone());
-							s.pending_reply_sender =
-								Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
-							s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
+						s.pending_reply_id = Some(msg.id.clone());
+						s.pending_reply_sender =
+							Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
+						s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
 
-							let status_msg =
-								format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
-							crate::announce::announce(msgs_announcer.clone(), &status_msg);
-							msg_input_field.set_focus();
-							remove_quote_btn_play.show(true);
-							conv_panel_play.layout();
-							unsafe {
-								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-									windows::Win32::UI::WindowsAndMessaging::MB_OK,
-								);
-							}
+						let status_msg =
+							format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
+						crate::announce::announce(msgs_announcer, &status_msg);
+						msg_input_field.set_focus();
+						remove_quote_btn_play.show(true);
+						conv_panel_play.layout();
+						unsafe {
+							let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+								windows::Win32::UI::WindowsAndMessaging::MB_OK,
+							);
 						}
 					}
 				}
@@ -4112,31 +4103,31 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
-							let now = std::time::SystemTime::now()
-								.duration_since(std::time::UNIX_EPOCH)
-								.unwrap_or_default()
-								.as_secs() as i64;
-							if !msg.is_editable(now) {
-								unsafe {
-									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-										windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
-									);
-								}
-								let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
-								let reason = if still_eligible_otherwise {
-									"This message can no longer be edited - the 20 minute edit window has passed."
-								} else {
-									"Message can't be edited."
-								};
-								crate::announce::announce(msgs_announcer.clone(), reason);
-							} else {
-								let _ = tx_play_media.send(UiCommand::BeginEditMessage {
-									message_id: msg.id.clone(),
-									text: msg.text.clone(),
-								});
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+					{
+						let now = std::time::SystemTime::now()
+							.duration_since(std::time::UNIX_EPOCH)
+							.unwrap_or_default()
+							.as_secs() as i64;
+						if !msg.is_editable(now) {
+							unsafe {
+								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+									windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
+								);
 							}
+							let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
+							let reason = if still_eligible_otherwise {
+								"This message can no longer be edited - the 20 minute edit window has passed."
+							} else {
+								"Message can't be edited."
+							};
+							crate::announce::announce(msgs_announcer, reason);
+						} else {
+							let _ = tx_play_media.send(UiCommand::BeginEditMessage {
+								message_id: msg.id.clone(),
+								text: msg.text.clone(),
+							});
 						}
 					}
 				}
@@ -4150,16 +4141,16 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { .. } => None,
 					});
 					drop(s);
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
-							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-							let _ = tx_play_media.send(UiCommand::StarMessage {
-								message_id: msg.id.clone(),
-								sender_jid,
-								from_me: msg.from_me,
-								starred: !msg.starred,
-							});
-						}
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+					{
+						let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+						let _ = tx_play_media.send(UiCommand::StarMessage {
+							message_id: msg.id.clone(),
+							sender_jid,
+							from_me: msg.from_me,
+							starred: !msg.starred,
+						});
 					}
 				}
 				event.skip(false);
@@ -4171,131 +4162,128 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Single(m) => Some(m.clone()),
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
-							let mut labels = Vec::new();
-							let mut jids = Vec::new();
-							for jid in &s.chats {
-								if !jid.ends_with("@broadcast") && crate::ui_commands::links::can_forward_to(&s, jid) {
-									let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-									labels.push(name);
-									jids.push(jid.clone());
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+					{
+						let mut labels = Vec::new();
+						let mut jids = Vec::new();
+						for jid in &s.chats {
+							if !jid.ends_with("@broadcast") && crate::ui_commands::links::can_forward_to(&s, jid) {
+								let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
+								labels.push(name);
+								jids.push(jid.clone());
+							}
+						}
+						for (jid, name) in &s.contacts {
+							if !jid.ends_with("@broadcast")
+								&& !jids.contains(jid)
+								&& crate::ui_commands::links::can_forward_to(&s, jid)
+							{
+								labels.push(name.clone());
+								jids.push(jid.clone());
+							}
+						}
+						drop(s);
+
+						if !jids.is_empty() {
+							let dlg = Dialog::builder(&parent_frame, "Forward Message")
+								.with_size(400, 450)
+								.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+								.build();
+							let dlg_panel = Panel::builder(&dlg).build();
+							let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+							let search_label =
+								StaticText::builder(&dlg_panel).with_label("Search contacts or chats:").build();
+							dlg_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
+
+							let search_ctrl = TextCtrl::builder(&dlg_panel).build();
+							dlg_sizer.add(&search_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
+							let contacts_listbox = ListBox::builder(&dlg_panel).with_choices(labels.clone()).build();
+							dlg_sizer.add(
+								&contacts_listbox,
+								1,
+								SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right,
+								8,
+							);
+
+							let btn_panel = Panel::builder(&dlg_panel).build();
+							let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+							let ok_btn =
+								Button::builder(&btn_panel).with_id(wxdragon::id::ID_OK).with_label("Forward").build();
+							let cancel_btn = Button::builder(&btn_panel)
+								.with_id(wxdragon::id::ID_CANCEL)
+								.with_label("Cancel")
+								.build();
+							btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 5);
+							btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
+							btn_panel.set_sizer(btn_sizer, true);
+
+							dlg_sizer.add(&btn_panel, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
+							dlg_panel.set_sizer(dlg_sizer, true);
+
+							let dlg_esc_search = dlg;
+							search_ctrl.on_key_down(keys::escape_cancels(dlg_esc_search));
+
+							let dlg_esc_list = dlg;
+							contacts_listbox.on_key_down(keys::escape_cancels(dlg_esc_list));
+
+							let current_labels = std::rc::Rc::new(std::cell::RefCell::new(labels.clone()));
+							let current_jids = std::rc::Rc::new(std::cell::RefCell::new(jids.clone()));
+
+							let all_labels = labels;
+							let all_jids = jids;
+							let current_labels_search = current_labels.clone();
+							let current_jids_search = current_jids.clone();
+							let listbox_search = contacts_listbox;
+
+							search_ctrl.on_text_changed(move |_| {
+								let q = search_ctrl.get_value().to_lowercase().trim().to_string();
+								let mut fl = Vec::new();
+								let mut fj = Vec::new();
+								for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
+									if q.is_empty() || lbl.to_lowercase().contains(&q) {
+										fl.push(lbl.clone());
+										fj.push(jid.clone());
+									}
 								}
-							}
-							for (jid, name) in &s.contacts {
-								if !jid.ends_with("@broadcast")
-									&& !jids.contains(jid)
-									&& crate::ui_commands::links::can_forward_to(&s, jid)
-								{
-									labels.push(name.clone());
-									jids.push(jid.clone());
+								listbox_search.clear();
+								for l in &fl {
+									listbox_search.append(l);
 								}
-							}
-							drop(s);
+								*current_labels_search.borrow_mut() = fl;
+								*current_jids_search.borrow_mut() = fj;
+							});
 
-							if !jids.is_empty() {
-								let dlg = Dialog::builder(&parent_frame, "Forward Message")
-									.with_size(400, 450)
-									.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-									.build();
-								let dlg_panel = Panel::builder(&dlg).build();
-								let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
+							let dlg_cancel = dlg;
+							cancel_btn.on_click(move |_| {
+								dlg_cancel.end_modal(0);
+							});
 
-								let search_label =
-									StaticText::builder(&dlg_panel).with_label("Search contacts or chats:").build();
-								dlg_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
-
-								let search_ctrl = TextCtrl::builder(&dlg_panel).build();
-								dlg_sizer.add(&search_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 8);
-
-								let contacts_listbox =
-									ListBox::builder(&dlg_panel).with_choices(labels.clone()).build();
-								dlg_sizer.add(
-									&contacts_listbox,
-									1,
-									SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right,
-									8,
-								);
-
-								let btn_panel = Panel::builder(&dlg_panel).build();
-								let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-								let ok_btn = Button::builder(&btn_panel)
-									.with_id(wxdragon::id::ID_OK)
-									.with_label("Forward")
-									.build();
-								let cancel_btn = Button::builder(&btn_panel)
-									.with_id(wxdragon::id::ID_CANCEL)
-									.with_label("Cancel")
-									.build();
-								btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 5);
-								btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
-								btn_panel.set_sizer(btn_sizer, true);
-
-								dlg_sizer.add(&btn_panel, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
-								dlg_panel.set_sizer(dlg_sizer, true);
-
-								let dlg_esc_search = dlg.clone();
-								search_ctrl.on_key_down(keys::escape_cancels(dlg_esc_search));
-
-								let dlg_esc_list = dlg.clone();
-								contacts_listbox.on_key_down(keys::escape_cancels(dlg_esc_list));
-
-								let current_labels = std::rc::Rc::new(std::cell::RefCell::new(labels.clone()));
-								let current_jids = std::rc::Rc::new(std::cell::RefCell::new(jids.clone()));
-
-								let all_labels = labels;
-								let all_jids = jids;
-								let current_labels_search = current_labels.clone();
-								let current_jids_search = current_jids.clone();
-								let listbox_search = contacts_listbox;
-
-								search_ctrl.on_text_changed(move |_| {
-									let q = search_ctrl.get_value().to_lowercase().trim().to_string();
-									let mut fl = Vec::new();
-									let mut fj = Vec::new();
-									for (lbl, jid) in all_labels.iter().zip(all_jids.iter()) {
-										if q.is_empty() || lbl.to_lowercase().contains(&q) {
-											fl.push(lbl.clone());
-											fj.push(jid.clone());
-										}
+							let dlg_ok = dlg;
+							let tx_fwd = tx_close_list.clone();
+							let msg_id = msg.id.clone();
+							let current_jids_ok = current_jids;
+							ok_btn.on_click(move |_| {
+								if let Some(sel_idx) = contacts_listbox.get_selection() {
+									let cj = current_jids_ok.borrow();
+									if (sel_idx as usize) < cj.len() {
+										let target_jid = cj[sel_idx as usize].clone();
+										dlg_ok.end_modal(wxdragon::id::ID_OK);
+										let _ = tx_fwd.send(UiCommand::ForwardMessage {
+											message_id: msg_id.clone(),
+											to_jids: vec![target_jid],
+										});
 									}
-									listbox_search.clear();
-									for l in &fl {
-										listbox_search.append(l);
-									}
-									*current_labels_search.borrow_mut() = fl;
-									*current_jids_search.borrow_mut() = fj;
-								});
+								}
+							});
 
-								let dlg_cancel = dlg.clone();
-								cancel_btn.on_click(move |_| {
-									dlg_cancel.end_modal(0);
-								});
-
-								let dlg_ok = dlg.clone();
-								let tx_fwd = tx_close_list.clone();
-								let msg_id = msg.id.clone();
-								let current_jids_ok = current_jids;
-								ok_btn.on_click(move |_| {
-									if let Some(sel_idx) = contacts_listbox.get_selection() {
-										let cj = current_jids_ok.borrow();
-										if (sel_idx as usize) < cj.len() {
-											let target_jid = cj[sel_idx as usize].clone();
-											dlg_ok.end_modal(wxdragon::id::ID_OK);
-											let _ = tx_fwd.send(UiCommand::ForwardMessage {
-												message_id: msg_id.clone(),
-												to_jids: vec![target_jid],
-											});
-										}
-									}
-								});
-
-								search_ctrl.set_focus();
-								dlg.show_modal();
-								// The base Dialog has no Drop, so a dialog built per use must be
-								// destroyed or it (and every closure bound to it) lives on hidden.
-								dlg.destroy();
-							}
+							search_ctrl.set_focus();
+							dlg.show_modal();
+							// The base Dialog has no Drop, so a dialog built per use must be
+							// destroyed or it (and every closure bound to it) lives on hidden.
+							dlg.destroy();
 						}
 					}
 				}
@@ -4309,34 +4297,33 @@ pub fn bind_input_handlers(
 						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
-					if let Some(msg) = msg_opt {
-						if !msg.is_date_divider {
-							let is_group_admin = state_play
-								.borrow()
-								.selected_chat
-								.as_ref()
-								.map(|jid| {
-									let s = state_play.borrow();
-									// A channel's admins can delete any of its posts.
-									s.admin_group_jids.contains(jid)
-										|| crate::ui_commands::links::can_post_in_channel(&s, jid)
-								})
-								.unwrap_or(false);
-							let now = std::time::SystemTime::now()
-								.duration_since(std::time::UNIX_EPOCH)
-								.unwrap_or_default()
-								.as_secs() as i64;
-							let can_delete_for_everyone =
-								(msg.from_me && msg.is_delete_for_everyone_eligible(now)) || is_group_admin;
-							if let Some(for_everyone) = confirm_delete_choice(&parent_frame, 1, can_delete_for_everyone)
-							{
-								let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-								let _ = tx_play_media.send(UiCommand::DeleteMessage {
-									message_id: msg.id.clone(),
-									sender_jid,
-									for_everyone,
-								});
-							}
+					if let Some(msg) = msg_opt
+						&& !msg.is_date_divider
+					{
+						let is_group_admin = state_play
+							.borrow()
+							.selected_chat
+							.as_ref()
+							.map(|jid| {
+								let s = state_play.borrow();
+								// A channel's admins can delete any of its posts.
+								s.admin_group_jids.contains(jid)
+									|| crate::ui_commands::links::can_post_in_channel(&s, jid)
+							})
+							.unwrap_or(false);
+						let now = std::time::SystemTime::now()
+							.duration_since(std::time::UNIX_EPOCH)
+							.unwrap_or_default()
+							.as_secs() as i64;
+						let can_delete_for_everyone =
+							(msg.from_me && msg.is_delete_for_everyone_eligible(now)) || is_group_admin;
+						if let Some(for_everyone) = confirm_delete_choice(&parent_frame, 1, can_delete_for_everyone) {
+							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+							let _ = tx_play_media.send(UiCommand::DeleteMessage {
+								message_id: msg.id.clone(),
+								sender_jid,
+								for_everyone,
+							});
 						}
 					}
 				}
@@ -4355,11 +4342,11 @@ pub fn bind_input_handlers(
 	let tx_jump_enter = ui_tx.clone();
 	let tx_phone_enter = ui_tx.clone();
 	let tx_invite_enter = ui_tx.clone();
-	let msgs_list_enter = parts.conversations_parts.messages_list.clone();
+	let msgs_list_enter = parts.conversations_parts.messages_list;
 	let state_enter = state.clone();
 	let search_panel_enter = parts.conversations_parts.search_panel;
-	let msgs_announcer_enter = parts.conversations_parts.messages_announcer.clone();
-	let parent_frame_enter = parts.frame.clone();
+	let msgs_announcer_enter = parts.conversations_parts.messages_announcer;
+	let parent_frame_enter = parts.frame;
 	parts.conversations_parts.messages_list.on_key_up(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
@@ -4395,7 +4382,7 @@ pub fn bind_input_handlers(
 						dlg_sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
 						dlg_panel.set_sizer(dlg_sizer, true);
 
-						let dlg_esc = dlg.clone();
+						let dlg_esc = dlg;
 						text_view.on_key_down(keys::escape_cancels(dlg_esc));
 
 						text_view.set_focus();
@@ -4506,10 +4493,10 @@ pub fn bind_input_handlers(
 									&url_strs,
 								)
 								.build();
-								if dialog.show_modal() == wxdragon::id::ID_OK {
-									if let Some(selection) = dialog.get_string_selection() {
-										open_url(&selection);
-									}
+								if dialog.show_modal() == wxdragon::id::ID_OK
+									&& let Some(selection) = dialog.get_string_selection()
+								{
+									open_url(&selection);
 								}
 							} else if let Some((_, digits)) = msg.first_phone_number() {
 								let copy_num_id = 9001;
@@ -4519,17 +4506,17 @@ pub fn bind_input_handlers(
 									.append_item(msg_num_id, "&Message Number", "Start a chat with this phone number")
 									.build();
 								let tx_phone = tx_phone_enter.clone();
-								let msgs_announcer_phone = msgs_announcer_enter.clone();
+								let msgs_announcer_phone = msgs_announcer_enter;
 								phone_menu.on_selected(move |menu_evt| {
 									let sel_id = menu_evt.get_id();
 									if sel_id == copy_num_id {
-										if let Some(_locker) = Clipboard::get().locker() {
-											if Clipboard::get().set_text(&format!("+{}", digits)) {
-												crate::announce::announce(
-													msgs_announcer_phone.clone(),
-													"Copied phone number to clipboard.",
-												);
-											}
+										if let Some(_locker) = Clipboard::get().locker()
+											&& Clipboard::get().set_text(&format!("+{}", digits))
+										{
+											crate::announce::announce(
+												msgs_announcer_phone,
+												"Copied phone number to clipboard.",
+											);
 										}
 									} else if sel_id == msg_num_id {
 										let _ = tx_phone.send(UiCommand::OpenChatByPhone(digits.clone()));
@@ -4552,9 +4539,9 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_play_btn = ui_tx.clone();
-	let msgs_list_btn = parts.conversations_parts.messages_list.clone();
+	let msgs_list_btn = parts.conversations_parts.messages_list;
 	let state_play_btn = state.clone();
-	let play_voice_btn_ref = parts.conversations_parts.play_voice_btn.clone();
+	let play_voice_btn_ref = parts.conversations_parts.play_voice_btn;
 	parts.conversations_parts.play_voice_btn.on_click(move |_| {
 		if let Some(idx) = msgs_list_btn.get_selection() {
 			let mut s = state_play_btn.borrow_mut();
@@ -4606,11 +4593,11 @@ pub fn bind_input_handlers(
 	});
 
 	let state_sel = state.clone();
-	let play_voice_btn_sel = parts.conversations_parts.play_voice_btn.clone();
-	let audio_slider_sel = parts.conversations_parts.audio_slider.clone();
-	let audio_speed_btn_sel = parts.conversations_parts.audio_speed_btn.clone();
-	let audio_progress_label_sel = parts.conversations_parts.audio_progress_label.clone();
-	let conv_parts_sel = parts.conversations_parts.clone();
+	let play_voice_btn_sel = parts.conversations_parts.play_voice_btn;
+	let audio_slider_sel = parts.conversations_parts.audio_slider;
+	let audio_speed_btn_sel = parts.conversations_parts.audio_speed_btn;
+	let audio_progress_label_sel = parts.conversations_parts.audio_progress_label;
+	let conv_parts_sel = parts.conversations_parts;
 	let last_layout_time = std::cell::Cell::new(std::time::Instant::now());
 	let tx_sel = ui_tx.clone();
 	// The 100ms throttle below skips layout() on some events in a rapid
@@ -4622,7 +4609,7 @@ pub fn bind_input_handlers(
 	// another layout. This one-shot timer, (re)armed on every skipped
 	// layout, guarantees a trailing layout once the burst actually settles.
 	let action_layout_timer = Timer::new(&parts.frame);
-	let action_panel_for_timer = parts.conversations_parts.action_panel.clone();
+	let action_panel_for_timer = parts.conversations_parts.action_panel;
 	action_layout_timer.on_tick(move |_| {
 		action_panel_for_timer.layout();
 	});
@@ -4807,7 +4794,7 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_delete_selection = ui_tx.clone();
-	let parent_frame_selection = parts.frame.clone();
+	let parent_frame_selection = parts.frame;
 	let state_delete_selection = state.clone();
 	parts.conversations_parts.selection_delete_btn.on_click(move |_| {
 		let (count, can_delete_for_everyone) = {
@@ -4845,7 +4832,7 @@ pub fn bind_input_handlers(
 
 	let tx_search_text = ui_tx.clone();
 	let search_field_ref = parts.conversations_parts.search_conv_field;
-	let msgs_list_search_focus = parts.conversations_parts.messages_list.clone();
+	let msgs_list_search_focus = parts.conversations_parts.messages_list;
 	search_field_ref.on_text_changed(move |_| {
 		let query = search_field_ref.get_value();
 		if !query.is_empty() {
@@ -5004,16 +4991,16 @@ pub fn bind_input_handlers(
 	let msg_field_shift_tab = parts.conversations_parts.message_field;
 	let send_btn_tab = parts.conversations_parts.send_message_btn;
 	parts.conversations_parts.cancel_edit_btn.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			if keys::is_tab(key_event.get_key_code()) {
-				if key_event.shift_down() {
-					msg_field_shift_tab.set_focus();
-				} else {
-					send_btn_tab.set_focus();
-				}
-				event.skip(false);
-				return;
+		if let WindowEventData::Keyboard(ref key_event) = event
+			&& keys::is_tab(key_event.get_key_code())
+		{
+			if key_event.shift_down() {
+				msg_field_shift_tab.set_focus();
+			} else {
+				send_btn_tab.set_focus();
 			}
+			event.skip(false);
+			return;
 		}
 		event.skip(true);
 	});
@@ -5040,17 +5027,11 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.audio_slider.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key) = event {
 			let code = key.get_key_code();
-			if keys::is_left(code) || keys::is_down(code) {
+			if keys::is_left(code) || keys::is_down(code) || keys::is_home(code) {
 				let _ = tx_slider_key.send(UiCommand::SeekAudio(-5.0));
 				event.skip(false);
-			} else if keys::is_right(code) || keys::is_up(code) {
+			} else if keys::is_right(code) || keys::is_up(code) || keys::is_end(code) {
 				let _ = tx_slider_key.send(UiCommand::SeekAudio(5.0));
-				event.skip(false);
-			} else if keys::is_end(code) {
-				let _ = tx_slider_key.send(UiCommand::SeekAudio(5.0));
-				event.skip(false);
-			} else if keys::is_home(code) {
-				let _ = tx_slider_key.send(UiCommand::SeekAudio(-5.0));
 				event.skip(false);
 			} else {
 				event.skip(true);

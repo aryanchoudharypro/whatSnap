@@ -1,5 +1,3 @@
-use whantv;
-
 use crate::voice_recorder;
 
 /// JID of WhatsApp's own Meta AI bot. Sending to a `@bot`-server JID makes

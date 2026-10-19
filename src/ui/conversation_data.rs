@@ -122,7 +122,7 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 
 	dialog.set_sizer(main_sizer, true);
 
-	let dlg_info = dialog.clone();
+	let dlg_info = dialog;
 	info_field.on_key_down(crate::ui::keys::escape_cancels(dlg_info));
 
 	ConversationDataDialogParts {

@@ -26,7 +26,7 @@ pub(crate) fn open_poll_vote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	} else if m.is_event() {
 		"get_event"
 	} else {
-		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Not a poll or event.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer, "Not a poll or event.");
 		return;
 	};
 	let payload = serde_json::json!({
@@ -58,7 +58,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	// A quiz is answered once, for good, as in WhatsApp.
 	if quiz && !selected.is_empty() {
 		crate::announce::announce(
-			parts.conversations_parts.messages_announcer.clone(),
+			parts.conversations_parts.messages_announcer,
 			&format!("You've already answered this quiz: {}.", selected.join(", ")),
 		);
 		return;
@@ -124,9 +124,9 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	let dlg_ok = dialog.clone();
+	let dlg_ok = dialog;
 	vote_btn.on_click(move |_| dlg_ok.end_modal(ID_OK));
-	let dlg_cancel = dialog.clone();
+	let dlg_cancel = dialog;
 	cancel_btn.on_click(move |_| dlg_cancel.end_modal(ID_CANCEL));
 
 	if let Some(ref list) = checks {
@@ -149,7 +149,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		return;
 	}
 	if choice.is_empty() && selected.is_empty() {
-		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "No answer chosen.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer, "No answer chosen.");
 		return;
 	}
 	let payload = serde_json::json!({
@@ -157,7 +157,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		"data": { "jid": jid, "message_id": message_id, "options": choice }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Sending vote...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Sending vote...");
 }
 
 /// Updates a poll's results line wherever that poll is shown.
@@ -247,9 +247,9 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	let dlg_ok = dialog.clone();
+	let dlg_ok = dialog;
 	ok_btn.on_click(move |_| dlg_ok.end_modal(ID_OK));
-	let dlg_cancel = dialog.clone();
+	let dlg_cancel = dialog;
 	cancel_btn.on_click(move |_| dlg_cancel.end_modal(ID_CANCEL));
 	radio.set_focus();
 
@@ -265,7 +265,7 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		"data": { "jid": jid, "message_id": message_id, "response": choice, "extra_guests": extra_guests }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Sending your answer...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Sending your answer...");
 }
 
 /// "Event" in the attach menu: name, description, when, where, and whether
@@ -323,7 +323,7 @@ pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	dialog.center();
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
-	let dlg_send = dialog.clone();
+	let dlg_send = dialog;
 	let name_check = name_field;
 	send_btn.on_click(move |_| {
 		if name_check.get_value().trim().is_empty() {
@@ -336,7 +336,7 @@ pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		}
 		dlg_send.end_modal(ID_OK);
 	});
-	let dlg_cancel = dialog.clone();
+	let dlg_cancel = dialog;
 	cancel_btn.on_click(move |_| dlg_cancel.end_modal(ID_CANCEL));
 	name_field.set_focus();
 
@@ -364,5 +364,5 @@ pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	parts.conversations_parts.remove_quote_btn.show(false);
 	let payload = serde_json::json!({ "action": "send_event", "data": data });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Sending event...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Sending event...");
 }

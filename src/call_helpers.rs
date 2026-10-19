@@ -109,9 +109,9 @@ pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
 	// Calls interrupt whatever the screen reader is saying; everything else
 	// waits its turn (see announce.rs).
 	let label = if parts.call_parts.frame.is_shown() {
-		parts.call_parts.announcer.clone()
+		parts.call_parts.announcer
 	} else {
-		parts.conversations_parts.messages_announcer.clone()
+		parts.conversations_parts.messages_announcer
 	};
 	live_region::announce_with_priority(label, message, live_region::Priority::High);
 }

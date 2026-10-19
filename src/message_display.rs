@@ -77,6 +77,7 @@ pub(crate) fn populate_message_list(list: &ListBox, messages: &[whantv::Msg], la
 /// carries no messages of its own - everything is posted in its announcement
 /// and member sub-groups, which appear as ordinary chats - so a row for it
 /// there would be permanently empty.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn chat_visible_in_tab(
 	tab: usize,
 	jid: &str,
@@ -336,153 +337,152 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 	let sel = parts.messages_list.get_selection();
 	let mut need_layout = false;
 
-	if let Some(idx) = sel {
-		if let Some(item) = s.display_items.get(idx as usize) {
-			match item {
-				whantv::DisplayItem::Single(msg) => {
-					let is_deleted = msg.is_deleted;
-					let is_voice =
-						msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
-					let is_media = !is_deleted
-						&& !is_voice
-						&& !msg.is_system()
-						&& !msg.is_call()
-						&& (!msg.media_type.is_empty()
-							|| msg.is_document()
-							|| msg.text.starts_with("[Photo]")
-							|| msg.text.starts_with("[Image]")
-							|| msg.text.starts_with("[Video]")
-							|| msg.text.starts_with("[Document]")
-							|| msg.text.starts_with("[Media]"));
+	if let Some(idx) = sel
+		&& let Some(item) = s.display_items.get(idx as usize)
+	{
+		match item {
+			whantv::DisplayItem::Single(msg) => {
+				let is_deleted = msg.is_deleted;
+				let is_voice =
+					msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
+				let is_media = !is_deleted
+					&& !is_voice
+					&& !msg.is_system()
+					&& !msg.is_call()
+					&& (!msg.media_type.is_empty()
+						|| msg.is_document()
+						|| msg.text.starts_with("[Photo]")
+						|| msg.text.starts_with("[Image]")
+						|| msg.text.starts_with("[Video]")
+						|| msg.text.starts_with("[Document]")
+						|| msg.text.starts_with("[Media]"));
 
-					let is_failed = msg.from_me && !msg.is_date_divider && msg.status == "failed";
-					let is_uploading = msg.from_me && msg.status == "uploading";
+				let is_failed = msg.from_me && !msg.is_date_divider && msg.status == "failed";
+				let is_uploading = msg.from_me && msg.status == "uploading";
+				if is_failed || is_uploading {
+					return need_layout | show_send_state_buttons(parts, is_failed);
+				}
+				need_layout |= set_shown(&parts.action_retry_btn, false);
+
+				if is_media {
+					if msg.is_media_downloaded() {
+						if parts.action_download_btn.is_shown() {
+							parts.action_download_btn.show(false);
+							need_layout = true;
+						}
+						if !parts.action_open_btn.is_shown() {
+							parts.action_open_btn.show(true);
+							need_layout = true;
+						}
+						parts.action_open_btn.set_label("Open");
+						if !parts.action_save_as_btn.is_shown() {
+							parts.action_save_as_btn.show(true);
+							need_layout = true;
+						}
+						parts.action_save_as_btn.set_label("Save as");
+					} else {
+						if parts.action_open_btn.is_shown() {
+							parts.action_open_btn.show(false);
+							need_layout = true;
+						}
+						if parts.action_save_as_btn.is_shown() {
+							parts.action_save_as_btn.show(false);
+							need_layout = true;
+						}
+						if !parts.action_download_btn.is_shown() {
+							parts.action_download_btn.show(true);
+							need_layout = true;
+						}
+						let label = if let Some(pct) = s.downloads_in_progress.get(&msg.id) {
+							format!("Cancel download ({}%)", pct)
+						} else if let Some(size) = whantv::format_file_size(msg.media_size) {
+							format!("Download ({})", size)
+						} else {
+							"Download".to_string()
+						};
+						parts.action_download_btn.set_label(&label);
+					}
+					return need_layout;
+				}
+			}
+			whantv::DisplayItem::Album { messages, .. } => {
+				let valid_messages: Vec<_> = messages.iter().filter(|m| !m.is_deleted).collect();
+				if !valid_messages.is_empty() {
+					let is_failed = valid_messages.iter().any(|m| m.from_me && m.status == "failed");
+					let is_uploading = valid_messages.iter().any(|m| m.from_me && m.status == "uploading");
 					if is_failed || is_uploading {
 						return need_layout | show_send_state_buttons(parts, is_failed);
 					}
 					need_layout |= set_shown(&parts.action_retry_btn, false);
 
-					if is_media {
-						if msg.is_media_downloaded() {
-							if parts.action_download_btn.is_shown() {
-								parts.action_download_btn.show(false);
-								need_layout = true;
-							}
-							if !parts.action_open_btn.is_shown() {
-								parts.action_open_btn.show(true);
-								need_layout = true;
-							}
-							parts.action_open_btn.set_label("Open");
-							if !parts.action_save_as_btn.is_shown() {
-								parts.action_save_as_btn.show(true);
-								need_layout = true;
-							}
-							parts.action_save_as_btn.set_label("Save as");
-						} else {
-							if parts.action_open_btn.is_shown() {
-								parts.action_open_btn.show(false);
-								need_layout = true;
-							}
-							if parts.action_save_as_btn.is_shown() {
-								parts.action_save_as_btn.show(false);
-								need_layout = true;
-							}
-							if !parts.action_download_btn.is_shown() {
-								parts.action_download_btn.show(true);
-								need_layout = true;
-							}
-							let label = if let Some(pct) = s.downloads_in_progress.get(&msg.id) {
-								format!("Cancel download ({}%)", pct)
-							} else if let Some(size) = whantv::format_file_size(msg.media_size) {
-								format!("Download ({})", size)
-							} else {
-								"Download".to_string()
-							};
-							parts.action_download_btn.set_label(&label);
+					let all_dl = valid_messages.iter().all(|m| m.is_media_downloaded());
+					if all_dl {
+						if parts.action_download_btn.is_shown() {
+							parts.action_download_btn.show(false);
+							need_layout = true;
 						}
-						return need_layout;
-					}
-				}
-				whantv::DisplayItem::Album { messages, .. } => {
-					let valid_messages: Vec<_> = messages.iter().filter(|m| !m.is_deleted).collect();
-					if !valid_messages.is_empty() {
-						let is_failed = valid_messages.iter().any(|m| m.from_me && m.status == "failed");
-						let is_uploading = valid_messages.iter().any(|m| m.from_me && m.status == "uploading");
-						if is_failed || is_uploading {
-							return need_layout | show_send_state_buttons(parts, is_failed);
+						if !parts.action_open_btn.is_shown() {
+							parts.action_open_btn.show(true);
+							need_layout = true;
 						}
-						need_layout |= set_shown(&parts.action_retry_btn, false);
+						parts.action_open_btn.set_label("Open album");
 
-						let all_dl = valid_messages.iter().all(|m| m.is_media_downloaded());
-						if all_dl {
-							if parts.action_download_btn.is_shown() {
-								parts.action_download_btn.show(false);
-								need_layout = true;
-							}
-							if !parts.action_open_btn.is_shown() {
-								parts.action_open_btn.show(true);
-								need_layout = true;
-							}
-							parts.action_open_btn.set_label("Open album");
-
-							let photo_count = valid_messages
-								.iter()
-								.filter(|m| {
-									m.media_type == "image"
-										|| m.text.starts_with("[Photo]")
-										|| m.text.starts_with("[Image]")
-								})
-								.count();
-							let video_count = valid_messages
-								.iter()
-								.filter(|m| m.media_type == "video" || m.text.starts_with("[Video]"))
-								.count();
-							let save_label = if photo_count > 0 && video_count == 0 {
-								"Save all photos"
-							} else if video_count > 0 && photo_count == 0 {
-								"Save all videos"
-							} else {
-								"Save all media"
-							};
-							if !parts.action_save_as_btn.is_shown() {
-								parts.action_save_as_btn.show(true);
-								need_layout = true;
-							}
-							parts.action_save_as_btn.set_label(save_label);
+						let photo_count = valid_messages
+							.iter()
+							.filter(|m| {
+								m.media_type == "image"
+									|| m.text.starts_with("[Photo]")
+									|| m.text.starts_with("[Image]")
+							})
+							.count();
+						let video_count = valid_messages
+							.iter()
+							.filter(|m| m.media_type == "video" || m.text.starts_with("[Video]"))
+							.count();
+						let save_label = if photo_count > 0 && video_count == 0 {
+							"Save all photos"
+						} else if video_count > 0 && photo_count == 0 {
+							"Save all videos"
 						} else {
-							if parts.action_open_btn.is_shown() {
-								parts.action_open_btn.show(false);
-								need_layout = true;
-							}
-							if parts.action_save_as_btn.is_shown() {
-								parts.action_save_as_btn.show(false);
-								need_layout = true;
-							}
-							if !parts.action_download_btn.is_shown() {
-								parts.action_download_btn.show(true);
-								need_layout = true;
-							}
+							"Save all media"
+						};
+						if !parts.action_save_as_btn.is_shown() {
+							parts.action_save_as_btn.show(true);
+							need_layout = true;
+						}
+						parts.action_save_as_btn.set_label(save_label);
+					} else {
+						if parts.action_open_btn.is_shown() {
+							parts.action_open_btn.show(false);
+							need_layout = true;
+						}
+						if parts.action_save_as_btn.is_shown() {
+							parts.action_save_as_btn.show(false);
+							need_layout = true;
+						}
+						if !parts.action_download_btn.is_shown() {
+							parts.action_download_btn.show(true);
+							need_layout = true;
+						}
 
-							let uncollected: Vec<_> =
-								valid_messages.iter().filter(|m| !m.is_media_downloaded()).collect();
-							let is_dl_in_progress =
-								valid_messages.iter().any(|m| s.downloads_in_progress.contains_key(&m.id));
-							let dl_label = if is_dl_in_progress {
-								format!("Downloading album ({} items remaining)", uncollected.len())
-							} else {
-								let total_size: i64 = uncollected.iter().map(|m| m.media_size).sum();
-								match whantv::format_file_size(total_size) {
-									Some(size) => {
-										format!("Download album ({} items remaining, {})", uncollected.len(), size)
-									}
-									None => format!("Download album ({} items remaining)", uncollected.len()),
+						let uncollected: Vec<_> = valid_messages.iter().filter(|m| !m.is_media_downloaded()).collect();
+						let is_dl_in_progress =
+							valid_messages.iter().any(|m| s.downloads_in_progress.contains_key(&m.id));
+						let dl_label = if is_dl_in_progress {
+							format!("Downloading album ({} items remaining)", uncollected.len())
+						} else {
+							let total_size: i64 = uncollected.iter().map(|m| m.media_size).sum();
+							match whantv::format_file_size(total_size) {
+								Some(size) => {
+									format!("Download album ({} items remaining, {})", uncollected.len(), size)
 								}
-							};
-							parts.action_download_btn.set_label(&dl_label);
-						}
+								None => format!("Download album ({} items remaining)", uncollected.len()),
+							}
+						};
+						parts.action_download_btn.set_label(&dl_label);
 					}
-					return need_layout;
 				}
+				return need_layout;
 			}
 		}
 	}
@@ -566,7 +566,7 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 		if is_playing {
 			// No sink while a message is marked playing means playback never
 			// actually started, so present it as paused rather than "Pause".
-			let is_paused = s.audio_sink.as_ref().map_or(true, |sink| sink.is_paused() || sink.empty());
+			let is_paused = s.audio_sink.as_ref().is_none_or(|sink| sink.is_paused() || sink.empty());
 			parts.play_voice_btn.set_label(if is_paused { "Play voice message" } else { "Pause voice message" });
 			if !parts.audio_slider.is_shown() {
 				parts.audio_slider.show(true);

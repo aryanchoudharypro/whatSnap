@@ -53,7 +53,7 @@ fn confirm_and_report(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Reporting...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Reporting...");
 }
 
 /// "Report..." on a message in the open chat.
@@ -89,7 +89,7 @@ pub(crate) fn report_to_admins(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		"data": { "jid": jid, "message_ids": [message_id] }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Sending to the admins...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Sending to the admins...");
 }
 
 /// The backend's answer to a report.
@@ -102,7 +102,7 @@ pub(crate) fn reported(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	if flag("left") {
 		text.push_str(" You left the group.");
 	}
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &text);
+	crate::announce::announce(parts.conversations_parts.messages_announcer, &text);
 }
 
 /// Saves Group Info's moderation switches; the backend only sends the ones
@@ -204,11 +204,11 @@ pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	let dlg_go = dialog.clone();
+	let dlg_go = dialog;
 	go_btn.on_click(move |_| dlg_go.end_modal(ID_OK));
-	let dlg_enter = dialog.clone();
+	let dlg_enter = dialog;
 	list.on_item_double_clicked(move |_| dlg_enter.end_modal(ID_OK));
-	let dlg_close = dialog.clone();
+	let dlg_close = dialog;
 	close_btn.on_click(move |_| dlg_close.end_modal(ID_CANCEL));
 	list.set_focus();
 
@@ -220,7 +220,7 @@ pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 	let Some(message_id) = chosen else {
 		crate::announce::announce(
-			parts.conversations_parts.messages_announcer.clone(),
+			parts.conversations_parts.messages_announcer,
 			"That message isn't on this computer, so it can't be shown.",
 		);
 		return;

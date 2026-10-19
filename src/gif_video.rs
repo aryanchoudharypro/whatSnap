@@ -131,7 +131,7 @@ fn encode(frames: &[(RgbaImage, u32)], width: u32, height: u32, mp4_path: &str) 
 			let mut ptr: *mut u8 = std::ptr::null_mut();
 			buffer.Lock(&mut ptr, None, None)?;
 			let dst = std::slice::from_raw_parts_mut(ptr, frame_bytes as usize);
-			for (d, s) in dst.chunks_exact_mut(4).zip(img.as_raw().chunks_exact(4)) {
+			for (d, s) in dst.as_chunks_mut::<4>().0.iter_mut().zip(img.as_raw().as_chunks::<4>().0.iter()) {
 				// RGBA to BGRX, over black where the GIF is transparent.
 				let a = s[3] as u16;
 				d[0] = (s[2] as u16 * a / 255) as u8;

@@ -62,7 +62,7 @@ impl BlockedContacts {
 	}
 
 	pub fn announce(&self, message: &str) {
-		crate::announce::announce(self.announcer.clone(), message);
+		crate::announce::announce(self.announcer, message);
 	}
 
 	fn selected(&self) -> Option<BlockedEntry> {

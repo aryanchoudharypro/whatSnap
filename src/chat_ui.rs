@@ -240,10 +240,10 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	// WhatsApp Web sends "paused" the moment you navigate away, not just
 	// when the text is deleted or sent.
 	// Only if we actually told that chat we were typing.
-	if let Some(prev_jid) = s.composing.as_ref().map(|c| c.jid.clone()) {
-		if prev_jid != jid {
-			crate::ui_commands::messaging::send_chatstate(&mut s, &prev_jid, "paused", "");
-		}
+	if let Some(prev_jid) = s.composing.as_ref().map(|c| c.jid.clone())
+		&& prev_jid != jid
+	{
+		crate::ui_commands::messaging::send_chatstate(&mut s, &prev_jid, "paused", "");
 	}
 	// Re-opening the same chat keeps the quote; any other chat drops it.
 	if s.selected_chat.as_deref() != Some(jid) {
@@ -309,7 +309,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		.typing_timestamps
 		.get(jid)
 		.or_else(|| s.typing_timestamps.get(&norm_jid))
-		.map_or(false, |t| t.elapsed().as_secs() < 5);
+		.is_some_and(|t| t.elapsed().as_secs() < 5);
 	let kind = if is_typing_active {
 		s.typing_announce_state.get(jid).or_else(|| s.typing_announce_state.get(&norm_jid)).copied().unwrap_or(1)
 	} else {

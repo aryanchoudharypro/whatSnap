@@ -279,15 +279,15 @@ unsafe extern "system" fn tray_subclass_proc(
 		static WX_TRAY_MSG: u32 = unsafe { RegisterWindowMessageW(windows::core::w!("wxTaskBarIconMessage")) };
 		static TASKBAR_CREATED_MSG: u32 = unsafe { RegisterWindowMessageW(windows::core::w!("TaskbarCreated")) };
 	}
-	if msg == TASKBAR_CREATED_MSG.with(|m| *m) {
-		if let Some(f) = ON_TASKBAR_CREATED.with(|cell| cell.borrow_mut().take()) {
-			let handled = f();
-			ON_TASKBAR_CREATED.with(|cell| {
-				cell.borrow_mut().get_or_insert(f);
-			});
-			if handled {
-				return windows::Win32::Foundation::LRESULT(0);
-			}
+	if msg == TASKBAR_CREATED_MSG.with(|m| *m)
+		&& let Some(f) = ON_TASKBAR_CREATED.with(|cell| cell.borrow_mut().take())
+	{
+		let handled = f();
+		ON_TASKBAR_CREATED.with(|cell| {
+			cell.borrow_mut().get_or_insert(f);
+		});
+		if handled {
+			return windows::Win32::Foundation::LRESULT(0);
 		}
 	}
 	if msg == WX_TRAY_MSG.with(|m| *m) {

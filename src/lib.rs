@@ -435,11 +435,11 @@ impl ChatMessage {
 			};
 
 			let mut time_str = String::new();
-			if self.timestamp > 0 {
-				if let Some(datetime) = chrono::DateTime::from_timestamp(self.timestamp, 0) {
-					let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-					time_str = local_datetime.format(" %Y-%m-%d at %H.%M.%S").to_string();
-				}
+			if self.timestamp > 0
+				&& let Some(datetime) = chrono::DateTime::from_timestamp(self.timestamp, 0)
+			{
+				let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+				time_str = local_datetime.format(" %Y-%m-%d at %H.%M.%S").to_string();
 			}
 
 			if time_str.is_empty() {
@@ -518,11 +518,11 @@ impl ChatMessage {
 		}
 
 		let mut formatted_time = String::new();
-		if self.timestamp > 0 {
-			if let Some(datetime) = chrono::DateTime::from_timestamp(self.timestamp, 0) {
-				let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-				formatted_time = local_datetime.format("%I:%M %p").to_string();
-			}
+		if self.timestamp > 0
+			&& let Some(datetime) = chrono::DateTime::from_timestamp(self.timestamp, 0)
+		{
+			let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+			formatted_time = local_datetime.format("%I:%M %p").to_string();
 		}
 
 		let is_deleted = self.is_deleted
@@ -1227,19 +1227,19 @@ pub fn rebuild_date_dividers(messages: Vec<Msg>) -> Vec<Msg> {
 	let mut out = Vec::with_capacity(messages.len());
 	let mut last_date: Option<chrono::NaiveDate> = None;
 	for msg in messages.into_iter().filter(|m| !m.is_date_divider) {
-		if !msg.is_unread_divider {
-			if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
-				let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-				let day = date_key(local_datetime);
-				if last_date != Some(day) {
-					last_date = Some(day);
-					out.push(Msg::new(ChatMessage {
-						text: format_date_divider_label(local_datetime),
-						timestamp: msg.timestamp,
-						is_date_divider: true,
-						..Default::default()
-					}));
-				}
+		if !msg.is_unread_divider
+			&& let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0)
+		{
+			let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+			let day = date_key(local_datetime);
+			if last_date != Some(day) {
+				last_date = Some(day);
+				out.push(Msg::new(ChatMessage {
+					text: format_date_divider_label(local_datetime),
+					timestamp: msg.timestamp,
+					is_date_divider: true,
+					..Default::default()
+				}));
 			}
 		}
 		out.push(msg);
@@ -2172,10 +2172,10 @@ pub fn community_tab_order<'a>(
 ) -> Vec<&'a String> {
 	let mut children: std::collections::HashMap<&str, Vec<&String>> = std::collections::HashMap::new();
 	for jid in chats {
-		if let Some(parent) = parents.get(jid) {
-			if communities.contains(parent) {
-				children.entry(parent.as_str()).or_default().push(jid);
-			}
+		if let Some(parent) = parents.get(jid)
+			&& communities.contains(parent)
+		{
+			children.entry(parent.as_str()).or_default().push(jid);
 		}
 	}
 	let mut order = Vec::new();

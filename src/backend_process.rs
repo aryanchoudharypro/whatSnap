@@ -174,6 +174,15 @@ impl BackendProcess {
 	}
 }
 
+fn log(msg: &str) {
+	use std::io::Write;
+	if let Ok(mut f) =
+		std::fs::OpenOptions::new().create(true).append(true).open(crate::paths::log_dir().join("backend_process.log"))
+	{
+		let _ = writeln!(f, "[{}] {msg}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -188,10 +197,10 @@ mod tests {
 	fn wait_for_exit(b: &BackendProcess) {
 		let deadline = Instant::now() + Duration::from_secs(5);
 		while Instant::now() < deadline {
-			if let Some(c) = b.child.lock().unwrap().as_mut() {
-				if c.try_wait().ok().flatten().is_some() {
-					return;
-				}
+			if let Some(c) = b.child.lock().unwrap().as_mut()
+				&& c.try_wait().ok().flatten().is_some()
+			{
+				return;
 			}
 			thread::sleep(Duration::from_millis(20));
 		}
@@ -223,14 +232,5 @@ mod tests {
 		b.shutdown(|| {});
 		assert!(!b.restart_if_dead());
 		assert!(b.child.lock().unwrap().is_none());
-	}
-}
-
-fn log(msg: &str) {
-	use std::io::Write;
-	if let Ok(mut f) =
-		std::fs::OpenOptions::new().create(true).append(true).open(crate::paths::log_dir().join("backend_process.log"))
-	{
-		let _ = writeln!(f, "[{}] {msg}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
 	}
 }

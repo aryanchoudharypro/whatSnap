@@ -5,7 +5,7 @@ use whantv::ChatMessage;
 fn run_stress_test_simulation() {
 	let backend_dir = std::path::PathBuf::from("backend");
 	let output = Command::new("go")
-		.args(&["test", "-v", "./..."])
+		.args(["test", "-v", "./..."])
 		.current_dir(&backend_dir)
 		.output()
 		.expect("Failed to execute backend go test");
@@ -61,7 +61,7 @@ fn run_stress_test_simulation() {
 			elapsed
 		);
 
-		page_msgs.extend(loaded_history.drain(..));
+		page_msgs.append(&mut loaded_history);
 		loaded_history = page_msgs;
 	}
 

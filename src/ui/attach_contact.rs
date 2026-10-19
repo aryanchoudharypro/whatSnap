@@ -65,10 +65,10 @@ pub fn build_attach_contact_dialog(parent: &impl WxWidget) -> AttachContactDialo
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	let dlg_esc1 = dialog.clone();
+	let dlg_esc1 = dialog;
 	search_field.on_key_down(crate::ui::keys::escape_cancels(dlg_esc1));
 
-	let dlg_esc2 = dialog.clone();
+	let dlg_esc2 = dialog;
 	contacts_listbox.on_key_down(crate::ui::keys::escape_cancels(dlg_esc2));
 
 	AttachContactDialogParts { dialog, search_field, contacts_listbox, selection_announcer, send_btn, cancel_btn }

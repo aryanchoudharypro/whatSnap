@@ -120,10 +120,7 @@ pub(crate) fn send_text_to_chosen_chats(
 	let names: Vec<String> =
 		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
 	drop(s);
-	crate::announce::announce(
-		parts.conversations_parts.messages_announcer.clone(),
-		&format!("Sent to {}.", names.join(", ")),
-	);
+	crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Sent to {}.", names.join(", ")));
 }
 
 /// Shows a group's invite link, with ways to copy it, send it, or replace it
@@ -191,7 +188,7 @@ pub(crate) fn show_group_invite_link(
 	copy_btn.on_click(move |_| {
 		let copied = Clipboard::get().locker().is_some_and(|_locker| Clipboard::get().set_text(&link_copy));
 		let message = if copied { "Link copied." } else { "Couldn't copy the link." };
-		crate::announce::announce(announcer_copy.clone(), message);
+		crate::announce::announce(announcer_copy, message);
 	});
 	let next_send = next.clone();
 	send_btn.on_click(move |_| {
@@ -400,7 +397,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let link_copy = link.clone();
 	copy_btn.on_click(move |_| {
 		let copied = Clipboard::get().locker().is_some_and(|_locker| Clipboard::get().set_text(&link_copy));
-		crate::announce::announce(announcer.clone(), if copied { "Link copied." } else { "Couldn't copy the link." });
+		crate::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
 	});
 	let next_manage = next.clone();
 	manage_btn.on_click(move |_| {

@@ -139,16 +139,15 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		}
 		"call_reaction" => announce_call(parts, &format!("{} reacted {}.", text(data, "name"), text(data, "emoji"))),
 		"call_waiting_room" => waiting_room(state, parts, data),
-		"call_action_done" => match text(data, "what").as_str() {
-			"hand" => {
+		"call_action_done" => {
+			if text(data, "what").as_str() == "hand" {
 				let mut s = state.borrow_mut();
 				s.call_video.hand_raised = on;
 				show_call_buttons(&s, parts);
 				drop(s);
 				announce_call(parts, if on { "Your hand is raised." } else { "You lowered your hand." });
 			}
-			_ => {}
-		},
+		}
 		"call_action_failed" => announce_call(parts, &text(data, "message")),
 		_ => {}
 	}
@@ -230,7 +229,7 @@ fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: S
 	let url_copy = url.clone();
 	copy_btn.on_click(move |_| {
 		let copied = Clipboard::get().locker().is_some_and(|_locker| Clipboard::get().set_text(&url_copy));
-		crate::announce::announce(announcer.clone(), if copied { "Link copied." } else { "Couldn't copy the link." });
+		crate::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
 	});
 	send_btn.on_click(move |_| dialog.end_modal(SEND));
 	join_btn.on_click(move |_| dialog.end_modal(JOIN));
@@ -244,9 +243,9 @@ fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: S
 	if result == SEND {
 		let text = format!("Join my WhatsApp {} call: {}", kind, url);
 		crate::ui_commands::links::send_text_to_chosen_chats(state, parts, "Send call link", &text);
-	} else if result == JOIN {
-		if let Some(whantv::WhatsAppLink::Call { token, video }) = whantv::parse_whatsapp_link(&url) {
-			join_call_link(state, parts, token, video);
-		}
+	} else if result == JOIN
+		&& let Some(whantv::WhatsAppLink::Call { token, video }) = whantv::parse_whatsapp_link(&url)
+	{
+		join_call_link(state, parts, token, video);
 	}
 }

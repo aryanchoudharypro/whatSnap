@@ -68,7 +68,7 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 
 	dialog.center();
 
-	let dlg_esc1 = dialog.clone();
+	let dlg_esc1 = dialog;
 	search_field.on_key_down(crate::ui::keys::escape_cancels(dlg_esc1));
 
 	// Enter-to-select and Escape-to-cancel for `results_list` are bound in

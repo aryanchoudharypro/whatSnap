@@ -50,14 +50,14 @@ pub(crate) fn prepare_add_members(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 
 pub(crate) fn add_group_members(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, participants: Vec<String>) {
 	let group_jid = state.borrow().add_members_state.group_jid.clone();
-	if let Some(group_jid) = group_jid {
-		if !participants.is_empty() {
-			let payload = serde_json::json!({
-				"action": "update_group_participants",
-				"data": { "jid": group_jid, "participants": participants, "action": "add" }
-			});
-			let _ = state.borrow().ws_tx.send(payload.to_string());
-		}
+	if let Some(group_jid) = group_jid
+		&& !participants.is_empty()
+	{
+		let payload = serde_json::json!({
+			"action": "update_group_participants",
+			"data": { "jid": group_jid, "participants": participants, "action": "add" }
+		});
+		let _ = state.borrow().ws_tx.send(payload.to_string());
 	}
 }
 
@@ -121,7 +121,7 @@ pub(crate) fn group_member_selection_changed(state: &Rc<RefCell<AppState>>, part
 
 pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, mode: ContactPickerMode) {
 	if mode == ContactPickerMode::AddCallParticipant && state.borrow().active_call_id.is_none() {
-		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "No active call.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer, "No active call.");
 		return;
 	}
 	state.borrow_mut().contact_picker_mode = mode;
@@ -176,7 +176,7 @@ pub(crate) fn select_contact_picker_result(state: &Rc<RefCell<AppState>>, parts:
 				drop(s);
 				// The outcome arrives as call_participant_added /
 				// call_participant_add_failed once WhatsApp has answered.
-				crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Adding to call...");
+				crate::announce::announce(parts.conversations_parts.messages_announcer, "Adding to call...");
 			}
 		}
 		ContactPickerMode::BlockContact => crate::ui_commands::blocking::block_picked_contact(state, parts, jid),
@@ -219,47 +219,47 @@ pub(crate) fn update_group_settings(
 		});
 		let _ = s.ws_tx.send(msg_lock.to_string());
 
-		crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Group settings updated.");
+		crate::announce::announce(parts.conversations_parts.messages_announcer, "Group settings updated.");
 	}
 }
 
 pub(crate) fn toggle_group_member_admin(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, idx: u32) {
 	let s = state.borrow();
-	if let Some(jid) = s.selected_chat.clone() {
-		if let Some(member_jid) = s.group_data_visible_member_jids.get(idx as usize).cloned() {
-			let is_admin = s
-				.group_data_member_jids
-				.iter()
-				.position(|j| j == &member_jid)
-				.and_then(|i| s.group_data_member_admin.get(i).copied())
-				.unwrap_or(false);
-			let action = if is_admin { "demote" } else { "promote" };
-			let msg = serde_json::json!({
-				"action": "update_group_participants",
-				"data": { "jid": jid, "participants": [member_jid], "action": action }
-			});
-			let _ = s.ws_tx.send(msg.to_string());
-		}
+	if let Some(jid) = s.selected_chat.clone()
+		&& let Some(member_jid) = s.group_data_visible_member_jids.get(idx as usize).cloned()
+	{
+		let is_admin = s
+			.group_data_member_jids
+			.iter()
+			.position(|j| j == &member_jid)
+			.and_then(|i| s.group_data_member_admin.get(i).copied())
+			.unwrap_or(false);
+		let action = if is_admin { "demote" } else { "promote" };
+		let msg = serde_json::json!({
+			"action": "update_group_participants",
+			"data": { "jid": jid, "participants": [member_jid], "action": action }
+		});
+		let _ = s.ws_tx.send(msg.to_string());
 	}
 }
 
 pub(crate) fn remove_group_member(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: u32) {
 	let s = state.borrow();
-	if let Some(jid) = s.selected_chat.clone() {
-		if let Some(member_jid) = s.group_data_visible_member_jids.get(idx as usize).cloned() {
-			let label = s.group_data_members.get(idx as usize).cloned().unwrap_or_default();
-			drop(s);
-			let confirm =
-				MessageDialog::builder(&parts.frame, &format!("Remove {} from the group?", label), "Remove Member")
-					.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-					.build();
-			if confirm.show_modal() == wxdragon::id::ID_YES {
-				let msg = serde_json::json!({
-					"action": "update_group_participants",
-					"data": { "jid": jid, "participants": [member_jid], "action": "remove" }
-				});
-				let _ = state.borrow().ws_tx.send(msg.to_string());
-			}
+	if let Some(jid) = s.selected_chat.clone()
+		&& let Some(member_jid) = s.group_data_visible_member_jids.get(idx as usize).cloned()
+	{
+		let label = s.group_data_members.get(idx as usize).cloned().unwrap_or_default();
+		drop(s);
+		let confirm =
+			MessageDialog::builder(&parts.frame, &format!("Remove {} from the group?", label), "Remove Member")
+				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+				.build();
+		if confirm.show_modal() == wxdragon::id::ID_YES {
+			let msg = serde_json::json!({
+				"action": "update_group_participants",
+				"data": { "jid": jid, "participants": [member_jid], "action": "remove" }
+			});
+			let _ = state.borrow().ws_tx.send(msg.to_string());
 		}
 	}
 }
@@ -283,7 +283,7 @@ pub(crate) fn join_community_subgroup(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	});
 	let _ = s.ws_tx.send(msg.to_string());
 	drop(s);
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Joining group...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Joining group...");
 }
 
 /// Names the Groups tab's button after what it will do to the selected row.
@@ -340,10 +340,7 @@ pub(crate) fn leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(
-		parts.conversations_parts.messages_announcer.clone(),
-		&format!("Left group {}.", chat_name),
-	);
+	crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Left group {}.", chat_name));
 }
 
 /// Sets our own member tag in the open group; an empty tag removes it.
@@ -358,7 +355,7 @@ pub(crate) fn set_member_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	});
 	let _ = s.ws_tx.send(payload.to_string());
 	let text = if label.is_empty() { "Removing your tag..." } else { "Setting your tag..." };
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), text);
+	crate::announce::announce(parts.conversations_parts.messages_announcer, text);
 }
 
 /// Who the open 1:1 chat's info page is about, as `user_info` described them:
@@ -473,7 +470,7 @@ pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	}
 	let payload = serde_json::json!({ "action": "delete_contact", "data": { "jid": card.jid } });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), "Deleting contact...");
+	crate::announce::announce(parts.conversations_parts.messages_announcer, "Deleting contact...");
 }
 
 #[cfg(test)]

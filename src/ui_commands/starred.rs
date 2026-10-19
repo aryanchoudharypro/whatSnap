@@ -37,7 +37,7 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				}
 			});
 			let _ = state_menu.borrow().ws_tx.send(payload.to_string());
-			crate::announce::announce(parts_menu.conversations_parts.messages_announcer.clone(), "Message unstarred.");
+			crate::announce::announce(parts_menu.conversations_parts.messages_announcer, "Message unstarred.");
 		}
 		_ => {}
 	});

@@ -75,7 +75,7 @@ fn add_to_batch(s: &mut AppState, paths: Vec<String>) -> usize {
 fn announce_left_out(parts: &Rc<WindowParts>, left_out: usize) {
 	if left_out > 0 {
 		crate::announce::announce(
-			parts.conversations_parts.messages_announcer.clone(),
+			parts.conversations_parts.messages_announcer,
 			&format!(
 				"You can send up to {MAX_BATCH_FILES} files at once; {left_out} file{} weren't added.",
 				if left_out == 1 { "" } else { "s" }
@@ -132,7 +132,7 @@ fn show_attachment_dialog(
 		d.dialog.layout();
 	}
 	crate::announce::announce(
-		parts.conversations_parts.messages_announcer.clone(),
+		parts.conversations_parts.messages_announcer,
 		&format!("{}: {}", announcement, file_names.len()),
 	);
 	if captioned {
@@ -195,7 +195,7 @@ pub(crate) fn send_poll(
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 	let sending = if correct_answer.is_some() { "Sending quiz..." } else { "Sending poll..." };
-	crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), sending);
+	crate::announce::announce(parts.conversations_parts.messages_announcer, sending);
 }
 
 pub(crate) fn prepare_attach_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -237,7 +237,7 @@ pub(crate) fn send_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		let _ = state.borrow().ws_tx.send(payload.to_string());
 		let count = contact_jids.len();
 		crate::announce::announce(
-			parts.conversations_parts.messages_announcer.clone(),
+			parts.conversations_parts.messages_announcer,
 			&format!("Sending {} contact{}...", count, if count == 1 { "" } else { "s" }),
 		);
 	}
@@ -248,8 +248,8 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		return;
 	}
 	if let Some(_locker) = wxdragon::prelude::Clipboard::get().locker() {
-		let mut fdo = wxdragon::prelude::FileDataObject::new();
-		if wxdragon::prelude::Clipboard::get().get_data(&mut fdo) {
+		let fdo = wxdragon::prelude::FileDataObject::new();
+		if wxdragon::prelude::Clipboard::get().get_data(&fdo) {
 			let paths = fdo.get_files();
 			if !paths.is_empty() {
 				let mut s = state.borrow_mut();
@@ -436,12 +436,12 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 		}
 		if count == 1 {
 			crate::announce::announce(
-				parts.conversations_parts.messages_announcer.clone(),
+				parts.conversations_parts.messages_announcer,
 				&format!("Downloading {}", to_start[0].1),
 			);
 		} else {
 			crate::announce::announce(
-				parts.conversations_parts.messages_announcer.clone(),
+				parts.conversations_parts.messages_announcer,
 				&format!("Downloading album of {} files...", count),
 			);
 		}
@@ -450,16 +450,15 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 
 pub(crate) fn open_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let s = state.borrow();
-	if let (Some(jid), Some(idx)) = (s.selected_chat.clone(), parts.conversations_parts.messages_list.get_selection()) {
-		if let Some(item) = s.display_items.get(idx as usize) {
-			if let Some(msg) = item.messages().iter().find(|m| m.is_media_downloaded()) {
-				let payload = serde_json::json!({
-					"action": "open_media",
-					"data": { "jid": jid, "message_id": msg.id }
-				});
-				let _ = s.ws_tx.send(payload.to_string());
-			}
-		}
+	if let (Some(jid), Some(idx)) = (s.selected_chat.clone(), parts.conversations_parts.messages_list.get_selection())
+		&& let Some(item) = s.display_items.get(idx as usize)
+		&& let Some(msg) = item.messages().iter().find(|m| m.is_media_downloaded())
+	{
+		let payload = serde_json::json!({
+			"action": "open_media",
+			"data": { "jid": jid, "message_id": msg.id }
+		});
+		let _ = s.ws_tx.send(payload.to_string());
 	}
 }
 
@@ -485,21 +484,21 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 						.with_default_file(&filename)
 						.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 						.build();
-					if dialog.show_modal() == wxdragon::id::ID_OK {
-						if let Some(path) = dialog.get_path() {
-							if msg.is_media_downloaded() {
-								let _ = std::fs::copy(&msg.media_path, &path);
-								crate::announce::announce(
-									parts.conversations_parts.messages_announcer.clone(),
-									"File saved successfully.",
-								);
-							} else {
-								let payload = serde_json::json!({
-									"action": "save_media_as",
-									"data": { "jid": jid, "message_id": msg.id, "dest_path": path }
-								});
-								let _ = state.borrow().ws_tx.send(payload.to_string());
-							}
+					if dialog.show_modal() == wxdragon::id::ID_OK
+						&& let Some(path) = dialog.get_path()
+					{
+						if msg.is_media_downloaded() {
+							let _ = std::fs::copy(&msg.media_path, &path);
+							crate::announce::announce(
+								parts.conversations_parts.messages_announcer,
+								"File saved successfully.",
+							);
+						} else {
+							let payload = serde_json::json!({
+								"action": "save_media_as",
+								"data": { "jid": jid, "message_id": msg.id, "dest_path": path }
+							});
+							let _ = state.borrow().ws_tx.send(payload.to_string());
 						}
 					}
 				}
@@ -521,34 +520,34 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 					("Select folder to save all media into", "media files")
 				};
 				let dir_dialog = wxdragon::DirDialog::builder(&parts.frame, dlg_title, "").build();
-				if dir_dialog.show_modal() == wxdragon::id::ID_OK {
-					if let Some(picked_path) = dir_dialog.get_path() {
-						let dest_dir = std::path::PathBuf::from(&picked_path);
-						let mut saved_count = 0;
-						for (idx, msg) in messages.iter().enumerate() {
-							if msg.is_media_downloaded() {
-								let src = std::path::Path::new(&msg.media_path);
-								let ext = src
-									.extension()
-									.and_then(|e| e.to_str())
-									.unwrap_or(if msg.media_type == "video" { "mp4" } else { "jpg" });
-								let fn_str = if !msg.media_filename.is_empty() {
-									msg.media_filename.clone()
-								} else {
-									let prefix = if msg.media_type == "video" { "video" } else { "photo" };
-									format!("{}_{:02}.{}", prefix, idx + 1, ext)
-								};
-								let dest_file = dest_dir.join(&fn_str);
-								if std::fs::copy(src, &dest_file).is_ok() {
-									saved_count += 1;
-								}
+				if dir_dialog.show_modal() == wxdragon::id::ID_OK
+					&& let Some(picked_path) = dir_dialog.get_path()
+				{
+					let dest_dir = std::path::PathBuf::from(&picked_path);
+					let mut saved_count = 0;
+					for (idx, msg) in messages.iter().enumerate() {
+						if msg.is_media_downloaded() {
+							let src = std::path::Path::new(&msg.media_path);
+							let ext = src
+								.extension()
+								.and_then(|e| e.to_str())
+								.unwrap_or(if msg.media_type == "video" { "mp4" } else { "jpg" });
+							let fn_str = if !msg.media_filename.is_empty() {
+								msg.media_filename.clone()
+							} else {
+								let prefix = if msg.media_type == "video" { "video" } else { "photo" };
+								format!("{}_{:02}.{}", prefix, idx + 1, ext)
+							};
+							let dest_file = dest_dir.join(&fn_str);
+							if std::fs::copy(src, &dest_file).is_ok() {
+								saved_count += 1;
 							}
 						}
-						crate::announce::announce(
-							parts.conversations_parts.messages_announcer.clone(),
-							&format!("Saved {} {} to folder.", saved_count, noun),
-						);
 					}
+					crate::announce::announce(
+						parts.conversations_parts.messages_announcer,
+						&format!("Saved {} {} to folder.", saved_count, noun),
+					);
 				}
 			}
 		}
@@ -572,23 +571,20 @@ pub(crate) fn download_media_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			"data": { "jid": jid, "message_id": message_id }
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
-		crate::announce::announce(
-			parts.conversations_parts.messages_announcer.clone(),
-			&format!("Downloading {}", filename),
-		);
+		crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Downloading {}", filename));
 	}
 }
 
 pub(crate) fn open_media_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, message_id: String) {
 	let s = state.borrow();
-	if let Some(jid) = s.selected_chat.clone() {
-		if s.messages.iter().any(|m| m.id == message_id && m.is_media_downloaded()) {
-			let payload = serde_json::json!({
-				"action": "open_media",
-				"data": { "jid": jid, "message_id": message_id }
-			});
-			let _ = s.ws_tx.send(payload.to_string());
-		}
+	if let Some(jid) = s.selected_chat.clone()
+		&& s.messages.iter().any(|m| m.id == message_id && m.is_media_downloaded())
+	{
+		let payload = serde_json::json!({
+			"action": "open_media",
+			"data": { "jid": jid, "message_id": message_id }
+		});
+		let _ = s.ws_tx.send(payload.to_string());
 	}
 }
 
@@ -608,21 +604,18 @@ pub(crate) fn save_media_message_as(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 			.with_default_file(&filename)
 			.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 			.build();
-		if dialog.show_modal() == wxdragon::id::ID_OK {
-			if let Some(path) = dialog.get_path() {
-				if msg.is_media_downloaded() {
-					let _ = std::fs::copy(&msg.media_path, &path);
-					crate::announce::announce(
-						parts.conversations_parts.messages_announcer.clone(),
-						"File saved successfully.",
-					);
-				} else {
-					let payload = serde_json::json!({
-						"action": "save_media_as",
-						"data": { "jid": jid, "message_id": msg.id, "dest_path": path }
-					});
-					let _ = state.borrow().ws_tx.send(payload.to_string());
-				}
+		if dialog.show_modal() == wxdragon::id::ID_OK
+			&& let Some(path) = dialog.get_path()
+		{
+			if msg.is_media_downloaded() {
+				let _ = std::fs::copy(&msg.media_path, &path);
+				crate::announce::announce(parts.conversations_parts.messages_announcer, "File saved successfully.");
+			} else {
+				let payload = serde_json::json!({
+					"action": "save_media_as",
+					"data": { "jid": jid, "message_id": msg.id, "dest_path": path }
+				});
+				let _ = state.borrow().ws_tx.send(payload.to_string());
 			}
 		}
 	}
@@ -642,27 +635,26 @@ pub(crate) fn copy_album_to_clipboard(
 		let mut used_names: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
 
 		for id in &message_ids {
-			if let Some(msg) = s.messages.iter().find(|m| m.id == *id) {
-				if msg.is_media_downloaded()
-					&& !msg.media_path.is_empty()
-					&& std::path::Path::new(&msg.media_path).exists()
+			if let Some(msg) = s.messages.iter().find(|m| m.id == *id)
+				&& msg.is_media_downloaded()
+				&& !msg.media_path.is_empty()
+				&& std::path::Path::new(&msg.media_path).exists()
+			{
+				let display_name = clipboard::unique_clipboard_filename(&msg.display_filename(), &mut used_names);
+				let temp_path = temp_dir.join(&display_name);
+				let copy_path = if std::fs::copy(&msg.media_path, &temp_path).is_ok() {
+					temp_path.to_string_lossy().to_string()
+				} else {
+					msg.media_path.clone()
+				};
+				p.push(copy_path);
+				if msg.is_audio
+					|| msg.media_type == "voice"
+					|| msg.media_type == "audio"
+					|| msg.text.starts_with("[Voice Message]")
+					|| msg.text.starts_with("[Audio]")
 				{
-					let display_name = clipboard::unique_clipboard_filename(&msg.display_filename(), &mut used_names);
-					let temp_path = temp_dir.join(&display_name);
-					let copy_path = if std::fs::copy(&msg.media_path, &temp_path).is_ok() {
-						temp_path.to_string_lossy().to_string()
-					} else {
-						msg.media_path.clone()
-					};
-					p.push(copy_path);
-					if msg.is_audio
-						|| msg.media_type == "voice"
-						|| msg.media_type == "audio"
-						|| msg.text.starts_with("[Voice Message]")
-						|| msg.text.starts_with("[Audio]")
-					{
-						voice_count += 1;
-					}
+					voice_count += 1;
 				}
 			}
 		}
@@ -678,10 +670,10 @@ pub(crate) fn copy_album_to_clipboard(
 			} else {
 				format!("Copied {} files to clipboard.", paths.len())
 			};
-			crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), &ann_text);
+			crate::announce::announce(parts.conversations_parts.messages_announcer, &ann_text);
 		} else {
 			crate::announce::announce(
-				parts.conversations_parts.messages_announcer.clone(),
+				parts.conversations_parts.messages_announcer,
 				"Failed to copy file to clipboard.",
 			);
 		}
@@ -698,7 +690,7 @@ pub(crate) fn copy_album_to_clipboard(
 			let _ = s.ws_tx.send(payload.to_string());
 		}
 		crate::announce::announce(
-			parts.conversations_parts.messages_announcer.clone(),
+			parts.conversations_parts.messages_announcer,
 			"Downloading file before copying to clipboard...",
 		);
 	}

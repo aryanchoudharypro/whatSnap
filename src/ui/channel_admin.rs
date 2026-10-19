@@ -88,13 +88,13 @@ pub fn ask_channel_details(
 		if let Some(path) = pick_channel_picture(&dialog) {
 			let file = std::path::Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();
 			picture_btn.set_label(&format!("Picture: {} (change...)", file));
-			crate::announce::announce(announcer.clone(), &format!("Picture chosen: {}.", file));
+			crate::announce::announce(announcer, &format!("Picture chosen: {}.", file));
 			*picture_choice.borrow_mut() = Some(path);
 		}
 	});
 	ok_btn.on_click(move |_| {
 		if name_field.get_value().trim().is_empty() {
-			crate::announce::announce(announcer.clone(), "Give the channel a name.");
+			crate::announce::announce(announcer, "Give the channel a name.");
 			name_field.set_focus();
 			return;
 		}

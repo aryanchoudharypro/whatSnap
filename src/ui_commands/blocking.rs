@@ -32,7 +32,7 @@ fn announce(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message: &st
 	let dialog = state.borrow().blocked_contacts.clone();
 	match dialog {
 		Some(dialog) => dialog.announce(message),
-		None => crate::announce::announce(parts.conversations_parts.messages_announcer.clone(), message),
+		None => crate::announce::announce(parts.conversations_parts.messages_announcer, message),
 	}
 }
 

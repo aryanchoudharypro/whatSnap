@@ -81,7 +81,6 @@ pub(crate) fn log_line(msg: &str) {
 pub struct CallVideoSendState {
 	stop: Arc<AtomicBool>,
 	preferred_device: Arc<Mutex<Option<String>>>,
-	force_reopen: Arc<AtomicBool>,
 	force_keyframe: Arc<AtomicBool>,
 }
 
@@ -91,13 +90,6 @@ impl CallVideoSendState {
 	/// the change and reopens on the new device itself.
 	pub fn set_device(&self, name: Option<String>) {
 		*self.preferred_device.lock().unwrap() = name;
-	}
-
-	/// Forces a reopen even though the preferred device name didn't change -
-	/// used when "System Default" is selected and the OS's notion of the
-	/// default camera has drifted (see the periodic check in `encode_loop`).
-	pub fn force_device_refresh(&self) {
-		self.force_reopen.store(true, Ordering::Relaxed);
 	}
 
 	/// Asks the encoder to make its next access unit an IDR - wired to the
@@ -141,7 +133,7 @@ pub fn start_video_send(
 		run(target_port, source, thread_stop, thread_preferred, thread_force_reopen, thread_force_keyframe, ui_tx);
 	});
 
-	CallVideoSendState { stop, preferred_device, force_reopen, force_keyframe }
+	CallVideoSendState { stop, preferred_device, force_keyframe }
 }
 
 fn run(
@@ -406,12 +398,11 @@ fn camera_loop(
 		if last_drift_check.elapsed() >= Duration::from_secs(3) {
 			last_drift_check = Instant::now();
 			let is_default = preferred_device.lock().unwrap().is_none();
-			if is_default {
-				if let Some(current_default) = video_devices::resolve_camera_symbolic_link(None) {
-					if current_default != opened_symbolic_link {
-						return;
-					}
-				}
+			if is_default
+				&& let Some(current_default) = video_devices::resolve_camera_symbolic_link(None)
+				&& current_default != opened_symbolic_link
+			{
+				return;
 			}
 		}
 

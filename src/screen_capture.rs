@@ -53,7 +53,7 @@ pub(crate) fn bgra_to_nv12(bgra: &[u8], width: usize, height: usize, out: &mut [
 	let (luma, chroma) = out.split_at_mut(width * height);
 	for (row, line) in bgra.chunks_exact(width * 4).take(height).enumerate() {
 		let luma_row = &mut luma[row * width..(row + 1) * width];
-		for (pixel, y) in line.chunks_exact(4).zip(luma_row.iter_mut()) {
+		for (pixel, y) in line.as_chunks::<4>().0.iter().zip(luma_row.iter_mut()) {
 			let (b, g, r) = (pixel[0] as i32, pixel[1] as i32, pixel[2] as i32);
 			*y = (((66 * r + 129 * g + 25 * b + 128) >> 8) + 16) as u8;
 		}

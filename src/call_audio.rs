@@ -762,8 +762,12 @@ pub fn start_audio_streams(
 			match socket_read.recv_from(&mut buf) {
 				Ok((size, _)) => {
 					reader_recv_count_thread.fetch_add(1, Ordering::Relaxed);
-					let frame: Vec<f32> =
-						buf[..size].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+					let frame: Vec<f32> = buf[..size]
+						.as_chunks::<4>()
+						.0
+						.iter()
+						.map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+						.collect();
 					// A full channel means playback is falling behind; drop
 					// the frame rather than block this thread's UDP reads.
 					if frame_tx.try_send(frame).is_err() {
@@ -886,7 +890,8 @@ mod tests {
 			pack_call_frame(&frame, Some(&mut encoder), &mut datagram);
 
 			let (pcm, packet) = datagram.split_at(FRAME_SAMPLES * 4);
-			let sent: Vec<f32> = pcm.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+			let sent: Vec<f32> =
+				pcm.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
 			assert_eq!(sent, frame, "the PCM half is the frame, untouched");
 
 			// What the other side's WhatsApp expects on this payload type: one

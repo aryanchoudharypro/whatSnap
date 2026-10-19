@@ -175,7 +175,7 @@ pub fn pick_with(
 	};
 	fill("");
 	let counts = (words.on.to_string(), words.one.to_string(), words.many.to_string());
-	crate::announce::announce(announcer.clone(), &counted(&counts, state.borrow().checked.len()));
+	crate::announce::announce(announcer, &counted(&counts, state.borrow().checked.len()));
 
 	// Rebuilt only once typing pauses, as in the other contact pickers:
 	// rebuilding a check list per keystroke leaves NVDA querying rows that
@@ -187,7 +187,7 @@ pub fn pick_with(
 		let query = search_field.get_value().to_lowercase().trim().to_string();
 		let shown = fill(&query);
 		let count = state_search.borrow().checked.len();
-		crate::announce::announce(announcer.clone(), &format!("{} shown. {}", shown, counted(&search_words, count)));
+		crate::announce::announce(announcer, &format!("{} shown. {}", shown, counted(&search_words, count)));
 	});
 	let timer_for_typing = search_timer.clone();
 	search_field.on_text_changed(move |_| {
@@ -211,7 +211,7 @@ pub fn pick_with(
 			off.as_str()
 		};
 		crate::announce::announce(
-			announcer.clone(),
+			announcer,
 			&format!("{}: {}. {}", label, now, counted(&toggle_words, s.checked.len())),
 		);
 	});
@@ -226,7 +226,7 @@ pub fn pick_with(
 		if let Some(message) = &require_one
 			&& state_done.borrow().checked.is_empty()
 		{
-			crate::announce::announce(announcer.clone(), message);
+			crate::announce::announce(announcer, message);
 			return;
 		}
 		dialog.end_modal(ID_OK);

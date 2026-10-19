@@ -134,7 +134,7 @@ pub fn show_send_to_dialog(
 		}
 		s.shown = shown.into_iter().map(|t| t.jid).collect();
 		crate::announce::announce(
-			announcer_search.clone(),
+			announcer_search,
 			&format!("{} shown. {}", s.shown.len(), selected_summary(s.checked.len())),
 		);
 	});
@@ -155,7 +155,7 @@ pub fn show_send_to_dialog(
 			if s.checked.len() >= MAX_RECIPIENTS {
 				list.check(idx, false);
 				crate::announce::announce(
-					announcer_toggle.clone(),
+					announcer_toggle,
 					&format!("You can only send to {} chats at once. {} not selected.", MAX_RECIPIENTS, label),
 				);
 				return;
@@ -164,13 +164,13 @@ pub fn show_send_to_dialog(
 				s.checked.push(jid);
 			}
 			crate::announce::announce(
-				announcer_toggle.clone(),
+				announcer_toggle,
 				&format!("{}: selected. {}", label, selected_summary(s.checked.len())),
 			);
 		} else {
 			s.checked.retain(|j| *j != jid);
 			crate::announce::announce(
-				announcer_toggle.clone(),
+				announcer_toggle,
 				&format!("{}: not selected. {}", label, selected_summary(s.checked.len())),
 			);
 		}
@@ -185,11 +185,11 @@ pub fn show_send_to_dialog(
 	send_btn.on_click(move |_| {
 		let s = state_send.borrow();
 		if s.checked.is_empty() {
-			crate::announce::announce(announcer_send.clone(), "Choose at least one chat to send to.");
+			crate::announce::announce(announcer_send, "Choose at least one chat to send to.");
 			return;
 		}
 		if message_field.get_value().trim().is_empty() {
-			crate::announce::announce(announcer_send.clone(), "The message is empty.");
+			crate::announce::announce(announcer_send, "The message is empty.");
 			return;
 		}
 		dialog.end_modal(ID_OK);

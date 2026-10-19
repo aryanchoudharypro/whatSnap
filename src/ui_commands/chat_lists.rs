@@ -29,7 +29,7 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 /// Says `message` in Manage Lists while it's open, or the main window.
 fn announce(state: &Rc<RefCell<AppState>>, parts: &WindowParts, message: &str) {
 	let announcer = state.borrow().list_manager.as_ref().map(|m| m.announcer());
-	let announcer = announcer.unwrap_or_else(|| parts.conversations_parts.messages_announcer.clone());
+	let announcer = announcer.unwrap_or(parts.conversations_parts.messages_announcer);
 	crate::announce::announce(announcer, message);
 }
 
@@ -236,7 +236,7 @@ impl ListManager {
 
 	/// Where to say what happened: whichever of its dialogs is in front.
 	fn announcer(&self) -> StaticText {
-		self.chats.borrow().as_ref().map_or(self.announcer.clone(), |c| c.announcer.clone())
+		self.chats.borrow().as_ref().map_or(self.announcer, |c| c.announcer)
 	}
 }
 

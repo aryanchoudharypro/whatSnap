@@ -113,7 +113,7 @@ impl ChannelDirectory {
 		} else {
 			format!("Loading recommended channels{}...", place)
 		};
-		crate::announce::announce(self.announcer.clone(), &loading);
+		crate::announce::announce(self.announcer, &loading);
 	}
 
 	/// Lists channels like the given one, as the official apps suggest on a
@@ -128,7 +128,7 @@ impl ChannelDirectory {
 		let payload = serde_json::json!({ "action": "get_similar_channels", "data": { "jid": jid } });
 		let _ = self.ws_tx.send(payload.to_string());
 		self.dialog.set_label(&format!("Channels like {}", name));
-		crate::announce::announce(self.announcer.clone(), &format!("Loading channels like {}...", name));
+		crate::announce::announce(self.announcer, &format!("Loading channels like {}...", name));
 	}
 
 	/// Shows a page of results from the backend.
@@ -198,7 +198,7 @@ impl ChannelDirectory {
 		drop(s);
 		self.selection_changed();
 		self.dialog.layout();
-		crate::announce::announce(self.announcer.clone(), &message);
+		crate::announce::announce(self.announcer, &message);
 	}
 
 	/// Updates a row after following or unfollowing from anywhere.
