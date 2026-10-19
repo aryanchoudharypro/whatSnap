@@ -239,11 +239,11 @@ pub(crate) fn audio_file_seconds(path: &str) -> u64 {
 }
 
 pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> crate::error::Result<()> {
-	use hound::{WavReader, WavWriter};
+	use crate::wav::{WavReader, WavWriter};
 	let mut spec = None;
-	let mut writer: Option<WavWriter<std::io::BufWriter<std::fs::File>>> = None;
+	let mut writer: Option<WavWriter> = None;
 	for seg in segments {
-		let mut reader = WavReader::open(seg)?;
+		let reader = WavReader::open(seg)?;
 		let seg_spec = reader.spec();
 		if writer.is_none() {
 			spec = Some(seg_spec);
@@ -253,7 +253,7 @@ pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> crate:
 			continue;
 		}
 		if let Some(ref mut w) = writer {
-			for sample in reader.samples::<i16>() {
+			for sample in reader {
 				w.write_sample(sample?)?;
 			}
 		}
@@ -448,14 +448,14 @@ pub(crate) fn compute_voice_waveform(wav_path: &str) -> Option<Vec<u8>> {
 	const MIN_DB: f32 = -60.0;
 	const MAX_DB: f32 = -10.0;
 
-	let mut reader = hound::WavReader::open(wav_path).ok()?;
+	let reader = crate::wav::WavReader::open(wav_path).ok()?;
 	let spec = reader.spec();
 	let channels = spec.channels.max(1) as usize;
 	// 10 ms windows, first channel only (WhatsApp measures a mono stream).
 	let window = (spec.sample_rate as usize / 100).max(1);
 	let mut levels = Vec::new();
 	let (mut sum, mut count) = (0.0f64, 0usize);
-	for (i, sample) in reader.samples::<i16>().enumerate() {
+	for (i, sample) in reader.enumerate() {
 		if i % channels != 0 {
 			continue;
 		}
@@ -496,14 +496,17 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 		io::{BufWriter, Write},
 	};
 
-	use hound::WavReader;
-	use ogg::{PacketWriteEndInfo, PacketWriter};
 	use opus::{Application, Channels, Encoder};
+
+	use crate::{
+		ogg::{OggWriter, PacketEnd},
+		wav::WavReader,
+	};
 
 	const FRAME: usize = 960; // 20 ms at 48 kHz
 	const PACKETS_PER_PAGE: usize = 50; // one second
 
-	let mut reader = WavReader::open(wav_path)?;
+	let reader = WavReader::open(wav_path)?;
 	let spec = reader.spec();
 	if spec.sample_rate != 48000 {
 		return Err(crate::error::err!("Sample rate must be 48000"));
@@ -515,8 +518,7 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 		Encoder::new(48000, if is_stereo { Channels::Stereo } else { Channels::Mono }, Application::Voip)?;
 	let pre_skip = encoder.get_lookahead()?.max(0) as usize;
 
-	let mut writer = PacketWriter::new(BufWriter::new(File::create(ogg_path)?));
-	let serial = 12345;
+	let mut writer = OggWriter::new(BufWriter::new(File::create(ogg_path)?), 12345);
 
 	let mut head = Vec::with_capacity(19);
 	head.extend_from_slice(b"OpusHead");
@@ -526,18 +528,18 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 	head.extend_from_slice(&48000_u32.to_le_bytes()); // Input sample rate
 	head.extend_from_slice(&0_u16.to_le_bytes()); // Gain
 	head.push(0); // Channel mapping family
-	writer.write_packet(head, serial, PacketWriteEndInfo::EndPage, 0)?;
+	writer.write_packet(&head, PacketEnd::EndPage, 0)?;
 
 	let mut tags = Vec::with_capacity(24);
 	tags.extend_from_slice(b"OpusTags");
 	tags.extend_from_slice(&8_u32.to_le_bytes()); // Vendor length
 	tags.extend_from_slice(b"whaNTV  ");
 	tags.extend_from_slice(&0_u32.to_le_bytes()); // User comments list length
-	writer.write_packet(tags, serial, PacketWriteEndInfo::EndPage, 0)?;
+	writer.write_packet(&tags, PacketEnd::EndPage, 0)?;
 
 	// Lacing values a packet takes up in a page.
 	let segments = |len: usize| len / 255 + 1;
-	let mut samples = reader.samples::<i16>();
+	let mut samples = reader;
 	let mut frame = [0i16; FRAME * 2];
 	let mut out = [0u8; 1275]; // the most one Opus frame can take
 	// Each packet is held back until the next one exists, so it's known
@@ -579,11 +581,11 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 			page_segments += segments(packet.len());
 			let end = if page_packets == PACKETS_PER_PAGE || page_segments + segments(len) > 255 {
 				(page_packets, page_segments) = (0, 0);
-				PacketWriteEndInfo::EndPage
+				PacketEnd::EndPage
 			} else {
-				PacketWriteEndInfo::NormalPacket
+				PacketEnd::Normal
 			};
-			writer.write_packet(packet, serial, end, granule)?;
+			writer.write_packet(&packet, end, granule)?;
 		}
 		held = Some((out[..len].to_vec(), encoded));
 		if input_done && pad == 0 {
@@ -595,7 +597,7 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 	}
 	if let Some((packet, _)) = held {
 		// The last page's granule marks where the audio really ends.
-		writer.write_packet(packet, serial, PacketWriteEndInfo::EndStream, pre_skip as u64 + total)?;
+		writer.write_packet(&packet, PacketEnd::EndStream, pre_skip as u64 + total)?;
 	}
 	writer.into_inner().flush()?;
 	Ok(())
@@ -608,13 +610,8 @@ mod waveform_tests {
 	#[test]
 	fn waveform_is_64_bars_following_loudness() {
 		let path = std::env::temp_dir().join(format!("whantv_waveform_test_{}.wav", std::process::id()));
-		let spec = hound::WavSpec {
-			channels: 2,
-			sample_rate: 48_000,
-			bits_per_sample: 16,
-			sample_format: hound::SampleFormat::Int,
-		};
-		let mut w = hound::WavWriter::create(&path, spec).unwrap();
+		let spec = crate::wav::WavSpec { channels: 2, sample_rate: 48_000 };
+		let mut w = crate::wav::WavWriter::create(path.to_str().unwrap(), spec).unwrap();
 		// 1 s silence, then 1 s of a loud tone.
 		for i in 0..96_000 {
 			let s = if i < 48_000 { 0.0 } else { 0.5 * (i as f32 * 0.05).sin() };
@@ -662,13 +659,8 @@ mod voice_note_tests {
 			let dir = std::env::temp_dir();
 			let wav = dir.join(format!("whantv_voice_test_{}_{total}.wav", std::process::id()));
 			let ogg = wav.with_extension("ogg");
-			let spec = hound::WavSpec {
-				channels: 2,
-				sample_rate: 48_000,
-				bits_per_sample: 16,
-				sample_format: hound::SampleFormat::Int,
-			};
-			let mut w = hound::WavWriter::create(&wav, spec).unwrap();
+			let spec = crate::wav::WavSpec { channels: 2, sample_rate: 48_000 };
+			let mut w = crate::wav::WavWriter::create(wav.to_str().unwrap(), spec).unwrap();
 			for i in 0..total {
 				let v = (0.4 * (i as f32 * 0.03).sin() * 32767.0) as i16;
 				w.write_sample(v).unwrap();

@@ -29,6 +29,7 @@ mod do_not_disturb;
 mod end_session;
 mod keymap;
 mod message_display;
+mod ogg;
 use message_display::update_action_buttons;
 #[cfg(target_os = "windows")]
 mod link_handler;
@@ -43,6 +44,7 @@ mod ui_wake;
 mod util;
 mod voice_dsp;
 mod voice_recorder;
+mod wav;
 mod websocket_events;
 use websocket_events::process_websocket_message;
 mod win_job;

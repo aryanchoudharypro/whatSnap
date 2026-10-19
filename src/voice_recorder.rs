@@ -23,7 +23,6 @@ use std::{
 	time::Duration,
 };
 
-use hound::{SampleFormat, WavSpec, WavWriter};
 use windows::Win32::{
 	Foundation::WAIT_OBJECT_0,
 	Media::Audio::{AUDCLNT_BUFFERFLAGS_SILENT, IAudioCaptureClient, eCapture},
@@ -36,6 +35,7 @@ use windows::Win32::{
 use crate::{
 	call_audio::{ComGuard, EventGuard, log_line, open_communications_stream},
 	voice_dsp::VoiceCleanup,
+	wav::{WavSpec, WavWriter},
 };
 
 const OUTPUT_SAMPLE_RATE: u32 = 48000;
@@ -146,12 +146,7 @@ fn run_recording_session_inner(
 		let _event_guard = EventGuard(wasapi.event);
 		let capture_client: IAudioCaptureClient = wasapi.client.GetService()?;
 
-		let spec = WavSpec {
-			channels: 2,
-			sample_rate: OUTPUT_SAMPLE_RATE,
-			bits_per_sample: 16,
-			sample_format: SampleFormat::Int,
-		};
+		let spec = WavSpec { channels: 2, sample_rate: OUTPUT_SAMPLE_RATE };
 		let mut writer = match WavWriter::create(path, spec) {
 			Ok(w) => w,
 			Err(e) => {
@@ -163,7 +158,7 @@ fn run_recording_session_inner(
 		let mut resampler = StereoResampler::new(wasapi.sample_rate, wasapi.channels);
 		let mut cleanup = clean_up.then(VoiceCleanup::new);
 		let mut scratch: Vec<f32> = Vec::new();
-		let write = |writer: &mut WavWriter<_>, frames: &[[f32; 2]]| {
+		let write = |writer: &mut WavWriter, frames: &[[f32; 2]]| {
 			for [left, right] in frames {
 				let _ = writer.write_sample((left.clamp(-1.0, 1.0) * 32767.0) as i16);
 				let _ = writer.write_sample((right.clamp(-1.0, 1.0) * 32767.0) as i16);

@@ -24,9 +24,7 @@ wx-utils = { version = "0.4.2", features = ["shortcuts"] }
 key-chord = "0.2.2"
 rodio = { version = "0.22.2", features = ["default", "symphonia-vorbis", "symphonia-all"] }
 rodio-wsola = "0.2.0"
-hound = "3.5.1"
 opus = "0.3.1"
-ogg = "0.9.2"
 chrono = "0.4.45"
 phonenumber = "0.3.10"
 interprocess = "2.4"
