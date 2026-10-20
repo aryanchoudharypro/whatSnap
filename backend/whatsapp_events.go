@@ -8,8 +8,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
-	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2887,7 +2887,16 @@ func dumpGoroutinesForStall(reason string) {
 	}
 	defer f.Close()
 	fmt.Fprintf(f, "%s\n%s\n\n", now.Format(time.RFC3339Nano), reason)
-	pprof.Lookup("goroutine").WriteTo(f, 2)
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	f.Write(buf)
 	log.Printf("Stall detected (%s); goroutine dump written to %s", reason, path)
 }
 

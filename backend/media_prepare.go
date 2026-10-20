@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	xdraw "golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 )
 
@@ -62,7 +61,7 @@ func preparePhoto(id, path string) (*preparedPhoto, error) {
 		return &preparedPhoto{path: path, width: b.Dx(), height: b.Dy(), thumbnail: thumb}, nil
 	}
 
-	img = fitWithin(img, serverFlagInt(abPropImageMaxEdge, defaultImageMaxEdge), xdraw.CatmullRom)
+	img = fitWithin(img, serverFlagInt(abPropImageMaxEdge, defaultImageMaxEdge), catmullRom)
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, onWhite(img), &jpeg.Options{Quality: serverFlagInt(abPropJPEGQuality, defaultJPEGQuality)}); err != nil {
 		return nil, err
@@ -80,7 +79,7 @@ func preparePhoto(id, path string) (*preparedPhoto, error) {
 
 // fitWithin scales img down so neither side exceeds maxEdge, keeping its
 // shape; a smaller image is returned as it is.
-func fitWithin(img image.Image, maxEdge int, scaler xdraw.Scaler) image.Image {
+func fitWithin(img image.Image, maxEdge int, f scaleFilter) image.Image {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if maxEdge <= 0 || (w <= maxEdge && h <= maxEdge) {
@@ -93,9 +92,7 @@ func fitWithin(img image.Image, maxEdge int, scaler xdraw.Scaler) image.Image {
 		w = max(1, w*maxEdge/h)
 		h = maxEdge
 	}
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	scaler.Scale(dst, dst.Bounds(), img, b, xdraw.Over, nil)
-	return dst
+	return scaleImage(img, b, w, h, f)
 }
 
 // onWhite flattens transparency onto white, since JPEG has none.
@@ -110,7 +107,7 @@ func onWhite(img image.Image) image.Image {
 // jpegThumbnail is the small preview a photo or video message carries, shown
 // before the full file downloads. The quality steps down until it fits.
 func jpegThumbnail(img image.Image) []byte {
-	small := onWhite(fitWithin(img, thumbMaxEdge, xdraw.ApproxBiLinear))
+	small := onWhite(fitWithin(img, thumbMaxEdge, bilinear))
 	var buf bytes.Buffer
 	for quality := 80; quality >= 20; quality -= 15 {
 		buf.Reset()

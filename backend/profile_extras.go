@@ -11,8 +11,6 @@ import (
 	"os"
 	"time"
 
-	xdraw "golang.org/x/image/draw"
-
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -48,8 +46,7 @@ func profilePhotoJPEG(path string) ([]byte, error) {
 	square := image.Rect(0, 0, side, side)
 	x0, y0 := b.Min.X+(b.Dx()-side)/2, b.Min.Y+(b.Dy()-side)/2
 	edge := min(side, profilePhotoEdge)
-	out := image.NewRGBA(image.Rect(0, 0, edge, edge))
-	xdraw.CatmullRom.Scale(out, out.Bounds(), img, square.Add(image.Pt(x0, y0)), xdraw.Src, nil)
+	out := scaleImage(img, square.Add(image.Pt(x0, y0)), edge, edge, catmullRom)
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, onWhite(out), &jpeg.Options{Quality: 85}); err != nil {
 		return nil, err
