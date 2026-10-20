@@ -34,6 +34,13 @@ pub mod message_list {
 	pub const VIEW_TEXT: &str = "message_view_text";
 }
 
+/// Ids of the incoming-call keys. Unlike the others these are system-wide
+/// (see `call_hotkeys`), and they're read when a call starts ringing.
+pub mod incoming_call {
+	pub const ANSWER: &str = "call_answer";
+	pub const REJECT: &str = "call_reject";
+}
+
 /// One remappable action.
 pub struct ActionDef {
 	/// Key in settings.json. Never rename one: it would silently drop the
@@ -177,6 +184,20 @@ pub const ACTIONS: &[ActionDef] = &[
 		label: "View Message Text",
 		default: "Shift+Enter",
 	},
+	ActionDef {
+		id: incoming_call::ANSWER,
+		menu_id: None,
+		tab: 5,
+		label: "Answer Incoming Call",
+		default: "Alt+Shift+Y",
+	},
+	ActionDef {
+		id: incoming_call::REJECT,
+		menu_id: None,
+		tab: 5,
+		label: "Reject Incoming Call",
+		default: "Alt+Shift+N",
+	},
 	ActionDef { id: message_list::REPLY, menu_id: None, tab: 6, label: "Reply", default: "R" },
 	ActionDef { id: message_list::EDIT, menu_id: None, tab: 6, label: "Edit", default: "E" },
 	ActionDef { id: message_list::STAR, menu_id: None, tab: 6, label: "Star or unstar", default: "S" },
@@ -247,6 +268,11 @@ impl Keymap {
 
 	pub fn saved(&self) -> BTreeMap<String, String> {
 		self.overrides.clone()
+	}
+
+	/// The chord bound to the action `id`, or `None` if the user removed it.
+	pub fn global_chord(&self, id: &str) -> Option<KeyChord> {
+		ACTIONS.iter().position(|a| a.id == id).and_then(|action| self.chord_for(action))
 	}
 
 	pub fn chord_for(&self, action: usize) -> Option<KeyChord> {
@@ -467,6 +493,13 @@ mod tests {
 		let info = index_of("chat_info");
 		keymap.set_chord(0, info, Some(KeyChord::new_raw_ctrl(true, false, false, "i")));
 		assert_eq!(keymap.menu_label(info), "Chat &Info\tCtrl+I");
+	}
+
+	#[test]
+	fn incoming_call_keys_default_to_alt_shift_y_and_n() {
+		let keymap = Keymap::default();
+		assert_eq!(keymap.global_chord(incoming_call::ANSWER).unwrap().to_shortcut_string(), "Alt+Shift+Y");
+		assert_eq!(keymap.global_chord(incoming_call::REJECT).unwrap().to_shortcut_string(), "Alt+Shift+N");
 	}
 
 	#[test]

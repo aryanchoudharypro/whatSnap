@@ -1437,7 +1437,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.call_parts.frame.iconize(false);
 						parts.call_parts.frame.raise();
 						start_call_ringing_sound(&mut s, include_bytes!("../sounds/ringtone_incoming_call.ogg"));
-						let (call_hotkeys, unavailable) = crate::call_hotkeys::start(&s.ui_tx);
+						let (call_hotkeys, unavailable) = crate::call_hotkeys::start(&s.ui_tx, &s.keymap);
 						s.call_hotkeys = call_hotkeys;
 						for chord in unavailable {
 							announce_call(
