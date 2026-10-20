@@ -247,10 +247,11 @@ pub const MENU_ID_CREATE_CALL_LINK: i32 = 6044;
 pub const MENU_ID_JOIN_CALL_LINK: i32 = 6045;
 pub const MENU_ID_FOCUS_MESSAGE_FIELD: i32 = 6046;
 pub const MENU_ID_ANNOUNCE_STATUS: i32 = 6047;
+pub const MENU_ID_FOCUS_MESSAGES_LIST: i32 = 6048;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
 /// The Conversation menu's items, which all act on the open chat.
-const CONVERSATION_MENU_IDS: [i32; 15] = [
+const CONVERSATION_MENU_IDS: [i32; 16] = [
 	MENU_ID_CHAT_INFO,
 	MENU_ID_SEARCH_CHAT,
 	MENU_ID_PINNED_MESSAGES,
@@ -265,6 +266,7 @@ const CONVERSATION_MENU_IDS: [i32; 15] = [
 	MENU_ID_BLOCK_CHAT,
 	MENU_ID_STAR_MESSAGE,
 	MENU_ID_FOCUS_MESSAGE_FIELD,
+	MENU_ID_FOCUS_MESSAGES_LIST,
 	MENU_ID_ANNOUNCE_STATUS,
 ];
 
@@ -441,6 +443,11 @@ pub fn build_main_window() -> WindowParts {
 			MENU_ID_FOCUS_MESSAGE_FIELD,
 			&default_menu_label(MENU_ID_FOCUS_MESSAGE_FIELD),
 			"Move focus to the message box, or back to where you were",
+		)
+		.append_item(
+			MENU_ID_FOCUS_MESSAGES_LIST,
+			&default_menu_label(MENU_ID_FOCUS_MESSAGES_LIST),
+			"Move focus to the messages list",
 		)
 		.append_item(
 			MENU_ID_ANNOUNCE_STATUS,
@@ -1351,8 +1358,21 @@ pub fn bind_input_handlers(
 	});
 
 	let nav_list_for_menu = parts.nav_list;
+	let nav_announcer = parts.conversations_parts.messages_announcer;
 	let tx_nav_menu = ui_tx.clone();
-	let conv_list_for_nav_menu = parts.conversations_parts.conversations_list;
+	// One-shot: moves focus into the chat list once the tab name has been spoken.
+	let nav_focus_timer = std::rc::Rc::new(Timer::new(&parts.frame));
+	let conv_list_for_nav_timer = parts.conversations_parts.conversations_list;
+	nav_focus_timer.on_tick(move |_| {
+		// Focus may already be there (Alt+1 pressed from inside the list); then
+		// this is a no-op and the tab name is all that's spoken.
+		conv_list_for_nav_timer.set_focus();
+		// The list was just refilled, so nothing is selected. Pre-select the
+		// first row so Enter opens it without a Space first.
+		if conv_list_for_nav_timer.get_selection().is_none() && conv_list_for_nav_timer.get_count() > 0 {
+			conv_list_for_nav_timer.set_selection(0_u32, true);
+		}
+	});
 	// Alt+E's "where you were": each main pane records itself when it takes
 	// focus, and the row is captured at the moment Alt+E leaves for the box.
 	let return_pane = std::rc::Rc::new(std::cell::Cell::new(ReturnPane::Messages));
@@ -1366,6 +1386,15 @@ pub fn bind_input_handlers(
 	let rp_chats = return_pane.clone();
 	parts.conversations_parts.conversations_list.on_set_focus(move |event| {
 		rp_chats.set(ReturnPane::Chats);
+		event.skip(true);
+	});
+	// Tab (or any other route) into the chat list with nothing selected: pre-select
+	// the first row so Enter opens it without a Space first.
+	let conv_list_focus_select = parts.conversations_parts.conversations_list;
+	parts.conversations_parts.conversations_list.on_set_focus(move |event| {
+		if conv_list_focus_select.get_selection().is_none() && conv_list_focus_select.get_count() > 0 {
+			conv_list_focus_select.set_selection(0_u32, true);
+		}
 		event.skip(true);
 	});
 	let rp_messages = return_pane.clone();
@@ -1396,14 +1425,15 @@ pub fn bind_input_handlers(
 		// the (shared) list's content, same as a mouse click would trigger.
 		nav_list_for_menu.set_selection(idx, true);
 		let _ = tx_nav_menu.send(UiCommand::NavSelected(idx as usize));
-		// Move focus into the (now repopulated) chat list. set_focus() is a
-		// no-op - fires no event - when focus is already there, which is
-		// exactly the common case (the shortcut is usually pressed from
-		// inside the list). Bounce focus off nav_list first so the move back
-		// is always a genuine focus transition, and the screen reader always
-		// announces the newly-focused item naturally, same as arrowing to it.
-		nav_list_for_menu.set_focus();
-		conv_list_for_nav_menu.set_focus();
+		// Say the tab name now, then move focus into the chat list shortly
+		// after. Focus speech is not a live-region announcement, so it isn't
+		// queued behind one: moving focus straight away would talk over the
+		// tab name. The timer (below) waits long enough for it to finish.
+		let name = nav_list_for_menu.get_string(idx as u32).unwrap_or_default();
+		if !name.is_empty() {
+			crate::announce::announce(nav_announcer, &name);
+		}
+		nav_focus_timer.start(700, true);
 	});
 
 	let state_chat_menu = state.clone();
@@ -1490,6 +1520,11 @@ pub fn bind_input_handlers(
 					};
 				*return_spot_for_menu.borrow_mut() = Some(spot);
 				msg_field_for_menu.set_focus();
+			}
+		} else if id == MENU_ID_FOCUS_MESSAGES_LIST {
+			// Jump straight to the messages list when a conversation is open.
+			if messages_list_for_menu.is_shown() {
+				messages_list_for_menu.set_focus();
 			}
 		} else if id == MENU_ID_ANNOUNCE_STATUS {
 			let label = {

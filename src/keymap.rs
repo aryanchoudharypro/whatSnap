@@ -171,6 +171,13 @@ pub const ACTIONS: &[ActionDef] = &[
 		default: "Alt+E",
 	},
 	ActionDef {
+		id: "focus_messages_list",
+		menu_id: Some(MENU_ID_FOCUS_MESSAGES_LIST),
+		tab: 3,
+		label: "Jump to &Messages List",
+		default: "Alt+M",
+	},
+	ActionDef {
 		id: "announce_status",
 		menu_id: Some(MENU_ID_ANNOUNCE_STATUS),
 		tab: 3,

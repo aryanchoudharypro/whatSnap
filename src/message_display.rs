@@ -316,6 +316,13 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		}
 	}
 
+	// Filling the list clears its selection. If the list has focus and nothing
+	// is selected (first launch: Alt+1 arrived before any chats had loaded),
+	// select the first row so Enter opens it without a Space first.
+	if (had_focus || list.has_focus()) && list.get_selection().is_none() && list.get_count() > 0 {
+		list.set_selection(0_u32, true);
+	}
+
 	if had_focus {
 		list.set_focus();
 	}
