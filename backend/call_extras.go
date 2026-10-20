@@ -70,10 +70,13 @@ func attachCallExtras(call *meowcaller.Call) {
 	call.OnWaitingRoomState(func(w meowcaller.WaitingRoomState) {
 		users := []map[string]string{}
 		for _, u := range w.Users {
-			users = append(users, map[string]string{"jid": u.JID.String(), "name": callPersonName(u.JID, u.PN)})
+			users = append(users, map[string]string{
+				"jid": u.JID.String(), "name": callPersonName(u.JID, u.PN), "state": u.State,
+			})
 		}
 		broadcastEvent("call_waiting_room", map[string]interface{}{
-			"call_id": call.ID(), "waiting": w.InWaitingRoom, "is_admin": w.IsAdmin, "users": users,
+			"call_id": call.ID(), "waiting": w.InWaitingRoom, "is_admin": w.IsAdmin,
+			"enabled": w.Enabled, "users": users,
 		})
 	})
 }
@@ -159,6 +162,8 @@ func handleCallToggle(conn net.Conn, raw json.RawMessage, what string) {
 			err = call.SetHandRaised(data.On)
 		case "reaction":
 			err = call.SendReaction(data.Emoji)
+		case "approval":
+			err = call.SetApprovalRequired(context.Background(), data.On)
 		case "admit":
 			if data.On {
 				err = call.AdmitParticipant(context.Background(), data.JID)

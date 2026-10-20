@@ -86,6 +86,10 @@ pub enum UiCommand {
 	/// The call window's "Raise hand" and "React...".
 	ToggleCallHand,
 	CallReact,
+	/// The call window's "Let in" (true) and "Don't let in" (false).
+	AdmitCallPerson(bool),
+	/// The call window's "Approve new participants".
+	SetCallApproval(bool),
 	/// "Event" in the attach menu: create an event in the chat.
 	OpenEventDialog,
 	/// `V` on a message: vote in it if it's a poll, answer it if it's an event.
@@ -489,8 +493,15 @@ pub(crate) struct CallVideo {
 	pub(crate) autostart_camera: bool,
 	/// Whether our hand is raised.
 	pub(crate) hand_raised: bool,
-	/// People in a call link's waiting room we've already asked about.
-	pub(crate) admit_asked: Vec<String>,
+	/// A roster has arrived, so later ones are announced as changes. A call
+	/// link's first roster is just us, which leaves `call_participants` empty.
+	pub(crate) roster_seen: bool,
+	/// We're an admin of this call link, so we can let people in.
+	pub(crate) link_admin: bool,
+	/// The call link asks an admin before letting anyone in.
+	pub(crate) approval_required: bool,
+	/// People in the call link's waiting room.
+	pub(crate) waiting: Vec<CallParticipant>,
 }
 
 /// "connected", "outgoing", "ringing", "invited" or "rejected".

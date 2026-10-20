@@ -19,6 +19,14 @@ pub struct CallWindowParts {
 	pub raise_hand_btn: Button,
 	pub react_btn: Button,
 	pub leave_btn: Button,
+	/// Who's in a group call, who's being rung and who's waiting to be let
+	/// in through a call link. Hidden on 1:1 calls.
+	pub people_panel: Panel,
+	pub people_list: ListBox,
+	pub let_in_btn: Button,
+	pub keep_out_btn: Button,
+	/// A call link's "approve new participants", for the link's admin.
+	pub approval_check: CheckBox,
 	pub devices_panel: Panel,
 	pub input_device_combo: ComboBox,
 	pub output_device_combo: ComboBox,
@@ -26,7 +34,7 @@ pub struct CallWindowParts {
 }
 
 pub fn build_call_window() -> CallWindowParts {
-	let frame = Frame::builder().with_title("Call").with_size(Size::new(400, 300)).build();
+	let frame = Frame::builder().with_title("Call").with_size(Size::new(400, 420)).build();
 	let panel = Panel::builder(&frame).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
@@ -79,6 +87,27 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_panel.set_sizer(btn_sizer, true);
 	sizer.add(&btn_panel, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
+	let people_panel = Panel::builder(&panel).build();
+	let people_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let people_label = StaticText::builder(&people_panel).with_label("People").build();
+	people_sizer.add(&people_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
+	let people_list = ListBox::builder(&people_panel).build();
+	people_sizer.add(&people_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
+	let admit_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let let_in_btn = Button::builder(&people_panel).with_label("Let in").build();
+	admit_sizer.add(&let_in_btn, 0, SizerFlag::Right, 5);
+	let keep_out_btn = Button::builder(&people_panel).with_label("Don't let in").build();
+	admit_sizer.add(&keep_out_btn, 0, SizerFlag::empty(), 0);
+	people_sizer.add_sizer(&admit_sizer, 0, SizerFlag::All, 4);
+	let approval_check = CheckBox::builder(&people_panel).with_label("Approve new participants").build();
+	people_sizer.add(&approval_check, 0, SizerFlag::All, 4);
+	let_in_btn.show(false);
+	keep_out_btn.show(false);
+	approval_check.show(false);
+	people_panel.set_sizer(people_sizer, true);
+	sizer.add(&people_panel, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
+	people_panel.show(false);
+
 	// Lets the mic/speaker be switched without ending the call - hidden until
 	// the call connects, same as mute_btn/leave_btn above.
 	let devices_panel = Panel::builder(&panel).build();
@@ -118,6 +147,11 @@ pub fn build_call_window() -> CallWindowParts {
 		raise_hand_btn,
 		react_btn,
 		leave_btn,
+		people_panel,
+		people_list,
+		let_in_btn,
+		keep_out_btn,
+		approval_check,
 		devices_panel,
 		input_device_combo,
 		output_device_combo,

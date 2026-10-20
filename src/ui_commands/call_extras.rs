@@ -1,17 +1,18 @@
 //! Call links (Call > "Create Call Link..." and "Join Call Link...", and
 //! call.whatsapp.com links), and the call window's "Raise hand" and
-//! "React...", plus letting people in from a call link's waiting room. What
-//! the backend answers: `call_link_created`, `call_hand`, `call_reaction`,
-//! `call_waiting_room`, `call_action_done` and `call_action_failed`. Screen
-//! sharing lives with the camera in `calls.rs`.
+//! "React...", plus its people list: who's in a group call and who's waiting
+//! to be let in through a call link, with "Let in", "Don't let in" and
+//! "Approve new participants". What the backend answers: `call_link_created`,
+//! `call_hand`, `call_reaction`, `call_waiting_room`, `call_action_done` and
+//! `call_action_failed`. Screen sharing lives with the camera in `calls.rs`.
 
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, CallVideo,
-	call_helpers::{announce_call, call_window_title},
+	AppState, CallParticipant, CallVideo,
+	call_helpers::{announce_call, call_window_title, is_ringing_state},
 	ui::window::WindowParts,
 };
 
@@ -41,11 +42,114 @@ pub(crate) fn show_call_buttons(s: &AppState, parts: &WindowParts) {
 	c.frame.layout();
 }
 
-/// Until a call connects there's no hand to raise.
+/// Until a call connects there's no hand to raise, and until a group roster
+/// arrives no one to list.
 pub(crate) fn hide_call_buttons(parts: &WindowParts) {
 	let c = &parts.call_parts;
 	c.raise_hand_btn.show(false);
 	c.react_btn.show(false);
+	c.people_panel.show(false);
+}
+
+/// One row of the call window's people list.
+struct PersonRow {
+	jid: String,
+	label: String,
+	waiting: bool,
+}
+
+fn people_rows(s: &AppState) -> Vec<PersonRow> {
+	let mut rows: Vec<PersonRow> = s
+		.call_video
+		.waiting
+		.iter()
+		.map(|p| PersonRow { jid: p.jid.clone(), label: format!("{}, wants to join", p.name), waiting: true })
+		.collect();
+	for p in &s.call_participants {
+		let state = match p.state.as_str() {
+			"connected" => "in the call",
+			"invited" => "invited",
+			"rejected" => "declined",
+			st if is_ringing_state(st) => "ringing",
+			"" => "joining",
+			other => other,
+		};
+		rows.push(PersonRow { jid: p.jid.clone(), label: format!("{}, {}", p.name, state), waiting: false });
+	}
+	rows
+}
+
+/// Fills the people list from the latest roster and waiting room, keeping
+/// the selected person selected. Shown once a group call has a roster or
+/// we run a call link.
+pub(crate) fn refresh_people(s: &AppState, parts: &WindowParts) {
+	let c = &parts.call_parts;
+	let v = &s.call_video;
+	if !v.roster_seen && !v.link_admin && v.waiting.is_empty() {
+		c.people_panel.show(false);
+		return;
+	}
+	let rows = people_rows(s);
+	let selected = c.people_list.get_selection().and_then(|i| people_rows_jid_at(c.people_list.get_string(i), &rows));
+	let labels: Vec<&str> = if rows.is_empty() {
+		vec!["No one else is here yet."]
+	} else {
+		rows.iter().map(|r| r.label.as_str()).collect()
+	};
+	// Rewriting identical rows would make a screen reader re-read the list.
+	let current: Vec<String> = (0..c.people_list.get_count()).filter_map(|i| c.people_list.get_string(i)).collect();
+	if current.iter().map(String::as_str).ne(labels.iter().copied()) {
+		c.people_list.set_items(&labels);
+		let index = selected.and_then(|jid| rows.iter().position(|r| r.jid == jid)).unwrap_or(0);
+		c.people_list.set_selection(index as u32, true);
+	}
+	let admitting = v.link_admin && !v.waiting.is_empty();
+	c.let_in_btn.show(admitting);
+	c.keep_out_btn.show(admitting);
+	c.approval_check.show(v.link_admin);
+	c.approval_check.set_value(v.approval_required);
+	c.people_panel.show(true);
+	c.people_panel.layout();
+	c.frame.layout();
+}
+
+/// Which person a list row was for, by its label - the list is rebuilt from
+/// state, so the label is the stable thing to match on.
+fn people_rows_jid_at(label: Option<String>, rows: &[PersonRow]) -> Option<String> {
+	let label = label?;
+	rows.iter().find(|r| r.label == label).map(|r| r.jid.clone())
+}
+
+/// "Let in" and "Don't let in": the selected person, or the only one waiting.
+pub(crate) fn admit_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, admit: bool) {
+	let s = state.borrow();
+	let Some(call_id) = s.active_call_id.clone() else { return };
+	let rows = people_rows(&s);
+	let list = &parts.call_parts.people_list;
+	let chosen = list
+		.get_selection()
+		.and_then(|i| people_rows_jid_at(list.get_string(i), &rows))
+		.and_then(|jid| rows.iter().find(|r| r.jid == jid && r.waiting))
+		.or_else(|| {
+			let mut waiting = rows.iter().filter(|r| r.waiting);
+			match (waiting.next(), waiting.next()) {
+				(Some(only), None) => Some(only),
+				_ => None,
+			}
+		});
+	let Some(row) = chosen else {
+		drop(s);
+		announce_call(parts, "Select someone who wants to join first.");
+		return;
+	};
+	send(&s, "admit_call_participant", serde_json::json!({ "call_id": call_id, "jid": row.jid, "on": admit }));
+}
+
+/// "Approve new participants": whether people need letting in.
+pub(crate) fn set_approval(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, on: bool) {
+	let s = state.borrow();
+	let Some(call_id) = s.active_call_id.clone() else { return };
+	send(&s, "set_call_approval", serde_json::json!({ "call_id": call_id, "on": on }));
 }
 
 /// Call > "Create Call Link...": a voice or video link to share.
@@ -139,53 +243,80 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		}
 		"call_reaction" => announce_call(parts, &format!("{} reacted {}.", text(data, "name"), text(data, "emoji"))),
 		"call_waiting_room" => waiting_room(state, parts, data),
-		"call_action_done" => {
-			if text(data, "what").as_str() == "hand" {
+		"call_action_done" => match text(data, "what").as_str() {
+			"hand" => {
 				let mut s = state.borrow_mut();
 				s.call_video.hand_raised = on;
 				show_call_buttons(&s, parts);
 				drop(s);
 				announce_call(parts, if on { "Your hand is raised." } else { "You lowered your hand." });
 			}
+			"approval" => {
+				let mut s = state.borrow_mut();
+				s.call_video.approval_required = on;
+				refresh_people(&s, parts);
+				drop(s);
+				announce_call(
+					parts,
+					if on {
+						"New people now wait for you to let them in."
+					} else {
+						"Anyone with the link can now join straight away."
+					},
+				);
+			}
+			"admit" => announce_call(parts, if on { "They're being let in." } else { "They won't be let in." }),
+			_ => {}
+		},
+		"call_action_failed" => {
+			if text(data, "what").as_str() == "approval" {
+				// The switch moved before the server agreed; put it back.
+				let s = state.borrow();
+				parts.call_parts.approval_check.set_value(s.call_video.approval_required);
+			}
+			announce_call(parts, &text(data, "message"));
 		}
-		"call_action_failed" => announce_call(parts, &text(data, "message")),
 		_ => {}
 	}
 }
 
-/// We're waiting to be let in, or (as the link's admin) someone is.
+/// We're waiting to be let in, or (as the link's admin) someone is. New
+/// arrivals are announced and listed under People, where "Let in" admits them.
 fn waiting_room(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	if data.get("waiting").and_then(|v| v.as_bool()).unwrap_or(false) {
 		parts.call_parts.status_label.set_label("Waiting for someone in the call to let you in...");
 		announce_call(parts, "Waiting for someone in the call to let you in.");
 		return;
 	}
-	if !data.get("is_admin").and_then(|v| v.as_bool()).unwrap_or(false) {
-		return;
-	}
+	let mut s = state.borrow_mut();
+	s.call_video.link_admin = data.get("is_admin").and_then(|v| v.as_bool()).unwrap_or(false);
+	s.call_video.approval_required = data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
 	let users = data.get("users").and_then(|u| u.as_array()).cloned().unwrap_or_default();
-	for user in users {
-		let jid = text(&user, "jid");
-		{
-			let mut s = state.borrow_mut();
-			if jid.is_empty() || s.call_video.admit_asked.contains(&jid) {
-				continue;
-			}
-			s.call_video.admit_asked.push(jid.clone());
-		}
-		let dialog = MessageDialog::builder(
-			&parts.call_parts.frame,
-			&format!("{} wants to join the call.", text(&user, "name")),
-			"Waiting to Join",
-		)
-		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-		.build();
-		dialog.set_yes_no_labels("Let in", "Don't let in");
-		let admit = dialog.show_modal() == ID_YES;
-		let s = state.borrow();
-		if let Some(call_id) = s.active_call_id.clone() {
-			send(&s, "admit_call_participant", serde_json::json!({ "call_id": call_id, "jid": jid, "on": admit }));
-		}
+	let waiting: Vec<CallParticipant> = users
+		.iter()
+		.filter(|u| !text(u, "jid").is_empty())
+		.map(|u| CallParticipant { jid: text(u, "jid"), name: text(u, "name"), state: text(u, "state") })
+		.collect();
+	let arrived: Vec<String> = waiting
+		.iter()
+		.filter(|p| !s.call_video.waiting.iter().any(|old| old.jid == p.jid))
+		.map(|p| p.name.clone())
+		.collect();
+	s.call_video.waiting = waiting;
+	refresh_people(&s, parts);
+	let admin = s.call_video.link_admin;
+	drop(s);
+	if admin && !arrived.is_empty() {
+		let names: Vec<&str> = arrived.iter().map(String::as_str).collect();
+		let verb = if arrived.len() == 1 { "wants" } else { "want" };
+		announce_call(
+			parts,
+			&format!(
+				"{} {} to join the call. Choose Let in or Don't let in under People.",
+				crate::call_helpers::join_names(&names),
+				verb
+			),
+		);
 	}
 }
 

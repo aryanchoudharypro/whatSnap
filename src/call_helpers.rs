@@ -49,7 +49,7 @@ pub(crate) fn join_names(names: &[&str]) -> String {
 /// WhatsApp moves someone "outgoing" (offer sent) -> "receipt" (their phone
 /// is ringing) and, once the ring times out unanswered, to "invited": still
 /// welcome to join, but no longer ringing.
-fn is_ringing_state(state: &str) -> bool {
+pub(crate) fn is_ringing_state(state: &str) -> bool {
 	matches!(state, "outgoing" | "receipt" | "ringing")
 }
 

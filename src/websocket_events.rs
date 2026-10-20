@@ -1195,12 +1195,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					// The first roster of a call is the starting line-up (who we're
 					// ringing, or who's already in a call we're being invited to) -
 					// the status label covers it, so only later changes are announced.
-					let changes = if s.call_participants.is_empty() {
-						Vec::new()
-					} else {
+					let changes = if s.call_video.roster_seen {
 						call_participant_changes(&s.call_participants, &participants)
+					} else {
+						Vec::new()
 					};
+					s.call_video.roster_seen = true;
 					s.call_participants = participants;
+					crate::ui_commands::call_extras::refresh_people(&s, parts);
 					// Leave the label alone while an incoming call is still ringing
 					// or being answered - it's showing who's calling / "Answering...".
 					if s.incoming_call_caller.is_none() && s.call_answer_deadline.is_none() {

@@ -890,6 +890,18 @@ pub fn bind_input_handlers(
 	parts.call_parts.react_btn.on_click(move |_| {
 		let _ = tx_call_react.send(UiCommand::CallReact);
 	});
+	let tx_let_in = ui_tx.clone();
+	parts.call_parts.let_in_btn.on_click(move |_| {
+		let _ = tx_let_in.send(UiCommand::AdmitCallPerson(true));
+	});
+	let tx_keep_out = ui_tx.clone();
+	parts.call_parts.keep_out_btn.on_click(move |_| {
+		let _ = tx_keep_out.send(UiCommand::AdmitCallPerson(false));
+	});
+	let tx_approval = ui_tx.clone();
+	parts.call_parts.approval_check.on_toggled(move |event| {
+		let _ = tx_approval.send(UiCommand::SetCallApproval(event.is_checked()));
+	});
 	let tx_call_camera = ui_tx.clone();
 	let call_camera_combo = parts.call_parts.camera_device_combo;
 	parts.call_parts.camera_device_combo.on_selection_changed(move |_| {

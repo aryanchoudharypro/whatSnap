@@ -1388,6 +1388,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::AskCallLink => ui_commands::call_extras::ask_call_link(state, parts),
 		UiCommand::ToggleCallHand => ui_commands::call_extras::toggle_hand(state, parts),
 		UiCommand::CallReact => ui_commands::call_extras::react(state, parts),
+		UiCommand::AdmitCallPerson(admit) => ui_commands::call_extras::admit_selected(state, parts, admit),
+		UiCommand::SetCallApproval(on) => ui_commands::call_extras::set_approval(state, parts, on),
 		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
 		UiCommand::SendPoll { question, options, multiple_answers, correct_answer } => {
