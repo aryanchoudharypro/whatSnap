@@ -245,10 +245,12 @@ pub const MENU_ID_NEW_COMMUNITY: i32 = 6042;
 pub const MENU_ID_MANAGE_LISTS: i32 = 6043;
 pub const MENU_ID_CREATE_CALL_LINK: i32 = 6044;
 pub const MENU_ID_JOIN_CALL_LINK: i32 = 6045;
+pub const MENU_ID_FOCUS_MESSAGE_FIELD: i32 = 6046;
+pub const MENU_ID_ANNOUNCE_STATUS: i32 = 6047;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
 /// The Conversation menu's items, which all act on the open chat.
-const CONVERSATION_MENU_IDS: [i32; 13] = [
+const CONVERSATION_MENU_IDS: [i32; 15] = [
 	MENU_ID_CHAT_INFO,
 	MENU_ID_SEARCH_CHAT,
 	MENU_ID_PINNED_MESSAGES,
@@ -262,7 +264,53 @@ const CONVERSATION_MENU_IDS: [i32; 13] = [
 	MENU_ID_REPORT_CHAT,
 	MENU_ID_BLOCK_CHAT,
 	MENU_ID_STAR_MESSAGE,
+	MENU_ID_FOCUS_MESSAGE_FIELD,
+	MENU_ID_ANNOUNCE_STATUS,
 ];
+
+/// The pane Alt+E returns focus to from the message box: the last of the main
+/// panes that had focus.
+#[derive(Clone, Copy)]
+enum ReturnPane {
+	Nav,
+	Chats,
+	Messages,
+}
+
+/// Shows the selected message's own content (no sender, time or reply wrapper:
+/// see `ChatMessage::body_text`) in a read-only multi-line field. A list row's
+/// text can be read by NVDA but not selected or copied, so this gives a normal
+/// field to browse and Ctrl+C from without letting anyone change the message.
+fn show_message_text(parent: &Frame, list: &ListBox, state: &std::cell::RefCell<crate::AppState>) {
+	let Some(idx) = list.get_selection() else { return };
+	let text = state.borrow().display_items.get(idx as usize).map(|item| item.body_text());
+	let Some(text) = text else { return };
+	let dlg = Dialog::builder(parent, "Message Text")
+		.with_size(480, 320)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	let dlg_panel = Panel::builder(&dlg).build();
+	let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	let text_view =
+		TextCtrl::builder(&dlg_panel).with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly).build();
+	text_view.set_value(&text);
+	dlg_sizer.add(&text_view, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+	let close_btn = Button::builder(&dlg_panel).with_id(wxdragon::id::ID_OK).with_label("Close").build();
+	dlg_sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
+	dlg_panel.set_sizer(dlg_sizer, true);
+
+	let dlg_esc = dlg;
+	text_view.on_key_down(keys::escape_cancels(dlg_esc));
+
+	text_view.set_focus();
+	text_view.set_selection(0, 0);
+	dlg.show_modal();
+	// The base Dialog has no Drop, so a dialog built per use must be
+	// destroyed or it (and every closure bound to it) lives on hidden.
+	dlg.destroy();
+}
 
 /// The chat the Conversation menu acts on: the open one, unless the Status
 /// or Starred tab is showing, whose rows aren't chats.
@@ -372,6 +420,16 @@ pub fn build_main_window() -> WindowParts {
 	// out on the Status and Starred tabs and when no chat is open.
 	let conversation_menu = Menu::builder()
 		.append_item(MENU_ID_CHAT_INFO, &default_menu_label(MENU_ID_CHAT_INFO), "Open info for the open chat")
+		.append_item(
+			MENU_ID_FOCUS_MESSAGE_FIELD,
+			&default_menu_label(MENU_ID_FOCUS_MESSAGE_FIELD),
+			"Move focus to the message box, or back to where you were",
+		)
+		.append_item(
+			MENU_ID_ANNOUNCE_STATUS,
+			&default_menu_label(MENU_ID_ANNOUNCE_STATUS),
+			"Say the open chat's status: online, typing and so on",
+		)
 		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
 		.append_item(MENU_ID_PINNED_MESSAGES, "Pi&nned Messages...", "See and go to the open chat's pinned messages")
 		.append_separator()
@@ -1276,6 +1334,23 @@ pub fn bind_input_handlers(
 	let nav_list_for_menu = parts.nav_list;
 	let tx_nav_menu = ui_tx.clone();
 	let conv_list_for_nav_menu = parts.conversations_parts.conversations_list;
+	// Alt+E's "where you were": each main pane records itself when it takes focus.
+	let return_pane = std::rc::Rc::new(std::cell::Cell::new(ReturnPane::Messages));
+	let rp_nav = return_pane.clone();
+	parts.nav_list.on_set_focus(move |event| {
+		rp_nav.set(ReturnPane::Nav);
+		event.skip(true);
+	});
+	let rp_chats = return_pane.clone();
+	parts.conversations_parts.conversations_list.on_set_focus(move |event| {
+		rp_chats.set(ReturnPane::Chats);
+		event.skip(true);
+	});
+	let rp_messages = return_pane.clone();
+	parts.conversations_parts.messages_list.on_set_focus(move |event| {
+		rp_messages.set(ReturnPane::Messages);
+		event.skip(true);
+	});
 	parts.frame.on_menu_selected(move |evt| {
 		let idx = match evt.get_id() {
 			MENU_ID_NAV_CONVERSATIONS => 0,
@@ -1306,6 +1381,11 @@ pub fn bind_input_handlers(
 	let tx_chat_menu = ui_tx.clone();
 	let messages_list_for_menu = parts.conversations_parts.messages_list;
 	let search_field_for_menu = parts.conversations_parts.search_field;
+	let msg_field_for_menu = parts.conversations_parts.message_field;
+	let msgs_announcer_for_menu = parts.conversations_parts.messages_announcer;
+	let nav_list_for_focus_menu = parts.nav_list;
+	let conv_list_for_focus_menu = parts.conversations_parts.conversations_list;
+	let return_pane_for_menu = return_pane.clone();
 	parts.frame.on_menu_selected(move |evt| {
 		let id = evt.get_id();
 		// Belt and braces for the greying out: never act on a chat that
@@ -1325,6 +1405,26 @@ pub fn bind_input_handlers(
 			search_field_for_menu.set_focus();
 		} else if id == MENU_ID_SEARCH_CHAT {
 			let _ = tx_chat_menu.send(UiCommand::ToggleSearchPanel);
+		} else if id == MENU_ID_FOCUS_MESSAGE_FIELD {
+			if !msg_field_for_menu.is_shown() {
+				crate::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
+			} else if msg_field_for_menu.has_focus() {
+				match return_pane_for_menu.get() {
+					ReturnPane::Nav => nav_list_for_focus_menu.set_focus(),
+					ReturnPane::Chats => conv_list_for_focus_menu.set_focus(),
+					ReturnPane::Messages => messages_list_for_menu.set_focus(),
+				}
+			} else {
+				msg_field_for_menu.set_focus();
+			}
+		} else if id == MENU_ID_ANNOUNCE_STATUS {
+			let label = {
+				let s = state_chat_menu.borrow();
+				s.selected_chat.clone().map(|jid| crate::chat_ui::chat_status_label(&s, &jid))
+			};
+			if let Some(label) = label {
+				crate::announce::announce(msgs_announcer_for_menu, &label);
+			}
 		} else if id == MENU_ID_CHAT_INFO {
 			let _ = tx_chat_menu.send(UiCommand::ShowConversationData);
 		} else if id == MENU_ID_DISAPPEARING {
@@ -4339,6 +4439,9 @@ pub fn bind_input_handlers(
 						}
 					}
 				}
+			} else if pressed(message_list::VIEW_TEXT) && code != Some(WXK_RETURN) {
+				show_message_text(&parent_frame, &msgs_list_play, &state_play);
+				event.skip(false);
 			} else if keys::is_context_menu_key(key_event) {
 				open_menu_key.as_ref()();
 				event.skip(false);
@@ -4362,49 +4465,10 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.messages_list.on_key_up(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			if code == Some(WXK_RETURN) && key_event.shift_down() {
-				// Shift+Enter: show just the selected message's own content
-				// (no sender/time/status/reply-quote wrapper - see
-				// ChatMessage::body_text) in a read-only, multi-line field. A
-				// wxListBox row's text can be read by NVDA but not
-				// selected/copied out of directly - this gives NVDA users
-				// (and anyone reviewing a long message) a normal
-				// editable-looking field to browse and Ctrl+C from, without
-				// actually letting them change the message.
-				if let Some(idx) = msgs_list_enter.get_selection() {
-					let s = state_enter.borrow();
-					let text = s.display_items.get(idx as usize).map(|item| item.body_text());
-					drop(s);
-					if let Some(text) = text {
-						let dlg = Dialog::builder(&parent_frame_enter, "Message Text")
-							.with_size(480, 320)
-							.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-							.build();
-						let dlg_panel = Panel::builder(&dlg).build();
-						let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
-
-						let text_view = TextCtrl::builder(&dlg_panel)
-							.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
-							.build();
-						text_view.set_value(&text);
-						dlg_sizer.add(&text_view, 1, SizerFlag::Expand | SizerFlag::All, 8);
-
-						let close_btn =
-							Button::builder(&dlg_panel).with_id(wxdragon::id::ID_OK).with_label("Close").build();
-						dlg_sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
-						dlg_panel.set_sizer(dlg_sizer, true);
-
-						let dlg_esc = dlg;
-						text_view.on_key_down(keys::escape_cancels(dlg_esc));
-
-						text_view.set_focus();
-						text_view.set_selection(0, 0);
-						dlg.show_modal();
-						// The base Dialog has no Drop, so a dialog built per use must be
-						// destroyed or it (and every closure bound to it) lives on hidden.
-						dlg.destroy();
-					}
-				}
+			if code == Some(WXK_RETURN) && state_enter.borrow().keymap.is_pressed(message_list::VIEW_TEXT, key_event) {
+				// Enter-based chords open the message text here, on release: the OS
+				// eats the Enter key-down in a list box (other chords use key-down).
+				show_message_text(&parent_frame_enter, &msgs_list_enter, &state_enter);
 				event.skip(false);
 				return;
 			}

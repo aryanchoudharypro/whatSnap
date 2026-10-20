@@ -210,6 +210,32 @@ pub(crate) fn clear_pending_reply(s: &mut AppState, parts: &WindowParts) {
 /// history. Shared by opening a chat from the sidebar (`OpenConversation`)
 /// and jumping straight to a phone number found in message text
 /// (`OpenChatByPhone`) — the latter's jid may not be in `filtered_chats` yet.
+/// What the open chat's header says about it: its typing or recording state,
+/// else its presence (online, last seen...), else its name. Alt+T announces
+/// the same text.
+pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
+	let norm_jid = if let Some((user, server)) = jid.split_once('@') {
+		let base = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
+		format!("{}@{}", base, server)
+	} else {
+		jid.to_string()
+	};
+	let name =
+		s.contacts.get(jid).or_else(|| s.contacts.get(&norm_jid)).cloned().unwrap_or_else(|| display_name_for_jid(jid));
+	let presence_label = s.presence_labels.get(jid).or_else(|| s.presence_labels.get(&norm_jid)).map(|s| s.as_str());
+	let is_typing_active = s
+		.typing_timestamps
+		.get(jid)
+		.or_else(|| s.typing_timestamps.get(&norm_jid))
+		.is_some_and(|t| t.elapsed().as_secs() < 5);
+	let kind = if is_typing_active {
+		s.typing_announce_state.get(jid).or_else(|| s.typing_announce_state.get(&norm_jid)).copied().unwrap_or(1)
+	} else {
+		0
+	};
+	crate::websocket_events::format_conv_data_label(jid, &name, &name, kind == 1, kind == 2, presence_label)
+}
+
 pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	// An in-progress edit is tied to the message (and chat) it was started
@@ -289,28 +315,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.play_voice_btn.show(false);
 	parts.conversations_parts.action_panel.show(false);
 
-	let norm_jid = if let Some((user, server)) = jid.split_once('@') {
-		let base = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
-		format!("{}@{}", base, server)
-	} else {
-		jid.to_string()
-	};
-	let name =
-		s.contacts.get(jid).or_else(|| s.contacts.get(&norm_jid)).cloned().unwrap_or_else(|| display_name_for_jid(jid));
-	let presence_label = s.presence_labels.get(jid).or_else(|| s.presence_labels.get(&norm_jid)).map(|s| s.as_str());
-	let is_typing_active = s
-		.typing_timestamps
-		.get(jid)
-		.or_else(|| s.typing_timestamps.get(&norm_jid))
-		.is_some_and(|t| t.elapsed().as_secs() < 5);
-	let kind = if is_typing_active {
-		s.typing_announce_state.get(jid).or_else(|| s.typing_announce_state.get(&norm_jid)).copied().unwrap_or(1)
-	} else {
-		0
-	};
-	let label =
-		crate::websocket_events::format_conv_data_label(jid, &name, &name, kind == 1, kind == 2, presence_label);
-	parts.conversations_parts.conv_data_btn.set_label(&label);
+	parts.conversations_parts.conv_data_btn.set_label(&chat_status_label(&s, jid));
 
 	parts.attachment_dialog.attachment_info_label.set_label("");
 	// The message list was already emptied by release_conversation_buffers

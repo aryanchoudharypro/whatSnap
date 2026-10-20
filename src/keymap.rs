@@ -31,6 +31,7 @@ pub mod message_list {
 	pub const VOTE: &str = "message_vote";
 	pub const DELETE: &str = "message_delete";
 	pub const SELECTION_MODE: &str = "message_selection_mode";
+	pub const VIEW_TEXT: &str = "message_view_text";
 }
 
 /// One remappable action.
@@ -155,6 +156,27 @@ pub const ACTIONS: &[ActionDef] = &[
 	},
 	ActionDef { id: "call_mute", menu_id: Some(MENU_ID_CALL_MUTE), tab: 5, label: "Toggle &Mute", default: "Ctrl+M" },
 	ActionDef { id: "call_end", menu_id: Some(MENU_ID_CALL_END), tab: 5, label: "&End Call", default: "Ctrl+W" },
+	ActionDef {
+		id: "focus_message_field",
+		menu_id: Some(MENU_ID_FOCUS_MESSAGE_FIELD),
+		tab: 3,
+		label: "Jump to Message Fi&eld",
+		default: "Alt+E",
+	},
+	ActionDef {
+		id: "announce_status",
+		menu_id: Some(MENU_ID_ANNOUNCE_STATUS),
+		tab: 3,
+		label: "Announce Chat Sta&tus",
+		default: "Alt+T",
+	},
+	ActionDef {
+		id: message_list::VIEW_TEXT,
+		menu_id: None,
+		tab: 6,
+		label: "View Message Text",
+		default: "Shift+Enter",
+	},
 	ActionDef { id: message_list::REPLY, menu_id: None, tab: 6, label: "Reply", default: "R" },
 	ActionDef { id: message_list::EDIT, menu_id: None, tab: 6, label: "Edit", default: "E" },
 	ActionDef { id: message_list::STAR, menu_id: None, tab: 6, label: "Star or unstar", default: "S" },
@@ -356,6 +378,7 @@ mod tests {
 			(message_list::SEEK_FORWARD, "L"),
 			(message_list::DELETE, "Delete"),
 			(message_list::SELECTION_MODE, "Ctrl+Space"),
+			(message_list::VIEW_TEXT, "Shift+Enter"),
 		] {
 			assert_eq!(keymap.chord_for(index_of(id)).unwrap().to_shortcut_string(), key);
 		}
@@ -378,6 +401,8 @@ mod tests {
 		assert_eq!(default_menu_label(MENU_ID_SEARCH_GLOBAL), "&Search\tCtrl+/");
 		assert_eq!(default_menu_label(MENU_ID_SEND_PTT), "Sen&d Voice Message\tCtrl+Enter");
 		assert_eq!(default_menu_label(MENU_ID_RECONNECT), "&Reconnect Now\tF5");
+		assert_eq!(default_menu_label(MENU_ID_FOCUS_MESSAGE_FIELD), "Jump to Message Fi&eld\tAlt+E");
+		assert_eq!(default_menu_label(MENU_ID_ANNOUNCE_STATUS), "Announce Chat Sta&tus\tAlt+T");
 	}
 
 	#[test]
