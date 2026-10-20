@@ -71,7 +71,7 @@ use wxdragon::prelude::*;
 
 use crate::{
 	ui::window::{WindowParts, bind_input_handlers, build_main_window},
-	ui_wake::{ID_UI_WAKE, UiCommandSender, UiWaker},
+	ui_wake::{ID_UI_WAKE, UI_WAKE_HANDLERS, UiCommandSender, UiWaker},
 };
 
 /// How recently a message must have been sent for its "delivered" receipt to
@@ -1019,14 +1019,18 @@ fn main() {
 		let parts_clone = Rc::new(parts);
 		let parts_ui = parts_clone.clone();
 
-		frame.on_menu_selected(move |event| {
-			if event.get_id() == ID_UI_WAKE {
-				ui_waker.reset();
-				while let Ok(cmd) = ui_rx.try_recv() {
-					handle_ui_command(cmd, &state_clone, &parts_ui);
-				}
-			}
-		});
+		let ui_rx = Rc::new(ui_rx);
+		for slot in 0..UI_WAKE_HANDLERS {
+			let (ui_waker, ui_rx, state, parts) =
+				(ui_waker.clone(), ui_rx.clone(), state_clone.clone(), parts_ui.clone());
+			frame.bind_with_id_internal(EventType::MENU, ID_UI_WAKE + slot as i32, move |_| {
+				ui_waker.run(|| {
+					while let Ok(cmd) = ui_rx.try_recv() {
+						handle_ui_command(cmd, &state, &parts);
+					}
+				});
+			});
+		}
 
 		bind_input_handlers(&parts_clone, ui_tx, &state);
 
