@@ -210,13 +210,9 @@ func attachCallHandlers(call *meowcaller.Call) {
 			if isOwnJID(p.JID) || isOwnJID(p.PN) {
 				continue
 			}
-			nameJID := p.JID
-			if !p.PN.IsEmpty() {
-				nameJID = p.PN
-			}
 			participants = append(participants, map[string]string{
 				"jid":   p.JID.String(),
-				"name":  resolveDisplayName(nameJID),
+				"name":  callJoinerName(p.JID, p.PN, p.PushName, p.Guest),
 				"state": p.State,
 			})
 		}

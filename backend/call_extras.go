@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,15 @@ func callPersonName(jid, pn types.JID) string {
 	return resolveDisplayName(preferPN(jid))
 }
 
+// callJoinerName names someone who joined through a call link. Guests have no
+// account, so the name they typed in the browser is all we have.
+func callJoinerName(jid, pn types.JID, pushName string, guest bool) string {
+	if guest {
+		return cmp.Or(pushName, "Guest") + " (guest)"
+	}
+	return callPersonName(jid, pn)
+}
+
 // attachCallExtras wires the hand, reaction, screen share and waiting room
 // listeners; attachCallHandlers calls it for every call.
 func attachCallExtras(call *meowcaller.Call) {
@@ -71,7 +81,7 @@ func attachCallExtras(call *meowcaller.Call) {
 		users := []map[string]string{}
 		for _, u := range w.Users {
 			users = append(users, map[string]string{
-				"jid": u.JID.String(), "name": callPersonName(u.JID, u.PN), "state": u.State,
+				"jid": u.JID.String(), "name": callJoinerName(u.JID, u.PN, u.PushName, u.Guest), "state": u.State,
 			})
 		}
 		broadcastEvent("call_waiting_room", map[string]interface{}{
