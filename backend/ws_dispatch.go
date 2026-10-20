@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"runtime/debug"
+	"time"
 
 	"go.mau.fi/whatsmeow/appstate"
 )
@@ -78,10 +79,27 @@ func handleConnection(conn net.Conn) {
 	}
 }
 
+// commandStallThreshold is how long a command may run before it's logged as
+// holding up the ones behind it.
+const commandStallThreshold = 10 * time.Second
+
 // dispatchCommand runs one frontend command. A panic in a handler (a nil
 // JID right after logging out, unexpected data) is logged and dropped rather
 // than taking down the whole backend, as it did before.
 func dispatchCommand(conn net.Conn, cmd Command) {
+	// Commands run one at a time, so one that hangs holds up every command
+	// after it. Note it, with every goroutine's stack, so it can be traced.
+	stalled := time.AfterFunc(commandStallThreshold, func() {
+		log.Printf("Command %q still running after %s; later commands are waiting on it", cmd.Action, commandStallThreshold)
+		dumpGoroutinesForStall(fmt.Sprintf("command %q still running after %s", cmd.Action, commandStallThreshold))
+	})
+	start := time.Now()
+	defer func() {
+		if stalled.Stop() {
+			return
+		}
+		log.Printf("Command %q finished after %s", cmd.Action, time.Since(start).Round(time.Millisecond))
+	}()
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("PANIC handling command %q: %v\n%s", cmd.Action, r, debug.Stack())

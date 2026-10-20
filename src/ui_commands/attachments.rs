@@ -398,6 +398,12 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 		}
 	};
 
+	crate::websocket_events::ui_timing_log(&format!(
+		"Download pressed: {} to start, {} to cancel, chat {}",
+		to_start.len(),
+		to_cancel.len(),
+		if jid_opt.is_some() { "open" } else { "none" }
+	));
 	// Already downloading: clicking again means "cancel", not "start over".
 	if let (Some(jid), false) = (jid_opt.clone(), to_cancel.is_empty()) {
 		for (msg_id, _) in &to_cancel {

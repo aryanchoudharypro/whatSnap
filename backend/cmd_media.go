@@ -264,8 +264,13 @@ func startMediaDownload(data MessageRefData, auto bool) {
 				"percent":    percent,
 			})
 		}
+		started := time.Now()
+		log.Printf("Media download started for message %s (auto %v)", data.MessageID, auto)
 		for attempt := 0; attempt < 2; attempt++ {
 			path, mediaType, mimetype, filename, err := downloadMessageMediaToFile(ctx, data.MessageID, onProgress)
+			if err == nil {
+				log.Printf("Media download finished for message %s in %s", data.MessageID, time.Since(started).Round(time.Millisecond))
+			}
 			if err == nil {
 				broadcastEvent("media_downloaded", map[string]interface{}{
 					"message_id": data.MessageID,

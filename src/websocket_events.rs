@@ -88,8 +88,6 @@ pub(crate) fn call_log(parts: &WindowParts, state: &AppState, event: &str, call_
 	));
 }
 
-/// Appends one line to `logs/ui.log`: how long opening a chat's messages took,
-/// split by stage, so a slow load can be pinned down from a user's logs.
 /// Asks again about the person whose info page is open, after saving or
 /// deleting them as a contact changed what it shows.
 fn refresh_open_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -124,7 +122,10 @@ fn qr_rgba(qr: &qrcode::QrCode) -> (u32, u32, Vec<u8>) {
 	(side as u32, side as u32, rgba)
 }
 
-fn ui_timing_log(msg: &str) {
+/// Appends one line to `logs/ui.log`: what the UI did and when (chat load
+/// timings, calls, downloads), so a problem can be pinned down from a user's
+/// logs.
+pub(crate) fn ui_timing_log(msg: &str) {
 	use std::io::Write;
 	let now = whantv::LocalTime::now().format("%Y/%m/%d %H:%M:%S");
 	if let Ok(mut f) =

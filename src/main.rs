@@ -764,7 +764,10 @@ fn main() {
 
 							if let Some(out_msg) = msg_opt {
 								let msg = format!("{}\n", out_msg);
-								if socket_writer.write_all(msg.as_bytes()).is_err() {
+								if let Err(e) = socket_writer.write_all(msg.as_bytes()) {
+									crate::websocket_events::ui_timing_log(&format!(
+										"Backend pipe: sending a command failed ({e}); resending on the next connection"
+									));
 									// Writers from prior connections stay parked
 									// on the shared receiver, so a command can be
 									// claimed by one whose socket is already dead.
@@ -783,7 +786,12 @@ fn main() {
 						}
 
 						match buf_reader.read_line(&mut line) {
-							Ok(0) => break, // EOF
+							Ok(0) => {
+								crate::websocket_events::ui_timing_log(
+									"Backend pipe: closed by the backend; reconnecting",
+								);
+								break;
+							}
 							Ok(_) => {
 								// Hand the buffer itself over rather than allocating a
 								// second full copy via `line.trim().to_string()`: one
@@ -803,7 +811,13 @@ fn main() {
 								let payload = std::mem::take(&mut line);
 								let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(payload));
 							}
-							Err(_) => break, // Any read error breaks and triggers reconnect
+							// Any read error breaks and triggers reconnect.
+							Err(e) => {
+								crate::websocket_events::ui_timing_log(&format!(
+									"Backend pipe: reading failed ({e}); reconnecting"
+								));
+								break;
+							}
 						}
 					}
 				}
