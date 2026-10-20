@@ -1241,6 +1241,7 @@ pub fn bind_input_handlers(
 	let announce_recording_check = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check = parts.settings_dialog.tray_icon_check;
 	let autostart_check = parts.settings_dialog.autostart_check;
+	let start_maximized_check_open = parts.settings_dialog.start_maximized_check;
 	let meta_ai_enabled_check_open = parts.settings_dialog.meta_ai_enabled_check;
 	let verbose_logging_check_open = parts.settings_dialog.verbose_backend_logging_check;
 	let name_field_open = parts.settings_dialog.name_field;
@@ -1265,6 +1266,7 @@ pub fn bind_input_handlers(
 		tray_icon_check.set_value(s.settings.show_tray_icon);
 		meta_ai_enabled_check_open.set_value(s.settings.meta_ai_enabled);
 		verbose_logging_check_open.set_value(s.settings.verbose_backend_logging);
+		start_maximized_check_open.set_value(s.settings.start_maximized);
 		noise_suppression_check_open.set_value(s.settings.voice_message_noise_suppression);
 
 		name_field_open.set_value(&s.own_push_name);
@@ -1643,6 +1645,7 @@ pub fn bind_input_handlers(
 	let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
 	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
 	let autostart_check_ok = parts.settings_dialog.autostart_check;
+	let start_maximized_check_ok = parts.settings_dialog.start_maximized_check;
 	let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check;
 	let verbose_logging_check_ok = parts.settings_dialog.verbose_backend_logging_check;
 	let name_field_ok = parts.settings_dialog.name_field;
@@ -1693,6 +1696,7 @@ pub fn bind_input_handlers(
 		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
 		s.settings.meta_ai_enabled = meta_ai_enabled_check_ok.is_checked();
 		s.settings.verbose_backend_logging = verbose_logging_check_ok.is_checked();
+		s.settings.start_maximized = start_maximized_check_ok.is_checked();
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
 		s.settings.input_device_name = device_combo_value(&input_device_combo_ok);
 		let new_output_device = device_combo_value(&output_device_combo_ok);

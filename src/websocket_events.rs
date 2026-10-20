@@ -956,6 +956,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					parts.nav_panel.show(true);
 					parts.content_panel.show(true);
 					parts.main_panel.layout();
+					// Maximized while still hidden, so the window appears already
+					// maximized rather than flashing at its normal size first.
+					if state.borrow().settings.start_maximized {
+						parts.frame.maximize(true);
+					}
 					parts.frame.show(true);
 					parts.conversations_parts.search_field.set_focus();
 					state.borrow_mut().main_ui_shown = true;

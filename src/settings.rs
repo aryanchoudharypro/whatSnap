@@ -49,6 +49,9 @@ pub struct Settings {
 	/// backend process is launched - toggling it takes effect the next time
 	/// whaNTV starts, not on the running backend.
 	pub verbose_backend_logging: bool,
+	/// Whether the main window opens maximized the first time it is shown,
+	/// like Paperback's "Start maximized" option.
+	pub start_maximized: bool,
 	/// Menu shortcuts the user changed, by action id; see [`crate::keymap`].
 	/// Anything not listed keeps its default.
 	pub shortcuts: std::collections::BTreeMap<String, String>,
@@ -70,6 +73,7 @@ impl Default for Settings {
 			voice_message_noise_suppression: false,
 			archived_alert_levels: std::collections::HashMap::new(),
 			verbose_backend_logging: false,
+			start_maximized: false,
 			shortcuts: std::collections::BTreeMap::new(),
 		}
 	}
