@@ -15,7 +15,7 @@ serde_json = { version = "1.0.150", features = ["raw_value"] }
 wxdragon = { version = "0.9.22", default-features = false }
 qrcode = { version = "0.14.1", default-features = false }
 live-region = "0.3.3"
-wx-utils = { version = "0.4.2", features = ["shortcuts"] }
+wx-utils = { version = "0.4.2", features = ["shortcuts", "global-hotkeys"] }
 key-chord = "0.2.2"
 rodio = { version = "0.22.2", default-features = false, features = ["playback"] }
 rodio-wsola = "0.2.0"

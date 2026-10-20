@@ -111,6 +111,26 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	}
 }
 
+/// Alt+Shift+Y / Alt+Shift+R. Acts only while the incoming call is still
+/// ringing: the keys can fire a moment after the call was answered or ended.
+pub(crate) fn call_hotkey(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	hotkey: crate::call_hotkeys::CallHotkey,
+) {
+	let ringing = {
+		let s = state.borrow();
+		s.active_call_id.is_some() && s.call_answer_deadline.is_none()
+	} && parts.call_parts.accept_btn.is_shown();
+	if !ringing {
+		return;
+	}
+	match hotkey {
+		crate::call_hotkeys::CallHotkey::Answer => answer_call(state, parts),
+		crate::call_hotkeys::CallHotkey::Reject => reject_call(state, parts),
+	}
+}
+
 pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	crate::websocket_events::call_log(parts, &s, "reject pressed", "");

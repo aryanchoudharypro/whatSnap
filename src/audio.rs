@@ -205,6 +205,9 @@ pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 	if let Some(sink) = state.call_ringing_sink.take() {
 		sink.pause();
 	}
+	// The call keys go with the ringing: a call that stopped ringing has
+	// nothing left for them to answer or reject.
+	state.call_hotkeys = None;
 }
 
 /// Length of an audio file in whole seconds (0 if it can't be read).

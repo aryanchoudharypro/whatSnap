@@ -208,6 +208,8 @@ pub enum UiCommand {
 	PlaceVideoCall,
 	AnswerCall,
 	RejectCall,
+	/// Alt+Shift+Y or Alt+Shift+R, pressed anywhere (see call_hotkeys.rs).
+	CallHotkey(crate::call_hotkeys::CallHotkey),
 	MuteCall,
 	LeaveCall,
 	/// Turns the local camera on or off - the button, and Ctrl+Shift+V.

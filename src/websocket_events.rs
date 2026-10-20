@@ -1437,6 +1437,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.call_parts.frame.iconize(false);
 						parts.call_parts.frame.raise();
 						start_call_ringing_sound(&mut s, include_bytes!("../sounds/ringtone_incoming_call.ogg"));
+						let (call_hotkeys, unavailable) = crate::call_hotkeys::start(&s.ui_tx);
+						s.call_hotkeys = call_hotkeys;
+						for chord in unavailable {
+							announce_call(
+								parts,
+								&format!("Could not register the call key {chord}; another program is using it"),
+							);
+						}
 						if s.settings.notifications_enabled {
 							let mut toast_body = description.clone();
 							toast_body[..1].make_ascii_uppercase();

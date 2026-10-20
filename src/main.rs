@@ -33,6 +33,7 @@ mod keymap;
 mod message_display;
 mod ogg;
 use message_display::update_action_buttons;
+mod call_hotkeys;
 #[cfg(target_os = "windows")]
 mod link_handler;
 mod paths;
@@ -506,6 +507,8 @@ struct AppState {
 	/// case where the backend never hears back at all rather than erroring.
 	call_answer_deadline: Option<std::time::Instant>,
 	call_ringing_sink: Option<Player>,
+	/// Alt+Shift+Y / Alt+Shift+R, held only while an incoming call rings.
+	call_hotkeys: Option<wx_utils::global_hotkeys::GlobalHotkeys>,
 	/// Display name of the caller for the current incoming call, set on
 	/// `incoming_call` and cleared as soon as it's answered, rejected, or
 	/// otherwise handled. Still set when `call_ended` arrives means it rang
@@ -889,6 +892,7 @@ fn main() {
 			call_pending_cancel: false,
 			call_answer_deadline: None,
 			call_ringing_sink: None,
+			call_hotkeys: None,
 			incoming_call_caller: None,
 			call_participants: Vec::new(),
 			call_video: CallVideo::default(),
@@ -1421,6 +1425,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::PlaceVideoCall => ui_commands::calls::place_video_call(state, parts),
 		UiCommand::AnswerCall => ui_commands::calls::answer_call(state, parts),
 		UiCommand::RejectCall => ui_commands::calls::reject_call(state, parts),
+		UiCommand::CallHotkey(hotkey) => ui_commands::calls::call_hotkey(state, parts, hotkey),
 		UiCommand::LeaveCall => ui_commands::calls::leave_call(state, parts),
 		UiCommand::ToggleCamera => ui_commands::calls::toggle_camera(state, parts),
 		UiCommand::CameraFailed(reason) => ui_commands::calls::camera_failed(state, parts, reason),
