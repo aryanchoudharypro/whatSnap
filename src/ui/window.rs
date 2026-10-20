@@ -278,21 +278,20 @@ enum ReturnPane {
 
 /// Where Alt+E found the user before moving them into the message box: a main
 /// pane with its selected row (and which chat was open, since a row index means
-/// nothing once another chat is showing), or another control, by its index in
-/// the focus targets.
+/// nothing once another chat is showing), or any other control, by its window
+/// handle.
 enum ReturnSpot {
 	Pane { pane: ReturnPane, index: Option<u32>, chat: Option<String> },
 	Control(usize),
 }
 
-/// A control Alt+E can return to: whether it has focus, and how to focus it.
-struct FocusTarget {
-	has_focus: Box<dyn Fn() -> bool>,
-	focus: Box<dyn Fn()>,
-}
-
-fn focus_target<W: WxWidget + Copy + 'static>(widget: W) -> FocusTarget {
-	FocusTarget { has_focus: Box::new(move || widget.has_focus()), focus: Box::new(move || widget.set_focus()) }
+/// Gives keyboard focus back to the window with this handle, if it still exists.
+fn restore_focus(handle: usize) -> bool {
+	let hwnd = windows::Win32::Foundation::HWND(handle as *mut std::ffi::c_void);
+	unsafe {
+		windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
+			&& windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(hwnd)).is_ok()
+	}
 }
 
 /// Shows the selected message's own content (no sender, time or reply wrapper:
@@ -1374,27 +1373,6 @@ pub fn bind_input_handlers(
 	});
 	// Leaving the box any other way (Tab, a click) forgets the spot, so a later
 	// Alt+E from the box doesn't jump back to a position from long ago.
-	let focus_targets: std::rc::Rc<Vec<FocusTarget>> = {
-		let c = &parts.conversations_parts;
-		std::rc::Rc::new(vec![
-			focus_target(c.search_field),
-			focus_target(c.search_conv_field),
-			focus_target(c.chat_filter_combo),
-			focus_target(c.new_conv_btn),
-			focus_target(c.locked_chats_btn),
-			focus_target(c.conv_data_btn),
-			focus_target(c.add_attachment_btn),
-			focus_target(c.search_in_conv_btn),
-			focus_target(c.place_call_btn),
-			focus_target(c.place_video_call_btn),
-			focus_target(c.play_voice_btn),
-			focus_target(c.record_voice_btn),
-			focus_target(c.read_more_btn),
-			focus_target(c.cancel_edit_btn),
-			focus_target(c.remove_quote_btn),
-			focus_target(c.send_message_btn),
-		])
-	};
 	let spot_on_leave = return_spot.clone();
 	parts.conversations_parts.message_field.on_kill_focus(move |event| {
 		spot_on_leave.borrow_mut().take();
@@ -1436,7 +1414,6 @@ pub fn bind_input_handlers(
 	let conv_list_for_focus_menu = parts.conversations_parts.conversations_list;
 	let return_pane_for_menu = return_pane.clone();
 	let return_spot_for_menu = return_spot.clone();
-	let focus_targets_for_menu = focus_targets.clone();
 	parts.frame.on_menu_selected(move |evt| {
 		let id = evt.get_id();
 		// Belt and braces for the greying out: never act on a chat that
@@ -1462,53 +1439,53 @@ pub fn bind_input_handlers(
 			} else if msg_field_for_menu.has_focus() {
 				let spot = return_spot_for_menu.borrow_mut().take();
 				let chat = state_chat_menu.borrow().selected_chat.clone();
-				match spot {
-					Some(ReturnSpot::Control(i)) => (focus_targets_for_menu[i].focus)(),
-					other => {
-						let (pane, index) = match other {
-							Some(ReturnSpot::Pane { pane, index, chat: spot_chat }) => {
-								// Rows of another chat's messages aren't where the user was.
-								let index = if matches!(pane, ReturnPane::Messages) && spot_chat != chat {
-									None
-								} else {
-									index
-								};
-								(pane, index)
-							}
-							_ => (return_pane_for_menu.get(), None),
-						};
-						let list = match pane {
-							ReturnPane::Nav => &nav_list_for_focus_menu,
-							ReturnPane::Chats => &conv_list_for_focus_menu,
-							ReturnPane::Messages => &messages_list_for_menu,
-						};
-						if let Some(index) = index.filter(|&i| i < list.get_count()) {
-							list.set_selection(index, true);
-							list.ensure_visible(index as i32);
+				let restored = match &spot {
+					Some(ReturnSpot::Control(handle)) => restore_focus(*handle),
+					_ => false,
+				};
+				if !restored {
+					let (pane, index) = match spot {
+						Some(ReturnSpot::Pane { pane, index, chat: spot_chat }) => {
+							// Rows of another chat's messages aren't where the user was.
+							let index =
+								if matches!(pane, ReturnPane::Messages) && spot_chat != chat { None } else { index };
+							(pane, index)
 						}
-						list.set_focus();
-					}
-				}
-			} else {
-				let chat = state_chat_menu.borrow().selected_chat.clone();
-				let panes = [
-					(ReturnPane::Nav, &nav_list_for_focus_menu),
-					(ReturnPane::Chats, &conv_list_for_focus_menu),
-					(ReturnPane::Messages, &messages_list_for_menu),
-				];
-				let spot = if let Some((pane, list)) = panes.iter().find(|(_, list)| list.has_focus()) {
-					ReturnSpot::Pane { pane: *pane, index: list.get_selection(), chat }
-				} else if let Some(i) = focus_targets_for_menu.iter().position(|t| (t.has_focus)()) {
-					ReturnSpot::Control(i)
-				} else {
-					let pane = return_pane_for_menu.get();
+						_ => (return_pane_for_menu.get(), None),
+					};
 					let list = match pane {
 						ReturnPane::Nav => &nav_list_for_focus_menu,
 						ReturnPane::Chats => &conv_list_for_focus_menu,
 						ReturnPane::Messages => &messages_list_for_menu,
 					};
-					ReturnSpot::Pane { pane, index: list.get_selection(), chat }
-				};
+					if let Some(index) = index.filter(|&i| i < list.get_count()) {
+						list.set_selection(index, true);
+						list.ensure_visible(index as i32);
+					}
+					list.set_focus();
+				}
+			} else {
+				let chat = state_chat_menu.borrow().selected_chat.clone();
+				let focused = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetFocus() }.0 as usize;
+				let panes = [
+					(ReturnPane::Nav, &nav_list_for_focus_menu),
+					(ReturnPane::Chats, &conv_list_for_focus_menu),
+					(ReturnPane::Messages, &messages_list_for_menu),
+				];
+				let spot =
+					if let Some((pane, list)) = panes.iter().find(|(_, list)| list.get_handle() as usize == focused) {
+						ReturnSpot::Pane { pane: *pane, index: list.get_selection(), chat }
+					} else if focused != 0 {
+						ReturnSpot::Control(focused)
+					} else {
+						let pane = return_pane_for_menu.get();
+						let list = match pane {
+							ReturnPane::Nav => &nav_list_for_focus_menu,
+							ReturnPane::Chats => &conv_list_for_focus_menu,
+							ReturnPane::Messages => &messages_list_for_menu,
+						};
+						ReturnSpot::Pane { pane, index: list.get_selection(), chat }
+					};
 				*return_spot_for_menu.borrow_mut() = Some(spot);
 				msg_field_for_menu.set_focus();
 			}
