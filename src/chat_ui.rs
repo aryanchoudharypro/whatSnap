@@ -9,10 +9,6 @@ use std::{
 	thread,
 };
 
-use interprocess::{
-	TryClone,
-	local_socket::{GenericNamespaced, ToNsName, prelude::*},
-};
 use wxdragon::prelude::*;
 
 use crate::{
@@ -133,10 +129,7 @@ pub(crate) fn record_notification(s: &mut AppState, jid: &str, notification: wxd
 }
 
 pub(crate) fn request_backend_shutdown(pipe_id: &str) {
-	let Ok(name) = pipe_id.to_ns_name::<GenericNamespaced>() else {
-		return;
-	};
-	let Ok(mut socket) = LocalSocketStream::connect(name) else {
+	let Ok(mut socket) = crate::pipe::PipeStream::connect(pipe_id) else {
 		return;
 	};
 	let Ok(drain_socket) = socket.try_clone() else {

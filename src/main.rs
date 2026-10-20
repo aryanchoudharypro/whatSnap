@@ -34,6 +34,7 @@ use message_display::update_action_buttons;
 #[cfg(target_os = "windows")]
 mod link_handler;
 mod paths;
+mod pipe;
 mod ringback;
 mod settings;
 mod single_instance;
@@ -62,10 +63,6 @@ use std::{
 	time::Duration,
 };
 
-use interprocess::{
-	TryClone,
-	local_socket::{GenericNamespaced, ToNsName, prelude::*},
-};
 use rodio::{MixerDeviceSink, Player};
 use wxdragon::prelude::*;
 
@@ -730,12 +727,11 @@ fn main() {
 					let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(notice.to_string()));
 				}
 
-				let stream_name = pipe_id.as_str().to_ns_name::<GenericNamespaced>().unwrap();
-				if let Ok(socket) = LocalSocketStream::connect(stream_name) {
+				if let Ok(socket) = pipe::PipeStream::connect(&pipe_id) {
 					// Confirm we reached the backend we spawned and not a
 					// process that beat it to the pipe name.
 					let expected_pid = pipe_backend.as_ref().map(|b| b.pid());
-					let peer_ok = match (expected_pid, socket.peer_creds().ok().and_then(|c| c.pid())) {
+					let peer_ok = match (expected_pid, socket.server_pid()) {
 						(Some(Some(expected)), Some(actual)) => actual == expected,
 						(None, _) => true, // no backend exe found; nothing to compare against
 						_ => false,

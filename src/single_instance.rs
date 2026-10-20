@@ -13,7 +13,6 @@
 
 use std::io::{Read, Write};
 
-use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName, prelude::*};
 use windows::{
 	Win32::{
 		Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE},
@@ -22,6 +21,8 @@ use windows::{
 	},
 	core::w,
 };
+
+use crate::pipe::{PipeListener, PipeStream};
 
 /// Fixed, app-specific name so this can't collide with another app's mutex.
 const MUTEX_NAME: windows::core::PCWSTR = w!("whaNTV-SingleInstance-9f3b2e7a-4c1d-4e2a-b6a0-mutex");
@@ -87,8 +88,7 @@ fn request_activate(link: Option<&str>) {
 		}
 	}
 
-	let Ok(name) = ACTIVATE_PIPE_NAME.to_ns_name::<GenericNamespaced>() else { return };
-	if let Ok(mut stream) = LocalSocketStream::connect(name) {
+	if let Ok(mut stream) = PipeStream::connect(ACTIVATE_PIPE_NAME) {
 		let message = match link {
 			Some(link) => format!("activate\n{}", link),
 			None => "activate".to_string(),
@@ -102,12 +102,15 @@ fn request_activate(link: Option<&str>) {
 /// with the link that launch was given, if any. Call once, after the UI
 /// command channel is ready to receive the result.
 pub fn listen_for_activation(on_activate: impl Fn(Option<String>) + Send + 'static) {
-	let Ok(name) = ACTIVATE_PIPE_NAME.to_ns_name::<GenericNamespaced>() else { return };
-	let Ok(listener) = ListenerOptions::new().name(name).create_sync() else { return };
+	let Ok(mut listener) = PipeListener::bind(ACTIVATE_PIPE_NAME) else { return };
 
 	std::thread::spawn(move || {
-		for conn in listener.incoming() {
-			let Ok(mut conn) = conn else { continue };
+		loop {
+			let Ok(mut conn) = listener.accept() else {
+				// Couldn't make the next instance; don't spin on it.
+				std::thread::sleep(std::time::Duration::from_secs(1));
+				continue;
+			};
 			// The sender writes one short message and closes; a link is
 			// capped well above any real one so a stray client can't make
 			// this grow without bound.
