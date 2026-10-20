@@ -268,13 +268,21 @@ const CONVERSATION_MENU_IDS: [i32; 15] = [
 	MENU_ID_ANNOUNCE_STATUS,
 ];
 
-/// The pane Alt+E returns focus to from the message box: the last of the main
-/// panes that had focus.
+/// The main panes Alt+E can come back to.
 #[derive(Clone, Copy)]
 enum ReturnPane {
 	Nav,
 	Chats,
 	Messages,
+}
+
+/// Where Alt+E found the user before moving them into the message box: the
+/// pane, its selected row, and which chat was open (a message row index means
+/// nothing once another chat is showing).
+struct ReturnSpot {
+	pane: ReturnPane,
+	index: Option<u32>,
+	chat: Option<String>,
 }
 
 /// Shows the selected message's own content (no sender, time or reply wrapper:
@@ -1334,8 +1342,11 @@ pub fn bind_input_handlers(
 	let nav_list_for_menu = parts.nav_list;
 	let tx_nav_menu = ui_tx.clone();
 	let conv_list_for_nav_menu = parts.conversations_parts.conversations_list;
-	// Alt+E's "where you were": each main pane records itself when it takes focus.
+	// Alt+E's "where you were": each main pane records itself when it takes
+	// focus, and the row is captured at the moment Alt+E leaves for the box.
 	let return_pane = std::rc::Rc::new(std::cell::Cell::new(ReturnPane::Messages));
+	let return_spot: std::rc::Rc<std::cell::RefCell<Option<ReturnSpot>>> =
+		std::rc::Rc::new(std::cell::RefCell::new(None));
 	let rp_nav = return_pane.clone();
 	parts.nav_list.on_set_focus(move |event| {
 		rp_nav.set(ReturnPane::Nav);
@@ -1349,6 +1360,13 @@ pub fn bind_input_handlers(
 	let rp_messages = return_pane.clone();
 	parts.conversations_parts.messages_list.on_set_focus(move |event| {
 		rp_messages.set(ReturnPane::Messages);
+		event.skip(true);
+	});
+	// Leaving the box any other way (Tab, a click) forgets the spot, so a later
+	// Alt+E from the box doesn't jump back to a position from long ago.
+	let spot_on_leave = return_spot.clone();
+	parts.conversations_parts.message_field.on_kill_focus(move |event| {
+		spot_on_leave.borrow_mut().take();
 		event.skip(true);
 	});
 	parts.frame.on_menu_selected(move |evt| {
@@ -1386,6 +1404,7 @@ pub fn bind_input_handlers(
 	let nav_list_for_focus_menu = parts.nav_list;
 	let conv_list_for_focus_menu = parts.conversations_parts.conversations_list;
 	let return_pane_for_menu = return_pane.clone();
+	let return_spot_for_menu = return_spot.clone();
 	parts.frame.on_menu_selected(move |evt| {
 		let id = evt.get_id();
 		// Belt and braces for the greying out: never act on a chat that
@@ -1409,12 +1428,39 @@ pub fn bind_input_handlers(
 			if !msg_field_for_menu.is_shown() {
 				crate::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
 			} else if msg_field_for_menu.has_focus() {
-				match return_pane_for_menu.get() {
-					ReturnPane::Nav => nav_list_for_focus_menu.set_focus(),
-					ReturnPane::Chats => conv_list_for_focus_menu.set_focus(),
-					ReturnPane::Messages => messages_list_for_menu.set_focus(),
+				let spot = return_spot_for_menu.borrow_mut().take();
+				let chat = state_chat_menu.borrow().selected_chat.clone();
+				let (pane, index) = match spot {
+					Some(spot) => {
+						// Rows of another chat's messages aren't where the user was.
+						let index = if matches!(spot.pane, ReturnPane::Messages) && spot.chat != chat {
+							None
+						} else {
+							spot.index
+						};
+						(spot.pane, index)
+					}
+					None => (return_pane_for_menu.get(), None),
+				};
+				let list = match pane {
+					ReturnPane::Nav => &nav_list_for_focus_menu,
+					ReturnPane::Chats => &conv_list_for_focus_menu,
+					ReturnPane::Messages => &messages_list_for_menu,
+				};
+				if let Some(index) = index.filter(|&i| i < list.get_count()) {
+					list.set_selection(index, true);
+					list.ensure_visible(index as i32);
 				}
+				list.set_focus();
 			} else {
+				let pane = return_pane_for_menu.get();
+				let list = match pane {
+					ReturnPane::Nav => &nav_list_for_focus_menu,
+					ReturnPane::Chats => &conv_list_for_focus_menu,
+					ReturnPane::Messages => &messages_list_for_menu,
+				};
+				let chat = state_chat_menu.borrow().selected_chat.clone();
+				*return_spot_for_menu.borrow_mut() = Some(ReturnSpot { pane, index: list.get_selection(), chat });
 				msg_field_for_menu.set_focus();
 			}
 		} else if id == MENU_ID_ANNOUNCE_STATUS {

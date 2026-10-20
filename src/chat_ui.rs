@@ -206,10 +206,6 @@ pub(crate) fn clear_pending_reply(s: &mut AppState, parts: &WindowParts) {
 	parts.conversations_parts.remove_quote_btn.show(false);
 }
 
-/// Switches the conversation panel over to `jid`, requesting its message
-/// history. Shared by opening a chat from the sidebar (`OpenConversation`)
-/// and jumping straight to a phone number found in message text
-/// (`OpenChatByPhone`) — the latter's jid may not be in `filtered_chats` yet.
 /// What the open chat's header says about it: its typing or recording state,
 /// else its presence (online, last seen...), else its name. Alt+T announces
 /// the same text.
@@ -236,6 +232,10 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	crate::websocket_events::format_conv_data_label(jid, &name, &name, kind == 1, kind == 2, presence_label)
 }
 
+/// Switches the conversation panel over to `jid`, requesting its message
+/// history. Shared by opening a chat from the sidebar (`OpenConversation`)
+/// and jumping straight to a phone number found in message text
+/// (`OpenChatByPhone`) — the latter's jid may not be in `filtered_chats` yet.
 pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	// An in-progress edit is tied to the message (and chat) it was started
