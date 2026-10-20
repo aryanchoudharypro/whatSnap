@@ -508,8 +508,8 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
 			let raw_phone = jid.split('@').next().unwrap_or(jid);
 			let mut phone = raw_phone.to_string();
-			if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
-				phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+			if let Some(formatted) = whantv::phone::format_international(raw_phone) {
+				phone = formatted;
 			}
 
 			let initial_text = format!(

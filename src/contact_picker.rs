@@ -22,8 +22,8 @@ pub(crate) fn display_name_for_jid(jid: &str) -> String {
 	}
 	let raw_phone = jid.split('@').next().unwrap_or(jid);
 	if !raw_phone.is_empty() && raw_phone.chars().all(|c| c.is_ascii_digit()) {
-		if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
-			return parsed.format().mode(phonenumber::Mode::International).to_string();
+		if let Some(formatted) = whantv::phone::format_international(raw_phone) {
+			return formatted;
 		}
 		return format!("+{}", raw_phone);
 	}
@@ -34,8 +34,8 @@ pub(crate) fn display_name_for_jid(jid: &str) -> String {
 /// "+91 96671 74783", falling back to a plain "+"-prefixed string if it
 /// doesn't parse as a phone number at all.
 pub(crate) fn format_phone_digits(raw_phone: &str) -> String {
-	if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
-		return parsed.format().mode(phonenumber::Mode::International).to_string();
+	if let Some(formatted) = whantv::phone::format_international(raw_phone) {
+		return formatted;
 	}
 	format!("+{}", raw_phone)
 }

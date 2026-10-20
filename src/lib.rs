@@ -1,5 +1,7 @@
 pub mod countries;
 pub mod local_time;
+pub mod phone;
+mod phone_data;
 pub use local_time::{Date, LocalTime};
 
 /// WhatsApp sends `notify="[]"` (and the backend forwards it verbatim as the
@@ -313,8 +315,8 @@ impl ChatMessage {
 	/// The first phone-number-looking run of text in the message, if any.
 	/// Returns (matched substring as it appeared in the text, digits-only
 	/// form suitable for building a `<digits>@s.whatsapp.net` JID). Runs are
-	/// validated with `phonenumber` so things like order numbers or dates
-	/// don't false-positive.
+	/// validated against libphonenumber's metadata (see phone.rs) so things
+	/// like order numbers or dates don't false-positive.
 	pub fn first_phone_number(&self) -> Option<(String, String)> {
 		if self.text.starts_with('[') {
 			return None;
@@ -354,11 +356,7 @@ impl ChatMessage {
 				if (8..=15).contains(&digit_count) {
 					let candidate: String = chars[start..end].iter().collect();
 					let digits: String = candidate.chars().filter(|c| c.is_ascii_digit()).collect();
-					let looks_valid = phonenumber::parse(None, candidate.clone())
-						.or_else(|_| phonenumber::parse(None, format!("+{}", digits)))
-						.map(|p| p.is_valid())
-						.unwrap_or(false);
-					if looks_valid {
+					if let Some(digits) = phone::valid_digits(&digits) {
 						return Some((candidate, digits));
 					}
 				}

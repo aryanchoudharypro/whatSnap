@@ -3160,8 +3160,8 @@ pub fn bind_input_handlers(
 				msg_name.or_else(|| s.contacts.get(jid).cloned()).unwrap_or_else(|| {
 					let raw_phone = jid.split('@').next().unwrap_or(jid);
 					if !raw_phone.is_empty() && raw_phone.chars().all(|c| c.is_ascii_digit()) {
-						if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
-							return parsed.format().mode(phonenumber::Mode::International).to_string();
+						if let Some(formatted) = whantv::phone::format_international(raw_phone) {
+							return formatted;
 						}
 						return format!("+{}", raw_phone);
 					}

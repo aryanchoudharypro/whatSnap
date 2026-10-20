@@ -3198,12 +3198,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									String::new()
 								} else {
 									let raw_phone = phone_jid.split('@').next().unwrap_or(phone_jid);
-									match phonenumber::parse(None, format!("+{}", raw_phone)) {
-										Ok(parsed) => {
-											parsed.format().mode(phonenumber::Mode::International).to_string()
-										}
-										Err(_) => raw_phone.to_string(),
-									}
+									whantv::phone::format_international(raw_phone)
+										.unwrap_or_else(|| raw_phone.to_string())
 								};
 
 								let local_name = if !backend_name.is_empty() {
@@ -3563,8 +3559,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							.filter(|p| !p.is_empty())
 							.unwrap_or_else(|| jid.split('@').next().unwrap_or(jid));
 						let mut phone = raw_phone.to_string();
-						if let Ok(parsed) = phonenumber::parse(None, format!("+{}", raw_phone)) {
-							phone = parsed.format().mode(phonenumber::Mode::International).to_string();
+						if let Some(formatted) = whantv::phone::format_international(raw_phone) {
+							phone = formatted;
 						}
 
 						let mut text = format!("Name: {}\nPhone: {}\n", local_name, phone);

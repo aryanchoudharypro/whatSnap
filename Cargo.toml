@@ -25,7 +25,6 @@ key-chord = "0.2.2"
 rodio = { version = "0.22.2", features = ["default", "symphonia-vorbis", "symphonia-all"] }
 rodio-wsola = "0.2.0"
 opus = "0.3.1"
-phonenumber = "0.3.10"
 nnnoiseless = { version = "0.5.2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
