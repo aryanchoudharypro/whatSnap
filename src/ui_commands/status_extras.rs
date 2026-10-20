@@ -227,8 +227,8 @@ fn show_viewers(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 			let time = v
 				.get("timestamp")
 				.and_then(|t| t.as_i64())
-				.and_then(|t| chrono::DateTime::from_timestamp(t, 0))
-				.map(|dt| chrono::DateTime::<chrono::Local>::from(dt).format("%I:%M %p").to_string())
+				.and_then(whantv::LocalTime::from_unix)
+				.map(|dt| dt.format("%I:%M %p"))
 				.unwrap_or_default();
 			let reaction = text(v, "reaction");
 			let mut label = format!("{}, {}", text(v, "name"), time);

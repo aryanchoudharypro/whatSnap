@@ -103,7 +103,7 @@ fn refresh_open_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 
 fn ui_timing_log(msg: &str) {
 	use std::io::Write;
-	let now = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
+	let now = whantv::LocalTime::now().format("%Y/%m/%d %H:%M:%S");
 	if let Ok(mut f) =
 		std::fs::OpenOptions::new().create(true).append(true).open(crate::paths::log_dir().join("ui.log"))
 	{
@@ -245,14 +245,13 @@ fn apply_conversation_messages(
 	}
 
 	let mut with_dates = Vec::new();
-	let mut last_date: Option<chrono::NaiveDate> = None;
+	let mut last_date: Option<whantv::Date> = None;
 	for mut msg in deduplicated {
 		if !is_group_chat && !msg.from_me && msg.sender_name.is_empty() && msg.sender_jid.is_empty() {
 			msg.sender_name = chat_name.clone();
 		}
 
-		if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
-			let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+		if let Some(local_datetime) = whantv::LocalTime::from_unix(msg.timestamp) {
 			let day = whantv::date_key(local_datetime);
 			if last_date != Some(day) {
 				last_date = Some(day);
@@ -537,21 +536,20 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 			let preview_reaction_emoji = &*chat.preview_reaction_emoji;
 
 			let time_str = if ts > 0 {
-				if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
-					let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
-					let now_dt = chrono::Local::now();
-					let msg_date = local_dt.date_naive();
-					let today = now_dt.date_naive();
-					let yesterday = today.pred_opt().unwrap_or(today);
-					let num_days_ago = (today - msg_date).num_days();
+				if let Some(local_dt) = whantv::LocalTime::from_unix(ts) {
+					let now_dt = whantv::LocalTime::now();
+					let msg_date = local_dt.date();
+					let today = now_dt.date();
+					let yesterday = today.add_days(-1);
+					let num_days_ago = today.days_since(msg_date);
 					if msg_date == today {
-						local_dt.format("%I:%M %p").to_string()
+						local_dt.format("%I:%M %p")
 					} else if msg_date == yesterday {
 						"Yesterday".to_string()
 					} else if num_days_ago > 1 && num_days_ago < 7 {
-						local_dt.format("%A").to_string()
+						local_dt.format("%A")
 					} else {
-						local_dt.format("%d/%m/%Y").to_string()
+						local_dt.format("%d/%m/%Y")
 					}
 				} else {
 					String::new()
@@ -1758,14 +1756,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 							let mut insert_date = false;
 							let mut divider_label = String::new();
-							if let Some(datetime) = chrono::DateTime::from_timestamp(ts, 0) {
-								let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+							if let Some(local_datetime) = whantv::LocalTime::from_unix(ts) {
 								let day = whantv::date_key(local_datetime);
 								if let Some(last_msg) = s.messages.last() {
 									if !last_msg.is_date_divider
-										&& let Some(last_dt) = chrono::DateTime::from_timestamp(last_msg.timestamp, 0)
+										&& let Some(last_local) = whantv::LocalTime::from_unix(last_msg.timestamp)
 									{
-										let last_local: chrono::DateTime<chrono::Local> = last_dt.into();
 										if day != whantv::date_key(last_local) {
 											insert_date = true;
 										}
@@ -2407,9 +2403,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if ts == 0 {
 							return String::new();
 						}
-						let dt =
-							chrono::DateTime::from_timestamp(ts, 0).unwrap_or_default().with_timezone(&chrono::Local);
-						dt.format("%l:%M %p").to_string().trim().to_lowercase()
+						let Some(dt) = whantv::LocalTime::from_unix(ts) else {
+							return String::new();
+						};
+						dt.format("%l:%M %p").trim().to_lowercase()
 					};
 					let msg_id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
 					let mut sent_s = data.get("sent_at").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -2771,11 +2768,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							"Message".to_string()
 						};
 						let date_str = if timestamp > 0 {
-							chrono::DateTime::from_timestamp(timestamp, 0)
-								.map(|dt| {
-									let local_dt: chrono::DateTime<chrono::Local> = dt.into();
-									local_dt.format("%b %e, %Y").to_string()
-								})
+							whantv::LocalTime::from_unix(timestamp)
+								.map(|local_dt| local_dt.format("%b %e, %Y"))
 								.unwrap_or_default()
 						} else {
 							String::new()
@@ -2812,10 +2806,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 
 						let mut with_dates = Vec::new();
-						let mut last_date: Option<chrono::NaiveDate> = None;
+						let mut last_date: Option<whantv::Date> = None;
 						for msg in parsed_msgs {
-							if let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0) {
-								let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
+							if let Some(local_datetime) = whantv::LocalTime::from_unix(msg.timestamp) {
 								let day = whantv::date_key(local_datetime);
 								if last_date != Some(day) {
 									last_date = Some(day);
@@ -2960,14 +2953,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 					let btn_label = if unavailable {
 						if last_seen > 0 {
-							if let Some(datetime) = chrono::DateTime::from_timestamp(last_seen, 0) {
-								let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
-								let now = chrono::Local::now();
-								let time_str = local_dt.format("%l:%M %p").to_string().trim().to_string();
-								let date_str = if local_dt.date_naive() == now.date_naive() {
+							if let Some(local_dt) = whantv::LocalTime::from_unix(last_seen) {
+								let now = whantv::LocalTime::now();
+								let time_str = local_dt.format("%l:%M %p").trim().to_string();
+								let date_str = if local_dt.date() == now.date() {
 									format!("today at {}", time_str)
 								} else {
-									local_dt.format("%b %e at %l:%M %p").to_string().replace("  ", " ")
+									local_dt.format("%b %e at %l:%M %p").replace("  ", " ")
 								};
 								format!("{} (last seen {})", name, date_str)
 							} else {
@@ -3010,14 +3002,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 						let announcement = if unavailable {
 							if last_seen > 0 {
-								if let Some(datetime) = chrono::DateTime::from_timestamp(last_seen, 0) {
-									let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
-									let now = chrono::Local::now();
-									let time_str = local_dt.format("%l:%M %p").to_string().trim().to_string();
-									let date_str = if local_dt.date_naive() == now.date_naive() {
+								if let Some(local_dt) = whantv::LocalTime::from_unix(last_seen) {
+									let now = whantv::LocalTime::now();
+									let time_str = local_dt.format("%l:%M %p").trim().to_string();
+									let date_str = if local_dt.date() == now.date() {
 										format!("today at {}", time_str)
 									} else {
-										local_dt.format("%b %e at %l:%M %p").to_string().replace("  ", " ")
+										local_dt.format("%b %e at %l:%M %p").replace("  ", " ")
 									};
 									format!("{}, last seen {}", name, date_str)
 								} else {

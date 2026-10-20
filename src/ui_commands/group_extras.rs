@@ -165,8 +165,8 @@ fn answer_join_requests(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 		let when = r
 			.get("requested_at")
 			.and_then(|t| t.as_i64())
-			.and_then(|t| chrono::DateTime::from_timestamp(t, 0))
-			.map(|dt| chrono::DateTime::<chrono::Local>::from(dt).format("%b %d, %I:%M %p").to_string())
+			.and_then(whantv::LocalTime::from_unix)
+			.map(|dt| dt.format("%b %d, %I:%M %p"))
 			.unwrap_or_default();
 		labels.push(format!("{}, asked {}", text(r, "name"), when));
 	}

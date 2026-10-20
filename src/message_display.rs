@@ -210,11 +210,8 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 					String::new()
 				};
 				let time_str = if item.timestamp > 0 {
-					chrono::DateTime::from_timestamp(item.timestamp, 0)
-						.map(|dt| {
-							let local_dt: chrono::DateTime<chrono::Local> = dt.into();
-							local_dt.format("%I:%M %p").to_string()
-						})
+					whantv::LocalTime::from_unix(item.timestamp)
+						.map(|local_dt| local_dt.format("%I:%M %p"))
 						.unwrap_or_default()
 				} else {
 					String::new()

@@ -1,4 +1,6 @@
 pub mod countries;
+pub mod local_time;
+pub use local_time::{Date, LocalTime};
 
 /// WhatsApp sends `notify="[]"` (and the backend forwards it verbatim as the
 /// sender/quoted-sender name) when a contact has no push name set. Treat that
@@ -123,15 +125,15 @@ pub fn format_file_size(bytes: i64) -> Option<String> {
 /// recent days, otherwise the full weekday/month/day/year string. Used both to
 /// build the row text and (via `date_key`) to decide whether two messages fall
 /// on the same day, so the same calendar comparison always governs both.
-pub fn format_date_divider_label(local_dt: chrono::DateTime<chrono::Local>) -> String {
-	let day = local_dt.date_naive();
-	let today = chrono::Local::now().date_naive();
+pub fn format_date_divider_label(local_dt: LocalTime) -> String {
+	let day = local_dt.date();
+	let today = LocalTime::now().date();
 	if day == today {
 		"Today".to_string()
-	} else if day == today - chrono::Duration::days(1) {
+	} else if day == today.add_days(-1) {
 		"Yesterday".to_string()
 	} else {
-		local_dt.format("%A, %B %e, %Y").to_string()
+		local_dt.format("%A, %B %e, %Y")
 	}
 }
 
@@ -139,8 +141,8 @@ pub fn format_date_divider_label(local_dt: chrono::DateTime<chrono::Local>) -> S
 /// a date divider between them. Independent of `format_date_divider_label`'s
 /// "Today"/"Yesterday" wording so that changes to the label never affect the
 /// same-day comparison.
-pub fn date_key(local_dt: chrono::DateTime<chrono::Local>) -> chrono::NaiveDate {
-	local_dt.date_naive()
+pub fn date_key(local_dt: LocalTime) -> Date {
+	local_dt.date()
 }
 
 /// Converts a raw backend placeholder like `"[Image] caption"` or
@@ -436,10 +438,9 @@ impl ChatMessage {
 
 			let mut time_str = String::new();
 			if self.timestamp > 0
-				&& let Some(datetime) = chrono::DateTime::from_timestamp(self.timestamp, 0)
+				&& let Some(local_datetime) = LocalTime::from_unix(self.timestamp)
 			{
-				let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-				time_str = local_datetime.format(" %Y-%m-%d at %H.%M.%S").to_string();
+				time_str = local_datetime.format(" %Y-%m-%d at %H.%M.%S");
 			}
 
 			if time_str.is_empty() {
@@ -519,10 +520,9 @@ impl ChatMessage {
 
 		let mut formatted_time = String::new();
 		if self.timestamp > 0
-			&& let Some(datetime) = chrono::DateTime::from_timestamp(self.timestamp, 0)
+			&& let Some(local_datetime) = LocalTime::from_unix(self.timestamp)
 		{
-			let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
-			formatted_time = local_datetime.format("%I:%M %p").to_string();
+			formatted_time = local_datetime.format("%I:%M %p");
 		}
 
 		let is_deleted = self.is_deleted
@@ -796,9 +796,8 @@ impl DisplayItem {
 			DisplayItem::Single(msg) => msg.format_display(is_group),
 			DisplayItem::Album { from_me, sender_name, sender_jid, timestamp, messages, .. } => {
 				let formatted_time = if *timestamp > 0 {
-					if let Some(datetime) = chrono::DateTime::from_timestamp(*timestamp, 0) {
-						let local_dt: chrono::DateTime<chrono::Local> = datetime.into();
-						local_dt.format("%l:%M %p").to_string().trim().to_string()
+					if let Some(local_dt) = LocalTime::from_unix(*timestamp) {
+						local_dt.format("%l:%M %p").trim().to_string()
 					} else {
 						String::new()
 					}
@@ -1225,12 +1224,11 @@ pub fn prepend_plan(old: &[DisplayItem], new: &[DisplayItem]) -> Option<PrependP
 /// real send time).
 pub fn rebuild_date_dividers(messages: Vec<Msg>) -> Vec<Msg> {
 	let mut out = Vec::with_capacity(messages.len());
-	let mut last_date: Option<chrono::NaiveDate> = None;
+	let mut last_date: Option<Date> = None;
 	for msg in messages.into_iter().filter(|m| !m.is_date_divider) {
 		if !msg.is_unread_divider
-			&& let Some(datetime) = chrono::DateTime::from_timestamp(msg.timestamp, 0)
+			&& let Some(local_datetime) = LocalTime::from_unix(msg.timestamp)
 		{
-			let local_datetime: chrono::DateTime<chrono::Local> = datetime.into();
 			let day = date_key(local_datetime);
 			if last_date != Some(day) {
 				last_date = Some(day);
