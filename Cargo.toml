@@ -22,7 +22,7 @@ image = { version = "0.25.10", default-features = false, features = ["png", "gif
 live-region = "0.3.3"
 wx-utils = { version = "0.4.2", features = ["shortcuts"] }
 key-chord = "0.2.2"
-rodio = { version = "0.22.2", features = ["default", "symphonia-vorbis", "symphonia-all"] }
+rodio = { version = "0.22.2", default-features = false, features = ["playback"] }
 rodio-wsola = "0.2.0"
 opus = "0.3.1"
 nnnoiseless = { version = "0.5.2", default-features = false }

@@ -3,9 +3,9 @@
 //! JSON payload's `type` field: message,call,presence,contacts,chats sync,
 //! privacy settings, status updates, and friends.
 
-use std::{borrow::Cow, cell::RefCell, fs::File, io::BufReader, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, rc::Rc};
 
-use rodio::{Decoder, Player};
+use rodio::{Player, Source};
 use rodio_wsola::WsolaSourceExt;
 use serde::Deserialize;
 use whantv::ChatMessage;
@@ -15,7 +15,7 @@ use crate::{
 	AppState, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem,
 	UiCommand,
 	audio::{
-		decode_opus_file, ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringback,
+		ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringback,
 		start_call_ringing_sound, stop_call_ringing_sound,
 	},
 	call_audio,
@@ -4312,21 +4312,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 					s.audio_sink = None;
 
-					// Duration strategy:
-					// 1. Count samples via rodio (works for WAV/FLAC/MP3 but not opus)
-					// 2. Parse "M:SS" from the message text e.g. "[Voice Message] (0:23)"
-					// 3. Count samples by consuming the decoder (always works, small files)
-					s.audio_total_secs = 0.0;
-
-					// Try rodio total_duration first (fast, works for some formats)
-					if let Ok(probe_file) = File::open(path)
-						&& let Ok(probe_dec) = Decoder::new(BufReader::new(probe_file))
-					{
-						use rodio::Source;
-						if let Some(dur) = probe_dec.total_duration() {
-							s.audio_total_secs = dur.as_secs_f32();
-						}
-					}
+					// Duration: what the decoder knows (Media Foundation reads it
+					// from the file's header, an Opus note is decoded up front),
+					// else "(M:SS)" parsed from the message text, e.g.
+					// "[Voice Message] (0:23)".
+					let source = crate::audio_file::open(path, std::time::Duration::ZERO);
+					s.audio_total_secs =
+						source.as_ref().and_then(|src| src.total_duration()).map_or(0.0, |d| d.as_secs_f32());
 
 					// Parse duration from message text: "[Voice Message] (M:SS)" or "[Audio] (M:SS)"
 					if s.audio_total_secs == 0.0 {
@@ -4356,47 +4348,28 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					ensure_audio_stream(&mut s);
 					let mut played = false;
 					if let Some(ref stream_handle) = s.audio_stream {
-						let sink = Player::connect_new(stream_handle.mixer());
-						if let Ok(file) = File::open(path) {
-							if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-								sink.append(decoder.wsola(s.audio_speed));
-								if start_paused {
-									sink.pause();
-								} else {
-									sink.play();
-								}
-								s.audio_sink = Some(sink);
-								played = true;
-								s.audio_start_instant =
-									if start_paused { None } else { Some(std::time::Instant::now()) };
-								parts.conversations_parts.play_voice_btn.set_label(if start_paused {
-									"Play voice message"
-								} else {
-									"Pause voice message"
-								});
-							} else if let Some(opus_buf) = decode_opus_file(path) {
-								sink.append(opus_buf.wsola(s.audio_speed));
-								if start_paused {
-									sink.pause();
-								} else {
-									sink.play();
-								}
-								s.audio_sink = Some(sink);
-								played = true;
-								s.audio_start_instant =
-									if start_paused { None } else { Some(std::time::Instant::now()) };
-								parts.conversations_parts.play_voice_btn.set_label(if start_paused {
-									"Play voice message"
-								} else {
-									"Pause voice message"
-								});
+						if let Some(source) = source {
+							let sink = Player::connect_new(stream_handle.mixer());
+							sink.append(source.wsola(s.audio_speed));
+							if start_paused {
+								sink.pause();
+							} else {
+								sink.play();
 							}
+							s.audio_sink = Some(sink);
+							played = true;
+							s.audio_start_instant = if start_paused { None } else { Some(std::time::Instant::now()) };
+							parts.conversations_parts.play_voice_btn.set_label(if start_paused {
+								"Play voice message"
+							} else {
+								"Pause voice message"
+							});
 						}
 					}
 					if !played {
 						// Every format WhatsApp actually sends is covered above
-						// (Ogg Opus by decode_opus_file, everything else by
-						// symphonia), so landing here means the output device
+						// (Ogg Opus by libopus, everything else by Media
+						// Foundation), so landing here means the output device
 						// couldn't be opened or the file is truncated/corrupt.
 						// Reset back to "not playing" rather than leaving the
 						// button stuck on "Pause" for audio that never started.

@@ -123,9 +123,8 @@ pub(crate) fn play_notification_sound(
 			return;
 		};
 		let sink = Player::connect_new(stream.mixer());
-		let cursor = std::io::Cursor::new(sound.ogg());
-		if let Ok(decoder) = rodio::Decoder::new(cursor) {
-			sink.append(decoder);
+		if let Some(decoded) = decode_opus(sound.ogg()) {
+			sink.append(decoded);
 			sink.play();
 			// Block this worker thread until playback finishes, so `stream` and
 			// `sink` (and the device they hold open) stay alive for the duration.
@@ -138,14 +137,13 @@ pub(crate) fn play_call_fail_sound(state: &mut AppState) {
 	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(stream_handle.mixer());
-		let cursor = std::io::Cursor::new(include_bytes!("../sounds/whatsapp_windows_hangup_01_705kbps.ogg"));
-		match rodio::Decoder::new(cursor) {
-			Ok(decoder) => {
-				sink.append(decoder);
+		match decode_opus(include_bytes!("../sounds/whatsapp_windows_hangup_01_705kbps.ogg")) {
+			Some(decoded) => {
+				sink.append(decoded);
 				sink.play();
 				state.call_ringing_sink = Some(sink);
 			}
-			Err(e) => eprintln!("[AUDIO] Error decoding fail sound: {:?}", e),
+			None => eprintln!("[AUDIO] Error decoding fail sound"),
 		}
 	} else {
 		eprintln!("[AUDIO] No audio stream available");
@@ -156,27 +154,16 @@ pub(crate) fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'stat
 	ensure_audio_stream(state);
 	if let Some(ref stream_handle) = state.audio_stream {
 		let sink = Player::connect_new(stream_handle.mixer());
-		let cursor = std::io::Cursor::new(sound_bytes);
-		match rodio::Decoder::new(cursor) {
-			Ok(decoder) => {
+		match decode_opus(sound_bytes) {
+			Some(decoded) => {
 				use rodio::Source;
-				// Fully decode into a SamplesBuffer before looping: rodio's
-				// symphonia-backed Decoder reports current_span_len() == 0 until
-				// its internal buffer is first populated by a next() call, and
-				// repeat_infinite()'s underlying buffered() checks that length
-				// immediately at construction time - seeing 0, it treats the
-				// decoder as already exhausted and Repeat plays silence forever.
-				// SamplesBuffer reports its real length from the start, so
-				// wrapping that instead avoids the false-exhausted state.
-				let channels = decoder.channels();
-				let sample_rate = decoder.sample_rate();
-				let samples: Vec<f32> = decoder.collect();
-				let buffer = rodio::buffer::SamplesBuffer::new(channels, sample_rate, samples);
-				sink.append(buffer.repeat_infinite());
+				// A SamplesBuffer knows its length up front, which
+				// repeat_infinite() needs to loop it.
+				sink.append(decoded.repeat_infinite());
 				sink.play();
 				state.call_ringing_sink = Some(sink);
 			}
-			Err(e) => eprintln!("[AUDIO] Error decoding ringing sound: {:?}", e),
+			None => eprintln!("[AUDIO] Error decoding ringing sound"),
 		}
 	} else {
 		eprintln!("[AUDIO] No audio stream available");
@@ -220,22 +207,9 @@ pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 	}
 }
 
-/// Length of an audio file in whole seconds (0 if it can't be read): from the
-/// container's own header when it has one, else by decoding it through.
+/// Length of an audio file in whole seconds (0 if it can't be read).
 pub(crate) fn audio_file_seconds(path: &str) -> u64 {
-	use rodio::Source;
-	let Ok(file) = std::fs::File::open(path) else {
-		return 0;
-	};
-	if let Ok(decoder) = rodio::Decoder::new(std::io::BufReader::new(file)) {
-		if let Some(d) = decoder.total_duration() {
-			return d.as_secs_f64().round() as u64;
-		}
-		let (channels, rate) = (decoder.channels().get() as u64, decoder.sample_rate().get() as u64);
-		let samples = decoder.count() as u64;
-		return (samples / channels.max(1) + rate / 2) / rate.max(1);
-	}
-	decode_opus_file(path).and_then(|b| b.total_duration()).map(|d| d.as_secs_f64().round() as u64).unwrap_or(0)
+	crate::audio_file::duration(path).map_or(0, |d| d.as_secs_f64().round() as u64)
 }
 
 pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> crate::error::Result<()> {
@@ -268,25 +242,15 @@ pub(crate) fn concat_wav_segments(segments: &[String], out_path: &str) -> crate:
 }
 
 pub(crate) fn do_seek(stream_handle: &MixerDeviceSink, path: &str, target_secs: f32, speed: f32) -> Option<Player> {
-	use rodio::Source;
+	let source = crate::audio_file::open(path, std::time::Duration::from_secs_f32(target_secs.max(0.0)))?;
 	let sink = Player::connect_new(stream_handle.mixer());
-	if let Ok(file) = std::fs::File::open(path) {
-		if let Ok(decoder) = rodio::Decoder::new(std::io::BufReader::new(file)) {
-			let source = decoder.skip_duration(std::time::Duration::from_secs_f32(target_secs.max(0.0))).wsola(speed);
-			sink.append(source);
-			sink.play();
-			return Some(sink);
-		} else if let Some(opus_buf) = decode_opus_file(path) {
-			let source = opus_buf.skip_duration(std::time::Duration::from_secs_f32(target_secs.max(0.0))).wsola(speed);
-			sink.append(source);
-			sink.play();
-			return Some(sink);
-		}
-	}
-	None
+	sink.append(source.wsola(speed));
+	sink.play();
+	Some(sink)
 }
 
-pub(crate) fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffer> {
+/// Decodes an Ogg Opus stream (a voice note, or one of the built-in sounds).
+pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 	use opus::{Channels, Decoder};
 
 	fn feed_packet(
@@ -330,7 +294,6 @@ pub(crate) fn decode_opus_file(path: &str) -> Option<rodio::buffer::SamplesBuffe
 		}
 	}
 
-	let data = std::fs::read(path).ok()?;
 	let len = data.len();
 	let mut pos: usize = 0;
 
@@ -642,15 +605,15 @@ mod sound_tests {
 			NotificationSound::VoiceSequenceNext,
 			NotificationSound::VoiceSequenceEnd,
 		] {
-			let decoder = rodio::Decoder::new(std::io::Cursor::new(sound.ogg()));
-			assert!(decoder.is_ok_and(|mut d| d.next().is_some()), "{:?} doesn't decode", sound as u8);
+			let decoded = super::decode_opus(sound.ogg());
+			assert!(decoded.is_some_and(|mut d| d.next().is_some()), "{:?} doesn't decode", sound as u8);
 		}
 	}
 }
 
 #[cfg(test)]
 mod voice_note_tests {
-	use super::{convert_wav_to_opus_ogg, decode_opus_file};
+	use super::{convert_wav_to_opus_ogg, decode_opus};
 
 	#[test]
 	fn voice_note_is_laid_out_like_whatsapps() {
@@ -669,7 +632,7 @@ mod voice_note_tests {
 			w.finalize().unwrap();
 			convert_wav_to_opus_ogg(wav.to_str().unwrap(), ogg.to_str().unwrap()).unwrap();
 			let data = std::fs::read(&ogg).unwrap();
-			let decoded = decode_opus_file(ogg.to_str().unwrap()).unwrap().count() as u64;
+			let decoded = decode_opus(&data).unwrap().count() as u64;
 			let _ = std::fs::remove_file(&wav);
 			let _ = std::fs::remove_file(&ogg);
 

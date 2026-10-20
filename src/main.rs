@@ -7,6 +7,7 @@ mod audio;
 use audio::*;
 mod audio_device_watch;
 mod audio_devices;
+mod audio_file;
 mod autostart;
 mod backend_process;
 mod call_audio;
