@@ -101,6 +101,29 @@ fn refresh_open_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	}
 }
 
+/// A QR code as black-on-white RGBA, five pixels a module, with the four
+/// module quiet zone scanners need around it.
+fn qr_rgba(qr: &qrcode::QrCode) -> (u32, u32, Vec<u8>) {
+	const MODULE: usize = 5;
+	const QUIET: usize = 4;
+	let modules = qr.width();
+	let colors = qr.to_colors();
+	let side = (modules + 2 * QUIET) * MODULE;
+	let mut rgba = vec![255u8; side * side * 4];
+	for (i, color) in colors.iter().enumerate() {
+		if *color != qrcode::Color::Dark {
+			continue;
+		}
+		let (mx, my) = (i % modules + QUIET, i / modules + QUIET);
+		for y in my * MODULE..(my + 1) * MODULE {
+			for x in mx * MODULE..(mx + 1) * MODULE {
+				rgba[(y * side + x) * 4..][..3].fill(0);
+			}
+		}
+	}
+	(side as u32, side as u32, rgba)
+}
+
 fn ui_timing_log(msg: &str) {
 	use std::io::Write;
 	let now = whantv::LocalTime::now().format("%Y/%m/%d %H:%M:%S");
@@ -1429,17 +1452,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				}
 				if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
 					if let Ok(qr) = qrcode::QrCode::new(code) {
-						let image = qr.render::<image::Rgba<u8>>().quiet_zone(true).module_dimensions(5, 5).build();
-						let width = image.width();
-						let height = image.height();
-						let data = image.into_raw();
-						let mut png_bytes = Vec::new();
-						let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
-						use image::ImageEncoder;
-						if encoder.write_image(&data, width, height, image::ExtendedColorType::Rgba8).is_ok() {
-							let b64 = crate::util::base64(&png_bytes);
-							println!("{{'data': {{'qrcode': {{'base64': 'data:image/png;base64,{}'}}}}}}", b64);
-						}
+						let (width, height, data) = qr_rgba(&qr);
+						let png_bytes = crate::png::encode_rgba(width, height, &data);
+						println!(
+							"{{'data': {{'qrcode': {{'base64': 'data:image/png;base64,{}'}}}}}}",
+							crate::util::base64(&png_bytes)
+						);
 						if let Some(bitmap) = wxdragon::bitmap::Bitmap::from_rgba(&data, width, height) {
 							parts.qrcode_display.set_min_size(Size::new(width as i32, height as i32));
 							parts.qrcode_display.set_bitmap(&bitmap);

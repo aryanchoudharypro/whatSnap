@@ -22,12 +22,7 @@ use crate::media_foundation;
 /// Foundation can't decode it.
 pub(crate) fn first_frame_png(path: &str) -> Option<Vec<u8>> {
 	let (width, height, rgba) = first_frame_rgba(path).ok()?;
-	let mut png = Vec::new();
-	use image::ImageEncoder;
-	image::codecs::png::PngEncoder::new(&mut png)
-		.write_image(&rgba, width, height, image::ExtendedColorType::Rgba8)
-		.ok()?;
-	Some(png)
+	Some(crate::png::encode_rgba(width, height, &rgba))
 }
 
 fn first_frame_rgba(path: &str) -> crate::error::Result<(u32, u32, Vec<u8>)> {

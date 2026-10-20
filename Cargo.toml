@@ -11,14 +11,9 @@ serde_json = { version = "1.0.150", features = ["raw_value"] }
 # (default-features = false): no printing, TIFF/JPEG/GIF/XPM/... image
 # handlers, regex, Tango art icons or asserts. whaNTV builds every bitmap from
 # raw pixels and uses none of them; add a feature back here if something new
-# needs it. The source is pinned below in [patch.crates-io].
+# needs it.
 wxdragon = { version = "0.9.22", default-features = false }
-qrcode = "0.14.1"
-# Encodes PNGs (the pairing QR code, video previews) and decodes GIFs to send
-# them as looping videos. Default features pull in every format the crate
-# supports, including rav1e (a full AV1 encoder), EXR, WebP and TIFF - dozens
-# of crates that are compiled and then dead-stripped.
-image = { version = "0.25.10", default-features = false, features = ["png", "gif"] }
+qrcode = { version = "0.14.1", default-features = false }
 live-region = "0.3.3"
 wx-utils = { version = "0.4.2", features = ["shortcuts"] }
 key-chord = "0.2.2"

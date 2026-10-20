@@ -4,9 +4,6 @@
 //! phones don't animate a GIF sent as a photo. The frames are encoded with
 //! Media Foundation's Sink Writer.
 
-use std::io::BufReader;
-
-use image::{AnimationDecoder, RgbaImage, codecs::gif::GifDecoder, imageops};
 use windows::{
 	Win32::{
 		Media::MediaFoundation::{
@@ -20,7 +17,10 @@ use windows::{
 	core::HSTRING,
 };
 
-use crate::media_foundation::{self, pack_u64};
+use crate::{
+	gif::GifDecoder,
+	media_foundation::{self, pack_u64},
+};
 
 /// GIFs bigger than this are scaled down to it on their longest edge.
 const MAX_EDGE: u32 = 640;
@@ -36,41 +36,23 @@ const NOMINAL_FPS: u32 = 25;
 /// Converts the GIF at `gif_path` into an MP4 at `mp4_path`, returning its
 /// first frame as PNG bytes (for the message's preview).
 pub(crate) fn gif_to_mp4(gif_path: &str, mp4_path: &str) -> crate::error::Result<Vec<u8>> {
-	let decoder = GifDecoder::new(BufReader::new(std::fs::File::open(gif_path)?))?;
-	let mut frames = Vec::new();
-	for frame in decoder.into_frames().take(MAX_FRAMES) {
-		let frame = frame?;
-		let (numer, denom) = frame.delay().numer_denom_ms();
-		let ms = numer.checked_div(denom).unwrap_or(DEFAULT_DELAY_MS);
-		let ms = if ms < MIN_DELAY_MS { DEFAULT_DELAY_MS } else { ms };
-		frames.push((frame.into_buffer(), ms));
-	}
-	let Some((first, _)) = frames.first() else {
-		crate::error::bail!("GIF has no frames");
-	};
-	let (width, height) = encoded_size(first.width(), first.height());
-	let frames: Vec<(RgbaImage, u32)> = frames
-		.into_iter()
-		.map(|(img, ms)| {
-			let img = if img.width() != width || img.height() != height {
-				imageops::resize(&img, width, height, imageops::FilterType::Triangle)
-			} else {
-				img
-			};
-			(img, ms)
+	let data = std::fs::read(gif_path)?;
+	let decoder = GifDecoder::new(&data).ok_or_else(|| crate::error::err!("not a GIF"))?;
+	let source_size = (decoder.width, decoder.height);
+	let (width, height) = encoded_size(decoder.width, decoder.height);
+	// Each frame is scaled as it's decoded, so only frames at the encoded
+	// size are kept.
+	let frames: Vec<(Vec<u8>, u32)> = decoder
+		.take(MAX_FRAMES)
+		.map(|frame| {
+			let ms = if frame.delay_ms < MIN_DELAY_MS { DEFAULT_DELAY_MS } else { frame.delay_ms };
+			(resize(frame.rgba, source_size, (width, height)), ms)
 		})
 		.collect();
-
-	let mut first_png = Vec::new();
-	{
-		use image::ImageEncoder;
-		image::codecs::png::PngEncoder::new(&mut first_png).write_image(
-			frames[0].0.as_raw(),
-			width,
-			height,
-			image::ExtendedColorType::Rgba8,
-		)?;
+	if frames.is_empty() {
+		crate::error::bail!("GIF has no frames");
 	}
+	let first_png = crate::png::encode_rgba(width, height, &frames[0].0);
 	encode(&frames, width, height, mp4_path)?;
 	Ok(first_png)
 }
@@ -91,7 +73,58 @@ fn encoded_size(width: u32, height: u32) -> (u32, u32) {
 	(w & !1, h & !1)
 }
 
-fn encode(frames: &[(RgbaImage, u32)], width: u32, height: u32, mp4_path: &str) -> crate::error::Result<()> {
+/// Scales an RGBA picture with a triangle (linear) filter widened to cover
+/// every source pixel when shrinking, one direction at a time.
+fn resize(rgba: Vec<u8>, (sw, sh): (u32, u32), (dw, dh): (u32, u32)) -> Vec<u8> {
+	if (sw, sh) == (dw, dh) {
+		return rgba;
+	}
+	// Source index and weight lists for each destination position.
+	fn weights(src: usize, dst: usize) -> Vec<Vec<(usize, f32)>> {
+		let scale = src as f32 / dst as f32;
+		let support = scale.max(1.0);
+		(0..dst)
+			.map(|d| {
+				let center = (d as f32 + 0.5) * scale;
+				let lo = (center - support).floor().max(0.0) as usize;
+				let hi = ((center + support).ceil() as usize).min(src);
+				let mut taps: Vec<(usize, f32)> = (lo..hi)
+					.map(|s| (s, (1.0 - ((s as f32 + 0.5 - center) / support).abs()).max(0.0)))
+					.filter(|&(_, w)| w > 0.0)
+					.collect();
+				if taps.is_empty() {
+					taps.push((((center as usize).min(src - 1)), 1.0));
+				}
+				let total: f32 = taps.iter().map(|&(_, w)| w).sum();
+				taps.iter_mut().for_each(|(_, w)| *w /= total);
+				taps
+			})
+			.collect()
+	}
+	let (sw, sh, dw, dh) = (sw as usize, sh as usize, dw as usize, dh as usize);
+	let (across, down) = (weights(sw, dw), weights(sh, dh));
+	// Across first, into floats, then down.
+	let mut wide = vec![0f32; dw * sh * 4];
+	for y in 0..sh {
+		for (x, taps) in across.iter().enumerate() {
+			for c in 0..4 {
+				wide[(y * dw + x) * 4 + c] = taps.iter().map(|&(s, w)| rgba[(y * sw + s) * 4 + c] as f32 * w).sum();
+			}
+		}
+	}
+	let mut out = vec![0u8; dw * dh * 4];
+	for (y, taps) in down.iter().enumerate() {
+		for x in 0..dw {
+			for c in 0..4 {
+				let v: f32 = taps.iter().map(|&(s, w)| wide[(s * dw + x) * 4 + c] * w).sum();
+				out[(y * dw + x) * 4 + c] = v.round().clamp(0.0, 255.0) as u8;
+			}
+		}
+	}
+	out
+}
+
+fn encode(frames: &[(Vec<u8>, u32)], width: u32, height: u32, mp4_path: &str) -> crate::error::Result<()> {
 	unsafe {
 		// Runs on a worker thread of its own, which needs COM.
 		let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
@@ -131,7 +164,7 @@ fn encode(frames: &[(RgbaImage, u32)], width: u32, height: u32, mp4_path: &str) 
 			let mut ptr: *mut u8 = std::ptr::null_mut();
 			buffer.Lock(&mut ptr, None, None)?;
 			let dst = std::slice::from_raw_parts_mut(ptr, frame_bytes as usize);
-			for (d, s) in dst.as_chunks_mut::<4>().0.iter_mut().zip(img.as_raw().as_chunks::<4>().0.iter()) {
+			for (d, s) in dst.as_chunks_mut::<4>().0.iter_mut().zip(img.as_chunks::<4>().0.iter()) {
 				// RGBA to BGRX, over black where the GIF is transparent.
 				let a = s[3] as u16;
 				d[0] = (s[2] as u16 * a / 255) as u8;
