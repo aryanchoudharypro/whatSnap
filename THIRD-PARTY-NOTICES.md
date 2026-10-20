@@ -14,9 +14,13 @@ BSD, Zlib, or dual MIT/Apache-2.0):
 | wxWidgets (linked by wxDragon) | wxWindows Library Licence (LGPL-2.1 + static-linking exception) |
 | live-region | MIT |
 | AccessKit | MIT / Apache-2.0 |
-| rodio, symphonia | MIT / Apache-2.0 |
+| rodio | MIT / Apache-2.0 |
+| rodio-wsola | Apache-2.0 |
 | opus (libopus bindings) | BSD-3-Clause |
-| image, qrcode, chrono, serde, tungstenite, interprocess, uuid | MIT / Apache-2.0 |
+| nnnoiseless (RNNoise) | BSD-3-Clause |
+| qrcode, serde, serde_json, windows | MIT / Apache-2.0 |
+| wx-utils, key-chord | MIT |
+| libphonenumber metadata (generated into `src/phone_data.rs`) | Apache-2.0 |
 
 The wxWindows Library Licence permits static linking into a binary released
 under any terms, including proprietary ones, without requiring relinkable
