@@ -9,12 +9,18 @@
 //! order:
 //!
 //! 1. an 80 Hz high-pass (desk thumps, breath pops, mains rumble),
-//! 2. RNNoise noise suppression (`nnnoiseless`), whose voice-activity estimate
-//!    also drives
+//! 2. RNNoise noise suppression (`nnnoiseless`). On its own it thins voices
+//!    and leaves a watery edge on them, so while someone is clearly talking
+//!    over the background some of the original is blended back in, where the
+//!    voice masks the little noise it carries. Pauses stay fully cleaned.
+//!    RNNoise's voice-activity estimate also drives
 //! 3. an automatic gain control that brings speech to a steady level - it only
 //!    measures and only raises the gain while someone is talking, so pauses
 //!    don't get pumped up into audible hiss,
-//! 4. a peak limiter so the raised gain can never clip.
+//! 4. a look-ahead peak limiter so the raised gain can never clip. It eases
+//!    the gain down over the millisecond before a peak instead of clamping at
+//!    the peak itself, which would bend the waveform and crackle on loud
+//!    syllables and plosives.
 //!
 //! Works on 48 kHz stereo in `[-1, 1]`; RNNoise needs exactly 48 kHz. Each
 //! channel is filtered and denoised on its own, but both share one gain and
@@ -47,8 +53,22 @@ const MAX_OUTPUT_NOISE_DBFS: f32 = -50.0;
 /// How fast the background estimate may creep up, per 10 ms frame (0.5 dB/s),
 /// so a long stretch of talking isn't mistaken for a louder background.
 const NOISE_RISE_DB_PER_FRAME: f32 = 0.005;
+/// The most of the original blended back into RNNoise's output. It scales
+/// with RNNoise's speech confidence (squared) and with how far the frame
+/// stands above the background: none at `BLEND_MIN_SNR_DB`, all of it from
+/// `BLEND_FULL_SNR_DB`. Tuned on synthetic speech in white, pink, brown and
+/// fan noise: speech is clearer at 10-20 dB SNR, no worse at 0 dB, and the
+/// noise left in pauses is unchanged.
+const BLEND_MAX: f32 = 0.5;
+const BLEND_MIN_SNR_DB: f32 = 8.0;
+const BLEND_FULL_SNR_DB: f32 = 22.0;
+/// Below this a frame is digital silence and says nothing about the noise.
+const SILENCE_DBFS: f32 = -100.0;
 const LIMIT_CEILING: f32 = 0.9; // about -1 dBFS
 const LIMIT_RELEASE_SECS: f32 = 0.08;
+/// How far ahead the limiter looks, in samples (1 ms). The output lags the
+/// input by one less than this.
+const LOOKAHEAD: usize = 48;
 
 pub(crate) struct VoiceCleanup {
 	hpf: [HighPass; 2],
@@ -56,8 +76,13 @@ pub(crate) struct VoiceCleanup {
 	agc: Agc,
 	pending: [Vec<f32>; 2],
 	frame_out: [Vec<f32>; 2],
-	/// RNNoise's output lags its input by one frame; the first frame out is
-	/// that delay (plus its fade-in), so it is dropped.
+	/// The previous input frame of each channel, which is what RNNoise's
+	/// output lines up with, and the background level of the input, dBFS
+	/// (minimum tracking, as in `Agc`).
+	dry: [[f32; FRAME]; 2],
+	dry_noise_db: [Option<f32>; 2],
+	/// RNNoise's output lags its input by one frame and the limiter's by
+	/// `LOOKAHEAD - 1` samples; that much from the start is dropped.
 	skip: usize,
 	samples_in: usize,
 	samples_out: usize,
@@ -71,7 +96,9 @@ impl VoiceCleanup {
 			agc: Agc::new(),
 			pending: [Vec::with_capacity(FRAME * 2), Vec::with_capacity(FRAME * 2)],
 			frame_out: [vec![0.0; FRAME], vec![0.0; FRAME]],
-			skip: FRAME,
+			dry: [[0.0; FRAME]; 2],
+			dry_noise_db: [None; 2],
+			skip: FRAME + LOOKAHEAD - 1,
 			samples_in: 0,
 			samples_out: 0,
 		}
@@ -110,18 +137,24 @@ impl VoiceCleanup {
 	}
 
 	fn drain_frames(&mut self, out: &mut Vec<[f32; 2]>) {
-		let mut frame_in = [0.0f32; FRAME];
+		let mut frame_in = [[0.0f32; FRAME]; 2];
 		while self.pending[0].len() >= FRAME {
-			let mut vad = 0.0f32;
+			let mut speech = [0.0f32; 2];
 			for c in 0..2 {
-				for (d, s) in frame_in.iter_mut().zip(self.pending[c].drain(..FRAME)) {
+				for (d, s) in frame_in[c].iter_mut().zip(self.pending[c].drain(..FRAME)) {
 					*d = s * 32768.0;
 				}
-				vad = vad.max(self.denoise[c].process_frame(&mut self.frame_out[c], &frame_in));
-				for s in self.frame_out[c].iter_mut() {
-					*s /= 32768.0;
+				speech[c] = self.denoise[c].process_frame(&mut self.frame_out[c], &frame_in[c]);
+			}
+			let vad = speech[0].max(speech[1]);
+			// One amount for both channels, so the blend can't shift the balance.
+			let blend = self.blend(0, speech[0]).min(self.blend(1, speech[1]));
+			for c in 0..2 {
+				for (s, d) in self.frame_out[c].iter_mut().zip(&self.dry[c]) {
+					*s = (*s + blend * (d - *s)) / 32768.0;
 				}
 			}
+			self.dry = frame_in;
 			let [left, right] = &mut self.frame_out;
 			self.agc.process(left, right, vad);
 			let start = self.skip.min(FRAME);
@@ -129,6 +162,23 @@ impl VoiceCleanup {
 			out.extend((start..FRAME).map(|i| [left[i], right[i]]));
 			self.samples_out += FRAME - start;
 		}
+	}
+
+	/// How much of the original to mix back into channel `c`'s current output
+	/// frame, given RNNoise's speech confidence for it.
+	fn blend(&mut self, c: usize, speech: f32) -> f32 {
+		let energy = self.dry[c].iter().map(|s| s * s).sum::<f32>() / FRAME as f32 / (32768.0 * 32768.0);
+		let level_db = 10.0 * (energy + 1e-12).log10();
+		if level_db < SILENCE_DBFS {
+			return 0.0;
+		}
+		let noise_db = match self.dry_noise_db[c] {
+			Some(n) if level_db >= n => n + NOISE_RISE_DB_PER_FRAME,
+			_ => level_db,
+		};
+		self.dry_noise_db[c] = Some(noise_db);
+		let above = (level_db - noise_db - BLEND_MIN_SNR_DB) / (BLEND_FULL_SNR_DB - BLEND_MIN_SNR_DB);
+		BLEND_MAX * above.clamp(0.0, 1.0) * speech * speech
 	}
 }
 
@@ -182,20 +232,12 @@ struct Agc {
 	noise_db: Option<f32>,
 	speech_frames: u32,
 	gain_db: f32,
-	limiter_gain: f32,
-	limiter_release: f32,
+	limiter: Limiter,
 }
 
 impl Agc {
 	fn new() -> Self {
-		Self {
-			level_db: None,
-			noise_db: None,
-			speech_frames: 0,
-			gain_db: 0.0,
-			limiter_gain: 1.0,
-			limiter_release: 1.0 - (-1.0 / (LIMIT_RELEASE_SECS * SAMPLE_RATE)).exp(),
-		}
+		Self { level_db: None, noise_db: None, speech_frames: 0, gain_db: 0.0, limiter: Limiter::new() }
 	}
 
 	/// Levels one 10 ms stereo frame in place. `vad` is RNNoise's confidence
@@ -239,17 +281,50 @@ impl Agc {
 		let n = left.len() as f32;
 		for (i, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
 			let g = g0 + (g1 - g0) * (i as f32 + 1.0) / n;
-			let (yl, yr) = (*l * g, *r * g);
-			let peak = yl.abs().max(yr.abs());
-			// Recover towards unity first, then clamp: the other way round, the
-			// recovery step could push this very sample over the ceiling.
-			self.limiter_gain += (1.0 - self.limiter_gain) * self.limiter_release;
-			if peak * self.limiter_gain > LIMIT_CEILING {
-				self.limiter_gain = LIMIT_CEILING / peak;
-			}
-			*l = yl * self.limiter_gain;
-			*r = yr * self.limiter_gain;
+			[*l, *r] = self.limiter.process([*l * g, *r * g]);
 		}
+	}
+}
+
+/// Look-ahead peak limiter. The gain each sample needs is held at its
+/// minimum over the next `LOOKAHEAD` samples and then averaged over as many,
+/// so it has fully come down by the time the peak goes out, without a step
+/// anywhere. It recovers exponentially. Both channels share one gain.
+struct Limiter {
+	delay: [[f32; 2]; LOOKAHEAD],
+	need: [f32; LOOKAHEAD],
+	held: [f32; LOOKAHEAD],
+	pos: usize,
+	gain: f32,
+	release: f32,
+}
+
+impl Limiter {
+	fn new() -> Self {
+		Self {
+			delay: [[0.0; 2]; LOOKAHEAD],
+			need: [1.0; LOOKAHEAD],
+			held: [1.0; LOOKAHEAD],
+			pos: 0,
+			gain: 1.0,
+			release: 1.0 - (-1.0 / (LIMIT_RELEASE_SECS * SAMPLE_RATE)).exp(),
+		}
+	}
+
+	/// Takes one stereo sample in and gives back the one from
+	/// `LOOKAHEAD - 1` samples ago, limited.
+	fn process(&mut self, sample: [f32; 2]) -> [f32; 2] {
+		let peak = sample[0].abs().max(sample[1].abs());
+		self.need[self.pos] = if peak > LIMIT_CEILING { LIMIT_CEILING / peak } else { 1.0 };
+		self.held[self.pos] = self.need.iter().copied().fold(1.0, f32::min);
+		let smooth = self.held.iter().sum::<f32>() / LOOKAHEAD as f32;
+		self.delay[self.pos] = sample;
+		self.pos = (self.pos + 1) % LOOKAHEAD;
+		// Recover towards unity first, then cap: the other way round, the
+		// recovery step could push this very sample over the ceiling.
+		self.gain = (self.gain + (1.0 - self.gain) * self.release).min(smooth);
+		let [l, r] = self.delay[self.pos];
+		[l * self.gain, r * self.gain]
 	}
 }
 
@@ -357,8 +432,49 @@ mod tests {
 		let mut agc = Agc::new();
 		agc.level_db = Some(-40.0);
 		agc.gain_db = MAX_GAIN_DB;
-		let mut f = tone(0.8, 300.0, FRAME);
-		agc_mono(&mut agc, &mut f, 1.0);
-		assert!(f.iter().all(|s| s.abs() <= LIMIT_CEILING + 1e-6));
+		for _ in 0..3 {
+			let mut f = tone(0.8, 300.0, FRAME);
+			agc_mono(&mut agc, &mut f, 1.0);
+			assert!(f.iter().all(|s| s.abs() <= LIMIT_CEILING + 1e-6));
+		}
+	}
+
+	#[test]
+	fn blend_only_while_talking_over_the_background() {
+		let mut c = VoiceCleanup::new();
+		// Settle the background estimate at about -60 dBFS.
+		for _ in 0..50 {
+			c.dry[0] = [0.001 * 32768.0; FRAME];
+			c.blend(0, 0.0);
+		}
+		c.dry[0] = [0.001 * 32768.0; FRAME];
+		assert_eq!(c.blend(0, 1.0), 0.0, "background alone, however speech-like");
+		c.dry[0] = [0.1 * 32768.0; FRAME];
+		assert_eq!(c.blend(0, 0.0), 0.0, "loud but not speech");
+		assert_eq!(c.blend(0, 1.0), BLEND_MAX, "speech 40 dB over the background");
+		c.dry[0] = [0.0; FRAME];
+		assert_eq!(c.blend(0, 1.0), 0.0, "digital silence");
+	}
+
+	#[test]
+	fn limiter_ramps_before_a_peak() {
+		// A lone spike over the ceiling: the samples leading up to it are
+		// already turned down, it lands exactly at the ceiling, and nothing
+		// below the ceiling far from it is touched.
+		let mut lim = Limiter::new();
+		let mut input = vec![0.5f32; 20_000];
+		input[200] = 1.8;
+		let out: Vec<f32> = input
+			.iter()
+			.chain([0.0; LOOKAHEAD - 1].iter())
+			.map(|&s| lim.process([s, s])[0])
+			.skip(LOOKAHEAD - 1)
+			.collect();
+		assert!(out[..200 - LOOKAHEAD].iter().all(|&s| s == 0.5));
+		assert!((out[200] - LIMIT_CEILING).abs() < 1e-4, "peak came out at {}", out[200]);
+		assert!(out[200 - LOOKAHEAD / 2] < 0.5 && out[200 - LOOKAHEAD / 2] > 0.25);
+		assert!(out.iter().all(|s| s.abs() <= LIMIT_CEILING + 1e-6));
+		// and it recovers afterwards
+		assert!(out[19_999] > 0.49);
 	}
 }
