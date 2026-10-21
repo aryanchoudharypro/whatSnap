@@ -1,5 +1,5 @@
-//! Captures what the computer is playing, for a screen share's "Share system
-//! audio". WhatsApp calls carry one audio stream per person, so the sound is
+//! Captures what the computer is playing, for a screen share that carries
+//! sound too. WhatsApp calls carry one audio stream per person, so the sound is
 //! mixed into the mic frames `call_audio.rs` sends instead of travelling on
 //! its own.
 //!

@@ -218,8 +218,6 @@ pub enum UiCommand {
 	ToggleCamera,
 	/// Starts or stops sharing the screen - the button, and Ctrl+Shift+S.
 	ToggleScreenShare,
-	/// The call window's "Share system audio" box was ticked or cleared.
-	SetShareSystemAudio(bool),
 	/// The computer's sound couldn't be captured for a screen share - see
 	/// `system_audio.rs`.
 	SystemAudioFailed(String),

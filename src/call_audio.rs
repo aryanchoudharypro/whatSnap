@@ -166,7 +166,7 @@ impl CallAudioState {
 	}
 
 	/// Starts or stops mixing what the computer plays into what this call
-	/// sends - a screen share's "Share system audio". A capture that can't
+	/// sends - a screen share that carries the computer's sound. A capture that can't
 	/// start reports `UiCommand::SystemAudioFailed` through `ui_tx`.
 	pub fn share_system_audio(&mut self, on: bool, ui_tx: &UiCommandSender) {
 		if on == self.system_audio.is_some() {
@@ -429,12 +429,13 @@ impl CaptureDsp {
 
 	fn process(&mut self, data: &[f32], muted: bool, socket_out: &UdpSocket, target_addr: &str) {
 		self.downsampler.process(data, &mut self.resampled);
-		// Muting silences the mic only: shared system audio keeps playing to
-		// the others, as it does in a browser's screen share.
+		// Muting silences shared system audio as well as the mic, as in
+		// WhatsApp's own calls. The system sound is still taken off its queue
+		// meanwhile, so unmuting doesn't play a backlog.
 		let mut system = self.system.lock().unwrap();
 		for sample in self.resampled.drain(..) {
-			let voice = if muted { 0.0 } else { sample };
-			self.sample_accum.push(system.mix(voice));
+			let mixed = system.mix(sample);
+			self.sample_accum.push(if muted { 0.0 } else { mixed });
 		}
 		drop(system);
 

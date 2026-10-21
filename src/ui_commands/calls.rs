@@ -9,8 +9,8 @@ use crate::{
 	AppState, CallVideo,
 	audio::{play_call_fail_sound, stop_call_ringing_sound},
 	call_helpers::{
-		announce_call, call_window_title, local_camera_announcement, local_screen_share_announcement,
-		system_audio_announcement,
+		SYSTEM_AUDIO_ANNOUNCEMENT, announce_call, call_window_title, local_camera_announcement,
+		local_screen_share_announcement,
 	},
 	call_video_send::{self, VideoSource},
 	ui::window::WindowParts,
@@ -373,6 +373,16 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		announce_call(parts, local_screen_share_announcement(false, camera_returns));
 		return;
 	}
+	drop(s);
+
+	// Asked every time, like WhatsApp's own share picker. The call can end,
+	// or a share start some other way, while the question is up.
+	let Some(with_sound) = ask_share_sound(parts) else { return };
+	let mut s = state.borrow_mut();
+	if s.active_call_id.as_deref() != Some(call_id.as_str()) || s.call_video.local_screen_on {
+		return;
+	}
+	let Some(port) = s.call_video_port else { return };
 
 	let camera_was_on = s.call_video.local_camera_on;
 	let ui_tx = s.ui_tx.clone();
@@ -386,16 +396,40 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	send_call_toggle(&s, "set_screen_share", &call_id, true);
 	parts.call_parts.screen_btn.set_label("Stop sharing screen");
 	parts.call_parts.camera_btn.set_label("Turn camera on");
-	let with_sound = s.settings.share_system_audio;
 	if with_sound {
 		set_system_audio(&mut s, true);
 	}
 	drop(s);
 	let shared = local_screen_share_announcement(true, camera_was_on);
 	if with_sound {
-		announce_call(parts, &format!("{shared} {}", system_audio_announcement(true)));
+		announce_call(parts, &format!("{shared} {}", SYSTEM_AUDIO_ANNOUNCEMENT));
 	} else {
 		announce_call(parts, shared);
+	}
+}
+
+/// Whether a screen share about to start carries the computer's sound too:
+/// `Some(true)` for yes, `Some(false)` for the screen alone, `None` if the
+/// share was cancelled. The screen alone is the default button.
+fn ask_share_sound(parts: &WindowParts) -> Option<bool> {
+	let dialog = MessageDialog::builder(
+		&parts.call_parts.frame,
+		"Share your computer's sound along with your screen? The others will hear everything it plays, \
+		 your screen reader included, while your microphone is on.",
+		"Share screen",
+	)
+	.with_style(
+		MessageDialogStyle::YesNo
+			| MessageDialogStyle::Cancel
+			| MessageDialogStyle::NoDefault
+			| MessageDialogStyle::IconQuestion,
+	)
+	.build();
+	dialog.set_yes_no_labels("Share screen and sound", "Share screen only");
+	match dialog.show_modal() {
+		id if id == wxdragon::id::ID_YES => Some(true),
+		id if id == wxdragon::id::ID_NO => Some(false),
+		_ => None,
 	}
 }
 
@@ -408,15 +442,13 @@ pub(crate) fn set_system_audio(s: &mut AppState, on: bool) {
 	}
 }
 
-/// Shows the screen share button and its "Share system audio" box on a
-/// video call, once it has connected; a voice call gets neither.
+/// Shows the screen share button on a video call, once it has connected; a
+/// voice call has no video to share the screen over.
 pub(crate) fn show_screen_share_controls(s: &AppState, parts: &WindowParts) {
 	let c = &parts.call_parts;
 	let shown = s.call_video.video_call;
 	c.screen_btn.set_label(if s.call_video.local_screen_on { "Stop sharing screen" } else { "Share screen" });
 	c.screen_btn.show(shown);
-	c.system_audio_check.set_value(s.settings.share_system_audio);
-	c.system_audio_check.show(shown);
 	c.frame.layout();
 }
 
@@ -424,21 +456,6 @@ pub(crate) fn hide_screen_share_controls(parts: &WindowParts) {
 	let c = &parts.call_parts;
 	c.screen_btn.set_label("Share screen");
 	c.screen_btn.show(false);
-	c.system_audio_check.show(false);
-}
-
-/// The "Share system audio" box: remembered for later shares, and applied
-/// straight away to one that's running.
-pub(crate) fn set_share_system_audio(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, on: bool) {
-	let mut s = state.borrow_mut();
-	s.settings.share_system_audio = on;
-	s.settings.save();
-	if !s.call_video.local_screen_on {
-		return;
-	}
-	set_system_audio(&mut s, on);
-	drop(s);
-	announce_call(parts, system_audio_announcement(on));
 }
 
 /// The computer's sound couldn't be captured; the screen share itself goes on.

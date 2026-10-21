@@ -193,16 +193,11 @@ pub(crate) fn local_screen_share_announcement(sharing: bool, camera_changed: boo
 	}
 }
 
-/// What's said when a screen share starts or stops carrying the computer's
-/// sound. Starting says the screen reader is heard too, since whoever shares
-/// with one on would otherwise only find out from the others.
-pub(crate) fn system_audio_announcement(on: bool) -> &'static str {
-	if on {
-		"Your computer's sound is shared too, screen reader speech included."
-	} else {
-		"Stopped sharing your computer's sound."
-	}
-}
+/// What's said when a screen share starts carrying the computer's sound.
+/// It says the screen reader is heard too, since whoever shares with one on
+/// would otherwise only find out from the others.
+pub(crate) const SYSTEM_AUDIO_ANNOUNCEMENT: &str =
+	"Your computer's sound is shared too, screen reader speech included. Muting your microphone mutes it as well.";
 
 /// mic/speaker pickers and shows them, once a call has actually connected.
 pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
