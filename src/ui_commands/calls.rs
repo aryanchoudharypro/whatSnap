@@ -428,3 +428,79 @@ pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	drop(s);
 	announce_call(parts, &format!("Couldn't start the camera: {reason}"));
 }
+
+const MENU_CALL: i32 = 4501;
+const MENU_VIDEO_CALL: i32 = 4502;
+const MENU_DELETE_CALL: i32 = 4503;
+const MENU_DELETE_CONTACT: i32 = 4504;
+
+/// The Calls tab's context menu. Its rows are calls and contacts, so it offers
+/// call actions rather than the chat list's (pin, archive, mark as unread...).
+pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
+	let (jid, call_id, saved_contact) = {
+		let s = state.borrow();
+		let Some(jid) = s.filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned() else { return };
+		let call_id = s.filtered_call_ids.get(idx).cloned().unwrap_or_default();
+		// Only a saved person can be deleted: not a group, and not someone known
+		// only from a call or a chat.
+		let saved_contact = s.call_contacts.iter().any(|c| c.jid == jid && !c.name.is_empty() && c.name != c.phone);
+		(jid, call_id, saved_contact)
+	};
+	// The list may not have the row selected yet (the key opens the menu on
+	// the focused row); the call actions dial the selection.
+	parts.conversations_parts.conversations_list.set_selection(idx as u32, true);
+
+	let mut builder = Menu::builder()
+		.append_item(MENU_CALL, "&Call", "Place a voice call")
+		.append_item(MENU_VIDEO_CALL, "&Video call", "Place a video call");
+	if !call_id.is_empty() {
+		builder = builder.append_item(
+			MENU_DELETE_CALL,
+			"&Delete from call history",
+			"Remove this call from the list on this device",
+		);
+	}
+	if saved_contact && !jid.ends_with("@g.us") {
+		builder = builder.append_item(
+			MENU_DELETE_CONTACT,
+			"Delete &contact...",
+			"Delete this contact from your contacts and your phone's",
+		);
+	}
+	let mut menu = builder.build();
+
+	let state_menu = state.clone();
+	let parts_menu = parts.clone();
+	menu.on_selected(move |evt| match evt.get_id() {
+		MENU_CALL => place_call(&state_menu, &parts_menu),
+		MENU_VIDEO_CALL => place_video_call(&state_menu, &parts_menu),
+		MENU_DELETE_CALL => {
+			let payload = serde_json::json!({ "action": "delete_call_log", "data": { "call_id": call_id } });
+			let _ = state_menu.borrow().ws_tx.send(payload.to_string());
+			crate::announce::announce(parts_menu.conversations_parts.messages_announcer, "Call removed.");
+		}
+		MENU_DELETE_CONTACT => {
+			let name = {
+				let s = state_menu.borrow();
+				s.call_contacts.iter().find(|c| c.jid == jid).map(|c| c.name.clone()).unwrap_or_else(|| jid.clone())
+			};
+			let confirm = MessageDialog::builder(
+				&parts_menu.frame,
+				&format!("Delete {} from your contacts? They'll be removed from your phone's contacts too.", name),
+				"Delete Contact",
+			)
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build();
+			confirm.set_yes_no_labels("Delete", "Cancel");
+			if confirm.show_modal() == wxdragon::id::ID_YES {
+				let payload = serde_json::json!({ "action": "delete_contact", "data": { "jid": jid } });
+				let _ = state_menu.borrow().ws_tx.send(payload.to_string());
+				crate::announce::announce(parts_menu.conversations_parts.messages_announcer, "Deleting contact...");
+			}
+		}
+		_ => {}
+	});
+	parts.conversations_parts.conversations_list.popup_menu(&mut menu, None);
+	menu.destroy_menu();
+	crate::tray::enter_release_guard().set(true);
+}

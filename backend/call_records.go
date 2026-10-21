@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net"
 	"sort"
@@ -117,6 +118,24 @@ func deleteNewestCallRecord(jid string, fromMe bool, until int64) (string, bool)
 		return "", false
 	}
 	return id, true
+}
+
+// handleDeleteCallLog removes one call from the Calls tab and from its chat's
+// history, on this device only: WhatsApp has no message for a companion to
+// delete a call from the phone's list.
+func handleDeleteCallLog(conn net.Conn, raw json.RawMessage) {
+	var data struct {
+		CallID string `json:"call_id"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil || data.CallID == "" {
+		return
+	}
+	go func() {
+		db.Exec(`DELETE FROM call_records WHERE call_id = ?`, data.CallID)
+		db.Exec(`DELETE FROM messages WHERE id = ?`, "call:"+data.CallID)
+		broadcastChats()
+		sendEvent(conn, "call_logs_changed", map[string]interface{}{})
+	}()
 }
 
 type CallLogJSON struct {

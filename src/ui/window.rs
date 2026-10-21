@@ -2875,6 +2875,7 @@ pub fn bind_input_handlers(
 			let queued = match state_chat_ctx.borrow().active_tab {
 				1 => Some(UiCommand::ShowStatusMenu(idx as usize)),
 				2 => Some(UiCommand::ShowStarredMenu(idx as usize)),
+				6 => Some(UiCommand::ShowCallsMenu(idx as usize)),
 				_ => None,
 			};
 			if let Some(cmd) = queued {
@@ -4101,6 +4102,19 @@ pub fn bind_input_handlers(
 					last_left_arrow.set(now);
 					if state_play.borrow().playing_msg_id.is_some() {
 						let _ = tx_close_list.send(UiCommand::SeekAudio(-5.0));
+					} else if let Some(idx) = msgs_list_play.get_selection() {
+						// One press on a reply reads out the message it replies to
+						// without moving the cursor; a second press within the
+						// window jumps to it (above).
+						let said = state_play.borrow().display_items.get(idx as usize).and_then(|item| match item {
+							whantv::DisplayItem::Single(m) => m.reply_announcement(),
+							whantv::DisplayItem::Album { messages, .. } => {
+								messages.first().and_then(|m| m.reply_announcement())
+							}
+						});
+						if let Some(said) = said {
+							crate::announce::announce(msgs_announcer, &said);
+						}
 					}
 					event.skip(false);
 				}

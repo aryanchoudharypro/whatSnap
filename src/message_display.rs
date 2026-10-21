@@ -187,6 +187,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	let mut labels = Vec::new();
 	let mut filtered_starred_ids = Vec::new();
 	let mut filtered_status_ids = Vec::new();
+	let mut filtered_call_ids: Vec<String> = Vec::new();
 
 	if s.active_tab == 1 {
 		// Status: a flat list, one row per status item (not grouped by
@@ -262,15 +263,17 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				format!("{}, {}", t.name, t.phone)
 			}
 		};
-		let mut push_section = |heading: &str, rows: Vec<(String, String)>| {
+		let mut push_section = |heading: &str, rows: Vec<(String, String, String)>| {
 			if rows.is_empty() {
 				return;
 			}
 			labels.push(heading.to_string());
 			filtered.push(String::new());
-			for (label, jid) in rows {
+			filtered_call_ids.push(String::new());
+			for (label, jid, call_id) in rows {
 				labels.push(label);
 				filtered.push(jid);
+				filtered_call_ids.push(call_id);
 			}
 		};
 
@@ -292,7 +295,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 
 			if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) || entry.jid.contains(&lower_query)
 			{
-				recent.push((label, entry.jid.clone()));
+				recent.push((label, entry.jid.clone(), entry.id.clone()));
 			}
 		}
 		push_section("Recent calls", recent);
@@ -327,6 +330,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	s.filtered_chats = filtered;
 	s.filtered_starred_message_ids = filtered_starred_ids;
 	s.filtered_status_message_ids = filtered_status_ids;
+	s.filtered_call_ids = filtered_call_ids;
 
 	// Clearing and refilling the list resets the focused item and makes the
 	// screen reader re-announce, so leave the control untouched when the

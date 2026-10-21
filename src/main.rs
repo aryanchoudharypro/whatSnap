@@ -386,6 +386,9 @@ struct AppState {
 	call_logs: Vec<CallLogEntry>,
 	/// The Calls tab's "frequent" section and its full A-Z contact list.
 	call_frequent: Vec<CallTarget>,
+	/// Parallel to `filtered_chats` while `active_tab == 6`: the call id for
+	/// each row that is a past call, empty for headings and contacts.
+	filtered_call_ids: Vec<String>,
 	call_contacts: Vec<CallTarget>,
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
@@ -976,6 +979,7 @@ fn main() {
 			filtered_status_message_ids: Vec::new(),
 			call_logs: Vec::new(),
 			call_frequent: Vec::new(),
+			filtered_call_ids: Vec::new(),
 			call_contacts: Vec::new(),
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),
@@ -1390,6 +1394,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::OpenStickerPicker => ui_commands::stickers::open_sticker_picker(state, parts),
 		UiCommand::ShowStatusMenu(idx) => ui_commands::status_extras::show_status_menu(state, parts, idx),
 		UiCommand::ShowStarredMenu(idx) => ui_commands::starred::show_starred_menu(state, parts, idx),
+		UiCommand::ShowCallsMenu(idx) => ui_commands::calls::show_calls_menu(state, parts, idx),
 		UiCommand::SetChatFilter(idx) => ui_commands::chat_lists::set_filter(state, parts, idx),
 		UiCommand::SetFavorite { jid, favorite } => ui_commands::chat_lists::set_favorite(state, parts, jid, favorite),
 		UiCommand::ChooseChatLists(jid) => ui_commands::chat_lists::choose_lists(state, parts, jid),

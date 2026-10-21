@@ -511,6 +511,62 @@ impl ChatMessage {
 		}
 	}
 
+	/// Who a reply quotes and what it quotes, as ("You" | "@name" | "quoted
+	/// message", spoken body). None when this message is not a reply.
+	fn reply_parts(&self) -> Option<(String, String)> {
+		if self.quoted_text.is_empty() && self.quoted_id.is_empty() {
+			return None;
+		}
+		let q_sender = if self.quoted_sender == "me" || self.quoted_sender == "You" {
+			"You".to_string()
+		} else if !is_placeholder_name(&self.quoted_sender) && !self.quoted_sender.contains('@') {
+			if self.quoted_sender.starts_with('@') {
+				self.quoted_sender.clone()
+			} else {
+				format!("@{}", self.quoted_sender)
+			}
+		} else {
+			"quoted message".to_string()
+		};
+
+		let q_body = if self.quoted_text.starts_with("[Voice Message]") {
+			let rest = self.quoted_text["[Voice Message]".len()..].trim();
+			if rest.is_empty() {
+				"Voice message".to_string()
+			} else if rest.starts_with('(') && rest.ends_with(')') {
+				format!("Voice message Duration: {}", &rest[1..rest.len() - 1])
+			} else {
+				format!("Voice message {}", rest)
+			}
+		} else if self.quoted_text.starts_with("[Audio]") {
+			let rest = self.quoted_text["[Audio]".len()..].trim();
+			if rest.is_empty() {
+				"Audio".to_string()
+			} else if rest.starts_with('(') && rest.ends_with(')') {
+				format!("Audio Duration: {}", &rest[1..rest.len() - 1])
+			} else {
+				format!("Audio {}", rest)
+			}
+		} else if self.quoted_text.is_empty() {
+			"[Media]".to_string()
+		} else {
+			self.quoted_text.clone()
+		};
+
+		Some((q_sender, q_body))
+	}
+
+	/// What a screen reader should say for the message this one replies to,
+	/// e.g. "Replying to You: hello". None when this message is not a reply.
+	pub fn reply_announcement(&self) -> Option<String> {
+		let (sender, body) = self.reply_parts()?;
+		Some(if sender == "quoted message" {
+			format!("Replying to: {}", body)
+		} else {
+			format!("Replying to {}: {}", sender, body)
+		})
+	}
+
 	pub fn format_display(&self, _is_group: bool) -> String {
 		if self.is_date_divider || self.is_unread_divider || self.is_system() {
 			return self.text.clone();
@@ -566,50 +622,12 @@ impl ChatMessage {
 
 		let body = self.body_text();
 
-		let reply_suffix = if !self.quoted_text.is_empty() || !self.quoted_id.is_empty() {
-			let q_sender = if self.quoted_sender == "me" || self.quoted_sender == "You" {
-				"You".to_string()
-			} else if !is_placeholder_name(&self.quoted_sender) && !self.quoted_sender.contains('@') {
-				if self.quoted_sender.starts_with('@') {
-					self.quoted_sender.clone()
-				} else {
-					format!("@{}", self.quoted_sender)
-				}
-			} else {
-				"quoted message".to_string()
-			};
-
-			let q_body = if self.quoted_text.starts_with("[Voice Message]") {
-				let rest = self.quoted_text["[Voice Message]".len()..].trim();
-				if rest.is_empty() {
-					"Voice message".to_string()
-				} else if rest.starts_with('(') && rest.ends_with(')') {
-					format!("Voice message Duration: {}", &rest[1..rest.len() - 1])
-				} else {
-					format!("Voice message {}", rest)
-				}
-			} else if self.quoted_text.starts_with("[Audio]") {
-				let rest = self.quoted_text["[Audio]".len()..].trim();
-				if rest.is_empty() {
-					"Audio".to_string()
-				} else if rest.starts_with('(') && rest.ends_with(')') {
-					format!("Audio Duration: {}", &rest[1..rest.len() - 1])
-				} else {
-					format!("Audio {}", rest)
-				}
-			} else if self.quoted_text.is_empty() {
-				"[Media]".to_string()
-			} else {
-				self.quoted_text.clone()
-			};
-
-			if q_sender == "quoted message" {
+		let reply_suffix = match self.reply_parts() {
+			Some((q_sender, q_body)) if q_sender == "quoted message" => {
 				format!(", replied to quoted message: \"{}\"", q_body)
-			} else {
-				format!(", replied to quoted message from {}: \"{}\"", q_sender, q_body)
 			}
-		} else {
-			String::new()
+			Some((q_sender, q_body)) => format!(", replied to quoted message from {}: \"{}\"", q_sender, q_body),
+			None => String::new(),
 		};
 
 		let reactions_suffix = {

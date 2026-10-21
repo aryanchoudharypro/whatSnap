@@ -66,6 +66,8 @@ pub enum UiCommand {
 	ShowStatusMenu(usize),
 	/// The context menu of a row in the Starred Messages tab.
 	ShowStarredMenu(usize),
+	/// The context menu of a row in the Calls tab.
+	ShowCallsMenu(usize),
 	/// The Conversations filter dropdown changed.
 	SetChatFilter(usize),
 	/// A chat's context menu: add it to the favorites or take it off.

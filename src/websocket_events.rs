@@ -3650,6 +3650,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			"contact_deleted" => {
 				refresh_open_contact_info(state, parts);
 				crate::announce::announce(parts.conversations_parts.messages_announcer, "Contact deleted.");
+				let s = state.borrow();
+				if s.active_tab == 6 {
+					crate::ui_commands::chat_list::request_call_tab_data(&s);
+				}
 			}
 			"user_info" => {
 				if let Some(data) = val.get("data") {
