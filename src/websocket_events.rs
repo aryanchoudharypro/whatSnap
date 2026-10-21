@@ -12,7 +12,7 @@ use whantv::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, CallLogEntry, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem,
+	AppState, CallLogEntry, CallTarget, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem,
 	UiCommand,
 	audio::{
 		ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringback,
@@ -1353,7 +1353,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							announce_call(parts, &format!("{}.", summary));
 						}
 						if s.active_tab == 6 {
-							let _ = s.ws_tx.send(serde_json::json!({ "action": "get_call_logs" }).to_string());
+							crate::ui_commands::chat_list::request_call_tab_data(&s);
 						}
 					}
 				}
@@ -1686,7 +1686,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 					let mut s = state.borrow_mut();
 					if is_call_line && s.active_tab == 6 {
-						let _ = s.ws_tx.send(serde_json::json!({ "action": "get_call_logs" }).to_string());
+						crate::ui_commands::chat_list::request_call_tab_data(&s);
 					}
 
 					// A window opened around a search hit stops short of the
@@ -2840,6 +2840,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
 						let timestamp = item.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
 						let is_video = item.get("is_video").and_then(|v| v.as_bool()).unwrap_or(false);
+						let is_group = item.get("is_group").and_then(|v| v.as_bool()).unwrap_or(false);
+						let result = item.get("result").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let duration = item.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
 						entries.push(CallLogEntry {
 							id,
 							jid,
@@ -2848,12 +2851,48 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							text,
 							timestamp,
 							is_video,
+							is_group,
+							result,
+							duration,
 						});
 					}
 					s.call_logs = entries;
 					if s.active_tab == 6 {
 						apply_chat_filter(&mut s, parts);
 					}
+				}
+			}
+			"call_targets" => {
+				if let Some(data) = val.get("data") {
+					let parse = |key: &str| -> Vec<CallTarget> {
+						data.get(key)
+							.and_then(|v| v.as_array())
+							.map(|rows| {
+								rows.iter()
+									.filter_map(|r| {
+										let jid = r.get("jid").and_then(|v| v.as_str())?.to_string();
+										Some(CallTarget {
+											name: r.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+											phone: r.get("phone").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+											jid,
+										})
+									})
+									.collect()
+							})
+							.unwrap_or_default()
+					};
+					let mut s = state.borrow_mut();
+					s.call_frequent = parse("frequent");
+					s.call_contacts = parse("contacts");
+					if s.active_tab == 6 {
+						apply_chat_filter(&mut s, parts);
+					}
+				}
+			}
+			"call_logs_changed" => {
+				let s = state.borrow();
+				if s.active_tab == 6 {
+					crate::ui_commands::chat_list::request_call_tab_data(&s);
 				}
 			}
 			"search_results" => {

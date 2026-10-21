@@ -450,6 +450,19 @@ pub(crate) struct CallLogEntry {
 	pub(crate) text: String,
 	pub(crate) timestamp: i64,
 	pub(crate) is_video: bool,
+	pub(crate) is_group: bool,
+	/// Backend's name for how the call ended ("missed", "connected", ...).
+	pub(crate) result: String,
+	/// Seconds the call was connected for; 0 when it never connected.
+	pub(crate) duration: i64,
+}
+
+/// A person the Calls tab can dial, from the "call_targets" backend event.
+#[derive(Clone, Debug)]
+pub(crate) struct CallTarget {
+	pub(crate) jid: String,
+	pub(crate) name: String,
+	pub(crate) phone: String,
 }
 
 /// One posted Status/Stories update, as shown in the Status nav view.

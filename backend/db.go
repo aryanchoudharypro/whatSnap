@@ -350,6 +350,10 @@ func migrateDB() error {
 		return err
 	}
 
+	if err := ensureCallRecords(); err != nil {
+		return err
+	}
+
 	// The blocked list as the server gives it (mostly LIDs); see blocklist.go.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY, pn TEXT DEFAULT '')`); err != nil {
 		return err

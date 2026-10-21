@@ -384,6 +384,9 @@ struct AppState {
 	/// message id for each row shown in the nav list.
 	filtered_status_message_ids: Vec<String>,
 	call_logs: Vec<CallLogEntry>,
+	/// The Calls tab's "frequent" section and its full A-Z contact list.
+	call_frequent: Vec<CallTarget>,
+	call_contacts: Vec<CallTarget>,
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
 	main_ui_shown: bool,
@@ -972,6 +975,8 @@ fn main() {
 			status_groups: Vec::new(),
 			filtered_status_message_ids: Vec::new(),
 			call_logs: Vec::new(),
+			call_frequent: Vec::new(),
+			call_contacts: Vec::new(),
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),
 			main_ui_shown: false,

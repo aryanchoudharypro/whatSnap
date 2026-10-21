@@ -1,0 +1,270 @@
+package main
+
+import (
+	"log"
+	"net"
+	"sort"
+	"strings"
+
+	"go.mau.fi/whatsmeow/proto/waSyncAction"
+	"go.mau.fi/whatsmeow/types"
+)
+
+// call_records is what the Calls tab lists. The chat history still gets a
+// "call:<id>" message row for each call (see call_log.go), but that row is only
+// prose; this table keeps the fields the prose was made from, so the tab never
+// has to parse a sentence to learn whether a call was video or how it ended.
+
+type callRecord struct {
+	CallID    string
+	JID       string
+	FromMe    bool
+	IsVideo   bool
+	IsGroup   bool
+	Result    string
+	Duration  int64
+	Timestamp int64
+	Text      string
+	// Authoritative marks a record that came from the phone's call history. It
+	// replaces a row this device wrote itself, never the other way round.
+	Authoritative bool
+}
+
+func ensureCallRecords() error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS call_records (
+		call_id TEXT PRIMARY KEY,
+		jid TEXT NOT NULL,
+		from_me INTEGER DEFAULT 0,
+		is_video INTEGER DEFAULT 0,
+		is_group INTEGER DEFAULT 0,
+		result TEXT DEFAULT '',
+		duration INTEGER DEFAULT 0,
+		timestamp INTEGER DEFAULT 0,
+		text TEXT DEFAULT '',
+		authoritative INTEGER DEFAULT 0
+	)`); err != nil {
+		return err
+	}
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_ts ON call_records (timestamp DESC)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_jid ON call_records (jid)`)
+	// Builds from before this table kept calls only as message rows. Carry them
+	// over; the wording is all they recorded, so the flags come from it.
+	_, err := db.Exec(`INSERT OR IGNORE INTO call_records (call_id, jid, from_me, is_video, is_group, text, timestamp)
+		SELECT SUBSTR(id, 6), jid, COALESCE(from_me, 0), LOWER(COALESCE(text, '')) LIKE '%video%',
+			jid LIKE '%@g.us', COALESCE(text, ''), COALESCE(timestamp, 0)
+		FROM messages WHERE media_type = 'call' AND id LIKE 'call:%'`)
+	return err
+}
+
+// callResultName is the stable, wire-independent name of a call's outcome.
+func callResultName(r waSyncAction.CallLogRecord_CallResult) string {
+	switch r {
+	case waSyncAction.CallLogRecord_CONNECTED, waSyncAction.CallLogRecord_ONGOING:
+		return "connected"
+	case waSyncAction.CallLogRecord_MISSED:
+		return "missed"
+	case waSyncAction.CallLogRecord_REJECTED:
+		return "rejected"
+	case waSyncAction.CallLogRecord_CANCELLED:
+		return "cancelled"
+	case waSyncAction.CallLogRecord_UNAVAILABLE:
+		return "unavailable"
+	case waSyncAction.CallLogRecord_FAILED, waSyncAction.CallLogRecord_INVALID:
+		return "failed"
+	case waSyncAction.CallLogRecord_ABANDONED:
+		return "abandoned"
+	case waSyncAction.CallLogRecord_ACCEPTEDELSEWHERE:
+		return "accepted_elsewhere"
+	case waSyncAction.CallLogRecord_UPCOMING:
+		return "upcoming"
+	}
+	return ""
+}
+
+func storeCallRecord(r callRecord) {
+	if r.CallID == "" || r.JID == "" {
+		return
+	}
+	var q string
+	if r.Authoritative {
+		q = `INSERT INTO call_records (call_id, jid, from_me, is_video, is_group, result, duration, timestamp, text, authoritative)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+			ON CONFLICT(call_id) DO UPDATE SET jid=excluded.jid, from_me=excluded.from_me, is_video=excluded.is_video,
+				is_group=excluded.is_group, result=excluded.result, duration=excluded.duration,
+				timestamp=excluded.timestamp, text=excluded.text, authoritative=1`
+	} else {
+		q = `INSERT INTO call_records (call_id, jid, from_me, is_video, is_group, result, duration, timestamp, text, authoritative)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+			ON CONFLICT(call_id) DO NOTHING`
+	}
+	if _, err := db.Exec(q, r.CallID, r.JID, boolToInt(r.FromMe), boolToInt(r.IsVideo), boolToInt(r.IsGroup),
+		r.Result, r.Duration, r.Timestamp, r.Text); err != nil {
+		log.Printf("call records: storing %s failed: %v", r.CallID, err)
+	}
+}
+
+// deleteNewestCallRecord removes the newest one-to-one call with jid in the
+// given direction that started no later than until, and returns its id.
+func deleteNewestCallRecord(jid string, fromMe bool, until int64) (string, bool) {
+	var id string
+	err := db.QueryRow(`SELECT call_id FROM call_records
+		WHERE jid = ? AND from_me = ? AND is_group = 0 AND timestamp <= ?
+		ORDER BY timestamp DESC LIMIT 1`, jid, boolToInt(fromMe), until).Scan(&id)
+	if err != nil {
+		return "", false
+	}
+	if _, err := db.Exec(`DELETE FROM call_records WHERE call_id = ?`, id); err != nil {
+		return "", false
+	}
+	return id, true
+}
+
+type CallLogJSON struct {
+	ID        string `json:"id"`
+	JID       string `json:"jid"`
+	PeerName  string `json:"peer_name"`
+	FromMe    bool   `json:"from_me"`
+	Text      string `json:"text"`
+	Timestamp int64  `json:"timestamp"`
+	IsVideo   bool   `json:"is_video"`
+	IsGroup   bool   `json:"is_group"`
+	Result    string `json:"result"`
+	Duration  int64  `json:"duration"`
+}
+
+func nameResolver() func(string) string {
+	names := map[string]string{}
+	return func(jidStr string) string {
+		if n, ok := names[jidStr]; ok {
+			return n
+		}
+		n := jidStr
+		if parsed, err := types.ParseJID(jidStr); err == nil {
+			n = resolveDisplayName(parsed)
+		}
+		names[jidStr] = n
+		return n
+	}
+}
+
+func handleGetCallLogs(conn net.Conn) {
+	go func() {
+		logs := []CallLogJSON{}
+		if db == nil {
+			sendEvent(conn, "call_logs", logs)
+			return
+		}
+		rows, err := db.Query(`SELECT call_id, jid, from_me, is_video, is_group, COALESCE(result, ''), COALESCE(duration, 0),
+				COALESCE(text, ''), COALESCE(timestamp, 0)
+			FROM call_records ORDER BY timestamp DESC LIMIT 500`)
+		if err != nil {
+			log.Printf("get_call_logs query failed: %v", err)
+			sendEvent(conn, "call_logs", logs)
+			return
+		}
+		defer rows.Close()
+		nameFor := nameResolver()
+		for rows.Next() {
+			var l CallLogJSON
+			var fromMe, video, group int
+			if err := rows.Scan(&l.ID, &l.JID, &fromMe, &video, &group, &l.Result, &l.Duration, &l.Text, &l.Timestamp); err != nil {
+				continue
+			}
+			l.FromMe, l.IsVideo, l.IsGroup = fromMe == 1, video == 1, group == 1
+			l.PeerName = nameFor(l.JID)
+			logs = append(logs, l)
+		}
+		sendEvent(conn, "call_logs", logs)
+	}()
+}
+
+// CallTargetJSON is one person the Calls tab can dial.
+type CallTargetJSON struct {
+	JID   string `json:"jid"`
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
+}
+
+const frequentCallTargets = 8
+
+// callableJID reports whether a contact can be dialed one to one: a person, not
+// a group, newsletter, broadcast or ourselves.
+func callableJID(jid string) bool {
+	if !strings.HasSuffix(jid, "@s.whatsapp.net") && !strings.HasSuffix(jid, "@lid") {
+		return false
+	}
+	p, err := types.ParseJID(jid)
+	return err == nil && !isOwnJID(p)
+}
+
+// handleGetCallTargets answers the Calls tab's picker: the people called or
+// messaged most, then every contact A to Z, as the phone's Calls screen does.
+func handleGetCallTargets(conn net.Conn) {
+	go func() {
+		out := map[string]interface{}{"frequent": []CallTargetJSON{}, "contacts": []CallTargetJSON{}}
+		if db == nil {
+			sendEvent(conn, "call_targets", out)
+			return
+		}
+		nameFor := nameResolver()
+		phones := map[string]string{}
+		var contacts []CallTargetJSON
+		if rows, err := db.Query(`SELECT jid, COALESCE(name, ''), COALESCE(phone, '') FROM contacts_cache
+				WHERE name != '' OR phone != ''`); err == nil {
+			for rows.Next() {
+				var c CallTargetJSON
+				if rows.Scan(&c.JID, &c.Name, &c.Phone) != nil || !callableJID(c.JID) {
+					continue
+				}
+				phones[c.JID] = c.Phone
+				if c.Name == "" {
+					c.Name = c.Phone
+				}
+				contacts = append(contacts, c)
+			}
+			rows.Close()
+		}
+		sort.SliceStable(contacts, func(i, j int) bool {
+			return strings.ToLower(contacts[i].Name) < strings.ToLower(contacts[j].Name)
+		})
+
+		frequent := []CallTargetJSON{}
+		seen := map[string]bool{}
+		add := func(jid string) {
+			if len(frequent) >= frequentCallTargets || seen[jid] || !callableJID(jid) {
+				return
+			}
+			seen[jid] = true
+			frequent = append(frequent, CallTargetJSON{JID: jid, Name: nameFor(jid), Phone: phones[jid]})
+		}
+		// Most-called first, the latest call breaking ties.
+		if rows, err := db.Query(`SELECT jid FROM call_records WHERE is_group = 0
+				GROUP BY jid ORDER BY COUNT(*) DESC, MAX(timestamp) DESC LIMIT 20`); err == nil {
+			for rows.Next() {
+				var jid string
+				if rows.Scan(&jid) == nil {
+					add(jid)
+				}
+			}
+			rows.Close()
+		}
+		// Too few calls to fill the list: top it up with whoever was written to last.
+		if len(frequent) < frequentCallTargets {
+			if rows, err := db.Query(`SELECT jid FROM chats WHERE jid LIKE '%@s.whatsapp.net' OR jid LIKE '%@lid'
+					ORDER BY COALESCE(timestamp, 0) DESC LIMIT 20`); err == nil {
+				for rows.Next() {
+					var jid string
+					if rows.Scan(&jid) == nil {
+						add(jid)
+					}
+				}
+				rows.Close()
+			}
+		}
+		if contacts == nil {
+			contacts = []CallTargetJSON{}
+		}
+		out["frequent"], out["contacts"] = frequent, contacts
+		sendEvent(conn, "call_targets", out)
+	}()
+}

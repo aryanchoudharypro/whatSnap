@@ -16,6 +16,14 @@ use crate::{
 	ui::window::WindowParts,
 };
 
+/// Asks the backend for everything the Calls tab lists: past calls, and the
+/// people it can dial (frequent contacts plus all contacts).
+pub(crate) fn request_call_tab_data(s: &AppState) {
+	for action in ["get_call_logs", "get_call_targets"] {
+		let _ = s.ws_tx.send(serde_json::json!({ "action": action }).to_string());
+	}
+}
+
 pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	parts.conversations_parts.calls_btn_panel.show(idx == 6);
 	parts.conversations_parts.search_label.set_label(if idx == 6 {
@@ -97,8 +105,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.chat_filter_combo.show(false);
 			parts.conversations_parts.conversation_panel.show(false);
 			parts.conversations_parts.conversations_label.set_label("Recent Calls");
-			let payload = serde_json::json!({ "action": "get_call_logs" });
-			let _ = state.borrow().ws_tx.send(payload.to_string());
+			request_call_tab_data(&state.borrow());
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		_ => {}
@@ -168,7 +175,7 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		return;
 	}
 	if state.borrow().active_tab == 6 {
-		let jid = state.borrow().filtered_chats.get(idx).cloned();
+		let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();
 		if let Some(jid) = jid {
 			state.borrow_mut().selected_chat = Some(jid);
 			crate::ui_commands::calls::place_call(state, parts);

@@ -89,8 +89,9 @@ func finishLiveCall(callID, reason string) string {
 	if c == nil {
 		return ""
 	}
-	text := liveCallText(c, reason, time.Now())
-	storeLiveCallRow(callID, c, text)
+	now := time.Now()
+	text := liveCallText(c, reason, now)
+	storeLiveCallRow(callID, c, text, liveCallResult(c, reason), liveCallDuration(c, now))
 	return text
 }
 
@@ -140,9 +141,42 @@ func liveCallText(c *liveCall, reason string, now time.Time) string {
 	return fmt.Sprintf("%s, no answer", kind)
 }
 
+// liveCallResult names how an ended call finished, in callResultName's words,
+// following the same branches as liveCallText.
+func liveCallResult(c *liveCall, reason string) string {
+	if !c.connected.IsZero() {
+		return "connected"
+	}
+	if c.incoming {
+		switch {
+		case reason == "accepted_elsewhere":
+			return "accepted_elsewhere"
+		case c.rejectedByOwn || c.localReject:
+			return "rejected"
+		}
+		return "missed"
+	}
+	switch {
+	case c.localHangup:
+		return "cancelled"
+	case reason == "rejected" || reason == "busy":
+		return "rejected"
+	case strings.HasPrefix(reason, "server:") || reason == "offer_failed":
+		return "failed"
+	}
+	return "missed"
+}
+
+func liveCallDuration(c *liveCall, now time.Time) int64 {
+	if c.connected.IsZero() {
+		return 0
+	}
+	return int64(now.Sub(c.connected).Seconds())
+}
+
 // storeLiveCallRow writes the row unless a synced record for this call is
 // already there: the phone's own record wins either way round.
-func storeLiveCallRow(callID string, c *liveCall, text string) {
+func storeLiveCallRow(callID string, c *liveCall, text, result string, duration int64) {
 	id := "call:" + callID
 	ts := c.started.Unix()
 	fromMe := !c.incoming
@@ -156,6 +190,10 @@ func storeLiveCallRow(callID string, c *liveCall, text string) {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return // the synced record got there first
 	}
+	storeCallRecord(callRecord{
+		CallID: callID, JID: c.chatJID, FromMe: fromMe, IsVideo: c.video, IsGroup: c.group,
+		Result: result, Duration: duration, Timestamp: ts, Text: text,
+	})
 	// History, not an alert - no unread bump, same as synced call rows.
 	db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
 		ON CONFLICT(jid) DO UPDATE SET

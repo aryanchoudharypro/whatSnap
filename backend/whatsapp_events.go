@@ -2408,6 +2408,10 @@ func eventHandler(evt interface{}) {
 		handleAppStateSyncError(v)
 	case *events.CallLogSync:
 		go handleCallLogSync(v)
+	case *events.CallLogHistory:
+		go handleCallLogHistory(v)
+	case *events.DeleteIndividualCallLog:
+		go handleDeleteIndividualCallLog(v)
 	case *events.Archive:
 		go func() {
 			if v.Action == nil {

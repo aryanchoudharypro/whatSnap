@@ -4,7 +4,7 @@
 use whantv::ChatMessage;
 use wxdragon::prelude::*;
 
-use crate::AppState;
+use crate::{AppState, CallTarget};
 
 /// Changes every loaded message `pick` selects, each one exactly once, and
 /// returns the display rows holding a changed message, in order. See
@@ -246,7 +246,43 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		}
 	} else if s.active_tab == 6 {
-		// Calls: a flat list of recent calls
+		// Calls, laid out like the phone's: frequent contacts, then recent
+		// calls, then every contact A to Z. A section with nothing to show is
+		// left out, and its heading with it. Heading rows have no jid, which is
+		// how a call or Enter on one knows to do nothing.
+		let matches_target = |t: &CallTarget| {
+			lower_query.is_empty()
+				|| t.name.to_lowercase().contains(&lower_query)
+				|| (!t.phone.is_empty() && t.phone.contains(&lower_query))
+		};
+		let target_label = |t: &CallTarget| {
+			if t.phone.is_empty() || t.name == t.phone || t.name.contains(&t.phone) {
+				t.name.clone()
+			} else {
+				format!("{}, {}", t.name, t.phone)
+			}
+		};
+		let mut push_section = |heading: &str, rows: Vec<(String, String)>| {
+			if rows.is_empty() {
+				return;
+			}
+			labels.push(heading.to_string());
+			filtered.push(String::new());
+			for (label, jid) in rows {
+				labels.push(label);
+				filtered.push(jid);
+			}
+		};
+
+		let frequent: Vec<(String, String)> = s
+			.call_frequent
+			.iter()
+			.filter(|t| matches_target(t))
+			.map(|t| (target_label(t), t.jid.clone()))
+			.collect();
+		push_section("Frequent contacts", frequent);
+
+		let mut recent = Vec::new();
 		for entry in &s.call_logs {
 			let name = if !entry.peer_name.is_empty() {
 				&entry.peer_name
@@ -259,10 +295,18 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			let label = format_call_log_label(name, &entry.text, entry.from_me, entry.timestamp);
 
 			if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) || entry.jid.contains(&lower_query) {
-				labels.push(label);
-				filtered.push(entry.jid.clone());
+				recent.push((label, entry.jid.clone()));
 			}
 		}
+		push_section("Recent calls", recent);
+
+		let all: Vec<(String, String)> = s
+			.call_contacts
+			.iter()
+			.filter(|t| matches_target(t))
+			.map(|t| (target_label(t), t.jid.clone()))
+			.collect();
+		push_section("All contacts", all);
 	} else {
 		for jid in chats_in_tab_order(s) {
 			if !chat_visible_in_tab(

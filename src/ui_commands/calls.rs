@@ -32,13 +32,18 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 			if is_phone && digits.len() >= 3 {
 				format!("{}@s.whatsapp.net", digits)
 			} else {
+				// A heading row has an empty jid and is never dialed.
+				let row = |i: usize| s.filtered_chats.get(i).filter(|j| !j.is_empty()).cloned();
 				let sel = parts.conversations_parts.conversations_list.get_selection().map(|i| i as usize);
-				if let Some(target) = sel.and_then(|i| s.filtered_chats.get(i).cloned()) {
+				if let Some(target) = sel.and_then(&row) {
 					target
-				} else if let Some(target) = s.filtered_chats.first().cloned() {
-					target
-				} else if let Some(j) = s.selected_chat.as_ref().filter(|j| can_call(&s, j)) {
-					j.clone()
+				} else if !search_val.is_empty() {
+					// Enter after typing a name dials the best match. With nothing
+					// typed and nothing selected there is no one to call.
+					match (0..s.filtered_chats.len()).find_map(&row) {
+						Some(target) => target,
+						None => return,
+					}
 				} else {
 					return;
 				}
