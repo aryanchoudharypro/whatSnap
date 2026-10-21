@@ -164,9 +164,11 @@ unsafe fn activate_loopback() -> crate::error::Result<IAudioClient> {
 				},
 			},
 		};
-		// A VT_BLOB pointing at `params`, which outlives the call. Built by
-		// hand: nothing owned is inside, so it needs no PropVariantClear.
-		let variant = PROPVARIANT {
+		// A VT_BLOB pointing at `params`, which outlives the call. It must
+		// never be dropped: the windows crate's PROPVARIANT runs
+		// PropVariantClear on drop, which hands the blob pointer to
+		// CoTaskMemFree, and freeing `params` (on the stack) crashed the app.
+		let variant = std::mem::ManuallyDrop::new(PROPVARIANT {
 			Anonymous: PROPVARIANT_0 {
 				Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
 					vt: VT_BLOB,
@@ -181,13 +183,13 @@ unsafe fn activate_loopback() -> crate::error::Result<IAudioClient> {
 					},
 				}),
 			},
-		};
+		});
 		let (done_tx, done_rx) = mpsc::sync_channel(1);
 		let handler: IActivateAudioInterfaceCompletionHandler = Activated { done: done_tx }.into();
 		let operation = ActivateAudioInterfaceAsync(
 			VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
 			&IAudioClient::IID,
-			Some(&variant),
+			Some(&*variant),
 			&handler,
 		)?;
 		log_line("system audio: activation requested");
@@ -203,14 +205,7 @@ unsafe fn activate_loopback() -> crate::error::Result<IAudioClient> {
 		let Some(activated) = activated else {
 			crate::error::bail!("Windows returned no system audio stream");
 		};
-		let client: IAudioClient = activated.cast()?;
-		log_line("system audio: got the audio client");
-		drop(activated);
-		drop(operation);
-		log_line("system audio: released the activation");
-		drop(handler);
-		log_line("system audio: released the completion handler");
-		Ok(client)
+		Ok(activated.cast()?)
 	}
 }
 
