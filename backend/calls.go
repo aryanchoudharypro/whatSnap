@@ -644,11 +644,10 @@ func forgetScreenShare(callID string) {
 // be accepted before giving up on telling the other participants about it.
 const screenShareAnnounceWindow = 15 * time.Second
 
-// handleSetScreenShare tells a group call that our video is now a screen
-// share, or no longer one. The pictures themselves travel as the call's
-// ordinary video (the frontend sends set_video for that), so this only covers
-// the announcement, and a 1:1 call, which has none, simply shows the screen
-// as our video.
+// handleSetScreenShare tells a call that our video is now a screen share, or
+// no longer one. The pictures themselves travel as the call's ordinary video
+// (the frontend sends set_video for that), so this only covers the
+// announcement, which group and 1:1 calls both get, as in WhatsApp.
 func handleSetScreenShare(data []byte) {
 	var req struct {
 		CallID  string `json:"call_id"`
@@ -722,9 +721,9 @@ func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 				}
 			}
 			return
-		case errors.Is(err, meowcaller.ErrScreenShareNeedsGroupCall):
-			log.Println("Screen share on a 1:1 call is sent as plain video:", call.ID())
-			return
+		case errors.Is(err, meowcaller.ErrScreenShareNeedsGroupCall) && time.Now().Before(deadline):
+			// A 1:1 call can only be told once it's answered.
+			time.Sleep(250 * time.Millisecond)
 		case errors.Is(err, meowcaller.ErrScreenShareNeedsVideo) && time.Now().Before(deadline):
 			time.Sleep(250 * time.Millisecond)
 		default:
