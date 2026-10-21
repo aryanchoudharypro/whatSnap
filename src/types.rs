@@ -218,6 +218,11 @@ pub enum UiCommand {
 	ToggleCamera,
 	/// Starts or stops sharing the screen - the button, and Ctrl+Shift+S.
 	ToggleScreenShare,
+	/// The call window's "Share system audio" box was ticked or cleared.
+	SetShareSystemAudio(bool),
+	/// The computer's sound couldn't be captured for a screen share - see
+	/// `system_audio.rs`.
+	SystemAudioFailed(String),
 	/// `None` means "System Default" (matches Settings' device combos).
 	SetCallInputDevice(Option<String>),
 	SetCallOutputDevice(Option<String>),
@@ -516,6 +521,10 @@ pub(crate) struct CallVideo {
 	/// The camera was on when the screen share started, so it comes back on
 	/// when the share stops.
 	pub(crate) camera_before_share: bool,
+	/// A video call: offered, placed or joined as one, or turned into one by
+	/// a camera coming on. Screen sharing is only offered on these; a voice
+	/// call has no video to share the screen over.
+	pub(crate) video_call: bool,
 	/// Set by `PlaceVideoCall` - once this outgoing call connects, the
 	/// camera turns on automatically instead of waiting for an explicit
 	/// toggle. Never set for an incoming call (those always answer

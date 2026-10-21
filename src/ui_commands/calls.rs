@@ -8,7 +8,10 @@ use wxdragon::prelude::*;
 use crate::{
 	AppState, CallVideo,
 	audio::{play_call_fail_sound, stop_call_ringing_sound},
-	call_helpers::{announce_call, call_window_title, local_camera_announcement, local_screen_share_announcement},
+	call_helpers::{
+		announce_call, call_window_title, local_camera_announcement, local_screen_share_announcement,
+		system_audio_announcement,
+	},
 	call_video_send::{self, VideoSource},
 	ui::window::WindowParts,
 };
@@ -79,6 +82,7 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 		local_screen_on: false,
 		camera_before_share: false,
 		autostart_camera: video,
+		video_call: video,
 		..Default::default()
 	};
 	parts.call_parts.frame.set_title(call_window_title(is_group, video));
@@ -95,8 +99,7 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 	// call_connected before the button can do anything, same reasoning as
 	// add_participant_btn below.
 	parts.call_parts.camera_btn.show(false);
-	parts.call_parts.screen_btn.set_label("Share screen");
-	parts.call_parts.screen_btn.show(false);
+	hide_screen_share_controls(parts);
 	// Shown by call_connected - WhatsApp only accepts an invite into an
 	// established call, so offering it while ringing just fails.
 	parts.call_parts.add_participant_btn.show(false);
@@ -296,12 +299,19 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	if was_sharing {
 		s.call_video.local_screen_on = false;
 		s.call_video.camera_before_share = false;
+		set_system_audio(&mut s, false);
 		send_call_toggle(&s, "set_screen_share", &call_id, false);
 		parts.call_parts.screen_btn.set_label("Share screen");
 	} else {
 		send_call_toggle(&s, "set_video", &call_id, true);
 	}
 	parts.call_parts.camera_btn.set_label("Turn camera off");
+	// A voice call with a camera on is a video call now, so its screen can
+	// be shared too.
+	if !s.call_video.video_call {
+		s.call_video.video_call = true;
+		show_screen_share_controls(&s, parts);
+	}
 	drop(s);
 	announce_call(
 		parts,
@@ -333,6 +343,12 @@ fn start_camera(s: &mut AppState, port: u16) {
 pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	let Some(call_id) = s.active_call_id.clone() else { return };
+	// Ctrl+Shift+S still reaches here on a voice call, whose button is hidden.
+	if !s.call_video.video_call && !s.call_video.local_screen_on {
+		drop(s);
+		announce_call(parts, "Screen sharing is only on video calls. Turn your camera on to make this a video call.");
+		return;
+	}
 	let Some(port) = s.call_video_port else {
 		drop(s);
 		announce_call(parts, "Screen sharing isn't ready yet - wait for the call to connect.");
@@ -343,6 +359,7 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		let camera_returns = s.call_video.camera_before_share;
 		s.call_video.local_screen_on = false;
 		s.call_video.camera_before_share = false;
+		set_system_audio(&mut s, false);
 		send_call_toggle(&s, "set_screen_share", &call_id, false);
 		if camera_returns {
 			start_camera(&mut s, port);
@@ -369,8 +386,70 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	send_call_toggle(&s, "set_screen_share", &call_id, true);
 	parts.call_parts.screen_btn.set_label("Stop sharing screen");
 	parts.call_parts.camera_btn.set_label("Turn camera on");
+	let with_sound = s.settings.share_system_audio;
+	if with_sound {
+		set_system_audio(&mut s, true);
+	}
 	drop(s);
-	announce_call(parts, local_screen_share_announcement(true, camera_was_on));
+	let shared = local_screen_share_announcement(true, camera_was_on);
+	if with_sound {
+		announce_call(parts, &format!("{shared} {}", system_audio_announcement(true)));
+	} else {
+		announce_call(parts, shared);
+	}
+}
+
+/// Starts or stops mixing the computer's sound into the call, when the call's
+/// audio is running.
+pub(crate) fn set_system_audio(s: &mut AppState, on: bool) {
+	let ui_tx = s.ui_tx.clone();
+	if let Some(audio) = s.active_call_audio.as_mut() {
+		audio.share_system_audio(on, &ui_tx);
+	}
+}
+
+/// Shows the screen share button and its "Share system audio" box on a
+/// video call, once it has connected; a voice call gets neither.
+pub(crate) fn show_screen_share_controls(s: &AppState, parts: &WindowParts) {
+	let c = &parts.call_parts;
+	let shown = s.call_video.video_call;
+	c.screen_btn.set_label(if s.call_video.local_screen_on { "Stop sharing screen" } else { "Share screen" });
+	c.screen_btn.show(shown);
+	c.system_audio_check.set_value(s.settings.share_system_audio);
+	c.system_audio_check.show(shown);
+	c.frame.layout();
+}
+
+pub(crate) fn hide_screen_share_controls(parts: &WindowParts) {
+	let c = &parts.call_parts;
+	c.screen_btn.set_label("Share screen");
+	c.screen_btn.show(false);
+	c.system_audio_check.show(false);
+}
+
+/// The "Share system audio" box: remembered for later shares, and applied
+/// straight away to one that's running.
+pub(crate) fn set_share_system_audio(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, on: bool) {
+	let mut s = state.borrow_mut();
+	s.settings.share_system_audio = on;
+	s.settings.save();
+	if !s.call_video.local_screen_on {
+		return;
+	}
+	set_system_audio(&mut s, on);
+	drop(s);
+	announce_call(parts, system_audio_announcement(on));
+}
+
+/// The computer's sound couldn't be captured; the screen share itself goes on.
+pub(crate) fn system_audio_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, reason: String) {
+	let mut s = state.borrow_mut();
+	if !s.active_call_audio.as_ref().is_some_and(|audio| audio.sharing_system_audio()) {
+		return;
+	}
+	set_system_audio(&mut s, false);
+	drop(s);
+	announce_call(parts, &format!("Couldn't share your computer's sound: {reason}"));
 }
 
 /// The capture thread couldn't read the screen at all, so the share never
@@ -383,6 +462,7 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	s.active_call_video_send = None;
 	s.call_video.local_screen_on = false;
 	s.call_video.camera_before_share = false;
+	set_system_audio(&mut s, false);
 	if let Some(call_id) = s.active_call_id.clone() {
 		send_call_toggle(&s, "set_screen_share", &call_id, false);
 		send_call_toggle(&s, "set_video", &call_id, false);

@@ -956,6 +956,10 @@ pub fn bind_input_handlers(
 	parts.call_parts.screen_btn.on_click(move |_| {
 		let _ = tx_screen.send(UiCommand::ToggleScreenShare);
 	});
+	let tx_system_audio = ui_tx.clone();
+	parts.call_parts.system_audio_check.on_toggled(move |event| {
+		let _ = tx_system_audio.send(UiCommand::SetShareSystemAudio(event.is_checked()));
+	});
 	let tx_call_input = ui_tx.clone();
 	let call_input_combo = parts.call_parts.input_device_combo;
 	parts.call_parts.input_device_combo.on_selection_changed(move |_| {

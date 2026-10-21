@@ -30,7 +30,11 @@ use windows::{
 	core::PCWSTR,
 };
 
-use crate::paths;
+use crate::{
+	paths,
+	system_audio::{SystemAudioCapture, SystemMix},
+	ui_wake::UiCommandSender,
+};
 
 // Every frame on the wire to/from the Go backend is 60 ms of 16 kHz mono PCM
 // (meowcaller.FrameSamples) - see backend/audio_udp.go.
@@ -130,6 +134,10 @@ pub struct CallAudioState {
 	/// the signal the other loop still needs to see.
 	force_reopen_input: Arc<AtomicBool>,
 	force_reopen_output: Arc<AtomicBool>,
+	/// System audio on its way into the mic frames, and the capture filling
+	/// it while a screen share carries the computer's sound.
+	system_mix: Arc<Mutex<SystemMix>>,
+	system_audio: Option<SystemAudioCapture>,
 }
 
 impl CallAudioState {
@@ -155,6 +163,25 @@ impl CallAudioState {
 	pub fn force_device_refresh(&self) {
 		self.force_reopen_input.store(true, Ordering::Relaxed);
 		self.force_reopen_output.store(true, Ordering::Relaxed);
+	}
+
+	/// Starts or stops mixing what the computer plays into what this call
+	/// sends - a screen share's "Share system audio". A capture that can't
+	/// start reports `UiCommand::SystemAudioFailed` through `ui_tx`.
+	pub fn share_system_audio(&mut self, on: bool, ui_tx: &UiCommandSender) {
+		if on == self.system_audio.is_some() {
+			return;
+		}
+		if on {
+			self.system_audio = Some(crate::system_audio::start(Arc::clone(&self.system_mix), ui_tx.clone()));
+		} else {
+			self.system_audio = None;
+			self.system_mix.lock().unwrap().clear();
+		}
+	}
+
+	pub fn sharing_system_audio(&self) -> bool {
+		self.system_audio.is_some()
 	}
 }
 
@@ -278,11 +305,11 @@ pub(crate) unsafe fn open_communications_stream(
 	}
 }
 
-// Mic-side DSP: mono downmix -> anti-aliasing low-pass -> linear-interpolation
-// resample to 16 kHz -> batched into FRAME_SAMPLES packets sent to Go. Identical to
-// the filter design previously run inside cpal's input callback; only the buffer
-// source (a WASAPI capture-thread loop instead of a cpal callback) changed.
-struct CaptureDsp {
+// Mono downmix -> anti-aliasing low-pass -> linear-interpolation resample to
+// 16 kHz, for any capture stream: the mic below, and the system audio a screen
+// share can carry (system_audio.rs). Identical to the filter design previously
+// run inside cpal's input callback.
+pub(crate) struct Downsampler {
 	channels: u16,
 	lp1: f32,
 	lp2: f32,
@@ -290,7 +317,74 @@ struct CaptureDsp {
 	mono_accum: Vec<f32>,
 	resample_phase: f64,
 	downsample_step: f64,
+}
+
+impl Downsampler {
+	pub(crate) fn new(sample_rate: u32, channels: u16) -> Self {
+		// The linear-interpolation resampler has no anti-aliasing of its own:
+		// decimating a 44.1/48kHz mic signal straight to 16kHz folds everything
+		// above the 8kHz output Nyquist back into the audible band. A cascaded
+		// two-pole one-pole low-pass at ~7kHz (comfortably under 8kHz) run on the
+		// native-rate signal before decimation removes that content first.
+		//
+		// Cascading two identical one-pole stages does NOT put the pair's -3dB point
+		// at the per-stage cutoff: each stage alone is already -3dB there, so the pair
+		// is -6dB, and the actual combined -3dB point lands at cutoff * sqrt(sqrt(2)-1)
+		// (~0.644x) - using 7kHz directly for both stages put the real rolloff around
+		// 4.5kHz, cutting into sibilance/formants and making voice sound muffled. Scale
+		// the per-stage cutoff up so the cascade's own -3dB point is the intended 7kHz.
+		let lp_target_hz: f32 = 7000.0;
+		let lp_cutoff_hz: f32 = lp_target_hz / (2.0_f32.sqrt() - 1.0).sqrt();
+		let lp_rc = 1.0 / (2.0 * std::f32::consts::PI * lp_cutoff_hz);
+		let lp_dt = 1.0 / sample_rate as f32;
+		let lp_alpha = lp_dt / (lp_rc + lp_dt);
+		Self {
+			channels,
+			lp1: 0.0,
+			lp2: 0.0,
+			lp_alpha,
+			mono_accum: Vec::new(),
+			resample_phase: 0.0,
+			downsample_step: sample_rate as f64 / NETWORK_SAMPLE_RATE as f64,
+		}
+	}
+
+	/// Takes interleaved samples at the stream's own rate and appends what
+	/// they make at 16 kHz mono to `out`.
+	pub(crate) fn process(&mut self, data: &[f32], out: &mut Vec<f32>) {
+		for frame in data.chunks(self.channels as usize) {
+			let sum: f32 = frame.iter().sum();
+			let mono = sum / (self.channels as f32);
+			self.lp1 += self.lp_alpha * (mono - self.lp1);
+			self.lp2 += self.lp_alpha * (self.lp1 - self.lp2);
+			self.mono_accum.push(self.lp2);
+		}
+
+		while self.resample_phase.floor() as usize + 1 < self.mono_accum.len() {
+			let idx = self.resample_phase.floor() as usize;
+			let frac = (self.resample_phase - idx as f64) as f32;
+			out.push(self.mono_accum[idx] + (self.mono_accum[idx + 1] - self.mono_accum[idx]) * frac);
+			self.resample_phase += self.downsample_step;
+		}
+		let consumed = (self.resample_phase.floor() as usize).min(self.mono_accum.len());
+		if consumed > 0 {
+			self.mono_accum.drain(0..consumed);
+			self.resample_phase -= consumed as f64;
+		}
+	}
+}
+
+// Mic-side DSP: the mic downsampled to 16 kHz, with any shared system audio
+// mixed in, batched into FRAME_SAMPLES packets sent to Go. The buffer source
+// is a WASAPI capture-thread loop.
+struct CaptureDsp {
+	downsampler: Downsampler,
+	/// The mic at 16 kHz, before it is mixed.
+	resampled: Vec<f32>,
 	sample_accum: Vec<f32>,
+	/// System audio waiting to be mixed in; empty unless a screen share is
+	/// carrying it.
+	system: Arc<Mutex<SystemMix>>,
 	/// One frame's samples, then the datagram built from it; both reused so
 	/// the capture thread doesn't allocate every 20ms.
 	frame: Vec<f32>,
@@ -321,33 +415,12 @@ fn pack_call_frame(frame: &[f32], opus: Option<&mut opus::Encoder>, out: &mut Ve
 }
 
 impl CaptureDsp {
-	fn new(sample_rate: u32, channels: u16) -> Self {
-		// The linear-interpolation resampler has no anti-aliasing of its own:
-		// decimating a 44.1/48kHz mic signal straight to 16kHz folds everything
-		// above the 8kHz output Nyquist back into the audible band. A cascaded
-		// two-pole one-pole low-pass at ~7kHz (comfortably under 8kHz) run on the
-		// native-rate signal before decimation removes that content first.
-		//
-		// Cascading two identical one-pole stages does NOT put the pair's -3dB point
-		// at the per-stage cutoff: each stage alone is already -3dB there, so the pair
-		// is -6dB, and the actual combined -3dB point lands at cutoff * sqrt(sqrt(2)-1)
-		// (~0.644x) - using 7kHz directly for both stages put the real rolloff around
-		// 4.5kHz, cutting into sibilance/formants and making voice sound muffled. Scale
-		// the per-stage cutoff up so the cascade's own -3dB point is the intended 7kHz.
-		let lp_target_hz: f32 = 7000.0;
-		let lp_cutoff_hz: f32 = lp_target_hz / (2.0_f32.sqrt() - 1.0).sqrt();
-		let lp_rc = 1.0 / (2.0 * std::f32::consts::PI * lp_cutoff_hz);
-		let lp_dt = 1.0 / sample_rate as f32;
-		let lp_alpha = lp_dt / (lp_rc + lp_dt);
+	fn new(sample_rate: u32, channels: u16, system: Arc<Mutex<SystemMix>>) -> Self {
 		Self {
-			channels,
-			lp1: 0.0,
-			lp2: 0.0,
-			lp_alpha,
-			mono_accum: Vec::new(),
-			resample_phase: 0.0,
-			downsample_step: sample_rate as f64 / NETWORK_SAMPLE_RATE as f64,
+			downsampler: Downsampler::new(sample_rate, channels),
+			resampled: Vec::new(),
 			sample_accum: Vec::with_capacity(FRAME_SAMPLES * 2),
+			system,
 			frame: Vec::with_capacity(FRAME_SAMPLES),
 			send_buf: Vec::with_capacity(FRAME_SAMPLES * 4 + OPUS_MAX_PACKET),
 			opus: new_call_opus_encoder(),
@@ -355,26 +428,15 @@ impl CaptureDsp {
 	}
 
 	fn process(&mut self, data: &[f32], muted: bool, socket_out: &UdpSocket, target_addr: &str) {
-		for frame in data.chunks(self.channels as usize) {
-			let sum: f32 = frame.iter().sum();
-			let mono = sum / (self.channels as f32);
-			self.lp1 += self.lp_alpha * (mono - self.lp1);
-			self.lp2 += self.lp_alpha * (self.lp1 - self.lp2);
-			self.mono_accum.push(self.lp2);
+		self.downsampler.process(data, &mut self.resampled);
+		// Muting silences the mic only: shared system audio keeps playing to
+		// the others, as it does in a browser's screen share.
+		let mut system = self.system.lock().unwrap();
+		for sample in self.resampled.drain(..) {
+			let voice = if muted { 0.0 } else { sample };
+			self.sample_accum.push(system.mix(voice));
 		}
-
-		while self.resample_phase.floor() as usize + 1 < self.mono_accum.len() {
-			let idx = self.resample_phase.floor() as usize;
-			let frac = (self.resample_phase - idx as f64) as f32;
-			let sample = self.mono_accum[idx] + (self.mono_accum[idx + 1] - self.mono_accum[idx]) * frac;
-			self.sample_accum.push(if muted { 0.0 } else { sample });
-			self.resample_phase += self.downsample_step;
-		}
-		let consumed = (self.resample_phase.floor() as usize).min(self.mono_accum.len());
-		if consumed > 0 {
-			self.mono_accum.drain(0..consumed);
-			self.resample_phase -= consumed as f64;
-		}
+		drop(system);
 
 		while self.sample_accum.len() >= FRAME_SAMPLES {
 			self.frame.clear();
@@ -513,9 +575,12 @@ fn run_capture(
 	target_addr: &str,
 	preferred_device: &Mutex<Option<String>>,
 	force_reopen: &AtomicBool,
+	system: &Arc<Mutex<SystemMix>>,
 ) {
 	while !stop.load(Ordering::Relaxed) {
-		if let Err(e) = run_capture_session(stop, is_muted, socket_out, target_addr, preferred_device, force_reopen) {
+		if let Err(e) =
+			run_capture_session(stop, is_muted, socket_out, target_addr, preferred_device, force_reopen, system)
+		{
 			log_line(&format!("capture session ended with error, reopening: {:?}", e));
 			if stop.load(Ordering::Relaxed) {
 				break;
@@ -533,6 +598,7 @@ fn run_capture_session(
 	target_addr: &str,
 	preferred_device: &Mutex<Option<String>>,
 	force_reopen: &AtomicBool,
+	system: &Arc<Mutex<SystemMix>>,
 ) -> crate::error::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
@@ -549,7 +615,7 @@ fn run_capture_session(
 		let _event_guard = EventGuard(wasapi.event);
 		let capture_client: IAudioCaptureClient = wasapi.client.GetService()?;
 
-		let mut dsp = CaptureDsp::new(wasapi.sample_rate, wasapi.channels);
+		let mut dsp = CaptureDsp::new(wasapi.sample_rate, wasapi.channels, Arc::clone(system));
 		let mut scratch: Vec<f32> = Vec::new();
 
 		wasapi.client.Start()?;
@@ -834,6 +900,7 @@ pub fn start_audio_streams(
 	// is cheap and harmless.
 	let force_reopen_input = Arc::new(AtomicBool::new(false));
 	let force_reopen_output = Arc::new(AtomicBool::new(false));
+	let system_mix = Arc::new(Mutex::new(SystemMix::default()));
 
 	{
 		let stop = Arc::clone(&stop);
@@ -841,8 +908,17 @@ pub fn start_audio_streams(
 		let target_addr = target_addr.clone();
 		let preferred_input = Arc::clone(&preferred_input);
 		let force_reopen_input = Arc::clone(&force_reopen_input);
+		let system_mix = Arc::clone(&system_mix);
 		std::thread::spawn(move || {
-			run_capture(&stop, &is_muted, &socket_out, &target_addr, &preferred_input, &force_reopen_input);
+			run_capture(
+				&stop,
+				&is_muted,
+				&socket_out,
+				&target_addr,
+				&preferred_input,
+				&force_reopen_input,
+				&system_mix,
+			);
 		});
 	}
 
@@ -863,7 +939,16 @@ pub fn start_audio_streams(
 		});
 	}
 
-	Ok(CallAudioState { is_muted, stop, preferred_input, preferred_output, force_reopen_input, force_reopen_output })
+	Ok(CallAudioState {
+		is_muted,
+		stop,
+		preferred_input,
+		preferred_output,
+		force_reopen_input,
+		force_reopen_output,
+		system_mix,
+		system_audio: None,
+	})
 }
 
 #[cfg(test)]

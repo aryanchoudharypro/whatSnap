@@ -31,6 +31,10 @@ pub struct Settings {
 	/// "System Default" (the first device Media Foundation enumerates - see
 	/// `video_devices.rs`).
 	pub camera_device_name: Option<String>,
+	/// Whether a screen share also sends what the computer is playing
+	/// (everything but whaNTV itself) - the call window's "Share system
+	/// audio" box, remembered from one call to the next.
+	pub share_system_audio: bool,
 	/// Whether recorded voice messages go through `voice_dsp::VoiceCleanup`
 	/// (high-pass, noise suppression, automatic gain, limiter) - the processing
 	/// a browser gives WhatsApp Web's voice notes. Off keeps the raw mic signal.
@@ -91,6 +95,7 @@ impl Default for Settings {
 			input_device_name: None,
 			output_device_name: None,
 			camera_device_name: None,
+			share_system_audio: false,
 			voice_message_noise_suppression: false,
 			archived_alert_levels: std::collections::HashMap::new(),
 			verbose_backend_logging: false,

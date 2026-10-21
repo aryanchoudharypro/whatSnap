@@ -15,6 +15,9 @@ pub struct CallWindowParts {
 	pub mute_btn: Button,
 	pub camera_btn: Button,
 	pub screen_btn: Button,
+	/// Whether a screen share also carries the computer's sound. Shown with
+	/// `screen_btn`.
+	pub system_audio_check: CheckBox,
 	pub add_participant_btn: Button,
 	pub raise_hand_btn: Button,
 	pub react_btn: Button,
@@ -67,6 +70,10 @@ pub fn build_call_window() -> CallWindowParts {
 	let screen_btn = Button::builder(&btn_panel).with_label("Share screen").build();
 	btn_sizer.add(&screen_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	screen_btn.show(false);
+
+	let system_audio_check = CheckBox::builder(&btn_panel).with_label("Share system audio").build();
+	btn_sizer.add(&system_audio_check, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 5);
+	system_audio_check.show(false);
 
 	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
 	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
@@ -143,6 +150,7 @@ pub fn build_call_window() -> CallWindowParts {
 		mute_btn,
 		camera_btn,
 		screen_btn,
+		system_audio_check,
 		add_participant_btn,
 		raise_hand_btn,
 		react_btn,

@@ -1100,12 +1100,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							} else {
 								"Turn camera on"
 							});
-							parts.call_parts.screen_btn.show(true);
-							parts.call_parts.screen_btn.set_label(if s.call_video.local_screen_on {
-								"Stop sharing screen"
-							} else {
-								"Share screen"
-							});
+							crate::ui_commands::calls::show_screen_share_controls(&s, parts);
 							parts.call_parts.leave_btn.show(true);
 							parts.call_parts.add_participant_btn.show(true);
 							crate::ui_commands::call_extras::show_call_buttons(&s, parts);
@@ -1232,7 +1227,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					let announcement =
 						peer_video_announcement(event, s.call_video.peer_camera_on, s.call_video.peer_name.as_deref());
 					match event {
-						"on" => s.call_video.peer_camera_on = Some(true),
+						"on" => {
+							s.call_video.peer_camera_on = Some(true);
+							// Their camera makes it a video call, which has a screen to share.
+							if !s.call_video.video_call {
+								s.call_video.video_call = true;
+								if s.active_call_audio.is_some() {
+									crate::ui_commands::calls::show_screen_share_controls(&s, parts);
+								}
+							}
+						}
 						"off" => s.call_video.peer_camera_on = Some(false),
 						_ => {}
 					}
@@ -1265,6 +1269,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					s.call_video.local_camera_on = false;
 					s.call_video.local_screen_on = false;
 					s.call_video.camera_before_share = false;
+					crate::ui_commands::calls::set_system_audio(&mut s, false);
 					if was_sharing {
 						let msg = serde_json::json!({
 							"action": "set_screen_share",
@@ -1425,6 +1430,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							local_screen_on: false,
 							camera_before_share: false,
 							autostart_camera: false,
+							video_call: is_video,
 							..Default::default()
 						};
 						parts.call_parts.frame.set_title(call_window_title(is_group, is_video));
@@ -1434,7 +1440,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						crate::ui_commands::call_extras::hide_call_buttons(parts);
 						parts.call_parts.mute_btn.show(false);
 						parts.call_parts.camera_btn.show(false);
-						parts.call_parts.screen_btn.show(false);
+						crate::ui_commands::calls::hide_screen_share_controls(parts);
 						parts.call_parts.leave_btn.show(false);
 						parts.call_parts.add_participant_btn.show(false);
 						parts.call_parts.devices_panel.show(false);

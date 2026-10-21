@@ -192,7 +192,7 @@ pub(crate) fn join_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	send(&s, "join_call_link", serde_json::json!({ "link": token, "video": video }));
 	s.call_placing = true;
 	s.call_pending_cancel = false;
-	s.call_video = CallVideo { autostart_camera: video, ..Default::default() };
+	s.call_video = CallVideo { autostart_camera: video, video_call: video, ..Default::default() };
 	let c = &parts.call_parts;
 	c.frame.set_title(call_window_title(true, video));
 	c.status_label.set_label("Joining call...");
