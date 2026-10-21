@@ -129,9 +129,12 @@ pub fn start_video_send(
 	let thread_force_reopen = Arc::clone(&force_reopen);
 	let thread_force_keyframe = Arc::clone(&force_keyframe);
 
-	std::thread::spawn(move || {
+	let spawned = std::thread::Builder::new().name("video send".into()).spawn(move || {
 		run(target_port, source, thread_stop, thread_preferred, thread_force_reopen, thread_force_keyframe, ui_tx);
 	});
+	if let Err(e) = spawned {
+		log_line(&format!("Couldn't start the video send thread: {e}"));
+	}
 
 	CallVideoSendState { stop, preferred_device, force_keyframe }
 }
@@ -155,8 +158,14 @@ fn run(
 		let device_name = preferred_device.lock().unwrap().clone();
 		force_reopen.store(false, Ordering::Relaxed);
 
+		if let VideoSource::Screen(target) = source {
+			log_line(&format!("Opening screen share session for {target:?}"));
+		}
 		match open_session(target_port, source, device_name.as_deref()) {
 			Ok(mut session) => {
+				if matches!(source, VideoSource::Screen(_)) {
+					log_line("Screen share session open");
+				}
 				ever_opened = true;
 				encode_loop(&mut session, &stop, &preferred_device, &force_reopen, &force_keyframe, &mut |black| {
 					let _ = ui_tx.send(crate::UiCommand::ScreenShareBlack(black));
@@ -481,6 +490,7 @@ fn screen_loop(
 	let black_frames_to_report = SCREEN_FPS * 2;
 	let mut black_run = 0u32;
 	let mut reported_black = false;
+	let mut sent_one = false;
 
 	while !stop.load(Ordering::Relaxed) {
 		let now = Instant::now();
@@ -524,6 +534,10 @@ fn screen_loop(
 		{
 			log_line(&format!("Encoder error (reopening): {e}"));
 			return;
+		}
+		if !sent_one {
+			sent_one = true;
+			log_line("First screen frame encoded");
 		}
 	}
 }

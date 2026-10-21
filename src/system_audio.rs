@@ -116,7 +116,7 @@ impl Drop for SystemAudioCapture {
 pub(crate) fn start(mix: Arc<Mutex<SystemMix>>, ui_tx: UiCommandSender) -> SystemAudioCapture {
 	let stop = Arc::new(AtomicBool::new(false));
 	let thread_stop = Arc::clone(&stop);
-	std::thread::spawn(move || {
+	let spawned = std::thread::Builder::new().name("system audio".into()).spawn(move || {
 		// Like the mic, a session that fails mid-stream (the default speakers
 		// changing, say) is reopened. Only a first open that fails is
 		// reported, since then there's nothing being shared at all.
@@ -134,6 +134,9 @@ pub(crate) fn start(mix: Arc<Mutex<SystemMix>>, ui_tx: UiCommandSender) -> Syste
 		mix.lock().unwrap().clear();
 		log_line("system audio: thread exiting");
 	});
+	if let Err(e) = spawned {
+		log_line(&format!("system audio: couldn't start its thread: {e}"));
+	}
 	SystemAudioCapture { stop }
 }
 
@@ -206,7 +209,10 @@ fn run_session(stop: &AtomicBool, mix: &Mutex<SystemMix>, first: &mut bool) -> c
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
+		// Each step is logged: a crash in here leaves nothing else behind.
+		log_line("system audio: opening process loopback");
 		let client = activate_loopback()?;
+		log_line("system audio: loopback opened");
 		// Process loopback has no mix format to ask for, so the format is
 		// ours to pick and Windows converts to it.
 		let block_align = CAPTURE_CHANNELS * 2;
@@ -230,6 +236,7 @@ fn run_session(stop: &AtomicBool, mix: &Mutex<SystemMix>, first: &mut bool) -> c
 			&format,
 			None,
 		)?;
+		log_line("system audio: stream initialised");
 		let event = CreateEventW(None, false, false, PCWSTR::null())?;
 		let _event_guard = EventGuard(event);
 		client.SetEventHandle(event)?;

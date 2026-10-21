@@ -27,6 +27,7 @@ mod error;
 pub use clipboard::copy_files_to_clipboard;
 mod contact_picker;
 mod countries;
+mod crash_log;
 mod do_not_disturb;
 #[cfg(target_os = "windows")]
 mod end_session;
@@ -588,9 +589,7 @@ struct AppState {
 }
 
 fn main() {
-	std::panic::set_hook(Box::new(|info| {
-		let _ = std::fs::write(paths::log_dir().join("panic.log"), format!("{}", info));
-	}));
+	crash_log::install();
 
 	// If whaNTV is already running, activate its window (restoring it from
 	// the tray if needed) instead of launching a second instance.
@@ -605,7 +604,7 @@ fn main() {
 	// from. Off the startup path; it's a few registry writes.
 	#[cfg(target_os = "windows")]
 	std::thread::spawn(link_handler::register);
-	for name in ["backend_process.log", "call_audio.log"] {
+	for name in ["backend_process.log", "call_audio.log", "call_video_send.log", "panic.log", "crash.log"] {
 		paths::rotate_log(name);
 	}
 
