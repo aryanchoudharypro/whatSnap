@@ -245,6 +245,24 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				filtered_starred_ids.push(entry.message_id.clone());
 			}
 		}
+	} else if s.active_tab == 6 {
+		// Calls: a flat list of recent calls
+		for entry in &s.call_logs {
+			let name = if !entry.peer_name.is_empty() {
+				&entry.peer_name
+			} else if let Some(n) = s.contacts.get(&entry.jid) {
+				n
+			} else {
+				&entry.jid
+			};
+
+			let label = format_call_log_label(name, &entry.text, entry.from_me, entry.timestamp);
+
+			if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) || entry.jid.contains(&lower_query) {
+				labels.push(label);
+				filtered.push(entry.jid.clone());
+			}
+		}
 	} else {
 		for jid in chats_in_tab_order(s) {
 			if !chat_visible_in_tab(
@@ -609,5 +627,85 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 	parts.action_panel.thaw();
 	if need_layout {
 		parts.action_panel.layout();
+	}
+}
+
+/// Formats a call record as a spoken, screen-reader friendly line.
+pub(crate) fn format_call_log_label(name: &str, text: &str, from_me: bool, timestamp: i64) -> String {
+	let call_desc = if text.starts_with("Incoming ") {
+		let rest = &text["Incoming ".len()..];
+		if let Some((kind, dur)) = rest.split_once(", ") {
+			let kind_cap = if let Some(first) = kind.chars().next() {
+				format!("{}{}", first.to_uppercase(), &kind[first.len_utf8()..])
+			} else {
+				kind.to_string()
+			};
+			format!("{} from {}, duration {}", kind_cap, name, dur)
+		} else {
+			format!("Incoming {} from {}", rest, name)
+		}
+	} else if text.starts_with("Outgoing ") {
+		let rest = &text["Outgoing ".len()..];
+		if let Some((kind, dur)) = rest.split_once(", ") {
+			format!("Outgoing {} to {}, duration {}", kind, name, dur)
+		} else {
+			format!("Outgoing {} to {}", rest, name)
+		}
+	} else if text.starts_with("Missed ") {
+		format!("Missed {} from {}", &text["Missed ".len()..], name)
+	} else {
+		let prep = if from_me { "to" } else { "from" };
+		format!("{} {} {}", text, prep, name)
+	};
+
+	let time_str = if timestamp > 0 {
+		if let Some(local_dt) = whantv::LocalTime::from_unix(timestamp) {
+			let now_dt = whantv::LocalTime::now();
+			let msg_date = local_dt.date();
+			let today = now_dt.date();
+			let yesterday = today.add_days(-1);
+			if msg_date == today {
+				format!("Today {}", local_dt.format("%I:%M %p"))
+			} else if msg_date == yesterday {
+				format!("Yesterday {}", local_dt.format("%I:%M %p"))
+			} else {
+				local_dt.format("%d/%m/%Y %I:%M %p")
+			}
+		} else {
+			String::new()
+		}
+	} else {
+		String::new()
+	};
+
+	if time_str.is_empty() {
+		call_desc
+	} else {
+		format!("{}, {}", call_desc, time_str)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_format_call_log_label() {
+		assert_eq!(
+			format_call_log_label("Aryan", "Incoming voice call, 44 minutes 32 seconds", false, 0),
+			"Voice call from Aryan, duration 44 minutes 32 seconds"
+		);
+		assert_eq!(
+			format_call_log_label("Aryan", "Outgoing voice call, 5 minutes", true, 0),
+			"Outgoing voice call to Aryan, duration 5 minutes"
+		);
+		assert_eq!(
+			format_call_log_label("Aryan", "Missed voice call", false, 0),
+			"Missed voice call from Aryan"
+		);
+		assert_eq!(
+			format_call_log_label("Aryan", "Voice call, declined", true, 0),
+			"Voice call, declined to Aryan"
+		);
 	}
 }

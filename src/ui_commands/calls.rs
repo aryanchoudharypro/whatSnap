@@ -25,7 +25,25 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 	}
 	let jid = {
 		let s = state.borrow();
-		if let Some(j) = s.selected_chat.as_ref().filter(|j| can_call(&s, j)) {
+		if s.active_tab == 6 {
+			let search_val = parts.conversations_parts.search_field.get_value().trim().to_string();
+			let digits: String = search_val.chars().filter(|c| c.is_ascii_digit()).collect();
+			let is_phone = !digits.is_empty() && search_val.chars().all(|c| c.is_ascii_digit() || "+- ()".contains(c));
+			if is_phone && digits.len() >= 3 {
+				format!("{}@s.whatsapp.net", digits)
+			} else {
+				let sel = parts.conversations_parts.conversations_list.get_selection().map(|i| i as usize);
+				if let Some(target) = sel.and_then(|i| s.filtered_chats.get(i).cloned()) {
+					target
+				} else if let Some(target) = s.filtered_chats.first().cloned() {
+					target
+				} else if let Some(j) = s.selected_chat.as_ref().filter(|j| can_call(&s, j)) {
+					j.clone()
+				} else {
+					return;
+				}
+			}
+		} else if let Some(j) = s.selected_chat.as_ref().filter(|j| can_call(&s, j)) {
 			j.clone()
 		} else {
 			return;
@@ -36,6 +54,7 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 		"data": { "jid": jid, "video": video }
 	});
 	let mut s = state.borrow_mut();
+	s.selected_chat = Some(jid.clone());
 	let _ = s.ws_tx.send(msg.to_string());
 	s.call_placing = true;
 	s.call_pending_cancel = false;

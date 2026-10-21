@@ -439,6 +439,19 @@ pub(crate) struct StarredEntry {
 	pub(crate) label: String,
 }
 
+/// One call history record, as shown in the Calls nav view.
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub(crate) struct CallLogEntry {
+	pub(crate) id: String,
+	pub(crate) jid: String,
+	pub(crate) peer_name: String,
+	pub(crate) from_me: bool,
+	pub(crate) text: String,
+	pub(crate) timestamp: i64,
+	pub(crate) is_video: bool,
+}
+
 /// One posted Status/Stories update, as shown in the Status nav view.
 #[derive(Clone)]
 pub(crate) struct StatusItem {

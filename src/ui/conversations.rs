@@ -21,6 +21,9 @@ pub struct ConversationsPanelParts {
 
 	pub conversations_label: StaticText,
 	pub conversations_list: ListBox,
+	pub calls_btn_panel: Panel,
+	pub calls_call_btn: Button,
+	pub calls_video_btn: Button,
 
 	pub conversation_panel: Panel,
 	pub conv_data_btn: Button,
@@ -140,6 +143,26 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let conversations_list = ListBox::builder(&panel).build();
 	conversations_list.set_font(&theme::Fonts::body());
 	outer_sizer.add(&conversations_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
+
+	let calls_btn_panel = Panel::builder(&panel).build();
+	let calls_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let calls_call_btn = Button::builder(&calls_btn_panel).with_label("Call").build();
+	calls_call_btn.set_font(&theme::Fonts::body());
+	theme::style_primary_button(&calls_call_btn);
+	calls_btn_sizer.add(&calls_call_btn, 0, SizerFlag::Right, 5);
+
+	let calls_video_btn = Button::builder(&calls_btn_panel).with_label("Video call").build();
+	calls_video_btn.set_font(&theme::Fonts::body());
+	calls_btn_sizer.add(&calls_video_btn, 0, SizerFlag::Right, 5);
+
+	calls_btn_panel.set_sizer(calls_btn_sizer, true);
+	calls_btn_panel.show(false);
+	outer_sizer.add(
+		&calls_btn_panel,
+		0,
+		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+		10,
+	);
 
 	let conversation_panel = Panel::builder(&panel).build();
 	theme::style_chat_area(&conversation_panel);
@@ -399,6 +422,9 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		post_media_status_btn,
 		conversations_label,
 		conversations_list,
+		calls_btn_panel,
+		calls_call_btn,
+		calls_video_btn,
 		conversation_panel,
 		conv_data_btn,
 		add_attachment_btn,

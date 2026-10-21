@@ -12,7 +12,7 @@ use whantv::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem,
+	AppState, CallLogEntry, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem,
 	UiCommand,
 	audio::{
 		ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringback,
@@ -745,7 +745,7 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	// The Status and Starred tabs keep their own rows (and
 	// their own filtered_chats) - a chats refresh must leave
 	// them alone, or Enter on a row stops doing anything.
-	let own_rows_tab = s.active_tab == 1 || s.active_tab == 2;
+	let own_rows_tab = s.active_tab == 1 || s.active_tab == 2 || s.active_tab == 6;
 	if !own_rows_tab && structure_changed {
 		s.filtered_chats = new_filtered;
 		drop(s);
@@ -1352,6 +1352,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						} else if summary.contains("on another device") {
 							announce_call(parts, &format!("{}.", summary));
 						}
+						if s.active_tab == 6 {
+							let _ = s.ws_tx.send(serde_json::json!({ "action": "get_call_logs" }).to_string());
+						}
 					}
 				}
 			}
@@ -1682,6 +1685,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					let is_missed_call = is_call_line && text.starts_with("Missed");
 
 					let mut s = state.borrow_mut();
+					if is_call_line && s.active_tab == 6 {
+						let _ = s.ws_tx.send(serde_json::json!({ "action": "get_call_logs" }).to_string());
+					}
 
 					// A window opened around a search hit stops short of the
 					// newest messages; appending a live one under it would put
@@ -2818,6 +2824,34 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 					s.starred_entries = entries;
 					if s.active_tab == 2 {
+						apply_chat_filter(&mut s, parts);
+					}
+				}
+			}
+			"call_logs" => {
+				if let Some(data) = val.get("data").and_then(|d| d.as_array()) {
+					let mut s = state.borrow_mut();
+					let mut entries = Vec::new();
+					for item in data {
+						let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let jid = item.get("jid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let peer_name = item.get("peer_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let from_me = item.get("from_me").and_then(|v| v.as_bool()).unwrap_or(false);
+						let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+						let timestamp = item.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+						let is_video = item.get("is_video").and_then(|v| v.as_bool()).unwrap_or(false);
+						entries.push(CallLogEntry {
+							id,
+							jid,
+							peer_name,
+							from_me,
+							text,
+							timestamp,
+							is_video,
+						});
+					}
+					s.call_logs = entries;
+					if s.active_tab == 6 {
 						apply_chat_filter(&mut s, parts);
 					}
 				}

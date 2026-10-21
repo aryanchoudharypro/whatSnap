@@ -220,6 +220,7 @@ pub const MENU_ID_NAV_COMMUNITIES: i32 = 6012;
 pub const MENU_ID_NAV_STARRED: i32 = 6013;
 pub const MENU_ID_NAV_ARCHIVED: i32 = 6014;
 pub const MENU_ID_NAV_CHANNELS: i32 = 6015;
+pub const MENU_ID_NAV_CALLS: i32 = 6016;
 pub const MENU_ID_NEW_CHAT: i32 = 6020;
 pub const MENU_ID_NEW_GROUP: i32 = 6021;
 pub const MENU_ID_SEARCH_GLOBAL: i32 = 6022;
@@ -300,10 +301,15 @@ fn restore_focus(handle: usize) -> bool {
 /// see `ChatMessage::body_text`) in a read-only multi-line field. A list row's
 /// text can be read by NVDA but not selected or copied, so this gives a normal
 /// field to browse and Ctrl+C from without letting anyone change the message.
+///
+/// Uses `Rich2` and `DontWrap` with CRLF newlines so screen readers (NVDA/JAWS)
+/// can navigate paragraph by paragraph with Ctrl+Up/Down and lines aren't
+/// artificially split by word wrapping.
 fn show_message_text(parent: &Frame, list: &ListBox, state: &std::cell::RefCell<crate::AppState>) {
 	let Some(idx) = list.get_selection() else { return };
 	let text = state.borrow().display_items.get(idx as usize).map(|item| item.body_text());
 	let Some(text) = text else { return };
+	let text = text.replace("\r\n", "\n").replace('\n', "\r\n");
 	let dlg = Dialog::builder(parent, "Message Text")
 		.with_size(480, 320)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -312,7 +318,9 @@ fn show_message_text(parent: &Frame, list: &ListBox, state: &std::cell::RefCell<
 	let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let text_view =
-		TextCtrl::builder(&dlg_panel).with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly).build();
+		TextCtrl::builder(&dlg_panel)
+			.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::Rich2 | TextCtrlStyle::DontWrap)
+			.build();
 	text_view.set_value(&text);
 	dlg_sizer.add(&text_view, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
@@ -385,6 +393,7 @@ pub fn build_main_window() -> WindowParts {
 			"Archived Chats".to_string(),
 			"Communities".to_string(),
 			"Channels".to_string(),
+			"Calls".to_string(),
 		])
 		.build();
 	nav_list.set_font(&theme::Fonts::body_strong());
@@ -423,6 +432,7 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_NAV_STARRED, &default_menu_label(MENU_ID_NAV_STARRED), "Jump to Starred Messages")
 		.append_item(MENU_ID_NAV_ARCHIVED, &default_menu_label(MENU_ID_NAV_ARCHIVED), "Jump to Archived Chats")
 		.append_item(MENU_ID_NAV_CHANNELS, &default_menu_label(MENU_ID_NAV_CHANNELS), "Jump to the channels you follow")
+		.append_item(MENU_ID_NAV_CALLS, &default_menu_label(MENU_ID_NAV_CALLS), "Jump to Calls")
 		.build();
 	// Matches official WhatsApp's shortcuts, minus Alt on every combo that
 	// also has Ctrl (kept only on the Alt-only ones) - see the Alt+1..5
@@ -924,6 +934,15 @@ pub fn bind_input_handlers(
 		let _ = tx_place_video_call.send(UiCommand::PlaceVideoCall);
 	});
 
+	let tx_calls_call = ui_tx.clone();
+	parts.conversations_parts.calls_call_btn.on_click(move |_| {
+		let _ = tx_calls_call.send(UiCommand::PlaceCall);
+	});
+	let tx_calls_video = ui_tx.clone();
+	parts.conversations_parts.calls_video_btn.on_click(move |_| {
+		let _ = tx_calls_video.send(UiCommand::PlaceVideoCall);
+	});
+
 	let tx_answer = ui_tx.clone();
 	parts.call_parts.accept_btn.on_click(move |_| {
 		let _ = tx_answer.send(UiCommand::AnswerCall);
@@ -1417,6 +1436,7 @@ pub fn bind_input_handlers(
 			MENU_ID_NAV_ARCHIVED => 3,
 			MENU_ID_NAV_COMMUNITIES => 4,
 			MENU_ID_NAV_CHANNELS => 5,
+			MENU_ID_NAV_CALLS => 6,
 			_ => return,
 		};
 		// set_selection's bool means select-vs-deselect, not "fire the change
@@ -2769,6 +2789,20 @@ pub fn bind_input_handlers(
 	conv_search.on_text_changed(move |_| {
 		let query = conv_search.get_value();
 		let _ = tx_filter.send(UiCommand::FilterConversations(query));
+	});
+
+	let state_conv_search = state.clone();
+	let tx_search_enter = ui_tx.clone();
+	conv_search.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let code = key_event.get_key_code();
+			if keys::is_enter(code) && state_conv_search.borrow().active_tab == 6 {
+				let _ = tx_search_enter.send(UiCommand::PlaceCall);
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
 	});
 
 	let tx_open = ui_tx.clone();

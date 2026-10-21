@@ -393,6 +393,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleCallToggle(conn, cmd.Data, "approval")
 	case "place_call":
 		handlePlaceCall(cmd.Data)
+	case "get_call_logs":
+		handleGetCallLogs(conn)
 	case "answer_call":
 		handleAnswerCall(cmd.Data)
 	case "reject_call":

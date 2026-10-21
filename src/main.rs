@@ -383,6 +383,7 @@ struct AppState {
 	/// Parallel to `filtered_chats` while `active_tab == 1`: the status
 	/// message id for each row shown in the nav list.
 	filtered_status_message_ids: Vec<String>,
+	call_logs: Vec<CallLogEntry>,
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
 	main_ui_shown: bool,
@@ -970,6 +971,7 @@ fn main() {
 			filtered_starred_message_ids: Vec::new(),
 			status_groups: Vec::new(),
 			filtered_status_message_ids: Vec::new(),
+			call_logs: Vec::new(),
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),
 			main_ui_shown: false,

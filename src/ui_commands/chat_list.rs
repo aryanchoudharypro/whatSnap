@@ -17,6 +17,15 @@ use crate::{
 };
 
 pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
+	parts.conversations_parts.calls_btn_panel.show(idx == 6);
+	parts.conversations_parts.search_label.set_label(if idx == 6 {
+		"Search or enter phone number to place call"
+	} else if idx == 1 {
+		"Search status updates"
+	} else {
+		"Search conversations"
+	});
+	parts.conversations_parts.new_conv_btn.show(idx != 6);
 	match idx {
 		0 => {
 			// Conversations
@@ -76,6 +85,20 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.post_media_status_btn.set_label("Create channel...");
 			parts.conversations_parts.post_media_status_btn.show(true);
 			parts.conversations_parts.conversations_label.set_label("Channels");
+			apply_chat_filter(&mut state.borrow_mut(), parts);
+		}
+		6 => {
+			// Calls
+			parts.conversations_parts.panel.show(true);
+			state.borrow_mut().active_tab = 6;
+			parts.conversations_parts.post_media_status_btn.show(false);
+			parts.conversations_parts.locked_chats_btn.show(false);
+			parts.conversations_parts.chat_filter_label.show(false);
+			parts.conversations_parts.chat_filter_combo.show(false);
+			parts.conversations_parts.conversation_panel.show(false);
+			parts.conversations_parts.conversations_label.set_label("Recent Calls");
+			let payload = serde_json::json!({ "action": "get_call_logs" });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		_ => {}
@@ -141,6 +164,14 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				};
 				crate::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 			}
+		}
+		return;
+	}
+	if state.borrow().active_tab == 6 {
+		let jid = state.borrow().filtered_chats.get(idx).cloned();
+		if let Some(jid) = jid {
+			state.borrow_mut().selected_chat = Some(jid);
+			crate::ui_commands::calls::place_call(state, parts);
 		}
 		return;
 	}

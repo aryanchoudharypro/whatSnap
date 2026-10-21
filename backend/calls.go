@@ -371,7 +371,19 @@ func handlePlaceCall(data []byte) {
 		log.Println("Invalid place_call format:", err)
 		return
 	}
-	parsedJID, err := types.ParseJID(req.JID)
+	target := strings.TrimSpace(req.JID)
+	if !strings.Contains(target, "@") {
+		var digits strings.Builder
+		for _, r := range target {
+			if r >= '0' && r <= '9' {
+				digits.WriteRune(r)
+			}
+		}
+		if digits.Len() > 0 {
+			target = digits.String() + "@s.whatsapp.net"
+		}
+	}
+	parsedJID, err := types.ParseJID(target)
 	if err != nil {
 		log.Println("Invalid JID for place_call:", err)
 		return
