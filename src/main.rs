@@ -386,9 +386,6 @@ struct AppState {
 	call_logs: Vec<CallLogEntry>,
 	/// The Calls tab's "frequent" section and its full A-Z contact list.
 	call_frequent: Vec<CallTarget>,
-	/// Parallel to `filtered_chats` while `active_tab == 6`: the call id for
-	/// each row that is a past call, empty for headings and contacts.
-	filtered_call_ids: Vec<String>,
 	call_contacts: Vec<CallTarget>,
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
@@ -979,7 +976,6 @@ fn main() {
 			filtered_status_message_ids: Vec::new(),
 			call_logs: Vec::new(),
 			call_frequent: Vec::new(),
-			filtered_call_ids: Vec::new(),
 			call_contacts: Vec::new(),
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),

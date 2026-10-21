@@ -431,20 +431,19 @@ pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 
 const MENU_CALL: i32 = 4501;
 const MENU_VIDEO_CALL: i32 = 4502;
-const MENU_DELETE_CALL: i32 = 4503;
+const MENU_OPEN_CHAT: i32 = 4503;
 const MENU_DELETE_CONTACT: i32 = 4504;
 
 /// The Calls tab's context menu. Its rows are calls and contacts, so it offers
 /// call actions rather than the chat list's (pin, archive, mark as unread...).
 pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
-	let (jid, call_id, saved_contact) = {
+	let (jid, saved_contact) = {
 		let s = state.borrow();
 		let Some(jid) = s.filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned() else { return };
-		let call_id = s.filtered_call_ids.get(idx).cloned().unwrap_or_default();
 		// Only a saved person can be deleted: not a group, and not someone known
 		// only from a call or a chat.
 		let saved_contact = s.call_contacts.iter().any(|c| c.jid == jid && !c.name.is_empty() && c.name != c.phone);
-		(jid, call_id, saved_contact)
+		(jid, saved_contact)
 	};
 	// The list may not have the row selected yet (the key opens the menu on
 	// the focused row); the call actions dial the selection.
@@ -452,14 +451,8 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 
 	let mut builder = Menu::builder()
 		.append_item(MENU_CALL, "&Call", "Place a voice call")
-		.append_item(MENU_VIDEO_CALL, "&Video call", "Place a video call");
-	if !call_id.is_empty() {
-		builder = builder.append_item(
-			MENU_DELETE_CALL,
-			"&Delete from call history",
-			"Remove this call from the list on this device",
-		);
-	}
+		.append_item(MENU_VIDEO_CALL, "&Video call", "Place a video call")
+		.append_item(MENU_OPEN_CHAT, "Open c&hat", "Open the conversation with this contact");
 	if saved_contact && !jid.ends_with("@g.us") {
 		builder = builder.append_item(
 			MENU_DELETE_CONTACT,
@@ -474,11 +467,7 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	menu.on_selected(move |evt| match evt.get_id() {
 		MENU_CALL => place_call(&state_menu, &parts_menu),
 		MENU_VIDEO_CALL => place_video_call(&state_menu, &parts_menu),
-		MENU_DELETE_CALL => {
-			let payload = serde_json::json!({ "action": "delete_call_log", "data": { "call_id": call_id } });
-			let _ = state_menu.borrow().ws_tx.send(payload.to_string());
-			crate::announce::announce(parts_menu.conversations_parts.messages_announcer, "Call removed.");
-		}
+		MENU_OPEN_CHAT => crate::chat_ui::open_chat_for_jid(&jid, &state_menu, &parts_menu),
 		MENU_DELETE_CONTACT => {
 			let name = {
 				let s = state_menu.borrow();
