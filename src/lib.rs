@@ -556,15 +556,12 @@ impl ChatMessage {
 		Some((q_sender, q_body))
 	}
 
-	/// What a screen reader should say for the message this one replies to,
-	/// e.g. "Replying to You: hello". None when this message is not a reply.
+	/// What a screen reader should say for the message this one replies to:
+	/// "sender: text", or just the text when the sender is unknown. None when
+	/// this message is not a reply.
 	pub fn reply_announcement(&self) -> Option<String> {
 		let (sender, body) = self.reply_parts()?;
-		Some(if sender == "quoted message" {
-			format!("Replying to: {}", body)
-		} else {
-			format!("Replying to {}: {}", sender, body)
-		})
+		Some(if sender == "quoted message" { body } else { format!("{}: {}", sender, body) })
 	}
 
 	pub fn format_display(&self, _is_group: bool) -> String {
