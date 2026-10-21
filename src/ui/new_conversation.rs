@@ -17,7 +17,7 @@ pub struct NewConversationDialogParts {
 }
 
 pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationDialogParts {
-	let dialog = Dialog::builder(parent, "New Conversation")
+	let dialog = Dialog::builder(parent, "New Chat")
 		.with_size(440, 480)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();

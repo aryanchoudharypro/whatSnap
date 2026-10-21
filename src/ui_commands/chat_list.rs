@@ -31,7 +31,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	} else if idx == 1 {
 		"Search status updates"
 	} else {
-		"Search conversations"
+		"Search chats"
 	});
 	parts.conversations_parts.new_conv_btn.show(idx != 6);
 	match idx {
@@ -39,7 +39,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			// Conversations
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 0;
-			parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Chats");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
@@ -60,7 +60,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			// Starred Messages
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 2;
-			parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Starred Messages");
 			let payload = serde_json::json!({ "action": "get_starred_messages" });
@@ -71,7 +71,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			// Archived Chats
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 3;
-			parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Archived Chats");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
@@ -80,7 +80,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			// Communities
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 4;
-			parts.conversations_parts.new_conv_btn.set_label("New Conversation");
+			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Communities");
 			apply_chat_filter(&mut state.borrow_mut(), parts);

@@ -89,7 +89,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_content(&panel);
 	let outer_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label("Search conversations").build();
+	let search_label = StaticText::builder(&panel).with_label("Search chats").build();
 	theme::style_muted_label(&search_label);
 	outer_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
@@ -108,7 +108,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	chat_filter_combo.set_selection(0);
 	outer_sizer.add(&chat_filter_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let new_conv_btn = Button::builder(&panel).with_label("New Conversation").build();
+	let new_conv_btn = Button::builder(&panel).with_label("New Chat").build();
 	theme::style_primary_button(&new_conv_btn);
 	outer_sizer.add(&new_conv_btn, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 

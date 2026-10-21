@@ -175,7 +175,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	general_sizer.add(&start_maximized_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let meta_ai_enabled_check =
-		CheckBox::builder(&general_panel).with_label("Show a button to message Meta AI in New Conversation").build();
+		CheckBox::builder(&general_panel).with_label("Show a button to message Meta AI in New Chat").build();
 	meta_ai_enabled_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&meta_ai_enabled_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
