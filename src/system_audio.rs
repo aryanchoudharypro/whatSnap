@@ -200,10 +200,17 @@ unsafe fn activate_loopback() -> crate::error::Result<IAudioClient> {
 		operation.GetActivateResult(&mut result, &mut activated)?;
 		log_line(&format!("system audio: activation result {:#010x}", result.0 as u32));
 		result.ok()?;
-		match activated {
-			Some(client) => Ok(client.cast()?),
-			None => crate::error::bail!("Windows returned no system audio stream"),
-		}
+		let Some(activated) = activated else {
+			crate::error::bail!("Windows returned no system audio stream");
+		};
+		let client: IAudioClient = activated.cast()?;
+		log_line("system audio: got the audio client");
+		drop(activated);
+		drop(operation);
+		log_line("system audio: released the activation");
+		drop(handler);
+		log_line("system audio: released the completion handler");
+		Ok(client)
 	}
 }
 

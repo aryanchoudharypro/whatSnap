@@ -17,7 +17,8 @@ use windows::Win32::{
 	Foundation::HMODULE,
 	System::{
 		Diagnostics::Debug::{
-			AddVectoredExceptionHandler, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_POINTERS, SetUnhandledExceptionFilter,
+			AddVectoredExceptionHandler, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_POINTERS, RtlCaptureStackBackTrace,
+				SetUnhandledExceptionFilter,
 		},
 		LibraryLoader::{
 			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
@@ -52,10 +53,23 @@ unsafe extern "system" fn on_fault_raised(info: *mut EXCEPTION_POINTERS) -> i32 
 			&& RAISED.fetch_or(1 << i, Ordering::Relaxed) & (1 << i) == 0
 		{
 			let address = record.ExceptionAddress as usize;
-			append("crash.log", &format!("fault {code:#010x} raised at {}", describe(address)));
+			// For an access violation: 0 read, 1 write, 8 execute, then the address.
+			let info = &record.ExceptionInformation[..(record.NumberParameters as usize).min(2)];
+			append(
+				"crash.log",
+				&format!("fault {code:#010x} raised at {} ({info:x?}), stack:{}", describe(address), stack()),
+			);
 		}
 	}
 	EXCEPTION_CONTINUE_SEARCH
+}
+
+/// The calling thread's stack as module+offset frames; from inside the
+/// handler that runs through the exception dispatcher into the faulting code.
+fn stack() -> String {
+	let mut frames = [std::ptr::null_mut(); 32];
+	let count = unsafe { RtlCaptureStackBackTrace(0, &mut frames, None) } as usize;
+	frames[..count].iter().map(|&frame| format!("\n    {}", describe(frame as usize))).collect()
 }
 
 fn describe(address: usize) -> String {
