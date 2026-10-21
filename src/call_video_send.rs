@@ -500,6 +500,9 @@ fn screen_loop(
 		// Never queue up frames to catch up after a slow one.
 		next_frame = (next_frame + frame_interval).max(Instant::now());
 
+		if !sent_one {
+			log_line("Grabbing the first screen frame");
+		}
 		let sample = match screen_sample(screen, frame_bytes) {
 			Ok((sample, black)) => {
 				grab_failing = false;
@@ -525,6 +528,9 @@ fn screen_loop(
 				continue;
 			}
 		};
+		if !sent_one {
+			log_line("First screen frame grabbed, encoding it");
+		}
 		let stamped = unsafe {
 			sample
 				.SetSampleTime(started.elapsed().as_nanos() as i64 / 100)

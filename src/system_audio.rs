@@ -190,12 +190,15 @@ unsafe fn activate_loopback() -> crate::error::Result<IAudioClient> {
 			Some(&variant),
 			&handler,
 		)?;
+		log_line("system audio: activation requested");
 		if done_rx.recv_timeout(Duration::from_secs(5)).is_err() {
 			crate::error::bail!("Windows didn't open the system audio in time");
 		}
 		let mut result = HRESULT(0);
 		let mut activated: Option<IUnknown> = None;
+		log_line("system audio: activation completed");
 		operation.GetActivateResult(&mut result, &mut activated)?;
+		log_line(&format!("system audio: activation result {:#010x}", result.0 as u32));
 		result.ok()?;
 		match activated {
 			Some(client) => Ok(client.cast()?),
