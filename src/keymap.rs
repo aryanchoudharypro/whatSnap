@@ -67,7 +67,7 @@ pub const ACTIONS: &[ActionDef] = &[
 		id: "go_conversations",
 		menu_id: Some(MENU_ID_NAV_CONVERSATIONS),
 		tab: 1,
-		label: "&Conversations",
+		label: "&Chats",
 		default: "Alt+1",
 	},
 	ActionDef { id: "go_status", menu_id: Some(MENU_ID_NAV_STATUS), tab: 1, label: "&Status", default: "Alt+2" },

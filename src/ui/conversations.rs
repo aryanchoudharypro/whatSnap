@@ -136,7 +136,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_divider(&list_divider);
 	outer_sizer.add(&list_divider, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
 
-	let conversations_label = StaticText::builder(&panel).with_label("Conversations").build();
+	let conversations_label = StaticText::builder(&panel).with_label("Chats").build();
 	theme::style_heading(&conversations_label);
 	outer_sizer.add(&conversations_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 

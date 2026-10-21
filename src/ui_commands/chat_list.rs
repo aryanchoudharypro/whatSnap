@@ -41,7 +41,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			state.borrow_mut().active_tab = 0;
 			parts.conversations_parts.new_conv_btn.set_label("New Conversation");
 			parts.conversations_parts.post_media_status_btn.show(false);
-			parts.conversations_parts.conversations_label.set_label("Conversations");
+			parts.conversations_parts.conversations_label.set_label("Chats");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		1 => {

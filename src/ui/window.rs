@@ -384,20 +384,14 @@ pub fn build_main_window() -> WindowParts {
 	let nav_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let nav_label = StaticText::builder(&nav_panel).with_label("Main Navigation").build();
 	theme::style_sidebar_heading(&nav_label);
+	let tab_order = crate::settings::Settings::load().tab_order();
 	let nav_list = ListBox::builder(&nav_panel)
-		.with_choices(vec![
-			"Conversations".to_string(),
-			"Status".to_string(),
-			"Starred Messages".to_string(),
-			"Archived Chats".to_string(),
-			"Communities".to_string(),
-			"Channels".to_string(),
-			"Calls".to_string(),
-		])
+		.with_choices(tab_order.iter().map(|&t| crate::settings::TAB_NAMES[t].to_string()).collect())
 		.build();
 	nav_list.set_font(&theme::Fonts::body_strong());
 	theme::style_sidebar(&nav_list);
-	nav_list.set_selection(0_u32, true);
+	// Conversations is the tab the app starts on, wherever it was moved to.
+	nav_list.set_selection(tab_order.iter().position(|&t| t == 0).unwrap_or(0) as u32, true);
 	nav_sizer.add(&nav_label, 0, SizerFlag::All, 10);
 	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 
@@ -421,11 +415,7 @@ pub fn build_main_window() -> WindowParts {
 	// has focus) from the "\tAlt+1" accelerator syntax on a menu label; a
 	// plain key-down handler on a widget loses to that table for Alt-combos.
 	let go_menu = Menu::builder()
-		.append_item(
-			MENU_ID_NAV_CONVERSATIONS,
-			&default_menu_label(MENU_ID_NAV_CONVERSATIONS),
-			"Jump to the conversation list",
-		)
+		.append_item(MENU_ID_NAV_CONVERSATIONS, &default_menu_label(MENU_ID_NAV_CONVERSATIONS), "Jump to the chat list")
 		.append_item(MENU_ID_NAV_STATUS, &default_menu_label(MENU_ID_NAV_STATUS), "Jump to Status")
 		.append_item(MENU_ID_NAV_COMMUNITIES, &default_menu_label(MENU_ID_NAV_COMMUNITIES), "Jump to Communities")
 		.append_item(MENU_ID_NAV_STARRED, &default_menu_label(MENU_ID_NAV_STARRED), "Jump to Starred Messages")
@@ -1376,6 +1366,7 @@ pub fn bind_input_handlers(
 	});
 
 	let nav_list_for_menu = parts.nav_list;
+	let state_nav_menu = state.clone();
 	let nav_announcer = parts.conversations_parts.messages_announcer;
 	let tx_nav_menu = ui_tx.clone();
 	// One-shot: moves focus into the chat list once the tab name has been spoken.
@@ -1428,7 +1419,7 @@ pub fn bind_input_handlers(
 		event.skip(true);
 	});
 	parts.frame.on_menu_selected(move |evt| {
-		let idx = match evt.get_id() {
+		let tab = match evt.get_id() {
 			MENU_ID_NAV_CONVERSATIONS => 0,
 			MENU_ID_NAV_STATUS => 1,
 			MENU_ID_NAV_STARRED => 2,
@@ -1438,12 +1429,14 @@ pub fn bind_input_handlers(
 			MENU_ID_NAV_CALLS => 6,
 			_ => return,
 		};
+		// The shortcut names a tab; the list may have it anywhere.
+		let idx = state_nav_menu.borrow().settings.tab_order().iter().position(|&t| t == tab).unwrap_or(tab) as u32;
 		// set_selection's bool means select-vs-deselect, not "fire the change
 		// event" - wxListBox::SetSelection never generates one, so switching
 		// the highlighted tab needs an explicit NavSelected to actually swap
 		// the (shared) list's content, same as a mouse click would trigger.
 		nav_list_for_menu.set_selection(idx, true);
-		let _ = tx_nav_menu.send(UiCommand::NavSelected(idx as usize));
+		let _ = tx_nav_menu.send(UiCommand::NavSelected(tab));
 		// Say the tab name now, then move focus into the chat list shortly
 		// after. Focus speech is not a live-region announcement, so it isn't
 		// queued behind one: moving focus straight away would talk over the
@@ -2630,10 +2623,65 @@ pub fn bind_input_handlers(
 	});
 
 	let tx_nav = ui_tx.clone();
+	let state_nav = state.clone();
 	parts.nav_list.on_selection_changed(move |event| {
 		if let Some(idx) = event.get_selection() {
-			let _ = tx_nav.send(UiCommand::NavSelected(idx as usize));
+			let tab = state_nav.borrow().settings.tab_order().get(idx as usize).copied().unwrap_or(idx as usize);
+			let _ = tx_nav.send(UiCommand::NavSelected(tab));
 		}
+	});
+
+	// Ctrl+Shift+Left/Right moves the highlighted tab up or down the list, like
+	// moving a timeline in Fedra. Swapping the two rows' text in place (rather
+	// than clearing and refilling) keeps the list from announcing itself anew.
+	let state_nav_move = state.clone();
+	let nav_list_move = parts.nav_list;
+	let nav_move_announcer = parts.conversations_parts.messages_announcer;
+	parts.nav_list.on_key_down(move |event| {
+		let WindowEventData::Keyboard(ref key) = event else {
+			event.skip(true);
+			return;
+		};
+		let code = key.get_key_code();
+		let delta: isize = if crate::ui::keys::is_left(code) {
+			-1
+		} else if crate::ui::keys::is_right(code) {
+			1
+		} else {
+			event.skip(true);
+			return;
+		};
+		if !(key.control_down() && key.shift_down()) || key.alt_down() {
+			event.skip(true);
+			return;
+		}
+		event.skip(false);
+		let Some(pos) = nav_list_move.get_selection().map(|p| p as usize) else { return };
+		let mut order = state_nav_move.borrow().settings.tab_order();
+		let Some(new_pos) = crate::settings::move_tab(&mut order, pos, delta) else {
+			crate::announce::announce(
+				nav_move_announcer,
+				if delta < 0 { "Cannot move left" } else { "Cannot move right" },
+			);
+			return;
+		};
+		let names: Vec<&str> = order.iter().map(|&t| crate::settings::TAB_NAMES[t]).collect();
+		for p in [pos, new_pos] {
+			nav_list_move.set_string(p as u32, names[p]);
+		}
+		nav_list_move.set_selection(new_pos as u32, true);
+		{
+			let mut s = state_nav_move.borrow_mut();
+			s.settings.tab_order = order;
+			s.settings.save();
+		}
+		let msg = match (new_pos.checked_sub(1), names.get(new_pos + 1)) {
+			(Some(before), Some(after)) => format!("Moved between {} and {}", names[before], after),
+			(None, Some(after)) => format!("Moved before {after}"),
+			(Some(before), None) => format!("Moved after {}", names[before]),
+			(None, None) => format!("Moved {}", names[new_pos]),
+		};
+		crate::announce::announce(nav_move_announcer, &msg);
 	});
 
 	let tx_send_field = ui_tx.clone();

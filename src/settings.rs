@@ -55,6 +55,27 @@ pub struct Settings {
 	/// Menu shortcuts the user changed, by action id; see [`crate::keymap`].
 	/// Anything not listed keeps its default.
 	pub shortcuts: std::collections::BTreeMap<String, String>,
+	/// Order of the main navigation tabs, as tab ids (see [`TAB_NAMES`]).
+	/// Read it through [`Settings::tab_order`], which repairs a saved list that
+	/// is missing a tab or repeats one.
+	pub tab_order: Vec<usize>,
+}
+
+/// Tab names by tab id. The id is what the rest of the app keys on
+/// (`active_tab`, `nav_selected`, the Alt+N shortcuts); only the position in
+/// the list changes when tabs are reordered.
+pub const TAB_NAMES: [&str; 7] =
+	["Chats", "Status", "Starred Messages", "Archived Chats", "Communities", "Channels", "Calls"];
+
+/// Chats and Calls first, then the rest in their original order.
+pub const DEFAULT_TAB_ORDER: [usize; 7] = [0, 6, 1, 2, 3, 4, 5];
+
+/// Moves the tab at `pos` one place by `delta` (-1 or 1). Returns its new
+/// position, or `None` at either end.
+pub fn move_tab(order: &mut [usize], pos: usize, delta: isize) -> Option<usize> {
+	let target = pos.checked_add_signed(delta).filter(|&t| t < order.len() && pos < order.len())?;
+	order.swap(pos, target);
+	Some(target)
 }
 
 impl Default for Settings {
@@ -75,6 +96,7 @@ impl Default for Settings {
 			verbose_backend_logging: false,
 			start_maximized: false,
 			shortcuts: std::collections::BTreeMap::new(),
+			tab_order: DEFAULT_TAB_ORDER.to_vec(),
 		}
 	}
 }
@@ -111,5 +133,50 @@ impl Settings {
 		if let Ok(json) = serde_json::to_string_pretty(self) {
 			let _ = std::fs::write(settings_path(), json);
 		}
+	}
+
+	/// The saved tab order, or the default when it doesn't list each tab
+	/// exactly once.
+	pub fn tab_order(&self) -> Vec<usize> {
+		let mut seen = [false; TAB_NAMES.len()];
+		let valid = self.tab_order.len() == TAB_NAMES.len()
+			&& self.tab_order.iter().all(|&t| t < TAB_NAMES.len() && !std::mem::replace(&mut seen[t], true));
+		if valid { self.tab_order.clone() } else { DEFAULT_TAB_ORDER.to_vec() }
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn default_puts_calls_after_chats() {
+		let s = Settings::default();
+		assert_eq!(s.tab_order(), vec![0, 6, 1, 2, 3, 4, 5]);
+	}
+
+	#[test]
+	fn bad_saved_orders_fall_back_to_default() {
+		for bad in [vec![], vec![0, 1, 2], vec![0, 0, 1, 2, 3, 4, 5], vec![0, 1, 2, 3, 4, 5, 9]] {
+			let s = Settings { tab_order: bad, ..Settings::default() };
+			assert_eq!(s.tab_order(), DEFAULT_TAB_ORDER.to_vec());
+		}
+	}
+
+	#[test]
+	fn a_reordered_list_is_kept() {
+		let s = Settings { tab_order: vec![6, 5, 4, 3, 2, 1, 0], ..Settings::default() };
+		assert_eq!(s.tab_order(), vec![6, 5, 4, 3, 2, 1, 0]);
+	}
+
+	#[test]
+	fn moving_swaps_with_the_neighbour_and_stops_at_the_ends() {
+		let mut order = vec![0, 6, 1];
+		assert_eq!(move_tab(&mut order, 1, 1), Some(2));
+		assert_eq!(order, vec![0, 1, 6]);
+		assert_eq!(move_tab(&mut order, 2, 1), None);
+		assert_eq!(move_tab(&mut order, 0, -1), None);
+		assert_eq!(move_tab(&mut order, 2, -1), Some(1));
+		assert_eq!(order, vec![0, 6, 1]);
 	}
 }
