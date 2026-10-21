@@ -1,21 +1,137 @@
-//! Grabs the primary display for a call's screen share: GDI copies the desktop
-//! (scaled, with the mouse pointer drawn in) into a fixed-size bitmap, which
-//! is then converted to the NV12 the H.264 encoder in `call_video_send.rs`
-//! takes. GDI rather than Desktop Duplication because it needs no Direct3D
-//! device and its cost is small at a screen share's frame rate.
+//! Grabs a monitor or a single window for a call's screen share: GDI copies
+//! the desktop (or asks the window to paint itself), scaled, with the mouse
+//! pointer drawn in, into a fixed-size bitmap, which is then converted to the
+//! NV12 the H.264 encoder in `call_video_send.rs` takes. GDI rather than
+//! Desktop Duplication because it needs no Direct3D device and its cost is
+//! small at a screen share's frame rate.
 
+use windows::core::BOOL;
 use windows::Win32::{
-	Foundation::POINT,
-	Graphics::Gdi::{
-		BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CAPTUREBLT, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
-		DeleteDC, DeleteObject, GetDC, HALFTONE, HBITMAP, HDC, HGDIOBJ, ReleaseDC, SRCCOPY, SelectObject,
-		SetBrushOrgEx, SetStretchBltMode, StretchBlt,
+	Foundation::{HWND, LPARAM, POINT, RECT, TRUE},
+	Graphics::{
+		Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute},
+		Gdi::{
+			BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, CAPTUREBLT, CreateCompatibleBitmap, CreateCompatibleDC,
+			CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors, GetDC, GetMonitorInfoW,
+			HALFTONE, HBITMAP, HDC, HGDIOBJ, HMONITOR, MONITORINFO, PatBlt, ReleaseDC, SRCCOPY,
+			SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt,
+		},
 	},
+	Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow},
 	UI::WindowsAndMessaging::{
-		CURSOR_SHOWING, CURSORINFO, DI_NORMAL, DrawIconEx, GetCursorInfo, GetIconInfo, GetSystemMetrics, ICONINFO,
-		SM_CXCURSOR, SM_CXSCREEN, SM_CYCURSOR, SM_CYSCREEN,
+		CURSOR_SHOWING, CURSORINFO, DI_NORMAL, DrawIconEx, EnumWindows, GW_OWNER, GWL_EXSTYLE, GetCursorInfo,
+		GetIconInfo, GetSystemMetrics, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, ICONINFO, IsIconic,
+		IsWindow, IsWindowVisible, SM_CXCURSOR, SM_CXSCREEN, SM_CYCURSOR, SM_CYSCREEN, WS_EX_APPWINDOW,
+		WS_EX_TOOLWINDOW,
 	},
 };
+
+/// `PW_RENDERFULLCONTENT`: has windows drawn by the GPU paint themselves too.
+const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(2);
+/// `MONITORINFOF_PRIMARY`.
+const MONITORINFOF_PRIMARY: u32 = 1;
+
+/// What a screen share captures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShareTarget {
+	/// One monitor, by its rectangle on the virtual desktop.
+	Monitor { left: i32, top: i32, width: i32, height: i32 },
+	/// One top-level window (an `HWND` as a number, so the target is `Send`).
+	Window(isize),
+}
+
+/// A choice in the share picker.
+#[derive(Debug, Clone)]
+pub struct ShareChoice {
+	pub target: ShareTarget,
+	/// What the picker lists it as.
+	pub label: String,
+	/// The window's title, for the announcement; `None` for a monitor.
+	pub window_title: Option<String>,
+}
+
+/// Everything that can be shared: each monitor (just "Entire screen" when
+/// there's only one), then each visible application window by its title.
+pub fn share_choices() -> Vec<ShareChoice> {
+	let mut monitors: Vec<(bool, ShareTarget)> = Vec::new();
+	unsafe extern "system" fn collect(monitor: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
+		let monitors = unsafe { &mut *(data.0 as *mut Vec<(bool, ShareTarget)>) };
+		let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+		if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+			let r = info.rcMonitor;
+			monitors.push((
+				info.dwFlags & MONITORINFOF_PRIMARY != 0,
+				ShareTarget::Monitor { left: r.left, top: r.top, width: r.right - r.left, height: r.bottom - r.top },
+			));
+		}
+		TRUE
+	}
+	unsafe {
+		let _ = EnumDisplayMonitors(None, None, Some(collect), LPARAM(&mut monitors as *mut _ as isize));
+	}
+	if monitors.is_empty() {
+		let (width, height) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+		monitors.push((true, ShareTarget::Monitor { left: 0, top: 0, width, height }));
+	}
+	// The main screen first, as "Screen 1" is the one people expect it to be.
+	monitors.sort_by_key(|(primary, _)| !primary);
+
+	let mut choices: Vec<ShareChoice> = Vec::new();
+	let several = monitors.len() > 1;
+	for (i, (_, target)) in monitors.into_iter().enumerate() {
+		let label = match target {
+			ShareTarget::Monitor { width, height, .. } if several => format!("Screen {} ({width} x {height})", i + 1),
+			_ => "Entire screen".to_string(),
+		};
+		choices.push(ShareChoice { target, label, window_title: None });
+	}
+
+	let mut windows: Vec<HWND> = Vec::new();
+	unsafe extern "system" fn collect_window(hwnd: HWND, data: LPARAM) -> BOOL {
+		let windows = unsafe { &mut *(data.0 as *mut Vec<HWND>) };
+		if is_shareable_window(hwnd) {
+			windows.push(hwnd);
+		}
+		TRUE
+	}
+	unsafe {
+		let _ = EnumWindows(Some(collect_window), LPARAM(&mut windows as *mut _ as isize));
+	}
+	for hwnd in windows {
+		let title = window_title(hwnd);
+		choices.push(ShareChoice {
+			target: ShareTarget::Window(hwnd.0 as isize),
+			label: format!("Window: {title}"),
+			window_title: Some(title),
+		});
+	}
+	choices
+}
+
+fn window_title(hwnd: HWND) -> String {
+	let mut buf = [0u16; 256];
+	let len = unsafe { GetWindowTextW(hwnd, &mut buf) };
+	String::from_utf16_lossy(&buf[..len.max(0) as usize])
+}
+
+/// What shows up in Alt+Tab: visible, titled, not a tool window or a dialog
+/// owned by another window, and not on another virtual desktop or hidden
+/// away by a suspended Store app (both of which DWM calls cloaked).
+fn is_shareable_window(hwnd: HWND) -> bool {
+	unsafe {
+		if !IsWindowVisible(hwnd).as_bool() || window_title(hwnd).trim().is_empty() {
+			return false;
+		}
+		let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+		let owned = GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.is_invalid());
+		if style & WS_EX_TOOLWINDOW.0 != 0 || (owned && style & WS_EX_APPWINDOW.0 == 0) {
+			return false;
+		}
+		let mut cloaked = 0u32;
+		let _ = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &mut cloaked as *mut _ as *mut _, size_of::<u32>() as u32);
+		cloaked == 0
+	}
+}
 
 /// Where the screen lands inside the output frame: scaled to fit, centred,
 /// with black bars filling whatever the aspect ratios leave over.
@@ -86,9 +202,30 @@ pub(crate) fn is_black(nv12: &[u8], width: usize, height: usize) -> bool {
 	nv12[..width * height].iter().step_by(7).all(|&luma| luma <= 20)
 }
 
+/// A window's own picture: `PrintWindow` has it paint itself here, so what
+/// other windows cover, or a move to another monitor, doesn't matter.
+struct WindowSurface {
+	dc: HDC,
+	bitmap: HBITMAP,
+	previous: HGDIOBJ,
+	width: i32,
+	height: i32,
+}
+
+impl Drop for WindowSurface {
+	fn drop(&mut self) {
+		unsafe {
+			SelectObject(self.dc, self.previous);
+			let _ = DeleteObject(self.bitmap.into());
+			let _ = DeleteDC(self.dc);
+		}
+	}
+}
+
 /// The GDI objects of one screen-share session. Everything is created and
 /// used on the capture thread.
 pub(crate) struct ScreenCapture {
+	target: ShareTarget,
 	screen_dc: HDC,
 	mem_dc: HDC,
 	bitmap: HBITMAP,
@@ -96,10 +233,17 @@ pub(crate) struct ScreenCapture {
 	pixels: *mut u8,
 	width: i32,
 	height: i32,
+	/// Only for a window, and rebuilt whenever the window changes size.
+	surface: Option<WindowSurface>,
 }
 
 impl ScreenCapture {
-	pub(crate) fn new(width: u32, height: u32) -> crate::error::Result<Self> {
+	pub(crate) fn new(target: ShareTarget, width: u32, height: u32) -> crate::error::Result<Self> {
+		if let ShareTarget::Window(hwnd) = target
+			&& !window_alive(hwnd)
+		{
+			crate::error::bail!("the window to share is gone");
+		}
 		unsafe {
 			let screen_dc = GetDC(None);
 			if screen_dc.is_invalid() {
@@ -138,6 +282,7 @@ impl ScreenCapture {
 			SetStretchBltMode(mem_dc, HALFTONE);
 			let _ = SetBrushOrgEx(mem_dc, 0, 0, None);
 			Ok(Self {
+				target,
 				screen_dc,
 				mem_dc,
 				bitmap,
@@ -145,46 +290,122 @@ impl ScreenCapture {
 				pixels: pixels as *mut u8,
 				width: width as i32,
 				height: height as i32,
+				surface: None,
 			})
 		}
 	}
 
-	/// Copies the screen as it is right now into `out` as one NV12 frame.
+	/// Whether a shared window has been closed, which ends the share.
+	pub(crate) fn target_gone(&self) -> bool {
+		matches!(self.target, ShareTarget::Window(hwnd) if !window_alive(hwnd))
+	}
+
+	/// Copies the target as it is right now into `out` as one NV12 frame.
 	pub(crate) fn grab_nv12(&mut self, out: &mut [u8]) -> crate::error::Result<()> {
-		let (screen_w, screen_h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
-		let placement = fit(screen_w, screen_h, self.width, self.height);
-		let copied = unsafe {
-			StretchBlt(
-				self.mem_dc,
-				placement.x,
-				placement.y,
-				placement.width,
-				placement.height,
-				Some(self.screen_dc),
-				0,
-				0,
-				screen_w,
-				screen_h,
-				SRCCOPY | CAPTUREBLT,
-			)
+		let (origin, size, placement) = match self.target {
+			ShareTarget::Monitor { left, top, width, height } => {
+				let placement = fit(width, height, self.width, self.height);
+				let copied = unsafe {
+					StretchBlt(
+						self.mem_dc,
+						placement.x,
+						placement.y,
+						placement.width,
+						placement.height,
+						Some(self.screen_dc),
+						left,
+						top,
+						width,
+						height,
+						SRCCOPY | CAPTUREBLT,
+					)
+				};
+				// Fails while the secure desktop is up (a UAC prompt, the lock
+				// screen): the caller sends the previous picture again.
+				if !copied.as_bool() {
+					crate::error::bail!("the screen couldn't be read");
+				}
+				((left, top), (width, height), placement)
+			}
+			ShareTarget::Window(hwnd) => self.grab_window(HWND(hwnd as *mut _))?,
 		};
-		// Fails while the secure desktop is up (a UAC prompt, the lock
-		// screen): the caller sends the previous picture again.
-		if !copied.as_bool() {
-			crate::error::bail!("the screen couldn't be read");
-		}
-		self.draw_pointer(placement, screen_w, screen_h);
+		self.draw_pointer(placement, origin, size);
 		let bgra = unsafe { std::slice::from_raw_parts(self.pixels, (self.width * self.height * 4) as usize) };
 		bgra_to_nv12(bgra, self.width as usize, self.height as usize, out);
 		Ok(())
 	}
 
+	/// Paints the window into the frame, wherever it is and however big it
+	/// has become since the last frame. Returns where the window sits on the
+	/// desktop and how it landed in the frame.
+	#[allow(clippy::type_complexity)]
+	fn grab_window(&mut self, hwnd: HWND) -> crate::error::Result<((i32, i32), (i32, i32), Placement)> {
+		unsafe {
+			let mut rect = RECT::default();
+			// A minimised window has nothing to paint: the viewers keep its
+			// last picture until it comes back.
+			if GetWindowRect(hwnd, &mut rect).is_err() || IsIconic(hwnd).as_bool() {
+				crate::error::bail!("the window can't be read right now");
+			}
+			let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+			if width <= 0 || height <= 0 {
+				crate::error::bail!("the window can't be read right now");
+			}
+			if self.surface.as_ref().is_none_or(|surface| surface.width != width || surface.height != height) {
+				self.surface = None;
+				let dc = CreateCompatibleDC(Some(self.screen_dc));
+				let bitmap = CreateCompatibleBitmap(self.screen_dc, width, height);
+				if dc.is_invalid() || bitmap.is_invalid() {
+					if !dc.is_invalid() {
+						let _ = DeleteDC(dc);
+					}
+					if !bitmap.is_invalid() {
+						let _ = DeleteObject(bitmap.into());
+					}
+					crate::error::bail!("couldn't allocate a surface for the window");
+				}
+				let previous = SelectObject(dc, bitmap.into());
+				self.surface = Some(WindowSurface { dc, bitmap, previous, width, height });
+			}
+			let surface = self.surface.as_ref().expect("surface was just made");
+			if !PrintWindow(hwnd, surface.dc, PW_RENDERFULLCONTENT).as_bool() {
+				crate::error::bail!("the window couldn't be read");
+			}
+			let placement = fit(width, height, self.width, self.height);
+			// The bars around a window change as it resizes, so start clean.
+			let _ = PatBlt(self.mem_dc, 0, 0, self.width, self.height, BLACKNESS);
+			let copied = StretchBlt(
+				self.mem_dc,
+				placement.x,
+				placement.y,
+				placement.width,
+				placement.height,
+				Some(surface.dc),
+				0,
+				0,
+				width,
+				height,
+				SRCCOPY,
+			);
+			if !copied.as_bool() {
+				crate::error::bail!("the window couldn't be read");
+			}
+			Ok(((rect.left, rect.top), (width, height), placement))
+		}
+	}
+
 	/// The mouse pointer isn't part of the desktop image, so it's drawn on
-	/// top. Purely cosmetic: any failure just leaves the pointer out.
-	fn draw_pointer(&self, placement: Placement, screen_w: i32, screen_h: i32) {
+	/// top - when it's over what's being shared. Purely cosmetic: any failure
+	/// just leaves the pointer out.
+	fn draw_pointer(&self, placement: Placement, origin: (i32, i32), size: (i32, i32)) {
 		unsafe {
 			let mut cursor = CURSORINFO { cbSize: size_of::<CURSORINFO>() as u32, ..Default::default() };
 			if GetCursorInfo(&mut cursor).is_err() || (cursor.flags.0 & CURSOR_SHOWING.0) == 0 {
+				return;
+			}
+			let (source_w, source_h) = size;
+			let at = (cursor.ptScreenPos.x - origin.0, cursor.ptScreenPos.y - origin.1);
+			if at.0 < 0 || at.1 < 0 || at.0 >= source_w || at.1 >= source_h {
 				return;
 			}
 			let mut hotspot = POINT::default();
@@ -199,17 +420,23 @@ impl ScreenCapture {
 				}
 			}
 			let scale = |value: i32, from: i32, to: i32| (value as i64 * to as i64 / from.max(1) as i64) as i32;
-			let x = placement.x + scale(cursor.ptScreenPos.x - hotspot.x, screen_w, placement.width);
-			let y = placement.y + scale(cursor.ptScreenPos.y - hotspot.y, screen_h, placement.height);
-			let width = scale(GetSystemMetrics(SM_CXCURSOR), screen_w, placement.width).max(8);
-			let height = scale(GetSystemMetrics(SM_CYCURSOR), screen_h, placement.height).max(8);
+			let x = placement.x + scale(at.0 - hotspot.x, source_w, placement.width);
+			let y = placement.y + scale(at.1 - hotspot.y, source_h, placement.height);
+			let width = scale(GetSystemMetrics(SM_CXCURSOR), source_w, placement.width).max(8);
+			let height = scale(GetSystemMetrics(SM_CYCURSOR), source_h, placement.height).max(8);
 			let _ = DrawIconEx(self.mem_dc, x, y, cursor.hCursor.into(), width, height, 0, None, DI_NORMAL);
 		}
 	}
 }
 
+fn window_alive(hwnd: isize) -> bool {
+	unsafe { IsWindow(Some(HWND(hwnd as *mut _))).as_bool() }
+}
+
 impl Drop for ScreenCapture {
 	fn drop(&mut self) {
+		// The window's surface goes first, as it was made from `screen_dc`.
+		self.surface = None;
 		unsafe {
 			SelectObject(self.mem_dc, self.previous);
 			let _ = DeleteObject(self.bitmap.into());
@@ -271,7 +498,8 @@ mod tests {
 	#[test]
 	#[ignore]
 	fn grabs_a_real_picture_of_the_screen() {
-		let mut capture = ScreenCapture::new(1280, 720).unwrap();
+		let primary = ShareTarget::Monitor { left: 0, top: 0, width: 1920, height: 1080 };
+		let mut capture = ScreenCapture::new(primary, 1280, 720).unwrap();
 		let mut frame = vec![0u8; 1280 * 720 * 3 / 2];
 		capture.grab_nv12(&mut frame).unwrap();
 		let luma = &frame[..1280 * 720];

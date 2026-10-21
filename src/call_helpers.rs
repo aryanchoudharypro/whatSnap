@@ -184,12 +184,18 @@ pub(crate) fn peer_screen_share_announcement(name: &str, active: bool) -> String
 /// What to announce when OUR OWN screen share starts or stops. A call has one
 /// video stream, so the camera going off or coming back on with the share
 /// is said in the same breath (`camera_changed`).
-pub(crate) fn local_screen_share_announcement(sharing: bool, camera_changed: bool) -> &'static str {
+/// `window` is the title of the window being shared, if it's a window and
+/// not a whole screen.
+pub(crate) fn local_screen_share_announcement(sharing: bool, window: Option<&str>, camera_changed: bool) -> String {
+	let start = match window {
+		Some(title) => format!("You're sharing a window: {title}."),
+		None => "You're sharing your screen.".to_string(),
+	};
 	match (sharing, camera_changed) {
-		(true, false) => "Sharing your screen.",
-		(true, true) => "Sharing your screen. Camera off.",
-		(false, false) => "Stopped sharing your screen.",
-		(false, true) => "Stopped sharing your screen. Camera on.",
+		(true, false) => start,
+		(true, true) => format!("{start} Camera off."),
+		(false, false) => "Stopped sharing your screen.".to_string(),
+		(false, true) => "Stopped sharing your screen. Camera on.".to_string(),
 	}
 }
 
@@ -295,8 +301,9 @@ mod call_participant_tests {
 	fn screen_share_announcements_name_the_sharer_and_the_camera() {
 		assert_eq!(peer_screen_share_announcement("Asha", true), "Asha started sharing their screen.");
 		assert_eq!(peer_screen_share_announcement("", false), "Someone stopped sharing their screen.");
-		assert_eq!(local_screen_share_announcement(true, true), "Sharing your screen. Camera off.");
-		assert_eq!(local_screen_share_announcement(false, false), "Stopped sharing your screen.");
+		assert_eq!(local_screen_share_announcement(true, None, true), "You're sharing your screen. Camera off.");
+		assert_eq!(local_screen_share_announcement(true, Some("Notes"), false), "You're sharing a window: Notes.");
+		assert_eq!(local_screen_share_announcement(false, None, false), "Stopped sharing your screen.");
 	}
 
 	#[test]

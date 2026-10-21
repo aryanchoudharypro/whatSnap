@@ -44,7 +44,7 @@ use windows::{
 
 use crate::{
 	media_foundation, paths,
-	screen_capture::{self, ScreenCapture},
+	screen_capture::{self, ScreenCapture, ShareTarget},
 	ui_wake::UiCommandSender,
 	video_devices,
 };
@@ -61,8 +61,8 @@ const SCREEN_FPS: u32 = 15;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum VideoSource {
 	Camera,
-	/// The primary display, see `screen_capture.rs`.
-	Screen,
+	/// A monitor or a window, see `screen_capture.rs`.
+	Screen(ShareTarget),
 }
 
 pub(crate) fn log_line(msg: &str) {
@@ -162,13 +162,20 @@ fn run(
 					let _ = ui_tx.send(crate::UiCommand::ScreenShareBlack(black));
 				});
 				shutdown_session(&session);
+				if let Capture::Screen(screen) = &session.capture
+					&& screen.target_gone()
+					&& !stop.load(Ordering::Relaxed)
+				{
+					let _ = ui_tx.send(crate::UiCommand::ScreenShareFailed("the window was closed".to_string()));
+					break;
+				}
 			}
 			Err(e) => {
 				log_line(&format!("Failed to open {source:?} session: {e}"));
-				if !ever_opened {
+				if !ever_opened || matches!(source, VideoSource::Screen(ShareTarget::Window(_))) {
 					let _ = ui_tx.send(match source {
 						VideoSource::Camera => crate::UiCommand::CameraFailed(e.to_string()),
-						VideoSource::Screen => crate::UiCommand::ScreenShareFailed(e.to_string()),
+						VideoSource::Screen(_) => crate::UiCommand::ScreenShareFailed(e.to_string()),
 					});
 					break;
 				}
@@ -274,11 +281,11 @@ fn build_video_type(
 fn open_session(target_port: u16, source: VideoSource, device_name: Option<&str>) -> crate::error::Result<Session> {
 	let capture = match source {
 		VideoSource::Camera => open_camera(device_name)?,
-		VideoSource::Screen => Capture::Screen(ScreenCapture::new(TARGET_WIDTH, TARGET_HEIGHT)?),
+		VideoSource::Screen(target) => Capture::Screen(ScreenCapture::new(target, TARGET_WIDTH, TARGET_HEIGHT)?),
 	};
 	let fps = match source {
 		VideoSource::Camera => TARGET_FPS,
-		VideoSource::Screen => SCREEN_FPS,
+		VideoSource::Screen(_) => SCREEN_FPS,
 	};
 	Ok(Session { capture, output: open_output(target_port, fps)? })
 }
@@ -497,6 +504,10 @@ fn screen_loop(
 				sample
 			}
 			Err(e) => {
+				// The window is gone: the session ends and says so.
+				if screen.target_gone() {
+					return;
+				}
 				if !grab_failing {
 					log_line(&format!("Screen grab failed (holding the last picture): {e}"));
 					grab_failing = true;
@@ -628,7 +639,8 @@ mod tests {
 			let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
 		}
 		media_foundation::ensure_started();
-		let mut session = open_session(port, VideoSource::Screen, None).unwrap();
+		let primary = ShareTarget::Monitor { left: 0, top: 0, width: 1920, height: 1080 };
+		let mut session = open_session(port, VideoSource::Screen(primary), None).unwrap();
 		let stop = Arc::new(AtomicBool::new(false));
 		let stopper = Arc::clone(&stop);
 		std::thread::spawn(move || {

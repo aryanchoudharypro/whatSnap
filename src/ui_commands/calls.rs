@@ -313,10 +313,12 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		show_screen_share_controls(&s, parts);
 	}
 	drop(s);
-	announce_call(
-		parts,
-		if was_sharing { local_screen_share_announcement(false, true) } else { local_camera_announcement(true) },
-	);
+	let message = if was_sharing {
+		local_screen_share_announcement(false, None, true)
+	} else {
+		local_camera_announcement(true).to_string()
+	};
+	announce_call(parts, &message);
 }
 
 /// Sends one of the backend's `{call_id, enabled}` call commands.
@@ -370,13 +372,14 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 		parts.call_parts.screen_btn.set_label("Share screen");
 		drop(s);
-		announce_call(parts, local_screen_share_announcement(false, camera_returns));
+		announce_call(parts, &local_screen_share_announcement(false, None, camera_returns));
 		return;
 	}
 	drop(s);
 
 	// Asked every time, like WhatsApp's own share picker. The call can end,
 	// or a share start some other way, while the question is up.
+	let Some(choice) = crate::ui::screen_picker::pick_share_target(&parts.call_parts.frame) else { return };
 	let Some(with_sound) = ask_share_sound(parts) else { return };
 	let mut s = state.borrow_mut();
 	if s.active_call_id.as_deref() != Some(call_id.as_str()) || s.call_video.local_screen_on {
@@ -386,7 +389,8 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 
 	let camera_was_on = s.call_video.local_camera_on;
 	let ui_tx = s.ui_tx.clone();
-	s.active_call_video_send = Some(call_video_send::start_video_send(port, VideoSource::Screen, None, ui_tx));
+	let source = VideoSource::Screen(choice.target);
+	s.active_call_video_send = Some(call_video_send::start_video_send(port, source, None, ui_tx));
 	s.call_video.local_screen_on = true;
 	s.call_video.local_camera_on = false;
 	s.call_video.camera_before_share = camera_was_on;
@@ -400,11 +404,11 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		set_system_audio(&mut s, true);
 	}
 	drop(s);
-	let shared = local_screen_share_announcement(true, camera_was_on);
+	let shared = local_screen_share_announcement(true, choice.window_title.as_deref(), camera_was_on);
 	if with_sound {
 		announce_call(parts, &format!("{shared} {}", SYSTEM_AUDIO_ANNOUNCEMENT));
 	} else {
-		announce_call(parts, shared);
+		announce_call(parts, &shared);
 	}
 }
 
