@@ -12,8 +12,8 @@ use whantv::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, CallLogEntry, CallTarget, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry, StatusGroup, StatusItem,
-	UiCommand,
+	AppState, CallLogEntry, CallTarget, CallVideo, Contact, NotificationSound, SENT_SOUND_WINDOW_SECS, StarredEntry,
+	StatusGroup, StatusItem, UiCommand,
 	audio::{
 		ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringback,
 		start_call_ringing_sound, stop_call_ringing_sound,
@@ -747,7 +747,9 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	// them alone, or Enter on a row stops doing anything.
 	let own_rows_tab = s.active_tab == 1 || s.active_tab == 2 || s.active_tab == 6;
 	if !own_rows_tab && structure_changed {
-		s.filtered_chats = new_filtered;
+		// filtered_chats is left as it was: apply_chat_filter rebuilds it, and
+		// needs the old order to map the list's selected row back to its chat
+		// so the selection follows a chat that moved to the top.
 		drop(s);
 		apply_chat_filter(&mut state.borrow_mut(), parts);
 	} else if !own_rows_tab {

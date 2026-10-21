@@ -317,10 +317,9 @@ fn show_message_text(parent: &Frame, list: &ListBox, state: &std::cell::RefCell<
 	let dlg_panel = Panel::builder(&dlg).build();
 	let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let text_view =
-		TextCtrl::builder(&dlg_panel)
-			.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::Rich2 | TextCtrlStyle::DontWrap)
-			.build();
+	let text_view = TextCtrl::builder(&dlg_panel)
+		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::Rich2 | TextCtrlStyle::DontWrap)
+		.build();
 	text_view.set_value(&text);
 	dlg_sizer.add(&text_view, 1, SizerFlag::Expand | SizerFlag::All, 8);
 

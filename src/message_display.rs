@@ -274,12 +274,8 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		};
 
-		let frequent: Vec<(String, String)> = s
-			.call_frequent
-			.iter()
-			.filter(|t| matches_target(t))
-			.map(|t| (target_label(t), t.jid.clone()))
-			.collect();
+		let frequent: Vec<(String, String)> =
+			s.call_frequent.iter().filter(|t| matches_target(t)).map(|t| (target_label(t), t.jid.clone())).collect();
 		push_section("Frequent contacts", frequent);
 
 		let mut recent = Vec::new();
@@ -294,18 +290,15 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 
 			let label = format_call_log_label(name, &entry.text, entry.from_me, entry.timestamp);
 
-			if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) || entry.jid.contains(&lower_query) {
+			if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) || entry.jid.contains(&lower_query)
+			{
 				recent.push((label, entry.jid.clone()));
 			}
 		}
 		push_section("Recent calls", recent);
 
-		let all: Vec<(String, String)> = s
-			.call_contacts
-			.iter()
-			.filter(|t| matches_target(t))
-			.map(|t| (target_label(t), t.jid.clone()))
-			.collect();
+		let all: Vec<(String, String)> =
+			s.call_contacts.iter().filter(|t| matches_target(t)).map(|t| (target_label(t), t.jid.clone())).collect();
 		push_section("All contacts", all);
 	} else {
 		for jid in chats_in_tab_order(s) {
@@ -722,11 +715,7 @@ pub(crate) fn format_call_log_label(name: &str, text: &str, from_me: bool, times
 		String::new()
 	};
 
-	if time_str.is_empty() {
-		call_desc
-	} else {
-		format!("{}, {}", call_desc, time_str)
-	}
+	if time_str.is_empty() { call_desc } else { format!("{}, {}", call_desc, time_str) }
 }
 
 #[cfg(test)]
@@ -743,13 +732,7 @@ mod tests {
 			format_call_log_label("Aryan", "Outgoing voice call, 5 minutes", true, 0),
 			"Outgoing voice call to Aryan, duration 5 minutes"
 		);
-		assert_eq!(
-			format_call_log_label("Aryan", "Missed voice call", false, 0),
-			"Missed voice call from Aryan"
-		);
-		assert_eq!(
-			format_call_log_label("Aryan", "Voice call, declined", true, 0),
-			"Voice call, declined to Aryan"
-		);
+		assert_eq!(format_call_log_label("Aryan", "Missed voice call", false, 0), "Missed voice call from Aryan");
+		assert_eq!(format_call_log_label("Aryan", "Voice call, declined", true, 0), "Voice call, declined to Aryan");
 	}
 }
