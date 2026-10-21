@@ -561,7 +561,12 @@ impl ChatMessage {
 	/// this message is not a reply.
 	pub fn reply_announcement(&self) -> Option<String> {
 		let (sender, body) = self.reply_parts()?;
-		Some(if sender == "quoted message" { body } else { format!("{}: {}", sender, body) })
+		Some(if sender == "quoted message" {
+			body
+		} else {
+			// reply_parts marks names with a leading @, which a screen reader reads out.
+			format!("{}: {}", sender.trim_start_matches('@'), body)
+		})
 	}
 
 	pub fn format_display(&self, _is_group: bool) -> String {
