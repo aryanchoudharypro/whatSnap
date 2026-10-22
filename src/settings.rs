@@ -67,6 +67,16 @@ pub struct Settings {
 pub const TAB_NAMES: [&str; 7] =
 	["Chats", "Status", "Starred Messages", "Archived Chats", "Communities", "Channels", "Calls"];
 
+/// The text a tab shows in the navigation list. Chats (tab id 0) carries how
+/// many chats are unread, so a screen reader reading the list or the Alt+N
+/// shortcut hears "Chats: 5 unread"; every other tab is just its name.
+pub fn nav_tab_label(tab: usize, unread_chats: usize) -> String {
+	match (tab, unread_chats) {
+		(0, 1..) => format!("{}: {} unread", TAB_NAMES[0], unread_chats),
+		_ => TAB_NAMES[tab].to_string(),
+	}
+}
+
 /// Chats and Calls first, then the rest in their original order.
 pub const DEFAULT_TAB_ORDER: [usize; 7] = [0, 6, 1, 2, 3, 4, 5];
 
@@ -148,6 +158,15 @@ impl Settings {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn only_chats_shows_an_unread_count() {
+		assert_eq!(nav_tab_label(0, 0), "Chats");
+		assert_eq!(nav_tab_label(0, 1), "Chats: 1 unread");
+		assert_eq!(nav_tab_label(0, 5), "Chats: 5 unread");
+		assert_eq!(nav_tab_label(1, 5), "Status");
+		assert_eq!(nav_tab_label(6, 5), "Calls");
+	}
 
 	#[test]
 	fn default_puts_calls_after_chats() {

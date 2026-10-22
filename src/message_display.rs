@@ -104,6 +104,23 @@ pub(crate) fn chat_visible_in_tab(
 	}
 }
 
+/// How many chats the Chats tab would show as unread: the same chats the
+/// Unread filter can reach, so the navigation count agrees with the list.
+pub(crate) fn unread_chats_on_chats_tab(s: &AppState) -> usize {
+	whantv::unread_chat_count(&s.chats, &s.unread_counts, |jid| {
+		chat_visible_in_tab(
+			0,
+			jid,
+			&s.archived_jids,
+			&s.community_jids,
+			&s.chat_parents,
+			&s.channel_jids,
+			&s.locked_jids,
+			s.chats_unlocked,
+		)
+	})
+}
+
 /// The chat list in the order the active tab shows it: the usual order, except
 /// that the Communities tab puts each community's groups under it.
 /// Borrowed rather than copied: this runs on every chat-list refresh and
@@ -164,6 +181,10 @@ pub(crate) fn chat_passes_filter(s: &AppState, jid: &str) -> bool {
 
 pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	crate::ui::window::refresh_menu_bar(s, &parts.frame);
+	// Archiving, locking and deleting move chats in and out of the Chats tab
+	// without touching their unread counts, so the navigation count is
+	// refreshed here as well as where the counts change.
+	crate::tray::refresh_chats_nav_label(s, parts);
 	let show_locked_btn = s.active_tab == 0 && !s.locked_jids.is_empty();
 	let show_filter = s.active_tab == 0 && !s.chats_unlocked;
 	let conv = &parts.conversations_parts;

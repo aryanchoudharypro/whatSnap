@@ -1422,6 +1422,20 @@ pub fn unread_notification_total(
 		.sum()
 }
 
+/// How many chats have something unread, however many messages each holds,
+/// among the chats `shown` accepts. Feeds the count on the Chats entry of the
+/// navigation list, where `shown` is the Chats tab's own visibility rule, so the
+/// number matches the Unread filter. Unlike [`unread_notification_total`] this
+/// counts muted chats too: it answers "how many chats am I behind on", not
+/// "what will make a sound".
+pub fn unread_chat_count<'a>(
+	chats: impl IntoIterator<Item = &'a String>,
+	unread_counts: &std::collections::HashMap<String, u64>,
+	shown: impl Fn(&str) -> bool,
+) -> usize {
+	chats.into_iter().filter(|jid| unread_counts.get(jid.as_str()).is_some_and(|&n| n > 0) && shown(jid)).count()
+}
+
 /// The tray icon's accessible name, supplied as the tooltip when the icon is
 /// first added to the notification area.
 ///
@@ -1858,6 +1872,17 @@ mod tests {
 		for n in [0, 1, 12] {
 			assert!(!tray_tooltip_text(n).contains(TRAY_APP_NAME));
 		}
+	}
+
+	#[test]
+	fn test_unread_chat_count_counts_chats_not_messages() {
+		let chats: Vec<String> = ["a", "b", "c", "d", "e"].iter().map(|j| j.to_string()).collect();
+		let counts: std::collections::HashMap<String, u64> =
+			[("a", 3), ("b", 1), ("c", 0), ("d", 40), ("e", 2)].into_iter().map(|(j, n)| (j.to_string(), n)).collect();
+		// "e" is unread but hidden from the Chats tab, so it's left out.
+		assert_eq!(unread_chat_count(&chats, &counts, |j| j != "e"), 3);
+		assert_eq!(unread_chat_count(&chats, &counts, |_| true), 4);
+		assert_eq!(unread_chat_count(&chats, &std::collections::HashMap::new(), |_| true), 0);
 	}
 
 	#[test]

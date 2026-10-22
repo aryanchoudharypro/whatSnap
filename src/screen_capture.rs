@@ -5,25 +5,27 @@
 //! Desktop Duplication because it needs no Direct3D device and its cost is
 //! small at a screen share's frame rate.
 
-use windows::core::BOOL;
-use windows::Win32::{
-	Foundation::{HWND, LPARAM, POINT, RECT, TRUE},
-	Graphics::{
-		Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute},
-		Gdi::{
-			BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, CAPTUREBLT, CreateCompatibleBitmap, CreateCompatibleDC,
-			CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors, GetDC, GetMonitorInfoW,
-			HALFTONE, HBITMAP, HDC, HGDIOBJ, HMONITOR, MONITORINFO, PatBlt, ReleaseDC, SRCCOPY,
-			SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt,
+use windows::{
+	Win32::{
+		Foundation::{HWND, LPARAM, POINT, RECT, TRUE},
+		Graphics::{
+			Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute},
+			Gdi::{
+				BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, CAPTUREBLT, CreateCompatibleBitmap,
+				CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, EnumDisplayMonitors,
+				GetDC, GetMonitorInfoW, HALFTONE, HBITMAP, HDC, HGDIOBJ, HMONITOR, MONITORINFO, PatBlt, ReleaseDC,
+				SRCCOPY, SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt,
+			},
+		},
+		Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow},
+		UI::WindowsAndMessaging::{
+			CURSOR_SHOWING, CURSORINFO, DI_NORMAL, DrawIconEx, EnumWindows, GW_OWNER, GWL_EXSTYLE, GetCursorInfo,
+			GetIconInfo, GetSystemMetrics, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, ICONINFO,
+			IsIconic, IsWindow, IsWindowVisible, SM_CXCURSOR, SM_CXSCREEN, SM_CYCURSOR, SM_CYSCREEN, WS_EX_APPWINDOW,
+			WS_EX_TOOLWINDOW,
 		},
 	},
-	Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow},
-	UI::WindowsAndMessaging::{
-		CURSOR_SHOWING, CURSORINFO, DI_NORMAL, DrawIconEx, EnumWindows, GW_OWNER, GWL_EXSTYLE, GetCursorInfo,
-		GetIconInfo, GetSystemMetrics, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, ICONINFO, IsIconic,
-		IsWindow, IsWindowVisible, SM_CXCURSOR, SM_CXSCREEN, SM_CYCURSOR, SM_CYSCREEN, WS_EX_APPWINDOW,
-		WS_EX_TOOLWINDOW,
-	},
+	core::BOOL,
 };
 
 /// `PW_RENDERFULLCONTENT`: has windows drawn by the GPU paint themselves too.

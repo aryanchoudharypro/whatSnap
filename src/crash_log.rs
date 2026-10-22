@@ -13,20 +13,22 @@ use std::{
 	sync::atomic::{AtomicU32, Ordering},
 };
 
-use windows::Win32::{
-	Foundation::HMODULE,
-	System::{
-		Diagnostics::Debug::{
-			AddVectoredExceptionHandler, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_POINTERS, RtlCaptureStackBackTrace,
+use windows::{
+	Win32::{
+		Foundation::HMODULE,
+		System::{
+			Diagnostics::Debug::{
+				AddVectoredExceptionHandler, EXCEPTION_CONTINUE_SEARCH, EXCEPTION_POINTERS, RtlCaptureStackBackTrace,
 				SetUnhandledExceptionFilter,
-		},
-		LibraryLoader::{
-			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
-			GetModuleHandleExW,
+			},
+			LibraryLoader::{
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+				GetModuleFileNameW, GetModuleHandleExW,
+			},
 		},
 	},
+	core::PCWSTR,
 };
-use windows::core::PCWSTR;
 
 use crate::paths;
 
