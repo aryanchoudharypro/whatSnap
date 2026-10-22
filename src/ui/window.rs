@@ -4941,6 +4941,7 @@ pub fn bind_input_handlers(
 						if !audio_slider_sel.is_shown() {
 							audio_slider_sel.show(true);
 							audio_speed_btn_sel.show(true);
+							audio_speed_btn_sel.set_label(&format!("{:.1}x", s.audio_speed));
 							audio_progress_label_sel.show(true);
 							need_layout = true;
 						}

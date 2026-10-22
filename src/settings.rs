@@ -59,6 +59,9 @@ pub struct Settings {
 	/// Read it through [`Settings::tab_order`], which repairs a saved list that
 	/// is missing a tab or repeats one.
 	pub tab_order: Vec<usize>,
+	/// Last-used voice-message playback speed (1.0, 1.5, or 2.0). Persisted so
+	/// the chosen speed sticks across app restarts.
+	pub audio_speed: f32,
 }
 
 /// Tab names by tab id. The id is what the rest of the app keys on
@@ -107,6 +110,7 @@ impl Default for Settings {
 			start_maximized: false,
 			shortcuts: std::collections::BTreeMap::new(),
 			tab_order: DEFAULT_TAB_ORDER.to_vec(),
+			audio_speed: 1.0,
 		}
 	}
 }
@@ -153,11 +157,41 @@ impl Settings {
 			&& self.tab_order.iter().all(|&t| t < TAB_NAMES.len() && !std::mem::replace(&mut seen[t], true));
 		if valid { self.tab_order.clone() } else { DEFAULT_TAB_ORDER.to_vec() }
 	}
+
+	/// Voice message playback speed (1.0, 1.5, or 2.0), falling back to 1.0
+	/// if a saved value is missing, unrecognized, or non-finite.
+	pub fn audio_speed(&self) -> f32 {
+		if (self.audio_speed - 1.5).abs() < 0.01 {
+			1.5
+		} else if (self.audio_speed - 2.0).abs() < 0.01 {
+			2.0
+		} else {
+			1.0
+		}
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn audio_speed_defaults_to_1() {
+		let s = Settings::default();
+		assert_eq!(s.audio_speed(), 1.0);
+	}
+
+	#[test]
+	fn audio_speed_validates_known_speeds() {
+		let s1 = Settings { audio_speed: 1.5, ..Settings::default() };
+		assert_eq!(s1.audio_speed(), 1.5);
+		let s2 = Settings { audio_speed: 2.0, ..Settings::default() };
+		assert_eq!(s2.audio_speed(), 2.0);
+		let s_bad = Settings { audio_speed: 0.0, ..Settings::default() };
+		assert_eq!(s_bad.audio_speed(), 1.0);
+		let s_weird = Settings { audio_speed: 3.5, ..Settings::default() };
+		assert_eq!(s_weird.audio_speed(), 1.0);
+	}
 
 	#[test]
 	fn only_chats_shows_an_unread_count() {

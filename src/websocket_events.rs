@@ -4514,6 +4514,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					// Show slider UI and speed button
 					parts.conversations_parts.audio_slider.show(true);
 					parts.conversations_parts.audio_speed_btn.show(true);
+					parts.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", s.audio_speed));
 					parts.conversations_parts.audio_progress_label.show(false);
 					let total = s.audio_total_secs;
 					let max_sec = (total as i32).max(1);

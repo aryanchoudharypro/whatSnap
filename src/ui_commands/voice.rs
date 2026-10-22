@@ -505,6 +505,8 @@ pub(crate) fn toggle_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		1.5
 	};
 	s.audio_speed = new_speed;
+	s.settings.audio_speed = new_speed;
+	s.settings.save();
 	parts.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", new_speed));
 
 	// Trigger soft-seek to apply new wsola speed

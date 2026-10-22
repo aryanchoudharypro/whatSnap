@@ -833,8 +833,10 @@ fn main() {
 			}
 		});
 
+		let loaded_settings = crate::settings::Settings::load();
+		let saved_audio_speed = loaded_settings.audio_speed();
 		let state = Rc::new(RefCell::new(AppState {
-			settings: crate::settings::Settings::load(),
+			settings: loaded_settings,
 			keymap: Rc::default(),
 			ws_tx: ws_out_tx,
 			ui_tx: ui_tx.clone(),
@@ -849,7 +851,7 @@ fn main() {
 			audio_path: None,
 			audio_total_secs: 0.0,
 			audio_elapsed_secs: 0.0,
-			audio_speed: 1.0,
+			audio_speed: saved_audio_speed,
 			audio_start_instant: None,
 			chats: Vec::new(),
 			filtered_chats: Vec::new(),
@@ -1044,6 +1046,7 @@ fn main() {
 		}
 
 		bind_input_handlers(&parts_clone, ui_tx, &state);
+		parts_clone.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", saved_audio_speed));
 
 		// Setup audio progress timer
 		let audio_timer = Timer::new(&frame);

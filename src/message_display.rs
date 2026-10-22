@@ -651,6 +651,7 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 			if !parts.audio_slider.is_shown() {
 				parts.audio_slider.show(true);
 				parts.audio_speed_btn.show(true);
+				parts.audio_speed_btn.set_label(&format!("{:.1}x", s.audio_speed));
 				parts.audio_progress_label.show(true);
 				need_layout = true;
 			}
