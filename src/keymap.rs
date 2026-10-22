@@ -70,7 +70,7 @@ pub const ACTIONS: &[ActionDef] = &[
 		label: "&Chats",
 		default: "Alt+1",
 	},
-	ActionDef { id: "go_status", menu_id: Some(MENU_ID_NAV_STATUS), tab: 1, label: "&Status", default: "Alt+2" },
+	ActionDef { id: "go_status", menu_id: Some(MENU_ID_NAV_STATUS), tab: 1, label: "&Status", default: "Alt+7" },
 	ActionDef {
 		id: "go_communities",
 		menu_id: Some(MENU_ID_NAV_COMMUNITIES),
@@ -93,7 +93,7 @@ pub const ACTIONS: &[ActionDef] = &[
 		default: "Alt+5",
 	},
 	ActionDef { id: "go_channels", menu_id: Some(MENU_ID_NAV_CHANNELS), tab: 1, label: "C&hannels", default: "Alt+6" },
-	ActionDef { id: "go_calls", menu_id: Some(MENU_ID_NAV_CALLS), tab: 1, label: "&Calls", default: "Alt+7" },
+	ActionDef { id: "go_calls", menu_id: Some(MENU_ID_NAV_CALLS), tab: 1, label: "&Calls", default: "Alt+2" },
 	ActionDef { id: "new_chat", menu_id: Some(MENU_ID_NEW_CHAT), tab: 2, label: "&New Chat", default: "Ctrl+N" },
 	ActionDef {
 		id: "new_group",
@@ -437,7 +437,7 @@ mod tests {
 		assert_eq!(default_menu_label(MENU_ID_RECONNECT), "&Reconnect Now\tF5");
 		assert_eq!(default_menu_label(MENU_ID_FOCUS_MESSAGE_FIELD), "Jump to Message Fi&eld\tAlt+E");
 		assert_eq!(default_menu_label(MENU_ID_ANNOUNCE_STATUS), "Announce Chat Sta&tus\tAlt+T");
-		assert_eq!(default_menu_label(MENU_ID_NAV_CALLS), "&Calls\tAlt+7");
+		assert_eq!(default_menu_label(MENU_ID_NAV_CALLS), "&Calls\tAlt+2");
 	}
 
 	#[test]
