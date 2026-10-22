@@ -70,13 +70,13 @@ pub const ACTIONS: &[ActionDef] = &[
 		label: "&Chats",
 		default: "Alt+1",
 	},
-	ActionDef { id: "go_status", menu_id: Some(MENU_ID_NAV_STATUS), tab: 1, label: "&Status", default: "Alt+7" },
+	ActionDef { id: "go_status", menu_id: Some(MENU_ID_NAV_STATUS), tab: 1, label: "&Status", default: "Alt+3" },
 	ActionDef {
 		id: "go_communities",
 		menu_id: Some(MENU_ID_NAV_COMMUNITIES),
 		tab: 1,
 		label: "C&ommunities",
-		default: "Alt+3",
+		default: "Alt+6",
 	},
 	ActionDef {
 		id: "go_starred",
@@ -92,7 +92,7 @@ pub const ACTIONS: &[ActionDef] = &[
 		label: "&Archived Chats",
 		default: "Alt+5",
 	},
-	ActionDef { id: "go_channels", menu_id: Some(MENU_ID_NAV_CHANNELS), tab: 1, label: "C&hannels", default: "Alt+6" },
+	ActionDef { id: "go_channels", menu_id: Some(MENU_ID_NAV_CHANNELS), tab: 1, label: "C&hannels", default: "Alt+7" },
 	ActionDef { id: "go_calls", menu_id: Some(MENU_ID_NAV_CALLS), tab: 1, label: "&Calls", default: "Alt+2" },
 	ActionDef { id: "new_chat", menu_id: Some(MENU_ID_NEW_CHAT), tab: 2, label: "&New Chat", default: "Ctrl+N" },
 	ActionDef {
