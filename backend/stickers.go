@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
+	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -24,7 +26,7 @@ import (
 // chats; favorites sync from the phone through app state, each named by the
 // base64 SHA-256 of its file (WAWebStickersFavoriteSyncAction).
 
-const recentStickerLimit = 30
+const recentStickerLimit = 50
 
 type SendStickerData struct {
 	JID         string `json:"jid"`
@@ -39,13 +41,62 @@ type StickerFavoriteData struct {
 	Favorite  *bool  `json:"favorite"` // nil switches it
 }
 
-// stickerText is a sticker's text in a chat: "[Sticker]", and what it shows
-// when the sender said ("[Sticker] 😂").
-func stickerText(sticker *waE2E.StickerMessage) string {
-	if label := firstNonEmpty(sticker.GetAccessibilityLabel(), sticker.GetEmojis()); label != "" {
-		return "[Sticker] " + label
+// webpStickerMeta parses the EXIF JSON WhatsApp embeds inside sticker WebP files.
+type webpStickerMeta struct {
+	PackName      string   `json:"sticker-pack-name"`
+	AuthorName    string   `json:"sticker-author-name"`
+	Publisher     string   `json:"sticker-pack-publisher"`
+	Emojis        []string `json:"emojis"`
+	Accessibility string   `json:"accessibility-text"`
+}
+
+// parseWebPStickerMeta extracts WhatsApp's embedded sticker metadata (pack name,
+// emojis, accessibility text) from a WebP image's EXIF chunk if present.
+func parseWebPStickerMeta(data []byte) *webpStickerMeta {
+	if len(data) < 12 || string(data[0:4]) != "RIFF" || string(data[8:12]) != "WEBP" {
+		return nil
 	}
-	return "[Sticker]"
+	idx := 12
+	for idx+8 <= len(data) {
+		fourCC := string(data[idx : idx+4])
+		chunkSize := int(uint32(data[idx+4]) | uint32(data[idx+5])<<8 | uint32(data[idx+6])<<16 | uint32(data[idx+7])<<24)
+		idx += 8
+		if chunkSize < 0 || idx+chunkSize > len(data) {
+			break
+		}
+		if fourCC == "EXIF" {
+			payload := data[idx : idx+chunkSize]
+			start := bytes.IndexByte(payload, '{')
+			end := bytes.LastIndexByte(payload, '}')
+			if start != -1 && end > start {
+				var meta webpStickerMeta
+				if err := json.Unmarshal(payload[start:end+1], &meta); err == nil {
+					if meta.AuthorName == "" {
+						meta.AuthorName = meta.Publisher
+					}
+					return &meta
+				}
+			}
+		}
+		idx += chunkSize
+		if chunkSize%2 != 0 {
+			idx++
+		}
+	}
+	return nil
+}
+
+// stickerText is a sticker's text in a chat: "[Sticker]", and what it shows
+// when the sender or pack provided a label or emojis ("[Sticker] 😂").
+func stickerText(sticker *waE2E.StickerMessage) string {
+	if sticker == nil {
+		return "[Sticker]"
+	}
+	desc := stickerDescription(sticker)
+	if desc == "Sticker" {
+		return "[Sticker]"
+	}
+	return "[Sticker] " + desc
 }
 
 func stickerHash(sticker *waE2E.StickerMessage) string {
@@ -68,6 +119,48 @@ func storedSticker(messageID string) *waE2E.StickerMessage {
 	return unwrapMessage(&msg).GetStickerMessage()
 }
 
+// findStickerByHash finds a sticker message from chat history matching the given file hash.
+func findStickerByHash(hash string) *waE2E.StickerMessage {
+	if hash == "" {
+		return nil
+	}
+	rows, err := db.Query(`SELECT raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL ORDER BY timestamp DESC LIMIT 200`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		var mediaPath string
+		if rows.Scan(&raw, &mediaPath) != nil {
+			continue
+		}
+		var msg waE2E.Message
+		if proto.Unmarshal(raw, &msg) != nil {
+			continue
+		}
+		st := unwrapMessage(&msg).GetStickerMessage()
+		if st != nil && stickerHash(st) == hash {
+			if st.GetAccessibilityLabel() == "" && st.GetEmojis() == "" && mediaPath != "" {
+				if fileBytes, err := os.ReadFile(mediaPath); err == nil {
+					if meta := parseWebPStickerMeta(fileBytes); meta != nil {
+						if meta.Accessibility != "" {
+							st.AccessibilityLabel = proto.String(meta.Accessibility)
+						} else if meta.PackName != "" {
+							st.AccessibilityLabel = proto.String(meta.PackName)
+						}
+						if len(meta.Emojis) > 0 {
+							st.Emojis = proto.String(strings.Join(meta.Emojis, " "))
+						}
+					}
+				}
+			}
+			return st
+		}
+	}
+	return nil
+}
+
 type recentSticker struct {
 	messageID string
 	sticker   *waE2E.StickerMessage
@@ -76,7 +169,7 @@ type recentSticker struct {
 // recentStickers are the stickers last seen in chats, newest first, one per
 // sticker file.
 func recentStickers() []recentSticker {
-	rows, err := db.Query(`SELECT id, raw FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL
+	rows, err := db.Query(`SELECT id, raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL
 		AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 500`)
 	if err != nil {
 		return nil
@@ -87,7 +180,8 @@ func recentStickers() []recentSticker {
 	for rows.Next() && len(out) < recentStickerLimit {
 		var id string
 		var raw []byte
-		if rows.Scan(&id, &raw) != nil {
+		var mediaPath string
+		if rows.Scan(&id, &raw, &mediaPath) != nil {
 			continue
 		}
 		var msg waE2E.Message
@@ -100,17 +194,54 @@ func recentStickers() []recentSticker {
 			continue
 		}
 		seen[hash] = true
-		out = append(out, recentSticker{id, sticker})
+		if sticker.GetAccessibilityLabel() == "" && sticker.GetEmojis() == "" {
+			if mediaPath != "" {
+				if fileBytes, err := os.ReadFile(mediaPath); err == nil {
+					if meta := parseWebPStickerMeta(fileBytes); meta != nil {
+						if meta.Accessibility != "" {
+							sticker.AccessibilityLabel = proto.String(meta.Accessibility)
+						} else if meta.PackName != "" {
+							sticker.AccessibilityLabel = proto.String(meta.PackName)
+						}
+						if len(meta.Emojis) > 0 {
+							sticker.Emojis = proto.String(strings.Join(meta.Emojis, " "))
+						}
+					}
+				}
+			} else {
+				// Trigger background download so next time it is cached and has metadata
+				startMediaDownload(MessageRefData{MessageID: id}, true)
+			}
+		}
+		out = append(out, recentSticker{
+			messageID: id,
+			sticker:   sticker,
+		})
 	}
 	return out
 }
 
 func stickerDescription(sticker *waE2E.StickerMessage) string {
+	if sticker == nil {
+		return "Sticker"
+	}
 	label := firstNonEmpty(sticker.GetAccessibilityLabel(), sticker.GetEmojis())
 	if label == "" {
-		label = "Sticker"
+		if sticker.GetIsAvatar() {
+			label = "Avatar sticker"
+		} else if sticker.GetIsAiSticker() {
+			label = "AI sticker"
+		} else {
+			label = "Sticker"
+		}
+	} else {
+		if sticker.GetIsAvatar() && !strings.HasPrefix(strings.ToLower(label), "avatar") {
+			label = "Avatar: " + label
+		} else if sticker.GetIsAiSticker() && !strings.HasPrefix(strings.ToLower(label), "ai") {
+			label = "AI sticker: " + label
+		}
 	}
-	if sticker.GetIsAnimated() {
+	if sticker.GetIsAnimated() && !strings.Contains(label, "animated") {
 		label += ", animated"
 	}
 	return label
@@ -185,9 +316,24 @@ func handleGetStickers(conn net.Conn) {
 	isFavorite := map[string]bool{}
 	for _, f := range favoriteStickers() {
 		isFavorite[f.hash] = true
-		label := "Sticker"
+		label := ""
 		if s := byHash[f.hash]; s != nil {
 			label = stickerDescription(s)
+		}
+		if label == "" || label == "Sticker" {
+			if s := findStickerByHash(f.hash); s != nil {
+				label = stickerDescription(s)
+			}
+		}
+		if label == "" || label == "Sticker" {
+			if f.action.GetIsAvatarSticker() {
+				label = "Avatar sticker"
+			} else {
+				label = "Sticker"
+			}
+			if f.action.GetIsLottie() && !strings.Contains(label, "animated") {
+				label += ", animated"
+			}
 		}
 		favorites = append(favorites, map[string]string{"hash": f.hash, "label": label})
 	}
@@ -208,6 +354,9 @@ func favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage,
 		if stickerHash(r.sticker) == hash {
 			return r.sticker, nil
 		}
+	}
+	if s := findStickerByHash(hash); s != nil {
+		return s, nil
 	}
 	var raw []byte
 	if err := db.QueryRow(`SELECT action FROM sticker_favorites WHERE hash = ?`, hash).Scan(&raw); err != nil {
@@ -234,6 +383,16 @@ func favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage,
 	}
 	if width > 0 {
 		sticker.Width, sticker.Height = proto.Uint32(uint32(width)), proto.Uint32(uint32(height))
+	}
+	if meta := parseWebPStickerMeta(data); meta != nil {
+		if meta.Accessibility != "" {
+			sticker.AccessibilityLabel = proto.String(meta.Accessibility)
+		} else if meta.PackName != "" {
+			sticker.AccessibilityLabel = proto.String(meta.PackName)
+		}
+		if len(meta.Emojis) > 0 {
+			sticker.Emojis = proto.String(strings.Join(meta.Emojis, " "))
+		}
 	}
 	return sticker, nil
 }
@@ -374,4 +533,67 @@ func webpInfo(data []byte) (width, height int, animated bool) {
 		return cfg.Width, cfg.Height, false
 	}
 	return 0, 0, false
+}
+
+// fixupLegacyStickerTexts migrates older sticker messages stored simply as "[Sticker]"
+// by re-extracting labels/emojis from the protobuf and attached media.
+func fixupLegacyStickerTexts() {
+	rows, err := db.Query(`SELECT id, raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND (text = '[Sticker]' OR text = '') AND raw IS NOT NULL LIMIT 1000`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	type fix struct {
+		id   string
+		text string
+	}
+	var fixes []fix
+	for rows.Next() {
+		var id string
+		var raw []byte
+		var mediaPath string
+		if rows.Scan(&id, &raw, &mediaPath) != nil {
+			continue
+		}
+		var msg waE2E.Message
+		if proto.Unmarshal(raw, &msg) != nil {
+			continue
+		}
+		st := unwrapMessage(&msg).GetStickerMessage()
+		if st == nil {
+			continue
+		}
+		if st.GetAccessibilityLabel() == "" && st.GetEmojis() == "" && mediaPath != "" {
+			if fileBytes, err := os.ReadFile(mediaPath); err == nil {
+				if meta := parseWebPStickerMeta(fileBytes); meta != nil {
+					if meta.Accessibility != "" {
+						st.AccessibilityLabel = proto.String(meta.Accessibility)
+					} else if meta.PackName != "" {
+						st.AccessibilityLabel = proto.String(meta.PackName)
+					}
+					if len(meta.Emojis) > 0 {
+						st.Emojis = proto.String(strings.Join(meta.Emojis, " "))
+					}
+				}
+			}
+		}
+		txt := stickerText(st)
+		if txt != "[Sticker]" && txt != "" {
+			fixes = append(fixes, fix{id, txt})
+		}
+	}
+	for _, f := range fixes {
+		db.Exec(`UPDATE messages SET text = ? WHERE id = ?`, f.text, f.id)
+	}
+
+	rowsRecent, errRecent := db.Query(`SELECT id, jid FROM messages WHERE media_type = 'sticker' AND (media_path IS NULL OR media_path = '') AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 50`)
+	if errRecent == nil {
+		defer rowsRecent.Close()
+		for rowsRecent.Next() {
+			var mID, mJID string
+			if rowsRecent.Scan(&mID, &mJID) == nil {
+				startMediaDownload(MessageRefData{MessageID: mID, JID: mJID}, true)
+			}
+		}
+	}
 }

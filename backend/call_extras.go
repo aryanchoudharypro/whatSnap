@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"strings"
 
 	"github.com/purpshell/meowcaller"
 	"go.mau.fi/whatsmeow/types"
@@ -113,6 +114,14 @@ func handleCreateCallLink(conn net.Conn, raw json.RawMessage) {
 		}
 		sendEvent(conn, "call_link_created", map[string]interface{}{"url": link.URL, "video": link.Video})
 	}()
+}
+
+func callLinkJoinPushName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("missing push name")
+	}
+	return name, nil
 }
 
 // handleJoinCallLink joins the call a link is for, or its waiting room when

@@ -237,6 +237,7 @@ func main() {
 	if err := migrateDB(); err != nil {
 		panic(err)
 	}
+	go fixupLegacyStickerTexts()
 
 	// An installer replacing this exe asks it to stop through the Restart
 	// Manager, which reaches a console process as Ctrl+C. Go would just exit

@@ -192,6 +192,18 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 		}
 	}
 	setMessageMediaPath(messageID, finalPath)
+	if mediaType == "sticker" {
+		if fileBytes, err := os.ReadFile(finalPath); err == nil {
+			if meta := parseWebPStickerMeta(fileBytes); meta != nil {
+				label := firstNonEmpty(meta.Accessibility, strings.Join(meta.Emojis, " "), meta.PackName)
+				if label != "" {
+					newText := "[Sticker] " + label
+					db.Exec("UPDATE messages SET text = ? WHERE id = ?", newText, messageID)
+					broadcastEvent("message_updated", map[string]interface{}{"id": messageID, "text": newText})
+				}
+			}
+		}
+	}
 	if filename != "" {
 		db.Exec("UPDATE messages SET media_filename = ? WHERE id = ?", filename, messageID)
 	}
@@ -912,6 +924,16 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		// instead of just vanishing.
 		viewOnce := data.ViewOnce && (data.Type == "image" || data.Type == "video") && jid.Server != types.NewsletterServer
 		displayText := attachmentDisplayText(data.Type, data.Filename, data.Caption, data.Duration)
+		if data.Type == "sticker" && data.Path != "" {
+			if fileBytes, err := os.ReadFile(data.Path); err == nil {
+				if meta := parseWebPStickerMeta(fileBytes); meta != nil {
+					label := firstNonEmpty(meta.Accessibility, strings.Join(meta.Emojis, " "), meta.PackName)
+					if label != "" {
+						displayText = "[Sticker] " + label
+					}
+				}
+			}
+		}
 		if viewOnce {
 			displayText = viewOnceText(displayText)
 		}
@@ -1189,12 +1211,33 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
 		}}
 	case "sticker":
-		msg = &waE2E.Message{StickerMessage: &waE2E.StickerMessage{
+		st := &waE2E.StickerMessage{
 			Mimetype: proto.String(mimetype),
 			URL:      proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
 			MediaKey: uploaded.MediaKey, FileEncSHA256: uploaded.FileEncSHA256, FileSHA256: uploaded.FileSHA256,
 			FileLength: proto.Uint64(uploaded.FileLength), ContextInfo: ctxInfo,
-		}}
+		}
+		if fileBytes, err := os.ReadFile(path); err == nil {
+			width, height, animated := webpInfo(fileBytes)
+			if width > 0 {
+				st.Width, st.Height = proto.Uint32(uint32(width)), proto.Uint32(uint32(height))
+			}
+			st.IsAnimated = proto.Bool(animated)
+			if meta := parseWebPStickerMeta(fileBytes); meta != nil {
+				if meta.Accessibility != "" {
+					st.AccessibilityLabel = proto.String(meta.Accessibility)
+				} else if meta.PackName != "" {
+					st.AccessibilityLabel = proto.String(meta.PackName)
+				}
+				if len(meta.Emojis) > 0 {
+					st.Emojis = proto.String(strings.Join(meta.Emojis, " "))
+				}
+			}
+		}
+		if text := stickerText(st); text != "[Sticker]" {
+			displayText = text
+		}
+		msg = &waE2E.Message{StickerMessage: st}
 	default:
 		docMsg := &waE2E.DocumentMessage{
 			Title: proto.String(filename), FileName: proto.String(filename), Mimetype: proto.String(mimetype),

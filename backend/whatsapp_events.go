@@ -2031,7 +2031,7 @@ func eventHandler(evt interface{}) {
 					if v.IsViewOnce {
 						markViewOnce(db, v.Info.ID)
 					}
-					if mediaType == "voice" {
+					if mediaType == "voice" || mediaType == "sticker" {
 						autoDownloadVoiceNote(v.Info.ID, jid)
 					}
 				}
