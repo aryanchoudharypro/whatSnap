@@ -397,6 +397,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleCallToggle(conn, cmd.Data, "reaction")
 	case "admit_call_participant":
 		handleCallToggle(conn, cmd.Data, "admit")
+	case "mute_call_participant":
+		handleCallToggle(conn, cmd.Data, "mute_person")
+	case "remove_call_participant":
+		handleCallToggle(conn, cmd.Data, "remove_person")
 	case "set_call_approval":
 		handleCallToggle(conn, cmd.Data, "approval")
 	case "place_call":

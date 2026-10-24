@@ -55,8 +55,10 @@ pub(crate) fn hide_call_buttons(parts: &WindowParts) {
 /// One row of the call window's people list.
 struct PersonRow {
 	jid: String,
+	name: String,
 	label: String,
 	waiting: bool,
+	connected: bool,
 }
 
 fn people_rows(s: &AppState) -> Vec<PersonRow> {
@@ -64,7 +66,13 @@ fn people_rows(s: &AppState) -> Vec<PersonRow> {
 		.call_video
 		.waiting
 		.iter()
-		.map(|p| PersonRow { jid: p.jid.clone(), label: format!("{}, wants to join", p.name), waiting: true })
+		.map(|p| PersonRow {
+			jid: p.jid.clone(),
+			name: p.name.clone(),
+			label: format!("{}, wants to join", p.name),
+			waiting: true,
+			connected: false,
+		})
 		.collect();
 	for p in &s.call_participants {
 		let state = match p.state.as_str() {
@@ -75,7 +83,13 @@ fn people_rows(s: &AppState) -> Vec<PersonRow> {
 			"" => "joining",
 			other => other,
 		};
-		rows.push(PersonRow { jid: p.jid.clone(), label: format!("{}, {}", p.name, state), waiting: false });
+		rows.push(PersonRow {
+			jid: p.jid.clone(),
+			name: p.name.clone(),
+			label: format!("{}, {}", p.name, state),
+			waiting: false,
+			connected: p.state == "connected",
+		});
 	}
 	rows
 }
@@ -104,6 +118,7 @@ pub(crate) fn refresh_people(s: &AppState, parts: &WindowParts) {
 		let index = selected.and_then(|jid| rows.iter().position(|r| r.jid == jid)).unwrap_or(0);
 		c.people_list.set_selection(index as u32, true);
 	}
+	person_buttons(s, parts);
 	let admitting = v.link_admin && !v.waiting.is_empty();
 	c.let_in_btn.show(admitting);
 	c.keep_out_btn.show(admitting);
@@ -119,6 +134,69 @@ pub(crate) fn refresh_people(s: &AppState, parts: &WindowParts) {
 fn people_rows_jid_at(label: Option<String>, rows: &[PersonRow]) -> Option<String> {
 	let label = label?;
 	rows.iter().find(|r| r.label == label).map(|r| r.jid.clone())
+}
+
+/// The person selected under People, if they're in the call.
+fn selected_person(s: &AppState, parts: &WindowParts) -> Option<PersonRow> {
+	let rows = people_rows(s);
+	let list = &parts.call_parts.people_list;
+	let jid = list.get_selection().and_then(|i| people_rows_jid_at(list.get_string(i), &rows))?;
+	rows.into_iter().find(|r| r.jid == jid && r.connected)
+}
+
+/// "Mute {name}" for whoever is selected and in the call, and "Remove
+/// {name}" too when we can remove people.
+pub(crate) fn person_buttons(s: &AppState, parts: &WindowParts) {
+	let c = &parts.call_parts;
+	let person = selected_person(s, parts);
+	let can_remove = s.call_video.can_remove;
+	match &person {
+		Some(p) => {
+			c.mute_person_btn.set_label(&format!("Mute {}", p.name));
+			c.remove_person_btn.set_label(&format!("Remove {}", p.name));
+		}
+		None => {
+			c.mute_person_btn.set_label("Mute");
+			c.remove_person_btn.set_label("Remove");
+		}
+	}
+	c.mute_person_btn.show(person.is_some());
+	c.remove_person_btn.show(person.is_some() && can_remove);
+	c.people_panel.layout();
+}
+
+/// "Mute {name}" (remove false) and "Remove {name}" (remove true).
+pub(crate) fn act_on_person(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, remove: bool) {
+	let s = state.borrow();
+	let Some(call_id) = s.active_call_id.clone() else { return };
+	let Some(person) = selected_person(&s, parts) else {
+		drop(s);
+		announce_call(parts, "Select someone in the call first.");
+		return;
+	};
+	let action = if remove { "remove_call_participant" } else { "mute_call_participant" };
+	send(&s, action, serde_json::json!({ "call_id": call_id, "jid": person.jid }));
+	drop(s);
+	let what = if remove { "Removing" } else { "Asking" };
+	let tail = if remove { "from the call." } else { "to mute." };
+	announce_call(parts, &format!("{} {} {}", what, person.name, tail));
+}
+
+/// Someone else in the call muted us: meowcaller has already told the call,
+/// so only our microphone and the Mute button need to follow.
+fn muted_by(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
+	let s = state.borrow();
+	if let Some(audio) = &s.active_call_audio {
+		audio.is_muted.store(true, std::sync::atomic::Ordering::Relaxed);
+	}
+	parts.call_parts.mute_btn.set_label("Unmute microphone");
+	drop(s);
+	let name = text(data, "name");
+	if name.is_empty() {
+		announce_call(parts, "Someone in the call muted you.");
+	} else {
+		announce_call(parts, &format!("{} muted you.", name));
+	}
 }
 
 /// "Let in" and "Don't let in": the selected person, or the only one waiting.
@@ -244,6 +322,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		}
 		"call_reaction" => announce_call(parts, &format!("{} reacted {}.", text(data, "name"), text(data, "emoji"))),
 		"call_waiting_room" => waiting_room(state, parts, data),
+		"call_muted_by" => muted_by(state, parts, data),
 		"call_action_done" => match text(data, "what").as_str() {
 			"hand" => {
 				let mut s = state.borrow_mut();

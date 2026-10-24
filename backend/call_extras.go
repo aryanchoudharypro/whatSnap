@@ -54,6 +54,15 @@ func callJoinerName(jid, pn types.JID, pushName string, guest bool) string {
 // attachCallExtras wires the hand, reaction, screen share and waiting room
 // listeners; attachCallHandlers calls it for every call.
 func attachCallExtras(call *meowcaller.Call) {
+	// meowcaller has already muted the call when this fires; the app mutes
+	// its microphone to match and says who did it.
+	call.OnMuteRequested(func(by types.JID) {
+		name := ""
+		if !by.IsEmpty() {
+			name = callPersonName(by, types.EmptyJID)
+		}
+		broadcastEvent("call_muted_by", map[string]interface{}{"call_id": call.ID(), "name": name})
+	})
 	call.OnHandRaise(func(h meowcaller.HandRaiseState) {
 		if isOwnJID(h.Participant) {
 			return
@@ -183,6 +192,10 @@ func handleCallToggle(conn net.Conn, raw json.RawMessage, what string) {
 			err = call.SendReaction(data.Emoji)
 		case "approval":
 			err = call.SetApprovalRequired(context.Background(), data.On)
+		case "mute_person":
+			err = call.RequestPeerMute(context.Background(), data.JID)
+		case "remove_person":
+			err = call.RemoveParticipant(context.Background(), data.JID)
 		case "admit":
 			if data.On {
 				err = call.AdmitParticipant(context.Background(), data.JID)

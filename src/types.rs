@@ -93,6 +93,11 @@ pub enum UiCommand {
 	CallReact,
 	/// The call window's "Let in" (true) and "Don't let in" (false).
 	AdmitCallPerson(bool),
+	/// The call window's "Mute {name}" and "Remove {name}" for the person
+	/// selected under People, and that selection changing.
+	MuteCallPerson,
+	RemoveCallPerson,
+	CallPersonSelected,
 	/// The call window's "Approve new participants".
 	SetCallApproval(bool),
 	/// "Event" in the attach menu: create an event in the chat.
@@ -549,6 +554,8 @@ pub(crate) struct CallVideo {
 	pub(crate) roster_seen: bool,
 	/// We're an admin of this call link, so we can let people in.
 	pub(crate) link_admin: bool,
+	/// We created this call link's call, so we can remove people from it.
+	pub(crate) can_remove: bool,
 	/// The call link asks an admin before letting anyone in.
 	pub(crate) approval_required: bool,
 	/// People in the call link's waiting room.

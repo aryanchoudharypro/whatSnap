@@ -1247,6 +1247,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						Vec::new()
 					};
 					s.call_video.roster_seen = true;
+					s.call_video.can_remove = data.get("can_remove").and_then(|v| v.as_bool()).unwrap_or(false);
 					s.call_participants = participants;
 					crate::ui_commands::call_extras::refresh_people(&s, parts);
 					// Leave the label alone while an incoming call is still ringing
@@ -3288,7 +3289,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				}
 			}
 			"call_link_created" | "call_hand" | "call_reaction" | "call_waiting_room" | "call_action_done"
-			| "call_action_failed" => {
+			| "call_action_failed" | "call_muted_by" => {
 				if let Some(data) = val.get("data") {
 					crate::ui_commands::call_extras::on_event(state, parts, t, data);
 				}

@@ -243,6 +243,7 @@ func attachCallHandlers(call *meowcaller.Call) {
 		broadcastEvent("call_participants", map[string]interface{}{
 			"call_id":      call.ID(),
 			"participants": participants,
+			"can_remove":   call.CanRemoveParticipants(),
 		})
 	})
 	// The other side's camera, plus our own upgrade/enable acks land here

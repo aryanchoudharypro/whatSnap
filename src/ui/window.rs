@@ -998,6 +998,18 @@ pub fn bind_input_handlers(
 	parts.call_parts.react_btn.on_click(move |_| {
 		let _ = tx_call_react.send(UiCommand::CallReact);
 	});
+	let tx_person_selected = ui_tx.clone();
+	parts.call_parts.people_list.on_selection_changed(move |_| {
+		let _ = tx_person_selected.send(UiCommand::CallPersonSelected);
+	});
+	let tx_mute_person = ui_tx.clone();
+	parts.call_parts.mute_person_btn.on_click(move |_| {
+		let _ = tx_mute_person.send(UiCommand::MuteCallPerson);
+	});
+	let tx_remove_person = ui_tx.clone();
+	parts.call_parts.remove_person_btn.on_click(move |_| {
+		let _ = tx_remove_person.send(UiCommand::RemoveCallPerson);
+	});
 	let tx_let_in = ui_tx.clone();
 	parts.call_parts.let_in_btn.on_click(move |_| {
 		let _ = tx_let_in.send(UiCommand::AdmitCallPerson(true));

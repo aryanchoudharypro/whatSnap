@@ -26,6 +26,8 @@ pub struct CallWindowParts {
 	/// in through a call link. Hidden on 1:1 calls.
 	pub people_panel: Panel,
 	pub people_list: ListBox,
+	pub mute_person_btn: Button,
+	pub remove_person_btn: Button,
 	pub let_in_btn: Button,
 	pub keep_out_btn: Button,
 	/// A call link's "approve new participants", for the link's admin.
@@ -100,6 +102,16 @@ pub fn build_call_window() -> CallWindowParts {
 	people_sizer.add(&people_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
 	let people_list = ListBox::builder(&people_panel).build();
 	people_sizer.add(&people_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
+	// Right after the list, so tabbing off a person lands on what can be
+	// done to them (WA's "Mute {name}" and "Remove {name}").
+	let person_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let mute_person_btn = Button::builder(&people_panel).with_label("Mute").build();
+	person_sizer.add(&mute_person_btn, 0, SizerFlag::Right, 5);
+	let remove_person_btn = Button::builder(&people_panel).with_label("Remove").build();
+	person_sizer.add(&remove_person_btn, 0, SizerFlag::empty(), 0);
+	people_sizer.add_sizer(&person_sizer, 0, SizerFlag::All, 4);
+	mute_person_btn.show(false);
+	remove_person_btn.show(false);
 	let admit_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let let_in_btn = Button::builder(&people_panel).with_label("Let in").build();
 	admit_sizer.add(&let_in_btn, 0, SizerFlag::Right, 5);
@@ -157,6 +169,8 @@ pub fn build_call_window() -> CallWindowParts {
 		leave_btn,
 		people_panel,
 		people_list,
+		mute_person_btn,
+		remove_person_btn,
 		let_in_btn,
 		keep_out_btn,
 		approval_check,
