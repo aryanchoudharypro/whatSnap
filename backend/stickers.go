@@ -63,6 +63,9 @@ type stickerFileMeta struct {
 // decodeStickerMeta reads the metadata JSON, keeping what it can when a
 // field has an unexpected type.
 func decodeStickerMeta(data []byte) *stickerFileMeta {
+	if len(data) == 0 {
+		return nil
+	}
 	var meta stickerFileMeta
 	var typeErr *json.UnmarshalTypeError
 	if err := json.Unmarshal(data, &meta); err != nil && !errors.As(err, &typeErr) {
@@ -110,34 +113,58 @@ func parseStickerMeta(data []byte) *stickerFileMeta {
 }
 
 // parseLottieStickerMeta reads a Lottie sticker (application/was, a zip):
-// its animation/animation.json carries the metadata, as WhatsApp's own
-// animated packs do.
+// its animation/animation.json carries the metadata under
+// metadata.customProps, as WhatsApp's own animated packs do. Their files
+// also carry animation.json.overridden_metadata, the same keys again, and
+// that's where the accessibility text is (WhatsApp Web doesn't read it; the
+// phones do), so it's laid over the first.
 func parseLottieStickerMeta(data []byte) *stickerFileMeta {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil
 	}
-	for _, f := range zr.File {
-		if !strings.HasSuffix(f.Name, "animation/animation.json") {
-			continue
-		}
+	read := func(f *zip.File, v any) bool {
 		rc, err := f.Open()
 		if err != nil {
-			return nil
+			return false
 		}
-		var doc struct {
-			Metadata struct {
-				CustomProps json.RawMessage `json:"customProps"`
-			} `json:"metadata"`
-		}
-		err = json.NewDecoder(io.LimitReader(rc, 16<<20)).Decode(&doc)
-		rc.Close()
-		if err != nil || len(doc.Metadata.CustomProps) == 0 {
-			return nil
-		}
-		return decodeStickerMeta(doc.Metadata.CustomProps)
+		defer rc.Close()
+		return json.NewDecoder(io.LimitReader(rc, 16<<20)).Decode(v) == nil
 	}
-	return nil
+	var custom, overridden json.RawMessage
+	for _, f := range zr.File {
+		switch {
+		case strings.HasSuffix(f.Name, "animation/animation.json"):
+			var doc struct {
+				Metadata struct {
+					CustomProps json.RawMessage `json:"customProps"`
+				} `json:"metadata"`
+			}
+			if read(f, &doc) {
+				custom = doc.Metadata.CustomProps
+			}
+		case strings.HasSuffix(f.Name, "animation/animation.json.overridden_metadata"):
+			read(f, &overridden)
+		}
+	}
+	meta := decodeStickerMeta(custom)
+	if over := decodeStickerMeta(overridden); over != nil {
+		if meta == nil {
+			return over
+		}
+		if over.Accessibility != "" {
+			meta.Accessibility = over.Accessibility
+		}
+		if len(over.Emojis) > 0 {
+			meta.Emojis = over.Emojis
+		}
+		meta.PackID = firstNonEmpty(over.PackID, meta.PackID)
+		meta.PackName = firstNonEmpty(over.PackName, meta.PackName)
+		if over.FirstParty != 0 {
+			meta.FirstParty = over.FirstParty
+		}
+	}
+	return meta
 }
 
 // labelStickerFromFile fills in what a sticker shows from its file when the
@@ -315,7 +342,7 @@ func stickerDescription(sticker *waE2E.StickerMessage) string {
 		}
 	}
 	if sticker.GetIsAnimated() && !strings.Contains(label, "animated") {
-		label += ", animated"
+		label = strings.TrimSuffix(label, ".") + ", animated"
 	}
 	return label
 }

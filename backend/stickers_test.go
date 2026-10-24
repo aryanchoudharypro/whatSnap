@@ -139,3 +139,19 @@ func TestLabelStickerFromFileFallsBackToPackName(t *testing.T) {
 		t.Errorf("label = %q", st.GetAccessibilityLabel())
 	}
 }
+
+func TestLottieOverriddenMetadataGivesTheLabel(t *testing.T) {
+	// WhatsApp's own packs keep the accessibility text beside animation.json.
+	buf := new(bytes.Buffer)
+	zw := zip.NewWriter(buf)
+	w, _ := zw.Create("animation/animation.json")
+	w.Write([]byte(`{"metadata":{"customProps":{"sticker-pack-id":"TasteBuds","is-first-party-sticker":1,"emojis":["🥱","😴","☕️"]}}}`))
+	w, _ = zw.Create("animation/animation.json.overridden_metadata")
+	w.Write([]byte(`{"sticker-pack-id":"TasteBuds","accessibility-text":"Coffee cup yawns widely as coffee drips spill over.","emojis":["🥱","😴","☕️"],"is-first-party-sticker":1}`))
+	zw.Close()
+	st := &waE2E.StickerMessage{Emojis: proto.String("🥱 😴 ☕️"), IsAnimated: proto.Bool(true)}
+	labelStickerFromFile(st, buf.Bytes())
+	if got := stickerDescription(st); got != "Coffee cup yawns widely as coffee drips spill over, animated" {
+		t.Errorf("stickerDescription() = %q", got)
+	}
+}
