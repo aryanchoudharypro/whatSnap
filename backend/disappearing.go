@@ -149,7 +149,7 @@ func noteMessageExpiry(ex sqlExecer, id string, ts int64, msg *waE2E.Message) {
 
 // adoptChatDisappearing learns a 1:1 chat's timer from a message that carries
 // one - the only way to find out about a timer that was turned on before this
-// device was linked or before whaNTV tracked it. A message stamped with its
+// device was linked or before whatSnap tracked it. A message stamped with its
 // setting's time is applied if that's newer than ours; one without only fills
 // in a timer we've never known. Groups get theirs from the server instead.
 func adoptChatDisappearing(chat types.JID, msg *waE2E.Message) {

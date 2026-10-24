@@ -116,6 +116,36 @@ pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
 	live_region::announce_with_priority(label, message, live_region::Priority::High);
 }
 
+/// The read-only "who is calling" line: "Call from Asha, +91 98100 12345", with
+/// ", in <group>" for a group call. The number is left out when we don't know it.
+pub(crate) fn caller_info_text(name: &str, phone_digits: Option<&str>, group: Option<&str>) -> String {
+	let mut text = format!("Call from {name}");
+	if let Some(digits) = phone_digits {
+		let shown = whantv::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}"));
+		text.push_str(", ");
+		text.push_str(&shown);
+	}
+	if let Some(group) = group {
+		text.push_str(&format!(", in {group}"));
+	}
+	text
+}
+
+#[cfg(test)]
+mod caller_info_tests {
+	use super::caller_info_text;
+
+	#[test]
+	fn names_the_caller_then_the_number() {
+		assert_eq!(caller_info_text("Asha", Some("919810012345"), None), "Call from Asha, +91 98100 12345");
+		assert_eq!(caller_info_text("Asha", None, None), "Call from Asha");
+		assert_eq!(
+			caller_info_text("Asha", Some("919810012345"), Some("Family")),
+			"Call from Asha, +91 98100 12345, in Family"
+		);
+	}
+}
+
 /// incoming-call label, announcement and toast all use this.
 pub(crate) fn incoming_call_description(
 	is_group: bool,

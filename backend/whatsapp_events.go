@@ -1680,7 +1680,7 @@ func eventHandler(evt interface{}) {
 			// UI waits on exactly this to page them in. It used to ride on the
 			// progress event above, which on-demand chunks skip - so the answer
 			// was written but never announced, the UI timed out and marked the
-			// chat as having no more history until whaNTV was restarted.
+			// chat as having no more history until whatSnap was restarted.
 			// Only chats that got messages: an empty answer to an on-demand
 			// request (the phone has nothing older) must not look like new
 			// history, or the UI would un-mark the chat and ask again.
@@ -2239,7 +2239,7 @@ func eventHandler(evt interface{}) {
 		// whatsmeow won't auto-reconnect after this - doing so immediately
 		// would just bounce the other session right back off.
 		log.Println("Session replaced by another connection")
-		msg := "whaNTV was disconnected because this WhatsApp account connected from another session. Use Reconnect Now in the Account menu to take the session back."
+		msg := "whatSnap was disconnected because this WhatsApp account connected from another session. Use Reconnect Now in the Account menu to take the session back."
 		broadcastEvent("error", map[string]string{"message": msg})
 		setConnState(connStateStopped, "Disconnected: this account connected from another session.", 0)
 	case *events.TemporaryBan:
@@ -2256,9 +2256,9 @@ func eventHandler(evt interface{}) {
 	case *events.ClientOutdated:
 		log.Println("WhatsApp rejected this client as outdated")
 		broadcastEvent("error", map[string]string{
-			"message": "WhatsApp has rejected this version of whaNTV as outdated. Please update whaNTV to reconnect.",
+			"message": "WhatsApp has rejected this version of whatSnap as outdated. Please update whatSnap to reconnect.",
 		})
-		setConnState(connStateStopped, "This version of whaNTV is outdated. Please update it.", 0)
+		setConnState(connStateStopped, "This version of whatSnap is outdated. Please update it.", 0)
 	case *events.CATRefreshError:
 		log.Println("CAT refresh error:", v.Error)
 		scheduleRetryAfterFailure("Couldn't refresh WhatsApp's connection token.")
@@ -3493,7 +3493,7 @@ func populateChatsFromStoreOnce() {
 	// Groups we are in are exempt too. The phone no longer sends every
 	// chat's history when linking, so a group nobody has written in lately
 	// arrives with no messages and no timestamp, and this used to delete it:
-	// the group couldn't be found in whaNTV at all. Being in the group is
+	// the group couldn't be found in whatSnap at all. Being in the group is
 	// reason enough to list it (at the bottom, having no activity to sort
 	// by). The same can't be done for people: the phone also sends an empty
 	// entry for contacts who were never chatted with, and those must go.

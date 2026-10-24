@@ -4,7 +4,7 @@
 //! its own.
 //!
 //! The capture is Windows' process loopback (Windows 10 2004 and later) in
-//! exclude mode: everything every other program plays, minus whaNTV and the
+//! exclude mode: everything every other program plays, minus whatSnap and the
 //! backend it started. A plain loopback of the speakers would also pick up
 //! the call itself and send the others their own voices back.
 

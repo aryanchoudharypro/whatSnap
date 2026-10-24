@@ -5,6 +5,7 @@ pub use types::*;
 mod announce;
 mod audio;
 use audio::*;
+mod app_link;
 mod audio_device_watch;
 mod audio_devices;
 mod audio_file;
@@ -44,6 +45,7 @@ mod png;
 mod ringback;
 mod settings;
 mod single_instance;
+mod toast;
 mod tray;
 mod ui;
 mod ui_commands;
@@ -448,11 +450,6 @@ struct AppState {
 	/// `SENT_SOUND_WINDOW_SECS` so one message never dings twice while the
 	/// map stays bounded by a single window's worth of acks.
 	played_sent_sounds: std::collections::HashMap<String, i64>,
-	/// Toast notifications currently showing for each background chat, kept
-	/// alive so they can be dismissed (`NotificationMessage::close`) once the
-	/// user actually opens that chat - matching official WhatsApp's behavior
-	/// of clearing a chat's notifications the moment you read it.
-	active_notifications: std::collections::HashMap<String, Vec<wxdragon::prelude::NotificationMessage>>,
 	/// Messages and missed calls replayed from a backlog (after a long time
 	/// closed or offline), waiting to be answered with a single sound and
 	/// notification rather than one per message. See
@@ -594,16 +591,20 @@ struct AppState {
 fn main() {
 	crash_log::install();
 
-	// If whaNTV is already running, activate its window (restoring it from
+	// If whatSnap is already running, activate its window (restoring it from
 	// the tray if needed) instead of launching a second instance.
-	// whaNTV is registered as the whatsapp:// link handler, so it can be
+	// whatSnap is registered as the whatsapp:// link handler, so it can be
 	// started with a link to act on.
-	let launch_link = std::env::args().skip(1).find(|arg| whantv::parse_whatsapp_link(arg).is_some());
+	let launch_link = std::env::args()
+		.skip(1)
+		.find(|arg| whantv::parse_whatsapp_link(arg).is_some() || app_link::parse(arg).is_some());
 	let _instance_lock = match single_instance::acquire_or_activate_existing(launch_link.as_deref()) {
 		Some(lock) => lock,
 		None => return,
 	};
-	// Keeps whaNTV registered for whatsapp:// links, at the path it now runs
+	// Before anything opens the session database: the first run after the rename copies it over.
+	paths::migrate_legacy_data();
+	// Keeps whatSnap registered for whatsapp:// links, at the path it now runs
 	// from. Off the startup path; it's a few registry writes.
 	#[cfg(target_os = "windows")]
 	std::thread::spawn(link_handler::register);
@@ -675,12 +676,16 @@ fn main() {
 		// modern WinRT toast path (wx/msw/rt/notifmsgrt.cpp), not the legacy
 		// taskbar-balloon fallback that wxdragon's builder avoids by default.
 		#[cfg(target_os = "windows")]
-		wxdragon::prelude::NotificationMessage::msw_use_toasts("", "whaNTV");
+		// The Start menu shortcut is what ties toasts to this app: Windows drops
+		// toasts from an app ID that has none. Give it an explicit path in the
+		// per-user Programs folder (where the installer puts its shortcut too),
+		// so the toast app ID is attached to that shortcut, not a guessed one.
+		wxdragon::prelude::NotificationMessage::msw_use_toasts(&toast::start_menu_shortcut_path(), toast::APP_ID);
 
 		let parts = build_main_window();
 		let frame = parts.frame;
 
-		// An installer closing whaNTV to update it, or Windows signing out.
+		// An installer closing whatSnap to update it, or Windows signing out.
 		#[cfg(target_os = "windows")]
 		{
 			let tray_icon = parts.tray_icon.clone();
@@ -734,7 +739,7 @@ fn main() {
 						"type": "connection_state",
 						"data": {
 							"state": "offline",
-							"message": "whaNTV's background service stopped unexpectedly and has been restarted."
+							"message": "whatSnap's background service stopped unexpectedly and has been restarted."
 						}
 					});
 					let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(notice.to_string()));
@@ -1010,7 +1015,6 @@ fn main() {
 			search_target_id: None,
 			search_target_text: None,
 			played_sent_sounds: std::collections::HashMap::new(),
-			active_notifications: std::collections::HashMap::new(),
 			catch_up_alerts: whantv::CatchUpAlerts::default(),
 			catch_up_last_at: None,
 			is_voice_recording: false,
@@ -1271,7 +1275,7 @@ fn main() {
 			// A timeout only ends this attempt: the phone also stays silent when
 			// it won't use the message a request was anchored on, and the next
 			// request (the next Home at the top) goes out with a different anchor.
-			// Marking the chat finished here left it stuck until whaNTV was
+			// Marking the chat finished here left it stuck until whatSnap was
 			// restarted. The backend spaces requests out and refuses quick
 			// repeats, so asking again on the next Home is safe.
 			if let Some(deadline) = s.phone_history_deadline
@@ -1318,10 +1322,10 @@ fn main() {
 		// Deliberately show nothing yet - not even the frame. The backend
 		// hasn't reported login state, so anything we reveal now is a guess we
 		// have to correct a few seconds later. Focusing an empty frame here
-		// made NVDA announce "whaNTV panel" and then, seconds later, "search
+		// made NVDA announce "whatSnap panel" and then, seconds later, "search
 		// conversations" once the chat list appeared. Instead we wait: the
 		// "connected" handler shows the fully-populated chat list and focuses
-		// the search field in one step (so NVDA says "whaNTV, search
+		// the search field in one step (so NVDA says "whatSnap, search
 		// conversations"), and "needs_login" shows the login panel - each
 		// revealing its window only once, already correct. The frame is hidden,
 		// not deleted, so the event loop stays alive to receive those events.

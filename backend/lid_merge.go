@@ -12,7 +12,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// whaNTV keys people by phone JID, but WhatsApp often names someone by their
+// whatSnap keys people by phone JID, but WhatsApp often names someone by their
 // LID first and only says which phone number that is later - in a message's
 // participant_pn, a group's member list, a usync answer, a history chunk. Every
 // row written before then sits under the @lid: a second chat for the same

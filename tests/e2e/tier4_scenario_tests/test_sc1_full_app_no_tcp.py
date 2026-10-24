@@ -38,7 +38,7 @@ class TestFullAppNoTcp(unittest.TestCase):
 	def test_full_app_launch_no_tcp_listening(self):
 		listening_items = self.get_listening_tcp_ports()
 		backend_pids = self.get_running_pids("backend.exe")
-		whantv_pids = self.get_running_pids("whantv.exe")
+		whantv_pids = self.get_running_pids("whatSnap.exe")
 		target_pids = set(backend_pids + whantv_pids)
 		for addr, pid in listening_items:
 			if target_pids:

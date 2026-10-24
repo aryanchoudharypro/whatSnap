@@ -1,11 +1,11 @@
-//! Registers whaNTV as a handler for whatsapp:// links, the kind "Share on
+//! Registers whatSnap as a handler for whatsapp:// links, the kind "Share on
 //! WhatsApp" buttons and wa.me pages open. Everything goes under
 //! HKEY_CURRENT_USER, so no admin rights are needed, and it's rewritten on
 //! every start so the path follows the exe if it moves.
 //!
 //! Two parts: a plain `whatsapp` URL class, which Windows uses when nothing
 //! else claims the scheme, and a registered-application entry, which lists
-//! whaNTV in Settings > Apps > Default apps so it can be chosen when another
+//! whatSnap in Settings > Apps > Default apps so it can be chosen when another
 //! app (such as the official WhatsApp) also handles these links.
 
 #![cfg(target_os = "windows")]
@@ -18,6 +18,7 @@ use windows::{
 	core::PCWSTR,
 };
 
+// Registry keys keep the old name: changing them would leave a stale entry behind.
 const PROG_ID: &str = "whaNTV.WhatsAppLink";
 const CAPABILITIES_KEY: &str = "Software\\whaNTV\\Capabilities";
 
@@ -78,34 +79,40 @@ fn get_default_string(path: &str) -> Option<String> {
 	Some(String::from_utf16_lossy(&buffer[..len.min(buffer.len())]))
 }
 
-fn write_url_class(class_key: &str, command: &str, icon: &str) {
-	set_string(class_key, None, "URL:WhatsApp link");
+fn write_url_class(class_key: &str, description: &str, command: &str, icon: &str) {
+	set_string(class_key, None, description);
 	set_string(class_key, Some("URL Protocol"), "");
 	set_string(&format!("{}\\DefaultIcon", class_key), None, icon);
 	set_string(&format!("{}\\shell\\open\\command", class_key), None, command);
 }
 
-/// Registers whaNTV for whatsapp:// links. Doesn't take over a plain
+/// Registers whatSnap for whatsapp:// links. Doesn't take over a plain
 /// `whatsapp` class another program already set up in the user's registry;
-/// the Default apps entry still lets the user pick whaNTV.
+/// the Default apps entry still lets the user pick whatSnap.
 pub fn register() {
 	let Ok(exe) = std::env::current_exe() else { return };
 	let exe = exe.display().to_string();
 	let command = format!("\"{}\" \"%1\"", exe);
 	let icon = format!("\"{}\",0", exe);
 
-	write_url_class(&format!("Software\\Classes\\{}", PROG_ID), &command, &icon);
+	write_url_class(&format!("Software\\Classes\\{}", PROG_ID), "URL:WhatsApp link", &command, &icon);
+
+	// whatsnap:// links come from our own toast notifications (see app_link.rs).
+	write_url_class("Software\\Classes\\whatsnap", "URL:whatSnap link", &command, &icon);
 
 	let class_command_key = "Software\\Classes\\whatsapp\\shell\\open\\command";
 	let ours_or_unset = match get_default_string(class_command_key) {
 		None => true,
-		Some(existing) => existing.to_lowercase().contains("whantv"),
+		Some(existing) => {
+			let existing = existing.to_lowercase();
+			existing.contains("whantv") || existing.contains("whatsnap")
+		}
 	};
 	if ours_or_unset {
-		write_url_class("Software\\Classes\\whatsapp", &command, &icon);
+		write_url_class("Software\\Classes\\whatsapp", "URL:WhatsApp link", &command, &icon);
 	}
 
-	set_string(CAPABILITIES_KEY, Some("ApplicationName"), "whaNTV");
+	set_string(CAPABILITIES_KEY, Some("ApplicationName"), "whatSnap");
 	set_string(
 		CAPABILITIES_KEY,
 		Some("ApplicationDescription"),

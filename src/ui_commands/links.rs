@@ -1,4 +1,4 @@
-//! WhatsApp links opened from outside the app (whaNTV is the whatsapp://
+//! WhatsApp links opened from outside the app (whatSnap is the whatsapp://
 //! handler), and sending a group's invite link.
 
 use std::{cell::RefCell, rc::Rc};
@@ -16,12 +16,28 @@ use crate::{
 	},
 };
 
+/// Acts on a `whatsnap://` link from one of our notifications: a click opens the
+/// chat, and "Mark as read" marks it read. Either way the chat's toasts go.
+fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: crate::app_link::AppLink) {
+	match link {
+		crate::app_link::AppLink::Open { jid } => open_chat_for_jid(&jid, state, parts),
+		crate::app_link::AppLink::MarkRead { jid } => {
+			crate::chat_ui::clear_chat_notifications(&jid);
+			crate::handle_ui_command(crate::UiCommand::MarkRead { jid, message_ids: Vec::new() }, state, parts);
+		}
+	}
+}
+
 /// Acts on a WhatsApp link, the way the official app does: a link naming a
 /// number opens that chat with the text ready to send, a link with only text
 /// asks who to send it to, and an invite link offers to join the group.
 /// Before we're logged in and have the chat list, the link waits.
 pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: String) {
-	let Some(parsed) = whantv::parse_whatsapp_link(&link) else { return };
+	let app_link = crate::app_link::parse(&link);
+	let parsed = if app_link.is_some() { None } else { whantv::parse_whatsapp_link(&link) };
+	if app_link.is_none() && parsed.is_none() {
+		return;
+	}
 	{
 		let mut s = state.borrow_mut();
 		if !s.main_ui_shown || s.chats.is_empty() {
@@ -29,6 +45,11 @@ pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 			return;
 		}
 	}
+	if let Some(app_link) = app_link {
+		handle_app_link(state, parts, app_link);
+		return;
+	}
+	let Some(parsed) = parsed else { return };
 	match parsed {
 		WhatsAppLink::Send { phone: Some(phone), text } => {
 			let jid = format!("{}@s.whatsapp.net", phone);
@@ -367,7 +388,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		if following {
 			let confirm = MessageDialog::builder(
 				&dialog,
-				"Unfollow this channel? Its posts will be removed from whaNTV.",
+				"Unfollow this channel? Its posts will be removed from whatSnap.",
 				"Unfollow channel",
 			)
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)

@@ -64,7 +64,7 @@ func refreshChannelPins(ctx context.Context, jid types.JID) {
 	storeChannelPins(jid.String(), meta.ThreadMeta.PinnedMessages)
 }
 
-// serverFlags are the server's feature flags for this account, so whaNTV only
+// serverFlags are the server's feature flags for this account, so whatSnap only
 // offers what the server has turned on. whatsmeow fetches them after
 // connecting, and only when the server says they changed, as the official
 // apps do; this takes whatever it holds rather than asking a second time.

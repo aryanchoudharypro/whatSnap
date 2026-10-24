@@ -1,10 +1,10 @@
-; Inno Setup script for whaNTV.
-; Build with: iscc packaging\whantv.iss  (or run packaging\build-release.ps1)
+; Inno Setup script for whatSnap.
+; Build with: iscc packaging\whatSnap.iss  (or run packaging\build-release.ps1)
 
-#define AppName "whaNTV"
-#define AppExe "whantv.exe"
+#define AppName "whatSnap"
+#define AppExe "whatSnap.exe"
 #define AppPublisher "Aryan Choudhary"
-#define AppURL "https://github.com/aryanchoudharypro/whaNTV"
+#define AppURL "https://github.com/aryanchoudharypro/whatSnap"
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
@@ -43,7 +43,7 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 
 ; Offer to close a running instance rather than failing or silently leaving a
-; stale exe in place, and start it again afterwards (whaNTV registers itself
+; stale exe in place, and start it again afterwards (whatSnap registers itself
 ; for that with RegisterApplicationRestart). "force" ends whatever hasn't
 ; closed by the Restart Manager's timeout, so a stuck backend can't block the
 ; update.
@@ -64,15 +64,33 @@ Source: "..\backend\LICENSE"; DestDir: "{app}\backend"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
+; In the Programs folder itself (not a subfolder): notifications are tied to this
+; shortcut, and the app looks for it at {userprograms}\whatSnap.lnk.
+Name: "{userprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; runasoriginaluser: start the app as the user who ran the installer, even if the
+; installer was elevated. An elevated instance can't be reached by the normal
+; Start menu and desktop launches, which then silently do nothing.
+Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [Code]
-// User data lives in {localappdata}\whaNTV, outside {app}, so it survives
+// Start-with-Windows is a per-user Run entry named whaNTV. Older versions point
+// it at whantv.exe, which this install no longer provides, so re-point an
+// existing entry at the new exe.
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  RunPath: String;
+  RunValue: String;
+begin
+  RunPath := 'Software\Microsoft\Windows\CurrentVersion\Run';
+  if (CurStep = ssPostInstall) and RegQueryStringValue(HKCU, RunPath, 'whaNTV', RunValue) then
+    RegWriteStringValue(HKCU, RunPath, 'whaNTV', '"' + ExpandConstant('{app}\{#AppExe}') + '"');
+end;
+
+// User data lives in {localappdata}\whatSnap, outside {app}, so it survives
 // uninstall unless the user asks otherwise. Removing it means re-pairing the
 // phone and losing local history, so it is never the default.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -81,11 +99,11 @@ var
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    DataDir := ExpandConstant('{localappdata}\whaNTV');
+    DataDir := ExpandConstant('{localappdata}\whatSnap');
     if DirExists(DataDir) then
     begin
       if SuppressibleMsgBox(
-           'Also delete your whaNTV data?' #13#10 #13#10
+           'Also delete your whatSnap data?' #13#10 #13#10
            + 'This removes the WhatsApp session, local message history and '
            + 'downloaded media in:' #13#10 + DataDir + #13#10 #13#10
            + 'You would need to link your phone again. Choose No to keep it.',

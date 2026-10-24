@@ -50,7 +50,7 @@ def run_e2e_tests(tier_filter="all", verbose=1):
 	runner = unittest.TextTestRunner(stream=stream, resultclass=FormattedTestResult, verbosity=verbose)
 
 	print("=" * 70)
-	print("       whaNTV E2E Test Suite Orchestrator & Execution")
+	print("       whatSnap E2E Test Suite Orchestrator & Execution")
 	print("=" * 70)
 	print(f"Target Tier: {tier_filter}")
 
@@ -81,7 +81,7 @@ def run_e2e_tests(tier_filter="all", verbose=1):
 	return 0 if is_success else 1
 
 if __name__ == "__main__":
-	parser = argparse.ArgumentParser(description="whaNTV E2E Central Test Runner")
+	parser = argparse.ArgumentParser(description="whatSnap E2E Central Test Runner")
 	parser.add_argument("--tier", type=str, default="all", help="Test tier to run (all, tier1, tier2, tier3, tier4)")
 	parser.add_argument("--verbose", type=int, default=1, help="Verbosity level (0, 1, 2)")
 	args = parser.parse_args()

@@ -6,7 +6,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// whaNTV stores people under their phone JID, but WhatsApp increasingly names
+// whatSnap stores people under their phone JID, but WhatsApp increasingly names
 // them by LID: a group that hides numbers addresses every member by LID, and an
 // account whose chats moved to LIDs (LIDMigrationTimestamp) indexes its synced
 // chat settings by LID. Whatever goes back to WhatsApp about a message or chat

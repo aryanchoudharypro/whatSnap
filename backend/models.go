@@ -24,7 +24,7 @@ type NewContactCommandData struct {
 	Phone     string `json:"phone"` // as typed: may lack the country code, or start with + or 00
 	Name      string `json:"name"`  // full name
 	FirstName string `json:"first_name"`
-	Sync      bool   `json:"sync"` // also push to WhatsApp's own contact-sync (visible on the phone), not just whaNTV's local cache
+	Sync      bool   `json:"sync"` // also push to WhatsApp's own contact-sync (visible on the phone), not just whatSnap's local cache
 }
 
 // --- Messaging -----------------------------------------------------------

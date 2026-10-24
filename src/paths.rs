@@ -4,15 +4,72 @@
 
 use std::path::PathBuf;
 
+/// The folder the app's data lives in. Before the rename it was `whaNTV`;
+/// [`migrate_legacy_data`] copies the session over the first time this runs.
 pub fn app_data_dir() -> PathBuf {
-	let base = std::env::var_os("LOCALAPPDATA")
-		.map(PathBuf::from)
-		.or_else(|| std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local")))
-		.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-
-	let dir = base.join("whaNTV");
+	let dir = local_app_data_base().join("whatSnap");
 	let _ = std::fs::create_dir_all(&dir);
 	dir
+}
+
+fn local_app_data_base() -> PathBuf {
+	std::env::var_os("LOCALAPPDATA")
+		.map(PathBuf::from)
+		.or_else(|| std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local")))
+		.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+/// Files copied out of the pre-rename `whaNTV` folder. The session and settings
+/// are what the user can't rebuild; the media cache is copied as a folder.
+const LEGACY_FILES: [&str; 4] = ["session.db", "session.db-wal", "session.db-shm", "settings.json"];
+const LEGACY_MEDIA_DIR: &str = "media_cache";
+
+/// On the first run after the rename, copies the session database (with its WAL
+/// and shared-memory files), the settings and the media cache into the new
+/// folder. The old `whaNTV` folder is left exactly as it was, as a fallback.
+/// Does nothing once the new folder has a session, or if there is no old session
+/// to copy. Files already in the new folder are never overwritten.
+///
+/// Must run before anything opens the database.
+pub fn migrate_legacy_data() {
+	let new_dir = app_data_dir();
+	if new_dir.join("session.db").exists() {
+		return;
+	}
+	let legacy_dir = local_app_data_base().join("whaNTV");
+	if !legacy_dir.join("session.db").exists() {
+		return;
+	}
+	for name in LEGACY_FILES {
+		copy_if_missing(&legacy_dir.join(name), &new_dir.join(name));
+	}
+	copy_tree_if_missing(&legacy_dir.join(LEGACY_MEDIA_DIR), &new_dir.join(LEGACY_MEDIA_DIR));
+}
+
+fn copy_if_missing(from: &std::path::Path, to: &std::path::Path) {
+	if from.is_file() && !to.exists() {
+		if let Err(err) = std::fs::copy(from, to) {
+			eprintln!("[MIGRATE] couldn't copy {} to the new data folder: {err}", from.display());
+		}
+	}
+}
+
+/// Copies a folder tree, file by file, leaving anything that already exists in
+/// the destination alone.
+fn copy_tree_if_missing(from: &std::path::Path, to: &std::path::Path) {
+	let Ok(entries) = std::fs::read_dir(from) else { return };
+	if std::fs::create_dir_all(to).is_err() {
+		return;
+	}
+	for entry in entries.flatten() {
+		let source = entry.path();
+		let target = to.join(entry.file_name());
+		if source.is_dir() {
+			copy_tree_if_missing(&source, &target);
+		} else {
+			copy_if_missing(&source, &target);
+		}
+	}
 }
 
 pub fn db_path() -> PathBuf {

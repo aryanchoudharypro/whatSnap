@@ -485,7 +485,7 @@ func handleSendTyping(raw json.RawMessage) {
 // desiredPresence is what the frontend last asked for: available only while
 // its window is actually in use. It's replayed after every (re)connect instead
 // of always announcing "available" - which left the account showing online
-// around the clock while whaNTV sat in the tray, something no official client
+// around the clock while whatSnap sat in the tray, something no official client
 // does.
 var (
 	desiredPresenceMu sync.Mutex

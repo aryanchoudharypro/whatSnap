@@ -186,7 +186,7 @@ func removeCachedMedia(path string) {
 	os.Remove(path)
 }
 
-// scratchTempDirs are the %TEMP% folders whaNTV (backend and frontend alike)
+// scratchTempDirs are the %TEMP% folders whatSnap (backend and frontend alike)
 // copies media into so another app can open it or it can go on the clipboard.
 var scratchTempDirs = []string{"whantv_open", "whantv_clipboard"}
 

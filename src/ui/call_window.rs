@@ -4,6 +4,9 @@ use wxdragon::prelude::*;
 pub struct CallWindowParts {
 	pub frame: Frame,
 	pub status_label: StaticText,
+	/// "Call from <name>, <phone>" for an incoming call. Read-only, so a screen
+	/// reader can move through it to read the caller's details.
+	pub caller_info: TextCtrl,
 	/// Live region for anything announced while the call window has focus.
 	/// The call frame is its own top-level window, and a screen reader only
 	/// speaks live-region changes from the FOREGROUND window - announcing a
@@ -40,6 +43,10 @@ pub fn build_call_window() -> CallWindowParts {
 
 	let status_label = StaticText::builder(&panel).with_label("Incoming call...").build();
 	sizer.add(&status_label, 0, SizerFlag::Expand | SizerFlag::All, 10);
+
+	let caller_info = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ReadOnly).build();
+	caller_info.show(false);
+	sizer.add(&caller_info, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
 
 	let announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&announcer);
@@ -137,6 +144,7 @@ pub fn build_call_window() -> CallWindowParts {
 	CallWindowParts {
 		frame,
 		status_label,
+		caller_info,
 		announcer,
 		accept_btn,
 		reject_btn,

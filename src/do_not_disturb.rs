@@ -6,7 +6,7 @@
 //! this it would go on chiming through Do Not Disturb.
 //!
 //! Both probes fail open. A missed reading costs one sound the user didn't
-//! want; a false one silences whaNTV for a reason nothing on screen explains,
+//! want; a false one silences whatSnap for a reason nothing on screen explains,
 //! which for someone listening rather than looking means not knowing messages
 //! are arriving at all.
 

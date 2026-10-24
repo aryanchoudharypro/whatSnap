@@ -1,9 +1,9 @@
 # Third-Party Notices
 
-whaNTV ships as two executables with different licenses. This is deliberate —
+whatSnap ships as two executables with different licenses. This is deliberate —
 see "Why two binaries" below.
 
-## whantv.exe — Rust frontend — MIT
+## whatSnap.exe — Rust frontend — MIT
 
 Covered by `LICENSE`. Notable dependencies, all permissive (MIT, Apache-2.0,
 BSD, Zlib, or dual MIT/Apache-2.0):

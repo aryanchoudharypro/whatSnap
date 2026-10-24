@@ -1,4 +1,4 @@
-//! Detects whether another whaNTV instance is already running and, if so,
+//! Detects whether another whatSnap instance is already running and, if so,
 //! asks it to activate its own window instead of starting a second copy.
 //!
 //! A brand-new process calling `SetForegroundWindow` on someone else's
@@ -17,7 +17,9 @@ use windows::{
 	Win32::{
 		Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE},
 		System::Threading::CreateMutexW,
-		UI::WindowsAndMessaging::{AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId},
+		UI::WindowsAndMessaging::{
+			AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, MB_ICONWARNING, MB_OK, MessageBoxW,
+		},
 	},
 	core::w,
 };
@@ -48,7 +50,7 @@ impl Drop for InstanceLock {
 /// already running, after asking it to activate itself, so the caller
 /// should exit immediately without spawning the backend or opening a window.
 ///
-/// `link` is a WhatsApp link this launch was started with (whaNTV is the
+/// `link` is a WhatsApp link this launch was started with (whatSnap is the
 /// whatsapp:// handler); it's passed on to the running instance.
 pub fn acquire_or_activate_existing(link: Option<&str>) -> Option<InstanceLock> {
 	let Ok(handle) = (unsafe { CreateMutexW(None, true, MUTEX_NAME) }) else {
@@ -62,16 +64,34 @@ pub fn acquire_or_activate_existing(link: Option<&str>) -> Option<InstanceLock> 
 		return Some(InstanceLock { handle });
 	}
 
-	request_activate(link);
+	if !request_activate(link) {
+		show_unreachable_message();
+	}
 	unsafe {
 		let _ = CloseHandle(handle);
 	}
 	None
 }
 
+/// Tells the user why this launch did nothing. Without it, a copy that can't
+/// reach the running one (for example one started as administrator, which
+/// normal launches can't talk to) would just exit and look broken.
+fn show_unreachable_message() {
+	unsafe {
+		MessageBoxW(
+			None,
+			w!(
+				"whatSnap is already running, but this copy can't reach it. It may have been started as administrator. Close whatSnap in Task Manager, then start it again."
+			),
+			w!("whatSnap"),
+			MB_OK | MB_ICONWARNING,
+		);
+	}
+}
+
 /// Tells the already-running instance to raise its window, and hands it the
-/// link this launch was given, if any.
-fn request_activate(link: Option<&str>) {
+/// link this launch was given, if any. Returns false if it couldn't be reached.
+fn request_activate(link: Option<&str>) -> bool {
 	// Grant the existing instance's process temporary permission to steal
 	// the foreground: on Windows, a process can only call
 	// SetForegroundWindow successfully if it currently holds that right or
@@ -79,7 +99,7 @@ fn request_activate(link: Option<&str>) {
 	// (typically by direct user action), usually already holds it and can
 	// pass it along.
 	unsafe {
-		if let Ok(hwnd) = FindWindowW(None, w!("whaNTV")) {
+		if let Ok(hwnd) = FindWindowW(None, w!("whatSnap")) {
 			let mut pid = 0u32;
 			GetWindowThreadProcessId(hwnd, Some(&mut pid));
 			if pid != 0 {
@@ -88,13 +108,21 @@ fn request_activate(link: Option<&str>) {
 		}
 	}
 
-	if let Ok(mut stream) = PipeStream::connect(ACTIVATE_PIPE_NAME) {
-		let message = match link {
-			Some(link) => format!("activate\n{}", link),
-			None => "activate".to_string(),
-		};
-		let _ = stream.write_all(message.as_bytes());
+	let message = match link {
+		Some(link) => format!("activate\n{}", link),
+		None => "activate".to_string(),
+	};
+	// The running instance may still be starting, so give its pipe a moment to appear.
+	for attempt in 0..10 {
+		if let Ok(mut stream) = PipeStream::connect(ACTIVATE_PIPE_NAME) {
+			let _ = stream.write_all(message.as_bytes());
+			return true;
+		}
+		if attempt < 9 {
+			std::thread::sleep(std::time::Duration::from_millis(100));
+		}
 	}
+	false
 }
 
 /// Starts listening (on a background thread) for activation requests from

@@ -524,7 +524,7 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 	let mut tags = Vec::with_capacity(24);
 	tags.extend_from_slice(b"OpusTags");
 	tags.extend_from_slice(&8_u32.to_le_bytes()); // Vendor length
-	tags.extend_from_slice(b"whaNTV  ");
+	tags.extend_from_slice(b"whatSnap  ");
 	tags.extend_from_slice(&0_u32.to_le_bytes()); // User comments list length
 	writer.write_packet(&tags, PacketEnd::EndPage, 0)?;
 

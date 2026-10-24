@@ -367,7 +367,7 @@ pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 }
 
 pub fn build_main_window() -> WindowParts {
-	let frame = Frame::builder().with_title("whaNTV").with_size(Size::new(1180, 760)).build();
+	let frame = Frame::builder().with_title("whatSnap").with_size(Size::new(1180, 760)).build();
 	frame.set_min_size(Size::new(900, 600));
 	wxdragon::app::set_top_window(&frame);
 	frame.create_status_bar(1, 0, wxdragon::id::ID_ANY as i32, "status_bar");
@@ -409,7 +409,7 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
 		.build();
 	// Alt+1/2/3 match official WhatsApp's Chats/Status/Communities shortcuts;
-	// Alt+4/5 extend the pattern to whaNTV's Starred/Archived tabs, which
+	// Alt+4/5 extend the pattern to whatSnap's Starred/Archived tabs, which
 	// WhatsApp doesn't have. These need to live on real menu items - wx only
 	// builds an app-wide accelerator table (honored no matter which control
 	// has focus) from the "\tAlt+1" accelerator syntax on a menu label; a
@@ -1085,8 +1085,8 @@ pub fn bind_input_handlers(
 	let tray_open_id = 5001;
 	let tray_exit_id = 5002;
 	let mut tray_menu = Menu::builder()
-		.append_item(tray_open_id, "&Open whaNTV", "Show the main window")
-		.append_item(tray_exit_id, "E&xit", "Quit whaNTV")
+		.append_item(tray_open_id, "&Open whatSnap", "Show the main window")
+		.append_item(tray_exit_id, "E&xit", "Quit whatSnap")
 		.build();
 	let frame_tray_menu = parts.frame;
 	let tx_tray_menu = ui_tx.clone();
@@ -1337,7 +1337,7 @@ pub fn bind_input_handlers(
 		}
 		let dlg = MessageDialog::builder(
 			&frame_logout,
-			"Log out of WhatsApp on this device? You'll need to scan a QR code or re-enter your phone number to use whaNTV again.",
+			"Log out of WhatsApp on this device? You'll need to scan a QR code or re-enter your phone number to use whatSnap again.",
 			"Log Out",
 		)
 		.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)

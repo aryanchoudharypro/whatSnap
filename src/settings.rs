@@ -47,7 +47,7 @@ pub struct Settings {
 	/// continuous, high-volume logging only useful while actively
 	/// troubleshooting a connection issue. Read once at startup when the
 	/// backend process is launched - toggling it takes effect the next time
-	/// whaNTV starts, not on the running backend.
+	/// whatSnap starts, not on the running backend.
 	pub verbose_backend_logging: bool,
 	/// Whether the main window opens maximized the first time it is shown,
 	/// like Paperback's "Start maximized" option.

@@ -20,8 +20,9 @@ use crate::{
 	},
 	call_audio,
 	call_helpers::{
-		announce_call, call_participant_changes, call_window_title, get_status_rank, group_call_status_text,
-		incoming_call_description, parse_call_participants, peer_video_announcement, show_call_device_combos,
+		announce_call, call_participant_changes, call_window_title, caller_info_text, get_status_rank,
+		group_call_status_text, incoming_call_description, parse_call_participants, peer_video_announcement,
+		show_call_device_combos,
 	},
 	chat_ui::show_toast_notification,
 	contact_picker::{
@@ -1004,7 +1005,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				// shows but never takes focus and NVDA lands on nothing. A
 				// visible owner is what lets the owned dialog activate.
 				// Keep the frame hidden so the login dialog is the only top-level
-				// window while logged out. That way alt-tabbing to whaNTV activates
+				// window while logged out. That way alt-tabbing to whatSnap activates
 				// the dialog itself - a screen reader announces the window and its
 				// focused field in one step - instead of landing on an empty frame
 				// behind it and needing focus force-shifted into the dialog.
@@ -1025,7 +1026,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				if let Some(reason) = val.get("data").and_then(|d| d.get("reason")).and_then(|r| r.as_str()) {
 					MessageDialog::builder(
 						&parts.frame,
-						&format!("whaNTV was logged out of WhatsApp: {reason}"),
+						&format!("whatSnap was logged out of WhatsApp: {reason}"),
 						"Logged Out",
 					)
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
@@ -1492,6 +1493,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.call_parts.accept_btn.show(true);
 						parts.call_parts.reject_btn.show(true);
 						crate::ui_commands::call_extras::hide_call_buttons(parts);
+						let caller_phone = data.get("caller_phone").and_then(|p| p.as_str()).filter(|p| !p.is_empty());
+						parts.call_parts.caller_info.set_value(&caller_info_text(
+							&name,
+							caller_phone,
+							group_name.as_deref(),
+						));
+						parts.call_parts.caller_info.show(true);
 						parts.call_parts.mute_btn.show(false);
 						parts.call_parts.camera_btn.show(false);
 						crate::ui_commands::calls::hide_screen_share_controls(parts);
@@ -1627,7 +1635,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let speak = !s.conn_outage_announced || s.conn_manual_reconnect;
 						s.conn_outage_announced = true;
 						s.conn_manual_reconnect = false;
-						speak.then(|| format!("{reason} whaNTV will keep trying to reconnect."))
+						speak.then(|| format!("{reason} whatSnap will keep trying to reconnect."))
 					}
 					"stopped" => {
 						// The backend already raised an error dialog explaining
@@ -1664,9 +1672,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				// The phone limited what it shares with this computer.
 				let none = val.get("data").and_then(|d| d.get("none")).and_then(|v| v.as_bool()).unwrap_or(false);
 				let msg = if none {
-					"Your phone didn't share any message history with whaNTV. New messages will still arrive."
+					"Your phone didn't share any message history with whatSnap. New messages will still arrive."
 				} else {
-					"Your phone shared only your recent messages with whaNTV, not your full chat history. Older messages load from your phone when you scroll to the top of a chat."
+					"Your phone shared only your recent messages with whatSnap, not your full chat history. Older messages load from your phone when you scroll to the top of a chat."
 				};
 				MessageDialog::builder(&parts.frame, msg, "Chat history")
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
@@ -2218,17 +2226,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										} else {
 											format!("{}: {}", sender_name, body)
 										};
-										if let Some(n) = show_toast_notification(&chat_name, &toast_body) {
-											crate::chat_ui::record_notification(&mut s, jid, n);
-										}
+										crate::chat_ui::show_chat_notification(jid, &chat_name, &toast_body);
 									} else {
 										let sender_name = provided_sender
 											.or_else(|| s.contacts.get(&clean_from).cloned())
 											.or_else(|| s.contacts.get(from).cloned())
 											.unwrap_or_else(|| display_name_for_jid(&clean_from));
-										if let Some(n) = show_toast_notification(&sender_name, &body) {
-											crate::chat_ui::record_notification(&mut s, jid, n);
-										}
+										crate::chat_ui::show_chat_notification(jid, &sender_name, &body);
 									}
 								}
 							}
@@ -4300,13 +4304,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										s.settings.output_device_name.clone(),
 									);
 								}
-								if alert.toast
-									&& s.settings.notifications_enabled
-									&& let Some(n) = show_toast_notification(
+								if alert.toast && s.settings.notifications_enabled {
+									crate::chat_ui::show_chat_notification(
+										chat_jid,
 										&resolved_name,
 										&format!("Reacted {} to \"{}\"", emoji, whantv::friendly_preview_text(text)),
-									) {
-									crate::chat_ui::record_notification(&mut s, chat_jid, n);
+									);
 								}
 							}
 						}

@@ -1,4 +1,4 @@
-name: Build whaNTV
+name: Build whatSnap
 on:
   # Only master and pull requests into it build, to keep artifact storage under the quota.
   # Only master publishes a release (see the release job).
@@ -48,12 +48,12 @@ jobs:
         $iscc = Get-ChildItem "${env:ProgramFiles(x86)}", "$env:ProgramFiles" -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
         echo $iscc.DirectoryName >> $env:GITHUB_PATH
-    # Produces dist\whaNTV-<version>-portable.zip and dist\whaNTV-<version>-setup.exe.
+    # Produces dist\whatSnap-<version>-portable.zip and dist\whatSnap-<version>-setup.exe.
     - name: Build
       run: packaging\build-release.ps1
     - name: Check the build produced both packages
       run: |
-        foreach ($pattern in 'whaNTV-*-setup.exe', 'whaNTV-*-portable.zip') {
+        foreach ($pattern in 'whatSnap-*-setup.exe', 'whatSnap-*-portable.zip') {
           if (-not (Get-ChildItem dist -Filter $pattern)) { throw "dist\$pattern is missing" }
         }
         Get-ChildItem dist | Format-Table Name, Length
@@ -61,15 +61,15 @@ jobs:
       id: upload-setup
       uses: actions/upload-artifact@v7
       with:
-        name: whaNTV-windows-setup
-        path: dist/whaNTV-*-setup.exe
+        name: whatSnap-windows-setup
+        path: dist/whatSnap-*-setup.exe
         if-no-files-found: error
         retention-days: 1
     - name: Upload portable zip
       uses: actions/upload-artifact@v7
       with:
-        name: whaNTV-windows-portable
-        path: dist/whaNTV-*-portable.zip
+        name: whatSnap-windows-portable
+        path: dist/whatSnap-*-portable.zip
         if-no-files-found: error
         retention-days: 1
     - name: Link the installer in the run summary
@@ -96,12 +96,12 @@ jobs:
     - name: Download installer
       uses: actions/download-artifact@v8
       with:
-        name: whaNTV-windows-setup
+        name: whatSnap-windows-setup
         path: windows-build
     - name: Download portable zip
       uses: actions/download-artifact@v8
       with:
-        name: whaNTV-windows-portable
+        name: whatSnap-windows-portable
         path: windows-build
     - name: Get latest tag reachable from HEAD
       id: get_tag
@@ -148,8 +148,8 @@ jobs:
           ## Commits since last release
           ${{ steps.release_notes.outputs.commits }}
         files: |
-          windows-build/whaNTV-*-setup.exe
-          windows-build/whaNTV-*-portable.zip
+          windows-build/whatSnap-*-setup.exe
+          windows-build/whatSnap-*-portable.zip
         prerelease: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-//! A small PNG encoder for the pictures whaNTV makes itself (the pairing QR
+//! A small PNG encoder for the pictures whatSnap makes itself (the pairing QR
 //! code and video previews): 8-bit RGBA, each row with whichever PNG filter
 //! suits it best, compressed by `deflate` below.
 

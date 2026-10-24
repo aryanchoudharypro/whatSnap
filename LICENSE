@@ -2,7 +2,7 @@ MIT License
 
 Copyright (c) 2026 Aryan Choudhary
 
-This license covers the Rust frontend (whantv.exe) only. The Go backend in
+This license covers the Rust frontend (whatSnap.exe) only. The Go backend in
 backend/ is licensed under GPLv3 -- see backend/LICENSE and
 THIRD-PARTY-NOTICES.md.
 

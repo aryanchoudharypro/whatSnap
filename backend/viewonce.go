@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// View-once media. whatsmeow unwraps a view-once message before whaNTV sees
+// View-once media. whatsmeow unwraps a view-once message before whatSnap sees
 // it, so the stored protobuf looks like any other photo, video or voice note;
 // messages.view_once remembers what it was: 1 = not opened yet, 2 = opened.
 // As in the official apps it can be opened once, and never saved, copied or

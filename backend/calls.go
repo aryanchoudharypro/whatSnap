@@ -318,7 +318,7 @@ func initCallClient() {
 		activeCallsMutex.Lock()
 		// A call only leaves activeCalls through its OnEnd handler, and one
 		// that ended before attachCallHandlers registered it never gets
-		// there. Drop those here, or whaNTV stays "busy" and declines every
+		// there. Drop those here, or whatSnap stays "busy" and declines every
 		// call until it restarts.
 		for id, c := range activeCalls {
 			if c.State() == meowcaller.CallPhaseEnded {
@@ -359,9 +359,10 @@ func initCallClient() {
 		// "...@lid" string instead of a name. Resolve it here, where the
 		// LID -> PN -> contact-name fallback chain already lives.
 		payload := map[string]interface{}{
-			"call_id":     call.ID(),
-			"caller":      call.Peer().String(),
-			"caller_name": resolveDisplayName(call.Peer()),
+			"call_id":      call.ID(),
+			"caller":       call.Peer().String(),
+			"caller_name":  resolveDisplayName(call.Peer()),
+			"caller_phone": callerPhoneDigits(call.Peer()),
 			"is_group":    isGroupCall,
 			"is_video":    call.IsVideo(),
 		}
@@ -371,6 +372,22 @@ func initCallClient() {
 		}
 		broadcastEvent("incoming_call", payload)
 	})
+}
+
+// callerPhoneDigits is the caller's phone number, digits only, to show beside
+// their name on an incoming call. It's "" when we don't know it: a caller who
+// hides their number is a LID, and only a LID we've mapped to a number has one.
+func callerPhoneDigits(jid types.JID) string {
+	number := jid
+	if jid.Server == types.HiddenUserServer && wa() != nil && wa().Store != nil && wa().Store.LIDs != nil {
+		if mapped, err := wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !mapped.IsEmpty() {
+			number = mapped
+		}
+	}
+	if number.Server != types.DefaultUserServer {
+		return ""
+	}
+	return number.User
 }
 
 // placeGroupChatCall calls every other member of a WhatsApp group chat. A
@@ -658,7 +675,7 @@ func handleSetVideo(data []byte) {
 	log.Println("Set video for call:", req.CallID, "enabled:", req.Enabled)
 }
 
-// localScreenShare is what whaNTV has told a call about its own screen share.
+// localScreenShare is what whatSnap has told a call about its own screen share.
 type localScreenShare struct {
 	wanted    bool // the user is sharing; cleared when they stop
 	announced bool // the call's other participants were told

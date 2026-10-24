@@ -36,9 +36,9 @@ class TestCleanEnvLaunch(unittest.TestCase):
 			backend_in_isolated = os.path.join(isolated_dir, "backend.exe")
 			self.assertFalse(os.path.exists(backend_in_isolated))
 
-			whantv_exe = os.path.join("target", "debug", "whantv.exe")
+			whantv_exe = os.path.join("target", "debug", "whatSnap.exe")
 			if os.path.exists(whantv_exe):
-				copied_exe = os.path.join(isolated_dir, "whantv.exe")
+				copied_exe = os.path.join(isolated_dir, "whatSnap.exe")
 				shutil.copy2(whantv_exe, copied_exe)
 				self.assertTrue(os.path.exists(copied_exe))
 		finally:

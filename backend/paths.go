@@ -71,7 +71,7 @@ func appDataDir() string {
 		if err != nil || base == "" {
 			base = "."
 		}
-		appDataPath = filepath.Join(base, "whaNTV")
+		appDataPath = filepath.Join(base, "whatSnap")
 		os.MkdirAll(appDataPath, 0o700)
 	})
 	return appDataPath

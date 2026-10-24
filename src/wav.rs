@@ -1,5 +1,5 @@
 //! Reading and writing the 16-bit PCM WAV files voice messages are recorded
-//! to. That's the only kind whaNTV makes, so it's the only kind handled.
+//! to. That's the only kind whatSnap makes, so it's the only kind handled.
 
 use std::{
 	fs::File,

@@ -12,6 +12,7 @@ use windows::{
 };
 
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+// Kept as the old name so existing "start with Windows" entries still match.
 const VALUE_NAME: &str = "whaNTV";
 
 fn wide(s: &str) -> Vec<u16> {

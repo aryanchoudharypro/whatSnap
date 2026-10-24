@@ -27,8 +27,8 @@ type liveCall struct {
 	started   time.Time
 	connected time.Time
 	// How it ended, as far as only this device can tell.
-	localReject   bool // declined from whaNTV
-	localHangup   bool // hung up / cancelled from whaNTV
+	localReject   bool // declined from whatSnap
+	localHangup   bool // hung up / cancelled from whatSnap
 	rejectedByOwn bool // declined on another of our devices
 }
 

@@ -167,7 +167,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	tray_icon_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&tray_icon_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let autostart_check = CheckBox::builder(&general_panel).with_label("Start whaNTV when Windows starts").build();
+	let autostart_check = CheckBox::builder(&general_panel).with_label("Start whatSnap when Windows starts").build();
 	autostart_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&autostart_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
@@ -182,7 +182,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	let verbose_backend_logging_check = CheckBox::builder(&general_panel)
 		.with_label(
-			"Verbose backend logging, for troubleshooting connection issues (takes effect next time whaNTV starts)",
+			"Verbose backend logging, for troubleshooting connection issues (takes effect next time whatSnap starts)",
 		)
 		.build();
 	verbose_backend_logging_check.set_font(&theme::Fonts::body());

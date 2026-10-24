@@ -1,5 +1,5 @@
 <#
-    Builds whaNTV for release: both binaries, a portable zip, and the installer.
+    Builds whatSnap for release: both binaries, a portable zip, and the installer.
 
     Usage:
         packaging\build-release.ps1
@@ -31,7 +31,7 @@ if (-not $Version) {
         throw "Could not read version from Cargo.toml; pass -Version explicitly."
     }
 }
-Write-Host "Building whaNTV $Version" -ForegroundColor Cyan
+Write-Host "Building whatSnap $Version" -ForegroundColor Cyan
 
 foreach ($tool in 'cargo', 'go') {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
@@ -49,7 +49,7 @@ try {
     Pop-Location
 }
 
-$frontend = Join-Path $releaseDir 'whantv.exe'
+$frontend = Join-Path $releaseDir 'whatSnap.exe'
 $backend = Join-Path $releaseDir 'backend\backend.exe'
 foreach ($f in $frontend, $backend) {
     if (-not (Test-Path $f)) { throw "Expected build output missing: $f" }
@@ -72,7 +72,7 @@ New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 # backend.exe relative to its own directory, so a copied folder works with no
 # install step. Notification sounds are embedded in the exe.
 Write-Host "Staging portable zip..." -ForegroundColor Cyan
-$stage = Join-Path $distDir "whaNTV-$Version-portable"
+$stage = Join-Path $distDir "whatSnap-$Version-portable"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stage, "$stage\backend" | Out-Null
 
@@ -82,7 +82,7 @@ Copy-Item (Join-Path $repo 'LICENSE') $stage
 Copy-Item (Join-Path $repo 'backend\LICENSE') "$stage\backend"
 Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $stage
 
-$zip = Join-Path $distDir "whaNTV-$Version-portable.zip"
+$zip = Join-Path $distDir "whatSnap-$Version-portable.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
 Remove-Item $stage -Recurse -Force
@@ -106,10 +106,10 @@ if (-not $SkipInstaller) {
         Write-Warning "Inno Setup (ISCC.exe) not found - skipping installer. Install from https://jrsoftware.org/isdl.php"
     } else {
         Write-Host "Building installer..." -ForegroundColor Cyan
-        & $iscc "/DAppVersion=$Version" (Join-Path $PSScriptRoot 'whantv.iss')
+        & $iscc "/DAppVersion=$Version" (Join-Path $PSScriptRoot 'whatSnap.iss')
         if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
-        $setup = Join-Path $distDir "whaNTV-$Version-setup.exe"
+        $setup = Join-Path $distDir "whatSnap-$Version-setup.exe"
         if ($SignCommand -and (Test-Path $setup)) {
             Invoke-Expression ($SignCommand -f $setup)
             if ($LASTEXITCODE -ne 0) { throw "Signing failed for $setup" }

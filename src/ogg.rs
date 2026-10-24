@@ -1,4 +1,4 @@
-//! Writes Ogg pages (RFC 3533) for the Opus voice notes whaNTV sends.
+//! Writes Ogg pages (RFC 3533) for the Opus voice notes whatSnap sends.
 //! Reading them is done inline by `audio::decode_opus`.
 
 use std::io::{self, Write};

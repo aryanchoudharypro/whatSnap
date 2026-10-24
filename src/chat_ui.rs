@@ -17,19 +17,17 @@ use crate::{
 	ui::window::WindowParts,
 };
 
-/// Shows a native desktop notification. Must be called on the wx main/GUI
-/// thread - wx (and the underlying WinRT toast COM calls) aren't thread-safe.
-/// Returns the shown notification (kept alive by the caller and closeable
-/// later via `NotificationMessage::close`, e.g. once the user opens the chat
-/// it was for) so it can be dismissed from Action Center on demand, the way
-/// official WhatsApp clears a chat's notifications the moment you read it.
-pub(crate) fn show_toast_notification(title: &str, body: &str) -> Option<wxdragon::prelude::NotificationMessage> {
+/// Shows a plain desktop notification (the catch-up summary and incoming
+/// calls, which have no chat to file under). Must be called on the wx
+/// main/GUI thread - wx (and the underlying WinRT toast COM calls) aren't
+/// thread-safe. Message toasts go through [`show_chat_notification`].
+pub(crate) fn show_toast_notification(title: &str, body: &str) {
 	// Debounce toast notifications globally to max 1 per second to avoid flooding on startup
 	static LAST_TOAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 	let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
 	let last = LAST_TOAST.swap(now, std::sync::atomic::Ordering::Relaxed);
 	if now - last < 1000 {
-		return None;
+		return;
 	}
 
 	// `with_generic(false)` opts into the native backend, which uses the modern
@@ -43,11 +41,9 @@ pub(crate) fn show_toast_notification(title: &str, body: &str) -> Option<wxdrago
 	{
 		Ok(notification) => {
 			notification.show(wxdragon::prelude::TIMEOUT_AUTO);
-			Some(notification)
 		}
 		Err(err) => {
 			eprintln!("[NOTIFY] Failed to build notification: {:?}", err);
-			None
 		}
 	}
 }
@@ -93,39 +89,21 @@ pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 	}
 }
 
-/// Toasts kept per chat so opening it can dismiss them.
-///
-/// Set well above what Windows itself retains in Action Center for one app: a
-/// toast Windows has already dropped cannot be dismissed anyway, so a lower cap
-/// buys no memory back but does leave real, still-visible notifications
-/// stranded for a chat the user has just read - noise for anyone reviewing
-/// Action Center with a screen reader. The cap exists only so a chat that is
-/// never opened cannot pin native objects for the whole session.
-const MAX_TRACKED_NOTIFICATIONS_PER_CHAT: usize = 40;
-/// Chats tracked at once, for the same reason.
-const MAX_TRACKED_NOTIFICATION_CHATS: usize = 128;
+/// Shows a message toast for `jid`. Its click and "Mark as read" button both go
+/// back through the app's own `whatsnap://` link handling, and opening the chat
+/// removes its toasts from Action Center (see [`clear_chat_notifications`]).
+/// Falls back to a plain notification if the WinRT toast can't be shown.
+pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str) {
+	if let Err(err) = crate::toast::show_chat_toast(jid, title, body) {
+		eprintln!("[NOTIFY] Chat toast failed, showing a plain notification: {err:?}");
+		show_toast_notification(title, body);
+	}
+}
 
-/// Files a just-shown toast under `jid` so `open_chat_for_jid` can dismiss it,
-/// evicting older entries to keep the bookkeeping bounded.
-///
-/// Evicted entries are dropped rather than `close`d: dropping frees the native
-/// wrapper while leaving the toast itself in Action Center, whereas closing
-/// would yank a notification the user may not have read yet.
-pub(crate) fn record_notification(s: &mut AppState, jid: &str, notification: wxdragon::prelude::NotificationMessage) {
-	if s.active_notifications.len() >= MAX_TRACKED_NOTIFICATION_CHATS && !s.active_notifications.contains_key(jid) {
-		// Any chat but the one we are filing under - it is the one most
-		// likely to be opened next, so it is the one worth keeping.
-		let evict = s.active_notifications.keys().find(|k| k.as_str() != jid).cloned();
-		if let Some(key) = evict {
-			s.active_notifications.remove(&key);
-		}
-	}
-	let entry = s.active_notifications.entry(jid.to_string()).or_default();
-	entry.push(notification);
-	if entry.len() > MAX_TRACKED_NOTIFICATIONS_PER_CHAT {
-		let overflow = entry.len() - MAX_TRACKED_NOTIFICATIONS_PER_CHAT;
-		entry.drain(0..overflow);
-	}
+/// Removes the chat's toasts from Action Center, so opening the chat or using
+/// "Mark as read" clears them, the way official WhatsApp does.
+pub(crate) fn clear_chat_notifications(jid: &str) {
+	crate::toast::clear_chat_toasts(jid);
 }
 
 pub(crate) fn request_backend_shutdown(pipe_id: &str) {
@@ -272,11 +250,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	crate::ui::window::refresh_menu_bar(&s, &parts.frame);
 	// Mirrors official WhatsApp: opening a chat clears any of its
 	// notifications still sitting in Action Center.
-	if let Some(notifications) = s.active_notifications.remove(jid) {
-		for notification in notifications {
-			notification.close();
-		}
-	}
+	clear_chat_notifications(jid);
 	let unread = s.unread_counts.get(jid).copied().unwrap_or(0);
 	s.unread_divider_jid = if unread > 0 { Some(jid.to_string()) } else { None };
 	s.unread_divider_count = unread;

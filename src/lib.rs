@@ -1445,7 +1445,7 @@ pub fn unread_chat_count<'a>(
 /// app's identity and nothing else - install the icon carrying a count and that
 /// count is stuck in the announcement forever, however stale it goes
 /// ("No unread messages, 7 unread messages").
-pub const TRAY_APP_NAME: &str = "whaNTV";
+pub const TRAY_APP_NAME: &str = "whatSnap";
 
 /// Tooltip text for the tray icon, written over it as the unread count changes.
 /// A screen reader reads this out after [`TRAY_APP_NAME`] when the icon is
@@ -1455,7 +1455,7 @@ pub const TRAY_APP_NAME: &str = "whaNTV";
 /// purely visual.
 ///
 /// Carries no app name of its own: it is read as the second half of
-/// "whaNTV, 7 unread messages", and naming whaNTV again here is what made the
+/// "whatSnap, 7 unread messages", and naming whatSnap again here is what made the
 /// icon stutter its own name.
 pub fn tray_tooltip_text(unread: u64) -> String {
 	match unread {
@@ -1467,7 +1467,7 @@ pub fn tray_tooltip_text(unread: u64) -> String {
 
 /// How old a message has to be on arrival to count as part of a backlog rather
 /// than as live traffic. A live message lands within a second or two of being
-/// sent; anything this stale was queued on the server while whaNTV was closed or
+/// sent; anything this stale was queued on the server while whatSnap was closed or
 /// offline and is now being replayed in a burst.
 pub const BACKLOG_MESSAGE_AGE_SECS: i64 = 60;
 
@@ -1478,7 +1478,7 @@ pub fn is_backlog_message(timestamp: i64, now: i64) -> bool {
 	timestamp > 0 && now - timestamp > BACKLOG_MESSAGE_AGE_SECS
 }
 
-/// What piled up while whaNTV was away, tallied as the backlog is replayed so
+/// What piled up while whatSnap was away, tallied as the backlog is replayed so
 /// it can be answered with one sound and one notification once the replay goes
 /// quiet, instead of one of each per message.
 ///

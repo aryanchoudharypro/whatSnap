@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// windowsAppBuild is the build number of the WhatsApp Windows app whaNTV
+// windowsAppBuild is the build number of the WhatsApp Windows app whatSnap
 // presents itself as. The app hands it to WhatsApp Web as the windowsBuild
 // query parameter: Store version 2.2639.100.0 is 263900, 2.2638.102.0 was
 // 263802 (minor version, then the third part minus 100 as two digits).
@@ -30,13 +30,13 @@ const webViewFallbackMajor = 155
 // webView2ClientKey is where the WebView2 runtime records its version.
 const webView2ClientKey = `Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
 
-// applyClientIdentity makes what whaNTV tells WhatsApp about what it is
+// applyClientIdentity makes what whatSnap tells WhatsApp about what it is
 // describe the Windows app, which is WhatsApp Web in a WebView
 // (WAWebEnvironment.isWindows), as far as calls allow. WA Web builds exactly
 // two identities (WAWebClientPayload): a browser, or the Windows app with
 // platform UWP in the device props together with sub-platform WIN_HYBRID, a
 // four-part version and the build's digits as mcc/mnc in the login payload.
-// whaNTV sends the second except for the sub-platform.
+// whatSnap sends the second except for the sub-platform.
 //
 // The device props only go out when linking; the login payload on every
 // connect.

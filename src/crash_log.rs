@@ -1,4 +1,4 @@
-//! Leaves a trace when whaNTV goes down. Panics are appended to panic.log,
+//! Leaves a trace when whatSnap goes down. Panics are appended to panic.log,
 //! with when and on which thread, instead of each one overwriting the last
 //! (quitting the app can itself panic while Windows tears its threads down,
 //! which used to replace the crash that mattered). Native faults, such as an

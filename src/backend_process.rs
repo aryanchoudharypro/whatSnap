@@ -1,4 +1,4 @@
-//! Owns the Go backend process and brings it back if it dies while whaNTV is
+//! Owns the Go backend process and brings it back if it dies while whatSnap is
 //! still running. Without this a backend crash left the UI up but inert: the
 //! pipe thread kept retrying a pipe nobody was listening on any more, and the
 //! only fix was restarting the whole app.

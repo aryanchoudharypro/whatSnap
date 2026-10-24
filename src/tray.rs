@@ -21,7 +21,7 @@ use crate::{AppState, ui::window::WindowParts};
 /// accessible name from the tooltip it was *added* with and sends every later
 /// change to the description, so adding the icon under [`whantv::TRAY_APP_NAME`]
 /// and only then writing counts is what makes a screen reader say
-/// "whaNTV, 7 unread messages" instead of pairing the live count with whatever
+/// "whatSnap, 7 unread messages" instead of pairing the live count with whatever
 /// it happened to be at login.
 pub(crate) fn install_tray_icon(s: &AppState, parts: &WindowParts) {
 	if !s.settings.show_tray_icon || !s.main_ui_shown {
@@ -45,7 +45,7 @@ pub(crate) fn enter_release_guard() -> std::rc::Rc<std::cell::Cell<bool>> {
 }
 
 /// Brings the main window back: from the tray (the icon or the menu's Open
-/// item) or when launching whaNTV again, say from the Start menu. When Enter is
+/// item) or when launching whatSnap again, say from the Start menu. When Enter is
 /// what did it, its release lands on whatever regains focus - the chat list,
 /// which opens a chat on Enter's release - so the Enter guard is armed to
 /// swallow it.
@@ -271,7 +271,7 @@ thread_local! {
 
 /// What to do when the taskbar is recreated (Explorer restarting, or a display
 /// or DPI change). Left to wx, the icon comes back carrying its last tooltip,
-/// so the shell names it "20 unread messages" instead of "whaNTV", and at
+/// so the shell names it "20 unread messages" instead of "whatSnap", and at
 /// version 0 again. Returns false to let wx handle it after all.
 pub(crate) fn set_on_taskbar_created(f: impl Fn() -> bool + 'static) {
 	ON_TASKBAR_CREATED.with(|cell| *cell.borrow_mut() = Some(Box::new(f)));

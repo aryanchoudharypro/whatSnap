@@ -827,7 +827,7 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 	// The phone answers with what comes before the oldest message it's
 	// told about, so that has to be a real WhatsApp message it knows:
 	// the chat's oldest stored one, skipping the group-event and
-	// call-history rows whaNTV makes up itself. Chosen here rather than
+	// call-history rows whatSnap makes up itself. Chosen here rather than
 	// trusting the UI's pick - it used to send its first row, which is
 	// always a date divider with no ID, so the lookup failed and the
 	// request was silently never sent at all.
@@ -939,7 +939,7 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 }
 
 // emptyChatHistoryAsked is the chats with no stored message whose history
-// has been asked for since whaNTV started.
+// has been asked for since whatSnap started.
 var emptyChatHistoryAsked sync.Map
 
 // requestHistoryForEmptyChat asks the phone for the latest messages of a
@@ -1035,7 +1035,7 @@ type historyAnchor struct {
 }
 
 // oldestHistoryAnchor is the chat's oldest real WhatsApp message (not one of
-// the group-event or call rows whaNTV makes up). With exclude set, it's the
+// the group-event or call rows whatSnap makes up). With exclude set, it's the
 // oldest other than those, preferring plain ones: not deleted, not media, not
 // part of an album, falling back to any other message.
 func oldestHistoryAnchor(jid string, exclude []string) (historyAnchor, error) {

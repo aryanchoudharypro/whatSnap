@@ -1,4 +1,4 @@
-// whaNTV backend -- WhatsApp protocol service for the whaNTV client.
+// whatSnap backend -- WhatsApp protocol service for the whatSnap client.
 // Copyright (C) 2026 Aryan Choudhary
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -46,7 +46,7 @@ var (
 	wsClients   = make(map[net.Conn]bool)
 	wsMutex          sync.Mutex
 	pairingCode      string
-	dbPathFlag       = flag.String("db", "", "SQLite db path (default: %LOCALAPPDATA%\\whaNTV\\session.db)")
+	dbPathFlag       = flag.String("db", "", "SQLite db path (default: %LOCALAPPDATA%\\whatSnap\\session.db)")
 	pipeFlag         = flag.String("pipe", "", "Named pipe to listen on")
 	verboseLogFlag   = flag.Bool("verbose-logging", false,
 		"Log every WhatsApp protocol frame and SQL query (DEBUG level) instead of just warnings/errors")
@@ -91,7 +91,7 @@ func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	c.AutomaticMessageRerequestFromPhone = true
 	c.UseRetryMessageStore = true
 	// Keeps each decrypted message's plaintext until it has been handled.
-	// Without it, closing whaNTV between decrypting a message (which advances
+	// Without it, closing whatSnap between decrypting a message (which advances
 	// the Signal session for good) and acking it meant the server redelivered
 	// it on the next connect, it no longer decrypted, and it was dropped.
 	c.EnableDecryptedEventBuffer = true
@@ -257,7 +257,7 @@ func main() {
 	}
 	removeOrphanedDeviceRows()
 
-	// whaNTV presents itself as the Windows app (see applyClientIdentity) -
+	// whatSnap presents itself as the Windows app (see applyClientIdentity) -
 	// the same branch of WA Web that turns on RequireFullSync and the phone's
 	// history-length choice below. These are only sent in the registration
 	// payload, so they take effect on the next link, never on an existing

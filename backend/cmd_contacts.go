@@ -336,7 +336,7 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 		// Push the contact to WhatsApp's own contact-sync (the same app-state
 		// patch official WhatsApp Web sends when you add a contact), so it
 		// actually shows up in the linked phone's WhatsApp/address book
-		// instead of only being cached locally by whaNTV. Best-effort: the
+		// instead of only being cached locally by whatSnap. Best-effort: the
 		// contact was already created successfully above either way, so a
 		// failure here is only logged, not surfaced as an error to the user.
 		if data.Sync {
@@ -407,7 +407,7 @@ func handleDeleteContact(conn net.Conn, raw json.RawMessage) {
 // syncContactToPhone sends the "contact" app-state patch(es) WhatsApp Web
 // itself sends when adding a contact: collection critical_unblock_low, with
 // SaveOnPrimaryAddressbook set so the linked phone actually saves it to its
-// address book rather than whaNTV's cache staying the only place that knows
+// address book rather than whatSnap's cache staying the only place that knows
 // about it.
 //
 // Captured from a real WhatsApp Web session's own patch (via temporary debug
