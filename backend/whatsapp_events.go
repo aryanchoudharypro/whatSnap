@@ -438,6 +438,9 @@ func extractTextRaw(msg *waE2E.Message) string {
 	if msg.GetLimitSharingMessage() != nil || msg.GetAcp2SettingMessage() != nil {
 		return "[Protocol Message]"
 	}
+	if notice := msg.GetMessageHistoryNotice(); notice != nil {
+		return messageHistoryNoticeText(notice, types.EmptyJID)
+	}
 	// Bookkeeping with nothing to show as a bubble of its own: pinning or
 	// keeping a message, an RSVP to an event, a comment under a channel post,
 	// sticker-sync and scheduled-call edits. Left unhandled they were stored as
@@ -445,7 +448,7 @@ func extractTextRaw(msg *waE2E.Message) string {
 	if msg.GetPinInChatMessage() != nil || msg.GetKeepInChatMessage() != nil ||
 		msg.GetEncEventResponseMessage() != nil || msg.GetEncCommentMessage() != nil ||
 		msg.GetStickerSyncRmrMessage() != nil || msg.GetScheduledCallEditMessage() != nil ||
-		msg.GetCallLogMesssage() != nil {
+		msg.GetCallLogMesssage() != nil || msg.GetMessageHistoryBundle() != nil {
 		return "[Protocol Message]"
 	}
 	if msg.GetProtocolMessage() != nil {
@@ -1895,6 +1898,17 @@ func eventHandler(evt interface{}) {
 			return
 		}
 
+		if notice := unwrappedMsg.GetMessageHistoryNotice(); notice != nil {
+			chat, _ := resolveLIDChat(v)
+			text := messageHistoryNoticeText(notice, v.Info.Sender)
+			insertGroupSystemMessage(chat.String(), v.Info.ID, text, v.Info.Timestamp)
+			return
+		}
+
+		if unwrappedMsg.GetMessageHistoryBundle() != nil {
+			return
+		}
+
 		if isKeyDistributionOnly(unwrappedMsg) {
 			return
 		}
@@ -3146,6 +3160,37 @@ func historyStubText(webMsg *waWeb.WebMessageInfo) string {
 		return "Group created"
 	}
 	return ""
+}
+
+// messageHistoryNoticeText renders the system notice when recent group history
+// is shared with newly added participants.
+func messageHistoryNoticeText(notice *waE2E.MessageHistoryNotice, sender types.JID) string {
+	if notice == nil {
+		return ""
+	}
+	var receiverJIDs []types.JID
+	if meta := notice.GetMessageHistoryMetadata(); meta != nil {
+		for _, r := range meta.GetHistoryReceivers() {
+			if jid, err := types.ParseJID(r); err == nil && jid.User != "" {
+				receiverJIDs = append(receiverJIDs, preferPN(jid))
+			}
+		}
+	}
+	receivers := joinedNamesList(receiverJIDs)
+	actor := ""
+	if !sender.IsEmpty() {
+		actor = nameToken(preferPN(sender))
+	}
+	switch {
+	case actor != "" && receivers != "":
+		return fmt.Sprintf("%s shared recent message history with %s", actor, receivers)
+	case receivers != "":
+		return fmt.Sprintf("Recent message history was shared with %s", receivers)
+	case actor != "":
+		return fmt.Sprintf("%s shared recent message history", actor)
+	default:
+		return "Recent message history was shared"
+	}
 }
 
 // insertGroupSystemMessage stores a synthesized "X added Y"-style line as a

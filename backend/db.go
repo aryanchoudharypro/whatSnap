@@ -844,7 +844,7 @@ func backfillMediaSizes() {
 // smarter) extractors over it recovers them in place - no history resync, and
 // nothing to do on a DB that has none of them.
 func backfillTemplateMessages() {
-	rows, err := db.Query(`SELECT id, jid, raw FROM messages
+	rows, err := db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), raw FROM messages
 		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
 	if err != nil {
 		return
@@ -858,13 +858,23 @@ func backfillTemplateMessages() {
 	// as bubbles and that are now known to show nothing.
 	var bookkeeping []string
 	for rows.Next() {
-		var id, jid string
+		var id, jid, senderStr string
 		var raw []byte
-		if rows.Scan(&id, &jid, &raw) != nil {
+		if rows.Scan(&id, &jid, &senderStr, &raw) != nil {
 			continue
 		}
 		msg := &waE2E.Message{}
 		if proto.Unmarshal(raw, msg) != nil {
+			continue
+		}
+		if notice := msg.GetMessageHistoryNotice(); notice != nil {
+			senderJID, _ := types.ParseJID(senderStr)
+			text := messageHistoryNoticeText(notice, senderJID)
+			fixed = append(fixed, recovered{id, jid, text, "system", "", "", 0})
+			continue
+		}
+		if msg.GetMessageHistoryBundle() != nil {
+			bookkeeping = append(bookkeeping, id)
 			continue
 		}
 		text := extractText(msg)

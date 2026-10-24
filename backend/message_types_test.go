@@ -28,10 +28,11 @@ func TestVideoNoteIsAVideo(t *testing.T) {
 
 func TestBookkeepingMessagesAreNotShown(t *testing.T) {
 	for name, msg := range map[string]*waE2E.Message{
-		"pin":        {PinInChatMessage: &waE2E.PinInChatMessage{}},
-		"keep":       {KeepInChatMessage: &waE2E.KeepInChatMessage{}},
-		"event rsvp": {EncEventResponseMessage: &waE2E.EncEventResponseMessage{}},
-		"comment":    {EncCommentMessage: &waE2E.EncCommentMessage{}},
+		"pin":            {PinInChatMessage: &waE2E.PinInChatMessage{}},
+		"keep":           {KeepInChatMessage: &waE2E.KeepInChatMessage{}},
+		"event rsvp":     {EncEventResponseMessage: &waE2E.EncEventResponseMessage{}},
+		"comment":        {EncCommentMessage: &waE2E.EncCommentMessage{}},
+		"history bundle": {MessageHistoryBundle: &waE2E.MessageHistoryBundle{}},
 	} {
 		if got := extractTextRaw(msg); got != "[Protocol Message]" {
 			t.Errorf("%s: got %q", name, got)
@@ -96,5 +97,18 @@ func TestGroupSettingLines(t *testing.T) {
 	if lines := groupChangeMessages(&events.GroupInfo{Topic: &types.GroupTopic{TopicDeleted: true}}); len(lines) != 1 ||
 		lines[0] != "Someone deleted the group description" {
 		t.Errorf("senderless topic delete = %q", lines)
+	}
+}
+
+func TestMessageHistoryNotice(t *testing.T) {
+	notice := &waE2E.MessageHistoryNotice{
+		MessageHistoryMetadata: &waE2E.MessageHistoryMetadata{
+			HistoryReceivers: []string{"919800000005@s.whatsapp.net"},
+		},
+	}
+	sender, _ := types.ParseJID("919800000006@s.whatsapp.net")
+	got := messageHistoryNoticeText(notice, sender)
+	if !strings.Contains(got, "shared recent message history with") || !strings.Contains(got, "919800000005") {
+		t.Fatalf("notice text = %q", got)
 	}
 }
