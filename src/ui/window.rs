@@ -1612,9 +1612,13 @@ pub fn bind_input_handlers(
 			let s = state_chat_menu.borrow();
 			let Some(jid) = s.selected_chat.clone() else { return };
 			if id == MENU_ID_MUTE_CHAT {
-				let mute = !s.muted_jids.contains(&jid);
+				let muted = s.muted_jids.contains(&jid);
 				drop(s);
-				let _ = tx_chat_menu.send(UiCommand::ToggleMuteChat { jid, mute });
+				let _ = tx_chat_menu.send(if muted {
+					UiCommand::ToggleMuteChat { jid, mute: false, seconds: 0 }
+				} else {
+					UiCommand::ChooseMuteDuration { jid }
+				});
 			} else if id == MENU_ID_ARCHIVE_CHAT {
 				let archive = !s.archived_jids.contains(&jid);
 				drop(s);
@@ -2975,6 +2979,7 @@ pub fn bind_input_handlers(
 			let archive_id = 4002;
 			let lock_id = 4012;
 			let mute_id = 4003;
+			let mute_for_id = 4018;
 			let read_id = 4004;
 			let delete_id = 4005;
 			let clear_id = 4013;
@@ -3010,14 +3015,12 @@ pub fn bind_input_handlers(
 				let pin_label = if is_pinned { "Un&pin chat" } else { "&Pin chat" };
 				let archive_label = if is_archived { "&Unarchive chat" } else { "&Archive chat" };
 				let lock_label = if is_locked { "Un&lock chat" } else { "&Lock chat" };
-				let mute_label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
 				let read_label = if is_unread { "Mark as &read" } else { "Mark as &unread" };
 
 				menu_builder = menu_builder
 					.append_item(pin_id, pin_label, "Pin or unpin chat")
 					.append_item(archive_id, archive_label, "Archive or unarchive chat")
 					.append_item(lock_id, lock_label, "Lock or unlock chat")
-					.append_item(mute_id, mute_label, "Mute or unmute notifications")
 					.append_item(read_id, read_label, "Mark chat as read or unread");
 				if !jid.ends_with("@broadcast") {
 					let favorite_label = if is_favorite { "Remove from fa&vorites" } else { "Add to fa&vorites" };
@@ -3063,6 +3066,22 @@ pub fn bind_input_handlers(
 				menu_builder = menu_builder.append_item(delete_id, "&Delete chat...", "Delete chat history");
 
 				let mut popup_menu = menu_builder.build();
+
+				// Muting asks how long for, as on WhatsApp Web; unmuting and
+				// channels (which have no lengths) stay one item. It goes after
+				// pin, archive and lock either way.
+				if is_muted || !crate::ui_commands::chat_list::has_mute_durations(&jid) {
+					let label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
+					popup_menu.insert(3, mute_id, label, "Mute or unmute notifications", ItemKind::Normal);
+				} else {
+					let ui_tx_mute = ui_tx_chat_ctx.clone();
+					let jid_mute = jid.clone();
+					let mute_menu = crate::ui_commands::chat_list::mute_duration_menu(mute_for_id, move |seconds| {
+						let _ =
+							ui_tx_mute.send(UiCommand::ToggleMuteChat { jid: jid_mute.clone(), mute: true, seconds });
+					});
+					popup_menu.insert_submenu(3, mute_menu, "&Mute notifications", "Choose how long to mute this chat");
+				}
 
 				// Archived chats are silent by default; this submenu is where one
 				// gets dialled back up. It has to be appended after `build()`
@@ -3141,7 +3160,11 @@ pub fn bind_input_handlers(
 					} else if id == block_id {
 						let _ = ui_tx_clone.send(UiCommand::ToggleBlockChat { jid: jid_clone.clone() });
 					} else if id == mute_id {
-						let _ = ui_tx_clone.send(UiCommand::ToggleMuteChat { jid: jid_clone.clone(), mute: !is_muted });
+						let _ = ui_tx_clone.send(UiCommand::ToggleMuteChat {
+							jid: jid_clone.clone(),
+							mute: !is_muted,
+							seconds: 0,
+						});
 					} else if id == read_id {
 						let _ =
 							ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: !is_unread });

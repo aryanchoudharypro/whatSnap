@@ -286,9 +286,15 @@ pub enum UiCommand {
 		jid: String,
 		lock: bool,
 	},
+	/// Mutes for `seconds` (0 means always) or unmutes.
 	ToggleMuteChat {
 		jid: String,
 		mute: bool,
+		seconds: u64,
+	},
+	/// Conversation menu's Mute Chat: pick how long to mute the open chat for.
+	ChooseMuteDuration {
+		jid: String,
 	},
 	/// Chat menu's Disappearing Messages: pick a timer for the open chat.
 	ChooseDisappearingTimer {

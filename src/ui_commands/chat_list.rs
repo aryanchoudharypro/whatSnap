@@ -822,7 +822,62 @@ pub(crate) fn set_archived_alert(
 	);
 }
 
-pub(crate) fn toggle_mute_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, mute: bool) {
+/// WhatsApp Web's mute lengths (`WAWebMuteExpirations`): menu label, how
+/// long it's said to last, and seconds, where 0 is "Always" - a mute with no
+/// end.
+pub(crate) const MUTE_DURATIONS: [(&str, &str, u64); 3] =
+	[("&8 hours", " for 8 hours", 8 * 3600), ("1 &week", " for 1 week", 168 * 3600), ("&Always", "", 0)];
+
+/// Channels have no mute lengths on WhatsApp Web: muting one is a toggle.
+pub(crate) fn has_mute_durations(jid: &str) -> bool {
+	!jid.ends_with("@newsletter")
+}
+
+/// The "Mute notifications" submenu, its items numbered from `first_id` in
+/// [`MUTE_DURATIONS`] order. A submenu's choice never reaches its parent's
+/// handler, so `on_choice` gets the picked length in seconds.
+pub(crate) fn mute_duration_menu(first_id: i32, on_choice: impl Fn(u64) + 'static) -> Menu {
+	let mut builder = Menu::builder();
+	for (i, (label, _, _)) in MUTE_DURATIONS.iter().enumerate() {
+		builder = builder.append_item(first_id + i as i32, label, "Mute notifications from this chat");
+	}
+	let menu = builder.build();
+	menu.on_selected(move |evt| {
+		let picked = usize::try_from(evt.get_id() - first_id).ok().and_then(|i| MUTE_DURATIONS.get(i));
+		if let Some(&(_, _, seconds)) = picked {
+			on_choice(seconds);
+		}
+	});
+	menu
+}
+
+/// The Conversation menu's Mute Chat on a chat that isn't muted: the mute
+/// lengths pop up as a menu of their own, as the chat list's submenu has them.
+pub(crate) fn choose_mute_duration(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
+	if !has_mute_durations(&jid) {
+		toggle_mute_chat(state, parts, jid, true, 0);
+		return;
+	}
+	let state_menu = state.clone();
+	let parts_menu = parts.clone();
+	let mut menu = mute_duration_menu(MUTE_DURATION_POPUP_ID, move |seconds| {
+		toggle_mute_chat(&state_menu, &parts_menu, jid.clone(), true, seconds)
+	});
+	parts.frame.popup_menu(&mut menu, None);
+	menu.destroy_menu();
+	crate::tray::enter_release_guard().set(true);
+}
+
+const MUTE_DURATION_POPUP_ID: i32 = 4601;
+
+/// Mutes for `seconds` (0 means always), or unmutes, which ignores `seconds`.
+pub(crate) fn toggle_mute_chat(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	jid: String,
+	mute: bool,
+	seconds: u64,
+) {
 	let chat_name = {
 		let mut s = state.borrow_mut();
 		if mute {
@@ -832,19 +887,23 @@ pub(crate) fn toggle_mute_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 		s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
 	};
+	let seconds = if mute { seconds } else { 0 };
 	let payload = serde_json::json!({
 		"action": "set_chat_muted",
 		"data": {
 			"jid": jid,
 			"muted": mute,
-			"duration_seconds": 0
+			"duration_seconds": seconds
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Notifications {} for {}.", if mute { "muted" } else { "unmuted" }, chat_name),
-	);
+	let how_long = MUTE_DURATIONS.iter().find(|(_, _, s)| *s == seconds).map_or("", |(_, how_long, _)| how_long);
+	let spoken = if mute {
+		format!("Notifications from {} muted{}.", chat_name, how_long)
+	} else {
+		format!("Notifications from {} unmuted.", chat_name)
+	};
+	crate::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
 pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, read: bool) {
