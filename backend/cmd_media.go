@@ -660,6 +660,44 @@ func attachmentTooLargeText(mediaType string, size, limit int64) string {
 	return fmt.Sprintf("This file is %s; WhatsApp sends files up to %s.", mb(size), mb(limit))
 }
 
+// phonePlayableAudio reports whether receivers accept an audio message of
+// this type. WA Web checks every incoming audio and voice message against
+// WAWebMmsMediaTypes.getValidMimeTypes and rejects any other type, even
+// though its own attach menu lists audio/wav.
+func phonePlayableAudio(mimetype string) bool {
+	switch mimetype {
+	case "audio/ogg; codecs=opus", "audio/mp4", "audio/mpeg", "audio/aac", "audio/amr":
+		return true
+	}
+	return false
+}
+
+// stampUploadedMedia adds what WA Web puts in every media message it
+// uploads besides the upload fields: when the media key was made, and for
+// audio and video the streaming sidecar phones check as they play the file
+// while it downloads (WAWebPttGenerateAudioOrPttMessageProto and the other
+// generators). Channel media is unencrypted and carries neither.
+func stampUploadedMedia(msg *waE2E.Message, uploaded whatsmeow.UploadResponse) {
+	if len(uploaded.MediaKey) == 0 {
+		return
+	}
+	keyTime := proto.Int64(time.Now().Unix())
+	switch {
+	case msg.ImageMessage != nil:
+		msg.ImageMessage.MediaKeyTimestamp = keyTime
+	case msg.VideoMessage != nil:
+		msg.VideoMessage.MediaKeyTimestamp = keyTime
+		msg.VideoMessage.StreamingSidecar = uploaded.StreamingSidecar
+	case msg.AudioMessage != nil:
+		msg.AudioMessage.MediaKeyTimestamp = keyTime
+		msg.AudioMessage.StreamingSidecar = uploaded.StreamingSidecar
+	case msg.StickerMessage != nil:
+		msg.StickerMessage.MediaKeyTimestamp = keyTime
+	case msg.DocumentMessage != nil:
+		msg.DocumentMessage.MediaKeyTimestamp = keyTime
+	}
+}
+
 // audioMimetype labels an audio attachment the way WhatsApp Web does. Web
 // sends audio messages only as these types (its media-type table in
 // WAWebMimeTypes: audio/aac, audio/mp4, audio/amr, audio/mpeg,
@@ -1073,6 +1111,13 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	}
 	if mediaType == "audio" {
 		mimetype = audioMimetype(mimetype, filename, header[:n])
+		if !phonePlayableAudio(mimetype) {
+			// A WAV or Ogg Vorbis file would arrive as an audio message
+			// the receiver throws away, so it goes as a document.
+			mediaType, waMediaType = "document", whatsmeow.MediaDocument
+			displayText = attachmentDisplayText(mediaType, filename, caption, seconds)
+			db.Exec(`UPDATE messages SET media_type = ? WHERE id = ?`, mediaType, id)
+		}
 	}
 
 	if conn != nil {
@@ -1243,6 +1288,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		}
 		msg = &waE2E.Message{DocumentMessage: docMsg}
 	}
+	stampUploadedMedia(msg, uploaded)
 
 	msg = applyDisappearingTimer(jid, msg)
 	// WA Web sends a view once photo or video inside a viewOnceMessage as
@@ -1444,6 +1490,7 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 	if viewOnce {
 		msg.AudioMessage.ViewOnce = proto.Bool(true)
 	}
+	stampUploadedMedia(msg, uploaded)
 
 	msg = applyDisappearingTimer(jid, msg)
 	// WA Web wraps a view once voice message in a viewOnceMessageV2Extension
