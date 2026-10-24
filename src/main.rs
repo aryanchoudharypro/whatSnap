@@ -1067,6 +1067,8 @@ fn main() {
 			};
 			ui_commands::messaging::chatstate_tick(&mut s);
 			chat_ui::flush_catch_up_alerts(&mut s);
+			// Old data is only removed once the app is up on the migrated session.
+			paths::remove_legacy_data_if_running(s.main_ui_shown && !s.chats.is_empty());
 			ui_commands::misc::presence_tick(&mut s);
 			if s.playing_msg_id.is_none() {
 				return;

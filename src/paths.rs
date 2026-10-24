@@ -40,35 +40,91 @@ pub fn migrate_legacy_data() {
 	if !legacy_dir.join("session.db").exists() {
 		return;
 	}
+	let mut complete = true;
 	for name in LEGACY_FILES {
-		copy_if_missing(&legacy_dir.join(name), &new_dir.join(name));
+		complete &= copy_if_missing(&legacy_dir.join(name), &new_dir.join(name));
 	}
-	copy_tree_if_missing(&legacy_dir.join(LEGACY_MEDIA_DIR), &new_dir.join(LEGACY_MEDIA_DIR));
+	complete &= copy_tree_if_missing(&legacy_dir.join(LEGACY_MEDIA_DIR), &new_dir.join(LEGACY_MEDIA_DIR));
+	// Only a complete copy is marked, so the old folder is never removed for a partial one.
+	if complete {
+		let _ = std::fs::write(new_dir.join(MIGRATED_MARKER), legacy_dir.display().to_string());
+	}
 }
 
-fn copy_if_missing(from: &std::path::Path, to: &std::path::Path) {
-	if from.is_file() && !to.exists() {
-		if let Err(err) = std::fs::copy(from, to) {
+/// Written into the new folder once a migration copied everything. Its presence
+/// means the old folder may be removed after the app has started on the new data.
+const MIGRATED_MARKER: &str = ".migrated-from-whaNTV";
+
+/// Whether a file is in place (copied now or already there) with no error.
+/// A file that's missing from the old folder is simply not part of the copy.
+fn copy_if_missing(from: &std::path::Path, to: &std::path::Path) -> bool {
+	if !from.is_file() || to.exists() {
+		return true;
+	}
+	match std::fs::copy(from, to) {
+		Ok(_) => true,
+		Err(err) => {
 			eprintln!("[MIGRATE] couldn't copy {} to the new data folder: {err}", from.display());
+			false
 		}
 	}
 }
 
 /// Copies a folder tree, file by file, leaving anything that already exists in
-/// the destination alone.
-fn copy_tree_if_missing(from: &std::path::Path, to: &std::path::Path) {
-	let Ok(entries) = std::fs::read_dir(from) else { return };
+/// the destination alone. Returns false if any part of it couldn't be read or copied.
+fn copy_tree_if_missing(from: &std::path::Path, to: &std::path::Path) -> bool {
+	let Ok(entries) = std::fs::read_dir(from) else { return true };
 	if std::fs::create_dir_all(to).is_err() {
-		return;
+		return false;
 	}
+	let mut complete = true;
 	for entry in entries.flatten() {
 		let source = entry.path();
 		let target = to.join(entry.file_name());
-		if source.is_dir() {
-			copy_tree_if_missing(&source, &target);
-		} else {
-			copy_if_missing(&source, &target);
+		complete &=
+			if source.is_dir() { copy_tree_if_missing(&source, &target) } else { copy_if_missing(&source, &target) };
+	}
+	complete
+}
+
+/// Removes the old `whaNTV` folder once the app has really started on the new
+/// data (chats are loaded), so it doesn't linger as a stale session. Runs only
+/// after a complete migration (see [`MIGRATED_MARKER`]); after a successful removal
+/// it does nothing more. Call it repeatedly from the UI timer, it's cheap.
+pub fn remove_legacy_data_if_running(running: bool) {
+	use std::sync::atomic::{AtomicBool, Ordering};
+	static DONE: AtomicBool = AtomicBool::new(false);
+	if !running || DONE.load(Ordering::Relaxed) {
+		return;
+	}
+	let marker = app_data_dir().join(MIGRATED_MARKER);
+	if !marker.exists() {
+		DONE.store(true, Ordering::Relaxed);
+		return;
+	}
+	// A file that stays locked would otherwise retry, and log, on every tick.
+	static LAST_TRY: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+	{
+		let mut last = LAST_TRY.lock().unwrap_or_else(|e| e.into_inner());
+		if last.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(30)) {
+			return;
 		}
+		*last = Some(std::time::Instant::now());
+	}
+	let legacy_dir = local_app_data_base().join("whaNTV");
+	if !legacy_dir.exists() {
+		let _ = std::fs::remove_file(&marker);
+		DONE.store(true, Ordering::Relaxed);
+		return;
+	}
+	match std::fs::remove_dir_all(&legacy_dir) {
+		Ok(()) => {
+			let _ = std::fs::remove_file(&marker);
+			DONE.store(true, Ordering::Relaxed);
+			eprintln!("[MIGRATE] removed the old data folder {}", legacy_dir.display());
+		}
+		// Retried after 30 seconds, e.g. when a file is briefly locked.
+		Err(err) => eprintln!("[MIGRATE] couldn't remove {}: {err}", legacy_dir.display()),
 	}
 }
 
