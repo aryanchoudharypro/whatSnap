@@ -329,11 +329,7 @@ func extractTextRaw(msg *waE2E.Message) string {
 		return "[Image]"
 	}
 	if msg.GetVideoMessage() != nil {
-		caption := msg.GetVideoMessage().GetCaption()
-		if caption != "" {
-			return "[Video] " + caption
-		}
-		return "[Video]"
+		return videoText(msg.GetVideoMessage())
 	}
 	// A round "video note" - WhatsApp's video counterpart to a voice message -
 	// is a plain VideoMessage in a field of its own.
@@ -3782,4 +3778,26 @@ func isViewerAdmin(info *types.GroupInfo) bool {
 		}
 	}
 	return false
+}
+
+// videoText is a video's text in a chat: "[Video]" and its caption, and for
+// a GIF what it shows, from the description GIPHY or Tenor gave it, which
+// WhatsApp sends along ("[Video] GIF: Cat waving. hi"). The "[Video]" tag
+// stays, since that's what marks it as playable media.
+func videoText(video *waE2E.VideoMessage) string {
+	text := "[Video]"
+	if video.GetGifPlayback() {
+		text += " GIF"
+		if label := strings.TrimSpace(video.GetAccessibilityLabel()); label != "" {
+			text += ": " + strings.TrimSuffix(label, ".")
+		}
+		if caption := video.GetCaption(); caption != "" {
+			text += ". " + caption
+		}
+		return text
+	}
+	if caption := video.GetCaption(); caption != "" {
+		text += " " + caption
+	}
+	return text
 }
