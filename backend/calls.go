@@ -76,7 +76,7 @@ var incomingGroupCallJIDsMutex sync.Mutex
 
 func recordIncomingGroupCallJID(evt interface{}) {
 	offer, ok := evt.(*events.CallOffer)
-	if !ok || offer.Data == nil {
+	if !ok || offer.Data == nil || offer.Offline {
 		return
 	}
 	snapshot, isGroup, err := signaling.ParseGroupInviteSnapshot(offer.Data)
@@ -307,6 +307,7 @@ func initCallClient() {
 	// handler - see incomingGroupCallJIDs.
 	wa().AddEventHandler(recordIncomingGroupCallJID)
 	wa().AddEventHandler(noteOwnDeviceReject)
+	wa().AddEventHandler(noteOfflineMissedCall)
 	callClient = meowcaller.NewClient(wa(), newCallDiagnosticsOptions()...)
 	callClient.SetDualStreamScreenShare(dualStreamScreenShare.Load())
 	watchJoinableCalls(callClient)

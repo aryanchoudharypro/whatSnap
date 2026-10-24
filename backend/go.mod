@@ -46,8 +46,8 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20261024092714-0c3984ce20c8
+replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20261024184015-e39b180aa1a5
 
-replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20261024132334-75703ef5c93f
+replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20261024184205-f61695608f98
 
 replace go.mau.fi/libsignal => ./third_party/libsignal

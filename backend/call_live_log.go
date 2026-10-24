@@ -79,6 +79,43 @@ func noteOwnDeviceReject(evt interface{}) {
 	})
 }
 
+// noteOfflineMissedCall is a whatsmeow event handler for a call that rang
+// while this device was offline. The server replays its offer once we're
+// back, flagged offline, and meowcaller doesn't ring for it, as WhatsApp Web
+// doesn't: it only goes in the history as a missed call, dated when it rang.
+func noteOfflineMissedCall(evt interface{}) {
+	offer, ok := evt.(*events.CallOffer)
+	if !ok || !offer.Offline || offer.CallID == "" {
+		return
+	}
+	chatJID := offer.CallCreator
+	if chatJID.IsEmpty() {
+		chatJID = offer.From
+	}
+	if offer.Group != nil && !offer.Group.GroupJID.IsEmpty() {
+		chatJID = offer.Group.GroupJID
+	} else if !offer.GroupJID.IsEmpty() {
+		chatJID = offer.GroupJID
+	}
+	if chatJID.IsEmpty() {
+		return
+	}
+	started := offer.Timestamp
+	if started.IsZero() {
+		started = time.Now()
+	}
+	c := &liveCall{
+		chatJID:  preferPN(chatJID).String(),
+		incoming: true,
+		video:    offer.Video,
+		group:    offer.Group != nil,
+		started:  started,
+	}
+	text := liveCallText(c, "", started)
+	log.Printf("Call %s rang while offline; logging it as missed", offer.CallID)
+	storeLiveCallRow(offer.CallID, c, text, liveCallResult(c, ""), 0)
+}
+
 // finishLiveCall stops tracking a call, stores its history row, and returns
 // the line describing how it ended ("" if the call wasn't tracked).
 func finishLiveCall(callID, reason string) string {
