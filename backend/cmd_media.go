@@ -1164,7 +1164,11 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		}
 		if photo != nil {
 			imgMsg.Width, imgMsg.Height = proto.Uint32(uint32(photo.width)), proto.Uint32(uint32(photo.height))
-			imgMsg.JPEGThumbnail = photo.thumbnail
+			// View once media goes without a preview, as from WA Web: the
+			// preview would show what's meant to be seen only once.
+			if !viewOnce {
+				imgMsg.JPEGThumbnail = photo.thumbnail
+			}
 		}
 		if caption != "" {
 			imgMsg.Caption = proto.String(caption)
@@ -1184,7 +1188,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 			vidMsg.Seconds = proto.Uint32(uint32(video.seconds))
 			vidMsg.Width, vidMsg.Height = proto.Uint32(uint32(video.width)), proto.Uint32(uint32(video.height))
 		}
-		if videoThumb != nil {
+		if videoThumb != nil && !viewOnce {
 			vidMsg.JPEGThumbnail = videoThumb
 		}
 		if gifPlayback {
@@ -1241,10 +1245,10 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	}
 
 	msg = applyDisappearingTimer(jid, msg)
-	// WA Web sends view-once media inside a viewOnceMessageV2 as well as
-	// flagging the media itself.
+	// WA Web sends a view once photo or video inside a viewOnceMessage as
+	// well as flagging the media itself (WAWebE2EProtoGenerator).
 	if viewOnce {
-		msg = &waE2E.Message{ViewOnceMessageV2: &waE2E.FutureProofMessage{Message: msg}}
+		msg = &waE2E.Message{ViewOnceMessage: &waE2E.FutureProofMessage{Message: msg}}
 	}
 	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
 	if err != nil {
@@ -1319,6 +1323,10 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			senderJID = wa().Store.ID.ToNonAD().String()
 		}
 		voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", data.Duration/60, data.Duration%60)
+		viewOnce := data.ViewOnce && jid.Server != types.NewsletterServer
+		if viewOnce {
+			voiceText = viewOnceText(voiceText)
+		}
 		ts := time.Now().Unix()
 
 		saveMessage(StoredMessage{
@@ -1327,6 +1335,10 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			MediaType: "voice", MediaMimetype: mimetype, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
+		// Remembered on the row, so a retry sends it view once too.
+		if viewOnce {
+			markViewOnce(db, id)
+		}
 		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
@@ -1378,6 +1390,10 @@ func voiceWaveformBytes(bars []int) []byte {
 // success or "failed" on error.
 func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mimetypeHint string, duration int, waveform []byte, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
 	voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", duration/60, duration%60)
+	viewOnce := viewOnceState(id) == viewOnceUnopened
+	if viewOnce {
+		voiceText = viewOnceText(voiceText)
+	}
 
 	fail := func(errMsg string) {
 		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
@@ -1425,8 +1441,16 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 		Waveform:    waveform,
 		ContextInfo: ctxInfo,
 	}}
+	if viewOnce {
+		msg.AudioMessage.ViewOnce = proto.Bool(true)
+	}
 
 	msg = applyDisappearingTimer(jid, msg)
+	// WA Web wraps a view once voice message in a viewOnceMessageV2Extension
+	// (photos and videos go in a viewOnceMessage).
+	if viewOnce {
+		msg = &waE2E.Message{ViewOnceMessageV2Extension: &waE2E.FutureProofMessage{Message: msg}}
+	}
 	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
 	if err != nil {
 		fail(sendErrorText(err))

@@ -128,8 +128,9 @@ type SendVoiceMessageData struct {
 	Path        string `json:"path"` // local file path to the recorded clip
 	Data        string `json:"data"` // base64 fallback
 	Mimetype    string `json:"mimetype"`
-	Duration    int    `json:"duration"` // seconds
-	Waveform    []int  `json:"waveform"` // 64 loudness bars, 0-100
+	Duration    int    `json:"duration"`  // seconds
+	Waveform    []int  `json:"waveform"`  // 64 loudness bars, 0-100
+	ViewOnce    bool   `json:"view_once"` // can be played once
 	ReplyToID   string `json:"reply_to_id"`
 	ReplySender string `json:"reply_to_sender"`
 }

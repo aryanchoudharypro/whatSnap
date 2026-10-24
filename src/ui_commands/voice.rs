@@ -226,6 +226,10 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				parts.conversations_parts.record_voice_btn.show(false);
 				parts.conversations_parts.discard_voice_btn.show(true);
 				parts.conversations_parts.pause_resume_btn.show(true);
+				// View once isn't offered in a channel.
+				let in_channel = s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@newsletter"));
+				parts.conversations_parts.view_once_voice_check.set_value(false);
+				parts.conversations_parts.view_once_voice_check.show(!in_channel);
 				parts.conversations_parts.send_voice_btn.show(true);
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
 				parts.conversations_parts.conversation_panel.layout();
@@ -289,6 +293,8 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		)
 	};
 	parts.conversations_parts.remove_quote_btn.show(false);
+	let view_once = parts.conversations_parts.view_once_voice_check.is_shown()
+		&& parts.conversations_parts.view_once_voice_check.get_value();
 
 	if let Some(ref jid) = jid_opt {
 		crate::ui_commands::messaging::mark_paused(&mut state.borrow_mut(), jid);
@@ -356,6 +362,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 					"mimetype": mimetype,
 					"duration": active_secs,
 					"waveform": waveform,
+					"view_once": view_once,
 					"reply_to_id": reply_id,
 					"reply_to_sender": reply_sender
 				}
@@ -364,7 +371,8 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		});
 
 		play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled, output_device_name);
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice message sent.");
+		let sent = if view_once { "View once voice message sent." } else { "Voice message sent." };
+		crate::announce::announce(parts.conversations_parts.messages_announcer, sent);
 	}
 
 	parts.conversations_parts.message_field.show(true);
@@ -381,6 +389,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 
 	parts.conversations_parts.discard_voice_btn.show(false);
 	parts.conversations_parts.pause_resume_btn.show(false);
+	parts.conversations_parts.view_once_voice_check.show(false);
 	parts.conversations_parts.send_voice_btn.show(false);
 
 	parts.conversations_parts.conversation_panel.layout();
@@ -428,6 +437,7 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 
 	parts.conversations_parts.discard_voice_btn.show(false);
 	parts.conversations_parts.pause_resume_btn.show(false);
+	parts.conversations_parts.view_once_voice_check.show(false);
 	parts.conversations_parts.send_voice_btn.show(false);
 
 	parts.conversations_parts.conversation_panel.layout();

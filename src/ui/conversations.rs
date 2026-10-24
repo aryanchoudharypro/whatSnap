@@ -67,6 +67,8 @@ pub struct ConversationsPanelParts {
 
 	pub discard_voice_btn: Button,
 	pub pause_resume_btn: Button,
+	/// Sends the recording as view once: it can be played once, as on the phone.
+	pub view_once_voice_check: CheckBox,
 	pub send_voice_btn: Button,
 
 	pub attachment_panel: Panel,
@@ -411,6 +413,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	voice_toolbar_sizer.add(&pause_resume_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	pause_resume_btn.show(false);
 
+	let view_once_voice_check = CheckBox::builder(&conversation_panel).with_label("View once").build();
+	view_once_voice_check.set_font(&theme::Fonts::body());
+	voice_toolbar_sizer.add(&view_once_voice_check, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
+	view_once_voice_check.show(false);
+
 	let send_voice_btn = Button::builder(&conversation_panel).with_label("Send voice message").build();
 	theme::style_primary_button(&send_voice_btn);
 	voice_toolbar_sizer.add(&send_voice_btn, 0, SizerFlag::AlignCenterVertical, 0);
@@ -476,6 +483,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 
 		discard_voice_btn,
 		pause_resume_btn,
+		view_once_voice_check,
 		send_voice_btn,
 		attachment_panel,
 		caption_label,
