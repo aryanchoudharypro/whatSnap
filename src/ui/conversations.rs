@@ -309,17 +309,18 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	action_panel.show(false);
 	conv_sizer.add(&action_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 0);
 
-	// The label, then the emoji and stickers panel's button (WhatsApp Web's
-	// one sits beside its message box), then the box itself: created in that
-	// order, so Shift+Tab from the box reaches the button.
+	// The emoji and stickers panel's button (WhatsApp Web's sits beside its
+	// message box), then the label, then the box itself. Created in that
+	// order: Windows names the box from the text just before it, so the
+	// button must come ahead of the label, and Shift+Tab from the box still
+	// reaches the button.
 	let message_row = BoxSizer::builder(Orientation::Horizontal).build();
+	let emoji_btn = Button::builder(&conversation_panel).with_label("Emoji and stickers").build();
+	emoji_btn.set_font(&theme::Fonts::body());
+	message_row.add(&emoji_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 10);
 	let message_label = StaticText::builder(&conversation_panel).with_label("Type a message").build();
 	theme::style_muted_label(&message_label);
 	message_row.add(&message_label, 0, SizerFlag::AlignCenterVertical, 0);
-	message_row.add_stretch_spacer(1);
-	let emoji_btn = Button::builder(&conversation_panel).with_label("Emoji and stickers").build();
-	emoji_btn.set_font(&theme::Fonts::body());
-	message_row.add(&emoji_btn, 0, SizerFlag::AlignCenterVertical, 0);
 	conv_sizer.add_sizer(&message_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let message_field = TextCtrl::builder(&conversation_panel)
