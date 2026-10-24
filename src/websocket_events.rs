@@ -979,6 +979,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				let _ = state.borrow().ws_tx.send(payload.to_string());
 				let payload = serde_json::json!({ "action": "get_chat_lists" });
 				let _ = state.borrow().ws_tx.send(payload.to_string());
+				// A restarted backend starts with its defaults.
+				crate::ui_commands::calls::send_call_options(&state.borrow());
 
 				// Re-state our presence on every connect: a restarted backend
 				// starts out unavailable and has no idea whether the window is
@@ -1069,6 +1071,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						s.incoming_call_caller = None;
 						s.call_video_port =
 							data.get("video_port").and_then(|p| p.as_u64()).map(|p| p as u16).filter(|&p| p != 0);
+						s.call_video.screen_port =
+							data.get("screen_port").and_then(|p| p.as_u64()).map(|p| p as u16).filter(|&p| p != 0);
 						stop_call_ringing_sound(&mut s);
 						if let Ok(streams) = call_audio::start_audio_streams(
 							audio_port as u16,
@@ -1257,6 +1261,27 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 				}
 			}
+			"call_screen_keyframe_request" => {
+				if let Some(data) = val.get("data") {
+					let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+					let s = state.borrow();
+					if s.active_call_id.as_deref() == Some(call_id)
+						&& let Some(send) = &s.call_video.screen_send
+					{
+						send.request_keyframe();
+					}
+				}
+			}
+			"call_screen_share_failed" => {
+				if let Some(data) = val.get("data") {
+					let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+					if state.borrow().active_call_id.as_deref() != Some(call_id) {
+						return;
+					}
+					let reason = data.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string();
+					crate::ui_commands::calls::screen_share_failed(state, parts, reason);
+				}
+			}
 			"call_set_video_failed" => {
 				if let Some(data) = val.get("data") {
 					let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
@@ -1266,6 +1291,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 					let was_sharing = s.call_video.local_screen_on;
 					s.active_call_video_send = None;
+					s.call_video.screen_send = None;
 					s.call_video.local_camera_on = false;
 					s.call_video.local_screen_on = false;
 					s.call_video.camera_before_share = false;

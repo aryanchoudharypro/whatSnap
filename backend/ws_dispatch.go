@@ -411,6 +411,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleSetVideo(cmd.Data)
 	case "set_screen_share":
 		handleSetScreenShare(cmd.Data)
+	case "set_call_options":
+		handleSetCallOptions(cmd.Data)
 
 	// --- settings (unchanged) ---
 	case "update_settings":

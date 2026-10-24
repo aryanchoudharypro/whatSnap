@@ -30,6 +30,10 @@ var activeCallsMutex sync.Mutex
 var activeVideoBridges = make(map[string]*VideoBridge)
 var activeVideoBridgesMutex sync.Mutex
 
+// activeScreenBridges are the dual-stream screen ports, by call, guarded by
+// activeVideoBridgesMutex too.
+var activeScreenBridges = make(map[string]*VideoBridge)
+
 // Audio bridges, one per active call, keyed the same way as activeCalls. Each
 // wraps a real UDP socket (see audio_udp.go), so it must be closed on
 // OnEnd just like activeVideoBridges - otherwise every call leaks the socket
@@ -156,20 +160,36 @@ func attachCallHandlers(call *meowcaller.Call) {
 		// frontend's encoder actually connects and meowcaller's own
 		// StartVideo/SetVideoEnabled gating decides whether it's live.
 		videoPort := 0
-		if videoBridge, vport, err := NewVideoBridge(); err != nil {
+		if videoBridge, vport, err := NewVideoBridge(call.SendVideoWithDuration); err != nil {
 			log.Println("Failed to create video bridge:", err)
 		} else {
 			videoPort = vport
 			activeVideoBridgesMutex.Lock()
 			activeVideoBridges[call.ID()] = videoBridge
 			activeVideoBridgesMutex.Unlock()
-			go videoBridge.Run(call)
+			go videoBridge.Run()
+		}
+		// With dual-stream screen sharing on, the screen has a port of its
+		// own and the camera keeps the one above while it's shared. No port
+		// tells the frontend to share the screen over the camera's stream.
+		screenPort := 0
+		if dualStreamScreenShare.Load() {
+			if screenBridge, sport, err := NewVideoBridge(call.SendScreenVideo); err != nil {
+				log.Println("Failed to create screen bridge:", err)
+			} else {
+				screenPort = sport
+				activeVideoBridgesMutex.Lock()
+				activeScreenBridges[call.ID()] = screenBridge
+				activeVideoBridgesMutex.Unlock()
+				go screenBridge.Run()
+			}
 		}
 
 		broadcastEvent("call_connected", map[string]interface{}{
-			"call_id":    call.ID(),
-			"audio_port": port,
-			"video_port": videoPort,
+			"call_id":     call.ID(),
+			"audio_port":  port,
+			"video_port":  videoPort,
+			"screen_port": screenPort,
 		})
 	})
 	call.OnEnd(func(reason string) {
@@ -189,6 +209,10 @@ func attachCallHandlers(call *meowcaller.Call) {
 		if bridge, ok := activeVideoBridges[call.ID()]; ok {
 			bridge.Close()
 			delete(activeVideoBridges, call.ID())
+		}
+		if bridge, ok := activeScreenBridges[call.ID()]; ok {
+			bridge.Close()
+			delete(activeScreenBridges, call.ID())
 		}
 		activeVideoBridgesMutex.Unlock()
 		forgetScreenShare(call.ID())
@@ -257,6 +281,12 @@ func attachCallHandlers(call *meowcaller.Call) {
 			"call_id": call.ID(),
 		})
 	})
+	// The same for the screen's own stream during a dual-stream share.
+	call.OnScreenKeyframeRequest(func() {
+		broadcastEvent("call_screen_keyframe_request", map[string]string{
+			"call_id": call.ID(),
+		})
+	})
 	attachCallExtras(call)
 }
 
@@ -269,6 +299,7 @@ func initCallClient() {
 	wa().AddEventHandler(recordIncomingGroupCallJID)
 	wa().AddEventHandler(noteOwnDeviceReject)
 	callClient = meowcaller.NewClient(wa(), newCallDiagnosticsOptions()...)
+	callClient.SetDualStreamScreenShare(dualStreamScreenShare.Load())
 
 	callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())
@@ -627,12 +658,33 @@ func handleSetVideo(data []byte) {
 type localScreenShare struct {
 	wanted    bool // the user is sharing; cleared when they stop
 	announced bool // the call's other participants were told
+	dual      bool // the screen has its own stream, next to the camera
 }
 
 var (
 	localScreenShares      = make(map[string]*localScreenShare)
 	localScreenSharesMutex sync.Mutex
 )
+
+// dualStreamScreenShare is the frontend's experimental "share the screen next
+// to the camera" setting. meowcaller reads it when a call's media starts.
+var dualStreamScreenShare atomic.Bool
+
+// handleSetCallOptions takes the frontend's call settings; it sends them on
+// every connect and whenever they're saved.
+func handleSetCallOptions(data []byte) {
+	var req struct {
+		DualStreamScreenShare bool `json:"dual_stream_screen_share"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		log.Println("Invalid set_call_options format:", err)
+		return
+	}
+	dualStreamScreenShare.Store(req.DualStreamScreenShare)
+	if callClient != nil {
+		callClient.SetDualStreamScreenShare(req.DualStreamScreenShare)
+	}
+}
 
 func forgetScreenShare(callID string) {
 	localScreenSharesMutex.Lock()
@@ -652,6 +704,9 @@ func handleSetScreenShare(data []byte) {
 	var req struct {
 		CallID  string `json:"call_id"`
 		Enabled bool   `json:"enabled"`
+		// Dual is a dual-stream share: the frontend sends the screen to the
+		// call's screen port and keeps the camera on its own.
+		Dual bool `json:"dual"`
 	}
 	if err := json.Unmarshal(data, &req); err != nil {
 		log.Println("Invalid set_screen_share format:", err)
@@ -674,6 +729,9 @@ func handleSetScreenShare(data []byte) {
 	}
 	alreadyWanted := share.wanted
 	share.wanted = req.Enabled
+	if req.Enabled && !alreadyWanted {
+		share.dual = req.Dual
+	}
 	announced := share.announced
 	if !req.Enabled {
 		share.announced = false
@@ -702,12 +760,17 @@ func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 	deadline := time.Now().Add(screenShareAnnounceWindow)
 	for {
 		localScreenSharesMutex.Lock()
-		wanted := share.wanted
+		wanted, dual := share.wanted, share.dual
 		localScreenSharesMutex.Unlock()
 		if !wanted || call.State() == meowcaller.CallPhaseEnded {
 			return
 		}
-		err := call.StartScreenShare(nil)
+		var err error
+		if dual {
+			err = call.StartDualStreamScreenShare(nil)
+		} else {
+			err = call.StartScreenShare(nil)
+		}
 		switch {
 		case err == nil:
 			localScreenSharesMutex.Lock()
@@ -728,6 +791,14 @@ func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 			time.Sleep(250 * time.Millisecond)
 		default:
 			log.Println("Failed to announce the screen share:", err)
+			if dual {
+				// The frontend is sending the screen to a stream nobody was
+				// told about, so it has to stop.
+				broadcastEvent("call_screen_share_failed", map[string]string{
+					"call_id": call.ID(),
+					"message": "dual-stream screen sharing isn't available on this call",
+				})
+			}
 			return
 		}
 	}

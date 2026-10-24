@@ -513,9 +513,17 @@ pub(crate) struct CallVideo {
 	/// Whether OUR camera is currently on - drives the toggle button/menu
 	/// label and whether `active_call_video_send` should exist.
 	pub(crate) local_camera_on: bool,
-	/// Whether we're sharing the screen. A call has one video stream, so
-	/// this and `local_camera_on` are never both true.
+	/// Whether we're sharing the screen. Over the call's one video stream
+	/// this and `local_camera_on` are never both true; a dual-stream share
+	/// (`screen_send`) leaves the camera as it was.
 	pub(crate) local_screen_on: bool,
+	/// The backend's port for the screen's own stream, there when the
+	/// experimental dual-stream setting was on as the call connected.
+	pub(crate) screen_port: Option<u16>,
+	/// The screen session of a dual-stream share, sending to `screen_port`
+	/// while the camera keeps `active_call_video_send`. None for a share over
+	/// the camera's stream.
+	pub(crate) screen_send: Option<crate::call_video_send::CallVideoSendState>,
 	/// The camera was on when the screen share started, so it comes back on
 	/// when the share stops.
 	pub(crate) camera_before_share: bool,

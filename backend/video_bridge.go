@@ -7,8 +7,6 @@ import (
 	"net"
 	"sync"
 	"time"
-
-	"github.com/purpshell/meowcaller"
 )
 
 // VideoBridge carries outbound H.264 access units from the Rust frontend's
@@ -25,28 +23,32 @@ import (
 // The frontend only connects while the local camera is on; between calls (or
 // while the camera is off) nothing is connected and ReadLoop simply waits on
 // Accept again once a connection closes.
+//
+// A dual-stream screen share gets a second bridge of its own, whose frames go
+// to the call's screen layer while the camera keeps using the first.
 type VideoBridge struct {
 	listener net.Listener
+	send     func(accessUnit []byte, duration time.Duration) error
 	closed   bool
 	closedMu sync.Mutex
 }
 
 // NewVideoBridge opens a TCP listener on an ephemeral loopback port and
-// returns it along with the port number to hand to the frontend.
-func NewVideoBridge() (*VideoBridge, int, error) {
+// returns it along with the port number to hand to the frontend. Every frame
+// read from it is handed to send.
+func NewVideoBridge(send func(accessUnit []byte, duration time.Duration) error) (*VideoBridge, int, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, 0, err
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	return &VideoBridge{listener: listener}, port, nil
+	return &VideoBridge{listener: listener, send: send}, port, nil
 }
 
-// Run accepts connections from the frontend's camera encoder for the
-// lifetime of the call, forwarding every frame it reads to call.
-// It blocks until the bridge is closed, so callers should run it in its own
-// goroutine.
-func (vb *VideoBridge) Run(call *meowcaller.Call) {
+// Run accepts connections from the frontend's encoder for the lifetime of the
+// call, forwarding every frame it reads. It blocks until the bridge is closed,
+// so callers should run it in its own goroutine.
+func (vb *VideoBridge) Run() {
 	for {
 		conn, err := vb.listener.Accept()
 		if err != nil {
@@ -60,11 +62,11 @@ func (vb *VideoBridge) Run(call *meowcaller.Call) {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		vb.readFrames(conn, call)
+		vb.readFrames(conn)
 	}
 }
 
-func (vb *VideoBridge) readFrames(conn net.Conn, call *meowcaller.Call) {
+func (vb *VideoBridge) readFrames(conn net.Conn) {
 	defer conn.Close()
 	header := make([]byte, 8)
 	for {
@@ -91,7 +93,7 @@ func (vb *VideoBridge) readFrames(conn net.Conn, call *meowcaller.Call) {
 			log.Printf("VideoBridge payload read error: %v\n", err)
 			return
 		}
-		if err := call.SendVideoWithDuration(payload, time.Duration(durationMs)*time.Millisecond); err != nil {
+		if err := vb.send(payload, time.Duration(durationMs)*time.Millisecond); err != nil {
 			log.Printf("Failed to send video frame: %v\n", err)
 		}
 	}
