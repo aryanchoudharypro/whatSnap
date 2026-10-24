@@ -365,11 +365,9 @@ func initCallClient() {
 	})
 }
 
-// placeGroupChatCall calls every other member of a WhatsApp group chat.
-// meowcaller's GroupCallByID refuses groups with fewer than two other
-// members, so a group that is just you and one other person gets an
-// ordinary 1:1 call to that person instead - the same people end up in the
-// call either way.
+// placeGroupChatCall calls every other member of a WhatsApp group chat. A
+// group that is just you and one other person is still a group call bound
+// to the group, as WhatsApp's own clients place it.
 func placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*meowcaller.Call, error) {
 	info, err := wa().GetGroupInfo(ctx, groupJID)
 	if err != nil {
@@ -385,8 +383,6 @@ func placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*m
 	switch {
 	case len(others) == 0:
 		return nil, errors.New("There's no one else in this group to call.")
-	case len(others) == 1:
-		return callClient.CallWithOptions(ctx, others[0].String(), meowcaller.CallOptions{Video: video})
 	case len(others) > 31:
 		return nil, fmt.Errorf("This group has %d other members; WhatsApp group calls allow at most 32 people.", len(others))
 	}
