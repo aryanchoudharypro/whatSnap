@@ -177,6 +177,10 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	if state.borrow().active_tab == 6 {
 		let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();
 		if let Some(jid) = jid {
+			if let Some(call_id) = jid.strip_prefix(crate::ui_commands::calls::JOIN_ROW_PREFIX) {
+				crate::ui_commands::calls::join_group_call(state, parts, Some(call_id.to_string()));
+				return;
+			}
 			state.borrow_mut().selected_chat = Some(jid);
 			crate::ui_commands::calls::place_call(state, parts);
 		}

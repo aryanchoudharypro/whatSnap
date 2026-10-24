@@ -299,6 +299,16 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		};
 
+		// Group calls going on that we can join come first, as on the phone.
+		let ongoing: Vec<(String, String)> = s
+			.joinable_calls
+			.iter()
+			.map(|c| (crate::ui_commands::calls::joinable_call_label(s, c), c))
+			.filter(|(label, _)| lower_query.is_empty() || label.to_lowercase().contains(&lower_query))
+			.map(|(label, c)| (label, format!("{}{}", crate::ui_commands::calls::JOIN_ROW_PREFIX, c.call_id)))
+			.collect();
+		push_section("Going on now", ongoing);
+
 		let frequent: Vec<(String, String)> =
 			s.call_frequent.iter().filter(|t| matches_target(t)).map(|t| (target_label(t), t.jid.clone())).collect();
 		push_section("Frequent contacts", frequent);
@@ -313,11 +323,17 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				&entry.jid
 			};
 
-			let label = format_call_log_label(name, &entry.text, entry.from_me, entry.timestamp);
+			let mut label = format_call_log_label(name, &entry.text, entry.from_me, entry.timestamp);
+			// A call still going on joins on Enter rather than calling back.
+			let mut row_jid = entry.jid.clone();
+			if s.joinable_calls.iter().any(|c| c.call_id == entry.id) {
+				label.push_str(crate::ui_commands::calls::ONGOING_CALL_SUFFIX);
+				row_jid = format!("{}{}", crate::ui_commands::calls::JOIN_ROW_PREFIX, entry.id);
+			}
 
 			if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) || entry.jid.contains(&lower_query)
 			{
-				recent.push((label, entry.jid.clone()));
+				recent.push((label, row_jid));
 			}
 		}
 		push_section("Recent calls", recent);

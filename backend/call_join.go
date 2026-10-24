@@ -23,10 +23,11 @@ func joinableCallEvent(list []meowcaller.JoinableCall) []map[string]interface{} 
 	calls := make([]map[string]interface{}, 0, len(list))
 	for _, c := range list {
 		calls = append(calls, map[string]interface{}{
-			"call_id":   c.CallID,
-			"group_jid": c.GroupJID.String(),
-			"video":     c.Video,
-			"connected": c.Connected,
+			"call_id":      c.CallID,
+			"group_jid":    c.GroupJID.String(),
+			"creator_name": resolveDisplayName(c.Creator),
+			"video":        c.Video,
+			"connected":    c.Connected,
 		})
 	}
 	return calls

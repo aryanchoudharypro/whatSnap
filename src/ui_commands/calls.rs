@@ -28,12 +28,35 @@ pub(crate) fn can_call(s: &AppState, jid: &str) -> bool {
 pub(crate) struct JoinableCall {
 	pub call_id: String,
 	pub group_jid: String,
+	/// Who started the call, for one with no group to name it by.
+	pub creator_name: String,
 	pub video: bool,
 	pub connected: u64,
 }
 
+/// A Calls tab row stands for a call going on rather than a chat when its
+/// jid starts with this, followed by the call ID.
+pub(crate) const JOIN_ROW_PREFIX: &str = "join:";
+
+/// The Calls tab's line for a group call going on, read before the
+/// instruction to press Enter.
+pub(crate) fn joinable_call_label(s: &AppState, call: &JoinableCall) -> String {
+	let kind = if call.video { "Group video call" } else { "Group voice call" };
+	let place = match s.contacts.get(&call.group_jid) {
+		Some(name) if !call.group_jid.is_empty() => format!(" in {}", name),
+		_ if !call.creator_name.is_empty() => format!(" started by {}", call.creator_name),
+		_ => String::new(),
+	};
+	let people = match call.connected {
+		0 => String::new(),
+		1 => ", 1 person in it".to_string(),
+		n => format!(", {} people in it", n),
+	};
+	format!("{}{}{}{}", kind, place, people, ONGOING_CALL_SUFFIX)
+}
+
 /// Added to a call-history row while its call is still going on.
-const ONGOING_CALL_SUFFIX: &str = ". Going on now, press Enter to join";
+pub(crate) const ONGOING_CALL_SUFFIX: &str = ". Going on now, press Enter to join";
 
 pub(crate) fn joinable_call_for_chat<'a>(s: &'a AppState, jid: &str) -> Option<&'a JoinableCall> {
 	s.joinable_calls.iter().find(|c| !c.group_jid.is_empty() && c.group_jid == jid)
@@ -84,6 +107,7 @@ pub(crate) fn on_joinable_calls(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				.map(|c| JoinableCall {
 					call_id: c.get("call_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
 					group_jid: c.get("group_jid").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+					creator_name: c.get("creator_name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
 					video: c.get("video").and_then(|v| v.as_bool()).unwrap_or(false),
 					connected: c.get("connected").and_then(|v| v.as_u64()).unwrap_or(0),
 				})
@@ -96,6 +120,9 @@ pub(crate) fn on_joinable_calls(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		return;
 	}
 	s.joinable_calls = calls;
+	if s.active_tab == 6 {
+		crate::message_display::apply_chat_filter(&mut s, parts);
+	}
 	if let Some(jid) = s.selected_chat.clone() {
 		apply_call_buttons(&s, parts, &jid);
 		parts.conversations_parts.top_btns_panel.layout();
@@ -183,6 +210,16 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 			return;
 		}
 	};
+	// A row for a call going on, or a group whose call is going on, joins
+	// that call rather than starting a new one, as the chat's Join button does.
+	let join = match jid.strip_prefix(JOIN_ROW_PREFIX) {
+		Some(call_id) => Some(call_id.to_string()),
+		None => joinable_call_for_chat(&state.borrow(), &jid).map(|c| c.call_id.clone()),
+	};
+	if join.is_some() {
+		join_group_call(state, parts, join);
+		return;
+	}
 	let msg = serde_json::json!({
 		"action": "place_call",
 		"data": { "jid": jid, "video": video }
@@ -716,6 +753,32 @@ const MENU_VIDEO_CALL: i32 = 4502;
 const MENU_OPEN_CHAT: i32 = 4503;
 const MENU_DELETE_CONTACT: i32 = 4504;
 
+const MENU_JOIN_CALL: i32 = 4505;
+
+/// The context menu of a Calls tab row for a group call going on.
+fn show_join_row_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, call_id: String) {
+	let group_jid = {
+		let s = state.borrow();
+		let Some(call) = s.joinable_calls.iter().find(|c| c.call_id == call_id) else { return };
+		call.group_jid.clone()
+	};
+	let mut builder = Menu::builder().append_item(MENU_JOIN_CALL, "&Join call", "Join this group call");
+	if !group_jid.is_empty() {
+		builder = builder.append_item(MENU_OPEN_CHAT, "Open c&hat", "Open the group this call is in");
+	}
+	let mut menu = builder.build();
+	let state_menu = state.clone();
+	let parts_menu = parts.clone();
+	menu.on_selected(move |evt| match evt.get_id() {
+		MENU_JOIN_CALL => join_group_call(&state_menu, &parts_menu, Some(call_id.clone())),
+		MENU_OPEN_CHAT => crate::chat_ui::open_chat_for_jid(&group_jid, &state_menu, &parts_menu),
+		_ => {}
+	});
+	parts.conversations_parts.conversations_list.popup_menu(&mut menu, None);
+	menu.destroy_menu();
+	crate::tray::enter_release_guard().set(true);
+}
+
 /// The Calls tab's context menu. Its rows are calls and contacts, so it offers
 /// call actions rather than the chat list's (pin, archive, mark as unread...).
 pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
@@ -730,6 +793,10 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	// The list may not have the row selected yet (the key opens the menu on
 	// the focused row); the call actions dial the selection.
 	parts.conversations_parts.conversations_list.set_selection(idx as u32, true);
+	if let Some(call_id) = jid.strip_prefix(JOIN_ROW_PREFIX) {
+		show_join_row_menu(state, parts, call_id.to_string());
+		return;
+	}
 
 	let mut builder = Menu::builder()
 		.append_item(MENU_CALL, "&Call", "Place a voice call")
