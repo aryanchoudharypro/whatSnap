@@ -62,6 +62,10 @@ pub struct Settings {
 	/// Last-used voice-message playback speed (1.0, 1.5, or 2.0). Persisted so
 	/// the chosen speed sticks across app restarts.
 	pub audio_speed: f32,
+	/// Experimental: a screen share goes out as its own stream next to the
+	/// camera (WhatsApp's dual-stream share) instead of taking the camera's
+	/// place. Applies to calls that connect after it's turned on.
+	pub dual_stream_screen_share: bool,
 }
 
 /// Tab names by tab id. The id is what the rest of the app keys on
@@ -111,6 +115,7 @@ impl Default for Settings {
 			shortcuts: std::collections::BTreeMap::new(),
 			tab_order: DEFAULT_TAB_ORDER.to_vec(),
 			audio_speed: 1.0,
+			dual_stream_screen_share: false,
 		}
 	}
 }

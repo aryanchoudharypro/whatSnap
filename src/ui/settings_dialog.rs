@@ -93,6 +93,7 @@ pub struct SettingsDialogParts {
 	pub input_device_combo: ComboBox,
 	pub output_device_combo: ComboBox,
 	pub voice_message_noise_suppression_check: CheckBox,
+	pub dual_stream_screen_share_check: CheckBox,
 
 	pub ok_btn: Button,
 	pub cancel_btn: Button,
@@ -285,6 +286,12 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	output_note.set_font(&theme::Fonts::body());
 	audio_sizer.add(&output_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 
+	let dual_stream_screen_share_check = CheckBox::builder(&audio_panel)
+		.with_label("Experimental: keep the camera on while sharing the screen (applies to the next call)")
+		.build();
+	dual_stream_screen_share_check.set_font(&theme::Fonts::body());
+	audio_sizer.add(&dual_stream_screen_share_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+
 	audio_panel.set_sizer(audio_sizer, true);
 
 	notebook.add_page(&general_panel, "General", true, None);
@@ -349,6 +356,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		input_device_combo,
 		output_device_combo,
 		voice_message_noise_suppression_check,
+		dual_stream_screen_share_check,
 		ok_btn,
 		cancel_btn,
 	}

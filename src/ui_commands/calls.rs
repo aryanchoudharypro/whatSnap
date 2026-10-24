@@ -293,8 +293,9 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		return;
 	};
 	// The call's one video stream goes back to the camera: the share ends,
-	// and video is already on, so there's nothing to turn on.
-	let was_sharing = s.call_video.local_screen_on;
+	// and video is already on, so there's nothing to turn on. A dual-stream
+	// share has its own stream and goes on.
+	let was_sharing = s.call_video.local_screen_on && s.call_video.screen_send.is_none();
 	start_camera(&mut s, port);
 	if was_sharing {
 		s.call_video.local_screen_on = false;
@@ -319,6 +320,15 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		local_camera_announcement(true).to_string()
 	};
 	announce_call(parts, &message);
+}
+
+/// Tells the backend the call settings it acts on itself.
+pub(crate) fn send_call_options(s: &AppState) {
+	let msg = serde_json::json!({
+		"action": "set_call_options",
+		"data": { "dual_stream_screen_share": s.settings.dual_stream_screen_share }
+	});
+	let _ = s.ws_tx.send(msg.to_string());
 }
 
 /// Sends one of the backend's `{call_id, enabled}` call commands.
@@ -357,6 +367,16 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		return;
 	};
 
+	if s.call_video.local_screen_on && s.call_video.screen_send.take().is_some() {
+		// A dual-stream share: the camera never moved.
+		s.call_video.local_screen_on = false;
+		set_system_audio(&mut s, false);
+		send_call_toggle(&s, "set_screen_share", &call_id, false);
+		parts.call_parts.screen_btn.set_label("Share screen");
+		drop(s);
+		announce_call(parts, &local_screen_share_announcement(false, None, false));
+		return;
+	}
 	if s.call_video.local_screen_on {
 		let camera_returns = s.call_video.camera_before_share;
 		s.call_video.local_screen_on = false;
@@ -390,6 +410,29 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	let camera_was_on = s.call_video.local_camera_on;
 	let ui_tx = s.ui_tx.clone();
 	let source = VideoSource::Screen(choice.target);
+	// With the camera on and the call offering the screen its own stream,
+	// the screen goes there and the camera stays as it is.
+	if let Some(screen_port) = s.call_video.screen_port.filter(|_| camera_was_on) {
+		s.call_video.screen_send = Some(call_video_send::start_video_send(screen_port, source, None, ui_tx));
+		s.call_video.local_screen_on = true;
+		let msg = serde_json::json!({
+			"action": "set_screen_share",
+			"data": { "call_id": call_id, "enabled": true, "dual": true }
+		});
+		let _ = s.ws_tx.send(msg.to_string());
+		parts.call_parts.screen_btn.set_label("Stop sharing screen");
+		if with_sound {
+			set_system_audio(&mut s, true);
+		}
+		drop(s);
+		let shared = local_screen_share_announcement(true, choice.window_title.as_deref(), false);
+		if with_sound {
+			announce_call(parts, &format!("{shared} {}", SYSTEM_AUDIO_ANNOUNCEMENT));
+		} else {
+			announce_call(parts, &shared);
+		}
+		return;
+	}
 	s.active_call_video_send = Some(call_video_send::start_video_send(port, source, None, ui_tx));
 	s.call_video.local_screen_on = true;
 	s.call_video.local_camera_on = false;
@@ -480,6 +523,18 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	if !s.call_video.local_screen_on {
 		return;
 	}
+	if s.call_video.screen_send.take().is_some() {
+		// A dual-stream share: only the screen's own stream stops.
+		s.call_video.local_screen_on = false;
+		set_system_audio(&mut s, false);
+		if let Some(call_id) = s.active_call_id.clone() {
+			send_call_toggle(&s, "set_screen_share", &call_id, false);
+		}
+		parts.call_parts.screen_btn.set_label("Share screen");
+		drop(s);
+		announce_call(parts, &format!("Couldn't share the screen: {reason}"));
+		return;
+	}
 	s.active_call_video_send = None;
 	s.call_video.local_screen_on = false;
 	s.call_video.camera_before_share = false;
@@ -517,7 +572,7 @@ pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let mut s = state.borrow_mut();
 	// A camera session that was already replaced by a screen share reports
 	// nothing worth acting on.
-	if s.call_video.local_screen_on {
+	if s.call_video.local_screen_on && s.call_video.screen_send.is_none() {
 		return;
 	}
 	s.active_call_video_send = None;

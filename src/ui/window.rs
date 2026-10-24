@@ -1264,6 +1264,7 @@ pub fn bind_input_handlers(
 	let input_device_combo_open = parts.settings_dialog.input_device_combo;
 	let output_device_combo_open = parts.settings_dialog.output_device_combo;
 	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check;
+	let dual_stream_check_open = parts.settings_dialog.dual_stream_screen_share_check;
 	let state_settings_open = state.clone();
 	let pending_shortcuts_open = pending_shortcuts.clone();
 	parts.frame.on_menu_selected(move |evt| {
@@ -1283,6 +1284,7 @@ pub fn bind_input_handlers(
 		verbose_logging_check_open.set_value(s.settings.verbose_backend_logging);
 		start_maximized_check_open.set_value(s.settings.start_maximized);
 		noise_suppression_check_open.set_value(s.settings.voice_message_noise_suppression);
+		dual_stream_check_open.set_value(s.settings.dual_stream_screen_share);
 
 		name_field_open.set_value(&s.own_push_name);
 		// Everything on the privacy tab is fetched fresh on every open, and
@@ -1700,6 +1702,7 @@ pub fn bind_input_handlers(
 	let input_device_combo_ok = parts.settings_dialog.input_device_combo;
 	let output_device_combo_ok = parts.settings_dialog.output_device_combo;
 	let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check;
+	let dual_stream_check_ok = parts.settings_dialog.dual_stream_screen_share_check;
 	let state_settings_save = state.clone();
 	let frame_shortcuts_save = parts.frame;
 	parts.settings_dialog.ok_btn.on_click(move |_| {
@@ -1745,6 +1748,8 @@ pub fn bind_input_handlers(
 		s.settings.verbose_backend_logging = verbose_logging_check_ok.is_checked();
 		s.settings.start_maximized = start_maximized_check_ok.is_checked();
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
+		s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
+		crate::ui_commands::calls::send_call_options(&s);
 		s.settings.input_device_name = device_combo_value(&input_device_combo_ok);
 		let new_output_device = device_combo_value(&output_device_combo_ok);
 		if new_output_device != s.settings.output_device_name {
