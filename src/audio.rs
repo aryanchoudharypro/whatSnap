@@ -201,6 +201,31 @@ pub(crate) fn play_busy_tone(state: &mut AppState) {
 	state.call_ringing_sink = Some(sink);
 }
 
+/// Starts WhatsApp's reconnecting tone (see ringback.rs), looped while a
+/// call's connection is being recovered. It has its own player so the ringing
+/// sounds and their hotkeys are left alone.
+pub(crate) fn start_call_reconnect_tone(state: &mut AppState) {
+	use rodio::Source;
+	if state.call_reconnect_sink.is_some() {
+		return;
+	}
+	ensure_audio_stream(state);
+	let Some(ref stream_handle) = state.audio_stream else {
+		eprintln!("[AUDIO] No audio stream available");
+		return;
+	};
+	let sink = Player::connect_new(stream_handle.mixer());
+	sink.append(crate::ringback::reconnect_tone().repeat_infinite());
+	sink.play();
+	state.call_reconnect_sink = Some(sink);
+}
+
+pub(crate) fn stop_call_reconnect_tone(state: &mut AppState) {
+	if let Some(sink) = state.call_reconnect_sink.take() {
+		sink.pause();
+	}
+}
+
 pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 	if let Some(sink) = state.call_ringing_sink.take() {
 		sink.pause();

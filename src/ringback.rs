@@ -246,6 +246,32 @@ pub(crate) fn busy_tone() -> SamplesBuffer {
 	SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(SAMPLE_RATE).unwrap(), samples)
 }
 
+/// One cycle of the tone played while a call is reconnecting after its
+/// connection dropped, ready to be looped. WhatsApp Web's calling engine plays
+/// the same pjmedia tone for every country (kToneTypeReconnecting): 480 Hz,
+/// 0.2 s on, 0.2 off, 0.2 on, then 3 s off.
+pub(crate) fn reconnect_tone() -> SamplesBuffer {
+	const FREQ: f32 = 480.0;
+	const CADENCE_MS: [usize; 4] = [200, 200, 200, 3000];
+	let rate = SAMPLE_RATE as f32;
+	let fade = (FADE_SECS * rate) as usize;
+	let mut samples = Vec::with_capacity(CADENCE_MS.iter().sum::<usize>() * SAMPLE_RATE as usize / 1000);
+	for (i, ms) in CADENCE_MS.into_iter().enumerate() {
+		let n = ms * SAMPLE_RATE as usize / 1000;
+		if i % 2 == 1 {
+			samples.extend(std::iter::repeat_n(0.0, n));
+			continue;
+		}
+		for k in 0..n {
+			let t = k as f32 / rate;
+			let edge = k.min(n - 1 - k);
+			let gain = if edge < fade { edge as f32 / fade as f32 } else { 1.0 };
+			samples.push((std::f32::consts::TAU * FREQ * t).sin() * gain * LEVEL);
+		}
+	}
+	SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(SAMPLE_RATE).unwrap(), samples)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -287,5 +313,18 @@ mod tests {
 			let off = &samples[(beep * 48_000 + 25_000)..(beep * 48_000 + 47_000)];
 			assert!(off.iter().all(|&s| s == 0.0), "gap after beep {beep} isn't silent");
 		}
+	}
+
+	#[test]
+	fn reconnect_tone_is_two_short_beeps_then_a_long_gap() {
+		let samples: Vec<f32> = reconnect_tone().collect();
+		assert_eq!(samples.len(), 48_000 * 36 / 10);
+		assert!(samples.iter().all(|s| s.abs() <= LEVEL));
+		let ms = |m: usize| m * 48;
+		for beep in [0, 400] {
+			assert!(samples[ms(beep + 50)..ms(beep + 150)].iter().any(|s| s.abs() > LEVEL * 0.5));
+		}
+		assert!(samples[ms(210)..ms(390)].iter().all(|&s| s == 0.0));
+		assert!(samples[ms(610)..].iter().all(|&s| s == 0.0));
 	}
 }

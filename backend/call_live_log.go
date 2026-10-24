@@ -135,7 +135,7 @@ func liveCallText(c *liveCall, reason string, now time.Time) string {
 		return fmt.Sprintf("%s, cancelled", kind)
 	case reason == "rejected" || reason == "busy":
 		return fmt.Sprintf("%s, declined", kind)
-	case strings.HasPrefix(reason, "server:") || reason == "offer_failed":
+	case strings.HasPrefix(reason, "server:") || reason == "offer_failed" || reason == "connection_lost":
 		return fmt.Sprintf("%s, failed", kind)
 	}
 	return fmt.Sprintf("%s, no answer", kind)
@@ -161,7 +161,7 @@ func liveCallResult(c *liveCall, reason string) string {
 		return "cancelled"
 	case reason == "rejected" || reason == "busy":
 		return "rejected"
-	case strings.HasPrefix(reason, "server:") || reason == "offer_failed":
+	case strings.HasPrefix(reason, "server:") || reason == "offer_failed" || reason == "connection_lost":
 		return "failed"
 	}
 	return "missed"

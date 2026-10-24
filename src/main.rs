@@ -513,6 +513,9 @@ struct AppState {
 	/// case where the backend never hears back at all rather than erroring.
 	call_answer_deadline: Option<std::time::Instant>,
 	call_ringing_sink: Option<Player>,
+	/// WhatsApp's reconnecting tone, playing while a call's connection is
+	/// being recovered.
+	call_reconnect_sink: Option<Player>,
 	/// Alt+Shift+Y / Alt+Shift+R, held only while an incoming call rings.
 	call_hotkeys: Option<wx_utils::global_hotkeys::GlobalHotkeys>,
 	/// Display name of the caller for the current incoming call, set on
@@ -898,6 +901,7 @@ fn main() {
 			call_pending_cancel: false,
 			call_answer_deadline: None,
 			call_ringing_sink: None,
+			call_reconnect_sink: None,
 			call_hotkeys: None,
 			incoming_call_caller: None,
 			call_participants: Vec::new(),

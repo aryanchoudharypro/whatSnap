@@ -273,6 +273,14 @@ func attachCallHandlers(call *meowcaller.Call) {
 			"silent_for": int(health.SilentFor.Seconds()),
 		})
 	})
+	// The call's media stopped and meowcaller is redialing its relays, or
+	// it came back. One that never comes back ends as "connection_lost".
+	call.OnReconnecting(func(reconnecting bool) {
+		broadcastEvent("call_reconnecting", map[string]interface{}{
+			"call_id":      call.ID(),
+			"reconnecting": reconnecting,
+		})
+	})
 	// WhatsApp's PLI/FIR feedback asking our camera for a fresh keyframe -
 	// forwarded to the frontend encoder, which has no other way to learn
 	// the network lost a frame and needs an IDR to recover.

@@ -1163,6 +1163,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					if state.borrow().active_call_id.as_deref() != Some(call_id) {
 						return;
 					}
+					// While reconnecting, the reconnect tone already says so.
+					if state.borrow().call_reconnect_sink.is_some() {
+						return;
+					}
 					let stalled = data.get("stalled").and_then(|s| s.as_bool()).unwrap_or(false);
 					let message = if stalled {
 						"No sound is reaching you from the call. Check your internet connection."
@@ -1170,6 +1174,25 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						"Sound from the call isn't getting through."
 					};
 					announce_call(parts, message);
+				}
+			}
+			"call_reconnecting" => {
+				if let Some(data) = val.get("data") {
+					let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+					let mut s = state.borrow_mut();
+					if s.active_call_id.as_deref() != Some(call_id) {
+						return;
+					}
+					// The connection dropped and the call is being recovered,
+					// as WhatsApp does: its reconnecting tone loops until the
+					// media is back or the call ends as connection lost.
+					if data.get("reconnecting").and_then(|r| r.as_bool()).unwrap_or(false) {
+						crate::audio::start_call_reconnect_tone(&mut s);
+						announce_call(parts, "Reconnecting...");
+					} else {
+						crate::audio::stop_call_reconnect_tone(&mut s);
+						announce_call(parts, "Reconnected.");
+					}
 				}
 			}
 			"call_participant_added" | "call_participant_add_failed" => {
@@ -1353,6 +1376,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					let mut s = state.borrow_mut();
 					call_log(parts, &s, "ended", call_id);
 					if s.active_call_id.as_deref() == Some(call_id) {
+						crate::audio::stop_call_reconnect_tone(&mut s);
 						s.active_call_id = None;
 						s.active_call_audio = None;
 						s.call_participants.clear();
@@ -1380,7 +1404,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if s.incoming_call_caller.take().is_none() {
 							announce_call(
 								parts,
-								if reason == "busy" { "Busy, on another call." } else { "Call ended." },
+								match reason {
+									"busy" => "Busy, on another call.",
+									"connection_lost" => "Call ended. Connection lost.",
+									_ => "Call ended.",
+								},
 							);
 						} else if summary.contains("on another device") {
 							announce_call(parts, &format!("{}.", summary));
