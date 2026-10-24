@@ -221,6 +221,7 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 
 				parts.conversations_parts.message_field.show(false);
 				parts.conversations_parts.add_attachment_btn.show(false);
+				parts.conversations_parts.emoji_btn.show(false);
 				parts.conversations_parts.send_message_btn.show(false);
 				parts.conversations_parts.record_voice_btn.show(false);
 				parts.conversations_parts.discard_voice_btn.show(true);
@@ -368,6 +369,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 
 	parts.conversations_parts.message_field.show(true);
 	parts.conversations_parts.add_attachment_btn.show(true);
+	parts.conversations_parts.emoji_btn.show(true);
 	parts.conversations_parts.record_voice_btn.show(true);
 	parts.conversations_parts.record_voice_btn.enable(true);
 	parts.conversations_parts.pause_resume_btn.enable(true);
@@ -414,6 +416,7 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 
 	parts.conversations_parts.message_field.show(true);
 	parts.conversations_parts.add_attachment_btn.show(true);
+	parts.conversations_parts.emoji_btn.show(true);
 	parts.conversations_parts.record_voice_btn.show(true);
 	parts.conversations_parts.record_voice_btn.enable(true);
 	parts.conversations_parts.pause_resume_btn.enable(true);

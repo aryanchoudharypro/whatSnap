@@ -28,6 +28,8 @@ pub struct ConversationsPanelParts {
 	pub conversation_panel: Panel,
 	pub conv_data_btn: Button,
 	pub add_attachment_btn: Button,
+	/// "Emoji and stickers", just before the message box.
+	pub emoji_btn: Button,
 	pub search_in_conv_btn: Button,
 	pub place_call_btn: Button,
 	pub place_video_call_btn: Button,
@@ -301,9 +303,18 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	action_panel.show(false);
 	conv_sizer.add(&action_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 0);
 
+	// The label, then the emoji and stickers panel's button (WhatsApp Web's
+	// one sits beside its message box), then the box itself: created in that
+	// order, so Shift+Tab from the box reaches the button.
+	let message_row = BoxSizer::builder(Orientation::Horizontal).build();
 	let message_label = StaticText::builder(&conversation_panel).with_label("Type a message").build();
 	theme::style_muted_label(&message_label);
-	conv_sizer.add(&message_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	message_row.add(&message_label, 0, SizerFlag::AlignCenterVertical, 0);
+	message_row.add_stretch_spacer(1);
+	let emoji_btn = Button::builder(&conversation_panel).with_label("Emoji and stickers").build();
+	emoji_btn.set_font(&theme::Fonts::body());
+	message_row.add(&emoji_btn, 0, SizerFlag::AlignCenterVertical, 0);
+	conv_sizer.add_sizer(&message_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let message_field = TextCtrl::builder(&conversation_panel)
 		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ProcessEnter)
@@ -428,6 +439,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		conversation_panel,
 		conv_data_btn,
 		add_attachment_btn,
+		emoji_btn,
 		search_in_conv_btn,
 		place_call_btn,
 		place_video_call_btn,

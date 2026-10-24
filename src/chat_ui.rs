@@ -224,6 +224,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		s.editing_message_original_text = None;
 		parts.conversations_parts.cancel_edit_btn.show(false);
 		parts.conversations_parts.add_attachment_btn.show(true);
+		parts.conversations_parts.emoji_btn.show(true);
 		parts.conversations_parts.message_label.set_label("Type a message");
 		// An edit-in-progress is not a new message someone was composing -
 		// clear it rather than letting `save_composer_draft` below pick up
@@ -283,6 +284,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		parts.conversations_parts.messages_list.show(true);
 		parts.conversations_parts.message_field.show(true);
 		parts.conversations_parts.add_attachment_btn.show(true);
+		parts.conversations_parts.emoji_btn.show(true);
 		parts.conversations_parts.record_voice_btn.show(true);
 	}
 	parts.conversations_parts.conversation_panel.show(true);
@@ -299,6 +301,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	let can_write = !jid.ends_with("@newsletter") || crate::ui_commands::links::can_post_in_channel(&s, jid);
 	parts.conversations_parts.message_field.show(can_write);
 	parts.conversations_parts.add_attachment_btn.show(can_write);
+	parts.conversations_parts.emoji_btn.show(can_write);
 	parts.conversations_parts.record_voice_btn.show(can_write);
 	let can_call = crate::ui_commands::calls::can_call(&s, jid);
 	parts.conversations_parts.place_call_btn.show(can_call);
@@ -348,6 +351,7 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	cp.message_field.enable(enabled);
 	cp.send_message_btn.enable(enabled);
 	cp.add_attachment_btn.enable(enabled);
+	cp.emoji_btn.enable(enabled);
 	cp.record_voice_btn.enable(enabled);
 	// An edit in progress keeps its "Edit message" label.
 	if s.editing_message_id.is_none() {

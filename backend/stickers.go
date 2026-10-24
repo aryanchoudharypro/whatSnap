@@ -1,14 +1,19 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -32,6 +37,7 @@ type SendStickerData struct {
 	JID         string `json:"jid"`
 	MessageID   string `json:"message_id"` // a sticker message to send again
 	Hash        string `json:"hash"`       // or a favorite, by file hash
+	PackID      string `json:"pack_id"`    // or, with hash, a sticker of a store pack
 	ReplyToID   string `json:"reply_to_id"`
 	ReplySender string `json:"reply_to_sender"`
 }
@@ -41,18 +47,39 @@ type StickerFavoriteData struct {
 	Favorite  *bool  `json:"favorite"` // nil switches it
 }
 
-// webpStickerMeta parses the EXIF JSON WhatsApp embeds inside sticker WebP files.
-type webpStickerMeta struct {
+// stickerFileMeta is the metadata WhatsApp embeds in a sticker file: JSON in
+// a WebP's EXIF chunk, or a Lottie sticker's animation.json under
+// metadata.customProps (WAWebStickerMetadataParsing).
+type stickerFileMeta struct {
+	PackID        string   `json:"sticker-pack-id"`
 	PackName      string   `json:"sticker-pack-name"`
 	AuthorName    string   `json:"sticker-author-name"`
 	Publisher     string   `json:"sticker-pack-publisher"`
 	Emojis        []string `json:"emojis"`
 	Accessibility string   `json:"accessibility-text"`
+	FirstParty    int      `json:"is-first-party-sticker"` // 1 for WhatsApp's own packs
 }
 
-// parseWebPStickerMeta extracts WhatsApp's embedded sticker metadata (pack name,
-// emojis, accessibility text) from a WebP image's EXIF chunk if present.
-func parseWebPStickerMeta(data []byte) *webpStickerMeta {
+// decodeStickerMeta reads the metadata JSON, keeping what it can when a
+// field has an unexpected type.
+func decodeStickerMeta(data []byte) *stickerFileMeta {
+	var meta stickerFileMeta
+	var typeErr *json.UnmarshalTypeError
+	if err := json.Unmarshal(data, &meta); err != nil && !errors.As(err, &typeErr) {
+		return nil
+	}
+	if meta.AuthorName == "" {
+		meta.AuthorName = meta.Publisher
+	}
+	return &meta
+}
+
+// parseStickerMeta extracts the metadata (pack, emojis, accessibility text)
+// from a WebP or Lottie sticker file, or nil when it has none.
+func parseStickerMeta(data []byte) *stickerFileMeta {
+	if len(data) >= 4 && string(data[0:4]) == "PK\x03\x04" {
+		return parseLottieStickerMeta(data)
+	}
 	if len(data) < 12 || string(data[0:4]) != "RIFF" || string(data[8:12]) != "WEBP" {
 		return nil
 	}
@@ -69,12 +96,8 @@ func parseWebPStickerMeta(data []byte) *webpStickerMeta {
 			start := bytes.IndexByte(payload, '{')
 			end := bytes.LastIndexByte(payload, '}')
 			if start != -1 && end > start {
-				var meta webpStickerMeta
-				if err := json.Unmarshal(payload[start:end+1], &meta); err == nil {
-					if meta.AuthorName == "" {
-						meta.AuthorName = meta.Publisher
-					}
-					return &meta
+				if meta := decodeStickerMeta(payload[start : end+1]); meta != nil {
+					return meta
 				}
 			}
 		}
@@ -84,6 +107,79 @@ func parseWebPStickerMeta(data []byte) *webpStickerMeta {
 		}
 	}
 	return nil
+}
+
+// parseLottieStickerMeta reads a Lottie sticker (application/was, a zip):
+// its animation/animation.json carries the metadata, as WhatsApp's own
+// animated packs do.
+func parseLottieStickerMeta(data []byte) *stickerFileMeta {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil
+	}
+	for _, f := range zr.File {
+		if !strings.HasSuffix(f.Name, "animation/animation.json") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil
+		}
+		var doc struct {
+			Metadata struct {
+				CustomProps json.RawMessage `json:"customProps"`
+			} `json:"metadata"`
+		}
+		err = json.NewDecoder(io.LimitReader(rc, 16<<20)).Decode(&doc)
+		rc.Close()
+		if err != nil || len(doc.Metadata.CustomProps) == 0 {
+			return nil
+		}
+		return decodeStickerMeta(doc.Metadata.CustomProps)
+	}
+	return nil
+}
+
+// labelStickerFromFile fills in what a sticker shows from its file when the
+// message didn't say: the file's accessibility text, or for one of
+// WhatsApp's own packs the text its store gives that sticker (the phones
+// read these out), then its emojis, then its pack's name.
+func labelStickerFromFile(st *waE2E.StickerMessage, data []byte) {
+	if st == nil || st.GetAccessibilityLabel() != "" {
+		return
+	}
+	meta := parseStickerMeta(data)
+	if meta == nil {
+		return
+	}
+	label := meta.Accessibility
+	if label == "" && meta.FirstParty == 1 && meta.PackID != "" {
+		hash := st.GetFileSHA256()
+		if len(hash) != 32 {
+			sum := sha256.Sum256(data)
+			hash = sum[:]
+		}
+		label = storeStickerLabel(meta.PackID, hash)
+	}
+	if st.GetEmojis() == "" && len(meta.Emojis) > 0 {
+		st.Emojis = proto.String(strings.Join(meta.Emojis, " "))
+	}
+	if label == "" && st.GetEmojis() == "" {
+		label = meta.PackName
+	}
+	if label != "" {
+		st.AccessibilityLabel = proto.String(label)
+	}
+}
+
+// labelStickerFromCache labels a sticker from its downloaded file, if any.
+func labelStickerFromCache(st *waE2E.StickerMessage, mediaPath string) {
+	if st == nil || st.GetAccessibilityLabel() != "" || mediaPath == "" {
+		return
+	}
+	if data, err := os.ReadFile(mediaPath); err == nil {
+		labelStickerFromFile(st, data)
+	}
 }
 
 // stickerText is a sticker's text in a chat: "[Sticker]", and what it shows
@@ -141,20 +237,7 @@ func findStickerByHash(hash string) *waE2E.StickerMessage {
 		}
 		st := unwrapMessage(&msg).GetStickerMessage()
 		if st != nil && stickerHash(st) == hash {
-			if st.GetAccessibilityLabel() == "" && st.GetEmojis() == "" && mediaPath != "" {
-				if fileBytes, err := os.ReadFile(mediaPath); err == nil {
-					if meta := parseWebPStickerMeta(fileBytes); meta != nil {
-						if meta.Accessibility != "" {
-							st.AccessibilityLabel = proto.String(meta.Accessibility)
-						} else if meta.PackName != "" {
-							st.AccessibilityLabel = proto.String(meta.PackName)
-						}
-						if len(meta.Emojis) > 0 {
-							st.Emojis = proto.String(strings.Join(meta.Emojis, " "))
-						}
-					}
-				}
-			}
+			labelStickerFromCache(st, mediaPath)
 			return st
 		}
 	}
@@ -194,22 +277,12 @@ func recentStickers() []recentSticker {
 			continue
 		}
 		seen[hash] = true
-		if sticker.GetAccessibilityLabel() == "" && sticker.GetEmojis() == "" {
+		if sticker.GetAccessibilityLabel() == "" {
 			if mediaPath != "" {
-				if fileBytes, err := os.ReadFile(mediaPath); err == nil {
-					if meta := parseWebPStickerMeta(fileBytes); meta != nil {
-						if meta.Accessibility != "" {
-							sticker.AccessibilityLabel = proto.String(meta.Accessibility)
-						} else if meta.PackName != "" {
-							sticker.AccessibilityLabel = proto.String(meta.PackName)
-						}
-						if len(meta.Emojis) > 0 {
-							sticker.Emojis = proto.String(strings.Join(meta.Emojis, " "))
-						}
-					}
-				}
+				labelStickerFromCache(sticker, mediaPath)
 			} else {
-				// Trigger background download so next time it is cached and has metadata
+				// Downloaded in the background, so next time it's cached and
+				// labelled from its file.
 				startMediaDownload(MessageRefData{MessageID: id}, true)
 			}
 		}
@@ -384,16 +457,7 @@ func favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage,
 	if width > 0 {
 		sticker.Width, sticker.Height = proto.Uint32(uint32(width)), proto.Uint32(uint32(height))
 	}
-	if meta := parseWebPStickerMeta(data); meta != nil {
-		if meta.Accessibility != "" {
-			sticker.AccessibilityLabel = proto.String(meta.Accessibility)
-		} else if meta.PackName != "" {
-			sticker.AccessibilityLabel = proto.String(meta.PackName)
-		}
-		if len(meta.Emojis) > 0 {
-			sticker.Emojis = proto.String(strings.Join(meta.Emojis, " "))
-		}
-	}
+	labelStickerFromFile(sticker, data)
 	return sticker, nil
 }
 
@@ -412,7 +476,9 @@ func handleSendSticker(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx := context.Background()
 		var sticker *waE2E.StickerMessage
-		if data.Hash != "" {
+		if data.PackID != "" {
+			sticker, err = storePackSticker(ctx, data.PackID, data.Hash)
+		} else if data.Hash != "" {
 			sticker, err = favoriteAsSticker(ctx, data.Hash)
 		} else if sticker = storedSticker(data.MessageID); sticker == nil {
 			err = fmt.Errorf("that sticker isn't here any more")
@@ -537,8 +603,15 @@ func webpInfo(data []byte) (width, height int, animated bool) {
 
 // fixupLegacyStickerTexts migrates older sticker messages stored simply as "[Sticker]"
 // by re-extracting labels/emojis from the protobuf and attached media.
+// Downloaded stickers are looked at again too, so ones from WhatsApp's own
+// packs pick up the labels their store gives them.
 func fixupLegacyStickerTexts() {
-	rows, err := db.Query(`SELECT id, raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND (text = '[Sticker]' OR text = '') AND raw IS NOT NULL LIMIT 1000`)
+	// The store is asked through the WhatsApp client, made just after start.
+	for i := 0; i < 60 && wa() == nil; i++ {
+		time.Sleep(time.Second)
+	}
+	rows, err := db.Query(`SELECT id, raw, COALESCE(media_path, ''), COALESCE(text, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL
+		AND (text = '[Sticker]' OR text = '' OR COALESCE(media_path, '') != '') ORDER BY timestamp DESC LIMIT 1000`)
 	if err != nil {
 		return
 	}
@@ -551,8 +624,8 @@ func fixupLegacyStickerTexts() {
 	for rows.Next() {
 		var id string
 		var raw []byte
-		var mediaPath string
-		if rows.Scan(&id, &raw, &mediaPath) != nil {
+		var mediaPath, text string
+		if rows.Scan(&id, &raw, &mediaPath, &text) != nil {
 			continue
 		}
 		var msg waE2E.Message
@@ -563,22 +636,9 @@ func fixupLegacyStickerTexts() {
 		if st == nil {
 			continue
 		}
-		if st.GetAccessibilityLabel() == "" && st.GetEmojis() == "" && mediaPath != "" {
-			if fileBytes, err := os.ReadFile(mediaPath); err == nil {
-				if meta := parseWebPStickerMeta(fileBytes); meta != nil {
-					if meta.Accessibility != "" {
-						st.AccessibilityLabel = proto.String(meta.Accessibility)
-					} else if meta.PackName != "" {
-						st.AccessibilityLabel = proto.String(meta.PackName)
-					}
-					if len(meta.Emojis) > 0 {
-						st.Emojis = proto.String(strings.Join(meta.Emojis, " "))
-					}
-				}
-			}
-		}
+		labelStickerFromCache(st, mediaPath)
 		txt := stickerText(st)
-		if txt != "[Sticker]" && txt != "" {
+		if txt != "[Sticker]" && txt != text {
 			fixes = append(fixes, fix{id, txt})
 		}
 	}
@@ -596,4 +656,171 @@ func fixupLegacyStickerTexts() {
 			}
 		}
 	}
+}
+
+// WhatsApp's own sticker packs, from its sticker store: the list of packs,
+// and each pack's stickers once asked for. Both are kept for the session
+// (a pack's data is a few KB), and a failed fetch is tried again after a
+// while rather than at every sticker.
+
+const stickerStoreRetry = 10 * time.Minute
+
+type stickerPackFetch struct {
+	pack *types.StickerPack
+	at   time.Time
+}
+
+var stickerStore struct {
+	sync.Mutex
+	packs []types.StickerPack
+	at    time.Time
+	data  map[string]stickerPackFetch
+}
+
+// stickerStoreLocale is the language the store names packs in, like the
+// app's own text.
+const stickerStoreLocale = "en"
+
+// storeStickerPacks lists the store's packs.
+func storeStickerPacks(ctx context.Context) ([]types.StickerPack, error) {
+	stickerStore.Lock()
+	defer stickerStore.Unlock()
+	if stickerStore.packs != nil {
+		return stickerStore.packs, nil
+	}
+	if time.Since(stickerStore.at) < time.Minute {
+		return nil, fmt.Errorf("the sticker store isn't answering, try again in a minute")
+	}
+	country := firstNonEmpty(ownCountryCode(), "default")
+	packs, err := wa().FetchStickerStore(ctx, stickerStoreLocale, country)
+	stickerStore.at = time.Now()
+	if err != nil {
+		return nil, err
+	}
+	stickerStore.packs = packs
+	return packs, nil
+}
+
+// storeStickerPack is one of the store's packs with its stickers, or nil
+// if it can't be had.
+func storeStickerPack(ctx context.Context, id string) *types.StickerPack {
+	if id == "" || wa() == nil {
+		return nil
+	}
+	stickerStore.Lock()
+	defer stickerStore.Unlock()
+	if f, ok := stickerStore.data[id]; ok && (f.pack != nil || time.Since(f.at) < stickerStoreRetry) {
+		return f.pack
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	pack, err := wa().FetchStickerPack(ctx, id)
+	if err != nil {
+		pack = nil
+	}
+	if stickerStore.data == nil {
+		stickerStore.data = map[string]stickerPackFetch{}
+	}
+	stickerStore.data[id] = stickerPackFetch{pack, time.Now()}
+	return pack
+}
+
+// storeStickerLabel is what WhatsApp's store says a sticker of its own
+// shows, by the sticker file's hash.
+func storeStickerLabel(packID string, fileHash []byte) string {
+	pack := storeStickerPack(context.Background(), packID)
+	if pack == nil {
+		return ""
+	}
+	for _, item := range pack.Stickers {
+		if bytes.Equal(item.FileHash, fileHash) {
+			return item.AccessibilityText
+		}
+	}
+	return ""
+}
+
+// storeSticker is a store sticker as a message: its media is already on
+// WhatsApp's servers, so it goes out as it is, as WhatsApp Web sends one.
+func storeSticker(pack *types.StickerPack, item *types.StickerPackItem) *waE2E.StickerMessage {
+	mimetype := firstNonEmpty(item.MimeType, "image/webp")
+	st := &waE2E.StickerMessage{
+		URL: proto.String(item.URL), DirectPath: proto.String(item.DirectPath),
+		MediaKey: item.MediaKey, FileSHA256: item.FileHash, FileEncSHA256: item.EncFileHash,
+		FileLength: proto.Uint64(uint64(item.FileSize)), Mimetype: proto.String(mimetype),
+		IsAnimated: proto.Bool(pack.Animated == 1 || pack.Lottie == 1),
+		IsLottie:   proto.Bool(mimetype == "application/was"),
+	}
+	if item.Width > 0 && item.Height > 0 {
+		st.Width, st.Height = proto.Uint32(uint32(item.Width)), proto.Uint32(uint32(item.Height))
+	}
+	if len(item.Emojis) > 0 {
+		st.Emojis = proto.String(strings.Join(item.Emojis, " "))
+	}
+	if item.AccessibilityText != "" {
+		st.AccessibilityLabel = proto.String(item.AccessibilityText)
+	}
+	return st
+}
+
+type StickerPackRequest struct {
+	ID string `json:"id"`
+}
+
+// handleGetStickerStore lists the store's packs for the sticker panel.
+func handleGetStickerStore(conn net.Conn) {
+	packs, err := storeStickerPacks(context.Background())
+	if err != nil {
+		sendEvent(conn, "sticker_store", map[string]interface{}{"error": "Couldn't load WhatsApp's sticker packs: " + err.Error()})
+		return
+	}
+	out := make([]map[string]interface{}, 0, len(packs))
+	for _, p := range packs {
+		if p.StickerPackID == "" {
+			continue
+		}
+		out = append(out, map[string]interface{}{
+			"id": p.StickerPackID, "name": firstNonEmpty(p.Name, "Sticker pack"), "publisher": p.Publisher,
+			"animated": p.Animated == 1 || p.Lottie == 1,
+		})
+	}
+	sendEvent(conn, "sticker_store", map[string]interface{}{"packs": out})
+}
+
+// handleGetStickerPack lists one store pack's stickers.
+func handleGetStickerPack(conn net.Conn, raw json.RawMessage) {
+	var data StickerPackRequest
+	if json.Unmarshal(raw, &data) != nil {
+		return
+	}
+	pack := storeStickerPack(context.Background(), data.ID)
+	if pack == nil {
+		sendEvent(conn, "sticker_pack", map[string]interface{}{"id": data.ID, "error": "Couldn't load this sticker pack."})
+		return
+	}
+	stickers := make([]map[string]string, 0, len(pack.Stickers))
+	for _, item := range pack.Stickers {
+		if len(item.FileHash) != 32 || item.DirectPath == "" {
+			continue
+		}
+		stickers = append(stickers, map[string]string{
+			"hash":  base64.StdEncoding.EncodeToString(item.FileHash),
+			"label": stickerDescription(storeSticker(pack, item)),
+		})
+	}
+	sendEvent(conn, "sticker_pack", map[string]interface{}{"id": data.ID, "stickers": stickers})
+}
+
+// storePackSticker finds a sticker of a store pack by its file hash.
+func storePackSticker(ctx context.Context, packID, hash string) (*waE2E.StickerMessage, error) {
+	pack := storeStickerPack(ctx, packID)
+	if pack == nil {
+		return nil, fmt.Errorf("couldn't load its sticker pack")
+	}
+	for _, item := range pack.Stickers {
+		if base64.StdEncoding.EncodeToString(item.FileHash) == hash {
+			return storeSticker(pack, item), nil
+		}
+	}
+	return nil, fmt.Errorf("that sticker isn't in its pack any more")
 }

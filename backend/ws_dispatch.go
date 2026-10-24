@@ -143,6 +143,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleKeepMessage(cmd.Data)
 	case "get_stickers":
 		go handleGetStickers(conn)
+	case "get_sticker_store":
+		go handleGetStickerStore(conn)
+	case "get_sticker_pack":
+		go handleGetStickerPack(conn, cmd.Data)
 	case "send_sticker":
 		handleSendSticker(conn, cmd.Data)
 	case "set_sticker_favorite":

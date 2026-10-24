@@ -1,13 +1,20 @@
-//! The attach menu's sticker picker: favorite stickers (synced from the
-//! phone), stickers recently seen in chats, or a .webp file. The backend
-//! lists them (`stickers`) and says when a favorite changes
-//! (`sticker_favorite`).
+//! Sending from the emoji and stickers panel (`ui::emoji_panel`): favorite
+//! stickers (synced from the phone), stickers recently seen in chats,
+//! WhatsApp's own sticker packs, or a .webp file; and favorites, whose
+//! changes the backend reports (`sticker_favorite`).
 
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
 
-use crate::{AppState, message_display::update_loaded_message, ui::window::WindowParts};
+use crate::{
+	AppState,
+	message_display::update_loaded_message,
+	ui::{
+		emoji_panel::{PanelChoice, StickerPick, show_emoji_panel},
+		window::WindowParts,
+	},
+};
 
 fn announce(parts: &WindowParts, message: &str) {
 	crate::announce::announce(parts.conversations_parts.messages_announcer, message);
@@ -23,46 +30,31 @@ fn take_reply(state: &Rc<RefCell<AppState>>, parts: &WindowParts) -> (String, St
 	(reply_id, reply_sender)
 }
 
-/// Attach menu > "Sticker": ask the backend which stickers there are.
-pub(crate) fn open_sticker_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+/// The emoji and stickers panel, from the button by the message box, the
+/// Conversation menu or the attach menu's "Sticker": an emoji goes into the
+/// message box, a sticker straight to the chat.
+pub(crate) fn open_emoji_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, stickers: bool) {
 	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) || state.borrow().selected_chat.is_none() {
 		return;
 	}
-	let payload = serde_json::json!({ "action": "get_stickers" });
-	let _ = state.borrow().ws_tx.send(payload.to_string());
-}
-
-enum Pick {
-	Favorite(String),
-	Recent(String),
-	File,
-}
-
-/// The backend listed the stickers: pick one and send it.
-pub(crate) fn stickers(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
-	let Some(jid) = state.borrow().selected_chat.clone() else { return };
-	let list = |key: &str| data.get(key).and_then(|v| v.as_array()).cloned().unwrap_or_default();
-	let field = |v: &serde_json::Value, key: &str| v.get(key).and_then(|f| f.as_str()).unwrap_or("").to_string();
-	let mut picks = Vec::new();
-	let mut labels = Vec::new();
-	for f in list("favorites") {
-		picks.push(Pick::Favorite(field(&f, "hash")));
-		labels.push(format!("Favorite: {}", field(&f, "label")));
-	}
-	for r in list("recent") {
-		picks.push(Pick::Recent(field(&r, "message_id")));
-		labels.push(format!("Recent: {}", field(&r, "label")));
-	}
-	picks.push(Pick::File);
-	labels.push("Choose a sticker file (.webp)...".to_string());
-	let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
-	let dialog = SingleChoiceDialog::builder(&parts.frame, "Send a sticker:", "Stickers", &label_refs).build();
-	if dialog.show_modal() != wxdragon::id::ID_OK {
+	let ws_tx = state.borrow().ws_tx.clone();
+	let state_store = state.clone();
+	let choice = show_emoji_panel(&parts.frame, ws_tx, stickers, move |panel| {
+		state_store.borrow_mut().emoji_panel = panel;
+	});
+	let field = parts.conversations_parts.message_field;
+	let Some(choice) = choice else {
+		field.set_focus();
 		return;
-	}
-	let Some(pick) = usize::try_from(dialog.get_selection()).ok().and_then(|i| picks.get(i)) else { return };
-	let payload = match pick {
-		Pick::File => {
+	};
+	let Some(jid) = state.borrow().selected_chat.clone() else { return };
+	let payload = match choice {
+		PanelChoice::Emoji(emoji) => {
+			field.write_text(&emoji);
+			field.set_focus();
+			return;
+		}
+		PanelChoice::StickerFile => {
 			let file_dialog = FileDialog::builder(&parts.frame)
 				.with_message("Choose a sticker to send")
 				.with_wildcard("Stickers (*.webp)|*.webp")
@@ -79,17 +71,18 @@ pub(crate) fn stickers(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, d
 				"reply_to_id": reply_id, "reply_to_sender": reply_sender,
 			}})
 		}
-		Pick::Favorite(hash) => {
+		PanelChoice::Sticker(pick) => {
 			let (reply_id, reply_sender) = take_reply(state, parts);
-			serde_json::json!({ "action": "send_sticker", "data": {
-				"jid": jid, "hash": hash, "reply_to_id": reply_id, "reply_to_sender": reply_sender,
-			}})
-		}
-		Pick::Recent(message_id) => {
-			let (reply_id, reply_sender) = take_reply(state, parts);
-			serde_json::json!({ "action": "send_sticker", "data": {
-				"jid": jid, "message_id": message_id, "reply_to_id": reply_id, "reply_to_sender": reply_sender,
-			}})
+			let mut data = serde_json::json!({ "jid": jid, "reply_to_id": reply_id, "reply_to_sender": reply_sender });
+			match pick {
+				StickerPick::Favorite(hash) => data["hash"] = hash.into(),
+				StickerPick::Recent(message_id) => data["message_id"] = message_id.into(),
+				StickerPick::Store { pack_id, hash } => {
+					data["pack_id"] = pack_id.into();
+					data["hash"] = hash.into();
+				}
+			}
+			serde_json::json!({ "action": "send_sticker", "data": data })
 		}
 	};
 	let _ = state.borrow().ws_tx.send(payload.to_string());

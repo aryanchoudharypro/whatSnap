@@ -222,6 +222,7 @@ pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		parts.conversations_parts.selection_bar_panel.show(true);
 		parts.conversations_parts.message_field.show(false);
 		parts.conversations_parts.add_attachment_btn.show(false);
+		parts.conversations_parts.emoji_btn.show(false);
 		parts.conversations_parts.send_message_btn.show(false);
 		parts.conversations_parts.record_voice_btn.show(false);
 	} else {
@@ -232,6 +233,7 @@ pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		parts.conversations_parts.messages_list.show(true);
 		parts.conversations_parts.message_field.show(true);
 		parts.conversations_parts.add_attachment_btn.show(true);
+		parts.conversations_parts.emoji_btn.show(true);
 		parts
 			.conversations_parts
 			.send_message_btn
@@ -286,6 +288,7 @@ pub(crate) fn delete_selected_messages(state: &Rc<RefCell<AppState>>, parts: &Rc
 	parts.conversations_parts.messages_list.show(true);
 	parts.conversations_parts.message_field.show(true);
 	parts.conversations_parts.add_attachment_btn.show(true);
+	parts.conversations_parts.emoji_btn.show(true);
 	parts.conversations_parts.record_voice_btn.show(true);
 	parts
 		.conversations_parts
@@ -624,6 +627,7 @@ pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		s.editing_message_original_text = None;
 		parts.conversations_parts.cancel_edit_btn.show(false);
 		parts.conversations_parts.add_attachment_btn.show(true);
+		parts.conversations_parts.emoji_btn.show(true);
 		parts.conversations_parts.message_label.set_label("Type a message");
 		// An edit-in-progress is not a new message someone was composing -
 		// clear it rather than letting the `save_composer_draft` call below

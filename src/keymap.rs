@@ -186,6 +186,20 @@ pub const ACTIONS: &[ActionDef] = &[
 		default: "Alt+T",
 	},
 	ActionDef {
+		id: "emoji_panel",
+		menu_id: Some(MENU_ID_EMOJI_PANEL),
+		tab: 3,
+		label: "Em&oji...",
+		default: "Alt+Shift+E",
+	},
+	ActionDef {
+		id: "sticker_panel",
+		menu_id: Some(MENU_ID_STICKER_PANEL),
+		tab: 3,
+		label: "Stic&kers...",
+		default: "Alt+Shift+S",
+	},
+	ActionDef {
 		id: message_list::VIEW_TEXT,
 		menu_id: None,
 		tab: 6,

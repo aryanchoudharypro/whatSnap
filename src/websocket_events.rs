@@ -3296,9 +3296,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					crate::ui_commands::group_extras::on_event(state, parts, t, data);
 				}
 			}
-			"stickers" => {
-				if let Some(data) = val.get("data") {
-					crate::ui_commands::stickers::stickers(state, parts, data);
+			"stickers" | "sticker_store" | "sticker_pack" => {
+				let panel = state.borrow().emoji_panel.clone();
+				if let (Some(panel), Some(data)) = (panel, val.get("data")) {
+					match t {
+						"stickers" => panel.apply_stickers(data),
+						"sticker_store" => panel.apply_store(data),
+						_ => panel.apply_pack(data),
+					}
 				}
 			}
 			"sticker_favorite" => {

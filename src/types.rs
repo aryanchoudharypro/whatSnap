@@ -60,8 +60,11 @@ pub enum UiCommand {
 	AddAttachment,
 	PasteAttachment,
 	OpenPollDialog,
-	/// "Sticker" in the attach menu: pick a sticker to send.
-	OpenStickerPicker,
+	/// The emoji and stickers panel, on its emoji or its stickers ("Sticker"
+	/// in the attach menu).
+	OpenEmojiPanel {
+		stickers: bool,
+	},
 	/// The context menu of a row in the Status tab.
 	ShowStatusMenu(usize),
 	/// The context menu of a row in the Starred Messages tab.

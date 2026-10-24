@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/binary"
 	"testing"
@@ -75,7 +76,7 @@ func TestParseWebPStickerMeta(t *testing.T) {
 	binary.Write(buf, binary.LittleEndian, uint32(len(exifPayload)))
 	buf.Write(exifPayload)
 
-	meta := parseWebPStickerMeta(buf.Bytes())
+	meta := parseStickerMeta(buf.Bytes())
 	if meta == nil {
 		t.Fatal("expected non-nil meta")
 	}
@@ -87,5 +88,54 @@ func TestParseWebPStickerMeta(t *testing.T) {
 	}
 	if len(meta.Emojis) != 2 || meta.Emojis[0] != "🐱" || meta.Emojis[1] != "❤️" {
 		t.Errorf("Emojis = %v, want ['🐱', '❤️']", meta.Emojis)
+	}
+}
+
+func TestParseLottieStickerMeta(t *testing.T) {
+	// A Lottie sticker is a zip whose animation.json carries the metadata.
+	buf := new(bytes.Buffer)
+	zw := zip.NewWriter(buf)
+	w, _ := zw.Create("animation/animation.json")
+	w.Write([]byte(`{"v":"5.7.4","layers":[],"metadata":{"customProps":{"sticker-pack-id":"abc","is-first-party-sticker":1,"emojis":["👋"],"accessibility-text":"Cuppy waving hello"}}}`))
+	zw.Close()
+
+	meta := parseStickerMeta(buf.Bytes())
+	if meta == nil {
+		t.Fatal("expected non-nil meta")
+	}
+	if meta.Accessibility != "Cuppy waving hello" || meta.PackID != "abc" || meta.FirstParty != 1 {
+		t.Errorf("meta = %+v", meta)
+	}
+	st := &waE2E.StickerMessage{Emojis: proto.String("👋")}
+	labelStickerFromFile(st, buf.Bytes())
+	if got := stickerDescription(st); got != "Cuppy waving hello" {
+		t.Errorf("stickerDescription() = %q, want the file's accessibility text", got)
+	}
+}
+
+func TestStickerMetaKeepsFieldsAroundBadOnes(t *testing.T) {
+	// A field of an unexpected type mustn't lose the label.
+	meta := decodeStickerMeta([]byte(`{"is-first-party-sticker":"1","accessibility-text":"Thumbs up"}`))
+	if meta == nil || meta.Accessibility != "Thumbs up" {
+		t.Errorf("meta = %+v", meta)
+	}
+}
+
+func TestLabelStickerFromFileFallsBackToPackName(t *testing.T) {
+	buf := new(bytes.Buffer)
+	zw := zip.NewWriter(buf)
+	w, _ := zw.Create("animation/animation.json")
+	w.Write([]byte(`{"metadata":{"customProps":{"sticker-pack-name":"Party Pack"}}}`))
+	zw.Close()
+	st := &waE2E.StickerMessage{}
+	labelStickerFromFile(st, buf.Bytes())
+	if st.GetAccessibilityLabel() != "Party Pack" {
+		t.Errorf("label = %q", st.GetAccessibilityLabel())
+	}
+	// A label the message carries is kept.
+	st = &waE2E.StickerMessage{AccessibilityLabel: proto.String("Sender's label")}
+	labelStickerFromFile(st, buf.Bytes())
+	if st.GetAccessibilityLabel() != "Sender's label" {
+		t.Errorf("label = %q", st.GetAccessibilityLabel())
 	}
 }

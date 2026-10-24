@@ -249,10 +249,12 @@ pub const MENU_ID_JOIN_CALL_LINK: i32 = 6045;
 pub const MENU_ID_FOCUS_MESSAGE_FIELD: i32 = 6046;
 pub const MENU_ID_ANNOUNCE_STATUS: i32 = 6047;
 pub const MENU_ID_FOCUS_MESSAGES_LIST: i32 = 6048;
+pub const MENU_ID_EMOJI_PANEL: i32 = 6049;
+pub const MENU_ID_STICKER_PANEL: i32 = 6050;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
 /// The Conversation menu's items, which all act on the open chat.
-const CONVERSATION_MENU_IDS: [i32; 16] = [
+const CONVERSATION_MENU_IDS: [i32; 18] = [
 	MENU_ID_CHAT_INFO,
 	MENU_ID_SEARCH_CHAT,
 	MENU_ID_PINNED_MESSAGES,
@@ -269,6 +271,8 @@ const CONVERSATION_MENU_IDS: [i32; 16] = [
 	MENU_ID_FOCUS_MESSAGE_FIELD,
 	MENU_ID_FOCUS_MESSAGES_LIST,
 	MENU_ID_ANNOUNCE_STATUS,
+	MENU_ID_EMOJI_PANEL,
+	MENU_ID_STICKER_PANEL,
 ];
 
 /// The main panes Alt+E can come back to.
@@ -452,6 +456,16 @@ pub fn build_main_window() -> WindowParts {
 			MENU_ID_ANNOUNCE_STATUS,
 			&default_menu_label(MENU_ID_ANNOUNCE_STATUS),
 			"Say the open chat's status: online, typing and so on",
+		)
+		.append_item(
+			MENU_ID_EMOJI_PANEL,
+			&default_menu_label(MENU_ID_EMOJI_PANEL),
+			"Pick an emoji to put in the message box",
+		)
+		.append_item(
+			MENU_ID_STICKER_PANEL,
+			&default_menu_label(MENU_ID_STICKER_PANEL),
+			"Pick a sticker to send: favorites, recent ones or WhatsApp's own packs",
 		)
 		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
 		.append_item(MENU_ID_PINNED_MESSAGES, "Pi&nned Messages...", "See and go to the open chat's pinned messages")
@@ -1548,6 +1562,8 @@ pub fn bind_input_handlers(
 			if let Some(label) = label {
 				crate::announce::announce(msgs_announcer_for_menu, &label);
 			}
+		} else if id == MENU_ID_EMOJI_PANEL || id == MENU_ID_STICKER_PANEL {
+			let _ = tx_chat_menu.send(UiCommand::OpenEmojiPanel { stickers: id == MENU_ID_STICKER_PANEL });
 		} else if id == MENU_ID_CHAT_INFO {
 			let _ = tx_chat_menu.send(UiCommand::ShowConversationData);
 		} else if id == MENU_ID_DISAPPEARING {
@@ -5177,6 +5193,11 @@ pub fn bind_input_handlers(
 		let _ = tx_discard_voice.send(UiCommand::DiscardVoiceMessage);
 	});
 
+	let tx_emoji = ui_tx.clone();
+	parts.conversations_parts.emoji_btn.on_click(move |_| {
+		let _ = tx_emoji.send(UiCommand::OpenEmojiPanel { stickers: false });
+	});
+
 	let tx_attach = ui_tx.clone();
 	let attach_btn_menu = parts.conversations_parts.add_attachment_btn;
 	parts.conversations_parts.add_attachment_btn.on_click(move |_| {
@@ -5195,7 +5216,11 @@ pub fn bind_input_handlers(
 			.append_item(ATTACH_CONTACT_ID, "&Contact", "Attach a contact from your WhatsApp contacts")
 			.append_item(ATTACH_POLL_ID, "P&oll", "Create a poll or a quiz")
 			.append_item(ATTACH_EVENT_ID, "&Event", "Create an event people can answer")
-			.append_item(ATTACH_STICKER_ID, "&Sticker", "Send a favorite or recent sticker, or a sticker file")
+			.append_item(
+				ATTACH_STICKER_ID,
+				"&Sticker",
+				"Send a favorite, recent or WhatsApp sticker, or a sticker file",
+			)
 			.build();
 		let tx_menu = tx_attach.clone();
 		popup_menu.on_selected(move |menu_evt| {
@@ -5207,7 +5232,7 @@ pub fn bind_input_handlers(
 				ATTACH_CONTACT_ID => Some(UiCommand::PrepareAttachContact),
 				ATTACH_POLL_ID => Some(UiCommand::OpenPollDialog),
 				ATTACH_EVENT_ID => Some(UiCommand::OpenEventDialog),
-				ATTACH_STICKER_ID => Some(UiCommand::OpenStickerPicker),
+				ATTACH_STICKER_ID => Some(UiCommand::OpenEmojiPanel { stickers: true }),
 				_ => None,
 			};
 			if let Some(cmd) = cmd {

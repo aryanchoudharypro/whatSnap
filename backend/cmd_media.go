@@ -136,6 +136,7 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 	msg = mediaCarrier(msg)
 	var dl whatsmeow.DownloadableMessage
 	var total int64
+	var sticker *waE2E.StickerMessage
 	switch {
 	case msg.GetImageMessage() != nil:
 		m := msg.GetImageMessage()
@@ -160,6 +161,7 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 	case msg.GetStickerMessage() != nil:
 		m := msg.GetStickerMessage()
 		dl, mediaType, mimetype, total = m, "sticker", m.GetMimetype(), int64(m.GetFileLength())
+		sticker = m
 	default:
 		err = fmt.Errorf("message has no downloadable media")
 		return
@@ -192,16 +194,13 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 		}
 	}
 	setMessageMediaPath(messageID, finalPath)
-	if mediaType == "sticker" {
-		if fileBytes, err := os.ReadFile(finalPath); err == nil {
-			if meta := parseWebPStickerMeta(fileBytes); meta != nil {
-				label := firstNonEmpty(meta.Accessibility, strings.Join(meta.Emojis, " "), meta.PackName)
-				if label != "" {
-					newText := "[Sticker] " + label
-					db.Exec("UPDATE messages SET text = ? WHERE id = ?", newText, messageID)
-					broadcastEvent("message_updated", map[string]interface{}{"id": messageID, "text": newText})
-				}
-			}
+	if sticker != nil && sticker.GetAccessibilityLabel() == "" {
+		// What it shows comes from the file when the message didn't say.
+		labelled := proto.Clone(sticker).(*waE2E.StickerMessage)
+		labelStickerFromCache(labelled, finalPath)
+		if newText := stickerText(labelled); newText != stickerText(sticker) {
+			db.Exec("UPDATE messages SET text = ? WHERE id = ?", newText, messageID)
+			broadcastEvent("message_updated", map[string]interface{}{"id": messageID, "text": newText})
 		}
 	}
 	if filename != "" {
@@ -925,13 +924,10 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		viewOnce := data.ViewOnce && (data.Type == "image" || data.Type == "video") && jid.Server != types.NewsletterServer
 		displayText := attachmentDisplayText(data.Type, data.Filename, data.Caption, data.Duration)
 		if data.Type == "sticker" && data.Path != "" {
-			if fileBytes, err := os.ReadFile(data.Path); err == nil {
-				if meta := parseWebPStickerMeta(fileBytes); meta != nil {
-					label := firstNonEmpty(meta.Accessibility, strings.Join(meta.Emojis, " "), meta.PackName)
-					if label != "" {
-						displayText = "[Sticker] " + label
-					}
-				}
+			st := &waE2E.StickerMessage{}
+			labelStickerFromCache(st, data.Path)
+			if text := stickerText(st); text != "[Sticker]" {
+				displayText = text
 			}
 		}
 		if viewOnce {
@@ -1223,16 +1219,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 				st.Width, st.Height = proto.Uint32(uint32(width)), proto.Uint32(uint32(height))
 			}
 			st.IsAnimated = proto.Bool(animated)
-			if meta := parseWebPStickerMeta(fileBytes); meta != nil {
-				if meta.Accessibility != "" {
-					st.AccessibilityLabel = proto.String(meta.Accessibility)
-				} else if meta.PackName != "" {
-					st.AccessibilityLabel = proto.String(meta.PackName)
-				}
-				if len(meta.Emojis) > 0 {
-					st.Emojis = proto.String(strings.Join(meta.Emojis, " "))
-				}
-			}
+			labelStickerFromFile(st, fileBytes)
 		}
 		if text := stickerText(st); text != "[Sticker]" {
 			displayText = text

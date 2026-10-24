@@ -258,6 +258,8 @@ struct AppState {
 	channel_pinning: bool,
 	/// The "Find channels" dialog while it's open, for results to land in.
 	channel_directory: Option<Rc<crate::ui::channel_directory::ChannelDirectory>>,
+	/// The emoji and stickers panel while it's open, for stickers to land in.
+	emoji_panel: Option<Rc<crate::ui::emoji_panel::EmojiPanel>>,
 	pinned_jids: std::collections::HashSet<String>,
 	muted_jids: std::collections::HashSet<String>,
 	/// Everyone blocked, under each of their addresses (phone JID and LIDs).
@@ -884,6 +886,7 @@ fn main() {
 			channel_roles: std::collections::HashMap::new(),
 			channel_pinning: false,
 			channel_directory: None,
+			emoji_panel: None,
 			pinned_jids: std::collections::HashSet::new(),
 			muted_jids: std::collections::HashSet::new(),
 			blocked_jids: std::collections::HashSet::new(),
@@ -1413,7 +1416,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::AttachFiles(kind) => ui_commands::attachments::attach_files(state, parts, kind),
 		UiCommand::AddAttachment => ui_commands::attachments::add_attachment(state, parts),
 		UiCommand::OpenPollDialog => ui_commands::attachments::open_poll_dialog(state, parts),
-		UiCommand::OpenStickerPicker => ui_commands::stickers::open_sticker_picker(state, parts),
+		UiCommand::OpenEmojiPanel { stickers } => ui_commands::stickers::open_emoji_panel(state, parts, stickers),
 		UiCommand::ShowStatusMenu(idx) => ui_commands::status_extras::show_status_menu(state, parts, idx),
 		UiCommand::ShowStarredMenu(idx) => ui_commands::starred::show_starred_menu(state, parts, idx),
 		UiCommand::ShowCallsMenu(idx) => ui_commands::calls::show_calls_menu(state, parts, idx),

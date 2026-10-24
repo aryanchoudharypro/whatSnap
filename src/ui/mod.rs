@@ -8,6 +8,7 @@ pub mod channel_countries;
 pub mod channel_directory;
 pub mod conversation_data;
 pub mod conversations;
+pub mod emoji_panel;
 pub mod group_data;
 pub mod keys;
 pub mod new_contact;
