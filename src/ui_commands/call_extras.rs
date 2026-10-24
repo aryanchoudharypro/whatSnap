@@ -149,7 +149,9 @@ fn selected_person(s: &AppState, parts: &WindowParts) -> Option<PersonRow> {
 pub(crate) fn person_buttons(s: &AppState, parts: &WindowParts) {
 	let c = &parts.call_parts;
 	let person = selected_person(s, parts);
-	let can_remove = s.call_video.can_remove;
+	// A call link's admins can remove people too; the waiting room says
+	// we're one before the next roster does.
+	let can_remove = s.call_video.can_remove || s.call_video.link_admin;
 	match &person {
 		Some(p) => {
 			c.mute_person_btn.set_label(&format!("Mute {}", p.name));
