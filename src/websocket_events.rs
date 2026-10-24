@@ -707,6 +707,13 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	if let Some(jid) = s.selected_chat.clone() {
 		crate::chat_ui::apply_composer_access(&s, parts, &jid);
 	}
+	// A chat that's no longer unread was read somewhere - often on the phone or
+	// another linked device - so its notifications go, as on official WhatsApp.
+	for (jid, old) in &s.unread_counts {
+		if *old > 0 && unread_counts.get(jid).is_none_or(|new| *new == 0) {
+			crate::chat_ui::clear_chat_notifications(jid);
+		}
+	}
 	s.unread_counts = unread_counts;
 	s.display_names = display_names;
 	refresh_tray_tooltip(&s, parts);
@@ -2505,6 +2512,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				let jid = data.and_then(|d| d.get("jid")).and_then(|j| j.as_str()).unwrap_or_default();
 				let unread = data.and_then(|d| d.get("unread_count")).and_then(|u| u.as_i64());
 				if !jid.is_empty() && unread == Some(0) {
+					crate::chat_ui::clear_chat_notifications(jid);
 					let mut s = state.borrow_mut();
 					if s.notification_reads.remove(jid) {
 						crate::chat_ui::clear_unread_divider_for_open_chat(&mut s, parts, jid);
