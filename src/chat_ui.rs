@@ -53,7 +53,7 @@ const CATCH_UP_QUIET: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Tallies one message replayed from a backlog instead of alerting for it.
 /// `missed_call` is a call-history line for a call that went unanswered.
-pub(crate) fn record_catch_up_alert(s: &mut AppState, jid: &str, missed_call: bool, alert: whantv::IncomingAlert) {
+pub(crate) fn record_catch_up_alert(s: &mut AppState, jid: &str, missed_call: bool, alert: whatsnap::IncomingAlert) {
 	if missed_call {
 		s.catch_up_alerts.record_missed_call(jid, alert);
 	} else {
@@ -85,7 +85,7 @@ pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 		);
 	}
 	if tally.toast() {
-		show_toast_notification(whantv::TRAY_APP_NAME, &tally.summary());
+		show_toast_notification(whatsnap::TRAY_APP_NAME, &tally.summary());
 	}
 }
 
@@ -145,7 +145,7 @@ pub(crate) fn clear_unread_divider_for_open_chat(s: &mut AppState, parts: &Windo
 	s.background_unread_message_ids.clear();
 	s.messages.retain(|m| !m.is_unread_divider);
 	if let Some(di) =
-		s.display_items.iter().position(|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider))
+		s.display_items.iter().position(|item| matches!(item, whatsnap::DisplayItem::Single(m) if m.is_unread_divider))
 	{
 		s.display_items.remove(di);
 		parts.conversations_parts.messages_list.delete(di as u32);

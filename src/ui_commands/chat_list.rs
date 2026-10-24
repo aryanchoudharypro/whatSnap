@@ -245,7 +245,7 @@ pub(crate) fn delete_selected_messages(state: &Rc<RefCell<AppState>>, parts: &Rc
 	let (jid_opt, ws_tx, to_delete) = {
 		let s = state.borrow();
 		let ids = &s.selected_message_ids;
-		let msgs: Vec<whantv::Msg> = s
+		let msgs: Vec<whatsnap::Msg> = s
 			.selection_rows
 			.iter()
 			.filter(|item| ids.contains(item.id()))
@@ -335,7 +335,7 @@ pub(crate) fn load_newer_messages(state: &Rc<RefCell<AppState>>) {
 		return;
 	}
 	let Some(jid) = s.selected_chat.clone() else { return };
-	let Some((after_ts, after_id)) = whantv::newest_message_cursor(&s.messages) else { return };
+	let Some((after_ts, after_id)) = whatsnap::newest_message_cursor(&s.messages) else { return };
 	s.newer_loading = true;
 	let payload = serde_json::json!({
 		"action": "get_messages",
@@ -369,9 +369,9 @@ pub(crate) fn jump_to_latest_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<
 }
 
 /// The `get_messages` request for the page just before the oldest message
-/// loaded (see `whantv::oldest_message_cursor`).
-pub(crate) fn older_page_request(messages: &[whantv::Msg], jid: &str) -> serde_json::Value {
-	let (before_ts, before_id) = whantv::oldest_message_cursor(messages).unwrap_or_default();
+/// loaded (see `whatsnap::oldest_message_cursor`).
+pub(crate) fn older_page_request(messages: &[whatsnap::Msg], jid: &str) -> serde_json::Value {
+	let (before_ts, before_id) = whatsnap::oldest_message_cursor(messages).unwrap_or_default();
 	serde_json::json!({
 		"action": "get_messages",
 		"data": {
@@ -379,7 +379,7 @@ pub(crate) fn older_page_request(messages: &[whantv::Msg], jid: &str) -> serde_j
 			"limit": crate::MESSAGE_PAGE_SIZE,
 			"before_id": before_id,
 			"before_timestamp": before_ts,
-			"offset": if before_id.is_empty() { whantv::real_message_count(messages) as i32 } else { 0 }
+			"offset": if before_id.is_empty() { whatsnap::real_message_count(messages) as i32 } else { 0 }
 		}
 	})
 }
@@ -397,7 +397,7 @@ pub(crate) fn request_phone_history_sync(s: &mut AppState, jid: &str) {
 	// Not `s.messages.first()`: that's always a date divider, with no ID.
 	// The backend picks the actual anchor itself (skipping rows the phone
 	// never sent, like group events); this is only a hint.
-	let oldest_msg_id = whantv::oldest_message_cursor(&s.messages).map(|(_, id)| id).unwrap_or_default();
+	let oldest_msg_id = whatsnap::oldest_message_cursor(&s.messages).map(|(_, id)| id).unwrap_or_default();
 	s.phone_history_pending_jid = Some(jid.to_string());
 	s.phone_history_deadline =
 		Some(std::time::Instant::now() + std::time::Duration::from_secs(crate::PHONE_HISTORY_TIMEOUT_SECS));
@@ -546,7 +546,7 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
 			let raw_phone = jid.split('@').next().unwrap_or(jid);
 			let mut phone = raw_phone.to_string();
-			if let Some(formatted) = whantv::phone::format_international(raw_phone) {
+			if let Some(formatted) = whatsnap::phone::format_international(raw_phone) {
 				phone = formatted;
 			}
 
@@ -795,7 +795,7 @@ pub(crate) fn set_archived_alert(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
 	jid: String,
-	level: whantv::ArchivedAlert,
+	level: whatsnap::ArchivedAlert,
 ) {
 	let (chat_name, spoken) = {
 		let mut s = state.borrow_mut();
@@ -806,9 +806,9 @@ pub(crate) fn set_archived_alert(
 		refresh_tray_tooltip(&s, parts);
 		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 		let spoken = match level {
-			whantv::ArchivedAlert::Silent => "silent",
-			whantv::ArchivedAlert::SoundOnly => "sound only",
-			whantv::ArchivedAlert::Full => "notify normally",
+			whatsnap::ArchivedAlert::Silent => "silent",
+			whatsnap::ArchivedAlert::SoundOnly => "sound only",
+			whatsnap::ArchivedAlert::Full => "notify normally",
 		};
 		(name, spoken)
 	};

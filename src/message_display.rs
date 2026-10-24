@@ -1,21 +1,21 @@
 //! Chat-list filtering/rendering and per-message action-button visibility
 //! logic shared across the conversation view, group data dialog, and search.
 
-use whantv::ChatMessage;
+use whatsnap::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{AppState, CallTarget};
 
 /// Changes every loaded message `pick` selects, each one exactly once, and
 /// returns the display rows holding a changed message, in order. See
-/// [`whantv::update_shared_messages`] for why this, and not `Rc::make_mut` on
+/// [`whatsnap::update_shared_messages`] for why this, and not `Rc::make_mut` on
 /// each list in turn.
 pub(crate) fn update_loaded_messages(
 	s: &mut AppState,
 	pick: impl FnMut(&ChatMessage) -> bool,
 	change: impl FnMut(&mut ChatMessage),
 ) -> Vec<usize> {
-	whantv::update_shared_messages(&mut s.messages, &mut s.display_items, &mut s.selection_rows, pick, change)
+	whatsnap::update_shared_messages(&mut s.messages, &mut s.display_items, &mut s.selection_rows, pick, change)
 }
 
 /// [`update_loaded_messages`] for the one message with this id: its display
@@ -47,20 +47,24 @@ pub(crate) fn update_loaded_message(
 	rows.first().copied()
 }
 
-// These share the loaded messages rather than copying them (see `whantv::Msg`).
-pub(crate) fn build_media_messages(messages: &[whantv::Msg]) -> Vec<whantv::Msg> {
+// These share the loaded messages rather than copying them (see `whatsnap::Msg`).
+pub(crate) fn build_media_messages(messages: &[whatsnap::Msg]) -> Vec<whatsnap::Msg> {
 	messages.iter().filter(|m| m.is_photo_or_video()).cloned().collect()
 }
 
-pub(crate) fn build_document_messages(messages: &[whantv::Msg]) -> Vec<whantv::Msg> {
+pub(crate) fn build_document_messages(messages: &[whatsnap::Msg]) -> Vec<whatsnap::Msg> {
 	messages.iter().filter(|m| m.is_document()).cloned().collect()
 }
 
-pub(crate) fn build_link_messages(messages: &[whantv::Msg]) -> Vec<whantv::Msg> {
+pub(crate) fn build_link_messages(messages: &[whatsnap::Msg]) -> Vec<whatsnap::Msg> {
 	messages.iter().filter(|m| m.first_link().is_some()).cloned().collect()
 }
 
-pub(crate) fn populate_message_list(list: &ListBox, messages: &[whantv::Msg], label: impl Fn(&ChatMessage) -> String) {
+pub(crate) fn populate_message_list(
+	list: &ListBox,
+	messages: &[whatsnap::Msg],
+	label: impl Fn(&ChatMessage) -> String,
+) {
 	list.clear();
 	for msg in messages {
 		list.append(&label(msg));
@@ -107,7 +111,7 @@ pub(crate) fn chat_visible_in_tab(
 /// How many chats the Chats tab would show as unread: the same chats the
 /// Unread filter can reach, so the navigation count agrees with the list.
 pub(crate) fn unread_chats_on_chats_tab(s: &AppState) -> usize {
-	whantv::unread_chat_count(&s.chats, &s.unread_counts, |jid| {
+	whatsnap::unread_chat_count(&s.chats, &s.unread_counts, |jid| {
 		chat_visible_in_tab(
 			0,
 			jid,
@@ -127,7 +131,7 @@ pub(crate) fn unread_chats_on_chats_tab(s: &AppState) -> usize {
 /// filter keystroke.
 pub(crate) fn chats_in_tab_order(s: &AppState) -> Vec<&String> {
 	if s.active_tab == 4 {
-		whantv::community_tab_order(&s.chats, &s.community_jids, &s.chat_parents, &s.announcement_jids)
+		whatsnap::community_tab_order(&s.chats, &s.community_jids, &s.chat_parents, &s.announcement_jids)
 	} else {
 		s.chats.iter().collect()
 	}
@@ -231,7 +235,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 					String::new()
 				};
 				let time_str = if item.timestamp > 0 {
-					whantv::LocalTime::from_unix(item.timestamp)
+					whatsnap::LocalTime::from_unix(item.timestamp)
 						.map(|local_dt| local_dt.format("%I:%M %p"))
 						.unwrap_or_default()
 				} else {
@@ -421,7 +425,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 		&& let Some(item) = s.display_items.get(idx as usize)
 	{
 		match item {
-			whantv::DisplayItem::Single(msg) => {
+			whatsnap::DisplayItem::Single(msg) => {
 				let is_deleted = msg.is_deleted;
 				let is_voice =
 					msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");
@@ -475,7 +479,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 						}
 						let label = if let Some(pct) = s.downloads_in_progress.get(&msg.id) {
 							format!("Cancel download ({}%)", pct)
-						} else if let Some(size) = whantv::format_file_size(msg.media_size) {
+						} else if let Some(size) = whatsnap::format_file_size(msg.media_size) {
 							format!("Download ({})", size)
 						} else {
 							"Download".to_string()
@@ -485,7 +489,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 					return need_layout;
 				}
 			}
-			whantv::DisplayItem::Album { messages, .. } => {
+			whatsnap::DisplayItem::Album { messages, .. } => {
 				let valid_messages: Vec<_> = messages.iter().filter(|m| !m.is_deleted).collect();
 				if !valid_messages.is_empty() {
 					let is_failed = valid_messages.iter().any(|m| m.from_me && m.status == "failed");
@@ -552,7 +556,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 							format!("Downloading album ({} items remaining)", uncollected.len())
 						} else {
 							let total_size: i64 = uncollected.iter().map(|m| m.media_size).sum();
-							match whantv::format_file_size(total_size) {
+							match whatsnap::format_file_size(total_size) {
 								Some(size) => {
 									format!("Download album ({} items remaining, {})", uncollected.len(), size)
 								}
@@ -624,8 +628,8 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 
 	let msg_opt = parts.messages_list.get_selection().and_then(|idx| s.display_items.get(idx as usize)).and_then(
 		|item| match item {
-			whantv::DisplayItem::Single(m) => Some(m.clone()),
-			whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+			whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+			whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 		},
 	);
 
@@ -718,8 +722,8 @@ pub(crate) fn format_call_log_label(name: &str, text: &str, from_me: bool, times
 	};
 
 	let time_str = if timestamp > 0 {
-		if let Some(local_dt) = whantv::LocalTime::from_unix(timestamp) {
-			let now_dt = whantv::LocalTime::now();
+		if let Some(local_dt) = whatsnap::LocalTime::from_unix(timestamp) {
+			let now_dt = whatsnap::LocalTime::now();
 			let msg_date = local_dt.date();
 			let today = now_dt.date();
 			let yesterday = today.add_days(-1);

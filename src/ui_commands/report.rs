@@ -170,7 +170,7 @@ pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			.unwrap_or_default();
 		let stored = r.get("stored").and_then(|v| v.as_bool()).unwrap_or(false);
 		let text = if stored {
-			whantv::friendly_preview_text(&str_of(r, "text"))
+			whatsnap::friendly_preview_text(&str_of(r, "text"))
 		} else {
 			"A message that isn't on this computer".to_string()
 		};

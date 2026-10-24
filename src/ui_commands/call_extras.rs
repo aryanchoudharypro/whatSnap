@@ -171,8 +171,8 @@ pub(crate) fn ask_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		return;
 	}
 	let link = dialog.get_value().unwrap_or_default();
-	match whantv::parse_whatsapp_link(&link) {
-		Some(whantv::WhatsAppLink::Call { token, video }) => join_call_link(state, parts, token, video),
+	match whatsnap::parse_whatsapp_link(&link) {
+		Some(whatsnap::WhatsAppLink::Call { token, video }) => join_call_link(state, parts, token, video),
 		_ => {
 			MessageDialog::builder(&parts.frame, "That isn't a WhatsApp call link.", "Join Call Link")
 				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
@@ -376,7 +376,7 @@ fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: S
 		let text = format!("Join my WhatsApp {} call: {}", kind, url);
 		crate::ui_commands::links::send_text_to_chosen_chats(state, parts, "Send call link", &text);
 	} else if result == JOIN
-		&& let Some(whantv::WhatsAppLink::Call { token, video }) = whantv::parse_whatsapp_link(&url)
+		&& let Some(whatsnap::WhatsAppLink::Call { token, video }) = whatsnap::parse_whatsapp_link(&url)
 	{
 		join_call_link(state, parts, token, video);
 	}

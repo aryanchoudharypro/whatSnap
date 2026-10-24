@@ -179,7 +179,7 @@ fn log(msg: &str) {
 	if let Ok(mut f) =
 		std::fs::OpenOptions::new().create(true).append(true).open(crate::paths::log_dir().join("backend_process.log"))
 	{
-		let _ = writeln!(f, "[{}] {msg}", whantv::LocalTime::now().format("%Y-%m-%d %H:%M:%S"));
+		let _ = writeln!(f, "[{}] {msg}", whatsnap::LocalTime::now().format("%Y-%m-%d %H:%M:%S"));
 	}
 }
 

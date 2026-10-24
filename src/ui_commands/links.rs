@@ -3,7 +3,7 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use whantv::WhatsAppLink;
+use whatsnap::WhatsAppLink;
 use wxdragon::prelude::*;
 
 use crate::{
@@ -23,6 +23,9 @@ fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link:
 		crate::app_link::AppLink::Open { jid } => open_chat_for_jid(&jid, state, parts),
 		crate::app_link::AppLink::MarkRead { jid } => {
 			crate::chat_ui::clear_chat_notifications(&jid);
+			// The chat shows as read only once the server has the receipts:
+			// see the "chat_updated" and "mark_read_failed" events.
+			state.borrow_mut().notification_reads.insert(jid.clone());
 			crate::handle_ui_command(crate::UiCommand::MarkRead { jid, message_ids: Vec::new() }, state, parts);
 		}
 	}
@@ -34,7 +37,7 @@ fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link:
 /// Before we're logged in and have the chat list, the link waits.
 pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: String) {
 	let app_link = crate::app_link::parse(&link);
-	let parsed = if app_link.is_some() { None } else { whantv::parse_whatsapp_link(&link) };
+	let parsed = if app_link.is_some() { None } else { whatsnap::parse_whatsapp_link(&link) };
 	if app_link.is_none() && parsed.is_none() {
 		return;
 	}

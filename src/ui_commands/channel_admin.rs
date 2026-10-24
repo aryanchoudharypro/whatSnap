@@ -336,7 +336,11 @@ pub(crate) fn channel_followers(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 /// The "Channel post" submenu of a post in a channel we own or run: pin or
 /// unpin it, and see who reacted or, for a poll, who voted. Its items are only
 /// ever offered to its own handler, so it sends its requests itself.
-pub(crate) fn channel_post_menu(state: &Rc<RefCell<AppState>>, channel_jid: &str, post: &whantv::ChatMessage) -> Menu {
+pub(crate) fn channel_post_menu(
+	state: &Rc<RefCell<AppState>>,
+	channel_jid: &str,
+	post: &whatsnap::ChatMessage,
+) -> Menu {
 	const PIN: i32 = 3301;
 	const REACTIONS: i32 = 3302;
 	const VOTERS: i32 = 3303;

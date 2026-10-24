@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// An attach-menu option: pick files the way that option does.
-pub(crate) fn attach_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, kind: whantv::AttachKind) {
+pub(crate) fn attach_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, kind: whatsnap::AttachKind) {
 	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
@@ -35,8 +35,8 @@ pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	}
 	let kind = state.borrow().pending_attachment_kind;
 	let message = match kind {
-		whantv::AttachKind::Media => "Choose photos or videos to send",
-		whantv::AttachKind::Audio => "Choose audio files to send",
+		whatsnap::AttachKind::Media => "Choose photos or videos to send",
+		whatsnap::AttachKind::Audio => "Choose audio files to send",
 		_ => "Choose files to send as documents",
 	};
 	let file_dialog = FileDialog::builder(&parts.frame)
@@ -103,10 +103,10 @@ fn show_attachment_dialog(
 		(s.pending_attachment_kind, names)
 	};
 	let heading = match kind {
-		whantv::AttachKind::Document => "Documents",
-		whantv::AttachKind::Media => "Photos and videos",
-		whantv::AttachKind::Audio => "Audio",
-		whantv::AttachKind::Pasted => "Files",
+		whatsnap::AttachKind::Document => "Documents",
+		whatsnap::AttachKind::Media => "Photos and videos",
+		whatsnap::AttachKind::Audio => "Audio",
+		whatsnap::AttachKind::Pasted => "Files",
 	};
 	let d = &parts.attachment_dialog;
 	d.attachment_info_label.set_label(&format!("{}: {}", heading, file_names.join(", ")));
@@ -254,7 +254,7 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 			if !paths.is_empty() {
 				let mut s = state.borrow_mut();
 				if s.pending_attachments.is_empty() {
-					s.pending_attachment_kind = whantv::AttachKind::Pasted;
+					s.pending_attachment_kind = whatsnap::AttachKind::Pasted;
 				}
 				let left_out = add_to_batch(&mut s, paths);
 				let kind = s.pending_attachment_kind;
@@ -281,7 +281,7 @@ pub(crate) fn discard_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	{
 		let mut s = state.borrow_mut();
 		s.pending_attachments.clear();
-		s.pending_attachment_kind = whantv::AttachKind::default();
+		s.pending_attachment_kind = whatsnap::AttachKind::default();
 	}
 	parts.attachment_dialog.attachment_info_label.set_label("");
 	parts.attachment_dialog.caption_field.set_value("");
@@ -473,7 +473,7 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 
 	if let Some(item) = item_opt {
 		match item {
-			whantv::DisplayItem::Single(msg) => {
+			whatsnap::DisplayItem::Single(msg) => {
 				// Grab an owned copy and drop the borrow before opening the
 				// modal dialog below — show_modal() pumps the message loop,
 				// and any handler that needs state.borrow_mut() while we're
@@ -505,7 +505,7 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 					}
 				}
 			}
-			whantv::DisplayItem::Album { messages, .. } => {
+			whatsnap::DisplayItem::Album { messages, .. } => {
 				let photo_count = messages
 					.iter()
 					.filter(|m| {

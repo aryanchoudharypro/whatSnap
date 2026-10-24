@@ -37,11 +37,11 @@ pub struct Settings {
 	/// (The field name predates it; kept so saved settings carry over.)
 	pub voice_message_noise_suppression: bool,
 	/// Per-chat alert level for archived chats, keyed by JID. A chat with no
-	/// entry uses [`whantv::ArchivedAlert::default`] (silent), so archiving
+	/// entry uses [`whatsnap::ArchivedAlert::default`] (silent), so archiving
 	/// quiets a chat with no bookkeeping at all. Entries deliberately survive
 	/// unarchiving: re-archiving a chat shouldn't silently discard the choice
 	/// made for it last time.
-	pub archived_alert_levels: std::collections::HashMap<String, whantv::ArchivedAlert>,
+	pub archived_alert_levels: std::collections::HashMap<String, whatsnap::ArchivedAlert>,
 	/// Whether the backend logs every WhatsApp protocol frame and SQL query
 	/// (DEBUG level) instead of just warnings/errors. Off by default: it's
 	/// continuous, high-volume logging only useful while actively
@@ -133,15 +133,15 @@ impl Settings {
 	}
 
 	/// Alert level for `jid` as an archived chat. Chats that aren't archived
-	/// never consult this - see [`whantv::incoming_alert`].
-	pub fn archived_alert(&self, jid: &str) -> whantv::ArchivedAlert {
+	/// never consult this - see [`whatsnap::incoming_alert`].
+	pub fn archived_alert(&self, jid: &str) -> whatsnap::ArchivedAlert {
 		self.archived_alert_levels.get(jid).copied().unwrap_or_default()
 	}
 
 	/// Records `level` for `jid`, dropping the entry when it's the default so
 	/// settings.json doesn't grow a line for every archived chat left alone.
-	pub fn set_archived_alert(&mut self, jid: &str, level: whantv::ArchivedAlert) {
-		if level == whantv::ArchivedAlert::default() {
+	pub fn set_archived_alert(&mut self, jid: &str, level: whatsnap::ArchivedAlert) {
+		if level == whatsnap::ArchivedAlert::default() {
 			self.archived_alert_levels.remove(jid);
 		} else {
 			self.archived_alert_levels.insert(jid.to_string(), level);

@@ -8,7 +8,7 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc};
 use rodio::{Player, Source};
 use rodio_wsola::WsolaSourceExt;
 use serde::Deserialize;
-use whantv::ChatMessage;
+use whatsnap::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
@@ -128,7 +128,7 @@ fn qr_rgba(qr: &qrcode::QrCode) -> (u32, u32, Vec<u8>) {
 /// logs.
 pub(crate) fn ui_timing_log(msg: &str) {
 	use std::io::Write;
-	let now = whantv::LocalTime::now().format("%Y/%m/%d %H:%M:%S");
+	let now = whatsnap::LocalTime::now().format("%Y/%m/%d %H:%M:%S");
 	if let Ok(mut f) =
 		std::fs::OpenOptions::new().create(true).append(true).open(crate::paths::log_dir().join("ui.log"))
 	{
@@ -179,11 +179,11 @@ fn apply_newer_messages(
 		}
 	}
 	let mut merged = std::mem::take(&mut s.messages);
-	merged.extend(added.into_iter().map(whantv::Msg::new));
-	s.messages = whantv::rebuild_date_dividers(merged);
+	merged.extend(added.into_iter().map(whatsnap::Msg::new));
+	s.messages = whatsnap::rebuild_date_dividers(merged);
 
 	let old_display_items = std::mem::take(&mut s.display_items);
-	let new_display_items = whantv::group_messages_into_display_items(&s.messages);
+	let new_display_items = whatsnap::group_messages_into_display_items(&s.messages);
 	let old_len = old_display_items.len();
 	// Appending leaves every row already shown untouched unless an album
 	// regrouped across the seam; rebuild (keeping the selected row) if so.
@@ -270,29 +270,29 @@ fn apply_conversation_messages(
 	}
 
 	let mut with_dates = Vec::new();
-	let mut last_date: Option<whantv::Date> = None;
+	let mut last_date: Option<whatsnap::Date> = None;
 	for mut msg in deduplicated {
 		if !is_group_chat && !msg.from_me && msg.sender_name.is_empty() && msg.sender_jid.is_empty() {
 			msg.sender_name = chat_name.clone();
 		}
 
-		if let Some(local_datetime) = whantv::LocalTime::from_unix(msg.timestamp) {
-			let day = whantv::date_key(local_datetime);
+		if let Some(local_datetime) = whatsnap::LocalTime::from_unix(msg.timestamp) {
+			let day = whatsnap::date_key(local_datetime);
 			if last_date != Some(day) {
 				last_date = Some(day);
-				with_dates.push(whantv::Msg::new(ChatMessage {
-					text: whantv::format_date_divider_label(local_datetime),
+				with_dates.push(whatsnap::Msg::new(ChatMessage {
+					text: whatsnap::format_date_divider_label(local_datetime),
 					timestamp: msg.timestamp,
 					is_date_divider: true,
 					..Default::default()
 				}));
 			}
 		}
-		with_dates.push(whantv::Msg::new(msg));
+		with_dates.push(whatsnap::Msg::new(msg));
 	}
 
 	if !load_more && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
-		whantv::insert_unread_divider(&mut with_dates, s.unread_divider_count);
+		whatsnap::insert_unread_divider(&mut with_dates, s.unread_divider_count);
 	}
 
 	s.loading_messages = false;
@@ -314,7 +314,7 @@ fn apply_conversation_messages(
 		// dividers built independently (see `rebuild_date_dividers`'s doc
 		// comment) - rebuild once across the merged list instead of ending
 		// up with two adjacent dividers for the same day.
-		with_dates = whantv::rebuild_date_dividers(with_dates);
+		with_dates = whatsnap::rebuild_date_dividers(with_dates);
 	}
 	s.messages = with_dates;
 	// A chat with nothing stored (a group nobody has written in since
@@ -323,7 +323,7 @@ fn apply_conversation_messages(
 	let from_phone = chat_jid.ends_with("@g.us") || chat_jid.ends_with("@s.whatsapp.net") || chat_jid.ends_with("@lid");
 	if !load_more
 		&& from_phone
-		&& whantv::real_message_count(&s.messages) == 0
+		&& whatsnap::real_message_count(&s.messages) == 0
 		&& s.empty_chat_history_asked.insert(chat_jid.clone())
 	{
 		s.history_loading = true;
@@ -346,7 +346,7 @@ fn apply_conversation_messages(
 		}
 	}
 	let old_display_items = std::mem::take(&mut s.display_items);
-	let new_display_items = whantv::group_messages_into_display_items(&s.messages);
+	let new_display_items = whatsnap::group_messages_into_display_items(&s.messages);
 	let new_len = new_display_items.len();
 	s.prev_msg_count = new_len;
 
@@ -360,7 +360,7 @@ fn apply_conversation_messages(
 	// also handles the date divider moving up across the seam); an album
 	// spanning the exact seam can change the grouping there (rare), so this
 	// still falls back to a full rebuild whenever the rest doesn't line up.
-	let prepend = if load_more { whantv::prepend_plan(&old_display_items, &new_display_items) } else { None };
+	let prepend = if load_more { whatsnap::prepend_plan(&old_display_items, &new_display_items) } else { None };
 
 	// Rows go into the list in one call (`set_items`/`insert_items`), not one
 	// append per row: a whole chat is tens of thousands of rows, and adding
@@ -404,8 +404,8 @@ fn apply_conversation_messages(
 	let count = parts.conversations_parts.messages_list.get_count();
 	let target_pos = if let Some(target_id) = s.search_target_id.take() {
 		s.display_items.iter().position(|item| match item {
-			whantv::DisplayItem::Single(m) => m.id == target_id,
-			whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == target_id),
+			whatsnap::DisplayItem::Single(m) => m.id == target_id,
+			whatsnap::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == target_id),
 		})
 	} else if let Some(target_text) = s.search_target_text.take() {
 		let is_generic = target_text == "[Voice Message]"
@@ -418,10 +418,10 @@ fn apply_conversation_messages(
 		} else {
 			// The newest match, as the old around-the-hit lookup picked.
 			s.display_items.iter().rposition(|item| match item {
-				whantv::DisplayItem::Single(m) => {
+				whatsnap::DisplayItem::Single(m) => {
 					m.text == target_text || (!m.text.is_empty() && m.text.contains(&target_text))
 				}
-				whantv::DisplayItem::Album { messages, .. } => messages
+				whatsnap::DisplayItem::Album { messages, .. } => messages
 					.iter()
 					.any(|m| m.text == target_text || (!m.text.is_empty() && m.text.contains(&target_text))),
 			})
@@ -430,7 +430,7 @@ fn apply_conversation_messages(
 		// Opening a chat with unread messages: land on the
 		// "N unread messages" divider, same as pressing Enter
 		// on it from the chat list, instead of the very bottom.
-		s.display_items.iter().position(|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider))
+		s.display_items.iter().position(|item| matches!(item, whatsnap::DisplayItem::Single(m) if m.is_unread_divider))
 	} else {
 		None
 	};
@@ -561,8 +561,8 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 			let preview_reaction_emoji = &*chat.preview_reaction_emoji;
 
 			let time_str = if ts > 0 {
-				if let Some(local_dt) = whantv::LocalTime::from_unix(ts) {
-					let now_dt = whantv::LocalTime::now();
+				if let Some(local_dt) = whatsnap::LocalTime::from_unix(ts) {
+					let now_dt = whatsnap::LocalTime::now();
 					let msg_date = local_dt.date();
 					let today = now_dt.date();
 					let yesterday = today.add_days(-1);
@@ -658,10 +658,10 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 					"{} reacted with {} to: {}",
 					who,
 					preview_reaction_emoji,
-					whantv::friendly_preview_text(preview)
+					whatsnap::friendly_preview_text(preview)
 				)
 			} else if !preview.is_empty() {
-				let body = whantv::friendly_preview_text(preview);
+				let body = whatsnap::friendly_preview_text(preview);
 				if preview_from_me {
 					format!("You: {}", body)
 				} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
@@ -1709,7 +1709,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					s.no_more_messages = false;
 					// Opened before any of its history had arrived: fill it in
 					// now instead of leaving it blank until it's reopened.
-					if whantv::real_message_count(&s.messages) == 0 && s.messages_at_latest {
+					if whatsnap::real_message_count(&s.messages) == 0 && s.messages_at_latest {
 						s.quiet_reload_jid = Some(open_jid.clone());
 						let payload = serde_json::json!({
 							"action": "get_messages",
@@ -1744,7 +1744,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					// everything else that queued up: tallied and answered once
 					// for the lot (see chat_ui::flush_catch_up_alerts) rather
 					// than with a sound and a notification each.
-					let is_backlog = whantv::is_backlog_message(
+					let is_backlog = whatsnap::is_backlog_message(
 						data.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0),
 						std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
 							as i64,
@@ -1866,13 +1866,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 							let mut insert_date = false;
 							let mut divider_label = String::new();
-							if let Some(local_datetime) = whantv::LocalTime::from_unix(ts) {
-								let day = whantv::date_key(local_datetime);
+							if let Some(local_datetime) = whatsnap::LocalTime::from_unix(ts) {
+								let day = whatsnap::date_key(local_datetime);
 								if let Some(last_msg) = s.messages.last() {
 									if !last_msg.is_date_divider
-										&& let Some(last_local) = whantv::LocalTime::from_unix(last_msg.timestamp)
+										&& let Some(last_local) = whatsnap::LocalTime::from_unix(last_msg.timestamp)
 									{
-										if day != whantv::date_key(last_local) {
+										if day != whatsnap::date_key(last_local) {
 											insert_date = true;
 										}
 									}
@@ -1880,7 +1880,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									insert_date = true;
 								}
 								if insert_date {
-									divider_label = whantv::format_date_divider_label(local_datetime);
+									divider_label = whatsnap::format_date_divider_label(local_datetime);
 								}
 							}
 
@@ -1932,7 +1932,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							}
 
 							if insert_date && !divider_label.is_empty() {
-								let divider = whantv::Msg::new(ChatMessage {
+								let divider = whatsnap::Msg::new(ChatMessage {
 									id: String::new(),
 									text: divider_label,
 									timestamp: ts,
@@ -1940,12 +1940,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									..Default::default()
 								});
 								s.messages.push(divider.clone());
-								s.display_items.push(whantv::DisplayItem::Single(divider.clone()));
+								s.display_items.push(whatsnap::DisplayItem::Single(divider.clone()));
 								parts.conversations_parts.messages_list.append(&divider.format_display(is_group));
 							}
 
-							// Shared by `messages` and `display_items` (see `whantv::Msg`).
-							let chat_msg = whantv::Msg::new(ChatMessage {
+							// Shared by `messages` and `display_items` (see `whatsnap::Msg`).
+							let chat_msg = whatsnap::Msg::new(ChatMessage {
 								id: msg_id.clone(),
 								text: text.to_string(),
 								timestamp: ts,
@@ -1997,17 +1997,17 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							let should_merge = if is_media_msg {
 								if let Some(last_item) = s.display_items.last() {
 									match last_item {
-										whantv::DisplayItem::Single(prev_msg) => {
+										whatsnap::DisplayItem::Single(prev_msg) => {
 											let prev_is_media = !prev_msg.is_deleted
 												&& (prev_msg.media_type == "image"
 													|| prev_msg.media_type == "video"
 													|| prev_msg.text.starts_with("[Photo]")
 													|| prev_msg.text.starts_with("[Image]")
 													|| prev_msg.text.starts_with("[Video]"));
-											prev_is_media && whantv::same_album(prev_msg, &chat_msg)
+											prev_is_media && whatsnap::same_album(prev_msg, &chat_msg)
 										}
-										whantv::DisplayItem::Album { messages, .. } => {
-											messages.last().is_some_and(|m| whantv::same_album(m, &chat_msg))
+										whatsnap::DisplayItem::Album { messages, .. } => {
+											messages.last().is_some_and(|m| whatsnap::same_album(m, &chat_msg))
 										}
 									}
 								} else {
@@ -2024,7 +2024,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								// whole (unvirtualized) list.
 								let last_idx = s.display_items.len() - 1;
 								let merged = match s.display_items.pop().unwrap() {
-									whantv::DisplayItem::Single(prev_msg) => whantv::DisplayItem::Album {
+									whatsnap::DisplayItem::Single(prev_msg) => whatsnap::DisplayItem::Album {
 										id: prev_msg.id.clone(),
 										sender_jid: prev_msg.sender_jid.clone(),
 										sender_name: prev_msg.sender_name.clone(),
@@ -2032,7 +2032,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										timestamp: prev_msg.timestamp,
 										messages: vec![prev_msg, chat_msg.clone()],
 									},
-									whantv::DisplayItem::Album {
+									whatsnap::DisplayItem::Album {
 										id,
 										sender_jid,
 										sender_name,
@@ -2041,7 +2041,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										mut messages,
 									} => {
 										messages.push(chat_msg.clone());
-										whantv::DisplayItem::Album {
+										whatsnap::DisplayItem::Album {
 											id,
 											sender_jid,
 											sender_name,
@@ -2057,7 +2057,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									.set_string(last_idx as u32, &merged.format_display(is_group));
 								s.display_items.push(merged);
 							} else {
-								s.display_items.push(whantv::DisplayItem::Single(chat_msg.clone()));
+								s.display_items.push(whatsnap::DisplayItem::Single(chat_msg.clone()));
 								parts.conversations_parts.messages_list.append(&chat_msg.format_display(is_group));
 							}
 							refresh_selection_list(&mut s, parts);
@@ -2094,7 +2094,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									s.background_unread_message_ids.push(msg_id.clone());
 									let is_group = jid.ends_with("@g.us");
 									let existing_di = s.display_items.iter().position(
-										|item| matches!(item, whantv::DisplayItem::Single(m) if m.is_unread_divider),
+										|item| matches!(item, whatsnap::DisplayItem::Single(m) if m.is_unread_divider),
 									);
 									if let Some(di) = existing_di {
 										s.unread_divider_count += 1;
@@ -2116,7 +2116,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										// The message that just triggered this branch was
 										// appended as the last entry above, so the divider
 										// belongs immediately before it.
-										let divider = whantv::Msg::new(ChatMessage {
+										let divider = whatsnap::Msg::new(ChatMessage {
 											text: "1 unread message".to_string(),
 											is_unread_divider: true,
 											..Default::default()
@@ -2125,7 +2125,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										s.messages.insert(insert_at, divider.clone());
 										let di_insert_at = s.display_items.len().saturating_sub(1);
 										s.display_items
-											.insert(di_insert_at, whantv::DisplayItem::Single(divider.clone()));
+											.insert(di_insert_at, whatsnap::DisplayItem::Single(divider.clone()));
 										parts
 											.conversations_parts
 											.messages_list
@@ -2143,7 +2143,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										&mut s,
 										jid,
 										is_missed_call,
-										whantv::IncomingAlert { sound: sounds_enabled, toast: false },
+										whatsnap::IncomingAlert { sound: sounds_enabled, toast: false },
 									);
 								}
 							}
@@ -2159,14 +2159,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							if !is_from_me && !is_system {
 								// Archived chats default to silent and can be dialled back up per chat
 								// from the chat-list context menu; muting still overrides both.
-								let alert = whantv::incoming_alert(
+								let alert = whatsnap::incoming_alert(
 									s.muted_jids.contains(jid),
 									s.archived_jids.contains(jid),
 									s.settings.archived_alert(jid),
 								);
 								let alert = if is_backlog {
 									if is_missed_call || !is_call_line {
-										let allowed = whantv::IncomingAlert {
+										let allowed = whatsnap::IncomingAlert {
 											sound: alert.sound
 												&& s.settings.sounds_enabled
 												&& !crate::do_not_disturb::should_silence(&s.settings),
@@ -2174,7 +2174,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										};
 										crate::chat_ui::record_catch_up_alert(&mut s, jid, is_missed_call, allowed);
 									}
-									whantv::IncomingAlert { sound: false, toast: false }
+									whatsnap::IncomingAlert { sound: false, toast: false }
 								} else {
 									alert
 								};
@@ -2190,7 +2190,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									// field - resolve the display name from the contacts
 									// map ourselves, same as everywhere else in the UI, so
 									// the notification doesn't show a raw JID.
-									let body = whantv::friendly_preview_text(text);
+									let body = whatsnap::friendly_preview_text(text);
 									let is_group = jid.ends_with("@g.us");
 									// `from` can carry a WhatsApp device suffix (e.g.
 									// "1234:12@s.whatsapp.net") which will not match the
@@ -2267,7 +2267,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							let had_message = s.messages.iter().any(|m| m.id == message_id);
 							if had_message {
 								s.messages.retain(|m| m.id != message_id);
-								s.display_items = whantv::group_messages_into_display_items(&s.messages);
+								s.display_items = whatsnap::group_messages_into_display_items(&s.messages);
 								s.prev_msg_count = s.display_items.len();
 
 								// One call for every row, not one append each (see
@@ -2482,7 +2482,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			}
 			"chat_cleared" => {
 				// Covers a clear-chat that happened on the phone or
-				// another linked device - whantv's own clear_chat already
+				// another linked device - whatSnap's own clear_chat already
 				// clears the open conversation view locally before this
 				// broadcast ever comes back, so this is a no-op for that
 				// case and the only path that matters for the other one.
@@ -2499,6 +2499,43 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 				}
 			}
+			"chat_updated" => {
+				// The server has the chat's read receipts.
+				let data = val.get("data");
+				let jid = data.and_then(|d| d.get("jid")).and_then(|j| j.as_str()).unwrap_or_default();
+				let unread = data.and_then(|d| d.get("unread_count")).and_then(|u| u.as_i64());
+				if !jid.is_empty() && unread == Some(0) {
+					let mut s = state.borrow_mut();
+					if s.notification_reads.remove(jid) {
+						crate::chat_ui::clear_unread_divider_for_open_chat(&mut s, parts, jid);
+						// Acknowledged with the rest; don't send them again on refocus.
+						if s.selected_chat.as_deref() == Some(jid) {
+							s.background_unread_message_ids.clear();
+						}
+					}
+					// Only repaint the chat list when it still shows the chat unread.
+					if s.unread_counts.insert(jid.to_string(), 0).is_some_and(|n| n != 0) {
+						crate::tray::refresh_tray_tooltip(&s, parts);
+						let _ = s.ws_tx.send(serde_json::json!({ "action": "get_chats" }).to_string());
+					}
+				}
+			}
+			"mark_read_failed" => {
+				// The server didn't take the receipts: the chat stays unread,
+				// and the list is refreshed so it doesn't look read.
+				let jid = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()).unwrap_or_default();
+				let mut s = state.borrow_mut();
+				let from_notification = s.notification_reads.remove(jid);
+				let _ = s.ws_tx.send(serde_json::json!({ "action": "get_chats" }).to_string());
+				if from_notification {
+					let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+					drop(s);
+					crate::chat_ui::show_toast_notification(
+						whatsnap::TRAY_APP_NAME,
+						&format!("Couldn't mark {} as read. Check your connection and try again.", name),
+					);
+				}
+			}
 			"play_audio_failed" => {
 				eprintln!("[LOG UI] Voice message audio failed to load or download");
 				crate::announce::announce(parts.conversations_parts.messages_announcer, "Could not load voice message");
@@ -2509,7 +2546,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if ts == 0 {
 							return String::new();
 						}
-						let Some(dt) = whantv::LocalTime::from_unix(ts) else {
+						let Some(dt) = whatsnap::LocalTime::from_unix(ts) else {
 							return String::new();
 						};
 						dt.format("%l:%M %p").trim().to_lowercase()
@@ -2865,16 +2902,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							chat_name.clone()
 						};
 						let body = if !text.is_empty() {
-							whantv::friendly_preview_text(text)
+							whatsnap::friendly_preview_text(text)
 						} else if !quoted_text.is_empty() {
-							whantv::friendly_preview_text(quoted_text)
+							whatsnap::friendly_preview_text(quoted_text)
 						} else if !media_type.is_empty() {
 							"Media".to_string()
 						} else {
 							"Message".to_string()
 						};
 						let date_str = if timestamp > 0 {
-							whantv::LocalTime::from_unix(timestamp)
+							whatsnap::LocalTime::from_unix(timestamp)
 								.map(|local_dt| local_dt.format("%b %e, %Y"))
 								.unwrap_or_default()
 						} else {
@@ -2979,27 +3016,27 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 
 						let mut with_dates = Vec::new();
-						let mut last_date: Option<whantv::Date> = None;
+						let mut last_date: Option<whatsnap::Date> = None;
 						for msg in parsed_msgs {
-							if let Some(local_datetime) = whantv::LocalTime::from_unix(msg.timestamp) {
-								let day = whantv::date_key(local_datetime);
+							if let Some(local_datetime) = whatsnap::LocalTime::from_unix(msg.timestamp) {
+								let day = whatsnap::date_key(local_datetime);
 								if last_date != Some(day) {
 									last_date = Some(day);
-									with_dates.push(whantv::Msg::new(ChatMessage {
-										text: whantv::format_date_divider_label(local_datetime),
+									with_dates.push(whatsnap::Msg::new(ChatMessage {
+										text: whatsnap::format_date_divider_label(local_datetime),
 										timestamp: msg.timestamp,
 										is_date_divider: true,
 										..Default::default()
 									}));
 								}
 							}
-							with_dates.push(whantv::Msg::new(msg));
+							with_dates.push(whatsnap::Msg::new(msg));
 						}
 
 						let mut s = state.borrow_mut();
 						let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 						s.messages = with_dates;
-						s.display_items = whantv::group_messages_into_display_items(&s.messages);
+						s.display_items = whatsnap::group_messages_into_display_items(&s.messages);
 
 						parts.conversations_parts.messages_list.freeze();
 						parts.conversations_parts.messages_list.clear();
@@ -3126,8 +3163,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 					let btn_label = if unavailable {
 						if last_seen > 0 {
-							if let Some(local_dt) = whantv::LocalTime::from_unix(last_seen) {
-								let now = whantv::LocalTime::now();
+							if let Some(local_dt) = whatsnap::LocalTime::from_unix(last_seen) {
+								let now = whatsnap::LocalTime::now();
 								let time_str = local_dt.format("%l:%M %p").trim().to_string();
 								let date_str = if local_dt.date() == now.date() {
 									format!("today at {}", time_str)
@@ -3175,8 +3212,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 						let announcement = if unavailable {
 							if last_seen > 0 {
-								if let Some(local_dt) = whantv::LocalTime::from_unix(last_seen) {
-									let now = whantv::LocalTime::now();
+								if let Some(local_dt) = whatsnap::LocalTime::from_unix(last_seen) {
+									let now = whatsnap::LocalTime::now();
 									let time_str = local_dt.format("%l:%M %p").trim().to_string();
 									let date_str = if local_dt.date() == now.date() {
 										format!("today at {}", time_str)
@@ -3371,7 +3408,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									String::new()
 								} else {
 									let raw_phone = phone_jid.split('@').next().unwrap_or(phone_jid);
-									whantv::phone::format_international(raw_phone)
+									whatsnap::phone::format_international(raw_phone)
 										.unwrap_or_else(|| raw_phone.to_string())
 								};
 
@@ -3470,7 +3507,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							for g in groups {
 								let flag = |key: &str| g.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
 								let joined = flag("Joined");
-								let label = whantv::community_group_label(
+								let label = whatsnap::community_group_label(
 									g.get("Name").and_then(|n| n.as_str()).unwrap_or(""),
 									flag("IsDefaultSubGroup"),
 									flag("IsGeneralChat"),
@@ -3736,7 +3773,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							.filter(|p| !p.is_empty())
 							.unwrap_or_else(|| jid.split('@').next().unwrap_or(jid));
 						let mut phone = raw_phone.to_string();
-						if let Some(formatted) = whantv::phone::format_international(raw_phone) {
+						if let Some(formatted) = whatsnap::phone::format_international(raw_phone) {
 							phone = formatted;
 						}
 
@@ -4243,7 +4280,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									}
 								}
 								if !found {
-									msg.reactions.push(whantv::ChatReaction {
+									msg.reactions.push(whatsnap::ChatReaction {
 										reactor_jid: if is_own_reaction {
 											"me".to_string()
 										} else {
@@ -4292,7 +4329,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										.cloned()
 										.unwrap_or_else(|| "Contact".to_string())
 								};
-								let alert = whantv::incoming_alert(
+								let alert = whatsnap::incoming_alert(
 									s.muted_jids.contains(chat_jid),
 									s.archived_jids.contains(chat_jid),
 									s.settings.archived_alert(chat_jid),
@@ -4308,7 +4345,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									crate::chat_ui::show_chat_notification(
 										chat_jid,
 										&resolved_name,
-										&format!("Reacted {} to \"{}\"", emoji, whantv::friendly_preview_text(text)),
+										&format!("Reacted {} to \"{}\"", emoji, whatsnap::friendly_preview_text(text)),
 									);
 								}
 							}

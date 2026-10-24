@@ -121,7 +121,7 @@ pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
 pub(crate) fn caller_info_text(name: &str, phone_digits: Option<&str>, group: Option<&str>) -> String {
 	let mut text = format!("Call from {name}");
 	if let Some(digits) = phone_digits {
-		let shown = whantv::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}"));
+		let shown = whatsnap::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}"));
 		text.push_str(", ");
 		text.push_str(&shown);
 	}

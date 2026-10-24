@@ -1,6 +1,6 @@
 use std::{process::Command, time::Instant};
 
-use whantv::ChatMessage;
+use whatsnap::ChatMessage;
 
 fn run_stress_test_simulation() {
 	let backend_dir = std::path::PathBuf::from("backend");

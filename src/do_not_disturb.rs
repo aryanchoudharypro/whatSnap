@@ -79,7 +79,7 @@ fn windows_is_quieting() -> bool {
 	{
 		return answer;
 	}
-	let answer = whantv::windows_is_quieting(query_focus_assist(), query_notification_state());
+	let answer = whatsnap::windows_is_quieting(query_focus_assist(), query_notification_state());
 	*cache = Some((Instant::now(), answer));
 	answer
 }

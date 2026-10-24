@@ -1,10 +1,10 @@
 [package]
-name = "whantv"
+name = "whatsnap"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88.0"
 
-# The executable is named after the app; the library crate stays `whantv`.
+# The executable is named after the app; the library crate is `whatsnap`.
 [[bin]]
 name = "whatSnap"
 path = "src/main.rs"

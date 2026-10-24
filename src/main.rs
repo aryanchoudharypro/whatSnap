@@ -292,6 +292,9 @@ struct AppState {
 	/// window was unfocused; drained into the unread divider + a batched
 	/// mark_read once focus returns.
 	background_unread_message_ids: Vec<String>,
+	/// Chats marked read from a toast's "Mark as read", waiting for the
+	/// backend to say whether the server took the receipts.
+	notification_reads: std::collections::HashSet<String>,
 	display_names: std::collections::HashMap<String, String>,
 	contacts: std::collections::HashMap<String, String>,
 	/// Full synced contact list (name + phone), independent of `contacts`
@@ -316,7 +319,7 @@ struct AppState {
 	/// Groups we've left or been removed from.
 	not_member_jids: std::collections::HashSet<String>,
 	initial_presence_received: bool,
-	messages: Vec<whantv::Msg>,
+	messages: Vec<whatsnap::Msg>,
 	/// Whether `messages` runs right up to the chat's newest message. False
 	/// after jumping to an old search/starred hit (`get_messages_around`),
 	/// where newer messages exist that aren't loaded - live messages for the
@@ -408,7 +411,7 @@ struct AppState {
 	conn_manual_reconnect: bool,
 	pending_attachments: Vec<String>,
 	/// The attach-menu option `pending_attachments` came from.
-	pending_attachment_kind: whantv::AttachKind,
+	pending_attachment_kind: whatsnap::AttachKind,
 	pending_reply_id: Option<String>,
 	pending_reply_sender: Option<String>,
 	pending_reply_preview: Option<String>,
@@ -454,11 +457,11 @@ struct AppState {
 	/// closed or offline), waiting to be answered with a single sound and
 	/// notification rather than one per message. See
 	/// [`chat_ui::flush_catch_up_alerts`].
-	catch_up_alerts: whantv::CatchUpAlerts,
+	catch_up_alerts: whatsnap::CatchUpAlerts,
 	/// When the last backlog entry was tallied; the summary goes out once the
 	/// replay has been quiet for a moment.
 	catch_up_last_at: Option<std::time::Instant>,
-	display_items: Vec<whantv::DisplayItem>,
+	display_items: Vec<whatsnap::DisplayItem>,
 	/// Whether the message list is showing checkboxes for a batch action
 	/// (currently just delete), entered via `UiCommand::ToggleSelectionMode`.
 	selection_mode: bool,
@@ -471,7 +474,7 @@ struct AppState {
 	/// vector is how the CheckListBox's toggle event (which only reports an
 	/// index) is mapped back to a message id, same pattern as
 	/// `NewGroupState::current_jids`.
-	selection_rows: Vec<whantv::DisplayItem>,
+	selection_rows: Vec<whatsnap::DisplayItem>,
 	/// (jid, message_id) pairs still expected as "message_deleted" push
 	/// events from the batch `DeleteSelectedMessages` just sent, removed as
 	/// each arrives so their individual "Message deleted" announcements can
@@ -538,9 +541,9 @@ struct AppState {
 	/// Media/Documents/Links tabs in the group info dialog, aligned 1:1 with
 	/// what's shown in each ListBox (no search/filtering on these, matching
 	/// official WhatsApp).
-	group_data_media: Vec<whantv::Msg>,
-	group_data_documents: Vec<whantv::Msg>,
-	group_data_links: Vec<whantv::Msg>,
+	group_data_media: Vec<whatsnap::Msg>,
+	group_data_documents: Vec<whatsnap::Msg>,
+	group_data_links: Vec<whatsnap::Msg>,
 	/// JIDs of the community subgroups shown in the Groups tab, aligned 1:1
 	/// with `groups_list` rows, so a list selection can be joined by JID.
 	group_data_subgroup_jids: Vec<String>,
@@ -550,9 +553,9 @@ struct AppState {
 	group_data_community: Option<String>,
 	/// Same as the group_data_* trio above, but for the 1-on-1 conversation
 	/// data dialog.
-	conversation_data_media: Vec<whantv::Msg>,
-	conversation_data_documents: Vec<whantv::Msg>,
-	conversation_data_links: Vec<whantv::Msg>,
+	conversation_data_media: Vec<whatsnap::Msg>,
+	conversation_data_documents: Vec<whatsnap::Msg>,
+	conversation_data_links: Vec<whatsnap::Msg>,
 	/// Who the open 1:1 info page is about, once `user_info` has said.
 	conversation_data_contact: Option<ui_commands::contacts_groups::ContactCard>,
 	own_push_name: String,
@@ -597,7 +600,7 @@ fn main() {
 	// started with a link to act on.
 	let launch_link = std::env::args()
 		.skip(1)
-		.find(|arg| whantv::parse_whatsapp_link(arg).is_some() || app_link::parse(arg).is_some());
+		.find(|arg| whatsnap::parse_whatsapp_link(arg).is_some() || app_link::parse(arg).is_some());
 	let _instance_lock = match single_instance::acquire_or_activate_existing(launch_link.as_deref()) {
 		Some(lock) => lock,
 		None => return,
@@ -709,7 +712,15 @@ fn main() {
 		// at the top of `main`) hand off to this window instead of starting a second instance.
 		let ui_tx_activate = ui_tx.clone();
 		single_instance::listen_for_activation(move |link| {
-			let _ = ui_tx_activate.send(UiCommand::ActivateWindow);
+			// A toast's "Mark as read" works in the background, like official
+			// WhatsApp's: no window, and no going online.
+			let mark_read = link
+				.as_deref()
+				.and_then(app_link::parse)
+				.is_some_and(|l| matches!(l, app_link::AppLink::MarkRead { .. }));
+			if !mark_read {
+				let _ = ui_tx_activate.send(UiCommand::ActivateWindow);
+			}
 			if let Some(link) = link {
 				let _ = ui_tx_activate.send(UiCommand::OpenWhatsAppLink(link));
 			}
@@ -887,6 +898,7 @@ fn main() {
 			presence_sent: None,
 			composing: None,
 			background_unread_message_ids: Vec::new(),
+			notification_reads: std::collections::HashSet::new(),
 			display_names: std::collections::HashMap::new(),
 			// Seeded so Meta AI's chat shows a proper name from the first
 			// message instead of running its bot JID's numeric user part
@@ -996,7 +1008,7 @@ fn main() {
 			conn_outage_announced: false,
 			conn_manual_reconnect: false,
 			pending_attachments: Vec::new(),
-			pending_attachment_kind: whantv::AttachKind::default(),
+			pending_attachment_kind: whatsnap::AttachKind::default(),
 			pending_reply_id: None,
 			pending_reply_sender: None,
 			pending_reply_preview: None,
@@ -1015,7 +1027,7 @@ fn main() {
 			search_target_id: None,
 			search_target_text: None,
 			played_sent_sounds: std::collections::HashMap::new(),
-			catch_up_alerts: whantv::CatchUpAlerts::default(),
+			catch_up_alerts: whatsnap::CatchUpAlerts::default(),
 			catch_up_last_at: None,
 			is_voice_recording: false,
 			is_voice_paused: false,
@@ -1081,11 +1093,12 @@ fn main() {
 				// that just ended), so NVDA reads out whose note is starting
 				// and Space pauses the one actually playing.
 				let finished_id = s.playing_msg_id.clone().unwrap_or_default();
-				if let Some(next_id) = whantv::next_sequential_voice(&s.messages, &finished_id).map(|m| m.id.clone()) {
+				if let Some(next_id) = whatsnap::next_sequential_voice(&s.messages, &finished_id).map(|m| m.id.clone())
+				{
 					let index_of = |id: &str| {
 						s.display_items.iter().position(|item| match item {
-							whantv::DisplayItem::Single(m) => m.id == id,
-							whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == id),
+							whatsnap::DisplayItem::Single(m) => m.id == id,
+							whatsnap::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == id),
 						})
 					};
 					let list = &parts_timer.conversations_parts.messages_list;

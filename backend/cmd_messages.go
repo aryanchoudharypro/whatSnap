@@ -671,9 +671,6 @@ func handleMarkRead(raw json.RawMessage) {
 				rows.Close()
 			}
 		}
-		// Everything older was read elsewhere; note it locally so no later
-		// open picks it up.
-		db.Exec(`UPDATE messages SET read_at = ? WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, time.Now().Unix(), data.JID)
 	}
 
 	bySender := map[string][]types.MessageID{}
@@ -685,30 +682,76 @@ func handleMarkRead(raw json.RawMessage) {
 		senderJIDMap[key] = item.senderJID
 	}
 
-	now := time.Now()
-	// Remember they're read, so the next open doesn't acknowledge them again.
-	for _, item := range items {
-		db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(item.id))
-	}
 	// One receipt per sender, sent one after another as WA Web does (each
-	// waits for the server's ack), not all at once.
-	if len(bySender) > 0 {
-		go func() {
-			for key, ids := range bySender {
-				targetSender := senderJIDMap[key]
-				if err := wa().MarkRead(context.Background(), ids, now, chatJID, targetSender); err != nil {
-					log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, targetSender, err)
-				}
+	// waits for the server's ack), not all at once. The chat only counts as
+	// read once every receipt is acknowledged; otherwise the app is told it
+	// failed, so it doesn't show the chat read when the server never heard.
+	go func() {
+		now := time.Now()
+		ok := true
+		for key, ids := range bySender {
+			targetSender := senderJIDMap[key]
+			if err := markReadAndWaitForAck(ids, now, chatJID, targetSender); err != nil {
+				log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, targetSender, err)
+				ok = false
+				continue
 			}
-		}()
-	}
+			// Remember they're read, so the next open doesn't acknowledge them again.
+			for _, id := range ids {
+				db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(id))
+			}
+		}
+		if !ok {
+			broadcastEvent("mark_read_failed", map[string]interface{}{"jid": data.JID})
+			return
+		}
+		if len(data.MessageIDs) == 0 {
+			// Everything older was read elsewhere; note it locally so no later
+			// open picks it up.
+			db.Exec(`UPDATE messages SET read_at = ? WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), data.JID)
+		}
+		db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
+		broadcastEvent("chat_updated", map[string]interface{}{
+			"jid":          data.JID,
+			"unread_count": 0,
+		})
+	}()
+}
 
-	// Always clear unread_count when chat is marked read
-	db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
-	broadcastEvent("chat_updated", map[string]interface{}{
-		"jid":          data.JID,
-		"unread_count": 0,
-	})
+// readReceiptAckTimeout is how long a read receipt waits for the server's ack.
+const readReceiptAckTimeout = 15 * time.Second
+
+// markReadAndWaitForAck sends a read receipt and waits for the server's
+// <ack class="receipt">, which carries the receipt's first message ID.
+// MarkRead alone only writes to the socket, which says nothing about whether
+// the server took it.
+func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender types.JID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	// Registered before sending so a quick ack isn't missed. It's never
+	// cancelled: CancelResponse closes the channel, which would panic if the
+	// ack arrived at that moment. A waiter left behind holds one buffered
+	// channel and is cleared on disconnect.
+	ackCh := wa().DangerousInternals().WaitResponse(string(ids[0]))
+	if err := wa().MarkRead(context.Background(), ids, now, chat, sender); err != nil {
+		return err
+	}
+	select {
+	case ack, open := <-ackCh:
+		if !open || ack == nil {
+			return fmt.Errorf("disconnected before the server acknowledged the receipt")
+		}
+		if ack.Tag != "ack" {
+			return fmt.Errorf("unexpected <%s> in reply to the receipt", ack.Tag)
+		}
+		if code, has := ack.Attrs["error"]; has {
+			return fmt.Errorf("server rejected the receipt with error %v", code)
+		}
+		return nil
+	case <-time.After(readReceiptAckTimeout):
+		return fmt.Errorf("no ack from the server within %s", readReceiptAckTimeout)
+	}
 }
 
 func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {

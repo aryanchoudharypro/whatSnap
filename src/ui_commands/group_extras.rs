@@ -165,7 +165,7 @@ fn answer_join_requests(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 		let when = r
 			.get("requested_at")
 			.and_then(|t| t.as_i64())
-			.and_then(whantv::LocalTime::from_unix)
+			.and_then(whatsnap::LocalTime::from_unix)
 			.map(|dt| dt.format("%b %d, %I:%M %p"))
 			.unwrap_or_default();
 		labels.push(format!("{}, asked {}", text(r, "name"), when));

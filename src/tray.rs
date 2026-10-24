@@ -19,7 +19,7 @@ use crate::{AppState, ui::window::WindowParts};
 ///
 /// The two calls are deliberate and not redundant: the shell takes the item's
 /// accessible name from the tooltip it was *added* with and sends every later
-/// change to the description, so adding the icon under [`whantv::TRAY_APP_NAME`]
+/// change to the description, so adding the icon under [`whatsnap::TRAY_APP_NAME`]
 /// and only then writing counts is what makes a screen reader say
 /// "whatSnap, 7 unread messages" instead of pairing the live count with whatever
 /// it happened to be at login.
@@ -27,7 +27,7 @@ pub(crate) fn install_tray_icon(s: &AppState, parts: &WindowParts) {
 	if !s.settings.show_tray_icon || !s.main_ui_shown {
 		return;
 	}
-	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), whantv::TRAY_APP_NAME);
+	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), whatsnap::TRAY_APP_NAME);
 	refresh_tray_tooltip(s, parts);
 	enable_keyboard_select();
 }
@@ -170,13 +170,13 @@ pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 	if !s.settings.show_tray_icon || !s.main_ui_shown {
 		return;
 	}
-	let unread = whantv::unread_notification_total(
+	let unread = whatsnap::unread_notification_total(
 		&s.unread_counts,
 		&s.muted_jids,
 		&s.archived_jids,
 		&s.settings.archived_alert_levels,
 	);
-	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), &whantv::tray_tooltip_text(unread));
+	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), &whatsnap::tray_tooltip_text(unread));
 }
 
 /// Writes the unread-chat count into the Chats entry of the navigation list.

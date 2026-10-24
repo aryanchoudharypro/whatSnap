@@ -392,7 +392,7 @@ pub(crate) fn post_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let file_dialog = FileDialog::builder(&parts.frame)
 		.with_message("Choose a photo or video to post as a status")
-		.with_wildcard(&whantv::AttachKind::Media.file_filter())
+		.with_wildcard(&whatsnap::AttachKind::Media.file_filter())
 		.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
 		.build();
 	if file_dialog.show_modal() == wxdragon::id::ID_OK
@@ -400,7 +400,7 @@ pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	{
 		// The same photos and videos the attach menu sends; AVI, MKV and
 		// WebM don't play on phones, and a BMP isn't a photo to WhatsApp.
-		let media_type = match whantv::AttachKind::Media.send_type(&path) {
+		let media_type = match whatsnap::AttachKind::Media.send_type(&path) {
 			"video" => "video",
 			_ => "image",
 		};
@@ -458,8 +458,8 @@ pub(crate) fn retry_selected_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		.get_selection()
 		.and_then(|idx| s.display_items.get(idx as usize))
 		.map(|item| match item {
-			whantv::DisplayItem::Single(m) => std::slice::from_ref(m),
-			whantv::DisplayItem::Album { messages, .. } => messages.as_slice(),
+			whatsnap::DisplayItem::Single(m) => std::slice::from_ref(m),
+			whatsnap::DisplayItem::Album { messages, .. } => messages.as_slice(),
 		})
 		.unwrap_or_default()
 		.iter()

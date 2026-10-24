@@ -32,9 +32,9 @@ fn announce(parts: &WindowParts, message: &str) {
 pub(crate) fn append_message_actions(
 	menu: &Menu,
 	state: &Rc<RefCell<AppState>>,
-	item: Option<&whantv::DisplayItem>,
-) -> Option<whantv::ChatMessage> {
-	let Some(whantv::DisplayItem::Single(m)) = item else { return None };
+	item: Option<&whatsnap::DisplayItem>,
+) -> Option<whatsnap::ChatMessage> {
+	let Some(whatsnap::DisplayItem::Single(m)) = item else { return None };
 	if m.is_date_divider || m.is_unread_divider || m.is_system() || m.is_deleted || m.id.is_empty() {
 		return None;
 	}
@@ -85,7 +85,7 @@ pub(crate) fn handle_message_action(
 	id: i32,
 	state: &Rc<RefCell<AppState>>,
 	frame: &Frame,
-	msg: &whantv::ChatMessage,
+	msg: &whatsnap::ChatMessage,
 ) -> bool {
 	let Some(jid) = state.borrow().selected_chat.clone() else { return false };
 	let target = serde_json::json!({ "jid": jid, "message_id": msg.id });
@@ -138,7 +138,7 @@ fn update_open_message(
 	parts: &Rc<WindowParts>,
 	data: &serde_json::Value,
 	spoken: &str,
-	change: impl FnOnce(&mut whantv::ChatMessage),
+	change: impl FnOnce(&mut whatsnap::ChatMessage),
 ) {
 	let text = |key: &str| data.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
 	let (jid, message_id) = (text("jid"), text("message_id"));
@@ -189,7 +189,7 @@ pub(crate) fn pinned_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 			list.iter()
 				.map(|p| {
 					let field = |key: &str| p.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
-					let text = whantv::friendly_preview_text(&field("text"));
+					let text = whatsnap::friendly_preview_text(&field("text"));
 					(field("id"), format!("{}: {}", field("sender"), text))
 				})
 				.collect()

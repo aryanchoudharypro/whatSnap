@@ -55,7 +55,7 @@ pub enum UiCommand {
 	SendVoiceMessage,
 	DiscardVoiceMessage,
 	/// Opens the file picker for one of the attach-menu options.
-	AttachFiles(whantv::AttachKind),
+	AttachFiles(whatsnap::AttachKind),
 	/// "Add more files" in the attachment dialog: same option as the batch.
 	AddAttachment,
 	PasteAttachment,
@@ -322,7 +322,7 @@ pub enum UiCommand {
 	/// there's no protocol-level equivalent, unlike mute.
 	SetArchivedAlert {
 		jid: String,
-		level: whantv::ArchivedAlert,
+		level: whatsnap::ArchivedAlert,
 	},
 	ToggleReadChat {
 		jid: String,

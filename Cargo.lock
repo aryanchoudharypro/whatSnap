@@ -2028,7 +2028,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "whantv"
+name = "whatsnap"
 version = "0.1.0"
 dependencies = [
  "embed-manifest",

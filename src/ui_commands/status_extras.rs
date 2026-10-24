@@ -227,7 +227,7 @@ fn show_viewers(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 			let time = v
 				.get("timestamp")
 				.and_then(|t| t.as_i64())
-				.and_then(whantv::LocalTime::from_unix)
+				.and_then(whatsnap::LocalTime::from_unix)
 				.map(|dt| dt.format("%I:%M %p"))
 				.unwrap_or_default();
 			let reaction = text(v, "reaction");

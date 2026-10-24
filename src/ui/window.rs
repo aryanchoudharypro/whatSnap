@@ -97,7 +97,7 @@ fn wire_media_list(
 	dialog: &Dialog,
 	ui_tx: &UiCommandSender,
 	state: &std::rc::Rc<std::cell::RefCell<crate::AppState>>,
-	get_message: impl Fn(&crate::AppState, usize) -> Option<whantv::Msg> + Clone + 'static,
+	get_message: impl Fn(&crate::AppState, usize) -> Option<whatsnap::Msg> + Clone + 'static,
 	with_media_actions: bool,
 ) {
 	let list_enter = *list;
@@ -1134,14 +1134,14 @@ pub fn bind_input_handlers(
 				// so switching the icon back on in Settings doesn't leave a bare
 				// name until the next chats broadcast refreshes it.
 				let s = state.borrow();
-				tray_icon.set_icon(&tray_bitmap, whantv::TRAY_APP_NAME);
-				let unread = whantv::unread_notification_total(
+				tray_icon.set_icon(&tray_bitmap, whatsnap::TRAY_APP_NAME);
+				let unread = whatsnap::unread_notification_total(
 					&s.unread_counts,
 					&s.muted_jids,
 					&s.archived_jids,
 					&s.settings.archived_alert_levels,
 				);
-				tray_icon.set_icon(&tray_bitmap, &whantv::tray_tooltip_text(unread));
+				tray_icon.set_icon(&tray_bitmap, &whatsnap::tray_tooltip_text(unread));
 				crate::tray::enable_keyboard_select();
 			} else {
 				tray_icon.remove_icon();
@@ -1605,8 +1605,8 @@ pub fn bind_input_handlers(
 		{
 			let s = state_chat_menu.borrow();
 			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-				whantv::DisplayItem::Single(m) => Some(m.clone()),
-				whantv::DisplayItem::Album { .. } => None,
+				whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+				whatsnap::DisplayItem::Album { .. } => None,
 			});
 			drop(s);
 			if let Some(msg) = msg_opt
@@ -2055,7 +2055,7 @@ pub fn bind_input_handlers(
 	let poll_quiz = parts.poll_dialog.quiz_check;
 	parts.poll_dialog.send_btn.on_click(move |_| {
 		let question = poll_question.get_value();
-		match whantv::validate_poll(&question, &poll_options.get_value()) {
+		match whatsnap::validate_poll(&question, &poll_options.get_value()) {
 			Ok(options) => {
 				let quiz = poll_quiz.get_value();
 				let correct_answer = if quiz {
@@ -2088,7 +2088,7 @@ pub fn bind_input_handlers(
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 					.build()
 					.show_modal();
-				if question.trim().is_empty() || question.trim().chars().count() > whantv::POLL_MAX_QUESTION_CHARS {
+				if question.trim().is_empty() || question.trim().chars().count() > whatsnap::POLL_MAX_QUESTION_CHARS {
 					poll_question.set_focus();
 				} else {
 					poll_options.set_focus();
@@ -3055,9 +3055,9 @@ pub fn bind_input_handlers(
 						.build();
 					alert_menu.check_item(
 						match archived_level {
-							whantv::ArchivedAlert::Silent => alert_silent_id,
-							whantv::ArchivedAlert::SoundOnly => alert_sound_id,
-							whantv::ArchivedAlert::Full => alert_full_id,
+							whatsnap::ArchivedAlert::Silent => alert_silent_id,
+							whatsnap::ArchivedAlert::SoundOnly => alert_sound_id,
+							whatsnap::ArchivedAlert::Full => alert_full_id,
 						},
 						true,
 					);
@@ -3067,11 +3067,11 @@ pub fn bind_input_handlers(
 					alert_menu.on_selected(move |menu_evt| {
 						let id = menu_evt.get_id();
 						let level = if id == alert_silent_id {
-							whantv::ArchivedAlert::Silent
+							whatsnap::ArchivedAlert::Silent
 						} else if id == alert_sound_id {
-							whantv::ArchivedAlert::SoundOnly
+							whatsnap::ArchivedAlert::SoundOnly
 						} else if id == alert_full_id {
-							whantv::ArchivedAlert::Full
+							whatsnap::ArchivedAlert::Full
 						} else {
 							return;
 						};
@@ -3278,7 +3278,7 @@ pub fn bind_input_handlers(
 			if let Some(display_item) = s.display_items.get(idx as usize).cloned() {
 				drop(s);
 				match display_item {
-					whantv::DisplayItem::Single(msg) => {
+					whatsnap::DisplayItem::Single(msg) => {
 						let is_voice = msg.is_audio
 							|| msg.media_type == "voice"
 							|| msg.media_type == "audio"
@@ -3327,7 +3327,7 @@ pub fn bind_input_handlers(
 							}
 						}
 					}
-					whantv::DisplayItem::Album { messages, .. } => {
+					whatsnap::DisplayItem::Album { messages, .. } => {
 						let msg_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
 						if !msg_ids.is_empty() {
 							let _ = tx_copy.send(UiCommand::CopyAlbumToClipboard { message_ids: msg_ids });
@@ -3371,11 +3371,11 @@ pub fn bind_input_handlers(
 			let reportable_id = display_item
 				.as_ref()
 				.and_then(|item| match item {
-					whantv::DisplayItem::Single(m) => {
+					whatsnap::DisplayItem::Single(m) => {
 						(!m.from_me && !m.is_date_divider && !m.is_system() && !m.is_deleted && m.media_type != "call")
 							.then(|| m.id.clone())
 					}
-					whantv::DisplayItem::Album { messages, .. } => {
+					whatsnap::DisplayItem::Album { messages, .. } => {
 						messages.first().filter(|m| !m.from_me).map(|m| m.id.clone())
 					}
 				})
@@ -3384,29 +3384,31 @@ pub fn bind_input_handlers(
 			let is_starred = display_item
 				.as_ref()
 				.map(|item| match item {
-					whantv::DisplayItem::Single(m) => m.starred && !m.is_date_divider,
-					whantv::DisplayItem::Album { .. } => false,
+					whatsnap::DisplayItem::Single(m) => m.starred && !m.is_date_divider,
+					whatsnap::DisplayItem::Album { .. } => false,
 				})
 				.unwrap_or(false);
 
 			let is_from_me = display_item
 				.as_ref()
 				.map(|item| match item {
-					whantv::DisplayItem::Single(m) => m.from_me && !m.is_date_divider,
-					whantv::DisplayItem::Album { messages, .. } => messages.first().map(|m| m.from_me).unwrap_or(false),
+					whatsnap::DisplayItem::Single(m) => m.from_me && !m.is_date_divider,
+					whatsnap::DisplayItem::Album { messages, .. } => {
+						messages.first().map(|m| m.from_me).unwrap_or(false)
+					}
 				})
 				.unwrap_or(false);
 			let is_photo_album = display_item
 				.as_ref()
 				.map(|item| match item {
-					whantv::DisplayItem::Album { messages, .. } => messages.iter().all(|m| m.media_type == "image"),
+					whatsnap::DisplayItem::Album { messages, .. } => messages.iter().all(|m| m.media_type == "image"),
 					_ => false,
 				})
 				.unwrap_or(false);
 			let is_voice_msg = display_item
 				.as_ref()
 				.map(|item| match item {
-					whantv::DisplayItem::Single(m) => {
+					whatsnap::DisplayItem::Single(m) => {
 						m.is_audio
 							|| m.media_type == "voice"
 							|| m.media_type == "audio"
@@ -3419,10 +3421,10 @@ pub fn bind_input_handlers(
 			let can_retry = display_item
 				.as_ref()
 				.map(|item| match item {
-					whantv::DisplayItem::Single(m) => {
+					whatsnap::DisplayItem::Single(m) => {
 						m.from_me && !m.is_date_divider && (m.status == "pending" || m.status == "failed")
 					}
-					whantv::DisplayItem::Album { messages, .. } => messages
+					whatsnap::DisplayItem::Album { messages, .. } => messages
 						.first()
 						.map(|m| m.from_me && (m.status == "pending" || m.status == "failed"))
 						.unwrap_or(false),
@@ -3432,24 +3434,26 @@ pub fn bind_input_handlers(
 			let is_unreadable = display_item
 				.as_ref()
 				.map(|item| match item {
-					whantv::DisplayItem::Single(m) => m.is_unreadable(),
+					whatsnap::DisplayItem::Single(m) => m.is_unreadable(),
 					_ => false,
 				})
 				.unwrap_or(false);
 
 			let phone_match = display_item.as_ref().and_then(|item| match item {
-				whantv::DisplayItem::Single(m) => m.first_phone_number(),
-				whantv::DisplayItem::Album { .. } => None,
+				whatsnap::DisplayItem::Single(m) => m.first_phone_number(),
+				whatsnap::DisplayItem::Album { .. } => None,
 			});
 
 			// Only meaningful in a group: a 1:1 chat has no other "sender" to
 			// jump to, and messages from you have no other party to reach.
 			let sender_jid = if is_group_chat {
 				display_item.as_ref().and_then(|item| match item {
-					whantv::DisplayItem::Single(m) if !m.is_date_divider && !m.from_me && !m.sender_jid.is_empty() => {
+					whatsnap::DisplayItem::Single(m)
+						if !m.is_date_divider && !m.from_me && !m.sender_jid.is_empty() =>
+					{
 						Some(m.sender_jid.clone())
 					}
-					whantv::DisplayItem::Album { messages, .. } => messages
+					whatsnap::DisplayItem::Album { messages, .. } => messages
 						.first()
 						.filter(|m| !m.from_me && !m.sender_jid.is_empty())
 						.map(|m| m.sender_jid.clone()),
@@ -3462,8 +3466,8 @@ pub fn bind_input_handlers(
 				let msg_name = display_item
 					.as_ref()
 					.map(|item| match item {
-						whantv::DisplayItem::Single(m) => m.sender_name.clone(),
-						whantv::DisplayItem::Album { sender_name, .. } => sender_name.clone(),
+						whatsnap::DisplayItem::Single(m) => m.sender_name.clone(),
+						whatsnap::DisplayItem::Album { sender_name, .. } => sender_name.clone(),
 					})
 					.filter(|n| !n.is_empty() && n != jid);
 
@@ -3471,7 +3475,7 @@ pub fn bind_input_handlers(
 				msg_name.or_else(|| s.contacts.get(jid).cloned()).unwrap_or_else(|| {
 					let raw_phone = jid.split('@').next().unwrap_or(jid);
 					if !raw_phone.is_empty() && raw_phone.chars().all(|c| c.is_ascii_digit()) {
-						if let Some(formatted) = whantv::phone::format_international(raw_phone) {
+						if let Some(formatted) = whatsnap::phone::format_international(raw_phone) {
 							return formatted;
 						}
 						return format!("+{}", raw_phone);
@@ -3489,7 +3493,7 @@ pub fn bind_input_handlers(
 				.append_item(delete_id, "&Delete", "Delete message")
 				.append_item(react_dialog_id, "&React...", "React to message");
 			let is_single_message =
-				matches!(display_item, Some(whantv::DisplayItem::Single(ref m)) if !m.is_date_divider);
+				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if !m.is_date_divider);
 			if is_single_message {
 				let star_label = if is_starred { "&Unstar" } else { "&Star" };
 				menu_builder = menu_builder.append_item(star_id, star_label, "Star or unstar this message");
@@ -3506,7 +3510,7 @@ pub fn bind_input_handlers(
 					menu_builder.append_item(save_voice_id, "&Save voice message...", "Save voice message to device");
 			}
 			let is_poll_msg =
-				matches!(display_item, Some(whantv::DisplayItem::Single(ref m)) if m.is_poll() && !m.is_deleted);
+				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if m.is_poll() && !m.is_deleted);
 			if is_from_me || is_poll_msg {
 				menu_builder =
 					menu_builder.append_item(info_id, "Message &Info", "View delivery info, or a poll's votes");
@@ -3540,7 +3544,7 @@ pub fn bind_input_handlers(
 			// A channel post has its own actions: pinning it and seeing who
 			// reacted or voted, for the channel's owner and admins.
 			let channel_post = match &display_item {
-				Some(whantv::DisplayItem::Single(m)) if !m.is_date_divider && !m.is_deleted => {
+				Some(whatsnap::DisplayItem::Single(m)) if !m.is_date_divider && !m.is_deleted => {
 					let s = state_ctx.borrow();
 					s.selected_chat
 						.clone()
@@ -3616,8 +3620,8 @@ pub fn bind_input_handlers(
 				if id == reply_id {
 					let mut s = state_clone.borrow_mut();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt
 						&& !msg.is_date_divider
@@ -3657,8 +3661,8 @@ pub fn bind_input_handlers(
 				} else if id == forward_id {
 					let s = state_clone.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt
 						&& !msg.is_date_divider
@@ -3788,8 +3792,8 @@ pub fn bind_input_handlers(
 				} else if id == edit_id {
 					let s = state_clone.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
 					if let Some(msg) = msg_opt
@@ -3822,8 +3826,8 @@ pub fn bind_input_handlers(
 				} else if id == delete_id {
 					let s = state_clone.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
 					if let Some(msg) = msg_opt
@@ -3860,8 +3864,8 @@ pub fn bind_input_handlers(
 				} else if id == star_id {
 					let s = state_clone.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { .. } => None,
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { .. } => None,
 					});
 					drop(s);
 					if let Some(msg) = msg_opt
@@ -3887,8 +3891,8 @@ pub fn bind_input_handlers(
 				} else if id == info_id {
 					let s = state_clone.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt
 						&& (msg.from_me || msg.is_poll())
@@ -3901,8 +3905,8 @@ pub fn bind_input_handlers(
 				} else if id == retry_id {
 					let s = state_clone.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
 					if let Some(msg) = msg_opt {
@@ -3911,7 +3915,7 @@ pub fn bind_input_handlers(
 				} else if id == resend_id {
 					let s = state_clone.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
 						_ => None,
 					});
 					drop(s);
@@ -3923,7 +3927,7 @@ pub fn bind_input_handlers(
 					let _ = tx_play_media_clone.send(UiCommand::SaveMediaAs);
 				} else if id == copy_all_id {
 					let s = state_clone.borrow();
-					if let Some(whantv::DisplayItem::Album { messages, .. }) = s.display_items.get(idx as usize) {
+					if let Some(whatsnap::DisplayItem::Album { messages, .. }) = s.display_items.get(idx as usize) {
 						let msg_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
 						if !msg_ids.is_empty() {
 							let _ = tx_play_media_clone.send(UiCommand::CopyAlbumToClipboard { message_ids: msg_ids });
@@ -3943,8 +3947,8 @@ pub fn bind_input_handlers(
 				} else if id == react_dialog_id {
 					let s = state_clone.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
 					if let Some(msg) = msg_opt {
@@ -4073,8 +4077,8 @@ pub fn bind_input_handlers(
 						if let Some(idx) = msgs_list_play.get_selection() {
 							let s = state_play.borrow();
 							let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-								whantv::DisplayItem::Single(m) => Some(m.clone()),
-								whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+								whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+								whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 							});
 							if let Some(msg) = msg_opt {
 								drop(s);
@@ -4098,16 +4102,16 @@ pub fn bind_input_handlers(
 					} else if let Some(idx) = msgs_list_play.get_selection() {
 						let s = state_play.borrow();
 						let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-							whantv::DisplayItem::Single(m) => Some(m.clone()),
-							whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+							whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+							whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 						});
 						if let Some(msg) = msg_opt
 							&& (!msg.quoted_id.is_empty() || !msg.quoted_text.is_empty())
 						{
 							let mut target = if !msg.quoted_id.is_empty() {
 								s.display_items.iter().position(|item| match item {
-									whantv::DisplayItem::Single(m) => m.id == msg.quoted_id,
-									whantv::DisplayItem::Album { messages, .. } => {
+									whatsnap::DisplayItem::Single(m) => m.id == msg.quoted_id,
+									whatsnap::DisplayItem::Album { messages, .. } => {
 										messages.iter().any(|m| m.id == msg.quoted_id)
 									}
 								})
@@ -4123,11 +4127,11 @@ pub fn bind_input_handlers(
 									|| msg.quoted_text == "[Media]";
 								if !is_generic && (idx as usize) < s.display_items.len() {
 									target = s.display_items[..idx as usize].iter().rposition(|item| match item {
-										whantv::DisplayItem::Single(m) => {
+										whatsnap::DisplayItem::Single(m) => {
 											m.text == msg.quoted_text
 												|| (!m.text.is_empty() && m.text.contains(&msg.quoted_text))
 										}
-										whantv::DisplayItem::Album { messages, .. } => messages.iter().any(|m| {
+										whatsnap::DisplayItem::Album { messages, .. } => messages.iter().any(|m| {
 											m.text == msg.quoted_text
 												|| (!m.text.is_empty() && m.text.contains(&msg.quoted_text))
 										}),
@@ -4161,8 +4165,8 @@ pub fn bind_input_handlers(
 						// without moving the cursor; a second press within the
 						// window jumps to it (above).
 						let said = state_play.borrow().display_items.get(idx as usize).and_then(|item| match item {
-							whantv::DisplayItem::Single(m) => m.reply_announcement(),
-							whantv::DisplayItem::Album { messages, .. } => {
+							whatsnap::DisplayItem::Single(m) => m.reply_announcement(),
+							whatsnap::DisplayItem::Album { messages, .. } => {
 								messages.first().and_then(|m| m.reply_announcement())
 							}
 						});
@@ -4254,8 +4258,8 @@ pub fn bind_input_handlers(
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt {
 						// Enter on a call-history row calls that chat back, the same
@@ -4315,8 +4319,8 @@ pub fn bind_input_handlers(
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt {
 						let is_voice =
@@ -4365,7 +4369,7 @@ pub fn bind_input_handlers(
 				// 'v' -> vote in the poll, or answer the event
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
-					if let Some(whantv::DisplayItem::Single(m)) = s.display_items.get(idx as usize)
+					if let Some(whatsnap::DisplayItem::Single(m)) = s.display_items.get(idx as usize)
 						&& (m.is_poll() || m.is_event())
 					{
 						let _ = tx_close_list.send(UiCommand::OpenPollVote(m.id.clone()));
@@ -4377,8 +4381,8 @@ pub fn bind_input_handlers(
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt
 						&& !msg.is_date_divider
@@ -4423,8 +4427,8 @@ pub fn bind_input_handlers(
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
 					if let Some(msg) = msg_opt
@@ -4461,8 +4465,8 @@ pub fn bind_input_handlers(
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { .. } => None,
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { .. } => None,
 					});
 					drop(s);
 					if let Some(msg) = msg_opt
@@ -4483,8 +4487,8 @@ pub fn bind_input_handlers(
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt
 						&& !msg.is_date_divider
@@ -4617,8 +4621,8 @@ pub fn bind_input_handlers(
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whantv::DisplayItem::Single(m) => Some(m.clone()),
-						whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					drop(s);
 					if let Some(msg) = msg_opt
@@ -4690,8 +4694,8 @@ pub fn bind_input_handlers(
 					if let Some(idx) = msgs_list_enter.get_selection() {
 						let s = state_enter.borrow();
 						let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-							whantv::DisplayItem::Single(m) => Some(m.clone()),
-							whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+							whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+							whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 						});
 						if let Some(msg) = msg_opt {
 							drop(s);
@@ -4715,8 +4719,8 @@ pub fn bind_input_handlers(
 					if let Some(idx) = msgs_list_enter.get_selection() {
 						let s = state_enter.borrow();
 						let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-							whantv::DisplayItem::Single(m) => Some(m.clone()),
-							whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+							whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+							whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 						});
 						drop(s);
 						if let Some(msg) = msg_opt {
@@ -4761,7 +4765,7 @@ pub fn bind_input_handlers(
 							// here, the way it would in WhatsApp; anything else goes
 							// to the browser.
 							let open_url = |url: &str| {
-								if whantv::parse_whatsapp_link(url).is_some() {
+								if whatsnap::parse_whatsapp_link(url).is_some() {
 									let _ = tx_invite_enter.send(UiCommand::OpenWhatsAppLink(url.to_string()));
 								} else {
 									wxdragon::utils::launch_default_browser(
@@ -4834,8 +4838,8 @@ pub fn bind_input_handlers(
 		if let Some(idx) = msgs_list_btn.get_selection() {
 			let mut s = state_play_btn.borrow_mut();
 			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-				whantv::DisplayItem::Single(m) => Some(m.clone()),
-				whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+				whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+				whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 			});
 			if let Some(msg) = msg_opt {
 				let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
@@ -4913,12 +4917,12 @@ pub fn bind_input_handlers(
 			let mut need_layout = crate::message_display::update_action_buttons(&s, &conv_parts_sel);
 
 			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-				whantv::DisplayItem::Single(m) => Some(m.clone()),
-				whantv::DisplayItem::Album { messages, .. } => messages.first().cloned(),
+				whatsnap::DisplayItem::Single(m) => Some(m.clone()),
+				whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 			});
 			if let Some(msg) = msg_opt {
 				let is_voice = match s.display_items.get(idx as usize) {
-					Some(whantv::DisplayItem::Single(m)) => {
+					Some(whatsnap::DisplayItem::Single(m)) => {
 						let is_deleted = m.is_deleted
 							|| m.text == "[This message was deleted]"
 							|| m.text == "[You deleted this message]";
@@ -5089,7 +5093,7 @@ pub fn bind_input_handlers(
 		let (count, can_delete_for_everyone) = {
 			let s = state_delete_selection.borrow();
 			let ids = &s.selected_message_ids;
-			let msgs: Vec<&whantv::Msg> = s
+			let msgs: Vec<&whatsnap::Msg> = s
 				.selection_rows
 				.iter()
 				.filter(|item| ids.contains(item.id()))
@@ -5137,13 +5141,13 @@ pub fn bind_input_handlers(
 			let mut selected_idx = 0;
 			for (i, item) in s.display_items.iter().enumerate() {
 				match item {
-					whantv::DisplayItem::Single(m) => {
+					whatsnap::DisplayItem::Single(m) => {
 						if !m.is_date_divider {
 							selected_idx = i as u32;
 							break;
 						}
 					}
-					whantv::DisplayItem::Album { .. } => {
+					whatsnap::DisplayItem::Album { .. } => {
 						selected_idx = i as u32;
 						break;
 					}
@@ -5197,9 +5201,9 @@ pub fn bind_input_handlers(
 		popup_menu.on_selected(move |menu_evt| {
 			let id = menu_evt.get_id();
 			let cmd = match id {
-				ATTACH_DOCUMENT_ID => Some(UiCommand::AttachFiles(whantv::AttachKind::Document)),
-				ATTACH_MEDIA_ID => Some(UiCommand::AttachFiles(whantv::AttachKind::Media)),
-				ATTACH_AUDIO_ID => Some(UiCommand::AttachFiles(whantv::AttachKind::Audio)),
+				ATTACH_DOCUMENT_ID => Some(UiCommand::AttachFiles(whatsnap::AttachKind::Document)),
+				ATTACH_MEDIA_ID => Some(UiCommand::AttachFiles(whatsnap::AttachKind::Media)),
+				ATTACH_AUDIO_ID => Some(UiCommand::AttachFiles(whatsnap::AttachKind::Audio)),
 				ATTACH_CONTACT_ID => Some(UiCommand::PrepareAttachContact),
 				ATTACH_POLL_ID => Some(UiCommand::OpenPollDialog),
 				ATTACH_EVENT_ID => Some(UiCommand::OpenEventDialog),
