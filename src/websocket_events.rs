@@ -4127,7 +4127,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					);
 				}
 			}
-			"message_edited" => {
+			"message_edited" | "message_updated" => {
 				if let Some(data) = val.get("data") {
 					let chat_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 					let target_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
@@ -4142,6 +4142,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					// The backend's own rewrite of a row (a view-once message
 					// once opened), not an edit by its sender.
 					let not_an_edit = data.get("not_edit").and_then(|f| f.as_bool()).unwrap_or(false);
+					// A row's text worked out again, a sticker's label once its
+					// file is in: not an edit, and its media stays.
+					let relabelled = t == "message_updated";
 
 					let norm_jid_edit = |jid: &str| -> String {
 						if let Some((user, server)) = jid.split_once('@') {
@@ -4163,9 +4166,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let is_group = chat_jid.ends_with("@g.us");
 						let edited_row = update_loaded_message(&mut s, target_id, |m| {
 							m.text = new_text.to_string();
-							if not_an_edit {
+							if not_an_edit && !relabelled {
 								m.media_path.clear();
-							} else {
+							} else if !not_an_edit && !relabelled {
 								m.is_edited = true;
 								m.edited_at = edited_at;
 							}
@@ -4180,7 +4183,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							if let Some(item) = s.display_items.get(di) {
 								let updated_display = item.format_display(is_group);
 								parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-								if is_final_edit && !not_an_edit {
+								if is_final_edit && !not_an_edit && !relabelled {
 									crate::announce::announce(
 										parts.conversations_parts.messages_announcer,
 										&format!("Message edited: {}", updated_display),
@@ -4449,7 +4452,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 
 					let is_copy_pending = s.pending_copy_announcements.contains(&msg_id);
 					let media_type = data.get("mediaType").and_then(|m| m.as_str()).unwrap_or("");
-					if media_type != "voice" && !is_copy_pending {
+					// Downloads nobody asked for (stickers and voice notes as
+					// they arrive) finish quietly.
+					let auto = data.get("auto").and_then(|a| a.as_bool()).unwrap_or(false);
+					if media_type != "voice" && !auto && !is_copy_pending {
 						let announce_name = if filename.is_empty() { "File".to_string() } else { filename };
 						crate::announce::announce(
 							parts.conversations_parts.messages_announcer,

@@ -200,7 +200,9 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 		labelStickerFromCache(labelled, finalPath)
 		if newText := stickerText(labelled); newText != stickerText(sticker) {
 			db.Exec("UPDATE messages SET text = ? WHERE id = ?", newText, messageID)
-			broadcastEvent("message_updated", map[string]interface{}{"id": messageID, "text": newText})
+			var jid string
+			db.QueryRow(`SELECT COALESCE(jid, '') FROM messages WHERE id = ?`, messageID).Scan(&jid)
+			broadcastEvent("message_updated", map[string]interface{}{"jid": jid, "message_id": messageID, "text": newText})
 		}
 	}
 	if filename != "" {
