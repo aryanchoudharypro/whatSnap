@@ -211,6 +211,9 @@ pub enum UiCommand {
 	/// true}` on the backend) - as opposed to `ToggleCamera` turning the
 	/// camera on mid-call, which upgrades a plain voice call instead.
 	PlaceVideoCall,
+	/// Joins a group call that's going on: the open chat's, or the given
+	/// call-history row's.
+	JoinGroupCall(Option<String>),
 	AnswerCall,
 	RejectCall,
 	/// Alt+Shift+Y or Alt+Shift+R, pressed anywhere (see call_hotkeys.rs).

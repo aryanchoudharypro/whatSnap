@@ -387,6 +387,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleCreateCallLink(conn, cmd.Data)
 	case "join_call_link":
 		handleJoinCallLink(cmd.Data)
+	case "join_group_call":
+		handleJoinGroupCall(cmd.Data)
+	case "get_joinable_calls":
+		handleGetJoinableCalls()
 	case "raise_hand":
 		handleCallToggle(conn, cmd.Data, "hand")
 	case "call_reaction":

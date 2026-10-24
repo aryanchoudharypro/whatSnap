@@ -508,6 +508,8 @@ struct AppState {
 	// immediately hang the call back up instead of leaving it stuck ringing.
 	call_placing: bool,
 	call_pending_cancel: bool,
+	/// Group calls going on that we can join (the backend's `call_joinable`).
+	joinable_calls: Vec<ui_commands::calls::JoinableCall>,
 	/// Set when we send answer_call for an incoming call, cleared on
 	/// call_connected/call_ended/call_answer_failed. If it's still set once
 	/// this has been elapsed too long, the periodic timer treats it as a
@@ -919,6 +921,7 @@ fn main() {
 			active_call_id: None,
 			call_placing: false,
 			call_pending_cancel: false,
+			joinable_calls: Vec::new(),
 			call_answer_deadline: None,
 			call_ringing_sink: None,
 			call_reconnect_sink: None,
@@ -1460,6 +1463,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		}
 		UiCommand::PlaceCall => ui_commands::calls::place_call(state, parts),
 		UiCommand::PlaceVideoCall => ui_commands::calls::place_video_call(state, parts),
+		UiCommand::JoinGroupCall(call_id) => ui_commands::calls::join_group_call(state, parts, call_id),
 		UiCommand::AnswerCall => ui_commands::calls::answer_call(state, parts),
 		UiCommand::RejectCall => ui_commands::calls::reject_call(state, parts),
 		UiCommand::CallHotkey(hotkey) => ui_commands::calls::call_hotkey(state, parts, hotkey),

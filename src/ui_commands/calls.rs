@@ -22,6 +22,132 @@ pub(crate) fn can_call(s: &AppState, jid: &str) -> bool {
 	!jid.ends_with("@newsletter") && !jid.ends_with("@broadcast") && !s.community_jids.contains(jid)
 }
 
+/// A group call still going on that we're invited to but not in: one we
+/// missed, declined or left (the backend's `call_joinable` list).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct JoinableCall {
+	pub call_id: String,
+	pub group_jid: String,
+	pub video: bool,
+	pub connected: u64,
+}
+
+/// Added to a call-history row while its call is still going on.
+const ONGOING_CALL_SUFFIX: &str = ". Going on now, press Enter to join";
+
+pub(crate) fn joinable_call_for_chat<'a>(s: &'a AppState, jid: &str) -> Option<&'a JoinableCall> {
+	s.joinable_calls.iter().find(|c| !c.group_jid.is_empty() && c.group_jid == jid)
+}
+
+/// Shows a chat's call buttons: "Join call" in place of Call and Video call
+/// while one of its group calls is going on, like WhatsApp.
+pub(crate) fn apply_call_buttons(s: &AppState, parts: &WindowParts, jid: &str) {
+	let can_call = can_call(s, jid);
+	let joinable = can_call && joinable_call_for_chat(s, jid).is_some();
+	let c = &parts.conversations_parts;
+	c.place_call_btn.show(can_call && !joinable);
+	c.place_video_call_btn.show(can_call && !joinable);
+	c.join_call_btn.show(joinable);
+}
+
+/// Marks the open chat's call-history rows whose call is still going on.
+pub(crate) fn mark_joinable_rows(s: &AppState, parts: &WindowParts) {
+	let Some(jid) = s.selected_chat.as_deref() else { return };
+	let is_group = jid.ends_with("@g.us");
+	let list = &parts.conversations_parts.messages_list;
+	for (i, item) in s.display_items.iter().enumerate() {
+		let whatsnap::DisplayItem::Single(msg) = item else { continue };
+		let Some(call_id) = msg.id.strip_prefix("call:").filter(|_| msg.is_call()) else { continue };
+		let mut text = item.format_display(is_group);
+		if s.joinable_calls.iter().any(|c| c.call_id == call_id && c.group_jid == jid) {
+			text.push_str(ONGOING_CALL_SUFFIX);
+		}
+		if list.get_string(i as u32).as_deref() != Some(text.as_str()) {
+			list.set_string(i as u32, &text);
+		}
+	}
+}
+
+/// The joinable call a call-history row is for, if its call is still going on.
+pub(crate) fn joinable_call_for_row(s: &AppState, msg: &whatsnap::Msg) -> Option<String> {
+	let call_id = msg.id.strip_prefix("call:")?;
+	s.joinable_calls.iter().any(|c| c.call_id == call_id).then(|| call_id.to_string())
+}
+
+/// The backend's `call_joinable` event: the full list of joinable calls.
+pub(crate) fn on_joinable_calls(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
+	let calls: Vec<JoinableCall> = data
+		.get("calls")
+		.and_then(|c| c.as_array())
+		.map(|list| {
+			list.iter()
+				.map(|c| JoinableCall {
+					call_id: c.get("call_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+					group_jid: c.get("group_jid").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+					video: c.get("video").and_then(|v| v.as_bool()).unwrap_or(false),
+					connected: c.get("connected").and_then(|v| v.as_u64()).unwrap_or(0),
+				})
+				.filter(|c| !c.call_id.is_empty())
+				.collect()
+		})
+		.unwrap_or_default();
+	let mut s = state.borrow_mut();
+	if s.joinable_calls == calls {
+		return;
+	}
+	s.joinable_calls = calls;
+	if let Some(jid) = s.selected_chat.clone() {
+		apply_call_buttons(&s, parts, &jid);
+		parts.conversations_parts.top_btns_panel.layout();
+		mark_joinable_rows(&s, parts);
+	}
+}
+
+/// "Join call": joins the open group's call that's going on, the way
+/// joining a call link does - no ringing, straight in.
+pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, call_id: Option<String>) {
+	let mut s = state.borrow_mut();
+	let call = match call_id {
+		Some(id) => s.joinable_calls.iter().find(|c| c.call_id == id).cloned(),
+		None => s.selected_chat.as_deref().and_then(|jid| joinable_call_for_chat(&s, jid)).cloned(),
+	};
+	let Some(call) = call else {
+		drop(s);
+		announce_call(parts, "That call has ended.");
+		return;
+	};
+	if s.active_call_id.is_some() || s.call_placing {
+		drop(s);
+		announce_call(parts, "You're already in a call.");
+		return;
+	}
+	let msg = serde_json::json!({
+		"action": "join_group_call",
+		"data": { "call_id": call.call_id, "video": false }
+	});
+	let _ = s.ws_tx.send(msg.to_string());
+	if !call.group_jid.is_empty() {
+		s.selected_chat = Some(call.group_jid.clone());
+	}
+	s.call_placing = true;
+	s.call_pending_cancel = false;
+	s.call_video = CallVideo { video_call: call.video, ..Default::default() };
+	let c = &parts.call_parts;
+	c.frame.set_title(call_window_title(true, call.video));
+	c.status_label.set_label("Joining call...");
+	c.accept_btn.show(false);
+	c.reject_btn.show(false);
+	c.mute_btn.show(true);
+	c.camera_btn.set_label("Turn camera on");
+	c.camera_btn.show(false);
+	c.add_participant_btn.show(false);
+	crate::ui_commands::call_extras::hide_call_buttons(parts);
+	c.leave_btn.show(true);
+	c.frame.show(true);
+	drop(s);
+	announce_call(parts, "Joining call...");
+}
+
 fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video: bool) {
 	if crate::ui_commands::blocking::stop_if_blocked(state, parts) {
 		return;

@@ -936,6 +936,10 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.place_video_call_btn.on_click(move |_| {
 		let _ = tx_place_video_call.send(UiCommand::PlaceVideoCall);
 	});
+	let tx_join_call = ui_tx.clone();
+	parts.conversations_parts.join_call_btn.on_click(move |_| {
+		let _ = tx_join_call.send(UiCommand::JoinGroupCall(None));
+	});
 
 	let tx_calls_call = ui_tx.clone();
 	parts.conversations_parts.calls_call_btn.on_click(move |_| {
@@ -4280,10 +4284,15 @@ pub fn bind_input_handlers(
 					if let Some(msg) = msg_opt {
 						// Enter on a call-history row calls that chat back, the same
 						// shortcut the Call button gives, so the history is usable
-						// without leaving the message list.
+						// without leaving the message list. While that call is still
+						// going on, Enter joins it instead.
 						if msg.is_call() {
 							handled = true;
-							let _ = tx_enter_call.send(UiCommand::PlaceCall);
+							let cmd = match crate::ui_commands::calls::joinable_call_for_row(&s, &msg) {
+								Some(call_id) => UiCommand::JoinGroupCall(Some(call_id)),
+								None => UiCommand::PlaceCall,
+							};
+							let _ = tx_enter_call.send(cmd);
 						}
 						let is_voice =
 							msg.is_audio || msg.text.starts_with("[Voice Message]") || msg.text.starts_with("[Audio]");

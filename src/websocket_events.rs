@@ -210,6 +210,7 @@ fn apply_newer_messages(
 	s.prev_msg_count = new_display_items.len();
 	s.display_items = new_display_items;
 	refresh_selection_list(&mut s, parts);
+	crate::ui_commands::calls::mark_joinable_rows(&s, parts);
 }
 
 /// Applies a `conversation_messages` payload to the open chat: dedupes, adds
@@ -400,6 +401,7 @@ fn apply_conversation_messages(
 	));
 	s.display_items = new_display_items;
 	refresh_selection_list(&mut s, parts);
+	crate::ui_commands::calls::mark_joinable_rows(&s, parts);
 
 	let count = parts.conversations_parts.messages_list.get_count();
 	let target_pos = if let Some(target_id) = s.search_target_id.take() {
@@ -987,6 +989,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				let _ = state.borrow().ws_tx.send(payload.to_string());
 				let payload = serde_json::json!({ "action": "get_chat_lists" });
 				let _ = state.borrow().ws_tx.send(payload.to_string());
+				let payload = serde_json::json!({ "action": "get_joinable_calls" });
+				let _ = state.borrow().ws_tx.send(payload.to_string());
 				// A restarted backend starts with its defaults.
 				crate::ui_commands::calls::send_call_options(&state.borrow());
 
@@ -1128,6 +1132,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							announce_call(parts, "Failed to start audio stream.");
 						}
 					}
+				}
+			}
+			"call_joinable" => {
+				if let Some(data) = val.get("data") {
+					crate::ui_commands::calls::on_joinable_calls(state, parts, data);
 				}
 			}
 			"call_placed" => {
@@ -2068,6 +2077,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								parts.conversations_parts.messages_list.append(&chat_msg.format_display(is_group));
 							}
 							refresh_selection_list(&mut s, parts);
+							crate::ui_commands::calls::mark_joinable_rows(&s, parts);
 
 							let count = parts.conversations_parts.messages_list.get_count();
 							if count > 0 && is_from_me {
@@ -2288,6 +2298,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									.set_items(&rows.iter().map(String::as_str).collect::<Vec<_>>());
 								parts.conversations_parts.messages_list.thaw();
 								refresh_selection_list(&mut s, parts);
+								crate::ui_commands::calls::mark_joinable_rows(&s, parts);
 								let count = parts.conversations_parts.messages_list.get_count();
 								if count > 0 {
 									parts.conversations_parts.messages_list.set_selection(count - 1, true);
@@ -3053,6 +3064,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 						parts.conversations_parts.messages_list.thaw();
 						refresh_selection_list(&mut s, parts);
+						crate::ui_commands::calls::mark_joinable_rows(&s, parts);
 						let count = parts.conversations_parts.messages_list.get_count();
 						if count > 0 {
 							parts.conversations_parts.messages_list.set_selection(0, true);

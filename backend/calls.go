@@ -308,6 +308,7 @@ func initCallClient() {
 	wa().AddEventHandler(noteOwnDeviceReject)
 	callClient = meowcaller.NewClient(wa(), newCallDiagnosticsOptions()...)
 	callClient.SetDualStreamScreenShare(dualStreamScreenShare.Load())
+	watchJoinableCalls(callClient)
 
 	callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())

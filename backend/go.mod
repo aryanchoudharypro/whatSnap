@@ -48,6 +48,6 @@ require (
 
 replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20261024092714-0c3984ce20c8
 
-replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20261024075843-5a51e6e8a6e8
+replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20261024092549-910968f41f18
 
 replace go.mau.fi/libsignal => ./third_party/libsignal
