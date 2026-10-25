@@ -57,6 +57,10 @@ struct State {
 	frozen: Option<(u64, String)>,
 	search: String,
 	last_search: Option<Instant>,
+	/// The chat's messages before and after the loaded rows, so a window of a
+	/// big chat is numbered against all of it (see `set_numbering`).
+	before: usize,
+	after: usize,
 }
 
 impl State {
@@ -102,14 +106,14 @@ impl State {
 			node.set_label(text);
 			node.add_action(Action::Focus);
 			node.add_action(Action::Click);
-			node.set_position_in_set(i);
+			node.set_position_in_set(self.before + i);
 			node.set_selected(self.selected == Some(i));
 			children.push(NodeId(row.id));
 			nodes.push((NodeId(row.id), node));
 		}
 		let mut root = Node::new(Role::ListBox);
 		root.set_label(label.to_string());
-		root.set_size_of_set(self.rows.len());
+		root.set_size_of_set(self.before + self.rows.len() + self.after);
 		root.set_children(children);
 		nodes.push((ROOT_ID, root));
 		TreeUpdate { nodes, tree: None, focus: self.focus_id(), tree_id: accesskit::TreeId::ROOT }
@@ -393,9 +397,27 @@ impl MessageList {
 			state.frozen = None;
 			state.top = 0;
 			state.exposed = 0..0;
+			state.before = 0;
+			state.after = 0;
 		}
 		self.sync(&shared);
 		self.panel.refresh(false, None);
+	}
+
+	/// Numbers the rows as if `before` more came above them and `after` below:
+	/// the chat's messages that aren't loaded, so the screen reader says "2 of
+	/// 28000" for a window of a big chat.
+	pub fn set_numbering(&self, before: usize, after: usize) {
+		let shared = self.shared();
+		{
+			let mut state = shared.state.borrow_mut();
+			if (state.before, state.after) == (before, after) {
+				return;
+			}
+			state.before = before;
+			state.after = after;
+		}
+		self.sync(&shared);
 	}
 
 	/// Runs `callback` with the new row whenever the user moves the cursor

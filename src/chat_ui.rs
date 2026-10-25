@@ -271,6 +271,9 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	s.history_start_chats.remove(jid);
 	s.quiet_reload_jid = None;
 	s.newer_loading = false;
+	s.older_unloaded = 0;
+	s.newer_unloaded = 0;
+	s.land_on_first = false;
 	s.pending_attachments.clear();
 	// Selection mode's row list is tied to the chat it was built from -
 	// switching chats mid-selection would leave it pointing at messages that
@@ -311,13 +314,19 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
 	parts.conversations_parts.panel.layout();
-	// The whole chat (see `MESSAGE_PAGE_SIZE`). Opening onto a starred
-	// message needs nothing extra: it's in there, and
-	// `apply_conversation_messages` selects it via `search_target_id`.
-	let payload = serde_json::json!({
-		"action": "get_messages",
-		"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
-	});
+	// The newest page (see `MESSAGE_PAGE_SIZE`), stretched to reach the first
+	// unread message; or, opening onto a starred message, the page around it
+	// (`apply_conversation_messages` selects it via `search_target_id`).
+	let payload = match s.search_target_id.clone() {
+		Some(target) => crate::ui_commands::chat_list::around_request(jid, &target, ""),
+		None => {
+			let limit = (unread as usize + 50).clamp(crate::MESSAGE_PAGE_SIZE as usize, crate::MAX_LOADED_MESSAGES);
+			serde_json::json!({
+				"action": "get_messages",
+				"data": { "jid": jid, "limit": limit, "offset": 0 }
+			})
+		}
+	};
 	let _ = s.ws_tx.send(payload.to_string());
 	drop(s);
 	crate::handle_ui_command(UiCommand::SubscribePresence(jid.to_string()), state, parts);

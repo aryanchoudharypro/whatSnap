@@ -1298,6 +1298,38 @@ pub fn real_message_count<M: std::ops::Deref<Target = ChatMessage>>(messages: &[
 	messages.iter().filter(|m| !m.is_date_divider && !m.is_unread_divider).count()
 }
 
+/// Keeps `keep` real messages of `messages` (the first ones with `keep_start`,
+/// else the last), dropping the rest and the dividers among them, and rebuilds
+/// the date dividers. Returns what's left and how many real messages went.
+pub fn trim_real_messages(mut messages: Vec<Msg>, keep: usize, keep_start: bool) -> (Vec<Msg>, usize) {
+	let real = real_message_count(&messages);
+	if real <= keep {
+		return (messages, 0);
+	}
+	let dropped = real - keep;
+	// The position of the real message numbered `n` (from 1), or the end.
+	let nth_real = |messages: &[Msg], n: usize| {
+		let mut seen = 0;
+		messages
+			.iter()
+			.position(|m| {
+				if !m.is_date_divider && !m.is_unread_divider {
+					seen += 1;
+				}
+				seen == n
+			})
+			.unwrap_or(messages.len())
+	};
+	if keep_start {
+		let cut = nth_real(&messages, keep + 1);
+		messages.truncate(cut);
+	} else {
+		let cut = nth_real(&messages, dropped + 1);
+		messages.drain(..cut);
+	}
+	(rebuild_date_dividers(messages), dropped)
+}
+
 /// Inserts an "N unread messages" divider before the last `count` non-divider
 /// (real) messages in `messages`, e.g. to mark where messages that arrived
 /// while the chat was open but unread pick up. No-op if `count` is 0 or
@@ -1561,6 +1593,37 @@ impl CatchUpAlerts {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	fn day_of(ids: &[(&str, i64)]) -> Vec<Msg> {
+		rebuild_date_dividers(
+			ids.iter()
+				.map(|(id, ts)| Msg::new(ChatMessage { id: (*id).into(), timestamp: *ts, ..Default::default() }))
+				.collect(),
+		)
+	}
+
+	fn row_ids(messages: &[Msg]) -> Vec<String> {
+		messages.iter().map(|m| if m.is_date_divider { "-".to_string() } else { m.id.clone() }).collect()
+	}
+
+	#[test]
+	fn trimming_keeps_the_newest_or_oldest_messages_with_their_dates() {
+		const DAY: i64 = 86_400;
+		let msgs = day_of(&[("a", 12 * 3600), ("b", 13 * 3600), ("c", DAY + 12 * 3600), ("d", 2 * DAY + 12 * 3600)]);
+		assert_eq!(row_ids(&msgs), ["-", "a", "b", "-", "c", "-", "d"]);
+
+		let (newest, dropped) = trim_real_messages(msgs.clone(), 2, false);
+		assert_eq!(dropped, 2);
+		assert_eq!(row_ids(&newest), ["-", "c", "-", "d"]);
+
+		let (oldest, dropped) = trim_real_messages(msgs.clone(), 3, true);
+		assert_eq!(dropped, 1);
+		assert_eq!(row_ids(&oldest), ["-", "a", "b", "-", "c"]);
+
+		let (all, dropped) = trim_real_messages(msgs, 4, true);
+		assert_eq!(dropped, 0);
+		assert_eq!(all.len(), 7);
+	}
 
 	#[test]
 	fn test_chat_message_format_group_vs_direct() {

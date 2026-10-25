@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -56,13 +57,19 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 // from a window opened around a search hit; otherwise the newest ones (before
 // the before cursor, or skipping offset).
 func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCursor) []MessageJSON {
+	return fetchMessagesWhere(jid, "", limit, offset, before, after)
+}
+
+// fetchMessagesWhere is fetchMessagesPageAt for only the rows matching filter,
+// a fixed SQL condition (never user input) starting with AND.
+func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pageCursor) []MessageJSON {
 	now := time.Now().Unix()
 	var favorites map[string]bool // favorite stickers, read at the first sticker
 	// raw is only needed for the rare voice row stored without a duration,
 	// and for stickers (whether each is a favorite); selecting it
 	// unconditionally pulled every row's whole protobuf into memory just to
 	// throw it away.
-	const cols = `SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
+	cols := `SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 			COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''), COALESCE(media_size, 0),
 			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
 			COALESCE(sent_at, 0), COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0), COALESCE(edited_at, 0), COALESCE(starred, 0), COALESCE(album_id, ''),
@@ -70,7 +77,7 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 				WHEN media_type = 'sticker' THEN raw ELSE NULL END,
 			COALESCE(channel_views, 0), COALESCE(channel_reactions, ''), COALESCE(channel_pinned, 0),
 			COALESCE(pinned_until, 0), COALESCE(kept, 0), COALESCE(expires_at, 0)
-		FROM messages WHERE jid = ?`
+		FROM messages WHERE jid = ?` + filter
 	var rows *sql.Rows
 	var queryErr error
 	if after != nil {
@@ -280,24 +287,46 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		// Set on the reload that follows a channel fetch, so it doesn't
 		// start another one.
 		NoServerFetch bool `json:"no_server_fetch"`
+		// The chat's oldest messages (Home from anywhere in it).
+		FromStart bool `json:"from_start"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
+		if data.FromStart {
+			limit := data.Limit
+			if limit == 0 {
+				limit = 50
+			}
+			// Everything after the earliest possible cursor: the oldest page.
+			msgs := fetchMessagesPageAt(data.JID, limit, 0, nil, &pageCursor{Timestamp: math.MinInt64})
+			older, newer := countAround(data.JID, msgs)
+			log.Printf("Got the %d oldest messages for %s", len(msgs), data.JID)
+			sendEvent(conn, "conversation_messages", map[string]interface{}{
+				"jid":      data.JID,
+				"messages": msgs,
+				"isLatest": newer == 0,
+				"older":    older,
+				"newer":    newer,
+			})
+			return
+		}
 		if data.AfterID != "" {
 			limit := data.Limit
 			if limit == 0 {
 				limit = 50
 			}
 			msgs := fetchMessagesPageAt(data.JID, limit, 0, nil, &pageCursor{Timestamp: data.AfterTimestamp, ID: data.AfterID})
+			older, newer := countAround(data.JID, msgs)
 			log.Printf("Got %d newer messages for %s", len(msgs), data.JID)
 			sendEvent(conn, "conversation_messages", map[string]interface{}{
 				"jid":       data.JID,
 				"messages":  msgs,
 				"loadNewer": true,
-				// A short page (or "all") means it reached the newest message.
-				"isLatest": limit < 0 || len(msgs) < limit,
+				"isLatest":  newer == 0,
+				"older":     older,
+				"newer":     newer,
 			})
 			return
 		}
@@ -333,11 +362,19 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		if !loadMore && !data.NoServerFetch && isChannelJID(data.JID) {
 			go refreshChannel(data.JID)
 		}
-		sendEvent(conn, "conversation_messages", map[string]interface{}{
+		older, newer := countAround(data.JID, msgs)
+		resp := map[string]interface{}{
 			"jid":      data.JID,
 			"messages": msgs,
 			"loadMore": loadMore,
-		})
+			"older":    older,
+			"newer":    newer,
+		}
+		if !loadMore {
+			// An older page says nothing about the newer end the UI holds.
+			resp["isLatest"] = newer == 0
+		}
+		sendEvent(conn, "conversation_messages", resp)
 		// Opening a large chat is by far this process's biggest allocation
 		// burst, and every byte of it is garbage the moment the response is on
 		// the wire. Go's scavenger releases that back to the OS only gradually,
@@ -346,6 +383,50 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		if len(msgs) >= collectAfterMessages {
 			debug.FreeOSMemory()
 		}
+	}()
+}
+
+// countAround is how many of the chat's messages are older than the first of
+// page and newer than its last (page is oldest first), so the UI can number a
+// window of a chat against the whole of it ("2 of 28000"). An empty page has
+// nothing around it to count.
+func countAround(jid string, page []MessageJSON) (older, newer int) {
+	if len(page) == 0 {
+		return 0, 0
+	}
+	first, last := page[0], page[len(page)-1]
+	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND (timestamp < ? OR (timestamp = ? AND id < ?))`,
+		jid, first.Timestamp, first.Timestamp, first.ID).Scan(&older)
+	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND (timestamp > ? OR (timestamp = ? AND id > ?))`,
+		jid, last.Timestamp, last.Timestamp, last.ID).Scan(&newer)
+	return older, newer
+}
+
+// The filters for a chat's Media, Documents and Links tabs. The UI applies its
+// own exact tests to what comes back; these only keep the rest out.
+const (
+	mediaFilter    = ` AND COALESCE(media_type, '') NOT IN ('voice', 'audio') AND (media_type IN ('image', 'video') OR text LIKE '[Photo]%' OR text LIKE '[Image]%' OR text LIKE '[Video]%')`
+	documentFilter = ` AND (media_type = 'document' OR text LIKE '[Document]%')`
+	linkFilter     = ` AND text NOT LIKE '[%' AND (text LIKE '%http://%' OR text LIKE '%https://%' OR text LIKE '%www.%')`
+)
+
+// handleGetChatMedia sends a chat's media, documents and links from the whole
+// of its history: the UI only holds a window of a big chat, so its own copy
+// would leave most of them out.
+func handleGetChatMedia(conn net.Conn, raw json.RawMessage) {
+	var data struct {
+		JID string `json:"jid"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil || data.JID == "" {
+		return
+	}
+	go func() {
+		sendEvent(conn, "chat_media", map[string]interface{}{
+			"jid":       data.JID,
+			"media":     fetchMessagesWhere(data.JID, mediaFilter, -1, 0, nil, nil),
+			"documents": fetchMessagesWhere(data.JID, documentFilter, -1, 0, nil, nil),
+			"links":     fetchMessagesWhere(data.JID, linkFilter, -1, 0, nil, nil),
+		})
 	}()
 }
 
@@ -403,10 +484,10 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 			}
 		} else {
 			log.Printf("get_messages_around: target not found locally for %s, falling back to latest page", data.JID)
-			limit = 50
 		}
 
 		msgs := fetchMessagesPage(data.JID, limit, offset)
+		older, newer := countAround(data.JID, msgs)
 		log.Printf("Got %d messages around target for %s", len(msgs), data.JID)
 		sendEvent(conn, "conversation_messages", map[string]interface{}{
 			"jid":      data.JID,
@@ -415,6 +496,11 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 			// offset 0 means the window runs right up to the newest message;
 			// otherwise newer ones exist that this view doesn't hold.
 			"isLatest": offset == 0,
+			"older":    older,
+			"newer":    newer,
+			// Lets the UI stay where it is when jumping to a quoted message
+			// that was never stored.
+			"targetFound": lookupErr == nil,
 		})
 	}()
 }

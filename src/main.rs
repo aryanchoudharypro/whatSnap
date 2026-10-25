@@ -84,12 +84,18 @@ use crate::{
 /// can never ring, so it is never recorded and aged-out entries are dropped.
 const SENT_SOUND_WINDOW_SECS: i64 = 20;
 
-/// How many messages a `get_messages` request loads: -1 is every one. Opening
-/// a chat loads all of its stored history at once, so the only thing left for
-/// Home at the top to do is ask the phone (see `load_more_messages`). Paging
-/// a chat in 1000-message pages made reaching its start a long series of
-/// Home presses, each of which could strand the chat half-loaded.
-pub const MESSAGE_PAGE_SIZE: i32 = -1;
+/// How many messages a `get_messages` request loads. A chat is opened on its
+/// newest page, and arrowing past either end of what's loaded pages in the
+/// next one; Home and End jump straight to the chat's real ends
+/// (`jump_to_oldest_message`, `jump_to_latest_message`), so reaching the
+/// start of a big chat is one key, not a page per press. Loading every
+/// message held a 28,000-message chat's ~30 MB for as long as it was open.
+pub const MESSAGE_PAGE_SIZE: i32 = 500;
+
+/// The most messages kept loaded while paging through a chat: past this, the
+/// page furthest from the one just loaded is let go (and paged back in if the
+/// cursor returns to it).
+pub const MAX_LOADED_MESSAGES: usize = 2000;
 
 /// How long `load_more_messages` waits for a `history_sync` broadcast
 /// covering an on-demand phone history request before giving up on it (see
@@ -336,6 +342,13 @@ struct AppState {
 	history_loading: bool,
 	/// A newer page (see `load_newer_messages`) is in flight.
 	newer_loading: bool,
+	/// How many of the open chat's stored messages come before and after the
+	/// loaded ones (from the backend), to number rows against the whole chat.
+	older_unloaded: usize,
+	newer_unloaded: usize,
+	/// Set by Home's `jump_to_oldest_message`: land on the first row of the
+	/// page it loads instead of the last.
+	land_on_first: bool,
 	/// Set while waiting on a `history_sync` broadcast for an on-demand
 	/// phone history request `load_more_messages` sent after
 	/// `no_more_messages` went true. Cleared once that jid's `history_sync`
@@ -985,6 +998,9 @@ fn main() {
 			messages_at_latest: true,
 			loading_messages: false,
 			no_more_messages: false,
+			older_unloaded: 0,
+			newer_unloaded: 0,
+			land_on_first: false,
 			history_loading: false,
 			newer_loading: false,
 			phone_history_pending_jid: None,
@@ -1399,6 +1415,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::LoadMoreMessages => ui_commands::chat_list::load_more_messages(state, parts),
 		UiCommand::LoadNewerMessages => ui_commands::chat_list::load_newer_messages(state),
 		UiCommand::JumpToLatestMessage => ui_commands::chat_list::jump_to_latest_message(state, parts),
+		UiCommand::JumpToOldestMessage => ui_commands::chat_list::jump_to_oldest_message(state),
 		UiCommand::SearchInConversation(query) => ui_commands::chat_list::search_in_conversation(state, parts, query),
 		UiCommand::ToggleSearchPanel => ui_commands::chat_list::toggle_search_panel(state, parts),
 		UiCommand::PromptLockedChats => ui_commands::chat_list::prompt_locked_chats(state, parts),

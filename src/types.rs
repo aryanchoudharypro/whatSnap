@@ -206,6 +206,9 @@ pub enum UiCommand {
 	/// End in the message list: go to the chat's actual newest message, even
 	/// from a window that doesn't hold it.
 	JumpToLatestMessage,
+	/// Home in the message list: go to the chat's oldest stored message, even
+	/// from a window that doesn't hold it.
+	JumpToOldestMessage,
 	PlayVoiceMessage(String),
 	RefreshMessages,
 	DownloadAttachment(String), // message ID

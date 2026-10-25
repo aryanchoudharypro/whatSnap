@@ -315,6 +315,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleGetChats(conn)
 	case "get_messages":
 		handleGetMessages(conn, cmd.Data)
+	case "get_chat_media":
+		handleGetChatMedia(conn, cmd.Data)
 	case "get_messages_around":
 		handleGetMessagesAround(conn, cmd.Data)
 	case "get_message_info":

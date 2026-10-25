@@ -60,6 +60,43 @@ pub(crate) fn build_link_messages(messages: &[whatsnap::Msg]) -> Vec<whatsnap::M
 	messages.iter().filter(|m| m.first_link().is_some()).cloned().collect()
 }
 
+/// An info dialog's Media, Documents and Links tabs.
+pub(crate) struct InfoMediaLists<'a> {
+	pub(crate) media: &'a ListBox,
+	pub(crate) documents: &'a ListBox,
+	pub(crate) links: &'a ListBox,
+}
+
+/// The open chat's media, documents and links for its info dialog, filled into
+/// `lists`. A window of a big chat holds only some of them, so for one the
+/// backend is asked for the whole chat's instead (`chat_media`, which calls
+/// this again with them) and the tabs say "Loading..." meanwhile.
+pub(crate) fn fill_info_media(
+	s: &AppState,
+	lists: InfoMediaLists,
+	from: Option<&[whatsnap::Msg]>,
+) -> (Vec<whatsnap::Msg>, Vec<whatsnap::Msg>, Vec<whatsnap::Msg>) {
+	let whole_chat = s.older_unloaded == 0 && s.newer_unloaded == 0;
+	let Some(messages) = from.or(whole_chat.then_some(&s.messages[..])) else {
+		if let Some(jid) = &s.selected_chat {
+			let payload = serde_json::json!({ "action": "get_chat_media", "data": { "jid": jid } });
+			let _ = s.ws_tx.send(payload.to_string());
+		}
+		for list in [lists.media, lists.documents, lists.links] {
+			list.clear();
+			list.append("Loading...");
+		}
+		return Default::default();
+	};
+	let media = build_media_messages(messages);
+	let documents = build_document_messages(messages);
+	let links = build_link_messages(messages);
+	populate_message_list(lists.media, &media, |m| m.display_filename());
+	populate_message_list(lists.documents, &documents, |m| m.display_filename());
+	populate_message_list(lists.links, &links, |m| m.first_link().unwrap_or_default());
+	(media, documents, links)
+}
+
 pub(crate) fn populate_message_list(
 	list: &ListBox,
 	messages: &[whatsnap::Msg],

@@ -9,9 +9,7 @@ use crate::{
 	AppState,
 	chat_ui::{clear_pending_reply, clear_unread_divider_for_open_chat, open_chat_for_jid, save_composer_draft},
 	contact_picker::refresh_selection_list,
-	message_display::{
-		apply_chat_filter, build_document_messages, build_link_messages, build_media_messages, populate_message_list,
-	},
+	message_display::{InfoMediaLists, apply_chat_filter, fill_info_media},
 	tray::refresh_tray_tooltip,
 	ui::window::WindowParts,
 };
@@ -375,6 +373,36 @@ pub(crate) fn jump_to_latest_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
+/// Home from a window that doesn't start at the chat's oldest stored message:
+/// load the oldest page and land on its first row, rather than paging back to
+/// it one page at a time.
+pub(crate) fn jump_to_oldest_message(state: &Rc<RefCell<AppState>>) {
+	let mut s = state.borrow_mut();
+	if s.older_unloaded == 0 || s.history_loading {
+		return;
+	}
+	let Some(jid) = s.selected_chat.clone() else { return };
+	// Treated as a fresh open, landing on the first row instead of the last.
+	s.prev_msg_count = 0;
+	s.land_on_first = true;
+	let payload = serde_json::json!({
+		"action": "get_messages",
+		"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "from_start": true }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+}
+
+/// The `get_messages_around` request for a page with the message `id` (or,
+/// without one, the newest containing `text`) in its middle;
+/// `apply_conversation_messages` selects it via `search_target_id` /
+/// `search_target_text`.
+pub(crate) fn around_request(jid: &str, id: &str, text: &str) -> serde_json::Value {
+	serde_json::json!({
+		"action": "get_messages_around",
+		"data": { "jid": jid, "messageId": id, "text": text, "context": crate::MESSAGE_PAGE_SIZE / 2 }
+	})
+}
+
 /// The `get_messages` request for the page just before the oldest message
 /// loaded (see `whatsnap::oldest_message_cursor`).
 pub(crate) fn older_page_request(messages: &[whatsnap::Msg], jid: &str) -> serde_json::Value {
@@ -495,13 +523,9 @@ pub(crate) fn jump_to_search_result(
 			s.search_target_text = Some(message_text.clone());
 		}
 		if let Some(jid) = s.selected_chat.clone() {
-			// The whole chat, like opening it: the target is found in it via
-			// `search_target_id`/`search_target_text`, and everything above
-			// and below it is there to arrow through.
-			let payload = serde_json::json!({
-				"action": "get_messages",
-				"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
-			});
+			// A page with the target in its middle; arrowing past either end
+			// pages in more.
+			let payload = around_request(&jid, &message_id, &message_text);
 			let _ = s.ws_tx.send(payload.to_string());
 		}
 	}
@@ -575,19 +599,14 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			parts.conversation_data_dialog.common_groups_list.clear();
 			parts.conversation_data_dialog.common_groups_list.append("Loading...");
 
-			let media = build_media_messages(&s.messages);
-			let documents = build_document_messages(&s.messages);
-			let links = build_link_messages(&s.messages);
+			let dlg = &parts.conversation_data_dialog;
+			let lists =
+				InfoMediaLists { media: &dlg.media_list, documents: &dlg.documents_list, links: &dlg.links_list };
+			let (media, documents, links) = fill_info_media(&s, lists, None);
 			drop(s);
 			// Add or Edit contact waits for user_info to say which applies.
 			state.borrow_mut().conversation_data_contact = None;
 			crate::ui_commands::contacts_groups::show_contact_card(parts, None);
-
-			populate_message_list(&parts.conversation_data_dialog.media_list, &media, |m| m.display_filename());
-			populate_message_list(&parts.conversation_data_dialog.documents_list, &documents, |m| m.display_filename());
-			populate_message_list(&parts.conversation_data_dialog.links_list, &links, |m| {
-				m.first_link().unwrap_or_default()
-			});
 
 			let mut s_mut = state.borrow_mut();
 			s_mut.conversation_data_media = media;

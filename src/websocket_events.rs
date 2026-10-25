@@ -30,9 +30,8 @@ use crate::{
 		sync_attach_contact_labels, sync_new_group_contact_labels,
 	},
 	message_display::{
-		apply_chat_filter, build_document_messages, build_link_messages, build_media_messages, chat_visible_in_tab,
-		chats_in_tab_order, populate_message_list, refresh_voice_action_button, update_action_buttons,
-		update_loaded_message, update_loaded_messages,
+		InfoMediaLists, apply_chat_filter, chat_visible_in_tab, chats_in_tab_order, fill_info_media,
+		refresh_voice_action_button, update_action_buttons, update_loaded_message, update_loaded_messages,
 	},
 	tray::{install_tray_icon, refresh_tray_tooltip},
 	ui::window::WindowParts,
@@ -172,17 +171,16 @@ fn drop_seen_ids<'a>(msgs: Vec<ChatMessage>, seen: impl Iterator<Item = &'a str>
 /// Applies a newer page (see `ui_commands::chat_list::load_newer_messages`)
 /// below what's loaded: appends only the new rows, leaving the selection where
 /// it is so the next Down arrow continues into them.
-fn apply_newer_messages(
-	parsed_msgs: Vec<ChatMessage>,
-	is_latest: bool,
-	state: &Rc<RefCell<AppState>>,
-	parts: &Rc<WindowParts>,
-) {
+fn apply_newer_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	s.newer_loading = false;
-	if is_latest {
+	if page.is_latest {
 		s.messages_at_latest = true;
 	}
+	if let Some(newer) = page.newer {
+		s.newer_unloaded = newer;
+	}
+	let parsed_msgs = page.messages;
 	let chat_jid = s.selected_chat.clone().unwrap_or_default();
 	let is_group = chat_jid.ends_with("@g.us");
 	let chat_name = s.contacts.get(&chat_jid).cloned().unwrap_or_else(|| chat_jid.clone());
@@ -202,7 +200,14 @@ fn apply_newer_messages(
 	}
 	let mut merged = std::mem::take(&mut s.messages);
 	merged.extend(added.into_iter().map(whatsnap::Msg::new));
-	s.messages = whatsnap::rebuild_date_dividers(merged);
+	// Let the oldest go past the cap; they page back in from the top.
+	let (merged, dropped) =
+		whatsnap::trim_real_messages(whatsnap::rebuild_date_dividers(merged), crate::MAX_LOADED_MESSAGES, false);
+	if dropped > 0 {
+		s.older_unloaded += dropped;
+		s.no_more_messages = false;
+	}
+	s.messages = merged;
 
 	let old_display_items = std::mem::take(&mut s.display_items);
 	let new_display_items = whatsnap::group_messages_into_display_items(&s.messages);
@@ -212,6 +217,7 @@ fn apply_newer_messages(
 	let append_only = new_display_items.len() > old_len
 		&& new_display_items[..old_len].iter().zip(&old_display_items).all(|(a, b)| a.id() == b.id());
 	let list = &parts.conversations_parts.messages_list;
+	list.set_numbering(s.older_unloaded, s.newer_unloaded);
 	list.freeze();
 	if append_only {
 		let rows: Vec<String> = new_display_items[old_len..].iter().map(|d| d.format_display(is_group)).collect();
@@ -244,14 +250,10 @@ fn apply_newer_messages(
 /// Takes already-deserialized messages so the caller can parse them straight
 /// off the wire - see `process_websocket_message`'s fast path for why this one
 /// payload bypasses `serde_json::Value`.
-fn apply_conversation_messages(
-	parsed_msgs: Vec<ChatMessage>,
-	load_more: bool,
-	state: &Rc<RefCell<AppState>>,
-	parts: &Rc<WindowParts>,
-) {
+fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let started = std::time::Instant::now();
-	let mut deduplicated = drop_seen_ids(parsed_msgs, std::iter::empty());
+	let load_more = page.load_more;
+	let mut deduplicated = drop_seen_ids(page.messages, std::iter::empty());
 
 	let mut s = state.borrow_mut();
 	let chat_jid = s.selected_chat.clone().unwrap_or_default();
@@ -314,16 +316,22 @@ fn apply_conversation_messages(
 		with_dates.push(whatsnap::Msg::new(msg));
 	}
 
-	if !load_more && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
+	// Counted back from the newest message, so only on a page that ends there.
+	if !load_more && s.messages_at_latest && s.unread_divider_jid.as_deref() == Some(chat_jid.as_str()) {
 		whatsnap::insert_unread_divider(&mut with_dates, s.unread_divider_count);
 	}
 
 	s.loading_messages = false;
-	// Every request loads everything left in that direction (see
-	// `MESSAGE_PAGE_SIZE`), so after any page the local database has nothing
-	// older: Home at the top goes straight to the phone. A later history-sync
-	// chunk for this chat clears it again (`history_chats_synced`).
-	s.no_more_messages = true;
+	// Once nothing older is stored, Up past the top goes straight to the
+	// phone. A later history-sync chunk for this chat clears it again
+	// (`history_chats_synced`).
+	s.no_more_messages = page.older.is_none_or(|older| older == 0);
+	if let Some(older) = page.older {
+		s.older_unloaded = older;
+	}
+	if !load_more {
+		s.newer_unloaded = page.newer.unwrap_or(0);
+	}
 	let quiet = !load_more && s.quiet_reload_jid.take().as_deref() == Some(chat_jid.as_str());
 	let was_history_loading = s.history_loading;
 	s.history_loading = false;
@@ -338,6 +346,14 @@ fn apply_conversation_messages(
 		// comment) - rebuild once across the merged list instead of ending
 		// up with two adjacent dividers for the same day.
 		with_dates = whatsnap::rebuild_date_dividers(with_dates);
+		// Let the newest go past the cap; End or Down past the bottom brings
+		// them back.
+		let dropped;
+		(with_dates, dropped) = whatsnap::trim_real_messages(with_dates, crate::MAX_LOADED_MESSAGES, true);
+		if dropped > 0 {
+			s.newer_unloaded += dropped;
+			s.messages_at_latest = false;
+		}
 	}
 	s.messages = with_dates;
 	// A chat with nothing stored (a group nobody has written in since
@@ -396,7 +412,17 @@ fn apply_conversation_messages(
 	.map(|item| item.format_display(is_group))
 	.collect();
 	let row_refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+	// The message the cursor is on (or just below, on a divider), to keep it
+	// there when an older page lands while the user reads near the top.
+	let cursor_id = parts
+		.conversations_parts
+		.messages_list
+		.get_selection()
+		.and_then(|i| old_display_items.get(i as usize..))
+		.and_then(|rest| rest.iter().map(|d| d.id()).find(|id| !id.is_empty()))
+		.map(|id| id.to_string());
 	let prepared = started.elapsed();
+	parts.conversations_parts.messages_list.set_numbering(s.older_unloaded, s.newer_unloaded);
 	parts.conversations_parts.messages_list.freeze();
 	if let Some(plan) = prepend {
 		for _ in 0..plan.remove_leading {
@@ -464,16 +490,18 @@ fn apply_conversation_messages(
 			parts.conversations_parts.messages_list.set_focus();
 		}
 	} else if count > 0 {
-		if was_history_loading && new_len > old_count && old_count > 0 {
-			// Where the row that was at the top before this page now sits.
-			let keep_idx = prepend.map_or(new_len - old_count, |p| p.insert) as u32;
+		if was_history_loading && load_more && old_count > 0 {
+			// Where the row the cursor was on now sits.
+			let keep_idx =
+				cursor_id.and_then(|id| s.display_items.iter().position(|d| d.id() == id)).unwrap_or(0) as u32;
 			if keep_idx < count {
 				parts.conversations_parts.messages_list.set_selection(keep_idx, true);
 			} else {
 				parts.conversations_parts.messages_list.set_selection(0, true);
 			}
 		} else if old_count == 0 {
-			parts.conversations_parts.messages_list.set_selection(count - 1, true);
+			let row = if std::mem::take(&mut s.land_on_first) { 0 } else { count - 1 };
+			parts.conversations_parts.messages_list.set_selection(row, true);
 			if !quiet {
 				parts.conversations_parts.messages_list.set_focus();
 			}
@@ -854,6 +882,28 @@ struct ConversationMessagesData<'a> {
 	/// newest message (see `AppState::messages_at_latest`).
 	#[serde(rename = "isLatest", default = "default_true")]
 	is_latest: bool,
+	/// How many of the chat's messages are older than this page and newer
+	/// than it (see `AppState::older_unloaded`).
+	#[serde(default)]
+	older: Option<usize>,
+	#[serde(default)]
+	newer: Option<usize>,
+	/// False when a `get_messages_around` target isn't stored at all (and the
+	/// newest page came back instead).
+	#[serde(rename = "targetFound", default = "default_true")]
+	target_found: bool,
+}
+
+/// A parsed `conversation_messages` payload (see `ConversationMessagesData`).
+struct MessagesPage {
+	jid: String,
+	load_more: bool,
+	load_newer: bool,
+	is_latest: bool,
+	older: Option<usize>,
+	newer: Option<usize>,
+	target_found: bool,
+	messages: Vec<ChatMessage>,
 }
 
 fn default_true() -> bool {
@@ -890,10 +940,9 @@ fn is_conversation_messages(raw: &str) -> bool {
 /// exactly as the old `Value`-walking path did, rather than failing the whole
 /// chat - `ChatMessage`'s `id`/`text`/`timestamp` have no serde default, so one
 /// bad row would otherwise blank the conversation.
-fn parse_conversation_messages(raw: &str) -> Option<(String, bool, bool, bool, Vec<ChatMessage>)> {
-	let envelope = serde_json::from_str::<ConversationMessagesEnvelope>(raw).ok()?;
-	let parsed = envelope
-		.data
+fn parse_conversation_messages(raw: &str) -> Option<MessagesPage> {
+	let data = serde_json::from_str::<ConversationMessagesEnvelope>(raw).ok()?.data;
+	let parsed = data
 		.messages
 		.into_iter()
 		.map(|raw_msg| {
@@ -903,7 +952,16 @@ fn parse_conversation_messages(raw: &str) -> Option<(String, bool, bool, bool, V
 			})
 		})
 		.collect();
-	Some((envelope.data.jid, envelope.data.load_more, envelope.data.load_newer, envelope.data.is_latest, parsed))
+	Some(MessagesPage {
+		jid: data.jid,
+		load_more: data.load_more,
+		load_newer: data.load_newer,
+		is_latest: data.is_latest,
+		older: data.older,
+		newer: data.newer,
+		target_found: data.target_found,
+		messages: parsed,
+	})
 }
 
 pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -938,20 +996,33 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 		// building and showing every row.
 		drop(raw);
 		match parsed {
-			Some((jid, load_more, load_newer, is_latest, parsed_msgs)) => {
+			Some(page) => {
 				// The chat may have been switched again while this request was
 				// in flight - applying a stale response would silently populate
 				// the wrong chat's history.
-				if state.borrow().selected_chat.as_deref() == Some(jid.as_str()) {
-					if load_newer {
-						apply_newer_messages(parsed_msgs, is_latest, state, parts);
+				if state.borrow().selected_chat.as_deref() == Some(page.jid.as_str()) {
+					if page.load_newer {
+						apply_newer_messages(page, state, parts);
 						return;
 					}
-					if !load_more {
-						state.borrow_mut().newer_loading = false;
-						state.borrow_mut().messages_at_latest = is_latest;
+					if !page.target_found && !state.borrow().display_items.is_empty() {
+						// A quoted message we don't have: stay put, as before.
+						let mut s = state.borrow_mut();
+						s.search_target_id = None;
+						s.search_target_text = None;
+						unsafe {
+							let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+								windows::Win32::UI::WindowsAndMessaging::MB_ICONASTERISK,
+							);
+						}
+						return;
 					}
-					apply_conversation_messages(parsed_msgs, load_more, state, parts);
+					if !page.load_more {
+						let mut s = state.borrow_mut();
+						s.newer_loading = false;
+						s.messages_at_latest = page.is_latest;
+					}
+					apply_conversation_messages(page, state, parts);
 				}
 			}
 			None => eprintln!("[LOG UI] Failed to parse a conversation_messages payload"),
@@ -1803,6 +1874,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					// newest messages; appending a live one under it would put
 					// it right after an old message with a silent gap between.
 					// Treat the chat as a background one until it's reloaded.
+					if s.selected_chat.as_deref() == Some(jid)
+						&& !s.messages_at_latest
+						&& !data.get("from_me").and_then(|f| f.as_bool()).unwrap_or(false)
+					{
+						// Not shown, but still one more below the window.
+						s.newer_unloaded += 1;
+						parts.conversations_parts.messages_list.set_numbering(s.older_unloaded, s.newer_unloaded);
+					}
 					if s.selected_chat.as_deref() == Some(jid) && s.messages_at_latest {
 						let is_from_me = data
 							.get("from_me")
@@ -2791,14 +2870,46 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					dlg.destroy();
 				}
 			}
+			"chat_media" => {
+				// The whole chat's media for an info dialog opened on a window
+				// of it (see `fill_info_media`).
+				#[derive(Deserialize)]
+				struct ChatMedia {
+					jid: String,
+					#[serde(default)]
+					media: Vec<ChatMessage>,
+					#[serde(default)]
+					documents: Vec<ChatMessage>,
+					#[serde(default)]
+					links: Vec<ChatMessage>,
+				}
+				let Some(data) = val.get("data").and_then(|d| ChatMedia::deserialize(d).ok()) else { return };
+				let mut s = state.borrow_mut();
+				if s.selected_chat.as_deref() != Some(data.jid.as_str()) {
+					return;
+				}
+				let found: Vec<whatsnap::Msg> =
+					data.media.into_iter().chain(data.documents).chain(data.links).map(whatsnap::Msg::new).collect();
+				let (gd, cd) = (&parts.group_data_dialog, &parts.conversation_data_dialog);
+				if gd.dialog.is_shown() {
+					let lists =
+						InfoMediaLists { media: &gd.media_list, documents: &gd.documents_list, links: &gd.links_list };
+					(s.group_data_media, s.group_data_documents, s.group_data_links) =
+						fill_info_media(&s, lists, Some(&found));
+				} else if cd.dialog.is_shown() {
+					let lists =
+						InfoMediaLists { media: &cd.media_list, documents: &cd.documents_list, links: &cd.links_list };
+					(s.conversation_data_media, s.conversation_data_documents, s.conversation_data_links) =
+						fill_info_media(&s, lists, Some(&found));
+				}
+			}
 			"history_updated" => {
 				eprintln!("[LOG UI] History sync completed on phone! Refreshing messages for active chat...");
 				let s = state.borrow();
 				if let Some(ref jid) = s.selected_chat.clone() {
-					let limit = 9999999;
 					let payload = serde_json::json!({
 						"action": "get_messages",
-						"data": { "jid": jid, "limit": limit, "offset": 0 }
+						"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
 					});
 					let _ = s.ws_tx.send(payload.to_string());
 				}
@@ -3080,6 +3191,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						let is_group = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 						s.messages = with_dates;
 						s.display_items = whatsnap::group_messages_into_display_items(&s.messages);
+						// The hits are numbered among themselves (`clear` resets it).
+						s.older_unloaded = 0;
+						s.newer_unloaded = 0;
 
 						parts.conversations_parts.messages_list.freeze();
 						parts.conversations_parts.messages_list.clear();
@@ -3505,18 +3619,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					s_mut.group_data_member_admin = member_admin;
 
 					// Populate Media/Documents/Links
-					s_mut.group_data_media = build_media_messages(&s_mut.messages);
-					s_mut.group_data_documents = build_document_messages(&s_mut.messages);
-					s_mut.group_data_links = build_link_messages(&s_mut.messages);
-					populate_message_list(&parts.group_data_dialog.media_list, &s_mut.group_data_media, |m| {
-						m.display_filename()
-					});
-					populate_message_list(&parts.group_data_dialog.documents_list, &s_mut.group_data_documents, |m| {
-						m.display_filename()
-					});
-					populate_message_list(&parts.group_data_dialog.links_list, &s_mut.group_data_links, |m| {
-						m.first_link().unwrap_or_default()
-					});
+					let gd = &parts.group_data_dialog;
+					let lists =
+						InfoMediaLists { media: &gd.media_list, documents: &gd.documents_list, links: &gd.links_list };
+					(s_mut.group_data_media, s_mut.group_data_documents, s_mut.group_data_links) =
+						fill_info_media(&s_mut, lists, None);
 
 					let query_members = parts.group_data_dialog.members_search.get_value().to_lowercase();
 					parts.group_data_dialog.members_list.clear();
@@ -4750,7 +4857,8 @@ mod conversation_messages_tests {
 			{"id":"m1","text":"hi","timestamp":10,"fromMe":true,"mediaType":"image","albumId":"alb1"},
 			{"id":"m2","text":"yo","timestamp":11,"sender_jid":"b@s.whatsapp.net"}
 		]}}"#;
-		let (jid, load_more, _, _, msgs) = parse_conversation_messages(raw).expect("envelope should parse");
+		let MessagesPage { jid, load_more, messages: msgs, .. } =
+			parse_conversation_messages(raw).expect("envelope should parse");
 		assert_eq!(jid, "a@s.whatsapp.net");
 		assert!(!load_more);
 		assert_eq!(msgs.len(), 2);
@@ -4765,18 +4873,26 @@ mod conversation_messages_tests {
 	#[test]
 	fn parses_the_load_more_flag() {
 		let raw = r#"{"type":"conversation_messages","data":{"jid":"a","loadMore":true,"messages":[]}}"#;
-		let (_, load_more, _, _, _) = parse_conversation_messages(raw).expect("envelope should parse");
-		assert!(load_more);
+		let page = parse_conversation_messages(raw).expect("envelope should parse");
+		assert!(page.load_more);
+		assert_eq!((page.older, page.newer), (None, None));
+	}
+
+	#[test]
+	fn parses_the_counts_around_a_page() {
+		let raw = r#"{"type":"conversation_messages","data":{"jid":"a","older":27500,"newer":3,"messages":[]}}"#;
+		let page = parse_conversation_messages(raw).expect("envelope should parse");
+		assert_eq!((page.older, page.newer), (Some(27500), Some(3)));
 	}
 
 	#[test]
 	fn parses_the_load_newer_flag() {
 		let raw =
 			r#"{"type":"conversation_messages","data":{"jid":"a","loadNewer":true,"isLatest":false,"messages":[]}}"#;
-		let (_, load_more, load_newer, is_latest, _) = parse_conversation_messages(raw).expect("envelope should parse");
-		assert!(!load_more);
-		assert!(load_newer);
-		assert!(!is_latest);
+		let page = parse_conversation_messages(raw).expect("envelope should parse");
+		assert!(!page.load_more);
+		assert!(page.load_newer);
+		assert!(!page.is_latest);
 	}
 
 	#[test]
@@ -4787,7 +4903,7 @@ mod conversation_messages_tests {
 			{"id":"m2","text":"broken"},
 			{"id":"m3","text":"after","timestamp":12}
 		]}}"#;
-		let (_, _, _, _, msgs) = parse_conversation_messages(raw).expect("one bad row must not fail the envelope");
+		let msgs = parse_conversation_messages(raw).expect("one bad row must not fail the envelope").messages;
 		assert_eq!(msgs.len(), 3);
 		assert_eq!(msgs[0].text, "before");
 		assert!(msgs[1].text.starts_with("Parse error:"), "got {:?}", msgs[1].text);
@@ -4797,13 +4913,13 @@ mod conversation_messages_tests {
 
 	#[test]
 	fn an_empty_or_absent_message_list_parses_to_nothing() {
-		let (jid, _, _, _, msgs) =
+		let MessagesPage { jid, messages: msgs, .. } =
 			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a","messages":[]}}"#)
 				.unwrap();
 		assert_eq!(jid, "a");
 		assert!(msgs.is_empty());
 
-		let (jid, _, _, _, msgs) =
+		let MessagesPage { jid, messages: msgs, .. } =
 			parse_conversation_messages(r#"{"type":"conversation_messages","data":{"jid":"a"}}"#).unwrap();
 		assert_eq!(jid, "a");
 		assert!(msgs.is_empty());

@@ -4203,6 +4203,12 @@ pub fn bind_input_handlers(
 										windows::Win32::UI::WindowsAndMessaging::MB_OK,
 									);
 								}
+							} else if !msg.quoted_id.is_empty() {
+								// Not in the loaded window: load the page around it.
+								let _ = tx_close_list.send(UiCommand::JumpToSearchResult {
+									message_id: msg.quoted_id.clone(),
+									message_text: String::new(),
+								});
 							} else {
 								unsafe {
 									let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
@@ -4266,8 +4272,13 @@ pub fn bind_input_handlers(
 				// LoadMoreMessages there never ran for Home on its own (only after
 				// a follow-up Down+Up, which IS native navigation). Send it here
 				// directly instead of relying on that handler for this case.
+				//
+				// From a window that doesn't reach the chat's start, load its
+				// oldest page instead (and land on its first row).
 				let count = msgs_list_play.get_count();
-				if count > 0 {
+				if state_play.borrow().older_unloaded > 0 {
+					let _ = tx_close_list.send(UiCommand::JumpToOldestMessage);
+				} else if count > 0 {
 					msgs_list_play.set_selection(0, true);
 					let _ = tx_close_list.send(UiCommand::LoadMoreMessages);
 				}
@@ -4969,9 +4980,18 @@ pub fn bind_input_handlers(
 	});
 	parts.conversations_parts.messages_list.on_selection_changed(move |idx| {
 		if let Ok(idx) = i32::try_from(idx) {
-			if idx == 0 {
+			// Pages in the next stored messages a little before the cursor
+			// reaches either end, so reading on in either direction doesn't
+			// stop at the seam; at the very top, older ones come from the phone.
+			const PREFETCH_ROWS: i32 = 50;
+			let (older_stored, newer_stored) = {
+				let s = state_sel.borrow();
+				(s.older_unloaded > 0, !s.messages_at_latest)
+			};
+			let count = conv_parts_sel.messages_list.get_count() as i32;
+			if idx == 0 || (older_stored && idx < PREFETCH_ROWS) {
 				let _ = tx_sel.send(UiCommand::LoadMoreMessages);
-			} else if idx + 1 == conv_parts_sel.messages_list.get_count() as i32 {
+			} else if newer_stored && idx + PREFETCH_ROWS >= count {
 				let _ = tx_sel.send(UiCommand::LoadNewerMessages);
 			}
 			let s = state_sel.borrow();
