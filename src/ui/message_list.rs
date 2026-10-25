@@ -529,6 +529,22 @@ impl MessageList {
 			list.panel.refresh(false, None);
 			event.skip(true);
 		});
+		// Tab is taken on key down: the app's own key-down handler (bound later,
+		// so it runs first) lets it through, and acting here doesn't depend on
+		// wx turning it into a char event.
+		let list = *self;
+		self.panel.on_key_down(move |event| {
+			if let WindowEventData::Keyboard(ref key) = event
+				&& key.get_key_code() == Some(WXK_TAB)
+				&& !key.control_down()
+				&& !key.alt_down()
+			{
+				list.tab_away(key.shift_down());
+				event.skip(false);
+				return;
+			}
+			event.skip(true);
+		});
 		// Moving keys come as char events, which wx only sends for a key the
 		// app's own key-down handler let through - so its Home, End and
 		// shortcuts win, as they did over the list box.
@@ -605,16 +621,17 @@ impl MessageList {
 			},
 		};
 		/// Appends the visible, enabled tab stops under `parent` in order. A
-		/// container with stops inside it is passed over for them.
-		fn collect(parent: HWND, stops: &mut Vec<HWND>) {
+		/// container with stops inside it is passed over for them. The list
+		/// itself always counts, whatever wx has done to its window style.
+		fn collect(parent: HWND, me: HWND, stops: &mut Vec<HWND>) {
 			let mut child = unsafe { GetWindow(parent, GW_CHILD) }.ok();
 			while let Some(hwnd) = child {
 				if unsafe { IsWindowVisible(hwnd) }.as_bool() {
 					let before = stops.len();
-					collect(hwnd, stops);
+					collect(hwnd, me, stops);
 					let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32;
-					if stops.len() == before && style & WS_TABSTOP.0 != 0 && unsafe { IsWindowEnabled(hwnd) }.as_bool()
-					{
+					let tab_stop = style & WS_TABSTOP.0 != 0 && unsafe { IsWindowEnabled(hwnd) }.as_bool();
+					if hwnd == me || (stops.len() == before && tab_stop) {
 						stops.push(hwnd);
 					}
 				}
@@ -623,15 +640,21 @@ impl MessageList {
 		}
 		let me = HWND(self.panel.get_handle().cast());
 		let mut stops = Vec::new();
-		collect(unsafe { GetAncestor(me, GA_ROOT) }, &mut stops);
-		let Some(at) = stops.iter().position(|&h| h == me) else { return };
+		collect(unsafe { GetAncestor(me, GA_ROOT) }, me, &mut stops);
+		let Some(at) = stops.iter().position(|&h| h == me) else {
+			crate::websocket_events::ui_timing_log("Tab from the message list: the list isn't visible");
+			return;
+		};
 		let n = stops.len();
 		let next = stops[if backwards { (at + n - 1) % n } else { (at + 1) % n }];
-		if next != me {
-			unsafe {
-				let _ = SetFocus(Some(next));
-			}
-		}
+		let moved = next != me && unsafe { SetFocus(Some(next)) }.is_ok();
+		crate::websocket_events::ui_timing_log(&format!(
+			"Tab from the message list: {} stops, list at {}, moved to {}: {}",
+			n,
+			at,
+			if backwards { (at + n - 1) % n } else { (at + 1) % n },
+			moved
+		));
 	}
 
 	/// Arrows, Page Up/Down, Tab and type-ahead. Home and End are the app's.
