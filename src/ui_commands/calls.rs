@@ -287,8 +287,16 @@ pub(crate) fn place_video_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	place_call_impl(state, parts, true);
 }
 
+/// Like WhatsApp Web, the first press wins: Accept and Decline make way for
+/// Leave call at once, so a call that takes a moment to connect can't be
+/// answered twice (the server ends a call answered again) or declined after
+/// it was accepted.
 pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
+	crate::websocket_events::call_log(parts, &s, "answer pressed", "");
+	if s.call_answer_deadline.is_some() {
+		return;
+	}
 	if let Some(call_id) = &s.active_call_id {
 		let msg = serde_json::json!({
 			"action": "answer_call",
@@ -297,7 +305,12 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		let _ = s.ws_tx.send(msg.to_string());
 		stop_call_ringing_sound(&mut s);
 		s.call_answer_deadline = Some(std::time::Instant::now());
-		parts.call_parts.status_label.set_label("Answering...");
+		parts.call_parts.status_label.set_label("Connecting...");
+		parts.call_parts.leave_btn.show(true);
+		parts.call_parts.accept_btn.show(false);
+		parts.call_parts.reject_btn.show(false);
+		parts.call_parts.leave_btn.set_focus();
+		announce_call(parts, "Connecting...");
 	}
 }
 
