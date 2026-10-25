@@ -43,7 +43,7 @@ pub struct ConversationsPanelParts {
 
 	pub messages_label: StaticText,
 	pub messages_list: crate::ui::message_list::MessageList,
-	pub messages_select_list: CheckListBox,
+	pub messages_select_list: crate::ui::message_list::MessageList,
 
 	pub selection_bar_panel: Panel,
 	pub selection_count_label: StaticText,
@@ -246,7 +246,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	// as a separate widget rather than swapping messages_list's own type so
 	// every existing single-selection call site (context menu, search jump,
 	// keyboard nav) is unaffected by selection mode.
-	let messages_select_list = CheckListBox::builder(&conversation_panel).build();
+	let messages_select_list = crate::ui::message_list::MessageList::new(&conversation_panel, "Select messages");
+	messages_select_list.set_checkable(true);
 	messages_select_list.set_font(&theme::Fonts::body());
 	skip_best_size(&messages_select_list);
 	theme::style_chat_area(&messages_select_list);

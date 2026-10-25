@@ -227,9 +227,21 @@ pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		parts.conversations_parts.emoji_btn.show(false);
 		parts.conversations_parts.send_message_btn.show(false);
 		parts.conversations_parts.record_voice_btn.show(false);
+		parts.conversations_parts.messages_select_list.set_focus();
 	} else {
+		// Back in the chat on the message the selection cursor was on.
+		let at = parts
+			.conversations_parts
+			.messages_select_list
+			.get_selection()
+			.and_then(|i| s.selection_rows.get(i as usize))
+			.and_then(|item| s.display_items.iter().position(|d| d.id() == item.id()));
+		if let Some(pos) = at {
+			parts.conversations_parts.messages_list.set_selection(pos as u32, true);
+		}
 		s.selected_message_ids.clear();
-		s.selection_rows.clear();
+		s.selection_rows = Vec::new();
+		parts.conversations_parts.messages_select_list.clear();
 		parts.conversations_parts.messages_select_list.show(false);
 		parts.conversations_parts.selection_bar_panel.show(false);
 		parts.conversations_parts.messages_list.show(true);
@@ -241,6 +253,7 @@ pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 			.send_message_btn
 			.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
 		parts.conversations_parts.record_voice_btn.show(true);
+		parts.conversations_parts.messages_list.set_focus();
 	}
 	parts.conversations_parts.conversation_panel.layout();
 }

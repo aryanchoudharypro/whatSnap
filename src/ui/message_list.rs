@@ -39,6 +39,8 @@ const WX_WANTS_CHARS: i64 = 0x0004_0000;
 struct Row {
 	id: u64,
 	text: String,
+	/// Only in a checkable list (see `set_checkable`).
+	checked: bool,
 }
 
 #[derive(Default)]
@@ -61,13 +63,15 @@ struct State {
 	/// big chat is numbered against all of it (see `set_numbering`).
 	before: usize,
 	after: usize,
+	/// Rows have check boxes, as in a `CheckListBox` (see `set_checkable`).
+	checkable: bool,
 }
 
 impl State {
 	fn new_row(&mut self, text: &str) -> Row {
 		let id = self.next_id.max(FIRST_ROW_ID);
 		self.next_id = id + 1;
-		Row { id, text: text.to_string() }
+		Row { id, text: text.to_string(), checked: false }
 	}
 
 	/// Re-centres `exposed` on the cursor (or the end of the chat) when it has
@@ -107,6 +111,9 @@ impl State {
 			node.add_action(Action::Focus);
 			node.add_action(Action::Click);
 			node.set_position_in_set(self.before + i);
+			if self.checkable {
+				node.set_toggled(row.checked.into());
+			}
 			node.set_selected(self.selected == Some(i));
 			children.push(NodeId(row.id));
 			nodes.push((NodeId(row.id), node));
@@ -137,6 +144,7 @@ struct Shared {
 	state: RefCell<State>,
 	adapter: RefCell<Option<SubclassingAdapter>>,
 	on_selection_changed: RefCell<Option<SelectionCallback>>,
+	on_toggled: RefCell<Option<SelectionCallback>>,
 }
 
 thread_local! {
@@ -169,9 +177,14 @@ impl ActionHandler for Actions {
 		}
 		let slot = self.slot;
 		let id = request.target_node.0;
+		let click = request.action == Action::Click;
 		wxdragon::call_after(Box::new(move || {
 			if let Some(list) = MessageList::from_slot(slot) {
 				list.select_by_user_id(id);
+				// A screen reader's default action on a check box row checks it.
+				if click && let Some(index) = list.get_selection() {
+					list.toggle_by_user(index as usize);
+				}
 			}
 		}));
 	}
@@ -230,6 +243,7 @@ impl MessageList {
 			state: RefCell::new(State { next_id: FIRST_ROW_ID, row_height: 20, ..Default::default() }),
 			adapter: RefCell::new(None),
 			on_selection_changed: RefCell::new(None),
+			on_toggled: RefCell::new(None),
 		});
 		let slot = LISTS.with(|l| {
 			let mut l = l.borrow_mut();
@@ -420,6 +434,40 @@ impl MessageList {
 		self.sync(&shared);
 	}
 
+	/// Gives every row a check box, as a `CheckListBox`: Space (or a screen
+	/// reader's default action) checks the cursor row, and screen readers say
+	/// "checked" / "not checked".
+	pub fn set_checkable(&self, checkable: bool) {
+		let shared = self.shared();
+		shared.state.borrow_mut().checkable = checkable;
+		self.sync(&shared);
+		self.panel.refresh(false, None);
+	}
+
+	pub fn is_checked(&self, index: u32) -> bool {
+		self.shared().state.borrow().rows.get(index as usize).is_some_and(|r| r.checked)
+	}
+
+	/// Checks or unchecks a row without firing `on_toggled`.
+	pub fn check(&self, index: u32, checked: bool) {
+		let shared = self.shared();
+		{
+			let mut state = shared.state.borrow_mut();
+			let Some(row) = state.rows.get_mut(index as usize) else { return };
+			if row.checked == checked {
+				return;
+			}
+			row.checked = checked;
+		}
+		self.sync(&shared);
+		self.panel.refresh(false, None);
+	}
+
+	/// Runs `callback` with the row whenever the user checks or unchecks it.
+	pub fn on_toggled(&self, callback: impl Fn(u32) + 'static) {
+		*self.shared().on_toggled.borrow_mut() = Some(Rc::new(callback));
+	}
+
 	/// Runs `callback` with the new row whenever the user moves the cursor
 	/// (keys, mouse, a screen reader), not when the app calls `set_selection`.
 	pub fn on_selection_changed(&self, callback: impl Fn(u32) + 'static) {
@@ -487,6 +535,25 @@ impl MessageList {
 		}
 		self.after_cursor_move(&shared);
 		let callback = shared.on_selection_changed.borrow().clone();
+		if let Some(callback) = callback {
+			callback(index as u32);
+		}
+	}
+
+	/// A check the user made: flips the row, then tells the app.
+	fn toggle_by_user(&self, index: usize) {
+		let shared = self.shared();
+		{
+			let mut state = shared.state.borrow_mut();
+			if !state.checkable {
+				return;
+			}
+			let Some(row) = state.rows.get_mut(index) else { return };
+			row.checked = !row.checked;
+		}
+		self.sync(&shared);
+		self.panel.refresh(false, None);
+		let callback = shared.on_toggled.borrow().clone();
 		if let Some(callback) = callback {
 			callback(index as u32);
 		}
@@ -688,6 +755,13 @@ impl MessageList {
 			self.select_by_user(target);
 			return true;
 		}
+		let checkable = self.shared().state.borrow().checkable;
+		if checkable && code == WXK_SPACE {
+			if let Some(current) = current {
+				self.toggle_by_user(current);
+			}
+			return true;
+		}
 		match key.get_unicode_key().and_then(|c| char::from_u32(c as u32)) {
 			Some(ch) if !ch.is_control() => {
 				self.type_ahead(ch);
@@ -770,9 +844,17 @@ impl MessageList {
 			} else {
 				dc.set_text_foreground(foreground);
 			}
-			let text = &state.rows[index].text;
-			let line: String =
-				text.chars().take(DRAWN_CHARS).map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
+			let row = &state.rows[index];
+			let check = match (state.checkable, row.checked) {
+				(false, _) => "",
+				(true, true) => "[x] ",
+				(true, false) => "[ ] ",
+			};
+			let line: String = check
+				.chars()
+				.chain(row.text.chars().take(DRAWN_CHARS))
+				.map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+				.collect();
 			dc.draw_text(&line, 4, y + 3);
 			y += row_height;
 			index += 1;

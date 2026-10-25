@@ -5136,18 +5136,32 @@ pub fn bind_input_handlers(
 	let selection_list_toggle = parts.conversations_parts.messages_select_list;
 	let selection_count_label_toggle = parts.conversations_parts.selection_count_label;
 	let state_selection_toggle = state.clone();
-	selection_list_toggle.on_toggled(move |event| {
-		if let Some(idx) = event.get_selection() {
-			let mut s = state_selection_toggle.borrow_mut();
-			if let Some(id) = s.selection_rows.get(idx as usize).map(|item| item.id().to_string()) {
-				if selection_list_toggle.is_checked(idx) {
-					s.selected_message_ids.insert(id);
-				} else {
-					s.selected_message_ids.remove(&id);
-				}
-				let count = s.selected_message_ids.len();
-				selection_count_label_toggle.set_label(&format!("{} selected", count));
+	selection_list_toggle.on_toggled(move |idx| {
+		let mut s = state_selection_toggle.borrow_mut();
+		if let Some(id) = s.selection_rows.get(idx as usize).map(|item| item.id().to_string()) {
+			if selection_list_toggle.is_checked(idx) {
+				s.selected_message_ids.insert(id);
+			} else {
+				s.selected_message_ids.remove(&id);
 			}
+			let count = s.selected_message_ids.len();
+			selection_count_label_toggle.set_label(&format!("{} selected", count));
+		}
+	});
+
+	// Arrowing to either end of what's loaded pages in more, as in the
+	// message list (the selection rows are rebuilt from the new messages).
+	let tx_select_paging = ui_tx.clone();
+	let state_select_paging = state.clone();
+	parts.conversations_parts.messages_select_list.on_selection_changed(move |idx| {
+		let (older_stored, newer_stored, count) = {
+			let s = state_select_paging.borrow();
+			(s.older_unloaded > 0, !s.messages_at_latest, s.selection_rows.len() as u32)
+		};
+		if idx == 0 && older_stored {
+			let _ = tx_select_paging.send(UiCommand::LoadMoreMessages);
+		} else if newer_stored && idx + 1 == count {
+			let _ = tx_select_paging.send(UiCommand::LoadNewerMessages);
 		}
 	});
 

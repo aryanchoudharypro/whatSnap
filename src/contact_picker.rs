@@ -4,8 +4,6 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use wxdragon::prelude::*;
-
 use crate::{AppState, Contact, ui::window::WindowParts};
 
 /// Falls back to a formatted phone number (e.g. "+91 96671 74783") instead
@@ -76,6 +74,17 @@ pub(crate) fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	if !s.selection_mode {
 		return;
 	}
+	let list = &parts.conversations_parts.messages_select_list;
+	// The rows are rebuilt when a page loads; keep the cursor on its message.
+	// Entering selection mode, start on the message the chat's cursor was on.
+	let cursor_id = list
+		.get_selection()
+		.and_then(|i| s.selection_rows.get(i as usize))
+		.or_else(|| {
+			let main = parts.conversations_parts.messages_list.get_selection()?;
+			s.display_items.get(main as usize)
+		})
+		.map(|item| item.id().to_string());
 	let is_group = s.selected_chat.as_deref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 	s.selection_rows = s
 		.display_items
@@ -89,15 +98,17 @@ pub(crate) fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	let valid_ids: std::collections::HashSet<String> = s.selection_rows.iter().map(|i| i.id().to_string()).collect();
 	s.selected_message_ids.retain(|id| valid_ids.contains(id));
 
-	parts.conversations_parts.messages_select_list.freeze();
-	parts.conversations_parts.messages_select_list.clear();
+	let rows: Vec<String> = s.selection_rows.iter().map(|item| item.format_display(is_group)).collect();
+	list.set_items(&rows.iter().map(String::as_str).collect::<Vec<_>>());
 	for (idx, item) in s.selection_rows.iter().enumerate() {
-		parts.conversations_parts.messages_select_list.append(&item.format_display(is_group));
 		if s.selected_message_ids.contains(item.id()) {
-			parts.conversations_parts.messages_select_list.check(idx as u32, true);
+			list.check(idx as u32, true);
 		}
 	}
-	parts.conversations_parts.messages_select_list.thaw();
+	let cursor = cursor_id.and_then(|id| s.selection_rows.iter().position(|item| item.id() == id));
+	if let Some(pos) = cursor.or_else(|| rows.len().checked_sub(1)) {
+		list.set_selection(pos as u32, true);
+	}
 	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
 }
 
