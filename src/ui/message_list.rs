@@ -208,6 +208,14 @@ impl MessageList {
 				wxdragon::ffi::wxd_Window_GetWindowStyle(ptr) | WX_WANTS_CHARS,
 			);
 		}
+		// A tab stop, so Windows' Tab order includes it like the list box it replaces.
+		unsafe {
+			use windows::Win32::UI::WindowsAndMessaging::{
+				GWL_STYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_TABSTOP,
+			};
+			let hwnd = HWND(panel.get_handle().cast());
+			SetWindowLongPtrW(hwnd, GWL_STYLE, GetWindowLongPtrW(hwnd, GWL_STYLE) | WS_TABSTOP.0 as isize);
+		}
 		panel.set_background_style(BackgroundStyle::Paint);
 		// A list box's colours; the theme may set its own after.
 		panel.set_background_color(SystemSettings::get_colour(SystemColour::Window));
@@ -561,10 +569,31 @@ impl MessageList {
 	}
 
 	/// Arrows, Page Up/Down, Tab and type-ahead. Home and End are the app's.
+	/// Moves focus to the next (or previous) control in tab order, as Tab
+	/// does from a list box. The list takes every key (so arrows reach it), so
+	/// Tab has to be passed on by hand, and wx's `Navigate` from a panel with
+	/// no children goes nowhere; Windows' own dialog walk does what the list
+	/// box got for free.
+	fn tab_away(&self, backwards: bool) {
+		use windows::Win32::UI::{
+			Input::KeyboardAndMouse::SetFocus,
+			WindowsAndMessaging::{GA_ROOT, GetAncestor, GetNextDlgTabItem},
+		};
+		let hwnd = HWND(self.panel.get_handle().cast());
+		unsafe {
+			let root = GetAncestor(hwnd, GA_ROOT);
+			if let Ok(next) = GetNextDlgTabItem(root, Some(hwnd), backwards)
+				&& next != hwnd
+			{
+				let _ = SetFocus(Some(next));
+			}
+		}
+	}
+
 	fn handle_char(&self, key: &wxdragon::event::KeyboardEvent) -> bool {
 		let Some(code) = key.get_key_code() else { return false };
 		if code == WXK_TAB {
-			self.panel.navigate(!key.shift_down());
+			self.tab_away(key.shift_down());
 			return true;
 		}
 		if key.control_down() || key.alt_down() {
