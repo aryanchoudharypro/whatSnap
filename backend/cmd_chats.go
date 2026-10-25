@@ -386,20 +386,82 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// countAround is how many of the chat's messages are older than the first of
-// page and newer than its last (page is oldest first), so the UI can number a
-// window of a chat against the whole of it ("2 of 28000"). An empty page has
-// nothing around it to count.
+// countAround is how many rows of the chat's list come before the first
+// message of page and after its last (page is oldest first), so the UI can
+// number a window of a chat against all of it ("2 of 28000"). An empty page
+// has nothing around it to count.
 func countAround(jid string, page []MessageJSON) (older, newer int) {
 	if len(page) == 0 {
 		return 0, 0
 	}
 	first, last := page[0], page[len(page)-1]
-	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND (timestamp < ? OR (timestamp = ? AND id < ?))`,
-		jid, first.Timestamp, first.Timestamp, first.ID).Scan(&older)
-	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND (timestamp > ? OR (timestamp = ? AND id > ?))`,
-		jid, last.Timestamp, last.Timestamp, last.ID).Scan(&newer)
+	older = rowCount(jid, `(timestamp < ? OR (timestamp = ? AND id < ?))`,
+		[]interface{}{first.Timestamp, first.Timestamp, first.ID}, localDay(first.Timestamp))
+	newer = rowCount(jid, `(timestamp > ? OR (timestamp = ? AND id > ?))`,
+		[]interface{}{last.Timestamp, last.Timestamp, last.ID}, localDay(last.Timestamp))
 	return older, newer
+}
+
+func localDay(ts int64) string {
+	return time.Unix(ts, 0).Local().Format("2006-01-02")
+}
+
+// rowCount is how many rows the UI's message list would show for the chat's
+// messages matching cond: one per message, one per date divider, and one per
+// album, following whatsnap's group_messages_into_display_items (a run of
+// photos and videos from one sender in the same album, or without album ids
+// sent within 10 seconds, on one day). skipDay's divider isn't counted: the
+// loaded window already shows it.
+func rowCount(jid, cond string, args []interface{}, skipDay string) int {
+	rows, err := db.Query(`SELECT timestamp, COALESCE(from_me, 0), COALESCE(sender_jid, ''), COALESCE(album_id, ''),
+			COALESCE(media_type, ''), substr(COALESCE(text, ''), 1, 7), COALESCE(is_deleted, 0)
+		FROM messages WHERE jid = ? AND `+cond+` ORDER BY timestamp ASC, id ASC`, append([]interface{}{jid}, args...)...)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+	type mediaRow struct {
+		ts      int64
+		fromMe  bool
+		sender  string
+		albumID string
+	}
+	count := 0
+	day := ""
+	var prev *mediaRow // the last message, while it is media that an album could continue
+	for rows.Next() {
+		var m mediaRow
+		var mediaType, prefix string
+		var deleted int
+		if rows.Scan(&m.ts, &m.fromMe, &m.sender, &m.albumID, &mediaType, &prefix, &deleted) != nil {
+			continue
+		}
+		if d := localDay(m.ts); d != day {
+			day = d
+			prev = nil
+			if d != skipDay {
+				count++
+			}
+		}
+		isMedia := deleted == 0 && (mediaType == "image" || mediaType == "video" ||
+			strings.HasPrefix(prefix, "[Photo]") || strings.HasPrefix(prefix, "[Image]") || strings.HasPrefix(prefix, "[Video]"))
+		if !isMedia {
+			prev = nil
+			count++
+			continue
+		}
+		sameAlbum := prev != nil && prev.fromMe == m.fromMe && prev.sender == m.sender
+		if sameAlbum && (prev.albumID != "" || m.albumID != "") {
+			sameAlbum = prev.albumID == m.albumID
+		} else if sameAlbum {
+			sameAlbum = m.ts-prev.ts <= 10 && prev.ts-m.ts <= 10
+		}
+		if !sameAlbum {
+			count++
+		}
+		prev = &m
+	}
+	return count
 }
 
 // The filters for a chat's Media, Documents and Links tabs. The UI applies its

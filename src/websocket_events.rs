@@ -168,6 +168,19 @@ fn drop_seen_ids<'a>(msgs: Vec<ChatMessage>, seen: impl Iterator<Item = &'a str>
 	msgs.into_iter().zip(keep).filter_map(|(m, keep)| keep.then_some(m)).collect()
 }
 
+/// Trims a chat's loaded messages to `MAX_LOADED_MESSAGES`, keeping the
+/// oldest (`keep_start`) or the newest, and returns how many list rows that let
+/// go (messages, albums and date dividers), the unit the list is numbered in.
+fn trim_window(messages: Vec<whatsnap::Msg>, keep_start: bool) -> (Vec<whatsnap::Msg>, usize) {
+	if whatsnap::real_message_count(&messages) <= crate::MAX_LOADED_MESSAGES {
+		return (messages, 0);
+	}
+	let rows_before = whatsnap::group_messages_into_display_items(&messages).len();
+	let (kept, _) = whatsnap::trim_real_messages(messages, crate::MAX_LOADED_MESSAGES, keep_start);
+	let rows_after = whatsnap::group_messages_into_display_items(&kept).len();
+	(kept, rows_before.saturating_sub(rows_after))
+}
+
 /// Applies a newer page (see `ui_commands::chat_list::load_newer_messages`)
 /// below what's loaded: appends only the new rows, leaving the selection where
 /// it is so the next Down arrow continues into them.
@@ -201,8 +214,7 @@ fn apply_newer_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>, parts
 	let mut merged = std::mem::take(&mut s.messages);
 	merged.extend(added.into_iter().map(whatsnap::Msg::new));
 	// Let the oldest go past the cap; they page back in from the top.
-	let (merged, dropped) =
-		whatsnap::trim_real_messages(whatsnap::rebuild_date_dividers(merged), crate::MAX_LOADED_MESSAGES, false);
+	let (merged, dropped) = trim_window(whatsnap::rebuild_date_dividers(merged), false);
 	if dropped > 0 {
 		s.older_unloaded += dropped;
 		s.no_more_messages = false;
@@ -349,7 +361,7 @@ fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>
 		// Let the newest go past the cap; End or Down past the bottom brings
 		// them back.
 		let dropped;
-		(with_dates, dropped) = whatsnap::trim_real_messages(with_dates, crate::MAX_LOADED_MESSAGES, true);
+		(with_dates, dropped) = trim_window(with_dates, true);
 		if dropped > 0 {
 			s.newer_unloaded += dropped;
 			s.messages_at_latest = false;
@@ -882,8 +894,8 @@ struct ConversationMessagesData<'a> {
 	/// newest message (see `AppState::messages_at_latest`).
 	#[serde(rename = "isLatest", default = "default_true")]
 	is_latest: bool,
-	/// How many of the chat's messages are older than this page and newer
-	/// than it (see `AppState::older_unloaded`).
+	/// How many rows of the chat's list come before this page and after it
+	/// (see `AppState::older_unloaded`).
 	#[serde(default)]
 	older: Option<usize>,
 	#[serde(default)]

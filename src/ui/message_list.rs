@@ -590,28 +590,51 @@ impl MessageList {
 		(index < state.rows.len()).then_some(index)
 	}
 
-	/// Arrows, Page Up/Down, Tab and type-ahead. Home and End are the app's.
 	/// Moves focus to the next (or previous) control in tab order, as Tab
 	/// does from a list box. The list takes every key (so arrows reach it), so
-	/// Tab has to be passed on by hand, and wx's `Navigate` from a panel with
-	/// no children goes nowhere; Windows' own dialog walk does what the list
-	/// box got for free.
+	/// Tab has to be passed on by hand. Neither wx's `Navigate` (from a panel
+	/// with no children) nor Windows' `GetNextDlgTabItem` (wx panels aren't
+	/// dialog containers to it) went anywhere, so this walks the window's
+	/// controls itself, in creation order, as both of those do.
 	fn tab_away(&self, backwards: bool) {
 		use windows::Win32::UI::{
-			Input::KeyboardAndMouse::SetFocus,
-			WindowsAndMessaging::{GA_ROOT, GetAncestor, GetNextDlgTabItem},
+			Input::KeyboardAndMouse::{IsWindowEnabled, SetFocus},
+			WindowsAndMessaging::{
+				GA_ROOT, GW_CHILD, GW_HWNDNEXT, GWL_STYLE, GetAncestor, GetWindow, GetWindowLongPtrW, IsWindowVisible,
+				WS_TABSTOP,
+			},
 		};
-		let hwnd = HWND(self.panel.get_handle().cast());
-		unsafe {
-			let root = GetAncestor(hwnd, GA_ROOT);
-			if let Ok(next) = GetNextDlgTabItem(root, Some(hwnd), backwards)
-				&& next != hwnd
-			{
+		/// Appends the visible, enabled tab stops under `parent` in order. A
+		/// container with stops inside it is passed over for them.
+		fn collect(parent: HWND, stops: &mut Vec<HWND>) {
+			let mut child = unsafe { GetWindow(parent, GW_CHILD) }.ok();
+			while let Some(hwnd) = child {
+				if unsafe { IsWindowVisible(hwnd) }.as_bool() {
+					let before = stops.len();
+					collect(hwnd, stops);
+					let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32;
+					if stops.len() == before && style & WS_TABSTOP.0 != 0 && unsafe { IsWindowEnabled(hwnd) }.as_bool()
+					{
+						stops.push(hwnd);
+					}
+				}
+				child = unsafe { GetWindow(hwnd, GW_HWNDNEXT) }.ok();
+			}
+		}
+		let me = HWND(self.panel.get_handle().cast());
+		let mut stops = Vec::new();
+		collect(unsafe { GetAncestor(me, GA_ROOT) }, &mut stops);
+		let Some(at) = stops.iter().position(|&h| h == me) else { return };
+		let n = stops.len();
+		let next = stops[if backwards { (at + n - 1) % n } else { (at + 1) % n }];
+		if next != me {
+			unsafe {
 				let _ = SetFocus(Some(next));
 			}
 		}
 	}
 
+	/// Arrows, Page Up/Down, Tab and type-ahead. Home and End are the app's.
 	fn handle_char(&self, key: &wxdragon::event::KeyboardEvent) -> bool {
 		let Some(code) = key.get_key_code() else { return false };
 		if code == WXK_TAB {

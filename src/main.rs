@@ -342,8 +342,9 @@ struct AppState {
 	history_loading: bool,
 	/// A newer page (see `load_newer_messages`) is in flight.
 	newer_loading: bool,
-	/// How many of the open chat's stored messages come before and after the
-	/// loaded ones (from the backend), to number rows against the whole chat.
+	/// How many rows of the open chat's list (messages, albums and date
+	/// dividers) come before and after the loaded ones, from the backend, to
+	/// number rows against the whole chat.
 	older_unloaded: usize,
 	newer_unloaded: usize,
 	/// Set by Home's `jump_to_oldest_message`: land on the first row of the
