@@ -136,6 +136,28 @@ pub(crate) fn ui_timing_log(msg: &str) {
 	}
 }
 
+/// Notes in `ui.log` anything that held the UI thread for over half a second,
+/// once it's done (dropped), so a freeze shows up in the logs with its cause.
+pub(crate) struct SlowUiLog<'a> {
+	what: &'a str,
+	started: std::time::Instant,
+}
+
+impl<'a> SlowUiLog<'a> {
+	pub(crate) fn new(what: &'a str) -> Self {
+		Self { what, started: std::time::Instant::now() }
+	}
+}
+
+impl Drop for SlowUiLog<'_> {
+	fn drop(&mut self) {
+		let took = self.started.elapsed();
+		if took >= std::time::Duration::from_millis(500) {
+			ui_timing_log(&format!("Slow: {} held the UI for {} ms", self.what, took.as_millis()));
+		}
+	}
+}
+
 /// Drops the messages in `msgs` whose id is already in `seen` or earlier in
 /// `msgs` (messages without an id always stay). The ids are borrowed, not
 /// copied: a whole chat is tens of thousands of them.
@@ -940,6 +962,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 	if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw)
 		&& let Some(t) = val.get("type").and_then(|v| v.as_str())
 	{
+		let _slow = SlowUiLog::new(t);
 		match t {
 			"connected" => {
 				// A reconnect (keepalive blip, brief network drop) also

@@ -15,6 +15,7 @@ pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
+	let _slow = crate::websocket_events::SlowUiLog::new("sending a message");
 	let mut s = state.borrow_mut();
 	if let Some(ref jid) = s.selected_chat.clone() {
 		// Sending a reply means the unread messages have obviously been

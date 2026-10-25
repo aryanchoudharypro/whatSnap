@@ -89,6 +89,18 @@ pub struct ConversationsPanelParts {
 	pub action_download_btn: Button,
 }
 
+/// Gives a list a fixed minimum size, so laying out its panel never asks the
+/// list for its best size. wxListBox works that out by measuring the text of
+/// every row, and any change to the list (a new message, a tick, the unread
+/// divider going) throws the answer away. A whole chat is tens of thousands
+/// of rows, so every layout after a change - showing or hiding Remove quote
+/// when replying, the composer emptying after a send - froze the app for
+/// seconds at a time. Both sides must be set: wx falls back to the best size
+/// for any side left at -1. The sizer stretches the list as before.
+fn skip_best_size(list: &impl WxWidget) {
+	list.set_min_size(Size::new(100, 100));
+}
+
 pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelParts {
 	let panel = Panel::builder(parent).build();
 	theme::style_content(&panel);
@@ -147,6 +159,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 
 	let conversations_list = ListBox::builder(&panel).build();
 	conversations_list.set_font(&theme::Fonts::body());
+	skip_best_size(&conversations_list);
 	outer_sizer.add(&conversations_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let calls_btn_panel = Panel::builder(&panel).build();
@@ -225,6 +238,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 
 	let messages_list = ListBox::builder(&conversation_panel).build();
 	messages_list.set_font(&theme::Fonts::body());
+	skip_best_size(&messages_list);
 	theme::style_chat_area(&messages_list);
 	conv_sizer.add(&messages_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
@@ -234,6 +248,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	// keyboard nav) is unaffected by selection mode.
 	let messages_select_list = CheckListBox::builder(&conversation_panel).build();
 	messages_select_list.set_font(&theme::Fonts::body());
+	skip_best_size(&messages_select_list);
 	theme::style_chat_area(&messages_select_list);
 	conv_sizer.add(&messages_select_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 	messages_select_list.show(false);
