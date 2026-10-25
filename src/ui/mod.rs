@@ -11,6 +11,7 @@ pub mod conversations;
 pub mod emoji_panel;
 pub mod group_data;
 pub mod keys;
+pub mod message_list;
 pub mod new_contact;
 pub mod new_conversation;
 pub mod new_group;

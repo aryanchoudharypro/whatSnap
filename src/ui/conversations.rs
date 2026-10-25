@@ -42,7 +42,7 @@ pub struct ConversationsPanelParts {
 	pub search_conv_field: TextCtrl,
 
 	pub messages_label: StaticText,
-	pub messages_list: ListBox,
+	pub messages_list: crate::ui::message_list::MessageList,
 	pub messages_select_list: CheckListBox,
 
 	pub selection_bar_panel: Panel,
@@ -236,7 +236,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_muted_label(&messages_label);
 	conv_sizer.add(&messages_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let messages_list = ListBox::builder(&conversation_panel).build();
+	let messages_list = crate::ui::message_list::MessageList::new(&conversation_panel, "Messages");
 	messages_list.set_font(&theme::Fonts::body());
 	skip_best_size(&messages_list);
 	theme::style_chat_area(&messages_list);

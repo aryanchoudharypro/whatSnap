@@ -8,7 +8,7 @@ use wxdragon::{
 use crate::{
 	UiCommand,
 	keymap::{default_menu_label, message_list},
-	ui::{keys, theme},
+	ui::{keys, message_list::CursorList, theme},
 	ui_wake::UiCommandSender,
 };
 
@@ -309,7 +309,11 @@ fn restore_focus(handle: usize) -> bool {
 /// Uses `Rich2` and `DontWrap` with CRLF newlines so screen readers (NVDA/JAWS)
 /// can navigate paragraph by paragraph with Ctrl+Up/Down and lines aren't
 /// artificially split by word wrapping.
-fn show_message_text(parent: &Frame, list: &ListBox, state: &std::cell::RefCell<crate::AppState>) {
+fn show_message_text(
+	parent: &Frame,
+	list: &crate::ui::message_list::MessageList,
+	state: &std::cell::RefCell<crate::AppState>,
+) {
 	let Some(idx) = list.get_selection() else { return };
 	let text = state.borrow().display_items.get(idx as usize).map(|item| item.body_text());
 	let Some(text) = text else { return };
@@ -1529,39 +1533,37 @@ pub fn bind_input_handlers(
 						}
 						_ => (return_pane_for_menu.get(), None),
 					};
-					let list = match pane {
+					let list: &dyn CursorList = match pane {
 						ReturnPane::Nav => &nav_list_for_focus_menu,
 						ReturnPane::Chats => &conv_list_for_focus_menu,
 						ReturnPane::Messages => &messages_list_for_menu,
 					};
-					if let Some(index) = index.filter(|&i| i < list.get_count()) {
-						list.set_selection(index, true);
-						list.ensure_visible(index as i32);
+					if let Some(index) = index.filter(|&i| i < list.count()) {
+						list.select_and_show(index);
 					}
-					list.set_focus();
+					list.focus();
 				}
 			} else {
 				let chat = state_chat_menu.borrow().selected_chat.clone();
 				let focused = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetFocus() }.0 as usize;
-				let panes = [
+				let panes: [(ReturnPane, &dyn CursorList); 3] = [
 					(ReturnPane::Nav, &nav_list_for_focus_menu),
 					(ReturnPane::Chats, &conv_list_for_focus_menu),
 					(ReturnPane::Messages, &messages_list_for_menu),
 				];
-				let spot =
-					if let Some((pane, list)) = panes.iter().find(|(_, list)| list.get_handle() as usize == focused) {
-						ReturnSpot::Pane { pane: *pane, index: list.get_selection(), chat }
-					} else if focused != 0 {
-						ReturnSpot::Control(focused)
-					} else {
-						let pane = return_pane_for_menu.get();
-						let list = match pane {
-							ReturnPane::Nav => &nav_list_for_focus_menu,
-							ReturnPane::Chats => &conv_list_for_focus_menu,
-							ReturnPane::Messages => &messages_list_for_menu,
-						};
-						ReturnSpot::Pane { pane, index: list.get_selection(), chat }
+				let spot = if let Some((pane, list)) = panes.iter().find(|(_, list)| list.hwnd() == focused) {
+					ReturnSpot::Pane { pane: *pane, index: list.selection(), chat }
+				} else if focused != 0 {
+					ReturnSpot::Control(focused)
+				} else {
+					let pane = return_pane_for_menu.get();
+					let list: &dyn CursorList = match pane {
+						ReturnPane::Nav => &nav_list_for_focus_menu,
+						ReturnPane::Chats => &conv_list_for_focus_menu,
+						ReturnPane::Messages => &messages_list_for_menu,
 					};
+					ReturnSpot::Pane { pane, index: list.selection(), chat }
+				};
 				*return_spot_for_menu.borrow_mut() = Some(spot);
 				msg_field_for_menu.set_focus();
 			}
@@ -4965,8 +4967,8 @@ pub fn bind_input_handlers(
 	action_layout_timer.on_tick(move |_| {
 		action_panel_for_timer.layout();
 	});
-	parts.conversations_parts.messages_list.on_selection_changed(move |event| {
-		if let Some(idx) = event.get_selection() {
+	parts.conversations_parts.messages_list.on_selection_changed(move |idx| {
+		if let Ok(idx) = i32::try_from(idx) {
 			if idx == 0 {
 				let _ = tx_sel.send(UiCommand::LoadMoreMessages);
 			} else if idx + 1 == conv_parts_sel.messages_list.get_count() as i32 {

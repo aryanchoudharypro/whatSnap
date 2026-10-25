@@ -20,6 +20,7 @@ BSD, Zlib, or dual MIT/Apache-2.0):
 | nnnoiseless (RNNoise) | BSD-3-Clause |
 | qrcode, serde, serde_json, windows | MIT / Apache-2.0 |
 | wx-utils, key-chord | MIT |
+| Fedra's timeline list (adapted in `src/ui/message_list.rs`) | MIT |
 | libphonenumber metadata (generated into `src/phone_data.rs`) | Apache-2.0 |
 | Emoji names and groups (`src/ui/emoji.txt`, from unicode-emoji-json, built on Unicode's emoji-test.txt) | MIT / Unicode License v3 |
 
