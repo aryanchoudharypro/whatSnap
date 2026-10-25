@@ -95,6 +95,7 @@ type SendAttachmentData struct {
 	Filename    string `json:"filename"`
 	Caption     string `json:"caption"`
 	Duration    int    `json:"duration"`     // seconds, audio only
+	Waveform    []int  `json:"waveform"`     // 64 loudness bars, 0-100; audio only
 	Thumbnail   string `json:"thumbnail"`    // base64 PNG of a video's first frame, decoded by the frontend; video only
 	GifPlayback bool   `json:"gif_playback"` // a GIF the frontend turned into this (temporary) MP4; loops, silent
 	ViewOnce    bool   `json:"view_once"`    // photos and videos: can be opened once

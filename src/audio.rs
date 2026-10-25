@@ -435,10 +435,6 @@ pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 /// slices then evened out to 64. `None` if the file can't be read or holds no
 /// audio.
 pub(crate) fn compute_voice_waveform(wav_path: &str) -> Option<Vec<u8>> {
-	const BARS: usize = 64;
-	const MIN_DB: f32 = -60.0;
-	const MAX_DB: f32 = -10.0;
-
 	let reader = crate::wav::WavReader::open(wav_path).ok()?;
 	let spec = reader.spec();
 	let channels = spec.channels.max(1) as usize;
@@ -461,6 +457,43 @@ pub(crate) fn compute_voice_waveform(wav_path: &str) -> Option<Vec<u8>> {
 	if count > 0 {
 		levels.push(10.0 * (sum / count as f64 + 1e-12).log10() as f32);
 	}
+	waveform_bars(&levels)
+}
+
+/// The same 64 bars for an audio file sent as audio (an MP3, M4A...), which
+/// WA Web measures too (WAWebWaveformUtils.computeWaveform) and sends with
+/// it. Decoded the way playback decodes it; `None` if it can't be.
+pub(crate) fn audio_file_waveform(path: &str) -> Option<Vec<u8>> {
+	use rodio::Source;
+	let source = crate::audio_file::open(path, std::time::Duration::ZERO)?;
+	let channels = source.channels().get().max(1) as usize;
+	let window = (source.sample_rate().get() as usize / 100).max(1);
+	let mut levels = Vec::new();
+	let (mut sum, mut count) = (0.0f64, 0usize);
+	for (i, sample) in source.enumerate() {
+		if i % channels != 0 {
+			continue;
+		}
+		let s = sample as f64;
+		sum += s * s;
+		count += 1;
+		if count == window {
+			levels.push(10.0 * (sum / count as f64 + 1e-12).log10() as f32);
+			(sum, count) = (0.0, 0);
+		}
+	}
+	if count > 0 {
+		levels.push(10.0 * (sum / count as f64 + 1e-12).log10() as f32);
+	}
+	waveform_bars(&levels)
+}
+
+/// Evens 10 ms levels in dB out to WhatsApp's 64 bars, -60..-10 dB onto
+/// 0..100, each bar the loudest moment in its slice.
+fn waveform_bars(levels: &[f32]) -> Option<Vec<u8>> {
+	const BARS: usize = 64;
+	const MIN_DB: f32 = -60.0;
+	const MAX_DB: f32 = -10.0;
 	if levels.is_empty() {
 		return None;
 	}

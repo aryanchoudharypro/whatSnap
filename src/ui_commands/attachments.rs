@@ -330,11 +330,13 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 			});
 			let ws_tx = state.borrow().ws_tx.clone();
 			if file_type == "audio" {
-				// An audio message carries its length, which means reading
-				// the file - off the UI thread, it can be a long track.
+				// An audio message carries its length and waveform, which
+				// means reading the file - off the UI thread, it can be a
+				// long track.
 				let path = path.clone();
 				std::thread::spawn(move || {
 					payload["data"]["duration"] = serde_json::json!(crate::audio::audio_file_seconds(&path));
+					payload["data"]["waveform"] = serde_json::json!(crate::audio::audio_file_waveform(&path));
 					let _ = ws_tx.send(payload.to_string());
 				});
 			} else if file_type == "image" && path.to_lowercase().ends_with(".gif") {

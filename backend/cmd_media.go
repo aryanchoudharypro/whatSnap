@@ -1004,6 +1004,10 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 			"quotedText":    quotedText,
 			"quotedSender":  quotedSender,
 		})
+		// Kept on the row like a voice note's, so a retry sends it too.
+		if waveform := voiceWaveformBytes(data.Waveform); data.Type == "audio" && waveform != nil {
+			db.Exec(`UPDATE messages SET voice_waveform = ? WHERE id = ?`, waveform, id)
+		}
 		broadcastChats()
 
 		thumbPNG, _ := base64.StdEncoding.DecodeString(data.Thumbnail)
@@ -1249,8 +1253,11 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	case "audio":
 		// An audio file, as WhatsApp's "Audio" attach option sends it: an
 		// AudioMessage that isn't PTT, so it shows as a playable track rather
-		// than a voice note.
+		// than a voice note. WA Web sends its waveform too.
+		var waveform []byte
+		db.QueryRow(`SELECT voice_waveform FROM messages WHERE id = ?`, id).Scan(&waveform)
 		msg = &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+			Waveform: waveform,
 			Mimetype: proto.String(mimetype), PTT: proto.Bool(false),
 			Seconds: proto.Uint32(uint32(max(seconds, 0))),
 			URL:     proto.String(uploaded.URL), DirectPath: proto.String(uploaded.DirectPath),
