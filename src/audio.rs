@@ -556,8 +556,11 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 
 	let mut tags = Vec::with_capacity(24);
 	tags.extend_from_slice(b"OpusTags");
-	tags.extend_from_slice(&8_u32.to_le_bytes()); // Vendor length
-	tags.extend_from_slice(b"whatSnap  ");
+	// The length has to match the vendor string exactly, or players read
+	// its last bytes as the comment count and reject the file.
+	const VENDOR: &[u8] = b"whatSnap";
+	tags.extend_from_slice(&(VENDOR.len() as u32).to_le_bytes());
+	tags.extend_from_slice(VENDOR);
 	tags.extend_from_slice(&0_u32.to_le_bytes()); // User comments list length
 	writer.write_packet(&tags, PacketEnd::EndPage, 0)?;
 
@@ -700,6 +703,13 @@ mod voice_note_tests {
 			assert_eq!(&data[28..36], b"OpusHead");
 			assert_eq!(data[37], 2, "stereo, as recorded");
 			let pre_skip = u16::from_le_bytes([data[38], data[39]]) as u64;
+			// OpusTags: the vendor length and the empty comment list account
+			// for every byte of the packet.
+			let tags = &data[75..75 + data[74] as usize];
+			assert_eq!(&tags[..8], b"OpusTags");
+			let vendor = u32::from_le_bytes(tags[8..12].try_into().unwrap()) as usize;
+			assert_eq!(tags.len(), 12 + vendor + 4, "vendor length doesn't match");
+			assert_eq!(&tags[12 + vendor..], [0, 0, 0, 0], "comment count");
 
 			let (mut pos, mut pages, mut last) = (0, 0, (0u8, 0i64));
 			while pos < data.len() {
