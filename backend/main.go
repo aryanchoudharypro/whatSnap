@@ -266,11 +266,9 @@ func main() {
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)
-	// Ask for as much as the phone will give: the real Windows app sends a
-	// 365-day limit and no size limit, and with no size limit phones were
-	// seen stopping at about 50 MB. The phone still has the final say.
-	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(3650)
-	store.DeviceProps.HistorySyncConfig.FullSyncSizeMbLimit = proto.Uint32(2048)
+	// The real Windows app's values: a 365-day limit, no size limit, and
+	// whatsmeow's default storage quota.
+	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(365)
 	store.DeviceProps.HistorySyncConfig.InlineInitialPayloadInE2EeMsg = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportCallLogHistory = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportBotUserAgentChatHistory = proto.Bool(true)
