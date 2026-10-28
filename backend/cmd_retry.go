@@ -145,7 +145,7 @@ func sendServerErrorCode(err error) int {
 
 // sendRefusedForGood reports whether retrying a send can't help.
 func sendRefusedForGood(err error) bool {
-	if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) {
+	if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) || errors.Is(err, whatsmeow.ErrRecipientNotOnWhatsApp) {
 		return true
 	}
 	switch sendServerErrorCode(err) {
@@ -155,10 +155,16 @@ func sendRefusedForGood(err error) bool {
 	return false
 }
 
+// notOnWhatsAppText is shown when WhatsApp has no account for a phone number.
+const notOnWhatsAppText = "This number isn't on WhatsApp."
+
 // sendErrorText is what the user is told when a send fails.
 func sendErrorText(err error) string {
 	if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) {
 		return "Only admins can send messages to this group."
+	}
+	if errors.Is(err, whatsmeow.ErrRecipientNotOnWhatsApp) {
+		return notOnWhatsAppText
 	}
 	switch sendServerErrorCode(err) {
 	case sendErrorRateLimited:

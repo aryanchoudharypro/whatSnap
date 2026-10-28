@@ -215,7 +215,9 @@ func handleSetBlocked(raw json.RawMessage, block bool) {
 		result := map[string]interface{}{"jid": data.JID, "name": resolveDisplayName(jid), "blocked": block}
 		if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
 			result["error"] = "Only contacts can be blocked."
-		} else if err := setBlocked(jid, block); err != nil {
+		} else if err := setBlocked(jid, block); errors.Is(err, whatsmeow.ErrRecipientNotOnWhatsApp) {
+			result["error"] = notOnWhatsAppText
+		} else if err != nil {
 			result["error"] = err.Error()
 		}
 		broadcastEvent("block_result", result)
