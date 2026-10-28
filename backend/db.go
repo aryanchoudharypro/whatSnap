@@ -1010,7 +1010,8 @@ func UpdateChatSnippet(jid string) {
 	var msgTS int64
 	hasMsg := db.QueryRow(`SELECT COALESCE(text, ''), COALESCE(sender_jid, ''), from_me, is_deleted, timestamp
 		FROM messages WHERE jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0))
-		ORDER BY timestamp DESC LIMIT 1`, jid).Scan(&msgText, &msgSender, &msgFromMe, &msgDeleted, &msgTS) == nil
+			AND NOT (COALESCE(media_type, '') = 'system' AND id GLOB '*' || ?)
+		ORDER BY timestamp DESC LIMIT 1`, jid, quietSystemSuffix).Scan(&msgText, &msgSender, &msgFromMe, &msgDeleted, &msgTS) == nil
 
 	var reactorJID, emoji, reactedText string
 	var reactionTS int64

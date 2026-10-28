@@ -93,6 +93,8 @@ func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 // apps show when a contact's identity key changes (a reinstall or a new
 // phone), to the 1:1 chat with them. Only for chats that already exist: an
 // identity change for someone we've never talked to has nowhere to go.
+// Like WhatsApp Web it's a quiet line: the chat keeps its place, preview and
+// unread count, and nothing alerts (see insertQuietSystemMessage).
 func noteSecurityCodeChange(v *events.IdentityChange) {
 	contact := preferPN(v.JID)
 	if contact.Server != types.DefaultUserServer || isOwnJID(contact) {
@@ -110,7 +112,39 @@ func noteSecurityCodeChange(v *events.IdentityChange) {
 	// One line per second at most: an implicit change (an untrusted-identity
 	// error while decrypting) can repeat for every message in a burst.
 	id := fmt.Sprintf("system_%s_%d_identity", contact.User, ts.Unix())
-	insertGroupSystemMessage(jid, id, fmt.Sprintf("Your security code with %s changed.", nameToken(contact)), ts)
+	insertQuietSystemMessage(jid, id, fmt.Sprintf("Your security code with %s changed.", nameToken(contact)), ts)
+}
+
+// quietSystemSuffix ends the id of every system line that only goes into the
+// chat itself. UpdateChatSnippet skips these, so a rebuilt preview never
+// becomes one of them.
+const quietSystemSuffix = "_identity"
+
+// insertQuietSystemMessage stores a system line in a chat without touching
+// the chat list: no move to the top, no new preview, no unread. The UI still
+// gets the "message" event so an open chat shows it, and system lines never
+// play a sound or show a notification there.
+func insertQuietSystemMessage(jid, id, text string, ts time.Time) {
+	if text == "" || isIgnoredChatJID(jid) {
+		return
+	}
+	tsUnix := ts.Unix()
+	if err := saveMessage(StoredMessage{
+		ID: id, JID: jid, Text: text, Timestamp: tsUnix, Status: "sent", MediaType: "system",
+	}); err != nil {
+		log.Println("Error inserting quiet system message:", err)
+		return
+	}
+	broadcastEvent("message", map[string]interface{}{
+		"jid":       jid,
+		"from":      "",
+		"id":        id,
+		"text":      renderNames(text, nil),
+		"from_me":   false,
+		"timestamp": tsUnix,
+		"has_media": false,
+		"mediaType": "system",
+	})
 }
 
 // groupPictureChangeText is the chat line for a group icon change by author.
