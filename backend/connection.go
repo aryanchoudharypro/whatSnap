@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net"
@@ -34,9 +35,18 @@ const (
 	connStateStopped    = "stopped" // won't retry on its own (replaced, outdated)
 )
 
+// connRequest asks the supervisor for a connect attempt. force means the
+// user asked for it: drop whatever socket and reconnect wait whatsmeow has
+// and dial a fresh connection even if the old socket still looks open.
+type connRequest struct {
+	delay time.Duration
+	force bool
+}
+
 var (
-	connRequests = make(chan time.Duration, 8)
+	connRequests = make(chan connRequest, 8)
 	connFailures atomic.Int32
+	connProbing  atomic.Bool
 
 	connStateMu  sync.Mutex
 	connStateCur = map[string]interface{}{"state": connStateConnecting}
@@ -45,31 +55,75 @@ var (
 func init() {
 	go runConnectionSupervisor()
 	go watchNetworkChanges()
+	go watchSocketLoss()
 }
 
 // requestConnect asks the supervisor to (re)connect after delay; 0 means now.
 // A later request replaces any retry that's already scheduled.
 func requestConnect(delay time.Duration) {
 	select {
-	case connRequests <- delay:
+	case connRequests <- connRequest{delay: delay}:
 	default:
 	}
 }
 
-// reconnectNow is the manual "Reconnect Now" command and the network-change
-// trigger: skip whatever backoff is pending and try immediately.
+// reconnectNow is the network-change trigger: skip whatever backoff is
+// pending (ours or whatsmeow's) and try immediately.
 func reconnectNow() {
 	connFailures.Store(0)
 	requestConnect(0)
 }
 
-// handleReconnect is the frontend's "Reconnect Now" menu command.
+// forceReconnect is "Reconnect Now" when the connection isn't (really) up:
+// like WA Web's Reconnect link, it throws away the current socket and any
+// pending wait and dials a fresh connection right away.
+func forceReconnect() {
+	connFailures.Store(0)
+	select {
+	case connRequests <- connRequest{force: true}:
+	default:
+	}
+}
+
+// isOnline reports whether the socket is open and logged in. whatsmeow's
+// IsLoggedIn alone stays true after the socket drops (it is only cleared by
+// a stream error), so it can't tell a dead connection from a live one.
+func isOnline(c *whatsmeow.Client) bool {
+	return c != nil && c.IsConnected() && c.IsLoggedIn()
+}
+
+// handleReconnect is the frontend's "Reconnect Now" menu command. It always
+// answers with a "connection_state", and only says online once a ping has
+// actually come back over the socket.
 func handleReconnect() {
-	if c := wa(); c != nil && c.IsLoggedIn() {
-		setConnState(connStateOnline, "", 0) // still answer, so the UI can confirm
+	c := wa()
+	if c == nil || c.Store.ID == nil {
 		return
 	}
-	reconnectNow()
+	if !isOnline(c) || currentConnState()["state"] != connStateOnline {
+		forceReconnect()
+		return
+	}
+	// The socket looks up, but a half-open connection can look that way
+	// for minutes before keepalives give up on it. Ask the server.
+	if !connProbing.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer connProbing.Store(false)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ok, _, _ := c.DangerousInternals().SendKeepAlive(ctx)
+		cancel()
+		if c != wa() {
+			return
+		}
+		if ok && isOnline(c) {
+			setConnState(connStateOnline, "", 0)
+			return
+		}
+		log.Println("Reconnect Now: ping got no answer; reconnecting")
+		forceReconnect()
+	}()
 }
 
 // connBackoff is the wait after the given number of failed attempts in a row:
@@ -99,14 +153,16 @@ func runConnectionSupervisor() {
 	}
 
 	for {
+		force := false
 		select {
-		case delay := <-connRequests:
-			if delay > 0 {
+		case req := <-connRequests:
+			if req.delay > 0 {
 				stopTimer()
-				timer = time.NewTimer(delay)
+				timer = time.NewTimer(req.delay)
 				timerC = timer.C
 				continue
 			}
+			force = req.force
 			stopTimer()
 		case <-timerC:
 			timerC = nil
@@ -114,11 +170,19 @@ func runConnectionSupervisor() {
 
 		c := wa()
 		// Unpaired: the QR / phone-number pairing flow owns Connect().
-		if c == nil || c.Store.ID == nil || c.IsLoggedIn() {
+		if c == nil || c.Store.ID == nil {
+			continue
+		}
+		if !force && c.IsConnected() {
 			continue
 		}
 
 		setConnState(connStateConnecting, "", 0)
+		// Close any half-dead socket, and cancel whatsmeow's own reconnect
+		// loop if it is sitting out a backoff (Disconnect marks the drop as
+		// expected, which wakes and ends that wait), so this attempt isn't
+		// raced or followed by a second one when the old wait runs out.
+		c.Disconnect()
 		err := c.Connect()
 		if err == nil || errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 			// Socket is up (or whatsmeow's own reconnect beat us to it); the
@@ -147,7 +211,9 @@ func scheduleRetryAfterFailure(message string) {
 // failed attempt. Returning true keeps that loop going.
 func autoReconnectHook(c *whatsmeow.Client) func(error) bool {
 	return func(err error) bool {
-		if c == wa() {
+		// Reconnect Now may already have a new socket up by the time this
+		// older attempt reports its failure.
+		if c == wa() && !c.IsConnected() {
 			setConnState(connStateOffline, describeConnError(err), connBackoff(int32(c.AutoReconnectErrors)))
 		}
 		return true
@@ -212,9 +278,27 @@ func watchNetworkChanges() {
 		if currentConnState()["state"] == connStateStopped {
 			continue
 		}
-		if c := wa(); c != nil && c.Store.ID != nil && !c.IsLoggedIn() {
+		if c := wa(); c != nil && c.Store.ID != nil && !c.IsConnected() {
 			log.Println("Network change detected; reconnecting now")
 			reconnectNow()
+		}
+	}
+}
+
+// watchSocketLoss catches the socket going away without a Disconnected
+// event, so the status bar never keeps saying online over a dead
+// connection. whatsmeow sends no event when its keepalive gives up and
+// reconnects (it treats that disconnect as expected), and neither does a
+// failed reconnect that never got a socket.
+func watchSocketLoss() {
+	for range time.Tick(2 * time.Second) {
+		c := wa()
+		if c == nil || c.Store.ID == nil || c.IsConnected() {
+			continue
+		}
+		if currentConnState()["state"] == connStateOnline {
+			log.Println("Socket gone while marked online; showing connection lost")
+			setConnState(connStateConnecting, "Connection lost.", 0)
 		}
 	}
 }

@@ -1725,6 +1725,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						if !mid_sync {
 							parts.frame.set_status_text("Status: Connected", 0);
 						}
+						s.conn_status_text = "Status: Connected".to_string();
 						let speak = s.conn_outage_announced || s.conn_manual_reconnect;
 						s.conn_outage_announced = false;
 						s.conn_manual_reconnect = false;
@@ -1737,6 +1738,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							format!("Status: {message} Reconnecting...")
 						};
 						parts.frame.set_status_text(&label, 0);
+						s.conn_status_text = label;
 						None
 					}
 					"offline" => {
@@ -1755,6 +1757,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							_ => format!("Status: Offline. {reason} Retrying automatically."),
 						};
 						parts.frame.set_status_text(&label, 0);
+						s.conn_status_text = label;
 						let speak = !s.conn_outage_announced || s.conn_manual_reconnect;
 						s.conn_outage_announced = true;
 						s.conn_manual_reconnect = false;
@@ -1763,7 +1766,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					"stopped" => {
 						// The backend already raised an error dialog explaining
 						// this one; the status bar just keeps it visible.
-						parts.frame.set_status_text(&format!("Status: {message}"), 0);
+						let label = format!("Status: {message}");
+						parts.frame.set_status_text(&label, 0);
+						s.conn_status_text = label;
 						s.conn_outage_announced = true;
 						s.conn_manual_reconnect = false;
 						None
@@ -1782,9 +1787,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					let label = format!(
 						"Status: Connected (Syncing history... {msgs_done} messages, {chats_done} chats so far)"
 					);
-					parts.frame.set_status_text(&label, 0);
 					{
 						let mut s = state.borrow_mut();
+						// Batches already received keep being saved after the
+						// connection drops; don't paint "Connected" over that.
+						if s.conn_online {
+							parts.frame.set_status_text(&label, 0);
+						}
 						let now = std::time::Instant::now();
 						s.history_sync_last_update = Some(now);
 						s.history_sync_armed_until = Some(now + std::time::Duration::from_secs(60));
@@ -2936,7 +2945,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			"chat_exported" => {
 				if let Some(data) = val.get("data") {
 					let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
-					parts.frame.set_status_text("Status: Connected", 0);
+					let conn_status = state.borrow().conn_status_text.clone();
+					parts.frame.set_status_text(&conn_status, 0);
 					if data.get("text_only").and_then(|t| t.as_bool()).unwrap_or(false) {
 						let count = data.get("message_count").and_then(|m| m.as_i64()).unwrap_or(0);
 						let msg = format!("Chat text exported to {}. {} messages.", path, count);

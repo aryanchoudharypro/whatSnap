@@ -2270,6 +2270,18 @@ func eventHandler(evt interface{}) {
 		// whatsmeow's own reconnect loop is already running; autoReconnectHook
 		// reports any failed attempts from there.
 		setConnState(connStateConnecting, "Connection lost.", 0)
+	case *events.KeepAliveTimeout:
+		// The server stopped answering pings. The socket still looks open,
+		// but nothing is getting through, so stop claiming to be online;
+		// Reconnect Now then dials a fresh connection instead of trusting it.
+		log.Printf("Keepalive timed out (%d in a row, last answer %s ago)", v.ErrorCount, time.Since(v.LastSuccess).Round(time.Second))
+		if currentConnState()["state"] == connStateOnline {
+			setConnState(connStateConnecting, "Not responding.", 0)
+		}
+	case *events.KeepAliveRestored:
+		if isOnline(wa()) && currentConnState()["state"] == connStateConnecting {
+			setConnState(connStateOnline, "", 0)
+		}
 	case *events.ChatPresence:
 		isComposing := v.State == types.ChatPresenceComposing
 		isRecording := isComposing && v.Media == types.ChatPresenceMediaAudio

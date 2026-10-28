@@ -420,6 +420,9 @@ struct AppState {
 	/// backend's "connection_state". Keeps the history-sync timer from
 	/// painting "Connected" back over an offline status.
 	conn_online: bool,
+	/// The status-bar text for the current connection state, so other
+	/// status messages (exports) can put it back without guessing.
+	conn_status_text: String,
 	/// Set once the current outage has been announced, so repeated failed
 	/// retries stay quiet and coming back online gets announced.
 	conn_outage_announced: bool,
@@ -1028,6 +1031,7 @@ fn main() {
 			main_ui_shown: false,
 			pending_whatsapp_link: None,
 			conn_online: false,
+			conn_status_text: "Status: Connecting...".to_string(),
 			conn_outage_announced: false,
 			conn_manual_reconnect: false,
 			pending_attachments: Vec::new(),
@@ -1344,7 +1348,7 @@ fn main() {
 			let db_growth_fresh =
 				s.db_growth_last_seen.map(|t| t.elapsed() < std::time::Duration::from_millis(5000)).unwrap_or(false);
 
-			if armed && db_growth_fresh {
+			if armed && db_growth_fresh && s.conn_online {
 				parts_history_sync_timer.frame.set_status_text("Status: Connected (Syncing...)", 0);
 				s.db_growth_status_shown = true;
 			} else if real_signal_just_expired || s.db_growth_status_shown {
