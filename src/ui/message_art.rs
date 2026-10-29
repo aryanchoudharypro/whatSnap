@@ -362,7 +362,7 @@ impl Fonts {
 	}
 }
 
-fn icon_face() -> Option<&'static str> {
+pub(crate) fn icon_face() -> Option<&'static str> {
 	use std::sync::OnceLock;
 	static FACE: OnceLock<Option<&'static str>> = OnceLock::new();
 	*FACE

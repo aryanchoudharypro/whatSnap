@@ -123,6 +123,8 @@ impl RowArt {
 		if jid.is_empty() {
 			return Self { title: text.to_string(), heading: true, ..Default::default() };
 		}
+		// A call going on is joined, not someone's: it has no one picture.
+		let jid = if jid.starts_with(crate::ui_commands::calls::JOIN_ROW_PREFIX) { "" } else { jid };
 		let (text, ongoing) = match text.strip_suffix(crate::ui_commands::calls::ONGOING_CALL_SUFFIX) {
 			Some(t) => (t, true),
 			None => (text, false),
@@ -136,10 +138,21 @@ impl RowArt {
 			None => (desc, None),
 		};
 		let Some((kind, name)) = desc.split_once(" from ").or_else(|| desc.split_once(" to ")) else {
-			// A contact row ("Mum, +44 ..."), or a call going on now.
+			// A contact row ("Mum, +44 ...": the number under the name), or a
+			// call going on now.
 			let mut art = Self::from_text(jid, text);
+			if let Some((name, phone)) = text.split_once(", ")
+				&& !ongoing
+			{
+				art.title = name.to_string();
+				art.preview = phone.to_string();
+			}
 			if ongoing {
+				art.title =
+					text.split(" in ").nth(1).or_else(|| text.split(" started by ").nth(1)).unwrap_or(text).to_string();
+				art.title = art.title.split(", ").next().unwrap_or_default().to_string();
 				art.preview = "Going on now".to_string();
+				art.icon = Some(icon::PHONE);
 			}
 			return art;
 		};
@@ -556,7 +569,9 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 	gdi::text(dc, fonts.small, time_colour, &art.time, rect(right - time_w, line1.0, right, line1.1), DT_RIGHT);
 	let name_right = if time_w > 0 { right - time_w - gap } else { right };
 	let name_w = gdi::text_width(dc, fonts.title, &art.title);
-	gdi::text(dc, fonts.title, c.text, &art.title, rect(left, line1.0, name_right, line1.1), Default::default());
+	// A missed call's name is red too, as on WhatsApp.
+	let title_colour = if art.alert && theme::use_custom_colours() { colorref(0xD1, 0x1A, 0x3A) } else { c.text };
+	gdi::text(dc, fonts.title, title_colour, &art.title, rect(left, line1.0, name_right, line1.1), Default::default());
 	if !art.extra.is_empty() && left + name_w + gap < name_right {
 		gdi::text(
 			dc,
@@ -696,6 +711,11 @@ mod tests {
 		assert_eq!((art.title.as_str(), art.preview.as_str()), ("Mum", "Video call · 1:02"));
 		assert_eq!(art.icon, Some(icon::VIDEO));
 		assert!(RowArt::for_call("", "Recent calls").heading);
+		let art = RowArt::for_call("x", "Mum, +44 7700 900123");
+		assert_eq!((art.title.as_str(), art.preview.as_str()), ("Mum", "+44 7700 900123"));
+		let art =
+			RowArt::for_call("join:1", "Group voice call in Family, 2 people in it. Going on now, press Enter to join");
+		assert_eq!((art.title.as_str(), art.preview.as_str()), ("Family", "Going on now"));
 	}
 
 	#[test]

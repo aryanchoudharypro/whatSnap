@@ -227,6 +227,57 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 	});
 }
 
+/// The Calls page's heading: a phone in a green circle and what to do.
+fn paint_calls_page(page: &Panel) {
+	let page_c = *page;
+	page.set_background_style(BackgroundStyle::Paint);
+	page.on_paint(move |_| {
+		let dc = AutoBufferedPaintDC::new(&page_c);
+		let size = page_c.get_client_size();
+		let background = page_c.get_background_color();
+		dc.set_brush(background, BrushStyle::Solid);
+		dc.set_pen(background, 1, PenStyle::Solid);
+		dc.draw_rectangle(0, 0, size.width, size.height);
+		let custom = theme::use_custom_colours();
+		let ink = |c: Colour| if custom { c } else { page_c.get_foreground_color() };
+		let line = page_c.get_char_height();
+		// The spacer above the buttons is 7 lines; the heading fills it.
+		let buttons_top = size.height / 2 - line * 2 + line * 7 / 2;
+		let mut y = buttons_top - line * 7;
+		let r = line * 3 / 2;
+		let cx = size.width / 2;
+		let circle = ink(theme::Palette::ACCENT);
+		dc.set_brush(circle, BrushStyle::Solid);
+		dc.set_pen(circle, 1, PenStyle::Solid);
+		dc.draw_circle(cx, y + r, r);
+		dc.set_background_mode(BackgroundMode::Transparent);
+		if let Some(font) = crate::ui::message_art::icon_face().and_then(|face| {
+			Font::builder().with_point_size(theme::Fonts::heading().get_point_size() + 2).with_face_name(face).build()
+		}) {
+			dc.set_font(&font);
+			dc.set_text_foreground(if custom { theme::Palette::ACCENT_TEXT } else { background });
+			let g = "\u{E717}";
+			let (w, h) = dc.get_text_extent(g);
+			dc.draw_text(g, cx - w / 2, y + r - h / 2);
+		}
+		y += r * 2 + line;
+		for (text, font, colour) in [
+			("Calls", theme::Fonts::heading(), theme::Palette::TEXT_PRIMARY),
+			("Pick someone on the left, then call them.", theme::Fonts::body(), theme::Palette::TEXT_MUTED),
+		] {
+			dc.set_font(&font);
+			dc.set_text_foreground(ink(colour));
+			let (w, h) = dc.get_text_extent(text);
+			dc.draw_text(text, cx - w / 2, y);
+			y += h + 6;
+		}
+	});
+	page.on_size(move |event| {
+		page_c.refresh(true, None);
+		event.skip(true);
+	});
+}
+
 /// The chat list column's width for a window `width` wide: about a third,
 /// as WhatsApp Web has it, within bounds that keep both sides usable.
 fn list_column_width(width: i32) -> i32 {
@@ -236,8 +287,8 @@ fn list_column_width(width: i32) -> i32 {
 /// Keeps the chat list column a third of the window as it's resized, and
 /// draws WhatsApp's "pick a chat" page where the open chat goes while none
 /// is open. It's only painted: a screen reader isn't told about it.
-fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel) {
-	let (panel_c, list_c, conversation_c) = (*panel, *list, *conversation);
+fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel, calls_page: &Panel) {
+	let (panel_c, list_c, conversation_c, calls_c) = (*panel, *list, *conversation, *calls_page);
 	panel.on_size(move |event| {
 		let width = panel_c.get_client_size().width;
 		// The column is as wide as its widest part, the list.
@@ -258,7 +309,7 @@ fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel) {
 		let line = if custom { theme::Palette::DIVIDER_SOFT } else { panel_c.get_foreground_color() };
 		dc.set_pen(line, 1, PenStyle::Solid);
 		dc.draw_line(left, 0, left, size.height);
-		if conversation_c.is_shown() {
+		if conversation_c.is_shown() || calls_c.is_shown() {
 			return;
 		}
 		let area = Size::new(size.width - left - 1, size.height);
@@ -369,20 +420,34 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	skip_best_size(&conversations_list);
 	left_sizer.add(&conversations_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
+	// The Calls tab's page on the right, as WhatsApp Web has it: what the
+	// buttons do, then round Call and Video call buttons for the person
+	// picked on the left. Made here, right after the list, so Tab still goes
+	// from the list straight to them.
 	let calls_btn_panel = Panel::builder(&panel).build();
+	if theme::use_custom_colours() {
+		calls_btn_panel.set_background_color(theme::Palette::PANEL_BG);
+	}
+	let calls_page = BoxSizer::builder(Orientation::Vertical).build();
+	calls_page.add_stretch_spacer(1);
+	// Room for the page's painted heading (see `paint_calls_page`).
+	calls_page.add_spacer(calls_btn_panel.get_char_height() * 7);
 	let calls_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let calls_call_btn = Button::builder(&calls_btn_panel).with_label("Call").build();
 	calls_call_btn.set_font(&theme::Fonts::body());
-	theme::style_primary_button(&calls_call_btn);
-	calls_btn_sizer.add(&calls_call_btn, 0, SizerFlag::Right, 5);
+	crate::ui::owner_draw::install_tile(&calls_call_btn, theme::Palette::PANEL_BG);
+	calls_btn_sizer.add(&calls_call_btn, 0, SizerFlag::Right, 16);
 
 	let calls_video_btn = Button::builder(&calls_btn_panel).with_label("Video call").build();
 	calls_video_btn.set_font(&theme::Fonts::body());
-	calls_btn_sizer.add(&calls_video_btn, 0, SizerFlag::Right, 5);
+	crate::ui::owner_draw::install_tile(&calls_video_btn, theme::Palette::PANEL_BG);
+	calls_btn_sizer.add(&calls_video_btn, 0, SizerFlag::empty(), 0);
+	calls_page.add_sizer(&calls_btn_sizer, 0, SizerFlag::AlignCenterHorizontal, 0);
+	calls_page.add_stretch_spacer(1);
 
-	calls_btn_panel.set_sizer(calls_btn_sizer, true);
+	calls_btn_panel.set_sizer(calls_page, true);
+	paint_calls_page(&calls_btn_panel);
 	calls_btn_panel.show(false);
-	left_sizer.add(&calls_btn_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 
 	let conversation_panel = Panel::builder(&panel).build();
 	theme::style_chat_area(&conversation_panel);
@@ -670,9 +735,10 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	conversation_panel.show(false);
 
 	outer_sizer.add_sizer(&left_sizer, 0, SizerFlag::Expand, 0);
+	outer_sizer.add(&calls_btn_panel, 1, SizerFlag::Expand, 0);
 	outer_sizer.add(&conversation_panel, 1, SizerFlag::Expand, 0);
 	panel.set_sizer(outer_sizer, true);
-	fit_columns(&panel, &conversations_list, &conversation_panel);
+	fit_columns(&panel, &conversations_list, &conversation_panel, &calls_btn_panel);
 
 	ConversationsPanelParts {
 		panel,

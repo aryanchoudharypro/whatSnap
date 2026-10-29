@@ -615,6 +615,7 @@ fn tile_look(label: &str) -> (Option<char>, &str, Tone) {
 		"Lower hand" => (Some(glyph::HAND), "Lower hand", Tone::On),
 		"React..." => (Some(glyph::EMOJI), "React", Tone::Plain),
 		"Voice call" => (Some(glyph::CALLS), "Audio", Tone::Plain),
+		"Call" => (Some(glyph::CALLS), "Voice call", Tone::Plain),
 		"Video call" => (Some(glyph::VIDEO), "Video", Tone::Plain),
 		"Edit contact" => (Some(glyph::EDIT), "Edit", Tone::Plain),
 		"Add contact" => (Some(glyph::ADD_PERSON), "Add", Tone::Plain),
