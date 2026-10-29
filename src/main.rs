@@ -416,6 +416,9 @@ struct AppState {
 	/// A WhatsApp link that arrived before we were logged in with the chat
 	/// list loaded; it runs once they are.
 	pending_whatsapp_link: Option<String>,
+	/// Files sent to whatSnap from Explorer before the chat list was ready;
+	/// they're offered once it is.
+	pending_shared_files: Vec<String>,
 	/// Whether the WhatsApp connection is up, as last reported by the
 	/// backend's "connection_state". Keeps the history-sync timer from
 	/// painting "Connected" back over an offline status.
@@ -612,17 +615,44 @@ struct AppState {
 	privacy_list_edits: std::collections::HashMap<String, Vec<String>>,
 }
 
+/// What the command line asks for: a link to open, or else the files given
+/// (Explorer's Send to passes each chosen file as an argument). Paths are made
+/// absolute because a running instance, with its own working directory, may be
+/// the one that sends them.
+fn launch_request_from_args(args: impl Iterator<Item = String>) -> Option<single_instance::LaunchRequest> {
+	let args: Vec<String> = args.collect();
+	if let Some(link) =
+		args.iter().find(|arg| whatsnap::parse_whatsapp_link(arg).is_some() || app_link::parse(arg).is_some())
+	{
+		return Some(single_instance::LaunchRequest::Link(link.clone()));
+	}
+	let files: Vec<String> = args
+		.iter()
+		.map(|arg| std::path::Path::new(arg.trim_matches('"')))
+		.filter(|path| path.is_file())
+		.filter_map(|path| std::path::absolute(path).ok())
+		.map(|path| path.to_string_lossy().to_string())
+		.collect();
+	(!files.is_empty()).then_some(single_instance::LaunchRequest::Files(files))
+}
+
+fn launch_command(request: single_instance::LaunchRequest) -> UiCommand {
+	match request {
+		single_instance::LaunchRequest::Link(link) => UiCommand::OpenWhatsAppLink(link),
+		single_instance::LaunchRequest::Files(paths) => UiCommand::ShareFiles(paths),
+	}
+}
+
 fn main() {
 	crash_log::install();
 
 	// If whatSnap is already running, activate its window (restoring it from
 	// the tray if needed) instead of launching a second instance.
 	// whatSnap is registered as the whatsapp:// link handler, so it can be
-	// started with a link to act on.
-	let launch_link = std::env::args()
-		.skip(1)
-		.find(|arg| whatsnap::parse_whatsapp_link(arg).is_some() || app_link::parse(arg).is_some());
-	let _instance_lock = match single_instance::acquire_or_activate_existing(launch_link.as_deref()) {
+	// started with a link to act on, and it's in Explorer's Send to menu, so
+	// it can be started with files to send.
+	let launch_request = launch_request_from_args(std::env::args().skip(1));
+	let _instance_lock = match single_instance::acquire_or_activate_existing(launch_request.as_ref()) {
 		Some(lock) => lock,
 		None => return,
 	};
@@ -732,22 +762,23 @@ fn main() {
 		// Let future launches of the app (see `single_instance::acquire_or_activate_existing`
 		// at the top of `main`) hand off to this window instead of starting a second instance.
 		let ui_tx_activate = ui_tx.clone();
-		single_instance::listen_for_activation(move |link| {
+		single_instance::listen_for_activation(move |request| {
 			// A toast's "Mark as read" works in the background, like official
 			// WhatsApp's: no window, and no going online.
-			let mark_read = link
-				.as_deref()
-				.and_then(app_link::parse)
-				.is_some_and(|l| matches!(l, app_link::AppLink::MarkRead { .. }));
+			let mark_read = matches!(
+				&request,
+				Some(single_instance::LaunchRequest::Link(link))
+					if matches!(app_link::parse(link), Some(app_link::AppLink::MarkRead { .. }))
+			);
 			if !mark_read {
 				let _ = ui_tx_activate.send(UiCommand::ActivateWindow);
 			}
-			if let Some(link) = link {
-				let _ = ui_tx_activate.send(UiCommand::OpenWhatsAppLink(link));
+			if let Some(request) = request {
+				let _ = ui_tx_activate.send(launch_command(request));
 			}
 		});
-		if let Some(link) = launch_link.clone() {
-			let _ = ui_tx.send(UiCommand::OpenWhatsAppLink(link));
+		if let Some(request) = launch_request.clone() {
+			let _ = ui_tx.send(launch_command(request));
 		}
 
 		let (ws_out_tx, ws_out_rx) = mpsc::channel::<String>();
@@ -1030,6 +1061,7 @@ fn main() {
 			displayed_chat_labels: Vec::new(),
 			main_ui_shown: false,
 			pending_whatsapp_link: None,
+			pending_shared_files: Vec::new(),
 			conn_online: false,
 			conn_status_text: "Status: Connecting...".to_string(),
 			conn_outage_announced: false,
@@ -1529,6 +1561,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::SubscribePresence(jid) => ui_commands::misc::subscribe_presence(state, parts, jid),
 		UiCommand::ActivateWindow => ui_commands::misc::activate_window(state, parts),
 		UiCommand::OpenWhatsAppLink(link) => ui_commands::links::open_whatsapp_link(state, parts, link),
+		UiCommand::ShareFiles(paths) => ui_commands::links::share_files(state, parts, paths),
 		UiCommand::ShowGroupInviteLink => ui_commands::links::request_group_invite_link(state),
 		UiCommand::FindChannels => ui_commands::links::show_channel_directory(state, parts, None),
 		UiCommand::SimilarChannels { jid, name } => {

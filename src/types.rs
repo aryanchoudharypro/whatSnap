@@ -182,6 +182,8 @@ pub enum UiCommand {
 	ActivateWindow,
 	/// A WhatsApp link to act on (a share, a chat, or a group invite).
 	OpenWhatsAppLink(String),
+	/// Files another app sent to whatSnap, to send to chats the user picks.
+	ShareFiles(Vec<String>),
 	/// Show the selected group's invite link.
 	ShowGroupInviteLink,
 	/// Open the "Find channels" directory.

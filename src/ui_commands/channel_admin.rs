@@ -205,7 +205,8 @@ pub(crate) fn manage_channel(
 	match action {
 		ChannelManage::InviteAdmins => {
 			let targets = admin_invite_targets(&state.borrow());
-			let Some(choice) = show_send_to_dialog(&parts.frame, "Invite admins", targets, ADMIN_INVITE_TEXT) else {
+			let Some(choice) = show_send_to_dialog(&parts.frame, "Invite admins", targets, ADMIN_INVITE_TEXT, &[])
+			else {
 				return;
 			};
 			send(

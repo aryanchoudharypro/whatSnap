@@ -69,6 +69,10 @@ Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+; Explorer's Send to menu: right-click files (or Shift+F10), Send to, whatSnap.
+; Explorer starts the app with the files' paths, and it asks which chats to
+; send them to.
+Name: "{usersendto}\{#AppName}"; Filename: "{app}\{#AppExe}"
 
 [Run]
 ; runasoriginaluser: start the app as the user who ran the installer, even if the

@@ -1,6 +1,7 @@
 //! The "Send to" dialog: pick up to five chats and send them a message. Used
 //! for WhatsApp links opened from elsewhere ("Share on WhatsApp" buttons
-//! and whatsapp://send links) and for sending a group's invite link.
+//! and whatsapp://send links), for files sent from Explorer's Send to menu,
+//! and for sending a group's invite link.
 
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
@@ -34,11 +35,14 @@ struct PickerState {
 }
 
 /// Shows the dialog modally and returns what to send, or None if cancelled.
+/// With `files`, the dialog sends those and the message is their optional
+/// caption; without, the message is what's sent and can't be empty.
 pub fn show_send_to_dialog(
 	parent: &impl WxWidget,
 	title: &str,
 	targets: Vec<SendTarget>,
 	initial_text: &str,
+	files: &[String],
 ) -> Option<SendToChoice> {
 	let dialog = Dialog::builder(parent, title)
 		.with_size(440, 560)
@@ -48,6 +52,16 @@ pub fn show_send_to_dialog(
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	if !files.is_empty() {
+		let names: Vec<String> = files
+			.iter()
+			.map(|p| std::path::Path::new(p).file_name().unwrap_or_default().to_string_lossy().to_string())
+			.collect();
+		let files_text = StaticText::builder(&panel).with_label(&format!("Sending: {}", names.join(", "))).build();
+		files_text.wrap(400);
+		sizer.add(&files_text, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	}
 
 	let search_label = StaticText::builder(&panel).with_label("Search chats and contacts").build();
 	theme::style_muted_label(&search_label);
@@ -70,7 +84,8 @@ pub fn show_send_to_dialog(
 	theme::style_muted_label(&announcer);
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let message_label = StaticText::builder(&panel).with_label("Message").build();
+	let message_label =
+		StaticText::builder(&panel).with_label(if files.is_empty() { "Message" } else { "Caption (optional)" }).build();
 	theme::style_muted_label(&message_label);
 	sizer.add(&message_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let message_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
@@ -180,6 +195,7 @@ pub fn show_send_to_dialog(
 	search_field.on_key_down(escape_closes);
 	list.on_key_down(escape_closes);
 
+	let caption_only = !files.is_empty();
 	let state_send = state.clone();
 	let announcer_send = announcer;
 	send_btn.on_click(move |_| {
@@ -188,7 +204,7 @@ pub fn show_send_to_dialog(
 			crate::announce::announce(announcer_send, "Choose at least one chat to send to.");
 			return;
 		}
-		if message_field.get_value().trim().is_empty() {
+		if !caption_only && message_field.get_value().trim().is_empty() {
 			crate::announce::announce(announcer_send, "The message is empty.");
 			return;
 		}

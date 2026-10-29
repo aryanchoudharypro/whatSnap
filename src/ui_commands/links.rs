@@ -88,7 +88,7 @@ pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 }
 
-/// Runs a link that arrived before the chat list was ready.
+/// Runs a link, or offers files, that arrived before the chat list was ready.
 pub(crate) fn open_pending_whatsapp_link(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
 	if !s.main_ui_shown || s.chats.is_empty() {
@@ -97,6 +97,54 @@ pub(crate) fn open_pending_whatsapp_link(state: &Rc<RefCell<AppState>>) {
 	if let Some(link) = s.pending_whatsapp_link.take() {
 		let _ = s.ui_tx.send(crate::UiCommand::OpenWhatsAppLink(link));
 	}
+	if !s.pending_shared_files.is_empty() {
+		let paths = std::mem::take(&mut s.pending_shared_files);
+		let _ = s.ui_tx.send(crate::UiCommand::ShareFiles(paths));
+	}
+}
+
+/// Files sent to whatSnap from another app (Explorer's Send to menu): asks
+/// which chats (up to five) to send them to, with an optional caption, and
+/// sends them, photos and videos as media and anything else as a document,
+/// as when files are pasted. Before we're logged in and have the chat list,
+/// they wait.
+pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, paths: Vec<String>) {
+	{
+		let mut s = state.borrow_mut();
+		if !s.main_ui_shown || s.chats.is_empty() {
+			s.pending_shared_files.extend(paths);
+			return;
+		}
+	}
+	let mut paths: Vec<String> = paths.into_iter().filter(|p| std::path::Path::new(p).is_file()).collect();
+	if paths.is_empty() {
+		return;
+	}
+	let max = crate::ui_commands::attachments::MAX_BATCH_FILES;
+	let left_out = paths.len().saturating_sub(max);
+	paths.truncate(max);
+	let title = match paths.as_slice() {
+		[one] => format!("Send {}", std::path::Path::new(one).file_name().unwrap_or_default().to_string_lossy()),
+		many => format!("Send {} files", many.len()),
+	};
+	let targets = send_targets(&state.borrow());
+	let Some(choice) = show_send_to_dialog(&parts.frame, &title, targets, "", &paths) else { return };
+	let s = state.borrow();
+	let kind = whatsnap::AttachKind::Pasted;
+	for jid in &choice.jids {
+		crate::ui_commands::attachments::send_files(&s.ws_tx, jid, &paths, kind, choice.text.trim(), "", "", false);
+	}
+	let names: Vec<String> =
+		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
+	drop(s);
+	let mut message = format!("Sending to {}.", names.join(", "));
+	if left_out > 0 {
+		message.push_str(&format!(
+			" You can send up to {max} files at once; {left_out} file{} weren't sent.",
+			if left_out == 1 { "" } else { "s" }
+		));
+	}
+	crate::announce::announce(parts.conversations_parts.messages_announcer, &message);
 }
 
 /// Everyone a message can go to: chats first, most recent first, then
@@ -132,7 +180,7 @@ pub(crate) fn send_text_to_chosen_chats(
 	text: &str,
 ) {
 	let targets = send_targets(&state.borrow());
-	let Some(choice) = show_send_to_dialog(&parts.frame, title, targets, text) else { return };
+	let Some(choice) = show_send_to_dialog(&parts.frame, title, targets, text, &[]) else { return };
 	let s = state.borrow();
 	for jid in &choice.jids {
 		let payload = serde_json::json!({
