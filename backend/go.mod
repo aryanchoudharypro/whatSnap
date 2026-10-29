@@ -1,6 +1,6 @@
 module whantv-backend
 
-go 1.26.4
+go 1.27.3
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
