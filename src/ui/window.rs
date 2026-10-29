@@ -2709,8 +2709,8 @@ pub fn bind_input_handlers(
 			return;
 		};
 		let names: Vec<&str> = order.iter().map(|&t| crate::settings::TAB_NAMES[t]).collect();
-		let unread_chats = crate::message_display::unread_chats_on_chats_tab(&state_nav_move.borrow());
 		for p in [pos, new_pos] {
+			let unread_chats = crate::message_display::unread_chats_in_tab(&state_nav_move.borrow(), order[p]);
 			nav_list_move.set_string(p as u32, &crate::settings::nav_tab_label(order[p], unread_chats));
 		}
 		nav_list_move.set_selection(new_pos as u32, true);

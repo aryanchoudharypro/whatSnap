@@ -166,7 +166,7 @@ unsafe extern "system" fn hidden_frame_subclass_proc(
 /// Also refreshes the unread-chat count on the Chats entry of the navigation
 /// list, which has to track the same changes and is not gated on the tray icon.
 pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
-	refresh_chats_nav_label(s, parts);
+	refresh_nav_unread_labels(s, parts);
 	if !s.settings.show_tray_icon || !s.main_ui_shown {
 		return;
 	}
@@ -179,22 +179,26 @@ pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), &whatsnap::tray_tooltip_text(unread));
 }
 
-/// Writes the unread-chat count into the Chats entry of the navigation list.
+/// Writes the unread-chat counts into the Chats and Archived Chats entries of
+/// the navigation list.
 ///
-/// Only the one row changes, and only when its text does: rewriting a listbox
-/// row drops its selection on Windows, so the highlight is put back afterwards
-/// without an event, the same way the tab reorder keeps the list quiet.
-pub(crate) fn refresh_chats_nav_label(s: &AppState, parts: &WindowParts) {
-	let Some(pos) = s.settings.tab_order().iter().position(|&t| t == 0) else { return };
-	let label = crate::settings::nav_tab_label(0, crate::message_display::unread_chats_on_chats_tab(s));
+/// A row changes only when its text does: rewriting a listbox row drops its
+/// selection on Windows, so the highlight is put back afterwards without an
+/// event, the same way the tab reorder keeps the list quiet.
+pub(crate) fn refresh_nav_unread_labels(s: &AppState, parts: &WindowParts) {
+	let order = s.settings.tab_order();
 	let list = &parts.nav_list;
-	if list.get_string(pos as u32).as_deref() == Some(label.as_str()) {
-		return;
-	}
-	let selected = list.get_selection() == Some(pos as u32);
-	list.set_string(pos as u32, &label);
-	if selected {
-		list.set_selection(pos as u32, true);
+	for tab in crate::settings::NAV_UNREAD_TABS {
+		let Some(pos) = order.iter().position(|&t| t == tab) else { continue };
+		let label = crate::settings::nav_tab_label(tab, crate::message_display::unread_chats_in_tab(s, tab));
+		if list.get_string(pos as u32).as_deref() == Some(label.as_str()) {
+			continue;
+		}
+		let selected = list.get_selection() == Some(pos as u32);
+		list.set_string(pos as u32, &label);
+		if selected {
+			list.set_selection(pos as u32, true);
+		}
 	}
 }
 

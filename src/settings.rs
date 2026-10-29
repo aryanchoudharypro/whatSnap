@@ -74,13 +74,18 @@ pub struct Settings {
 pub const TAB_NAMES: [&str; 7] =
 	["Chats", "Status", "Starred Messages", "Archived Chats", "Communities", "Channels", "Calls"];
 
-/// The text a tab shows in the navigation list. Chats (tab id 0) carries how
-/// many chats are unread, so a screen reader reading the list or the Alt+N
-/// shortcut hears "Chats: 5 unread"; every other tab is just its name.
+/// Tabs whose navigation entry carries how many of their chats are unread.
+pub const NAV_UNREAD_TABS: [usize; 2] = [0, 3];
+
+/// The text a tab shows in the navigation list. Chats (tab id 0) and Archived
+/// Chats (3) carry how many of their chats are unread, so a screen reader
+/// reading the list or the Alt+N shortcut hears "Chats: 5 unread"; every other
+/// tab is just its name.
 pub fn nav_tab_label(tab: usize, unread_chats: usize) -> String {
-	match (tab, unread_chats) {
-		(0, 1..) => format!("{}: {} unread", TAB_NAMES[0], unread_chats),
-		_ => TAB_NAMES[tab].to_string(),
+	if unread_chats > 0 && NAV_UNREAD_TABS.contains(&tab) {
+		format!("{}: {} unread", TAB_NAMES[tab], unread_chats)
+	} else {
+		TAB_NAMES[tab].to_string()
 	}
 }
 
@@ -205,6 +210,8 @@ mod tests {
 		assert_eq!(nav_tab_label(0, 5), "Chats: 5 unread");
 		assert_eq!(nav_tab_label(1, 5), "Status");
 		assert_eq!(nav_tab_label(6, 5), "Calls");
+		assert_eq!(nav_tab_label(3, 0), "Archived Chats");
+		assert_eq!(nav_tab_label(3, 2), "Archived Chats: 2 unread");
 	}
 
 	#[test]

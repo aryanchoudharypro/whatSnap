@@ -114,7 +114,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	search_field.set_font(&theme::Fonts::body());
 	outer_sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let chat_filter_label = StaticText::builder(&panel).with_label("Show").build();
+	let chat_filter_label = StaticText::builder(&panel).with_label("Filters").build();
 	theme::style_muted_label(&chat_filter_label);
 	outer_sizer.add(&chat_filter_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let chat_filter_combo = ComboBox::builder(&panel)
