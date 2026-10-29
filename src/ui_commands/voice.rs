@@ -145,6 +145,7 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			}
 			s.is_voice_paused = true;
 			s.voice_pause_instant = Some(std::time::Instant::now());
+			sync_recording_clock(&s);
 			// Unlike Discard/Send, pausing never told the backend the
 			// composing state had stopped - the recipient kept seeing
 			// "recording audio..." for the whole pause, not just until
@@ -191,6 +192,7 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				if let Some(inst) = s.voice_pause_instant.take() {
 					s.voice_paused_duration += inst.elapsed();
 				}
+				sync_recording_clock(&s);
 				if let Some(jid) = s.selected_chat.clone() {
 					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
 				}
@@ -214,6 +216,7 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				s.voice_recording_start = Some(std::time::Instant::now());
 				s.voice_paused_duration = std::time::Duration::ZERO;
 				s.voice_pause_instant = None;
+				sync_recording_clock(&s);
 
 				if let Some(jid) = s.selected_chat.clone() {
 					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
@@ -263,6 +266,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	) = {
 		let mut s = state.borrow_mut();
 		s.is_voice_recording = false;
+		crate::ui::conversations::set_recording_clock(None);
 		// Invalidate a resume's device-open still in flight, if any -
 		// see the matching comment in DiscardRecording.
 		s.voice_recording_generation += 1;
@@ -399,6 +403,7 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	{
 		let mut s = state.borrow_mut();
 		s.is_voice_recording = false;
+		crate::ui::conversations::set_recording_clock(None);
 		s.is_voice_paused = false;
 		// Invalidate any device-open still in flight (a resume, or the
 		// initial start) - its result will arrive later via
@@ -554,4 +559,17 @@ pub(crate) fn toggle_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 			"Pause voice message"
 		});
 	}
+}
+
+/// Hands the recording bar's clock where the recording is (see
+/// `ui::conversations::set_recording_clock`).
+fn sync_recording_clock(s: &AppState) {
+	let clock = s.voice_recording_start.filter(|_| s.is_voice_recording).map(|start| {
+		crate::ui::conversations::RecordingClock {
+			start,
+			paused: s.voice_paused_duration,
+			paused_at: s.voice_pause_instant,
+		}
+	});
+	crate::ui::conversations::set_recording_clock(clock);
 }

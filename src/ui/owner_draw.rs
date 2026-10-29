@@ -48,6 +48,9 @@ enum Kind {
 	Icon,
 	/// The open chat's header button.
 	Header,
+	/// A bigger round button with a caption under it (the call window's,
+	/// contact info's actions).
+	Tile,
 }
 
 struct Control {
@@ -110,11 +113,30 @@ mod glyph {
 	pub const DELETE: char = '\u{E74D}';
 	pub const PAUSE: char = '\u{E769}';
 	pub const PLAY: char = '\u{E768}';
+	pub const HANG_UP: char = '\u{E778}';
+	pub const MIC_OFF: char = '\u{EC54}';
+	pub const SCREEN: char = '\u{E7F4}';
+	pub const ADD_PERSON: char = '\u{E8FA}';
+	/// Not in the icon font: drawn from the text font (see `paint_tile`).
+	pub const HAND: char = '\u{270B}';
+	pub const EDIT: char = '\u{E70F}';
+	pub const LOCK: char = '\u{E72E}';
 }
 
-/// A navigation tab's icon and the short name shown under it.
-fn nav_look(text: &str) -> (Option<char>, &str) {
-	match text {
+/// A navigation tab's icon, the short name shown under it, and its unread
+/// count. Its text is the tab's name, with ": 5 unread" after it while some
+/// of its chats are unread (see `settings::nav_tab_label`).
+fn nav_look(text: &str) -> (Option<char>, &str, u32) {
+	let (name, unread) = match text.split_once(": ") {
+		Some((name, rest)) => (name, rest.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0)),
+		None => (text, 0),
+	};
+	let (icon, short) = nav_icon(name);
+	(icon, short, unread)
+}
+
+fn nav_icon(name: &str) -> (Option<char>, &str) {
+	match name {
 		"Chats" => (Some(glyph::CHATS), "Chats"),
 		"Status" => (Some(glyph::STATUS), "Status"),
 		"Starred Messages" => (Some(glyph::STARRED), "Starred"),
@@ -192,6 +214,17 @@ pub(crate) fn install_icon_button(button: &Button, background: Colour) {
 	button.set_tooltip(&button.get_label());
 	let side = button.get_char_height() * 2 + 10;
 	button.set_min_size(Size::new(side, side));
+}
+
+/// Makes `button` a round button with a caption under it, as WhatsApp's
+/// call and contact info buttons are (see `tile_look`), on `background`.
+pub(crate) fn install_tile(button: &Button, background: Colour) {
+	let hwnd = hwnd_of(button);
+	make_owner_drawn_button(hwnd);
+	register(hwnd, Kind::Tile, background);
+	button.set_tooltip(&button.get_label());
+	let line = button.get_char_height();
+	button.set_min_size(Size::new(line * 4 + 4, line * 4 + 12));
 }
 
 /// Draws the chat header button (its label is "Name (online)" and the like)
@@ -301,7 +334,7 @@ unsafe extern "system" fn control_proc(
 			result
 		}
 		// A new label can mean a new icon (Pause recording / Resume recording).
-		(WM_SETTEXT, Some(Kind::Icon | Kind::Header)) => {
+		(WM_SETTEXT, Some(Kind::Icon | Kind::Header | Kind::Tile)) => {
 			let result = unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) };
 			unsafe {
 				let _ = InvalidateRect(Some(hwnd), None, false);
@@ -330,7 +363,7 @@ unsafe extern "system" fn parent_proc(
 		if let Some((kind, background)) = control {
 			let fits = match kind {
 				Kind::Nav => item.CtlType == ODT_LISTBOX && item.itemID != u32::MAX,
-				Kind::Icon | Kind::Header => item.CtlType == ODT_BUTTON,
+				Kind::Icon | Kind::Header | Kind::Tile => item.CtlType == ODT_BUTTON,
 			};
 			if fits {
 				draw(item, kind, background);
@@ -430,7 +463,7 @@ fn draw(item: &DRAWITEMSTRUCT, kind: Kind, background: Colour) {
 	let disabled = item.itemState.0 & ODS_DISABLED.0 != 0;
 	let focused = match kind {
 		Kind::Nav => (unsafe { GetFocus() }) == hwnd,
-		Kind::Icon | Kind::Header => item.itemState.0 & ODS_FOCUS.0 != 0,
+		Kind::Icon | Kind::Header | Kind::Tile => item.itemState.0 & ODS_FOCUS.0 != 0,
 	};
 	// Drawn off screen and copied in one go, so it never flickers.
 	unsafe {
@@ -442,6 +475,10 @@ fn draw(item: &DRAWITEMSTRUCT, kind: Kind, background: Colour) {
 			Kind::Nav => {
 				let text = list_text(hwnd, item.itemID);
 				paint_nav(mem, width, height, &text, fonts, selected, focused, background);
+			}
+			Kind::Tile => {
+				let state = (selected, focused, disabled);
+				paint_tile(mem, width, height, &window_text(hwnd), fonts, state, background)
 			}
 			Kind::Icon => {
 				let state = (selected, focused, disabled);
@@ -483,7 +520,7 @@ fn paint_nav(
 ) {
 	let c = colours(background, selected && !theme::use_custom_colours());
 	gdi::fill(dc, rect(0, 0, width, height), c.background);
-	let (icon, name) = nav_look(text);
+	let (icon, name, unread) = nav_look(text);
 	let pill_w = (fonts.line * 3).min(width - 8);
 	let pill_h = fonts.line * 3 / 2 + 4;
 	let px = (width - pill_w) / 2;
@@ -500,6 +537,17 @@ fn paint_nav(
 	match (icon, fonts.icons_big) {
 		(Some(g), Some(font)) => gdi::text(dc, font, c.text, &g.to_string(), icon_rect, DT_CENTER),
 		_ => gdi::text(dc, fonts.bold, c.text, &name.chars().take(2).collect::<String>(), icon_rect, DT_CENTER),
+	}
+	// The unread count, a green badge at the icon's top right as WhatsApp has it.
+	if unread > 0 {
+		let count = if unread > 99 { "99+".to_string() } else { unread.to_string() };
+		let h = fonts.line * 4 / 5 + 2;
+		let w = (gdi::text_width(dc, fonts.small_bold, &count) + h / 2).max(h);
+		let (bx, by) = ((px + pill_w - w + 4).min(width - w - 1), py - 2);
+		let (fill, ink) =
+			if c.custom { (rgb(Palette::ACCENT), colorref(0xFF, 0xFF, 0xFF)) } else { (c.text, c.background) };
+		blob(dc, bx, by.max(0), w, h, fill);
+		gdi::text(dc, fonts.small_bold, ink, &count, rect(bx, by.max(0), bx + w, by.max(0) + h), DT_CENTER);
 	}
 	let font = if selected { fonts.small_bold } else { fonts.small };
 	gdi::text(dc, font, c.text, name, rect(2, py + pill_h + 2, width - 2, height - 2), DT_CENTER);
@@ -537,6 +585,106 @@ fn paint_icon(
 		(Some(g), Some(font)) => gdi::text(dc, font, colour, &g.to_string(), rect(0, 0, width, height), DT_CENTER),
 		_ => gdi::text(dc, fonts.body, colour, label, rect(2, 0, width - 2, height), DT_CENTER),
 	}
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Tone {
+	Plain,
+	/// Switched on (muted, camera on, sharing): drawn the other way round.
+	On,
+	/// Accept: green.
+	Go,
+	/// End, reject, delete: red.
+	Stop,
+}
+
+/// A tile button's icon, caption and colour, from its label.
+fn tile_look(label: &str) -> (Option<char>, &str, Tone) {
+	match label {
+		"Accept call" => (Some(glyph::CALLS), "Accept", Tone::Go),
+		"Reject call" => (Some(glyph::HANG_UP), "Decline", Tone::Stop),
+		"Leave call" => (Some(glyph::HANG_UP), "End", Tone::Stop),
+		"Mute microphone" => (Some(glyph::MIC), "Mute", Tone::Plain),
+		"Unmute microphone" => (Some(glyph::MIC_OFF), "Unmute", Tone::On),
+		"Turn camera on" => (Some(glyph::VIDEO), "Camera", Tone::Plain),
+		"Turn camera off" => (Some(glyph::VIDEO), "Camera", Tone::On),
+		"Share screen" => (Some(glyph::SCREEN), "Share", Tone::Plain),
+		"Stop sharing screen" => (Some(glyph::SCREEN), "Sharing", Tone::On),
+		"Add participant" => (Some(glyph::ADD_PERSON), "Add", Tone::Plain),
+		"Raise hand" => (Some(glyph::HAND), "Raise hand", Tone::Plain),
+		"Lower hand" => (Some(glyph::HAND), "Lower hand", Tone::On),
+		"React..." => (Some(glyph::EMOJI), "React", Tone::Plain),
+		"Voice call" => (Some(glyph::CALLS), "Audio", Tone::Plain),
+		"Video call" => (Some(glyph::VIDEO), "Video", Tone::Plain),
+		"Edit contact" => (Some(glyph::EDIT), "Edit", Tone::Plain),
+		"Add contact" => (Some(glyph::ADD_PERSON), "Add", Tone::Plain),
+		"Delete contact" => (Some(glyph::DELETE), "Delete", Tone::Stop),
+		"Advanced chat privacy..." => (Some(glyph::LOCK), "Privacy", Tone::Plain),
+		other => (None, other, Tone::Plain),
+	}
+}
+
+/// Whether text on `colour` should be light.
+fn is_dark(colour: Colour) -> bool {
+	(colour.r as u32 * 299 + colour.g as u32 * 587 + colour.b as u32 * 114) / 1000 < 110
+}
+
+/// `state` is (pressed, focused, disabled).
+fn paint_tile(
+	dc: HDC,
+	width: i32,
+	height: i32,
+	label: &str,
+	fonts: &Fonts,
+	(pressed, focused, disabled): (bool, bool, bool),
+	background: Colour,
+) {
+	let c = colours(background, false);
+	gdi::fill(dc, rect(0, 0, width, height), c.background);
+	let (icon, caption, tone) = tile_look(label);
+	let dark = c.custom && is_dark(background);
+	let side = (fonts.line * 5 / 2 + 4).min(width - 6).min(height - fonts.line - 10);
+	let (x, y) = ((width - side) / 2, 4);
+	let (fill, ink) = if !c.custom {
+		if tone == Tone::On { (c.text, c.background) } else { (c.background, c.text) }
+	} else {
+		match tone {
+			Tone::Go => (rgb(Palette::ACCENT), colorref(0xFF, 0xFF, 0xFF)),
+			Tone::Stop => (colorref(0xD1, 0x1A, 0x3A), colorref(0xFF, 0xFF, 0xFF)),
+			Tone::On if dark => (colorref(0xFF, 0xFF, 0xFF), colorref(0x11, 0x1B, 0x21)),
+			Tone::On => (c.text, colorref(0xFF, 0xFF, 0xFF)),
+			Tone::Plain if dark => (colorref(0x3B, 0x4A, 0x54), colorref(0xFF, 0xFF, 0xFF)),
+			Tone::Plain => (colorref(0xFF, 0xFF, 0xFF), rgb(Palette::ACCENT)),
+		}
+	};
+	if focused {
+		let ring_colour = if dark { colorref(0xFF, 0xFF, 0xFF) } else { c.focus };
+		ring(dc, x - 3, y - 3, side + 6, side + 6, ring_colour, c.background);
+	}
+	let fill = if pressed && c.custom { c.pressed } else { fill };
+	blob(dc, x, y, side, side, fill);
+	if !c.custom {
+		// An outline, so the circle shows in High Contrast.
+		ring(dc, x, y, side, side, c.text, fill);
+	}
+	let ink = if disabled { c.muted } else { ink };
+	let circle = rect(x, y, x + side, y + side);
+	match (icon, fonts.icons_big) {
+		// The icon font's own glyphs live in the private use area.
+		(Some(g), Some(font)) if ('\u{E000}'..='\u{F8FF}').contains(&g) => {
+			gdi::text(dc, font, ink, &g.to_string(), circle, DT_CENTER)
+		}
+		(Some(g), _) => gdi::text(dc, fonts.bold, ink, &g.to_string(), circle, DT_CENTER),
+		_ => gdi::text(dc, fonts.small_bold, ink, caption, circle, DT_CENTER),
+	}
+	let text = if dark {
+		colorref(0xE9, 0xED, 0xEF)
+	} else if disabled {
+		c.muted
+	} else {
+		c.text
+	};
+	gdi::text(dc, fonts.small, text, caption, rect(0, y + side + 4, width, height), DT_CENTER);
 }
 
 /// "Mum (online)" -> ("Mum", "online"); "Family, Dad is typing..." ->
@@ -629,6 +777,20 @@ fn paint_header(
 #[cfg(test)]
 mod tests {
 	use super::split_header;
+
+	#[test]
+	fn a_tab_with_unread_chats_keeps_its_icon_and_shows_the_count() {
+		assert_eq!(super::nav_look("Chats: 5 unread"), (Some(super::glyph::CHATS), "Chats", 5));
+		assert_eq!(super::nav_look("Calls"), (Some(super::glyph::CALLS), "Calls", 0));
+	}
+
+	#[test]
+	fn call_buttons_show_their_state() {
+		assert_eq!(super::tile_look("Unmute microphone").2, super::Tone::On);
+		assert_eq!(super::tile_look("Mute microphone").2, super::Tone::Plain);
+		assert_eq!(super::tile_look("Leave call").2, super::Tone::Stop);
+		assert_eq!(super::tile_look("Accept call").1, "Accept");
+	}
 
 	#[test]
 	fn the_header_splits_name_and_status() {

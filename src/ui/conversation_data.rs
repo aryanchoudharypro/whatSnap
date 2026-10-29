@@ -62,29 +62,39 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 
 	// --- Info Tab ---
 	let info_panel = Panel::builder(&notebook).build();
+	// WhatsApp's info page: a grey page with white cards on it.
+	if theme::use_custom_colours() {
+		info_panel.set_background_color(theme::Palette::PANEL_BG);
+	}
 	let info_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	// The photo goes at the top, though it's made last (see below).
 	let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
 	info_sizer.add_sizer(&photo_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 10);
 
-	let info_field =
-		TextCtrl::builder(&info_panel).with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly).build();
+	let info_field = TextCtrl::builder(&info_panel)
+		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::from_bits_retain(0x0020_0000))
+		.build();
 	info_field.set_font(&theme::Fonts::body());
-	info_sizer.add(&info_field, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	info_sizer.add(&info_field, 1, SizerFlag::Expand | SizerFlag::All, 12);
 
 	// What WhatsApp's contact info offers for the person and the chat.
 	let actions_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let voice_call_btn = Button::builder(&info_panel).with_label("Voice call").build();
-	actions_sizer.add(&voice_call_btn, 0, SizerFlag::Right, 5);
+	crate::ui::owner_draw::install_tile(&voice_call_btn, theme::Palette::PANEL_BG);
+	actions_sizer.add(&voice_call_btn, 0, SizerFlag::Right, 6);
 	let video_call_btn = Button::builder(&info_panel).with_label("Video call").build();
-	actions_sizer.add(&video_call_btn, 0, SizerFlag::Right, 5);
+	crate::ui::owner_draw::install_tile(&video_call_btn, theme::Palette::PANEL_BG);
+	actions_sizer.add(&video_call_btn, 0, SizerFlag::Right, 6);
 	let contact_btn = Button::builder(&info_panel).with_label("Edit contact").build();
-	actions_sizer.add(&contact_btn, 0, SizerFlag::Right, 5);
+	crate::ui::owner_draw::install_tile(&contact_btn, theme::Palette::PANEL_BG);
+	actions_sizer.add(&contact_btn, 0, SizerFlag::Right, 6);
 	let delete_contact_btn = Button::builder(&info_panel).with_label("Delete contact").build();
-	actions_sizer.add(&delete_contact_btn, 0, SizerFlag::Right, 5);
+	crate::ui::owner_draw::install_tile(&delete_contact_btn, theme::Palette::PANEL_BG);
+	actions_sizer.add(&delete_contact_btn, 0, SizerFlag::Right, 6);
 	let chat_privacy_btn = Button::builder(&info_panel).with_label("Advanced chat privacy...").build();
-	actions_sizer.add(&chat_privacy_btn, 0, SizerFlag::Right, 5);
-	info_sizer.add_sizer(&actions_sizer, 0, SizerFlag::All, 5);
+	crate::ui::owner_draw::install_tile(&chat_privacy_btn, theme::Palette::PANEL_BG);
+	actions_sizer.add(&chat_privacy_btn, 0, SizerFlag::Right, 6);
+	info_sizer.add_sizer(&actions_sizer, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::All, 8);
 	// Made after everything else, so it's never what names the info box
 	// (Windows names a box from the control just before it) and is never
 	// in the way of Tab.

@@ -104,13 +104,64 @@ fn skip_best_size(list: &impl WxWidget) {
 /// wx's `wxBORDER_NONE`.
 const BORDER_NONE: i64 = 0x0020_0000;
 
+/// How long the voice message being recorded has run, for the recording
+/// bar's clock (see `set_recording_clock`).
+#[derive(Clone, Copy)]
+pub struct RecordingClock {
+	pub start: std::time::Instant,
+	pub paused: std::time::Duration,
+	pub paused_at: Option<std::time::Instant>,
+}
+
+impl RecordingClock {
+	fn elapsed(&self) -> std::time::Duration {
+		let end = self.paused_at.unwrap_or_else(std::time::Instant::now);
+		end.saturating_duration_since(self.start).saturating_sub(self.paused)
+	}
+}
+
+thread_local! {
+	static RECORDING: std::cell::Cell<Option<RecordingClock>> = const { std::cell::Cell::new(None) };
+	static RECORDING_TICK: std::cell::RefCell<Option<Timer<Panel>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Tells the recording bar how long the recording has run (None once it's
+/// sent or thrown away); its clock then ticks on its own.
+pub fn set_recording_clock(clock: Option<RecordingClock>) {
+	RECORDING.with(|r| r.set(clock));
+	RECORDING_TICK.with(|t| {
+		if let Some(timer) = t.borrow().as_ref() {
+			if clock.is_some_and(|c| c.paused_at.is_none()) {
+				timer.start(500, false);
+			} else {
+				timer.stop();
+			}
+		}
+	});
+}
+
+/// The controls the chat's painted parts are drawn around.
+struct ComposerParts {
+	field: TextCtrl,
+	pause: Button,
+	view_once: CheckBox,
+	send_voice: Button,
+}
+
 /// Draws the composer's grey bar across the chat, and the round white box
-/// the message field sits in. Only painted; the field is the same control.
-fn paint_composer(conversation: &Panel, field: &TextCtrl, bar: Colour) {
+/// the message field sits in; while recording, WhatsApp's recording bar
+/// (red dot, clock) between the pause and send buttons. Only painted: the
+/// controls are the same ones, and the screen reader hears the recording
+/// start, pause and stop as before.
+fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 	if !theme::use_custom_colours() {
 		return;
 	}
-	let (panel_c, field_c) = (*conversation, *field);
+	let panel_c = *conversation;
+	let ComposerParts { field: field_c, pause, view_once, send_voice } = parts;
+	let timer = Timer::new(&panel_c);
+	timer.on_tick(move |_| panel_c.refresh(false, None));
+	RECORDING_TICK.with(|t| *t.borrow_mut() = Some(timer));
 	panel_c.set_background_style(BackgroundStyle::Paint);
 	panel_c.on_paint(move |_| {
 		let dc = AutoBufferedPaintDC::new(&panel_c);
@@ -119,6 +170,43 @@ fn paint_composer(conversation: &Panel, field: &TextCtrl, bar: Colour) {
 		dc.set_brush(background, BrushStyle::Solid);
 		dc.set_pen(background, 1, PenStyle::Solid);
 		dc.draw_rectangle(0, 0, size.width, size.height);
+		if send_voice.is_shown() {
+			let (p, ps) = (pause.get_position(), pause.get_size());
+			let right = if view_once.is_shown() { view_once.get_position().x } else { send_voice.get_position().x };
+			let top = p.y.min(send_voice.get_position().y) - 10;
+			let height = ps.height.max(send_voice.get_size().height) + 20;
+			dc.set_brush(bar, BrushStyle::Solid);
+			dc.set_pen(bar, 1, PenStyle::Solid);
+			dc.draw_rectangle(0, top, size.width, height);
+			let Some(clock) = RECORDING.with(|r| r.get()) else { return };
+			let (left, mid) = (p.x + ps.width + 12, p.y + ps.height / 2);
+			let paused = clock.paused_at.is_some();
+			// The dot blinks while recording, as WhatsApp's does.
+			let secs = clock.elapsed().as_secs();
+			let blink = clock.elapsed().as_millis() / 500 % 2 == 0;
+			let dot = if paused { theme::Palette::TEXT_MUTED } else { Colour::rgb(0xEA, 0x00, 0x38) };
+			if paused || blink {
+				dc.set_brush(dot, BrushStyle::Solid);
+				dc.set_pen(dot, 1, PenStyle::Solid);
+				dc.draw_circle(left + 6, mid, 6);
+			}
+			dc.set_font(&theme::Fonts::body());
+			dc.set_text_foreground(theme::Palette::TEXT_PRIMARY);
+			dc.set_background_mode(BackgroundMode::Transparent);
+			let text = format!("{}:{:02}{}", secs / 60, secs % 60, if paused { "  Paused" } else { "" });
+			let (tw, th) = dc.get_text_extent(&text);
+			dc.draw_text(&text, left + 20, mid - th / 2);
+			// A dotted line where WhatsApp draws the recording's waveform.
+			let grey = Colour::rgb(0xA0, 0xA6, 0xAA);
+			dc.set_brush(grey, BrushStyle::Solid);
+			dc.set_pen(grey, 1, PenStyle::Solid);
+			let mut x = left + 20 + tw + 16;
+			while x + 3 < right - 12 {
+				dc.draw_rectangle(x, mid - 1, 3, 3);
+				x += 7;
+			}
+			return;
+		}
 		if !field_c.is_shown() {
 			return;
 		}
@@ -513,7 +601,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	crate::ui::owner_draw::install_icon_button(&record_voice_btn, composer_bg);
 	message_row.add(&record_voice_btn, 0, SizerFlag::AlignCenterVertical, 0);
 	conv_sizer.add_sizer(&message_row, 0, SizerFlag::Expand | SizerFlag::All, 10);
-	paint_composer(&conversation_panel, &message_field, composer_bg);
 	let attachment_panel = Panel::builder(&conversation_panel).build();
 	theme::style_content(&attachment_panel);
 	let attach_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -541,31 +628,42 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 
 	let discard_voice_btn = Button::builder(&conversation_panel).with_label("Discard voice message").build();
 	discard_voice_btn.set_font(&theme::Fonts::body());
-	crate::ui::owner_draw::install_icon_button(&discard_voice_btn, theme::Palette::CHAT_BG);
+	crate::ui::owner_draw::install_icon_button(&discard_voice_btn, composer_bg);
 	voice_toolbar_sizer.add(&discard_voice_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	discard_voice_btn.show(false);
 
 	let pause_resume_btn = Button::builder(&conversation_panel).with_label("Pause recording").build();
 	pause_resume_btn.set_font(&theme::Fonts::body());
-	crate::ui::owner_draw::install_icon_button(&pause_resume_btn, theme::Palette::CHAT_BG);
+	crate::ui::owner_draw::install_icon_button(&pause_resume_btn, composer_bg);
 	voice_toolbar_sizer.add(&pause_resume_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	pause_resume_btn.show(false);
+	// Room for the recording bar's dot and clock (see `paint_composer`).
+	voice_toolbar_sizer.add_stretch_spacer(1);
 
 	let view_once_voice_check = CheckBox::builder(&conversation_panel).with_label("View once").build();
 	view_once_voice_check.set_font(&theme::Fonts::body());
+	if theme::use_custom_colours() {
+		view_once_voice_check.set_background_color(composer_bg);
+	}
 	voice_toolbar_sizer.add(&view_once_voice_check, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	view_once_voice_check.show(false);
 
 	let send_voice_btn = Button::builder(&conversation_panel).with_label("Send voice message").build();
-	theme::style_primary_button(&send_voice_btn);
+	send_voice_btn.set_font(&theme::Fonts::body());
+	crate::ui::owner_draw::install_icon_button(&send_voice_btn, composer_bg);
 	voice_toolbar_sizer.add(&send_voice_btn, 0, SizerFlag::AlignCenterVertical, 0);
 	send_voice_btn.show(false);
 
-	conv_sizer.add_sizer(
-		&voice_toolbar_sizer,
-		0,
-		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
-		10,
+	conv_sizer.add_sizer(&voice_toolbar_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	paint_composer(
+		&conversation_panel,
+		ComposerParts {
+			field: message_field,
+			pause: pause_resume_btn,
+			view_once: view_once_voice_check,
+			send_voice: send_voice_btn,
+		},
+		composer_bg,
 	);
 
 	conversation_panel.set_sizer(conv_sizer, true);

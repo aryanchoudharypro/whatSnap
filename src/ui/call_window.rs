@@ -1,5 +1,7 @@
 use wxdragon::prelude::*;
 
+use crate::ui::theme;
+
 #[derive(Clone)]
 pub struct CallWindowParts {
 	pub frame: Frame,
@@ -38,12 +40,24 @@ pub struct CallWindowParts {
 	pub camera_device_combo: ComboBox,
 }
 
+/// WhatsApp's call screen colour.
+const CALL_BG: Colour = Colour::rgb(0x11, 0x1B, 0x21);
+
 pub fn build_call_window() -> CallWindowParts {
-	let frame = Frame::builder().with_title("Call").with_size(Size::new(400, 420)).build();
+	let frame = Frame::builder().with_title("Call").with_size(Size::new(580, 460)).build();
 	let panel = Panel::builder(&frame).build();
+	// WhatsApp's dark call screen.
+	if theme::use_custom_colours() {
+		panel.set_background_color(CALL_BG);
+		panel.set_foreground_color(Colour::rgb(0xE9, 0xED, 0xEF));
+	}
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let status_label = StaticText::builder(&panel).with_label("Incoming call...").build();
+	status_label.set_font(&theme::Fonts::heading());
+	if theme::use_custom_colours() {
+		status_label.set_foreground_color(Colour::rgb(0xE9, 0xED, 0xEF));
+	}
 	sizer.add(&status_label, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let caller_info = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ReadOnly).build();
@@ -55,41 +69,53 @@ pub fn build_call_window() -> CallWindowParts {
 	sizer.add(&announcer, 0, SizerFlag::Expand | SizerFlag::All, 0);
 
 	let btn_panel = Panel::builder(&panel).build();
+	if theme::use_custom_colours() {
+		btn_panel.set_background_color(CALL_BG);
+	}
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let accept_btn = Button::builder(&btn_panel).with_label("Accept call").build();
+	crate::ui::owner_draw::install_tile(&accept_btn, CALL_BG);
 	btn_sizer.add(&accept_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 
 	let reject_btn = Button::builder(&btn_panel).with_label("Reject call").build();
+	crate::ui::owner_draw::install_tile(&reject_btn, CALL_BG);
 	btn_sizer.add(&reject_btn, 1, SizerFlag::Expand | SizerFlag::Left, 5);
 
 	let mute_btn = Button::builder(&btn_panel).with_label("Mute microphone").build();
+	crate::ui::owner_draw::install_tile(&mute_btn, CALL_BG);
 	btn_sizer.add(&mute_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	mute_btn.show(false);
 
 	// Ctrl+Shift+V also toggles this - see keybindings.
 	let camera_btn = Button::builder(&btn_panel).with_label("Turn camera on").build();
+	crate::ui::owner_draw::install_tile(&camera_btn, CALL_BG);
 	btn_sizer.add(&camera_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	camera_btn.show(false);
 
 	// Ctrl+Shift+S also toggles this.
 	let screen_btn = Button::builder(&btn_panel).with_label("Share screen").build();
+	crate::ui::owner_draw::install_tile(&screen_btn, CALL_BG);
 	btn_sizer.add(&screen_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	screen_btn.show(false);
 
 	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
+	crate::ui::owner_draw::install_tile(&add_participant_btn, CALL_BG);
 	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	add_participant_btn.show(false);
 
 	// Shown once the call connects, like add_participant_btn.
 	let raise_hand_btn = Button::builder(&btn_panel).with_label("Raise hand").build();
+	crate::ui::owner_draw::install_tile(&raise_hand_btn, CALL_BG);
 	btn_sizer.add(&raise_hand_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	raise_hand_btn.show(false);
 	let react_btn = Button::builder(&btn_panel).with_label("React...").build();
+	crate::ui::owner_draw::install_tile(&react_btn, CALL_BG);
 	btn_sizer.add(&react_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	react_btn.show(false);
 
 	let leave_btn = Button::builder(&btn_panel).with_label("Leave call").build();
+	crate::ui::owner_draw::install_tile(&leave_btn, CALL_BG);
 	btn_sizer.add(&leave_btn, 1, SizerFlag::Expand | SizerFlag::Left, 5);
 	leave_btn.show(false);
 
@@ -97,6 +123,8 @@ pub fn build_call_window() -> CallWindowParts {
 	sizer.add(&btn_panel, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let people_panel = Panel::builder(&panel).build();
+	// A light card on the dark screen, so its native controls read well.
+	theme::style_content(&people_panel);
 	let people_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let people_label = StaticText::builder(&people_panel).with_label("People").build();
 	people_sizer.add(&people_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
@@ -130,6 +158,8 @@ pub fn build_call_window() -> CallWindowParts {
 	// Lets the mic/speaker be switched without ending the call - hidden until
 	// the call connects, same as mute_btn/leave_btn above.
 	let devices_panel = Panel::builder(&panel).build();
+	// A light card on the dark screen, so its native controls read well.
+	theme::style_content(&devices_panel);
 	let devices_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let input_device_label = StaticText::builder(&devices_panel).with_label("Microphone").build();
