@@ -56,14 +56,16 @@ pub fn signed_source() -> PathBuf {
 	local_dir().join("source.msix")
 }
 
-/// Appends a line to share.log in whatSnap's logs folder, for when the
-/// menu entry doesn't appear and nobody saw why.
+/// Appends a line to share\share.log in the install folder, for when the
+/// menu entry doesn't appear and nobody saw why. It's there rather than in
+/// the logs folder because the administrator step may run as another
+/// account, with a logs folder of its own.
 pub fn log(line: &str) {
-	let Some(base) = std::env::var_os("LOCALAPPDATA") else { return };
-	let dir = PathBuf::from(base).join("whatSnap").join("logs");
+	let dir = app_dir().join("share");
 	let _ = std::fs::create_dir_all(&dir);
 	if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("share.log")) {
-		let _ = writeln!(file, "{line}");
+		let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+		let _ = writeln!(file, "[{secs} pid {}] {line}", std::process::id());
 	}
 }
 
@@ -85,10 +87,26 @@ fn message(text: &str, warning: bool) {
 	}
 }
 
+/// Where `--sign` leaves the reason it failed, for `--enable` to show. It
+/// runs as administrator, maybe as another account with its own logs folder.
+pub fn sign_error_file() -> PathBuf {
+	app_dir().join("share").join("sign-error.txt")
+}
+
+/// Why signing as administrator didn't work.
+enum SignFailure {
+	/// The approval prompt was cancelled or no administrator signed in.
+	NotApproved,
+	Failed(String),
+}
+
 /// Runs this exe again with `--sign` as administrator (Windows asks first)
-/// and waits for it. Returns whether it signed the package.
-fn run_sign_as_admin() -> bool {
-	let Ok(exe) = std::env::current_exe() else { return false };
+/// and waits for it.
+fn run_sign_as_admin() -> Result<(), SignFailure> {
+	let _ = std::fs::remove_file(sign_error_file());
+	let Ok(exe) = std::env::current_exe() else {
+		return Err(SignFailure::Failed("can't find whatSnapShare.exe".into()));
+	};
 	let exe = HSTRING::from(exe.as_os_str());
 	let mut info = SHELLEXECUTEINFOW {
 		cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
@@ -101,15 +119,26 @@ fn run_sign_as_admin() -> bool {
 	};
 	unsafe {
 		// Fails if the prompt is cancelled or no administrator signs in.
-		if ShellExecuteExW(&mut info).is_err() || info.hProcess.is_invalid() {
-			return false;
+		if let Err(e) = ShellExecuteExW(&mut info) {
+			log(&format!("Starting the administrator step failed: {e}"));
+			return Err(SignFailure::NotApproved);
+		}
+		if info.hProcess.is_invalid() {
+			log("Starting the administrator step gave no process to wait for");
+			return Err(SignFailure::Failed("Windows didn't start the administrator step".into()));
 		}
 		let mut code = 1u32;
 		let done = WaitForSingleObject(info.hProcess, INFINITE) == WAIT_OBJECT_0
 			&& GetExitCodeProcess(info.hProcess, &mut code).is_ok();
 		let _ = CloseHandle(info.hProcess);
-		done && code == 0
+		log(&format!("Administrator step finished with exit code {code:#x}"));
+		if done && code == 0 {
+			return Ok(());
+		}
 	}
+	let reason = std::fs::read_to_string(sign_error_file())
+		.unwrap_or_else(|_| "signing as administrator failed without saying why".to_string());
+	Err(SignFailure::Failed(reason))
 }
 
 /// A `file:` URI for a local path, which the package manager wants.
@@ -181,14 +210,29 @@ pub fn enable(report: bool) -> i32 {
 		}
 		return 1;
 	}
-	if needs_signing() && !run_sign_as_admin() {
-		if report {
-			message(
-				"whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu.",
-				true,
-			);
+	if needs_signing() {
+		match run_sign_as_admin() {
+			Ok(()) => {}
+			Err(SignFailure::NotApproved) => {
+				if report {
+					message(
+						"whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu.",
+						true,
+					);
+				}
+				return 1;
+			}
+			Err(SignFailure::Failed(reason)) => {
+				log(&format!("Signing failed: {reason}"));
+				if report {
+					message(
+						&format!("whatSnap couldn't be added to the Share menu.\n\nSigning failed: {reason}"),
+						true,
+					);
+				}
+				return 1;
+			}
 		}
-		return 1;
 	}
 	match register() {
 		Ok(()) => {

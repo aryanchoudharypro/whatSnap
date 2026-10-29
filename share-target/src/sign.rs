@@ -1,8 +1,7 @@
 //! `--sign`, run as administrator: signs the Share menu package with a
 //! certificate made here, and makes Windows trust that certificate.
 //!
-//! The private key is an ephemeral one that is never written to disk: it
-//! exists only while this process signs the package, so once it exits nothing
+//! The private key is deleted as soon as the package is signed, so nothing
 //! can sign another package with this certificate. The certificate (public
 //! part only) goes into the machine's Trusted People store, which is where
 //! Windows looks for package signers and the step that needs administrator
@@ -19,10 +18,10 @@ use windows::{
 		Security::Cryptography::*,
 		System::{SystemInformation::GetSystemTime, Time::FileTimeToSystemTime},
 	},
-	core::{BOOL, HSTRING, IUnknown, Interface, PCSTR, PCWSTR, PSTR},
+	core::{BOOL, HSTRING, IUnknown, Interface, PCSTR, PCWSTR, PSTR, PWSTR},
 };
 
-use crate::package::{PUBLISHER, local_dir, signed_package, signed_source, unsigned_package};
+use crate::package::{PUBLISHER, local_dir, log, signed_package, signed_source, unsigned_package};
 
 /// SIGNER_SIGN_EX2_PARAMS, which the windows crate doesn't define.
 #[repr(C)]
@@ -71,8 +70,10 @@ unsafe fn encode(struct_type: PCSTR, info: *const c_void) -> windows::core::Resu
 	}
 }
 
-/// An ephemeral 2048-bit RSA key in the software key storage provider.
-unsafe fn create_key() -> windows::core::Result<NCRYPT_KEY_HANDLE> {
+/// A 2048-bit RSA key in the software key storage provider, saved under
+/// `name` (signing finds keys by name, the way signtool's do); `sign_package`
+/// deletes it as soon as the package is signed.
+unsafe fn create_key(name: &HSTRING) -> windows::core::Result<NCRYPT_KEY_HANDLE> {
 	unsafe {
 		let mut provider = NCRYPT_PROV_HANDLE::default();
 		NCryptOpenStorageProvider(&mut provider, MS_KEY_STORAGE_PROVIDER, 0)?;
@@ -81,9 +82,9 @@ unsafe fn create_key() -> windows::core::Result<NCRYPT_KEY_HANDLE> {
 			provider,
 			&mut key,
 			windows::core::w!("RSA"),
-			PCWSTR::null(),
+			name,
 			CERT_KEY_SPEC(0),
-			NCRYPT_FLAGS(0),
+			NCRYPT_OVERWRITE_KEY_FLAG,
 		);
 		let _ = NCryptFreeObject(NCRYPT_HANDLE(provider.0));
 		created?;
@@ -126,9 +127,8 @@ fn yesterday() -> SYSTEMTIME {
 	out
 }
 
-/// Makes the self-signed code-signing certificate, holding `key` (which it
-/// then owns and frees).
-unsafe fn create_certificate(key: NCRYPT_KEY_HANDLE) -> windows::core::Result<*mut CERT_CONTEXT> {
+/// Makes the self-signed code-signing certificate for `key`, saved as `key_name`.
+unsafe fn create_certificate(key: NCRYPT_KEY_HANDLE, key_name: &HSTRING) -> windows::core::Result<*mut CERT_CONTEXT> {
 	unsafe {
 		let subject = HSTRING::from(PUBLISHER);
 		let mut size = 0u32;
@@ -180,33 +180,25 @@ unsafe fn create_certificate(key: NCRYPT_KEY_HANDLE) -> windows::core::Result<*m
 		// no key left to renew it with.
 		let end = years_from_now(30);
 
+		// Tells the signer where the key is: a CNG key (provider type 0) in the
+		// software provider, for this account.
+		let key_info = CRYPT_KEY_PROV_INFO {
+			pwszContainerName: PWSTR(key_name.as_ptr() as *mut u16),
+			pwszProvName: PWSTR(MS_KEY_STORAGE_PROVIDER.0 as *mut u16),
+			..Default::default()
+		};
 		let cert = CertCreateSelfSignCertificate(
 			Some(HCRYPTPROV_OR_NCRYPT_KEY_HANDLE(key.0)),
 			&name_blob,
-			CERT_CREATE_SELFSIGN_NO_KEY_INFO,
-			None,
+			CERT_CREATE_SELFSIGN_FLAGS(0),
+			Some(&key_info),
 			Some(&algorithm),
 			Some(&start),
 			Some(&end),
 			Some(&extension_list),
 		);
 		if cert.is_null() {
-			let error = windows::core::Error::from_thread();
-			let _ = NCryptFreeObject(NCRYPT_HANDLE(key.0));
-			return Err(error);
-		}
-		// Lets the signer find the key through the certificate; the
-		// certificate frees the key when it's freed.
-		let handle = key.0;
-		if let Err(e) = CertSetCertificateContextProperty(
-			cert,
-			CERT_NCRYPT_KEY_HANDLE_TRANSFER_PROP_ID,
-			0,
-			Some((&handle as *const usize).cast()),
-		) {
-			let _ = NCryptFreeObject(NCRYPT_HANDLE(key.0));
-			let _ = CertFreeCertificateContext(Some(cert));
-			return Err(e);
+			return Err(windows::core::Error::from_thread());
 		}
 		Ok(cert)
 	}
@@ -339,21 +331,36 @@ unsafe fn trust(cert: *const CERT_CONTEXT) -> windows::core::Result<()> {
 /// Copies the installed package to `share\local`, signs the copy, and trusts
 /// the certificate that signed it.
 pub fn sign_package() -> Result<(), String> {
+	log("Signing: reading the package");
 	let unsigned = std::fs::read(unsigned_package()).map_err(|e| format!("reading the package: {e}"))?;
 	std::fs::create_dir_all(local_dir()).map_err(|e| format!("making {}: {e}", local_dir().display()))?;
 	let pending = local_dir().join("signing.msix");
 	std::fs::write(&pending, &unsigned).map_err(|e| format!("copying the package: {e}"))?;
+	let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+	let key_name = HSTRING::from(format!("whatSnap Share signing {stamp:x}"));
 	unsafe {
-		let key = create_key().map_err(|e| format!("making a key: {e}"))?;
-		let cert = create_certificate(key).map_err(|e| format!("making the certificate: {e}"))?;
-		let result = sign_file(&pending, cert)
-			.map_err(|e| format!("signing: {e}"))
-			.and_then(|_| trust(cert).map_err(|e| format!("trusting the certificate: {e}")));
-		// Frees the key too: nothing can sign with it after this.
-		let _ = CertFreeCertificateContext(Some(cert));
+		log("Signing: making a key");
+		let key = create_key(&key_name).map_err(|e| format!("making a key: {e}"))?;
+		log("Signing: making the certificate");
+		let result =
+			create_certificate(key, &key_name).map_err(|e| format!("making the certificate: {e}")).and_then(|cert| {
+				log("Signing: signing the package");
+				let signed = sign_file(&pending, cert).map_err(|e| format!("signing: {e}")).and_then(|_| {
+					log("Signing: trusting the certificate");
+					trust(cert).map_err(|e| format!("trusting the certificate: {e}"))
+				});
+				let _ = CertFreeCertificateContext(Some(cert));
+				signed
+			});
+		// Deleting the key also frees the handle: nothing can sign with this
+		// certificate after this.
+		if let Err(e) = NCryptDeleteKey(key, 0) {
+			crate::package::log(&format!("Deleting the signing key failed: {e}"));
+		}
 		result?;
 	}
 	std::fs::rename(&pending, signed_package()).map_err(|e| format!("saving the signed package: {e}"))?;
 	std::fs::write(signed_source(), &unsigned).map_err(|e| format!("saving the package copy: {e}"))?;
+	log("Signing: done");
 	Ok(())
 }

@@ -98,6 +98,8 @@ Filename: "{app}\whatSnapShare.exe"; Parameters: "--disable"; Flags: runhidden w
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\share\local"
+Type: files; Name: "{app}\share\share.log"
+Type: files; Name: "{app}\share\sign-error.txt"
 
 [Code]
 // --enable handles the ticked case in an interactive install.
