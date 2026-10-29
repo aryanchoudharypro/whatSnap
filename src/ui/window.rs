@@ -1718,22 +1718,45 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// whatSnapShare.exe does the work, and says how it went: it asks Windows
-	// for administrator permission the first time, which can't happen in here.
-	let settings_dialog_share = parts.settings_dialog.dialog;
+	// whatSnapShare.exe does the work (it asks Windows for administrator
+	// permission the first time, which can't happen in here) and leaves how it
+	// went in a file. The result is shown from here, over Settings, so it gets
+	// focus and is read right away; a box from the helper could open behind.
+	let tx_share_menu = ui_tx.clone();
+	// Set while a run is going, so a second press doesn't start another. Not
+	// done by disabling the button, which would take the focus off it.
+	let share_menu_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 	parts.settings_dialog.share_menu_btn.on_click(move |_| {
-		let helper = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.join("whatSnapShare.exe")));
-		let started = helper.is_some_and(|helper| std::process::Command::new(helper).arg("--enable").spawn().is_ok());
-		if !started {
-			MessageDialog::builder(
-				&settings_dialog_share,
-				"This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again.",
-				"whatSnap",
-			)
-			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-			.build()
-			.show_modal();
+		if share_menu_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
+			return;
 		}
+		let running = share_menu_running.clone();
+		let tx = tx_share_menu.clone();
+		std::thread::spawn(move || {
+			let dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.to_path_buf()));
+			let result_file = dir.as_ref().map(|d| d.join("share").join("enable-result.txt"));
+			if let Some(file) = &result_file {
+				let _ = std::fs::remove_file(file);
+			}
+			let status = dir.and_then(|d| {
+				std::process::Command::new(d.join("whatSnapShare.exe")).args(["--enable", "--quiet"]).status().ok()
+			});
+			let (ok, text) = match status {
+				None => (
+					false,
+					"This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again."
+						.to_string(),
+				),
+				Some(status) => (
+					status.success(),
+					result_file.and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_else(|| {
+						"whatSnap couldn't be added to the Share menu. Try again, or reinstall whatSnap.".to_string()
+					}),
+				),
+			};
+			running.store(false, std::sync::atomic::Ordering::SeqCst);
+			let _ = tx.send(UiCommand::ShareMenuResult { ok, text });
+		});
 	});
 
 	let settings_dialog_cancel = parts.settings_dialog.dialog;

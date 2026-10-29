@@ -190,6 +190,11 @@ pub enum UiCommand {
 	OpenWhatsAppLink(String),
 	/// Files another app sent to whatSnap, to send to chats the user picks.
 	ShareFiles(Vec<String>),
+	/// How turning on the Windows Share menu from Settings went.
+	ShareMenuResult {
+		ok: bool,
+		text: String,
+	},
 	/// Show the selected group's invite link.
 	ShowGroupInviteLink,
 	/// Open the "Find channels" directory.

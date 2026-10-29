@@ -1572,6 +1572,15 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ActivateWindow => ui_commands::misc::activate_window(state, parts),
 		UiCommand::OpenWhatsAppLink(link) => ui_commands::links::open_whatsapp_link(state, parts, link),
 		UiCommand::ShareFiles(paths) => ui_commands::links::share_files(state, parts, paths),
+		UiCommand::ShareMenuResult { ok, text } => {
+			let parent: &dyn wxdragon::prelude::WxWidget =
+				if parts.settings_dialog.dialog.is_shown() { &parts.settings_dialog.dialog } else { &parts.frame };
+			let icon = if ok { MessageDialogStyle::IconInformation } else { MessageDialogStyle::IconWarning };
+			MessageDialog::builder(parent, &text, "whatSnap")
+				.with_style(MessageDialogStyle::OK | icon)
+				.build()
+				.show_modal();
+		}
 		UiCommand::ShowGroupInviteLink => ui_commands::links::request_group_invite_link(state),
 		UiCommand::FindChannels => ui_commands::links::show_channel_directory(state, parts, None),
 		UiCommand::SimilarChannels { jid, name } => {
