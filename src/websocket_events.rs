@@ -416,14 +416,16 @@ fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>
 	// Rows go into the list in one call (`set_items`/`insert_items`), not one
 	// append per row: a whole chat is tens of thousands of rows, and adding
 	// them one at a time took over 2 seconds on a 27k-message chat.
-	let rows: Vec<String> = match prepend {
+	let shown = match prepend {
 		Some(plan) => &new_display_items[..plan.insert],
 		None => &new_display_items[..],
-	}
-	.iter()
-	.map(|item| item.format_display(is_group))
-	.collect();
+	};
+	let rows: Vec<String> = shown.iter().map(|item| item.format_display(is_group)).collect();
 	let row_refs: Vec<&str> = rows.iter().map(String::as_str).collect();
+	// Rows are keyed by message, so a rebuild keeps the cursor (and the
+	// screen reader's object for it) on the same message.
+	let keys: Vec<String> = shown.iter().zip(&rows).map(|(item, text)| message_row_key(item, text)).collect();
+	let key_refs: Vec<&str> = keys.iter().map(String::as_str).collect();
 	// The message the cursor is on (or just below, on a divider), to keep it
 	// there when an older page lands while the user reads near the top.
 	let cursor_id = parts
@@ -440,9 +442,9 @@ fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>
 		for _ in 0..plan.remove_leading {
 			parts.conversations_parts.messages_list.delete(0);
 		}
-		parts.conversations_parts.messages_list.insert_items(&row_refs, 0);
+		parts.conversations_parts.messages_list.insert_keyed_items(&key_refs, &row_refs, 0);
 	} else {
-		parts.conversations_parts.messages_list.set_items(&row_refs);
+		parts.conversations_parts.messages_list.set_keyed_items(&key_refs, &row_refs);
 	}
 	parts.conversations_parts.messages_list.thaw();
 	ui_timing_log(&format!(
@@ -502,7 +504,9 @@ fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>
 			parts.conversations_parts.messages_list.set_focus();
 		}
 	} else if count > 0 {
-		if was_history_loading && load_more && old_count > 0 {
+		if parts.conversations_parts.messages_list.get_selection().is_some() && old_count > 0 {
+			// The cursor stayed on its message through the rebuild.
+		} else if was_history_loading && load_more && old_count > 0 {
 			// Where the row the cursor was on now sits.
 			let keep_idx =
 				cursor_id.and_then(|id| s.display_items.iter().position(|d| d.id() == id)).unwrap_or(0) as u32;
@@ -2081,7 +2085,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								});
 								s.messages.push(divider.clone());
 								s.display_items.push(whatsnap::DisplayItem::Single(divider.clone()));
-								parts.conversations_parts.messages_list.append(&divider.format_display(is_group));
+								let text = divider.format_display(is_group);
+								let key = message_row_key(&whatsnap::DisplayItem::Single(divider.clone()), &text);
+								parts.conversations_parts.messages_list.append_keyed(&key, &text);
 							}
 
 							// Shared by `messages` and `display_items` (see `whatsnap::Msg`).
@@ -2198,7 +2204,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								s.display_items.push(merged);
 							} else {
 								s.display_items.push(whatsnap::DisplayItem::Single(chat_msg.clone()));
-								parts.conversations_parts.messages_list.append(&chat_msg.format_display(is_group));
+								parts
+									.conversations_parts
+									.messages_list
+									.append_keyed(&msg_id, &chat_msg.format_display(is_group));
 							}
 							refresh_selection_list(&mut s, parts);
 							crate::ui_commands::calls::mark_joinable_rows(&s, parts);
@@ -4840,6 +4849,15 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			}
 			_ => {}
 		}
+	}
+}
+
+/// The key a message list row goes by (see `MessageList::set_keyed_items`):
+/// its message id, or for a divider, which has none, its text.
+pub(crate) fn message_row_key(item: &whatsnap::DisplayItem, text: &str) -> String {
+	match item.id() {
+		"" => format!("\u{1}{text}"),
+		id => id.to_string(),
 	}
 }
 
