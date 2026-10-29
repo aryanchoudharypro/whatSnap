@@ -393,21 +393,26 @@ pub fn build_main_window() -> WindowParts {
 	let main_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let nav_panel = Panel::builder(&main_panel).build();
+	// WhatsApp's narrow strip of icons, each with its name under it.
 	theme::style_sidebar(&nav_panel);
-	nav_panel.set_min_size(Size::new(200, -1));
+	nav_panel.set_min_size(Size::new(nav_panel.get_char_width() * 12 + 8, -1));
 	let nav_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let nav_label = StaticText::builder(&nav_panel).with_label("Main Navigation").build();
 	theme::style_sidebar_heading(&nav_label);
 	let tab_order = crate::settings::Settings::load().tab_order();
 	let nav_list = ListBox::builder(&nav_panel)
 		.with_choices(tab_order.iter().map(|&t| crate::settings::TAB_NAMES[t].to_string()).collect())
+		.with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW))
 		.build();
-	nav_list.set_font(&theme::Fonts::body_strong());
+	nav_list.set_font(&theme::Fonts::body());
 	theme::style_sidebar(&nav_list);
+	crate::ui::owner_draw::install_nav(&nav_list);
+	// It still names the list for a screen reader; there's no room to show it.
+	nav_label.set_min_size(Size::new(1, 1));
 	// Conversations is the tab the app starts on, wherever it was moved to.
 	nav_list.set_selection(tab_order.iter().position(|&t| t == 0).unwrap_or(0) as u32, true);
-	nav_sizer.add(&nav_label, 0, SizerFlag::All, 10);
-	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
+	nav_sizer.add(&nav_label, 0, SizerFlag::Left, 0);
+	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Top, 6);
 
 	nav_panel.set_sizer(nav_sizer, true);
 
@@ -669,8 +674,8 @@ pub fn build_main_window() -> WindowParts {
 
 	content_panel.set_sizer(content_sizer, true);
 
-	main_sizer.add(&nav_panel, 0, SizerFlag::Expand | SizerFlag::All, 5);
-	main_sizer.add(&content_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	main_sizer.add(&nav_panel, 0, SizerFlag::Expand, 0);
+	main_sizer.add(&content_panel, 1, SizerFlag::Expand, 0);
 	main_panel.set_sizer(main_sizer, true);
 
 	let frame_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -836,7 +841,20 @@ pub fn bind_input_handlers(
 		// Status, Starred and Calls rows aren't chats' rows.
 		let chat_row = in_step && !matches!(s.active_tab, 1 | 2 | 6);
 		match s.chat_row_art.get(jid) {
-			Some(art) if chat_row => Some(art.clone()),
+			Some(art) if chat_row => {
+				let mut art = art.clone();
+				// Someone typing, as WhatsApp shows it in place of the last
+				// message (a typing that never got its "stopped" fades out).
+				let fresh = s.typing_timestamps.get(jid).is_some_and(|t| t.elapsed().as_secs() < 25);
+				art.typing = match s.typing_announce_state.get(jid) {
+					Some(2) if fresh => Some("recording audio…"),
+					Some(_) if fresh => Some("typing…"),
+					_ => None,
+				};
+				Some(art)
+			}
+			_ if in_step && s.active_tab == 1 => Some(crate::ui::chat_rows::RowArt::for_status(jid, text)),
+			_ if in_step && s.active_tab == 6 => Some(crate::ui::chat_rows::RowArt::for_call(jid, text)),
 			_ => Some(crate::ui::chat_rows::RowArt::from_text(jid, text)),
 		}
 	});

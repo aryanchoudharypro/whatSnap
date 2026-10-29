@@ -54,6 +54,9 @@ impl Palette {
 	/// 3.18:1 on `CONTENT_BG`. A hairline at the 1.37:1 of the usual
 	/// near-white divider is invisible to a low-vision user.
 	pub const DIVIDER: Colour = Colour::rgb(0x94, 0x90, 0x89);
+	/// WhatsApp Web's faint line between panes, for drawing only (it isn't
+	/// text, so it needn't meet a contrast ratio).
+	pub const DIVIDER_SOFT: Colour = Colour::rgb(0xE9, 0xED, 0xEF);
 }
 
 /// Whether this app should paint its own colours at all.
@@ -116,22 +119,22 @@ pub struct Fonts;
 impl Fonts {
 	/// Section/dialog headings (e.g. "Conversations", instructions).
 	pub fn heading() -> Font {
-		derive_font(3, FontWeight::SemiBold)
+		derive_font(4, FontWeight::SemiBold)
 	}
 
 	/// Small caps-ish labels above fields ("Search conversations").
 	pub fn label() -> Font {
-		derive_font(0, FontWeight::Normal)
+		derive_font(1, FontWeight::Normal)
 	}
 
 	/// Regular body text used by lists, inputs, message text.
 	pub fn body() -> Font {
-		derive_font(1, FontWeight::Normal)
+		derive_font(2, FontWeight::Normal)
 	}
 
 	/// Emphasized body text (chat names, primary buttons).
 	pub fn body_strong() -> Font {
-		derive_font(1, FontWeight::SemiBold)
+		derive_font(2, FontWeight::SemiBold)
 	}
 }
 
@@ -174,13 +177,13 @@ fn modern_face(system: &Font) -> Option<&'static str> {
 	installed.then_some(FACE)
 }
 
-/// Applies the sidebar (navigation) look: deep teal background, light text.
+/// Applies the navigation strip's look: WhatsApp's light grey rail.
 pub fn style_sidebar(widget: &impl WxWidget) {
 	if !use_custom_colours() {
 		return;
 	}
-	widget.set_background_color(Palette::SIDEBAR);
-	widget.set_foreground_color(Palette::SIDEBAR_TEXT);
+	widget.set_background_color(Palette::PANEL_BG);
+	widget.set_foreground_color(Palette::TEXT_PRIMARY);
 }
 
 /// Applies the plain content-area look: white background, dark text.

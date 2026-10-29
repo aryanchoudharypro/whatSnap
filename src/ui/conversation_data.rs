@@ -22,6 +22,9 @@ pub struct ConversationDataDialogParts {
 	/// Only shown while the person is saved.
 	pub delete_contact_btn: Button,
 	pub chat_privacy_btn: Button,
+	/// The person's profile photo, big and round as on WhatsApp; hidden
+	/// until it arrives (see `show_photo`).
+	pub photo: StaticBitmap,
 
 	// Media tab (photos and videos only, matching official WhatsApp)
 	pub media_panel: Panel,
@@ -60,6 +63,9 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	// --- Info Tab ---
 	let info_panel = Panel::builder(&notebook).build();
 	let info_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	// The photo goes at the top, though it's made last (see below).
+	let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
+	info_sizer.add_sizer(&photo_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 10);
 
 	let info_field =
 		TextCtrl::builder(&info_panel).with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly).build();
@@ -79,6 +85,12 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	let chat_privacy_btn = Button::builder(&info_panel).with_label("Advanced chat privacy...").build();
 	actions_sizer.add(&chat_privacy_btn, 0, SizerFlag::Right, 5);
 	info_sizer.add_sizer(&actions_sizer, 0, SizerFlag::All, 5);
+	// Made after everything else, so it's never what names the info box
+	// (Windows names a box from the control just before it) and is never
+	// in the way of Tab.
+	let photo = StaticBitmap::builder(&info_panel).build();
+	photo_row.add(&photo, 0, SizerFlag::AlignCenterVertical, 0);
+	photo.show(false);
 
 	info_panel.set_sizer(info_sizer, true);
 
@@ -143,6 +155,7 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 		contact_btn,
 		delete_contact_btn,
 		chat_privacy_btn,
+		photo,
 		media_panel,
 		media_label,
 		media_list,
@@ -156,4 +169,34 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 		common_groups_label,
 		common_groups_list,
 	}
+}
+
+/// Shows the picture at `path` (a profile photo) round in `photo`, `size`
+/// pixels across, and lays out `panel` around it. An empty path hides it.
+pub fn show_photo(photo: &StaticBitmap, panel: &Panel, path: &str) {
+	let size = (photo.get_char_height() * 8).clamp(96, 320) as u32;
+	let bitmap = (!path.is_empty())
+		.then(|| crate::image_decode::decode_rgba_in_box(path, size, size).ok())
+		.flatten()
+		.and_then(|(w, h, mut rgba)| {
+			// Cut to a circle, its edge smoothed.
+			let (cx, cy, r) = (w as f32 / 2.0, h as f32 / 2.0, w.min(h) as f32 / 2.0);
+			for y in 0..h {
+				for x in 0..w {
+					let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+					let cover = (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
+					let a = &mut rgba[((y * w + x) * 4 + 3) as usize];
+					*a = (*a as f32 * cover) as u8;
+				}
+			}
+			wxdragon::bitmap::Bitmap::from_rgba(&rgba, w, h)
+		});
+	match bitmap {
+		Some(bitmap) => {
+			photo.set_bitmap(&bitmap);
+			photo.show(true);
+		}
+		None => photo.show(false),
+	}
+	panel.layout();
 }

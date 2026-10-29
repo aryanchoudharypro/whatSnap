@@ -777,6 +777,7 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 					pinned,
 					muted,
 					locked: is_locked,
+					..Default::default()
 				},
 			);
 
@@ -3329,6 +3330,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						}
 						new_kind != prev_kind
 					};
+					// The chat list shows "typing…" in the chat's row.
+					if state_changed {
+						crate::ui::chat_rows::refresh();
+					}
 
 					let s = state.borrow();
 					if Some(chat_jid.to_string()) == s.selected_chat {
@@ -3989,6 +3994,17 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			"avatar_previews" => {
 				if let Some(data) = val.get("data") {
 					crate::ui::avatars::on_previews(data);
+				}
+			}
+			"avatar" => {
+				// The full-size photo the contact info page asked for.
+				let Some(data) = val.get("data") else { return };
+				let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+				let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
+				let s = state.borrow();
+				if s.info_chat.as_deref() == Some(jid) {
+					let dlg = &parts.conversation_data_dialog;
+					crate::ui::conversation_data::show_photo(&dlg.photo, &dlg.info_panel, path);
 				}
 			}
 			"avatar_updated" => {

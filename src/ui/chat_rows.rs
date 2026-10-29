@@ -60,6 +60,7 @@ pub(crate) mod icon {
 	pub const PIN: char = '\u{E718}';
 	pub const MUTED: char = '\u{E74F}';
 	pub const LOCK: char = '\u{E72E}';
+	pub const PHONE: char = '\u{E717}';
 }
 
 /// What a chat row shows, besides its text.
@@ -76,6 +77,15 @@ pub(crate) struct RowArt {
 	pub preview: String,
 	/// Your own last message's ticks, drawn before it.
 	pub ticks: Option<super::message_art::Ticks>,
+	/// "typing..." or "recording audio...", drawn in green in place of the
+	/// last message while it lasts.
+	pub typing: Option<&'static str>,
+	/// A status's ring around the picture: green for new, grey for seen.
+	pub ring: Option<bool>,
+	/// The line under the name is bad news (a missed call), drawn in red.
+	pub alert: bool,
+	/// A section heading ("Recent calls"), not a chat.
+	pub heading: bool,
 	pub unread: u32,
 	pub pinned: bool,
 	pub muted: bool,
@@ -90,6 +100,74 @@ impl RowArt {
 		let title = parts.next().unwrap_or_default().to_string();
 		let rest: Vec<&str> = parts.collect();
 		Self { jid: jid.to_string(), title, preview: rest.join(" · "), ..Default::default() }
+	}
+
+	/// A Status tab row: "Mum [New]: at the beach, 10:02 AM".
+	pub(crate) fn for_status(jid: &str, text: &str) -> Self {
+		let Some((name, rest)) = text.split_once(" [") else { return Self::from_text(jid, text) };
+		let Some((tag, preview)) = rest.split_once("]: ").or_else(|| rest.split_once(']')) else {
+			return Self::from_text(jid, text);
+		};
+		Self {
+			jid: jid.to_string(),
+			title: name.to_string(),
+			preview: preview.trim_start_matches(": ").to_string(),
+			ring: Some(tag.starts_with("New")),
+			..Default::default()
+		}
+	}
+
+	/// A Calls tab row: a heading ("Recent calls", with no chat), a contact,
+	/// or a call ("Missed voice call from Mum, Today 10:02 AM").
+	pub(crate) fn for_call(jid: &str, text: &str) -> Self {
+		if jid.is_empty() {
+			return Self { title: text.to_string(), heading: true, ..Default::default() };
+		}
+		let (text, ongoing) = match text.strip_suffix(crate::ui_commands::calls::ONGOING_CALL_SUFFIX) {
+			Some(t) => (t, true),
+			None => (text, false),
+		};
+		let (desc, time) = match text.rsplit_once(", ") {
+			Some((d, t)) if t.ends_with("AM") || t.ends_with("PM") => (d, t),
+			_ => (text, ""),
+		};
+		let (desc, duration) = match desc.split_once(", duration ") {
+			Some((d, dur)) => (d, Some(dur)),
+			None => (desc, None),
+		};
+		let Some((kind, name)) = desc.split_once(" from ").or_else(|| desc.split_once(" to ")) else {
+			// A contact row ("Mum, +44 ..."), or a call going on now.
+			let mut art = Self::from_text(jid, text);
+			if ongoing {
+				art.preview = "Going on now".to_string();
+			}
+			return art;
+		};
+		let missed = kind.starts_with("Missed");
+		let outgoing = kind.starts_with("Outgoing");
+		let video = kind.to_lowercase().contains("video");
+		let mut preview = kind.trim_start_matches("Outgoing ").to_string();
+		if let Some(first) = preview.get(..1) {
+			preview = first.to_uppercase() + &preview[1..];
+		}
+		if let Some(duration) = duration {
+			preview.push_str(" · ");
+			preview.push_str(duration);
+		}
+		if ongoing {
+			preview = "Going on now".to_string();
+		}
+		Self {
+			jid: jid.to_string(),
+			title: name.to_string(),
+			time: time.to_string(),
+			// WhatsApp's arrows: out to the right, in from the left.
+			preview_prefix: if outgoing { "\u{2197} " } else { "\u{2199} " }.to_string(),
+			icon: Some(if video { icon::VIDEO } else { icon::PHONE }),
+			preview,
+			alert: missed,
+			..Default::default()
+		}
 	}
 }
 
@@ -403,7 +481,7 @@ fn rect(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
 	RECT { left, top, right, bottom }
 }
 
-fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, c: Colours) {
+fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut c: Colours) {
 	let layout = Layout::for_line(fonts.line);
 	let (pad, size) = (layout.pad, layout.avatar);
 	gdi::fill(dc, rect(0, 0, width, height), c.background);
@@ -411,8 +489,33 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, c: C
 		gdi::fill(dc, rect(0, 0, (pad / 3).max(3), height), bar);
 	}
 
+	if art.heading {
+		let colour = if theme::use_custom_colours() { c.accent } else { c.text };
+		gdi::text(dc, fonts.small_bold, colour, &art.title, rect(pad, 0, width - pad, height), Default::default());
+		return;
+	}
+
 	// The picture, or WhatsApp's grey silhouette.
 	let avatar_top = (height - size) / 2;
+	// A status's ring: green while new, grey once seen.
+	if let Some(new) = art.ring {
+		let ring = if !theme::use_custom_colours() {
+			let t = if new { c.text.0 } else { c.muted.0 };
+			(t as u8, (t >> 8) as u8, (t >> 16) as u8)
+		} else if new {
+			(Palette::ACCENT.r, Palette::ACCENT.g, Palette::ACCENT.b)
+		} else {
+			(0xB0, 0xB6, 0xBA)
+		};
+		let b = c.background.0;
+		let inside = (b as u8, (b >> 8) as u8, (b >> 16) as u8);
+		for (inset, colour) in [(-3, ring), (-1, inside)] {
+			let d = size - 2 * inset;
+			if let Some(circle) = gdi::round_rect(d, d, d as f32 / 2.0, colour) {
+				circle.draw(dc, pad + inset, avatar_top + inset);
+			}
+		}
+	}
 	let drawn = avatars::with_avatar(&art.jid, size, |avatar| match avatar {
 		Avatar::Picture(bitmap) => {
 			bitmap.draw(dc, pad, avatar_top);
@@ -511,7 +614,20 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, c: C
 		}
 	}
 
+	// Someone typing takes the last message's place, in green.
+	if let Some(typing) = art.typing {
+		gdi::text(dc, fonts.body, c.accent, typing, rect(left, line2.0, line_right, line2.1), Default::default());
+		if let Some(divider) = c.divider {
+			gdi::fill(dc, rect(left, height - 1, width, height), divider);
+		}
+		return;
+	}
+
 	// Then the last message: your ticks or "Name: ", its kind's icon, its text.
+	// A missed call is in WhatsApp's red.
+	if art.alert && theme::use_custom_colours() {
+		c.muted = colorref(0xD1, 0x1A, 0x3A);
+	}
 	let mut x = left;
 	if let (Some(ticks), Some(font)) = (art.ticks, fonts.icons) {
 		let (glyphs, blue) = super::message_art::tick_glyphs(ticks);
@@ -568,6 +684,26 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, c: C
 #[cfg(test)]
 mod tests {
 	use super::{RowArt, icon, preview_icon};
+
+	#[test]
+	fn a_missed_call_is_red_with_its_kind_and_time() {
+		let art = RowArt::for_call("x", "Missed voice call from Mum, Today 10:02 AM");
+		assert_eq!(art.title, "Mum");
+		assert_eq!(art.preview, "Missed voice call");
+		assert_eq!(art.time, "Today 10:02 AM");
+		assert!(art.alert);
+		let art = RowArt::for_call("x", "Video call from Mum, duration 1:02, Yesterday 09:00 PM");
+		assert_eq!((art.title.as_str(), art.preview.as_str()), ("Mum", "Video call · 1:02"));
+		assert_eq!(art.icon, Some(icon::VIDEO));
+		assert!(RowArt::for_call("", "Recent calls").heading);
+	}
+
+	#[test]
+	fn a_new_status_gets_a_green_ring() {
+		let art = RowArt::for_status("x", "Mum [New]: at the beach, 10:02 AM");
+		assert_eq!((art.title.as_str(), art.ring), ("Mum", Some(true)));
+		assert_eq!(RowArt::for_status("x", "Mum [Viewed, muted]: Media").ring, Some(false));
+	}
 
 	#[test]
 	fn a_voice_message_gets_the_microphone() {

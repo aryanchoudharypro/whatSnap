@@ -586,6 +586,10 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		"data": { "jid": jid }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
+	// The full-size photo, shown big at the top once it comes.
+	dlg.photo.show(false);
+	let payload = serde_json::json!({ "action": "get_avatar", "data": { "jid": jid } });
+	let _ = s.ws_tx.send(payload.to_string());
 	let payload = serde_json::json!({ "action": "get_common_groups", "data": { "jid": jid } });
 	let _ = s.ws_tx.send(payload.to_string());
 	dlg.common_groups_list.clear();

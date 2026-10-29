@@ -20,6 +20,7 @@ pub mod message_list;
 pub mod new_contact;
 pub mod new_conversation;
 pub mod new_group;
+pub mod owner_draw;
 pub mod poll_dialog;
 pub mod privacy_list_picker;
 pub mod screen_picker;

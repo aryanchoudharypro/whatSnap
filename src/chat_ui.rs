@@ -294,6 +294,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.play_voice_btn.show(false);
 	parts.conversations_parts.action_panel.show(false);
 
+	crate::ui::owner_draw::set_header_chat(jid);
 	parts.conversations_parts.conv_data_btn.set_label(&chat_status_label(&s, jid));
 
 	parts.attachment_dialog.attachment_info_label.set_label("");

@@ -59,17 +59,15 @@ func handleGetAvatar(conn net.Conn, raw json.RawMessage) {
 	}
 	go func() {
 		info, err := wa().GetProfilePictureInfo(context.Background(), jid, &whatsmeow.GetProfilePictureParams{})
-		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
-			return
-		}
-		if info == nil {
+		// Hidden by their privacy settings, or none: the info page just
+		// shows no photo, rather than an error.
+		if err != nil || info == nil {
 			sendEvent(conn, "avatar", map[string]interface{}{"jid": data.JID, "path": ""})
 			return
 		}
 		path, _, dErr := downloadURLToFile("avatars", data.JID, info.URL)
 		if dErr != nil {
-			sendEvent(conn, "error", map[string]string{"message": dErr.Error()})
+			sendEvent(conn, "avatar", map[string]interface{}{"jid": data.JID, "path": ""})
 			return
 		}
 		updateContactAvatarCache(data.JID, path, info.ID)

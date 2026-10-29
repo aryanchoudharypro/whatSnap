@@ -51,6 +51,12 @@ pub(crate) fn init(tx: mpsc::Sender<String>) {
 }
 
 /// Runs `callback` whenever a picture arrives or changes, to redraw.
+/// The size pictures are being drawn at (the chat list's), so other places
+/// can draw them at it too and share the cache.
+pub(crate) fn size() -> Option<i32> {
+	CACHE.with(|c| Some(c.borrow().size).filter(|&s| s > 0))
+}
+
 pub(crate) fn on_change(callback: impl Fn() + 'static) {
 	CACHE.with(|c| c.borrow_mut().on_change.push(Box::new(callback)));
 }
