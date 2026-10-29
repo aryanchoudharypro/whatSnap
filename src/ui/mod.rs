@@ -15,6 +15,7 @@ pub mod gdi;
 pub mod group_data;
 pub mod keys;
 pub mod media_player;
+pub mod message_art;
 pub mod message_list;
 pub mod new_contact;
 pub mod new_conversation;
@@ -26,6 +27,7 @@ pub mod send_to;
 pub mod settings_dialog;
 pub mod status_viewer;
 pub mod theme;
+pub mod thumbnails;
 pub mod video_player;
 
 pub mod window;

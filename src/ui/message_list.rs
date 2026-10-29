@@ -17,7 +17,10 @@
 //! the screen reader's object for each row, on the same message through a
 //! rebuild, so NVDA doesn't read the cursor row again.
 //!
-//! It scrolls like a list box: a scrollbar with one step per row.
+//! It scrolls like a list box: a scrollbar with one step per row of text. A
+//! row can be several of those tall (a photo's row, with its picture; see
+//! `remember_units`), and is drawn as `ui::message_art` says - a bubble, a
+//! picture - while the screen reader is still given only its text.
 //!
 //! The keyboard handling follows Fedra's timeline list (MIT, Quin Gillespie).
 
@@ -36,9 +39,9 @@ const FIRST_ROW_ID: u64 = 16;
 /// edge of what's described re-centres it.
 const HALF_WINDOW: usize = 100;
 const MARGIN: usize = 20;
-/// Characters drawn per row. The screen reader still gets all of it.
-const DRAWN_CHARS: usize = 400;
 const TYPE_AHEAD_RESET_MS: u128 = 1000;
+/// Space above and below a row's text, room for its bubble.
+const ROW_PADDING: i32 = 12;
 const WX_WANTS_CHARS: i64 = 0x0004_0000;
 
 struct Row {
@@ -48,6 +51,8 @@ struct Row {
 	text: String,
 	/// Only in a checkable list (see `set_checkable`).
 	checked: bool,
+	/// How many rows of text tall it's drawn (see `remember_units`).
+	units: u8,
 }
 
 #[derive(Default)]
@@ -74,13 +79,47 @@ struct State {
 	after: usize,
 	/// Rows have check boxes, as in a `CheckListBox` (see `set_checkable`).
 	checkable: bool,
+	/// Rows taller than one line, by key (see `remember_units`).
+	units_by_key: HashMap<String, u8>,
+	/// Where each row starts, in rows of text from the top; one more entry
+	/// than there are rows, the last being the total.
+	starts: Vec<usize>,
 }
 
 impl State {
 	fn new_row(&mut self, key: &str, text: &str) -> Row {
 		let id = self.next_id.max(FIRST_ROW_ID);
 		self.next_id = id + 1;
-		Row { id, key: key.to_string(), text: text.to_string(), checked: false }
+		Row { id, key: key.to_string(), text: text.to_string(), checked: false, units: self.units_of(key) }
+	}
+
+	fn units_of(&self, key: &str) -> u8 {
+		if key.is_empty() { 1 } else { self.units_by_key.get(key).copied().unwrap_or(1).max(1) }
+	}
+
+	/// Works out where every row starts again, after rows came or went.
+	fn reflow(&mut self) {
+		let mut at = 0;
+		self.starts.clear();
+		self.starts.reserve(self.rows.len() + 1);
+		for row in &self.rows {
+			self.starts.push(at);
+			at += row.units as usize;
+		}
+		self.starts.push(at);
+	}
+
+	fn total_units(&self) -> usize {
+		self.starts.last().copied().unwrap_or(0)
+	}
+
+	fn start_of(&self, row: usize) -> usize {
+		self.starts.get(row).copied().unwrap_or_else(|| self.total_units())
+	}
+
+	/// The row covering line `unit` of the whole list.
+	fn row_at_unit(&self, unit: usize) -> usize {
+		self.starts.partition_point(|&s| s <= unit).saturating_sub(1).min(self.rows.len().saturating_sub(1))
 	}
 
 	/// Re-centres `exposed` on the cursor (or the end of the chat) when it has
@@ -158,7 +197,8 @@ impl State {
 					if selected_key.as_deref() == Some(key) {
 						cursor_text = Some((id, old_text));
 					}
-					rows.push(Row { id, key: key.to_string(), text: text.to_string(), checked: false });
+					let units = self.units_of(key);
+					rows.push(Row { id, key: key.to_string(), text: text.to_string(), checked: false, units });
 				}
 				_ => rows.push(self.new_row(key, text)),
 			}
@@ -175,6 +215,10 @@ impl State {
 			_ => None,
 		};
 		self.rows = rows;
+		// Units of messages no longer here aren't needed.
+		let present: std::collections::HashSet<&str> = keys.iter().copied().collect();
+		self.units_by_key.retain(|k, _| present.contains(k.as_str()));
+		self.reflow();
 		self.expose(true);
 	}
 
@@ -197,7 +241,11 @@ struct Shared {
 	adapter: RefCell<Option<SubclassingAdapter>>,
 	on_selection_changed: RefCell<Option<SelectionCallback>>,
 	on_toggled: RefCell<Option<SelectionCallback>>,
+	looks: RefCell<Option<LookSource>>,
 }
+
+/// Gives a row's look from its index and key (see `set_look_source`).
+type LookSource = Rc<dyn Fn(usize, &str) -> Option<super::message_art::Look>>;
 
 thread_local! {
 	static LISTS: RefCell<Vec<Rc<Shared>>> = const { RefCell::new(Vec::new()) };
@@ -294,12 +342,14 @@ impl MessageList {
 			label: label.to_string(),
 			state: RefCell::new(State {
 				next_id: FIRST_ROW_ID,
-				row_height: panel.get_char_height().max(1) + 6,
+				row_height: panel.get_char_height().max(1) + ROW_PADDING,
+				starts: vec![0],
 				..Default::default()
 			}),
 			adapter: RefCell::new(None),
 			on_selection_changed: RefCell::new(None),
 			on_toggled: RefCell::new(None),
+			looks: RefCell::new(None),
 		});
 		let slot = LISTS.with(|l| {
 			let mut l = l.borrow_mut();
@@ -410,7 +460,7 @@ impl MessageList {
 		let shared = self.shared();
 		{
 			let mut state = shared.state.borrow_mut();
-			state.top = self.view_top();
+			state.top = self.view_top(&state);
 			let pos = (pos as usize).min(state.rows.len());
 			let new: Vec<Row> =
 				texts.iter().enumerate().map(|(i, t)| state.new_row(keys.get(i).copied().unwrap_or(""), t)).collect();
@@ -422,6 +472,7 @@ impl MessageList {
 			if state.top >= pos && pos > 0 {
 				state.top += n;
 			}
+			state.reflow();
 			state.expose(true);
 		}
 		self.apply_view(&shared);
@@ -438,7 +489,7 @@ impl MessageList {
 			if index >= state.rows.len() {
 				return;
 			}
-			state.top = self.view_top();
+			state.top = self.view_top(&state);
 			state.rows.remove(index);
 			state.selected = match state.selected {
 				Some(s) if s == index => None,
@@ -449,6 +500,7 @@ impl MessageList {
 				state.top -= 1;
 			}
 			state.top = state.top.min(state.rows.len().saturating_sub(1));
+			state.reflow();
 			state.expose(true);
 		}
 		self.apply_view(&shared);
@@ -466,6 +518,7 @@ impl MessageList {
 			state.selected = None;
 			state.frozen = None;
 			state.top = 0;
+			state.reflow();
 			state.expose(true);
 		}
 		self.apply_view(&shared);
@@ -482,7 +535,7 @@ impl MessageList {
 		let shared = self.shared();
 		{
 			let mut state = shared.state.borrow_mut();
-			state.top = self.view_top();
+			state.top = self.view_top(&state);
 			state.replace_keyed(keys, texts, self.panel.has_focus());
 			self.scroll_into_view(&mut state);
 		}
@@ -503,6 +556,8 @@ impl MessageList {
 			state.exposed = 0..0;
 			state.before = 0;
 			state.after = 0;
+			state.units_by_key = HashMap::new();
+			state.reflow();
 		}
 		self.apply_view(&shared);
 		self.sync(&shared);
@@ -565,6 +620,48 @@ impl MessageList {
 		*self.shared().on_selection_changed.borrow_mut() = Some(Rc::new(callback));
 	}
 
+	/// Says how many rows of text tall the rows with these keys are drawn
+	/// (a photo's row is taller, for its picture). Rows already there change
+	/// at once; rows added later with one of these keys take it.
+	pub fn remember_units(&self, units: &[(&str, u8)]) {
+		if units.is_empty() {
+			return;
+		}
+		let shared = self.shared();
+		let changed = {
+			let mut state = shared.state.borrow_mut();
+			let mut changed = false;
+			for &(key, n) in units {
+				let n = n.max(1);
+				if n == 1 {
+					state.units_by_key.remove(key);
+				} else {
+					state.units_by_key.insert(key.to_string(), n);
+				}
+				for row in state.rows.iter_mut().filter(|r| r.key == key && r.units != n) {
+					row.units = n;
+					changed = true;
+				}
+			}
+			if changed {
+				let top = self.view_top(&state);
+				state.top = top;
+				state.reflow();
+			}
+			changed
+		};
+		if changed {
+			self.apply_view(&shared);
+			self.panel.refresh(false, None);
+		}
+	}
+
+	/// Where rows get their look (bubble, picture) from: called with a row's
+	/// index and key while painting it. None draws the row's text plainly.
+	pub fn set_look_source(&self, source: impl Fn(usize, &str) -> Option<super::message_art::Look> + 'static) {
+		*self.shared().looks.borrow_mut() = Some(Rc::new(source));
+	}
+
 	// --- Internals ---
 
 	/// Hands the screen reader the current tree, if one is listening.
@@ -587,7 +684,7 @@ impl MessageList {
 		let thawed = {
 			let mut state = shared.state.borrow_mut();
 			state.expose(false);
-			state.top = self.view_top();
+			state.top = self.view_top(&state);
 			self.scroll_into_view(&mut state);
 			let focus = state.focus_id();
 			state.frozen.as_ref().is_some_and(|(id, _)| NodeId(*id) != focus)
@@ -601,28 +698,36 @@ impl MessageList {
 		self.panel.refresh(false, None);
 	}
 
-	fn visible_rows(&self, state: &State) -> usize {
+	/// Rows of text the window has room for.
+	fn visible_units(&self, state: &State) -> usize {
 		let height = self.panel.get_client_size().height;
 		(height / state.row_height.max(1)).max(1) as usize
 	}
 
-	/// The top row as the scrollbar has it (the user may have scrolled).
-	fn view_top(&self) -> usize {
-		self.panel.get_view_start().1.max(0) as usize
+	/// Rows that fit from the top row down, at least one.
+	fn visible_rows(&self, state: &State) -> usize {
+		let room = state.start_of(state.top) + self.visible_units(state);
+		(state.top..state.rows.len()).take_while(|&i| state.start_of(i + 1) <= room).count().max(1)
 	}
 
-	/// Sets the scrollbar up for the rows (one unit per row) and moves it to
-	/// `state.top`. Runs outside any borrow of the state: scrolling can paint.
+	/// The top row as the scrollbar has it (the user may have scrolled).
+	fn view_top(&self, state: &State) -> usize {
+		state.row_at_unit(self.panel.get_view_start().1.max(0) as usize)
+	}
+
+	/// Sets the scrollbar up for the rows (one unit per row of text) and moves
+	/// it to `state.top`. Runs outside any borrow of the state: scrolling can
+	/// paint.
 	fn apply_view(&self, shared: &Shared) {
 		let (len, row_height, top, changed) = {
 			let mut state = shared.state.borrow_mut();
-			let shape = (state.rows.len(), state.row_height.max(1));
+			let shape = (state.total_units(), state.row_height.max(1));
 			let changed = state.scrollbar != shape;
 			state.scrollbar = shape;
-			state.top = state.top.min(shape.0.saturating_sub(1));
-			(shape.0, shape.1, state.top, changed)
+			state.top = state.top.min(state.rows.len().saturating_sub(1));
+			(shape.0, shape.1, state.start_of(state.top), changed)
 		};
-		let top = top as i32;
+		let top = top.min(i32::MAX as usize) as i32;
 		if changed {
 			self.panel.set_scrollbars(ScrollBarConfig {
 				pixels_per_unit_x: 0,
@@ -641,11 +746,18 @@ impl MessageList {
 
 	fn scroll_into_view(&self, state: &mut State) {
 		let Some(sel) = state.selected else { return };
-		let visible = self.visible_rows(state);
+		let room = self.visible_units(state);
 		if sel < state.top {
 			state.top = sel;
-		} else if sel >= state.top + visible {
-			state.top = sel + 1 - visible;
+		} else if state.start_of(sel + 1) > state.start_of(state.top) + room {
+			// The highest top that still shows all of it (or its start, when
+			// it's taller than the window).
+			let end = state.start_of(sel + 1);
+			let mut top = sel;
+			while top > state.top && end - state.start_of(top - 1) <= room {
+				top -= 1;
+			}
+			state.top = top;
 		}
 	}
 
@@ -700,7 +812,7 @@ impl MessageList {
 			let shared = list.shared();
 			{
 				let mut state = shared.state.borrow_mut();
-				state.top = list.view_top();
+				state.top = list.view_top(&state);
 				list.scroll_into_view(&mut state);
 			}
 			list.apply_view(&shared);
@@ -803,8 +915,8 @@ impl MessageList {
 	fn row_at(&self, y: i32) -> Option<usize> {
 		let shared = self.shared();
 		let state = shared.state.borrow();
-		let index = self.view_top() + (y.max(0) / state.row_height.max(1)) as usize;
-		(index < state.rows.len()).then_some(index)
+		let unit = self.panel.get_view_start().1.max(0) as usize + (y.max(0) / state.row_height.max(1)) as usize;
+		(unit < state.total_units()).then(|| state.row_at_unit(unit))
 	}
 
 	/// Moves focus to the next (or previous) control in tab order, as Tab
@@ -943,7 +1055,8 @@ impl MessageList {
 		let shared = self.shared();
 		// Painting can happen inside a scroll the list itself started.
 		let Ok(mut state) = shared.state.try_borrow_mut() else { return };
-		state.top = self.view_top().min(state.rows.len().saturating_sub(1));
+		let top = self.view_top(&state);
+		state.top = top;
 		let (width, height) = {
 			let size = self.panel.get_client_size();
 			(size.width, size.height)
@@ -953,11 +1066,10 @@ impl MessageList {
 		dc.set_brush(background, BrushStyle::Solid);
 		dc.set_pen(background, 1, PenStyle::Solid);
 		dc.draw_rectangle(0, 0, width, height);
-		if let Some(font) = self.panel.get_font() {
-			dc.set_font(&font);
-		}
+		let Some(font) = self.panel.get_font() else { return };
+		dc.set_font(&font);
 		dc.set_background_mode(BackgroundMode::Transparent);
-		let row_height = (dc.get_text_extent("Ag").1 + 6).max(1);
+		let row_height = (dc.get_text_extent("Ag").1 + ROW_PADDING).max(1);
 		if state.row_height != row_height {
 			// A new font (the theme's, or another screen's scale): the
 			// scrollbar's steps are rows, so it's set up again after this paint.
@@ -970,39 +1082,39 @@ impl MessageList {
 			}));
 		}
 		let focused = self.panel.has_focus();
-		let (highlight, highlight_text) = if focused {
-			(
-				SystemSettings::get_colour(SystemColour::Highlight),
-				SystemSettings::get_colour(SystemColour::HighlightText),
-			)
-		} else {
-			(SystemSettings::get_colour(SystemColour::BtnFace), SystemSettings::get_colour(SystemColour::BtnText))
-		};
-		let mut y = 0;
+		let looks = shared.looks.borrow().clone();
+		// The top row may be scrolled partly out of view.
+		let view_unit = self.panel.get_view_start().1.max(0) as usize;
+		let mut y = -((view_unit.saturating_sub(state.start_of(state.top))) as i32) * row_height;
 		let mut index = state.top;
 		while y < height && index < state.rows.len() {
-			let selected = state.selected == Some(index);
-			if selected {
-				dc.set_brush(highlight, BrushStyle::Solid);
-				dc.set_pen(highlight, 1, PenStyle::Solid);
-				dc.draw_rectangle(0, y, width, row_height);
-				dc.set_text_foreground(highlight_text);
-			} else {
-				dc.set_text_foreground(foreground);
-			}
 			let row = &state.rows[index];
-			let check = match (state.checkable, row.checked) {
-				(false, _) => "",
-				(true, true) => "[x] ",
-				(true, false) => "[ ] ",
-			};
-			let line: String = check
-				.chars()
-				.chain(row.text.chars().take(DRAWN_CHARS))
-				.map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
-				.collect();
-			dc.draw_text(&line, 4, y + 3);
-			y += row_height;
+			let mut look = looks.as_ref().and_then(|source| source(index, &row.key));
+			// A row not given the room for its picture (selection mode's
+			// list, say) goes without it.
+			if let Some(super::message_art::Look::Bubble(bubble)) = &mut look
+				&& row.units < super::message_art::TALL_UNITS
+			{
+				bubble.thumbs.clear();
+			}
+			super::message_art::paint_row(
+				&dc,
+				&font,
+				background,
+				foreground,
+				super::message_art::RowPaint {
+					y,
+					width,
+					unit: row_height,
+					units: row.units,
+					look: look.as_ref(),
+					text: &row.text,
+					selected: state.selected == Some(index),
+					focused,
+					check: state.checkable.then_some(row.checked),
+				},
+			);
+			y += row_height * row.units as i32;
 			index += 1;
 		}
 	}

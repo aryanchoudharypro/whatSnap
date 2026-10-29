@@ -426,6 +426,8 @@ fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>
 	// screen reader's object for it) on the same message.
 	let keys: Vec<String> = shown.iter().zip(&rows).map(|(item, text)| message_row_key(item, text)).collect();
 	let key_refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+	// Photos' rows are taller, for their pictures.
+	parts.conversations_parts.messages_list.remember_units(&crate::ui::message_art::tall_rows(shown));
 	// The message the cursor is on (or just below, on a divider), to keep it
 	// there when an older page lands while the user reads near the top.
 	let cursor_id = parts
@@ -2234,7 +2236,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									.set_string(last_idx as u32, &merged.format_display(is_group));
 								s.display_items.push(merged);
 							} else {
-								s.display_items.push(whatsnap::DisplayItem::Single(chat_msg.clone()));
+								let item = whatsnap::DisplayItem::Single(chat_msg.clone());
+								parts
+									.conversations_parts
+									.messages_list
+									.remember_units(&crate::ui::message_art::tall_rows(std::slice::from_ref(&item)));
+								s.display_items.push(item);
 								parts
 									.conversations_parts
 									.messages_list
@@ -3962,6 +3969,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					.unwrap_or_else(|| "the group".to_string());
 				crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Joined {}.", name));
 			}
+			"thumbnails" => {
+				if let Some(data) = val.get("data") {
+					crate::ui::thumbnails::on_thumbnails(data);
+				}
+			}
 			"avatar_previews" => {
 				if let Some(data) = val.get("data") {
 					crate::ui::avatars::on_previews(data);
@@ -4638,6 +4650,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("").to_string();
 					let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("").to_string();
 					let clean_filename = ChatMessage::sanitize_filename(&filename);
+					// A downloaded photo makes a sharper picture than its preview.
+					crate::ui::thumbnails::forget(&msg_id);
+					parts.conversations_parts.messages_list.refresh(false, None);
 
 					let mut s = state.borrow_mut();
 					s.downloads_in_progress.remove(&msg_id);

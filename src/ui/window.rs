@@ -837,6 +837,33 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	// The message lists draw bubbles and pictures; what they look like comes
+	// from the messages behind the rows.
+	let (messages_list, select_list) =
+		(parts.conversations_parts.messages_list, parts.conversations_parts.messages_select_list);
+	crate::ui::thumbnails::init(state.borrow().ws_tx.clone(), move || {
+		messages_list.refresh(false, None);
+		select_list.refresh(false, None);
+	});
+	for selecting in [false, true] {
+		let list = if selecting { select_list } else { messages_list };
+		let state_looks = state.clone();
+		list.set_look_source(move |index, key| {
+			let Ok(s) = state_looks.try_borrow() else {
+				// Drawn while the chat is being updated: draw it again after.
+				wxdragon::call_after(Box::new(move || list.refresh(false, None)));
+				return None;
+			};
+			let item = if selecting { s.selection_rows.get(index) } else { s.display_items.get(index) }?;
+			// A divider's key is its text; a message's, its id.
+			if !key.is_empty() && !key.starts_with('\u{1}') && item.id() != key {
+				return None;
+			}
+			let is_group = s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@g.us"));
+			Some(crate::ui::message_art::look_for(item, is_group))
+		});
+	}
+
 	let tx_select = ui_tx.clone();
 	parts.conversations_parts.conversations_list.on_selection_changed(move |event| {
 		if let Some(idx) = event.get_selection() {

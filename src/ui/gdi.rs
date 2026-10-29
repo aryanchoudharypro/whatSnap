@@ -90,7 +90,7 @@ impl Bitmap {
 
 /// How much of the pixel at (x, y) a rounded rectangle `w` x `h` with
 /// corner `radius` covers, smoothed over one pixel.
-fn round_rect_coverage(x: i32, y: i32, w: i32, h: i32, radius: f32) -> f32 {
+pub(crate) fn round_rect_coverage(x: i32, y: i32, w: i32, h: i32, radius: f32) -> f32 {
 	let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
 	let cx = px.clamp(radius, w as f32 - radius);
 	let cy = py.clamp(radius, h as f32 - radius);
@@ -100,7 +100,12 @@ fn round_rect_coverage(x: i32, y: i32, w: i32, h: i32, radius: f32) -> f32 {
 
 /// A filled rounded rectangle (a circle when it's square with `radius` half
 /// its side, a pill when `radius` is half its height).
-pub(crate) fn round_rect(w: i32, h: i32, radius: f32, (r, g, b): (u8, u8, u8)) -> Option<Bitmap> {
+pub(crate) fn round_rect(w: i32, h: i32, radius: f32, colour: (u8, u8, u8)) -> Option<Bitmap> {
+	Bitmap::from_rgba(w, h, &round_rect_rgba(w, h, radius, colour, 255))
+}
+
+/// The pixels of `round_rect` (straight RGBA), at most `alpha` opaque.
+pub(crate) fn round_rect_rgba(w: i32, h: i32, radius: f32, (r, g, b): (u8, u8, u8), alpha: u8) -> Vec<u8> {
 	let mut rgba = vec![0u8; (w.max(0) * h.max(0) * 4) as usize];
 	for y in 0..h {
 		for x in 0..w {
@@ -108,10 +113,10 @@ pub(crate) fn round_rect(w: i32, h: i32, radius: f32, (r, g, b): (u8, u8, u8)) -
 			rgba[i] = r;
 			rgba[i + 1] = g;
 			rgba[i + 2] = b;
-			rgba[i + 3] = (round_rect_coverage(x, y, w, h, radius) * 255.0) as u8;
+			rgba[i + 3] = (round_rect_coverage(x, y, w, h, radius) * alpha as f32) as u8;
 		}
 	}
-	Bitmap::from_rgba(w, h, &rgba)
+	rgba
 }
 
 /// Cuts a `size` x `size` circle from the middle of a picture, shrinking it

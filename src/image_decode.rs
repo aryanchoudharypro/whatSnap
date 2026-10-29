@@ -27,9 +27,37 @@ pub(crate) fn fit_within(width: u32, height: u32, max_edge: u32) -> (u32, u32) {
 	(scale(width), scale(height))
 }
 
+/// The size `width` x `height` scales to so that it fits in a `max_width` x
+/// `max_height` box, keeping its shape. Never scales up.
+pub(crate) fn fit_in_box(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u32) {
+	if width == 0 || height == 0 || (width <= max_width && height <= max_height) {
+		return (width, height);
+	}
+	let (w, h, mw, mh) = (width as u64, height as u64, max_width as u64, max_height as u64);
+	// Whichever side runs out of room first decides the scale.
+	if w * mh >= h * mw {
+		(max_width.max(1), ((h * mw + w / 2) / w).max(1) as u32)
+	} else {
+		(((w * mh + h / 2) / h).max(1) as u32, max_height.max(1))
+	}
+}
+
 /// The picture at `path` as (width, height, RGBA), at most `max_edge` pixels
 /// on its longest side. Runs on the UI thread, which wx has set up for COM.
 pub(crate) fn decode_rgba(path: &str, max_edge: u32) -> crate::error::Result<(u32, u32, Vec<u8>)> {
+	decode_rgba_with(path, |w, h| fit_within(w, h, max_edge))
+}
+
+/// `decode_rgba`, fitted into a `max_width` x `max_height` box instead.
+pub(crate) fn decode_rgba_in_box(
+	path: &str,
+	max_width: u32,
+	max_height: u32,
+) -> crate::error::Result<(u32, u32, Vec<u8>)> {
+	decode_rgba_with(path, |w, h| fit_in_box(w, h, max_width, max_height))
+}
+
+fn decode_rgba_with(path: &str, fit: impl Fn(u32, u32) -> (u32, u32)) -> crate::error::Result<(u32, u32, Vec<u8>)> {
 	unsafe {
 		let factory: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)?;
 		let decoder = factory.CreateDecoderFromFilename(
@@ -41,7 +69,7 @@ pub(crate) fn decode_rgba(path: &str, max_edge: u32) -> crate::error::Result<(u3
 		let frame = decoder.GetFrame(0)?;
 		let (mut width, mut height) = (0u32, 0u32);
 		frame.GetSize(&mut width, &mut height)?;
-		let (out_w, out_h) = fit_within(width, height, max_edge);
+		let (out_w, out_h) = fit(width, height);
 		let mut source: IWICBitmapSource = frame.cast()?;
 		if (out_w, out_h) != (width, height) {
 			let scaler = factory.CreateBitmapScaler()?;
@@ -78,6 +106,15 @@ mod tests {
 	fn never_scales_up() {
 		assert_eq!(fit_within(640, 480, 1000), (640, 480));
 		assert_eq!(fit_within(0, 0, 1000), (0, 0));
+	}
+
+	#[test]
+	fn fits_a_box_by_the_side_that_runs_out_first() {
+		use super::fit_in_box;
+		assert_eq!(fit_in_box(400, 300, 160, 120), (160, 120));
+		assert_eq!(fit_in_box(300, 600, 160, 120), (60, 120));
+		assert_eq!(fit_in_box(1000, 100, 160, 120), (160, 16));
+		assert_eq!(fit_in_box(80, 60, 160, 120), (80, 60));
 	}
 
 	#[test]
