@@ -670,16 +670,19 @@ impl ChatMessage {
 			format!("{}, {}", reactions_suffix, self.channel_stats)
 		};
 
+		// "hi?," is read with the question mark swallowed by the comma; a space keeps it audible.
+		let sep = if format!("{}{}", body, reply_suffix).ends_with(['?', '!']) { " ," } else { "," };
+
 		if self.from_me {
 			if !formatted_time.is_empty() {
 				format!(
-					"You: {}{}, sent at {}, {}{}{}{}",
-					body, reply_suffix, formatted_time, status_title, reactions_suffix, edit_suffix, star_suffix
+					"You: {}{}{} sent at {}, {}{}{}{}",
+					body, reply_suffix, sep, formatted_time, status_title, reactions_suffix, edit_suffix, star_suffix
 				)
 			} else {
 				format!(
-					"You: {}{}, {}{}{}{}",
-					body, reply_suffix, status_title, reactions_suffix, edit_suffix, star_suffix
+					"You: {}{}{} {}{}{}{}",
+					body, reply_suffix, sep, status_title, reactions_suffix, edit_suffix, star_suffix
 				)
 			}
 		} else {
@@ -693,8 +696,8 @@ impl ChatMessage {
 
 			if !formatted_time.is_empty() {
 				format!(
-					"{}: {}{}, received at {}{}{}{}",
-					name, body, reply_suffix, formatted_time, reactions_suffix, edit_suffix, star_suffix
+					"{}: {}{}{} received at {}{}{}{}",
+					name, body, reply_suffix, sep, formatted_time, reactions_suffix, edit_suffix, star_suffix
 				)
 			} else {
 				format!("{}: {}{}{}{}{}", name, body, reply_suffix, reactions_suffix, edit_suffix, star_suffix)
