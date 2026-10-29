@@ -220,12 +220,27 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 		join_group_call(state, parts, join);
 		return;
 	}
+	state.borrow_mut().selected_chat = Some(jid.clone());
+	dial(state, parts, jid, video);
+}
+
+/// Contact info's "Voice call" / "Video call": call the person it shows,
+/// whether or not their chat is the open one. Unlike the chat's own call
+/// buttons this leaves the open chat alone, so the composer can't end up
+/// sending to the person called.
+pub(crate) fn call_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, video: bool) {
+	if crate::ui_commands::blocking::stop_if_blocked_jid(state, parts, &jid) || !can_call(&state.borrow(), &jid) {
+		return;
+	}
+	dial(state, parts, jid, video);
+}
+
+fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, video: bool) {
 	let msg = serde_json::json!({
 		"action": "place_call",
 		"data": { "jid": jid, "video": video }
 	});
 	let mut s = state.borrow_mut();
-	s.selected_chat = Some(jid.clone());
 	let _ = s.ws_tx.send(msg.to_string());
 	s.call_placing = true;
 	s.call_pending_cancel = false;

@@ -92,7 +92,7 @@ pub(crate) fn call_log(parts: &WindowParts, state: &AppState, event: &str, call_
 /// deleting them as a contact changed what it shows.
 fn refresh_open_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let s = state.borrow();
-	let Some(jid) = s.selected_chat.as_deref() else { return };
+	let Some(jid) = s.info_chat.as_deref() else { return };
 	if parts.conversation_data_dialog.dialog.is_shown() {
 		let payload = serde_json::json!({ "action": "get_user_info", "data": { "jid": jid } });
 		let _ = s.ws_tx.send(payload.to_string());
@@ -2906,7 +2906,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				}
 				let Some(data) = val.get("data").and_then(|d| ChatMedia::deserialize(d).ok()) else { return };
 				let mut s = state.borrow_mut();
-				if s.selected_chat.as_deref() != Some(data.jid.as_str()) {
+				let jid = Some(data.jid.as_str());
+				if s.selected_chat.as_deref() != jid && s.info_chat.as_deref() != jid {
 					return;
 				}
 				let found: Vec<whatsnap::Msg> =
@@ -3916,7 +3917,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
 					let s = state.borrow();
 					let is_relevant =
-						s.selected_chat.as_deref() == Some(jid) && parts.conversation_data_dialog.dialog.is_shown();
+						s.info_chat.as_deref() == Some(jid) && parts.conversation_data_dialog.dialog.is_shown();
 					if is_relevant {
 						let payload = serde_json::json!({
 							"action": "get_user_info",
@@ -3942,7 +3943,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					let full_name = data.get("fullName").and_then(|f| f.as_str()).unwrap_or("");
 
 					let s = state.borrow();
-					if Some(jid.to_string()) == s.selected_chat {
+					if s.info_chat.as_deref() == Some(jid) {
 						let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
 						// The backend's number is right for a chat kept by LID too.
 						let raw_phone = data

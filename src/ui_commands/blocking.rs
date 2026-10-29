@@ -166,13 +166,18 @@ pub(crate) fn show_blocked_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 /// to someone you've blocked, so, like the official apps, offer to unblock
 /// them instead. Returns true when the send should stop here.
 pub(crate) fn stop_if_blocked(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
-	let (jid, name) = {
+	let Some(jid) = state.borrow().selected_chat.clone() else { return false };
+	stop_if_blocked_jid(state, parts, &jid)
+}
+
+/// `stop_if_blocked` for a chat that needn't be the open one.
+pub(crate) fn stop_if_blocked_jid(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) -> bool {
+	let name = {
 		let s = state.borrow();
-		let Some(jid) = s.selected_chat.clone().filter(|jid| is_blocked(&s, jid)) else {
+		if !is_blocked(&s, jid) {
 			return false;
-		};
-		let name = chat_name(&s, &jid);
-		(jid, name)
+		}
+		chat_name(&s, jid)
 	};
 	let question = format!("You blocked {name}. Unblock them to message or call them?");
 	let answer = MessageDialog::builder(&parts.frame, &question, "Blocked contact")
@@ -180,7 +185,7 @@ pub(crate) fn stop_if_blocked(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		.build()
 		.show_modal();
 	if answer == ID_YES {
-		send(state, "unblock_contact", &jid);
+		send(state, "unblock_contact", jid);
 		announce(state, parts, &format!("Unblocking {name}..."));
 	}
 	true

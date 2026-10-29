@@ -215,9 +215,15 @@ pub(crate) fn pinned_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		.send(UiCommand::JumpToSearchResult { message_id: id.clone(), message_text: String::new() });
 }
 
-/// Chat menu > "Advanced Chat Privacy...": find out whether it's on first.
+/// Chat menu or contact info > "Advanced Chat Privacy...": find out whether
+/// it's on first. Contact info may be showing a chat that isn't open.
 pub(crate) fn show_chat_privacy(state: &Rc<RefCell<AppState>>) {
-	let Some(jid) = state.borrow().selected_chat.clone() else { return };
+	let Some(jid) = ({
+		let s = state.borrow();
+		s.info_chat.clone().or_else(|| s.selected_chat.clone())
+	}) else {
+		return;
+	};
 	if jid.ends_with("@newsletter") || jid.ends_with("@broadcast") {
 		return;
 	}
@@ -229,7 +235,11 @@ pub(crate) fn show_chat_privacy(state: &Rc<RefCell<AppState>>) {
 /// that's only explained.
 pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|v| v.as_str()).unwrap_or("").to_string();
-	if !state.borrow().selected_chat.as_deref().is_some_and(|sel| same_chat(sel, &jid)) {
+	let asked = {
+		let s = state.borrow();
+		[&s.info_chat, &s.selected_chat].into_iter().flatten().any(|chat| same_chat(chat, &jid))
+	};
+	if !asked {
 		return;
 	}
 	// Over the contact info page when it was asked from there.

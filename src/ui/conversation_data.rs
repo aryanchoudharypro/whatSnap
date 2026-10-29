@@ -14,6 +14,9 @@ pub struct ConversationDataDialogParts {
 	// Info tab
 	pub info_panel: Panel,
 	pub info_field: TextCtrl,
+	/// Hidden for a chat that can't be called, such as a broadcast list.
+	pub voice_call_btn: Button,
+	pub video_call_btn: Button,
 	/// "Add contact" when the person isn't saved, "Edit contact" when they are.
 	pub contact_btn: Button,
 	/// Only shown while the person is saved.
@@ -42,7 +45,7 @@ pub struct ConversationDataDialogParts {
 }
 
 pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDataDialogParts {
-	let dialog = Dialog::builder(parent, "Conversation Data").with_size(600, 500).build();
+	let dialog = Dialog::builder(parent, "Contact Info").with_size(600, 500).build();
 	theme::style_content(&dialog);
 	let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
@@ -65,6 +68,10 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 
 	// What WhatsApp's contact info offers for the person and the chat.
 	let actions_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let voice_call_btn = Button::builder(&info_panel).with_label("Voice call").build();
+	actions_sizer.add(&voice_call_btn, 0, SizerFlag::Right, 5);
+	let video_call_btn = Button::builder(&info_panel).with_label("Video call").build();
+	actions_sizer.add(&video_call_btn, 0, SizerFlag::Right, 5);
 	let contact_btn = Button::builder(&info_panel).with_label("Edit contact").build();
 	actions_sizer.add(&contact_btn, 0, SizerFlag::Right, 5);
 	let delete_contact_btn = Button::builder(&info_panel).with_label("Delete contact").build();
@@ -131,6 +138,8 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 		notebook,
 		info_panel,
 		info_field,
+		voice_call_btn,
+		video_call_btn,
 		contact_btn,
 		delete_contact_btn,
 		chat_privacy_btn,

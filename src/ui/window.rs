@@ -110,8 +110,14 @@ fn wire_media_list(
 			&& let Some(msg) = get_message_enter(&state_enter.borrow(), idx as usize)
 		{
 			dialog_enter.end_modal(0);
-			let _ = tx_enter
-				.send(UiCommand::JumpToSearchResult { message_id: msg.id.clone(), message_text: String::new() });
+			let other_chat = {
+				let s = state_enter.borrow();
+				s.info_chat.clone().filter(|jid| s.selected_chat.as_ref() != Some(jid))
+			};
+			let _ = tx_enter.send(match other_chat {
+				Some(jid) => UiCommand::OpenChatAtMessage { jid, message_id: msg.id.clone() },
+				None => UiCommand::JumpToSearchResult { message_id: msg.id.clone(), message_text: String::new() },
+			});
 		}
 	});
 
@@ -1082,6 +1088,20 @@ pub fn bind_input_handlers(
 		}
 		event.skip(true);
 	});
+
+	for (button, video) in
+		[(parts.conversation_data_dialog.voice_call_btn, false), (parts.conversation_data_dialog.video_call_btn, true)]
+	{
+		let tx_call = ui_tx.clone();
+		let state_call = state.clone();
+		let info_dialog = parts.conversation_data_dialog.dialog;
+		button.on_click(move |_| {
+			let Some(jid) = state_call.borrow().info_chat.clone() else { return };
+			// The call window can't be used under a modal dialog.
+			info_dialog.end_modal(wxdragon::id::ID_CANCEL);
+			let _ = tx_call.send(UiCommand::CallContact { jid, video });
+		});
+	}
 
 	let tx_contact = ui_tx.clone();
 	parts.conversation_data_dialog.contact_btn.on_click(move |_| {
@@ -3013,6 +3033,7 @@ pub fn bind_input_handlers(
 			let block_id = 4015;
 			let favorite_id = 4016;
 			let lists_id = 4017;
+			let contact_info_id = 4040;
 
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
@@ -3031,6 +3052,16 @@ pub fn bind_input_handlers(
 				drop(s);
 
 				let mut menu_builder = Menu::builder();
+				// A person's chat leads with their info, as WhatsApp's chat
+				// header does.
+				let is_person = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
+				if is_person {
+					menu_builder = menu_builder.append_item(
+						contact_info_id,
+						"&Contact info",
+						"See this contact's info, call them, or edit or delete the contact",
+					);
+				}
 
 				let pin_label = if is_pinned { "Un&pin chat" } else { "&Pin chat" };
 				let archive_label = if is_archived { "&Unarchive chat" } else { "&Archive chat" };
@@ -3068,7 +3099,7 @@ pub fn bind_input_handlers(
 						if is_group { "Report this group to WhatsApp" } else { "Report this contact to WhatsApp" };
 					menu_builder = menu_builder.append_item(report_id, "Re&port...", what);
 				}
-				if jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid") {
+				if is_person {
 					menu_builder = if is_blocked {
 						menu_builder.append_item(
 							block_id,
@@ -3090,9 +3121,10 @@ pub fn bind_input_handlers(
 				// Muting asks how long for, as on WhatsApp Web; unmuting and
 				// channels (which have no lengths) stay one item. It goes after
 				// pin, archive and lock either way.
+				let mute_pos = if is_person { 4 } else { 3 };
 				if is_muted || !crate::ui_commands::chat_list::has_mute_durations(&jid) {
 					let label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
-					popup_menu.insert(3, mute_id, label, "Mute or unmute notifications", ItemKind::Normal);
+					popup_menu.insert(mute_pos, mute_id, label, "Mute or unmute notifications", ItemKind::Normal);
 				} else {
 					let ui_tx_mute = ui_tx_chat_ctx.clone();
 					let jid_mute = jid.clone();
@@ -3100,7 +3132,12 @@ pub fn bind_input_handlers(
 						let _ =
 							ui_tx_mute.send(UiCommand::ToggleMuteChat { jid: jid_mute.clone(), mute: true, seconds });
 					});
-					popup_menu.insert_submenu(3, mute_menu, "&Mute notifications", "Choose how long to mute this chat");
+					popup_menu.insert_submenu(
+						mute_pos,
+						mute_menu,
+						"&Mute notifications",
+						"Choose how long to mute this chat",
+					);
 				}
 
 				// Archived chats are silent by default; this submenu is where one
@@ -3162,7 +3199,9 @@ pub fn bind_input_handlers(
 
 				popup_menu.on_selected(move |menu_evt| {
 					let id = menu_evt.get_id();
-					if id == pin_id {
+					if id == contact_info_id {
+						let _ = ui_tx_clone.send(UiCommand::ShowContactInfo(jid_clone.clone()));
+					} else if id == pin_id {
 						let _ = ui_tx_clone.send(UiCommand::TogglePinChat { jid: jid_clone.clone(), pin: !is_pinned });
 					} else if id == archive_id {
 						let _ = ui_tx_clone

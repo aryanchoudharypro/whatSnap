@@ -587,55 +587,83 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			s.group_data_documents = Vec::new();
 			s.group_data_links = Vec::new();
 		} else {
-			let local_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone());
-			let raw_phone = jid.split('@').next().unwrap_or(jid);
-			let mut phone = raw_phone.to_string();
-			if let Some(formatted) = whatsnap::phone::format_international(raw_phone) {
-				phone = formatted;
-			}
-
-			let initial_text = format!(
-				"Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...",
-				local_name,
-				phone,
-				crate::ui_commands::blocking::info_line(&s, jid)
-			);
-			parts.conversation_data_dialog.info_field.set_value(&initial_text);
-
-			let payload = serde_json::json!({
-				"action": "get_user_info",
-				"data": { "jid": jid }
-			});
-			let _ = s.ws_tx.send(payload.to_string());
-			let payload = serde_json::json!({ "action": "get_common_groups", "data": { "jid": jid } });
-			let _ = s.ws_tx.send(payload.to_string());
-			parts.conversation_data_dialog.common_groups_list.clear();
-			parts.conversation_data_dialog.common_groups_list.append("Loading...");
-
-			let dlg = &parts.conversation_data_dialog;
-			let lists =
-				InfoMediaLists { media: &dlg.media_list, documents: &dlg.documents_list, links: &dlg.links_list };
-			let (media, documents, links) = fill_info_media(&s, lists, None);
+			let jid = jid.clone();
 			drop(s);
-			// Add or Edit contact waits for user_info to say which applies.
-			state.borrow_mut().conversation_data_contact = None;
-			crate::ui_commands::contacts_groups::show_contact_card(parts, None);
-
-			let mut s_mut = state.borrow_mut();
-			s_mut.conversation_data_media = media;
-			s_mut.conversation_data_documents = documents;
-			s_mut.conversation_data_links = links;
-			drop(s_mut);
-
-			parts.conversation_data_dialog.info_field.set_focus();
-			parts.conversation_data_dialog.dialog.show_modal();
-			// As for the group dialog above: let go of the shared messages.
-			let mut s = state.borrow_mut();
-			s.conversation_data_media = Vec::new();
-			s.conversation_data_documents = Vec::new();
-			s.conversation_data_links = Vec::new();
+			show_contact_info(state, parts, jid);
 		}
 	}
+}
+
+/// The 1:1 info page: who the person is, calling them, saving or deleting
+/// them as a contact, and the chat's media. From the open chat's menu or
+/// any row's menu in the chat list, so `jid` needn't be the open chat.
+pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
+	let s = state.borrow();
+	let local_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+	let raw_phone = jid.split('@').next().unwrap_or(&jid);
+	let mut phone = raw_phone.to_string();
+	if let Some(formatted) = whatsnap::phone::format_international(raw_phone) {
+		phone = formatted;
+	}
+
+	let initial_text = format!(
+		"Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...",
+		local_name,
+		phone,
+		crate::ui_commands::blocking::info_line(&s, &jid)
+	);
+	let dlg = &parts.conversation_data_dialog;
+	dlg.info_field.set_value(&initial_text);
+	let callable = crate::ui_commands::calls::can_call(&s, &jid);
+	dlg.voice_call_btn.show(callable);
+	dlg.video_call_btn.show(callable);
+
+	let payload = serde_json::json!({
+		"action": "get_user_info",
+		"data": { "jid": jid }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+	let payload = serde_json::json!({ "action": "get_common_groups", "data": { "jid": jid } });
+	let _ = s.ws_tx.send(payload.to_string());
+	dlg.common_groups_list.clear();
+	dlg.common_groups_list.append("Loading...");
+
+	let lists = InfoMediaLists { media: &dlg.media_list, documents: &dlg.documents_list, links: &dlg.links_list };
+	// The loaded messages are only this chat's when it's the open one;
+	// otherwise the backend reads its media from the database.
+	let (media, documents, links) = if s.selected_chat.as_deref() == Some(jid.as_str()) {
+		fill_info_media(&s, lists, None)
+	} else {
+		let payload = serde_json::json!({ "action": "get_chat_media", "data": { "jid": jid } });
+		let _ = s.ws_tx.send(payload.to_string());
+		for list in [lists.media, lists.documents, lists.links] {
+			list.clear();
+			list.append("Loading...");
+		}
+		Default::default()
+	};
+	drop(s);
+	// Add or Edit contact waits for user_info to say which applies.
+	let mut s_mut = state.borrow_mut();
+	s_mut.conversation_data_contact = None;
+	s_mut.info_chat = Some(jid);
+	drop(s_mut);
+	crate::ui_commands::contacts_groups::show_contact_card(parts, None);
+
+	let mut s_mut = state.borrow_mut();
+	s_mut.conversation_data_media = media;
+	s_mut.conversation_data_documents = documents;
+	s_mut.conversation_data_links = links;
+	drop(s_mut);
+
+	parts.conversation_data_dialog.info_field.set_focus();
+	parts.conversation_data_dialog.dialog.show_modal();
+	// As for the group dialog: let go of the shared messages.
+	let mut s = state.borrow_mut();
+	s.info_chat = None;
+	s.conversation_data_media = Vec::new();
+	s.conversation_data_documents = Vec::new();
+	s.conversation_data_links = Vec::new();
 }
 
 pub(crate) fn mark_read(

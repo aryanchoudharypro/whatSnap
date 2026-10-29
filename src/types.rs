@@ -47,6 +47,12 @@ pub enum UiCommand {
 		message_id: String,
 		message_text: String,
 	},
+	/// Opens a chat that isn't the open one at one of its messages: contact
+	/// info's media lists for a chat opened from the chat list's menu.
+	OpenChatAtMessage {
+		jid: String,
+		message_id: String,
+	},
 	StartRecording,
 	TogglePauseRecording,
 	StopRecording,
@@ -221,6 +227,11 @@ pub enum UiCommand {
 	/// true}` on the backend) - as opposed to `ToggleCamera` turning the
 	/// camera on mid-call, which upgrades a plain voice call instead.
 	PlaceVideoCall,
+	/// Contact info's "Voice call" / "Video call", for the chat it shows.
+	CallContact {
+		jid: String,
+		video: bool,
+	},
 	/// Joins a group call that's going on: the open chat's, or the given
 	/// call-history row's.
 	JoinGroupCall(Option<String>),
@@ -270,6 +281,8 @@ pub enum UiCommand {
 	},
 	ToggleAudioSpeed,
 	ShowConversationData,
+	/// The chat list menu's "Contact info", for a 1:1 chat that needn't be open.
+	ShowContactInfo(String),
 	/// Contact info's "Add contact" / "Edit contact".
 	AddOrEditContact,
 	OpenNewContactForm,
