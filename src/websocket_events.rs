@@ -608,6 +608,7 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	let mut unread_counts = std::collections::HashMap::new();
 	let mut display_names = std::collections::HashMap::new();
 	let mut contacts_map = std::collections::HashMap::new();
+	let mut row_art = std::collections::HashMap::new();
 	for chat in &chats {
 		let jid: &str = &chat.jid;
 		if !jid.is_empty() {
@@ -741,6 +742,35 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				String::new()
 			};
 
+			// The same, drawn: tags with an icon of their own become that icon.
+			let (preview_prefix, icon, preview_text) = if preview.is_empty() {
+				(String::new(), None, String::new())
+			} else if preview_is_reaction && !preview_reaction_emoji.is_empty() {
+				(String::new(), None, preview_line.clone())
+			} else {
+				let (icon, text) = crate::ui::chat_rows::preview_icon(preview);
+				let prefix = preview_line.strip_suffix(&whatsnap::friendly_preview_text(preview)).unwrap_or("");
+				(prefix.to_string(), icon, text)
+			};
+			let extra: Vec<&str> =
+				tags.iter().map(|t| t.as_ref()).filter(|t| !matches!(*t, "Pinned" | "Muted" | "Locked")).collect();
+			row_art.insert(
+				jid.to_string(),
+				crate::ui::chat_rows::RowArt {
+					jid: jid.to_string(),
+					title: name.clone(),
+					extra: extra.join(" · "),
+					time: time_str.clone(),
+					preview_prefix,
+					icon,
+					preview: preview_text,
+					unread: unread.min(u32::MAX as u64) as u32,
+					pinned,
+					muted,
+					locked: is_locked,
+				},
+			);
+
 			let mut parts_vec: Vec<&str> = Vec::new();
 			parts_vec.push(&name_line);
 			if !unread_line.is_empty() {
@@ -784,6 +814,7 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	}
 	s.unread_counts = unread_counts;
 	s.display_names = display_names;
+	s.chat_row_art = row_art;
 	refresh_tray_tooltip(&s, parts);
 
 	// Compute new filtered list
@@ -3930,6 +3961,16 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					.and_then(|jid| state.borrow().contacts.get(jid).cloned())
 					.unwrap_or_else(|| "the group".to_string());
 				crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Joined {}.", name));
+			}
+			"avatar_previews" => {
+				if let Some(data) = val.get("data") {
+					crate::ui::avatars::on_previews(data);
+				}
+			}
+			"avatar_updated" => {
+				if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+					crate::ui::avatars::on_updated(jid);
+				}
 			}
 			"about_updated" => {
 				if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {

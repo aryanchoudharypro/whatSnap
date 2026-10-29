@@ -1,14 +1,17 @@
 pub mod add_members;
 pub mod attach_contact;
 pub mod attachment_dialog;
+pub mod avatars;
 pub mod blocked_contacts;
 pub mod call_window;
 pub mod channel_admin;
 pub mod channel_countries;
 pub mod channel_directory;
+pub mod chat_rows;
 pub mod conversation_data;
 pub mod conversations;
 pub mod emoji_panel;
+pub mod gdi;
 pub mod group_data;
 pub mod keys;
 pub mod media_player;

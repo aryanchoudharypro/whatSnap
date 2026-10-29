@@ -414,6 +414,8 @@ struct AppState {
 	call_contacts: Vec<CallTarget>,
 	search_query: String,
 	displayed_chat_labels: Vec<String>,
+	/// What each chat's row draws beside its text (see ui::chat_rows).
+	chat_row_art: std::collections::HashMap<String, crate::ui::chat_rows::RowArt>,
 	main_ui_shown: bool,
 	/// A WhatsApp link that arrived before we were logged in with the chat
 	/// list loaded; it runs once they are.
@@ -1065,6 +1067,7 @@ fn main() {
 			call_contacts: Vec::new(),
 			search_query: String::new(),
 			displayed_chat_labels: Vec::new(),
+			chat_row_art: std::collections::HashMap::new(),
 			main_ui_shown: false,
 			pending_whatsapp_link: None,
 			pending_shared_files: Vec::new(),

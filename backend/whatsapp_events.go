@@ -2549,6 +2549,12 @@ func eventHandler(evt interface{}) {
 			if v.Remove {
 				updateContactAvatarCache(jidStr, "", "")
 			}
+			// The chat list may know them by their phone number instead.
+			forgetAvatarPreview(jidStr)
+			if pn := preferPN(v.JID).String(); pn != jidStr {
+				forgetAvatarPreview(pn)
+				broadcastEvent("avatar_updated", map[string]interface{}{"jid": pn, "removed": v.Remove})
+			}
 			// A group's icon change is also a line in the group, as in the
 			// official apps.
 			if v.JID.Server == types.GroupServer && !v.Timestamp.IsZero() {

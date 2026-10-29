@@ -143,9 +143,35 @@ fn derive_font(point_delta: i32, weight: FontWeight) -> Font {
 	// A non-positive size means the platform gave us nothing usable; 9pt is
 	// the Windows default GUI size and a safe base to offset from.
 	let base = if font.get_point_size() > 0 { font.get_point_size() } else { 9 };
-	font.set_point_size((base + point_delta).max(1));
+	let size = (base + point_delta).max(1);
+	if let Some(face) = modern_face(&font)
+		&& let Some(modern) = Font::builder().with_point_size(size).with_weight(weight).with_face_name(face).build()
+	{
+		return modern;
+	}
+	font.set_point_size(size);
 	font.set_weight(weight);
 	font
+}
+
+/// Windows 11's own UI typeface, Segoe UI Variable, where the system font is
+/// plain Segoe UI and it's installed: the same family, drawn for screens
+/// (it's what WhatsApp's Windows app uses). A system font that isn't Segoe
+/// UI (Yu Gothic UI, Microsoft YaHei UI, ... for other scripts, or one the
+/// user picked) is kept as it is.
+fn modern_face(system: &Font) -> Option<&'static str> {
+	use std::sync::OnceLock;
+
+	const FACE: &str = "Segoe UI Variable Text";
+	static INSTALLED: OnceLock<bool> = OnceLock::new();
+	if !system.get_face_name().eq_ignore_ascii_case("Segoe UI") {
+		return None;
+	}
+	#[cfg(windows)]
+	let installed = *INSTALLED.get_or_init(|| super::gdi::face_installed(FACE));
+	#[cfg(not(windows))]
+	let installed = *INSTALLED.get_or_init(|| false);
+	installed.then_some(FACE)
 }
 
 /// Applies the sidebar (navigation) look: deep teal background, light text.

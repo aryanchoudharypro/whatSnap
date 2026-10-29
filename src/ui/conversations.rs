@@ -157,7 +157,10 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_heading(&conversations_label);
 	outer_sizer.add(&conversations_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let conversations_list = ListBox::builder(&panel).build();
+	// Owner-drawn so its rows can show pictures and icons; a screen reader
+	// still reads each row's text, as before (see ui::chat_rows).
+	let conversations_list =
+		ListBox::builder(&panel).with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW)).build();
 	conversations_list.set_font(&theme::Fonts::body());
 	skip_best_size(&conversations_list);
 	outer_sizer.add(&conversations_list, 1, SizerFlag::Expand | SizerFlag::All, 10);

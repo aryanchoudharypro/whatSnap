@@ -819,6 +819,24 @@ pub fn bind_input_handlers(
 		});
 	});
 
+	crate::ui::avatars::init(state.borrow().ws_tx.clone());
+	let state_rows = state.clone();
+	crate::ui::chat_rows::install(&parts.conversations_parts.conversations_list, move |index, text| {
+		let Ok(s) = state_rows.try_borrow() else {
+			// Drawn while the chat list is being rebuilt: draw it again after.
+			wxdragon::call_after(Box::new(crate::ui::chat_rows::refresh));
+			return None;
+		};
+		let jid = s.filtered_chats.get(index)?;
+		// Status, Starred and Calls rows aren't chats' rows.
+		let chat_row =
+			!matches!(s.active_tab, 1 | 2 | 6) && s.displayed_chat_labels.get(index).is_some_and(|l| l == text);
+		match s.chat_row_art.get(jid) {
+			Some(art) if chat_row => Some(art.clone()),
+			_ => Some(crate::ui::chat_rows::RowArt::from_text(jid, text)),
+		}
+	});
+
 	let tx_select = ui_tx.clone();
 	parts.conversations_parts.conversations_list.on_selection_changed(move |event| {
 		if let Some(idx) = event.get_selection() {
