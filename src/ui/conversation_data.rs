@@ -88,7 +88,9 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	// Made after everything else, so it's never what names the info box
 	// (Windows names a box from the control just before it) and is never
 	// in the way of Tab.
-	let photo = StaticBitmap::builder(&info_panel).build();
+	// wx needs a picture to make it with; the real one comes later.
+	let empty = wxdragon::bitmap::Bitmap::from_rgba(&[0, 0, 0, 0], 1, 1).expect("a 1x1 bitmap");
+	let photo = StaticBitmap::builder(&info_panel).with_bitmap(Some(empty)).build();
 	photo_row.add(&photo, 0, SizerFlag::AlignCenterVertical, 0);
 	photo.show(false);
 
