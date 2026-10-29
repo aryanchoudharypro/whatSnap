@@ -482,6 +482,16 @@ pub(crate) fn open_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 	}
 }
 
+/// Says where a Save as copy went, or that it failed. A failed copy used to be
+/// announced as saved, so the user went looking for a file that never existed.
+fn announce_saved(parts: &Rc<WindowParts>, result: std::io::Result<u64>, path: &str) {
+	let text = match result {
+		Ok(_) => format!("File saved to {path}"),
+		Err(err) => format!("Couldn't save the file: {err}"),
+	};
+	crate::announce::announce(parts.conversations_parts.messages_announcer, &text);
+}
+
 pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let item_opt = {
 		let s = state.borrow();
@@ -508,11 +518,7 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 						&& let Some(path) = dialog.get_path()
 					{
 						if msg.is_media_downloaded() {
-							let _ = std::fs::copy(&msg.media_path, &path);
-							crate::announce::announce(
-								parts.conversations_parts.messages_announcer,
-								"File saved successfully.",
-							);
+							announce_saved(parts, std::fs::copy(&msg.media_path, &path), &path);
 						} else {
 							let payload = serde_json::json!({
 								"action": "save_media_as",
@@ -628,8 +634,7 @@ pub(crate) fn save_media_message_as(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 			&& let Some(path) = dialog.get_path()
 		{
 			if msg.is_media_downloaded() {
-				let _ = std::fs::copy(&msg.media_path, &path);
-				crate::announce::announce(parts.conversations_parts.messages_announcer, "File saved successfully.");
+				announce_saved(parts, std::fs::copy(&msg.media_path, &path), &path);
 			} else {
 				let payload = serde_json::json!({
 					"action": "save_media_as",
