@@ -513,7 +513,7 @@ impl ChatMessage {
 
 	/// Who a reply quotes and what it quotes, as ("You" | "@name" | "quoted
 	/// message", spoken body). None when this message is not a reply.
-	fn reply_parts(&self) -> Option<(String, String)> {
+	pub fn reply_parts(&self) -> Option<(String, String)> {
 		if self.quoted_text.is_empty() && self.quoted_id.is_empty() {
 			return None;
 		}

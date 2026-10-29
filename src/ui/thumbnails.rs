@@ -137,3 +137,77 @@ pub(crate) fn forget(id: &str) {
 		c.asked.remove(id);
 	});
 }
+
+/// Voice notes' loudness bars (0-100), by message id: a few dozen bytes each.
+#[derive(Default)]
+struct Waveforms {
+	bars: HashMap<String, Vec<u8>>,
+	order: VecDeque<String>,
+	asked: HashMap<String, Instant>,
+	pending: Vec<String>,
+	flush_scheduled: bool,
+}
+
+const MAX_WAVEFORMS: usize = 512;
+
+thread_local! {
+	static WAVEFORMS: RefCell<Waveforms> = RefCell::new(Waveforms::default());
+}
+
+/// Runs `draw` with voice note `id`'s bars, None until they've come (or
+/// when it has none).
+pub(crate) fn with_waveform<R>(id: &str, draw: impl FnOnce(Option<&[u8]>) -> R) -> R {
+	WAVEFORMS.with(|w| {
+		let mut w = w.borrow_mut();
+		if !w.bars.contains_key(id) && !id.is_empty() && w.asked.get(id).is_none_or(|t| t.elapsed() >= RETRY_AFTER) {
+			w.asked.insert(id.to_string(), Instant::now());
+			w.pending.push(id.to_string());
+			if !w.flush_scheduled {
+				w.flush_scheduled = true;
+				wxdragon::call_after(Box::new(|| {
+					let ids = WAVEFORMS.with(|w| {
+						let mut w = w.borrow_mut();
+						w.flush_scheduled = false;
+						std::mem::take(&mut w.pending)
+					});
+					CACHE.with(|c| {
+						if let Some(tx) = &c.borrow().tx {
+							let payload = serde_json::json!({ "action": "get_waveforms", "data": { "ids": ids } });
+							let _ = tx.send(payload.to_string());
+						}
+					});
+				}));
+			}
+		}
+		draw(w.bars.get(id).map(Vec::as_slice).filter(|b| !b.is_empty()))
+	})
+}
+
+/// The backend's `waveforms`: {"items": [{"id", "bars": [0-100, ...]}]}.
+pub(crate) fn on_waveforms(data: &serde_json::Value) {
+	let Some(items) = data.get("items").and_then(|i| i.as_array()) else { return };
+	WAVEFORMS.with(|w| {
+		let mut w = w.borrow_mut();
+		for item in items {
+			let Some(id) = item.get("id").and_then(|j| j.as_str()) else { continue };
+			let bars: Vec<u8> = item
+				.get("bars")
+				.and_then(|b| b.as_array())
+				.map(|b| b.iter().filter_map(|v| v.as_u64()).map(|v| v.min(100) as u8).collect())
+				.unwrap_or_default();
+			while w.bars.len() >= MAX_WAVEFORMS
+				&& let Some(old) = w.order.pop_front()
+			{
+				w.bars.remove(&old);
+			}
+			w.asked.remove(id);
+			w.order.push_back(id.to_string());
+			w.bars.insert(id.to_string(), bars);
+		}
+	});
+	let on_change = CACHE.with(|c| c.borrow_mut().on_change.take());
+	if let Some(callback) = on_change {
+		callback();
+		CACHE.with(|c| c.borrow_mut().on_change = Some(callback));
+	}
+}

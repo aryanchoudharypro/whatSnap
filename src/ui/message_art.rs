@@ -1,13 +1,17 @@
 //! How a message list row looks: a bubble like WhatsApp Web's (yours on the
-//! right in green, theirs on the left in white), with the sender in a group,
-//! an icon for the message's kind, the time and ticks in the corner, and a
-//! picture for photos, videos and stickers. Dates and notices sit in a pill
-//! in the middle.
+//! right in green, theirs on the left in white), with the sender in their own
+//! colour in a group, the message it replies to in a box, the text wrapped
+//! over as many lines as it needs, the time and ticks in the corner and the
+//! reactions in a little pill below. Photos, videos and stickers show their
+//! picture, voice notes a play button and their waveform. Dates and notices
+//! sit in a pill in the middle.
 //!
 //! Drawing only. The screen reader reads the row's text, which this never
-//! changes (see `ui::message_list`).
+//! changes (see `ui::message_list`). `units` says how tall a row needs to be,
+//! and `paint_row` draws it; both lay it out the same way (`layout`), with
+//! text measured a character at a time, so what's measured is what's drawn.
 
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use wxdragon::{bitmap::Bitmap, prelude::*};
 
@@ -17,15 +21,15 @@ use super::{
 	thumbnails::{self, Thumb},
 };
 
-/// Rows a message with a picture takes, in rows of plain text.
-pub(crate) const TALL_UNITS: u8 = 5;
 /// Pictures an album row shows.
 const ALBUM_THUMBS: usize = 3;
+/// Lines of a message drawn at most; the rest ends in "…". The screen reader
+/// still gets all of it.
+const MAX_LINES: usize = 40;
+/// A row is never more than this many rows of text tall.
+const MAX_UNITS: usize = 60;
 
 mod glyph {
-	pub const CHECK: char = '\u{E73E}';
-	pub const CLOCK: char = '\u{E823}';
-	pub const ERROR: char = '\u{E783}';
 	pub const STAR: char = '\u{E735}';
 	pub const PLAY: char = '\u{E768}';
 	pub const BOX: char = '\u{E739}';
@@ -51,8 +55,11 @@ pub(crate) enum Look {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Bubble {
 	pub from_me: bool,
-	/// Who sent it, in a group.
+	/// Who sent it, in a group, and which of the name colours is theirs.
 	pub sender: String,
+	pub sender_colour: usize,
+	/// The message it replies to: who sent that, and what it said.
+	pub quote: Option<(String, String)>,
 	pub icon: Option<char>,
 	pub body: String,
 	pub time: String,
@@ -63,19 +70,28 @@ pub(crate) struct Bubble {
 	/// The messages whose pictures it shows.
 	pub thumbs: Vec<String>,
 	pub video: bool,
+	/// A voice note: its message, for the waveform. `body` is its length.
+	pub voice: Option<String>,
+	/// The voice note is a sent audio file (a song, a recording shared as a
+	/// file): drawn as WhatsApp does, with a music icon and a plain slider
+	/// rather than a waveform.
+	pub audio_file: bool,
 }
 
-impl Look {
-	#[cfg(test)]
-	pub(crate) fn units(&self) -> u8 {
-		match self {
-			Look::Bubble(b) if !b.thumbs.is_empty() => TALL_UNITS,
-			_ => 1,
-		}
+/// The icon-font glyphs for `ticks` (two overlapping checks for delivered
+/// and read), and whether they're drawn blue.
+pub(crate) fn tick_glyphs(ticks: Ticks) -> (&'static str, bool) {
+	match ticks {
+		Ticks::Pending => ("\u{E823}", false),
+		Ticks::Failed => ("\u{E783}", false),
+		Ticks::Sent => ("\u{E73E}", false),
+		Ticks::Delivered => ("\u{E73E}\u{E73E}", false),
+		Ticks::Read => ("\u{E73E}\u{E73E}", true),
 	}
 }
 
-fn ticks(status: &str) -> Ticks {
+/// The ticks for a message's status ("delivered", "read", ...).
+pub(crate) fn ticks_for(status: &str) -> Ticks {
 	match status {
 		"pending" | "uploading" => Ticks::Pending,
 		"failed" => Ticks::Failed,
@@ -99,22 +115,45 @@ fn has_picture(msg: &whatsnap::ChatMessage) -> bool {
 		&& msg.text != "This message was deleted"
 }
 
-/// How many rows of text tall `item`'s row is: `look_for(item).units()`,
-/// without building the look.
-pub(crate) fn units_of(item: &whatsnap::DisplayItem) -> u8 {
-	if item.messages().iter().any(|m| has_picture(m)) { TALL_UNITS } else { 1 }
-}
-
-/// The tall rows among `items`, for `MessageList::remember_units`.
-pub(crate) fn tall_rows(items: &[whatsnap::DisplayItem]) -> Vec<(&str, u8)> {
-	items.iter().map(|item| (item.id(), units_of(item))).filter(|&(_, units)| units > 1).collect()
-}
-
 fn sender_name(msg: &whatsnap::ChatMessage) -> String {
 	match msg.sender_name.as_str() {
 		"" | "[]" => msg.sender_jid.split('@').next().unwrap_or_default().to_string(),
 		name => name.to_string(),
 	}
+}
+
+/// Group members' names come in one of these, picked by who they are, as on
+/// WhatsApp. Darker than WhatsApp's own so each reads at 4.5:1 on white.
+const NAME_COLOURS: [(u8, u8, u8); 10] = [
+	(0xB0, 0x2E, 0x26),
+	(0x7B, 0x3F, 0xA0),
+	(0x17, 0x65, 0xC8),
+	(0x0B, 0x75, 0x3D),
+	(0x9C, 0x50, 0x00),
+	(0xA3, 0x14, 0x52),
+	(0x00, 0x70, 0x7C),
+	(0x55, 0x45, 0xB0),
+	(0x6E, 0x5C, 0x00),
+	(0x6D, 0x4C, 0x41),
+];
+
+fn name_colour(jid: &str) -> usize {
+	// FNV-1a: the same person gets the same colour every time.
+	let hash = jid.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+	hash as usize % NAME_COLOURS.len()
+}
+
+fn quote_of(msg: &whatsnap::ChatMessage) -> Option<(String, String)> {
+	let (sender, body) = msg.reply_parts()?;
+	let sender = match sender.as_str() {
+		"quoted message" => String::new(),
+		s => s.trim_start_matches('@').to_string(),
+	};
+	let body = match preview_icon(&msg.quoted_text) {
+		(Some(_), text) if !msg.quoted_text.is_empty() => text,
+		_ => body,
+	};
+	Some((sender, body))
 }
 
 /// What a message list row draws for `item`.
@@ -125,15 +164,16 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 				return Look::Pill(msg.text.clone());
 			}
 			let deleted = msg.is_deleted || msg.body_text() == "This message was deleted";
+			let voice = !deleted && msg.is_voice();
 			let (icon, body) = if deleted {
 				let text = if msg.from_me { "You deleted this message" } else { "This message was deleted" };
 				(Some(icon::DELETED), text.to_string())
-			} else if msg.is_voice() {
-				// "Voice message Duration: 0:12" shows as the microphone and 0:12.
+			} else if voice {
+				// "Voice message Duration: 0:12" shows as its waveform and 0:12.
 				let body = msg.body_text();
 				let glyph = if msg.text.starts_with("[Audio]") { icon::AUDIO } else { icon::MICROPHONE };
 				let duration = body.split_once("Duration: ").map(|(_, d)| d.to_string());
-				(Some(glyph), duration.unwrap_or(body))
+				(Some(glyph), duration.unwrap_or_default())
 			} else {
 				match preview_icon(&msg.text) {
 					(Some(icon), text) => (Some(icon), text),
@@ -141,34 +181,43 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 				}
 			};
 			let picture = has_picture(msg);
+			let mine = msg.from_me;
 			Look::Bubble(Bubble {
-				from_me: msg.from_me,
-				sender: if is_group && !msg.from_me { sender_name(msg) } else { String::new() },
+				from_me: mine,
+				sender: if is_group && !mine { sender_name(msg) } else { String::new() },
+				sender_colour: name_colour(&msg.sender_jid),
+				quote: if deleted { None } else { quote_of(msg) },
 				// The picture says it's a photo; a caption stands alone.
 				icon: if picture && msg.media_type != "video" { None } else { icon },
-				body,
+				// A photo's own placeholder ("Photo") under its picture says nothing.
+				body: if picture && matches!(body.as_str(), "Photo" | "Video" | "Sticker") {
+					String::new()
+				} else {
+					body
+				},
 				time: short_time(msg.timestamp),
-				ticks: msg.from_me.then(|| ticks(&msg.status)),
+				ticks: mine.then(|| ticks_for(&msg.status)),
 				starred: msg.starred,
 				edited: msg.is_edited,
-				reactions: msg.reactions.iter().map(|r| r.emoji.as_str()).collect(),
+				reactions: reaction_summary(msg),
 				thumbs: if picture { vec![msg.id.clone()] } else { Vec::new() },
 				video: msg.media_type == "video",
+				voice: voice.then(|| msg.id.clone()),
+				audio_file: voice && msg.text.starts_with("[Audio]"),
 			})
 		}
 		whatsnap::DisplayItem::Album { from_me, timestamp, messages, .. } => {
 			let first = messages.first();
-			let (icon, body) = preview_icon(&format!("[Image] {}", item.body_text().trim_start_matches("Album: ")));
 			Look::Bubble(Bubble {
 				from_me: *from_me,
 				sender: match first {
 					Some(m) if is_group && !from_me => sender_name(m),
 					_ => String::new(),
 				},
-				icon,
-				body,
+				sender_colour: first.map_or(0, |m| name_colour(&m.sender_jid)),
+				body: item.body_text().trim_start_matches("Album: ").to_string(),
 				time: short_time(*timestamp),
-				ticks: first.filter(|_| *from_me).map(|m| ticks(&m.status)),
+				ticks: first.filter(|_| *from_me).map(|m| ticks_for(&m.status)),
 				thumbs: messages.iter().filter(|m| has_picture(m)).take(ALBUM_THUMBS).map(|m| m.id.clone()).collect(),
 				video: messages.iter().all(|m| m.media_type == "video"),
 				..Default::default()
@@ -177,7 +226,31 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 	}
 }
 
-#[derive(Clone)]
+/// "👍❤️ 3": each emoji once, and how many there are when more than one.
+fn reaction_summary(msg: &whatsnap::ChatMessage) -> String {
+	let active: Vec<&str> = msg.reactions.iter().map(|r| r.emoji.as_str()).filter(|e| !e.is_empty()).collect();
+	let mut shown: Vec<&str> = Vec::new();
+	for emoji in &active {
+		if !shown.contains(emoji) && shown.len() < 3 {
+			shown.push(emoji);
+		}
+	}
+	match active.len() {
+		0 => String::new(),
+		1 => shown.concat(),
+		n => format!("{} {}", shown.concat(), n),
+	}
+}
+
+// --- Fonts and measuring ---
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Face {
+	Body,
+	Bold,
+	Small,
+}
+
 struct Fonts {
 	base: (i32, String),
 	body: Font,
@@ -186,21 +259,107 @@ struct Fonts {
 	icons: Option<Font>,
 	icons_small: Option<Font>,
 	icons_big: Option<Font>,
+	/// Height of a line of body text.
+	line: i32,
+	/// Characters' widths, by font, as measured once.
+	widths: RefCell<HashMap<(Face, char), i32>>,
 }
 
-/// Corner pieces that round off a square box: the background colour, see-
-/// through where the box's rounded corner is. Keyed by (background, radius).
-type Corners = [Bitmap; 4];
+impl Fonts {
+	fn font(&self, face: Face) -> &Font {
+		match face {
+			Face::Body => &self.body,
+			Face::Bold => &self.bold,
+			Face::Small => &self.small,
+		}
+	}
 
-#[derive(Default)]
-struct Cache {
-	fonts: Option<std::rc::Rc<Fonts>>,
-	corners: HashMap<(u32, i32), Corners>,
-	play: Option<(i32, Bitmap)>,
-}
+	fn char_width(&self, dc: &impl DeviceContext, face: Face, c: char) -> i32 {
+		if let Some(&w) = self.widths.borrow().get(&(face, c)) {
+			return w;
+		}
+		dc.set_font(self.font(face));
+		let w = dc.get_text_extent(c.encode_utf8(&mut [0; 4])).0;
+		self.widths.borrow_mut().insert((face, c), w);
+		w
+	}
 
-thread_local! {
-	static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+	fn width(&self, dc: &impl DeviceContext, face: Face, text: &str) -> i32 {
+		text.chars().map(|c| self.char_width(dc, face, c)).sum()
+	}
+
+	/// `text` cut with "…" to fit in `max` pixels, on one line.
+	fn fit(&self, dc: &impl DeviceContext, face: Face, text: &str, max: i32) -> String {
+		let flat = text.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c });
+		let ellipsis = self.char_width(dc, face, '…');
+		let mut out = String::new();
+		let mut used = 0;
+		let total = self.width(dc, face, text);
+		if total <= max {
+			return flat.collect();
+		}
+		for c in flat {
+			let w = self.char_width(dc, face, c);
+			if used + w + ellipsis > max {
+				break;
+			}
+			used += w;
+			out.push(c);
+		}
+		if out.is_empty() { out } else { out + "…" }
+	}
+
+	/// Breaks `text` into lines no wider than `max` (the first `first_max`),
+	/// at spaces where it can, keeping its own line breaks.
+	fn wrap(&self, dc: &impl DeviceContext, face: Face, text: &str, first_max: i32, max: i32) -> Vec<String> {
+		let mut lines: Vec<String> = Vec::new();
+		for paragraph in text.split('\n') {
+			let paragraph = paragraph.trim_end_matches('\r');
+			let mut line = String::new();
+			let mut line_w = 0;
+			let room = |lines: &Vec<String>| if lines.is_empty() { first_max } else { max };
+			for word in paragraph.split_inclusive(' ') {
+				let word_w = self.width(dc, face, word);
+				let trimmed_w = word_w - if word.ends_with(' ') { self.char_width(dc, face, ' ') } else { 0 };
+				if line_w + trimmed_w <= room(&lines) {
+					line.push_str(word);
+					line_w += word_w;
+					continue;
+				}
+				if !line.is_empty() {
+					lines.push(std::mem::take(&mut line).trim_end().to_string());
+					line_w = 0;
+				}
+				if trimmed_w <= room(&lines) {
+					line.push_str(word);
+					line_w = word_w;
+					continue;
+				}
+				// A word longer than a line breaks where it must.
+				for c in word.chars() {
+					let w = self.char_width(dc, face, c);
+					if line_w + w > room(&lines) && !line.is_empty() {
+						lines.push(std::mem::take(&mut line));
+						line_w = 0;
+					}
+					line.push(c);
+					line_w += w;
+				}
+			}
+			lines.push(line.trim_end().to_string());
+			if lines.len() > MAX_LINES {
+				break;
+			}
+		}
+		if lines.len() > MAX_LINES {
+			lines.truncate(MAX_LINES);
+			if let Some(last) = lines.last_mut() {
+				let cut = self.fit(dc, face, &(last.clone() + " …………"), max);
+				*last = cut;
+			}
+		}
+		lines
+	}
 }
 
 fn icon_face() -> Option<&'static str> {
@@ -210,7 +369,7 @@ fn icon_face() -> Option<&'static str> {
 		.get_or_init(|| ["Segoe Fluent Icons", "Segoe MDL2 Assets"].into_iter().find(|f| super::gdi::face_installed(f)))
 }
 
-fn make_fonts(base: &Font) -> Fonts {
+fn make_fonts(dc: &impl DeviceContext, base: &Font) -> Fonts {
 	let size = base.get_point_size().max(6);
 	let face = base.get_face_name();
 	let with = |points: i32, weight: FontWeight| {
@@ -219,6 +378,7 @@ fn make_fonts(base: &Font) -> Fonts {
 	let icon = |points: i32| {
 		icon_face().and_then(|f| Font::builder().with_point_size(points.max(5)).with_face_name(f).build())
 	};
+	dc.set_font(base);
 	Fonts {
 		base: (size, face.clone()),
 		body: base.clone(),
@@ -227,8 +387,203 @@ fn make_fonts(base: &Font) -> Fonts {
 		icons: icon(size),
 		icons_small: icon(size - 2),
 		icons_big: icon(size * 2),
+		line: dc.get_text_extent("Ag").1.max(8),
+		widths: RefCell::new(HashMap::new()),
 	}
 }
+
+/// Corner pieces that round off a square box: the background colour, see-
+/// through where the box's rounded corner is. Keyed by (background, radius).
+type Corners = [Bitmap; 4];
+
+#[derive(Default)]
+struct Cache {
+	fonts: Option<Rc<Fonts>>,
+	corners: HashMap<(u32, i32), Corners>,
+	/// Filled circles drawn lately, by size and colour (see `round_badge`).
+	badges: Vec<(i32, u32, Bitmap)>,
+}
+
+thread_local! {
+	static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+}
+
+fn fonts_for(dc: &impl DeviceContext, base_font: &Font) -> Rc<Fonts> {
+	CACHE.with(|cache| {
+		let mut cache = cache.borrow_mut();
+		let base = (base_font.get_point_size(), base_font.get_face_name());
+		if cache.fonts.as_ref().is_none_or(|f| f.base != base) {
+			cache.fonts = Some(Rc::new(make_fonts(dc, base_font)));
+			cache.corners.clear();
+		}
+		cache.fonts.clone().expect("fonts were just made")
+	})
+}
+
+// --- Layout ---
+
+const PAD: i32 = 8;
+const GAP: i32 = 6;
+const MARGIN: i32 = 12;
+
+/// Where everything in a bubble goes, worked out the same way for measuring
+/// and for drawing.
+struct Layout {
+	width: i32,
+	height: i32,
+	sender: String,
+	quote: Option<(String, String)>,
+	quote_h: i32,
+	thumb_w: i32,
+	thumb_h: i32,
+	voice_h: i32,
+	lines: Vec<String>,
+	icon_w: i32,
+	meta: String,
+	meta_w: i32,
+	star_w: i32,
+	ticks_w: i32,
+	/// The time fits at the end of the last line rather than below it.
+	meta_inline: bool,
+	/// Room below the bubble for the reactions' pill.
+	reactions_h: i32,
+}
+
+fn icon_width(dc: &impl DeviceContext, font: &Option<Font>, glyphs: &str) -> i32 {
+	let Some(font) = font else { return 0 };
+	dc.set_font(font);
+	let w = dc.get_text_extent(glyphs).0;
+	// Two ticks overlap, as WhatsApp draws them.
+	if glyphs.chars().count() == 2 { w * 2 / 3 } else { w }
+}
+
+fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layout {
+	let line = fonts.line;
+	let max_w = (room * 13 / 20).max(200.min(room)).min(room);
+	let content_max = (max_w - 2 * PAD).max(40);
+
+	let mut meta = String::new();
+	if b.edited {
+		meta.push_str("Edited ");
+	}
+	meta.push_str(&b.time);
+	let meta_w = fonts.width(dc, Face::Small, &meta);
+	let star_w = if b.starred { icon_width(dc, &fonts.icons_small, &glyph::STAR.to_string()) + 3 } else { 0 };
+	let ticks_w = b.ticks.map_or(0, |t| icon_width(dc, &fonts.icons_small, tick_glyphs(t).0) + 3);
+	let corner_w = star_w + meta_w + ticks_w;
+
+	let (thumb_w, thumb_h) = match b.thumbs.len() {
+		0 => (0, 0),
+		1 => (content_max.min(line * 14), line * 10),
+		n => {
+			let side = ((content_max.min(line * 18) - (n as i32 - 1) * 4) / n as i32).max(line * 3);
+			(side, side)
+		}
+	};
+	let thumbs_w = if b.thumbs.is_empty() { 0 } else { b.thumbs.len() as i32 * (thumb_w + 4) - 4 };
+	let voice_h = if b.voice.is_some() { line * 2 } else { 0 };
+	let voice_w = if b.voice.is_some() { content_max.min(line * 14) } else { 0 };
+
+	// Under a picture, the caption is as wide as the picture.
+	let text_max = if thumbs_w > 0 { thumbs_w.max(line * 6) } else { content_max };
+	let icon_w = match (b.icon, &fonts.icons, b.voice.is_some()) {
+		(Some(g), Some(_), false) => icon_width(dc, &fonts.icons, &g.to_string()) + 4,
+		_ => 0,
+	};
+	let lines = if b.voice.is_some() || b.body.is_empty() {
+		Vec::new()
+	} else {
+		fonts.wrap(dc, Face::Body, &b.body, text_max - icon_w, text_max)
+	};
+	let line_widths: Vec<i32> = lines.iter().map(|l| fonts.width(dc, Face::Body, l)).collect();
+	let widest = line_widths.iter().enumerate().map(|(i, w)| if i == 0 { w + icon_w } else { *w }).max().unwrap_or(0);
+	let last_w = match line_widths.len() {
+		0 => 0,
+		1 => line_widths[0] + icon_w,
+		n => line_widths[n - 1],
+	};
+	let meta_inline = !lines.is_empty() && last_w + GAP + corner_w <= text_max;
+
+	let sender = if b.sender.is_empty() { String::new() } else { fonts.fit(dc, Face::Bold, &b.sender, content_max) };
+	let sender_w = fonts.width(dc, Face::Bold, &sender);
+	let quote_h = if b.quote.is_some() { line * 2 + PAD } else { 0 };
+	let quote_w = b.quote.as_ref().map_or(0, |(who, what)| {
+		(fonts.width(dc, Face::Bold, who).max(fonts.width(dc, Face::Body, what)) + PAD * 2).min(content_max)
+	});
+
+	let inner_w = [
+		sender_w,
+		quote_w,
+		thumbs_w - 2 * PAD + 8,
+		voice_w,
+		if meta_inline { last_w + GAP + corner_w } else { widest.max(corner_w) },
+	]
+	.into_iter()
+	.max()
+	.unwrap_or(0)
+	.min(content_max.max(thumbs_w - 2 * PAD + 8));
+	let width = inner_w + 2 * PAD;
+
+	let mut height = PAD / 2 + PAD / 2;
+	if !sender.is_empty() {
+		height += line;
+	}
+	if quote_h > 0 {
+		height += quote_h + 4;
+	}
+	if thumb_h > 0 {
+		height += thumb_h + 4;
+	}
+	height += voice_h;
+	height += lines.len() as i32 * line;
+	if !meta_inline {
+		height += line;
+	}
+	let reactions_h = if b.reactions.is_empty() { 0 } else { line * 3 / 4 + 4 };
+
+	Layout {
+		width,
+		height,
+		sender,
+		quote: b.quote.clone(),
+		quote_h,
+		thumb_w,
+		thumb_h,
+		voice_h,
+		lines,
+		icon_w,
+		meta,
+		meta_w,
+		star_w,
+		ticks_w,
+		meta_inline,
+		reactions_h,
+	}
+}
+
+/// The room a row's bubble has, beside the margins and a check box.
+fn bubble_room(width: i32, left: i32) -> i32 {
+	(width - left - MARGIN).max(80)
+}
+
+/// How many rows of text (`unit` pixels each) `look` needs at `width`.
+pub(crate) fn units(
+	dc: &impl DeviceContext,
+	base_font: &Font,
+	look: &Look,
+	width: i32,
+	unit: i32,
+	checkable: bool,
+) -> u8 {
+	let Look::Bubble(b) = look else { return 1 };
+	let fonts = fonts_for(dc, base_font);
+	let left = MARGIN + if checkable { fonts.line + 8 } else { 0 };
+	let l = layout(dc, &fonts, b, bubble_room(width, left));
+	let needed = l.height + 4 + l.reactions_h;
+	(needed as usize).div_ceil(unit.max(1) as usize).clamp(1, MAX_UNITS) as u8
+}
+
+// --- Drawing ---
 
 fn key(c: Colour) -> u32 {
 	(c.r as u32) << 16 | (c.g as u32) << 8 | c.b as u32
@@ -256,35 +611,22 @@ fn corners(background: Colour, radius: i32) -> Corners {
 
 /// A filled box with rounded, smoothed corners.
 #[allow(clippy::too_many_arguments)]
-fn round_box(dc: &impl DeviceContext, cache: &mut Cache, x: i32, y: i32, w: i32, h: i32, fill: Colour, bg: Colour) {
+fn round_box(dc: &impl DeviceContext, x: i32, y: i32, w: i32, h: i32, fill: Colour, bg: Colour) {
+	if w <= 0 || h <= 0 {
+		return;
+	}
 	dc.set_brush(fill, BrushStyle::Solid);
 	dc.set_pen(fill, 1, PenStyle::Solid);
 	dc.draw_rectangle(x, y, w, h);
 	let radius = (h / 2).min(w / 2).clamp(1, 8);
-	let pieces = cache.corners.entry((key(bg), radius)).or_insert_with(|| corners(bg, radius));
-	dc.draw_bitmap(&pieces[0], x, y, true);
-	dc.draw_bitmap(&pieces[1], x + w - radius, y, true);
-	dc.draw_bitmap(&pieces[2], x, y + h - radius, true);
-	dc.draw_bitmap(&pieces[3], x + w - radius, y + h - radius, true);
-}
-
-/// `text` cut with "…" to fit in `max` pixels.
-fn fit(dc: &impl DeviceContext, text: &str, max: i32) -> String {
-	let flat: String = text.chars().take(400).map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
-	if max <= 0 {
-		return String::new();
-	}
-	if dc.get_text_extent(&flat).0 <= max {
-		return flat;
-	}
-	let chars: Vec<char> = flat.chars().collect();
-	let (mut lo, mut hi) = (0, chars.len());
-	while lo < hi {
-		let mid = (lo + hi).div_ceil(2);
-		let candidate: String = chars[..mid].iter().collect::<String>() + "…";
-		if dc.get_text_extent(&candidate).0 <= max { lo = mid } else { hi = mid - 1 }
-	}
-	if lo == 0 { String::new() } else { chars[..lo].iter().collect::<String>() + "…" }
+	CACHE.with(|cache| {
+		let mut cache = cache.borrow_mut();
+		let pieces = cache.corners.entry((key(bg), radius)).or_insert_with(|| corners(bg, radius));
+		dc.draw_bitmap(&pieces[0], x, y, true);
+		dc.draw_bitmap(&pieces[1], x + w - radius, y, true);
+		dc.draw_bitmap(&pieces[2], x, y + h - radius, true);
+		dc.draw_bitmap(&pieces[3], x + w - radius, y + h - radius, true);
+	});
 }
 
 struct Colours {
@@ -297,8 +639,21 @@ struct Colours {
 	read: Colour,
 	mine: Colour,
 	theirs: Colour,
+	/// The reply box inside a bubble: yours, theirs.
+	quote_mine: Colour,
+	quote_theirs: Colour,
 	pill: Colour,
-	outline: bool,
+	custom: bool,
+}
+
+impl Colours {
+	fn name(&self, index: usize) -> Colour {
+		if !self.custom {
+			return self.text;
+		}
+		let (r, g, b) = NAME_COLOURS[index % NAME_COLOURS.len()];
+		Colour::rgb(r, g, b)
+	}
 }
 
 fn colours(background: Colour, foreground: Colour, selected: bool, focused: bool) -> Colours {
@@ -319,8 +674,10 @@ fn colours(background: Colour, foreground: Colour, selected: bool, focused: bool
 			read: text,
 			mine: bg,
 			theirs: bg,
+			quote_mine: bg,
+			quote_theirs: bg,
 			pill: bg,
-			outline: true,
+			custom: false,
 		};
 	}
 	let band = selected.then(|| if focused { Colour::rgb(0xCF, 0xE3, 0xD7) } else { Colour::rgb(0xE2, 0xDE, 0xD6) });
@@ -335,8 +692,23 @@ fn colours(background: Colour, foreground: Colour, selected: bool, focused: bool
 		read: Colour::rgb(0x0B, 0x6F, 0xA4),
 		mine: Colour::rgb(0xD9, 0xFD, 0xD3),
 		theirs: Colour::rgb(0xFF, 0xFF, 0xFF),
+		quote_mine: Colour::rgb(0xC9, 0xEE, 0xC3),
+		quote_theirs: Colour::rgb(0xF0, 0xF2, 0xF5),
 		pill: Colour::rgb(0xFF, 0xFF, 0xFF),
-		outline: false,
+		custom: true,
+	}
+}
+
+/// An outline where colours are the system's (High Contrast), a filled
+/// rounded box otherwise.
+#[allow(clippy::too_many_arguments)]
+fn shape(dc: &impl DeviceContext, c: &Colours, x: i32, y: i32, w: i32, h: i32, fill: Colour, bg: Colour) {
+	if c.custom {
+		round_box(dc, x, y, w, h, fill, bg);
+	} else {
+		dc.set_brush(fill, BrushStyle::Transparent);
+		dc.set_pen(c.text, 1, PenStyle::Solid);
+		dc.draw_rounded_rectangle(x, y, w, h, 4.0);
 	}
 }
 
@@ -361,93 +733,60 @@ pub(crate) fn paint_row(
 	foreground: Colour,
 	row: RowPaint,
 ) {
-	CACHE.with(|cache| {
-		let mut cache = cache.borrow_mut();
-		let base = (base_font.get_point_size(), base_font.get_face_name());
-		if cache.fonts.as_ref().is_none_or(|f| f.base != base) {
-			cache.fonts = Some(std::rc::Rc::new(make_fonts(base_font)));
-			cache.corners.clear();
+	let fonts = fonts_for(dc, base_font);
+	let fonts = &*fonts;
+	let c = colours(background, foreground, row.selected, row.focused);
+	let height = row.unit * row.units as i32;
+	let row_bg = c.band.unwrap_or(c.background);
+	if let Some(band) = c.band {
+		dc.set_brush(band, BrushStyle::Solid);
+		dc.set_pen(band, 1, PenStyle::Solid);
+		// Past `width`, to the window's edge when there's no scrollbar (the list clips it).
+		dc.draw_rectangle(0, row.y, row.width + 64, height);
+	}
+	if let Some(bar) = c.focus_bar {
+		dc.set_brush(bar, BrushStyle::Solid);
+		dc.set_pen(bar, 1, PenStyle::Solid);
+		dc.draw_rectangle(0, row.y, 4, height);
+	}
+	let mut left = MARGIN;
+	if let Some(checked) = row.check {
+		let (glyph, font) = match &fonts.icons {
+			Some(font) => ((if checked { glyph::BOX_CHECKED } else { glyph::BOX }).to_string(), font),
+			None => ((if checked { "[x]" } else { "[ ]" }).to_string(), &fonts.body),
+		};
+		dc.set_font(font);
+		dc.set_text_foreground(c.text);
+		let (_, gh) = dc.get_text_extent(&glyph);
+		dc.draw_text(&glyph, left, row.y + (row.unit - gh) / 2);
+		left += fonts.line + 8;
+	}
+	match row.look {
+		Some(Look::Pill(text)) => pill(dc, fonts, &row, &c, row_bg, text),
+		Some(Look::Bubble(bubble)) => draw_bubble(dc, fonts, &row, &c, row_bg, left, bubble),
+		None => {
+			dc.set_font(&fonts.body);
+			dc.set_text_foreground(c.text);
+			let line = fonts.fit(dc, Face::Body, row.text, row.width - left - MARGIN);
+			dc.draw_text(&line, left, row.y + (row.unit - fonts.line) / 2);
 		}
-		let fonts = cache.fonts.clone().expect("fonts were just made");
-		let fonts = &*fonts;
-		let c = colours(background, foreground, row.selected, row.focused);
-		let height = row.unit * row.units as i32;
-		let row_bg = c.band.unwrap_or(c.background);
-		if let Some(band) = c.band {
-			dc.set_brush(band, BrushStyle::Solid);
-			dc.set_pen(band, 1, PenStyle::Solid);
-			dc.draw_rectangle(0, row.y, row.width, height);
-		}
-		if let Some(bar) = c.focus_bar {
-			dc.set_brush(bar, BrushStyle::Solid);
-			dc.set_pen(bar, 1, PenStyle::Solid);
-			dc.draw_rectangle(0, row.y, 4, height);
-		}
-		let mut left = 12;
-		if let Some(checked) = row.check {
-			match &fonts.icons {
-				Some(font) => {
-					dc.set_font(font);
-					dc.set_text_foreground(c.text);
-					let glyph = if checked { glyph::BOX_CHECKED } else { glyph::BOX };
-					let (gw, gh) = dc.get_text_extent(&glyph.to_string());
-					dc.draw_text(&glyph.to_string(), left, row.y + (height - gh) / 2);
-					left += gw + 8;
-				}
-				None => {
-					dc.set_font(&fonts.body);
-					let mark = if checked { "[x]" } else { "[ ]" };
-					dc.set_text_foreground(c.text);
-					let (gw, gh) = dc.get_text_extent(mark);
-					dc.draw_text(mark, left, row.y + (height - gh) / 2);
-					left += gw + 8;
-				}
-			}
-		}
-		match row.look {
-			Some(Look::Pill(text)) => pill(dc, &mut cache, fonts, &row, &c, row_bg, text),
-			Some(Look::Bubble(bubble)) => draw_bubble(dc, &mut cache, fonts, &row, &c, row_bg, left, bubble),
-			None => {
-				dc.set_font(&fonts.body);
-				dc.set_text_foreground(c.text);
-				let line = fit(dc, row.text, row.width - left - 12);
-				let th = dc.get_text_extent("Ag").1;
-				dc.draw_text(&line, left, row.y + (height - th) / 2);
-			}
-		}
-	});
+	}
 }
 
-fn pill(
-	dc: &impl DeviceContext,
-	cache: &mut Cache,
-	fonts: &Fonts,
-	row: &RowPaint,
-	c: &Colours,
-	row_bg: Colour,
-	text: &str,
-) {
+fn pill(dc: &impl DeviceContext, fonts: &Fonts, row: &RowPaint, c: &Colours, row_bg: Colour, text: &str) {
+	let text = fonts.fit(dc, Face::Small, text, row.width - 64);
 	dc.set_font(&fonts.small);
-	let text = fit(dc, text, row.width - 64);
 	let (tw, th) = dc.get_text_extent(&text);
 	let (w, h) = (tw + 24, (th + 8).min(row.unit - 4));
 	let (x, y) = ((row.width - w) / 2, row.y + (row.unit - h) / 2);
-	if c.outline {
-		dc.set_brush(c.pill, BrushStyle::Transparent);
-		dc.set_pen(c.text, 1, PenStyle::Solid);
-		dc.draw_rounded_rectangle(x, y, w, h, 4.0);
-	} else {
-		round_box(dc, cache, x, y, w, h, c.pill, row_bg);
-	}
+	shape(dc, c, x, y, w, h, c.pill, row_bg);
 	dc.set_font(&fonts.small);
 	dc.set_text_foreground(c.muted);
 	dc.draw_text(&text, x + 12, y + (h - th) / 2);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_bubble(
 	dc: &impl DeviceContext,
-	cache: &mut Cache,
 	fonts: &Fonts,
 	row: &RowPaint,
 	c: &Colours,
@@ -455,201 +794,255 @@ fn draw_bubble(
 	left: i32,
 	b: &Bubble,
 ) {
-	let pad = 8;
-	let gap = 6;
-	let height = row.unit * row.units as i32 - 4;
+	let line = fonts.line;
+	let l = layout(dc, fonts, b, bubble_room(row.width, left));
+	let x = if b.from_me { row.width - MARGIN - l.width } else { left };
 	let top = row.y + 2;
-	let max_w = ((row.width - left - 12) * 13 / 20).max(160).min(row.width - left - 12);
-
-	// The corner: reactions, star, "Edited", time, ticks.
-	dc.set_font(&fonts.small);
-	let mut meta = String::new();
-	if !b.reactions.is_empty() {
-		meta.push_str(&b.reactions);
-		meta.push(' ');
-	}
-	if b.edited {
-		meta.push_str("Edited ");
-	}
-	meta.push_str(&b.time);
-	let meta_w = dc.get_text_extent(&meta).0;
-	let star = b.starred.then(|| glyph::STAR.to_string());
-	let ticks: Option<(String, Colour)> = b.ticks.map(|t| {
-		let two = format!("{0}{0}", glyph::CHECK);
-		match t {
-			Ticks::Pending => (glyph::CLOCK.to_string(), c.muted),
-			Ticks::Failed => (glyph::ERROR.to_string(), c.muted),
-			Ticks::Sent => (glyph::CHECK.to_string(), c.muted),
-			Ticks::Delivered => (two, c.muted),
-			Ticks::Read => (two, c.read),
-		}
-	});
-	// Two ticks overlap, as WhatsApp draws them.
-	let icon_width = |s: &str| -> i32 {
-		let Some(font) = &fonts.icons_small else { return 0 };
-		dc.set_font(font);
-		let w = dc.get_text_extent(s).0;
-		(if s.chars().count() == 2 { w * 2 / 3 } else { w }) + 3
-	};
-	let star_w = star.as_deref().map_or(0, icon_width);
-	let ticks_w = ticks.as_ref().map_or(0, |(s, _)| icon_width(s));
-	let corner_w = star_w + meta_w + ticks_w;
-
-	// The pictures, in a tall row.
-	let thumb_h = if b.thumbs.is_empty() { 0 } else { height - 8 };
-	let thumb_box_w = if b.thumbs.len() > 1 { thumb_h } else { thumb_h * 4 / 3 };
-
-	// The text: sender (in a group), the kind's icon, the message.
-	dc.set_font(&fonts.bold);
-	let sender_w = if b.sender.is_empty() { 0 } else { dc.get_text_extent(&b.sender).0 };
-	let glyph_w = match (b.icon, &fonts.icons) {
-		(Some(g), Some(font)) => {
-			dc.set_font(font);
-			dc.get_text_extent(&g.to_string()).0 + 4
-		}
-		_ => 0,
-	};
-	dc.set_font(&fonts.body);
-	let body_full_w = dc.get_text_extent(&b.body).0;
-
-	let (bubble_w, text_left_in) = if b.thumbs.is_empty() {
-		let sender_part = if sender_w > 0 { sender_w + gap } else { 0 };
-		let want = pad + sender_part + glyph_w + body_full_w + gap + corner_w + pad;
-		(want.min(max_w), pad)
-	} else {
-		let thumbs_w = b.thumbs.len() as i32 * (thumb_box_w + 4) - 4;
-		let text_w = sender_w.max(glyph_w + body_full_w).max(corner_w);
-		let want = 4 + thumbs_w + pad + text_w + pad;
-		(want.min(max_w).max(4 + thumbs_w + pad + corner_w + pad).min(row.width - left - 12), 4 + thumbs_w + pad)
-	};
-	let x = if b.from_me { row.width - 12 - bubble_w } else { left };
 	let fill = if b.from_me { c.mine } else { c.theirs };
-	if c.outline {
-		dc.set_brush(fill, BrushStyle::Transparent);
-		dc.set_pen(c.text, 1, PenStyle::Solid);
-		dc.draw_rounded_rectangle(x, top, bubble_w, height, 6.0);
-	} else {
-		round_box(dc, cache, x, top, bubble_w, height, fill, row_bg);
-	}
+	shape(dc, c, x, top, l.width, l.height, fill, row_bg);
 
-	// Pictures, or a grey box until they come.
-	let mut tx = x + 4;
-	for id in &b.thumbs {
-		let ty = top + 4;
-		let drawn = thumbnails::with_thumb(id, thumb_box_w, thumb_h, |thumb| match thumb {
-			Thumb::Picture(bitmap) => {
-				let (bw, bh) = (bitmap.get_width(), bitmap.get_height());
-				dc.draw_bitmap(bitmap, tx + (thumb_box_w - bw) / 2, ty + (thumb_h - bh) / 2, true);
-				true
-			}
-			Thumb::Nothing | Thumb::Waiting => false,
-		});
-		if !drawn {
-			let grey = if c.outline { fill } else { Colour::rgb(0xD5, 0xD9, 0xDB) };
-			round_box(dc, cache, tx, ty, thumb_box_w, thumb_h, grey, fill);
-			if let Some(font) = &fonts.icons_big {
-				dc.set_font(font);
-				dc.set_text_foreground(Colour::rgb(0xFF, 0xFF, 0xFF));
-				let g = if b.video { icon::VIDEO } else { icon::CAMERA }.to_string();
-				let (gw, gh) = dc.get_text_extent(&g);
-				dc.draw_text(&g, tx + (thumb_box_w - gw) / 2, ty + (thumb_h - gh) / 2);
-			}
-		} else if b.video {
-			play_button(dc, cache, fonts, tx + thumb_box_w / 2, ty + thumb_h / 2);
-		}
-		tx += thumb_box_w + 4;
-	}
+	let inner_x = x + PAD;
+	let inner_w = l.width - 2 * PAD;
+	let mut y = top + PAD / 2;
 
-	let text_x = x + text_left_in;
-	let text_right = x + bubble_w - pad;
-	let line_h = row.unit - 4;
-	// Plain rows: everything on one line, the corner on the right. Picture
-	// rows: sender and message stacked beside the picture, corner at the bottom.
-	let (line_y, corner_y) = if b.thumbs.is_empty() {
-		(top, top)
-	} else {
-		let lines = if b.sender.is_empty() { 1 } else { 2 };
-		(top + (height - lines * line_h - line_h) / 2, top + height - line_h - 2)
-	};
-	// Where text in the current font sits to be centred on a line at `y`.
-	let centre = |y: i32, text: &str| y + (line_h - dc.get_text_extent(text).1) / 2;
-
-	let mut cx = text_x;
-	let mut cy = line_y;
-	let text_room = if b.thumbs.is_empty() { text_right - corner_w - gap } else { text_right };
-	if !b.sender.is_empty() {
+	if !l.sender.is_empty() {
 		dc.set_font(&fonts.bold);
-		dc.set_text_foreground(c.accent);
-		let s = fit(dc, &b.sender, text_room - cx);
-		dc.draw_text(&s, cx, centre(cy, &s));
-		if b.thumbs.is_empty() {
-			cx += dc.get_text_extent(&s).0 + gap;
-		} else {
-			cy += line_h;
-		}
+		dc.set_text_foreground(c.name(b.sender_colour));
+		dc.draw_text(&l.sender, inner_x, y);
+		y += line;
 	}
-	if let (Some(g), Some(font)) = (b.icon, &fonts.icons)
-		&& cx < text_room
+
+	// The message it replies to, in a box with a bar in its sender's colour.
+	if let Some((who, what)) = &l.quote {
+		let quote_fill = if b.from_me { c.quote_mine } else { c.quote_theirs };
+		shape(dc, c, inner_x - 2, y, inner_w + 4, l.quote_h, quote_fill, fill);
+		let bar = if who == "You" { c.accent } else { c.name(name_colour(who)) };
+		dc.set_brush(bar, BrushStyle::Solid);
+		dc.set_pen(bar, 1, PenStyle::Solid);
+		dc.draw_rectangle(inner_x - 2, y, 4, l.quote_h);
+		let text_x = inner_x + PAD;
+		let text_w = inner_w - PAD - 4;
+		let who = if who.is_empty() { "Quoted message".to_string() } else { who.clone() };
+		dc.set_font(&fonts.bold);
+		dc.set_text_foreground(bar);
+		dc.draw_text(&fonts.fit(dc, Face::Bold, &who, text_w), text_x, y + PAD / 2);
+		dc.set_font(&fonts.body);
+		dc.set_text_foreground(c.muted);
+		dc.draw_text(&fonts.fit(dc, Face::Body, what, text_w), text_x, y + PAD / 2 + line);
+		y += l.quote_h + 4;
+	}
+
+	// Pictures, or a grey box with the kind's icon until they come.
+	if l.thumb_h > 0 {
+		let mut tx = x + 4;
+		for id in &b.thumbs {
+			let drawn = thumbnails::with_thumb(id, l.thumb_w, l.thumb_h, |thumb| match thumb {
+				Thumb::Picture(bitmap) => {
+					let (bw, bh) = (bitmap.get_width(), bitmap.get_height());
+					dc.draw_bitmap(bitmap, tx + (l.thumb_w - bw) / 2, y + (l.thumb_h - bh) / 2, true);
+					true
+				}
+				Thumb::Nothing | Thumb::Waiting => false,
+			});
+			if !drawn {
+				let grey = if c.custom { Colour::rgb(0xD5, 0xD9, 0xDB) } else { fill };
+				shape(dc, c, tx, y, l.thumb_w, l.thumb_h, grey, fill);
+				if let Some(font) = &fonts.icons_big {
+					dc.set_font(font);
+					dc.set_text_foreground(if c.custom { Colour::rgb(0xFF, 0xFF, 0xFF) } else { c.text });
+					let g = if b.video { icon::VIDEO } else { icon::CAMERA }.to_string();
+					let (gw, gh) = dc.get_text_extent(&g);
+					dc.draw_text(&g, tx + (l.thumb_w - gw) / 2, y + (l.thumb_h - gh) / 2);
+				}
+			} else if b.video {
+				play_button(dc, fonts, tx + l.thumb_w / 2, y + l.thumb_h / 2, line * 2, (0, 0, 0), 140);
+			}
+			tx += l.thumb_w + 4;
+		}
+		y += l.thumb_h + 4;
+	}
+
+	// An audio file: its music icon, the play button, then a slider.
+	if b.voice.is_some() && b.audio_file {
+		let size = l.voice_h;
+		let mid = y + size / 2;
+		let orange = if c.custom { (0xF3, 0x9C, 0x12) } else { (0x80, 0x80, 0x80) };
+		round_badge(dc, inner_x, y, size, orange);
+		if let Some(font) = &fonts.icons {
+			dc.set_font(font);
+			let g = icon::AUDIO.to_string();
+			let (gw, gh) = dc.get_text_extent(&g);
+			dc.set_text_foreground(Colour::rgb(0xFF, 0xFF, 0xFF));
+			dc.draw_text(&g, inner_x + (size - gw) / 2, mid - gh / 2);
+		}
+		let (r, g, bl) =
+			if c.custom { (Palette::ACCENT.r, Palette::ACCENT.g, Palette::ACCENT.b) } else { (0x80, 0x80, 0x80) };
+		let play = size * 3 / 4;
+		play_button(dc, fonts, inner_x + size + GAP + play / 2, mid, play, (r, g, bl), 255);
+		let track_x = inner_x + size + 2 * GAP + play;
+		let track_w = (inner_w - size - 2 * GAP - play).max(8);
+		let colour = if c.custom { Colour::rgb(0xA0, 0xA6, 0xAA) } else { c.text };
+		dc.set_brush(colour, BrushStyle::Solid);
+		dc.set_pen(colour, 1, PenStyle::Solid);
+		dc.draw_rectangle(track_x, mid - 1, track_w, 3);
+		let knob = (line / 2).max(6);
+		round_badge(dc, track_x, mid - knob / 2, knob, (r, g, bl));
+		y += l.voice_h;
+	} else if let Some(id) = &b.voice {
+		// A voice note: the play button, then its waveform.
+		let size = l.voice_h;
+		let (r, g, bl) =
+			if c.custom { (Palette::ACCENT.r, Palette::ACCENT.g, Palette::ACCENT.b) } else { (0x80, 0x80, 0x80) };
+		play_button(dc, fonts, inner_x + size / 2, y + size / 2, size, (r, g, bl), 255);
+		let bars_x = inner_x + size + GAP;
+		let bars_w = inner_w - size - GAP;
+		thumbnails::with_waveform(id, |bars| {
+			let bars: Vec<u8> = match bars {
+				Some(bars) => bars.to_vec(),
+				// Until it comes (or for a note without one), a flat line.
+				None => vec![8; 48],
+			};
+			let count = bars.len().max(1) as i32;
+			let step = (bars_w / count).max(2);
+			let shown = (bars_w / step).min(count) as usize;
+			let bar_w = (step * 2 / 3).max(1);
+			let mid = y + size / 2;
+			let colour = if b.from_me { Colour::rgb(0x8F, 0xB8, 0x8A) } else { Colour::rgb(0xA0, 0xA6, 0xAA) };
+			let colour = if c.custom { colour } else { c.text };
+			dc.set_brush(colour, BrushStyle::Solid);
+			dc.set_pen(colour, 1, PenStyle::Solid);
+			for (i, &v) in bars.iter().take(shown).enumerate() {
+				let h = ((size - 6) * v.max(6) as i32 / 100).max(2);
+				dc.draw_rectangle(bars_x + i as i32 * step, mid - h / 2, bar_w, h);
+			}
+		});
+		y += l.voice_h;
+	}
+
+	// The message, wrapped, with its kind's icon before the first line.
+	let text_x = if l.thumb_h > 0 { x + 4 + 4 } else { inner_x };
+	for (i, text) in l.lines.iter().enumerate() {
+		let mut lx = text_x;
+		if i == 0
+			&& let (Some(g), Some(font)) = (b.icon, &fonts.icons)
+			&& l.icon_w > 0
+		{
+			dc.set_font(font);
+			dc.set_text_foreground(c.muted);
+			let g = g.to_string();
+			let gh = dc.get_text_extent(&g).1;
+			dc.draw_text(&g, lx, y + (line - gh) / 2);
+			lx += l.icon_w;
+		}
+		dc.set_font(&fonts.body);
+		dc.set_text_foreground(c.text);
+		dc.draw_text(text, lx, y);
+		y += line;
+	}
+
+	// The corner: star, "Edited", time, ticks; a voice note's length on the left.
+	let corner_y = if l.meta_inline { y - line } else { y };
+	if let Some(_id) = &b.voice
+		&& !b.body.is_empty()
+	{
+		dc.set_font(&fonts.small);
+		dc.set_text_foreground(c.muted);
+		let skip = if b.audio_file { l.voice_h + 2 * GAP + l.voice_h * 3 / 4 } else { l.voice_h + GAP };
+		dc.draw_text(&b.body, inner_x + skip, corner_y + (line - dc.get_text_extent("Ag").1) / 2);
+	}
+	let mut mx = x + l.width - PAD - (l.star_w + l.meta_w + l.ticks_w);
+	if b.starred
+		&& let Some(font) = &fonts.icons_small
 	{
 		dc.set_font(font);
 		dc.set_text_foreground(c.muted);
-		let g = g.to_string();
-		dc.draw_text(&g, cx, centre(cy, &g));
-		cx += dc.get_text_extent(&g).0 + 4;
-	}
-	dc.set_font(&fonts.body);
-	dc.set_text_foreground(c.text);
-	let body = fit(dc, &b.body, text_room - cx);
-	dc.draw_text(&body, cx, centre(cy, &body));
-
-	// The corner, right-aligned.
-	let mut mx = text_right - corner_w;
-	if let (Some(s), Some(font)) = (&star, &fonts.icons_small) {
-		dc.set_font(font);
-		dc.set_text_foreground(c.muted);
-		dc.draw_text(s, mx, centre(corner_y, s));
-		mx += star_w;
+		let s = glyph::STAR.to_string();
+		let sh = dc.get_text_extent(&s).1;
+		dc.draw_text(&s, mx, corner_y + (line - sh) / 2);
+		mx += l.star_w;
 	}
 	dc.set_font(&fonts.small);
 	dc.set_text_foreground(c.muted);
-	dc.draw_text(&meta, mx, centre(corner_y, &meta));
-	mx += meta_w + 3;
-	if let (Some((s, colour)), Some(font)) = (&ticks, &fonts.icons_small) {
+	let mh = dc.get_text_extent("Ag").1;
+	dc.draw_text(&l.meta, mx, corner_y + (line - mh) / 2);
+	mx += l.meta_w + 3;
+	if let (Some(t), Some(font)) = (b.ticks, &fonts.icons_small) {
+		let (glyphs, blue) = tick_glyphs(t);
 		dc.set_font(font);
-		dc.set_text_foreground(*colour);
-		let mut chars = s.chars();
+		dc.set_text_foreground(if blue { c.read } else { c.muted });
+		let mut chars = glyphs.chars();
 		if let Some(first) = chars.next() {
 			let one = first.to_string();
-			let y = centre(corner_y, &one);
-			dc.draw_text(&one, mx, y);
+			let (w, h) = dc.get_text_extent(&one);
+			let ty = corner_y + (line - h) / 2;
+			dc.draw_text(&one, mx, ty);
 			if let Some(second) = chars.next() {
-				dc.draw_text(&second.to_string(), mx + dc.get_text_extent(&one).0 / 3, y);
+				dc.draw_text(&second.to_string(), mx + w / 3, ty);
 			}
 		}
 	}
+
+	// Reactions, in a pill hanging off the bubble's bottom edge.
+	if !b.reactions.is_empty() {
+		dc.set_font(&fonts.small);
+		let (tw, th) = dc.get_text_extent(&b.reactions);
+		let (w, h) = (tw + 14, th + 6);
+		let px = if b.from_me { x + l.width - w - PAD } else { x + PAD };
+		let py = top + l.height - h / 3;
+		if c.custom {
+			round_box(dc, px - 1, py - 1, w + 2, h + 2, Colour::rgb(0xD1, 0xD7, 0xDB), row_bg);
+			round_box(dc, px, py, w, h, c.pill, Colour::rgb(0xD1, 0xD7, 0xDB));
+		} else {
+			shape(dc, c, px, py, w, h, c.pill, row_bg);
+		}
+		dc.set_font(&fonts.small);
+		dc.set_text_foreground(c.text);
+		dc.draw_text(&b.reactions, px + 7, py + (h - th) / 2);
+	}
 }
 
-/// A dark round button with a white triangle, over a video's picture.
-fn play_button(dc: &impl DeviceContext, cache: &mut Cache, fonts: &Fonts, cx: i32, cy: i32) {
+/// A filled circle `size` across with its top left at (x, y): an audio file's
+/// icon behind its music note, a slider's knob.
+fn round_badge(dc: &impl DeviceContext, x: i32, y: i32, size: i32, rgb: (u8, u8, u8)) {
+	round_badge_alpha(dc, x, y, size, rgb, 255);
+}
+
+fn round_badge_alpha(dc: &impl DeviceContext, x: i32, y: i32, size: i32, rgb: (u8, u8, u8), alpha: u8) {
+	let key = (rgb.0 as u32) << 24 | (rgb.1 as u32) << 16 | (rgb.2 as u32) << 8 | alpha as u32;
+	CACHE.with(|cache| {
+		let mut cache = cache.borrow_mut();
+		let slot = cache.badges.iter().position(|(s, k, _)| *s == size && *k == key);
+		let slot = match slot {
+			Some(i) => i,
+			None => {
+				let rgba = super::gdi::round_rect_rgba(size, size, size as f32 / 2.0, rgb, alpha);
+				let Some(bitmap) = Bitmap::from_rgba(&rgba, size.max(1) as u32, size.max(1) as u32) else { return };
+				if cache.badges.len() >= 8 {
+					cache.badges.remove(0);
+				}
+				cache.badges.push((size, key, bitmap));
+				cache.badges.len() - 1
+			}
+		};
+		dc.draw_bitmap(&cache.badges[slot].2, x, y, true);
+	});
+}
+
+/// A round button with a white triangle: over a video's picture, or a voice
+/// note's play button. `size` across, centred on (cx, cy).
+fn play_button(dc: &impl DeviceContext, fonts: &Fonts, cx: i32, cy: i32, size: i32, rgb: (u8, u8, u8), alpha: u8) {
+	round_badge_alpha(dc, cx - size / 2, cy - size / 2, size, rgb, alpha);
 	let Some(font) = &fonts.icons else { return };
 	dc.set_font(font);
 	let g = glyph::PLAY.to_string();
 	let (gw, gh) = dc.get_text_extent(&g);
-	let size = gw.max(gh) * 2;
-	if cache.play.as_ref().is_none_or(|(s, _)| *s != size) {
-		let rgba = super::gdi::round_rect_rgba(size, size, size as f32 / 2.0, (0, 0, 0), 140);
-		cache.play = Bitmap::from_rgba(&rgba, size as u32, size as u32).map(|b| (size, b));
-	}
-	if let Some((_, circle)) = &cache.play {
-		dc.draw_bitmap(circle, cx - size / 2, cy - size / 2, true);
-	}
 	dc.set_text_foreground(Colour::rgb(0xFF, 0xFF, 0xFF));
 	dc.draw_text(&g, cx - gw / 2 + 1, cy - gh / 2);
 }
 
 #[cfg(test)]
 mod tests {
-	use super::{Look, TALL_UNITS, Ticks, look_for, ticks};
+	use super::{Look, Ticks, look_for, name_colour, ticks_for};
 
 	fn msg(text: &str, media: &str, from_me: bool) -> whatsnap::DisplayItem {
 		let m = whatsnap::ChatMessage {
@@ -658,36 +1051,49 @@ mod tests {
 			media_type: media.into(),
 			from_me,
 			sender_name: "Bob".into(),
+			sender_jid: "1@s.whatsapp.net".into(),
 			..Default::default()
 		};
 		whatsnap::DisplayItem::Single(std::rc::Rc::new(m))
 	}
 
 	#[test]
-	fn a_photo_is_a_tall_bubble_with_its_picture() {
-		let look = look_for(&msg("[Image] beach", "image", false), true);
-		assert_eq!(look.units(), TALL_UNITS);
-		let Look::Bubble(b) = look else { panic!() };
+	fn a_photo_shows_its_picture_and_caption() {
+		let Look::Bubble(b) = look_for(&msg("[Image] beach", "image", false), true) else { panic!() };
 		assert_eq!((b.sender.as_str(), b.body.as_str(), b.thumbs.len()), ("Bob", "beach", 1));
 	}
 
 	#[test]
 	fn a_view_once_photo_shows_no_picture() {
-		assert_eq!(look_for(&msg("[View once] [Image]", "image", false), false).units(), 1);
+		let Look::Bubble(b) = look_for(&msg("[View once] [Image]", "image", false), false) else { panic!() };
+		assert!(b.thumbs.is_empty());
 	}
 
 	#[test]
-	fn a_voice_message_shows_its_length() {
+	fn a_voice_message_shows_its_length_and_waveform() {
 		let Look::Bubble(b) = look_for(&msg("[Voice Message] (0:12)", "audio", true), false) else { panic!() };
 		assert_eq!(b.body, "0:12");
-		assert_eq!(b.icon, Some(super::icon::MICROPHONE));
+		assert_eq!(b.voice.as_deref(), Some("A1"));
 		assert!(b.sender.is_empty());
+		assert!(!b.audio_file);
+	}
+
+	#[test]
+	fn an_audio_file_is_drawn_unlike_a_voice_message() {
+		let Look::Bubble(b) = look_for(&msg("[Audio] (3:05)", "audio", false), false) else { panic!() };
+		assert!(b.audio_file);
+		assert_eq!(b.body, "3:05");
 	}
 
 	#[test]
 	fn read_and_played_both_show_blue_ticks() {
-		assert_eq!(ticks("read"), Ticks::Read);
-		assert_eq!(ticks("played"), Ticks::Read);
-		assert_eq!(ticks(""), Ticks::Sent);
+		assert_eq!(ticks_for("read"), Ticks::Read);
+		assert_eq!(ticks_for("played"), Ticks::Read);
+		assert_eq!(ticks_for(""), Ticks::Sent);
+	}
+
+	#[test]
+	fn a_person_keeps_their_name_colour() {
+		assert_eq!(name_colour("1@s.whatsapp.net"), name_colour("1@s.whatsapp.net"));
 	}
 }

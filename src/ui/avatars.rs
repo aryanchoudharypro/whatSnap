@@ -58,6 +58,9 @@ pub(crate) fn on_change(callback: impl Fn() + 'static) {
 /// Runs `draw` with `jid`'s picture at `size` pixels, asking for it if it's
 /// not known yet.
 pub(crate) fn with_avatar<R>(jid: &str, size: i32, draw: impl FnOnce(Avatar) -> R) -> R {
+	if jid.is_empty() {
+		return draw(Avatar::Nothing);
+	}
 	CACHE.with(|cache| {
 		let mut c = cache.borrow_mut();
 		if c.size != size {

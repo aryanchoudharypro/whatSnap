@@ -2358,6 +2358,10 @@ func eventHandler(evt interface{}) {
 			} else if updated := updateMessageStatusIfNewer(ids, status, receiptTS); len(updated) > 0 {
 				updatedByStatus[status] = updated
 			}
+			if len(updatedByStatus) > 0 {
+				// The chat list draws your last message's ticks.
+				broadcastChats()
+			}
 			for newStatus, updated := range updatedByStatus {
 				broadcastEvent("message_status", map[string]interface{}{
 					"jid":         resolvedChatJID.String(),

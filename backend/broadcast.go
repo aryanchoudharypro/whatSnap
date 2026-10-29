@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"net"
 	"go.mau.fi/whatsmeow/types"
+	"net"
 )
 
 func broadcastEvent(evtType string, data interface{}) {
@@ -136,16 +136,19 @@ func broadcastChats() {
 // and re-sent after every message (debounced to 200ms), and a map meant a Go
 // map plus a boxed value per field of every chat each time.
 type ChatListEntry struct {
-	JID                  string
-	FullName             string
-	Timestamp            int64
-	UnreadCount          int
-	Pinned               bool
-	Muted                bool
-	PreviewSnippet       string
-	Archived             bool
-	PreviewSender        string
-	PreviewFromMe        bool
+	JID            string
+	FullName       string
+	Timestamp      int64
+	UnreadCount    int
+	Pinned         bool
+	Muted          bool
+	PreviewSnippet string
+	Archived       bool
+	PreviewSender  string
+	PreviewFromMe  bool
+	// PreviewStatus is your last message's ticks (sent, delivered, read...),
+	// drawn before it in the chat list.
+	PreviewStatus        string
 	PreviewIsReaction    bool
 	PreviewReactionEmoji string
 	IsCommunity          bool
@@ -166,7 +169,9 @@ type ChatListEntry struct {
 // broadcastChats (pushed to everyone) and the get_chats command (requested
 // by one client). Keeping this in one place means the two can't drift.
 func buildChatsList() []ChatListEntry {
-	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, ''), COALESCE(admins_only, 0) FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
+	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, ''), COALESCE(admins_only, 0),
+		CASE WHEN COALESCE(preview_from_me, 0) = 1 THEN COALESCE((SELECT m.status FROM messages m WHERE m.jid = chats.jid AND m.from_me = 1 ORDER BY m.timestamp DESC LIMIT 1), '') ELSE '' END
+		FROM chats ORDER BY pinned DESC, timestamp DESC, name ASC`)
 	if err != nil {
 		fmt.Println("Error querying chats:", err)
 		return []ChatListEntry{}
@@ -211,8 +216,9 @@ func buildChatsList() []ChatListEntry {
 		var adminsOnly int
 		var isChannel int
 		var channelRole string
+		var previewStatus string
 
-		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity, &isAdmin, &isLocked, &parentJID, &isAnnounceGroup, &isChannel, &channelRole, &adminsOnly); err != nil {
+		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity, &isAdmin, &isLocked, &parentJID, &isAnnounceGroup, &isChannel, &channelRole, &adminsOnly, &previewStatus); err != nil {
 			continue
 		}
 		n := jid
@@ -277,6 +283,7 @@ func buildChatsList() []ChatListEntry {
 			Archived:             archived == 1,
 			PreviewSender:        ps,
 			PreviewFromMe:        previewFromMe == 1,
+			PreviewStatus:        previewStatus,
 			PreviewIsReaction:    previewIsReaction == 1,
 			PreviewReactionEmoji: previewReactionEmoji,
 			IsCommunity:          isCommunity == 1,

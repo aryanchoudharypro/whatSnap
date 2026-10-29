@@ -63,7 +63,7 @@ pub(crate) mod icon {
 }
 
 /// What a chat row shows, besides its text.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub(crate) struct RowArt {
 	pub jid: String,
 	pub title: String,
@@ -74,6 +74,8 @@ pub(crate) struct RowArt {
 	pub preview_prefix: String,
 	pub icon: Option<char>,
 	pub preview: String,
+	/// Your own last message's ticks, drawn before it.
+	pub ticks: Option<super::message_art::Ticks>,
 	pub unread: u32,
 	pub pinned: bool,
 	pub muted: bool,
@@ -319,6 +321,7 @@ struct Colours {
 	text: windows::Win32::Foundation::COLORREF,
 	muted: windows::Win32::Foundation::COLORREF,
 	accent: windows::Win32::Foundation::COLORREF,
+	read: windows::Win32::Foundation::COLORREF,
 	divider: Option<windows::Win32::Foundation::COLORREF>,
 	focus_bar: Option<windows::Win32::Foundation::COLORREF>,
 }
@@ -337,6 +340,7 @@ fn colours(selected: bool, focused: bool) -> Colours {
 				text,
 				muted: text,
 				accent: text,
+				read: text,
 				divider: None,
 				focus_bar: None,
 			}
@@ -347,6 +351,7 @@ fn colours(selected: bool, focused: bool) -> Colours {
 				text,
 				muted: sys(COLOR_GRAYTEXT),
 				accent: text,
+				read: text,
 				divider: None,
 				focus_bar: None,
 			}
@@ -358,6 +363,8 @@ fn colours(selected: bool, focused: bool) -> Colours {
 		text: rgb(Palette::TEXT_PRIMARY),
 		muted: rgb(Palette::TEXT_MUTED),
 		accent: rgb(Palette::ACCENT),
+		// WhatsApp's read blue, darkened to read on white.
+		read: colorref(0x0B, 0x6F, 0xA4),
 		divider: Some(colorref(0xE3, 0xE6, 0xE8)),
 		// Where the keyboard is, beyond the grey: a bar in the accent green.
 		focus_bar: (selected && focused).then(|| rgb(Palette::ACCENT)),
@@ -504,8 +511,33 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, c: C
 		}
 	}
 
-	// Then the last message: "Name: ", its kind's icon, its text.
+	// Then the last message: your ticks or "Name: ", its kind's icon, its text.
 	let mut x = left;
+	if let (Some(ticks), Some(font)) = (art.ticks, fonts.icons) {
+		let (glyphs, blue) = super::message_art::tick_glyphs(ticks);
+		let colour = if blue { c.read } else { c.muted };
+		let mut chars = glyphs.chars();
+		if let Some(first) = chars.next() {
+			let first = first.to_string();
+			let w = gdi::text_width(dc, font, &first);
+			gdi::text(dc, font, colour, &first, rect(x, line2.0, line_right, line2.1), Default::default());
+			// A second tick overlaps the first, as WhatsApp draws them.
+			let total = if let Some(second) = chars.next() {
+				gdi::text(
+					dc,
+					font,
+					colour,
+					&second.to_string(),
+					rect(x + w / 3, line2.0, line_right, line2.1),
+					Default::default(),
+				);
+				w + w / 3
+			} else {
+				w
+			};
+			x += total + gap / 2;
+		}
+	}
 	if !art.preview_prefix.is_empty() {
 		gdi::text(
 			dc,

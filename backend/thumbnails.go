@@ -153,3 +153,40 @@ func makeFileThumbnail(path, out string, keepAlpha bool) bool {
 	}
 	return err == nil && os.WriteFile(out, buf.Bytes(), 0o644) == nil
 }
+
+type waveformItem struct {
+	ID   string `json:"id"`
+	Bars []int  `json:"bars"` // loudness 0-100, usually 64 of them; empty when the note has none
+}
+
+// handleGetWaveforms sends the loudness bars voice notes carry, which the
+// message list draws in a voice note's bubble, as WhatsApp does.
+func handleGetWaveforms(conn net.Conn, raw json.RawMessage) {
+	var data thumbnailsData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	go func() {
+		items := make([]waveformItem, 0, len(data.IDs))
+		for _, id := range data.IDs {
+			items = append(items, waveformItem{ID: id, Bars: messageWaveform(id)})
+		}
+		sendEvent(conn, "waveforms", map[string]interface{}{"items": items})
+	}()
+}
+
+func messageWaveform(id string) []int {
+	var raw []byte
+	if db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw) != nil || len(raw) == 0 {
+		return []int{}
+	}
+	msg := &waE2E.Message{}
+	if proto.Unmarshal(raw, msg) != nil {
+		return []int{}
+	}
+	bars := []int{}
+	for _, b := range unwrapMessage(msg).GetAudioMessage().GetWaveform() {
+		bars = append(bars, min(int(b), 100))
+	}
+	return bars
+}

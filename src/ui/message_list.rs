@@ -18,13 +18,19 @@
 //! rebuild, so NVDA doesn't read the cursor row again.
 //!
 //! It scrolls like a list box: a scrollbar with one step per row of text. A
-//! row can be several of those tall (a photo's row, with its picture; see
-//! `remember_units`), and is drawn as `ui::message_art` says - a bubble, a
-//! picture - while the screen reader is still given only its text.
+//! row can be several of those tall (a long message wraps, a photo shows its
+//! picture): each is measured for the list's width (see `remeasure`), and is
+//! drawn as `ui::message_art` says - a bubble, a picture - while the screen
+//! reader is still given only its text.
 //!
 //! The keyboard handling follows Fedra's timeline list (MIT, Quin Gillespie).
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Instant};
+use std::{
+	cell::{Cell, RefCell},
+	collections::HashMap,
+	rc::Rc,
+	time::Instant,
+};
 
 use accesskit::{Action, ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, Role, TreeInfo, TreeUpdate};
 use accesskit_windows::SubclassingAdapter;
@@ -51,8 +57,10 @@ struct Row {
 	text: String,
 	/// Only in a checkable list (see `set_checkable`).
 	checked: bool,
-	/// How many rows of text tall it's drawn (see `remember_units`).
+	/// How many rows of text tall it's drawn (see `remeasure`).
 	units: u8,
+	/// `units` is right for the list's current width and the row's text.
+	measured: bool,
 }
 
 #[derive(Default)]
@@ -79,8 +87,8 @@ struct State {
 	after: usize,
 	/// Rows have check boxes, as in a `CheckListBox` (see `set_checkable`).
 	checkable: bool,
-	/// Rows taller than one line, by key (see `remember_units`).
-	units_by_key: HashMap<String, u8>,
+	/// The width the rows were last measured at.
+	measured_width: i32,
 	/// Where each row starts, in rows of text from the top; one more entry
 	/// than there are rows, the last being the total.
 	starts: Vec<usize>,
@@ -90,11 +98,7 @@ impl State {
 	fn new_row(&mut self, key: &str, text: &str) -> Row {
 		let id = self.next_id.max(FIRST_ROW_ID);
 		self.next_id = id + 1;
-		Row { id, key: key.to_string(), text: text.to_string(), checked: false, units: self.units_of(key) }
-	}
-
-	fn units_of(&self, key: &str) -> u8 {
-		if key.is_empty() { 1 } else { self.units_by_key.get(key).copied().unwrap_or(1).max(1) }
+		Row { id, key: key.to_string(), text: text.to_string(), checked: false, units: 1, measured: false }
 	}
 
 	/// Works out where every row starts again, after rows came or went.
@@ -182,10 +186,10 @@ impl State {
 		let old = std::mem::take(&mut self.rows);
 		let key_at = |i: Option<usize>| i.and_then(|i| old.get(i)).map(|r| r.key.clone()).filter(|k| !k.is_empty());
 		let (selected_key, top_key) = (key_at(self.selected), key_at(Some(self.top)));
-		let mut kept: HashMap<String, (u64, String)> = HashMap::with_capacity(old.len());
+		let mut kept: HashMap<String, Row> = HashMap::with_capacity(old.len());
 		for row in old {
 			if !row.key.is_empty() {
-				kept.entry(row.key).or_insert((row.id, row.text));
+				kept.entry(row.key.clone()).or_insert(row);
 			}
 		}
 		let mut rows = Vec::with_capacity(texts.len());
@@ -193,12 +197,22 @@ impl State {
 		for (i, text) in texts.iter().enumerate() {
 			let key = keys.get(i).copied().unwrap_or("");
 			match kept.remove(key) {
-				Some((id, old_text)) if !key.is_empty() => {
+				Some(old) if !key.is_empty() => {
+					// Its height stays until it's measured again, so the rows
+					// below don't jump.
+					let measured = old.measured && old.text == *text;
+					let row = Row {
+						id: old.id,
+						key: old.key,
+						text: text.to_string(),
+						checked: false,
+						units: old.units,
+						measured,
+					};
 					if selected_key.as_deref() == Some(key) {
-						cursor_text = Some((id, old_text));
+						cursor_text = Some((old.id, old.text));
 					}
-					let units = self.units_of(key);
-					rows.push(Row { id, key: key.to_string(), text: text.to_string(), checked: false, units });
+					rows.push(row);
 				}
 				_ => rows.push(self.new_row(key, text)),
 			}
@@ -215,9 +229,6 @@ impl State {
 			_ => None,
 		};
 		self.rows = rows;
-		// Units of messages no longer here aren't needed.
-		let present: std::collections::HashSet<&str> = keys.iter().copied().collect();
-		self.units_by_key.retain(|k, _| present.contains(k.as_str()));
 		self.reflow();
 		self.expose(true);
 	}
@@ -242,6 +253,10 @@ struct Shared {
 	on_selection_changed: RefCell<Option<SelectionCallback>>,
 	on_toggled: RefCell<Option<SelectionCallback>>,
 	looks: RefCell<Option<LookSource>>,
+	/// A `remeasure` is already on its way.
+	measure_pending: Cell<bool>,
+	/// Times in a row the look source couldn't say (the app was busy).
+	measure_retries: Cell<u8>,
 }
 
 /// Gives a row's look from its index and key (see `set_look_source`).
@@ -350,6 +365,8 @@ impl MessageList {
 			on_selection_changed: RefCell::new(None),
 			on_toggled: RefCell::new(None),
 			looks: RefCell::new(None),
+			measure_pending: Cell::new(false),
+			measure_retries: Cell::new(0),
 		});
 		let slot = LISTS.with(|l| {
 			let mut l = l.borrow_mut();
@@ -421,6 +438,7 @@ impl MessageList {
 			if row.text == text {
 				return;
 			}
+			row.measured = false;
 			let (id, old) = (row.id, std::mem::replace(&mut row.text, text.to_string()));
 			if selected && self.panel.has_focus() && state.frozen.as_ref().is_none_or(|(fid, _)| *fid != id) {
 				state.frozen = Some((id, old));
@@ -428,6 +446,7 @@ impl MessageList {
 		}
 		self.sync(&shared);
 		self.panel.refresh(false, None);
+		self.schedule_measure();
 	}
 
 	pub fn append(&self, text: &str) {
@@ -478,6 +497,7 @@ impl MessageList {
 		self.apply_view(&shared);
 		self.sync(&shared);
 		self.panel.refresh(false, None);
+		self.schedule_measure();
 	}
 
 	/// Removes a row; deleting the selected row leaves nothing selected.
@@ -524,6 +544,7 @@ impl MessageList {
 		self.apply_view(&shared);
 		self.sync(&shared);
 		self.panel.refresh(false, None);
+		self.schedule_measure();
 	}
 
 	/// Replaces every row, each with the key at the same place in `keys` (a
@@ -542,6 +563,7 @@ impl MessageList {
 		self.apply_view(&shared);
 		self.sync(&shared);
 		self.panel.refresh(false, None);
+		self.schedule_measure();
 	}
 
 	pub fn clear(&self) {
@@ -556,7 +578,6 @@ impl MessageList {
 			state.exposed = 0..0;
 			state.before = 0;
 			state.after = 0;
-			state.units_by_key = HashMap::new();
 			state.reflow();
 		}
 		self.apply_view(&shared);
@@ -585,9 +606,14 @@ impl MessageList {
 	/// "checked" / "not checked".
 	pub fn set_checkable(&self, checkable: bool) {
 		let shared = self.shared();
-		shared.state.borrow_mut().checkable = checkable;
+		{
+			let mut state = shared.state.borrow_mut();
+			state.checkable = checkable;
+			state.rows.iter_mut().for_each(|r| r.measured = false);
+		}
 		self.sync(&shared);
 		self.panel.refresh(false, None);
+		self.schedule_measure();
 	}
 
 	pub fn is_checked(&self, index: u32) -> bool {
@@ -620,49 +646,99 @@ impl MessageList {
 		*self.shared().on_selection_changed.borrow_mut() = Some(Rc::new(callback));
 	}
 
-	/// Says how many rows of text tall the rows with these keys are drawn
-	/// (a photo's row is taller, for its picture). Rows already there change
-	/// at once; rows added later with one of these keys take it.
-	pub fn remember_units(&self, units: &[(&str, u8)]) {
-		if units.is_empty() {
+	/// Where rows get their look (bubble, picture) from: called with a row's
+	/// index and key while painting it. None draws the row's text plainly.
+	pub fn set_look_source(&self, source: impl Fn(usize, &str) -> Option<super::message_art::Look> + 'static) {
+		*self.shared().looks.borrow_mut() = Some(Rc::new(source));
+		self.remeasure_all();
+	}
+
+	/// Measures every row again: what they look like changed (a picture
+	/// arrived, the theme changed) though their text didn't.
+	pub fn remeasure_all(&self) {
+		let shared = self.shared();
+		shared.state.borrow_mut().rows.iter_mut().for_each(|r| r.measured = false);
+		self.schedule_measure();
+	}
+
+	// --- Internals ---
+
+	/// Measures the rows that need it once the app is done with what it's
+	/// doing (the look source reads the app's state, which may be borrowed now).
+	fn schedule_measure(&self) {
+		let shared = self.shared();
+		if shared.measure_pending.replace(true) {
 			return;
 		}
+		let list = *self;
+		wxdragon::call_after(Box::new(move || {
+			list.shared().measure_pending.set(false);
+			list.remeasure();
+		}));
+	}
+
+	/// Works out how tall each row not yet measured is drawn at the list's
+	/// width - a long message wraps, a photo has its picture - keeping the
+	/// same row at the top of the view.
+	fn remeasure(&self) {
 		let shared = self.shared();
-		let changed = {
-			let mut state = shared.state.borrow_mut();
-			let mut changed = false;
-			for &(key, n) in units {
-				let n = n.max(1);
-				if n == 1 {
-					state.units_by_key.remove(key);
-				} else {
-					state.units_by_key.insert(key.to_string(), n);
-				}
-				for row in state.rows.iter_mut().filter(|r| r.key == key && r.units != n) {
-					row.units = n;
-					changed = true;
-				}
-			}
-			if changed {
-				let top = self.view_top(&state);
-				state.top = top;
-				state.reflow();
-			}
-			changed
+		let Some(looks) = shared.looks.borrow().clone() else { return };
+		let Some(font) = self.panel.get_font() else { return };
+		let width = self.layout_width();
+		if width <= 0 {
+			return;
+		}
+		let dc = ClientDC::new(&self.panel);
+		dc.set_font(&font);
+		let Ok(mut state) = shared.state.try_borrow_mut() else {
+			self.schedule_measure();
+			return;
 		};
+		if state.measured_width != width {
+			state.measured_width = width;
+			state.rows.iter_mut().for_each(|r| r.measured = false);
+		}
+		let (unit, checkable) = (state.row_height.max(1), state.checkable);
+		let mut changed = false;
+		let mut missing = false;
+		for index in 0..state.rows.len() {
+			let row = &state.rows[index];
+			if row.measured {
+				continue;
+			}
+			let units = match looks(index, &row.key) {
+				Some(look) => super::message_art::units(&dc, &font, &look, width, unit, checkable),
+				None if row.key.is_empty() => 1,
+				None => {
+					missing = true;
+					continue;
+				}
+			};
+			let row = &mut state.rows[index];
+			row.measured = true;
+			if row.units != units {
+				row.units = units;
+				changed = true;
+			}
+		}
+		if changed {
+			state.top = self.view_top(&state);
+			state.reflow();
+			self.scroll_into_view(&mut state);
+		}
+		drop(state);
+		if missing && shared.measure_retries.get() < 5 {
+			// The app's rows didn't match the list's yet; they will shortly.
+			shared.measure_retries.set(shared.measure_retries.get() + 1);
+			self.schedule_measure();
+		} else {
+			shared.measure_retries.set(0);
+		}
 		if changed {
 			self.apply_view(&shared);
 			self.panel.refresh(false, None);
 		}
 	}
-
-	/// Where rows get their look (bubble, picture) from: called with a row's
-	/// index and key while painting it. None draws the row's text plainly.
-	pub fn set_look_source(&self, source: impl Fn(usize, &str) -> Option<super::message_art::Look> + 'static) {
-		*self.shared().looks.borrow_mut() = Some(Rc::new(source));
-	}
-
-	// --- Internals ---
 
 	/// Hands the screen reader the current tree, if one is listening.
 	fn sync(&self, shared: &Shared) {
@@ -696,6 +772,15 @@ impl MessageList {
 			self.sync(shared);
 		}
 		self.panel.refresh(false, None);
+	}
+
+	/// The width rows are laid out for: the window's, less a scrollbar's
+	/// whether there is one or not, so the scrollbar coming or going doesn't
+	/// change how tall the rows are (and so whether it's needed).
+	fn layout_width(&self) -> i32 {
+		use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXVSCROLL};
+		let scrollbar = unsafe { GetSystemMetrics(SM_CXVSCROLL) };
+		(self.panel.get_size().width - scrollbar).min(self.panel.get_client_size().width)
 	}
 
 	/// Rows of text the window has room for.
@@ -817,6 +902,9 @@ impl MessageList {
 			}
 			list.apply_view(&shared);
 			list.panel.refresh(false, None);
+			if shared.state.borrow().measured_width != list.layout_width() {
+				list.schedule_measure();
+			}
 			event.skip(true);
 		});
 		// The cursor row is drawn differently with and without focus.
@@ -1079,9 +1167,11 @@ impl MessageList {
 				let shared = list.shared();
 				list.apply_view(&shared);
 				list.panel.refresh(false, None);
+				list.remeasure_all();
 			}));
 		}
 		let focused = self.panel.has_focus();
+		let layout_width = self.layout_width();
 		let looks = shared.looks.borrow().clone();
 		// The top row may be scrolled partly out of view.
 		let view_unit = self.panel.get_view_start().1.max(0) as usize;
@@ -1089,14 +1179,10 @@ impl MessageList {
 		let mut index = state.top;
 		while y < height && index < state.rows.len() {
 			let row = &state.rows[index];
-			let mut look = looks.as_ref().and_then(|source| source(index, &row.key));
-			// A row not given the room for its picture (selection mode's
-			// list, say) goes without it.
-			if let Some(super::message_art::Look::Bubble(bubble)) = &mut look
-				&& row.units < super::message_art::TALL_UNITS
-			{
-				bubble.thumbs.clear();
-			}
+			let look = looks.as_ref().and_then(|source| source(index, &row.key));
+			let row_px = row_height * row.units as i32;
+			// A row not measured yet keeps to its old height.
+			dc.set_clipping_region(0, y, width, row_px);
 			super::message_art::paint_row(
 				&dc,
 				&font,
@@ -1104,7 +1190,7 @@ impl MessageList {
 				foreground,
 				super::message_art::RowPaint {
 					y,
-					width,
+					width: layout_width,
 					unit: row_height,
 					units: row.units,
 					look: look.as_ref(),
@@ -1114,7 +1200,8 @@ impl MessageList {
 					check: state.checkable.then_some(row.checked),
 				},
 			);
-			y += row_height * row.units as i32;
+			dc.destroy_clipping_region();
+			y += row_px;
 			index += 1;
 		}
 	}

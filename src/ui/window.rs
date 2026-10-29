@@ -827,10 +827,14 @@ pub fn bind_input_handlers(
 			wxdragon::call_after(Box::new(crate::ui::chat_rows::refresh));
 			return None;
 		};
-		let jid = s.filtered_chats.get(index)?;
+		// The row's chat is only known while the list shows the rows the app
+		// last gave it; any other time (mid-way through a switch of tab, say)
+		// it's drawn from its text alone, with no one's picture, so a picture
+		// never lands on someone else's row.
+		let in_step = s.displayed_chat_labels.get(index).is_some_and(|l| l == text);
+		let jid = s.filtered_chats.get(index).filter(|_| in_step).map_or("", String::as_str);
 		// Status, Starred and Calls rows aren't chats' rows.
-		let chat_row =
-			!matches!(s.active_tab, 1 | 2 | 6) && s.displayed_chat_labels.get(index).is_some_and(|l| l == text);
+		let chat_row = in_step && !matches!(s.active_tab, 1 | 2 | 6);
 		match s.chat_row_art.get(jid) {
 			Some(art) if chat_row => Some(art.clone()),
 			_ => Some(crate::ui::chat_rows::RowArt::from_text(jid, text)),

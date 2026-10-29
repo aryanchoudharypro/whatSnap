@@ -426,8 +426,6 @@ fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell<AppState>>
 	// screen reader's object for it) on the same message.
 	let keys: Vec<String> = shown.iter().zip(&rows).map(|(item, text)| message_row_key(item, text)).collect();
 	let key_refs: Vec<&str> = keys.iter().map(String::as_str).collect();
-	// Photos' rows are taller, for their pictures.
-	parts.conversations_parts.messages_list.remember_units(&crate::ui::message_art::tall_rows(shown));
 	// The message the cursor is on (or just below, on a divider), to keep it
 	// there when an older page lands while the user reads near the top.
 	let cursor_id = parts
@@ -563,6 +561,8 @@ struct ChatRow<'a> {
 	preview_sender: Cow<'a, str>,
 	#[serde(rename = "PreviewFromMe", default)]
 	preview_from_me: bool,
+	#[serde(rename = "PreviewStatus", borrow, default)]
+	preview_status: Cow<'a, str>,
 	#[serde(rename = "PreviewIsReaction", default)]
 	preview_is_reaction: bool,
 	#[serde(rename = "PreviewReactionEmoji", borrow, default)]
@@ -751,7 +751,12 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				(String::new(), None, preview_line.clone())
 			} else {
 				let (icon, text) = crate::ui::chat_rows::preview_icon(preview);
-				let prefix = preview_line.strip_suffix(&whatsnap::friendly_preview_text(preview)).unwrap_or("");
+				// Your own message gets its ticks instead of "You: ", as on WhatsApp.
+				let prefix = if preview_from_me {
+					""
+				} else {
+					preview_line.strip_suffix(&whatsnap::friendly_preview_text(preview)).unwrap_or("")
+				};
 				(prefix.to_string(), icon, text)
 			};
 			let extra: Vec<&str> =
@@ -766,6 +771,8 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 					preview_prefix,
 					icon,
 					preview: preview_text,
+					ticks: (preview_from_me && !preview_is_reaction && !preview.is_empty())
+						.then(|| crate::ui::message_art::ticks_for(&chat.preview_status)),
 					unread: unread.min(u32::MAX as u64) as u32,
 					pinned,
 					muted,
@@ -816,6 +823,11 @@ fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	}
 	s.unread_counts = unread_counts;
 	s.display_names = display_names;
+	// Ticks and the like aren't in the rows' text, so a change to them alone
+	// redraws the rows here.
+	if s.chat_row_art != row_art {
+		crate::ui::chat_rows::refresh();
+	}
 	s.chat_row_art = row_art;
 	refresh_tray_tooltip(&s, parts);
 
@@ -2236,12 +2248,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									.set_string(last_idx as u32, &merged.format_display(is_group));
 								s.display_items.push(merged);
 							} else {
-								let item = whatsnap::DisplayItem::Single(chat_msg.clone());
-								parts
-									.conversations_parts
-									.messages_list
-									.remember_units(&crate::ui::message_art::tall_rows(std::slice::from_ref(&item)));
-								s.display_items.push(item);
+								s.display_items.push(whatsnap::DisplayItem::Single(chat_msg.clone()));
 								parts
 									.conversations_parts
 									.messages_list
@@ -3972,6 +3979,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			"thumbnails" => {
 				if let Some(data) = val.get("data") {
 					crate::ui::thumbnails::on_thumbnails(data);
+				}
+			}
+			"waveforms" => {
+				if let Some(data) = val.get("data") {
+					crate::ui::thumbnails::on_waveforms(data);
 				}
 			}
 			"avatar_previews" => {
