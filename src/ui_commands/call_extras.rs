@@ -441,7 +441,7 @@ fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: S
 	const JOIN: i32 = 2;
 	let url_copy = url.clone();
 	copy_btn.on_click(move |_| {
-		let copied = Clipboard::get().locker().is_some_and(|_locker| Clipboard::get().set_text(&url_copy));
+		let copied = crate::copy_text(&url_copy);
 		crate::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
 	});
 	send_btn.on_click(move |_| dialog.end_modal(SEND));

@@ -3377,9 +3377,7 @@ pub fn bind_input_handlers(
 									tx_copy.send(UiCommand::CopyAlbumToClipboard { message_ids: vec![msg.id.clone()] });
 							}
 						} else {
-							if let Some(_locker) = Clipboard::get().locker()
-								&& Clipboard::get().set_text(&msg.text)
-							{
+							if crate::copy_text(&msg.text) {
 								crate::announce::announce(msgs_announcer_copy, "Copied message text to clipboard.");
 							}
 						}
@@ -3992,8 +3990,7 @@ pub fn bind_input_handlers(
 					}
 				} else if id == copy_number_id {
 					if let Some((_, digits)) = phone_match_clone.as_ref()
-						&& let Some(_locker) = Clipboard::get().locker()
-						&& Clipboard::get().set_text(&format!("+{}", digits))
+						&& crate::copy_text(&format!("+{}", digits))
 					{
 						crate::announce::announce(msgs_announcer_clone, "Copied phone number to clipboard.");
 					}
@@ -4875,9 +4872,7 @@ pub fn bind_input_handlers(
 								phone_menu.on_selected(move |menu_evt| {
 									let sel_id = menu_evt.get_id();
 									if sel_id == copy_num_id {
-										if let Some(_locker) = Clipboard::get().locker()
-											&& Clipboard::get().set_text(&format!("+{}", digits))
-										{
+										if crate::copy_text(&format!("+{}", digits)) {
 											crate::announce::announce(
 												msgs_announcer_phone,
 												"Copied phone number to clipboard.",

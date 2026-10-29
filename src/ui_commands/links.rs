@@ -210,7 +210,7 @@ pub(crate) fn show_group_invite_link(
 	let link_copy = link.clone();
 	let announcer_copy = announcer;
 	copy_btn.on_click(move |_| {
-		let copied = Clipboard::get().locker().is_some_and(|_locker| Clipboard::get().set_text(&link_copy));
+		let copied = crate::copy_text(&link_copy);
 		let message = if copied { "Link copied." } else { "Couldn't copy the link." };
 		crate::announce::announce(announcer_copy, message);
 	});
@@ -420,7 +420,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	});
 	let link_copy = link.clone();
 	copy_btn.on_click(move |_| {
-		let copied = Clipboard::get().locker().is_some_and(|_locker| Clipboard::get().set_text(&link_copy));
+		let copied = crate::copy_text(&link_copy);
 		crate::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
 	});
 	let next_manage = next.clone();

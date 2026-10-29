@@ -25,7 +25,7 @@ mod video_thumbnail;
 use chat_ui::request_backend_shutdown;
 mod clipboard;
 mod error;
-pub use clipboard::copy_files_to_clipboard;
+pub use clipboard::{copy_files_to_clipboard, copy_text};
 mod contact_picker;
 mod countries;
 mod crash_log;
