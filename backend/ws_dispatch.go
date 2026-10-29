@@ -458,6 +458,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleCancelDownload(conn, cmd.Data)
 	case "open_media":
 		handleOpenMedia(conn, cmd.Data)
+	case "prepare_media":
+		handlePrepareMedia(conn, cmd.Data)
 	case "save_media_as":
 		handleSaveMediaAs(conn, cmd.Data)
 	case "copy_album_to_clipboard":

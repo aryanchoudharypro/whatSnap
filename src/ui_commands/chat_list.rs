@@ -119,55 +119,18 @@ pub(crate) fn filter_conversations(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 
 pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	if state.borrow().active_tab == 1 {
-		// Status: selecting a row views that status instead of opening a chat.
-		let (poster_jid, message_id) = {
-			let s = state.borrow();
-			(s.filtered_chats.get(idx).cloned(), s.filtered_status_message_ids.get(idx).cloned())
-		};
-		if let (Some(poster_jid), Some(message_id)) = (poster_jid, message_id) {
-			let mut s = state.borrow_mut();
-			let mut media_type = String::new();
-			let mut text = String::new();
-			let mut poster_name = poster_jid.clone();
-			for group in s.status_groups.iter_mut() {
-				if group.poster_jid == poster_jid {
-					poster_name = group.poster_name.clone();
-					if let Some(item) = group.items.iter_mut().find(|it| it.id == message_id) {
-						item.viewed = true;
-						media_type = item.media_type.clone();
-						text = item.text.clone();
-					}
-					group.all_viewed = group.items.iter().all(|it| it.viewed);
-					break;
-				}
-			}
-			apply_chat_filter(&mut s, parts);
-			let ws_tx = s.ws_tx.clone();
-			drop(s);
-
-			let mark_payload = serde_json::json!({
-				"action": "mark_status_viewed",
-				"data": { "id": message_id, "poster_jid": poster_jid }
-			});
-			let _ = ws_tx.send(mark_payload.to_string());
-
-			if !media_type.is_empty() {
-				let open_payload = serde_json::json!({
-					"action": "open_media",
-					"data": { "jid": "status@broadcast", "message_id": message_id }
-				});
-				let _ = ws_tx.send(open_payload.to_string());
-				crate::announce::announce(
-					parts.conversations_parts.messages_announcer,
-					&format!("Opening {}'s status media...", poster_name),
-				);
-			} else {
-				let msg = if text.is_empty() {
-					format!("{}'s status has no content.", poster_name)
-				} else {
-					format!("{}: {}", poster_name, text)
-				};
-				crate::announce::announce(parts.conversations_parts.messages_announcer, &msg);
+		// Status: a row opens the status viewer on that update, which plays
+		// on through the rest of the list.
+		let message_id = state.borrow().filtered_status_message_ids.get(idx).cloned();
+		if let Some(message_id) = message_id {
+			let outcome = crate::ui::status_viewer::show(state, parts, &message_id);
+			// Enter on the viewer's Close button leaves its release for the
+			// list, which would open the viewer again.
+			crate::tray::enter_release_guard().set(true);
+			// The viewer marked what it showed as seen.
+			apply_chat_filter(&mut state.borrow_mut(), parts);
+			if let crate::ui::status_viewer::ViewerOutcome::OpenChat(jid) = outcome {
+				open_chat_for_jid(&jid, state, parts);
 			}
 		}
 		return;

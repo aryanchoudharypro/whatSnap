@@ -522,6 +522,9 @@ pub(crate) struct StatusItem {
 	pub(crate) viewers: i64,
 	/// Our reaction to it, if any.
 	pub(crate) my_reaction: String,
+	/// A text update's background and text colours (ARGB), 0 when not given.
+	pub(crate) background: u32,
+	pub(crate) text_color: u32,
 }
 
 /// All of one contact's (or our own) live status updates, in post order.

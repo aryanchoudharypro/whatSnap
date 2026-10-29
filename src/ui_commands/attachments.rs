@@ -474,11 +474,44 @@ pub(crate) fn open_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		&& let Some(item) = s.display_items.get(idx as usize)
 		&& let Some(msg) = item.messages().iter().find(|m| m.is_media_downloaded())
 	{
+		if plays_in_app(msg) {
+			let msg = msg.clone();
+			drop(s);
+			play_video(state, parts, &jid, &msg);
+			return;
+		}
 		let payload = serde_json::json!({
 			"action": "open_media",
 			"data": { "jid": jid, "message_id": msg.id }
 		});
 		let _ = s.ws_tx.send(payload.to_string());
+	}
+}
+
+/// Whether `msg` opens in the app's own video player. View-once videos don't:
+/// the backend has to see them opened, since that's what uses them up.
+fn plays_in_app(msg: &whatsnap::ChatMessage) -> bool {
+	msg.media_type == "video" && !msg.text.starts_with("[View once]")
+}
+
+/// Plays a chat's video in the video window.
+fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str, msg: &whatsnap::ChatMessage) {
+	let title = if msg.from_me {
+		"Video you sent".to_string()
+	} else if !msg.sender_name.is_empty() {
+		format!("Video from {}", msg.sender_name)
+	} else {
+		"Video".to_string()
+	};
+	let choice = crate::ui::video_player::show(&parts.frame, &msg.media_path, &title, &msg.display_filename());
+	// Enter on Close leaves its release for the list underneath.
+	crate::tray::enter_release_guard().set(true);
+	if let crate::ui::video_player::VideoChoice::OpenElsewhere = choice {
+		let payload = serde_json::json!({
+			"action": "open_media",
+			"data": { "jid": jid, "message_id": msg.id }
+		});
+		let _ = state.borrow().ws_tx.send(payload.to_string());
 	}
 }
 
@@ -601,11 +634,17 @@ pub(crate) fn download_media_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 }
 
-pub(crate) fn open_media_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, message_id: String) {
+pub(crate) fn open_media_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message_id: String) {
 	let s = state.borrow();
 	if let Some(jid) = s.selected_chat.clone()
-		&& s.messages.iter().any(|m| m.id == message_id && m.is_media_downloaded())
+		&& let Some(msg) = s.messages.iter().find(|m| m.id == message_id && m.is_media_downloaded())
 	{
+		if plays_in_app(msg) {
+			let msg = msg.clone();
+			drop(s);
+			play_video(state, parts, &jid, &msg);
+			return;
+		}
 		let payload = serde_json::json!({
 			"action": "open_media",
 			"data": { "jid": jid, "message_id": message_id }

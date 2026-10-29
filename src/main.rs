@@ -17,6 +17,8 @@ mod call_video_send;
 mod chat_ui;
 mod gif;
 mod gif_video;
+mod image_decode;
+mod media_engine;
 mod media_foundation;
 mod screen_capture;
 mod system_audio;

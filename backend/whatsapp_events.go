@@ -3562,9 +3562,11 @@ func handleIncomingStatus(v *events.Message) {
 		return
 	}
 	go purgeExpiredStatuses()
+	background, textColor := textStatusColors(rawBytes)
 	broadcastEvent("status_update", map[string]interface{}{
 		"id": v.Info.ID, "posterJid": senderJID.String(), "fromMe": v.Info.IsFromMe,
 		"text": text, "mediaType": mediaType, "timestamp": ts,
+		"background": background, "textColor": textColor,
 	})
 }
 

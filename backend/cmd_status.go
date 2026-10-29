@@ -59,7 +59,8 @@ func handleGetStatuses(conn net.Conn) {
 				COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
 				timestamp, COALESCE(viewed, 0),
 				(SELECT COUNT(*) FROM status_viewers v WHERE v.status_id = messages.id AND v.viewer != 'me'),
-				COALESCE((SELECT reaction FROM status_viewers v WHERE v.status_id = messages.id AND v.viewer = 'me'), '')
+				COALESCE((SELECT reaction FROM status_viewers v WHERE v.status_id = messages.id AND v.viewer = 'me'), ''),
+				CASE WHEN COALESCE(media_type, '') = '' THEN raw END
 			FROM messages WHERE jid = 'status@broadcast' AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC`)
 		muted := statusMuted()
 
@@ -79,9 +80,11 @@ func handleGetStatuses(conn net.Conn) {
 				var fromMe bool
 				var viewed, viewers int
 				var myReaction string
-				if scanErr := rows.Scan(&id, &senderJID, &fromMe, &text, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &ts, &viewed, &viewers, &myReaction); scanErr != nil {
+				var raw []byte
+				if scanErr := rows.Scan(&id, &senderJID, &fromMe, &text, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &ts, &viewed, &viewers, &myReaction, &raw); scanErr != nil {
 					continue
 				}
+				background, textColor := textStatusColors(raw)
 				key := senderJID
 				if fromMe {
 					key = "me"
@@ -105,7 +108,7 @@ func handleGetStatuses(conn net.Conn) {
 				g.items = append(g.items, map[string]interface{}{
 					"id": id, "text": text, "mediaType": mediaType, "mediaMimetype": mediaMimetype,
 					"mediaFilename": mediaFilename, "mediaPath": mediaPath, "timestamp": ts, "viewed": viewed == 1 || fromMe,
-					"viewers": viewers, "myReaction": myReaction,
+					"viewers": viewers, "myReaction": myReaction, "background": background, "textColor": textColor,
 				})
 			}
 		}
@@ -140,6 +143,21 @@ func handleGetStatuses(conn net.Conn) {
 
 		sendEvent(conn, "statuses", map[string]interface{}{"groups": result})
 	}()
+}
+
+// textStatusColors is a text status update's background and text colours
+// (ARGB), for the in-app viewer to draw it the way its poster picked. Zero
+// means not given: the viewer then uses WhatsApp's teal and white.
+func textStatusColors(raw []byte) (background, text uint32) {
+	if len(raw) == 0 {
+		return 0, 0
+	}
+	msg := &waE2E.Message{}
+	if proto.Unmarshal(raw, msg) != nil {
+		return 0, 0
+	}
+	ext := msg.GetExtendedTextMessage()
+	return ext.GetBackgroundArgb(), ext.GetTextArgb()
 }
 
 func handlePostStatus(raw json.RawMessage) {

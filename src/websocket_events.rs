@@ -2991,6 +2991,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										.and_then(|v| v.as_str())
 										.unwrap_or("")
 										.to_string(),
+									background: it.get("background").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+									text_color: it.get("textColor").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
 								});
 							}
 						}
@@ -3031,6 +3033,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						viewed: from_me,
 						viewers: 0,
 						my_reaction: String::new(),
+						background: data.get("background").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+						text_color: data.get("textColor").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
 					};
 					if let Some(group) = s.status_groups.iter_mut().find(|g| g.poster_jid == poster_jid) {
 						group.items.push(item);
@@ -3434,6 +3438,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						"pinned_messages" => extras::pinned_messages(state, parts, data),
 						_ => extras::chat_privacy(state, parts, data),
 					}
+				}
+			}
+			"media_ready" | "media_failed" | "media_pending" => {
+				if let Some(data) = val.get("data") {
+					crate::ui::status_viewer::on_event(t, data);
 				}
 			}
 			"status_viewers"

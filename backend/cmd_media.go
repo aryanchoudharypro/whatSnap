@@ -453,6 +453,44 @@ func handleOpenMedia(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
+// handlePrepareMedia makes sure a message's media is on disk and answers
+// with its path (media_ready), for the in-app status viewer and video player,
+// which show it themselves instead of handing it to another app. View-once
+// media isn't served this way: opening it is what uses it up
+// (openMediaFileWithRealName).
+func handlePrepareMedia(conn net.Conn, raw json.RawMessage) {
+	var data MessageRefData
+	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" {
+		return
+	}
+	if viewOnceState(data.MessageID) != 0 {
+		sendEvent(conn, "media_failed", map[string]string{"message_id": data.MessageID, "message": "View once media opens outside the viewer."})
+		return
+	}
+	go func() {
+		path, mediaType, mimetype, filename, err := ensureMediaCached(data.MessageID)
+		if err != nil {
+			if strings.Contains(err.Error(), "URL expired") && !strings.Contains(err.Error(), "retry request failed") {
+				pendingAutoOpens.Store(data.MessageID, map[string]interface{}{"conn": conn, "action": "prepare_media"})
+				sendEvent(conn, "media_pending", map[string]string{"message_id": data.MessageID})
+				return
+			}
+			sendEvent(conn, "media_failed", map[string]string{"message_id": data.MessageID, "message": friendlyMediaError(err)})
+			return
+		}
+		sendMediaReady(conn, data.MessageID, path, mediaType, mimetype, filename)
+	}()
+}
+
+func sendMediaReady(conn net.Conn, messageID, path, mediaType, mimetype, filename string) {
+	if absPath, err := filepath.Abs(path); err == nil {
+		path = absPath
+	}
+	sendEvent(conn, "media_ready", map[string]string{
+		"message_id": messageID, "path": path, "mediaType": mediaType, "mimetype": mimetype, "filename": filename,
+	})
+}
+
 func handleSaveMediaAs(conn net.Conn, raw json.RawMessage) {
 	var data SaveMediaAsData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -1830,7 +1868,11 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 			if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
 				if data, ok := c.(map[string]interface{}); ok {
 					if conn, ok := data["conn"].(net.Conn); ok {
-						sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
+						if data["action"] == "prepare_media" {
+							sendEvent(conn, "media_failed", map[string]string{"message_id": string(evt.MessageID), "message": friendlyMediaError(err)})
+						} else {
+							sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
+						}
 					}
 				}
 				pendingAutoOpens.Delete(string(evt.MessageID))
@@ -1851,6 +1893,8 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 					// instead, same as the fast (already-cached) path. conn
 					// is safely nil if the assertion above failed.
 					openMediaFileWithRealName(conn, string(evt.MessageID), path, mediaType, mimetype, filename)
+				} else if action == "prepare_media" && connOk {
+					sendMediaReady(conn, string(evt.MessageID), path, mediaType, mimetype, filename)
 				} else if action == "play_audio" && connOk {
 					sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": string(evt.MessageID)})
 				}

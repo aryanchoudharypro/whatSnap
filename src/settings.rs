@@ -66,6 +66,10 @@ pub struct Settings {
 	/// camera (WhatsApp's dual-stream share) instead of taking the camera's
 	/// place. Applies to calls that connect after it's turned on.
 	pub dual_stream_screen_share: bool,
+	/// The status viewer moves on to the next update by itself (a photo or
+	/// text after a few seconds, a video when it ends), as WhatsApp's does.
+	/// Off, it waits for Next.
+	pub status_auto_advance: bool,
 }
 
 /// Tab names by tab id. The id is what the rest of the app keys on
@@ -121,6 +125,7 @@ impl Default for Settings {
 			tab_order: DEFAULT_TAB_ORDER.to_vec(),
 			audio_speed: 1.0,
 			dual_stream_screen_share: false,
+			status_auto_advance: true,
 		}
 	}
 }

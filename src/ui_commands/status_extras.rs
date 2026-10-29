@@ -17,7 +17,7 @@ const DELETE: i32 = 4305;
 const PRIVACY: i32 = 4306;
 
 /// WhatsApp's quick reactions for a status update.
-const STATUS_REACTIONS: [&str; 8] = ["😍", "😂", "😮", "😢", "👏", "🎉", "💯", "🙏"];
+pub(crate) const STATUS_REACTIONS: [&str; 8] = ["😍", "😂", "😮", "😢", "👏", "🎉", "💯", "🙏"];
 
 fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 	let payload = serde_json::json!({ "action": action, "data": data });
@@ -168,6 +168,10 @@ fn update_item(
 }
 
 pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t: &str, data: &serde_json::Value) {
+	// The status viewer, while it's open, shows these itself.
+	if crate::ui::status_viewer::on_event(t, data) {
+		return;
+	}
 	match t {
 		"status_viewers" => show_viewers(parts, data),
 		"status_privacy" => choose_privacy(state, parts, data),

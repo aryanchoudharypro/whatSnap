@@ -11,6 +11,7 @@ pub mod conversations;
 pub mod emoji_panel;
 pub mod group_data;
 pub mod keys;
+pub mod media_player;
 pub mod message_list;
 pub mod new_contact;
 pub mod new_conversation;
@@ -20,6 +21,8 @@ pub mod privacy_list_picker;
 pub mod screen_picker;
 pub mod send_to;
 pub mod settings_dialog;
+pub mod status_viewer;
 pub mod theme;
+pub mod video_player;
 
 pub mod window;
