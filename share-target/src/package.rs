@@ -24,7 +24,9 @@ use windows::{
 		System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject},
 		UI::{
 			Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW},
-			WindowsAndMessaging::{MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MessageBoxW, SW_HIDE},
+			WindowsAndMessaging::{
+				MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MessageBoxW, SW_HIDE,
+			},
 		},
 	},
 	core::{HSTRING, PCWSTR, w},
@@ -83,7 +85,9 @@ fn message(text: &str, warning: bool) {
 	let text = HSTRING::from(text);
 	let icon = if warning { MB_ICONWARNING } else { MB_ICONINFORMATION };
 	unsafe {
-		MessageBoxW(None, &text, w!("whatSnap"), MB_OK | icon);
+		// Started from Settings, possibly after an approval prompt took the
+		// focus: bring the box to the front so a screen reader reads it.
+		MessageBoxW(None, &text, w!("whatSnap"), MB_OK | icon | MB_SETFOREGROUND | MB_TOPMOST);
 	}
 }
 
@@ -198,57 +202,51 @@ fn remove_registered(manager: &PackageManager) {
 	}
 }
 
-/// `--enable`: signs the package if needed (asking for administrator rights),
-/// then registers it. Says how it went unless `report` is false.
-pub fn enable(report: bool) -> i32 {
+/// Where `--enable` writes how it went, for the installer, which shows it in
+/// its own window so it gets focus (a box from here can open behind it).
+pub fn enable_result_file() -> PathBuf {
+	app_dir().join("share").join("enable-result.txt")
+}
+
+/// What `--enable` tells the user, and whether it worked.
+fn try_enable() -> Result<&'static str, String> {
 	if !unsigned_package().is_file() {
-		if report {
-			message(
-				"This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again.",
-				true,
-			);
-		}
-		return 1;
+		return Err(
+			"This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again.".into()
+		);
 	}
 	if needs_signing() {
 		match run_sign_as_admin() {
 			Ok(()) => {}
 			Err(SignFailure::NotApproved) => {
-				if report {
-					message(
-						"whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu.",
-						true,
-					);
-				}
-				return 1;
+				return Err("whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu.".into());
 			}
 			Err(SignFailure::Failed(reason)) => {
 				log(&format!("Signing failed: {reason}"));
-				if report {
-					message(
-						&format!("whatSnap couldn't be added to the Share menu.\n\nSigning failed: {reason}"),
-						true,
-					);
-				}
-				return 1;
+				return Err(format!("whatSnap couldn't be added to the Share menu.\n\nSigning failed: {reason}"));
 			}
 		}
 	}
-	match register() {
-		Ok(()) => {
-			if report {
-				message("whatSnap is now in the Windows Share menu.", false);
-			}
-			0
-		}
-		Err(e) => {
-			log(&format!("Registering the package failed: {e}"));
-			if report {
-				message(&format!("whatSnap couldn't be added to the Share menu.\n\n{e}"), true);
-			}
-			1
-		}
+	register().map(|()| "whatSnap is now in the Windows Share menu.").map_err(|e| {
+		log(&format!("Registering the package failed: {e}"));
+		format!("whatSnap couldn't be added to the Share menu.\n\n{e}")
+	})
+}
+
+/// `--enable`: signs the package if needed (asking for administrator rights),
+/// then registers it. Says how it went unless `report` is false, and always
+/// leaves it in `enable_result_file`.
+pub fn enable(report: bool) -> i32 {
+	let result = try_enable();
+	let (text, failed) = match &result {
+		Ok(text) => (text.to_string(), false),
+		Err(text) => (text.clone(), true),
+	};
+	let _ = std::fs::write(enable_result_file(), &text);
+	if report {
+		message(&text, failed);
 	}
+	i32::from(failed)
 }
 
 /// `--refresh`: after an update, keeps the entry if it was turned on: signs

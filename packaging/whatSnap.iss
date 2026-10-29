@@ -86,10 +86,9 @@ Name: "{usersendto}\{#AppName}"; Filename: "{app}\{#AppExe}"
 ; runasoriginaluser: start the app as the user who ran the installer, even if the
 ; installer was elevated. An elevated instance can't be reached by the normal
 ; Start menu and desktop launches, which then silently do nothing.
-; The Share menu: turned on when ticked (whatSnapShare.exe asks for
-; administrator permission and says how it went), and otherwise kept up to
-; date if an earlier install turned it on (a no-op if it didn't).
-Filename: "{app}\whatSnapShare.exe"; Parameters: "--enable"; Tasks: sharemenu; Flags: waituntilterminated runasoriginaluser skipifsilent
+; The Share menu: turned on when ticked (see CurStepChanged, which says how it
+; went), and otherwise kept up to date if an earlier install turned it on (a
+; no-op if it didn't).
 Filename: "{app}\whatSnapShare.exe"; Parameters: "--refresh"; Check: ShouldRefreshShareMenu; Flags: waituntilterminated runasoriginaluser
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
@@ -100,22 +99,49 @@ Filename: "{app}\whatSnapShare.exe"; Parameters: "--disable"; Flags: runhidden w
 Type: filesandordirs; Name: "{app}\share\local"
 Type: files; Name: "{app}\share\share.log"
 Type: files; Name: "{app}\share\sign-error.txt"
+Type: files; Name: "{app}\share\enable-result.txt"
 
 [Code]
-// --enable handles the ticked case in an interactive install.
+// EnableShareMenu handles the ticked case in an interactive install.
 function ShouldRefreshShareMenu: Boolean;
 begin
   Result := WizardSilent or not WizardIsTaskSelected('sharemenu');
 end;
 
-// Start-with-Windows is a per-user Run entry named whaNTV. Older versions point
-// it at whantv.exe, which this install no longer provides, so re-point an
-// existing entry at the new exe.
+// Turns the Share menu on when its task is ticked. whatSnapShare.exe asks for
+// administrator permission and writes how it went to a file; the result is
+// shown here, in the installer's own window, so it gets focus and a screen
+// reader reads it (a box from the helper could open behind the installer).
+procedure EnableShareMenu;
+var
+  Helper: String;
+  ResultFile: String;
+  ResultCode: Integer;
+  Text: AnsiString;
+begin
+  Helper := ExpandConstant('{app}\whatSnapShare.exe');
+  ResultFile := ExpandConstant('{app}\share\enable-result.txt');
+  DeleteFile(ResultFile);
+  if not ExecAsOriginalUser(Helper, '--enable --quiet', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    ResultCode := -1;
+  if not LoadStringFromFile(ResultFile, Text) then
+    Text := 'whatSnap couldn''t be added to the Share menu. You can try again from whatSnap''s Settings.';
+  if ResultCode = 0 then
+    MsgBox(String(Text), mbInformation, MB_OK)
+  else
+    MsgBox(String(Text), mbError, MB_OK);
+end;
+
+// After installing: the Share menu (above), and Start-with-Windows, a per-user
+// Run entry named whaNTV. Older versions point it at whantv.exe, which this
+// install no longer provides, so re-point an existing entry at the new exe.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   RunPath: String;
   RunValue: String;
 begin
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('sharemenu') and not WizardSilent then
+    EnableShareMenu;
   RunPath := 'Software\Microsoft\Windows\CurrentVersion\Run';
   if (CurStep = ssPostInstall) and RegQueryStringValue(HKCU, RunPath, 'whaNTV', RunValue) then
     RegWriteStringValue(HKCU, RunPath, 'whaNTV', '"' + ExpandConstant('{app}\{#AppExe}') + '"');
