@@ -55,10 +55,18 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; Windows only lists signed packaged apps in its Share menu. Turning this on
+; signs whatSnap's small share package with a certificate made on this PC and
+; trusts it, which needs an administrator's OK once (see share-target/).
+Name: "sharemenu"; Description: "Show whatSnap in the Windows Share menu (an administrator has to approve this once)"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\backend\backend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "{#SourceDir}\whatSnapShare.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Unsigned; the signed copy whatSnapShare.exe makes goes in {app}\share\local,
+; which the installer never writes, so updates keep it.
+Source: "{#SourceDir}\share\whatSnapShare.msix"; DestDir: "{app}\share"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\backend\LICENSE"; DestDir: "{app}\backend"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -78,9 +86,26 @@ Name: "{usersendto}\{#AppName}"; Filename: "{app}\{#AppExe}"
 ; runasoriginaluser: start the app as the user who ran the installer, even if the
 ; installer was elevated. An elevated instance can't be reached by the normal
 ; Start menu and desktop launches, which then silently do nothing.
+; The Share menu: turned on when ticked (whatSnapShare.exe asks for
+; administrator permission and says how it went), and otherwise kept up to
+; date if an earlier install turned it on (a no-op if it didn't).
+Filename: "{app}\whatSnapShare.exe"; Parameters: "--enable"; Tasks: sharemenu; Flags: waituntilterminated runasoriginaluser skipifsilent
+Filename: "{app}\whatSnapShare.exe"; Parameters: "--refresh"; Check: ShouldRefreshShareMenu; Flags: waituntilterminated runasoriginaluser
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
+[UninstallRun]
+Filename: "{app}\whatSnapShare.exe"; Parameters: "--disable"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveShareMenu"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\share\local"
+
 [Code]
+// --enable handles the ticked case in an interactive install.
+function ShouldRefreshShareMenu: Boolean;
+begin
+  Result := WizardSilent or not WizardIsTaskSelected('sharemenu');
+end;
+
 // Start-with-Windows is a per-user Run entry named whaNTV. Older versions point
 // it at whantv.exe, which this install no longer provides, so re-point an
 // existing entry at the new exe.

@@ -66,6 +66,7 @@ pub struct SettingsDialogParts {
 	pub meta_ai_enabled_check: CheckBox,
 	pub verbose_backend_logging_check: CheckBox,
 	pub shortcuts_btn: Button,
+	pub share_menu_btn: Button,
 
 	// Profile & Privacy tab
 	pub privacy_panel: Panel,
@@ -191,6 +192,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let shortcuts_btn = Button::builder(&general_panel).with_label("&Keyboard Shortcuts...").build();
 	shortcuts_btn.set_font(&theme::Fonts::body());
 	general_sizer.add(&shortcuts_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
+	let share_menu_btn =
+		Button::builder(&general_panel).with_label("Add whatSnap to the Windows Share Menu...").build();
+	share_menu_btn.set_font(&theme::Fonts::body());
+	general_sizer.add(&share_menu_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	general_panel.set_sizer(general_sizer, true);
 
@@ -334,6 +340,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		meta_ai_enabled_check,
 		verbose_backend_logging_check,
 		shortcuts_btn,
+		share_menu_btn,
 		privacy_panel,
 		name_field,
 		about_field,

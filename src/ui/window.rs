@@ -1698,6 +1698,24 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	// whatSnapShare.exe does the work, and says how it went: it asks Windows
+	// for administrator permission the first time, which can't happen in here.
+	let settings_dialog_share = parts.settings_dialog.dialog;
+	parts.settings_dialog.share_menu_btn.on_click(move |_| {
+		let helper = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.join("whatSnapShare.exe")));
+		let started = helper.is_some_and(|helper| std::process::Command::new(helper).arg("--enable").spawn().is_ok());
+		if !started {
+			MessageDialog::builder(
+				&settings_dialog_share,
+				"This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again.",
+				"whatSnap",
+			)
+			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+			.build()
+			.show_modal();
+		}
+	});
+
 	let settings_dialog_cancel = parts.settings_dialog.dialog;
 	parts.settings_dialog.cancel_btn.on_click(move |_| {
 		settings_dialog_cancel.end_modal(wxdragon::id::ID_CANCEL);

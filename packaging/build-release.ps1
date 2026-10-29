@@ -45,13 +45,34 @@ $env:CMAKE_POLICY_VERSION_MINIMUM="3.5"
 try {
     cargo build --release
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+    # The Windows Share menu helper (share-target/).
+    cargo build --release -p whatsnap-share
+    if ($LASTEXITCODE -ne 0) { throw "cargo build of the share helper failed" }
 } finally {
     Pop-Location
 }
 
 $frontend = Join-Path $releaseDir 'whatSnap.exe'
 $backend = Join-Path $releaseDir 'backend\backend.exe'
-foreach ($f in $frontend, $backend) {
+$shareHelper = Join-Path $releaseDir 'whatSnapShare.exe'
+
+# The Share menu's sparse package: just the manifest and logos, left unsigned.
+# Each PC that turns the menu on signs it with a certificate of its own (see
+# share-target/src/sign.rs), so no signing key is needed here.
+$makeappx = Get-Command makeappx -ErrorAction SilentlyContinue
+if ($makeappx) {
+    $makeappx = $makeappx.Source
+} else {
+    $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter makeappx.exe -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.DirectoryName -like '*\x64' } | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+}
+if (-not $makeappx) { throw "makeappx.exe not found. It comes with the Windows SDK (Visual Studio's C++ tools install it)." }
+$sharePackage = Join-Path $releaseDir 'share\whatSnapShare.msix'
+New-Item -ItemType Directory -Force -Path (Split-Path $sharePackage) | Out-Null
+& $makeappx pack /o /nv /d (Join-Path $PSScriptRoot 'share') /p $sharePackage
+if ($LASTEXITCODE -ne 0) { throw "makeappx failed" }
+
+foreach ($f in $frontend, $backend, $shareHelper, $sharePackage) {
     if (-not (Test-Path $f)) { throw "Expected build output missing: $f" }
 }
 Write-Host "  frontend: $([math]::Round((Get-Item $frontend).Length / 1MB, 1)) MB"
@@ -59,7 +80,7 @@ Write-Host "  backend:  $([math]::Round((Get-Item $backend).Length / 1MB, 1)) MB
 
 if ($SignCommand) {
     Write-Host "Signing binaries..." -ForegroundColor Cyan
-    foreach ($f in $frontend, $backend) {
+    foreach ($f in $frontend, $backend, $shareHelper) {
         $cmd = $SignCommand -f $f
         Invoke-Expression $cmd
         if ($LASTEXITCODE -ne 0) { throw "Signing failed for $f" }
@@ -74,9 +95,11 @@ New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 Write-Host "Staging portable zip..." -ForegroundColor Cyan
 $stage = Join-Path $distDir "whatSnap-$Version-portable"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $stage, "$stage\backend" | Out-Null
+New-Item -ItemType Directory -Force -Path $stage, "$stage\backend", "$stage\share" | Out-Null
 
 Copy-Item $frontend $stage
+Copy-Item $shareHelper $stage
+Copy-Item $sharePackage "$stage\share"
 Copy-Item $backend "$stage\backend"
 Copy-Item (Join-Path $repo 'LICENSE') $stage
 Copy-Item (Join-Path $repo 'backend\LICENSE') "$stage\backend"

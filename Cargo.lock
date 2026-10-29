@@ -2105,6 +2105,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "whatsnap-share"
+version = "0.1.0"
+dependencies = [
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
