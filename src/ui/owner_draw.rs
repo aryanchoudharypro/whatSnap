@@ -8,7 +8,7 @@
 //! reader reads - is untouched. Painting happens on the parent's
 //! `WM_DRAWITEM`. In a High Contrast theme everything uses system colours.
 
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use windows::Win32::{
 	Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM},
@@ -81,7 +81,7 @@ impl Drop for Fonts {
 struct Registry {
 	controls: HashMap<isize, Control>,
 	parents: Vec<isize>,
-	fonts: HashMap<isize, Fonts>,
+	fonts: HashMap<isize, Rc<Fonts>>,
 	/// The open chat, for the header's picture.
 	header_jid: String,
 	header: Option<HWND>,
@@ -232,17 +232,22 @@ fn set_nav_height(hwnd: HWND) {
 	}
 }
 
+/// Runs `f` with fonts made from the control's own font. The registry isn't
+/// borrowed while `f` runs: painting sends the control messages, which come
+/// back through `control_proc`.
 fn with_fonts<R>(hwnd: HWND, f: impl FnOnce(&Fonts) -> R) -> R {
 	let base = HFONT(unsafe { SendMessageW(hwnd, WM_GETFONT, None, None) }.0 as *mut _);
-	REGISTRY.with(|r| {
-		let mut r = r.borrow_mut();
-		let key = hwnd.0 as isize;
-		if r.fonts.get(&key).is_none_or(|fonts| fonts.base != base) {
-			let fonts = make_fonts(hwnd, base);
-			r.fonts.insert(key, fonts);
+	let key = hwnd.0 as isize;
+	let cached = REGISTRY.with(|r| r.borrow().fonts.get(&key).filter(|fonts| fonts.base == base).cloned());
+	let fonts = match cached {
+		Some(fonts) => fonts,
+		None => {
+			let fonts = Rc::new(make_fonts(hwnd, base));
+			REGISTRY.with(|r| r.borrow_mut().fonts.insert(key, fonts.clone()));
+			fonts
 		}
-		f(&r.fonts[&key])
-	})
+	};
+	f(&fonts)
 }
 
 fn make_fonts(hwnd: HWND, base: HFONT) -> Fonts {
@@ -283,7 +288,7 @@ unsafe extern "system" fn control_proc(
 	_id: usize,
 	_data: usize,
 ) -> LRESULT {
-	let kind = REGISTRY.with(|r| r.borrow().controls.get(&(hwnd.0 as isize)).map(|c| c.kind));
+	let kind = REGISTRY.with(|r| r.try_borrow().ok().and_then(|r| r.controls.get(&(hwnd.0 as isize)).map(|c| c.kind)));
 	match (msg, kind) {
 		// wx sets one line's height whenever the font changes; the rows are taller.
 		(LB_SETITEMHEIGHT, Some(Kind::Nav)) => {
@@ -317,8 +322,11 @@ unsafe extern "system" fn parent_proc(
 ) -> LRESULT {
 	if msg == WM_DRAWITEM && lparam.0 != 0 {
 		let item = unsafe { &*(lparam.0 as *const DRAWITEMSTRUCT) };
-		let control =
-			REGISTRY.with(|r| r.borrow().controls.get(&(item.hwndItem.0 as isize)).map(|c| (c.kind, c.background)));
+		let control = REGISTRY.with(|r| {
+			r.try_borrow()
+				.ok()
+				.and_then(|r| r.controls.get(&(item.hwndItem.0 as isize)).map(|c| (c.kind, c.background)))
+		});
 		if let Some((kind, background)) = control {
 			let fits = match kind {
 				Kind::Nav => item.CtlType == ODT_LISTBOX && item.itemID != u32::MAX,
