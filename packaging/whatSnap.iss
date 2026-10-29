@@ -119,10 +119,12 @@ begin
     RegWriteStringValue(HKCU, RunPath, 'whaNTV', '"' + ExpandConstant('{app}\{#AppExe}') + '"');
 end;
 
+// Own names: Inno already defines the FILE_ATTRIBUTE_* constants, and
+// redefining one is a compile error.
 const
-  FILE_ATTRIBUTE_DIRECTORY = $10;
-  FILE_ATTRIBUTE_REPARSE_POINT = $400;
-  INVALID_FILE_ATTRIBUTES = $FFFFFFFF;
+  ATTR_DIRECTORY = $10;
+  ATTR_REPARSE_POINT = $400;
+  ATTR_INVALID = $FFFFFFFF;
 
 function GetFileAttributes(lpFileName: String): Cardinal;
   external 'GetFileAttributesW@kernel32.dll stdcall';
@@ -134,7 +136,7 @@ var
   Attr: Cardinal;
 begin
   Attr := GetFileAttributes(Path);
-  Result := (Attr = INVALID_FILE_ATTRIBUTES) or ((Attr and FILE_ATTRIBUTE_REPARSE_POINT) <> 0);
+  Result := (Attr = ATTR_INVALID) or ((Attr and ATTR_REPARSE_POINT) <> 0);
 end;
 
 // Deletes a folder that whatSnap itself creates, and what's in it, without
@@ -151,10 +153,10 @@ begin
     try
       repeat
         if (FindRec.Name <> '.') and (FindRec.Name <> '..')
-          and ((FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) = 0) then
+          and ((FindRec.Attributes and ATTR_REPARSE_POINT) = 0) then
         begin
           Path := Dir + '\' + FindRec.Name;
-          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+          if (FindRec.Attributes and ATTR_DIRECTORY) <> 0 then
             DeleteOwnFolder(Path)
           else
             DeleteFile(Path);
