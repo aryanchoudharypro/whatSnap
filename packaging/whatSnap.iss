@@ -119,9 +119,67 @@ begin
     RegWriteStringValue(HKCU, RunPath, 'whaNTV', '"' + ExpandConstant('{app}\{#AppExe}') + '"');
 end;
 
+const
+  FILE_ATTRIBUTE_DIRECTORY = $10;
+  FILE_ATTRIBUTE_REPARSE_POINT = $400;
+  INVALID_FILE_ATTRIBUTES = $FFFFFFFF;
+
+function GetFileAttributes(lpFileName: String): Cardinal;
+  external 'GetFileAttributesW@kernel32.dll stdcall';
+
+// Whether Path is missing or is a symbolic link / junction. Links are never
+// followed or deleted: one could lead anywhere, such as the user's Downloads.
+function IsLinkOrMissing(Path: String): Boolean;
+var
+  Attr: Cardinal;
+begin
+  Attr := GetFileAttributes(Path);
+  Result := (Attr = INVALID_FILE_ATTRIBUTES) or ((Attr and FILE_ATTRIBUTE_REPARSE_POINT) <> 0);
+end;
+
+// Deletes a folder that whatSnap itself creates, and what's in it, without
+// following or removing any link inside it.
+procedure DeleteOwnFolder(Dir: String);
+var
+  FindRec: TFindRec;
+  Path: String;
+begin
+  if IsLinkOrMissing(Dir) then
+    Exit;
+  if FindFirst(Dir + '\*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..')
+          and ((FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) = 0) then
+        begin
+          Path := Dir + '\' + FindRec.Name;
+          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            DeleteOwnFolder(Path)
+          else
+            DeleteFile(Path);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+  RemoveDir(Dir);
+end;
+
+procedure DeleteOwnFile(Path: String);
+begin
+  if not IsLinkOrMissing(Path) then
+    DeleteFile(Path);
+end;
+
 // User data lives in {localappdata}\whatSnap, outside {app}, so it survives
 // uninstall unless the user asks otherwise. Removing it means re-pairing the
 // phone and losing local history, so it is never the default.
+//
+// Only the files and folders whatSnap creates there are removed (see
+// src/paths.rs and backend/paths.go), never the whole folder blindly: anything
+// else a user put in it, and anything a link points at, is left alone.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: String;
@@ -129,15 +187,27 @@ begin
   if CurUninstallStep = usPostUninstall then
   begin
     DataDir := ExpandConstant('{localappdata}\whatSnap');
-    if DirExists(DataDir) then
+    if DirExists(DataDir) and not IsLinkOrMissing(DataDir) then
     begin
       if SuppressibleMsgBox(
            'Also delete your whatSnap data?' #13#10 #13#10
            + 'This removes the WhatsApp session, local message history and '
-           + 'downloaded media in:' #13#10 + DataDir + #13#10 #13#10
+           + 'media cached by the app in:' #13#10 + DataDir + #13#10 #13#10
+           + 'Files you saved elsewhere with Save as are not touched. '
            + 'You would need to link your phone again. Choose No to keep it.',
            mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
-        DelTree(DataDir, True, True, True);
+      begin
+        DeleteOwnFile(DataDir + '\session.db');
+        DeleteOwnFile(DataDir + '\session.db-wal');
+        DeleteOwnFile(DataDir + '\session.db-shm');
+        DeleteOwnFile(DataDir + '\session.db-journal');
+        DeleteOwnFile(DataDir + '\settings.json');
+        DeleteOwnFile(DataDir + '\.migrated-from-whaNTV');
+        DeleteOwnFolder(DataDir + '\logs');
+        DeleteOwnFolder(DataDir + '\media_cache');
+        // Only succeeds if nothing else is left in it.
+        RemoveDir(DataDir);
+      end;
     end;
   end;
 end;
