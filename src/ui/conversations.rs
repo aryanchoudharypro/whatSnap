@@ -320,8 +320,18 @@ fn min_list_column(width: i32) -> i32 {
 /// where the user dragged its edge, like WhatsApp for Windows' sidebar),
 /// and draws WhatsApp's "pick a chat" page where the open chat goes while
 /// none is open. It's all mouse and paint: a screen reader isn't told.
-fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel, calls_page: &Panel) {
+fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &Panel, calls_page: &Panel) {
 	let (panel_c, list_c, conversation_c, calls_c) = (*panel, *list, *conversation, *calls_page);
+	let search_c = *search;
+	// The search pill shows the focus.
+	search.on_set_focus(move |event| {
+		panel_c.refresh(false, None);
+		event.skip(true);
+	});
+	search.on_kill_focus(move |event| {
+		panel_c.refresh(false, None);
+		event.skip(true);
+	});
 	LIST_COLUMN.with(|c| c.set(crate::settings::Settings::load().chat_list_width));
 	let fit = move || {
 		let width = panel_c.get_client_size().width;
@@ -398,6 +408,9 @@ fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel, calls_page: 
 		dc.set_brush(background, BrushStyle::Solid);
 		dc.set_pen(background, 1, PenStyle::Solid);
 		dc.draw_rectangle(0, 0, size.width, size.height);
+		if theme::use_custom_colours() {
+			crate::ui::dialog_look::paint_field(&dc, &search_c, crate::ui::dialog_look::Field::Search);
+		}
 		let left = list_c.get_position().x + list_c.get_size().width + 10;
 		let custom = theme::use_custom_colours();
 		let line = if custom { theme::Palette::DIVIDER_SOFT() } else { panel_c.get_foreground_color() };
@@ -459,9 +472,10 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_muted_label(&search_label);
 	left_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let search_field = TextCtrl::builder(&panel).build();
-	search_field.set_font(&theme::Fonts::body());
-	left_sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	// A grey pill with a magnifier, as on WhatsApp (drawn in `fit_columns`).
+	let search_field =
+		TextCtrl::builder(&panel).with_style(crate::ui::dialog_look::field_style(TextCtrlStyle::Default)).build();
+	crate::ui::dialog_look::add_field(&left_sizer, &search_field, crate::ui::dialog_look::Field::Search, 0);
 
 	let chat_filter_label = StaticText::builder(&panel).with_label("Filters").build();
 	theme::style_muted_label(&chat_filter_label);
@@ -832,7 +846,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	outer_sizer.add(&calls_btn_panel, 1, SizerFlag::Expand, 0);
 	outer_sizer.add(&conversation_panel, 1, SizerFlag::Expand, 0);
 	panel.set_sizer(outer_sizer, true);
-	fit_columns(&panel, &conversations_list, &conversation_panel, &calls_btn_panel);
+	fit_columns(&panel, &search_field, &conversations_list, &conversation_panel, &calls_btn_panel);
 
 	ConversationsPanelParts {
 		panel,

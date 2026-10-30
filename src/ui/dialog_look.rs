@@ -118,41 +118,46 @@ pub(crate) fn paint_fields(panel: &Panel, fields: &[(TextCtrl, Field)]) {
 		dc.set_pen(background, 1, PenStyle::Solid);
 		dc.draw_rectangle(0, 0, size.width, size.height);
 		for &(field, kind) in &fields {
-			if !field.is_shown() {
-				continue;
-			}
-			let (p, s) = (field.get_position(), field.get_size());
-			let focused = field.has_focus();
-			match kind {
-				Field::Line => {
-					let (colour, thick) = if focused { (Palette::ACCENT(), 2) } else { (Palette::LINE(), 1) };
-					dc.set_brush(colour, BrushStyle::Solid);
-					dc.set_pen(colour, 1, PenStyle::Solid);
-					dc.draw_rectangle(p.x, p.y + s.height + 3, s.width, thick);
-				}
-				Field::Search | Field::Box => {
-					let (left, pad) = if kind == Field::Search { (40, 8) } else { (10, 8) };
-					let (x, y, w, h) = (p.x - left, p.y - pad, s.width + left + 10, s.height + pad * 2);
-					let radius = if kind == Field::Search { h as f64 / 2.0 } else { 8.0 };
-					if focused {
-						dc.set_brush(Palette::ACCENT(), BrushStyle::Solid);
-						dc.set_pen(Palette::ACCENT(), 1, PenStyle::Solid);
-						dc.draw_rounded_rectangle(x - 2, y - 2, w + 4, h + 4, radius + 2.0);
-					}
-					dc.set_brush(Palette::FIELD_BG(), BrushStyle::Solid);
-					dc.set_pen(Palette::FIELD_BG(), 1, PenStyle::Solid);
-					dc.draw_rounded_rectangle(x, y, w, h, radius);
-					if kind == Field::Search {
-						draw_magnifier(&dc, x + 16, y + h / 2);
-					}
-				}
-			}
+			paint_field(&dc, &field, kind);
 		}
 	});
 	panel.on_size(move |event| {
 		panel_c.refresh(true, None);
 		event.skip(true);
 	});
+}
+
+/// Draws `field`'s pill, box or line around it, on the window that holds it.
+pub(crate) fn paint_field(dc: &impl DeviceContext, field: &TextCtrl, kind: Field) {
+	if !field.is_shown() {
+		return;
+	}
+	let (p, s) = (field.get_position(), field.get_size());
+	let focused = field.has_focus();
+	match kind {
+		Field::Line => {
+			let (colour, thick) = if focused { (Palette::ACCENT(), 2) } else { (Palette::LINE(), 1) };
+			dc.set_brush(colour, BrushStyle::Solid);
+			dc.set_pen(colour, 1, PenStyle::Solid);
+			dc.draw_rectangle(p.x, p.y + s.height + 3, s.width, thick);
+		}
+		Field::Search | Field::Box => {
+			let (left, pad) = if kind == Field::Search { (40, 8) } else { (10, 8) };
+			let (x, y, w, h) = (p.x - left, p.y - pad, s.width + left + 10, s.height + pad * 2);
+			let radius = if kind == Field::Search { h as f64 / 2.0 } else { 8.0 };
+			if focused {
+				dc.set_brush(Palette::ACCENT(), BrushStyle::Solid);
+				dc.set_pen(Palette::ACCENT(), 1, PenStyle::Solid);
+				dc.draw_rounded_rectangle(x - 2, y - 2, w + 4, h + 4, radius + 2.0);
+			}
+			dc.set_brush(Palette::FIELD_BG(), BrushStyle::Solid);
+			dc.set_pen(Palette::FIELD_BG(), 1, PenStyle::Solid);
+			dc.draw_rounded_rectangle(x, y, w, h, radius);
+			if kind == Field::Search {
+				draw_magnifier(dc, x + 16, y + h / 2);
+			}
+		}
+	}
 }
 
 /// A small magnifier centred on (x, y), drawn with lines so it needs no
@@ -461,7 +466,9 @@ unsafe extern "system" fn parent_proc(
 ) -> LRESULT {
 	let control = |child: HWND| {
 		REGISTRY.with(|r| {
-			r.try_borrow().ok().and_then(|r| r.controls.get(&(child.0 as isize)).map(|c| (c.kind, theme::now(c.background))))
+			r.try_borrow()
+				.ok()
+				.and_then(|r| r.controls.get(&(child.0 as isize)).map(|c| (c.kind, theme::now(c.background))))
 		})
 	};
 	match msg {
