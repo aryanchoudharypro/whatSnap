@@ -2048,6 +2048,8 @@ func eventHandler(evt interface{}) {
 					}
 					if mediaType == "voice" || mediaType == "sticker" {
 						autoDownloadVoiceNote(v.Info.ID, jid)
+					} else if mediaType != "" && !v.IsViewOnce {
+						maybeAutoDownload(v.Message, v.Info, jid, mediaType, mediaSize)
 					}
 				}
 			}

@@ -207,6 +207,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleGetOwnProfile(conn)
 	case "set_push_name":
 		handleSetPushName(cmd.Data)
+	case "get_app_prefs":
+		handleGetAppPrefs(conn)
+	case "set_app_prefs":
+		handleSetAppPrefs(cmd.Data)
 	case "get_privacy_settings":
 		handleGetPrivacySettings(conn)
 	case "set_privacy_setting":

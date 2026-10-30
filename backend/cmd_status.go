@@ -235,7 +235,7 @@ func handlePostMediaStatus(raw json.RawMessage) {
 		var photo *preparedPhoto
 		preparedCopy := ""
 		if data.Type == "image" {
-			if p, err := preparePhoto(id+"_status", srcPath); err == nil {
+			if p, err := preparePhoto(id+"_status", srcPath, false); err == nil {
 				photo = p
 				if p.path != srcPath {
 					if data.Path == "" {

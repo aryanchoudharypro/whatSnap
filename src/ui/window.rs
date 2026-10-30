@@ -831,6 +831,8 @@ pub fn bind_input_handlers(
 	let state_typing = state.clone();
 	let conv_parts_typing = parts.conversations_parts;
 	msg_ctrl_typing.on_text_changed(move |_| {
+		let replace_emoji = state_typing.borrow().settings.replace_text_with_emoji;
+		crate::ui::emoji_replace::text_changed(&msg_ctrl_typing, replace_emoji);
 		crate::ui_commands::mentions::refresh(&state_typing, &conv_parts_typing);
 		let text = msg_ctrl_typing.get_value();
 		// set_value() fires this too - restoring a chat's saved draft on open,
@@ -1481,6 +1483,9 @@ pub fn bind_input_handlers(
 		s.privacy_list_edits.clear();
 		settings_parts_open.show_about(None);
 		settings_parts_open.show_privacy(None);
+		s.app_prefs = None;
+		settings_parts_open.show_app_prefs(None);
+		settings_parts_open.show_chat_settings(&s.settings);
 
 		// Re-enumerated on every open since WASAPI device lists can change
 		// (USB headset plugged/unplugged, etc) while the app is running.
@@ -1498,6 +1503,7 @@ pub fn bind_input_handlers(
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_own_profile"}).to_string());
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_default_timer"}).to_string());
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_privacy_settings"}).to_string());
+		let _ = s.ws_tx.send(serde_json::json!({"action": "get_app_prefs"}).to_string());
 		for control in settings_parts_open.privacy_controls() {
 			if control.except_btn.is_some() {
 				let payload = serde_json::json!({"action": "get_privacy_list", "data": {"name": control.name}});
@@ -1976,6 +1982,15 @@ pub fn bind_input_handlers(
 		s.settings.start_maximized = start_maximized_check_ok.is_checked();
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
 		s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
+		settings_parts_ok.read_chat_settings(&mut s.settings);
+		let changes = s.app_prefs.as_ref().map(|loaded| settings_parts_ok.app_prefs_changes(loaded));
+		if let Some(changes) = changes.filter(|c| !c.is_empty()) {
+			if let Some(prefs) = s.app_prefs.as_mut().and_then(|p| p.as_object_mut()) {
+				prefs.extend(changes.clone());
+			}
+			let payload = serde_json::json!({"action": "set_app_prefs", "data": changes});
+			let _ = s.ws_tx.send(payload.to_string());
+		}
 		crate::ui_commands::calls::send_call_options(&s);
 		s.settings.input_device_name = device_combo_value(&input_device_combo_ok);
 		let new_output_device = device_combo_value(&output_device_combo_ok);
@@ -2941,11 +2956,21 @@ pub fn bind_input_handlers(
 				event.skip(false);
 				return;
 			}
+			if code == Some(WXK_BACK)
+				&& !key_event.control_down()
+				&& crate::ui::emoji_replace::undo_on_backspace(&conv_msg_field_esc)
+			{
+				event.skip(false);
+				return;
+			}
 			let is_editing = state_field.borrow().editing_message_id.is_some();
 			if keys::is_enter(code) {
-				// Enter key
-				if key_event.shift_down() {
-					event.skip(true); // Shift+Enter -> insert newline in multiline text box
+				// "Enter is send" on: Enter sends, Shift+Enter is a new line.
+				// Off: Enter is a new line too, and the Send button sends
+				// (Ctrl+Enter is already Send Voice Message).
+				let sends = state_field.borrow().settings.enter_is_send && !key_event.shift_down();
+				if !sends {
+					event.skip(true); // insert a newline in the multiline text box
 				} else {
 					let text = conv_msg_field_esc.get_value();
 					if is_editing {

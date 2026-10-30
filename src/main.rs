@@ -615,6 +615,10 @@ struct AppState {
 	/// leaves the privacy settings alone, so a dropdown's placeholder can
 	/// never overwrite the real setting.
 	privacy_settings_loaded: bool,
+	/// The settings the backend keeps (auto-download, upload quality, link
+	/// previews, security notifications), as last read since Settings
+	/// opened; None until then, and Save leaves them alone.
+	app_prefs: Option<serde_json::Value>,
 	/// Who each "My Contacts Except..." setting leaves out, fetched when
 	/// Settings opens: missing until it arrives, Err if it couldn't be.
 	privacy_lists: std::collections::HashMap<String, Result<Vec<Contact>, String>>,
@@ -1011,6 +1015,7 @@ fn main() {
 			common_group_jids: Vec::new(),
 			privacy_settings: std::collections::HashMap::new(),
 			privacy_settings_loaded: false,
+			app_prefs: None,
 			privacy_lists: std::collections::HashMap::new(),
 			privacy_list_edits: std::collections::HashMap::new(),
 			group_state: crate::ui::new_group::NewGroupState {

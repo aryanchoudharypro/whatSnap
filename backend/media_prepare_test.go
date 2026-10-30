@@ -36,7 +36,7 @@ func TestPreparePhoto(t *testing.T) {
 	png.Encode(&pngBuf, big)
 	src := filepath.Join(dir, "big.png")
 	os.WriteFile(src, pngBuf.Bytes(), 0o644)
-	p, err := preparePhoto("big", src)
+	p, err := preparePhoto("big", src, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestPreparePhoto(t *testing.T) {
 	jpeg.Encode(&jb, side, nil)
 	src = filepath.Join(dir, "side.jpg")
 	os.WriteFile(src, withEXIFOrientation(jb.Bytes(), 6), 0o644)
-	p, err = preparePhoto("side", src)
+	p, err = preparePhoto("side", src, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestPreparePhoto(t *testing.T) {
 	}
 
 	// A small photo isn't enlarged, and a prepared one isn't re-encoded.
-	again, err := preparePhoto("side", p.path)
+	again, err := preparePhoto("side", p.path, false)
 	if err != nil || again.path != p.path || again.width != 200 {
 		t.Fatalf("re-preparing changed it: %+v %v", again, err)
 	}

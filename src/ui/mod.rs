@@ -12,6 +12,7 @@ pub mod conversation_data;
 pub mod conversations;
 pub mod dialog_look;
 pub mod emoji_panel;
+pub mod emoji_replace;
 pub mod gdi;
 pub mod group_data;
 pub mod keys;

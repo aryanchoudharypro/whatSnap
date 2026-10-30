@@ -237,6 +237,16 @@ func autoDownloadVoiceNote(messageID, jid string) {
 // auto marks a download nobody asked for, so the frontend keeps its progress
 // and failures quiet.
 func startMediaDownload(data MessageRefData, auto bool) {
+	downloadMedia(data, auto, false)
+}
+
+// downloadMediaNow is startMediaDownload that returns once the download has
+// finished (or failed), for callers limiting how many run at once.
+func downloadMediaNow(data MessageRefData, auto bool) {
+	downloadMedia(data, auto, true)
+}
+
+func downloadMedia(data MessageRefData, auto, wait bool) {
 	var cached, mt, mm, fn string
 	db.QueryRow("SELECT COALESCE(media_path,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,'') FROM messages WHERE id = ?", data.MessageID).
 		Scan(&cached, &mt, &mm, &fn)
@@ -262,7 +272,7 @@ func startMediaDownload(data MessageRefData, auto bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	activeDownloads[data.MessageID] = cancel
 	activeDownloadsMu.Unlock()
-	go func() {
+	run := func() {
 		defer func() {
 			activeDownloadsMu.Lock()
 			delete(activeDownloads, data.MessageID)
@@ -373,7 +383,12 @@ func startMediaDownload(data MessageRefData, auto bool) {
 			})
 			return
 		}
-	}()
+	}
+	if wait {
+		run()
+	} else {
+		go run()
+	}
 }
 
 func handleCancelDownload(conn net.Conn, raw json.RawMessage) {
@@ -1093,7 +1108,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	// sent as it is, without them.
 	var photo *preparedPhoto
 	if mediaType == "image" {
-		if p, err := preparePhoto(id, path); err == nil {
+		if p, err := preparePhoto(id, path, appPref("hd_media")); err == nil {
 			photo = p
 			if p.path != path {
 				path, mimetypeHint = p.path, "image/jpeg"

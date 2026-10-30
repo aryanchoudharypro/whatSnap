@@ -2421,17 +2421,26 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 											.or_else(|| s.contacts.get(&clean_from).cloned())
 											.or_else(|| s.contacts.get(from).cloned())
 											.unwrap_or_else(|| display_name_for_jid(&clean_from));
-										let toast_body = if sender_name.is_empty() {
-											body.to_string()
-										} else {
-											format!("{}: {}", sender_name, body)
-										};
+										// With "Show previews" off the text stays out of
+										// it, as WhatsApp Web words it.
+										let toast_body =
+											match (s.settings.notification_previews, sender_name.is_empty()) {
+												(false, true) => "New message".to_string(),
+												(false, false) => format!("Message from {}", sender_name),
+												(true, true) => body.to_string(),
+												(true, false) => format!("{}: {}", sender_name, body),
+											};
 										crate::chat_ui::show_chat_notification(jid, &chat_name, &toast_body);
 									} else {
 										let sender_name = provided_sender
 											.or_else(|| s.contacts.get(&clean_from).cloned())
 											.or_else(|| s.contacts.get(from).cloned())
 											.unwrap_or_else(|| display_name_for_jid(&clean_from));
+										let body = if s.settings.notification_previews {
+											body.to_string()
+										} else {
+											"New message".to_string()
+										};
 										crate::chat_ui::show_chat_notification(jid, &sender_name, &body);
 									}
 								}
@@ -4164,6 +4173,14 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 				}
 			}
+			"app_prefs" => {
+				if let Some(data) = val.get("data") {
+					state.borrow_mut().app_prefs = Some(data.clone());
+					if parts.settings_dialog.dialog.is_shown() {
+						parts.settings_dialog.show_app_prefs(Some(data));
+					}
+				}
+			}
 			"privacy_list" => {
 				if let Some(data) = val.get("data") {
 					let Some(name) = data.get("name").and_then(|n| n.as_str()) else { return };
@@ -4623,6 +4640,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									s.archived_jids.contains(chat_jid),
 									s.settings.archived_alert(chat_jid),
 								);
+								// "Show reaction notifications" off keeps reactions quiet.
+								let alert = if s.settings.reaction_notifications {
+									alert
+								} else {
+									whatsnap::IncomingAlert { sound: false, toast: false }
+								};
 								if alert.sound && !crate::do_not_disturb::should_silence(&s.settings) {
 									play_notification_sound(
 										NotificationSound::MessageBackground,
@@ -4631,11 +4654,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 									);
 								}
 								if alert.toast && s.settings.notifications_enabled {
-									crate::chat_ui::show_chat_notification(
-										chat_jid,
-										&resolved_name,
-										&format!("Reacted {} to \"{}\"", emoji, whatsnap::friendly_preview_text(text)),
-									);
+									let body = if s.settings.notification_previews {
+										format!("Reacted {} to \"{}\"", emoji, whatsnap::friendly_preview_text(text))
+									} else {
+										format!("Reacted {}", emoji)
+									};
+									crate::chat_ui::show_chat_notification(chat_jid, &resolved_name, &body);
 								}
 							}
 						}

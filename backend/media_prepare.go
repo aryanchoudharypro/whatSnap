@@ -21,9 +21,13 @@ import (
 // longest edge is at most web_image_max_edge, and re-encoded as a JPEG at
 // web_jpeg_quality - which also drops the original's EXIF, location
 // included. The message carries the new size and a small JPEG preview,
-// IMG_THUMB_MAX_EDGE on its longest edge and at most 20 KB.
+// IMG_THUMB_MAX_EDGE on its longest edge and at most 20 KB. With "HD
+// quality" picked as the media upload quality the longest edge may be
+// web_image_max_hd_edge instead (WAWebAttachMediaModel).
 const (
 	abPropImageMaxEdge  = 3042 // web_image_max_edge
+	abPropImageHDEdge   = 3204 // web_image_max_hd_edge
+	defaultImageHDEdge  = 2560
 	abPropJPEGQuality   = 6619 // web_jpeg_quality
 	defaultImageMaxEdge = 1600
 	defaultJPEGQuality  = 92
@@ -41,9 +45,10 @@ type preparedPhoto struct {
 }
 
 // preparePhoto makes the photo at path ready to send the way WhatsApp Web
-// would, saving the result next to the other outgoing media. A GIF is only
-// measured and previewed: re-encoding would flatten its animation.
-func preparePhoto(id, path string) (*preparedPhoto, error) {
+// would, saving the result next to the other outgoing media, in HD when hd
+// is set. A GIF is only measured and previewed: re-encoding would flatten
+// its animation.
+func preparePhoto(id, path string, hd bool) (*preparedPhoto, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -61,7 +66,11 @@ func preparePhoto(id, path string) (*preparedPhoto, error) {
 		return &preparedPhoto{path: path, width: b.Dx(), height: b.Dy(), thumbnail: thumb}, nil
 	}
 
-	img = fitWithin(img, serverFlagInt(abPropImageMaxEdge, defaultImageMaxEdge), catmullRom)
+	maxEdge := serverFlagInt(abPropImageMaxEdge, defaultImageMaxEdge)
+	if hd {
+		maxEdge = serverFlagInt(abPropImageHDEdge, defaultImageHDEdge)
+	}
+	img = fitWithin(img, maxEdge, catmullRom)
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, onWhite(img), &jpeg.Options{Quality: serverFlagInt(abPropJPEGQuality, defaultJPEGQuality)}); err != nil {
 		return nil, err

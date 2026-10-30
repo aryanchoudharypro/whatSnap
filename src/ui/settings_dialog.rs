@@ -20,6 +20,9 @@ pub const CALL_CHOICES: &[(&str, &str)] = &[("Off", "all"), ("On", "known")];
 /// WhatsApp offers it.
 pub const DEFAULT_TIMER_CHOICES: &[(&str, &str)] =
 	&[("Off", "0"), ("24 Hours", "86400"), ("7 Days", "604800"), ("90 Days", "7776000")];
+/// "Media upload quality" (WAWebMediaUploadQualitySettings): HD sends photos
+/// bigger (up to 2560 pixels on the longest side instead of 1600).
+pub const UPLOAD_QUALITY_CHOICES: &[(&str, &str)] = &[("Standard Quality", "sd"), ("HD Quality", "hd")];
 /// How long an About shows before it clears, in seconds: WhatsApp's
 /// text_status_ttl_seconds_allowlist, plus -1 for one that stays.
 pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
@@ -61,6 +64,8 @@ pub struct SettingsDialogParts {
 	pub general_panel: Panel,
 	pub sounds_check: CheckBox,
 	pub notifications_check: CheckBox,
+	pub notification_previews_check: CheckBox,
+	pub reaction_notifications_check: CheckBox,
 	pub follow_dnd_check: CheckBox,
 	pub announce_typing_check: CheckBox,
 	pub announce_recording_check: CheckBox,
@@ -71,6 +76,16 @@ pub struct SettingsDialogParts {
 	pub verbose_backend_logging_check: CheckBox,
 	pub shortcuts_btn: Button,
 	pub share_menu_btn: Button,
+
+	// Chats tab
+	pub chats_panel: Panel,
+	pub enter_is_send_check: CheckBox,
+	pub replace_emoji_check: CheckBox,
+	pub auto_download_photos_check: CheckBox,
+	pub auto_download_audio_check: CheckBox,
+	pub auto_download_videos_check: CheckBox,
+	pub auto_download_documents_check: CheckBox,
+	pub upload_quality_combo: ComboBox,
 
 	// Profile & Privacy tab
 	pub privacy_panel: Panel,
@@ -92,6 +107,8 @@ pub struct SettingsDialogParts {
 	pub groups_except_btn: Button,
 	pub calls_combo: ComboBox,
 	pub online_combo: ComboBox,
+	pub link_previews_off_check: CheckBox,
+	pub security_notifications_check: CheckBox,
 
 	// Input & Output tab
 	pub audio_panel: Panel,
@@ -151,6 +168,16 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	notifications_check.set_font(&theme::Fonts::body());
 	general_sizer.add(&notifications_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
+	let notification_previews_check =
+		CheckBox::builder(&general_panel).with_label("Show previews: message text in notifications").build();
+	notification_previews_check.set_font(&theme::Fonts::body());
+	general_sizer.add(&notification_previews_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
+	let reaction_notifications_check =
+		CheckBox::builder(&general_panel).with_label("Show reaction notifications").build();
+	reaction_notifications_check.set_font(&theme::Fonts::body());
+	general_sizer.add(&reaction_notifications_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
 	let follow_dnd_check = CheckBox::builder(&general_panel)
 		.with_label("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on")
 		.build();
@@ -204,6 +231,33 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	general_panel.set_sizer(general_sizer, true);
 
+	// --- Chats tab ---
+	// WhatsApp Web's Settings > Chats, in its words.
+	let chats_panel = Panel::builder(&notebook).build();
+	theme::style_content(&chats_panel);
+	let chats_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let chats_check = |label: &str| {
+		let check = CheckBox::builder(&chats_panel).with_label(label).build();
+		check.set_font(&theme::Fonts::body());
+		chats_sizer.add(&check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+		check
+	};
+	let enter_is_send_check = chats_check("Enter is send: the Enter key sends your message");
+	let replace_emoji_check = chats_check("Replace text with emoji as you type, like :-) or (y)");
+	// Disabled, like the privacy settings, until they've been read.
+	let auto_download_photos_check = chats_check("Download photos automatically");
+	let auto_download_audio_check = chats_check("Download audio automatically");
+	let auto_download_videos_check = chats_check("Download videos automatically");
+	let auto_download_documents_check = chats_check("Download documents automatically");
+	let auto_download_note = StaticText::builder(&chats_panel)
+		.with_label("Voice messages are always downloaded. Other media downloads by itself only from contacts and chats you've written in.")
+		.build();
+	auto_download_note.set_font(&theme::Fonts::body());
+	chats_sizer.add(&auto_download_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	let upload_quality_combo =
+		visibility_combo(&chats_panel, &chats_sizer, "Media Upload Quality", UPLOAD_QUALITY_CHOICES);
+	chats_panel.set_sizer(chats_sizer, true);
+
 	// --- Profile & Privacy tab ---
 	let privacy_panel = Panel::builder(&notebook).build();
 	theme::style_content(&privacy_panel);
@@ -252,6 +306,17 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let groups_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Add Me to Groups", VISIBILITY_CHOICES);
 	let groups_except_btn = except_button(&privacy_panel, &privacy_sizer, "Groups");
 	let calls_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Silence Unknown Callers", CALL_CHOICES);
+
+	let link_previews_off_check = CheckBox::builder(&privacy_panel)
+		.with_label("Turn off link previews: links you send go without a preview, on all your devices")
+		.build();
+	link_previews_off_check.set_font(&theme::Fonts::body());
+	privacy_sizer.add(&link_previews_off_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+	let security_notifications_check = CheckBox::builder(&privacy_panel)
+		.with_label("Show security notifications: say in a chat when a contact's security code changes")
+		.build();
+	security_notifications_check.set_font(&theme::Fonts::body());
+	privacy_sizer.add(&security_notifications_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 
 	privacy_panel.set_sizer(privacy_sizer, true);
 
@@ -305,6 +370,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	audio_panel.set_sizer(audio_sizer, true);
 
 	notebook.add_page(&general_panel, "General", true, None);
+	notebook.add_page(&chats_panel, "Chats", false, None);
 	notebook.add_page(&privacy_panel, "Profile & Privacy", false, None);
 	notebook.add_page(&audio_panel, "Input & Output", false, None);
 
@@ -335,6 +401,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		general_panel,
 		sounds_check,
 		notifications_check,
+		notification_previews_check,
+		reaction_notifications_check,
 		follow_dnd_check,
 		announce_typing_check,
 		announce_recording_check,
@@ -345,6 +413,14 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		verbose_backend_logging_check,
 		shortcuts_btn,
 		share_menu_btn,
+		chats_panel,
+		enter_is_send_check,
+		replace_emoji_check,
+		auto_download_photos_check,
+		auto_download_audio_check,
+		auto_download_videos_check,
+		auto_download_documents_check,
+		upload_quality_combo,
 		privacy_panel,
 		name_field,
 		about_field,
@@ -363,6 +439,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		groups_except_btn,
 		calls_combo,
 		online_combo,
+		link_previews_off_check,
+		security_notifications_check,
 		audio_panel,
 		input_device_combo,
 		output_device_combo,
@@ -449,6 +527,64 @@ impl SettingsDialogParts {
 				btn.enable(settings.is_some() && control.is_except());
 			}
 		}
+	}
+
+	/// The switches the backend keeps (see backend app_prefs.go), by name.
+	fn app_pref_checks(&self) -> [(&'static str, CheckBox); 6] {
+		[
+			("auto_download_photos", self.auto_download_photos_check),
+			("auto_download_audio", self.auto_download_audio_check),
+			("auto_download_videos", self.auto_download_videos_check),
+			("auto_download_documents", self.auto_download_documents_check),
+			("link_previews_disabled", self.link_previews_off_check),
+			("security_notifications", self.security_notifications_check),
+		]
+	}
+
+	/// Shows the settings the backend keeps, or, with None, disables them
+	/// until they've been read.
+	pub fn show_app_prefs(&self, prefs: Option<&serde_json::Value>) {
+		let pref = |name: &str| prefs.and_then(|p| p.get(name)).and_then(|v| v.as_bool()).unwrap_or(false);
+		for (name, check) in self.app_pref_checks() {
+			if prefs.is_some() {
+				check.set_value(pref(name));
+			}
+			check.enable(prefs.is_some());
+		}
+		if prefs.is_some() {
+			let quality = if pref("hd_media") { "hd" } else { "sd" };
+			set_combo_from_value(&self.upload_quality_combo, UPLOAD_QUALITY_CHOICES, quality);
+		}
+		self.upload_quality_combo.enable(prefs.is_some());
+	}
+
+	/// What changed from `loaded` (as `show_app_prefs` was given it), to send
+	/// as set_app_prefs; empty when nothing did.
+	pub fn app_prefs_changes(&self, loaded: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+		let was = |name: &str| loaded.get(name).and_then(|v| v.as_bool()).unwrap_or(false);
+		let hd = combo_value(&self.upload_quality_combo, UPLOAD_QUALITY_CHOICES) == "hd";
+		self.app_pref_checks()
+			.into_iter()
+			.map(|(name, check)| (name, check.is_checked()))
+			.chain([("hd_media", hd)])
+			.filter(|&(name, now)| now != was(name))
+			.map(|(name, now)| (name.to_string(), serde_json::Value::Bool(now)))
+			.collect()
+	}
+
+	/// Shows the settings this app keeps itself that WhatsApp Web has too.
+	pub fn show_chat_settings(&self, settings: &crate::settings::Settings) {
+		self.notification_previews_check.set_value(settings.notification_previews);
+		self.reaction_notifications_check.set_value(settings.reaction_notifications);
+		self.enter_is_send_check.set_value(settings.enter_is_send);
+		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
+	}
+
+	pub fn read_chat_settings(&self, settings: &mut crate::settings::Settings) {
+		settings.notification_previews = self.notification_previews_check.is_checked();
+		settings.reaction_notifications = self.reaction_notifications_check.is_checked();
+		settings.enter_is_send = self.enter_is_send_check.is_checked();
+		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();
 	}
 
 	/// Shows the About and how long it lasts, or, with None, disables them

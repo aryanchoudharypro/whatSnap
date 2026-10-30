@@ -96,6 +96,11 @@ func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 // Like WhatsApp Web it's a quiet line: the chat keeps its place, preview and
 // unread count, and nothing alerts (see insertQuietSystemMessage).
 func noteSecurityCodeChange(v *events.IdentityChange) {
+	// "Show security notifications on this computer" (Settings > Account >
+	// Security in WhatsApp Web).
+	if !appPref("security_notifications") {
+		return
+	}
 	contact := preferPN(v.JID)
 	if contact.Server != types.DefaultUserServer || isOwnJID(contact) {
 		return

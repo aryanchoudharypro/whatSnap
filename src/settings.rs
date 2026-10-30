@@ -70,6 +70,18 @@ pub struct Settings {
 	/// text after a few seconds, a video when it ends), as WhatsApp's does.
 	/// Off, it waits for Next.
 	pub status_auto_advance: bool,
+	/// WhatsApp's "Enter is send": Enter sends and Shift+Enter starts a new
+	/// line. Off, Enter starts a new line and the Send button sends.
+	pub enter_is_send: bool,
+	/// WhatsApp's "Replace text with emoji": typing :-) or (y) and the like
+	/// turns it into the emoji (see `ui::emoji_replace`).
+	pub replace_text_with_emoji: bool,
+	/// WhatsApp's "Show previews": a message notification shows the
+	/// message's text. Off, it only says a message came.
+	pub notification_previews: bool,
+	/// WhatsApp's "Show reaction notifications": a reaction to one of our
+	/// messages in a chat that isn't open notifies.
+	pub reaction_notifications: bool,
 }
 
 /// Tab names by tab id. The id is what the rest of the app keys on
@@ -126,6 +138,10 @@ impl Default for Settings {
 			audio_speed: 1.0,
 			dual_stream_screen_share: false,
 			status_auto_advance: true,
+			enter_is_send: true,
+			replace_text_with_emoji: true,
+			notification_previews: true,
+			reaction_notifications: true,
 		}
 	}
 }
