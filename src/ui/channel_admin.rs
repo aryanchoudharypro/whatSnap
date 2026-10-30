@@ -3,7 +3,10 @@
 
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::ui::{
+	dialog_look::{self, Field},
+	theme,
+};
 
 /// What the create and edit dialogs collect.
 pub struct ChannelDetails {
@@ -45,22 +48,22 @@ pub fn ask_channel_details(
 	let name_label = StaticText::builder(&panel).with_label("Channel name").build();
 	theme::style_muted_label(&name_label);
 	sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let name_field = TextCtrl::builder(&panel).build();
-	name_field.set_font(&theme::Fonts::body());
+	let name_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
 	name_field.set_value(name);
-	sizer.add(&name_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	dialog_look::add_field(&sizer, &name_field, Field::Line, 0);
 
 	let description_label = StaticText::builder(&panel).with_label("Description (optional)").build();
 	theme::style_muted_label(&description_label);
 	sizer.add(&description_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let description_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
-	description_field.set_font(&theme::Fonts::body());
+	let description_field =
+		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::MultiLine)).build();
 	description_field.set_value(description);
-	sizer.add(&description_field, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	dialog_look::add_field(&sizer, &description_field, Field::Box, 1);
 
 	let picture = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
 	let picture_btn = Button::builder(&panel).with_label("Choose picture (optional)...").build();
-	sizer.add(&picture_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	dialog_look::pill_button(&picture_btn, false, theme::Palette::CONTENT_BG);
+	sizer.add(&picture_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
 	picture_btn.show(creating);
 
 	let announcer = StaticText::builder(&panel).with_label("").build();
@@ -68,16 +71,14 @@ pub fn ask_channel_details(
 	theme::style_muted_label(&announcer);
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let ok_btn =
 		Button::builder(&panel).with_id(ID_OK).with_label(if creating { "Create channel" } else { "Save" }).build();
-	theme::style_primary_button(&ok_btn);
+	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG);
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 8);
-	btn_sizer.add_stretch_spacer(1);
-	btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
-	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::button_row(&sizer, &[&ok_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
+	dialog_look::paint_fields(&panel, &[(name_field, Field::Line), (description_field, Field::Box)]);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
 	dialog.set_sizer(outer, true);
@@ -207,9 +208,12 @@ pub fn show_channel_followers(
 	let remove_btn = Button::builder(&panel).with_label("Remove as admin").build();
 	let owner_btn = Button::builder(&panel).with_label("Make owner...").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	buttons.add(&invite_btn, 0, SizerFlag::Right, 8);
-	buttons.add(&remove_btn, 0, SizerFlag::Right, 8);
-	buttons.add(&owner_btn, 0, SizerFlag::Right, 8);
+	for button in [&invite_btn, &remove_btn, &owner_btn, &close_btn] {
+		dialog_look::pill_button(button, false, theme::Palette::CONTENT_BG);
+	}
+	buttons.add(&invite_btn, 0, SizerFlag::Right, 6);
+	buttons.add(&remove_btn, 0, SizerFlag::Right, 6);
+	buttons.add(&owner_btn, 0, SizerFlag::Right, 6);
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
 	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
@@ -334,7 +338,8 @@ pub fn show_channel_people(parent: &dyn WxWidget, title: &str, summary: &str, gr
 	}
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 10);
+	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG);
+	sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 12);
 	panel.set_sizer(sizer, true);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
@@ -380,7 +385,9 @@ pub fn show_pending_admin_invites(
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
 	let cancel_invite_btn = Button::builder(&panel).with_label("Cancel invite...").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	buttons.add(&cancel_invite_btn, 0, SizerFlag::Right, 8);
+	dialog_look::pill_button(&cancel_invite_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG);
+	buttons.add(&cancel_invite_btn, 0, SizerFlag::Right, 6);
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
 	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);

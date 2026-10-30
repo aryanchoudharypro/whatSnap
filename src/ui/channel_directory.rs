@@ -10,6 +10,7 @@ use wxdragon::prelude::*;
 
 use crate::ui::{
 	channel_countries::{CATEGORIES, COUNTRIES},
+	dialog_look::{self, Field},
 	theme,
 };
 
@@ -243,9 +244,9 @@ pub fn show_channel_directory(
 	let search_label = StaticText::builder(&panel).with_label("Search channels, then press Enter").build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let search_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
-	search_field.set_font(&theme::Fonts::body());
-	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	let search_field =
+		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::ProcessEnter)).build();
+	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
 	// Where the channels come from, as in WhatsApp Web's Discover: a country
 	// and, optionally, one category of featured channels.
@@ -285,14 +286,18 @@ pub fn show_channel_directory(
 	let follow_btn = Button::builder(&panel).with_label("Follow").build();
 	let more_btn = Button::builder(&panel).with_label("More channels").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	for button in [&view_btn, &follow_btn, &more_btn] {
-		buttons.add(button, 0, SizerFlag::Right, 8);
+	// Follow is the main thing to do here, so it's the green one.
+	for (i, button) in [&view_btn, &follow_btn, &more_btn].into_iter().enumerate() {
+		dialog_look::pill_button(button, i == 1, theme::Palette::CONTENT_BG);
+		buttons.add(button, 0, SizerFlag::Right, 6);
 	}
+	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG);
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
-	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 12);
 	more_btn.show(false);
 	panel.set_sizer(sizer, true);
+	dialog_look::paint_fields(&panel, &[(search_field, Field::Search)]);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
 	dialog.set_sizer(outer, true);
