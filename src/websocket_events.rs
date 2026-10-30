@@ -134,29 +134,6 @@ pub(crate) fn ui_timing_log(msg: &str) {
 	}
 }
 
-/// Notes in `ui.log` how much memory the app has at `stage` of starting up:
-/// its private working set (Task Manager's "Memory") and commit.
-pub(crate) fn log_memory(stage: &str) {
-	use windows::Win32::System::{
-		ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX2},
-		Threading::GetCurrentProcess,
-	};
-	let mut counters = PROCESS_MEMORY_COUNTERS_EX2 {
-		cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32,
-		..Default::default()
-	};
-	let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), (&raw mut counters).cast(), counters.cb) }.is_ok();
-	if ok {
-		const MB: f64 = 1024.0 * 1024.0;
-		ui_timing_log(&format!(
-			"Memory {stage}: {:.1} MB private working set, {:.1} MB working set, {:.1} MB committed",
-			counters.PrivateWorkingSetSize as f64 / MB,
-			counters.WorkingSetSize as f64 / MB,
-			counters.PrivateUsage as f64 / MB
-		));
-	}
-}
-
 /// Notes in `ui.log` anything that held the UI thread for over half a second,
 /// once it's done (dropped), so a freeze shows up in the logs with its cause.
 pub(crate) struct SlowUiLog<'a> {

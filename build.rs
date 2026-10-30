@@ -38,16 +38,6 @@ fn main() {
 		}
 	}
 	let target = env::var("TARGET").unwrap_or_default();
-	if target.contains("windows-msvc") {
-		// Media Foundation (calls' camera and screen share, the video player)
-		// and Winsock (call audio) load only when first used, not at launch:
-		// each DLL loaded costs private memory for as long as the app runs,
-		// and most sessions never touch them.
-		for dll in ["mf.dll", "mfplat.dll", "mfreadwrite.dll", "ws2_32.dll"] {
-			println!("cargo:rustc-link-arg-bins=/DELAYLOAD:{dll}");
-		}
-		println!("cargo:rustc-link-arg-bins=delayimp.lib");
-	}
 	if target.contains("windows") {
 		let manifest = new_manifest("whatSnap")
 			.supported_os(Windows7..=Windows10)
