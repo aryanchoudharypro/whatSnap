@@ -20,8 +20,9 @@ use crate::{
 	},
 	call_audio,
 	call_helpers::{
-		announce_call, call_participant_changes, caller_info_text, get_status_rank, group_call_status_text,
-		incoming_call_description, parse_call_participants, peer_video_announcement, show_call_device_combos,
+		announce_call, call_participant_changes, caller_info_text, get_status_rank,
+		group_call_status_text, incoming_call_description, parse_call_participants, peer_video_announcement,
+		show_call_device_combos,
 	},
 	chat_ui::show_toast_notification,
 	contact_picker::{
@@ -83,7 +84,7 @@ pub(crate) fn call_log(parts: &WindowParts, state: &AppState, event: &str, call_
 		call_id,
 		state.active_call_id,
 		state.call_placing,
-		parts.call_parts.get().is_some_and(|c| c.frame.is_shown())
+		parts.call_parts.frame.is_shown()
 	));
 }
 
@@ -92,7 +93,7 @@ pub(crate) fn call_log(parts: &WindowParts, state: &AppState, event: &str, call_
 fn refresh_open_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let s = state.borrow();
 	let Some(jid) = s.info_chat.as_deref() else { return };
-	if parts.conversation_data_dialog.get().is_some_and(|d| d.dialog.is_shown()) {
+	if parts.conversation_data_dialog.dialog.is_shown() {
 		let payload = serde_json::json!({ "action": "get_user_info", "data": { "jid": jid } });
 		let _ = s.ws_tx.send(payload.to_string());
 	}
@@ -1531,9 +1532,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					s.call_video = CallVideo::default();
 					s.active_call_video_send = None;
 					s.call_video_port = None;
-					if let Some(c) = parts.call_parts.get() {
-						c.frame.show(false);
-					}
+					parts.call_parts.frame.show(false);
 					stop_call_ringing_sound(&mut s);
 					play_call_fail_sound(&mut s);
 					let message = val
@@ -1559,9 +1558,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						s.active_call_video_send = None;
 						s.call_video_port = None;
 						s.call_answer_deadline = None;
-						if let Some(c) = parts.call_parts.get() {
-							c.frame.show(false);
-						}
+						parts.call_parts.frame.show(false);
 						stop_call_ringing_sound(&mut s);
 						let reason = data.get("reason").and_then(|r| r.as_str()).unwrap_or("");
 						// The person we called is on another call: WhatsApp
@@ -1610,9 +1607,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						s.call_video_port = None;
 						s.call_answer_deadline = None;
 						s.incoming_call_caller = None;
-						if let Some(c) = parts.call_parts.get() {
-							c.frame.show(false);
-						}
+						parts.call_parts.frame.show(false);
 						stop_call_ringing_sound(&mut s);
 						play_call_fail_sound(&mut s);
 						let message = data.get("message").and_then(|m| m.as_str()).unwrap_or("Failed to answer call.");
@@ -2590,10 +2585,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					// Refresh the pickers live if they're already open and the
 					// backend response landed after the dialog was shown
 					// with a possibly-empty or stale contact list.
-					let new_conv_shown = parts.new_conv_dialog.get().is_some_and(|d| d.dialog.is_shown());
-					let new_group_shown = parts.new_group_dialog.get().is_some_and(|d| d.dialog.is_shown());
-					let add_members_shown = parts.add_members_dialog.get().is_some_and(|d| d.dialog.is_shown());
-					let attach_contact_shown = parts.attach_contact_dialog.get().is_some_and(|d| d.dialog.is_shown());
+					let new_conv_shown = parts.new_conv_dialog.dialog.is_shown();
+					let new_group_shown = parts.new_group_dialog.dialog.is_shown();
+					let add_members_shown = parts.add_members_dialog.dialog.is_shown();
+					let attach_contact_shown = parts.attach_contact_dialog.dialog.is_shown();
 					drop(s);
 					if new_conv_shown {
 						let query = parts.new_conv_dialog.search_field.get_value();
@@ -2974,14 +2969,13 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				}
 				let found: Vec<whatsnap::Msg> =
 					data.media.into_iter().chain(data.documents).chain(data.links).map(whatsnap::Msg::new).collect();
-				let gd = parts.group_data_dialog.get().filter(|d| d.dialog.is_shown());
-				let cd = parts.conversation_data_dialog.get().filter(|d| d.dialog.is_shown());
-				if let Some(gd) = gd {
+				let (gd, cd) = (&parts.group_data_dialog, &parts.conversation_data_dialog);
+				if gd.dialog.is_shown() {
 					let lists =
 						InfoMediaLists { media: &gd.media_list, documents: &gd.documents_list, links: &gd.links_list };
 					(s.group_data_media, s.group_data_documents, s.group_data_links) =
 						fill_info_media(&s, lists, Some(&found));
-				} else if let Some(cd) = cd {
+				} else if cd.dialog.is_shown() {
 					let lists =
 						InfoMediaLists { media: &cd.media_list, documents: &cd.documents_list, links: &cd.links_list };
 					(s.conversation_data_media, s.conversation_data_documents, s.conversation_data_links) =
@@ -3744,8 +3738,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				if let Some(data) = val.get("data") {
 					let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 					let s = state.borrow();
-					let is_relevant = s.selected_chat.as_deref() == Some(jid)
-						&& parts.group_data_dialog.get().is_some_and(|d| d.dialog.is_shown());
+					let is_relevant =
+						s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown();
 					drop(s);
 					if is_relevant {
 						let community = data.get("community").and_then(|c| c.as_str()).unwrap_or(jid).to_string();
@@ -3807,9 +3801,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						crate::announce::announce(parts.conversations_parts.messages_announcer, &text);
 					}
 					// Show the change if this group's info is open.
-					if s.selected_chat.as_deref() == Some(jid)
-						&& parts.group_data_dialog.get().is_some_and(|d| d.dialog.is_shown())
-					{
+					if s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown() {
 						let payload = serde_json::json!({
 							"action": "get_group_info",
 							"data": { "jid": jid }
@@ -3821,8 +3813,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			"group_updated" => {
 				if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
 					let s = state.borrow();
-					let is_relevant = s.selected_chat.as_deref() == Some(jid)
-						&& parts.group_data_dialog.get().is_some_and(|d| d.dialog.is_shown());
+					let is_relevant =
+						s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown();
 					if is_relevant {
 						let payload = serde_json::json!({
 							"action": "get_group_info",
@@ -3838,7 +3830,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					// and Enter opens it instead of joining again.
 					{
 						let s = state.borrow();
-						if parts.group_data_dialog.get().is_some_and(|d| d.dialog.is_shown())
+						if parts.group_data_dialog.dialog.is_shown()
 							&& let Some(ref selected) = s.selected_chat
 						{
 							let payload = serde_json::json!({
@@ -4025,8 +4017,8 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			"about_updated" => {
 				if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
 					let s = state.borrow();
-					let is_relevant = s.info_chat.as_deref() == Some(jid)
-						&& parts.conversation_data_dialog.get().is_some_and(|d| d.dialog.is_shown());
+					let is_relevant =
+						s.info_chat.as_deref() == Some(jid) && parts.conversation_data_dialog.dialog.is_shown();
 					if is_relevant {
 						let payload = serde_json::json!({
 							"action": "get_user_info",
@@ -4112,7 +4104,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					let push_name = s.own_push_name.clone();
 					let about = (s.own_about.clone(), s.own_about_duration);
 					drop(s);
-					if parts.settings_dialog.get().is_some_and(|d| d.dialog.is_shown()) {
+					if parts.settings_dialog.dialog.is_shown() {
 						parts.settings_dialog.name_field.set_value(&push_name);
 						if about_arrived {
 							parts.settings_dialog.show_about(Some((&about.0, about.1)));
@@ -4137,11 +4129,11 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 			}
 			"own_photo_changed" => {
 				let removed = val.get("data").and_then(|d| d.get("removed")).and_then(|r| r.as_bool()) == Some(true);
-				let parent = parts.settings_dialog.get().map(|d| d.dialog).filter(|d| d.is_shown());
+				let parent = &parts.settings_dialog.dialog;
 				let message =
 					if removed { "Your profile photo was removed." } else { "Your profile photo was changed." };
-				if let Some(parent) = parent {
-					MessageDialog::builder(&parent, message, "Profile Photo")
+				if parent.is_shown() {
+					MessageDialog::builder(parent, message, "Profile Photo")
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 						.build()
 						.show_modal();
@@ -4161,7 +4153,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					s.privacy_settings_loaded = true;
 					let privacy_settings = s.privacy_settings.clone();
 					drop(s);
-					if parts.settings_dialog.get().is_some_and(|d| d.dialog.is_shown()) {
+					if parts.settings_dialog.dialog.is_shown() {
 						parts.settings_dialog.show_privacy(Some(&privacy_settings));
 					}
 				}
