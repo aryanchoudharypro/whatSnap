@@ -405,6 +405,7 @@ pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 }
 
 pub fn build_main_window() -> WindowParts {
+	crate::ui::dialog_look::round_window_corners();
 	let frame = Frame::builder().with_title("whatSnap").with_size(Size::new(1180, 760)).build();
 	frame.set_min_size(Size::new(900, 600));
 	wxdragon::app::set_top_window(&frame);

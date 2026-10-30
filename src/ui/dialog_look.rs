@@ -844,6 +844,45 @@ fn paint_row(dc: HDC, width: i32, height: i32, font: HFONT, line: i32, look: &Ro
 	}
 }
 
+/// Gives every window this app opens (the main window, dialogs, message
+/// boxes) fully rounded corners, as WhatsApp Web's popups have. Windows 11
+/// draws them: each window is asked as it's first activated, through a hook
+/// on this (the UI) thread. Only the frame's shape changes, so a screen
+/// reader sees nothing different; Windows 10 has no rounded corners and
+/// quietly ignores the request. Call once, at startup.
+pub(crate) fn round_window_corners() {
+	use windows::Win32::{
+		System::Threading::GetCurrentThreadId,
+		UI::WindowsAndMessaging::{SetWindowsHookExW, WH_CBT},
+	};
+	unsafe {
+		let _ = SetWindowsHookExW(WH_CBT, Some(cbt_proc), None, GetCurrentThreadId());
+	}
+}
+
+unsafe extern "system" fn cbt_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+	use windows::Win32::{
+		Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute},
+		UI::WindowsAndMessaging::{CallNextHookEx, HCBT_ACTIVATE, WS_CHILD},
+	};
+	if code == HCBT_ACTIVATE as i32 {
+		let hwnd = HWND(wparam.0 as *mut _);
+		let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32;
+		if style & WS_CHILD.0 == 0 {
+			let round = DWMWCP_ROUND;
+			unsafe {
+				let _ = DwmSetWindowAttribute(
+					hwnd,
+					DWMWA_WINDOW_CORNER_PREFERENCE,
+					std::ptr::from_ref(&round).cast(),
+					size_of_val(&round) as u32,
+				);
+			}
+		}
+	}
+	unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
 #[cfg(test)]
 mod tests {
 	use super::{split_contact, strip_mnemonic};
