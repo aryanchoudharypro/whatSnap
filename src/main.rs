@@ -728,7 +728,9 @@ fn main() {
 	let end_session_backend = backend.clone();
 	let end_session_pipe_id = pipe_id.clone();
 
+	websocket_events::log_memory("before wx starts");
 	let res = wxdragon::main(move |_| {
+		websocket_events::log_memory("once wx has started");
 		// Registers (or repairs) a Start Menu shortcut carrying our Application
 		// User Model ID. Windows silently drops toasts from any AUMID that
 		// isn't backed by such a shortcut, which is why notifications never
@@ -743,8 +745,10 @@ fn main() {
 		// so the toast app ID is attached to that shortcut, not a guessed one.
 		wxdragon::prelude::NotificationMessage::msw_use_toasts(&toast::start_menu_shortcut_path(), toast::APP_ID);
 
+		websocket_events::log_memory("after setting up toasts");
 		let parts = build_main_window();
 		let frame = parts.frame;
+		websocket_events::log_memory("after building the main window");
 
 		// An installer closing whatSnap to update it, or Windows signing out.
 		#[cfg(target_os = "windows")]
@@ -765,6 +769,7 @@ fn main() {
 		let ui_tx = UiCommandSender::new(ui_tx_raw, ui_waker.clone());
 
 		audio_device_watch::start(ui_tx.clone());
+		websocket_events::log_memory("after starting the audio device watch");
 
 		// Let future launches of the app (see `single_instance::acquire_or_activate_existing`
 		// at the top of `main`) hand off to this window instead of starting a second instance.
@@ -1134,6 +1139,14 @@ fn main() {
 		}
 
 		bind_input_handlers(&parts_clone, ui_tx, &state);
+		websocket_events::log_memory("after binding handlers");
+		// And once things have settled, to compare with Task Manager.
+		thread::spawn(|| {
+			for (wait, stage) in [(15, "15 s after launch"), (105, "2 min after launch")] {
+				thread::sleep(Duration::from_secs(wait));
+				websocket_events::log_memory(stage);
+			}
+		});
 		parts_clone.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", saved_audio_speed));
 
 		// Setup audio progress timer
