@@ -48,7 +48,7 @@ func housekeepLogs() {
 		rotateLog(filepath.Join(logs, name))
 	}
 	pruneOldFiles(filepath.Join(logs, "call-diag"), 7*24*time.Hour, nil)
-	pruneOldFiles(logs, 7*24*time.Hour, func(n string) bool { return strings.HasPrefix(n, "stall-") })
+	pruneOldFiles(logs, 7*24*time.Hour, func(n string) bool { return strings.HasPrefix(n, "stall-") || strings.HasPrefix(n, "heap-") })
 }
 
 // debugf logs only with -verbose-logging: per-event lines that are useful when
