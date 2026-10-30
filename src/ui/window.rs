@@ -1332,7 +1332,7 @@ pub fn bind_input_handlers(
 				tray_icon.set_icon(&tray_bitmap, whatsnap::TRAY_APP_NAME);
 				let unread = whatsnap::unread_notification_total(
 					&s.unread_counts,
-					&s.muted_jids,
+					&s.settings.quiet_chats(&s.muted_jids),
 					&s.archived_jids,
 					&s.settings.archived_alert_levels,
 				);

@@ -227,6 +227,13 @@ impl Settings {
 		}
 	}
 
+	/// `muted` with the chats turned off on this computer: those the tray's
+	/// unread total leaves out.
+	pub fn quiet_chats(&self, muted: &std::collections::HashSet<String>) -> std::collections::HashSet<String> {
+		let off = self.chat_notifications.iter().filter(|(_, n)| n.alert == whatsnap::ChatAlert::Off);
+		muted.iter().cloned().chain(off.map(|(jid, _)| jid.clone())).collect()
+	}
+
 	pub fn save(&self) {
 		if let Ok(json) = serde_json::to_string_pretty(self) {
 			let _ = std::fs::write(settings_path(), json);

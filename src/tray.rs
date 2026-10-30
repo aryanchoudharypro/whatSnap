@@ -172,7 +172,7 @@ pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 	}
 	let unread = whatsnap::unread_notification_total(
 		&s.unread_counts,
-		&s.muted_jids,
+		&s.settings.quiet_chats(&s.muted_jids),
 		&s.archived_jids,
 		&s.settings.archived_alert_levels,
 	);

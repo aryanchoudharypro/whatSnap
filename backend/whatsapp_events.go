@@ -848,6 +848,60 @@ func mediaCarrier(msg *waE2E.Message) *waE2E.Message {
 	return msg
 }
 
+var (
+	groupSizesMu sync.Mutex
+	groupSizes   = map[types.JID]int{}
+)
+
+// groupSize is how many people a group has, for spacing out its message
+// notifications as WhatsApp does (WAWebNotificationHelpers: quiet for
+// min(120, 30 + 5 x members) seconds after one). It's looked up once per
+// group per run, in the background; 0 until then, and for other chats.
+func groupSize(jid types.JID) int {
+	if jid.Server != types.GroupServer {
+		return 0
+	}
+	groupSizesMu.Lock()
+	defer groupSizesMu.Unlock()
+	size, known := groupSizes[jid]
+	if !known {
+		groupSizes[jid] = 0
+		go func() {
+			if info, err := wa().GetGroupInfo(context.Background(), jid); err == nil {
+				groupSizesMu.Lock()
+				groupSizes[jid] = len(info.Participants)
+				groupSizesMu.Unlock()
+			}
+		}()
+	}
+	return size
+}
+
+// addressesMe says whether a message mentions us, mentions everyone (@all,
+// WAWebNonJidMentionType MENTION_ALL) or replies to one of ours: what
+// WhatsApp still notifies about in a muted group
+// (WAWebNotificationHelpers isMutedAndNotMentioned).
+func addressesMe(msg *waE2E.Message) bool {
+	ctx := getContextInfo(msg)
+	if ctx == nil || wa() == nil || wa().Store == nil {
+		return false
+	}
+	if ctx.GetNonJIDMentions()&1 != 0 {
+		return true
+	}
+	own, ownLID := wa().Store.GetJID(), wa().Store.GetLID()
+	isMe := func(raw string) bool {
+		jid, err := types.ParseJID(raw)
+		return err == nil && jid.User != "" && (jid.User == own.User || (!ownLID.IsEmpty() && jid.User == ownLID.User))
+	}
+	for _, raw := range ctx.GetMentionedJID() {
+		if isMe(raw) {
+			return true
+		}
+	}
+	return ctx.GetStanzaID() != "" && isMe(ctx.GetParticipant())
+}
+
 // getContextInfo pulls the ContextInfo (which carries reply/quote data) out
 // of whichever message type actually has it populated.
 func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
@@ -2084,6 +2138,8 @@ func eventHandler(evt interface{}) {
 				"quotedText":    quotedText,
 				"quotedSender":  quotedSender,
 				"pollResults":   newPollResults(unwrappedMsg),
+				"addressesMe":   chatJID.Server == types.GroupServer && addressesMe(v.Message),
+				"groupSize":     groupSize(chatJID),
 			})
 		}
 	case *events.UndecryptableMessage:

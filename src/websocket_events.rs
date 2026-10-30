@@ -2361,11 +2361,39 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							if !is_from_me && !is_system {
 								// Archived chats default to silent and can be dialled back up per chat
 								// from the chat-list context menu; muting still overrides both.
+								// A muted or archived group still notifies when a message
+								// mentions you, @all's the group or replies to you, unless
+								// its sender's own chat is muted (WhatsApp Web's
+								// isMutedAndNotMentioned, isArchivedAndNotMentioned).
+								let addresses_me = data.get("addressesMe").and_then(|v| v.as_bool()).unwrap_or(false);
+								let sender_chat = match (from.split_once(':'), from.split_once('@')) {
+									(Some((user, _)), Some((_, server))) => format!("{user}@{server}"),
+									_ => from.to_string(),
+								};
+								let reaches_me = addresses_me && !s.muted_jids.contains(&sender_chat);
 								let alert = s.settings.message_alert(
 									jid,
-									s.muted_jids.contains(jid),
-									s.archived_jids.contains(jid),
+									s.muted_jids.contains(jid) && !reaches_me,
+									s.archived_jids.contains(jid) && !reaches_me,
 								);
+								// After a group notifies, its next messages stay quiet for
+								// min(120, 30 + 5 x members) seconds, as on WhatsApp Web;
+								// one that's for you still gets through.
+								let alert = if !is_backlog && jid.ends_with("@g.us") && (alert.sound || alert.toast) {
+									let now = std::time::Instant::now();
+									let quiet = s.group_quiet_until.get(jid).is_some_and(|until| now < *until);
+									if quiet && !addresses_me {
+										whatsnap::IncomingAlert { sound: false, toast: false }
+									} else {
+										let members = data.get("groupSize").and_then(|v| v.as_u64()).unwrap_or(0);
+										let secs = (30 + 5 * members).min(120);
+										s.group_quiet_until
+											.insert(jid.to_string(), now + std::time::Duration::from_secs(secs));
+										alert
+									}
+								} else {
+									alert
+								};
 								let alert = if is_backlog {
 									if is_missed_call || !is_call_line {
 										let allowed = whatsnap::IncomingAlert {

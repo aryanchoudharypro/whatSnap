@@ -270,6 +270,9 @@ struct AppState {
 	emoji_panel: Option<Rc<crate::ui::emoji_panel::EmojiPanel>>,
 	pinned_jids: std::collections::HashSet<String>,
 	muted_jids: std::collections::HashSet<String>,
+	/// When each group may next notify: WhatsApp spaces a busy group's
+	/// notifications out (see `websocket_events`, "message").
+	group_quiet_until: std::collections::HashMap<String, std::time::Instant>,
 	/// Everyone blocked, under each of their addresses (phone JID and LIDs).
 	blocked_jids: std::collections::HashSet<String>,
 	blocked_entries: Vec<crate::ui::blocked_contacts::BlockedEntry>,
@@ -954,6 +957,7 @@ fn main() {
 			emoji_panel: None,
 			pinned_jids: std::collections::HashSet::new(),
 			muted_jids: std::collections::HashSet::new(),
+			group_quiet_until: std::collections::HashMap::new(),
 			blocked_jids: std::collections::HashSet::new(),
 			blocked_entries: Vec::new(),
 			blocked_contacts: None,

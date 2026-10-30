@@ -867,6 +867,7 @@ pub(crate) fn set_chat_notify(
 		let mut s = state.borrow_mut();
 		s.settings.set_chat_notify(&jid, notify);
 		s.settings.save();
+		refresh_tray_tooltip(&s, parts);
 		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 		let alert = match notify.alert {
 			whatsnap::ChatAlert::Default => "as set in Settings",
