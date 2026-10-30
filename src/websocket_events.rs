@@ -20,9 +20,8 @@ use crate::{
 	},
 	call_audio,
 	call_helpers::{
-		announce_call, call_participant_changes, caller_info_text, get_status_rank,
-		group_call_status_text, incoming_call_description, parse_call_participants, peer_video_announcement,
-		show_call_device_combos,
+		announce_call, call_participant_changes, caller_info_text, get_status_rank, group_call_status_text,
+		incoming_call_description, parse_call_participants, peer_video_announcement, show_call_device_combos,
 	},
 	chat_ui::show_toast_notification,
 	contact_picker::{

@@ -21,10 +21,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"runtime"
 	"runtime/debug"
-	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -152,46 +149,14 @@ func replaceWithFreshClient() {
 // huge chat) that can leave the process sitting on pages it no longer needs
 // for minutes. This just nudges that along on a period short enough that
 // Task Manager's number actually reflects what the app is using right now.
-//
-// Every few rounds it also notes in the log where the memory is (Go's own
-// heap, versus what the process holds beyond it: SQLite's caches, thread
-// stacks, DLLs), and with verbose logging on, the first round writes a heap
-// profile (logs/heap-<time>.pprof) that names what holds the heap.
 func scavengeIdleMemory() {
 	go func() {
 		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()
-		for round := 0; ; round++ {
-			<-ticker.C
+		for range ticker.C {
 			debug.FreeOSMemory()
-			if round%5 == 0 {
-				logMemory()
-			}
-			if round == 0 && *verboseLogFlag {
-				writeHeapProfile()
-			}
 		}
 	}()
-}
-
-func logMemory() {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	const mb = 1 << 20
-	log.Printf("Memory: Go heap %.1f MB in use (%.1f MB objects), %.1f MB held from the OS, %.1f MB returned; %d goroutines",
-		float64(m.HeapInuse)/mb, float64(m.HeapAlloc)/mb, float64(m.Sys-m.HeapReleased)/mb, float64(m.HeapReleased)/mb, runtime.NumGoroutine())
-}
-
-func writeHeapProfile() {
-	path := filepath.Join(appDataDir(), "logs", "heap-"+time.Now().Format("20060102-150405")+".pprof")
-	f, err := os.Create(path)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	if err := pprof.WriteHeapProfile(f); err == nil {
-		log.Println("Heap profile written to", path)
-	}
 }
 
 func main() {

@@ -320,10 +320,7 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		let _ = s.ws_tx.send(msg.to_string());
 		stop_call_ringing_sound(&mut s);
 		s.call_answer_deadline = Some(std::time::Instant::now());
-		parts
-			.call_parts
-			.frame
-			.set_title(call_window_title(s.call_video.peer_name.is_none(), s.call_video.video_call));
+		parts.call_parts.frame.set_title(call_window_title(s.call_video.peer_name.is_none(), s.call_video.video_call));
 		parts.call_parts.status_label.set_label("Connecting...");
 		parts.call_parts.leave_btn.show(true);
 		parts.call_parts.accept_btn.show(false);
