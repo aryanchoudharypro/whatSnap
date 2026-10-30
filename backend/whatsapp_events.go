@@ -1636,9 +1636,14 @@ func eventHandler(evt interface{}) {
 				stampAlbumMembers(album.id, album.jid, album.senderJID, album.timestamp, album.expected)
 			}
 			if len(convLIDPairs) > 0 {
-				if err := wa().Store.LIDs.PutManyLIDMappings(context.Background(), convLIDPairs); err != nil {
-					log.Println("Error storing LID mappings from history-sync conversations:", err)
-				}
+				// A conversation can be the chat of a contact's old account
+				// (their number moved to a new one), naming the old LID.
+				// Stored over the current one, every message sent to the
+				// number went to that old chat, which the phone shows as a
+				// second chat for the same person, outside the chat lock.
+				// Its rows are already under the phone JID (chunkPNs), so
+				// only numbers without a LID yet take the pair.
+				wa().StoreObservedLIDMappings(context.Background(), convLIDPairs)
 			}
 			loopTook := time.Since(chunkStart)
 			tailStart := time.Now()
@@ -2174,6 +2179,7 @@ func eventHandler(evt interface{}) {
 		forgetPresenceSubscriptions()
 		forgetChannelRefreshes()
 		convertStoredVotesOnce.Do(func() { go runOnce("convert_stored_poll_votes_v1", convertStoredPollVotes) })
+		recheckChatLIDsOnce.Do(func() { go recheckChatLIDs() })
 		go refreshServerFlags()
 		appStateResyncMu.Lock()
 		for k := range appStateResyncCount {
