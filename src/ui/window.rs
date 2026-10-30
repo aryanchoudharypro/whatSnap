@@ -3240,8 +3240,7 @@ pub fn bind_input_handlers(
 			let favorite_id = 4016;
 			let lists_id = 4017;
 			let contact_info_id = 4040;
-			let notify_ids = [4041, 4042, 4043, 4044, 4045];
-			let notify_hide_id = 4046;
+			let notify_settings_id = 4041;
 
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
@@ -3257,7 +3256,6 @@ pub fn bind_input_handlers(
 				let is_group = jid.ends_with("@g.us");
 				let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 				let archived_level = s.settings.archived_alert(&jid);
-				let chat_notify = s.settings.chat_notify(&jid);
 				drop(s);
 
 				let mut menu_builder = Menu::builder();
@@ -3348,6 +3346,17 @@ pub fn bind_input_handlers(
 						"Choose how long to mute this chat",
 					);
 				}
+				// What this computer alone does about the chat's messages; Mute
+				// above is WhatsApp's own, on every device.
+				if !jid.ends_with("@broadcast") {
+					popup_menu.insert(
+						mute_pos + 1,
+						notify_settings_id,
+						"Notification se&ttings...",
+						"How this computer alerts you about this chat, without changing your phone",
+						ItemKind::Normal,
+					);
+				}
 
 				// Archived chats are silent by default; this submenu is where one
 				// gets dialled back up. It has to be appended after `build()`
@@ -3402,69 +3411,6 @@ pub fn bind_input_handlers(
 					);
 				}
 
-				// WhatsApp Web's per-chat notification choices, kept on this
-				// computer only: unlike Mute, nothing here reaches the phone.
-				if !jid.ends_with("@broadcast") {
-					const ALERTS: [whatsnap::ChatAlert; 5] = [
-						whatsnap::ChatAlert::Default,
-						whatsnap::ChatAlert::Full,
-						whatsnap::ChatAlert::NoSound,
-						whatsnap::ChatAlert::SoundOnly,
-						whatsnap::ChatAlert::Off,
-					];
-					let notify_menu = Menu::builder()
-						.append_radio_item(notify_ids[0], "As in &Settings", "Notify as Settings says for every chat")
-						.append_radio_item(
-							notify_ids[1],
-							"Notification &and sound",
-							"Show a notification and play the sound",
-						)
-						.append_radio_item(
-							notify_ids[2],
-							"&Notification only, no sound",
-							"Show a notification without the sound",
-						)
-						.append_radio_item(
-							notify_ids[3],
-							"S&ound only, no notification",
-							"Play the sound without showing a notification",
-						)
-						.append_radio_item(
-							notify_ids[4],
-							"&Off on this computer",
-							"No sound and no notification here; your phone still notifies",
-						)
-						.append_separator()
-						.append_check_item(
-							notify_hide_id,
-							"&Hide message content",
-							"Notifications from this chat don't show what the message says",
-						)
-						.build();
-					let current = ALERTS.iter().position(|a| *a == chat_notify.alert).unwrap_or(0);
-					notify_menu.check_item(notify_ids[current], true);
-					notify_menu.check_item(notify_hide_id, chat_notify.hide_content);
-					let ui_tx_notify = ui_tx_chat_ctx.clone();
-					let jid_notify = jid.clone();
-					notify_menu.on_selected(move |menu_evt| {
-						let id = menu_evt.get_id();
-						let mut notify = chat_notify;
-						if let Some(i) = notify_ids.iter().position(|&n| n == id) {
-							notify.alert = ALERTS[i];
-						} else if id == notify_hide_id {
-							notify.hide_content = !notify.hide_content;
-						} else {
-							return;
-						}
-						let _ = ui_tx_notify.send(UiCommand::SetChatNotify { jid: jid_notify.clone(), notify });
-					});
-					popup_menu.append_submenu(
-						notify_menu,
-						"Noti&fications on this computer",
-						"How this computer alerts you about this chat, without changing your phone",
-					);
-				}
-
 				let ui_tx_clone = ui_tx_chat_ctx.clone();
 				let jid_clone = jid.clone();
 				let parent_clone = parent_frame_chat_ctx;
@@ -3473,6 +3419,8 @@ pub fn bind_input_handlers(
 					let id = menu_evt.get_id();
 					if id == contact_info_id {
 						let _ = ui_tx_clone.send(UiCommand::ShowContactInfo(jid_clone.clone()));
+					} else if id == notify_settings_id {
+						let _ = ui_tx_clone.send(UiCommand::ShowChatNotify { jid: jid_clone.clone() });
 					} else if id == pin_id {
 						let _ = ui_tx_clone.send(UiCommand::TogglePinChat { jid: jid_clone.clone(), pin: !is_pinned });
 					} else if id == archive_id {

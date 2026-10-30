@@ -7,6 +7,7 @@ pub mod call_window;
 pub mod channel_admin;
 pub mod channel_countries;
 pub mod channel_directory;
+pub mod chat_notify_dialog;
 pub mod chat_rows;
 pub mod conversation_data;
 pub mod conversations;

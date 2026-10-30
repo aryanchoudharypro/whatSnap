@@ -882,6 +882,19 @@ pub(crate) fn set_chat_notify(
 	crate::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
+/// The chat's "Notification settings" dialog: what this computer alone does
+/// about its new messages. Mute stays WhatsApp's own, on every device.
+pub(crate) fn show_chat_notify(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
+	let (name, current) = {
+		let s = state.borrow();
+		(s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone()), s.settings.chat_notify(&jid))
+	};
+	let Some(notify) = crate::ui::chat_notify_dialog::ask(&parts.frame, &name, current) else { return };
+	if notify != current {
+		set_chat_notify(state, parts, jid, notify);
+	}
+}
+
 /// WhatsApp Web's mute lengths (`WAWebMuteExpirations`): menu label, how
 /// long it's said to last, and seconds, where 0 is "Always" - a mute with no
 /// end.

@@ -370,6 +370,10 @@ pub enum UiCommand {
 		jid: String,
 		notify: whatsnap::ChatNotify,
 	},
+	/// Opens a chat's "Notification settings" dialog.
+	ShowChatNotify {
+		jid: String,
+	},
 	ToggleReadChat {
 		jid: String,
 		read: bool,
