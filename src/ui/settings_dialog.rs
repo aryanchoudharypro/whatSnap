@@ -68,6 +68,18 @@ pub struct SettingsDialogParts {
 
 	// General tab
 	pub general_panel: Panel,
+	pub announce_typing_check: CheckBox,
+	pub announce_recording_check: CheckBox,
+	pub tray_icon_check: CheckBox,
+	pub autostart_check: CheckBox,
+	pub start_maximized_check: CheckBox,
+	pub meta_ai_enabled_check: CheckBox,
+	pub verbose_backend_logging_check: CheckBox,
+	pub shortcuts_btn: Button,
+	pub share_menu_btn: Button,
+
+	// Notifications tab
+	pub notifications_panel: Panel,
 	pub sounds_check: CheckBox,
 	pub notifications_check: CheckBox,
 	pub notification_previews_check: CheckBox,
@@ -78,15 +90,6 @@ pub struct SettingsDialogParts {
 	pub call_notifications_check: CheckBox,
 	pub call_ringtone_check: CheckBox,
 	pub follow_dnd_check: CheckBox,
-	pub announce_typing_check: CheckBox,
-	pub announce_recording_check: CheckBox,
-	pub tray_icon_check: CheckBox,
-	pub autostart_check: CheckBox,
-	pub start_maximized_check: CheckBox,
-	pub meta_ai_enabled_check: CheckBox,
-	pub verbose_backend_logging_check: CheckBox,
-	pub shortcuts_btn: Button,
-	pub share_menu_btn: Button,
 
 	// Chats tab
 	pub chats_panel: Panel,
@@ -191,35 +194,6 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	theme::style_content(&general_panel);
 	let general_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let sounds_check = setting_switch(&general_panel, &general_sizer, "Play a sound for new messages");
-
-	let notifications_check = setting_switch(&general_panel, &general_sizer, "Show desktop notifications");
-
-	let notification_previews_check =
-		setting_switch(&general_panel, &general_sizer, "Show previews: message text in notifications");
-
-	let reaction_notifications_check = setting_switch(&general_panel, &general_sizer, "Show reaction notifications");
-	// WhatsApp's group, outgoing and call settings, in its words.
-	let group_notifications_check = setting_switch(
-		&general_panel,
-		&general_sizer,
-		"Group notifications: show notifications for new group messages",
-	);
-	let group_sounds_check =
-		setting_switch(&general_panel, &general_sizer, "Group sounds: play sounds for new group messages");
-	let outgoing_sounds_check =
-		setting_switch(&general_panel, &general_sizer, "Outgoing sounds: play sounds for messages you send");
-	let call_notifications_check =
-		setting_switch(&general_panel, &general_sizer, "Call notifications: show notifications for incoming calls");
-	let call_ringtone_check =
-		setting_switch(&general_panel, &general_sizer, "Incoming call sounds: play the ringtone for incoming calls");
-
-	let follow_dnd_check = setting_switch(
-		&general_panel,
-		&general_sizer,
-		"No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on",
-	);
-
 	let announce_typing_check = setting_switch(&general_panel, &general_sizer, "Announce when someone is typing");
 
 	let announce_recording_check =
@@ -251,6 +225,28 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	general_sizer.add(&share_menu_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
 
 	general_panel.set_sizer(general_sizer, true);
+
+	// --- Notifications tab ---
+	// WhatsApp Web's Settings > Notifications, in its order: messages, groups, calls.
+	let notifications_panel = Panel::builder(&notebook).build();
+	theme::style_content(&notifications_panel);
+	let notifications_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let notify_switch = |label: &str| setting_switch(&notifications_panel, &notifications_sizer, label);
+
+	let notifications_check = notify_switch("Message notifications: show desktop notifications for new messages");
+	let notification_previews_check = notify_switch("Show previews: message text in notifications");
+	let reaction_notifications_check =
+		notify_switch("Reaction notifications: show notifications for reactions to your messages");
+	let sounds_check = notify_switch("Incoming sounds: play a sound for new messages");
+	let outgoing_sounds_check = notify_switch("Outgoing sounds: play sounds for messages you send");
+	let group_notifications_check = notify_switch("Group notifications: show notifications for new group messages");
+	let group_sounds_check = notify_switch("Group sounds: play sounds for new group messages");
+	let call_notifications_check = notify_switch("Call notifications: show notifications for incoming calls");
+	let call_ringtone_check = notify_switch("Incoming call sounds: play the ringtone for incoming calls");
+	let follow_dnd_check =
+		notify_switch("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on");
+	notifications_sizer.add_spacer(12);
+	notifications_panel.set_sizer(notifications_sizer, true);
 
 	// --- Chats tab ---
 	// WhatsApp Web's Settings > Chats, in its words.
@@ -393,6 +389,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	audio_panel.set_sizer(audio_sizer, true);
 
 	notebook.add_page(&general_panel, "General", true, None);
+	notebook.add_page(&notifications_panel, "Notifications", false, None);
 	notebook.add_page(&chats_panel, "Chats", false, None);
 	notebook.add_page(&privacy_panel, "Profile & Privacy", false, None);
 	notebook.add_page(&audio_panel, "Input & Output", false, None);
@@ -425,6 +422,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		dialog,
 		notebook,
 		general_panel,
+		notifications_panel,
 		sounds_check,
 		notifications_check,
 		notification_previews_check,
@@ -619,7 +617,9 @@ impl SettingsDialogParts {
 	/// Puts the dialog in the theme that's on now. It's made once and kept,
 	/// so a theme change made since may have left parts of it in the old one.
 	pub fn match_theme(&self) {
-		for panel in [&self.general_panel, &self.chats_panel, &self.privacy_panel, &self.audio_panel] {
+		for panel in
+			[&self.general_panel, &self.notifications_panel, &self.chats_panel, &self.privacy_panel, &self.audio_panel]
+		{
 			theme::style_content(panel);
 		}
 		theme::style_content(&self.notebook);
