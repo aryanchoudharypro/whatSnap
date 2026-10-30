@@ -831,7 +831,9 @@ pub fn bind_input_handlers(
 	let state_typing = state.clone();
 	let conv_parts_typing = parts.conversations_parts;
 	msg_ctrl_typing.on_text_changed(move |_| {
-		let replace_emoji = state_typing.borrow().settings.replace_text_with_emoji;
+		// Opening a chat restores its draft with set_value() while the state is
+		// borrowed, which lands here; that isn't typing, so nothing to replace.
+		let replace_emoji = state_typing.try_borrow().is_ok_and(|s| s.settings.replace_text_with_emoji);
 		crate::ui::emoji_replace::text_changed(&msg_ctrl_typing, replace_emoji);
 		crate::ui_commands::mentions::refresh(&state_typing, &conv_parts_typing);
 		let text = msg_ctrl_typing.get_value();
@@ -2041,7 +2043,8 @@ pub fn bind_input_handlers(
 			&& let Some(value) = settings_parts_ok.read_receipts_change(&s.privacy_settings)
 		{
 			s.privacy_settings.insert("readreceipts".to_string(), value.to_string());
-			let payload = serde_json::json!({"action": "set_privacy_setting", "data": {"name": "readreceipts", "value": value}});
+			let payload =
+				serde_json::json!({"action": "set_privacy_setting", "data": {"name": "readreceipts", "value": value}});
 			let _ = s.ws_tx.send(payload.to_string());
 		}
 		if s.privacy_settings_loaded {
