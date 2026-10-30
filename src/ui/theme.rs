@@ -155,6 +155,11 @@ fn swapped(colour: Colour, to_dark: bool) -> Option<Colour> {
 	})
 }
 
+/// Whether `colour` is one of the palette's, in either theme.
+fn is_palette(colour: Colour) -> bool {
+	PAIRS.iter().any(|&(light, dark)| colour == light || colour == dark)
+}
+
 /// `colour`, kept from when a window was made, in the theme now on: a
 /// palette colour of the other theme becomes this one's.
 pub fn now(colour: Colour) -> Colour {
@@ -229,11 +234,17 @@ pub fn change_theme(choice: ThemeChoice) {
 			found.insert(0, dialog);
 		}
 		for win in found {
-			if let Some(colour) = swapped(win.get_background_color(), dark) {
+			let background = swapped(win.get_background_color(), dark);
+			if let Some(colour) = background {
 				win.set_background_color(colour);
 			}
-			if let Some(colour) = swapped(win.get_foreground_color(), dark) {
+			let foreground = win.get_foreground_color();
+			if let Some(colour) = swapped(foreground, dark) {
 				win.set_foreground_color(colour);
+			} else if background.is_some() && !is_palette(foreground) {
+				// A box whose white came from Windows has Windows' black
+				// text, which would vanish on the dark it's now given.
+				win.set_foreground_color(Palette::TEXT_PRIMARY());
 			}
 		}
 		unsafe {
