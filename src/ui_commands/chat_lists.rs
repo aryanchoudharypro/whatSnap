@@ -586,7 +586,9 @@ fn update_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 fn show_common_groups(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = text(data, "jid");
 	let mut s = state.borrow_mut();
-	if s.info_chat.as_deref() != Some(jid.as_str()) || !parts.conversation_data_dialog.dialog.is_shown() {
+	if s.info_chat.as_deref() != Some(jid.as_str())
+		|| !parts.conversation_data_dialog.get().is_some_and(|d| d.dialog.is_shown())
+	{
 		return;
 	}
 	let groups = data.get("groups").and_then(|g| g.as_array()).cloned().unwrap_or_default();

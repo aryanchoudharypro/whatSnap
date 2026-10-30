@@ -14,6 +14,7 @@ pub mod emoji_panel;
 pub mod gdi;
 pub mod group_data;
 pub mod keys;
+pub mod lazy;
 pub mod media_player;
 pub mod message_art;
 pub mod message_list;

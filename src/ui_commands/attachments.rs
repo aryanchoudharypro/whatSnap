@@ -263,7 +263,7 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 				// Text already typed in the message box becomes the caption,
 				// as in WhatsApp, rather than being left behind in the box.
 				let mut caption = None;
-				if !parts.attachment_dialog.dialog.is_shown() && kind.has_caption() {
+				if !parts.attachment_dialog.get().is_some_and(|d| d.dialog.is_shown()) && kind.has_caption() {
 					let field = &parts.conversations_parts.message_field;
 					let typed = field.get_value();
 					if !typed.trim().is_empty() {

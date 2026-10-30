@@ -108,7 +108,7 @@ pub(crate) fn call_participant_changes(old: &[CallParticipant], new: &[CallParti
 pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
 	// Calls interrupt whatever the screen reader is saying; everything else
 	// waits its turn (see announce.rs).
-	let label = if parts.call_parts.frame.is_shown() {
+	let label = if parts.call_parts.get().is_some_and(|c| c.frame.is_shown()) {
 		parts.call_parts.announcer
 	} else {
 		parts.conversations_parts.messages_announcer

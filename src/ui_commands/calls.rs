@@ -320,10 +320,7 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		let _ = s.ws_tx.send(msg.to_string());
 		stop_call_ringing_sound(&mut s);
 		s.call_answer_deadline = Some(std::time::Instant::now());
-		parts
-			.call_parts
-			.frame
-			.set_title(call_window_title(s.call_video.peer_name.is_none(), s.call_video.video_call));
+		parts.call_parts.frame.set_title(call_window_title(s.call_video.peer_name.is_none(), s.call_video.video_call));
 		parts.call_parts.status_label.set_label("Connecting...");
 		parts.call_parts.leave_btn.show(true);
 		parts.call_parts.accept_btn.show(false);
@@ -362,7 +359,9 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 			"data": { "call_id": call_id }
 		});
 		let _ = s.ws_tx.send(msg.to_string());
-		parts.call_parts.frame.show(false);
+		if let Some(c) = parts.call_parts.get() {
+			c.frame.show(false);
+		}
 		s.active_call_id = None;
 		s.active_call_video_send = None;
 		s.call_video_port = None;
@@ -384,7 +383,9 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 			"data": { "call_id": call_id }
 		});
 		let _ = s.ws_tx.send(msg.to_string());
-		parts.call_parts.frame.show(false);
+		if let Some(c) = parts.call_parts.get() {
+			c.frame.show(false);
+		}
 		s.active_call_id = None;
 		s.active_call_audio = None;
 		s.active_call_video_send = None;
@@ -402,7 +403,9 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		// up as soon as the call_id actually arrives instead of leaving it
 		// ringing on the peer's end.
 		s.call_pending_cancel = true;
-		parts.call_parts.frame.show(false);
+		if let Some(c) = parts.call_parts.get() {
+			c.frame.show(false);
+		}
 		stop_call_ringing_sound(&mut s);
 	}
 }

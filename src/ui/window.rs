@@ -8,7 +8,7 @@ use wxdragon::{
 use crate::{
 	UiCommand,
 	keymap::{default_menu_label, message_list},
-	ui::{keys, message_list::CursorList, theme},
+	ui::{keys, lazy::Lazy, message_list::CursorList, theme},
 	ui_wake::UiCommandSender,
 };
 
@@ -192,26 +192,26 @@ pub struct WindowParts {
 	pub pairing_code_display: TextCtrl,
 	pub pairing_announcer: StaticText,
 	pub pairing_cancel_btn: Button,
-	pub new_conv_dialog: crate::ui::new_conversation::NewConversationDialogParts,
-	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
-	pub poll_dialog: crate::ui::poll_dialog::PollDialogParts,
-	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
-	pub add_members_dialog: crate::ui::add_members::AddMembersDialogParts,
-	pub attach_contact_dialog: crate::ui::attach_contact::AttachContactDialogParts,
+	pub new_conv_dialog: Lazy<crate::ui::new_conversation::NewConversationDialogParts>,
+	pub new_contact_dialog: Lazy<crate::ui::new_contact::NewContactDialogParts>,
+	pub poll_dialog: Lazy<crate::ui::poll_dialog::PollDialogParts>,
+	pub new_group_dialog: Lazy<crate::ui::new_group::NewGroupDialogParts>,
+	pub add_members_dialog: Lazy<crate::ui::add_members::AddMembersDialogParts>,
+	pub attach_contact_dialog: Lazy<crate::ui::attach_contact::AttachContactDialogParts>,
 	/// Shared with the search-field debounce in `bind_input_handlers` so a
 	/// `contacts` response landing while a picker is open coalesces with any
 	/// in-flight keystroke rebuild instead of firing an immediate rebuild
 	/// back-to-back with it - see the "bad wxCheckListBox index" comments in
 	/// `bind_input_handlers` and in main.rs's `refresh_*_contacts_list`.
-	pub new_group_contacts_timer: Rc<Timer<Dialog>>,
-	pub add_members_contacts_timer: Rc<Timer<Dialog>>,
-	pub attach_contact_timer: Rc<Timer<Dialog>>,
-	pub attachment_dialog: crate::ui::attachment_dialog::AttachmentDialogParts,
-	pub call_parts: crate::ui::call_window::CallWindowParts,
-	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
-	pub group_data_dialog: crate::ui::group_data::GroupDataDialogParts,
+	pub new_group_contacts_timer: Rc<Timer<Frame>>,
+	pub add_members_contacts_timer: Rc<Timer<Frame>>,
+	pub attach_contact_timer: Rc<Timer<Frame>>,
+	pub attachment_dialog: Lazy<crate::ui::attachment_dialog::AttachmentDialogParts>,
+	pub call_parts: Lazy<crate::ui::call_window::CallWindowParts>,
+	pub conversation_data_dialog: Lazy<crate::ui::conversation_data::ConversationDataDialogParts>,
+	pub group_data_dialog: Lazy<crate::ui::group_data::GroupDataDialogParts>,
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
-	pub settings_dialog: crate::ui::settings_dialog::SettingsDialogParts,
+	pub settings_dialog: Lazy<crate::ui::settings_dialog::SettingsDialogParts>,
 	pub tray_icon: Rc<TaskBarIcon>,
 }
 
@@ -660,20 +660,36 @@ pub fn build_main_window() -> WindowParts {
 	let pairing_dlg_esc = pairing_dialog;
 	pairing_code_display.on_key_down(keys::escape_cancels(pairing_dlg_esc));
 
-	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
-	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
-	let poll_dialog = crate::ui::poll_dialog::build_poll_dialog(&frame);
-	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
-	let add_members_dialog = crate::ui::add_members::build_add_members_dialog(&frame);
-	let attach_contact_dialog = crate::ui::attach_contact::build_attach_contact_dialog(&frame);
-	let new_group_contacts_timer = Rc::new(Timer::new(&new_group_dialog.dialog));
-	let add_members_contacts_timer = Rc::new(Timer::new(&add_members_dialog.dialog));
-	let attach_contact_timer = Rc::new(Timer::new(&attach_contact_dialog.dialog));
-	let attachment_dialog = crate::ui::attachment_dialog::build_attachment_dialog(&frame);
-	let call_parts = crate::ui::call_window::build_call_window();
-	let conversation_data_dialog = crate::ui::conversation_data::build_conversation_data_dialog(&frame);
-	let group_data_dialog = crate::ui::group_data::build_group_data_dialog(&frame);
-	let settings_dialog = crate::ui::settings_dialog::build_settings_dialog(&frame);
+	// These are built the first time they're opened, not here (see
+	// ui::lazy), each joining the main frame's Alt-Tab/taskbar entry as it's
+	// made (see set_dialog_owner).
+	macro_rules! lazy_dialog {
+		($build:path) => {
+			Lazy::new(move || {
+				let parts = $build(&frame);
+				set_dialog_owner(&parts.dialog, &frame);
+				parts
+			})
+		};
+	}
+	let new_conv_dialog = lazy_dialog!(crate::ui::new_conversation::build_new_conversation_dialog);
+	let new_contact_dialog = lazy_dialog!(crate::ui::new_contact::build_new_contact_dialog);
+	let poll_dialog = lazy_dialog!(crate::ui::poll_dialog::build_poll_dialog);
+	let new_group_dialog = lazy_dialog!(crate::ui::new_group::build_new_group_dialog);
+	let add_members_dialog = lazy_dialog!(crate::ui::add_members::build_add_members_dialog);
+	let attach_contact_dialog = lazy_dialog!(crate::ui::attach_contact::build_attach_contact_dialog);
+	// The contact pickers' search debounce; owned by the frame so a contacts
+	// update can start one before its dialog exists.
+	let new_group_contacts_timer = Rc::new(Timer::new(&frame));
+	let add_members_contacts_timer = Rc::new(Timer::new(&frame));
+	let attach_contact_timer = Rc::new(Timer::new(&frame));
+	let attachment_dialog = lazy_dialog!(crate::ui::attachment_dialog::build_attachment_dialog);
+	// A Frame of its own, deliberately not owned by the main one: the user
+	// switches to it independently while a call is up.
+	let call_parts = Lazy::new(crate::ui::call_window::build_call_window);
+	let conversation_data_dialog = lazy_dialog!(crate::ui::conversation_data::build_conversation_data_dialog);
+	let group_data_dialog = lazy_dialog!(crate::ui::group_data::build_group_data_dialog);
+	let settings_dialog = lazy_dialog!(crate::ui::settings_dialog::build_settings_dialog);
 	let tray_icon = Rc::new(TaskBarIcon::builder().build());
 
 	let conv_panel = crate::ui::conversations::build_conversations_panel(&content_panel);
@@ -703,22 +719,10 @@ pub fn build_main_window() -> WindowParts {
 
 	// Group every dialog under the main frame's Alt-Tab/taskbar entry
 	// instead of letting each show up as its own independent window (see
-	// set_dialog_owner). The call window is deliberately left out - it's a
-	// Frame the user is meant to be able to switch to independently while a
-	// call is up, not a transient dialog.
+	// set_dialog_owner); the lazily built ones do it as they're made.
 	set_dialog_owner(&login_panel, &frame);
 	set_dialog_owner(&qrcode_dialog, &frame);
 	set_dialog_owner(&pairing_dialog, &frame);
-	set_dialog_owner(&new_conv_dialog.dialog, &frame);
-	set_dialog_owner(&new_contact_dialog.dialog, &frame);
-	set_dialog_owner(&poll_dialog.dialog, &frame);
-	set_dialog_owner(&new_group_dialog.dialog, &frame);
-	set_dialog_owner(&add_members_dialog.dialog, &frame);
-	set_dialog_owner(&attach_contact_dialog.dialog, &frame);
-	set_dialog_owner(&attachment_dialog.dialog, &frame);
-	set_dialog_owner(&conversation_data_dialog.dialog, &frame);
-	set_dialog_owner(&group_data_dialog.dialog, &frame);
-	set_dialog_owner(&settings_dialog.dialog, &frame);
 
 	WindowParts {
 		frame,
@@ -760,10 +764,28 @@ pub fn build_main_window() -> WindowParts {
 }
 
 pub fn bind_input_handlers(
-	parts: &WindowParts,
+	parts: &Rc<WindowParts>,
 	ui_tx: UiCommandSender,
 	state: &std::rc::Rc<std::cell::RefCell<crate::AppState>>,
 ) {
+	// Handlers for the parts built on first use (ui::lazy) are bound as each
+	// is built; inside, `parts`, `state` and `ui_tx` are the same as out here.
+	macro_rules! when_built {
+		($parts:ident, $state:ident, $ui_tx:ident, [$($extra:ident),*], $part:ident, $body:block) => {{
+			let parts_rc = Rc::clone($parts);
+			let state_rc = Rc::clone($state);
+			#[allow(unused_variables)]
+			let $ui_tx = $ui_tx.clone();
+			$(let $extra = $extra.clone();)*
+			$parts.$part.when_built(move |_| {
+				let $parts = &parts_rc;
+				#[allow(unused_variables)]
+				let $state = &state_rc;
+				$body
+			});
+		}};
+	}
+
 	let tx_pair = ui_tx.clone();
 	let phone_ctrl = parts.phone_field;
 	let combo = parts.country_combo;
@@ -955,68 +977,70 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	let new_conv_dialog_close = parts.new_conv_dialog.dialog;
-	parts.new_conv_dialog.close_btn.on_click(move |_| {
-		new_conv_dialog_close.end_modal(0);
-	});
+	when_built!(parts, state, ui_tx, [], new_conv_dialog, {
+		let new_conv_dialog_close = parts.new_conv_dialog.dialog;
+		parts.new_conv_dialog.close_btn.on_click(move |_| {
+			new_conv_dialog_close.end_modal(0);
+		});
 
-	let tx_new_contact_form = ui_tx.clone();
-	let new_conv_dlg_for_contact = parts.new_conv_dialog.dialog;
-	parts.new_conv_dialog.new_contact_btn.on_click(move |_| {
-		new_conv_dlg_for_contact.end_modal(0);
-		let _ = tx_new_contact_form.send(UiCommand::OpenNewContactForm);
-	});
+		let tx_new_contact_form = ui_tx.clone();
+		let new_conv_dlg_for_contact = parts.new_conv_dialog.dialog;
+		parts.new_conv_dialog.new_contact_btn.on_click(move |_| {
+			new_conv_dlg_for_contact.end_modal(0);
+			let _ = tx_new_contact_form.send(UiCommand::OpenNewContactForm);
+		});
 
-	let new_conv_dlg_for_meta_ai = parts.new_conv_dialog.dialog;
-	let tx_meta_ai = ui_tx.clone();
-	parts.new_conv_dialog.message_meta_ai_btn.on_click(move |_| {
-		new_conv_dlg_for_meta_ai.end_modal(0);
-		let _ = tx_meta_ai.send(UiCommand::OpenChatByJid(crate::types::META_AI_JID.to_string()));
-	});
+		let new_conv_dlg_for_meta_ai = parts.new_conv_dialog.dialog;
+		let tx_meta_ai = ui_tx.clone();
+		parts.new_conv_dialog.message_meta_ai_btn.on_click(move |_| {
+			new_conv_dlg_for_meta_ai.end_modal(0);
+			let _ = tx_meta_ai.send(UiCommand::OpenChatByJid(crate::types::META_AI_JID.to_string()));
+		});
 
-	let tx_picker_filter = ui_tx.clone();
-	let picker_search_field = parts.new_conv_dialog.search_field;
-	picker_search_field.on_text_changed(move |_| {
-		let query = picker_search_field.get_value();
-		let _ = tx_picker_filter.send(UiCommand::FilterContactPicker(query));
-	});
+		let tx_picker_filter = ui_tx.clone();
+		let picker_search_field = parts.new_conv_dialog.search_field;
+		picker_search_field.on_text_changed(move |_| {
+			let query = picker_search_field.get_value();
+			let _ = tx_picker_filter.send(UiCommand::FilterContactPicker(query));
+		});
 
-	// Enter in the search field jumps straight to the top match, so picking
-	// a contact never requires touching the results list at all.
-	let tx_picker_select_from_search = ui_tx.clone();
-	let picker_results_list_from_search = parts.new_conv_dialog.results_list;
-	picker_search_field.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			let code = key_event.get_key_code();
-			if keys::is_enter(code) && picker_results_list_from_search.get_count() > 0 {
-				let _ = tx_picker_select_from_search.send(UiCommand::SelectContactPickerResult(0));
-				event.skip(false);
-				return;
+		// Enter in the search field jumps straight to the top match, so picking
+		// a contact never requires touching the results list at all.
+		let tx_picker_select_from_search = ui_tx.clone();
+		let picker_results_list_from_search = parts.new_conv_dialog.results_list;
+		picker_search_field.on_key_down(move |event| {
+			if let WindowEventData::Keyboard(ref key_event) = event {
+				let code = key_event.get_key_code();
+				if keys::is_enter(code) && picker_results_list_from_search.get_count() > 0 {
+					let _ = tx_picker_select_from_search.send(UiCommand::SelectContactPickerResult(0));
+					event.skip(false);
+					return;
+				}
 			}
-		}
-		event.skip(true);
-	});
+			event.skip(true);
+		});
 
-	let tx_picker_select = ui_tx.clone();
-	let picker_results_list = parts.new_conv_dialog.results_list;
-	picker_results_list.on_item_double_clicked(move |event| {
-		if let Some(idx) = event.get_selection() {
-			let _ = tx_picker_select.send(UiCommand::SelectContactPickerResult(idx as usize));
-		}
-	});
+		let tx_picker_select = ui_tx.clone();
+		let picker_results_list = parts.new_conv_dialog.results_list;
+		picker_results_list.on_item_double_clicked(move |event| {
+			if let Some(idx) = event.get_selection() {
+				let _ = tx_picker_select.send(UiCommand::SelectContactPickerResult(idx as usize));
+			}
+		});
 
-	let tx_picker_select_key = ui_tx.clone();
-	let picker_results_list_key = parts.new_conv_dialog.results_list;
-	let picker_dialog_esc = parts.new_conv_dialog.dialog;
-	// Plain Enter on a ListBox row never reaches on_key_down here - this
-	// dialog's IsDialogMessage handling takes it for the default button (only
-	// Alt+Enter got through) - which is what on_enter's key-up half is for.
-	keys::on_enter(&picker_results_list_key, Rc::default(), move || {
-		if let Some(idx) = picker_results_list_key.get_selection() {
-			let _ = tx_picker_select_key.send(UiCommand::SelectContactPickerResult(idx as usize));
-		}
+		let tx_picker_select_key = ui_tx.clone();
+		let picker_results_list_key = parts.new_conv_dialog.results_list;
+		let picker_dialog_esc = parts.new_conv_dialog.dialog;
+		// Plain Enter on a ListBox row never reaches on_key_down here - this
+		// dialog's IsDialogMessage handling takes it for the default button (only
+		// Alt+Enter got through) - which is what on_enter's key-up half is for.
+		keys::on_enter(&picker_results_list_key, Rc::default(), move || {
+			if let Some(idx) = picker_results_list_key.get_selection() {
+				let _ = tx_picker_select_key.send(UiCommand::SelectContactPickerResult(idx as usize));
+			}
+		});
+		picker_results_list_key.on_key_down(keys::escape_cancels(picker_dialog_esc));
 	});
-	picker_results_list_key.on_key_down(keys::escape_cancels(picker_dialog_esc));
 
 	let tx_conv_data = ui_tx.clone();
 	parts.conversations_parts.conv_data_btn.on_click(move |_| {
@@ -1046,170 +1070,178 @@ pub fn bind_input_handlers(
 		let _ = tx_calls_video.send(UiCommand::PlaceVideoCall);
 	});
 
-	let tx_answer = ui_tx.clone();
-	parts.call_parts.accept_btn.on_click(move |_| {
-		let _ = tx_answer.send(UiCommand::AnswerCall);
-	});
-	let tx_reject = ui_tx.clone();
-	parts.call_parts.reject_btn.on_click(move |_| {
-		let _ = tx_reject.send(UiCommand::RejectCall);
-	});
-	let tx_mute = ui_tx.clone();
-	parts.call_parts.mute_btn.on_click(move |_| {
-		let _ = tx_mute.send(UiCommand::MuteCall);
-	});
-	let tx_leave = ui_tx.clone();
-	parts.call_parts.leave_btn.on_click(move |_| {
-		let _ = tx_leave.send(UiCommand::LeaveCall);
-	});
-	let tx_camera = ui_tx.clone();
-	parts.call_parts.camera_btn.on_click(move |_| {
-		let _ = tx_camera.send(UiCommand::ToggleCamera);
-	});
-	let tx_screen = ui_tx.clone();
-	parts.call_parts.screen_btn.on_click(move |_| {
-		let _ = tx_screen.send(UiCommand::ToggleScreenShare);
-	});
-	let tx_call_input = ui_tx.clone();
-	let call_input_combo = parts.call_parts.input_device_combo;
-	parts.call_parts.input_device_combo.on_selection_changed(move |_| {
-		use crate::ui::settings_dialog::device_combo_value;
-		let _ = tx_call_input.send(UiCommand::SetCallInputDevice(device_combo_value(&call_input_combo)));
-	});
-	let tx_call_output = ui_tx.clone();
-	let call_output_combo = parts.call_parts.output_device_combo;
-	parts.call_parts.output_device_combo.on_selection_changed(move |_| {
-		use crate::ui::settings_dialog::device_combo_value;
-		let _ = tx_call_output.send(UiCommand::SetCallOutputDevice(device_combo_value(&call_output_combo)));
-	});
-	let tx_add_participant = ui_tx.clone();
-	parts.call_parts.add_participant_btn.on_click(move |_| {
-		let _ = tx_add_participant.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::AddCallParticipant));
-	});
-	let tx_raise_hand = ui_tx.clone();
-	parts.call_parts.raise_hand_btn.on_click(move |_| {
-		let _ = tx_raise_hand.send(UiCommand::ToggleCallHand);
-	});
-	let tx_call_react = ui_tx.clone();
-	parts.call_parts.react_btn.on_click(move |_| {
-		let _ = tx_call_react.send(UiCommand::CallReact);
-	});
-	let tx_person_selected = ui_tx.clone();
-	parts.call_parts.people_list.on_selection_changed(move |_| {
-		let _ = tx_person_selected.send(UiCommand::CallPersonSelected);
-	});
-	let tx_mute_person = ui_tx.clone();
-	parts.call_parts.mute_person_btn.on_click(move |_| {
-		let _ = tx_mute_person.send(UiCommand::MuteCallPerson);
-	});
-	let tx_remove_person = ui_tx.clone();
-	parts.call_parts.remove_person_btn.on_click(move |_| {
-		let _ = tx_remove_person.send(UiCommand::RemoveCallPerson);
-	});
-	let tx_let_in = ui_tx.clone();
-	parts.call_parts.let_in_btn.on_click(move |_| {
-		let _ = tx_let_in.send(UiCommand::AdmitCallPerson(true));
-	});
-	let tx_keep_out = ui_tx.clone();
-	parts.call_parts.keep_out_btn.on_click(move |_| {
-		let _ = tx_keep_out.send(UiCommand::AdmitCallPerson(false));
-	});
-	let tx_approval = ui_tx.clone();
-	parts.call_parts.approval_check.on_toggled(move |event| {
-		let _ = tx_approval.send(UiCommand::SetCallApproval(event.is_checked()));
-	});
-	let tx_call_camera = ui_tx.clone();
-	let call_camera_combo = parts.call_parts.camera_device_combo;
-	parts.call_parts.camera_device_combo.on_selection_changed(move |_| {
-		use crate::ui::settings_dialog::device_combo_value;
-		let _ = tx_call_camera.send(UiCommand::SetCallCameraDevice(device_combo_value(&call_camera_combo)));
-	});
-	// Closing the call window (Alt+F4, its close box) must never destroy it:
-	// it's built once and reused for every call, so a destroyed one left
-	// every later call - incoming or outgoing - with no window at all until
-	// the app restarted. Closing hides it and does what the button on
-	// screen would: decline a call that's ringing, otherwise hang up.
-	let tx_call_close = ui_tx.clone();
-	let call_frame_close = parts.call_parts.frame;
-	let state_call_close = state.clone();
-	parts.call_parts.frame.on_close(move |event| {
-		if let WindowEventData::General(ref ev) = event {
-			if !ev.can_veto() {
-				return;
-			}
-			ev.veto();
-			call_frame_close.show(false);
-			let s = state_call_close.borrow();
-			let ringing_in = s.incoming_call_caller.is_some() && s.active_call_audio.is_none();
-			let in_call = s.active_call_id.is_some() || s.call_placing;
-			drop(s);
-			if ringing_in {
-				let _ = tx_call_close.send(UiCommand::RejectCall);
-			} else if in_call {
-				let _ = tx_call_close.send(UiCommand::LeaveCall);
-			}
-		}
-	});
-
-	// Ctrl+Shift+V toggles the camera and Ctrl+Shift+S the screen share from
-	// anywhere in the call window, matching their buttons.
-	let tx_camera_key = ui_tx.clone();
-	parts.call_parts.frame.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event
-			&& key_event.control_down()
-			&& key_event.shift_down()
-		{
-			let command = if keys::is_letter(key_event.get_key_code(), 'V') {
-				Some(UiCommand::ToggleCamera)
-			} else if keys::is_letter(key_event.get_key_code(), 'S') {
-				Some(UiCommand::ToggleScreenShare)
-			} else {
-				None
-			};
-			if let Some(command) = command {
-				let _ = tx_camera_key.send(command);
-				event.skip(false);
-				return;
-			}
-		}
-		event.skip(true);
-	});
-
-	for (button, video) in
-		[(parts.conversation_data_dialog.voice_call_btn, false), (parts.conversation_data_dialog.video_call_btn, true)]
-	{
-		let tx_call = ui_tx.clone();
-		let state_call = state.clone();
-		let info_dialog = parts.conversation_data_dialog.dialog;
-		button.on_click(move |_| {
-			let Some(jid) = state_call.borrow().info_chat.clone() else { return };
-			// The call window can't be used under a modal dialog.
-			info_dialog.end_modal(wxdragon::id::ID_CANCEL);
-			let _ = tx_call.send(UiCommand::CallContact { jid, video });
+	when_built!(parts, state, ui_tx, [], call_parts, {
+		let tx_answer = ui_tx.clone();
+		parts.call_parts.accept_btn.on_click(move |_| {
+			let _ = tx_answer.send(UiCommand::AnswerCall);
 		});
-	}
+		let tx_reject = ui_tx.clone();
+		parts.call_parts.reject_btn.on_click(move |_| {
+			let _ = tx_reject.send(UiCommand::RejectCall);
+		});
+		let tx_mute = ui_tx.clone();
+		parts.call_parts.mute_btn.on_click(move |_| {
+			let _ = tx_mute.send(UiCommand::MuteCall);
+		});
+		let tx_leave = ui_tx.clone();
+		parts.call_parts.leave_btn.on_click(move |_| {
+			let _ = tx_leave.send(UiCommand::LeaveCall);
+		});
+		let tx_camera = ui_tx.clone();
+		parts.call_parts.camera_btn.on_click(move |_| {
+			let _ = tx_camera.send(UiCommand::ToggleCamera);
+		});
+		let tx_screen = ui_tx.clone();
+		parts.call_parts.screen_btn.on_click(move |_| {
+			let _ = tx_screen.send(UiCommand::ToggleScreenShare);
+		});
+		let tx_call_input = ui_tx.clone();
+		let call_input_combo = parts.call_parts.input_device_combo;
+		parts.call_parts.input_device_combo.on_selection_changed(move |_| {
+			use crate::ui::settings_dialog::device_combo_value;
+			let _ = tx_call_input.send(UiCommand::SetCallInputDevice(device_combo_value(&call_input_combo)));
+		});
+		let tx_call_output = ui_tx.clone();
+		let call_output_combo = parts.call_parts.output_device_combo;
+		parts.call_parts.output_device_combo.on_selection_changed(move |_| {
+			use crate::ui::settings_dialog::device_combo_value;
+			let _ = tx_call_output.send(UiCommand::SetCallOutputDevice(device_combo_value(&call_output_combo)));
+		});
+		let tx_add_participant = ui_tx.clone();
+		parts.call_parts.add_participant_btn.on_click(move |_| {
+			let _ =
+				tx_add_participant.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::AddCallParticipant));
+		});
+		let tx_raise_hand = ui_tx.clone();
+		parts.call_parts.raise_hand_btn.on_click(move |_| {
+			let _ = tx_raise_hand.send(UiCommand::ToggleCallHand);
+		});
+		let tx_call_react = ui_tx.clone();
+		parts.call_parts.react_btn.on_click(move |_| {
+			let _ = tx_call_react.send(UiCommand::CallReact);
+		});
+		let tx_person_selected = ui_tx.clone();
+		parts.call_parts.people_list.on_selection_changed(move |_| {
+			let _ = tx_person_selected.send(UiCommand::CallPersonSelected);
+		});
+		let tx_mute_person = ui_tx.clone();
+		parts.call_parts.mute_person_btn.on_click(move |_| {
+			let _ = tx_mute_person.send(UiCommand::MuteCallPerson);
+		});
+		let tx_remove_person = ui_tx.clone();
+		parts.call_parts.remove_person_btn.on_click(move |_| {
+			let _ = tx_remove_person.send(UiCommand::RemoveCallPerson);
+		});
+		let tx_let_in = ui_tx.clone();
+		parts.call_parts.let_in_btn.on_click(move |_| {
+			let _ = tx_let_in.send(UiCommand::AdmitCallPerson(true));
+		});
+		let tx_keep_out = ui_tx.clone();
+		parts.call_parts.keep_out_btn.on_click(move |_| {
+			let _ = tx_keep_out.send(UiCommand::AdmitCallPerson(false));
+		});
+		let tx_approval = ui_tx.clone();
+		parts.call_parts.approval_check.on_toggled(move |event| {
+			let _ = tx_approval.send(UiCommand::SetCallApproval(event.is_checked()));
+		});
+		let tx_call_camera = ui_tx.clone();
+		let call_camera_combo = parts.call_parts.camera_device_combo;
+		parts.call_parts.camera_device_combo.on_selection_changed(move |_| {
+			use crate::ui::settings_dialog::device_combo_value;
+			let _ = tx_call_camera.send(UiCommand::SetCallCameraDevice(device_combo_value(&call_camera_combo)));
+		});
+		// Closing the call window (Alt+F4, its close box) must never destroy it:
+		// it's built once and reused for every call, so a destroyed one left
+		// every later call - incoming or outgoing - with no window at all until
+		// the app restarted. Closing hides it and does what the button on
+		// screen would: decline a call that's ringing, otherwise hang up.
+		let tx_call_close = ui_tx.clone();
+		let call_frame_close = parts.call_parts.frame;
+		let state_call_close = state.clone();
+		parts.call_parts.frame.on_close(move |event| {
+			if let WindowEventData::General(ref ev) = event {
+				if !ev.can_veto() {
+					return;
+				}
+				ev.veto();
+				call_frame_close.show(false);
+				let s = state_call_close.borrow();
+				let ringing_in = s.incoming_call_caller.is_some() && s.active_call_audio.is_none();
+				let in_call = s.active_call_id.is_some() || s.call_placing;
+				drop(s);
+				if ringing_in {
+					let _ = tx_call_close.send(UiCommand::RejectCall);
+				} else if in_call {
+					let _ = tx_call_close.send(UiCommand::LeaveCall);
+				}
+			}
+		});
 
-	let tx_contact = ui_tx.clone();
-	parts.conversation_data_dialog.contact_btn.on_click(move |_| {
-		let _ = tx_contact.send(UiCommand::AddOrEditContact);
-	});
-	let tx_delete_contact = ui_tx.clone();
-	parts.conversation_data_dialog.delete_contact_btn.on_click(move |_| {
-		let _ = tx_delete_contact.send(UiCommand::DeleteContact);
-	});
-	let tx_info_privacy = ui_tx.clone();
-	parts.conversation_data_dialog.chat_privacy_btn.on_click(move |_| {
-		let _ = tx_info_privacy.send(UiCommand::ShowChatPrivacy);
+		// Ctrl+Shift+V toggles the camera and Ctrl+Shift+S the screen share from
+		// anywhere in the call window, matching their buttons.
+		let tx_camera_key = ui_tx.clone();
+		parts.call_parts.frame.on_key_down(move |event| {
+			if let WindowEventData::Keyboard(ref key_event) = event
+				&& key_event.control_down()
+				&& key_event.shift_down()
+			{
+				let command = if keys::is_letter(key_event.get_key_code(), 'V') {
+					Some(UiCommand::ToggleCamera)
+				} else if keys::is_letter(key_event.get_key_code(), 'S') {
+					Some(UiCommand::ToggleScreenShare)
+				} else {
+					None
+				};
+				if let Some(command) = command {
+					let _ = tx_camera_key.send(command);
+					event.skip(false);
+					return;
+				}
+			}
+			event.skip(true);
+		});
 	});
 
-	let conv_data_dialog_back = parts.conversation_data_dialog.dialog;
-	parts.conversation_data_dialog.back_btn.on_click(move |_| {
-		conv_data_dialog_back.end_modal(0);
+	when_built!(parts, state, ui_tx, [], conversation_data_dialog, {
+		for (button, video) in [
+			(parts.conversation_data_dialog.voice_call_btn, false),
+			(parts.conversation_data_dialog.video_call_btn, true),
+		] {
+			let tx_call = ui_tx.clone();
+			let state_call = state.clone();
+			let info_dialog = parts.conversation_data_dialog.dialog;
+			button.on_click(move |_| {
+				let Some(jid) = state_call.borrow().info_chat.clone() else { return };
+				// The call window can't be used under a modal dialog.
+				info_dialog.end_modal(wxdragon::id::ID_CANCEL);
+				let _ = tx_call.send(UiCommand::CallContact { jid, video });
+			});
+		}
+
+		let tx_contact = ui_tx.clone();
+		parts.conversation_data_dialog.contact_btn.on_click(move |_| {
+			let _ = tx_contact.send(UiCommand::AddOrEditContact);
+		});
+		let tx_delete_contact = ui_tx.clone();
+		parts.conversation_data_dialog.delete_contact_btn.on_click(move |_| {
+			let _ = tx_delete_contact.send(UiCommand::DeleteContact);
+		});
+		let tx_info_privacy = ui_tx.clone();
+		parts.conversation_data_dialog.chat_privacy_btn.on_click(move |_| {
+			let _ = tx_info_privacy.send(UiCommand::ShowChatPrivacy);
+		});
+
+		let conv_data_dialog_back = parts.conversation_data_dialog.dialog;
+		parts.conversation_data_dialog.back_btn.on_click(move |_| {
+			conv_data_dialog_back.end_modal(0);
+		});
 	});
 
-	let group_data_dialog_back = parts.group_data_dialog.dialog;
-	parts.group_data_dialog.back_btn.on_click(move |_| {
-		group_data_dialog_back.end_modal(0);
+	when_built!(parts, state, ui_tx, [], group_data_dialog, {
+		let group_data_dialog_back = parts.group_data_dialog.dialog;
+		parts.group_data_dialog.back_btn.on_click(move |_| {
+			group_data_dialog_back.end_modal(0);
+		});
 	});
 
 	// ── Tray icon ────────────────────────────────────────────────────────────
@@ -1388,23 +1420,7 @@ pub fn bind_input_handlers(
 	// confirmed, so Cancel on Settings throws them away like everything else.
 	let pending_shortcuts: Rc<std::cell::RefCell<Option<crate::keymap::Keymap>>> = Rc::default();
 
-	let settings_dialog = parts.settings_dialog.dialog;
-	let sounds_check = parts.settings_dialog.sounds_check;
-	let notifications_check = parts.settings_dialog.notifications_check;
-	let follow_dnd_check_open = parts.settings_dialog.follow_dnd_check;
-	let announce_typing_check = parts.settings_dialog.announce_typing_check;
-	let announce_recording_check = parts.settings_dialog.announce_recording_check;
-	let tray_icon_check = parts.settings_dialog.tray_icon_check;
-	let autostart_check = parts.settings_dialog.autostart_check;
-	let start_maximized_check_open = parts.settings_dialog.start_maximized_check;
-	let meta_ai_enabled_check_open = parts.settings_dialog.meta_ai_enabled_check;
-	let verbose_logging_check_open = parts.settings_dialog.verbose_backend_logging_check;
-	let name_field_open = parts.settings_dialog.name_field;
-	let settings_parts_open = parts.settings_dialog;
-	let input_device_combo_open = parts.settings_dialog.input_device_combo;
-	let output_device_combo_open = parts.settings_dialog.output_device_combo;
-	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check;
-	let dual_stream_check_open = parts.settings_dialog.dual_stream_screen_share_check;
+	let parts_settings_open = parts.clone();
 	let state_settings_open = state.clone();
 	let pending_shortcuts_open = pending_shortcuts.clone();
 	parts.frame.on_menu_selected(move |evt| {
@@ -1413,6 +1429,23 @@ pub fn bind_input_handlers(
 		}
 		pending_shortcuts_open.borrow_mut().take();
 		use crate::ui::settings_dialog::*;
+		let settings_dialog = parts_settings_open.settings_dialog.dialog;
+		let sounds_check = parts_settings_open.settings_dialog.sounds_check;
+		let notifications_check = parts_settings_open.settings_dialog.notifications_check;
+		let follow_dnd_check_open = parts_settings_open.settings_dialog.follow_dnd_check;
+		let announce_typing_check = parts_settings_open.settings_dialog.announce_typing_check;
+		let announce_recording_check = parts_settings_open.settings_dialog.announce_recording_check;
+		let tray_icon_check = parts_settings_open.settings_dialog.tray_icon_check;
+		let autostart_check = parts_settings_open.settings_dialog.autostart_check;
+		let start_maximized_check_open = parts_settings_open.settings_dialog.start_maximized_check;
+		let meta_ai_enabled_check_open = parts_settings_open.settings_dialog.meta_ai_enabled_check;
+		let verbose_logging_check_open = parts_settings_open.settings_dialog.verbose_backend_logging_check;
+		let name_field_open = parts_settings_open.settings_dialog.name_field;
+		let settings_parts_open = *parts_settings_open.settings_dialog;
+		let input_device_combo_open = parts_settings_open.settings_dialog.input_device_combo;
+		let output_device_combo_open = parts_settings_open.settings_dialog.output_device_combo;
+		let noise_suppression_check_open = parts_settings_open.settings_dialog.voice_message_noise_suppression_check;
+		let dual_stream_check_open = parts_settings_open.settings_dialog.dual_stream_screen_share_check;
 		let mut s = state_settings_open.borrow_mut();
 		sounds_check.set_value(s.settings.sounds_enabled);
 		notifications_check.set_value(s.settings.notifications_enabled);
@@ -1793,363 +1826,369 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	let settings_dialog_shortcuts = parts.settings_dialog.dialog;
-	let state_shortcuts = state.clone();
-	let pending_shortcuts_edit = pending_shortcuts.clone();
-	parts.settings_dialog.shortcuts_btn.on_click(move |_| {
-		let current =
-			pending_shortcuts_edit.borrow().clone().unwrap_or_else(|| (*state_shortcuts.borrow().keymap).clone());
-		if let Some(updated) = wx_utils::shortcuts::prompt_for_shortcuts(&settings_dialog_shortcuts, &current) {
-			*pending_shortcuts_edit.borrow_mut() = Some(updated);
-		}
-	});
-
-	// whatSnapShare.exe does the work (it asks Windows for administrator
-	// permission the first time, which can't happen in here) and leaves how it
-	// went in a file. The result is shown from here, over Settings, so it gets
-	// focus and is read right away; a box from the helper could open behind.
-	let tx_share_menu = ui_tx.clone();
-	// Set while a run is going, so a second press doesn't start another. Not
-	// done by disabling the button, which would take the focus off it.
-	let share_menu_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-	parts.settings_dialog.share_menu_btn.on_click(move |_| {
-		if share_menu_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
-			return;
-		}
-		let running = share_menu_running.clone();
-		let tx = tx_share_menu.clone();
-		std::thread::spawn(move || {
-			let dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.to_path_buf()));
-			let result_file = dir.as_ref().map(|d| d.join("share").join("enable-result.txt"));
-			if let Some(file) = &result_file {
-				let _ = std::fs::remove_file(file);
+	when_built!(parts, state, ui_tx, [pending_shortcuts], settings_dialog, {
+		let settings_dialog_shortcuts = parts.settings_dialog.dialog;
+		let state_shortcuts = state.clone();
+		let pending_shortcuts_edit = pending_shortcuts.clone();
+		parts.settings_dialog.shortcuts_btn.on_click(move |_| {
+			let current =
+				pending_shortcuts_edit.borrow().clone().unwrap_or_else(|| (*state_shortcuts.borrow().keymap).clone());
+			if let Some(updated) = wx_utils::shortcuts::prompt_for_shortcuts(&settings_dialog_shortcuts, &current) {
+				*pending_shortcuts_edit.borrow_mut() = Some(updated);
 			}
-			let status = dir.and_then(|d| {
-				std::process::Command::new(d.join("whatSnapShare.exe")).args(["--enable", "--quiet"]).status().ok()
+		});
+
+		// whatSnapShare.exe does the work (it asks Windows for administrator
+		// permission the first time, which can't happen in here) and leaves how it
+		// went in a file. The result is shown from here, over Settings, so it gets
+		// focus and is read right away; a box from the helper could open behind.
+		let tx_share_menu = ui_tx.clone();
+		// Set while a run is going, so a second press doesn't start another. Not
+		// done by disabling the button, which would take the focus off it.
+		let share_menu_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+		parts.settings_dialog.share_menu_btn.on_click(move |_| {
+			if share_menu_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
+				return;
+			}
+			let running = share_menu_running.clone();
+			let tx = tx_share_menu.clone();
+			std::thread::spawn(move || {
+				let dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|d| d.to_path_buf()));
+				let result_file = dir.as_ref().map(|d| d.join("share").join("enable-result.txt"));
+				if let Some(file) = &result_file {
+					let _ = std::fs::remove_file(file);
+				}
+				let status = dir.and_then(|d| {
+					std::process::Command::new(d.join("whatSnapShare.exe")).args(["--enable", "--quiet"]).status().ok()
+				});
+				let (ok, text) = match status {
+					None => (
+						false,
+						"This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again."
+							.to_string(),
+					),
+					Some(status) => (
+						status.success(),
+						result_file.and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_else(|| {
+							"whatSnap couldn't be added to the Share menu. Try again, or reinstall whatSnap.".to_string()
+						}),
+					),
+				};
+				running.store(false, std::sync::atomic::Ordering::SeqCst);
+				let _ = tx.send(UiCommand::ShareMenuResult { ok, text });
 			});
-			let (ok, text) = match status {
-				None => (
-					false,
-					"This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again."
-						.to_string(),
-				),
-				Some(status) => (
-					status.success(),
-					result_file.and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_else(|| {
-						"whatSnap couldn't be added to the Share menu. Try again, or reinstall whatSnap.".to_string()
-					}),
-				),
-			};
-			running.store(false, std::sync::atomic::Ordering::SeqCst);
-			let _ = tx.send(UiCommand::ShareMenuResult { ok, text });
 		});
-	});
 
-	let settings_dialog_cancel = parts.settings_dialog.dialog;
-	parts.settings_dialog.cancel_btn.on_click(move |_| {
-		settings_dialog_cancel.end_modal(wxdragon::id::ID_CANCEL);
-	});
-
-	for control in parts.settings_dialog.privacy_controls() {
-		let Some(except_btn) = control.except_btn else { continue };
-		let settings_parts = parts.settings_dialog;
-		let name = control.name;
-		let find = move || settings_parts.privacy_controls().into_iter().find(|c| c.name == name);
-		// Picking "My Contacts Except..." only enables the button: a combo
-		// fires this for every arrow-key step through it, so opening the
-		// picker from here would pop it up on the way past.
-		control.combo.on_selection_changed(move |_| {
-			if let Some(control) = find() {
-				except_btn.enable(control.is_except());
-			}
+		let settings_dialog_cancel = parts.settings_dialog.dialog;
+		parts.settings_dialog.cancel_btn.on_click(move |_| {
+			settings_dialog_cancel.end_modal(wxdragon::id::ID_CANCEL);
 		});
-		let state_except = state.clone();
-		except_btn.on_click(move |_| {
-			if let Some(control) = find() {
-				choose_excluded_contacts(&state_except, settings_parts.dialog, &control);
-			}
-		});
-	}
 
-	let settings_dialog_ok = parts.settings_dialog.dialog;
-	let sounds_check_ok = parts.settings_dialog.sounds_check;
-	let notifications_check_ok = parts.settings_dialog.notifications_check;
-	let follow_dnd_check_ok = parts.settings_dialog.follow_dnd_check;
-	let announce_typing_check_ok = parts.settings_dialog.announce_typing_check;
-	let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
-	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
-	let autostart_check_ok = parts.settings_dialog.autostart_check;
-	let start_maximized_check_ok = parts.settings_dialog.start_maximized_check;
-	let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check;
-	let verbose_logging_check_ok = parts.settings_dialog.verbose_backend_logging_check;
-	let name_field_ok = parts.settings_dialog.name_field;
-	let settings_parts_ok = parts.settings_dialog;
-	let input_device_combo_ok = parts.settings_dialog.input_device_combo;
-	let output_device_combo_ok = parts.settings_dialog.output_device_combo;
-	let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check;
-	let dual_stream_check_ok = parts.settings_dialog.dual_stream_screen_share_check;
-	let state_settings_save = state.clone();
-	let frame_shortcuts_save = parts.frame;
-	parts.settings_dialog.ok_btn.on_click(move |_| {
-		use crate::ui::settings_dialog::*;
-		let mut s = state_settings_save.borrow_mut();
-		// "My Contacts Except..." needs someone to exclude: checked before
-		// anything is saved, so Save either saves everything or nothing.
-		if s.privacy_settings_loaded {
-			for control in settings_parts_ok.privacy_controls() {
-				let already_except = s.privacy_settings.get(control.name).map(String::as_str) == Some(EXCEPT_VALUE);
-				if control.is_except() && !already_except && !s.privacy_list_edits.contains_key(control.name) {
-					drop(s);
-					MessageDialog::builder(
-						&settings_dialog_ok,
-						&format!(
-							"Choose the contacts excluded from {} first, with the button under it.",
-							control.label
-						),
-						"Settings",
-					)
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-					.build()
-					.show_modal();
-					if let Some(btn) = control.except_btn {
-						btn.set_focus();
+		for control in parts.settings_dialog.privacy_controls() {
+			let Some(except_btn) = control.except_btn else { continue };
+			let settings_parts = *parts.settings_dialog;
+			let name = control.name;
+			let find = move || settings_parts.privacy_controls().into_iter().find(|c| c.name == name);
+			// Picking "My Contacts Except..." only enables the button: a combo
+			// fires this for every arrow-key step through it, so opening the
+			// picker from here would pop it up on the way past.
+			control.combo.on_selection_changed(move |_| {
+				if let Some(control) = find() {
+					except_btn.enable(control.is_except());
+				}
+			});
+			let state_except = state.clone();
+			except_btn.on_click(move |_| {
+				if let Some(control) = find() {
+					choose_excluded_contacts(&state_except, settings_parts.dialog, &control);
+				}
+			});
+		}
+
+		let settings_dialog_ok = parts.settings_dialog.dialog;
+		let sounds_check_ok = parts.settings_dialog.sounds_check;
+		let notifications_check_ok = parts.settings_dialog.notifications_check;
+		let follow_dnd_check_ok = parts.settings_dialog.follow_dnd_check;
+		let announce_typing_check_ok = parts.settings_dialog.announce_typing_check;
+		let announce_recording_check_ok = parts.settings_dialog.announce_recording_check;
+		let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
+		let autostart_check_ok = parts.settings_dialog.autostart_check;
+		let start_maximized_check_ok = parts.settings_dialog.start_maximized_check;
+		let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check;
+		let verbose_logging_check_ok = parts.settings_dialog.verbose_backend_logging_check;
+		let name_field_ok = parts.settings_dialog.name_field;
+		let settings_parts_ok = *parts.settings_dialog;
+		let input_device_combo_ok = parts.settings_dialog.input_device_combo;
+		let output_device_combo_ok = parts.settings_dialog.output_device_combo;
+		let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check;
+		let dual_stream_check_ok = parts.settings_dialog.dual_stream_screen_share_check;
+		let state_settings_save = state.clone();
+		let frame_shortcuts_save = parts.frame;
+		parts.settings_dialog.ok_btn.on_click(move |_| {
+			use crate::ui::settings_dialog::*;
+			let mut s = state_settings_save.borrow_mut();
+			// "My Contacts Except..." needs someone to exclude: checked before
+			// anything is saved, so Save either saves everything or nothing.
+			if s.privacy_settings_loaded {
+				for control in settings_parts_ok.privacy_controls() {
+					let already_except = s.privacy_settings.get(control.name).map(String::as_str) == Some(EXCEPT_VALUE);
+					if control.is_except() && !already_except && !s.privacy_list_edits.contains_key(control.name) {
+						drop(s);
+						MessageDialog::builder(
+							&settings_dialog_ok,
+							&format!(
+								"Choose the contacts excluded from {} first, with the button under it.",
+								control.label
+							),
+							"Settings",
+						)
+						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+						.build()
+						.show_modal();
+						if let Some(btn) = control.except_btn {
+							btn.set_focus();
+						}
+						return;
 					}
-					return;
 				}
 			}
-		}
-		if let Some(keymap) = pending_shortcuts.borrow_mut().take() {
-			keymap.apply(&frame_shortcuts_save);
-			s.settings.shortcuts = keymap.saved();
-			s.keymap = Rc::new(keymap);
-		}
-		s.settings.sounds_enabled = sounds_check_ok.is_checked();
-		s.settings.notifications_enabled = notifications_check_ok.is_checked();
-		s.settings.follow_windows_do_not_disturb = follow_dnd_check_ok.is_checked();
-		s.settings.announce_typing = announce_typing_check_ok.is_checked();
-		s.settings.announce_recording = announce_recording_check_ok.is_checked();
-		s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
-		s.settings.meta_ai_enabled = meta_ai_enabled_check_ok.is_checked();
-		s.settings.verbose_backend_logging = verbose_logging_check_ok.is_checked();
-		s.settings.start_maximized = start_maximized_check_ok.is_checked();
-		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
-		s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
-		crate::ui_commands::calls::send_call_options(&s);
-		s.settings.input_device_name = device_combo_value(&input_device_combo_ok);
-		let new_output_device = device_combo_value(&output_device_combo_ok);
-		if new_output_device != s.settings.output_device_name {
-			s.settings.output_device_name = new_output_device;
-			// Drop the cached playback stream so the next sound/voice-message
-			// play reopens it against the newly selected device instead of
-			// the one that was live when the dialog opened.
-			s.audio_stream = None;
-		}
-		s.settings.save();
+			if let Some(keymap) = pending_shortcuts.borrow_mut().take() {
+				keymap.apply(&frame_shortcuts_save);
+				s.settings.shortcuts = keymap.saved();
+				s.keymap = Rc::new(keymap);
+			}
+			s.settings.sounds_enabled = sounds_check_ok.is_checked();
+			s.settings.notifications_enabled = notifications_check_ok.is_checked();
+			s.settings.follow_windows_do_not_disturb = follow_dnd_check_ok.is_checked();
+			s.settings.announce_typing = announce_typing_check_ok.is_checked();
+			s.settings.announce_recording = announce_recording_check_ok.is_checked();
+			s.settings.show_tray_icon = tray_icon_check_ok.is_checked();
+			s.settings.meta_ai_enabled = meta_ai_enabled_check_ok.is_checked();
+			s.settings.verbose_backend_logging = verbose_logging_check_ok.is_checked();
+			s.settings.start_maximized = start_maximized_check_ok.is_checked();
+			s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
+			s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
+			crate::ui_commands::calls::send_call_options(&s);
+			s.settings.input_device_name = device_combo_value(&input_device_combo_ok);
+			let new_output_device = device_combo_value(&output_device_combo_ok);
+			if new_output_device != s.settings.output_device_name {
+				s.settings.output_device_name = new_output_device;
+				// Drop the cached playback stream so the next sound/voice-message
+				// play reopens it against the newly selected device instead of
+				// the one that was live when the dialog opened.
+				s.audio_stream = None;
+			}
+			s.settings.save();
 
-		let new_name = name_field_ok.get_value();
-		if new_name != s.own_push_name {
-			s.own_push_name = new_name.clone();
-			let _ =
-				s.ws_tx.send(serde_json::json!({"action": "set_push_name", "data": {"name": new_name}}).to_string());
-		}
-		// The About and privacy settings are only saved once they've loaded,
-		// and only what was changed is sent.
-		if s.own_about_loaded {
-			let new_about = settings_parts_ok.about_field.get_value();
-			let picked = combo_value(&settings_parts_ok.about_duration_combo, ABOUT_DURATION_CHOICES);
-			// A time the dropdown can't show is kept unless another is picked.
-			let duration = if picked == shown_value(ABOUT_DURATION_CHOICES, &s.own_about_duration.to_string()) {
-				s.own_about_duration
-			} else {
-				picked.parse().unwrap_or(-1)
-			};
-			if new_about != s.own_about || duration != s.own_about_duration {
-				s.own_about = new_about.clone();
-				s.own_about_duration = duration;
-				let payload =
-					serde_json::json!({"action": "set_about", "data": {"text": new_about, "duration": duration}});
-				let _ = s.ws_tx.send(payload.to_string());
+			let new_name = name_field_ok.get_value();
+			if new_name != s.own_push_name {
+				s.own_push_name = new_name.clone();
+				let _ =
+					s.ws_tx.send(serde_json::json!({"action": "set_push_name", "data": {"name": new_name}}).to_string());
 			}
-		}
-		if let Some(current) = s.default_timer {
-			let picked = combo_value(&settings_parts_ok.default_timer_combo, DEFAULT_TIMER_CHOICES);
-			if picked != shown_value(DEFAULT_TIMER_CHOICES, &current.to_string()) {
-				let seconds: i64 = picked.parse().unwrap_or(0);
-				s.default_timer = Some(seconds);
-				let payload = serde_json::json!({"action": "set_default_timer", "data": {"seconds": seconds}});
-				let _ = s.ws_tx.send(payload.to_string());
-			}
-		}
-		if s.privacy_settings_loaded {
-			for control in settings_parts_ok.privacy_controls() {
-				let server = s.privacy_settings.get(control.name).cloned().unwrap_or_default();
-				if control.is_except() {
-					// Sent whole; the backend works out who to add and remove.
-					if let Some(jids) = s.privacy_list_edits.get(control.name) {
-						let payload = serde_json::json!({"action": "set_privacy_list", "data": {"name": control.name, "jids": jids}});
-						let _ = s.ws_tx.send(payload.to_string());
-					}
-					continue;
-				}
-				let value = combo_value(&control.combo, control.choices);
-				if value != shown_value(control.choices, &server) {
-					s.privacy_settings.insert(control.name.to_string(), value.clone());
-					let payload = serde_json::json!({"action": "set_privacy_setting", "data": {"name": control.name, "value": value}});
+			// The About and privacy settings are only saved once they've loaded,
+			// and only what was changed is sent.
+			if s.own_about_loaded {
+				let new_about = settings_parts_ok.about_field.get_value();
+				let picked = combo_value(&settings_parts_ok.about_duration_combo, ABOUT_DURATION_CHOICES);
+				// A time the dropdown can't show is kept unless another is picked.
+				let duration = if picked == shown_value(ABOUT_DURATION_CHOICES, &s.own_about_duration.to_string()) {
+					s.own_about_duration
+				} else {
+					picked.parse().unwrap_or(-1)
+				};
+				if new_about != s.own_about || duration != s.own_about_duration {
+					s.own_about = new_about.clone();
+					s.own_about_duration = duration;
+					let payload =
+						serde_json::json!({"action": "set_about", "data": {"text": new_about, "duration": duration}});
 					let _ = s.ws_tx.send(payload.to_string());
 				}
 			}
-		}
-		let logged_in = s.main_ui_shown;
-		drop(s);
-		// Respect the setting, but never surface the icon while logged out.
-		apply_tray_setting(tray_icon_check_ok.is_checked() && logged_in);
-		if crate::autostart::is_enabled() != autostart_check_ok.is_checked() {
-			crate::autostart::set_enabled(autostart_check_ok.is_checked());
-		}
-		settings_dialog_ok.end_modal(wxdragon::id::ID_OK);
-	});
+			if let Some(current) = s.default_timer {
+				let picked = combo_value(&settings_parts_ok.default_timer_combo, DEFAULT_TIMER_CHOICES);
+				if picked != shown_value(DEFAULT_TIMER_CHOICES, &current.to_string()) {
+					let seconds: i64 = picked.parse().unwrap_or(0);
+					s.default_timer = Some(seconds);
+					let payload = serde_json::json!({"action": "set_default_timer", "data": {"seconds": seconds}});
+					let _ = s.ws_tx.send(payload.to_string());
+				}
+			}
+			if s.privacy_settings_loaded {
+				for control in settings_parts_ok.privacy_controls() {
+					let server = s.privacy_settings.get(control.name).cloned().unwrap_or_default();
+					if control.is_except() {
+						// Sent whole; the backend works out who to add and remove.
+						if let Some(jids) = s.privacy_list_edits.get(control.name) {
+							let payload = serde_json::json!({"action": "set_privacy_list", "data": {"name": control.name, "jids": jids}});
+							let _ = s.ws_tx.send(payload.to_string());
+						}
+						continue;
+					}
+					let value = combo_value(&control.combo, control.choices);
+					if value != shown_value(control.choices, &server) {
+						s.privacy_settings.insert(control.name.to_string(), value.clone());
+						let payload = serde_json::json!({"action": "set_privacy_setting", "data": {"name": control.name, "value": value}});
+						let _ = s.ws_tx.send(payload.to_string());
+					}
+				}
+			}
+			let logged_in = s.main_ui_shown;
+			drop(s);
+			// Respect the setting, but never surface the icon while logged out.
+			apply_tray_setting(tray_icon_check_ok.is_checked() && logged_in);
+			if crate::autostart::is_enabled() != autostart_check_ok.is_checked() {
+				crate::autostart::set_enabled(autostart_check_ok.is_checked());
+			}
+			settings_dialog_ok.end_modal(wxdragon::id::ID_OK);
+		});
 
-	// Your own profile photo, changed or removed straight away.
-	let state_photo = state.clone();
-	let settings_dialog_photo = parts.settings_dialog.dialog;
-	parts.settings_dialog.change_photo_btn.on_click(move |_| {
-		let file_dialog = FileDialog::builder(&settings_dialog_photo)
-			.with_message("Choose a profile photo")
-			.with_wildcard("Pictures (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif")
-			.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
-			.build();
-		if file_dialog.show_modal() != wxdragon::id::ID_OK {
-			return;
-		}
-		let Some(path) = file_dialog.get_path() else { return };
-		let payload = serde_json::json!({"action": "set_own_photo", "data": {"path": path}});
-		let _ = state_photo.borrow().ws_tx.send(payload.to_string());
-	});
-	let state_photo_remove = state.clone();
-	parts.settings_dialog.remove_photo_btn.on_click(move |_| {
-		let dialog = MessageDialog::builder(&settings_dialog_photo, "Remove your profile photo?", "Profile Photo")
-			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-			.build();
-		dialog.set_yes_no_labels("Remove", "Cancel");
-		if dialog.show_modal() == ID_YES {
-			let payload = serde_json::json!({"action": "set_own_photo", "data": {"remove": true}});
-			let _ = state_photo_remove.borrow().ws_tx.send(payload.to_string());
-		}
-	});
-
-	let tx_group_settings = ui_tx.clone();
-	let group_name_field = parts.group_data_dialog.group_name_field;
-	let group_desc_field = parts.group_data_dialog.group_desc_field;
-	let announce_chk = parts.group_data_dialog.announce_chk;
-	let locked_chk = parts.group_data_dialog.locked_chk;
-	let forwarded_chk = parts.group_data_dialog.forwarded_chk;
-	let admin_reports_chk = parts.group_data_dialog.admin_reports_chk;
-	let history_chk = parts.group_data_dialog.history_chk;
-	let admins_add_chk = parts.group_data_dialog.admins_add_chk;
-	let approve_members_chk = parts.group_data_dialog.approve_members_chk;
-	parts.group_data_dialog.save_settings_btn.on_click(move |_| {
-		let name = group_name_field.get_value();
-		let topic = group_desc_field.get_value();
-		let announce = announce_chk.is_checked();
-		let locked = locked_chk.is_checked();
-		let _ = tx_group_settings.send(UiCommand::UpdateGroupSettings { name, topic, announce, locked });
-		let _ = tx_group_settings.send(UiCommand::UpdateGroupModeration {
-			no_frequently_forwarded: forwarded_chk.is_checked(),
-			allow_admin_reports: admin_reports_chk.is_checked(),
-			group_history: history_chk.is_checked(),
-			admins_add_only: admins_add_chk.is_checked(),
-			approve_members: approve_members_chk.is_checked(),
+		// Your own profile photo, changed or removed straight away.
+		let state_photo = state.clone();
+		let settings_dialog_photo = parts.settings_dialog.dialog;
+		parts.settings_dialog.change_photo_btn.on_click(move |_| {
+			let file_dialog = FileDialog::builder(&settings_dialog_photo)
+				.with_message("Choose a profile photo")
+				.with_wildcard("Pictures (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif")
+				.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
+				.build();
+			if file_dialog.show_modal() != wxdragon::id::ID_OK {
+				return;
+			}
+			let Some(path) = file_dialog.get_path() else { return };
+			let payload = serde_json::json!({"action": "set_own_photo", "data": {"path": path}});
+			let _ = state_photo.borrow().ws_tx.send(payload.to_string());
+		});
+		let state_photo_remove = state.clone();
+		parts.settings_dialog.remove_photo_btn.on_click(move |_| {
+			let dialog = MessageDialog::builder(&settings_dialog_photo, "Remove your profile photo?", "Profile Photo")
+				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+				.build();
+			dialog.set_yes_no_labels("Remove", "Cancel");
+			if dialog.show_modal() == ID_YES {
+				let payload = serde_json::json!({"action": "set_own_photo", "data": {"remove": true}});
+				let _ = state_photo_remove.borrow().ws_tx.send(payload.to_string());
+			}
 		});
 	});
 
-	let gd = &parts.group_data_dialog;
-	for (button, action) in [
-		(gd.join_requests_btn, "join_requests"),
-		(gd.link_group_btn, "link_group"),
-		(gd.unlink_group_btn, "unlink_group"),
-		(gd.deactivate_btn, "deactivate_community"),
-	] {
-		let tx = ui_tx.clone();
-		button.on_click(move |_| {
-			let _ = tx.send(UiCommand::GroupAction(action));
+	when_built!(parts, state, ui_tx, [], group_data_dialog, {
+		let tx_group_settings = ui_tx.clone();
+		let group_name_field = parts.group_data_dialog.group_name_field;
+		let group_desc_field = parts.group_data_dialog.group_desc_field;
+		let announce_chk = parts.group_data_dialog.announce_chk;
+		let locked_chk = parts.group_data_dialog.locked_chk;
+		let forwarded_chk = parts.group_data_dialog.forwarded_chk;
+		let admin_reports_chk = parts.group_data_dialog.admin_reports_chk;
+		let history_chk = parts.group_data_dialog.history_chk;
+		let admins_add_chk = parts.group_data_dialog.admins_add_chk;
+		let approve_members_chk = parts.group_data_dialog.approve_members_chk;
+		parts.group_data_dialog.save_settings_btn.on_click(move |_| {
+			let name = group_name_field.get_value();
+			let topic = group_desc_field.get_value();
+			let announce = announce_chk.is_checked();
+			let locked = locked_chk.is_checked();
+			let _ = tx_group_settings.send(UiCommand::UpdateGroupSettings { name, topic, announce, locked });
+			let _ = tx_group_settings.send(UiCommand::UpdateGroupModeration {
+				no_frequently_forwarded: forwarded_chk.is_checked(),
+				allow_admin_reports: admin_reports_chk.is_checked(),
+				group_history: history_chk.is_checked(),
+				admins_add_only: admins_add_chk.is_checked(),
+				approve_members: approve_members_chk.is_checked(),
+			});
 		});
-	}
 
-	let tx_set_tag = ui_tx.clone();
-	let tag_field = parts.group_data_dialog.my_tag_field;
-	let send_tag = move || {
-		let _ = tx_set_tag.send(UiCommand::SetMemberLabel(tag_field.get_value().trim().to_string()));
-	};
-	let send_tag_enter = send_tag.clone();
-	parts.group_data_dialog.set_tag_btn.on_click(move |_| send_tag());
-	parts.group_data_dialog.my_tag_field.on_text_enter(move |_| send_tag_enter());
-
-	let tx_reported = ui_tx.clone();
-	parts.group_data_dialog.reported_btn.on_click(move |_| {
-		let _ = tx_reported.send(UiCommand::ShowReportedMessages);
-	});
-
-	let tx_group_members_search = ui_tx.clone();
-	let members_search = parts.group_data_dialog.members_search;
-	members_search.on_text_changed(move |_| {
-		let query = members_search.get_value();
-		let _ = tx_group_members_search.send(UiCommand::FilterGroupMembers(query));
-	});
-
-	let tx_add_member = ui_tx.clone();
-	parts.group_data_dialog.add_member_btn.on_click(move |_| {
-		let _ = tx_add_member.send(UiCommand::PrepareAddMembers);
-	});
-
-	let tx_make_admin = ui_tx.clone();
-	let members_list_admin = parts.group_data_dialog.members_list;
-	parts.group_data_dialog.make_admin_btn.on_click(move |_| {
-		if let Some(idx) = members_list_admin.get_selection() {
-			let _ = tx_make_admin.send(UiCommand::ToggleGroupMemberAdmin(idx));
+		let gd = &parts.group_data_dialog;
+		for (button, action) in [
+			(gd.join_requests_btn, "join_requests"),
+			(gd.link_group_btn, "link_group"),
+			(gd.unlink_group_btn, "unlink_group"),
+			(gd.deactivate_btn, "deactivate_community"),
+		] {
+			let tx = ui_tx.clone();
+			button.on_click(move |_| {
+				let _ = tx.send(UiCommand::GroupAction(action));
+			});
 		}
+
+		let tx_set_tag = ui_tx.clone();
+		let tag_field = parts.group_data_dialog.my_tag_field;
+		let send_tag = move || {
+			let _ = tx_set_tag.send(UiCommand::SetMemberLabel(tag_field.get_value().trim().to_string()));
+		};
+		let send_tag_enter = send_tag.clone();
+		parts.group_data_dialog.set_tag_btn.on_click(move |_| send_tag());
+		parts.group_data_dialog.my_tag_field.on_text_enter(move |_| send_tag_enter());
+
+		let tx_reported = ui_tx.clone();
+		parts.group_data_dialog.reported_btn.on_click(move |_| {
+			let _ = tx_reported.send(UiCommand::ShowReportedMessages);
+		});
+
+		let tx_group_members_search = ui_tx.clone();
+		let members_search = parts.group_data_dialog.members_search;
+		members_search.on_text_changed(move |_| {
+			let query = members_search.get_value();
+			let _ = tx_group_members_search.send(UiCommand::FilterGroupMembers(query));
+		});
+
+		let tx_add_member = ui_tx.clone();
+		parts.group_data_dialog.add_member_btn.on_click(move |_| {
+			let _ = tx_add_member.send(UiCommand::PrepareAddMembers);
+		});
+
+		let tx_make_admin = ui_tx.clone();
+		let members_list_admin = parts.group_data_dialog.members_list;
+		parts.group_data_dialog.make_admin_btn.on_click(move |_| {
+			if let Some(idx) = members_list_admin.get_selection() {
+				let _ = tx_make_admin.send(UiCommand::ToggleGroupMemberAdmin(idx));
+			}
+		});
+
+		// Keeps "Make admin" reading as "Dismiss as admin" when the selected
+		// member already is one, matching official WhatsApp's per-member toggle
+		// instead of one static label regardless of who's selected.
+		let tx_member_selection = ui_tx.clone();
+		parts.group_data_dialog.members_list.on_selection_changed(move |_| {
+			let _ = tx_member_selection.send(UiCommand::GroupMemberSelectionChanged);
+		});
+
+		let tx_remove_member = ui_tx.clone();
+		let members_list_remove = parts.group_data_dialog.members_list;
+		parts.group_data_dialog.remove_member_btn.on_click(move |_| {
+			if let Some(idx) = members_list_remove.get_selection() {
+				let _ = tx_remove_member.send(UiCommand::RemoveGroupMember(idx));
+			}
+		});
+
+		let tx_invite_link = ui_tx.clone();
+		parts.group_data_dialog.invite_link_btn.on_click(move |_| {
+			let _ = tx_invite_link.send(UiCommand::ShowGroupInviteLink);
+		});
+
+		let tx_join_group = ui_tx.clone();
+		let groups_list_join = parts.group_data_dialog.groups_list;
+		parts.group_data_dialog.join_group_btn.on_click(move |_| {
+			if let Some(idx) = groups_list_join.get_selection() {
+				let _ = tx_join_group.send(UiCommand::JoinCommunitySubgroup(idx));
+			}
+		});
 	});
 
-	// Keeps "Make admin" reading as "Dismiss as admin" when the selected
-	// member already is one, matching official WhatsApp's per-member toggle
-	// instead of one static label regardless of who's selected.
-	let tx_member_selection = ui_tx.clone();
-	parts.group_data_dialog.members_list.on_selection_changed(move |_| {
-		let _ = tx_member_selection.send(UiCommand::GroupMemberSelectionChanged);
-	});
-
-	let tx_remove_member = ui_tx.clone();
-	let members_list_remove = parts.group_data_dialog.members_list;
-	parts.group_data_dialog.remove_member_btn.on_click(move |_| {
-		if let Some(idx) = members_list_remove.get_selection() {
-			let _ = tx_remove_member.send(UiCommand::RemoveGroupMember(idx));
-		}
-	});
-
-	let tx_invite_link = ui_tx.clone();
-	parts.group_data_dialog.invite_link_btn.on_click(move |_| {
-		let _ = tx_invite_link.send(UiCommand::ShowGroupInviteLink);
-	});
-
-	let tx_join_group = ui_tx.clone();
-	let groups_list_join = parts.group_data_dialog.groups_list;
-	parts.group_data_dialog.join_group_btn.on_click(move |_| {
-		if let Some(idx) = groups_list_join.get_selection() {
-			let _ = tx_join_group.send(UiCommand::JoinCommunitySubgroup(idx));
-		}
-	});
-
-	let tx_common_click = ui_tx.clone();
-	parts.conversation_data_dialog.common_groups_list.on_item_double_clicked(move |event| {
-		if let Some(idx) = event.get_selection() {
-			let _ = tx_common_click.send(UiCommand::OpenCommonGroup(idx as usize));
-		}
-	});
-	let tx_common_enter = ui_tx.clone();
-	let common_list_enter = parts.conversation_data_dialog.common_groups_list;
-	keys::on_enter(&parts.conversation_data_dialog.common_groups_list, Rc::default(), move || {
-		if let Some(idx) = common_list_enter.get_selection() {
-			let _ = tx_common_enter.send(UiCommand::OpenCommonGroup(idx as usize));
-		}
+	when_built!(parts, state, ui_tx, [], conversation_data_dialog, {
+		let tx_common_click = ui_tx.clone();
+		parts.conversation_data_dialog.common_groups_list.on_item_double_clicked(move |event| {
+			if let Some(idx) = event.get_selection() {
+				let _ = tx_common_click.send(UiCommand::OpenCommonGroup(idx as usize));
+			}
+		});
+		let tx_common_enter = ui_tx.clone();
+		let common_list_enter = parts.conversation_data_dialog.common_groups_list;
+		keys::on_enter(&parts.conversation_data_dialog.common_groups_list, Rc::default(), move || {
+			if let Some(idx) = common_list_enter.get_selection() {
+				let _ = tx_common_enter.send(UiCommand::OpenCommonGroup(idx as usize));
+			}
+		});
 	});
 	let tx_chat_filter = ui_tx.clone();
 	parts.conversations_parts.chat_filter_combo.on_selection_changed(move |event| {
@@ -2158,658 +2197,675 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	let tx_group_selection = ui_tx.clone();
-	parts.group_data_dialog.groups_list.on_selection_changed(move |_| {
-		let _ = tx_group_selection.send(UiCommand::CommunitySubgroupSelectionChanged);
-	});
-	let tx_group_double_click = ui_tx.clone();
-	parts.group_data_dialog.groups_list.on_item_double_clicked(move |event| {
-		if let Some(idx) = event.get_selection() {
-			let _ = tx_group_double_click.send(UiCommand::JoinCommunitySubgroup(idx as u32));
-		}
-	});
-	// Enter on the row opens or joins it. Caught on key-up: the dialog eats
-	// Enter's key-down for its default button (see the contact picker).
-	let tx_group_enter = ui_tx.clone();
-	let groups_list_enter = parts.group_data_dialog.groups_list;
-	keys::on_enter(&parts.group_data_dialog.groups_list, Rc::default(), move || {
-		if let Some(idx) = groups_list_enter.get_selection() {
-			let _ = tx_group_enter.send(UiCommand::JoinCommunitySubgroup(idx));
-		}
-	});
-
-	wire_media_list(
-		&parts.group_data_dialog.media_list,
-		&parts.group_data_dialog.dialog,
-		&ui_tx,
-		state,
-		|s, i| s.group_data_media.get(i).cloned(),
-		true,
-	);
-	wire_media_list(
-		&parts.group_data_dialog.documents_list,
-		&parts.group_data_dialog.dialog,
-		&ui_tx,
-		state,
-		|s, i| s.group_data_documents.get(i).cloned(),
-		true,
-	);
-	wire_media_list(
-		&parts.group_data_dialog.links_list,
-		&parts.group_data_dialog.dialog,
-		&ui_tx,
-		state,
-		|s, i| s.group_data_links.get(i).cloned(),
-		false,
-	);
-
-	wire_media_list(
-		&parts.conversation_data_dialog.media_list,
-		&parts.conversation_data_dialog.dialog,
-		&ui_tx,
-		state,
-		|s, i| s.conversation_data_media.get(i).cloned(),
-		true,
-	);
-	wire_media_list(
-		&parts.conversation_data_dialog.documents_list,
-		&parts.conversation_data_dialog.dialog,
-		&ui_tx,
-		state,
-		|s, i| s.conversation_data_documents.get(i).cloned(),
-		true,
-	);
-	wire_media_list(
-		&parts.conversation_data_dialog.links_list,
-		&parts.conversation_data_dialog.dialog,
-		&ui_tx,
-		state,
-		|s, i| s.conversation_data_links.get(i).cloned(),
-		false,
-	);
-
-	let poll_dialog_cancel = parts.poll_dialog.dialog;
-	parts.poll_dialog.cancel_btn.on_click(move |_| {
-		poll_dialog_cancel.end_modal(ID_CANCEL);
-	});
-	let tx_poll = ui_tx.clone();
-	let poll_dlg = parts.poll_dialog.dialog;
-	let poll_question = parts.poll_dialog.question_field;
-	let poll_options = parts.poll_dialog.options_field;
-	let poll_multiple = parts.poll_dialog.multiple_check;
-	let poll_quiz = parts.poll_dialog.quiz_check;
-	parts.poll_dialog.send_btn.on_click(move |_| {
-		let question = poll_question.get_value();
-		match whatsnap::validate_poll(&question, &poll_options.get_value()) {
-			Ok(options) => {
-				let quiz = poll_quiz.get_value();
-				let correct_answer = if quiz {
-					let labels: Vec<&str> = options.iter().map(String::as_str).collect();
-					let choose =
-						SingleChoiceDialog::builder(&poll_dlg, "Which answer is correct?", "Quiz", &labels).build();
-					if choose.show_modal() != ID_OK {
-						return;
-					}
-					let Some(answer) = choose.get_string_selection() else { return };
-					Some(answer)
-				} else {
-					None
-				};
-				poll_dlg.end_modal(ID_OK);
-				let _ = tx_poll.send(UiCommand::SendPoll {
-					question: question.trim().to_string(),
-					options,
-					multiple_answers: !quiz && poll_multiple.get_value(),
-					correct_answer,
-				});
+	when_built!(parts, state, ui_tx, [], group_data_dialog, {
+		let tx_group_selection = ui_tx.clone();
+		parts.group_data_dialog.groups_list.on_selection_changed(move |_| {
+			let _ = tx_group_selection.send(UiCommand::CommunitySubgroupSelectionChanged);
+		});
+		let tx_group_double_click = ui_tx.clone();
+		parts.group_data_dialog.groups_list.on_item_double_clicked(move |event| {
+			if let Some(idx) = event.get_selection() {
+				let _ = tx_group_double_click.send(UiCommand::JoinCommunitySubgroup(idx as u32));
 			}
-			Err(problem) => {
+		});
+		// Enter on the row opens or joins it. Caught on key-up: the dialog eats
+		// Enter's key-down for its default button (see the contact picker).
+		let tx_group_enter = ui_tx.clone();
+		let groups_list_enter = parts.group_data_dialog.groups_list;
+		keys::on_enter(&parts.group_data_dialog.groups_list, Rc::default(), move || {
+			if let Some(idx) = groups_list_enter.get_selection() {
+				let _ = tx_group_enter.send(UiCommand::JoinCommunitySubgroup(idx));
+			}
+		});
+
+		wire_media_list(
+			&parts.group_data_dialog.media_list,
+			&parts.group_data_dialog.dialog,
+			&ui_tx,
+			state,
+			|s, i| s.group_data_media.get(i).cloned(),
+			true,
+		);
+		wire_media_list(
+			&parts.group_data_dialog.documents_list,
+			&parts.group_data_dialog.dialog,
+			&ui_tx,
+			state,
+			|s, i| s.group_data_documents.get(i).cloned(),
+			true,
+		);
+		wire_media_list(
+			&parts.group_data_dialog.links_list,
+			&parts.group_data_dialog.dialog,
+			&ui_tx,
+			state,
+			|s, i| s.group_data_links.get(i).cloned(),
+			false,
+		);
+	});
+
+	when_built!(parts, state, ui_tx, [], conversation_data_dialog, {
+		wire_media_list(
+			&parts.conversation_data_dialog.media_list,
+			&parts.conversation_data_dialog.dialog,
+			&ui_tx,
+			state,
+			|s, i| s.conversation_data_media.get(i).cloned(),
+			true,
+		);
+		wire_media_list(
+			&parts.conversation_data_dialog.documents_list,
+			&parts.conversation_data_dialog.dialog,
+			&ui_tx,
+			state,
+			|s, i| s.conversation_data_documents.get(i).cloned(),
+			true,
+		);
+		wire_media_list(
+			&parts.conversation_data_dialog.links_list,
+			&parts.conversation_data_dialog.dialog,
+			&ui_tx,
+			state,
+			|s, i| s.conversation_data_links.get(i).cloned(),
+			false,
+		);
+	});
+
+	when_built!(parts, state, ui_tx, [], poll_dialog, {
+		let poll_dialog_cancel = parts.poll_dialog.dialog;
+		parts.poll_dialog.cancel_btn.on_click(move |_| {
+			poll_dialog_cancel.end_modal(ID_CANCEL);
+		});
+		let tx_poll = ui_tx.clone();
+		let poll_dlg = parts.poll_dialog.dialog;
+		let poll_question = parts.poll_dialog.question_field;
+		let poll_options = parts.poll_dialog.options_field;
+		let poll_multiple = parts.poll_dialog.multiple_check;
+		let poll_quiz = parts.poll_dialog.quiz_check;
+		parts.poll_dialog.send_btn.on_click(move |_| {
+			let question = poll_question.get_value();
+			match whatsnap::validate_poll(&question, &poll_options.get_value()) {
+				Ok(options) => {
+					let quiz = poll_quiz.get_value();
+					let correct_answer = if quiz {
+						let labels: Vec<&str> = options.iter().map(String::as_str).collect();
+						let choose =
+							SingleChoiceDialog::builder(&poll_dlg, "Which answer is correct?", "Quiz", &labels).build();
+						if choose.show_modal() != ID_OK {
+							return;
+						}
+						let Some(answer) = choose.get_string_selection() else { return };
+						Some(answer)
+					} else {
+						None
+					};
+					poll_dlg.end_modal(ID_OK);
+					let _ = tx_poll.send(UiCommand::SendPoll {
+						question: question.trim().to_string(),
+						options,
+						multiple_answers: !quiz && poll_multiple.get_value(),
+						correct_answer,
+					});
+				}
+				Err(problem) => {
+					unsafe {
+						let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+							windows::Win32::UI::WindowsAndMessaging::MB_OK,
+						);
+					}
+					MessageDialog::builder(&poll_dlg, problem, "Poll")
+						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+						.build()
+						.show_modal();
+					if question.trim().is_empty() || question.trim().chars().count() > whatsnap::POLL_MAX_QUESTION_CHARS
+					{
+						poll_question.set_focus();
+					} else {
+						poll_options.set_focus();
+					}
+				}
+			}
+		});
+	});
+
+	when_built!(parts, state, ui_tx, [], new_contact_dialog, {
+		let new_contact_dialog_cancel = parts.new_contact_dialog.dialog;
+		parts.new_contact_dialog.cancel_btn.on_click(move |_| {
+			new_contact_dialog_cancel.end_modal(0);
+		});
+
+		let tx_new_contact = ui_tx.clone();
+		let dlg = parts.new_contact_dialog.dialog;
+		let name_field = parts.new_contact_dialog.name_field;
+		let surname_field = parts.new_contact_dialog.surname_field;
+		let phone_field = parts.new_contact_dialog.phone_field;
+		let sync_check = parts.new_contact_dialog.sync_check;
+		parts.new_contact_dialog.ok_btn.on_click(move |_| {
+			let name = name_field.get_value().trim().to_string();
+			let surname = surname_field.get_value().trim().to_string();
+			let phone = phone_field.get_value();
+			if name.is_empty() {
 				unsafe {
 					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 						windows::Win32::UI::WindowsAndMessaging::MB_OK,
 					);
 				}
-				MessageDialog::builder(&poll_dlg, problem, "Poll")
+				MessageDialog::builder(&dlg, "Name is required.", "Error")
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 					.build()
 					.show_modal();
-				if question.trim().is_empty() || question.trim().chars().count() > whatsnap::POLL_MAX_QUESTION_CHARS {
-					poll_question.set_focus();
-				} else {
-					poll_options.set_focus();
+				name_field.set_focus();
+				return;
+			}
+			let clean_phone: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+			if clean_phone.len() < 7 {
+				unsafe {
+					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+						windows::Win32::UI::WindowsAndMessaging::MB_OK,
+					);
 				}
+				MessageDialog::builder(&dlg, "Phone number must have at least 7 digits.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
+				phone_field.set_focus();
+				return;
 			}
-		}
-	});
-
-	let new_contact_dialog_cancel = parts.new_contact_dialog.dialog;
-	parts.new_contact_dialog.cancel_btn.on_click(move |_| {
-		new_contact_dialog_cancel.end_modal(0);
-	});
-
-	let tx_new_contact = ui_tx.clone();
-	let dlg = parts.new_contact_dialog.dialog;
-	let name_field = parts.new_contact_dialog.name_field;
-	let surname_field = parts.new_contact_dialog.surname_field;
-	let phone_field = parts.new_contact_dialog.phone_field;
-	let sync_check = parts.new_contact_dialog.sync_check;
-	parts.new_contact_dialog.ok_btn.on_click(move |_| {
-		let name = name_field.get_value().trim().to_string();
-		let surname = surname_field.get_value().trim().to_string();
-		let phone = phone_field.get_value();
-		if name.is_empty() {
-			unsafe {
-				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-					windows::Win32::UI::WindowsAndMessaging::MB_OK,
-				);
-			}
-			MessageDialog::builder(&dlg, "Name is required.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
-			name_field.set_focus();
-			return;
-		}
-		let clean_phone: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
-		if clean_phone.len() < 7 {
-			unsafe {
-				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-					windows::Win32::UI::WindowsAndMessaging::MB_OK,
-				);
-			}
-			MessageDialog::builder(&dlg, "Phone number must have at least 7 digits.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
-			phone_field.set_focus();
-			return;
-		}
-		let full_name = format!("{} {}", name, surname).trim().to_string();
-		let sync = sync_check.get_value();
-		dlg.end_modal(wxdragon::id::ID_OK);
-		// The number goes as typed: without a + it's read as one from your own
-		// country, as WhatsApp's own add-contact form does.
-		let _ = tx_new_contact.send(UiCommand::NewContact {
-			name: full_name,
-			first_name: name,
-			phone: phone.trim().to_string(),
-			sync,
+			let full_name = format!("{} {}", name, surname).trim().to_string();
+			let sync = sync_check.get_value();
+			dlg.end_modal(wxdragon::id::ID_OK);
+			// The number goes as typed: without a + it's read as one from your own
+			// country, as WhatsApp's own add-contact form does.
+			let _ = tx_new_contact.send(UiCommand::NewContact {
+				name: full_name,
+				first_name: name,
+				phone: phone.trim().to_string(),
+				sync,
+			});
 		});
 	});
 
-	let tx_prepare = ui_tx.clone();
-	let new_conv_dlg_for_group = parts.new_conv_dialog.dialog;
-	parts.new_conv_dialog.new_group_btn.on_click(move |_| {
-		new_conv_dlg_for_group.end_modal(0);
-		let _ = tx_prepare.send(UiCommand::PrepareNewGroup);
+	when_built!(parts, state, ui_tx, [], new_conv_dialog, {
+		let tx_prepare = ui_tx.clone();
+		let new_conv_dlg_for_group = parts.new_conv_dialog.dialog;
+		parts.new_conv_dialog.new_group_btn.on_click(move |_| {
+			new_conv_dlg_for_group.end_modal(0);
+			let _ = tx_prepare.send(UiCommand::PrepareNewGroup);
+		});
 	});
 
-	let tx_create = ui_tx.clone();
-	let group_dialog = parts.new_group_dialog.dialog;
-	let name_ctrl = parts.new_group_dialog.name_field;
-	let extra_ctrl = parts.new_group_dialog.extra_number_field;
-	let contacts_listbox_ok = parts.new_group_dialog.contacts_listbox;
-	let state_ok = state.clone();
-	let ok_btn = parts.new_group_dialog.ok_btn;
+	when_built!(parts, state, ui_tx, [], new_group_dialog, {
+		let tx_create = ui_tx.clone();
+		let group_dialog = parts.new_group_dialog.dialog;
+		let name_ctrl = parts.new_group_dialog.name_field;
+		let extra_ctrl = parts.new_group_dialog.extra_number_field;
+		let contacts_listbox_ok = parts.new_group_dialog.contacts_listbox;
+		let state_ok = state.clone();
+		let ok_btn = parts.new_group_dialog.ok_btn;
 
-	parts.new_group_dialog.ok_btn.on_click(move |_| {
-		let name = name_ctrl.get_value().trim().to_string();
-		if name.is_empty() {
-			unsafe {
-				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
-				);
-			}
-			MessageDialog::builder(&group_dialog, "Group name is required.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
-			name_ctrl.select_all();
-			name_ctrl.set_focus();
-			return;
-		}
-		let mut s = state_ok.borrow_mut();
-		let gs = &mut s.group_state;
-		let count = contacts_listbox_ok.get_count();
-		for idx in 0..count {
-			if idx < gs.current_jids.len() as u32 {
-				let jid = gs.current_jids[idx as usize].clone();
-				if contacts_listbox_ok.is_checked(idx) {
-					gs.checked_jids.insert(jid);
-				} else {
-					gs.checked_jids.remove(&jid);
+		parts.new_group_dialog.ok_btn.on_click(move |_| {
+			let name = name_ctrl.get_value().trim().to_string();
+			if name.is_empty() {
+				unsafe {
+					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+						windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
+					);
 				}
+				MessageDialog::builder(&group_dialog, "Group name is required.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
+				name_ctrl.select_all();
+				name_ctrl.set_focus();
+				return;
 			}
-		}
-		let mut participants = Vec::new();
-		for jid in &gs.checked_jids {
-			participants.push(jid.clone());
-		}
-		// Let go of the state before the error box below: its modal loop
-		// handles incoming backend events, which borrow the state too.
-		drop(s);
-		let extra_raw = extra_ctrl.get_value();
-		for part in extra_raw.split([',', '\n']) {
-			let digits: String = part.chars().filter(|c| c.is_ascii_digit()).collect();
-			if digits.len() >= 7 {
-				participants.push(digits);
-			}
-		}
-		let mut seen = std::collections::HashSet::new();
-		let mut unique_participants = Vec::new();
-		for p in participants {
-			if seen.insert(p.clone()) {
-				unique_participants.push(p);
-			}
-		}
-		if unique_participants.is_empty() {
-			unsafe {
-				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
-				);
-			}
-			MessageDialog::builder(&group_dialog, "At least one participant must be selected.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
-			contacts_listbox_ok.set_focus();
-			return;
-		}
-		ok_btn.enable(false);
-		group_dialog.end_modal(wxdragon::id::ID_OK);
-		let _ = tx_create.send(UiCommand::CreateGroup { name, participants: unique_participants });
-	});
-
-	let new_group_cancel = parts.new_group_dialog.dialog;
-	parts.new_group_dialog.cancel_btn.on_click(move |_| {
-		new_group_cancel.end_modal(0);
-	});
-
-	let search_field = parts.new_group_dialog.search_field;
-	let contacts_listbox = parts.new_group_dialog.contacts_listbox;
-	let selection_announcer_search = parts.new_group_dialog.selection_announcer;
-	let state_search = state.clone();
-	// wxCheckListBox::Check() fires an OBJECT_STATECHANGE WinEvent per item
-	// (checklst.cpp), which NVDA processes asynchronously. Rebuilding the
-	// whole list (clear() + append() + re-Check()) on every single keystroke
-	// queued events referencing items that a following keystroke's rebuild
-	// had already replaced by the time NVDA got to them, landing NVDA on an
-	// index past the new, shorter list and tripping wx's "bad
-	// wxCheckListBox index" assert in IsChecked(). Debouncing so the list
-	// only rebuilds once typing pauses keeps rebuilds far enough apart for
-	// NVDA to finish querying the previous one first. This timer is shared
-	// (via `parts.new_group_contacts_timer`) with a fresh `contacts` response
-	// landing while the dialog is open, for the same reason - see the
-	// "contacts" case in main.rs's websocket message handler.
-	let group_search_timer = parts.new_group_contacts_timer.clone();
-	let timer_for_tick = group_search_timer.clone();
-	timer_for_tick.on_tick(move |_| {
-		let query = search_field.get_value().to_lowercase().trim().to_string();
-		let mut s = state_search.borrow_mut();
-		let gs = &mut s.group_state;
-		let count = contacts_listbox.get_count();
-		for idx in 0..count {
-			if idx < gs.current_jids.len() as u32 {
-				let jid = gs.current_jids[idx as usize].clone();
-				if contacts_listbox.is_checked(idx) {
-					gs.checked_jids.insert(jid);
-				} else {
-					gs.checked_jids.remove(&jid);
-				}
-			}
-		}
-		let mut filtered_labels = Vec::new();
-		let mut filtered_jids = Vec::new();
-		for (lbl, jid) in gs.all_contact_labels.iter().zip(gs.all_contact_jids.iter()) {
-			if query.is_empty() || lbl.to_lowercase().contains(&query) {
-				filtered_labels.push(lbl.clone());
-				filtered_jids.push(jid.clone());
-			}
-		}
-		contacts_listbox.clear();
-		for lbl in &filtered_labels {
-			contacts_listbox.append(lbl);
-		}
-		gs.current_jids = filtered_jids;
-		for (idx, jid) in gs.current_jids.iter().enumerate() {
-			if gs.checked_jids.contains(jid) {
-				contacts_listbox.check(idx as u32, true);
-			}
-		}
-		// wxListBox::SetSelection asserts/crashes if given index 0 on an
-		// empty list (only wxNOT_FOUND, which wxdragon's u32 API can't
-		// express, is valid there) - so there's nothing to reset when the
-		// filter has no matches, only when it has at least one.
-		if !gs.current_jids.is_empty() {
-			contacts_listbox.set_selection(0, true);
-		}
-		if !gs.checked_jids.is_empty() {
-			let count = gs.checked_jids.len();
-			crate::announce::announce(
-				selection_announcer_search,
-				&format!(
-					"{} shown. {} contact{} selected.",
-					gs.current_jids.len(),
-					count,
-					if count == 1 { "" } else { "s" }
-				),
-			);
-		}
-	});
-	search_field.on_text_changed(move |_| {
-		group_search_timer.stop();
-		group_search_timer.start(250, true);
-	});
-
-	let contacts_listbox_toggle = parts.new_group_dialog.contacts_listbox;
-	let selection_announcer_toggle = parts.new_group_dialog.selection_announcer;
-	let state_toggle = state.clone();
-	contacts_listbox_toggle.on_toggled(move |event| {
-		if let Some(idx) = event.get_selection() {
-			let mut s = state_toggle.borrow_mut();
+			let mut s = state_ok.borrow_mut();
 			let gs = &mut s.group_state;
-			if idx < gs.current_jids.len() as u32 {
-				let jid = gs.current_jids[idx as usize].clone();
-				let checked = contacts_listbox_toggle.is_checked(idx);
-				if checked {
-					gs.checked_jids.insert(jid);
-				} else {
-					gs.checked_jids.remove(&jid);
+			let count = contacts_listbox_ok.get_count();
+			for idx in 0..count {
+				if idx < gs.current_jids.len() as u32 {
+					let jid = gs.current_jids[idx as usize].clone();
+					if contacts_listbox_ok.is_checked(idx) {
+						gs.checked_jids.insert(jid);
+					} else {
+						gs.checked_jids.remove(&jid);
+					}
 				}
-				let label = contacts_listbox_toggle.get_string(idx as usize).unwrap_or_default();
-				let state_str = if checked { "selected" } else { "not selected" };
-				// Checking someone and then filtering them out of view with
-				// a new search reads as "my selection got lost" with no way
-				// to otherwise confirm it didn't - this running total is how
-				// they can tell it's still there.
+			}
+			let mut participants = Vec::new();
+			for jid in &gs.checked_jids {
+				participants.push(jid.clone());
+			}
+			// Let go of the state before the error box below: its modal loop
+			// handles incoming backend events, which borrow the state too.
+			drop(s);
+			let extra_raw = extra_ctrl.get_value();
+			for part in extra_raw.split([',', '\n']) {
+				let digits: String = part.chars().filter(|c| c.is_ascii_digit()).collect();
+				if digits.len() >= 7 {
+					participants.push(digits);
+				}
+			}
+			let mut seen = std::collections::HashSet::new();
+			let mut unique_participants = Vec::new();
+			for p in participants {
+				if seen.insert(p.clone()) {
+					unique_participants.push(p);
+				}
+			}
+			if unique_participants.is_empty() {
+				unsafe {
+					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+						windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
+					);
+				}
+				MessageDialog::builder(&group_dialog, "At least one participant must be selected.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
+				contacts_listbox_ok.set_focus();
+				return;
+			}
+			ok_btn.enable(false);
+			group_dialog.end_modal(wxdragon::id::ID_OK);
+			let _ = tx_create.send(UiCommand::CreateGroup { name, participants: unique_participants });
+		});
+
+		let new_group_cancel = parts.new_group_dialog.dialog;
+		parts.new_group_dialog.cancel_btn.on_click(move |_| {
+			new_group_cancel.end_modal(0);
+		});
+
+		let search_field = parts.new_group_dialog.search_field;
+		let contacts_listbox = parts.new_group_dialog.contacts_listbox;
+		let selection_announcer_search = parts.new_group_dialog.selection_announcer;
+		let state_search = state.clone();
+		// wxCheckListBox::Check() fires an OBJECT_STATECHANGE WinEvent per item
+		// (checklst.cpp), which NVDA processes asynchronously. Rebuilding the
+		// whole list (clear() + append() + re-Check()) on every single keystroke
+		// queued events referencing items that a following keystroke's rebuild
+		// had already replaced by the time NVDA got to them, landing NVDA on an
+		// index past the new, shorter list and tripping wx's "bad
+		// wxCheckListBox index" assert in IsChecked(). Debouncing so the list
+		// only rebuilds once typing pauses keeps rebuilds far enough apart for
+		// NVDA to finish querying the previous one first. This timer is shared
+		// (via `parts.new_group_contacts_timer`) with a fresh `contacts` response
+		// landing while the dialog is open, for the same reason - see the
+		// "contacts" case in main.rs's websocket message handler.
+		let group_search_timer = parts.new_group_contacts_timer.clone();
+		let timer_for_tick = group_search_timer.clone();
+		timer_for_tick.on_tick(move |_| {
+			let query = search_field.get_value().to_lowercase().trim().to_string();
+			let mut s = state_search.borrow_mut();
+			let gs = &mut s.group_state;
+			let count = contacts_listbox.get_count();
+			for idx in 0..count {
+				if idx < gs.current_jids.len() as u32 {
+					let jid = gs.current_jids[idx as usize].clone();
+					if contacts_listbox.is_checked(idx) {
+						gs.checked_jids.insert(jid);
+					} else {
+						gs.checked_jids.remove(&jid);
+					}
+				}
+			}
+			let mut filtered_labels = Vec::new();
+			let mut filtered_jids = Vec::new();
+			for (lbl, jid) in gs.all_contact_labels.iter().zip(gs.all_contact_jids.iter()) {
+				if query.is_empty() || lbl.to_lowercase().contains(&query) {
+					filtered_labels.push(lbl.clone());
+					filtered_jids.push(jid.clone());
+				}
+			}
+			contacts_listbox.clear();
+			for lbl in &filtered_labels {
+				contacts_listbox.append(lbl);
+			}
+			gs.current_jids = filtered_jids;
+			for (idx, jid) in gs.current_jids.iter().enumerate() {
+				if gs.checked_jids.contains(jid) {
+					contacts_listbox.check(idx as u32, true);
+				}
+			}
+			// wxListBox::SetSelection asserts/crashes if given index 0 on an
+			// empty list (only wxNOT_FOUND, which wxdragon's u32 API can't
+			// express, is valid there) - so there's nothing to reset when the
+			// filter has no matches, only when it has at least one.
+			if !gs.current_jids.is_empty() {
+				contacts_listbox.set_selection(0, true);
+			}
+			if !gs.checked_jids.is_empty() {
 				let count = gs.checked_jids.len();
 				crate::announce::announce(
-					selection_announcer_toggle,
+					selection_announcer_search,
 					&format!(
-						"{}: {}. {} contact{} selected.",
-						label,
-						state_str,
+						"{} shown. {} contact{} selected.",
+						gs.current_jids.len(),
 						count,
 						if count == 1 { "" } else { "s" }
 					),
 				);
 			}
-		}
-	});
+		});
+		search_field.on_text_changed(move |_| {
+			group_search_timer.stop();
+			group_search_timer.start(250, true);
+		});
 
-	// Add Members dialog - mirrors the New Group dialog's checkbox-list
-	// wiring above (including the debounced search, shared with a fresh
-	// `contacts` response, and the crash fixes that motivated it), but
-	// confirms with an explicit Add button instead of creating anything.
-	let add_members_search_field = parts.add_members_dialog.search_field;
-	let add_members_listbox = parts.add_members_dialog.contacts_listbox;
-	let add_members_selection_announcer = parts.add_members_dialog.selection_announcer;
-	let state_add_members_search = state.clone();
-	let add_members_search_timer = parts.add_members_contacts_timer.clone();
-	let add_members_timer_tick = add_members_search_timer.clone();
-	add_members_timer_tick.on_tick(move |_| {
-		let query = add_members_search_field.get_value().to_lowercase().trim().to_string();
-		let mut s = state_add_members_search.borrow_mut();
-		let ams = &mut s.add_members_state;
-		let count = add_members_listbox.get_count();
-		for idx in 0..count {
-			if idx < ams.current_jids.len() as u32 {
-				let jid = ams.current_jids[idx as usize].clone();
-				if add_members_listbox.is_checked(idx) {
-					ams.checked_jids.insert(jid);
-				} else {
-					ams.checked_jids.remove(&jid);
+		let contacts_listbox_toggle = parts.new_group_dialog.contacts_listbox;
+		let selection_announcer_toggle = parts.new_group_dialog.selection_announcer;
+		let state_toggle = state.clone();
+		contacts_listbox_toggle.on_toggled(move |event| {
+			if let Some(idx) = event.get_selection() {
+				let mut s = state_toggle.borrow_mut();
+				let gs = &mut s.group_state;
+				if idx < gs.current_jids.len() as u32 {
+					let jid = gs.current_jids[idx as usize].clone();
+					let checked = contacts_listbox_toggle.is_checked(idx);
+					if checked {
+						gs.checked_jids.insert(jid);
+					} else {
+						gs.checked_jids.remove(&jid);
+					}
+					let label = contacts_listbox_toggle.get_string(idx as usize).unwrap_or_default();
+					let state_str = if checked { "selected" } else { "not selected" };
+					// Checking someone and then filtering them out of view with
+					// a new search reads as "my selection got lost" with no way
+					// to otherwise confirm it didn't - this running total is how
+					// they can tell it's still there.
+					let count = gs.checked_jids.len();
+					crate::announce::announce(
+						selection_announcer_toggle,
+						&format!(
+							"{}: {}. {} contact{} selected.",
+							label,
+							state_str,
+							count,
+							if count == 1 { "" } else { "s" }
+						),
+					);
 				}
 			}
-		}
-		let mut filtered_labels = Vec::new();
-		let mut filtered_jids = Vec::new();
-		for (lbl, jid) in ams.all_contact_labels.iter().zip(ams.all_contact_jids.iter()) {
-			if query.is_empty() || lbl.to_lowercase().contains(&query) {
-				filtered_labels.push(lbl.clone());
-				filtered_jids.push(jid.clone());
-			}
-		}
-		add_members_listbox.clear();
-		for lbl in &filtered_labels {
-			add_members_listbox.append(lbl);
-		}
-		ams.current_jids = filtered_jids;
-		for (idx, jid) in ams.current_jids.iter().enumerate() {
-			if ams.checked_jids.contains(jid) {
-				add_members_listbox.check(idx as u32, true);
-			}
-		}
-		if !ams.current_jids.is_empty() {
-			add_members_listbox.set_selection(0, true);
-		}
-		if !ams.checked_jids.is_empty() {
-			let count = ams.checked_jids.len();
-			crate::announce::announce(
-				add_members_selection_announcer,
-				&format!(
-					"{} shown. {} contact{} selected.",
-					ams.current_jids.len(),
-					count,
-					if count == 1 { "" } else { "s" }
-				),
-			);
-		}
-	});
-	add_members_search_field.on_text_changed(move |_| {
-		add_members_search_timer.stop();
-		add_members_search_timer.start(250, true);
+		});
 	});
 
-	let add_members_listbox_toggle = parts.add_members_dialog.contacts_listbox;
-	let add_members_selection_announcer_toggle = parts.add_members_dialog.selection_announcer;
-	let state_add_members_toggle = state.clone();
-	add_members_listbox_toggle.on_toggled(move |event| {
-		if let Some(idx) = event.get_selection() {
-			let mut s = state_add_members_toggle.borrow_mut();
+	when_built!(parts, state, ui_tx, [], add_members_dialog, {
+		// Add Members dialog - mirrors the New Group dialog's checkbox-list
+		// wiring above (including the debounced search, shared with a fresh
+		// `contacts` response, and the crash fixes that motivated it), but
+		// confirms with an explicit Add button instead of creating anything.
+		let add_members_search_field = parts.add_members_dialog.search_field;
+		let add_members_listbox = parts.add_members_dialog.contacts_listbox;
+		let add_members_selection_announcer = parts.add_members_dialog.selection_announcer;
+		let state_add_members_search = state.clone();
+		let add_members_search_timer = parts.add_members_contacts_timer.clone();
+		let add_members_timer_tick = add_members_search_timer.clone();
+		add_members_timer_tick.on_tick(move |_| {
+			let query = add_members_search_field.get_value().to_lowercase().trim().to_string();
+			let mut s = state_add_members_search.borrow_mut();
 			let ams = &mut s.add_members_state;
-			if idx < ams.current_jids.len() as u32 {
-				let jid = ams.current_jids[idx as usize].clone();
-				let checked = add_members_listbox_toggle.is_checked(idx);
-				if checked {
-					ams.checked_jids.insert(jid);
-				} else {
-					ams.checked_jids.remove(&jid);
+			let count = add_members_listbox.get_count();
+			for idx in 0..count {
+				if idx < ams.current_jids.len() as u32 {
+					let jid = ams.current_jids[idx as usize].clone();
+					if add_members_listbox.is_checked(idx) {
+						ams.checked_jids.insert(jid);
+					} else {
+						ams.checked_jids.remove(&jid);
+					}
 				}
-				let label = add_members_listbox_toggle.get_string(idx as usize).unwrap_or_default();
-				let state_str = if checked { "selected" } else { "not selected" };
+			}
+			let mut filtered_labels = Vec::new();
+			let mut filtered_jids = Vec::new();
+			for (lbl, jid) in ams.all_contact_labels.iter().zip(ams.all_contact_jids.iter()) {
+				if query.is_empty() || lbl.to_lowercase().contains(&query) {
+					filtered_labels.push(lbl.clone());
+					filtered_jids.push(jid.clone());
+				}
+			}
+			add_members_listbox.clear();
+			for lbl in &filtered_labels {
+				add_members_listbox.append(lbl);
+			}
+			ams.current_jids = filtered_jids;
+			for (idx, jid) in ams.current_jids.iter().enumerate() {
+				if ams.checked_jids.contains(jid) {
+					add_members_listbox.check(idx as u32, true);
+				}
+			}
+			if !ams.current_jids.is_empty() {
+				add_members_listbox.set_selection(0, true);
+			}
+			if !ams.checked_jids.is_empty() {
 				let count = ams.checked_jids.len();
 				crate::announce::announce(
-					add_members_selection_announcer_toggle,
+					add_members_selection_announcer,
 					&format!(
-						"{}: {}. {} contact{} selected.",
-						label,
-						state_str,
+						"{} shown. {} contact{} selected.",
+						ams.current_jids.len(),
 						count,
 						if count == 1 { "" } else { "s" }
 					),
 				);
 			}
-		}
-	});
+		});
+		add_members_search_field.on_text_changed(move |_| {
+			add_members_search_timer.stop();
+			add_members_search_timer.start(250, true);
+		});
 
-	let tx_add_members_confirm = ui_tx.clone();
-	let add_members_listbox_ok = parts.add_members_dialog.contacts_listbox;
-	let add_members_dialog_ok = parts.add_members_dialog.dialog;
-	let state_add_members_ok = state.clone();
-	parts.add_members_dialog.add_btn.on_click(move |_| {
-		let mut s = state_add_members_ok.borrow_mut();
-		let ams = &mut s.add_members_state;
-		let count = add_members_listbox_ok.get_count();
-		for idx in 0..count {
-			if idx < ams.current_jids.len() as u32 {
-				let jid = ams.current_jids[idx as usize].clone();
-				if add_members_listbox_ok.is_checked(idx) {
-					ams.checked_jids.insert(jid);
-				} else {
-					ams.checked_jids.remove(&jid);
+		let add_members_listbox_toggle = parts.add_members_dialog.contacts_listbox;
+		let add_members_selection_announcer_toggle = parts.add_members_dialog.selection_announcer;
+		let state_add_members_toggle = state.clone();
+		add_members_listbox_toggle.on_toggled(move |event| {
+			if let Some(idx) = event.get_selection() {
+				let mut s = state_add_members_toggle.borrow_mut();
+				let ams = &mut s.add_members_state;
+				if idx < ams.current_jids.len() as u32 {
+					let jid = ams.current_jids[idx as usize].clone();
+					let checked = add_members_listbox_toggle.is_checked(idx);
+					if checked {
+						ams.checked_jids.insert(jid);
+					} else {
+						ams.checked_jids.remove(&jid);
+					}
+					let label = add_members_listbox_toggle.get_string(idx as usize).unwrap_or_default();
+					let state_str = if checked { "selected" } else { "not selected" };
+					let count = ams.checked_jids.len();
+					crate::announce::announce(
+						add_members_selection_announcer_toggle,
+						&format!(
+							"{}: {}. {} contact{} selected.",
+							label,
+							state_str,
+							count,
+							if count == 1 { "" } else { "s" }
+						),
+					);
 				}
 			}
-		}
-		let participants: Vec<String> = ams.checked_jids.iter().cloned().collect();
-		drop(s);
-		if participants.is_empty() {
-			unsafe {
-				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
-				);
-			}
-			MessageDialog::builder(&add_members_dialog_ok, "At least one contact must be selected.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
-			add_members_listbox_ok.set_focus();
-			return;
-		}
-		add_members_dialog_ok.end_modal(wxdragon::id::ID_OK);
-		let _ = tx_add_members_confirm.send(UiCommand::AddGroupMembers(participants));
-	});
+		});
 
-	let add_members_cancel = parts.add_members_dialog.dialog;
-	parts.add_members_dialog.cancel_btn.on_click(move |_| {
-		add_members_cancel.end_modal(0);
-	});
-
-	// Attach Contact dialog - mirrors the Add Members dialog's checkbox-list
-	// wiring above (debounced search, live-region running total), confirming
-	// with "Send" instead of adding group members.
-	let attach_contact_search_field = parts.attach_contact_dialog.search_field;
-	let attach_contact_listbox = parts.attach_contact_dialog.contacts_listbox;
-	let attach_contact_selection_announcer = parts.attach_contact_dialog.selection_announcer;
-	let state_attach_contact_search = state.clone();
-	let attach_contact_search_timer = parts.attach_contact_timer.clone();
-	let attach_contact_timer_tick = attach_contact_search_timer.clone();
-	attach_contact_timer_tick.on_tick(move |_| {
-		let query = attach_contact_search_field.get_value().to_lowercase().trim().to_string();
-		let mut s = state_attach_contact_search.borrow_mut();
-		let acs = &mut s.attach_contact_state;
-		let count = attach_contact_listbox.get_count();
-		for idx in 0..count {
-			if idx < acs.current_jids.len() as u32 {
-				let jid = acs.current_jids[idx as usize].clone();
-				if attach_contact_listbox.is_checked(idx) {
-					acs.checked_jids.insert(jid);
-				} else {
-					acs.checked_jids.remove(&jid);
+		let tx_add_members_confirm = ui_tx.clone();
+		let add_members_listbox_ok = parts.add_members_dialog.contacts_listbox;
+		let add_members_dialog_ok = parts.add_members_dialog.dialog;
+		let state_add_members_ok = state.clone();
+		parts.add_members_dialog.add_btn.on_click(move |_| {
+			let mut s = state_add_members_ok.borrow_mut();
+			let ams = &mut s.add_members_state;
+			let count = add_members_listbox_ok.get_count();
+			for idx in 0..count {
+				if idx < ams.current_jids.len() as u32 {
+					let jid = ams.current_jids[idx as usize].clone();
+					if add_members_listbox_ok.is_checked(idx) {
+						ams.checked_jids.insert(jid);
+					} else {
+						ams.checked_jids.remove(&jid);
+					}
 				}
 			}
-		}
-		let mut filtered_labels = Vec::new();
-		let mut filtered_jids = Vec::new();
-		for (lbl, jid) in acs.all_contact_labels.iter().zip(acs.all_contact_jids.iter()) {
-			if query.is_empty() || lbl.to_lowercase().contains(&query) {
-				filtered_labels.push(lbl.clone());
-				filtered_jids.push(jid.clone());
+			let participants: Vec<String> = ams.checked_jids.iter().cloned().collect();
+			drop(s);
+			if participants.is_empty() {
+				unsafe {
+					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+						windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
+					);
+				}
+				MessageDialog::builder(&add_members_dialog_ok, "At least one contact must be selected.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
+				add_members_listbox_ok.set_focus();
+				return;
 			}
-		}
-		attach_contact_listbox.clear();
-		for lbl in &filtered_labels {
-			attach_contact_listbox.append(lbl);
-		}
-		acs.current_jids = filtered_jids;
-		for (idx, jid) in acs.current_jids.iter().enumerate() {
-			if acs.checked_jids.contains(jid) {
-				attach_contact_listbox.check(idx as u32, true);
-			}
-		}
-		if !acs.current_jids.is_empty() {
-			attach_contact_listbox.set_selection(0, true);
-		}
-		if !acs.checked_jids.is_empty() {
-			let count = acs.checked_jids.len();
-			crate::announce::announce(
-				attach_contact_selection_announcer,
-				&format!(
-					"{} shown. {} contact{} selected.",
-					acs.current_jids.len(),
-					count,
-					if count == 1 { "" } else { "s" }
-				),
-			);
-		}
-	});
-	attach_contact_search_field.on_text_changed(move |_| {
-		attach_contact_search_timer.stop();
-		attach_contact_search_timer.start(250, true);
+			add_members_dialog_ok.end_modal(wxdragon::id::ID_OK);
+			let _ = tx_add_members_confirm.send(UiCommand::AddGroupMembers(participants));
+		});
+
+		let add_members_cancel = parts.add_members_dialog.dialog;
+		parts.add_members_dialog.cancel_btn.on_click(move |_| {
+			add_members_cancel.end_modal(0);
+		});
 	});
 
-	let attach_contact_listbox_toggle = parts.attach_contact_dialog.contacts_listbox;
-	let attach_contact_selection_announcer_toggle = parts.attach_contact_dialog.selection_announcer;
-	let state_attach_contact_toggle = state.clone();
-	attach_contact_listbox_toggle.on_toggled(move |event| {
-		if let Some(idx) = event.get_selection() {
-			let mut s = state_attach_contact_toggle.borrow_mut();
+	when_built!(parts, state, ui_tx, [], attach_contact_dialog, {
+		// Attach Contact dialog - mirrors the Add Members dialog's checkbox-list
+		// wiring above (debounced search, live-region running total), confirming
+		// with "Send" instead of adding group members.
+		let attach_contact_search_field = parts.attach_contact_dialog.search_field;
+		let attach_contact_listbox = parts.attach_contact_dialog.contacts_listbox;
+		let attach_contact_selection_announcer = parts.attach_contact_dialog.selection_announcer;
+		let state_attach_contact_search = state.clone();
+		let attach_contact_search_timer = parts.attach_contact_timer.clone();
+		let attach_contact_timer_tick = attach_contact_search_timer.clone();
+		attach_contact_timer_tick.on_tick(move |_| {
+			let query = attach_contact_search_field.get_value().to_lowercase().trim().to_string();
+			let mut s = state_attach_contact_search.borrow_mut();
 			let acs = &mut s.attach_contact_state;
-			if idx < acs.current_jids.len() as u32 {
-				let jid = acs.current_jids[idx as usize].clone();
-				let checked = attach_contact_listbox_toggle.is_checked(idx);
-				if checked {
-					acs.checked_jids.insert(jid);
-				} else {
-					acs.checked_jids.remove(&jid);
+			let count = attach_contact_listbox.get_count();
+			for idx in 0..count {
+				if idx < acs.current_jids.len() as u32 {
+					let jid = acs.current_jids[idx as usize].clone();
+					if attach_contact_listbox.is_checked(idx) {
+						acs.checked_jids.insert(jid);
+					} else {
+						acs.checked_jids.remove(&jid);
+					}
 				}
-				let label = attach_contact_listbox_toggle.get_string(idx as usize).unwrap_or_default();
-				let state_str = if checked { "selected" } else { "not selected" };
+			}
+			let mut filtered_labels = Vec::new();
+			let mut filtered_jids = Vec::new();
+			for (lbl, jid) in acs.all_contact_labels.iter().zip(acs.all_contact_jids.iter()) {
+				if query.is_empty() || lbl.to_lowercase().contains(&query) {
+					filtered_labels.push(lbl.clone());
+					filtered_jids.push(jid.clone());
+				}
+			}
+			attach_contact_listbox.clear();
+			for lbl in &filtered_labels {
+				attach_contact_listbox.append(lbl);
+			}
+			acs.current_jids = filtered_jids;
+			for (idx, jid) in acs.current_jids.iter().enumerate() {
+				if acs.checked_jids.contains(jid) {
+					attach_contact_listbox.check(idx as u32, true);
+				}
+			}
+			if !acs.current_jids.is_empty() {
+				attach_contact_listbox.set_selection(0, true);
+			}
+			if !acs.checked_jids.is_empty() {
 				let count = acs.checked_jids.len();
 				crate::announce::announce(
-					attach_contact_selection_announcer_toggle,
+					attach_contact_selection_announcer,
 					&format!(
-						"{}: {}. {} contact{} selected.",
-						label,
-						state_str,
+						"{} shown. {} contact{} selected.",
+						acs.current_jids.len(),
 						count,
 						if count == 1 { "" } else { "s" }
 					),
 				);
 			}
-		}
-	});
+		});
+		attach_contact_search_field.on_text_changed(move |_| {
+			attach_contact_search_timer.stop();
+			attach_contact_search_timer.start(250, true);
+		});
 
-	let tx_attach_contact_confirm = ui_tx.clone();
-	let attach_contact_listbox_ok = parts.attach_contact_dialog.contacts_listbox;
-	let attach_contact_dialog_ok = parts.attach_contact_dialog.dialog;
-	let state_attach_contact_ok = state.clone();
-	parts.attach_contact_dialog.send_btn.on_click(move |_| {
-		let mut s = state_attach_contact_ok.borrow_mut();
-		let acs = &mut s.attach_contact_state;
-		let count = attach_contact_listbox_ok.get_count();
-		for idx in 0..count {
-			if idx < acs.current_jids.len() as u32 {
-				let jid = acs.current_jids[idx as usize].clone();
-				if attach_contact_listbox_ok.is_checked(idx) {
-					acs.checked_jids.insert(jid);
-				} else {
-					acs.checked_jids.remove(&jid);
+		let attach_contact_listbox_toggle = parts.attach_contact_dialog.contacts_listbox;
+		let attach_contact_selection_announcer_toggle = parts.attach_contact_dialog.selection_announcer;
+		let state_attach_contact_toggle = state.clone();
+		attach_contact_listbox_toggle.on_toggled(move |event| {
+			if let Some(idx) = event.get_selection() {
+				let mut s = state_attach_contact_toggle.borrow_mut();
+				let acs = &mut s.attach_contact_state;
+				if idx < acs.current_jids.len() as u32 {
+					let jid = acs.current_jids[idx as usize].clone();
+					let checked = attach_contact_listbox_toggle.is_checked(idx);
+					if checked {
+						acs.checked_jids.insert(jid);
+					} else {
+						acs.checked_jids.remove(&jid);
+					}
+					let label = attach_contact_listbox_toggle.get_string(idx as usize).unwrap_or_default();
+					let state_str = if checked { "selected" } else { "not selected" };
+					let count = acs.checked_jids.len();
+					crate::announce::announce(
+						attach_contact_selection_announcer_toggle,
+						&format!(
+							"{}: {}. {} contact{} selected.",
+							label,
+							state_str,
+							count,
+							if count == 1 { "" } else { "s" }
+						),
+					);
 				}
 			}
-		}
-		let contact_jids: Vec<String> = acs.checked_jids.iter().cloned().collect();
-		drop(s);
-		if contact_jids.is_empty() {
-			unsafe {
-				let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
-				);
-			}
-			MessageDialog::builder(&attach_contact_dialog_ok, "At least one contact must be selected.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
-			attach_contact_listbox_ok.set_focus();
-			return;
-		}
-		attach_contact_dialog_ok.end_modal(wxdragon::id::ID_OK);
-		let _ = tx_attach_contact_confirm.send(UiCommand::SendContacts(contact_jids));
-	});
+		});
 
-	let attach_contact_cancel = parts.attach_contact_dialog.dialog;
-	parts.attach_contact_dialog.cancel_btn.on_click(move |_| {
-		attach_contact_cancel.end_modal(0);
+		let tx_attach_contact_confirm = ui_tx.clone();
+		let attach_contact_listbox_ok = parts.attach_contact_dialog.contacts_listbox;
+		let attach_contact_dialog_ok = parts.attach_contact_dialog.dialog;
+		let state_attach_contact_ok = state.clone();
+		parts.attach_contact_dialog.send_btn.on_click(move |_| {
+			let mut s = state_attach_contact_ok.borrow_mut();
+			let acs = &mut s.attach_contact_state;
+			let count = attach_contact_listbox_ok.get_count();
+			for idx in 0..count {
+				if idx < acs.current_jids.len() as u32 {
+					let jid = acs.current_jids[idx as usize].clone();
+					if attach_contact_listbox_ok.is_checked(idx) {
+						acs.checked_jids.insert(jid);
+					} else {
+						acs.checked_jids.remove(&jid);
+					}
+				}
+			}
+			let contact_jids: Vec<String> = acs.checked_jids.iter().cloned().collect();
+			drop(s);
+			if contact_jids.is_empty() {
+				unsafe {
+					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+						windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
+					);
+				}
+				MessageDialog::builder(&attach_contact_dialog_ok, "At least one contact must be selected.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
+				attach_contact_listbox_ok.set_focus();
+				return;
+			}
+			attach_contact_dialog_ok.end_modal(wxdragon::id::ID_OK);
+			let _ = tx_attach_contact_confirm.send(UiCommand::SendContacts(contact_jids));
+		});
+
+		let attach_contact_cancel = parts.attach_contact_dialog.dialog;
+		parts.attach_contact_dialog.cancel_btn.on_click(move |_| {
+			attach_contact_cancel.end_modal(0);
+		});
 	});
 
 	let tx_nav = ui_tx.clone();
@@ -5493,30 +5549,32 @@ pub fn bind_input_handlers(
 		let _ = tx_speed.send(UiCommand::ToggleAudioSpeed);
 	});
 
-	// Attachment dialog — Send button
-	let tx_send_attach = ui_tx.clone();
-	let caption_field_ref = parts.attachment_dialog.caption_field;
-	parts.attachment_dialog.send_btn.on_click(move |_| {
-		let caption = caption_field_ref.get_value();
-		let _ = tx_send_attach.send(UiCommand::SendAttachment { caption });
-	});
-	// Enter in the caption box sends, like the Send button.
-	let tx_send_attach_enter = ui_tx.clone();
-	caption_field_ref.on_text_enter(move |_| {
-		let caption = caption_field_ref.get_value();
-		let _ = tx_send_attach_enter.send(UiCommand::SendAttachment { caption });
-	});
+	when_built!(parts, state, ui_tx, [], attachment_dialog, {
+		// Attachment dialog — Send button
+		let tx_send_attach = ui_tx.clone();
+		let caption_field_ref = parts.attachment_dialog.caption_field;
+		parts.attachment_dialog.send_btn.on_click(move |_| {
+			let caption = caption_field_ref.get_value();
+			let _ = tx_send_attach.send(UiCommand::SendAttachment { caption });
+		});
+		// Enter in the caption box sends, like the Send button.
+		let tx_send_attach_enter = ui_tx.clone();
+		caption_field_ref.on_text_enter(move |_| {
+			let caption = caption_field_ref.get_value();
+			let _ = tx_send_attach_enter.send(UiCommand::SendAttachment { caption });
+		});
 
-	// Attachment dialog — Add more files button
-	let tx_add_more = ui_tx.clone();
-	parts.attachment_dialog.add_more_btn.on_click(move |_| {
-		let _ = tx_add_more.send(UiCommand::AddAttachment);
-	});
+		// Attachment dialog — Add more files button
+		let tx_add_more = ui_tx.clone();
+		parts.attachment_dialog.add_more_btn.on_click(move |_| {
+			let _ = tx_add_more.send(UiCommand::AddAttachment);
+		});
 
-	// Attachment dialog — Discard button
-	let tx_discard_attach = ui_tx.clone();
-	parts.attachment_dialog.discard_btn.on_click(move |_| {
-		let _ = tx_discard_attach.send(UiCommand::DiscardAttachment);
+		// Attachment dialog — Discard button
+		let tx_discard_attach = ui_tx.clone();
+		parts.attachment_dialog.discard_btn.on_click(move |_| {
+			let _ = tx_discard_attach.send(UiCommand::DiscardAttachment);
+		});
 	});
 
 	let tx_retry = ui_tx.clone();

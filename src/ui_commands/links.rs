@@ -204,8 +204,11 @@ pub(crate) fn show_group_invite_link(
 	link: String,
 ) {
 	let group_name = state.borrow().contacts.get(&group_jid).cloned().unwrap_or_else(|| "this group".to_string());
-	let parent: &dyn WxWidget =
-		if parts.group_data_dialog.dialog.is_shown() { &parts.group_data_dialog.dialog } else { &parts.frame };
+	let parent: &dyn WxWidget = if parts.group_data_dialog.get().is_some_and(|d| d.dialog.is_shown()) {
+		&parts.group_data_dialog.dialog
+	} else {
+		&parts.frame
+	};
 	let dialog = Dialog::builder(parent, "Group invite link")
 		.with_size(460, 240)
 		.with_style(DialogStyle::DefaultDialogStyle)

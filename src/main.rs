@@ -1304,7 +1304,9 @@ fn main() {
 				s.call_video_port = None;
 				s.call_participants.clear();
 				s.call_video = CallVideo::default();
-				parts_typing_timer.call_parts.frame.show(false);
+				if let Some(c) = parts_typing_timer.call_parts.get() {
+					c.frame.show(false);
+				}
 				play_call_fail_sound(&mut s);
 				// The call window is hidden just above, so this falls back to the
 				// main window's announcer - which is the one with focus now.
@@ -1579,7 +1581,11 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ShareFiles(paths) => ui_commands::links::share_files(state, parts, paths),
 		UiCommand::ShareMenuResult { ok, text } => {
 			let parent: &dyn wxdragon::prelude::WxWidget =
-				if parts.settings_dialog.dialog.is_shown() { &parts.settings_dialog.dialog } else { &parts.frame };
+				if parts.settings_dialog.get().is_some_and(|d| d.dialog.is_shown()) {
+					&parts.settings_dialog.dialog
+				} else {
+					&parts.frame
+				};
 			let icon = if ok { MessageDialogStyle::IconInformation } else { MessageDialogStyle::IconWarning };
 			MessageDialog::builder(parent, &text, "whatSnap")
 				.with_style(MessageDialogStyle::OK | icon)
