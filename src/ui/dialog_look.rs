@@ -51,7 +51,6 @@ const CONTROL_SUBCLASS: usize = 0x444c_4354;
 /// wx's `wxBORDER_NONE`.
 const BORDER_NONE: i64 = 0x0020_0000;
 
-
 /// How a text field is drawn.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Field {

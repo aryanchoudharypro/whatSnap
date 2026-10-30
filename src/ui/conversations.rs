@@ -299,7 +299,7 @@ pub fn on_list_column_resized(f: impl Fn(i32) + 'static) {
 fn list_column_width(width: i32) -> i32 {
 	let chosen = LIST_COLUMN.with(|c| c.get());
 	if chosen > 0 {
-		return chosen.clamp(240, max_list_column(width));
+		return chosen.clamp(min_list_column(width), max_list_column(width));
 	}
 	(width * 7 / 20).clamp(320, 520).min(max_list_column(width))
 }
@@ -307,7 +307,13 @@ fn list_column_width(width: i32) -> i32 {
 /// At most 40% of the window, as WhatsApp for Windows allows, so the list
 /// can never crowd out the chat.
 fn max_list_column(width: i32) -> i32 {
-	(width * 2 / 5).max(240)
+	(width * 2 / 5).max(min_list_column(width))
+}
+
+/// At least a quarter of the window, and never so narrow that a chat's name
+/// and preview don't fit.
+fn min_list_column(width: i32) -> i32 {
+	(width / 4).max(300)
 }
 
 /// Keeps the chat list column a third of the window as it's resized (or
@@ -358,7 +364,7 @@ fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel, calls_page: 
 			if drag.get() {
 				// The column, and its dividing line, end under the mouse.
 				let width = panel_c.get_client_size().width;
-				let column = pos.x.clamp(240, max_list_column(width));
+				let column = pos.x.clamp(min_list_column(width), max_list_column(width));
 				LIST_COLUMN.with(|c| c.set(column));
 				fit();
 				panel_c.layout();
