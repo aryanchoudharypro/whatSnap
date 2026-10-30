@@ -255,8 +255,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	chats_sizer.add(&auto_download_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	let upload_quality_combo =
 		visibility_combo(&chats_panel, &chats_sizer, "Media Upload Quality", UPLOAD_QUALITY_CHOICES);
-	let theme_combo =
-		visibility_combo(&chats_panel, &chats_sizer, "Theme", THEME_CHOICES);
+	let theme_combo = visibility_combo(&chats_panel, &chats_sizer, "Theme", THEME_CHOICES);
 	chats_panel.set_sizer(chats_sizer, true);
 
 	// --- Profile & Privacy tab ---
