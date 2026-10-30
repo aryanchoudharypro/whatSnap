@@ -254,7 +254,9 @@ pub(crate) fn pill_button(button: &Button, primary: bool, background: Colour) {
 
 /// Draws `check` as a switch at the right of its label, on `background`.
 /// Add it to its sizer with `SizerFlag::Expand` so the switch lines up on
-/// the right.
+/// the right. A long label wraps, and one written "Name: what it does" shows
+/// as WhatsApp lays out a setting, its name with what it does in grey under
+/// it; the label a screen reader reads stays as it is.
 pub(crate) fn switch(check: &CheckBox, background: Colour) {
 	check.set_font(&theme::Fonts::body());
 	let hwnd = hwnd_of(check);
@@ -262,6 +264,77 @@ pub(crate) fn switch(check: &CheckBox, background: Colour) {
 	register(hwnd, Kind::Switch, background);
 	let line = check.get_char_height();
 	check.set_min_size(Size::new(-1, line + 14));
+	let check_c = *check;
+	check.on_size(move |event| {
+		let width = check_c.get_size().width;
+		let height = switch_height(hwnd, width);
+		if width > 0 && check_c.get_min_size().height != height {
+			check_c.set_min_size(Size::new(-1, height));
+			// Not from inside this size event: the layout resizes it again.
+			wxdragon::call_after(Box::new(move || {
+				if let Some(parent) = check_c.get_parent() {
+					parent.layout();
+				}
+			}));
+		}
+		event.skip(true);
+	});
+}
+
+/// A switch's track: its height and width for a line of `line` pixels.
+fn track_size(line: i32) -> (i32, i32) {
+	let track_h = (line * 4 / 5).max(12);
+	(track_h, track_h * 2 - 2)
+}
+
+/// A switch's label as lines no wider than what the track leaves of
+/// `width`: the setting's name, then what it does (see [`switch`]).
+fn switch_lines(dc: HDC, font: HFONT, line: i32, label: &str, width: i32) -> (Vec<String>, Vec<String>) {
+	let (_, track_w) = track_size(line);
+	let room = (width - track_w - 4 - 14).max(40);
+	let (name, more) = match label.split_once(": ") {
+		Some((name, more)) if name.chars().count() <= 40 => (name, more),
+		_ => (label, ""),
+	};
+	let mut more_chars = more.chars();
+	let more = match more_chars.next() {
+		Some(first) => first.to_uppercase().chain(more_chars).collect(),
+		None => String::new(),
+	};
+	(wrap(dc, font, name, room), wrap(dc, font, &more, room))
+}
+
+/// `text` broken at spaces into lines no wider than `width`.
+fn wrap(dc: HDC, font: HFONT, text: &str, width: i32) -> Vec<String> {
+	let mut lines = Vec::new();
+	let mut current = String::new();
+	for word in text.split_whitespace() {
+		let candidate = if current.is_empty() { word.to_string() } else { format!("{current} {word}") };
+		if !current.is_empty() && gdi::text_width(dc, font, &candidate) > width {
+			lines.push(std::mem::replace(&mut current, word.to_string()));
+		} else {
+			current = candidate;
+		}
+	}
+	if !current.is_empty() {
+		lines.push(current);
+	}
+	lines
+}
+
+/// How tall the switch `hwnd` needs to be at `width` for all of its label.
+fn switch_height(hwnd: HWND, width: i32) -> i32 {
+	let line = line_height(hwnd);
+	let label = strip_mnemonic(&window_text(hwnd));
+	let font = control_font(hwnd);
+	let (name, more) = unsafe {
+		let dc = GetDC(Some(hwnd));
+		let lines = switch_lines(dc, font, line, &label, width);
+		ReleaseDC(Some(hwnd), dc);
+		lines
+	};
+	let gap = if more.is_empty() { 0 } else { 2 };
+	(name.len() + more.len()).max(1) as i32 * line + gap + 14
 }
 
 /// Draws `list`'s rows as contacts: their picture (from `jid`, by row) with
@@ -621,17 +694,30 @@ fn paint_switch(hwnd: HWND, hdc: HDC, rc: RECT, disabled: bool, focused: bool, b
 	buffered(hdc, rc, |dc, width, height| {
 		let back = if custom { rgb(background) } else { sys(COLOR_BTNFACE) };
 		gdi::fill(dc, rect(0, 0, width, height), back);
-		let track_h = (line * 4 / 5).max(12);
-		let track_w = track_h * 2 - 2;
-		let (tx, ty) = (width - track_w - 4, (height - track_h) / 2);
-		let text = if disabled {
-			if custom { rgb(Palette::TEXT_MUTED()) } else { sys(COLOR_GRAYTEXT) }
+		let (track_h, track_w) = track_size(line);
+		let (name, more) = switch_lines(dc, font, line, &label, width);
+		let lines = (name.len() + more.len()).max(1) as i32;
+		let gap = if more.is_empty() { 0 } else { 2 };
+		// The text sits in the middle, the track level with its first line.
+		let top = ((height - lines * line - gap) / 2).max(0);
+		let (tx, ty) = (width - track_w - 4, top + (line - track_h) / 2);
+		let (text, muted) = if disabled {
+			let grey = if custom { rgb(Palette::TEXT_MUTED()) } else { sys(COLOR_GRAYTEXT) };
+			(grey, grey)
 		} else if custom {
-			rgb(Palette::TEXT_PRIMARY())
+			(rgb(Palette::TEXT_PRIMARY()), rgb(Palette::TEXT_MUTED()))
 		} else {
-			sys(COLOR_BTNTEXT)
+			(sys(COLOR_BTNTEXT), sys(COLOR_BTNTEXT))
 		};
-		gdi::text(dc, font, text, &label, rect(2, 0, tx - 10, height), Default::default());
+		let mut y = top;
+		for (i, part) in name.iter().chain(&more).enumerate() {
+			if i == name.len() {
+				y += gap;
+			}
+			let colour = if i < name.len() { text } else { muted };
+			gdi::text(dc, font, colour, part, rect(2, y, tx - 10, y + line), Default::default());
+			y += line;
+		}
 		if focused {
 			let ring = if custom { rgb(Palette::TEXT_PRIMARY()) } else { sys(COLOR_HIGHLIGHT) };
 			blob(dc, tx - 4, ty - 4, track_w + 8, track_h + 8, ring);

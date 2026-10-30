@@ -1,6 +1,12 @@
 use wxdragon::prelude::*;
 
-use crate::{audio_devices::DEFAULT_LABEL, ui::theme};
+use crate::{
+	audio_devices::DEFAULT_LABEL,
+	ui::{
+		dialog_look::{self, Field},
+		theme,
+	},
+};
 
 /// Display label -> wire value pairs for a privacy dropdown, matching the
 /// values WhatsApp Web offers for that category (WAWebPrivacySettings).
@@ -128,30 +134,46 @@ pub struct SettingsDialogParts {
 fn visibility_combo(panel: &Panel, sizer: &BoxSizer, label: &str, choices: &[(&str, &str)]) -> ComboBox {
 	let text = StaticText::builder(panel).with_label(label).build();
 	text.set_font(&theme::Fonts::body());
-	sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Top, 8);
+	sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
 	let labels: Vec<&str> = choices.iter().map(|(l, _)| *l).collect();
 	let combo = ComboBox::builder(panel).with_string_choices(&labels).with_style(ComboBoxStyle::ReadOnly).build();
 	combo.set_font(&theme::Fonts::body());
 	combo.set_selection(0);
-	sizer.add(&combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+	sizer.add(&combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+	sizer.add_spacer(4);
 	combo
+}
+
+/// A setting's check box, drawn as WhatsApp's switch at the right of its
+/// row (see `dialog_look::switch`). It's still a check box with this label.
+fn setting_switch(panel: &Panel, sizer: &BoxSizer, label: &str) -> CheckBox {
+	let check = CheckBox::builder(panel).with_label(label).build();
+	dialog_look::switch(&check, theme::Palette::CONTENT_BG());
+	sizer.add(&check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+	check
+}
+
+/// A button in a settings page, drawn as a white pill.
+fn setting_button(panel: &Panel, label: &str) -> Button {
+	let btn = Button::builder(panel).with_label(label).build();
+	dialog_look::pill_button(&btn, false, theme::Palette::CONTENT_BG());
+	btn
 }
 
 /// The "Choose Excluded Contacts..." button under a dropdown that has
 /// "My Contacts Except...". It's named for its setting, since a screen reader
 /// reads buttons on their own.
 fn except_button(panel: &Panel, sizer: &BoxSizer, setting: &str) -> Button {
-	let btn = Button::builder(panel).with_label(&format!("Choose Contacts Excluded From {}...", setting)).build();
-	btn.set_font(&theme::Fonts::body());
+	let btn = setting_button(panel, &format!("Choose Contacts Excluded From {}...", setting));
 	btn.enable(false);
-	sizer.add(&btn, 0, SizerFlag::Left | SizerFlag::Bottom, 8);
+	sizer.add(&btn, 0, SizerFlag::Left | SizerFlag::Bottom, 12);
 	btn
 }
 
 pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let dialog = Dialog::builder(parent, "Settings")
-		.with_size(420, 520)
+		.with_size(600, 680)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	theme::style_content(&dialog);
@@ -164,74 +186,50 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	theme::style_content(&general_panel);
 	let general_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let sounds_check = CheckBox::builder(&general_panel).with_label("Play a sound for new messages").build();
-	sounds_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&sounds_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let sounds_check = setting_switch(&general_panel, &general_sizer, "Play a sound for new messages");
 
-	let notifications_check = CheckBox::builder(&general_panel).with_label("Show desktop notifications").build();
-	notifications_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&notifications_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let notifications_check = setting_switch(&general_panel, &general_sizer, "Show desktop notifications");
 
 	let notification_previews_check =
-		CheckBox::builder(&general_panel).with_label("Show previews: message text in notifications").build();
-	notification_previews_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&notification_previews_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+		setting_switch(&general_panel, &general_sizer, "Show previews: message text in notifications");
 
-	let reaction_notifications_check =
-		CheckBox::builder(&general_panel).with_label("Show reaction notifications").build();
-	reaction_notifications_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&reaction_notifications_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let reaction_notifications_check = setting_switch(&general_panel, &general_sizer, "Show reaction notifications");
 
-	let follow_dnd_check = CheckBox::builder(&general_panel)
-		.with_label("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on")
-		.build();
-	follow_dnd_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&follow_dnd_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let follow_dnd_check = setting_switch(
+		&general_panel,
+		&general_sizer,
+		"No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on",
+	);
 
-	let announce_typing_check = CheckBox::builder(&general_panel).with_label("Announce when someone is typing").build();
-	announce_typing_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&announce_typing_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let announce_typing_check = setting_switch(&general_panel, &general_sizer, "Announce when someone is typing");
 
 	let announce_recording_check =
-		CheckBox::builder(&general_panel).with_label("Announce when someone is recording a voice message").build();
-	announce_recording_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&announce_recording_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+		setting_switch(&general_panel, &general_sizer, "Announce when someone is recording a voice message");
 
-	let tray_icon_check = CheckBox::builder(&general_panel)
-		.with_label("Show an icon in the notification area; closing the window minimizes to it")
-		.build();
-	tray_icon_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&tray_icon_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let tray_icon_check = setting_switch(
+		&general_panel,
+		&general_sizer,
+		"Show an icon in the notification area; closing the window minimizes to it",
+	);
 
-	let autostart_check = CheckBox::builder(&general_panel).with_label("Start whatSnap when Windows starts").build();
-	autostart_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&autostart_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let autostart_check = setting_switch(&general_panel, &general_sizer, "Start whatSnap when Windows starts");
 
-	let start_maximized_check = CheckBox::builder(&general_panel).with_label("Start maximized").build();
-	start_maximized_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&start_maximized_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let start_maximized_check = setting_switch(&general_panel, &general_sizer, "Start maximized");
 
 	let meta_ai_enabled_check =
-		CheckBox::builder(&general_panel).with_label("Show a button to message Meta AI in New Chat").build();
-	meta_ai_enabled_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&meta_ai_enabled_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+		setting_switch(&general_panel, &general_sizer, "Show a button to message Meta AI in New Chat");
 
-	let verbose_backend_logging_check = CheckBox::builder(&general_panel)
-		.with_label(
-			"Verbose backend logging, for troubleshooting connection issues (takes effect next time whatSnap starts)",
-		)
-		.build();
-	verbose_backend_logging_check.set_font(&theme::Fonts::body());
-	general_sizer.add(&verbose_backend_logging_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let verbose_backend_logging_check = setting_switch(
+		&general_panel,
+		&general_sizer,
+		"Verbose backend logging, for troubleshooting connection issues (takes effect next time whatSnap starts)",
+	);
 
-	let shortcuts_btn = Button::builder(&general_panel).with_label("&Keyboard Shortcuts...").build();
-	shortcuts_btn.set_font(&theme::Fonts::body());
-	general_sizer.add(&shortcuts_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let shortcuts_btn = setting_button(&general_panel, "&Keyboard Shortcuts...");
+	general_sizer.add(&shortcuts_btn, 0, SizerFlag::Left | SizerFlag::Top, 16);
 
-	let share_menu_btn =
-		Button::builder(&general_panel).with_label("Add whatSnap to the Windows Share Menu...").build();
-	share_menu_btn.set_font(&theme::Fonts::body());
-	general_sizer.add(&share_menu_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let share_menu_btn = setting_button(&general_panel, "Add whatSnap to the Windows Share Menu...");
+	general_sizer.add(&share_menu_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
 
 	general_panel.set_sizer(general_sizer, true);
 
@@ -240,17 +238,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let chats_panel = Panel::builder(&notebook).build();
 	theme::style_content(&chats_panel);
 	let chats_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let chats_check = |label: &str| {
-		let check = CheckBox::builder(&chats_panel).with_label(label).build();
-		check.set_font(&theme::Fonts::body());
-		chats_sizer.add(&check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
-		check
-	};
+	let chats_check = |label: &str| setting_switch(&chats_panel, &chats_sizer, label);
 	let enter_is_send_check = chats_check("Enter is send: the Enter key sends your message");
 	let replace_emoji_check = chats_check("Replace text with emoji as you type, like :-) or (y)");
-	let emoji_help_btn = Button::builder(&chats_panel).with_label("Replace Text With Emoji: See Help...").build();
-	emoji_help_btn.set_font(&theme::Fonts::body());
-	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let emoji_help_btn = setting_button(&chats_panel, "Replace Text With Emoji: See Help...");
+	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
 	// Disabled, like the privacy settings, until they've been read.
 	let auto_download_photos_check = chats_check("Download photos automatically");
 	let auto_download_audio_check = chats_check("Download audio automatically");
@@ -274,28 +266,26 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	let name_label = StaticText::builder(&privacy_panel).with_label("Name").build();
 	name_label.set_font(&theme::Fonts::body());
-	privacy_sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
-	let name_field = TextCtrl::builder(&privacy_panel).build();
-	name_field.set_font(&theme::Fonts::body());
-	privacy_sizer.add(&name_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
+	privacy_sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 12);
+	let name_field =
+		TextCtrl::builder(&privacy_panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
+	dialog_look::add_field(&privacy_sizer, &name_field, Field::Line, 0);
 
 	let about_label = StaticText::builder(&privacy_panel).with_label("About").build();
 	about_label.set_font(&theme::Fonts::body());
-	privacy_sizer.add(&about_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
-	let about_field = TextCtrl::builder(&privacy_panel).build();
-	about_field.set_font(&theme::Fonts::body());
-	privacy_sizer.add(&about_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+	privacy_sizer.add(&about_label, 0, SizerFlag::Left | SizerFlag::Top, 16);
+	let about_field =
+		TextCtrl::builder(&privacy_panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
+	dialog_look::add_field(&privacy_sizer, &about_field, Field::Line, 0);
 	let about_duration_combo =
 		visibility_combo(&privacy_panel, &privacy_sizer, "Clear About After", ABOUT_DURATION_CHOICES);
 
 	let photo_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let change_photo_btn = Button::builder(&privacy_panel).with_label("Change Profile Photo...").build();
-	change_photo_btn.set_font(&theme::Fonts::body());
+	let change_photo_btn = setting_button(&privacy_panel, "Change Profile Photo...");
 	photo_sizer.add(&change_photo_btn, 0, SizerFlag::Right, 8);
-	let remove_photo_btn = Button::builder(&privacy_panel).with_label("Remove Profile Photo...").build();
-	remove_photo_btn.set_font(&theme::Fonts::body());
+	let remove_photo_btn = setting_button(&privacy_panel, "Remove Profile Photo...");
 	photo_sizer.add(&remove_photo_btn, 0, SizerFlag::Right, 8);
-	privacy_sizer.add_sizer(&photo_sizer, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 8);
+	privacy_sizer.add_sizer(&photo_sizer, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
 
 	let default_timer_combo =
 		visibility_combo(&privacy_panel, &privacy_sizer, "Default Message Timer for New Chats", DEFAULT_TIMER_CHOICES);
@@ -311,35 +301,29 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let about_privacy_combo =
 		visibility_combo(&privacy_panel, &privacy_sizer, "Who Can See My About", VISIBILITY_CHOICES);
 	let about_privacy_except_btn = except_button(&privacy_panel, &privacy_sizer, "About");
-	let read_receipts_check = CheckBox::builder(&privacy_panel)
-		.with_label(
-			"Read receipts: if turned off, you won't send or receive read receipts. They're always sent in groups.",
-		)
-		.build();
-	read_receipts_check.set_font(&theme::Fonts::body());
-	read_receipts_check.enable(false);
-	privacy_sizer.add(
-		&read_receipts_check,
-		0,
-		SizerFlag::Left | SizerFlag::Right | SizerFlag::Top | SizerFlag::Bottom,
-		8,
+	let read_receipts_check = setting_switch(
+		&privacy_panel,
+		&privacy_sizer,
+		"Read receipts: if turned off, you won't send or receive read receipts. They're always sent in groups.",
 	);
+	read_receipts_check.enable(false);
 	let groups_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Add Me to Groups", VISIBILITY_CHOICES);
 	let groups_except_btn = except_button(&privacy_panel, &privacy_sizer, "Groups");
 	let calls_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Silence Unknown Callers", CALL_CHOICES);
 
-	let link_previews_off_check = CheckBox::builder(&privacy_panel)
-		.with_label("Turn off link previews: links you send go without a preview, on all your devices")
-		.build();
-	link_previews_off_check.set_font(&theme::Fonts::body());
-	privacy_sizer.add(&link_previews_off_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
-	let security_notifications_check = CheckBox::builder(&privacy_panel)
-		.with_label("Show security notifications: say in a chat when a contact's security code changes")
-		.build();
-	security_notifications_check.set_font(&theme::Fonts::body());
-	privacy_sizer.add(&security_notifications_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+	let link_previews_off_check = setting_switch(
+		&privacy_panel,
+		&privacy_sizer,
+		"Turn off link previews: links you send go without a preview, on all your devices",
+	);
+	let security_notifications_check = setting_switch(
+		&privacy_panel,
+		&privacy_sizer,
+		"Show security notifications: say in a chat when a contact's security code changes",
+	);
 
 	privacy_panel.set_sizer(privacy_sizer, true);
+	dialog_look::paint_fields(&privacy_panel, &[(name_field, Field::Line), (about_field, Field::Line)]);
 
 	// --- Input & Output tab ---
 	let audio_panel = Panel::builder(&notebook).build();
@@ -357,11 +341,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	input_note.set_font(&theme::Fonts::body());
 	audio_sizer.add(&input_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 
-	let voice_message_noise_suppression_check = CheckBox::builder(&audio_panel)
-		.with_label("Clean up voice messages: reduce background noise and even out the volume")
-		.build();
-	voice_message_noise_suppression_check.set_font(&theme::Fonts::body());
-	audio_sizer.add(&voice_message_noise_suppression_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+	let voice_message_noise_suppression_check = setting_switch(
+		&audio_panel,
+		&audio_sizer,
+		"Clean up voice messages: reduce background noise and even out the volume",
+	);
 
 	let noise_suppression_note = StaticText::builder(&audio_panel)
 		.with_label("Like WhatsApp Web: removes background noise and brings quiet speech up to a steady, loud level. Off sends the raw mic signal.")
@@ -382,11 +366,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	output_note.set_font(&theme::Fonts::body());
 	audio_sizer.add(&output_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 
-	let dual_stream_screen_share_check = CheckBox::builder(&audio_panel)
-		.with_label("Experimental: keep the camera on while sharing the screen (applies to the next call)")
-		.build();
-	dual_stream_screen_share_check.set_font(&theme::Fonts::body());
-	audio_sizer.add(&dual_stream_screen_share_check, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+	let dual_stream_screen_share_check = setting_switch(
+		&audio_panel,
+		&audio_sizer,
+		"Experimental: keep the camera on while sharing the screen (applies to the next call)",
+	);
 
 	audio_panel.set_sizer(audio_sizer, true);
 
@@ -397,16 +381,18 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
-	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let ok_btn = Button::builder(&dialog).with_id(ID_OK).with_label("Save").build();
-	theme::style_primary_button(&ok_btn);
-	btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 8);
-	btn_sizer.add_stretch_spacer(1);
+	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("Cancel").build();
-	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);
-
-	main_sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
+	dialog_look::button_row(&main_sizer, &[&ok_btn, &cancel_btn]);
 	dialog.set_sizer(main_sizer, true);
+	// Tall enough for the longest page where the screen allows: its rows
+	// have room around them, as WhatsApp's do.
+	if let Some(display) = wxdragon::display::Display::from_window(&dialog) {
+		let height = (display.client_area().height - 60).clamp(520, 900);
+		dialog.set_size(Size::new(600, height));
+	}
 	dialog.center();
 
 	// CHAR_HOOK fires on this dialog (a top-level window) before the
