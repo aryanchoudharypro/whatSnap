@@ -1699,6 +1699,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::SetArchivedAlert { jid, level } => {
 			ui_commands::chat_list::set_archived_alert(state, parts, jid, level)
 		}
+		UiCommand::SetChatNotify { jid, notify } => ui_commands::chat_list::set_chat_notify(state, parts, jid, notify),
 		UiCommand::ToggleMuteChat { jid, mute, seconds } => {
 			ui_commands::chat_list::toggle_mute_chat(state, parts, jid, mute, seconds)
 		}

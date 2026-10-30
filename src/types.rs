@@ -364,6 +364,12 @@ pub enum UiCommand {
 		jid: String,
 		level: whatsnap::ArchivedAlert,
 	},
+	/// A chat's notification choices on this computer, from its
+	/// "Notifications" menu. Kept in settings.json, never sent to WhatsApp.
+	SetChatNotify {
+		jid: String,
+		notify: whatsnap::ChatNotify,
+	},
 	ToggleReadChat {
 		jid: String,
 		read: bool,

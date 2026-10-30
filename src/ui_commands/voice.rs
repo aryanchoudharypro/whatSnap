@@ -289,7 +289,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 			s.voice_pause_instant.take(),
 			s.is_voice_paused,
 			s.selected_chat.clone(),
-			s.settings.sounds_enabled,
+			s.settings.sounds_enabled && s.settings.outgoing_sounds,
 			s.settings.output_device_name.clone(),
 			s.ws_tx.clone(),
 			reply_id,

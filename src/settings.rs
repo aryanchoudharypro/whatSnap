@@ -85,8 +85,20 @@ pub struct Settings {
 	/// WhatsApp's "Show reaction notifications": a reaction to one of our
 	/// messages in a chat that isn't open notifies.
 	pub reaction_notifications: bool,
-	/// WhatsApp's Theme: System default, Light or Dark. Takes a restart.
+	/// WhatsApp's Theme: System default, Light or Dark.
 	pub theme: crate::ui::theme::ThemeChoice,
+	/// WhatsApp's separate group settings (its granular notifications): a
+	/// group's new messages show a notification, play the sound.
+	pub group_notifications: bool,
+	pub group_sounds: bool,
+	/// WhatsApp's "Play sounds for outgoing messages".
+	pub outgoing_sounds: bool,
+	/// WhatsApp's "Call notifications" and "Play sounds for incoming calls".
+	pub call_notifications: bool,
+	pub call_ringtone: bool,
+	/// Each chat's notification choices on this computer, by chat; chats
+	/// left as they come have no entry.
+	pub chat_notifications: std::collections::HashMap<String, whatsnap::ChatNotify>,
 }
 
 /// Tab names by tab id. The id is what the rest of the app keys on
@@ -149,6 +161,12 @@ impl Default for Settings {
 			notification_previews: true,
 			reaction_notifications: true,
 			theme: Default::default(),
+			group_notifications: true,
+			group_sounds: true,
+			outgoing_sounds: true,
+			call_notifications: true,
+			call_ringtone: true,
+			chat_notifications: std::collections::HashMap::new(),
 		}
 	}
 }
@@ -178,6 +196,34 @@ impl Settings {
 			self.archived_alert_levels.remove(jid);
 		} else {
 			self.archived_alert_levels.insert(jid.to_string(), level);
+		}
+	}
+
+	/// `jid`'s notification choices on this computer.
+	pub fn chat_notify(&self, jid: &str) -> whatsnap::ChatNotify {
+		self.chat_notifications.get(jid).copied().unwrap_or_default()
+	}
+
+	/// Records `notify` for `jid`, dropping the entry when it's the default.
+	pub fn set_chat_notify(&mut self, jid: &str, notify: whatsnap::ChatNotify) {
+		if notify == whatsnap::ChatNotify::default() {
+			self.chat_notifications.remove(jid);
+		} else {
+			self.chat_notifications.insert(jid.to_string(), notify);
+		}
+	}
+
+	/// What a new message in `jid` may do, by every rule there is: WhatsApp's
+	/// mute, archiving, the chat's choice on this computer, then the app's
+	/// own switches (a chat's own choice stands over the group ones).
+	pub fn message_alert(&self, jid: &str, muted: bool, archived: bool) -> whatsnap::IncomingAlert {
+		let base = whatsnap::incoming_alert(muted, archived, self.archived_alert(jid));
+		let chat = self.chat_notify(jid).alert;
+		let alert = whatsnap::with_chat_alert(base, muted, chat);
+		let group = jid.ends_with("@g.us") && chat == whatsnap::ChatAlert::Default;
+		whatsnap::IncomingAlert {
+			sound: alert.sound && self.sounds_enabled && (!group || self.group_sounds),
+			toast: alert.toast && self.notifications_enabled && (!group || self.group_notifications),
 		}
 	}
 

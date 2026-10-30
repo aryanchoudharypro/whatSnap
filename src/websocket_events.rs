@@ -1691,7 +1691,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.call_parts.frame.show(true);
 						parts.call_parts.frame.iconize(false);
 						parts.call_parts.frame.raise();
-						start_call_ringing_sound(&mut s, include_bytes!("../sounds/ringtone_incoming_call.ogg"));
+						if s.settings.call_ringtone {
+							start_call_ringing_sound(&mut s, include_bytes!("../sounds/ringtone_incoming_call.ogg"));
+						}
 						let (call_hotkeys, unavailable) = crate::call_hotkeys::start(&s.ui_tx, &s.keymap);
 						s.call_hotkeys = call_hotkeys;
 						for chord in unavailable {
@@ -1700,7 +1702,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 								&format!("Could not register the call key {chord}; another program is using it"),
 							);
 						}
-						if s.settings.notifications_enabled {
+						if s.settings.notifications_enabled && s.settings.call_notifications {
 							let mut toast_body = description.clone();
 							toast_body[..1].make_ascii_uppercase();
 							show_toast_notification("Incoming call", &toast_body);
@@ -2359,10 +2361,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							if !is_from_me && !is_system {
 								// Archived chats default to silent and can be dialled back up per chat
 								// from the chat-list context menu; muting still overrides both.
-								let alert = whatsnap::incoming_alert(
+								let alert = s.settings.message_alert(
+									jid,
 									s.muted_jids.contains(jid),
 									s.archived_jids.contains(jid),
-									s.settings.archived_alert(jid),
 								);
 								let alert = if is_backlog {
 									if is_missed_call || !is_call_line {
@@ -2385,7 +2387,20 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										s.settings.output_device_name.clone(),
 									);
 								}
-								if alert.toast && s.settings.notifications_enabled {
+								// A locked chat's notification names neither the chat nor
+								// what was said, as WhatsApp's: "WhatsApp", "2 new messages".
+								if alert.toast && s.locked_jids.contains(jid) {
+									let unread = s.unread_counts.get(jid).copied().unwrap_or(0).max(1);
+									let body = if unread == 1 {
+										"1 new message".to_string()
+									} else {
+										format!("{unread} new messages")
+									};
+									crate::chat_ui::show_chat_notification(jid, "WhatsApp", &body);
+								} else if alert.toast {
+									// Previews off, for the app or for this chat alone.
+									let previews =
+										s.settings.notification_previews && !s.settings.chat_notify(jid).hide_content;
 									// The backend's "message" event carries no sender_name
 									// field - resolve the display name from the contacts
 									// map ourselves, same as everywhere else in the UI, so
@@ -2423,24 +2438,19 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 											.unwrap_or_else(|| display_name_for_jid(&clean_from));
 										// With "Show previews" off the text stays out of
 										// it, as WhatsApp Web words it.
-										let toast_body =
-											match (s.settings.notification_previews, sender_name.is_empty()) {
-												(false, true) => "New message".to_string(),
-												(false, false) => format!("Message from {}", sender_name),
-												(true, true) => body.to_string(),
-												(true, false) => format!("{}: {}", sender_name, body),
-											};
+										let toast_body = match (previews, sender_name.is_empty()) {
+											(false, true) => "New message".to_string(),
+											(false, false) => format!("Message from {}", sender_name),
+											(true, true) => body.to_string(),
+											(true, false) => format!("{}: {}", sender_name, body),
+										};
 										crate::chat_ui::show_chat_notification(jid, &chat_name, &toast_body);
 									} else {
 										let sender_name = provided_sender
 											.or_else(|| s.contacts.get(&clean_from).cloned())
 											.or_else(|| s.contacts.get(from).cloned())
 											.unwrap_or_else(|| display_name_for_jid(&clean_from));
-										let body = if s.settings.notification_previews {
-											body.to_string()
-										} else {
-											"New message".to_string()
-										};
+										let body = if previews { body.to_string() } else { "New message".to_string() };
 										crate::chat_ui::show_chat_notification(jid, &sender_name, &body);
 									}
 								}
@@ -4340,7 +4350,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							if should_play {
 								play_notification_sound(
 									NotificationSound::MessageSent,
-									s.settings.sounds_enabled,
+									s.settings.sounds_enabled && s.settings.outgoing_sounds,
 									s.settings.output_device_name.clone(),
 								);
 							}
@@ -4635,10 +4645,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										.cloned()
 										.unwrap_or_else(|| "Contact".to_string())
 								};
-								let alert = whatsnap::incoming_alert(
+								let alert = s.settings.message_alert(
+									chat_jid,
 									s.muted_jids.contains(chat_jid),
 									s.archived_jids.contains(chat_jid),
-									s.settings.archived_alert(chat_jid),
 								);
 								// "Show reaction notifications" off keeps reactions quiet.
 								let alert = if s.settings.reaction_notifications {
@@ -4653,8 +4663,12 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 										s.settings.output_device_name.clone(),
 									);
 								}
-								if alert.toast && s.settings.notifications_enabled {
-									let body = if s.settings.notification_previews {
+								if alert.toast && s.locked_jids.contains(chat_jid) {
+									crate::chat_ui::show_chat_notification(chat_jid, "WhatsApp", "New reaction");
+								} else if alert.toast {
+									let previews = s.settings.notification_previews
+										&& !s.settings.chat_notify(chat_jid).hide_content;
+									let body = if previews {
 										format!("Reacted {} to \"{}\"", emoji, whatsnap::friendly_preview_text(text))
 									} else {
 										format!("Reacted {}", emoji)

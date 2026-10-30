@@ -1379,6 +1379,51 @@ pub enum ArchivedAlert {
 	Full,
 }
 
+/// What this computer alone does about a chat's new messages, picked from
+/// the chat's "Notifications" menu. It's kept in settings.json and never
+/// sent to the phone, unlike WhatsApp's own mute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatAlert {
+	/// As the app's settings (and, for an archived chat, its archived alert
+	/// level) say.
+	#[default]
+	Default,
+	/// A notification and the sound.
+	Full,
+	/// A notification without the sound.
+	NoSound,
+	/// The sound without a notification.
+	SoundOnly,
+	/// Nothing: muted on this computer only.
+	Off,
+}
+
+/// A chat's notification choices on this computer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ChatNotify {
+	pub alert: ChatAlert,
+	/// Notifications leave out what the message says, as with "Show previews"
+	/// off, for this chat alone.
+	pub hide_content: bool,
+}
+
+/// `alert` (from [`incoming_alert`]) with the chat's own choice on this
+/// computer applied. WhatsApp's mute still wins: a muted chat stays silent.
+pub fn with_chat_alert(alert: IncomingAlert, muted: bool, chat: ChatAlert) -> IncomingAlert {
+	if muted {
+		return IncomingAlert { sound: false, toast: false };
+	}
+	match chat {
+		ChatAlert::Default => alert,
+		ChatAlert::Full => IncomingAlert { sound: true, toast: true },
+		ChatAlert::NoSound => IncomingAlert { sound: false, toast: true },
+		ChatAlert::SoundOnly => IncomingAlert { sound: true, toast: false },
+		ChatAlert::Off => IncomingAlert { sound: false, toast: false },
+	}
+}
+
 /// What an incoming message is allowed to do about itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IncomingAlert {
@@ -1859,6 +1904,18 @@ mod tests {
 			assert!(!windows_is_quieting(None, Some(state)));
 			assert!(!windows_is_quieting(Some(false), Some(state)));
 		}
+	}
+
+	#[test]
+	fn chat_alert_overrides_all_but_whatsapps_mute() {
+		let quiet = IncomingAlert { sound: false, toast: false };
+		let full = IncomingAlert { sound: true, toast: true };
+		assert_eq!(with_chat_alert(full, false, ChatAlert::Default), full);
+		assert_eq!(with_chat_alert(quiet, false, ChatAlert::Full), full);
+		assert_eq!(with_chat_alert(full, false, ChatAlert::Off), quiet);
+		assert_eq!(with_chat_alert(full, false, ChatAlert::NoSound), IncomingAlert { sound: false, toast: true });
+		assert_eq!(with_chat_alert(full, false, ChatAlert::SoundOnly), IncomingAlert { sound: true, toast: false });
+		assert_eq!(with_chat_alert(full, true, ChatAlert::Full), quiet);
 	}
 
 	#[test]

@@ -857,6 +857,30 @@ pub(crate) fn set_archived_alert(
 	);
 }
 
+pub(crate) fn set_chat_notify(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	jid: String,
+	notify: whatsnap::ChatNotify,
+) {
+	let spoken = {
+		let mut s = state.borrow_mut();
+		s.settings.set_chat_notify(&jid, notify);
+		s.settings.save();
+		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+		let alert = match notify.alert {
+			whatsnap::ChatAlert::Default => "as set in Settings",
+			whatsnap::ChatAlert::Full => "notification and sound",
+			whatsnap::ChatAlert::NoSound => "notification only, no sound",
+			whatsnap::ChatAlert::SoundOnly => "sound only, no notification",
+			whatsnap::ChatAlert::Off => "off on this computer",
+		};
+		let content = if notify.hide_content { ", message content hidden" } else { "" };
+		format!("Notifications for {name}: {alert}{content}.")
+	};
+	crate::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
+}
+
 /// WhatsApp Web's mute lengths (`WAWebMuteExpirations`): menu label, how
 /// long it's said to last, and seconds, where 0 is "Always" - a mute with no
 /// end.

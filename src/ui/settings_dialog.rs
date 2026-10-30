@@ -72,6 +72,11 @@ pub struct SettingsDialogParts {
 	pub notifications_check: CheckBox,
 	pub notification_previews_check: CheckBox,
 	pub reaction_notifications_check: CheckBox,
+	pub group_notifications_check: CheckBox,
+	pub group_sounds_check: CheckBox,
+	pub outgoing_sounds_check: CheckBox,
+	pub call_notifications_check: CheckBox,
+	pub call_ringtone_check: CheckBox,
 	pub follow_dnd_check: CheckBox,
 	pub announce_typing_check: CheckBox,
 	pub announce_recording_check: CheckBox,
@@ -194,6 +199,20 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		setting_switch(&general_panel, &general_sizer, "Show previews: message text in notifications");
 
 	let reaction_notifications_check = setting_switch(&general_panel, &general_sizer, "Show reaction notifications");
+	// WhatsApp's group, outgoing and call settings, in its words.
+	let group_notifications_check = setting_switch(
+		&general_panel,
+		&general_sizer,
+		"Group notifications: show notifications for new group messages",
+	);
+	let group_sounds_check =
+		setting_switch(&general_panel, &general_sizer, "Group sounds: play sounds for new group messages");
+	let outgoing_sounds_check =
+		setting_switch(&general_panel, &general_sizer, "Outgoing sounds: play sounds for messages you send");
+	let call_notifications_check =
+		setting_switch(&general_panel, &general_sizer, "Call notifications: show notifications for incoming calls");
+	let call_ringtone_check =
+		setting_switch(&general_panel, &general_sizer, "Incoming call sounds: play the ringtone for incoming calls");
 
 	let follow_dnd_check = setting_switch(
 		&general_panel,
@@ -410,6 +429,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		notifications_check,
 		notification_previews_check,
 		reaction_notifications_check,
+		group_notifications_check,
+		group_sounds_check,
+		outgoing_sounds_check,
+		call_notifications_check,
+		call_ringtone_check,
 		follow_dnd_check,
 		announce_typing_check,
 		announce_recording_check,
@@ -607,6 +631,11 @@ impl SettingsDialogParts {
 	pub fn show_chat_settings(&self, settings: &crate::settings::Settings) {
 		self.notification_previews_check.set_value(settings.notification_previews);
 		self.reaction_notifications_check.set_value(settings.reaction_notifications);
+		self.group_notifications_check.set_value(settings.group_notifications);
+		self.group_sounds_check.set_value(settings.group_sounds);
+		self.outgoing_sounds_check.set_value(settings.outgoing_sounds);
+		self.call_notifications_check.set_value(settings.call_notifications);
+		self.call_ringtone_check.set_value(settings.call_ringtone);
 		self.enter_is_send_check.set_value(settings.enter_is_send);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
 		let theme = serde_json::to_value(settings.theme).ok();
@@ -616,6 +645,11 @@ impl SettingsDialogParts {
 	pub fn read_chat_settings(&self, settings: &mut crate::settings::Settings) {
 		settings.notification_previews = self.notification_previews_check.is_checked();
 		settings.reaction_notifications = self.reaction_notifications_check.is_checked();
+		settings.group_notifications = self.group_notifications_check.is_checked();
+		settings.group_sounds = self.group_sounds_check.is_checked();
+		settings.outgoing_sounds = self.outgoing_sounds_check.is_checked();
+		settings.call_notifications = self.call_notifications_check.is_checked();
+		settings.call_ringtone = self.call_ringtone_check.is_checked();
 		settings.enter_is_send = self.enter_is_send_check.is_checked();
 		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();
 		let theme = combo_value(&self.theme_combo, THEME_CHOICES);
