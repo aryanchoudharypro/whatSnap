@@ -40,6 +40,10 @@ macro_rules! palette {
 				if is_dark() { $dark } else { $light }
 			})*
 		}
+
+		/// Every token as (light, dark), in the order above, for swapping a
+		/// window's colours when the theme changes (see [`change_theme`]).
+		const PAIRS: &[(Colour, Colour)] = &[$(($light, $dark)),*];
 	};
 }
 
@@ -78,6 +82,8 @@ palette! {
 	/// text, so it needn't meet a contrast ratio).
 	DIVIDER_SOFT = rgb(0xE9, 0xED, 0xEF), rgb(0x22, 0x2D, 0x34);
 
+	/// Search boxes and other filled fields.
+	FIELD_BG = rgb(0xF0, 0xF2, 0xF5), rgb(0x2A, 0x39, 0x42);
 	/// The selected row of a list.
 	SELECTED_ROW = rgb(0xE4, 0xE8, 0xEA), rgb(0x2A, 0x39, 0x42);
 	/// Icons on bars and buttons.
@@ -86,8 +92,6 @@ palette! {
 	PRESSED = rgb(0xD9, 0xDB, 0xDF), rgb(0x37, 0x42, 0x48);
 	/// Behind the person glyph when there's no picture.
 	AVATAR_BG = rgb(0xDF, 0xE5, 0xE7), rgb(0x6A, 0x71, 0x75);
-	/// Search boxes and other filled fields.
-	FIELD_BG = rgb(0xF0, 0xF2, 0xF5), rgb(0x2A, 0x39, 0x42);
 	/// A field's underline, an unticked box's ring.
 	LINE = rgb(0x86, 0x96, 0xA0), rgb(0x86, 0x96, 0xA0);
 	/// Outlines of pills and plain buttons.
@@ -123,24 +127,109 @@ pub enum ThemeChoice {
 	Dark,
 }
 
-static DARK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Picks the theme for this run. Called once at startup, before any window
-/// is made; changing it takes a restart, as every colour is set as windows
-/// are made.
+/// Picks the theme. Called at startup, before any window is made; while the
+/// app runs, [`change_theme`] also recolours what's open.
 pub fn set_theme(choice: ThemeChoice) {
 	let dark = match choice {
 		ThemeChoice::Light => false,
 		ThemeChoice::Dark => true,
 		ThemeChoice::System => system_prefers_dark(),
 	};
-	let _ = DARK.set(dark && use_custom_colours());
+	DARK.store(dark && use_custom_colours(), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Whether the dark theme is on. Never in High Contrast, whose colours are
 /// the system's.
 pub fn is_dark() -> bool {
-	*DARK.get_or_init(|| false)
+	DARK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// `colour` in the other theme, when it's one of the palette's: from light
+/// to dark when `to_dark`, else back.
+fn swapped(colour: Colour, to_dark: bool) -> Option<Colour> {
+	PAIRS.iter().find_map(|&(light, dark)| {
+		let (from, to) = if to_dark { (light, dark) } else { (dark, light) };
+		(from == colour && from != to).then_some(to)
+	})
+}
+
+/// Switches the running app to `choice`, with every open window: Windows'
+/// own parts through wx, the colours set on windows as they were made
+/// swapped for the other theme's, and everything repainted (what's drawn
+/// reads the palette as it paints). Nothing about any control changes but
+/// its colours.
+#[cfg(windows)]
+pub fn change_theme(choice: ThemeChoice) {
+	use windows::Win32::{
+		Foundation::{HWND, LPARAM, WPARAM},
+		Graphics::Gdi::{RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow},
+		System::Threading::GetCurrentThreadId,
+		UI::WindowsAndMessaging::{EnumChildWindows, EnumThreadWindows, GetDlgCtrlID, SendMessageW, WM_SYSCOLORCHANGE},
+	};
+
+	let was = is_dark();
+	set_theme(choice);
+	let dark = is_dark();
+	if dark == was {
+		return;
+	}
+	let appearance =
+		if dark { wxdragon::appearance::Appearance::Dark } else { wxdragon::appearance::Appearance::Light };
+	// Tells wx's main window, which passes it to its children.
+	let _ = wxdragon::app::set_appearance(appearance);
+	let Some(top) = wxdragon::app::get_app_instance().and_then(|app| app.get_top_window()) else { return };
+
+	unsafe extern "system" fn collect(hwnd: HWND, list: LPARAM) -> windows::core::BOOL {
+		unsafe { (*(list.0 as *mut Vec<HWND>)).push(hwnd) };
+		true.into()
+	}
+	let mut top_levels: Vec<HWND> = Vec::new();
+	unsafe {
+		let _ = EnumThreadWindows(GetCurrentThreadId(), Some(collect), LPARAM(&mut top_levels as *mut _ as isize));
+	}
+	let top_hwnd = HWND(top.get_handle().cast());
+	// Hidden ones too: dialogs made once and shown again later.
+	for &window in &top_levels {
+		let mut all = vec![window];
+		unsafe {
+			let _ = EnumChildWindows(Some(window), Some(collect), LPARAM(&mut all as *mut _ as isize));
+			// wx passed it on to its main window already; the others are told
+			// here, the same way.
+			if window != top_hwnd {
+				SendMessageW(window, WM_SYSCOLORCHANGE, Some(WPARAM(0)), Some(LPARAM(0)));
+			}
+		}
+		let mut found = Vec::new();
+		for &hwnd in &all {
+			// wx gives each child window its id as its control id; a dialog,
+			// which has none, is found as its children's parent.
+			let win = if hwnd == top_hwnd {
+				Some(top)
+			} else {
+				top.find_window_by_id(unsafe { GetDlgCtrlID(hwnd) }).filter(|w| HWND(w.get_handle().cast()) == hwnd)
+			};
+			found.extend(win);
+		}
+		if window != top_hwnd
+			&& let Some(dialog) =
+				found.iter().find_map(|w| w.get_parent().filter(|p| HWND(p.get_handle().cast()) == window))
+		{
+			found.insert(0, dialog);
+		}
+		for win in found {
+			if let Some(colour) = swapped(win.get_background_color(), dark) {
+				win.set_background_color(colour);
+			}
+			if let Some(colour) = swapped(win.get_foreground_color(), dark) {
+				win.set_foreground_color(colour);
+			}
+		}
+		unsafe {
+			let _ = RedrawWindow(Some(window), None, None, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+		}
+	}
 }
 
 /// Turns on wxWidgets' own dark mode for what Windows draws (title bars,

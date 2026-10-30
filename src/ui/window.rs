@@ -1992,7 +1992,13 @@ pub fn bind_input_handlers(
 		s.settings.start_maximized = start_maximized_check_ok.is_checked();
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
 		s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
+		let old_theme = s.settings.theme;
 		settings_parts_ok.read_chat_settings(&mut s.settings);
+		if s.settings.theme != old_theme {
+			// After this handler, with the dialog gone and nothing borrowed.
+			let theme = s.settings.theme;
+			wxdragon::call_after(Box::new(move || theme::change_theme(theme)));
+		}
 		let changes = s.app_prefs.as_ref().map(|loaded| settings_parts_ok.app_prefs_changes(loaded));
 		if let Some(changes) = changes.filter(|c| !c.is_empty()) {
 			if let Some(prefs) = s.app_prefs.as_mut().and_then(|p| p.as_object_mut()) {
