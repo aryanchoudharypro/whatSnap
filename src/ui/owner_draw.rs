@@ -371,8 +371,8 @@ pub(crate) fn install_media_list(list: &ListBox, message: impl Fn(usize) -> Opti
 
 fn row_height(kind: Kind, fonts: &Fonts) -> i32 {
 	match kind {
-		Kind::People => person_side(fonts) + 12,
-		_ => fonts.line * 3 + 12,
+		Kind::People => person_side(fonts) + 18,
+		_ => fonts.line * 3 + 16,
 	}
 }
 

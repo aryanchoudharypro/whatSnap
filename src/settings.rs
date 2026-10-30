@@ -52,6 +52,9 @@ pub struct Settings {
 	/// Whether the main window opens maximized the first time it is shown,
 	/// like Paperback's "Start maximized" option.
 	pub start_maximized: bool,
+	/// How wide the user dragged the chat list column, in pixels; 0 lets it
+	/// follow the window's width.
+	pub chat_list_width: i32,
 	/// Menu shortcuts the user changed, by action id; see [`crate::keymap`].
 	/// Anything not listed keeps its default.
 	pub shortcuts: std::collections::BTreeMap<String, String>,
@@ -135,6 +138,7 @@ impl Default for Settings {
 			archived_alert_levels: std::collections::HashMap::new(),
 			verbose_backend_logging: false,
 			start_maximized: false,
+			chat_list_width: 0,
 			shortcuts: std::collections::BTreeMap::new(),
 			tab_order: DEFAULT_TAB_ORDER.to_vec(),
 			audio_speed: 1.0,

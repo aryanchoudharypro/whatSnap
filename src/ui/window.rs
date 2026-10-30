@@ -852,6 +852,14 @@ pub fn bind_input_handlers(
 		});
 	});
 
+	let state_column = state.clone();
+	crate::ui::conversations::on_list_column_resized(move |width| {
+		if let Ok(mut s) = state_column.try_borrow_mut() {
+			s.settings.chat_list_width = width;
+			s.settings.save();
+		}
+	});
+
 	crate::ui::avatars::init(state.borrow().ws_tx.clone());
 	// The contact pickers' rows show each person's picture, found by row.
 	let picked = |state: &Rc<std::cell::RefCell<crate::AppState>>, jids: fn(&crate::AppState) -> &Vec<String>| {

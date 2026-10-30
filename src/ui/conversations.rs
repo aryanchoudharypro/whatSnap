@@ -278,22 +278,104 @@ fn paint_calls_page(page: &Panel) {
 	});
 }
 
-/// The chat list column's width for a window `width` wide: about a third,
-/// as WhatsApp Web has it, within bounds that keep both sides usable.
-fn list_column_width(width: i32) -> i32 {
-	(width * 3 / 10).clamp(280, 460)
+type ResizedCallback = Box<dyn Fn(i32)>;
+
+thread_local! {
+	/// The chat list column's width as the user last dragged it (0 = follow
+	/// the window), and who to tell when they drag it again.
+	static LIST_COLUMN: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+	static ON_RESIZED: std::cell::RefCell<Option<ResizedCallback>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Keeps the chat list column a third of the window as it's resized, and
-/// draws WhatsApp's "pick a chat" page where the open chat goes while none
-/// is open. It's only painted: a screen reader isn't told about it.
+/// Calls `f` with the chat list column's new width whenever the user drags
+/// its edge, so it can be remembered.
+pub fn on_list_column_resized(f: impl Fn(i32) + 'static) {
+	ON_RESIZED.with(|r| *r.borrow_mut() = Some(Box::new(f)));
+}
+
+/// The chat list column's width for a window `width` wide: where the user
+/// dragged it, or else about a third, as WhatsApp has it, within bounds that
+/// keep both sides usable.
+fn list_column_width(width: i32) -> i32 {
+	let chosen = LIST_COLUMN.with(|c| c.get());
+	if chosen > 0 {
+		return chosen.clamp(240, (width - 360).max(240));
+	}
+	(width * 7 / 20).clamp(320, 520)
+}
+
+/// Keeps the chat list column a third of the window as it's resized (or
+/// where the user dragged its edge, like WhatsApp for Windows' sidebar),
+/// and draws WhatsApp's "pick a chat" page where the open chat goes while
+/// none is open. It's all mouse and paint: a screen reader isn't told.
 fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel, calls_page: &Panel) {
 	let (panel_c, list_c, conversation_c, calls_c) = (*panel, *list, *conversation, *calls_page);
-	panel.on_size(move |event| {
+	LIST_COLUMN.with(|c| c.set(crate::settings::Settings::load().chat_list_width));
+	let fit = move || {
 		let width = panel_c.get_client_size().width;
 		// The column is as wide as its widest part, the list.
 		list_c.set_min_size(Size::new(list_column_width(width) - 20, 100));
+	};
+	panel.on_size(move |event| {
+		fit();
 		panel_c.refresh(true, None);
+		event.skip(true);
+	});
+	// The column's edge is the 10 pixels between the list and the chat.
+	let on_edge = move |x: i32| {
+		let right = list_c.get_position().x + list_c.get_size().width;
+		(right - 2..=right + 12).contains(&x)
+	};
+	let dragging = std::rc::Rc::new(std::cell::Cell::new(false));
+	let resize_cursor = Cursor::from_stock(StockCursor::SizeWE);
+	let arrow = Cursor::from_stock(StockCursor::Arrow);
+	let drag = dragging.clone();
+	panel.on_mouse_left_down(move |event| {
+		if let WindowEventData::MouseButton(ref mouse) = event
+			&& let Some(pos) = mouse.get_position()
+			&& on_edge(pos.x)
+		{
+			drag.set(true);
+			panel_c.capture_mouse();
+		}
+		event.skip(true);
+	});
+	let drag = dragging.clone();
+	panel.on_mouse_motion(move |event| {
+		if let WindowEventData::MouseMotion(ref mouse) = event
+			&& let Some(pos) = mouse.get_position()
+		{
+			// Windows took the mouse away mid-drag (a dialog opened, say).
+			if drag.get() && !panel_c.has_capture() {
+				drag.set(false);
+			}
+			if drag.get() {
+				// The column, and its dividing line, end under the mouse.
+				let width = panel_c.get_client_size().width;
+				let column = pos.x.clamp(240, (width - 360).max(240));
+				LIST_COLUMN.with(|c| c.set(column));
+				fit();
+				panel_c.layout();
+				panel_c.refresh(true, None);
+			}
+			let cursor = if drag.get() || on_edge(pos.x) { &resize_cursor } else { &arrow };
+			panel_c.set_cursor(cursor.as_ref());
+		}
+		event.skip(true);
+	});
+	let drag = dragging;
+	panel.on_mouse_left_up(move |event| {
+		if drag.replace(false) {
+			if panel_c.has_capture() {
+				panel_c.release_mouse();
+			}
+			let column = LIST_COLUMN.with(|c| c.get());
+			ON_RESIZED.with(|r| {
+				if let Some(f) = r.borrow().as_ref() {
+					f(column);
+				}
+			});
+		}
 		event.skip(true);
 	});
 	panel.set_background_style(BackgroundStyle::Paint);

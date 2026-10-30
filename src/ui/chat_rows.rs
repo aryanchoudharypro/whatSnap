@@ -245,8 +245,9 @@ struct Layout {
 
 impl Layout {
 	fn for_line(line: i32) -> Self {
-		let pad = (line * 3 / 5).max(4);
-		let avatar = line * 5 / 2;
+		// Roomy, like WhatsApp for Windows' rows.
+		let pad = (line * 4 / 5).max(6);
+		let avatar = line * 11 / 4;
 		Self { pad, avatar, row: avatar + 2 * pad }
 	}
 }
