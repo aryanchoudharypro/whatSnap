@@ -609,6 +609,7 @@ func handleMarkRead(raw json.RawMessage) {
 	// sender as their message did - in a group that hides numbers, by LID.
 	// Swapping in the phone JID (as this used to) addressed a receipt to
 	// someone the message never named.
+	syncJID := syncdChatJID(chatJID)
 	chatJID = receiptChatJID(chatJID)
 
 	type msgSender struct {
@@ -636,7 +637,15 @@ func handleMarkRead(raw json.RawMessage) {
 			}
 			items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
 		}
-	} else {
+	}
+	// A chat marked unread (here, on the phone or on another device) has
+	// nothing unread to acknowledge, so receipts alone leave it marked
+	// everywhere else. WA Web clears the mark with a markChatAsRead patch
+	// when such a chat is opened; so does this.
+	var markedUnread bool
+	if len(data.MessageIDs) == 0 {
+		_ = db.QueryRow("SELECT COALESCE(marked_unread, 0) = 1 FROM chats WHERE jid = ?", data.JID).Scan(&markedUnread)
+
 		// Opening a chat acknowledges only what the chat really has unread -
 		// its unread count, which history sync, live messages and the phone's
 		// own reads keep current. Incoming messages from history sync are
@@ -704,6 +713,12 @@ func handleMarkRead(raw json.RawMessage) {
 		if !ok {
 			broadcastEvent("mark_read_failed", map[string]interface{}{"jid": data.JID})
 			return
+		}
+		if markedUnread {
+			lastTS, lastKey := getLastMessageKeyForChat(data.JID)
+			if err := sendAppStateWithRetry(context.Background(), appstate.BuildMarkChatAsRead(syncJID, true, lastTS, lastKey)); err != nil {
+				log.Printf("Clearing the unread mark of %s on other devices failed: %v", data.JID, err)
+			}
 		}
 		if len(data.MessageIDs) == 0 {
 			// Everything older was read elsewhere; note it locally so no later

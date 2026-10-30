@@ -14,6 +14,10 @@ use wxdragon::bitmap::Bitmap;
 /// Decoded pictures kept at once, each at most about 200 x 150 x 4 bytes.
 const MAX_BITMAPS: usize = 64;
 const RETRY_AFTER: Duration = Duration::from_secs(60);
+/// Known file paths kept before the ones not on screen are forgotten (they
+/// are asked for again if scrolled back to), so paging through a big chat's
+/// media all session doesn't keep one path per message seen.
+const MAX_PATHS: usize = 2048;
 
 pub(crate) enum Thumb<'a> {
 	Picture(&'a Bitmap),
@@ -84,6 +88,9 @@ fn ask(c: &mut Cache, id: &str) {
 	if id.is_empty() || c.asked.get(id).is_some_and(|t| t.elapsed() < RETRY_AFTER) {
 		return;
 	}
+	if c.asked.len() >= MAX_PATHS {
+		c.asked.retain(|_, t| t.elapsed() < RETRY_AFTER);
+	}
 	c.asked.insert(id.to_string(), Instant::now());
 	c.pending.push(id.to_string());
 	if c.flush_scheduled {
@@ -113,6 +120,10 @@ pub(crate) fn on_thumbnails(data: &serde_json::Value) {
 	let Some(items) = data.get("items").and_then(|i| i.as_array()) else { return };
 	let on_change = CACHE.with(|cache| {
 		let mut c = cache.borrow_mut();
+		if c.paths.len() >= MAX_PATHS {
+			let Cache { paths, bitmaps, .. } = &mut *c;
+			paths.retain(|id, _| bitmaps.contains_key(id));
+		}
 		for item in items {
 			let Some(id) = item.get("id").and_then(|j| j.as_str()) else { continue };
 			let path = item.get("path").and_then(|p| p.as_str()).filter(|p| !p.is_empty()).map(str::to_string);
