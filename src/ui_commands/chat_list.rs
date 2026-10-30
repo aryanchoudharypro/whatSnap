@@ -530,6 +530,10 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				parts.group_data_dialog.notebook.set_selection(GROUPS_TAB);
 			}
 
+			// The group's photo, shown big at the top once it comes.
+			parts.group_data_dialog.photo.show(false);
+			let payload = serde_json::json!({ "action": "get_avatar", "data": { "jid": jid } });
+			let _ = s.ws_tx.send(payload.to_string());
 			let payload = serde_json::json!({
 				"action": "get_group_info",
 				"data": { "jid": jid }

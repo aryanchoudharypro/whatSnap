@@ -61,6 +61,23 @@ pub(crate) fn on_change(callback: impl Fn() + 'static) {
 	CACHE.with(|c| c.borrow_mut().on_change.push(Box::new(callback)));
 }
 
+/// The file of `jid`'s picture, asking for it if it's not known yet.
+pub(crate) fn path_of(jid: &str) -> Option<String> {
+	if jid.is_empty() {
+		return None;
+	}
+	CACHE.with(|cache| {
+		let mut c = cache.borrow_mut();
+		match c.paths.get(jid) {
+			Some(path) => path.clone(),
+			None => {
+				ask(&mut c, jid);
+				None
+			}
+		}
+	})
+}
+
 /// Runs `draw` with `jid`'s picture at `size` pixels, asking for it if it's
 /// not known yet.
 pub(crate) fn with_avatar<R>(jid: &str, size: i32, draw: impl FnOnce(Avatar) -> R) -> R {

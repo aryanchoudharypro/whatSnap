@@ -14,6 +14,8 @@ pub struct GroupDataDialogParts {
 	pub members_search_label: StaticText,
 	pub members_search: TextCtrl,
 	pub members_list: ListBox,
+	/// The group's photo, big and round at the top; hidden until it comes.
+	pub photo: StaticBitmap,
 	pub add_member_btn: Button,
 	pub make_admin_btn: Button,
 	pub remove_member_btn: Button,
@@ -83,6 +85,9 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	// --- Members Tab ---
 	let members_panel = Panel::builder(&notebook).build();
 	let members_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	// The group's photo goes at the top, though it's made last (see below).
+	let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
+	members_sizer.add_sizer(&photo_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 8);
 
 	let members_search_label = StaticText::builder(&members_panel).with_label("Search members").build();
 	members_sizer.add(&members_search_label, 0, SizerFlag::All, 5);
@@ -90,7 +95,10 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let members_search = TextCtrl::builder(&members_panel).with_style(TextCtrlStyle::ProcessEnter).build();
 	members_sizer.add(&members_search, 0, SizerFlag::Expand | SizerFlag::All, 5);
 
-	let members_list = ListBox::builder(&members_panel).build();
+	// Each member's picture drawn before their name (see `owner_draw::install_people_list`).
+	let members_list = ListBox::builder(&members_panel)
+		.with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW))
+		.build();
 	members_sizer.add(&members_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
 	// A nested sizer (not a wrapping Panel) groups these buttons horizontally -
@@ -99,18 +107,23 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	// "panel" with nothing on it.
 	let mem_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let add_member_btn = Button::builder(&members_panel).with_label("Add member").build();
+	crate::ui::owner_draw::install_tile(&add_member_btn, members_panel.get_background_color());
 	mem_btn_sizer.add(&add_member_btn, 0, SizerFlag::Right, 5);
 
 	let make_admin_btn = Button::builder(&members_panel).with_label("Make admin").build();
+	crate::ui::owner_draw::install_tile(&make_admin_btn, members_panel.get_background_color());
 	mem_btn_sizer.add(&make_admin_btn, 0, SizerFlag::Right, 5);
 
 	let remove_member_btn = Button::builder(&members_panel).with_label("Remove member").build();
+	crate::ui::owner_draw::install_tile(&remove_member_btn, members_panel.get_background_color());
 	mem_btn_sizer.add(&remove_member_btn, 0, SizerFlag::Right, 5);
 
 	let invite_link_btn = Button::builder(&members_panel).with_label("Invite link...").build();
+	crate::ui::owner_draw::install_tile(&invite_link_btn, members_panel.get_background_color());
 	mem_btn_sizer.add(&invite_link_btn, 0, SizerFlag::Right, 5);
 
 	let join_requests_btn = Button::builder(&members_panel).with_label("Join requests...").build();
+	crate::ui::owner_draw::install_tile(&join_requests_btn, members_panel.get_background_color());
 	mem_btn_sizer.add(&join_requests_btn, 0, SizerFlag::Right, 5);
 
 	members_sizer.add_sizer(&mem_btn_sizer, 0, SizerFlag::All, 5);
@@ -125,6 +138,12 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let set_tag_btn = Button::builder(&members_panel).with_label("Set tag").build();
 	tag_sizer.add(&set_tag_btn, 0, SizerFlag::Right, 5);
 	members_sizer.add_sizer(&tag_sizer, 0, SizerFlag::Expand | SizerFlag::All, 5);
+	// Made after everything else, so it's never what names a control (Windows
+	// names one from the text just before it) and is never in Tab's way.
+	let empty = wxdragon::bitmap::Bitmap::from_rgba(&[0, 0, 0, 0], 1, 1).expect("a 1x1 bitmap");
+	let photo = StaticBitmap::builder(&members_panel).with_bitmap(Some(empty)).build();
+	photo_row.add(&photo, 0, SizerFlag::AlignCenterVertical, 0);
+	photo.show(false);
 	members_panel.set_sizer(members_sizer, true);
 
 	// --- Media Tab ---
@@ -132,7 +151,10 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let media_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let media_label = StaticText::builder(&media_panel).with_label("Media").build();
 	media_sizer.add(&media_label, 0, SizerFlag::All, 5);
-	let media_list = ListBox::builder(&media_panel).build();
+	// Each photo or video drawn beside its text (see `owner_draw::install_media_list`).
+	let media_list = ListBox::builder(&media_panel)
+		.with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW))
+		.build();
 	media_sizer.add(&media_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	media_panel.set_sizer(media_sizer, true);
 
@@ -241,6 +263,7 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		members_search_label,
 		members_search,
 		members_list,
+		photo,
 		add_member_btn,
 		make_admin_btn,
 		remove_member_btn,

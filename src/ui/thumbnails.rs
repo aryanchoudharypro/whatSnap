@@ -51,6 +51,19 @@ pub(crate) fn init(tx: mpsc::Sender<String>, on_change: impl Fn() + 'static) {
 	});
 }
 
+/// The file of message `id`'s picture: Some(None) when it has none, None
+/// while it's not known yet (it's asked for).
+pub(crate) fn path_of(id: &str) -> Option<Option<String>> {
+	CACHE.with(|cache| {
+		let mut c = cache.borrow_mut();
+		let known = c.paths.get(id).cloned();
+		if known.is_none() {
+			ask(&mut c, id);
+		}
+		known
+	})
+}
+
 /// Runs `draw` with message `id`'s picture, fitted in `max_w` x `max_h`.
 pub(crate) fn with_thumb<R>(id: &str, max_w: i32, max_h: i32, draw: impl FnOnce(Thumb) -> R) -> R {
 	CACHE.with(|cache| {

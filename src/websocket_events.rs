@@ -1097,6 +1097,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 		let _slow = SlowUiLog::new(t);
 		match t {
 			"connected" => {
+				if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+					crate::ui::owner_draw::set_own_jid(jid);
+				}
 				// A reconnect (keepalive blip, brief network drop) also
 				// fires this event, not just the first connect - don't
 				// clobber an in-progress "Syncing history..." status
@@ -4006,6 +4009,10 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				if s.info_chat.as_deref() == Some(jid) {
 					let dlg = &parts.conversation_data_dialog;
 					crate::ui::conversation_data::show_photo(&dlg.photo, &dlg.info_panel, path);
+				}
+				if jid.ends_with("@g.us") && s.selected_chat.as_deref() == Some(jid) {
+					let dlg = &parts.group_data_dialog;
+					crate::ui::conversation_data::show_photo(&dlg.photo, &dlg.members_panel, path);
 				}
 			}
 			"avatar_updated" => {

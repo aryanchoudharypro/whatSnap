@@ -437,6 +437,11 @@ pub fn build_main_window() -> WindowParts {
 	nav_list.set_selection(tab_order.iter().position(|&t| t == 0).unwrap_or(0) as u32, true);
 	nav_sizer.add(&nav_label, 0, SizerFlag::Left, 0);
 	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Top, 6);
+	// Room for the settings gear and your picture, drawn under the list.
+	if theme::use_custom_colours() {
+		let footer = crate::ui::owner_draw::install_nav_footer(&nav_panel, &frame, MENU_ID_SETTINGS);
+		nav_sizer.add_spacer(footer);
+	}
 
 	nav_panel.set_sizer(nav_sizer, true);
 
@@ -885,7 +890,23 @@ pub fn bind_input_handlers(
 	crate::ui::thumbnails::init(state.borrow().ws_tx.clone(), move || {
 		messages_list.refresh(false, None);
 		select_list.refresh(false, None);
+		crate::ui::owner_draw::refresh_media_lists();
 	});
+	// A group's members with their pictures.
+	let state_members = state.clone();
+	crate::ui::owner_draw::install_people_list(&parts.group_data_dialog.members_list, move |index| {
+		state_members.try_borrow().ok()?.group_data_visible_member_jids.get(index).cloned()
+	});
+	// The info pages' Media lists show each photo's picture.
+	for group in [false, true] {
+		let list = if group { &parts.group_data_dialog.media_list } else { &parts.conversation_data_dialog.media_list };
+		let state_media = state.clone();
+		crate::ui::owner_draw::install_media_list(list, move |index| {
+			let s = state_media.try_borrow().ok()?;
+			let media = if group { &s.group_data_media } else { &s.conversation_data_media };
+			media.get(index).map(|m| (m.id.clone(), m.media_type == "video"))
+		});
+	}
 	for selecting in [false, true] {
 		let list = if selecting { select_list } else { messages_list };
 		let state_looks = state.clone();

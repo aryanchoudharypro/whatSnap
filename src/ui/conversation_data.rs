@@ -111,7 +111,10 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	let media_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let media_label = StaticText::builder(&media_panel).with_label("Media").build();
 	media_sizer.add(&media_label, 0, SizerFlag::All, 5);
-	let media_list = ListBox::builder(&media_panel).build();
+	// Each photo or video drawn beside its text (see `owner_draw::install_media_list`).
+	let media_list = ListBox::builder(&media_panel)
+		.with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW))
+		.build();
 	media_sizer.add(&media_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	media_panel.set_sizer(media_sizer, true);
 
@@ -187,22 +190,7 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 /// pixels across, and lays out `panel` around it. An empty path hides it.
 pub fn show_photo(photo: &StaticBitmap, panel: &Panel, path: &str) {
 	let size = (photo.get_char_height() * 8).clamp(96, 320) as u32;
-	let bitmap = (!path.is_empty())
-		.then(|| crate::image_decode::decode_rgba_in_box(path, size, size).ok())
-		.flatten()
-		.and_then(|(w, h, mut rgba)| {
-			// Cut to a circle, its edge smoothed.
-			let (cx, cy, r) = (w as f32 / 2.0, h as f32 / 2.0, w.min(h) as f32 / 2.0);
-			for y in 0..h {
-				for x in 0..w {
-					let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
-					let cover = (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
-					let a = &mut rgba[((y * w + x) * 4 + 3) as usize];
-					*a = (*a as f32 * cover) as u8;
-				}
-			}
-			wxdragon::bitmap::Bitmap::from_rgba(&rgba, w, h)
-		});
+	let bitmap = (!path.is_empty()).then(|| crate::ui::owner_draw::round_picture(path, size)).flatten();
 	match bitmap {
 		Some(bitmap) => {
 			photo.set_bitmap(&bitmap);

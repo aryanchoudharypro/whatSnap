@@ -1040,6 +1040,106 @@ fn play_button(dc: &impl DeviceContext, fonts: &Fonts, cx: i32, cy: i32, size: i
 	dc.draw_text(&g, cx - gw / 2 + 1, cy - gh / 2);
 }
 
+// --- Wallpaper ---
+
+/// The side of the wallpaper's tile.
+const WALLPAPER_TILE: i32 = 192;
+
+thread_local! {
+	/// The tile as last made, for its background colour.
+	static WALLPAPER: RefCell<Option<(u32, Bitmap)>> = const { RefCell::new(None) };
+}
+
+/// A faint doodle pattern like WhatsApp's chat wallpaper, as a tile to repeat
+/// over `background`: rings, dots, crosses and short strokes a shade darker.
+/// Made once (about 150 KB) from a fixed seed, so it never changes.
+fn wallpaper_tile(background: Colour) -> Option<Bitmap> {
+	let side = WALLPAPER_TILE;
+	let ink = (background.r.saturating_sub(14), background.g.saturating_sub(14), background.b.saturating_sub(12));
+	let mut coverage = vec![0f32; (side * side) as usize];
+	let mut seed: u32 = 0x5EED_1234;
+	let mut next = |range: i32| {
+		seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+		((seed >> 8) % range.max(1) as u32) as i32
+	};
+	// Coverage of a pen 1.3px wide along the shape, wrapping at the edges so
+	// the tiles join without a seam.
+	let plot = |coverage: &mut Vec<f32>, cx: f32, cy: f32, distance: &dyn Fn(f32, f32) -> f32, reach: i32| {
+		for dy in -reach..=reach {
+			for dx in -reach..=reach {
+				let (x, y) = (cx as i32 + dx, cy as i32 + dy);
+				let d = distance(x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+				let c = (1.0 - (d - 0.65).max(0.0)).clamp(0.0, 1.0);
+				if c > 0.0 {
+					let at = (y.rem_euclid(side) * side + x.rem_euclid(side)) as usize;
+					coverage[at] = coverage[at].max(c);
+				}
+			}
+		}
+	};
+	for _ in 0..34 {
+		let (cx, cy) = (next(side) as f32, next(side) as f32);
+		match next(4) {
+			// A ring.
+			0 => {
+				let r = 4.0 + next(5) as f32;
+				plot(&mut coverage, cx, cy, &|x, y| ((x * x + y * y).sqrt() - r).abs(), r as i32 + 2);
+			}
+			// A dot.
+			1 => plot(&mut coverage, cx, cy, &|x, y| ((x * x + y * y).sqrt() - 1.2).max(0.0), 3),
+			// A cross.
+			2 => {
+				let a = 4.0 + next(3) as f32;
+				plot(
+					&mut coverage,
+					cx,
+					cy,
+					&|x, y| if x.abs() <= a && y.abs() <= a { x.abs().min(y.abs()) } else { 9.0 },
+					a as i32 + 2,
+				);
+			}
+			// A short slanted stroke.
+			_ => {
+				let a = 5.0 + next(5) as f32;
+				plot(
+					&mut coverage,
+					cx,
+					cy,
+					&|x, y| if (x + y).abs() <= a * 1.4 { (x - y).abs() / 1.414 } else { 9.0 },
+					a as i32 + 2,
+				);
+			}
+		}
+	}
+	let mut rgba = Vec::with_capacity((side * side * 4) as usize);
+	for c in coverage {
+		let mix = |b: u8, i: u8| (b as f32 + (i as f32 - b as f32) * c).round() as u8;
+		rgba.extend_from_slice(&[mix(background.r, ink.0), mix(background.g, ink.1), mix(background.b, ink.2), 255]);
+	}
+	Bitmap::from_rgba(&rgba, side as u32, side as u32)
+}
+
+/// Covers `width` x `height` with the wallpaper, made for `background`.
+pub(crate) fn paint_wallpaper(dc: &impl DeviceContext, background: Colour, width: i32, height: i32) {
+	let key = key(background);
+	WALLPAPER.with(|w| {
+		let mut w = w.borrow_mut();
+		if w.as_ref().is_none_or(|(k, _)| *k != key) {
+			*w = wallpaper_tile(background).map(|b| (key, b));
+		}
+		let Some((_, tile)) = w.as_ref() else { return };
+		let mut y = 0;
+		while y < height {
+			let mut x = 0;
+			while x < width {
+				dc.draw_bitmap(tile, x, y, false);
+				x += WALLPAPER_TILE;
+			}
+			y += WALLPAPER_TILE;
+		}
+	});
+}
+
 #[cfg(test)]
 mod tests {
 	use super::{Look, Ticks, look_for, name_colour, ticks_for};

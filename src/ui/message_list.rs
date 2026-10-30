@@ -1154,6 +1154,10 @@ impl MessageList {
 		dc.set_brush(background, BrushStyle::Solid);
 		dc.set_pen(background, 1, PenStyle::Solid);
 		dc.draw_rectangle(0, 0, width, height);
+		// WhatsApp's faint doodles behind the chat.
+		if super::theme::use_custom_colours() {
+			super::message_art::paint_wallpaper(&dc, background, width, height);
+		}
 		let Some(font) = self.panel.get_font() else { return };
 		dc.set_font(&font);
 		dc.set_background_mode(BackgroundMode::Transparent);
