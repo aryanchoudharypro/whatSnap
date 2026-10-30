@@ -20,7 +20,7 @@ use crate::{
 	},
 	call_audio,
 	call_helpers::{
-		announce_call, call_participant_changes, call_window_title, caller_info_text, get_status_rank,
+		announce_call, call_participant_changes, caller_info_text, get_status_rank,
 		group_call_status_text, incoming_call_description, parse_call_participants, peer_video_announcement,
 		show_call_device_combos,
 	},
@@ -1661,7 +1661,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 							video_call: is_video,
 							..Default::default()
 						};
-						parts.call_parts.frame.set_title(call_window_title(is_group, is_video));
+						// The title says who's calling, so it's the first thing read
+						// when the window comes up; answering puts the plain one back.
+						parts.call_parts.frame.set_title(&format!("Incoming {}", description));
 						parts.call_parts.status_label.set_label(&format!("Incoming {}", description));
 						parts.call_parts.accept_btn.show(true);
 						parts.call_parts.reject_btn.show(true);
