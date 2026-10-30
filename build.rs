@@ -49,7 +49,10 @@ fn main() {
 			println!("cargo:warning=Failed to embed manifest: {e}");
 		}
 
-		let res = WindowsResource::new();
+		// winres would otherwise name the product after the crate, "whatsnap",
+		// which is what screen readers say when asked for the version.
+		let mut res = WindowsResource::new();
+		res.set("ProductName", "whatSnap").set("FileDescription", "whatSnap");
 		if let Err(e) = res.compile() {
 			println!("cargo:warning=Failed to embed version info: {e}");
 		}

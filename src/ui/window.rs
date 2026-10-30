@@ -361,6 +361,30 @@ pub(crate) fn conversation_menu_chat(s: &crate::AppState) -> Option<&str> {
 	s.selected_chat.as_deref()
 }
 
+/// The Go menu's item and help text for each tab, by tab id (see
+/// `settings::TAB_NAMES`).
+const GO_MENU_ITEMS: [(i32, &str); 7] = [
+	(MENU_ID_NAV_CONVERSATIONS, "Jump to the chat list"),
+	(MENU_ID_NAV_STATUS, "Jump to Status"),
+	(MENU_ID_NAV_STARRED, "Jump to Starred Messages"),
+	(MENU_ID_NAV_ARCHIVED, "Jump to Archived Chats"),
+	(MENU_ID_NAV_COMMUNITIES, "Jump to Communities"),
+	(MENU_ID_NAV_CHANNELS, "Jump to the channels you follow"),
+	(MENU_ID_NAV_CALLS, "Jump to Calls"),
+];
+
+/// Puts the Go menu back in the Main Navigation order after a tab moves,
+/// keeping each item's label (and so any shortcut the user changed).
+fn reorder_go_menu(menu_bar: &MenuBar, order: &[usize]) {
+	for (pos, &tab) in order.iter().enumerate() {
+		let (id, help) = GO_MENU_ITEMS[tab];
+		let Some((item, menu)) = menu_bar.find_item_and_menu(id) else { continue };
+		let label = item.get_label();
+		menu.delete(id);
+		menu.insert(pos, id, &label, help, ItemKind::Normal);
+	}
+}
+
 /// Greys out what doesn't apply right now. A disabled item's shortcut does
 /// nothing either, so this runs whenever the tab or the open chat changes,
 /// not only when a menu opens.
@@ -427,23 +451,18 @@ pub fn build_main_window() -> WindowParts {
 		.append_separator()
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
 		.build();
-	// Alt+1/2/3 match official WhatsApp's Chats/Status/Communities shortcuts;
-	// Alt+4/5 extend the pattern to whatSnap's Starred/Archived tabs, which
-	// WhatsApp doesn't have. These need to live on real menu items - wx only
+	// The Alt+number shortcuts need to live on real menu items - wx only
 	// builds an app-wide accelerator table (honored no matter which control
 	// has focus) from the "\tAlt+1" accelerator syntax on a menu label; a
 	// plain key-down handler on a widget loses to that table for Alt-combos.
-	let go_menu = Menu::builder()
-		.append_item(MENU_ID_NAV_CONVERSATIONS, &default_menu_label(MENU_ID_NAV_CONVERSATIONS), "Jump to the chat list")
-		.append_item(MENU_ID_NAV_STATUS, &default_menu_label(MENU_ID_NAV_STATUS), "Jump to Status")
-		.append_item(MENU_ID_NAV_COMMUNITIES, &default_menu_label(MENU_ID_NAV_COMMUNITIES), "Jump to Communities")
-		.append_item(MENU_ID_NAV_STARRED, &default_menu_label(MENU_ID_NAV_STARRED), "Jump to Starred Messages")
-		.append_item(MENU_ID_NAV_ARCHIVED, &default_menu_label(MENU_ID_NAV_ARCHIVED), "Jump to Archived Chats")
-		.append_item(MENU_ID_NAV_CHANNELS, &default_menu_label(MENU_ID_NAV_CHANNELS), "Jump to the channels you follow")
-		.append_item(MENU_ID_NAV_CALLS, &default_menu_label(MENU_ID_NAV_CALLS), "Jump to Calls")
-		.build();
+	// In the same order as the Main Navigation list, so the two read alike.
+	let go_menu = Menu::builder().build();
+	for &tab in &tab_order {
+		let (id, help) = GO_MENU_ITEMS[tab];
+		go_menu.append(id, &default_menu_label(id), help, ItemKind::Normal);
+	}
 	// Matches official WhatsApp's shortcuts, minus Alt on every combo that
-	// also has Ctrl (kept only on the Alt-only ones) - see the Alt+1..5
+	// also has Ctrl (kept only on the Alt-only ones) - see the Alt+number
 	// comment above for why these have to be real menu items.
 	let chats_menu = Menu::builder()
 		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), "Start a new chat")
@@ -2807,6 +2826,7 @@ pub fn bind_input_handlers(
 	// than clearing and refilling) keeps the list from announcing itself anew.
 	let state_nav_move = state.clone();
 	let nav_list_move = parts.nav_list;
+	let frame_nav_move = parts.frame;
 	let nav_move_announcer = parts.conversations_parts.messages_announcer;
 	parts.nav_list.on_key_down(move |event| {
 		let WindowEventData::Keyboard(ref key) = event else {
@@ -2842,6 +2862,9 @@ pub fn bind_input_handlers(
 			nav_list_move.set_string(p as u32, &crate::settings::nav_tab_label(order[p], unread_chats));
 		}
 		nav_list_move.set_selection(new_pos as u32, true);
+		if let Some(menu_bar) = frame_nav_move.get_menu_bar() {
+			reorder_go_menu(&menu_bar, &order);
+		}
 		{
 			let mut s = state_nav_move.borrow_mut();
 			s.settings.tab_order = order;
