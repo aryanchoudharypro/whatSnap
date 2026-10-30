@@ -53,9 +53,9 @@ pub fn build_add_members_dialog(parent: &impl WxWidget) -> AddMembersDialogParts
 	sizer.add(&selection_announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let add_btn = Button::builder(&panel).with_id(ID_OK).with_label("Add").build();
-	dialog_look::pill_button(&add_btn, true, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&add_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&add_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
 	dialog_look::paint_fields(&panel, &[(search_field, Field::Search)]);

@@ -184,20 +184,20 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 			// The dot blinks while recording, as WhatsApp's does.
 			let secs = clock.elapsed().as_secs();
 			let blink = clock.elapsed().as_millis() / 500 % 2 == 0;
-			let dot = if paused { theme::Palette::TEXT_MUTED } else { Colour::rgb(0xEA, 0x00, 0x38) };
+			let dot = if paused { theme::Palette::TEXT_MUTED() } else { Colour::rgb(0xEA, 0x00, 0x38) };
 			if paused || blink {
 				dc.set_brush(dot, BrushStyle::Solid);
 				dc.set_pen(dot, 1, PenStyle::Solid);
 				dc.draw_circle(left + 6, mid, 6);
 			}
 			dc.set_font(&theme::Fonts::body());
-			dc.set_text_foreground(theme::Palette::TEXT_PRIMARY);
+			dc.set_text_foreground(theme::Palette::TEXT_PRIMARY());
 			dc.set_background_mode(BackgroundMode::Transparent);
 			let text = format!("{}:{:02}{}", secs / 60, secs % 60, if paused { "  Paused" } else { "" });
 			let (tw, th) = dc.get_text_extent(&text);
 			dc.draw_text(&text, left + 20, mid - th / 2);
 			// A dotted line where WhatsApp draws the recording's waveform.
-			let grey = Colour::rgb(0xA0, 0xA6, 0xAA);
+			let grey = theme::Palette::WAVE();
 			dc.set_brush(grey, BrushStyle::Solid);
 			dc.set_pen(grey, 1, PenStyle::Solid);
 			let mut x = left + 20 + tw + 16;
@@ -216,7 +216,7 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 		dc.set_brush(bar, BrushStyle::Solid);
 		dc.set_pen(bar, 1, PenStyle::Solid);
 		dc.draw_rectangle(0, top, size.width, fs.height + 20);
-		let white = theme::Palette::CONTENT_BG;
+		let white = theme::Palette::CONTENT_BG();
 		dc.set_brush(white, BrushStyle::Solid);
 		dc.set_pen(white, 1, PenStyle::Solid);
 		dc.draw_rounded_rectangle(pos.x - 8, pos.y - 5, fs.width + 16, fs.height + 10, 8.0);
@@ -246,7 +246,7 @@ fn paint_calls_page(page: &Panel) {
 		let mut y = buttons_top - line * 7;
 		let r = line * 3 / 2;
 		let cx = size.width / 2;
-		let circle = ink(theme::Palette::ACCENT);
+		let circle = ink(theme::Palette::ACCENT());
 		dc.set_brush(circle, BrushStyle::Solid);
 		dc.set_pen(circle, 1, PenStyle::Solid);
 		dc.draw_circle(cx, y + r, r);
@@ -255,15 +255,15 @@ fn paint_calls_page(page: &Panel) {
 			Font::builder().with_point_size(theme::Fonts::heading().get_point_size() + 2).with_face_name(face).build()
 		}) {
 			dc.set_font(&font);
-			dc.set_text_foreground(if custom { theme::Palette::ACCENT_TEXT } else { background });
+			dc.set_text_foreground(if custom { theme::Palette::ACCENT_TEXT() } else { background });
 			let g = "\u{E717}";
 			let (w, h) = dc.get_text_extent(g);
 			dc.draw_text(g, cx - w / 2, y + r - h / 2);
 		}
 		y += r * 2 + line;
 		for (text, font, colour) in [
-			("Calls", theme::Fonts::heading(), theme::Palette::TEXT_PRIMARY),
-			("Pick someone on the left, then call them.", theme::Fonts::body(), theme::Palette::TEXT_MUTED),
+			("Calls", theme::Fonts::heading(), theme::Palette::TEXT_PRIMARY()),
+			("Pick someone on the left, then call them.", theme::Fonts::body(), theme::Palette::TEXT_MUTED()),
 		] {
 			dc.set_font(&font);
 			dc.set_text_foreground(ink(colour));
@@ -306,7 +306,7 @@ fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel, calls_page: 
 		dc.draw_rectangle(0, 0, size.width, size.height);
 		let left = list_c.get_position().x + list_c.get_size().width + 10;
 		let custom = theme::use_custom_colours();
-		let line = if custom { theme::Palette::DIVIDER_SOFT } else { panel_c.get_foreground_color() };
+		let line = if custom { theme::Palette::DIVIDER_SOFT() } else { panel_c.get_foreground_color() };
 		dc.set_pen(line, 1, PenStyle::Solid);
 		dc.draw_line(left, 0, left, size.height);
 		if conversation_c.is_shown() || calls_c.is_shown() {
@@ -317,8 +317,8 @@ fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel, calls_page: 
 			return;
 		}
 		if custom {
-			dc.set_brush(theme::Palette::PANEL_BG, BrushStyle::Solid);
-			dc.set_pen(theme::Palette::PANEL_BG, 1, PenStyle::Solid);
+			dc.set_brush(theme::Palette::PANEL_BG(), BrushStyle::Solid);
+			dc.set_pen(theme::Palette::PANEL_BG(), 1, PenStyle::Solid);
 			dc.draw_rectangle(left + 1, 0, area.width, area.height);
 		}
 		let icon = theme::build_app_icon(96);
@@ -331,17 +331,17 @@ fn fit_columns(panel: &Panel, list: &ListBox, conversation: &Panel, calls_page: 
 			(
 				"whatSnap for Windows",
 				theme::Fonts::heading(),
-				if custom { theme::Palette::TEXT_PRIMARY } else { panel_c.get_foreground_color() },
+				if custom { theme::Palette::TEXT_PRIMARY() } else { panel_c.get_foreground_color() },
 			),
 			(
 				"Pick a chat on the left to start messaging.",
 				theme::Fonts::body(),
-				if custom { theme::Palette::TEXT_MUTED } else { panel_c.get_foreground_color() },
+				if custom { theme::Palette::TEXT_MUTED() } else { panel_c.get_foreground_color() },
 			),
 			(
 				"Your personal messages are end-to-end encrypted.",
 				theme::Fonts::label(),
-				if custom { theme::Palette::TEXT_MUTED } else { panel_c.get_foreground_color() },
+				if custom { theme::Palette::TEXT_MUTED() } else { panel_c.get_foreground_color() },
 			),
 		] {
 			dc.set_font(&font);
@@ -426,7 +426,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	// from the list straight to them.
 	let calls_btn_panel = Panel::builder(&panel).build();
 	if theme::use_custom_colours() {
-		calls_btn_panel.set_background_color(theme::Palette::PANEL_BG);
+		calls_btn_panel.set_background_color(theme::Palette::PANEL_BG());
 	}
 	let calls_page = BoxSizer::builder(Orientation::Vertical).build();
 	calls_page.add_stretch_spacer(1);
@@ -435,12 +435,12 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let calls_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let calls_call_btn = Button::builder(&calls_btn_panel).with_label("Call").build();
 	calls_call_btn.set_font(&theme::Fonts::body());
-	crate::ui::owner_draw::install_tile(&calls_call_btn, theme::Palette::PANEL_BG);
+	crate::ui::owner_draw::install_tile(&calls_call_btn, theme::Palette::PANEL_BG());
 	calls_btn_sizer.add(&calls_call_btn, 0, SizerFlag::Right, 16);
 
 	let calls_video_btn = Button::builder(&calls_btn_panel).with_label("Video call").build();
 	calls_video_btn.set_font(&theme::Fonts::body());
-	crate::ui::owner_draw::install_tile(&calls_video_btn, theme::Palette::PANEL_BG);
+	crate::ui::owner_draw::install_tile(&calls_video_btn, theme::Palette::PANEL_BG());
 	calls_btn_sizer.add(&calls_video_btn, 0, SizerFlag::empty(), 0);
 	calls_page.add_sizer(&calls_btn_sizer, 0, SizerFlag::AlignCenterHorizontal, 0);
 	calls_page.add_stretch_spacer(1);
@@ -456,7 +456,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	// WhatsApp's header bar: the chat's picture, name and status, then its
 	// buttons as icons. Each keeps its label for the screen reader.
 	let top_btns_panel = Panel::builder(&conversation_panel).build();
-	let header_bg = theme::Palette::PANEL_BG;
+	let header_bg = theme::Palette::PANEL_BG();
 	if theme::use_custom_colours() {
 		top_btns_panel.set_background_color(header_bg);
 	}
@@ -494,7 +494,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_content(&search_panel);
 	let search_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let search_close_btn = Button::builder(&search_panel).with_label("Close search").build();
-	crate::ui::owner_draw::install_icon_button(&search_close_btn, theme::Palette::CONTENT_BG);
+	crate::ui::owner_draw::install_icon_button(&search_close_btn, theme::Palette::CONTENT_BG());
 	search_sizer.add(&search_close_btn, 0, SizerFlag::Right, 5);
 	let search_conv_label = StaticText::builder(&search_panel).with_label("Search conversation").build();
 	theme::style_muted_label(&search_conv_label);
@@ -616,7 +616,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	// it always was, and the row is laid out in that same order, so what a
 	// sighted user reads left to right is what a keyboard user tabs through:
 	// emoji, label, box, attach, cancel edit, remove quote, send, record.
-	let composer_bg = theme::Palette::PANEL_BG;
+	let composer_bg = theme::Palette::PANEL_BG();
 	let message_row = BoxSizer::builder(Orientation::Horizontal).build();
 	let emoji_btn = Button::builder(&conversation_panel).with_label("Emoji and stickers").build();
 	emoji_btn.set_font(&theme::Fonts::body());

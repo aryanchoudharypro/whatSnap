@@ -48,13 +48,13 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 
 	let sync_check = CheckBox::builder(&panel).with_label("Also save to my phone's WhatsApp contacts").build();
 	sync_check.set_value(true);
-	dialog_look::switch(&sync_check, theme::Palette::CONTENT_BG);
+	dialog_look::switch(&sync_check, theme::Palette::CONTENT_BG());
 	sizer.add(&sync_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 14);
 
 	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Create").build();
-	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&ok_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
 	dialog_look::paint_fields(

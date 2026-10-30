@@ -450,15 +450,15 @@ fn colours(selected: bool, focused: bool) -> Colours {
 	}
 	Colours {
 		// WhatsApp Web's grey for the open chat, a little darker so it shows.
-		background: if selected { colorref(0xE4, 0xE8, 0xEA) } else { rgb(Palette::CONTENT_BG) },
-		text: rgb(Palette::TEXT_PRIMARY),
-		muted: rgb(Palette::TEXT_MUTED),
-		accent: rgb(Palette::ACCENT),
+		background: if selected { rgb(Palette::SELECTED_ROW()) } else { rgb(Palette::CONTENT_BG()) },
+		text: rgb(Palette::TEXT_PRIMARY()),
+		muted: rgb(Palette::TEXT_MUTED()),
+		accent: rgb(Palette::ACCENT()),
 		// WhatsApp's read blue, darkened to read on white.
-		read: colorref(0x0B, 0x6F, 0xA4),
-		divider: Some(colorref(0xE3, 0xE6, 0xE8)),
+		read: rgb(Palette::READ()),
+		divider: Some(rgb(Palette::DIVIDER_SOFT())),
 		// Where the keyboard is, beyond the grey: a bar in the accent green.
-		focus_bar: (selected && focused).then(|| rgb(Palette::ACCENT)),
+		focus_bar: (selected && focused).then(|| rgb(Palette::ACCENT())),
 	}
 }
 
@@ -516,9 +516,9 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 			let t = if new { c.text.0 } else { c.muted.0 };
 			(t as u8, (t >> 8) as u8, (t >> 16) as u8)
 		} else if new {
-			(Palette::ACCENT.r, Palette::ACCENT.g, Palette::ACCENT.b)
+			(Palette::ACCENT().r, Palette::ACCENT().g, Palette::ACCENT().b)
 		} else {
-			(0xB0, 0xB6, 0xBA)
+			theme::tuple(Palette::WAVE())
 		};
 		let b = c.background.0;
 		let inside = (b as u8, (b >> 8) as u8, (b >> 16) as u8);
@@ -538,7 +538,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 	});
 	if !drawn {
 		let custom = theme::use_custom_colours();
-		let circle = if custom { (0xDF, 0xE5, 0xE7) } else { (0x80, 0x80, 0x80) };
+		let circle = if custom { theme::tuple(Palette::AVATAR_BG()) } else { (0x80, 0x80, 0x80) };
 		if let Some(circle) = gdi::round_rect(size, size, size as f32 / 2.0, circle) {
 			circle.draw(dc, pad, avatar_top);
 		}
@@ -570,7 +570,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 	let name_right = if time_w > 0 { right - time_w - gap } else { right };
 	let name_w = gdi::text_width(dc, fonts.title, &art.title);
 	// A missed call's name is red too, as on WhatsApp.
-	let title_colour = if art.alert && theme::use_custom_colours() { colorref(0xD1, 0x1A, 0x3A) } else { c.text };
+	let title_colour = if art.alert && theme::use_custom_colours() { rgb(Palette::DANGER()) } else { c.text };
 	gdi::text(dc, fonts.title, title_colour, &art.title, rect(left, line1.0, name_right, line1.1), Default::default());
 	if !art.extra.is_empty() && left + name_w + gap < name_right {
 		gdi::text(
@@ -591,7 +591,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		let badge_w = (gdi::text_width(dc, fonts.small_bold, &count) + badge_h * 3 / 5).max(badge_h);
 		let top = line2.0 + (line2.1 - line2.0 - badge_h) / 2;
 		let (fill, ink) = if theme::use_custom_colours() {
-			((Palette::ACCENT.r, Palette::ACCENT.g, Palette::ACCENT.b), rgb(Palette::ACCENT_TEXT))
+			((Palette::ACCENT().r, Palette::ACCENT().g, Palette::ACCENT().b), rgb(Palette::ACCENT_TEXT()))
 		} else {
 			let t = c.text.0;
 			let bg = c.background;
@@ -641,7 +641,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 	// Then the last message: your ticks or "Name: ", its kind's icon, its text.
 	// A missed call is in WhatsApp's red.
 	if art.alert && theme::use_custom_colours() {
-		c.muted = colorref(0xD1, 0x1A, 0x3A);
+		c.muted = rgb(Palette::DANGER());
 	}
 	let mut x = left;
 	if let (Some(ticks), Some(font)) = (art.ticks, fonts.icons) {

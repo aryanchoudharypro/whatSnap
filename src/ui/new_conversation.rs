@@ -46,7 +46,7 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 	sizer.add(&results_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let bg = theme::Palette::CONTENT_BG;
+	let bg = theme::Palette::CONTENT_BG();
 
 	let new_group_btn = Button::builder(&panel).with_label("New Group").build();
 	dialog_look::pill_button(&new_group_btn, false, bg);

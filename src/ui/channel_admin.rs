@@ -62,7 +62,7 @@ pub fn ask_channel_details(
 
 	let picture = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
 	let picture_btn = Button::builder(&panel).with_label("Choose picture (optional)...").build();
-	dialog_look::pill_button(&picture_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&picture_btn, false, theme::Palette::CONTENT_BG());
 	sizer.add(&picture_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
 	picture_btn.show(creating);
 
@@ -73,9 +73,9 @@ pub fn ask_channel_details(
 
 	let ok_btn =
 		Button::builder(&panel).with_id(ID_OK).with_label(if creating { "Create channel" } else { "Save" }).build();
-	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&ok_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
 	dialog_look::paint_fields(&panel, &[(name_field, Field::Line), (description_field, Field::Box)]);
@@ -209,7 +209,7 @@ pub fn show_channel_followers(
 	let owner_btn = Button::builder(&panel).with_label("Make owner...").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
 	for button in [&invite_btn, &remove_btn, &owner_btn, &close_btn] {
-		dialog_look::pill_button(button, false, theme::Palette::CONTENT_BG);
+		dialog_look::pill_button(button, false, theme::Palette::CONTENT_BG());
 	}
 	buttons.add(&invite_btn, 0, SizerFlag::Right, 6);
 	buttons.add(&remove_btn, 0, SizerFlag::Right, 6);
@@ -338,7 +338,7 @@ pub fn show_channel_people(parent: &dyn WxWidget, title: &str, summary: &str, gr
 	}
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 12);
 	panel.set_sizer(sizer, true);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
@@ -385,8 +385,8 @@ pub fn show_pending_admin_invites(
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
 	let cancel_invite_btn = Button::builder(&panel).with_label("Cancel invite...").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	dialog_look::pill_button(&cancel_invite_btn, false, theme::Palette::CONTENT_BG);
-	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&cancel_invite_btn, false, theme::Palette::CONTENT_BG());
+	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	buttons.add(&cancel_invite_btn, 0, SizerFlag::Right, 6);
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);

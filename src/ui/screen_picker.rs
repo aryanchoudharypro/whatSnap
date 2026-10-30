@@ -34,9 +34,9 @@ pub fn pick_share_target(parent: &impl WxWidget) -> Option<ShareChoice> {
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let share_btn = Button::builder(&panel).with_id(ID_OK).with_label("Share").build();
-	dialog_look::pill_button(&share_btn, true, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&share_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&share_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();

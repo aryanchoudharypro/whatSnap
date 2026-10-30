@@ -137,6 +137,21 @@ const NAME_COLOURS: [(u8, u8, u8); 10] = [
 	(0x6D, 0x4C, 0x41),
 ];
 
+/// The same colours for the dark theme, lightened to read at 4.5:1 on its
+/// bubbles.
+const NAME_COLOURS_DARK: [(u8, u8, u8); 10] = [
+	(0xFF, 0x8A, 0x80),
+	(0xC7, 0x9B, 0xE8),
+	(0x6C, 0xB4, 0xFF),
+	(0x5F, 0xD3, 0x8D),
+	(0xFF, 0xB3, 0x4D),
+	(0xFF, 0x7E, 0xB3),
+	(0x4F, 0xD1, 0xD9),
+	(0xA9, 0x9C, 0xFF),
+	(0xE0, 0xC8, 0x4A),
+	(0xD0, 0xA8, 0x96),
+];
+
 fn name_colour(jid: &str) -> usize {
 	// FNV-1a: the same person gets the same colour every time.
 	let hash = jid.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
@@ -651,7 +666,8 @@ impl Colours {
 		if !self.custom {
 			return self.text;
 		}
-		let (r, g, b) = NAME_COLOURS[index % NAME_COLOURS.len()];
+		let names = if theme::is_dark() { &NAME_COLOURS_DARK } else { &NAME_COLOURS };
+		let (r, g, b) = names[index % names.len()];
 		Colour::rgb(r, g, b)
 	}
 }
@@ -680,21 +696,21 @@ fn colours(background: Colour, foreground: Colour, selected: bool, focused: bool
 			custom: false,
 		};
 	}
-	let band = selected.then(|| if focused { Colour::rgb(0xCF, 0xE3, 0xD7) } else { Colour::rgb(0xE2, 0xDE, 0xD6) });
+	let band = selected.then(|| if focused { Palette::BAND_FOCUSED() } else { Palette::BAND() });
 	Colours {
 		background,
 		band,
-		focus_bar: (selected && focused).then_some(Palette::ACCENT),
-		text: Palette::TEXT_PRIMARY,
-		muted: Palette::TEXT_MUTED,
-		accent: Palette::ACCENT,
+		focus_bar: (selected && focused).then_some(Palette::ACCENT()),
+		text: Palette::TEXT_PRIMARY(),
+		muted: Palette::TEXT_MUTED(),
+		accent: Palette::ACCENT(),
 		// Read ticks: WhatsApp's blue, darkened to show on the green bubble.
-		read: Colour::rgb(0x0B, 0x6F, 0xA4),
-		mine: Colour::rgb(0xD9, 0xFD, 0xD3),
-		theirs: Colour::rgb(0xFF, 0xFF, 0xFF),
-		quote_mine: Colour::rgb(0xC9, 0xEE, 0xC3),
-		quote_theirs: Colour::rgb(0xF0, 0xF2, 0xF5),
-		pill: Colour::rgb(0xFF, 0xFF, 0xFF),
+		read: Palette::READ(),
+		mine: Palette::BUBBLE_MINE(),
+		theirs: Palette::BUBBLE_THEIRS(),
+		quote_mine: Palette::QUOTE_MINE(),
+		quote_theirs: Palette::QUOTE_THEIRS(),
+		pill: Palette::BUBBLE_THEIRS(),
 		custom: true,
 	}
 }
@@ -845,7 +861,7 @@ fn draw_bubble(
 				Thumb::Nothing | Thumb::Waiting => false,
 			});
 			if !drawn {
-				let grey = if c.custom { Colour::rgb(0xD5, 0xD9, 0xDB) } else { fill };
+				let grey = if c.custom { Palette::PLACEHOLDER() } else { fill };
 				shape(dc, c, tx, y, l.thumb_w, l.thumb_h, grey, fill);
 				if let Some(font) = &fonts.icons_big {
 					dc.set_font(font);
@@ -876,12 +892,12 @@ fn draw_bubble(
 			dc.draw_text(&g, inner_x + (size - gw) / 2, mid - gh / 2);
 		}
 		let (r, g, bl) =
-			if c.custom { (Palette::ACCENT.r, Palette::ACCENT.g, Palette::ACCENT.b) } else { (0x80, 0x80, 0x80) };
+			if c.custom { (Palette::ACCENT().r, Palette::ACCENT().g, Palette::ACCENT().b) } else { (0x80, 0x80, 0x80) };
 		let play = size * 3 / 4;
 		play_button(dc, fonts, inner_x + size + GAP + play / 2, mid, play, (r, g, bl), 255);
 		let track_x = inner_x + size + 2 * GAP + play;
 		let track_w = (inner_w - size - 2 * GAP - play).max(8);
-		let colour = if c.custom { Colour::rgb(0xA0, 0xA6, 0xAA) } else { c.text };
+		let colour = if c.custom { Palette::WAVE() } else { c.text };
 		dc.set_brush(colour, BrushStyle::Solid);
 		dc.set_pen(colour, 1, PenStyle::Solid);
 		dc.draw_rectangle(track_x, mid - 1, track_w, 3);
@@ -892,7 +908,7 @@ fn draw_bubble(
 		// A voice note: the play button, then its waveform.
 		let size = l.voice_h;
 		let (r, g, bl) =
-			if c.custom { (Palette::ACCENT.r, Palette::ACCENT.g, Palette::ACCENT.b) } else { (0x80, 0x80, 0x80) };
+			if c.custom { (Palette::ACCENT().r, Palette::ACCENT().g, Palette::ACCENT().b) } else { (0x80, 0x80, 0x80) };
 		play_button(dc, fonts, inner_x + size / 2, y + size / 2, size, (r, g, bl), 255);
 		let bars_x = inner_x + size + GAP;
 		let bars_w = inner_w - size - GAP;
@@ -907,7 +923,7 @@ fn draw_bubble(
 			let shown = (bars_w / step).min(count) as usize;
 			let bar_w = (step * 2 / 3).max(1);
 			let mid = y + size / 2;
-			let colour = if b.from_me { Colour::rgb(0x8F, 0xB8, 0x8A) } else { Colour::rgb(0xA0, 0xA6, 0xAA) };
+			let colour = if b.from_me { Palette::WAVE_MINE() } else { Palette::WAVE() };
 			let colour = if c.custom { colour } else { c.text };
 			dc.set_brush(colour, BrushStyle::Solid);
 			dc.set_pen(colour, 1, PenStyle::Solid);
@@ -990,8 +1006,8 @@ fn draw_bubble(
 		let px = if b.from_me { x + l.width - w - PAD } else { x + PAD };
 		let py = top + l.height - h / 3;
 		if c.custom {
-			round_box(dc, px - 1, py - 1, w + 2, h + 2, Colour::rgb(0xD1, 0xD7, 0xDB), row_bg);
-			round_box(dc, px, py, w, h, c.pill, Colour::rgb(0xD1, 0xD7, 0xDB));
+			round_box(dc, px - 1, py - 1, w + 2, h + 2, Palette::OUTLINE(), row_bg);
+			round_box(dc, px, py, w, h, c.pill, Palette::OUTLINE());
 		} else {
 			shape(dc, c, px, py, w, h, c.pill, row_bg);
 		}
@@ -1055,7 +1071,12 @@ thread_local! {
 /// Made once (about 150 KB) from a fixed seed, so it never changes.
 fn wallpaper_tile(background: Colour) -> Option<Bitmap> {
 	let side = WALLPAPER_TILE;
-	let ink = (background.r.saturating_sub(14), background.g.saturating_sub(14), background.b.saturating_sub(12));
+	// A shade off the background: darker on light, lighter on dark.
+	let ink = if theme::is_dark() {
+		(background.r.saturating_add(10), background.g.saturating_add(10), background.b.saturating_add(10))
+	} else {
+		(background.r.saturating_sub(14), background.g.saturating_sub(14), background.b.saturating_sub(12))
+	};
 	let mut coverage = vec![0f32; (side * side) as usize];
 	let mut seed: u32 = 0x5EED_1234;
 	let mut next = |range: i32| {

@@ -52,9 +52,9 @@ pub fn build_attach_contact_dialog(parent: &impl WxWidget) -> AttachContactDialo
 	sizer.add(&selection_announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let send_btn = Button::builder(&panel).with_id(ID_OK).with_label("Send").build();
-	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&send_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
 	dialog_look::paint_fields(&panel, &[(search_field, Field::Search)]);

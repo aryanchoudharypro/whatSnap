@@ -21,6 +21,8 @@ pub const DEFAULT_TIMER_CHOICES: &[(&str, &str)] =
 /// "Media upload quality" (WAWebMediaUploadQualitySettings): HD sends photos
 /// bigger (up to 2560 pixels on the longest side instead of 1600).
 pub const UPLOAD_QUALITY_CHOICES: &[(&str, &str)] = &[("Standard Quality", "sd"), ("HD Quality", "hd")];
+/// WhatsApp's Theme choices, by their settings.json value.
+pub const THEME_CHOICES: &[(&str, &str)] = &[("System Default", "system"), ("Light", "light"), ("Dark", "dark")];
 /// How long an About shows before it clears, in seconds: WhatsApp's
 /// text_status_ttl_seconds_allowlist, plus -1 for one that stays.
 pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
@@ -85,6 +87,7 @@ pub struct SettingsDialogParts {
 	pub auto_download_videos_check: CheckBox,
 	pub auto_download_documents_check: CheckBox,
 	pub upload_quality_combo: ComboBox,
+	pub theme_combo: ComboBox,
 
 	// Profile & Privacy tab
 	pub privacy_panel: Panel,
@@ -260,6 +263,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	chats_sizer.add(&auto_download_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	let upload_quality_combo =
 		visibility_combo(&chats_panel, &chats_sizer, "Media Upload Quality", UPLOAD_QUALITY_CHOICES);
+	let theme_combo =
+		visibility_combo(&chats_panel, &chats_sizer, "Theme (changes after whatSnap restarts)", THEME_CHOICES);
 	chats_panel.set_sizer(chats_sizer, true);
 
 	// --- Profile & Privacy tab ---
@@ -439,6 +444,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		auto_download_videos_check,
 		auto_download_documents_check,
 		upload_quality_combo,
+		theme_combo,
 		privacy_panel,
 		name_field,
 		about_field,
@@ -607,6 +613,8 @@ impl SettingsDialogParts {
 		self.reaction_notifications_check.set_value(settings.reaction_notifications);
 		self.enter_is_send_check.set_value(settings.enter_is_send);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
+		let theme = serde_json::to_value(settings.theme).ok();
+		set_combo_from_value(&self.theme_combo, THEME_CHOICES, theme.as_ref().and_then(|v| v.as_str()).unwrap_or(""));
 	}
 
 	pub fn read_chat_settings(&self, settings: &mut crate::settings::Settings) {
@@ -614,6 +622,8 @@ impl SettingsDialogParts {
 		settings.reaction_notifications = self.reaction_notifications_check.is_checked();
 		settings.enter_is_send = self.enter_is_send_check.is_checked();
 		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();
+		let theme = combo_value(&self.theme_combo, THEME_CHOICES);
+		settings.theme = serde_json::from_value(serde_json::Value::String(theme)).unwrap_or_default();
 	}
 
 	/// Shows the About and how long it lasts, or, with None, disables them

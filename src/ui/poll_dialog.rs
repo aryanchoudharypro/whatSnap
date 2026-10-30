@@ -47,21 +47,21 @@ pub fn build_poll_dialog(parent: &impl WxWidget) -> PollDialogParts {
 
 	let multiple_check = CheckBox::builder(&panel).with_label("Allow multiple answers").build();
 	multiple_check.set_value(true);
-	dialog_look::switch(&multiple_check, theme::Palette::CONTENT_BG);
+	dialog_look::switch(&multiple_check, theme::Palette::CONTENT_BG());
 	sizer.add(&multiple_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	// A quiz has one right answer, asked for on Send; it takes one answer,
 	// so "Allow multiple answers" goes grey while it's on.
 	let quiz_check = CheckBox::builder(&panel).with_label("Quiz (one correct answer)").build();
-	dialog_look::switch(&quiz_check, theme::Palette::CONTENT_BG);
+	dialog_look::switch(&quiz_check, theme::Palette::CONTENT_BG());
 	sizer.add(&quiz_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	let multiple_for_quiz = multiple_check;
 	quiz_check.on_toggled(move |event| multiple_for_quiz.enable(!event.is_checked()));
 
 	let send_btn = Button::builder(&panel).with_label("Send").build();
-	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&send_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
 	dialog_look::paint_fields(&panel, &[(question_field, Field::Line), (options_field, Field::Box)]);

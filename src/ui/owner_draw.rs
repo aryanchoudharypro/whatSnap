@@ -221,7 +221,7 @@ fn make_owner_drawn_button(hwnd: HWND) {
 /// WhatsApp's strip of icons, each with its short name under it.
 pub(crate) fn install_nav(list: &ListBox) {
 	let hwnd = hwnd_of(list);
-	register(hwnd, Kind::Nav, Palette::PANEL_BG);
+	register(hwnd, Kind::Nav, Palette::PANEL_BG());
 	set_nav_height(hwnd);
 }
 
@@ -279,9 +279,9 @@ pub(crate) fn install_nav_footer(panel: &Panel, frame: &Frame, settings_id: i32)
 		dc.set_pen(background, 1, PenStyle::Solid);
 		dc.draw_rectangle(0, 0, size.width, size.height);
 		let custom = theme::use_custom_colours();
-		let ink = if custom { Colour::rgb(0x3B, 0x4A, 0x54) } else { panel_c.get_foreground_color() };
+		let ink = if custom { Palette::ICON() } else { panel_c.get_foreground_color() };
 		let top = size.height - height;
-		dc.set_pen(if custom { Palette::DIVIDER_SOFT } else { ink }, 1, PenStyle::Solid);
+		dc.set_pen(if custom { Palette::DIVIDER_SOFT() } else { ink }, 1, PenStyle::Solid);
 		dc.draw_line(8, top, size.width - 8, top);
 		let cx = size.width / 2;
 		// Your picture, round. As in WhatsApp for Windows, it is the way into
@@ -292,7 +292,7 @@ pub(crate) fn install_nav_footer(panel: &Panel, frame: &Frame, settings_id: i32)
 		match avatars::path_of(&jid).and_then(|path| own_picture(&path, side)) {
 			Some(bitmap) => dc.draw_bitmap(&bitmap, x, y, true),
 			None => {
-				let grey = if custom { Colour::rgb(0xDF, 0xE5, 0xE7) } else { ink };
+				let grey = if custom { Palette::AVATAR_BG() } else { ink };
 				dc.set_brush(grey, BrushStyle::Solid);
 				dc.set_pen(grey, 1, PenStyle::Solid);
 				dc.draw_circle(cx, y + side / 2, side / 2);
@@ -362,7 +362,7 @@ pub(crate) fn round_picture(path: &str, side: u32) -> Option<wxdragon::bitmap::B
 pub(crate) fn install_media_list(list: &ListBox, message: impl Fn(usize) -> Option<(String, bool)> + 'static) {
 	let hwnd = hwnd_of(list);
 	REGISTRY.with(|r| r.borrow_mut().media_sources.insert(hwnd.0 as isize, Rc::new(message)));
-	register(hwnd, Kind::Media, Palette::CONTENT_BG);
+	register(hwnd, Kind::Media, Palette::CONTENT_BG());
 	let height = with_fonts(hwnd, |f| row_height(Kind::Media, f));
 	unsafe {
 		SendMessageW(hwnd, LB_SETITEMHEIGHT, Some(WPARAM(0)), Some(LPARAM(height as isize)));
@@ -388,7 +388,7 @@ fn person_side(fonts: &Fonts) -> i32 {
 pub(crate) fn install_people_list(list: &ListBox, jid: impl Fn(usize) -> Option<String> + 'static) {
 	let hwnd = hwnd_of(list);
 	REGISTRY.with(|r| r.borrow_mut().people_sources.insert(hwnd.0 as isize, Rc::new(jid)));
-	register(hwnd, Kind::People, Palette::CONTENT_BG);
+	register(hwnd, Kind::People, Palette::CONTENT_BG());
 	let height = with_fonts(hwnd, |f| row_height(Kind::People, f));
 	unsafe {
 		SendMessageW(hwnd, LB_SETITEMHEIGHT, Some(WPARAM(0)), Some(LPARAM(height as isize)));
@@ -410,14 +410,14 @@ fn paint_person(
 	let custom = theme::use_custom_colours();
 	let sys = |i| COLORREF(unsafe { GetSysColor(i) });
 	let (background, ink) = match (custom, selected) {
-		(true, true) => (colorref(0xE4, 0xE8, 0xEA), rgb(Palette::TEXT_PRIMARY)),
-		(true, false) => (rgb(Palette::CONTENT_BG), rgb(Palette::TEXT_PRIMARY)),
+		(true, true) => (rgb(Palette::SELECTED_ROW()), rgb(Palette::TEXT_PRIMARY())),
+		(true, false) => (rgb(Palette::CONTENT_BG()), rgb(Palette::TEXT_PRIMARY())),
 		(false, true) => (sys(COLOR_HIGHLIGHT), sys(COLOR_HIGHLIGHTTEXT)),
 		(false, false) => (sys(COLOR_WINDOW), sys(COLOR_WINDOWTEXT)),
 	};
 	gdi::fill(dc, rect(0, 0, width, height), background);
 	if custom && selected && focused {
-		gdi::fill(dc, rect(0, 0, 3, height), rgb(Palette::ACCENT));
+		gdi::fill(dc, rect(0, 0, 3, height), rgb(Palette::ACCENT()));
 	}
 	let side = person_side(fonts);
 	let (x, y) = (10, (height - side) / 2);
@@ -429,7 +429,7 @@ fn paint_person(
 		Avatar::Nothing | Avatar::Waiting => false,
 	});
 	if !drawn {
-		let grey = if custom { (0xDF, 0xE5, 0xE7) } else { (0x80, 0x80, 0x80) };
+		let grey = if custom { theme::tuple(Palette::AVATAR_BG()) } else { (0x80, 0x80, 0x80) };
 		if let Some(circle) = gdi::round_rect(side, side, side as f32 / 2.0, grey) {
 			circle.draw(dc, x, y);
 		}
@@ -519,9 +519,9 @@ fn paint_media(
 ) {
 	let custom = theme::use_custom_colours();
 	let c = if custom {
-		colours(if selected { Colour::rgb(0xE4, 0xE8, 0xEA) } else { Palette::CONTENT_BG }, false)
+		colours(if selected { Palette::SELECTED_ROW() } else { Palette::CONTENT_BG() }, false)
 	} else {
-		colours(Palette::CONTENT_BG, selected)
+		colours(Palette::CONTENT_BG(), selected)
 	};
 	let background = if !custom && !selected { COLORREF(unsafe { GetSysColor(COLOR_WINDOW) }) } else { c.background };
 	let text_colour = if !custom && !selected { COLORREF(unsafe { GetSysColor(COLOR_WINDOWTEXT) }) } else { c.text };
@@ -540,7 +540,7 @@ fn paint_media(
 			}
 		});
 		if !drawn {
-			gdi::fill(dc, rect(pad + 4, pad, pad + 4 + side, pad + side), colorref(0xD5, 0xD9, 0xDB));
+			gdi::fill(dc, rect(pad + 4, pad, pad + 4 + side, pad + side), rgb(Palette::PLACEHOLDER()));
 		}
 		if *video && let Some(font) = fonts.icons {
 			let r = side / 3;
@@ -791,10 +791,10 @@ fn colours(background: Colour, selected: bool) -> Colours {
 	Colours {
 		background: rgb(background),
 		// WhatsApp Web's icon grey, dark enough to read on its bars.
-		text: colorref(0x3B, 0x4A, 0x54),
-		muted: rgb(Palette::TEXT_MUTED),
-		pressed: colorref(0xD9, 0xDB, 0xDF),
-		focus: rgb(Palette::ACCENT),
+		text: rgb(Palette::ICON()),
+		muted: rgb(Palette::TEXT_MUTED()),
+		pressed: rgb(Palette::PRESSED()),
+		focus: rgb(Palette::ACCENT()),
 		custom: true,
 	}
 }
@@ -908,7 +908,7 @@ fn paint_nav(
 		let w = (gdi::text_width(dc, fonts.small_bold, &count) + h / 2).max(h);
 		let (bx, by) = ((px + pill_w - w + 4).min(width - w - 1), py - 2);
 		let (fill, ink) =
-			if c.custom { (rgb(Palette::ACCENT), colorref(0xFF, 0xFF, 0xFF)) } else { (c.text, c.background) };
+			if c.custom { (rgb(Palette::ACCENT()), rgb(Palette::ACCENT_TEXT())) } else { (c.text, c.background) };
 		blob(dc, bx, by.max(0), w, h, fill);
 		gdi::text(dc, fonts.small_bold, ink, &count, rect(bx, by.max(0), bx + w, by.max(0) + h), DT_CENTER);
 	}
@@ -940,7 +940,7 @@ fn paint_icon(
 	let colour = if disabled {
 		c.muted
 	} else if send && c.custom {
-		rgb(Palette::ACCENT)
+		rgb(Palette::ACCENT())
 	} else {
 		c.text
 	};
@@ -1019,12 +1019,12 @@ fn paint_tile(
 		if tone == Tone::On { (c.text, c.background) } else { (c.background, c.text) }
 	} else {
 		match tone {
-			Tone::Go => (rgb(Palette::ACCENT), colorref(0xFF, 0xFF, 0xFF)),
-			Tone::Stop => (colorref(0xD1, 0x1A, 0x3A), colorref(0xFF, 0xFF, 0xFF)),
+			Tone::Go => (rgb(Palette::ACCENT()), rgb(Palette::ACCENT_TEXT())),
+			Tone::Stop => (rgb(Palette::DANGER()), colorref(0xFF, 0xFF, 0xFF)),
 			Tone::On if dark => (colorref(0xFF, 0xFF, 0xFF), colorref(0x11, 0x1B, 0x21)),
 			Tone::On => (c.text, colorref(0xFF, 0xFF, 0xFF)),
 			Tone::Plain if dark => (colorref(0x3B, 0x4A, 0x54), colorref(0xFF, 0xFF, 0xFF)),
-			Tone::Plain => (colorref(0xFF, 0xFF, 0xFF), rgb(Palette::ACCENT)),
+			Tone::Plain => (colorref(0xFF, 0xFF, 0xFF), rgb(Palette::ACCENT())),
 		}
 	};
 	if focused {
@@ -1101,7 +1101,7 @@ fn paint_header(
 		Avatar::Nothing | Avatar::Waiting => false,
 	});
 	if !drawn {
-		let circle = if c.custom { (0xDF, 0xE5, 0xE7) } else { (0x80, 0x80, 0x80) };
+		let circle = if c.custom { theme::tuple(Palette::AVATAR_BG()) } else { (0x80, 0x80, 0x80) };
 		if let Some(circle) = gdi::round_rect(size, size, size as f32 / 2.0, circle) {
 			circle.draw(dc, pad, top);
 		}
@@ -1132,7 +1132,7 @@ fn paint_header(
 			rect(x, mid - fonts.line - 1, width - pad, mid + 1),
 			Default::default(),
 		);
-		let colour = if typing && c.custom { rgb(Palette::ACCENT) } else { c.muted };
+		let colour = if typing && c.custom { rgb(Palette::ACCENT()) } else { c.muted };
 		gdi::text(
 			dc,
 			fonts.small,

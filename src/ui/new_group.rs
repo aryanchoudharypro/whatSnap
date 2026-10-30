@@ -73,9 +73,9 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	dialog_look::add_field(&sizer, &extra_number_field, Field::Line, 0);
 
 	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Create group").build();
-	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&ok_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
 	dialog_look::paint_fields(

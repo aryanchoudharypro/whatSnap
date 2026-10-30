@@ -82,6 +82,8 @@ pub struct Settings {
 	/// WhatsApp's "Show reaction notifications": a reaction to one of our
 	/// messages in a chat that isn't open notifies.
 	pub reaction_notifications: bool,
+	/// WhatsApp's Theme: System default, Light or Dark. Takes a restart.
+	pub theme: crate::ui::theme::ThemeChoice,
 }
 
 /// Tab names by tab id. The id is what the rest of the app keys on
@@ -142,6 +144,7 @@ impl Default for Settings {
 			replace_text_with_emoji: true,
 			notification_previews: true,
 			reaction_notifications: true,
+			theme: Default::default(),
 		}
 	}
 }

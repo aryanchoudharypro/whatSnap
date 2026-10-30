@@ -51,10 +51,6 @@ const CONTROL_SUBCLASS: usize = 0x444c_4354;
 /// wx's `wxBORDER_NONE`.
 const BORDER_NONE: i64 = 0x0020_0000;
 
-/// WhatsApp Web's grey behind search boxes and fields.
-const FIELD_BG: Colour = Colour::rgb(0xF0, 0xF2, 0xF5);
-/// The resting line under a field.
-const LINE: Colour = Colour::rgb(0x86, 0x96, 0xA0);
 
 /// How a text field is drawn.
 #[derive(Clone, Copy, PartialEq)]
@@ -83,11 +79,11 @@ pub(crate) fn add_field(sizer: &BoxSizer, field: &TextCtrl, kind: Field, proport
 	}
 	match kind {
 		Field::Line => {
-			field.set_background_color(Palette::CONTENT_BG);
+			field.set_background_color(Palette::CONTENT_BG());
 			sizer.add(field, proportion, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 		}
 		Field::Search | Field::Box => {
-			field.set_background_color(FIELD_BG);
+			field.set_background_color(Palette::FIELD_BG());
 			let row = BoxSizer::builder(Orientation::Horizontal).build();
 			row.add_spacer(if kind == Field::Search { 52 } else { 20 });
 			row.add(field, 1, SizerFlag::Expand, 0);
@@ -130,7 +126,7 @@ pub(crate) fn paint_fields(panel: &Panel, fields: &[(TextCtrl, Field)]) {
 			let focused = field.has_focus();
 			match kind {
 				Field::Line => {
-					let (colour, thick) = if focused { (Palette::ACCENT, 2) } else { (LINE, 1) };
+					let (colour, thick) = if focused { (Palette::ACCENT(), 2) } else { (Palette::LINE(), 1) };
 					dc.set_brush(colour, BrushStyle::Solid);
 					dc.set_pen(colour, 1, PenStyle::Solid);
 					dc.draw_rectangle(p.x, p.y + s.height + 3, s.width, thick);
@@ -140,12 +136,12 @@ pub(crate) fn paint_fields(panel: &Panel, fields: &[(TextCtrl, Field)]) {
 					let (x, y, w, h) = (p.x - left, p.y - pad, s.width + left + 10, s.height + pad * 2);
 					let radius = if kind == Field::Search { h as f64 / 2.0 } else { 8.0 };
 					if focused {
-						dc.set_brush(Palette::ACCENT, BrushStyle::Solid);
-						dc.set_pen(Palette::ACCENT, 1, PenStyle::Solid);
+						dc.set_brush(Palette::ACCENT(), BrushStyle::Solid);
+						dc.set_pen(Palette::ACCENT(), 1, PenStyle::Solid);
 						dc.draw_rounded_rectangle(x - 2, y - 2, w + 4, h + 4, radius + 2.0);
 					}
-					dc.set_brush(FIELD_BG, BrushStyle::Solid);
-					dc.set_pen(FIELD_BG, 1, PenStyle::Solid);
+					dc.set_brush(Palette::FIELD_BG(), BrushStyle::Solid);
+					dc.set_pen(Palette::FIELD_BG(), 1, PenStyle::Solid);
 					dc.draw_rounded_rectangle(x, y, w, h, radius);
 					if kind == Field::Search {
 						draw_magnifier(&dc, x + 16, y + h / 2);
@@ -163,8 +159,8 @@ pub(crate) fn paint_fields(panel: &Panel, fields: &[(TextCtrl, Field)]) {
 /// A small magnifier centred on (x, y), drawn with lines so it needs no
 /// icon font.
 fn draw_magnifier(dc: &impl DeviceContext, x: i32, y: i32) {
-	let grey = Colour::rgb(0x54, 0x65, 0x6F);
-	dc.set_brush(FIELD_BG, BrushStyle::Solid);
+	let grey = Palette::ICON();
+	dc.set_brush(Palette::FIELD_BG(), BrushStyle::Solid);
 	dc.set_pen(grey, 2, PenStyle::Solid);
 	dc.draw_circle(x - 1, y - 1, 6);
 	dc.draw_line(x + 3, y + 3, x + 8, y + 8);
@@ -206,6 +202,9 @@ struct Rows {
 struct Registry {
 	controls: HashMap<isize, Control>,
 	rows: HashMap<isize, Rows>,
+	/// Switches by window, for their state: in the dark theme wx draws
+	/// check boxes itself and keeps it, not the control.
+	switches: HashMap<isize, CheckBox>,
 	parents: Vec<isize>,
 	avatars_hooked: bool,
 }
@@ -258,7 +257,9 @@ pub(crate) fn pill_button(button: &Button, primary: bool, background: Colour) {
 /// the right.
 pub(crate) fn switch(check: &CheckBox, background: Colour) {
 	check.set_font(&theme::Fonts::body());
-	register(hwnd_of(check), Kind::Switch, background);
+	let hwnd = hwnd_of(check);
+	REGISTRY.with(|r| r.borrow_mut().switches.insert(hwnd.0 as isize, *check));
+	register(hwnd, Kind::Switch, background);
 	let line = check.get_char_height();
 	check.set_min_size(Size::new(-1, line + 14));
 }
@@ -276,7 +277,7 @@ pub(crate) fn contact_check_rows(list: &CheckListBox, jid: impl Fn(usize) -> Opt
 }
 
 fn install_rows(hwnd: HWND, checks: Option<CheckListBox>, jid: Box<dyn Fn(usize) -> Option<String>>) {
-	register(hwnd, Kind::Rows, Palette::CONTENT_BG);
+	register(hwnd, Kind::Rows, Palette::CONTENT_BG());
 	let hook = REGISTRY.with(|r| {
 		let mut r = r.borrow_mut();
 		r.rows.insert(hwnd.0 as isize, Rows { checks, jid });
@@ -366,6 +367,7 @@ unsafe extern "system" fn control_proc(
 				if let Ok(mut r) = r.try_borrow_mut() {
 					r.controls.remove(&(hwnd.0 as isize));
 					r.rows.remove(&(hwnd.0 as isize));
+					r.switches.remove(&(hwnd.0 as isize));
 				}
 			});
 			unsafe {
@@ -400,6 +402,14 @@ unsafe extern "system" fn parent_proc(
 				Some((Kind::Rows, background)) if item.CtlType == ODT_LISTBOX && item.itemID != u32::MAX => {
 					Some((Kind::Rows, background))
 				}
+				// The dark theme makes wx draw check boxes itself, so a
+				// switch is asked for here rather than by NM_CUSTOMDRAW.
+				Some((Kind::Switch, background)) if item.CtlType == ODT_BUTTON => {
+					let disabled = item.itemState.0 & ODS_DISABLED.0 != 0;
+					let focused = item.itemState.0 & ODS_FOCUS.0 != 0;
+					paint_switch(item.hwndItem, item.hDC, item.rcItem, disabled, focused, background);
+					return LRESULT(1);
+				}
 				_ => None,
 			};
 			if let Some((kind, background)) = fits {
@@ -414,7 +424,9 @@ unsafe extern "system" fn parent_proc(
 			{
 				let draw = unsafe { &*(lparam.0 as *const NMCUSTOMDRAW) };
 				if draw.dwDrawStage == CDDS_PREPAINT {
-					paint_switch(draw, background);
+					let disabled = draw.uItemState.0 & CDIS_DISABLED.0 != 0;
+					let focused = draw.uItemState.0 & CDIS_FOCUS.0 != 0;
+					paint_switch(header.hwndFrom, draw.hdc, draw.rc, disabled, focused, background);
 					return LRESULT(CDRF_SKIPDEFAULT as isize);
 				}
 			}
@@ -572,15 +584,15 @@ fn paint_pill(
 			if pressed { (sys(COLOR_HIGHLIGHT), sys(COLOR_HIGHLIGHTTEXT)) } else { (back, sys(COLOR_BTNTEXT)) };
 		(fill, ink, Some(sys(COLOR_BTNTEXT)))
 	} else if disabled {
-		(colorref(0xE9, 0xED, 0xEF), rgb(Palette::TEXT_MUTED), None)
+		(rgb(Palette::DIVIDER_SOFT()), rgb(Palette::TEXT_MUTED()), None)
 	} else if primary {
-		(if pressed { colorref(0x0F, 0x63, 0x36) } else { rgb(Palette::ACCENT) }, colorref(0xFF, 0xFF, 0xFF), None)
+		(rgb(if pressed { Palette::ACCENT_PRESSED() } else { Palette::ACCENT() }), rgb(Palette::ACCENT_TEXT()), None)
 	} else {
-		let fill = if pressed { rgb(FIELD_BG) } else { colorref(0xFF, 0xFF, 0xFF) };
-		(fill, rgb(Palette::ACCENT), Some(colorref(0xD1, 0xD7, 0xDB)))
+		let fill = rgb(if pressed { Palette::FIELD_BG() } else { Palette::CONTENT_BG() });
+		(fill, rgb(Palette::ACCENT()), Some(rgb(Palette::OUTLINE())))
 	};
 	if focused {
-		let ring = if custom { rgb(Palette::TEXT_PRIMARY) } else { sys(COLOR_HIGHLIGHT) };
+		let ring = if custom { rgb(Palette::TEXT_PRIMARY()) } else { sys(COLOR_HIGHLIGHT) };
 		blob(dc, 0, 0, width, height, ring);
 		blob(dc, 2, 2, width - 4, height - 4, back);
 	}
@@ -595,39 +607,41 @@ fn paint_pill(
 	gdi::text(dc, font, ink, label, rect(x + 4, y, x + w - 4, y + h), DT_CENTER);
 }
 
-fn paint_switch(draw: &NMCUSTOMDRAW, background: Colour) {
-	let hwnd = draw.hdr.hwndFrom;
-	let checked = unsafe { SendMessageW(hwnd, BM_GETCHECK, None, None) }.0 == 1;
-	let disabled = draw.uItemState.0 & CDIS_DISABLED.0 != 0 || !unsafe { IsWindowEnabled(hwnd) }.as_bool();
-	let focused = draw.uItemState.0 & CDIS_FOCUS.0 != 0;
+fn paint_switch(hwnd: HWND, hdc: HDC, rc: RECT, disabled: bool, focused: bool, background: Colour) {
+	let check = REGISTRY.with(|r| r.try_borrow().ok().and_then(|r| r.switches.get(&(hwnd.0 as isize)).copied()));
+	let checked = match check {
+		Some(check) => check.is_checked(),
+		None => unsafe { SendMessageW(hwnd, BM_GETCHECK, None, None) }.0 == 1,
+	};
+	let disabled = disabled || !unsafe { IsWindowEnabled(hwnd) }.as_bool();
 	let label = strip_mnemonic(&window_text(hwnd));
 	let font = control_font(hwnd);
 	let line = line_height(hwnd);
 	let custom = theme::use_custom_colours();
-	buffered(draw.hdc, draw.rc, |dc, width, height| {
+	buffered(hdc, rc, |dc, width, height| {
 		let back = if custom { rgb(background) } else { sys(COLOR_BTNFACE) };
 		gdi::fill(dc, rect(0, 0, width, height), back);
 		let track_h = (line * 4 / 5).max(12);
 		let track_w = track_h * 2 - 2;
 		let (tx, ty) = (width - track_w - 4, (height - track_h) / 2);
 		let text = if disabled {
-			if custom { rgb(Palette::TEXT_MUTED) } else { sys(COLOR_GRAYTEXT) }
+			if custom { rgb(Palette::TEXT_MUTED()) } else { sys(COLOR_GRAYTEXT) }
 		} else if custom {
-			rgb(Palette::TEXT_PRIMARY)
+			rgb(Palette::TEXT_PRIMARY())
 		} else {
 			sys(COLOR_BTNTEXT)
 		};
 		gdi::text(dc, font, text, &label, rect(2, 0, tx - 10, height), Default::default());
 		if focused {
-			let ring = if custom { rgb(Palette::TEXT_PRIMARY) } else { sys(COLOR_HIGHLIGHT) };
+			let ring = if custom { rgb(Palette::TEXT_PRIMARY()) } else { sys(COLOR_HIGHLIGHT) };
 			blob(dc, tx - 4, ty - 4, track_w + 8, track_h + 8, ring);
 			blob(dc, tx - 2, ty - 2, track_w + 4, track_h + 4, back);
 		}
 		let (track, knob) = match (custom, checked, disabled) {
-			(true, true, false) => (rgb(Palette::ACCENT), colorref(0xFF, 0xFF, 0xFF)),
+			(true, true, false) => (rgb(Palette::ACCENT()), colorref(0xFF, 0xFF, 0xFF)),
 			(true, true, true) => (colorref(0x9F, 0xC2, 0xB9), colorref(0xFF, 0xFF, 0xFF)),
-			(true, false, false) => (rgb(LINE), colorref(0xFF, 0xFF, 0xFF)),
-			(true, false, true) => (colorref(0xD1, 0xD7, 0xDB), colorref(0xFF, 0xFF, 0xFF)),
+			(true, false, false) => (rgb(Palette::LINE()), colorref(0xFF, 0xFF, 0xFF)),
+			(true, false, true) => (rgb(Palette::OUTLINE()), colorref(0xFF, 0xFF, 0xFF)),
 			(false, true, _) => (sys(COLOR_HIGHLIGHT), sys(COLOR_HIGHLIGHTTEXT)),
 			(false, false, _) => (sys(COLOR_BTNTEXT), back),
 		};
@@ -671,15 +685,15 @@ fn paint_row(dc: HDC, width: i32, height: i32, font: HFONT, line: i32, look: &Ro
 		}
 	} else {
 		let back = match (look.selected, look.focused) {
-			(true, true) => colorref(0xE9, 0xED, 0xEF),
-			(true, false) => rgb(FIELD_BG),
-			_ => colorref(0xFF, 0xFF, 0xFF),
+			(true, true) => rgb(Palette::SELECTED_ROW()),
+			(true, false) => rgb(Palette::FIELD_BG()),
+			_ => rgb(Palette::CONTENT_BG()),
 		};
-		(back, rgb(Palette::TEXT_PRIMARY), rgb(Palette::TEXT_MUTED))
+		(back, rgb(Palette::TEXT_PRIMARY()), rgb(Palette::TEXT_MUTED()))
 	};
 	gdi::fill(dc, rect(0, 0, width, height), back);
 	if look.selected && look.focused {
-		let bar = if custom { rgb(Palette::ACCENT) } else { sys(COLOR_HIGHLIGHTTEXT) };
+		let bar = if custom { rgb(Palette::ACCENT()) } else { sys(COLOR_HIGHLIGHTTEXT) };
 		gdi::fill(dc, rect(0, 2, 3, height - 2), bar);
 	}
 	let lf = logfont(font);
@@ -689,16 +703,16 @@ fn paint_row(dc: HDC, width: i32, height: i32, font: HFONT, line: i32, look: &Ro
 		let side = (line + 2).min(height - 4);
 		let y = (height - side) / 2;
 		let x0 = 4;
-		let accent = if custom { rgb(Palette::ACCENT) } else { text };
+		let accent = if custom { rgb(Palette::ACCENT()) } else { text };
 		if checked {
 			blob(dc, x0, y, side, side, accent);
-			let tick = if custom { colorref(0xFF, 0xFF, 0xFF) } else { back };
+			let tick = if custom { rgb(Palette::ACCENT_TEXT()) } else { back };
 			if let Some(icons) = gdi::icon_font(dc, &lf, 0.8) {
 				gdi::text(dc, icons, tick, "\u{E73E}", rect(x0, y, x0 + side, y + side), DT_CENTER);
 				gdi::delete_font(icons);
 			}
 		} else {
-			blob(dc, x0, y, side, side, if custom { rgb(LINE) } else { text });
+			blob(dc, x0, y, side, side, if custom { rgb(Palette::LINE()) } else { text });
 			blob(dc, x0 + 2, y + 2, side - 4, side - 4, back);
 		}
 		x = x0 + side + 10;
@@ -713,7 +727,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, font: HFONT, line: i32, look: &Ro
 		Avatar::Nothing | Avatar::Waiting => false,
 	});
 	if !drawn {
-		let circle = if custom { colorref(0xDF, 0xE5, 0xE7) } else { colorref(0x80, 0x80, 0x80) };
+		let circle = if custom { rgb(Palette::AVATAR_BG()) } else { colorref(0x80, 0x80, 0x80) };
 		blob(dc, x, top, size, size, circle);
 		let glyph = if look.jid.ends_with("@g.us") { "\u{E716}" } else { "\u{E77B}" };
 		if let Some(icons) = gdi::icon_font(dc, &lf, 1.3) {
@@ -734,7 +748,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, font: HFONT, line: i32, look: &Ro
 	}
 	// WhatsApp's faint line between rows, from the name onwards.
 	if custom && !look.selected {
-		gdi::fill(dc, rect(tx, height - 1, width, height), rgb(Palette::DIVIDER_SOFT));
+		gdi::fill(dc, rect(tx, height - 1, width, height), rgb(Palette::DIVIDER_SOFT()));
 	}
 }
 

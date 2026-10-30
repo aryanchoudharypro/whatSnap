@@ -39,21 +39,21 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 	sizer.add(&caption_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let view_once_check = CheckBox::builder(&dialog).with_label("&View once").build();
-	dialog_look::switch(&view_once_check, theme::Palette::CONTENT_BG);
+	dialog_look::switch(&view_once_check, theme::Palette::CONTENT_BG());
 	sizer.add(&view_once_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let add_more_btn = Button::builder(&dialog).with_label("Add more files").build();
-	dialog_look::pill_button(&add_more_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&add_more_btn, false, theme::Palette::CONTENT_BG());
 	btn_sizer.add(&add_more_btn, 0, SizerFlag::Right, 6);
 
 	let discard_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("Discard").build();
-	dialog_look::pill_button(&discard_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&discard_btn, false, theme::Palette::CONTENT_BG());
 	btn_sizer.add(&discard_btn, 0, SizerFlag::Right, 6);
 
 	let send_btn = Button::builder(&dialog).with_id(ID_OK).with_label("Send").build();
-	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG());
 	btn_sizer.add(&send_btn, 0, SizerFlag::empty(), 0);
 
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::AlignRight | SizerFlag::All, 12);

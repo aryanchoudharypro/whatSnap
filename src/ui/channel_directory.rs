@@ -288,10 +288,10 @@ pub fn show_channel_directory(
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
 	// Follow is the main thing to do here, so it's the green one.
 	for (i, button) in [&view_btn, &follow_btn, &more_btn].into_iter().enumerate() {
-		dialog_look::pill_button(button, i == 1, theme::Palette::CONTENT_BG);
+		dialog_look::pill_button(button, i == 1, theme::Palette::CONTENT_BG());
 		buttons.add(button, 0, SizerFlag::Right, 6);
 	}
-	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
 	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 12);

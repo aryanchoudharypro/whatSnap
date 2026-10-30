@@ -717,7 +717,10 @@ fn main() {
 	// further down: the backend process is spawned here, before AppState (and
 	// the window it lives in) exist, so this is the only place that can act
 	// on it before that first launch.
-	let verbose_backend_logging = crate::settings::Settings::load().verbose_backend_logging;
+	let early_settings = crate::settings::Settings::load();
+	let verbose_backend_logging = early_settings.verbose_backend_logging;
+	// Before any window: every colour is picked as windows are made.
+	crate::ui::theme::set_theme(early_settings.theme);
 	let backend = backend_exe.map(|exe| {
 		Arc::new(backend_process::BackendProcess::start(
 			exe,
@@ -733,6 +736,7 @@ fn main() {
 	let end_session_pipe_id = pipe_id.clone();
 
 	let res = wxdragon::main(move |_| {
+		crate::ui::theme::apply_to_windows();
 		// Registers (or repairs) a Start Menu shortcut carrying our Application
 		// User Model ID. Windows silently drops toasts from any AUMID that
 		// isn't backed by such a shortcut, which is why notifications never
