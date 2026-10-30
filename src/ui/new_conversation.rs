@@ -1,6 +1,9 @@
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::ui::{
+	dialog_look::{self, Field},
+	theme,
+};
 
 /// Every constructed widget is kept here for consistency even if not all of
 /// them are read back after construction yet.
@@ -31,36 +34,42 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let search_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
-	search_field.set_font(&theme::Fonts::body());
-	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	let search_field =
+		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::ProcessEnter)).build();
+	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
-	let results_list = ListBox::builder(&panel).build();
+	// Owner-drawn (keeping its strings) so the rows can show each contact's
+	// picture; see `dialog_look::contact_rows`, installed in window.rs.
+	let results_list =
+		ListBox::builder(&panel).with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW)).build();
 	results_list.set_font(&theme::Fonts::body());
-	sizer.add(&results_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
+	sizer.add(&results_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let bg = theme::Palette::CONTENT_BG;
 
 	let new_group_btn = Button::builder(&panel).with_label("New Group").build();
-	new_group_btn.set_font(&theme::Fonts::body());
-	btn_sizer.add(&new_group_btn, 0, SizerFlag::Right, 8);
+	dialog_look::pill_button(&new_group_btn, false, bg);
+	btn_sizer.add(&new_group_btn, 0, SizerFlag::Right, 6);
 
 	let new_contact_btn = Button::builder(&panel).with_label("New Contact").build();
-	new_contact_btn.set_font(&theme::Fonts::body());
-	btn_sizer.add(&new_contact_btn, 0, SizerFlag::Right, 8);
+	dialog_look::pill_button(&new_contact_btn, false, bg);
+	btn_sizer.add(&new_contact_btn, 0, SizerFlag::Right, 6);
 
 	let message_meta_ai_btn = Button::builder(&panel).with_label("Message Meta AI").build();
-	message_meta_ai_btn.set_font(&theme::Fonts::body());
-	btn_sizer.add(&message_meta_ai_btn, 0, SizerFlag::Right, 8);
+	dialog_look::pill_button(&message_meta_ai_btn, false, bg);
+	btn_sizer.add(&message_meta_ai_btn, 0, SizerFlag::Right, 6);
 
 	btn_sizer.add_stretch_spacer(1);
 
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	dialog_look::pill_button(&close_btn, false, bg);
 	btn_sizer.add(&close_btn, 0, SizerFlag::empty(), 0);
 
-	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
+	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 12);
 
 	panel.set_sizer(sizer, true);
+	dialog_look::paint_fields(&panel, &[(search_field, Field::Search)]);
 
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);

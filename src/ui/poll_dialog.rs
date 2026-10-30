@@ -1,6 +1,9 @@
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::ui::{
+	dialog_look::{self, Field},
+	theme,
+};
 
 /// Every constructed widget is kept here for consistency even if not all of
 /// them are read back after construction (e.g. static labels).
@@ -32,40 +35,36 @@ pub fn build_poll_dialog(parent: &impl WxWidget) -> PollDialogParts {
 	let question_label = StaticText::builder(&panel).with_label("Question").build();
 	theme::style_muted_label(&question_label);
 	sizer.add(&question_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let question_field = TextCtrl::builder(&panel).build();
-	question_field.set_font(&theme::Fonts::body());
-	sizer.add(&question_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	let question_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
+	dialog_look::add_field(&sizer, &question_field, Field::Line, 0);
 
 	let options_label = StaticText::builder(&panel).with_label("Options, one per line (2 to 12)").build();
 	theme::style_muted_label(&options_label);
 	sizer.add(&options_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let options_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
-	options_field.set_font(&theme::Fonts::body());
-	sizer.add(&options_field, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	let options_field =
+		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::MultiLine)).build();
+	dialog_look::add_field(&sizer, &options_field, Field::Box, 1);
 
 	let multiple_check = CheckBox::builder(&panel).with_label("Allow multiple answers").build();
 	multiple_check.set_value(true);
-	multiple_check.set_font(&theme::Fonts::body());
-	sizer.add(&multiple_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	dialog_look::switch(&multiple_check, theme::Palette::CONTENT_BG);
+	sizer.add(&multiple_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	// A quiz has one right answer, asked for on Send; it takes one answer,
 	// so "Allow multiple answers" goes grey while it's on.
 	let quiz_check = CheckBox::builder(&panel).with_label("Quiz (one correct answer)").build();
-	quiz_check.set_font(&theme::Fonts::body());
-	sizer.add(&quiz_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	dialog_look::switch(&quiz_check, theme::Palette::CONTENT_BG);
+	sizer.add(&quiz_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	let multiple_for_quiz = multiple_check;
 	quiz_check.on_toggled(move |event| multiple_for_quiz.enable(!event.is_checked()));
 
-	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let send_btn = Button::builder(&panel).with_label("Send").build();
-	theme::style_primary_button(&send_btn);
-	btn_sizer.add(&send_btn, 0, SizerFlag::Right, 8);
-	btn_sizer.add_stretch_spacer(1);
+	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG);
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);
-
-	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::button_row(&sizer, &[&send_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
+	dialog_look::paint_fields(&panel, &[(question_field, Field::Line), (options_field, Field::Box)]);
 
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);

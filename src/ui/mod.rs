@@ -10,6 +10,7 @@ pub mod channel_directory;
 pub mod chat_rows;
 pub mod conversation_data;
 pub mod conversations;
+pub mod dialog_look;
 pub mod emoji_panel;
 pub mod gdi;
 pub mod group_data;

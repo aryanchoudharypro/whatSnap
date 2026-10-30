@@ -1,6 +1,6 @@
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::ui::{dialog_look, theme};
 
 /// Every constructed widget is kept here for consistency even if not all of
 /// them are read back after construction yet (e.g. static labels).
@@ -39,24 +39,24 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 	sizer.add(&caption_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let view_once_check = CheckBox::builder(&dialog).with_label("&View once").build();
-	view_once_check.set_font(&theme::Fonts::body());
-	sizer.add(&view_once_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	dialog_look::switch(&view_once_check, theme::Palette::CONTENT_BG);
+	sizer.add(&view_once_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let add_more_btn = Button::builder(&dialog).with_label("Add more files").build();
-	add_more_btn.set_font(&theme::Fonts::body());
-	btn_sizer.add(&add_more_btn, 0, SizerFlag::Right, 5);
+	dialog_look::pill_button(&add_more_btn, false, theme::Palette::CONTENT_BG);
+	btn_sizer.add(&add_more_btn, 0, SizerFlag::Right, 6);
 
 	let discard_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("Discard").build();
-	discard_btn.set_font(&theme::Fonts::body());
-	btn_sizer.add(&discard_btn, 0, SizerFlag::Right, 5);
+	dialog_look::pill_button(&discard_btn, false, theme::Palette::CONTENT_BG);
+	btn_sizer.add(&discard_btn, 0, SizerFlag::Right, 6);
 
 	let send_btn = Button::builder(&dialog).with_id(ID_OK).with_label("Send").build();
-	theme::style_primary_button(&send_btn);
+	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG);
 	btn_sizer.add(&send_btn, 0, SizerFlag::empty(), 0);
 
-	sizer.add_sizer(&btn_sizer, 0, SizerFlag::AlignRight | SizerFlag::All, 10);
+	sizer.add_sizer(&btn_sizer, 0, SizerFlag::AlignRight | SizerFlag::All, 12);
 
 	dialog.center();
 

@@ -7,7 +7,7 @@ use wxdragon::prelude::*;
 
 use crate::{
 	screen_capture::{ShareChoice, share_choices},
-	ui::theme,
+	ui::{dialog_look, theme},
 };
 
 /// Shows the picker and returns what was chosen, or `None` if it was cancelled.
@@ -33,14 +33,11 @@ pub fn pick_share_target(parent: &impl WxWidget) -> Option<ShareChoice> {
 	list.set_selection(0, true);
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
 	let share_btn = Button::builder(&panel).with_id(ID_OK).with_label("Share").build();
-	theme::style_primary_button(&share_btn);
+	dialog_look::pill_button(&share_btn, true, theme::Palette::CONTENT_BG);
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	buttons.add(&share_btn, 0, SizerFlag::Right, 8);
-	buttons.add_stretch_spacer(1);
-	buttons.add(&cancel_btn, 0, SizerFlag::empty(), 0);
-	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::button_row(&sizer, &[&share_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);

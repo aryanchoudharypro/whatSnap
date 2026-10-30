@@ -849,6 +849,27 @@ pub fn bind_input_handlers(
 	});
 
 	crate::ui::avatars::init(state.borrow().ws_tx.clone());
+	// The contact pickers' rows show each person's picture, found by row.
+	let picked = |state: &Rc<std::cell::RefCell<crate::AppState>>, jids: fn(&crate::AppState) -> &Vec<String>| {
+		let state = state.clone();
+		move |index: usize| state.try_borrow().ok().and_then(|s| jids(&s).get(index).cloned())
+	};
+	crate::ui::dialog_look::contact_rows(
+		&parts.new_conv_dialog.results_list,
+		picked(state, |s| &s.contact_picker_current_jids),
+	);
+	crate::ui::dialog_look::contact_check_rows(
+		&parts.new_group_dialog.contacts_listbox,
+		picked(state, |s| &s.group_state.current_jids),
+	);
+	crate::ui::dialog_look::contact_check_rows(
+		&parts.add_members_dialog.contacts_listbox,
+		picked(state, |s| &s.add_members_state.current_jids),
+	);
+	crate::ui::dialog_look::contact_check_rows(
+		&parts.attach_contact_dialog.contacts_listbox,
+		picked(state, |s| &s.attach_contact_state.current_jids),
+	);
 	let state_rows = state.clone();
 	crate::ui::chat_rows::install(&parts.conversations_parts.conversations_list, move |index, text| {
 		let Ok(s) = state_rows.try_borrow() else {

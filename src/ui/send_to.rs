@@ -7,7 +7,10 @@ use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::ui::{
+	dialog_look::{self, Field},
+	theme,
+};
 
 /// WhatsApp lets one message go to at most five chats at once, when
 /// forwarding or sharing into the app.
@@ -66,9 +69,8 @@ pub fn show_send_to_dialog(
 	let search_label = StaticText::builder(&panel).with_label("Search chats and contacts").build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let search_field = TextCtrl::builder(&panel).build();
-	search_field.set_font(&theme::Fonts::body());
-	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	let search_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
+	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
 	let list_label = StaticText::builder(&panel).with_label(&format!("Send to (up to {})", MAX_RECIPIENTS)).build();
 	theme::style_muted_label(&list_label);
@@ -88,21 +90,19 @@ pub fn show_send_to_dialog(
 		StaticText::builder(&panel).with_label(if files.is_empty() { "Message" } else { "Caption (optional)" }).build();
 	theme::style_muted_label(&message_label);
 	sizer.add(&message_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let message_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
-	message_field.set_font(&theme::Fonts::body());
+	let message_field =
+		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::MultiLine)).build();
 	message_field.set_value(initial_text);
 	message_field.set_min_size(Size::new(-1, 90));
-	sizer.add(&message_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	dialog_look::add_field(&sizer, &message_field, Field::Box, 0);
 
-	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let send_btn = Button::builder(&panel).with_id(ID_OK).with_label("Send").build();
-	theme::style_primary_button(&send_btn);
+	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG);
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
-	btn_sizer.add(&send_btn, 0, SizerFlag::Right, 8);
-	btn_sizer.add_stretch_spacer(1);
-	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);
-	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG);
+	dialog_look::button_row(&sizer, &[&send_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
+	dialog_look::paint_fields(&panel, &[(search_field, Field::Search), (message_field, Field::Box)]);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
 	dialog.set_sizer(outer, true);
@@ -113,6 +113,10 @@ pub fn show_send_to_dialog(
 		all: targets,
 		checked: Vec::new(),
 	}));
+	let state_rows = state.clone();
+	dialog_look::contact_check_rows(&list, move |index| {
+		state_rows.try_borrow().ok().and_then(|s| s.shown.get(index).cloned())
+	});
 	{
 		let s = state.borrow();
 		for target in &s.all {
