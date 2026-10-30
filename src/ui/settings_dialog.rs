@@ -9,9 +9,13 @@ pub const VISIBILITY_CHOICES: &[(&str, &str)] =
 	&[("Everyone", "all"), ("My Contacts", "contacts"), ("My Contacts Except...", EXCEPT_VALUE), ("Nobody", "none")];
 /// The wire value of "My Contacts Except...".
 pub const EXCEPT_VALUE: &str = "contact_blacklist";
-pub const READ_RECEIPTS_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("Nobody", "none")];
+/// Read receipts are a switch in WhatsApp, not an audience.
+pub const READ_RECEIPTS_CHOICES: &[(&str, &str)] = &[("On", "all"), ("Off", "none")];
 pub const ONLINE_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("Same as Last Seen", "match_last_seen")];
-pub const CALL_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("My Contacts", "known")];
+/// "calladd" is WhatsApp's "Silence unknown callers": with "known", calls
+/// from numbers that aren't contacts still come in, they just don't ring.
+/// Nobody is stopped from calling, so it isn't "who can call me".
+pub const CALL_CHOICES: &[(&str, &str)] = &[("Off", "all"), ("On", "known")];
 /// The default timer for disappearing messages in new chats, in seconds, as
 /// WhatsApp offers it.
 pub const DEFAULT_TIMER_CHOICES: &[(&str, &str)] =
@@ -247,7 +251,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let read_receipts_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Read Receipts", READ_RECEIPTS_CHOICES);
 	let groups_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Add Me to Groups", VISIBILITY_CHOICES);
 	let groups_except_btn = except_button(&privacy_panel, &privacy_sizer, "Groups");
-	let calls_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Call Me", CALL_CHOICES);
+	let calls_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Silence Unknown Callers", CALL_CHOICES);
 
 	privacy_panel.set_sizer(privacy_sizer, true);
 
