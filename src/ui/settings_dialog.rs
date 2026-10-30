@@ -9,8 +9,6 @@ pub const VISIBILITY_CHOICES: &[(&str, &str)] =
 	&[("Everyone", "all"), ("My Contacts", "contacts"), ("My Contacts Except...", EXCEPT_VALUE), ("Nobody", "none")];
 /// The wire value of "My Contacts Except...".
 pub const EXCEPT_VALUE: &str = "contact_blacklist";
-/// Read receipts are a switch in WhatsApp, not an audience.
-pub const READ_RECEIPTS_CHOICES: &[(&str, &str)] = &[("On", "all"), ("Off", "none")];
 pub const ONLINE_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("Same as Last Seen", "match_last_seen")];
 /// "calladd" is WhatsApp's "Silence unknown callers": with "known", calls
 /// from numbers that aren't contacts still come in, they just don't ring.
@@ -103,7 +101,9 @@ pub struct SettingsDialogParts {
 	pub profile_photo_except_btn: Button,
 	pub about_privacy_combo: ComboBox,
 	pub about_privacy_except_btn: Button,
-	pub read_receipts_combo: ComboBox,
+	/// Read receipts are a switch in WhatsApp ("all" on, "none" off), not
+	/// an audience.
+	pub read_receipts_check: CheckBox,
 	pub groups_combo: ComboBox,
 	pub groups_except_btn: Button,
 	pub calls_combo: ComboBox,
@@ -306,7 +306,19 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let about_privacy_combo =
 		visibility_combo(&privacy_panel, &privacy_sizer, "Who Can See My About", VISIBILITY_CHOICES);
 	let about_privacy_except_btn = except_button(&privacy_panel, &privacy_sizer, "About");
-	let read_receipts_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Read Receipts", READ_RECEIPTS_CHOICES);
+	let read_receipts_check = CheckBox::builder(&privacy_panel)
+		.with_label(
+			"Read receipts: if turned off, you won't send or receive read receipts. They're always sent in groups.",
+		)
+		.build();
+	read_receipts_check.set_font(&theme::Fonts::body());
+	read_receipts_check.enable(false);
+	privacy_sizer.add(
+		&read_receipts_check,
+		0,
+		SizerFlag::Left | SizerFlag::Right | SizerFlag::Top | SizerFlag::Bottom,
+		8,
+	);
 	let groups_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Add Me to Groups", VISIBILITY_CHOICES);
 	let groups_except_btn = except_button(&privacy_panel, &privacy_sizer, "Groups");
 	let calls_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Silence Unknown Callers", CALL_CHOICES);
@@ -440,7 +452,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		profile_photo_except_btn,
 		about_privacy_combo,
 		about_privacy_except_btn,
-		read_receipts_combo,
+		read_receipts_check,
 		groups_combo,
 		groups_except_btn,
 		calls_combo,
@@ -493,7 +505,7 @@ pub fn shown_value<'a>(choices: &[(&'a str, &'a str)], value: &str) -> &'a str {
 }
 
 impl SettingsDialogParts {
-	pub fn privacy_controls(&self) -> [PrivacyControl; 7] {
+	pub fn privacy_controls(&self) -> [PrivacyControl; 6] {
 		let control =
 			|name, label, combo, choices, except_btn| PrivacyControl { name, label, combo, choices, except_btn };
 		[
@@ -513,7 +525,6 @@ impl SettingsDialogParts {
 				VISIBILITY_CHOICES,
 				Some(self.about_privacy_except_btn),
 			),
-			control("readreceipts", "Read Receipts", self.read_receipts_combo, READ_RECEIPTS_CHOICES, None),
 			control("groupadd", "Groups", self.groups_combo, VISIBILITY_CHOICES, Some(self.groups_except_btn)),
 			control("calladd", "Calls", self.calls_combo, CALL_CHOICES, None),
 		]
@@ -533,6 +544,18 @@ impl SettingsDialogParts {
 				btn.enable(settings.is_some() && control.is_except());
 			}
 		}
+		if let Some(settings) = settings {
+			self.read_receipts_check.set_value(settings.get("readreceipts").map(String::as_str) != Some("none"));
+		}
+		self.read_receipts_check.enable(settings.is_some());
+	}
+
+	/// The read receipts setting to send, when the switch no longer matches
+	/// what the server has.
+	pub fn read_receipts_change(&self, settings: &std::collections::HashMap<String, String>) -> Option<&'static str> {
+		let on = self.read_receipts_check.is_checked();
+		let was_on = settings.get("readreceipts").map(String::as_str) != Some("none");
+		(on != was_on).then_some(if on { "all" } else { "none" })
 	}
 
 	/// The switches the backend keeps (see backend app_prefs.go), by name.

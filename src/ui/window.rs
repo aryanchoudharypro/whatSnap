@@ -2037,6 +2037,13 @@ pub fn bind_input_handlers(
 				let _ = s.ws_tx.send(payload.to_string());
 			}
 		}
+		if s.privacy_settings_loaded
+			&& let Some(value) = settings_parts_ok.read_receipts_change(&s.privacy_settings)
+		{
+			s.privacy_settings.insert("readreceipts".to_string(), value.to_string());
+			let payload = serde_json::json!({"action": "set_privacy_setting", "data": {"name": "readreceipts", "value": value}});
+			let _ = s.ws_tx.send(payload.to_string());
+		}
 		if s.privacy_settings_loaded {
 			for control in settings_parts_ok.privacy_controls() {
 				let server = s.privacy_settings.get(control.name).cloned().unwrap_or_default();
