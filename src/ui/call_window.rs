@@ -40,8 +40,11 @@ pub struct CallWindowParts {
 	pub camera_device_combo: ComboBox,
 }
 
-/// WhatsApp's call screen colour.
-const CALL_BG: Colour = Colour::rgb(0x11, 0x1B, 0x21);
+/// WhatsApp's call screen colours, a shade off the palette's on purpose: the
+/// call screen is dark in either theme, so a theme change (which swaps
+/// palette colours, see `theme::change_theme`) must leave these alone.
+const CALL_BG: Colour = Colour::rgb(0x10, 0x1A, 0x20);
+const CALL_TEXT: Colour = Colour::rgb(0xE9, 0xED, 0xEE);
 
 pub fn build_call_window() -> CallWindowParts {
 	let frame = Frame::builder().with_title("Call").with_size(Size::new(580, 460)).build();
@@ -49,14 +52,14 @@ pub fn build_call_window() -> CallWindowParts {
 	// WhatsApp's dark call screen.
 	if theme::use_custom_colours() {
 		panel.set_background_color(CALL_BG);
-		panel.set_foreground_color(Colour::rgb(0xE9, 0xED, 0xEF));
+		panel.set_foreground_color(CALL_TEXT);
 	}
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let status_label = StaticText::builder(&panel).with_label("Incoming call...").build();
 	status_label.set_font(&theme::Fonts::heading());
 	if theme::use_custom_colours() {
-		status_label.set_foreground_color(Colour::rgb(0xE9, 0xED, 0xEF));
+		status_label.set_foreground_color(CALL_TEXT);
 	}
 	sizer.add(&status_label, 0, SizerFlag::Expand | SizerFlag::All, 10);
 

@@ -461,7 +461,7 @@ unsafe extern "system" fn parent_proc(
 ) -> LRESULT {
 	let control = |child: HWND| {
 		REGISTRY.with(|r| {
-			r.try_borrow().ok().and_then(|r| r.controls.get(&(child.0 as isize)).map(|c| (c.kind, c.background)))
+			r.try_borrow().ok().and_then(|r| r.controls.get(&(child.0 as isize)).map(|c| (c.kind, theme::now(c.background))))
 		})
 	};
 	match msg {

@@ -155,6 +155,16 @@ fn swapped(colour: Colour, to_dark: bool) -> Option<Colour> {
 	})
 }
 
+/// `colour`, kept from when a window was made, in the theme now on: a
+/// palette colour of the other theme becomes this one's.
+pub fn now(colour: Colour) -> Colour {
+	let dark = is_dark();
+	if PAIRS.iter().any(|&(light, d)| colour == if dark { d } else { light }) {
+		return colour;
+	}
+	swapped(colour, dark).unwrap_or(colour)
+}
+
 /// Switches the running app to `choice`, with every open window: Windows'
 /// own parts through wx, the colours set on windows as they were made
 /// swapped for the other theme's, and everything repainted (what's drawn

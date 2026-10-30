@@ -709,7 +709,7 @@ unsafe extern "system" fn parent_proc(
 		let control = REGISTRY.with(|r| {
 			r.try_borrow()
 				.ok()
-				.and_then(|r| r.controls.get(&(item.hwndItem.0 as isize)).map(|c| (c.kind, c.background)))
+				.and_then(|r| r.controls.get(&(item.hwndItem.0 as isize)).map(|c| (c.kind, theme::now(c.background))))
 		});
 		if let Some((kind, background)) = control {
 			let fits = match kind {
