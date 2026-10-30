@@ -81,6 +81,7 @@ pub struct SettingsDialogParts {
 	pub chats_panel: Panel,
 	pub enter_is_send_check: CheckBox,
 	pub replace_emoji_check: CheckBox,
+	pub emoji_help_btn: Button,
 	pub auto_download_photos_check: CheckBox,
 	pub auto_download_audio_check: CheckBox,
 	pub auto_download_videos_check: CheckBox,
@@ -244,6 +245,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	};
 	let enter_is_send_check = chats_check("Enter is send: the Enter key sends your message");
 	let replace_emoji_check = chats_check("Replace text with emoji as you type, like :-) or (y)");
+	let emoji_help_btn = Button::builder(&chats_panel).with_label("Replace Text With Emoji: See Help...").build();
+	emoji_help_btn.set_font(&theme::Fonts::body());
+	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	// Disabled, like the privacy settings, until they've been read.
 	let auto_download_photos_check = chats_check("Download photos automatically");
 	let auto_download_audio_check = chats_check("Download audio automatically");
@@ -394,6 +398,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	// binding it per-widget (as this used to, on sounds_check only) misses
 	// everything else in the dialog.
 	crate::ui::keys::escape_cancels_anywhere(dialog);
+	emoji_help_btn.on_click(move |_| crate::ui::emoji_replace::show_help(&dialog));
 
 	SettingsDialogParts {
 		dialog,
@@ -416,6 +421,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		chats_panel,
 		enter_is_send_check,
 		replace_emoji_check,
+		emoji_help_btn,
 		auto_download_photos_check,
 		auto_download_audio_check,
 		auto_download_videos_check,

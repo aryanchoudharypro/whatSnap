@@ -14,26 +14,27 @@ use windows::Win32::{
 };
 use wxdragon::prelude::*;
 
-/// WhatsApp Web's own list, word for word.
-const EMOTICONS: &[(&str, &str)] = &[
-	("(y)", "\u{1F44D}"),
-	("(Y)", "\u{1F44D}"),
-	("(n)", "\u{1F44E}"),
-	("(N)", "\u{1F44E}"),
-	(":-)", "\u{1F642}"),
-	(":-(", "\u{1F641}"),
-	(":-p", "\u{1F61B}"),
-	(":-P", "\u{1F61B}"),
-	(":-\\", "\u{1F615}"),
-	(":-D", "\u{1F600}"),
-	(":-o", "\u{1F62E}"),
-	(";-)", "\u{1F609}"),
-	(":-*", "\u{1F618}"),
-	(":-|", "\u{1F610}"),
-	(":'(", "\u{1F622}"),
-	("^_^", "\u{1F601}"),
-	("<3", "\u{2764}\u{FE0F}"),
-	(">_<", "\u{1F606}"),
+/// WhatsApp Web's own list, word for word, with each emoji's name and an
+/// example for the help (see `show_help`).
+const EMOTICONS: &[(&str, &str, &str, &str)] = &[
+	("(y)", "\u{1F44D}", "thumbs up", "Sounds good (y)"),
+	("(Y)", "\u{1F44D}", "thumbs up", "See you at 6 (Y)"),
+	("(n)", "\u{1F44E}", "thumbs down", "Not a fan (n)"),
+	("(N)", "\u{1F44E}", "thumbs down", "The traffic today (N)"),
+	(":-)", "\u{1F642}", "slightly smiling face", "Thanks :-)"),
+	(":-(", "\u{1F641}", "slightly frowning face", "I missed the bus :-("),
+	(":-p", "\u{1F61B}", "face with tongue", "Just kidding :-p"),
+	(":-P", "\u{1F61B}", "face with tongue", "Caught you :-P"),
+	(":-\\", "\u{1F615}", "confused face", "Wait, what :-\\"),
+	(":-D", "\u{1F600}", "grinning face", "That's hilarious :-D"),
+	(":-o", "\u{1F62E}", "face with open mouth", "No way :-o"),
+	(";-)", "\u{1F609}", "winking face", "Our secret ;-)"),
+	(":-*", "\u{1F618}", "face blowing a kiss", "Good night :-*"),
+	(":-|", "\u{1F610}", "neutral face", "Another Monday :-|"),
+	(":'(", "\u{1F622}", "crying face", "I'll miss you :'("),
+	("^_^", "\u{1F601}", "beaming face with smiling eyes", "Happy birthday ^_^"),
+	("<3", "\u{2764}\u{FE0F}", "red heart", "Love you <3"),
+	(">_<", "\u{1F606}", "grinning squinting face", "Oops >_<"),
 ];
 
 /// The emoticon `before` ends with, as (the emoticon, its emoji). Two
@@ -42,7 +43,7 @@ fn replacement(before: &[u16]) -> Option<(&'static str, &'static str)> {
 	(2..=3).find_map(|len| {
 		let tail = before.get(before.len().checked_sub(len)?..)?;
 		let tail = String::from_utf16(tail).ok()?;
-		EMOTICONS.iter().find(|(text, _)| *text == tail).copied()
+		EMOTICONS.iter().find(|(text, ..)| *text == tail).map(|&(text, emoji, ..)| (text, emoji))
 	})
 }
 
@@ -137,9 +138,59 @@ pub fn undo_on_backspace(field: &TextCtrl) -> bool {
 	true
 }
 
+/// The help's text: what the setting does, then every emoticon with its
+/// emoji, its name, and an example as typed and as sent.
+fn help_text() -> String {
+	let mut text = String::from(
+		"Replace text with emoji turns these into emoji as soon as you type their last character. \
+		 Press Backspace straight after to get the text back. You can turn it off on the Chats tab of Settings.\r\n",
+	);
+	for (typed, emoji, name, example) in EMOTICONS {
+		let sent = example.replace(typed, emoji);
+		text.push_str(&format!("\r\nType {typed} for {emoji} {name}. Example: \"{example}\" becomes \"{sent}\"."));
+	}
+	text
+}
+
+/// Shows `help_text` in a read-only box, for reading line by line.
+pub fn show_help(parent: &impl WxWidget) {
+	let dlg = Dialog::builder(parent, "Replace Text With Emoji")
+		.with_size(520, 420)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	let panel = Panel::builder(&dlg).build();
+	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let label = StaticText::builder(&panel).with_label("Text that turns into emoji").build();
+	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+	let view = TextCtrl::builder(&panel)
+		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::Rich2)
+		.build();
+	view.set_value(&help_text());
+	sizer.add(&view, 1, SizerFlag::Expand | SizerFlag::All, 8);
+	let close_btn = Button::builder(&panel).with_id(wxdragon::id::ID_OK).with_label("Close").build();
+	sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
+	panel.set_sizer(sizer, true);
+	view.on_key_down(super::keys::escape_cancels(dlg));
+	view.set_focus();
+	view.set_selection(0, 0);
+	dlg.show_modal();
+	// A dialog built per use is destroyed, or it lives on hidden.
+	dlg.destroy();
+}
+
 #[cfg(test)]
 mod tests {
-	use super::replacement;
+	use super::{help_text, replacement};
+
+	#[test]
+	fn the_help_shows_each_example_as_sent() {
+		let help = help_text();
+		assert!(help.contains(
+			"Type :-) for \u{1F642} slightly smiling face. Example: \"Thanks :-)\" becomes \"Thanks \u{1F642}\"."
+		));
+		assert!(help.contains("Type <3 for"));
+		assert_eq!(help.matches("\r\nType ").count(), super::EMOTICONS.len());
+	}
 
 	fn wide(s: &str) -> Vec<u16> {
 		s.encode_utf16().collect()
