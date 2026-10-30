@@ -260,14 +260,13 @@ pub(crate) fn install_header(button: &Button, background: Colour) {
 	});
 }
 
-/// The foot of the navigation strip, as on WhatsApp Web: a settings gear
-/// and your own picture, both opening Settings (menu item `settings_id`)
-/// when clicked. Only drawn: keyboard and screen reader users have the
+/// The foot of the navigation strip, as in WhatsApp for Windows: your own
+/// picture, which opens Settings (menu item `settings_id`) when clicked. Only drawn: keyboard and screen reader users have the
 /// Account menu and Ctrl+comma, so they add no Tab stops.
 pub(crate) fn install_nav_footer(panel: &Panel, frame: &Frame, settings_id: i32) -> i32 {
 	let line = panel.get_char_height();
 	let item = line * 3;
-	let height = item * 2 + 16;
+	let height = item + 16;
 	let panel_c = *panel;
 	let frame_hwnd = hwnd_of(frame).0 as isize;
 	REGISTRY.with(|r| r.borrow_mut().nav_panel = Some(hwnd_of(panel)));
@@ -285,22 +284,11 @@ pub(crate) fn install_nav_footer(panel: &Panel, frame: &Frame, settings_id: i32)
 		dc.set_pen(if custom { Palette::DIVIDER_SOFT } else { ink }, 1, PenStyle::Solid);
 		dc.draw_line(8, top, size.width - 8, top);
 		let cx = size.width / 2;
-		// The gear.
-		if let Some(face) = super::message_art::icon_face()
-			&& let Some(font) =
-				Font::builder().with_point_size(theme::Fonts::heading().get_point_size()).with_face_name(face).build()
-		{
-			dc.set_font(&font);
-			dc.set_text_foreground(ink);
-			dc.set_background_mode(BackgroundMode::Transparent);
-			let g = "\u{E713}";
-			let (w, h) = dc.get_text_extent(g);
-			dc.draw_text(g, cx - w / 2, top + 8 + (item - h) / 2);
-		}
-		// Your picture, round.
+		// Your picture, round. As in WhatsApp for Windows, it is the way into
+		// Settings; there's no separate gear.
 		let jid = REGISTRY.with(|r| r.borrow().own_jid.clone());
 		let side = (item - 8).max(16);
-		let (x, y) = (cx - side / 2, top + 8 + item + (item - side) / 2);
+		let (x, y) = (cx - side / 2, top + 8 + (item - side) / 2);
 		match avatars::path_of(&jid).and_then(|path| own_picture(&path, side)) {
 			Some(bitmap) => dc.draw_bitmap(&bitmap, x, y, true),
 			None => {

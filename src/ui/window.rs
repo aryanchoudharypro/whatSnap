@@ -437,7 +437,7 @@ pub fn build_main_window() -> WindowParts {
 	nav_list.set_selection(tab_order.iter().position(|&t| t == 0).unwrap_or(0) as u32, true);
 	nav_sizer.add(&nav_label, 0, SizerFlag::Left, 0);
 	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Top, 6);
-	// Room for the settings gear and your picture, drawn under the list.
+	// Room for your picture, drawn under the list; clicking it opens Settings.
 	if theme::use_custom_colours() {
 		let footer = crate::ui::owner_draw::install_nav_footer(&nav_panel, &frame, MENU_ID_SETTINGS);
 		nav_sizer.add_spacer(footer);
