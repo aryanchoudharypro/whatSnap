@@ -170,6 +170,47 @@ pub fn now(colour: Colour) -> Colour {
 	swapped(colour, dark).unwrap_or(colour)
 }
 
+/// Puts every window inside `root` in the theme that's on: palette colours
+/// of either theme become this one's, then it's all repainted.
+#[cfg(windows)]
+pub fn match_theme(root: &impl WxWidget) {
+	use windows::Win32::{
+		Foundation::{HWND, LPARAM},
+		Graphics::Gdi::{RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow},
+		UI::WindowsAndMessaging::{EnumChildWindows, GetDlgCtrlID},
+	};
+	if !use_custom_colours() {
+		return;
+	}
+	unsafe extern "system" fn collect(hwnd: HWND, list: LPARAM) -> windows::core::BOOL {
+		unsafe { (*(list.0 as *mut Vec<HWND>)).push(hwnd) };
+		true.into()
+	}
+	let root_hwnd = HWND(root.get_handle().cast());
+	let mut all = Vec::new();
+	unsafe {
+		let _ = EnumChildWindows(Some(root_hwnd), Some(collect), LPARAM(&mut all as *mut _ as isize));
+	}
+	for hwnd in all {
+		let Some(win) =
+			root.find_window_by_id(unsafe { GetDlgCtrlID(hwnd) }).filter(|w| HWND(w.get_handle().cast()) == hwnd)
+		else {
+			continue;
+		};
+		let background = win.get_background_color();
+		if is_palette(background) && now(background) != background {
+			win.set_background_color(now(background));
+		}
+		let foreground = win.get_foreground_color();
+		if is_palette(foreground) && now(foreground) != foreground {
+			win.set_foreground_color(now(foreground));
+		}
+	}
+	unsafe {
+		let _ = RedrawWindow(Some(root_hwnd), None, None, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+	}
+}
+
 /// Switches the running app to `choice`, with every open window: Windows'
 /// own parts through wx, the colours set on windows as they were made
 /// swapped for the other theme's, and everything repainted (what's drawn

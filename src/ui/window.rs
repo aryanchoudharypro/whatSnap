@@ -1497,6 +1497,7 @@ pub fn bind_input_handlers(
 		s.app_prefs = None;
 		settings_parts_open.show_app_prefs(None);
 		settings_parts_open.show_chat_settings(&s.settings);
+		settings_parts_open.match_theme();
 
 		// Re-enumerated on every open since WASAPI device lists can change
 		// (USB headset plugged/unplugged, etc) while the app is running.

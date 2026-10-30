@@ -592,6 +592,17 @@ impl SettingsDialogParts {
 			.collect()
 	}
 
+	/// Puts the dialog in the theme that's on now. It's made once and kept,
+	/// so a theme change made since may have left parts of it in the old one.
+	pub fn match_theme(&self) {
+		for panel in [&self.general_panel, &self.chats_panel, &self.privacy_panel, &self.audio_panel] {
+			theme::style_content(panel);
+		}
+		theme::style_content(&self.notebook);
+		theme::style_content(&self.dialog);
+		theme::match_theme(&self.dialog);
+	}
+
 	/// Shows the settings this app keeps itself that WhatsApp Web has too.
 	pub fn show_chat_settings(&self, settings: &crate::settings::Settings) {
 		self.notification_previews_check.set_value(settings.notification_previews);
