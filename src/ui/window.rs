@@ -257,10 +257,11 @@ pub const MENU_ID_ANNOUNCE_STATUS: i32 = 6047;
 pub const MENU_ID_FOCUS_MESSAGES_LIST: i32 = 6048;
 pub const MENU_ID_EMOJI_PANEL: i32 = 6049;
 pub const MENU_ID_STICKER_PANEL: i32 = 6050;
+pub const MENU_ID_NEXT_SPELLING_ERROR: i32 = 6051;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 
 /// The Conversation menu's items, which all act on the open chat.
-const CONVERSATION_MENU_IDS: [i32; 18] = [
+const CONVERSATION_MENU_IDS: [i32; 19] = [
 	MENU_ID_CHAT_INFO,
 	MENU_ID_SEARCH_CHAT,
 	MENU_ID_PINNED_MESSAGES,
@@ -279,6 +280,7 @@ const CONVERSATION_MENU_IDS: [i32; 18] = [
 	MENU_ID_ANNOUNCE_STATUS,
 	MENU_ID_EMOJI_PANEL,
 	MENU_ID_STICKER_PANEL,
+	MENU_ID_NEXT_SPELLING_ERROR,
 ];
 
 /// The main panes Alt+E can come back to.
@@ -506,6 +508,11 @@ pub fn build_main_window() -> WindowParts {
 			MENU_ID_STICKER_PANEL,
 			&default_menu_label(MENU_ID_STICKER_PANEL),
 			"Pick a sticker to send: favorites, recent ones or WhatsApp's own packs",
+		)
+		.append_item(
+			MENU_ID_NEXT_SPELLING_ERROR,
+			&default_menu_label(MENU_ID_NEXT_SPELLING_ERROR),
+			"Select the next misspelled word in the message box and offer its fixes",
 		)
 		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
 		.append_item(MENU_ID_PINNED_MESSAGES, "Pi&nned Messages...", "See and go to the open chat's pinned messages")
@@ -827,6 +834,16 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	// Spell checking: Windows' own checker, drawn under the words and offered
+	// on the box's context menu; the box itself stays the plain edit control.
+	{
+		let field = parts.conversations_parts.message_field;
+		{
+			let st = state.borrow();
+			crate::ui::spell_check::configure(st.settings.spell_check, &st.settings.spell_language);
+		}
+		crate::ui::spell_check::install(&field);
+	}
 	let tx_typing = ui_tx.clone();
 	let msg_ctrl_typing = parts.conversations_parts.message_field;
 	let state_typing = state.clone();
@@ -836,6 +853,11 @@ pub fn bind_input_handlers(
 		// borrowed, which lands here; that isn't typing, so nothing to replace.
 		let replace_emoji = state_typing.try_borrow().is_ok_and(|s| s.settings.replace_text_with_emoji);
 		crate::ui::emoji_replace::text_changed(&msg_ctrl_typing, replace_emoji);
+		let announce_spelling = state_typing.try_borrow().is_ok_and(|s| s.settings.spell_check_announce);
+		crate::ui::spell_check::text_changed(
+			&msg_ctrl_typing,
+			announce_spelling.then_some(conv_parts_typing.messages_announcer),
+		);
 		crate::ui_commands::mentions::refresh(&state_typing, &conv_parts_typing);
 		let text = msg_ctrl_typing.get_value();
 		// set_value() fires this too - restoring a chat's saved draft on open,
@@ -1746,6 +1768,12 @@ pub fn bind_input_handlers(
 			if let Some(label) = label {
 				crate::announce::announce(msgs_announcer_for_menu, &label);
 			}
+		} else if id == MENU_ID_NEXT_SPELLING_ERROR {
+			if !msg_field_for_menu.is_shown() {
+				crate::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
+			} else if let Some(say) = crate::ui::spell_check::next_error(&msg_field_for_menu) {
+				crate::announce::announce(msgs_announcer_for_menu, say);
+			}
 		} else if id == MENU_ID_EMOJI_PANEL || id == MENU_ID_STICKER_PANEL {
 			let _ = tx_chat_menu.send(UiCommand::OpenEmojiPanel { stickers: id == MENU_ID_STICKER_PANEL });
 		} else if id == MENU_ID_CHAT_INFO {
@@ -1996,6 +2024,7 @@ pub fn bind_input_handlers(
 		s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
 		let old_theme = s.settings.theme;
 		settings_parts_ok.read_chat_settings(&mut s.settings);
+		crate::ui::spell_check::configure(s.settings.spell_check, &s.settings.spell_language);
 		if s.settings.theme != old_theme {
 			// After this handler, with the dialog gone and nothing borrowed.
 			let theme = s.settings.theme;

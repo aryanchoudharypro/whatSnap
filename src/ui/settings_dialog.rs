@@ -96,6 +96,9 @@ pub struct SettingsDialogParts {
 	pub enter_is_send_check: CheckBox,
 	pub replace_emoji_check: CheckBox,
 	pub emoji_help_btn: Button,
+	pub spell_check_check: CheckBox,
+	pub spell_announce_check: CheckBox,
+	pub spell_language_combo: ComboBox,
 	pub auto_download_photos_check: CheckBox,
 	pub auto_download_audio_check: CheckBox,
 	pub auto_download_videos_check: CheckBox,
@@ -145,6 +148,23 @@ fn visibility_combo(panel: &Panel, sizer: &BoxSizer, label: &str, choices: &[(&s
 	sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
 	let labels: Vec<&str> = choices.iter().map(|(l, _)| *l).collect();
+	let combo = ComboBox::builder(panel).with_string_choices(&labels).with_style(ComboBoxStyle::ReadOnly).build();
+	combo.set_font(&theme::Fonts::body());
+	combo.set_selection(0);
+	sizer.add(&combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+	sizer.add_spacer(4);
+	combo
+}
+
+/// "Spelling Language": Windows' own first, then each language Windows can
+/// check, by name.
+fn spelling_language_combo(panel: &Panel, sizer: &BoxSizer) -> ComboBox {
+	let languages = crate::ui::spell_check::languages();
+	let mut labels: Vec<&str> = vec!["Windows default"];
+	labels.extend(languages.iter().map(|(_, name)| name.as_str()));
+	let text = StaticText::builder(panel).with_label("Spelling Language").build();
+	text.set_font(&theme::Fonts::body());
+	sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 	let combo = ComboBox::builder(panel).with_string_choices(&labels).with_style(ComboBoxStyle::ReadOnly).build();
 	combo.set_font(&theme::Fonts::body());
 	combo.set_selection(0);
@@ -258,6 +278,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let replace_emoji_check = chats_check("Replace text with emoji as you type, like :-) or (y)");
 	let emoji_help_btn = setting_button(&chats_panel, "Replace Text With Emoji: See Help...");
 	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
+	let spell_check_check = chats_check("Check spelling in the message box (F7 goes to the next mistake)");
+	let spell_announce_check = chats_check("Say when a word you type is misspelled");
+	let spell_language_combo = spelling_language_combo(&chats_panel, &chats_sizer);
 	// Disabled, like the privacy settings, until they've been read.
 	let auto_download_photos_check = chats_check("Download photos automatically");
 	let auto_download_audio_check = chats_check("Download audio automatically");
@@ -446,6 +469,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		enter_is_send_check,
 		replace_emoji_check,
 		emoji_help_btn,
+		spell_check_check,
+		spell_announce_check,
+		spell_language_combo,
 		auto_download_photos_check,
 		auto_download_audio_check,
 		auto_download_videos_check,
@@ -638,6 +664,11 @@ impl SettingsDialogParts {
 		self.call_ringtone_check.set_value(settings.call_ringtone);
 		self.enter_is_send_check.set_value(settings.enter_is_send);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
+		self.spell_check_check.set_value(settings.spell_check);
+		self.spell_announce_check.set_value(settings.spell_check_announce);
+		let languages = crate::ui::spell_check::languages();
+		let index = languages.iter().position(|(tag, _)| tag.eq_ignore_ascii_case(&settings.spell_language));
+		self.spell_language_combo.set_selection(index.map_or(0, |i| i as u32 + 1));
 		let theme = serde_json::to_value(settings.theme).ok();
 		set_combo_from_value(&self.theme_combo, THEME_CHOICES, theme.as_ref().and_then(|v| v.as_str()).unwrap_or(""));
 	}
@@ -652,6 +683,16 @@ impl SettingsDialogParts {
 		settings.call_ringtone = self.call_ringtone_check.is_checked();
 		settings.enter_is_send = self.enter_is_send_check.is_checked();
 		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();
+		settings.spell_check = self.spell_check_check.is_checked();
+		settings.spell_check_announce = self.spell_announce_check.is_checked();
+		let languages = crate::ui::spell_check::languages();
+		settings.spell_language = self
+			.spell_language_combo
+			.get_selection()
+			.and_then(|i| (i as usize).checked_sub(1))
+			.and_then(|i| languages.get(i))
+			.map(|(tag, _)| tag.clone())
+			.unwrap_or_default();
 		let theme = combo_value(&self.theme_combo, THEME_CHOICES);
 		settings.theme = serde_json::from_value(serde_json::Value::String(theme)).unwrap_or_default();
 	}

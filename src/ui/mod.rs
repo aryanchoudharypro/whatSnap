@@ -29,6 +29,7 @@ pub mod privacy_list_picker;
 pub mod screen_picker;
 pub mod send_to;
 pub mod settings_dialog;
+pub mod spell_check;
 pub mod status_viewer;
 pub mod theme;
 pub mod thumbnails;

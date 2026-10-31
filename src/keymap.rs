@@ -193,6 +193,13 @@ pub const ACTIONS: &[ActionDef] = &[
 		default: "Alt+Shift+E",
 	},
 	ActionDef {
+		id: "next_spelling_error",
+		menu_id: Some(MENU_ID_NEXT_SPELLING_ERROR),
+		tab: 3,
+		label: "Ne&xt Spelling Error",
+		default: "F7",
+	},
+	ActionDef {
 		id: "sticker_panel",
 		menu_id: Some(MENU_ID_STICKER_PANEL),
 		tab: 3,

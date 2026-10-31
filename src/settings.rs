@@ -79,6 +79,13 @@ pub struct Settings {
 	/// WhatsApp's "Replace text with emoji": typing :-) or (y) and the like
 	/// turns it into the emoji (see `ui::emoji_replace`).
 	pub replace_text_with_emoji: bool,
+	/// Spell checking in the message box (see `ui::spell_check`).
+	pub spell_check: bool,
+	/// Say "Misspelled: word" when a word is finished wrongly. NVDA can't
+	/// report it in this box itself, so it's ours; off by default.
+	pub spell_check_announce: bool,
+	/// The language to check, as a tag like "en-GB"; empty for Windows' own.
+	pub spell_language: String,
 	/// WhatsApp's "Show previews": a message notification shows the
 	/// message's text. Off, it only says a message came.
 	pub notification_previews: bool,
@@ -158,6 +165,9 @@ impl Default for Settings {
 			status_auto_advance: true,
 			enter_is_send: true,
 			replace_text_with_emoji: true,
+			spell_check: true,
+			spell_check_announce: false,
+			spell_language: String::new(),
 			notification_previews: true,
 			reaction_notifications: true,
 			theme: Default::default(),
