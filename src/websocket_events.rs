@@ -4211,6 +4211,37 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					}
 				}
 			}
+			"synced_setting" => {
+				// Another WhatsApp desktop device changed a setting it shares.
+				let Some(data) = val.get("data") else { return };
+				let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("");
+				let value = data.get("value").cloned().unwrap_or_default();
+				if name == "startAtLogin" {
+					if let Some(on) = value.as_bool()
+						&& crate::autostart::is_enabled() != on
+					{
+						crate::autostart::set_enabled(on);
+					}
+					return;
+				}
+				let mut s = state.borrow_mut();
+				let old_theme = s.settings.theme;
+				if !s.settings.apply_synced(name, &value) {
+					return;
+				}
+				s.settings.save();
+				let theme = s.settings.theme;
+				let settings = s.settings.clone();
+				drop(s);
+				if parts.settings_dialog.dialog.is_shown() {
+					parts.settings_dialog.show_chat_settings(&settings);
+					parts.settings_dialog.sounds_check.set_value(settings.sounds_enabled);
+					parts.settings_dialog.notifications_check.set_value(settings.notifications_enabled);
+				}
+				if theme != old_theme {
+					wxdragon::call_after(Box::new(move || crate::ui::theme::change_theme(theme)));
+				}
+			}
 			"app_prefs" => {
 				if let Some(data) = val.get("data") {
 					state.borrow_mut().app_prefs = Some(data.clone());

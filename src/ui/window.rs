@@ -2021,6 +2021,7 @@ pub fn bind_input_handlers(
 			s.settings.shortcuts = keymap.saved();
 			s.keymap = Rc::new(keymap);
 		}
+		let synced_before = s.settings.synced();
 		s.settings.sounds_enabled = sounds_check_ok.is_checked();
 		s.settings.notifications_enabled = notifications_check_ok.is_checked();
 		s.settings.follow_windows_do_not_disturb = follow_dnd_check_ok.is_checked();
@@ -2059,6 +2060,14 @@ pub fn bind_input_handlers(
 			s.audio_stream = None;
 		}
 		s.settings.save();
+		// What WhatsApp shares between its desktop apps goes to them too.
+		let mut synced = s.settings.synced_changes(&synced_before);
+		if crate::autostart::is_enabled() != autostart_check_ok.is_checked() {
+			synced.insert("startAtLogin".into(), autostart_check_ok.is_checked().into());
+		}
+		if !synced.is_empty() {
+			let _ = s.ws_tx.send(serde_json::json!({"action": "sync_settings", "data": synced}).to_string());
+		}
 
 		let new_name = name_field_ok.get_value();
 		if new_name != s.own_push_name {

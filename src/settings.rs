@@ -259,6 +259,77 @@ impl Settings {
 		if valid { self.tab_order.clone() } else { DEFAULT_TAB_ORDER.to_vec() }
 	}
 
+	/// The settings WhatsApp Web and its desktop apps share between
+	/// themselves (settings sync), by WhatsApp's name for each
+	/// (WAWebSettingsSyncConst) and in its form: a sound switch is a tone,
+	/// None (0) or Default (1), and the theme is 0 system, 1 light, 2 dark.
+	pub fn synced(&self) -> Vec<(&'static str, serde_json::Value)> {
+		use crate::ui::theme::ThemeChoice;
+		let theme = match self.theme {
+			ThemeChoice::System => 0,
+			ThemeChoice::Light => 1,
+			ThemeChoice::Dark => 2,
+		};
+		vec![
+			("isMessagesNotificationEnabled", self.notifications_enabled.into()),
+			("defaultNotificationToneId", i32::from(self.sounds_enabled).into()),
+			("isGroupMessageNotificationEnabled", self.group_notifications.into()),
+			("groupDefaultNotificationToneId", i32::from(self.group_sounds).into()),
+			("isTextPreviewForNotificationEnabled", self.notification_previews.into()),
+			("isReactionsNotificationEnabled", self.reaction_notifications.into()),
+			("isCallsNotificationEnabled", self.call_notifications.into()),
+			("shouldPlaySoundForCallNotification", self.call_ringtone.into()),
+			("isEnterToSendEnabled", self.enter_is_send.into()),
+			("replaceTextWithEmoji", self.replace_text_with_emoji.into()),
+			("appTheme", theme.into()),
+		]
+	}
+
+	/// What changed in [`Settings::synced`] since `before` was taken.
+	pub fn synced_changes(
+		&self,
+		before: &[(&'static str, serde_json::Value)],
+	) -> serde_json::Map<String, serde_json::Value> {
+		self.synced()
+			.into_iter()
+			.zip(before)
+			.filter(|((_, now), (_, was))| now != was)
+			.map(|((name, now), _)| (name.to_string(), now))
+			.collect()
+	}
+
+	/// Takes a setting another WhatsApp desktop device changed; true when
+	/// it changed something here. Any tone but None means sounds are on, as
+	/// WhatsApp only plays none for None.
+	pub fn apply_synced(&mut self, name: &str, value: &serde_json::Value) -> bool {
+		use crate::ui::theme::ThemeChoice;
+		let on = value.as_bool().or_else(|| value.as_i64().map(|tone| tone != 0));
+		let Some(on) = on else { return false };
+		let field = match name {
+			"isMessagesNotificationEnabled" => &mut self.notifications_enabled,
+			"defaultNotificationToneId" => &mut self.sounds_enabled,
+			"isGroupMessageNotificationEnabled" => &mut self.group_notifications,
+			"groupDefaultNotificationToneId" => &mut self.group_sounds,
+			"isTextPreviewForNotificationEnabled" => &mut self.notification_previews,
+			"isReactionsNotificationEnabled" => &mut self.reaction_notifications,
+			"isCallsNotificationEnabled" => &mut self.call_notifications,
+			"shouldPlaySoundForCallNotification" => &mut self.call_ringtone,
+			"isEnterToSendEnabled" => &mut self.enter_is_send,
+			"replaceTextWithEmoji" => &mut self.replace_text_with_emoji,
+			"appTheme" => {
+				let theme = match value.as_i64() {
+					Some(0) => ThemeChoice::System,
+					Some(1) => ThemeChoice::Light,
+					Some(2) => ThemeChoice::Dark,
+					_ => return false,
+				};
+				return std::mem::replace(&mut self.theme, theme) != theme;
+			}
+			_ => return false,
+		};
+		std::mem::replace(field, on) != on
+	}
+
 	/// Voice message playback speed (1.0, 1.5, or 2.0), falling back to 1.0
 	/// if a saved value is missing, unrecognized, or non-finite.
 	pub fn audio_speed(&self) -> f32 {
@@ -323,6 +394,30 @@ mod tests {
 	fn a_reordered_list_is_kept() {
 		let s = Settings { tab_order: vec![6, 5, 4, 3, 2, 1, 0], ..Settings::default() };
 		assert_eq!(s.tab_order(), vec![6, 5, 4, 3, 2, 1, 0]);
+	}
+
+	#[test]
+	fn synced_settings_round_trip_in_whatsapps_form() {
+		let mut s = Settings::default();
+		let before = s.synced();
+		s.sounds_enabled = false;
+		s.theme = crate::ui::theme::ThemeChoice::Dark;
+		let changes = s.synced_changes(&before);
+		assert_eq!(changes.len(), 2);
+		assert_eq!(changes["defaultNotificationToneId"], serde_json::json!(0));
+		assert_eq!(changes["appTheme"], serde_json::json!(2));
+
+		let mut other = Settings::default();
+		for (name, value) in &changes {
+			assert!(other.apply_synced(name, value));
+		}
+		assert!(!other.sounds_enabled);
+		assert_eq!(other.theme, crate::ui::theme::ThemeChoice::Dark);
+		// A chosen alert tone still means sounds on; the same value changes nothing.
+		assert!(other.apply_synced("defaultNotificationToneId", &serde_json::json!(5)));
+		assert!(!other.apply_synced("defaultNotificationToneId", &serde_json::json!(1)));
+		assert!(!other.apply_synced("appTheme", &serde_json::json!(9)));
+		assert!(!other.apply_synced("wallpaperId", &serde_json::json!(true)));
 	}
 
 	#[test]

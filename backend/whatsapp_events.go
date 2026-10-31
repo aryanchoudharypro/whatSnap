@@ -2647,6 +2647,10 @@ func eventHandler(evt interface{}) {
 		})
 	case *events.DisableLinkPreviews:
 		go noteDisableLinkPreviews(v)
+	case *events.SettingsSync:
+		go noteSettingsSync(v)
+	case *events.PrimaryFeatures:
+		go notePrimaryFeatures(v)
 	case *events.FavoriteSticker:
 		go noteFavoriteSticker(v)
 	case *events.UserStatusMute:

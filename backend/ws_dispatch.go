@@ -211,6 +211,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleGetAppPrefs(conn)
 	case "set_app_prefs":
 		handleSetAppPrefs(cmd.Data)
+	case "sync_settings":
+		handleSyncSettings(cmd.Data)
 	case "get_privacy_settings":
 		handleGetPrivacySettings(conn)
 	case "set_privacy_setting":

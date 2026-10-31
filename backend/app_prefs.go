@@ -55,11 +55,17 @@ func handleSetAppPrefs(raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
+	changed := map[string]bool{}
 	for name, v := range data {
 		if _, ok := appPrefDefaults[name]; ok {
+			if appPref(name) != v {
+				changed[name] = v
+			}
 			db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, "pref:"+name, boolToInt(v))
 		}
 	}
+	// WhatsApp's desktop apps share the auto-download and HD switches.
+	syncAppPrefs(changed)
 	off, ok := data["link_previews_disabled"]
 	if !ok || off == linkPreviewsDisabled() {
 		return
