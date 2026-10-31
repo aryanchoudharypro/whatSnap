@@ -281,6 +281,7 @@ impl Settings {
 			("shouldPlaySoundForCallNotification", self.call_ringtone.into()),
 			("isEnterToSendEnabled", self.enter_is_send.into()),
 			("replaceTextWithEmoji", self.replace_text_with_emoji.into()),
+			("isSpellCheckEnabled", self.spell_check.into()),
 			("appTheme", theme.into()),
 		]
 	}
@@ -316,6 +317,7 @@ impl Settings {
 			"shouldPlaySoundForCallNotification" => &mut self.call_ringtone,
 			"isEnterToSendEnabled" => &mut self.enter_is_send,
 			"replaceTextWithEmoji" => &mut self.replace_text_with_emoji,
+			"isSpellCheckEnabled" => &mut self.spell_check,
 			"appTheme" => {
 				let theme = match value.as_i64() {
 					Some(0) => ThemeChoice::System,

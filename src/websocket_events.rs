@@ -4231,6 +4231,7 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 				}
 				s.settings.save();
 				let theme = s.settings.theme;
+				crate::ui::spell_check::configure(s.settings.spell_check, &s.settings.spell_language);
 				let settings = s.settings.clone();
 				drop(s);
 				if parts.settings_dialog.dialog.is_shown() {
