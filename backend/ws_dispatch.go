@@ -458,6 +458,14 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleSendEvent(conn, cmd.Data)
 	case "get_event":
 		handleGetEvent(conn, cmd.Data)
+	case "get_message_options":
+		handleGetMessageOptions(conn, cmd.Data)
+	case "send_message_option":
+		handleSendMessageOption(conn, cmd.Data)
+	case "get_catalog":
+		handleGetCatalog(conn, cmd.Data)
+	case "get_order":
+		handleGetOrder(conn, cmd.Data)
 	case "send_event_response":
 		handleSendEventResponse(conn, cmd.Data)
 	case "send_voice_message":

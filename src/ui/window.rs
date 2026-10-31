@@ -259,10 +259,12 @@ pub const MENU_ID_EMOJI_PANEL: i32 = 6049;
 pub const MENU_ID_STICKER_PANEL: i32 = 6050;
 pub const MENU_ID_NEXT_SPELLING_ERROR: i32 = 6051;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
+pub const MENU_ID_BUSINESS_CATALOG: i32 = 6060;
 
 /// The Conversation menu's items, which all act on the open chat.
-const CONVERSATION_MENU_IDS: [i32; 19] = [
+const CONVERSATION_MENU_IDS: [i32; 20] = [
 	MENU_ID_CHAT_INFO,
+	MENU_ID_BUSINESS_CATALOG,
 	MENU_ID_SEARCH_CHAT,
 	MENU_ID_PINNED_MESSAGES,
 	MENU_ID_MUTE_CHAT,
@@ -401,6 +403,7 @@ pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 	let is_channel = jid.ends_with("@newsletter");
 	let is_broadcast = jid.ends_with("@broadcast");
 	menu_bar.enable_item(MENU_ID_BLOCK_CHAT, is_contact);
+	menu_bar.enable_item(MENU_ID_BUSINESS_CATALOG, is_contact);
 	menu_bar.enable_item(MENU_ID_REPORT_CHAT, !is_channel && !is_broadcast);
 	menu_bar.enable_item(MENU_ID_DISAPPEARING, !is_channel);
 	menu_bar.enable_item(MENU_ID_CHAT_PRIVACY, !is_channel && !is_broadcast);
@@ -516,6 +519,11 @@ pub fn build_main_window() -> WindowParts {
 		)
 		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
 		.append_item(MENU_ID_PINNED_MESSAGES, "Pi&nned Messages...", "See and go to the open chat's pinned messages")
+		.append_item(
+			MENU_ID_BUSINESS_CATALOG,
+			"Business Catalo&gue...",
+			"Browse the products of the business you're chatting with",
+		)
 		.append_separator()
 		.append_item(MENU_ID_MUTE_CHAT, &default_menu_label(MENU_ID_MUTE_CHAT), "Mute the open chat")
 		.append_item(MENU_ID_ARCHIVE_CHAT, &default_menu_label(MENU_ID_ARCHIVE_CHAT), "Archive the open chat")
@@ -1793,6 +1801,8 @@ pub fn bind_input_handlers(
 			if let Some(jid) = jid {
 				let _ = tx_chat_menu.send(UiCommand::ToggleBlockChat { jid });
 			}
+		} else if id == MENU_ID_BUSINESS_CATALOG {
+			let _ = tx_chat_menu.send(UiCommand::OpenCatalog(None));
 		} else if id == MENU_ID_BLOCKED_CONTACTS {
 			let _ = tx_chat_menu.send(UiCommand::ShowBlockedContacts);
 		} else if id == MENU_ID_PINNED_MESSAGES {
@@ -5112,6 +5122,21 @@ pub fn bind_input_handlers(
 							}
 							if (msg.is_poll() || msg.is_event()) && !msg.is_deleted {
 								let _ = tx_invite_enter.send(UiCommand::OpenPollVote(msg.id.clone()));
+								event.skip(false);
+								return;
+							}
+							if msg.is_order() {
+								let _ = tx_invite_enter.send(UiCommand::OpenOrderDetails(msg.id.clone()));
+								event.skip(false);
+								return;
+							}
+							if msg.is_product() {
+								let _ = tx_invite_enter.send(UiCommand::OpenCatalog(Some(msg.id.clone())));
+								event.skip(false);
+								return;
+							}
+							if msg.has_business_options() {
+								let _ = tx_invite_enter.send(UiCommand::OpenMessageOptions(msg.id.clone()));
 								event.skip(false);
 								return;
 							}

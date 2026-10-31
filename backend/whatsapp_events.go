@@ -709,6 +709,11 @@ func templateParts(msg *waE2E.Message) (media *waE2E.Message, text string, ok bo
 	default:
 		return nil, "", false
 	}
+	// The reply buttons and list menu go last, as one line the UI also uses
+	// to know Enter opens them (see business_buttons.go).
+	if summary := optionsSummary(msg); summary != "" {
+		buttons = append(buttons, summary)
+	}
 	text = strings.Join(blocks, "\n\n")
 	if len(buttons) > 0 {
 		if text != "" {

@@ -227,6 +227,25 @@ impl ChatMessage {
 		self.text.starts_with("[Event]")
 	}
 
+	/// A business message with reply buttons or a list menu: the backend
+	/// ends its text with a "Buttons: ..." or "Menu: ..." line, and Enter
+	/// opens them.
+	pub fn has_business_options(&self) -> bool {
+		!self.from_me
+			&& !self.is_deleted
+			&& self.text.lines().any(|line| line.starts_with("Buttons: ") || line.starts_with("Menu: "))
+	}
+
+	/// An order a customer sent a business: Enter shows what's in it.
+	pub fn is_order(&self) -> bool {
+		!self.is_deleted && self.text.starts_with("[Order]")
+	}
+
+	/// A product shared from a business's catalogue: Enter opens the catalogue.
+	pub fn is_product(&self) -> bool {
+		!self.is_deleted && self.text.starts_with("[Product]")
+	}
+
 	pub fn is_voice(&self) -> bool {
 		self.is_audio || self.text.starts_with("[Voice Message]") || self.text.starts_with("[Audio]")
 	}

@@ -110,6 +110,13 @@ pub enum UiCommand {
 	OpenEventDialog,
 	/// `V` on a message: vote in it if it's a poll, answer it if it's an event.
 	OpenPollVote(String),
+	/// Enter on a business message with buttons or a menu: list them.
+	OpenMessageOptions(String),
+	/// Enter on an order message: show what was ordered.
+	OpenOrderDetails(String),
+	/// The open chat's business catalogue, or (with a message id) the
+	/// catalogue of the business whose product that message shares.
+	OpenCatalog(Option<String>),
 	SendPoll {
 		question: String,
 		options: Vec<String>,

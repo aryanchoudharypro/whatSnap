@@ -4411,6 +4411,25 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 					crate::ui_commands::blocking::block_result(state, parts, data);
 				}
 			}
+			"message_options" => {
+				if let Some(data) = val.get("data") {
+					crate::ui_commands::business::show_message_options(state, parts, data);
+				}
+			}
+			"catalog" => {
+				if let Some(data) = val.get("data") {
+					crate::ui_commands::business::show_catalog(state, parts, data);
+				}
+			}
+			"order_details" => {
+				if let Some(data) = val.get("data") {
+					crate::ui_commands::business::show_order_details(parts, data);
+				}
+			}
+			"message_option_sent" => {
+				let label = val.pointer("/data/label").and_then(|l| l.as_str()).unwrap_or("");
+				crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Sent: {label}"));
+			}
 			"event_details" => {
 				if let Some(data) = val.get("data") {
 					crate::ui_commands::polls::show_event_rsvp_dialog(state, parts, data);

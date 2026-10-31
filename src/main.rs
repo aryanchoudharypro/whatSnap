@@ -1515,6 +1515,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::SetCallApproval(on) => ui_commands::call_extras::set_approval(state, parts, on),
 		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
+		UiCommand::OpenMessageOptions(id) => ui_commands::business::open_message_options(state, parts, id),
+		UiCommand::OpenOrderDetails(id) => ui_commands::business::open_order_details(state, id),
+		UiCommand::OpenCatalog(message_id) => ui_commands::business::open_catalog(state, parts, message_id),
 		UiCommand::SendPoll { question, options, multiple_answers, correct_answer } => {
 			ui_commands::attachments::send_poll(state, parts, question, options, multiple_answers, correct_answer)
 		}
