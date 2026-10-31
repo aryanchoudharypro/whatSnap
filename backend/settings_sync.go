@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -24,15 +23,14 @@ import (
 // whatSnap, a Windows app, does the same. Per-chat ones (wallpapers, chat
 // themes, tones) are left alone: whatSnap has none of those.
 //
-// WhatsApp only sends them when the phone lists settings_sync_enabled among
-// its features and the server's flag of the same name is on. What other
-// devices sent is applied either way: they wouldn't have sent it otherwise.
+// WhatsApp only sends them once the phone lists settings_sync_enabled
+// among its features and the server's flag of the same name is on. whatSnap
+// doesn't wait for either: the phone's list is synced once at linking, so a
+// whatSnap updated later never hears it, and devices with the feature off
+// just ignore these mutations.
 
 const (
-	abPropSettingsSyncEnabled = 22692 // settings_sync_enabled
-	primaryFeaturesKey        = "primary_features"
-	settingsSyncFeature       = "settings_sync_enabled"
-	settingsSyncTimeKey       = "settings_sync_ts:" // + the setting's key number
+	settingsSyncTimeKey = "settings_sync_ts:" // + the setting's key number
 )
 
 // The settings the backend keeps itself (app_prefs.go), by WhatsApp's name.
@@ -42,27 +40,6 @@ var syncedAppPrefs = map[string]string{
 	"isVideosAutodownloadEnabled":    "auto_download_videos",
 	"isDocumentsAutodownloadEnabled": "auto_download_documents",
 	"mediaUploadQuality":             "hd_media",
-}
-
-// notePrimaryFeatures keeps the phone's feature list when it syncs.
-func notePrimaryFeatures(v *events.PrimaryFeatures) {
-	raw, _ := json.Marshal(v.Flags)
-	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, primaryFeaturesKey, string(raw))
-}
-
-func primaryFeatureEnabled(name string) bool {
-	var raw string
-	db.QueryRow(`SELECT value FROM app_settings WHERE key = ?`, primaryFeaturesKey).Scan(&raw)
-	var flags []string
-	json.Unmarshal([]byte(raw), &flags)
-	return slices.Contains(flags, name)
-}
-
-func settingsSyncEnabled() bool {
-	serverFlagsMu.RLock()
-	on := serverFlags.Bool(abPropSettingsSyncEnabled, false)
-	serverFlagsMu.RUnlock()
-	return on && primaryFeatureEnabled(settingsSyncFeature)
 }
 
 // settingName is WhatsApp Web's name for a SettingsSyncAction field
@@ -150,7 +127,7 @@ func noteSettingsSync(v *events.SettingsSync) {
 // syncSettings shares settings changed here with the other WhatsApp desktop
 // devices, by WhatsApp's name and in its form (see Settings::synced).
 func syncSettings(changes map[string]interface{}) {
-	if len(changes) == 0 || !settingsSyncEnabled() {
+	if len(changes) == 0 {
 		return
 	}
 	now := time.Now()
