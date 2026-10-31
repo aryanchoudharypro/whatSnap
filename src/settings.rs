@@ -52,6 +52,11 @@ pub struct Settings {
 	/// Whether the main window opens maximized the first time it is shown,
 	/// like Paperback's "Start maximized" option.
 	pub start_maximized: bool,
+	/// Whether whatSnap looks for a new version when it starts.
+	pub check_for_updates_on_startup: bool,
+	/// Which releases the update check offers: `"stable"` (numbered
+	/// releases) or `"dev"` (the Development Build of every change).
+	pub update_channel: String,
 	/// How wide the user dragged the chat list column, in pixels; 0 lets it
 	/// follow the window's width.
 	pub chat_list_width: i32,
@@ -157,6 +162,8 @@ impl Default for Settings {
 			archived_alert_levels: std::collections::HashMap::new(),
 			verbose_backend_logging: false,
 			start_maximized: false,
+			check_for_updates_on_startup: true,
+			update_channel: "stable".to_string(),
 			chat_list_width: 0,
 			shortcuts: std::collections::BTreeMap::new(),
 			tab_order: DEFAULT_TAB_ORDER.to_vec(),

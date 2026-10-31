@@ -52,6 +52,7 @@ mod tray;
 mod ui;
 mod ui_commands;
 mod ui_wake;
+mod update_check;
 mod util;
 mod voice_dsp;
 mod voice_recorder;

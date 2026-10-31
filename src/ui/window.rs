@@ -219,6 +219,7 @@ pub struct WindowParts {
 /// just needs to be outside wx's reserved/auto-assigned ranges.
 pub const MENU_ID_SETTINGS: i32 = 6001;
 pub const MENU_ID_LOGOUT: i32 = 6002;
+pub const MENU_ID_CHECK_UPDATES: i32 = 6061;
 pub const MENU_ID_RECONNECT: i32 = 6003;
 pub const MENU_ID_NAV_CONVERSATIONS: i32 = 6010;
 pub const MENU_ID_NAV_STATUS: i32 = 6011;
@@ -459,6 +460,7 @@ pub fn build_main_window() -> WindowParts {
 			"Retry connecting to WhatsApp right away",
 		)
 		.append_item(MENU_ID_BLOCKED_CONTACTS, "&Blocked Contacts...", "See and change who you have blocked")
+		.append_item(MENU_ID_CHECK_UPDATES, "Check for &Updates...", "See if a newer version of whatSnap is out")
 		.append_separator()
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
 		.build();
@@ -1482,6 +1484,8 @@ pub fn bind_input_handlers(
 	let tray_icon_check = parts.settings_dialog.tray_icon_check;
 	let autostart_check = parts.settings_dialog.autostart_check;
 	let start_maximized_check_open = parts.settings_dialog.start_maximized_check;
+	let check_updates_check_open = parts.settings_dialog.check_updates_check;
+	let update_channel_combo_open = parts.settings_dialog.update_channel_combo;
 	let meta_ai_enabled_check_open = parts.settings_dialog.meta_ai_enabled_check;
 	let verbose_logging_check_open = parts.settings_dialog.verbose_backend_logging_check;
 	let name_field_open = parts.settings_dialog.name_field;
@@ -1508,6 +1512,12 @@ pub fn bind_input_handlers(
 		meta_ai_enabled_check_open.set_value(s.settings.meta_ai_enabled);
 		verbose_logging_check_open.set_value(s.settings.verbose_backend_logging);
 		start_maximized_check_open.set_value(s.settings.start_maximized);
+		check_updates_check_open.set_value(s.settings.check_for_updates_on_startup);
+		crate::ui::settings_dialog::set_combo_from_value(
+			&update_channel_combo_open,
+			crate::ui::settings_dialog::UPDATE_CHANNEL_CHOICES,
+			&s.settings.update_channel,
+		);
 		noise_suppression_check_open.set_value(s.settings.voice_message_noise_suppression);
 		dual_stream_check_open.set_value(s.settings.dual_stream_screen_share);
 
@@ -1577,6 +1587,17 @@ pub fn bind_input_handlers(
 		}
 		let s = state_logout.borrow();
 		let _ = s.ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
+	});
+
+	let frame_updates = parts.frame;
+	let state_updates = state.clone();
+	let tx_updates = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() != MENU_ID_CHECK_UPDATES {
+			return;
+		}
+		let channel = state_updates.borrow().settings.update_channel.clone();
+		crate::update_check::run(&frame_updates, &tx_updates, &channel, false);
 	});
 
 	let state_reconnect = state.clone();
@@ -1978,6 +1999,8 @@ pub fn bind_input_handlers(
 	let tray_icon_check_ok = parts.settings_dialog.tray_icon_check;
 	let autostart_check_ok = parts.settings_dialog.autostart_check;
 	let start_maximized_check_ok = parts.settings_dialog.start_maximized_check;
+	let check_updates_check_ok = parts.settings_dialog.check_updates_check;
+	let update_channel_combo_ok = parts.settings_dialog.update_channel_combo;
 	let meta_ai_enabled_check_ok = parts.settings_dialog.meta_ai_enabled_check;
 	let verbose_logging_check_ok = parts.settings_dialog.verbose_backend_logging_check;
 	let name_field_ok = parts.settings_dialog.name_field;
@@ -2031,6 +2054,11 @@ pub fn bind_input_handlers(
 		s.settings.meta_ai_enabled = meta_ai_enabled_check_ok.is_checked();
 		s.settings.verbose_backend_logging = verbose_logging_check_ok.is_checked();
 		s.settings.start_maximized = start_maximized_check_ok.is_checked();
+		s.settings.check_for_updates_on_startup = check_updates_check_ok.is_checked();
+		s.settings.update_channel = crate::ui::settings_dialog::combo_value(
+			&update_channel_combo_ok,
+			crate::ui::settings_dialog::UPDATE_CHANNEL_CHOICES,
+		);
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
 		s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
 		let old_theme = s.settings.theme;

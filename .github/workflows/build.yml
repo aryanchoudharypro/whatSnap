@@ -48,12 +48,16 @@ jobs:
         $iscc = Get-ChildItem "${env:ProgramFiles(x86)}", "$env:ProgramFiles" -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
         echo $iscc.DirectoryName >> $env:GITHUB_PATH
-    # Produces dist\whatSnap-<version>-portable.zip and dist\whatSnap-<version>-setup.exe.
-    - name: Build
+    # Produces dist\whatSnap.zip and dist\whatSnap_setup.exe, each with a .minisig
+    # signature that the in-app update check verifies.
+    - name: Build and sign
+      env:
+        MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
+        MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
       run: packaging\build-release.ps1
     - name: Check the build produced both packages
       run: |
-        foreach ($pattern in 'whatSnap-*-setup.exe', 'whatSnap-*-portable.zip') {
+        foreach ($pattern in 'whatSnap_setup.exe', 'whatSnap.zip') {
           if (-not (Get-ChildItem dist -Filter $pattern)) { throw "dist\$pattern is missing" }
         }
         Get-ChildItem dist | Format-Table Name, Length
@@ -62,14 +66,14 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: whatSnap-windows-setup
-        path: dist/whatSnap-*-setup.exe
+        path: dist/whatSnap_setup.exe*
         if-no-files-found: error
         retention-days: 1
     - name: Upload portable zip
       uses: actions/upload-artifact@v7
       with:
         name: whatSnap-windows-portable
-        path: dist/whatSnap-*-portable.zip
+        path: dist/whatSnap.zip*
         if-no-files-found: error
         retention-days: 1
     - name: Link the installer in the run summary
@@ -107,17 +111,19 @@ jobs:
       id: get_tag
       shell: bash
       run: |
-        TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        TAG=$(git describe --tags --abbrev=0 --exclude latest 2>/dev/null || echo "")
         echo "tag=$TAG" >> $GITHUB_OUTPUT
+    # The update check's dev channel reads these lines, newest first, as
+    # "- <7-character hash> <subject>", to tell a build which commits are new to it.
     - name: Generate release notes
       id: release_notes
       shell: bash
       run: |
         PREV_TAG="${{ steps.get_tag.outputs.tag }}"
         if [ -z "$PREV_TAG" ]; then
-          COMMITS=$(git log -1 --pretty=format:"- %h: %s" HEAD)
+          COMMITS=$(git log -50 --abbrev=7 --pretty=format:"- %h %s" HEAD)
         else
-          COMMITS=$(git log --pretty=format:"- %h: %s" "$PREV_TAG"..HEAD)
+          COMMITS=$(git log --abbrev=7 --pretty=format:"- %h %s" "$PREV_TAG"..HEAD)
         fi
         COMMITS="${COMMITS//'%'/'%25'}"
         echo "commits<<EOF" >> $GITHUB_OUTPUT
@@ -147,9 +153,7 @@ jobs:
         body: |
           ## Commits since last release
           ${{ steps.release_notes.outputs.commits }}
-        files: |
-          windows-build/whatSnap-*-setup.exe
-          windows-build/whatSnap-*-portable.zip
+        files: windows-build/*
         prerelease: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

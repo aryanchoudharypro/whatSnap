@@ -39,14 +39,23 @@ cargo build --release
 
 `packaging\build-release.ps1` builds everything that a release needs:
 
-- `dist\whatSnap-<version>-setup.exe`, the installer.
-- `dist\whatSnap-<version>-portable.zip`, the portable version.
+- `dist\whatSnap_setup.exe`, the installer.
+- `dist\whatSnap.zip`, the portable version.
 
-The script reads the version from `Cargo.toml`. To set it yourself, use `-Version 0.2.0`. To build only the zip, use `-SkipInstaller`. To sign the files, give a sign command with `-SignCommand`. The script replaces `{0}` in the command with the path of each file.
+The script reads the version from `Cargo.toml`. To set it yourself, use `-Version 0.2.0`. To build only the zip, use `-SkipInstaller`. To sign the files with a code signing certificate, give a sign command with `-SignCommand`. The script replaces `{0}` in the command with the path of each file.
 
-### Continuous Integration
+### Update Signatures
 
-GitHub Actions builds each push to `master` and each pull request into it. A push to `master` also replaces the `latest` release, named Development Build, with the new installer and zip.
+whatSnap updates itself with [ship-shape](https://crates.io/crates/ship-shape). It installs an update only when the update's minisign signature verifies with the public key in `src/update_check.rs`. When the `MINISIGN_KEY` and `MINISIGN_PASSWORD` environment variables are set, `build-release.ps1` signs the zip and the installer, and writes a `.minisig` file beside each one. It uses `cargo run -p xtask -- sign`. Without the key, the script makes the files but doesn't sign them.
+
+### Releases
+
+GitHub Actions builds each push to `master` and each pull request into it. There are two kinds of release:
+
+- Development Build: each push to `master` replaces the `latest` release. Its notes list the new commits, one per line, as `- <hash> <subject>`. The update check on the dev channel reads these lines, so don't change their format.
+- Stable releases: to publish one, set the version in `Cargo.toml`, commit, then push a tag with the same version, for example `v0.1.0`. The release workflow checks that the tag and `Cargo.toml` agree.
+
+Both workflows need the `MINISIGN_KEY` and `MINISIGN_PASSWORD` secrets.
 
 ## Before Committing
 

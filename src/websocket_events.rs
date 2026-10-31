@@ -1132,8 +1132,18 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						parts.frame.maximize(true);
 					}
 					parts.frame.show(true);
+					// A start right after an update installed opens behind
+					// whatever had focus unless it's brought forward.
+					ship_shape::ui::bring_to_front_after_update(&parts.frame);
 					parts.conversations_parts.search_field.set_focus();
 					state.borrow_mut().main_ui_shown = true;
+					let (check_updates, channel, ui_tx) = {
+						let s = state.borrow();
+						(s.settings.check_for_updates_on_startup, s.settings.update_channel.clone(), s.ui_tx.clone())
+					};
+					if check_updates {
+						crate::update_check::run(&parts.frame, &ui_tx, &channel, true);
+					}
 
 					// Now that we're logged in, install the tray icon if the
 					// user wants it - it's gated on login so an unpaired app

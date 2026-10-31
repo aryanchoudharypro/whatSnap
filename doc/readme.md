@@ -35,12 +35,22 @@ whatSnap is in development. Most features are tested with a real WhatsApp accoun
 - Send files to whatSnap from File Explorer or from the Windows Share menu.
 
 ## Installing
-Download the Development Build from the [releases page](https://github.com/aryanchoudharypro/whatSnap/releases/tag/latest). There are two files:
+Download whatSnap from the [releases page](https://github.com/aryanchoudharypro/whatSnap/releases). There are two kinds of release:
 
-- `whatSnap-<version>-setup.exe` installs whatSnap. The installer can add a desktop icon, and it can add whatSnap to the Windows Share menu.
-- `whatSnap-<version>-portable.zip` is the portable version. Extract it to a folder, then run `whatSnap.exe`. Keep the `backend` folder next to `whatSnap.exe`.
+- Stable releases have a version number, such as 0.1.0.
+- The Development Build has every change as soon as it is made. It can have more problems.
 
-To update, install the new version over the old one. You don't need to link your phone again.
+Each release has two files:
+
+- `whatSnap_setup.exe` installs whatSnap. The installer can add a desktop icon, and it can add whatSnap to the Windows Share menu.
+- `whatSnap.zip` is the portable version. Extract it to a folder, then run `whatSnap.exe`. Keep the `backend` folder next to `whatSnap.exe`.
+
+## Updating
+whatSnap checks for a new version when it starts. When there is one, it shows what changed and asks if you want to update. If you say yes, whatSnap downloads the update, closes, installs it, and starts again. You don't need to link your phone again.
+
+To check yourself, use `Account -> Check for Updates...`. To select stable releases or development builds, or to turn off the check at startup, use the General tab of the settings.
+
+whatSnap installs an update only when its signature is correct. A portable copy updates the files in its own folder. An installed copy runs the new installer.
 
 ## Linking Your Phone
 The first time you start whatSnap, it asks you to link your phone. There are two ways:
@@ -291,6 +301,8 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
 - `Show an icon in the notification area; closing the window minimizes to it`
 - `Start whatSnap when Windows starts`
 - `Start maximized`
+- `Check for updates when whatSnap starts`
+- `Updates`: Stable releases or Development builds.
 - `Show a button to message Meta AI in New Chat`
 - `Verbose backend logging, for troubleshooting connection issues`: the change takes effect the next time whatSnap starts.
 - `Keyboard Shortcuts...`

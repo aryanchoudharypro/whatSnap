@@ -93,7 +93,7 @@ New-Item -ItemType Directory -Force -Path $distDir | Out-Null
 # backend.exe relative to its own directory, so a copied folder works with no
 # install step. Notification sounds are embedded in the exe.
 Write-Host "Staging portable zip..." -ForegroundColor Cyan
-$stage = Join-Path $distDir "whatSnap-$Version-portable"
+$stage = Join-Path $distDir "whatSnap-portable"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stage, "$stage\backend", "$stage\share" | Out-Null
 
@@ -105,7 +105,7 @@ Copy-Item (Join-Path $repo 'LICENSE') $stage
 Copy-Item (Join-Path $repo 'backend\LICENSE') "$stage\backend"
 Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $stage
 
-$zip = Join-Path $distDir "whatSnap-$Version-portable.zip"
+$zip = Join-Path $distDir "whatSnap.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
 Remove-Item $stage -Recurse -Force
@@ -132,13 +132,32 @@ if (-not $SkipInstaller) {
         & $iscc "/DAppVersion=$Version" (Join-Path $PSScriptRoot 'whatSnap.iss')
         if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
-        $setup = Join-Path $distDir "whatSnap-$Version-setup.exe"
+        $setup = Join-Path $distDir "whatSnap_setup.exe"
         if ($SignCommand -and (Test-Path $setup)) {
             Invoke-Expression ($SignCommand -f $setup)
             if ($LASTEXITCODE -ne 0) { throw "Signing failed for $setup" }
         }
         Write-Host "  $setup"
     }
+}
+
+# The update check installs only files whose minisign signature verifies, so
+# releases need a .minisig beside each file. CI has the key; a local build
+# without MINISIGN_KEY just skips this.
+if ($env:MINISIGN_KEY) {
+    Write-Host "Signing release files for the updater..." -ForegroundColor Cyan
+    $toSign = @($zip)
+    $setupFile = Join-Path $distDir "whatSnap_setup.exe"
+    if (Test-Path $setupFile) { $toSign += $setupFile }
+    Push-Location $repo
+    try {
+        cargo run --release -p xtask -- sign @toSign
+        if ($LASTEXITCODE -ne 0) { throw "minisign signing failed" }
+    } finally {
+        Pop-Location
+    }
+} else {
+    Write-Host "MINISIGN_KEY not set - the files are not signed, so the update check won't install them." -ForegroundColor Yellow
 }
 
 Write-Host "`nDone. Artifacts in $distDir" -ForegroundColor Green

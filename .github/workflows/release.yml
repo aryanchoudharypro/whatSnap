@@ -1,0 +1,102 @@
+name: Release whatSnap
+# Pushing a version tag, such as v0.1.0, builds and publishes a stable release.
+# The update check's stable channel offers the newest of these.
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: Install Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: backend/go.mod
+        cache-dependency-path: backend/go.sum
+    - name: Install CMake, Ninja, and Inno Setup
+      run: |
+        choco install cmake ninja innosetup -y --no-progress
+        $iscc = Get-ChildItem "${env:ProgramFiles(x86)}", "$env:ProgramFiles" -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
+        echo $iscc.DirectoryName >> $env:GITHUB_PATH
+    # The tag names the version, so a tag that doesn't match Cargo.toml fails here
+    # instead of publishing a release whose app reports another version.
+    - name: Check the tag matches Cargo.toml
+      shell: bash
+      run: |
+        TAG_VERSION="${GITHUB_REF_NAME#v}"
+        CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+        if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+          echo "::error::Tag $GITHUB_REF_NAME doesn't match version $CARGO_VERSION in Cargo.toml"
+          exit 1
+        fi
+    - name: Build and sign
+      env:
+        MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
+        MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+      run: |
+        if (-not $env:MINISIGN_KEY) { throw "The MINISIGN_KEY secret is missing, so the release can't be signed" }
+        packaging\build-release.ps1
+    - name: Upload release files
+      uses: actions/upload-artifact@v7
+      with:
+        name: whatSnap-release
+        path: |
+          dist/whatSnap_setup.exe
+          dist/whatSnap_setup.exe.minisig
+          dist/whatSnap.zip
+          dist/whatSnap.zip.minisig
+        if-no-files-found: error
+        retention-days: 7
+
+  release:
+    needs: [build-windows]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - name: Download release files
+      uses: actions/download-artifact@v8
+      with:
+        name: whatSnap-release
+        path: dist
+    - name: Generate release notes
+      id: release_notes
+      shell: bash
+      run: |
+        PREV=$(git tag --sort=-version:refname | grep '^v' | grep -v "^${GITHUB_REF_NAME}$" | head -n 1 || true)
+        if [ -z "$PREV" ]; then
+          NOTES="The first release of whatSnap."
+        else
+          NOTES=$(git log --pretty=format:"- %s" "$PREV".."$GITHUB_REF_NAME")
+        fi
+        echo "notes<<EOF" >> $GITHUB_OUTPUT
+        echo "$NOTES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    - name: Create release
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: whatSnap ${{ github.ref_name }}
+        body: ${{ steps.release_notes.outputs.notes }}
+        files: dist/*
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

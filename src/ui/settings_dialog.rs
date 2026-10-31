@@ -28,6 +28,8 @@ pub const DEFAULT_TIMER_CHOICES: &[(&str, &str)] =
 /// bigger (up to 2560 pixels on the longest side instead of 1600).
 pub const UPLOAD_QUALITY_CHOICES: &[(&str, &str)] = &[("Standard Quality", "sd"), ("HD Quality", "hd")];
 /// WhatsApp's Theme choices, by their settings.json value.
+/// The update check's channels, as `Settings::update_channel` stores them.
+pub const UPDATE_CHANNEL_CHOICES: &[(&str, &str)] = &[("Stable releases", "stable"), ("Development builds", "dev")];
 pub const THEME_CHOICES: &[(&str, &str)] = &[("System Default", "system"), ("Light", "light"), ("Dark", "dark")];
 /// How long an About shows before it clears, in seconds: WhatsApp's
 /// text_status_ttl_seconds_allowlist, plus -1 for one that stays.
@@ -73,6 +75,8 @@ pub struct SettingsDialogParts {
 	pub tray_icon_check: CheckBox,
 	pub autostart_check: CheckBox,
 	pub start_maximized_check: CheckBox,
+	pub check_updates_check: CheckBox,
+	pub update_channel_combo: ComboBox,
 	pub meta_ai_enabled_check: CheckBox,
 	pub verbose_backend_logging_check: CheckBox,
 	pub shortcuts_btn: Button,
@@ -228,6 +232,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let autostart_check = setting_switch(&general_panel, &general_sizer, "Start whatSnap when Windows starts");
 
 	let start_maximized_check = setting_switch(&general_panel, &general_sizer, "Start maximized");
+
+	let check_updates_check = setting_switch(&general_panel, &general_sizer, "Check for updates when whatSnap starts");
+	let update_channel_combo = visibility_combo(&general_panel, &general_sizer, "Updates", UPDATE_CHANNEL_CHOICES);
 
 	let meta_ai_enabled_check =
 		setting_switch(&general_panel, &general_sizer, "Show a button to message Meta AI in New Chat");
@@ -461,6 +468,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		tray_icon_check,
 		autostart_check,
 		start_maximized_check,
+		check_updates_check,
+		update_channel_combo,
 		meta_ai_enabled_check,
 		verbose_backend_logging_check,
 		shortcuts_btn,

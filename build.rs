@@ -13,6 +13,7 @@ use winres::WindowsResource;
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-changed=backend");
+	embed_commit_hash();
 
 	if let Ok(profile) = env::var("PROFILE") {
 		let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
@@ -57,4 +58,23 @@ fn main() {
 			println!("cargo:warning=Failed to embed version info: {e}");
 		}
 	}
+}
+
+/// The commit this build is from, as `WHATSNAP_COMMIT_HASH`: the update check
+/// compares it with the Development Build's commits. "unknown" outside a git
+/// checkout.
+fn embed_commit_hash() {
+	println!("cargo:rerun-if-changed=.git/HEAD");
+	println!("cargo:rerun-if-changed=.git/refs/heads");
+	println!("cargo:rerun-if-changed=.git/packed-refs");
+	let hash = std::process::Command::new("git")
+		.args(["rev-parse", "HEAD"])
+		.output()
+		.ok()
+		.filter(|out| out.status.success())
+		.and_then(|out| String::from_utf8(out.stdout).ok())
+		.map(|hash| hash.trim().to_string())
+		.filter(|hash| !hash.is_empty())
+		.unwrap_or_else(|| "unknown".to_string());
+	println!("cargo:rustc-env=WHATSNAP_COMMIT_HASH={hash}");
 }
