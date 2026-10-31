@@ -1,80 +1,81 @@
-use std::env;
-
-use embed_manifest::{
-	embed_manifest,
-	manifest::{
-		ActiveCodePage, DpiAwareness, HeapType, Setting,
-		SupportedOS::{Windows7, Windows10},
-	},
-	new_manifest,
+use std::{
+	env,
+	path::{Path, PathBuf},
+	process::Command,
 };
-use winres::WindowsResource;
+
+use shipfitter::{
+	build::{configure_file, embed_commit_info, target_profile_dir},
+	docs::{Page, convert},
+	windows::{VersionInfo, embed_manifest},
+};
 
 fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-changed=backend");
-	embed_commit_hash();
+	println!("cargo:rerun-if-changed=doc");
+	// WHATSNAP_COMMIT_HASH, _SHORT_HASH and _IS_DEV: the update check compares
+	// the commit with the Development Build's.
+	let commit = embed_commit_info("WHATSNAP");
 
-	if let Ok(profile) = env::var("PROFILE") {
-		let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-		let out_path =
-			std::path::Path::new(&manifest_dir).join("target").join(&profile).join("backend").join("backend.exe");
-
-		let _ = std::fs::create_dir_all(out_path.parent().unwrap());
-
-		let mut args = vec!["build".to_string(), "-o".to_string(), out_path.to_str().unwrap().to_string()];
-		if profile == "release" {
-			args.push("-ldflags=-s -w".to_string());
-			args.push("-trimpath".to_string());
-		}
-
-		let status = std::process::Command::new("go").args(&args).current_dir("backend").status();
-
-		if let Ok(s) = status {
-			if !s.success() {
-				println!("cargo:warning=Go build failed with status {}", s);
-			}
-		} else {
-			println!("cargo:warning=Failed to execute go build");
-		}
+	// Everything a release needs lands next to whatSnap.exe in the profile
+	// folder (target/release): the backend, the user manual as HTML and the
+	// installer script, for `cargo release` (xtask) to pack.
+	let target_dir = target_profile_dir().unwrap_or_else(|| {
+		let root = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+		Path::new(&root).join("target").join(env::var("PROFILE").unwrap_or_default())
+	});
+	build_backend(&target_dir);
+	build_docs(&target_dir);
+	let root = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+	if let Err(e) =
+		configure_file(Path::new("packaging/whatSnap.iss.in"), &target_dir.join("whatSnap.iss"), &[("ROOT", &root)])
+	{
+		println!("cargo:warning=Failed to configure the installer script: {e}");
 	}
-	let target = env::var("TARGET").unwrap_or_default();
-	if target.contains("windows") {
-		let manifest = new_manifest("whatSnap")
-			.supported_os(Windows7..=Windows10)
-			.active_code_page(ActiveCodePage::Utf8)
-			.heap_type(HeapType::SegmentHeap)
-			.dpi_awareness(DpiAwareness::PerMonitorV2)
-			.long_path_aware(Setting::Enabled);
-		if let Err(e) = embed_manifest(manifest) {
-			println!("cargo:warning=Failed to embed manifest: {e}");
-		}
 
-		// winres would otherwise name the product after the crate, "whatsnap",
-		// which is what screen readers say when asked for the version.
-		let mut res = WindowsResource::new();
-		res.set("ProductName", "whatSnap").set("FileDescription", "whatSnap");
-		if let Err(e) = res.compile() {
-			println!("cargo:warning=Failed to embed version info: {e}");
-		}
+	if let Err(e) = embed_manifest("whatSnap") {
+		println!("cargo:warning=Failed to embed manifest: {e}");
+	}
+	// A development build shows its commit beside the version in the exe's
+	// properties, so a bug report says exactly which build it was.
+	let version = env::var("CARGO_PKG_VERSION").unwrap_or_default();
+	let dev_version = format!("{version} ({})", commit.short_hash);
+	let version_info = VersionInfo {
+		product_name: "whatSnap",
+		company: "Aryan Choudhary",
+		copyright: "Copyright © 2026 Aryan Choudhary",
+		original_filename: "whatSnap.exe",
+		product_version: commit.is_dev.then_some(dev_version.as_str()),
+		..VersionInfo::default()
+	};
+	if let Err(e) = version_info.embed() {
+		println!("cargo:warning=Failed to embed version info: {e}");
 	}
 }
 
-/// The commit this build is from, as `WHATSNAP_COMMIT_HASH`: the update check
-/// compares it with the Development Build's commits. "unknown" outside a git
-/// checkout.
-fn embed_commit_hash() {
-	println!("cargo:rerun-if-changed=.git/HEAD");
-	println!("cargo:rerun-if-changed=.git/refs/heads");
-	println!("cargo:rerun-if-changed=.git/packed-refs");
-	let hash = std::process::Command::new("git")
-		.args(["rev-parse", "HEAD"])
-		.output()
-		.ok()
-		.filter(|out| out.status.success())
-		.and_then(|out| String::from_utf8(out.stdout).ok())
-		.map(|hash| hash.trim().to_string())
-		.filter(|hash| !hash.is_empty())
-		.unwrap_or_else(|| "unknown".to_string());
-	println!("cargo:rustc-env=WHATSNAP_COMMIT_HASH={hash}");
+/// Builds backend.exe into `target_dir\backend`, where whatSnap.exe looks
+/// for it.
+fn build_backend(target_dir: &Path) {
+	let out_path: PathBuf = target_dir.join("backend").join("backend.exe");
+	let _ = std::fs::create_dir_all(target_dir.join("backend"));
+	let mut args = vec!["build".to_string(), "-o".to_string(), out_path.display().to_string()];
+	if env::var("PROFILE").is_ok_and(|p| p == "release") {
+		args.push("-ldflags=-s -w".to_string());
+		args.push("-trimpath".to_string());
+	}
+	match Command::new("go").args(&args).current_dir("backend").status() {
+		Ok(status) if !status.success() => println!("cargo:warning=Go build failed with status {status}"),
+		Ok(_) => {}
+		Err(_) => println!("cargo:warning=Failed to execute go build"),
+	}
+}
+
+/// The user manual, doc/readme.md, as readme.html for the zip and the
+/// installer.
+fn build_docs(target_dir: &Path) {
+	let page = Page { title: "whatSnap User Manual", ..Page::default() };
+	if let Err(e) = convert(Path::new("doc/readme.md"), &target_dir.join("readme.html"), &page) {
+		println!("cargo:warning=Failed to generate the readme: {e}");
+	}
 }

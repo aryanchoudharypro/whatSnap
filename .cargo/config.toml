@@ -1,0 +1,8 @@
+[alias]
+# Builds and packages a release; see xtask/src/main.rs.
+release = "run -p xtask -- release"
+
+[env]
+# Some C dependencies still ask for an old CMake policy version, which CMake 4
+# refuses without this.
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"

@@ -54,5 +54,6 @@ panic = "abort"
 codegen-units = 1
 
 [build-dependencies]
-embed-manifest = "1.5.0"
-winres = "0.1.12"
+# The manifest, version resource, commit hash, readme.html and installer
+# script (see build.rs).
+shipfitter = { version = "0.2.1", features = ["docs", "windows-resources"] }

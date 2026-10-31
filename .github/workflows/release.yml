@@ -28,12 +28,10 @@ jobs:
       with:
         go-version-file: backend/go.mod
         cache-dependency-path: backend/go.sum
-    - name: Install CMake, Ninja, and Inno Setup
-      run: |
-        choco install cmake ninja innosetup -y --no-progress
-        $iscc = Get-ChildItem "${env:ProgramFiles(x86)}", "$env:ProgramFiles" -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
-        echo $iscc.DirectoryName >> $env:GITHUB_PATH
+    # Inno Setup isn't installed here: cargo release downloads a pinned copy
+    # (shipfitter's tools::iscc) when it can't find one.
+    - name: Install CMake and Ninja
+      run: choco install cmake ninja -y --no-progress
     # The tag names the version, so a tag that doesn't match Cargo.toml fails here
     # instead of publishing a release whose app reports another version.
     - name: Check the tag matches Cargo.toml
@@ -51,16 +49,17 @@ jobs:
         MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
       run: |
         if (-not $env:MINISIGN_KEY) { throw "The MINISIGN_KEY secret is missing, so the release can't be signed" }
-        packaging\build-release.ps1
+        cargo release
+        if ($LASTEXITCODE -ne 0) { throw "cargo release failed" }
     - name: Upload release files
       uses: actions/upload-artifact@v7
       with:
         name: whatSnap-release
         path: |
-          dist/whatSnap_setup.exe
-          dist/whatSnap_setup.exe.minisig
-          dist/whatSnap.zip
-          dist/whatSnap.zip.minisig
+          target/release/whatSnap_setup.exe
+          target/release/whatSnap_setup.exe.minisig
+          target/release/whatSnap.zip
+          target/release/whatSnap.zip.minisig
         if-no-files-found: error
         retention-days: 7
 

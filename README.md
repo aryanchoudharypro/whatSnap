@@ -12,7 +12,8 @@ For a comprehensive user guide, including a full list of features and hotkeys, p
 
 whatSnap has two programs:
 
-- `whatSnap.exe` is the user interface. It is written in Rust with [wxDragon](https://github.com/AllenDang/wxDragon), so all controls are native Windows controls. The message list is a custom control that uses [AccessKit](https://accesskit.dev).- `backend.exe` connects to WhatsApp. It is written in Go, with a fork of [whatsmeow](https://github.com/aryanchoudharypro/whatsmeow) for the protocol and a fork of meowcaller for calls. It keeps the session and the message history in a SQLite database.
+- `whatSnap.exe` is the user interface. It is written in Rust with [wxDragon](https://github.com/AllenDang/wxDragon), so all controls are native Windows controls. The message list is a custom control that uses [AccessKit](https://accesskit.dev).
+- `backend.exe` connects to WhatsApp. It is written in Go, with a fork of [whatsmeow](https://github.com/aryanchoudharypro/whatsmeow) for the protocol and a fork of meowcaller for calls. It keeps the session and the message history in a SQLite database.
 
 `whatSnap.exe` starts `backend.exe` and talks to it through named pipes, with one JSON message per line. During a call, the microphone and speaker audio goes between the two programs over a local UDP socket instead. A third, small program, `whatSnapShare.exe` in `share-target/`, adds whatSnap to the Windows Share menu.
 
@@ -26,27 +27,25 @@ whatSnap builds only on Windows. To build, you'll need:
 - Go, at the version in `backend/go.mod`.
 - CMake and Ninja, for building wxDragon. In addition, you also need LLVM, from LLVM.org.
 - The Windows SDK, for `makeappx`. The Visual Studio C++ tools install it.
-- Inno Setup, only for the installer.
 
 ```batch
-set CMAKE_POLICY_VERSION_MINIMUM=3.5
 cargo build --release
 ```
 
-`build.rs` also runs `go build` in `backend/`, so this one command makes both programs. It generates `target/release/whatSnap.exe` and `target/release/backend/backend.exe`. Keep the two together: `whatSnap.exe` looks for the backend in the `backend` folder next to it.
+`build.rs` also runs `go build` in `backend/`, so this one command makes both programs. It generates `target/release/whatSnap.exe` and `target/release/backend/backend.exe`. Keep the two together: `whatSnap.exe` looks for the backend in the `backend` folder next to it. The build also converts `doc/readme.md` to `readme.html`, and fills in the installer script `packaging/whatSnap.iss.in` as `whatSnap.iss`, both in `target/release`.
 
 ### Release Packages
 
-`packaging\build-release.ps1` builds everything that a release needs:
+`cargo release` builds everything that a release needs:
 
-- `dist\whatSnap_setup.exe`, the installer.
-- `dist\whatSnap.zip`, the portable version.
+- `target\release\whatSnap_setup.exe`, the installer.
+- `target\release\whatSnap.zip`, the portable version.
 
-The script reads the version from `Cargo.toml`. To set it yourself, use `-Version 0.2.0`. To build only the zip, use `-SkipInstaller`. To sign the files with a code signing certificate, give a sign command with `-SignCommand`. The script replaces `{0}` in the command with the path of each file.
+It reads the version from `Cargo.toml`. You don't need to install Inno Setup: if it isn't installed, `cargo release` downloads it one time to a cache for your user. The code is in `xtask/`, and it uses [shipfitter](https://crates.io/crates/shipfitter).
 
 ### Update Signatures
 
-whatSnap updates itself with [ship-shape](https://crates.io/crates/ship-shape). It installs an update only when the update's minisign signature verifies with the public key in `src/update_check.rs`. When the `MINISIGN_KEY` and `MINISIGN_PASSWORD` environment variables are set, `build-release.ps1` signs the zip and the installer, and writes a `.minisig` file beside each one. It uses `cargo run -p xtask -- sign`. Without the key, the script makes the files but doesn't sign them.
+whatSnap updates itself with [ship-shape](https://crates.io/crates/ship-shape). It installs an update only when the update's minisign signature verifies with the public key in `src/update_check.rs`. When the `MINISIGN_KEY` and `MINISIGN_PASSWORD` environment variables are set, `cargo release` signs the zip and the installer, and writes a `.minisig` file beside each one. Without the key, it makes the files but doesn't sign them. To sign other files, use `cargo run -p xtask -- sign <file>`.
 
 ### Releases
 

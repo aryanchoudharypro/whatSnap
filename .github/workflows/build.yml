@@ -40,40 +40,36 @@ jobs:
         cache-dependency-path: backend/go.sum
     - name: Cache Rust build artifacts
       uses: Swatinem/rust-cache@v2
-    - name: Install CMake, Ninja, and Inno Setup
-      run: |
-        choco install cmake ninja innosetup -y --no-progress
-        # Put ISCC.exe on PATH whichever Inno Setup version the package installed, since
-        # build-release.ps1 looks for it there first.
-        $iscc = Get-ChildItem "${env:ProgramFiles(x86)}", "$env:ProgramFiles" -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
-        echo $iscc.DirectoryName >> $env:GITHUB_PATH
-    # Produces dist\whatSnap.zip and dist\whatSnap_setup.exe, each with a .minisig
+    # Inno Setup isn't installed here: cargo release downloads a pinned copy
+    # (shipfitter's tools::iscc) when it can't find one.
+    - name: Install CMake and Ninja
+      run: choco install cmake ninja -y --no-progress
+    # Produces target\release\whatSnap.zip and whatSnap_setup.exe, each with a .minisig
     # signature that the in-app update check verifies.
     - name: Build and sign
       env:
         MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
         MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
-      run: packaging\build-release.ps1
+      run: cargo release
     - name: Check the build produced both packages
       run: |
         foreach ($pattern in 'whatSnap_setup.exe', 'whatSnap.zip') {
-          if (-not (Get-ChildItem dist -Filter $pattern)) { throw "dist\$pattern is missing" }
+          if (-not (Get-ChildItem target\release -Filter $pattern)) { throw "target\release\$pattern is missing" }
         }
-        Get-ChildItem dist | Format-Table Name, Length
+        Get-ChildItem target\release -Filter whatSnap* | Format-Table Name, Length
     - name: Upload installer
       id: upload-setup
       uses: actions/upload-artifact@v7
       with:
         name: whatSnap-windows-setup
-        path: dist/whatSnap_setup.exe*
+        path: target/release/whatSnap_setup.exe*
         if-no-files-found: error
         retention-days: 1
     - name: Upload portable zip
       uses: actions/upload-artifact@v7
       with:
         name: whatSnap-windows-portable
-        path: dist/whatSnap.zip*
+        path: target/release/whatSnap.zip*
         if-no-files-found: error
         retention-days: 1
     - name: Link the installer in the run summary

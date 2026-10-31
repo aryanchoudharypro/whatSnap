@@ -1,16 +1,13 @@
-; Inno Setup script for whatSnap.
-; Build with: iscc packaging\whatSnap.iss  (or run packaging\build-release.ps1)
+; Inno Setup script for whatSnap: a template that build.rs fills in as
+; target\release\whatSnap.iss, beside the files it installs. `cargo release`
+; compiles it; the @NAME@ values come from shipfitter's configure_file.
 
 #define AppName "whatSnap"
 #define AppExe "whatSnap.exe"
 #define AppPublisher "Aryan Choudhary"
 #define AppURL "https://github.com/aryanchoudharypro/whatSnap"
-#ifndef AppVersion
-  #define AppVersion "0.1.0"
-#endif
-#ifndef SourceDir
-  #define SourceDir "..\target\release"
-#endif
+#define AppVersion "@PROJECT_VERSION@"
+#define Root "@ROOT@"
 
 [Setup]
 AppId={{63FD6445-3903-4812-AF2B-1A9B0672C679}
@@ -29,16 +26,16 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=@ARCH_ALLOWED@
+ArchitecturesInstallIn64BitMode=@ARCH_MODE@
 
-OutputDir=..\dist
+OutputDir=.
 OutputBaseFilename={#AppName}_setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 
-LicenseFile=..\LICENSE
+LicenseFile={#Root}\LICENSE
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 
@@ -61,15 +58,16 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "sharemenu"; Description: "Show whatSnap in the Windows Share menu (an administrator has to approve this once)"; Flags: unchecked
 
 [Files]
-Source: "{#SourceDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\backend\backend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion
-Source: "{#SourceDir}\whatSnapShare.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "backend\backend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "whatSnapShare.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Unsigned; the signed copy whatSnapShare.exe makes goes in {app}\share\local,
 ; which the installer never writes, so updates keep it.
-Source: "{#SourceDir}\share\whatSnapShare.msix"; DestDir: "{app}\share"; Flags: ignoreversion
-Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\backend\LICENSE"; DestDir: "{app}\backend"; Flags: ignoreversion
-Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "share\whatSnapShare.msix"; DestDir: "{app}\share"; Flags: ignoreversion
+Source: "{#Root}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\backend\LICENSE"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "{#Root}\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "readme.html"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; In the Programs folder itself (not a subfolder): notifications are tied to this
