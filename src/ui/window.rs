@@ -1487,7 +1487,7 @@ pub fn bind_input_handlers(
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_contacts"}).to_string());
 		drop(s);
 		autostart_check.set_value(crate::platform::autostart::is_enabled());
-		settings_dialog.show_modal();
+		crate::ui::show_modal_again(&settings_dialog);
 	});
 
 	let frame_logout = parts.frame;

@@ -125,7 +125,7 @@ fn show_attachment_dialog(
 		d.send_btn.set_focus();
 	}
 	if !d.dialog.is_shown() {
-		d.dialog.show_modal();
+		crate::ui::show_modal_again(&d.dialog);
 	}
 }
 
@@ -143,7 +143,7 @@ pub(crate) fn open_poll_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	d.multiple_check.enable(true);
 	d.quiz_check.set_value(false);
 	d.question_field.set_focus();
-	d.dialog.show_modal();
+	crate::ui::show_modal_again(&d.dialog);
 }
 
 pub(crate) fn send_poll(
@@ -195,7 +195,7 @@ pub(crate) fn prepare_attach_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	refresh_attach_contact_list("", state, parts);
 	let payload = serde_json::json!({ "action": "get_contacts" });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	parts.attach_contact_dialog.dialog.show_modal();
+	crate::ui::show_modal_again(&parts.attach_contact_dialog.dialog);
 }
 
 pub(crate) fn send_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, contact_jids: Vec<String>) {

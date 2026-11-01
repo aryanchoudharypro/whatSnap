@@ -502,7 +502,7 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			s.group_data_community = None;
 			drop(s);
 
-			parts.group_data_dialog.dialog.show_modal();
+			crate::ui::show_modal_again(&parts.group_data_dialog.dialog);
 			let mut s = state.borrow_mut();
 			s.group_data_media = Vec::new();
 			s.group_data_documents = Vec::new();
@@ -575,7 +575,7 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	drop(s_mut);
 
 	parts.conversation_data_dialog.info_field.set_focus();
-	parts.conversation_data_dialog.dialog.show_modal();
+	crate::ui::show_modal_again(&parts.conversation_data_dialog.dialog);
 	let mut s = state.borrow_mut();
 	s.info_chat = None;
 	s.conversation_data_media = Vec::new();

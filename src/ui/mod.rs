@@ -25,3 +25,15 @@ pub mod video_player;
 pub mod wake;
 
 pub mod window;
+
+/// Shows, modally, one of the dialogs that are built once and reused.
+///
+/// wxWidgets 3.3 won't show a dialog whose return code isn't 0: it takes
+/// that to mean EndModal was called while the dialog was being set up. The
+/// code is left over from the last time it closed, so a dialog closed with
+/// Escape, Cancel or OK (anything but 0) would never open again. Clearing it
+/// first is what wx 3.2 effectively did.
+pub(crate) fn show_modal_again(dialog: &wxdragon::prelude::Dialog) -> i32 {
+	dialog.set_return_code(0);
+	dialog.show_modal()
+}

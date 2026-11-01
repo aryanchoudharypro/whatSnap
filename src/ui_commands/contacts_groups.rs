@@ -25,7 +25,7 @@ pub(crate) fn prepare_new_group(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	refresh_new_group_contacts_list("", state, parts);
 	let payload = serde_json::json!({ "action": "get_contacts" });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	parts.new_group_dialog.dialog.show_modal();
+	crate::ui::show_modal_again(&parts.new_group_dialog.dialog);
 }
 
 pub(crate) fn prepare_add_members(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -44,7 +44,7 @@ pub(crate) fn prepare_add_members(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	refresh_add_members_contacts_list("", state, parts);
 	let payload = serde_json::json!({ "action": "get_contacts" });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	parts.add_members_dialog.dialog.show_modal();
+	crate::ui::show_modal_again(&parts.add_members_dialog.dialog);
 }
 
 pub(crate) fn add_group_members(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, participants: Vec<String>) {
@@ -137,7 +137,7 @@ pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	apply_contact_picker_filter("", state, parts);
 	let payload = serde_json::json!({ "action": "get_contacts" });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	parts.new_conv_dialog.dialog.show_modal();
+	crate::ui::show_modal_again(&parts.new_conv_dialog.dialog);
 }
 
 pub(crate) fn filter_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, query: String) {
@@ -410,7 +410,7 @@ fn open_contact_form(
 	form.phone_field.set_value(phone);
 	form.phone_field.set_editable(phone_editable);
 	form.name_field.set_focus();
-	form.dialog.show_modal();
+	crate::ui::show_modal_again(&form.dialog);
 }
 
 pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
