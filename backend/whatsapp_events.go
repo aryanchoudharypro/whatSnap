@@ -1040,6 +1040,7 @@ func eventHandler(evt interface{}) {
 			// encoded and are decoded one at a time below, so a big chunk
 			// never sits in memory whole.
 			convCount := len(v.Data.GetConversations())
+			omittedFrom := -1
 			conversations := func(yield func(int, *waHistorySync.Conversation) bool) {
 				for i, conv := range v.Data.GetConversations() {
 					if !yield(i, conv) {
@@ -1065,8 +1066,9 @@ func eventHandler(evt interface{}) {
 			}
 			// Chats the phone left out of the sync (too many, too big) come
 			// as a separate list of plain chat records with no messages, sent
-			// in batches. They're listed like any other chat, so they show up
-			// and their history can be loaded on demand.
+			// in batches. WA Web doesn't use this list at all, so it never
+			// adds a chat here: it only fills in chats already listed (see
+			// historyChatGate).
 			if omitted := v.Data.GetOmittedConversationMetadata(); len(omitted.GetConversations()) > 0 {
 				log.Printf("History sync: %d chats the phone left out (snapshot %s, batch %d of %d, complete %v)",
 					len(omitted.GetConversations()), omitted.GetSnapshotID(), omitted.GetBatchIndex()+1, omitted.GetBatchCount(), omitted.GetComplete())
@@ -1080,6 +1082,7 @@ func eventHandler(evt interface{}) {
 						}
 						n = i + 1
 					}
+					omittedFrom = n
 					for i, conv := range omitted.GetConversations() {
 						if !yield(n+i, conv) {
 							return
@@ -1087,6 +1090,7 @@ func eventHandler(evt interface{}) {
 					}
 				}
 			}
+			gate := newHistoryChatGate(v.Data.GetSyncType())
 			reportProgress := v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND && convCount > 0
 			if reportProgress {
 				broadcastEvent("history_sync", map[string]interface{}{
@@ -1104,7 +1108,7 @@ func eventHandler(evt interface{}) {
 			var albumHeaders []syncedAlbum
 			var syncedJIDs []string
 			var jidsWithMessages []string
-			var chunkListed, chunkSkipped, chunkTokenOnly int
+			var chunkListed, chunkSkipped, chunkTokenOnly, chunkDropped int
 			var convLIDPairs []store.LIDMapping
 
 			if gs := v.Data.GetGlobalSettings(); gs != nil {
@@ -1201,6 +1205,10 @@ func eventHandler(evt interface{}) {
 				jid = chatJID.String()
 				if wireJID == jid {
 					wireJID = ""
+				}
+				if !gate.allows(jid, wireJID, omittedFrom >= 0 && convIdx >= omittedFrom) {
+					chunkDropped++
+					continue
 				}
 				listed := historyConversationIsChat(conv, chatJID)
 				if listed {
@@ -1603,8 +1611,8 @@ func eventHandler(evt interface{}) {
 			}
 			if convCount > 0 || v.Data.GetSyncType() == waHistorySync.HistorySync_FULL {
 				stats := db.Stats()
-				log.Printf("History sync chunk written: type=%s chunk=%d progress=%d chats=%d (listed=%d skipped=%d tokenOnly=%d) msgs=%d took=%s (messages %s, snippets %s) queued=%d dbWait=%d/%s inUse=%d",
-					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), convCount, chunkListed, chunkSkipped, chunkTokenOnly, chunkMsgs,
+				log.Printf("History sync chunk written: type=%s chunk=%d progress=%d chats=%d (listed=%d skipped=%d tokenOnly=%d dropped=%d) msgs=%d took=%s (messages %s, snippets %s) queued=%d dbWait=%d/%s inUse=%d",
+					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), convCount, chunkListed, chunkSkipped, chunkTokenOnly, chunkDropped, chunkMsgs,
 					time.Since(chunkStart).Round(time.Millisecond), loopTook.Round(time.Millisecond), tailTook.Round(time.Millisecond),
 					historySyncPending.Load()-1,
 					stats.WaitCount-statsAtStart.WaitCount, (stats.WaitDuration - statsAtStart.WaitDuration).Round(time.Millisecond),
