@@ -85,23 +85,33 @@ impl LaunchRequest {
 /// `request` is what this launch was started to do (open a link, send
 /// files); it's passed on to the running instance.
 pub fn acquire_or_activate_existing(request: Option<&LaunchRequest>) -> Option<InstanceLock> {
-	let Ok(handle) = (unsafe { CreateMutexW(None, true, MUTEX_NAME) }) else {
-		// Can't even tell whether another instance is running; err on the
-		// side of letting this one start rather than locking the user out.
-		return Some(InstanceLock { handle: HANDLE::default() });
-	};
-	let already_running = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
-
-	if !already_running {
-		return Some(InstanceLock { handle });
+	// A running copy can be slow to answer: it may still be starting (its
+	// pipe opens only once its window exists), or it may be closing (it
+	// holds the mutex until its process ends, long after its pipe has gone).
+	// So keep trying for a while, and take over as soon as it has gone.
+	let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+	loop {
+		let Ok(handle) = (unsafe { CreateMutexW(None, true, MUTEX_NAME) }) else {
+			// Can't even tell whether another instance is running; err on the
+			// side of letting this one start rather than locking the user out.
+			return Some(InstanceLock { handle: HANDLE::default() });
+		};
+		if unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
+			return Some(InstanceLock { handle });
+		}
+		unsafe {
+			let _ = CloseHandle(handle);
+		}
+		match request_activate(request) {
+			Activation::Done => return None,
+			// A copy started as administrator never lets this one in, so
+			// waiting won't help.
+			Activation::Denied => break,
+			Activation::NotListening if std::time::Instant::now() >= deadline => break,
+			Activation::NotListening => std::thread::sleep(std::time::Duration::from_millis(200)),
+		}
 	}
-
-	if !request_activate(request) {
-		show_unreachable_message();
-	}
-	unsafe {
-		let _ = CloseHandle(handle);
-	}
+	show_unreachable_message();
 	None
 }
 
@@ -121,9 +131,18 @@ fn show_unreachable_message() {
 	}
 }
 
+enum Activation {
+	/// The running instance got the request.
+	Done,
+	/// Its pipe refused this process, as one started as administrator does.
+	Denied,
+	/// Nothing is listening yet (still starting) or any more (closing).
+	NotListening,
+}
+
 /// Tells the already-running instance to raise its window, and hands it what
-/// this launch was asked to do, if anything. Returns false if it couldn't be reached.
-fn request_activate(request: Option<&LaunchRequest>) -> bool {
+/// this launch was asked to do, if anything.
+fn request_activate(request: Option<&LaunchRequest>) -> Activation {
 	// Grant the existing instance's process temporary permission to steal
 	// the foreground: on Windows, a process can only call
 	// SetForegroundWindow successfully if it currently holds that right or
@@ -144,17 +163,14 @@ fn request_activate(request: Option<&LaunchRequest>) -> bool {
 		Some(request) => format!("activate\n{}", request.encode()),
 		None => "activate".to_string(),
 	};
-	// The running instance may still be starting, so give its pipe a moment to appear.
-	for attempt in 0..10 {
-		if let Ok(mut stream) = PipeStream::connect(ACTIVATE_PIPE_NAME) {
+	match PipeStream::connect(ACTIVATE_PIPE_NAME) {
+		Ok(mut stream) => {
 			let _ = stream.write_all(message.as_bytes());
-			return true;
+			Activation::Done
 		}
-		if attempt < 9 {
-			std::thread::sleep(std::time::Duration::from_millis(100));
-		}
+		Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Activation::Denied,
+		Err(_) => Activation::NotListening,
 	}
-	false
 }
 
 /// Starts listening (on a background thread) for activation requests from
@@ -162,9 +178,15 @@ fn request_activate(request: Option<&LaunchRequest>) -> bool {
 /// with what that launch was asked to do, if anything. Call once, after the UI
 /// command channel is ready to receive the result.
 pub fn listen_for_activation(on_activate: impl Fn(Option<LaunchRequest>) + Send + 'static) {
-	let Ok(mut listener) = PipeListener::bind(ACTIVATE_PIPE_NAME) else { return };
-
 	std::thread::spawn(move || {
+		// The pipe can still be held for a moment by a copy that is closing
+		// (say, the one an update just replaced), so keep trying to open it.
+		let mut listener = loop {
+			match PipeListener::bind(ACTIVATE_PIPE_NAME) {
+				Ok(listener) => break listener,
+				Err(_) => std::thread::sleep(std::time::Duration::from_millis(500)),
+			}
+		};
 		loop {
 			let Ok(mut conn) = listener.accept() else {
 				// Couldn't make the next instance; don't spin on it.
