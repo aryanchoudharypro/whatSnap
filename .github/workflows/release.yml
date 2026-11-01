@@ -1,13 +1,13 @@
 name: Release whatSnap
-# Pushing a version tag, such as v0.1.0, builds and publishes a stable release.
-# Running this workflow by hand on master does the same for the version in
-# Cargo.toml, and makes the tag itself. The update check's stable channel
-# offers the newest of these.
+# Pushing a version tag, such as v0.1.0, builds a stable release and attaches
+# its files: push one with git, or make it with "Draft a new release" on
+# GitHub. (A hand run can't make the tag itself: GitHub refuses the workflow's
+# token a new tag on commits that hold workflow files.) The update check's
+# stable channel offers the newest of these.
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -44,18 +44,10 @@ jobs:
       shell: bash
       run: |
         CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-        if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-          TAG="v$CARGO_VERSION"
-          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
-            echo "::error::$TAG already exists; bump the version in Cargo.toml first"
-            exit 1
-          fi
-        else
-          TAG="$GITHUB_REF_NAME"
-          if [ "${TAG#v}" != "$CARGO_VERSION" ]; then
-            echo "::error::Tag $TAG doesn't match version $CARGO_VERSION in Cargo.toml"
-            exit 1
-          fi
+        TAG="$GITHUB_REF_NAME"
+        if [ "${TAG#v}" != "$CARGO_VERSION" ]; then
+          echo "::error::Tag $TAG doesn't match version $CARGO_VERSION in Cargo.toml"
+          exit 1
         fi
         echo "tag=$TAG" >> $GITHUB_OUTPUT
     - name: Build and sign
@@ -91,14 +83,12 @@ jobs:
       with:
         name: whatSnap-release
         path: dist
-    # On a hand run the tag doesn't exist yet, so this makes it at the commit
-    # that was built. The release goes out with no notes: write the changelog
-    # on GitHub afterwards (running again won't overwrite it).
+    # The release goes out with no notes: write the changelog on GitHub
+    # afterwards (a release made there first keeps its notes).
     - name: Create release
       uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ needs.build-windows.outputs.tag }}
-        target_commitish: ${{ github.sha }}
         name: whatSnap ${{ needs.build-windows.outputs.tag }}
         files: dist/*
         prerelease: false
