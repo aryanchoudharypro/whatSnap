@@ -1617,6 +1617,7 @@ func eventHandler(evt interface{}) {
 
 	case *events.Message:
 		unwrappedMsg := unwrapMessage(v.Message)
+		logPeerDataResponse(v.Message)
 		if v.Info.VerifiedName != nil && !v.Info.IsFromMe && !v.Info.IsGroup {
 			go markBusinessContact(v.Info.Chat)
 		}

@@ -168,6 +168,10 @@ func main() {
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(365)
+	// Untried until the next link (2026-11-01): the "recent" first part
+	// covered about a month, and the per-chat cap of the initial sync.
+	store.DeviceProps.HistorySyncConfig.RecentSyncDaysLimit = proto.Uint32(365)
+	store.DeviceProps.HistorySyncConfig.InitialSyncMaxMessagesPerChat = proto.Uint32(30000)
 	store.DeviceProps.HistorySyncConfig.InlineInitialPayloadInE2EeMsg = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportCallLogHistory = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportBotUserAgentChatHistory = proto.Bool(true)
