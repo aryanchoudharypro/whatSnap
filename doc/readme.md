@@ -56,7 +56,7 @@ whatSnap installs an update only when its signature is correct. A portable copy 
 ## Linking Your Phone
 The first time you start whatSnap, it asks you to link your phone. There are two ways:
 
-- With a phone number. Select your country, type your phone number, and press `Continue`. whatSnap shows a pairing code. On your phone, open WhatsApp, go to `Linked devices`, select `Link a device`, then select `Link with phone number instead` and type the code.
+- With a phone number. Select your country (it starts on the country Windows is set to), type your phone number, and press `Continue`. whatSnap shows a pairing code. On your phone, open WhatsApp, go to `Linked devices`, select `Link a device`, then select `Link with phone number instead` and type the code.
 - With a QR code. Press `Connect with QR Code`. On your phone, open WhatsApp, go to `Linked devices`, select `Link a device`, and scan the code.
 
 After you link, whatSnap gets your recent chats from your phone. This can take a few minutes.

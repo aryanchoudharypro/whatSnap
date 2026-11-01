@@ -593,17 +593,20 @@ pub fn build_main_window() -> WindowParts {
 	let country_label = StaticText::builder(&phone_panel).with_label("Country:").build();
 	theme::style_muted_label(&country_label);
 	let mut choices = Vec::new();
-	for &(name, _) in crate::countries::COUNTRIES {
+	for &(name, _, _) in crate::countries::COUNTRIES {
 		choices.push(name.to_string());
 	}
 	let country_combo =
 		ComboBox::builder(&phone_panel).with_choices(choices).with_style(ComboBoxStyle::ReadOnly).build();
-	country_combo.set_selection(0_u32);
+	let country_idx = crate::countries::default_index();
+	country_combo.set_selection(country_idx as u32);
 	country_combo.set_font(&theme::Fonts::body());
 
 	let phone_label = StaticText::builder(&phone_panel).with_label("Enter phone number:").build();
 	theme::style_muted_label(&phone_label);
-	let phone_field = TextCtrl::builder(&phone_panel).with_value("+55 ").build();
+	let phone_field = TextCtrl::builder(&phone_panel)
+		.with_value(&format!("+{} ", crate::countries::COUNTRIES[country_idx].2))
+		.build();
 	phone_field.set_font(&theme::Fonts::body());
 	let pair_btn = Button::builder(&phone_panel).with_label("Continue").build();
 	theme::style_primary_button(&pair_btn);
@@ -746,7 +749,7 @@ pub fn bind_input_handlers(
 	let combo = parts.country_combo;
 	combo.on_selection_changed(move |event| {
 		if let Some(idx) = event.get_selection() {
-			let code = crate::countries::COUNTRIES[idx as usize].1;
+			let code = crate::countries::COUNTRIES[idx as usize].2;
 			phone_ctrl.set_value(&format!("+{} ", code));
 		}
 	});
