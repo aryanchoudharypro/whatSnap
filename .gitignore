@@ -10,7 +10,7 @@
 __pycache__/
 *.pyc
 
-# Local Claude Code settings and working notes.
+# Local tool settings.
 .claude/
 
 # Local dependency sources kept for offline reference only; not used by the

@@ -2,7 +2,7 @@
 
 whatSnap is a lightweight, fast, and accessible WhatsApp client for Windows. It is designed to be completely usable with screen readers and the keyboard. It does not use a browser or WhatsApp Web in the background. It links to your phone as a WhatsApp companion device, the same way WhatsApp Web and WhatsApp for Windows do.
 
-whatSnap is in development. There are no numbered releases yet. Each change to `master` builds a new Development Build.
+whatSnap is in development. Stable releases are on the Releases page, and each change to `master` also builds a new Development Build.
 
 ## Documentation
 
@@ -17,7 +17,7 @@ whatSnap has two programs:
 
 `whatSnap.exe` starts `backend.exe` and talks to it through named pipes, with one JSON message per line. During a call, the microphone and speaker audio goes between the two programs over a local UDP socket instead. A third, small program, `whatSnapShare.exe` in `share-target/`, adds whatSnap to the Windows Share menu.
 
-Some internal names still say `whantv`, the old name of the app. These include the pipe names, the single instance mutex, registry values, and the Go module name. We keep them on purpose, so that an old and a new build can't run at the same time and no registry data has to move. Don't rename them. Text that users see must say whatSnap.
+Some internal names still say `whantv`, the app's old name: the pipe names, the single instance mutex, registry values, and the Go module name. They stay that way so that an old and a new build can't run at the same time, and no registry data has to move.
 
 ## Building
 
@@ -51,7 +51,7 @@ whatSnap updates itself with [ship-shape](https://crates.io/crates/ship-shape). 
 
 GitHub Actions builds each push to `master` and each pull request into it. There are two kinds of release:
 
-- Development Build: each push to `master` replaces the `latest` release. Its notes list the new commits, one per line, as `- <hash> <subject>`. The update check on the dev channel reads these lines, so don't change their format.
+- Development Build: each push to `master` replaces the `latest` release. Its notes list the new commits, one per line, as `- <hash> <subject>`. The update check on the dev channel reads these lines.
 - Stable releases: to publish one, set the version in `Cargo.toml` and commit. Then push a tag with the same version, for example `v0.1.0`, or make it on GitHub with "Draft a new release", choosing a new tag on `master`. The release workflow checks that the tag and `Cargo.toml` agree, builds and signs the files, and attaches them to the release. Write the changelog on the release page.
 
 Both workflows need the `MINISIGN_KEY` and `MINISIGN_PASSWORD` secrets.
@@ -71,7 +71,7 @@ cargo install prek
 prek install
 ```
 
-Run the same checks that we expect:
+These are the checks CI runs:
 
 ```batch
 cargo +nightly fmt --all --check
@@ -86,7 +86,7 @@ The backend tests use Windows-only packages, so run them on Windows. On other sy
 
 ## Testing on a Real Phone
 
-Many features need a test with a real WhatsApp account before we know that they work, for example calls and settings that sync with your phone. When you add or change one of these features, say in the commit message that it is not yet tested live. The User Manual lists the features that still wait for a live test.
+Some features, such as calls and settings that sync with your phone, can only be checked with a real WhatsApp account. The User Manual lists the ones that haven't been tested that way yet.
 
 ## License
 

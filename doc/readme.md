@@ -333,6 +333,7 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
   - `Download videos automatically`
   - `Download documents automatically`
   - Voice messages always download. Other media downloads automatically only from contacts, and from chats that you wrote in.
+- `Download Quality for Photos and Videos Sent in HD`: Standard Quality or HD Quality. People can send a photo or video in HD; with HD Quality, whatSnap downloads the HD copy instead of the standard one.
 - `Media Upload Quality`: Standard Quality or HD Quality.
 - `Theme`: System Default, Light, or Dark.
 
@@ -439,7 +440,7 @@ When you uninstall whatSnap, the uninstaller asks if you want to delete your dat
 ## Features Not Yet Tested
 These features are built, but nobody has tested them with a real WhatsApp account yet. They can have problems:
 
-- The automatic download settings, and `Media Upload Quality`.
+- The automatic download settings, `Download Quality for Photos and Videos Sent in HD`, and `Media Upload Quality`.
 - `Turn off link previews`.
 - Buttons and menus in messages from businesses, and `Business Catalogue...`.
 
