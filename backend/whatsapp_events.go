@@ -1257,7 +1257,8 @@ func eventHandler(evt interface{}) {
 				}
 				unread := conv.GetUnreadCount()
 				pinned := 0
-				if conv.GetPinned() > 0 {
+				pinnedAt := int64(conv.GetPinned())
+				if pinnedAt > 0 {
 					pinned = 1
 				}
 				muted := boolToInt(historyMuteActive(conv.GetMuteEndTime()))
@@ -1275,18 +1276,19 @@ func eventHandler(evt interface{}) {
 				}
 				if listed {
 					writes = append(writes, func(tx sqlExecer) {
-						_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, muted, archived, is_locked, marked_unread, wire_jid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+						_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, pinned_at, muted, archived, is_locked, marked_unread, wire_jid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 							ON CONFLICT(jid) DO UPDATE SET
 							timestamp=MAX(timestamp, excluded.timestamp),
 							name=CASE WHEN chats.name IS NULL OR chats.name = '' OR chats.name LIKE '+%' THEN COALESCE(NULLIF(excluded.name, ''), chats.name) ELSE chats.name END,
 							unread_count=MAX(chats.unread_count, excluded.unread_count),
-							pinned=MAX(chats.pinned, excluded.pinned),
+							pinned=CASE WHEN COALESCE(chats.pin_changed_at, 0) > 0 THEN chats.pinned ELSE MAX(chats.pinned, excluded.pinned) END,
+							pinned_at=CASE WHEN COALESCE(chats.pin_changed_at, 0) > 0 THEN chats.pinned_at ELSE MAX(COALESCE(chats.pinned_at, 0), excluded.pinned_at) END,
 							muted=MAX(chats.muted, excluded.muted),
 							archived=MAX(chats.archived, excluded.archived),
 							is_locked=MAX(chats.is_locked, excluded.is_locked),
 							marked_unread=MAX(COALESCE(chats.marked_unread, 0), excluded.marked_unread),
 							wire_jid=COALESCE(NULLIF(chats.wire_jid, ''), excluded.wire_jid)`,
-							jid, name, ts, unread, pinned, muted, archived, locked, markedUnread, wireJID)
+							jid, name, ts, unread, pinned, pinnedAt, muted, archived, locked, markedUnread, wireJID)
 						if err != nil {
 							fmt.Println("Error inserting chat from HistorySync:", err)
 						}
@@ -2321,17 +2323,14 @@ func eventHandler(evt interface{}) {
 			broadcastChats()
 		}()
 	case *events.Pin:
-		go func() {
-			if v.Action == nil {
-				return
-			}
-			pinnedInt := 0
-			if v.Action.GetPinned() {
-				pinnedInt = 1
-			}
-			db.Exec("UPDATE chats SET pinned = ? WHERE jid = ?", pinnedInt, preferPN(v.JID).String())
-			broadcastChats()
-		}()
+		// Applied right here, in the order whatsmeow hands the mutations over,
+		// not in a goroutine per event: a full sync can carry an old unpin under
+		// the phone number and a newer pin under the LID for the same chat, and
+		// both land on one row. Like WA Web (WAWebPinChatSync) the newest
+		// mutation wins, and pinning takes the chat out of the archive.
+		if v.Action != nil {
+			applyPinChange(preferPN(v.JID).String(), v.Action.GetPinned(), v.Timestamp.Unix())
+		}
 	case *events.LockChat:
 		// Previously only whantv's own handleSetChatLocked wrote is_locked -
 		// a lock/unlock from the phone or another linked device never
@@ -3550,4 +3549,19 @@ func videoText(video *waE2E.VideoMessage) string {
 		text += " " + caption
 	}
 	return text
+}
+
+// applyPinChange stores a pin or unpin made at changedAt (unix seconds) unless
+// a newer one is already stored. The pin time is what orders the pinned chats,
+// newest pin first, as WA Web orders them by chat.pin.
+func applyPinChange(jid string, pinned bool, changedAt int64) {
+	pinnedAt := int64(0)
+	if pinned {
+		pinnedAt = max(changedAt, 1)
+	}
+	db.Exec(`UPDATE chats SET pinned = ?, pinned_at = ?, pin_changed_at = ?,
+			archived = CASE WHEN ? = 1 THEN 0 ELSE archived END
+		WHERE jid = ? AND COALESCE(pin_changed_at, 0) <= ?`,
+		boolToInt(pinned), pinnedAt, changedAt, boolToInt(pinned), jid, changedAt)
+	broadcastChats()
 }

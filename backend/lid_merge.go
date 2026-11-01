@@ -204,7 +204,13 @@ func mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 		`UPDATE chats SET
 			timestamp = MAX(COALESCE(chats.timestamp, 0), COALESCE(l.timestamp, 0)),
 			unread_count = COALESCE(chats.unread_count, 0) + COALESCE(l.unread_count, 0),
-			pinned = MAX(COALESCE(chats.pinned, 0), COALESCE(l.pinned, 0)),
+			pinned = CASE WHEN COALESCE(l.pin_changed_at, 0) > COALESCE(chats.pin_changed_at, 0) THEN COALESCE(l.pinned, 0)
+				WHEN COALESCE(chats.pin_changed_at, 0) > 0 THEN COALESCE(chats.pinned, 0)
+				ELSE MAX(COALESCE(chats.pinned, 0), COALESCE(l.pinned, 0)) END,
+			pinned_at = CASE WHEN COALESCE(l.pin_changed_at, 0) > COALESCE(chats.pin_changed_at, 0) THEN COALESCE(l.pinned_at, 0)
+				WHEN COALESCE(chats.pin_changed_at, 0) > 0 THEN COALESCE(chats.pinned_at, 0)
+				ELSE MAX(COALESCE(chats.pinned_at, 0), COALESCE(l.pinned_at, 0)) END,
+			pin_changed_at = MAX(COALESCE(chats.pin_changed_at, 0), COALESCE(l.pin_changed_at, 0)),
 			muted = MAX(COALESCE(chats.muted, 0), COALESCE(l.muted, 0)),
 			archived = MAX(COALESCE(chats.archived, 0), COALESCE(l.archived, 0)),
 			is_locked = MAX(COALESCE(chats.is_locked, 0), COALESCE(l.is_locked, 0)),

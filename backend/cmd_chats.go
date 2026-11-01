@@ -691,16 +691,18 @@ func handleSetChatPinned(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildPin(syncdChatJID(jid), data.Value)); err != nil {
+		// WA Web sends an unarchive together with every pin
+		// (PinChatSync.getMutationsForPin), since a chat can't be both.
+		patch := appstate.BuildPin(syncdChatJID(jid), data.Value)
+		if data.Value {
+			lastTS, lastKey := getLastMessageKeyForChat(data.JID)
+			patch.Mutations = append(patch.Mutations, appstate.BuildArchive(syncdChatJID(jid), false, lastTS, lastKey).Mutations...)
+		}
+		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
 			broadcastChats()
 			return
 		}
-		pinned_int := 0
-		if data.Value {
-			pinned_int = 1
-		}
-		db.Exec("UPDATE chats SET pinned = ? WHERE jid = ?", pinned_int, data.JID)
-		broadcastChats()
+		applyPinChange(data.JID, data.Value, time.Now().Unix())
 	}()
 }
 
@@ -724,6 +726,10 @@ func handleSetChatArchived(raw json.RawMessage) {
 			archived_int = 1
 		}
 		db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", archived_int, data.JID)
+		if data.Value {
+			// BuildArchive also unpins, as WA Web does.
+			applyPinChange(data.JID, false, time.Now().Unix())
+		}
 		broadcastChats()
 	}()
 }

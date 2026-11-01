@@ -48,6 +48,12 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_setting_ts INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN marked_unread INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN wire_jid TEXT DEFAULT ''")
+	// When the chat was pinned (orders the pinned chats, newest pin first,
+	// like WA Web's chat.pin) and when its pin state last changed through
+	// app state, so an older pin/unpin (or a later history chunk) can't
+	// undo a newer one.
+	db.Exec("ALTER TABLE chats ADD COLUMN pinned_at INTEGER DEFAULT 0")
+	db.Exec("ALTER TABLE chats ADD COLUMN pin_changed_at INTEGER DEFAULT 0")
 	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_marked_unread AFTER UPDATE OF unread_count ON chats
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
 		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)
