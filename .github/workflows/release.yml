@@ -1,15 +1,20 @@
 name: Release whatSnap
 # Pushing a version tag, such as v0.1.0, builds and publishes a stable release.
-# The update check's stable channel offers the newest of these.
+# Running this workflow by hand on master does the same for the version in
+# Cargo.toml, and makes the tag itself. The update check's stable channel
+# offers the newest of these.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
   build-windows:
     runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -35,14 +40,24 @@ jobs:
     # The tag names the version, so a tag that doesn't match Cargo.toml fails here
     # instead of publishing a release whose app reports another version.
     - name: Check the tag matches Cargo.toml
+      id: version
       shell: bash
       run: |
-        TAG_VERSION="${GITHUB_REF_NAME#v}"
         CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-        if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
-          echo "::error::Tag $GITHUB_REF_NAME doesn't match version $CARGO_VERSION in Cargo.toml"
-          exit 1
+        if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          TAG="v$CARGO_VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            echo "::error::$TAG already exists; bump the version in Cargo.toml first"
+            exit 1
+          fi
+        else
+          TAG="$GITHUB_REF_NAME"
+          if [ "${TAG#v}" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag $TAG doesn't match version $CARGO_VERSION in Cargo.toml"
+            exit 1
+          fi
         fi
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
     - name: Build and sign
       env:
         MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
@@ -79,21 +94,26 @@ jobs:
     - name: Generate release notes
       id: release_notes
       shell: bash
+      env:
+        TAG: ${{ needs.build-windows.outputs.tag }}
       run: |
-        PREV=$(git tag --sort=-version:refname | grep '^v' | grep -v "^${GITHUB_REF_NAME}$" | head -n 1 || true)
+        PREV=$(git tag --sort=-version:refname | grep '^v' | grep -v "^${TAG}$" | head -n 1 || true)
         if [ -z "$PREV" ]; then
-          NOTES="The first release of whatSnap."
+          NOTES="Initial release."
         else
-          NOTES=$(git log --pretty=format:"- %s" "$PREV".."$GITHUB_REF_NAME")
+          NOTES=$(git log --pretty=format:"- %s" "$PREV"..HEAD)
         fi
         echo "notes<<EOF" >> $GITHUB_OUTPUT
         echo "$NOTES" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
+    # On a hand run the tag doesn't exist yet, so this makes it at the commit
+    # that was built.
     - name: Create release
       uses: softprops/action-gh-release@v3
       with:
-        tag_name: ${{ github.ref_name }}
-        name: whatSnap ${{ github.ref_name }}
+        tag_name: ${{ needs.build-windows.outputs.tag }}
+        target_commitish: ${{ github.sha }}
+        name: whatSnap ${{ needs.build-windows.outputs.tag }}
         body: ${{ steps.release_notes.outputs.notes }}
         files: dist/*
         prerelease: false

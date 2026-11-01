@@ -52,7 +52,7 @@ whatSnap updates itself with [ship-shape](https://crates.io/crates/ship-shape). 
 GitHub Actions builds each push to `master` and each pull request into it. There are two kinds of release:
 
 - Development Build: each push to `master` replaces the `latest` release. Its notes list the new commits, one per line, as `- <hash> <subject>`. The update check on the dev channel reads these lines, so don't change their format.
-- Stable releases: to publish one, set the version in `Cargo.toml`, commit, then push a tag with the same version, for example `v0.1.0`. The release workflow checks that the tag and `Cargo.toml` agree.
+- Stable releases: to publish one, set the version in `Cargo.toml` and commit. Then either push a tag with the same version, for example `v0.1.0`, or run the Release whatSnap workflow on `master` from the Actions tab, which makes the tag for you. The workflow checks that the tag and `Cargo.toml` agree.
 
 Both workflows need the `MINISIGN_KEY` and `MINISIGN_PASSWORD` secrets.
 
