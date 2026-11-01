@@ -1255,17 +1255,10 @@ pub fn bind_input_handlers(
 			crate::platform::tray::restore_main_window(&frame_tray_menu);
 			let _ = tx_tray_menu.send(UiCommand::SetPresence(true));
 		} else if id == tray_exit_id {
-			// Closing just the main frame doesn't end the app on its own: wx only
-			// auto-exits once every top-level window it knows about is destroyed,
-			// and the call window (and every dialog built up front in this
-			// function) is created once at startup and only ever shown/hidden,
-			// never destroyed - so it, and them, would otherwise keep the process
-			// (and the backend it owns) alive forever in the background after
-			// "Exit". Ending the loop explicitly sidesteps that entirely.
-			frame_tray_menu.close(true);
-			if let Some(app) = wxdragon::get_app_instance() {
-				app.exit_main_loop();
-			}
+			// Like Fedra: the menu handler only asks for Exit. The icon is
+			// still inside its popup-menu call here, so it mustn't be taken
+			// out of the notification area until that returns.
+			let _ = tx_tray_menu.send(UiCommand::ExitApp);
 		}
 	});
 	tray_icon.set_popup_menu(&mut tray_menu);
@@ -1283,6 +1276,9 @@ pub fn bind_input_handlers(
 		let tray_bitmap = tray_bitmap.clone();
 		let state = state.clone();
 		move |enabled: bool| {
+			if crate::platform::quit::is_quitting() {
+				return;
+			}
 			if enabled {
 				let s = state.borrow();
 				tray_icon.set_icon(&tray_bitmap, whatsnap::TRAY_APP_NAME);
@@ -1332,6 +1328,9 @@ pub fn bind_input_handlers(
 	let tray_icon_close = tray_icon.clone();
 	let tx_close = ui_tx.clone();
 	let state_close = state.clone();
+	let call_frame_quit = parts.call_parts.frame;
+	let frame_login_close = parts.frame;
+	let call_frame_login_close = parts.call_parts.frame;
 	parts.frame.on_close(move |event| {
 		if let WindowEventData::General(ref ev) = event {
 			// Only hide-to-tray while logged in - a signed-in session is worth
@@ -1346,18 +1345,17 @@ pub fn bind_input_handlers(
 				crate::platform::tray::hide_main_window(&frame_close);
 				let _ = tx_close.send(UiCommand::WindowHidden);
 			} else {
-				if let Some(app) = wxdragon::get_app_instance() {
-					app.exit_main_loop();
-				}
+				crate::platform::tray::quit_app(&tray_icon_close, &[frame_close, call_frame_quit]);
 			}
 		}
 	});
 
+	let tray_icon_login_close = tray_icon.clone();
+	let login_panel_close = parts.login_panel;
 	parts.login_panel.on_close(move |event| {
-		if let WindowEventData::General(_) = event
-			&& let Some(app) = wxdragon::get_app_instance()
-		{
-			app.exit_main_loop();
+		if let WindowEventData::General(_) = event {
+			login_panel_close.show(false);
+			crate::platform::tray::quit_app(&tray_icon_login_close, &[frame_login_close, call_frame_login_close]);
 		}
 	});
 

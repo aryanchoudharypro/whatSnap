@@ -44,7 +44,7 @@ unsafe extern "system" fn subclass_proc(
 			if wparam.0 != 0 {
 				let on_end = unsafe { &*(data as *const Box<dyn Fn()>) };
 				on_end();
-				std::process::exit(0);
+				crate::platform::quit::end_process();
 			}
 			LRESULT(0)
 		}

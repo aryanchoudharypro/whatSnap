@@ -401,9 +401,14 @@ fn main() {
 		))
 	});
 	let pipe_backend = backend.clone();
-	let shutdown_pipe_id = pipe_id.clone();
-	let end_session_backend = backend.clone();
-	let end_session_pipe_id = pipe_id.clone();
+	if let Some(backend) = backend {
+		// Killing the backend outright skips both the WhatsApp disconnect and
+		// the database close, which strands the SQLite -wal/-shm files. Ask it
+		// to exit on its own first. (Its kill-on-close job is the backstop if
+		// it never comes down: the handle closes when this process exits.)
+		let shutdown_pipe_id = pipe_id.clone();
+		platform::quit::on_backend_shutdown(move || backend.shutdown(|| request_backend_shutdown(&shutdown_pipe_id)));
+	}
 
 	let res = wxdragon::main(move |_| {
 		crate::ui::theme::apply_to_windows();
@@ -428,9 +433,7 @@ fn main() {
 			let tray_icon = parts.tray_icon.clone();
 			platform::end_session::install(&frame, move || {
 				tray_icon.remove_icon();
-				if let Some(backend) = &end_session_backend {
-					backend.shutdown(|| request_backend_shutdown(&end_session_pipe_id));
-				}
+				platform::quit::finish();
 			});
 		}
 
@@ -1043,13 +1046,9 @@ fn main() {
 		let _ = std::fs::write(platform::paths::log_dir().join("main_error.log"), format!("{:?}", e));
 	}
 
-	if let Some(backend) = backend {
-		// Killing the backend outright skips both the WhatsApp disconnect and
-		// the database close, which strands the SQLite -wal/-shm files. Ask it
-		// to exit on its own first. (Its kill-on-close job is the backstop if
-		// it never comes down: the handle closes when this process exits.)
-		backend.shutdown(|| request_backend_shutdown(&shutdown_pipe_id));
-	}
+	// Stops the backend if Exit hasn't already, then ends the process without
+	// waiting on anything else that might hang on the way out.
+	platform::quit::finish();
 }
 
 pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {

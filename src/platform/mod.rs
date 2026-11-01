@@ -9,6 +9,7 @@ pub mod end_session;
 #[cfg(target_os = "windows")]
 pub mod link_handler;
 pub mod paths;
+pub mod quit;
 pub mod single_instance;
 pub mod toast;
 pub mod tray;

@@ -21,7 +21,7 @@ use crate::{AppState, ui::window::WindowParts};
 /// "whatSnap, 7 unread messages" instead of pairing the live count with whatever
 /// it happened to be at login.
 pub(crate) fn install_tray_icon(s: &AppState, parts: &WindowParts) {
-	if !s.settings.show_tray_icon || !s.main_ui_shown {
+	if !s.settings.show_tray_icon || !s.main_ui_shown || crate::platform::quit::is_quitting() {
 		return;
 	}
 	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), whatsnap::TRAY_APP_NAME);
@@ -44,6 +44,9 @@ pub(crate) fn enter_release_guard() -> std::rc::Rc<std::cell::Cell<bool>> {
 pub(crate) fn restore_main_window(frame: &wxdragon::prelude::Frame) {
 	use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RETURN};
 	use wxdragon::prelude::*;
+	if crate::platform::quit::is_quitting() {
+		return;
+	}
 	if unsafe { GetAsyncKeyState(VK_RETURN.0 as i32) } as u16 & 0x8000 != 0 {
 		enter_release_guard().set(true);
 	}
@@ -51,6 +54,34 @@ pub(crate) fn restore_main_window(frame: &wxdragon::prelude::Frame) {
 	frame.show(true);
 	frame.iconize(false);
 	frame.raise();
+}
+
+/// Exit, from the tray menu, the app menu or closing the window while signed
+/// out. Done the way Fedra does it: the tray icon comes out of the
+/// notification area and the windows are hidden before anything is torn down,
+/// so the icon doesn't linger and a screen reader isn't walked through windows
+/// being destroyed. Then the backend starts stopping in the background and the
+/// main loop is ended; [`crate::platform::quit`] makes sure the process
+/// really ends even if teardown hangs.
+///
+/// Ending the loop is needed, not just closing the main frame: wx only exits
+/// by itself once every top-level window is destroyed, and the call window and
+/// the dialogs are built once at startup and only ever hidden.
+///
+/// Never call this from inside the tray menu's own handler: send
+/// `UiCommand::ExitApp` instead, so the menu has finished with the icon first.
+pub(crate) fn quit_app(tray_icon: &wxdragon::prelude::TaskBarIcon, windows: &[wxdragon::prelude::Frame]) {
+	if crate::platform::quit::is_quitting() {
+		return;
+	}
+	crate::platform::quit::begin();
+	tray_icon.remove_icon();
+	for window in windows {
+		window.show(false);
+	}
+	if let Some(app) = wxdragon::get_app_instance() {
+		app.exit_main_loop();
+	}
 }
 
 thread_local! {
@@ -144,7 +175,7 @@ unsafe extern "system" fn hidden_frame_subclass_proc(
 
 pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 	refresh_nav_unread_labels(s, parts);
-	if !s.settings.show_tray_icon || !s.main_ui_shown {
+	if !s.settings.show_tray_icon || !s.main_ui_shown || crate::platform::quit::is_quitting() {
 		return;
 	}
 	let unread = whatsnap::unread_notification_total(

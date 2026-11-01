@@ -38,14 +38,7 @@ pub(crate) fn request_pairing(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowP
 }
 
 pub(crate) fn exit_app(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	// See the matching comment on the tray menu's Exit handler in
-	// ui/window.rs: closing the main frame alone doesn't end the app
-	// because other top-level windows (the call window, dialogs) are
-	// built once at startup and never destroyed.
-	parts.frame.close(true);
-	if let Some(app) = wxdragon::get_app_instance() {
-		app.exit_main_loop();
-	}
+	crate::platform::tray::quit_app(&parts.tray_icon, &[parts.frame, parts.call_parts.frame]);
 }
 
 pub(crate) fn force_sync(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>) {
