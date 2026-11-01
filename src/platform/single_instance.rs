@@ -1,14 +1,15 @@
 #![cfg(target_os = "windows")]
 
-use std::io::{Read, Write};
+use std::{
+	io::{Read, Write},
+	sync::Mutex,
+};
 
 use windows::{
 	Win32::{
 		Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE},
 		System::Threading::CreateMutexW,
-		UI::WindowsAndMessaging::{
-			AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, MB_ICONWARNING, MB_OK, MessageBoxW,
-		},
+		UI::WindowsAndMessaging::{AllowSetForegroundWindow, MB_ICONWARNING, MB_OK, MessageBoxW},
 	},
 	core::w,
 };
@@ -100,22 +101,21 @@ enum Activation {
 }
 
 fn request_activate(request: Option<&LaunchRequest>) -> Activation {
-	unsafe {
-		if let Ok(hwnd) = FindWindowW(None, w!("whatSnap")) {
-			let mut pid = 0u32;
-			GetWindowThreadProcessId(hwnd, Some(&mut pid));
-			if pid != 0 {
-				let _ = AllowSetForegroundWindow(pid);
-			}
-		}
-	}
-
 	let message = match request {
 		Some(request) => format!("activate\n{}", request.encode()),
 		None => "activate".to_string(),
 	};
 	match PipeStream::connect(ACTIVATE_PIPE_NAME) {
 		Ok(mut stream) => {
+			// Only the foreground process (this one, just launched) may hand
+			// the foreground on. The pipe names the copy that answers, which a
+			// window title can't do reliably: the main window may not exist
+			// yet, and other windows share the title.
+			if let Some(pid) = stream.server_pid() {
+				unsafe {
+					let _ = AllowSetForegroundWindow(pid);
+				}
+			}
 			let _ = stream.write_all(message.as_bytes());
 			Activation::Done
 		}
@@ -124,7 +124,40 @@ fn request_activate(request: Option<&LaunchRequest>) -> Activation {
 	}
 }
 
-pub fn listen_for_activation(on_activate: impl Fn(Option<LaunchRequest>) + Send + 'static) {
+type ActivationHandler = Box<dyn Fn(Option<LaunchRequest>) + Send>;
+
+/// Who handles a hand-off, and the hand-offs that came before there was
+/// anyone to.
+struct Activations {
+	handler: Option<ActivationHandler>,
+	waiting: Vec<Option<LaunchRequest>>,
+}
+
+static ACTIVATIONS: Mutex<Activations> = Mutex::new(Activations { handler: None, waiting: Vec::new() });
+
+fn deliver(request: Option<LaunchRequest>) {
+	let mut activations = ACTIVATIONS.lock().unwrap_or_else(|e| e.into_inner());
+	match &activations.handler {
+		Some(handler) => handler(request),
+		None => activations.waiting.push(request),
+	}
+}
+
+/// Says what to do with a hand-off from a later launch, including any that
+/// arrived while the window was still being built.
+pub fn on_activation(handler: impl Fn(Option<LaunchRequest>) + Send + 'static) {
+	let mut activations = ACTIVATIONS.lock().unwrap_or_else(|e| e.into_inner());
+	for request in std::mem::take(&mut activations.waiting) {
+		handler(request);
+	}
+	activations.handler = Some(Box::new(handler));
+}
+
+/// Opens the pipe later launches hand off to. Called as soon as this copy
+/// holds the mutex, so a launch never finds the mutex taken and nobody
+/// answering while this copy is still starting up; what arrives early waits
+/// for [`on_activation`].
+pub fn listen_for_activation() {
 	std::thread::spawn(move || {
 		let mut listener = loop {
 			match PipeListener::bind(ACTIVATE_PIPE_NAME) {
@@ -138,10 +171,16 @@ pub fn listen_for_activation(on_activate: impl Fn(Option<LaunchRequest>) + Send 
 				std::thread::sleep(std::time::Duration::from_secs(1));
 				continue;
 			};
-			let mut message = String::new();
-			let _ = (&mut conn).take(1024 * 1024).read_to_string(&mut message);
-			let request = message.split_once('\n').and_then(|(_, rest)| LaunchRequest::decode(rest));
-			on_activate(request);
+			// Read each hand-off on its own thread: one that connects and
+			// never finishes must not keep every later launch waiting.
+			std::thread::spawn(move || {
+				let mut message = String::new();
+				let _ = (&mut conn).take(1024 * 1024).read_to_string(&mut message);
+				if !message.starts_with("activate") {
+					return;
+				}
+				deliver(message.split_once('\n').and_then(|(_, rest)| LaunchRequest::decode(rest)));
+			});
 		}
 	});
 }

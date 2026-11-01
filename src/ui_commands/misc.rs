@@ -63,6 +63,20 @@ pub(crate) fn subscribe_presence(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 }
 
 pub(crate) fn activate_window(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	use wxdragon::prelude::*;
+	// Until the chats are up the main window is kept hidden on purpose:
+	// showing it would show an empty frame. Bring up the sign-in window if
+	// that's what's open; otherwise the window opens by itself once ready.
+	if !state.borrow().main_ui_shown {
+		for dialog in [&parts.login_panel, &parts.qrcode_dialog, &parts.pairing_dialog] {
+			if dialog.is_shown() {
+				dialog.raise();
+				dialog.set_focus();
+				break;
+			}
+		}
+		return;
+	}
 	crate::platform::tray::restore_main_window(&parts.frame);
 	handle_ui_command(UiCommand::SetPresence(true), state, parts);
 }

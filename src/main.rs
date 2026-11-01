@@ -347,6 +347,7 @@ fn main() {
 		Some(lock) => lock,
 		None => return,
 	};
+	platform::single_instance::listen_for_activation();
 	platform::paths::migrate_legacy_data();
 	#[cfg(target_os = "windows")]
 	std::thread::spawn(platform::link_handler::register);
@@ -441,7 +442,7 @@ fn main() {
 		audio::device_watch::start(ui_tx.clone());
 
 		let ui_tx_activate = ui_tx.clone();
-		platform::single_instance::listen_for_activation(move |request| {
+		platform::single_instance::on_activation(move |request| {
 			let mark_read = matches!(
 				&request,
 				Some(platform::single_instance::LaunchRequest::Link(link))
