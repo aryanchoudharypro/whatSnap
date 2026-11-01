@@ -79,17 +79,15 @@ pub(crate) fn set_presence(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowPart
 	let regained_focus = available && !s.window_focused;
 	s.window_focused = available;
 
-	if regained_focus && !s.background_unread_message_ids.is_empty() {
-		if let Some(jid) = s.selected_chat.clone() {
-			let ids = std::mem::take(&mut s.background_unread_message_ids);
-			let payload = serde_json::json!({
-				"action": "mark_read",
-				"data": { "jid": jid, "message_ids": ids }
-			});
-			let _ = s.ws_tx.send(payload.to_string());
-		} else {
-			s.background_unread_message_ids.clear();
+	// Like WA Web, the open chat is marked read only once the window has
+	// stayed in front for a moment, not the instant it flickers past.
+	if regained_focus {
+		match s.selected_chat.clone() {
+			Some(jid) => s.focus_read_at = Some((std::time::Instant::now() + crate::FOCUS_READ_DELAY, jid)),
+			None => s.background_unread_message_ids.clear(),
 		}
+	} else if !available {
+		s.focus_read_at = None;
 	}
 
 	if available {
@@ -124,6 +122,13 @@ fn last_input_tick() -> u32 {
 
 pub(crate) fn presence_tick(s: &mut AppState) {
 	let now = std::time::Instant::now();
+
+	if s.focus_read_at.as_ref().is_some_and(|(at, _)| now >= *at) {
+		let (_, jid) = s.focus_read_at.take().unwrap();
+		if s.window_focused && s.selected_chat.as_deref() == Some(jid.as_str()) {
+			mark_open_chat_read(s, &jid);
+		}
+	}
 
 	if s.presence.focus_settle_since.is_some_and(|t| now.duration_since(t) >= crate::PRESENCE_FOCUS_SETTLE) {
 		s.presence.focus_settle_since = None;
@@ -179,6 +184,21 @@ pub(crate) fn send_presence(s: &mut AppState, available: bool) {
 	let payload = serde_json::json!({
 		"action": "set_presence",
 		"data": { "available": available }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+}
+
+/// Marks the open chat read after it was left unread in the background: the
+/// messages that came in meanwhile, or the whole chat if it still counts
+/// unread ones (which also catches any the queue missed).
+pub(crate) fn mark_open_chat_read(s: &mut AppState, jid: &str) {
+	let ids = std::mem::take(&mut s.background_unread_message_ids);
+	if ids.is_empty() && s.unread_counts.get(jid).copied().unwrap_or(0) == 0 {
+		return;
+	}
+	let payload = serde_json::json!({
+		"action": "mark_read",
+		"data": { "jid": jid, "message_ids": ids }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
 }

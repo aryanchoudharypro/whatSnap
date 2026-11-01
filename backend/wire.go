@@ -43,18 +43,20 @@ func receiptChatJID(chat types.JID) types.JID {
 	if chat.Server != types.DefaultUserServer {
 		return chat
 	}
-	var wire string
-	db.QueryRow(`SELECT COALESCE(wire_jid, '') FROM chats WHERE jid = ?`, chat.String()).Scan(&wire)
-	parsed, err := types.ParseJID(wire)
-	if err != nil || parsed.Server != types.HiddenUserServer {
-		return chat
-	}
+	// WA Web sends every read receipt for a phone-number chat to the
+	// person's LID when it knows one (getStanzaToFromChatId), whichever
+	// address the messages came in on; the phone files the chat by LID.
 	if wa() != nil && wa().Store != nil {
-		if current, err := wa().Store.LIDs.GetLIDForPN(context.Background(), chat); err == nil && !current.IsEmpty() {
+		if current, err := wa().Store.LIDs.GetLIDForPN(context.Background(), chat.ToNonAD()); err == nil && !current.IsEmpty() {
 			return current.ToNonAD()
 		}
 	}
-	return parsed
+	var wire string
+	db.QueryRow(`SELECT COALESCE(wire_jid, '') FROM chats WHERE jid = ?`, chat.String()).Scan(&wire)
+	if parsed, err := types.ParseJID(wire); err == nil && parsed.Server == types.HiddenUserServer {
+		return parsed
+	}
+	return chat
 }
 
 func syncdChatJID(chat types.JID) types.JID {

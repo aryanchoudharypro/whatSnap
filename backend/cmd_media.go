@@ -1493,6 +1493,7 @@ func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			if res, err := db.Exec(`UPDATE messages SET played_at = ? WHERE id = ? AND COALESCE(played_at, 0) = 0`, now.Unix(), data.ID); err == nil {
 				if n, _ := res.RowsAffected(); n == 1 {
 					go func() {
+						ensureAvailableForRead()
 						err := wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, now, chatJID, senderJID, types.ReceiptTypePlayed)
 						if err != nil {
 							log.Printf("MarkRead played error for message %s: %v", data.ID, err)

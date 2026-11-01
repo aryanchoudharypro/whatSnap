@@ -363,6 +363,7 @@ func handleMarkStatusViewed(raw json.RawMessage) {
 		if wa().Store.ID != nil && poster.User == wa().Store.ID.User {
 			return
 		}
+		ensureAvailableForRead()
 		_ = wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), types.StatusBroadcastJID, poster, types.ReceiptTypeRead)
 	}()
 }

@@ -490,6 +490,66 @@ func sendDesiredPresence(force bool) {
 	}
 }
 
+// WA Web never sends a read receipt while it shows as offline: its sendSeen
+// waits for presence "available" before anything goes out, and the server
+// treats an available device as the one the user is reading on. A read sent
+// while we're unavailable (just after the window comes back, or after the
+// idle timeout while new messages keep arriving) may never reach the phone.
+// So go available first, then fall back to what the app wants once the
+// reads are out.
+const readPresenceHold = 10 * time.Second
+
+var readPresenceTimer *time.Timer
+
+func ensureAvailableForRead() {
+	c := wa()
+	if c == nil || !c.IsLoggedIn() {
+		return
+	}
+	desiredPresenceMu.Lock()
+	if readPresenceTimer != nil {
+		readPresenceTimer.Stop()
+	}
+	readPresenceTimer = time.AfterFunc(readPresenceHold, func() { sendDesiredPresence(false) })
+	if sentPresence == types.PresenceAvailable {
+		desiredPresenceMu.Unlock()
+		return
+	}
+	sentPresence = types.PresenceAvailable
+	desiredPresenceMu.Unlock()
+	if err := c.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
+		log.Printf("SendPresence(available) before a read receipt failed: %v", err)
+		desiredPresenceMu.Lock()
+		sentPresence = ""
+		desiredPresenceMu.Unlock()
+	}
+}
+
+// WA Web marks the chat read whenever you send something in it (sendSeen in
+// WAWebSendMsgRecordAction), so replying from here clears it on the phone too.
+func markReadOnSend(raw json.RawMessage) {
+	var data struct {
+		JID string `json:"jid"`
+		To  string `json:"to"`
+	}
+	if json.Unmarshal(raw, &data) != nil {
+		return
+	}
+	jid := data.JID
+	if jid == "" {
+		jid = data.To
+	}
+	if jid == "" {
+		return
+	}
+	var unread int
+	if db.QueryRow(`SELECT COALESCE(unread_count, 0) FROM chats WHERE jid = ?`, jid).Scan(&unread) != nil || unread <= 0 {
+		return
+	}
+	payload, _ := json.Marshal(map[string]interface{}{"jid": jid, "message_ids": []string{}})
+	handleMarkRead(payload)
+}
+
 var presenceSubscribed sync.Map
 
 func forgetPresenceSubscriptions() {
@@ -623,6 +683,9 @@ func handleMarkRead(raw json.RawMessage) {
 	// read once every receipt is acknowledged; otherwise the app is told it
 	// failed, so it doesn't show the chat read when the server never heard.
 	go func() {
+		if len(bySender) > 0 {
+			ensureAvailableForRead()
+		}
 		now := time.Now()
 		ok := true
 		for key, ids := range bySender {

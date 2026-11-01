@@ -52,6 +52,7 @@ const PHONE_HISTORY_TIMEOUT_SECS: u64 = 30;
 
 const PRESENCE_BLUR_GRACE: Duration = Duration::from_millis(15_000);
 const PRESENCE_FOCUS_SETTLE: Duration = Duration::from_millis(500);
+const FOCUS_READ_DELAY: Duration = Duration::from_millis(2_500);
 const PRESENCE_IDLE_CHECK_EVERY: Duration = Duration::from_millis(60_000);
 const PRESENCE_IDLE_GRACE: Duration = Duration::from_millis(30_000);
 const CHATSTATE_PAUSE_AFTER: Duration = Duration::from_millis(2_500);
@@ -164,6 +165,9 @@ struct AppState {
 	presence_sent: Option<bool>,
 	composing: Option<ComposingState>,
 	background_unread_message_ids: Vec<String>,
+	/// When the window came back with a chat open: the chat to mark read
+	/// once it has stayed in front this long (WA Web waits 2.5 s).
+	focus_read_at: Option<(std::time::Instant, String)>,
 	notification_reads: std::collections::HashSet<String>,
 	display_names: std::collections::HashMap<String, String>,
 	contacts: std::collections::HashMap<String, String>,
@@ -611,6 +615,7 @@ fn main() {
 			presence_sent: None,
 			composing: None,
 			background_unread_message_ids: Vec::new(),
+			focus_read_at: None,
 			notification_reads: std::collections::HashSet::new(),
 			display_names: std::collections::HashMap::new(),
 			contacts: std::collections::HashMap::from([(types::META_AI_JID.to_string(), "Meta AI".to_string())]),

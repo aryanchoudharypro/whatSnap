@@ -95,6 +95,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		}
 	}()
 	switch cmd.Action {
+	case "send", "send_attachment", "send_sticker", "send_contacts", "send_poll", "send_event", "send_voice_message":
+		markReadOnSend(cmd.Data)
+	}
+	switch cmd.Action {
 	case "get_qr":
 		handleGetQR(conn)
 	case "cancel_qr", "cancel_pairing":
