@@ -475,11 +475,11 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 	if spec.sample_rate != 48000 {
 		return Err(crate::error::err!("Sample rate must be 48000"));
 	}
-	let is_stereo = spec.channels == 2;
-	let ch = if is_stereo { 2 } else { 1 };
+	// Recordings are stereo, but voice notes go out mono like WhatsApp's own:
+	// iPhones refuse to play stereo voice notes.
+	let ch = spec.channels.max(1) as usize;
 
-	let mut encoder =
-		Encoder::new(48000, if is_stereo { Channels::Stereo } else { Channels::Mono }, Application::Voip)?;
+	let mut encoder = Encoder::new(48000, Channels::Mono, Application::Voip)?;
 	let pre_skip = encoder.get_lookahead()?.max(0) as usize;
 
 	let mut writer = OggWriter::new(BufWriter::new(File::create(ogg_path)?), 12345);
@@ -487,7 +487,7 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 	let mut head = Vec::with_capacity(19);
 	head.extend_from_slice(b"OpusHead");
 	head.push(1);
-	head.push(ch as u8);
+	head.push(1);
 	head.extend_from_slice(&(pre_skip as u16).to_le_bytes());
 	head.extend_from_slice(&48000_u32.to_le_bytes());
 	head.extend_from_slice(&0_u16.to_le_bytes());
@@ -504,7 +504,8 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 
 	let segments = |len: usize| len / 255 + 1;
 	let mut samples = reader;
-	let mut frame = [0i16; FRAME * 2];
+	let mut frame = vec![0i16; FRAME * ch];
+	let mut mono = [0i16; FRAME];
 	let mut out = [0u8; 1275];
 	let mut held: Option<(Vec<u8>, u64)> = None;
 	let (mut page_packets, mut page_segments) = (0, 0);
@@ -532,7 +533,10 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 			break;
 		}
 		frame[filled..].fill(0);
-		let len = encoder.encode(&frame[..FRAME * ch], &mut out)?;
+		for (m, f) in mono.iter_mut().zip(frame.chunks_exact(ch)) {
+			*m = (f.iter().map(|&s| s as i32).sum::<i32>() / ch as i32) as i16;
+		}
+		let len = encoder.encode(&mono, &mut out)?;
 		encoded += FRAME as u64;
 		if let Some((packet, granule)) = held.take() {
 			page_packets += 1;
@@ -629,7 +633,7 @@ mod voice_note_tests {
 			let _ = std::fs::remove_file(&ogg);
 
 			assert_eq!(&data[28..36], b"OpusHead");
-			assert_eq!(data[37], 2, "stereo, as recorded");
+			assert_eq!(data[37], 1, "mono, or iPhones won't play it");
 			let pre_skip = u16::from_le_bytes([data[38], data[39]]) as u64;
 			let tags = &data[75..75 + data[74] as usize];
 			assert_eq!(&tags[..8], b"OpusTags");
@@ -654,7 +658,7 @@ mod voice_note_tests {
 			assert_eq!(pos, data.len());
 			assert_eq!(last.0 & 4, 4, "last page ends the stream");
 			assert_eq!(last.1 as u64, pre_skip + total);
-			assert!(decoded >= total * 2, "{decoded} < {}", total * 2);
+			assert!(decoded >= total, "{decoded} < {total}");
 		}
 	}
 }
