@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -553,9 +554,7 @@ func markReadOnSend(raw json.RawMessage) {
 // we haven't sent a read receipt for.
 func hasUnacknowledgedMessages(jid string) bool {
 	var found int
-	err := db.QueryRow(`SELECT 1 FROM messages
-		WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
-			AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\' LIMIT 1`, jid).Scan(&found)
+	err := db.QueryRow(`SELECT 1 FROM messages WHERE jid = ? AND `+unacknowledgedIncoming+` LIMIT 1`, jid).Scan(&found)
 	return err == nil
 }
 
@@ -597,7 +596,16 @@ func handleSubscribePresence(raw json.RawMessage) {
 	}
 }
 
-const maxOpenChatReceipts = 256
+// WA Web (sendAggregateReceipts) puts at most 256 message ids in one receipt.
+const readReceiptChunk = 256
+
+// unacknowledgedIncoming picks a chat's incoming messages we haven't sent a
+// read for. Like WA Web's pending-read rows it leaves out calls, system
+// notices and messages still waiting to be decrypted (WA Web skips
+// CIPHERTEXT): there's nothing on the server to acknowledge for those yet.
+const unacknowledgedIncoming = `from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
+	AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
+	AND NOT (COALESCE(length(raw), 0) = 0 AND text IN ('` + undecryptableText + `', '` + viewOnceOnPhone + `'))`
 
 func handleMarkRead(raw json.RawMessage) {
 	var data struct {
@@ -653,11 +661,9 @@ func handleMarkRead(raw json.RawMessage) {
 		// messages first, and that already sets the count to 0, so this saw
 		// nothing to acknowledge and the phone was never told. Like WA Web's
 		// pending-read-receipt rows, acknowledge every incoming message we
-		// haven't sent a read for yet (newest first, capped).
+		// haven't sent a read for yet (newest first), however many there are.
 		rows, err := db.Query(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, '') FROM messages
-			WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
-				AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
-			ORDER BY timestamp DESC LIMIT ?`, data.JID, maxOpenChatReceipts)
+			WHERE jid = ? AND `+unacknowledgedIncoming+` ORDER BY timestamp DESC`, data.JID)
 		if err == nil {
 			for rows.Next() {
 				var id, senderStr string
@@ -685,27 +691,35 @@ func handleMarkRead(raw json.RawMessage) {
 		senderJIDMap[key] = item.senderJID
 	}
 
-	// One receipt per sender, sent one after another as WA Web does (each
-	// waits for the server's ack), not all at once. The chat only counts as
-	// read once every receipt is acknowledged; otherwise the app is told it
+	// Like WA Web's sendAggregateReceipts: one receipt per sender, split into
+	// chunks of 256 ids, all sent at once, and the chat only counts as read
+	// once every one of them is acknowledged; otherwise the app is told it
 	// failed, so it doesn't show the chat read when the server never heard.
 	go func() {
 		if len(bySender) > 0 {
 			ensureAvailableForRead()
 		}
 		now := time.Now()
-		ok := true
+		var wg sync.WaitGroup
+		var failed atomic.Bool
 		for key, ids := range bySender {
-			targetSender := senderJIDMap[key]
-			if err := markReadAndWaitForAck(ids, now, chatJID, targetSender); err != nil {
-				log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, targetSender, err)
-				ok = false
-				continue
-			}
-			for _, id := range ids {
-				db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(id))
+			sender := senderJIDMap[key]
+			for start := 0; start < len(ids); start += readReceiptChunk {
+				chunk := ids[start:min(start+readReceiptChunk, len(ids))]
+				wg.Go(func() {
+					if err := markReadAndWaitForAck(chunk, now, chatJID, sender); err != nil {
+						log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, sender, err)
+						failed.Store(true)
+						return
+					}
+					for _, id := range chunk {
+						db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(id))
+					}
+				})
 			}
 		}
+		wg.Wait()
+		ok := !failed.Load()
 		if !ok {
 			broadcastEvent("mark_read_failed", map[string]interface{}{"jid": data.JID})
 			return
