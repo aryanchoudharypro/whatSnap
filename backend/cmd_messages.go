@@ -632,13 +632,15 @@ func handleMarkRead(raw json.RawMessage) {
 	type msgSender struct {
 		id        types.MessageID
 		senderJID types.JID
+		sts       int64
 	}
 	var items []msgSender
 
 	if len(data.MessageIDs) > 0 {
 		for _, id := range data.MessageIDs {
 			var senderStr, mediaType string
-			_ = db.QueryRow("SELECT COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(media_type, '') FROM messages WHERE id = ?", id).Scan(&senderStr, &mediaType)
+			var sts int64
+			_ = db.QueryRow("SELECT COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(media_type, ''), COALESCE(server_sts, 0) FROM messages WHERE id = ?", id).Scan(&senderStr, &mediaType, &sts)
 			if mediaType == "system" || mediaType == "call" {
 				continue
 			}
@@ -650,7 +652,7 @@ func handleMarkRead(raw json.RawMessage) {
 				}
 				sJID = chatJID
 			}
-			items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
+			items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID, sts: sts})
 		}
 	}
 	var markedUnread bool
@@ -662,12 +664,13 @@ func handleMarkRead(raw json.RawMessage) {
 		// nothing to acknowledge and the phone was never told. Like WA Web's
 		// pending-read-receipt rows, acknowledge every incoming message we
 		// haven't sent a read for yet (newest first), however many there are.
-		rows, err := db.Query(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, '') FROM messages
+		rows, err := db.Query(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(server_sts, 0) FROM messages
 			WHERE jid = ? AND `+unacknowledgedIncoming+` ORDER BY timestamp DESC`, data.JID)
 		if err == nil {
 			for rows.Next() {
 				var id, senderStr string
-				if err := rows.Scan(&id, &senderStr); err == nil {
+				var sts int64
+				if err := rows.Scan(&id, &senderStr, &sts); err == nil {
 					sJID, _ := types.ParseJID(senderStr)
 					if sJID.IsEmpty() {
 						if chatJID.Server == types.GroupServer {
@@ -675,7 +678,7 @@ func handleMarkRead(raw json.RawMessage) {
 						}
 						sJID = chatJID
 					}
-					items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
+					items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID, sts: sts})
 				}
 			}
 			rows.Close()
@@ -684,11 +687,15 @@ func handleMarkRead(raw json.RawMessage) {
 
 	bySender := map[string][]types.MessageID{}
 	senderJIDMap := map[string]types.JID{}
+	// WA Web's maxStsByAuthor: the newest server store time per sender, put
+	// on every receipt for that sender.
+	maxSTS := map[string]int64{}
 
 	for _, item := range items {
 		key := item.senderJID.ToNonAD().String()
 		bySender[key] = append(bySender[key], item.id)
 		senderJIDMap[key] = item.senderJID
+		maxSTS[key] = max(maxSTS[key], item.sts)
 	}
 
 	// Like WA Web's sendAggregateReceipts: one receipt per sender, split into
@@ -703,11 +710,11 @@ func handleMarkRead(raw json.RawMessage) {
 		var wg sync.WaitGroup
 		var failed atomic.Bool
 		for key, ids := range bySender {
-			sender := senderJIDMap[key]
+			sender, sts := senderJIDMap[key], maxSTS[key]
 			for start := 0; start < len(ids); start += readReceiptChunk {
 				chunk := ids[start:min(start+readReceiptChunk, len(ids))]
 				wg.Go(func() {
-					if err := markReadAndWaitForAck(chunk, now, chatJID, sender); err != nil {
+					if err := markReadAndWaitForAck(chunk, now, chatJID, sender, sts); err != nil {
 						log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, sender, err)
 						failed.Store(true)
 						return
@@ -743,7 +750,7 @@ func handleMarkRead(raw json.RawMessage) {
 
 const readReceiptAckTimeout = 15 * time.Second
 
-func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender types.JID) error {
+func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender types.JID, maxSTS int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -752,7 +759,8 @@ func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender ty
 	// ack arrived at that moment. A waiter left behind holds one buffered
 	// channel and is cleared on disconnect.
 	ackCh := wa().DangerousInternals().WaitResponse(string(ids[0]))
-	if err := wa().MarkRead(context.Background(), ids, now, chat, sender); err != nil {
+	receipt := whatsmeow.ReadReceipt{IDs: ids, Timestamp: now, Chat: chat, Sender: sender, MaxServerStoreTime: maxSTS}
+	if err := wa().SendReadReceipt(context.Background(), receipt); err != nil {
 		return err
 	}
 	select {
@@ -765,6 +773,12 @@ func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender ty
 		}
 		if code, has := ack.Attrs["error"]; has {
 			return fmt.Errorf("server rejected the receipt with error %v", code)
+		}
+		// The server says on the ack whether our read receipts are on; WA Web
+		// takes its setting from there, so a change on the phone applies to
+		// the next receipt without waiting for a privacy fetch.
+		if setting, ok := ack.Attrs["readreceipts"].(string); ok && (setting == "all" || setting == "none") {
+			wa().SetReadReceiptsPrivacy(types.PrivacySetting(setting))
 		}
 		return nil
 	case <-time.After(readReceiptAckTimeout):

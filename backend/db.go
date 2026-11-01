@@ -141,6 +141,9 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN starred INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN viewed INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN wire_sender TEXT DEFAULT ''")
+	// The server's store time in microseconds (the incoming message's sts),
+	// which WA Web echoes back as the newest one on its read receipts.
+	db.Exec("ALTER TABLE messages ADD COLUMN server_sts INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN album_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE messages ADD COLUMN server_id INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_views INTEGER DEFAULT 0")

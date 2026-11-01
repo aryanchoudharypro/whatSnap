@@ -1928,6 +1928,9 @@ func eventHandler(evt interface{}) {
 				if err != nil {
 					fmt.Println("Error inserting message from live event:", err)
 				} else {
+					if v.Info.ServerStoreTime > 0 {
+						db.Exec(`UPDATE messages SET server_sts = ? WHERE id = ?`, v.Info.ServerStoreTime, v.Info.ID)
+					}
 					noteMessageExpiry(db, v.Info.ID, ts, v.Message)
 					adoptChatDisappearing(chatJID, v.Message)
 					if v.IsViewOnce {
