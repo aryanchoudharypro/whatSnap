@@ -165,6 +165,9 @@ func migrateDB() error {
 	runOnce("backfill_template_messages_v1", backfillTemplateMessages)
 	runOnce("backfill_template_messages_v2", backfillTemplateMessages)
 	runOnce("backfill_template_messages_v3", backfillTemplateMessages)
+	// v4: Meta AI replies were all stored as "[Unsupported Message]" because
+	// their rich response JSON was parsed one level too deep.
+	runOnce("backfill_template_messages_v4", backfillTemplateMessages)
 	runOnce("backfill_album_messages_v1", backfillAlbumMessages)
 	runOnce("backfill_media_sizes_v1", backfillMediaSizes)
 	runOnce("remove_key_distribution_stubs_v1", removeKeyDistributionStubs)

@@ -17,6 +17,7 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waAICommonDeprecated"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -534,32 +535,62 @@ func describeOtherMessage(msg *waE2E.Message) string {
 	return ""
 }
 
-type richResponseSection struct {
-	ViewModel richresponse.ViewModelContainer `json:"view_model"`
+// richResponseText turns a Meta AI reply into plain text. Current replies
+// carry their content as JSON in unifiedResponse (sections of view models
+// holding markdown, code, tables and so on); older ones used submessages.
+func richResponseText(rich *waE2E.AIRichResponseMessage) string {
+	if rich == nil {
+		return ""
+	}
+	var parts []string
+	if data := rich.GetUnifiedResponse().GetData(); len(data) > 0 {
+		var parsed richresponse.RichResponse
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			log.Printf("Failed to parse rich response JSON: %v", err)
+		}
+		for _, section := range parsed.Sections {
+			if section.Model == nil {
+				continue
+			}
+			if s := strings.TrimSpace(section.Model.String()); s != "" {
+				parts = append(parts, s)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		parts = richResponseSubmessageText(rich.GetSubmessages())
+	}
+	return aiMarkdownToPlain(strings.Join(parts, "\n"))
 }
 
-func richResponseText(rich *waE2E.AIRichResponseMessage) string {
-	data := rich.GetUnifiedResponse().GetData()
-	if len(data) == 0 {
-		return ""
-	}
-	var parsed struct {
-		Sections []richResponseSection `json:"sections"`
-	}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		log.Printf("Failed to parse rich response JSON: %v", err)
-		return ""
-	}
-	parts := make([]string, 0, len(parsed.Sections))
-	for _, section := range parsed.Sections {
-		if section.ViewModel.Model == nil {
-			continue
-		}
-		if s := strings.TrimSpace(section.ViewModel.Model.String()); s != "" {
+func richResponseSubmessageText(subs []*waAICommonDeprecated.AIRichResponseSubMessage) []string {
+	var parts []string
+	add := func(s string) {
+		if s = strings.TrimSpace(s); s != "" {
 			parts = append(parts, s)
 		}
 	}
-	return strings.Join(parts, "\n")
+	for _, sub := range subs {
+		switch {
+		case sub.GetMessageText() != "":
+			add(sub.GetMessageText())
+		case sub.GetCodeMetadata() != nil:
+			var code strings.Builder
+			for _, block := range sub.GetCodeMetadata().GetCodeBlocks() {
+				code.WriteString(block.GetCodeContent())
+			}
+			add(code.String())
+		case sub.GetTableMetadata() != nil:
+			table := sub.GetTableMetadata()
+			add(table.GetTitle())
+			for _, row := range table.GetRows() {
+				add(strings.Join(row.GetItems(), ", "))
+			}
+		case sub.GetLatexMetadata() != nil:
+			add(sub.GetLatexMetadata().GetText())
+		}
+	}
+	return parts
 }
 
 func pollCreation(msg *waE2E.Message) *waE2E.PollCreationMessage {

@@ -17,6 +17,7 @@ whatSnap is in development. Most features are tested with a real WhatsApp accoun
   - Voice messages, which you can pause while you record. whatSnap can remove background noise from them.
   - Polls, quizzes, and events.
   - Mentions, link previews, and disappearing messages.
+  - Replies from Meta AI. whatSnap shows them as plain text without markdown symbols, and announces a reply once Meta AI finishes writing it.
 - Voice and video calls, in one to one chats and in groups:
   - Answer or reject a call from any program, with a global shortcut.
   - Screen sharing. You can also keep your camera on while you share your screen.
