@@ -56,6 +56,12 @@ fn device_name(device: &cpal::Device, names_by_id: &HashMap<String, String>) -> 
 }
 
 fn device_names(input: bool) -> Vec<String> {
+	// cpal panics if a device goes away mid-listing, as a headset's call
+	// endpoint does just after a call. Settings must still open.
+	std::panic::catch_unwind(|| list_device_names(input)).unwrap_or_default()
+}
+
+fn list_device_names(input: bool) -> Vec<String> {
 	let host = cpal::default_host();
 	let names_by_id = wasapi_friendly_names_by_id(if input { eCapture } else { eRender });
 	let devices = if input {

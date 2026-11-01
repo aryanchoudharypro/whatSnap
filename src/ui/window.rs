@@ -1400,13 +1400,37 @@ pub fn bind_input_handlers(
 	let dual_stream_check_open = parts.settings_dialog.dual_stream_screen_share_check;
 	let state_settings_open = state.clone();
 	let pending_shortcuts_open = pending_shortcuts.clone();
+	// Settings can be asked for while something further up is still using
+	// the app state (a dialog or menu opened from a call, say). Opening it
+	// then would panic and nothing would show, so it tries again shortly.
+	let settings_retry = Rc::new(Timer::new(&parts.frame));
+	let settings_retries = Rc::new(std::cell::Cell::new(0u32));
+	let frame_settings_retry = parts.frame;
+	settings_retry.on_tick(move |_| unsafe {
+		wxdragon::ffi::wxd_Window_PostMenuCommand(
+			frame_settings_retry.handle_ptr() as *mut wxdragon::ffi::wxd_Window_t,
+			MENU_ID_SETTINGS,
+		);
+	});
+	let settings_retry_open = settings_retry.clone();
 	parts.frame.on_menu_selected(move |evt| {
 		if evt.get_id() != MENU_ID_SETTINGS {
 			return;
 		}
+		if settings_dialog.is_shown() {
+			settings_dialog.raise();
+			return;
+		}
+		let Ok(mut s) = state_settings_open.try_borrow_mut() else {
+			if settings_retries.get() < 40 {
+				settings_retries.set(settings_retries.get() + 1);
+				settings_retry_open.start(250, true);
+			}
+			return;
+		};
+		settings_retries.set(0);
 		pending_shortcuts_open.borrow_mut().take();
 		use crate::ui::dialogs::settings_dialog::*;
-		let mut s = state_settings_open.borrow_mut();
 		sounds_check.set_value(s.settings.sounds_enabled);
 		notifications_check.set_value(s.settings.notifications_enabled);
 		follow_dnd_check_open.set_value(s.settings.follow_windows_do_not_disturb);
