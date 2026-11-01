@@ -91,30 +91,15 @@ jobs:
       with:
         name: whatSnap-release
         path: dist
-    - name: Generate release notes
-      id: release_notes
-      shell: bash
-      env:
-        TAG: ${{ needs.build-windows.outputs.tag }}
-      run: |
-        PREV=$(git tag --sort=-version:refname | grep '^v' | grep -v "^${TAG}$" | head -n 1 || true)
-        if [ -z "$PREV" ]; then
-          NOTES="Initial release."
-        else
-          NOTES=$(git log --pretty=format:"- %s" "$PREV"..HEAD)
-        fi
-        echo "notes<<EOF" >> $GITHUB_OUTPUT
-        echo "$NOTES" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
     # On a hand run the tag doesn't exist yet, so this makes it at the commit
-    # that was built.
+    # that was built. The release goes out with no notes: write the changelog
+    # on GitHub afterwards (running again won't overwrite it).
     - name: Create release
       uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ needs.build-windows.outputs.tag }}
         target_commitish: ${{ github.sha }}
         name: whatSnap ${{ needs.build-windows.outputs.tag }}
-        body: ${{ steps.release_notes.outputs.notes }}
         files: dist/*
         prerelease: false
       env:
