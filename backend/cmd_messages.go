@@ -542,12 +542,21 @@ func markReadOnSend(raw json.RawMessage) {
 	if jid == "" {
 		return
 	}
-	var unread int
-	if db.QueryRow(`SELECT COALESCE(unread_count, 0) FROM chats WHERE jid = ?`, jid).Scan(&unread) != nil || unread <= 0 {
+	if !hasUnacknowledgedMessages(jid) {
 		return
 	}
 	payload, _ := json.Marshal(map[string]interface{}{"jid": jid, "message_ids": []string{}})
 	handleMarkRead(payload)
+}
+
+// hasUnacknowledgedMessages reports whether the chat has an incoming message
+// we haven't sent a read receipt for.
+func hasUnacknowledgedMessages(jid string) bool {
+	var found int
+	err := db.QueryRow(`SELECT 1 FROM messages
+		WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
+			AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\' LIMIT 1`, jid).Scan(&found)
+	return err == nil
 }
 
 var presenceSubscribed sync.Map
@@ -640,32 +649,30 @@ func handleMarkRead(raw json.RawMessage) {
 	if len(data.MessageIDs) == 0 {
 		_ = db.QueryRow("SELECT COALESCE(marked_unread, 0) = 1 FROM chats WHERE jid = ?", data.JID).Scan(&markedUnread)
 
-		var unread int
-		_ = db.QueryRow("SELECT COALESCE(unread_count, 0) FROM chats WHERE jid = ?", data.JID).Scan(&unread)
-		if unread > maxOpenChatReceipts {
-			unread = maxOpenChatReceipts
-		}
-		if unread > 0 {
-			rows, err := db.Query(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, '') FROM messages
-				WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
-					AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
-				ORDER BY timestamp DESC LIMIT ?`, data.JID, unread)
-			if err == nil {
-				for rows.Next() {
-					var id, senderStr string
-					if err := rows.Scan(&id, &senderStr); err == nil {
-						sJID, _ := types.ParseJID(senderStr)
-						if sJID.IsEmpty() {
-							if chatJID.Server == types.GroupServer {
-								continue
-							}
-							sJID = chatJID
+		// The chat's unread count can't decide this: opening a chat loads its
+		// messages first, and that already sets the count to 0, so this saw
+		// nothing to acknowledge and the phone was never told. Like WA Web's
+		// pending-read-receipt rows, acknowledge every incoming message we
+		// haven't sent a read for yet (newest first, capped).
+		rows, err := db.Query(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, '') FROM messages
+			WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
+				AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
+			ORDER BY timestamp DESC LIMIT ?`, data.JID, maxOpenChatReceipts)
+		if err == nil {
+			for rows.Next() {
+				var id, senderStr string
+				if err := rows.Scan(&id, &senderStr); err == nil {
+					sJID, _ := types.ParseJID(senderStr)
+					if sJID.IsEmpty() {
+						if chatJID.Server == types.GroupServer {
+							continue
 						}
-						items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
+						sJID = chatJID
 					}
+					items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
 				}
-				rows.Close()
 			}
+			rows.Close()
 		}
 	}
 
