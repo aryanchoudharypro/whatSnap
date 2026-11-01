@@ -2779,6 +2779,7 @@ func scheduleHistorySyncRefresh() {
 		UpdateAllChatSnippets()
 		populateChatsFromStore()
 		log.Printf("History sync refresh (snippets, contacts, groups) took %s", time.Since(start).Round(time.Millisecond))
+		lookUpBusinessNames()
 	})
 }
 
