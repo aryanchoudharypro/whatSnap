@@ -286,8 +286,6 @@ On the Position slider, the arrow keys move 5 seconds, `Page Up` and `Page Down`
 ## Connection
 whatSnap tells you when it loses the connection to WhatsApp, and when it connects again. To try to connect immediately, press `F5` (`Account -> Reconnect Now`).
 
-To ask your phone to send its most recent chats and their messages again, choose `Account -> Get Recent Chats From Phone`. whatSnap asks for the 200 most recent chats. This is an experiment: not every phone answers it.
-
 ## Window Visibility and Tray
 - When `Show an icon in the notification area` is on, closing the window hides whatSnap in the tray. whatSnap continues to get messages and calls.
 - The tray icon tells you the number of unread messages. Its menu has two items:
