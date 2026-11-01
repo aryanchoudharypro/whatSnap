@@ -1503,6 +1503,12 @@ pub fn bind_input_handlers(
 			if ev.is_active() && crate::platform::tray::is_hidden_to_tray() {
 				return;
 			}
+			// Coming back with Enter held (a dialog closed with Enter, or
+			// whatSnap started again from the Start menu): its release lands
+			// on whatever has focus here and isn't a press of ours.
+			if ev.is_active() && enter_key_held() {
+				crate::platform::tray::enter_release_guard().set(true);
+			}
 			let _ = tx_activate.send(UiCommand::SetPresence(ev.is_active()));
 		}
 	});
@@ -3320,7 +3326,8 @@ pub fn bind_input_handlers(
 
 	let guard_menu_bar = enter_release_handled.clone();
 	parts.frame.on_menu_selected(move |evt| {
-		if (MENU_ID_SETTINGS..=MENU_ID_JOIN_CALL_LINK).contains(&evt.get_id()) && enter_key_held() {
+		// Every menu-bar id is in 6001..=6099 (Check for Updates is 6061).
+		if (MENU_ID_SETTINGS..=6099).contains(&evt.get_id()) && enter_key_held() {
 			guard_menu_bar.set(true);
 		}
 	});
@@ -4525,9 +4532,12 @@ pub fn bind_input_handlers(
 	});
 
 	let open_menu_key = open_msg_context_menu.clone();
+	let enter_guard_msgs_down = crate::platform::tray::enter_release_guard();
 	parts.conversations_parts.messages_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			// A key went down here, so the next release is this list's own.
+			enter_guard_msgs_down.set(false);
 			let keymap = state_play.borrow().keymap.clone();
 			let pressed = |id| keymap.is_pressed(id, key_event);
 
@@ -5160,9 +5170,16 @@ pub fn bind_input_handlers(
 	let search_panel_enter = parts.conversations_parts.search_panel;
 	let msgs_announcer_enter = parts.conversations_parts.messages_announcer;
 	let parent_frame_enter = parts.frame;
+	let enter_guard_msgs = crate::platform::tray::enter_release_guard();
 	parts.conversations_parts.messages_list.on_key_up(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
+			// The release of an Enter pressed somewhere else (a menu, a
+			// dialog, the Start menu) mustn't open the focused message's link.
+			if keys::is_enter(code) && enter_guard_msgs.replace(false) {
+				event.skip(false);
+				return;
+			}
 			if code == Some(WXK_RETURN) && state_enter.borrow().keymap.is_pressed(message_list::VIEW_TEXT, key_event) {
 				// Enter-based chords open the message text here, on release: the OS
 				// eats the Enter key-down in a list box (other chords use key-down).
