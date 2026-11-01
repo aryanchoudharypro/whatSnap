@@ -113,6 +113,17 @@ func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgres
 		err = dbErr
 		return
 	}
+	if hd := hdMediaRaw(messageID); hd != nil && appPref("hd_auto_download") {
+		path, mediaType, mimetype, filename, err = downloadRawMediaToFile(ctx, messageID, hd, onProgress)
+		if err == nil || errors.Is(err, context.Canceled) {
+			return
+		}
+		log.Printf("HD copy of %s didn't download (%v); getting the standard one", messageID, err)
+	}
+	return downloadRawMediaToFile(ctx, messageID, rawBytes, onProgress)
+}
+
+func downloadRawMediaToFile(ctx context.Context, messageID string, rawBytes []byte, onProgress func(int)) (path, mediaType, mimetype, filename string, err error) {
 	msg := &waE2E.Message{}
 	if perr := proto.Unmarshal(rawBytes, msg); perr != nil {
 		err = perr

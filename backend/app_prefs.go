@@ -18,6 +18,7 @@ var appPrefDefaults = map[string]bool{
 	"auto_download_videos":    false,
 	"auto_download_documents": false,
 	"hd_media":                false,
+	"hd_auto_download":        false,
 	"security_notifications":  true,
 }
 

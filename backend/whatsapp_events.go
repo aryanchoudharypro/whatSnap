@@ -1063,6 +1063,30 @@ func eventHandler(evt interface{}) {
 					}
 				}
 			}
+			// Chats the phone left out of the sync (too many, too big) come
+			// as a separate list of plain chat records with no messages, sent
+			// in batches. They're listed like any other chat, so they show up
+			// and their history can be loaded on demand.
+			if omitted := v.Data.GetOmittedConversationMetadata(); len(omitted.GetConversations()) > 0 {
+				log.Printf("History sync: %d chats the phone left out (snapshot %s, batch %d of %d, complete %v)",
+					len(omitted.GetConversations()), omitted.GetSnapshotID(), omitted.GetBatchIndex()+1, omitted.GetBatchCount(), omitted.GetComplete())
+				convCount += len(omitted.GetConversations())
+				synced := conversations
+				conversations = func(yield func(int, *waHistorySync.Conversation) bool) {
+					n := 0
+					for i, conv := range synced {
+						if !yield(i, conv) {
+							return
+						}
+						n = i + 1
+					}
+					for i, conv := range omitted.GetConversations() {
+						if !yield(n+i, conv) {
+							return
+						}
+					}
+				}
+			}
 			reportProgress := v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND && convCount > 0
 			if reportProgress {
 				broadcastEvent("history_sync", map[string]interface{}{
@@ -1381,6 +1405,11 @@ func eventHandler(evt interface{}) {
 						writes = append(writes, func(tx sqlExecer) { historyEventResponses(tx, chatJID, eventMsg) })
 					}
 
+					if parentID := hdParentID(evtMsg.Message); parentID != "" {
+						hdMsg := evtMsg.Message
+						writes = append(writes, func(tx sqlExecer) { storeHDMedia(tx, parentID, hdMsg) })
+						continue
+					}
 					if album := unwrapMessage(evtMsg.Message).GetAlbumMessage(); album != nil {
 						headerID := evtMsg.Info.ID
 						if headerID == "" && webMsg.Key != nil {
@@ -1751,6 +1780,10 @@ func eventHandler(evt interface{}) {
 		}
 		if v.Info.Chat.User == "status" && v.Info.Chat.Server == types.BroadcastServer {
 			handleIncomingStatus(v)
+			return
+		}
+		if parentID := hdParentID(v.Message); parentID != "" {
+			noteLiveHDMedia(parentID, v.Message)
 			return
 		}
 
@@ -2916,6 +2949,16 @@ func historyStubText(webMsg *waWeb.WebMessageInfo) string {
 			return fmt.Sprintf("%s created this group", actor)
 		}
 		return "Group created"
+	case waWeb.WebMessageInfo_POLL_OPTIONS_REMOVED:
+		if actor != "" {
+			return fmt.Sprintf("%s removed options from a poll", actor)
+		}
+		return "Options were removed from a poll"
+	case waWeb.WebMessageInfo_POLL_ADDED_OPTION_REMOVED:
+		if actor != "" {
+			return fmt.Sprintf("%s removed an option that was added to a poll", actor)
+		}
+		return "An option added to a poll was removed"
 	}
 	return ""
 }

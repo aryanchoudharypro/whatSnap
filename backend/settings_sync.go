@@ -39,6 +39,7 @@ var syncedAppPrefs = map[string]string{
 	"isVideosAutodownloadEnabled":    "auto_download_videos",
 	"isDocumentsAutodownloadEnabled": "auto_download_documents",
 	"mediaUploadQuality":             "hd_media",
+	"mediaAutoDownloadQuality":       "hd_auto_download",
 }
 
 func settingName(fd protoreflect.FieldDescriptor) string {
@@ -106,6 +107,11 @@ func noteSettingsSync(v *events.SettingsSync) {
 			case waSyncAction.SettingsSyncAction_STANDARD:
 				on, isBool = false, true
 			}
+		}
+		if name == "mediaAutoDownloadQuality" {
+			// AUTO (pick by connection) isn't offered here; like WhatsApp
+			// Web without that option, it counts as standard.
+			on, isBool = value.(int) == int(waSyncAction.SettingsSyncAction_MEDIA_AUTO_DOWNLOAD_QUALITY_HD), true
 		}
 		if !isBool {
 			return
@@ -186,6 +192,12 @@ func syncAppPrefs(changed map[string]bool) {
 			quality := waSyncAction.SettingsSyncAction_STANDARD
 			if v {
 				quality = waSyncAction.SettingsSyncAction_HD
+			}
+			changes[name] = float64(quality)
+		} else if name == "mediaAutoDownloadQuality" {
+			quality := waSyncAction.SettingsSyncAction_MEDIA_AUTO_DOWNLOAD_QUALITY_STANDARD
+			if v {
+				quality = waSyncAction.SettingsSyncAction_MEDIA_AUTO_DOWNLOAD_QUALITY_HD
 			}
 			changes[name] = float64(quality)
 		} else {

@@ -19,6 +19,7 @@ pub const CALL_CHOICES: &[(&str, &str)] = &[("Off", "all"), ("On", "known")];
 pub const DEFAULT_TIMER_CHOICES: &[(&str, &str)] =
 	&[("Off", "0"), ("24 Hours", "86400"), ("7 Days", "604800"), ("90 Days", "7776000")];
 pub const UPLOAD_QUALITY_CHOICES: &[(&str, &str)] = &[("Standard Quality", "sd"), ("HD Quality", "hd")];
+pub const DOWNLOAD_QUALITY_CHOICES: &[(&str, &str)] = &[("Standard Quality", "sd"), ("HD Quality", "hd")];
 pub const UPDATE_CHANNEL_CHOICES: &[(&str, &str)] = &[("Stable releases", "stable"), ("Development builds", "dev")];
 pub const THEME_CHOICES: &[(&str, &str)] = &[("System Default", "system"), ("Light", "light"), ("Dark", "dark")];
 pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
@@ -87,6 +88,7 @@ pub struct SettingsDialogParts {
 	pub auto_download_audio_check: CheckBox,
 	pub auto_download_videos_check: CheckBox,
 	pub auto_download_documents_check: CheckBox,
+	pub download_quality_combo: ComboBox,
 	pub upload_quality_combo: ComboBox,
 	pub theme_combo: ComboBox,
 
@@ -262,6 +264,12 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		.build();
 	auto_download_note.set_font(&theme::Fonts::body());
 	chats_sizer.add(&auto_download_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	let download_quality_combo = visibility_combo(
+		&chats_panel,
+		&chats_sizer,
+		"Download Quality for Photos and Videos Sent in HD",
+		DOWNLOAD_QUALITY_CHOICES,
+	);
 	let upload_quality_combo =
 		visibility_combo(&chats_panel, &chats_sizer, "Media Upload Quality", UPLOAD_QUALITY_CHOICES);
 	let theme_combo = visibility_combo(&chats_panel, &chats_sizer, "Theme", THEME_CHOICES);
@@ -440,6 +448,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		auto_download_audio_check,
 		auto_download_videos_check,
 		auto_download_documents_check,
+		download_quality_combo,
 		upload_quality_combo,
 		theme_combo,
 		privacy_panel,
@@ -569,17 +578,21 @@ impl SettingsDialogParts {
 		if prefs.is_some() {
 			let quality = if pref("hd_media") { "hd" } else { "sd" };
 			set_combo_from_value(&self.upload_quality_combo, UPLOAD_QUALITY_CHOICES, quality);
+			let quality = if pref("hd_auto_download") { "hd" } else { "sd" };
+			set_combo_from_value(&self.download_quality_combo, DOWNLOAD_QUALITY_CHOICES, quality);
 		}
 		self.upload_quality_combo.enable(prefs.is_some());
+		self.download_quality_combo.enable(prefs.is_some());
 	}
 
 	pub fn app_prefs_changes(&self, loaded: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
 		let was = |name: &str| loaded.get(name).and_then(|v| v.as_bool()).unwrap_or(false);
 		let hd = combo_value(&self.upload_quality_combo, UPLOAD_QUALITY_CHOICES) == "hd";
+		let hd_download = combo_value(&self.download_quality_combo, DOWNLOAD_QUALITY_CHOICES) == "hd";
 		self.app_pref_checks()
 			.into_iter()
 			.map(|(name, check)| (name, check.is_checked()))
-			.chain([("hd_media", hd)])
+			.chain([("hd_media", hd), ("hd_auto_download", hd_download)])
 			.filter(|&(name, now)| now != was(name))
 			.map(|(name, now)| (name.to_string(), serde_json::Value::Bool(now)))
 			.collect()

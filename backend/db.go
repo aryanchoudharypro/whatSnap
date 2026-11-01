@@ -147,6 +147,7 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN pinned_until INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN pinned_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN kept INTEGER DEFAULT 0")
+	db.Exec(`CREATE TABLE IF NOT EXISTS hd_media (parent_id TEXT PRIMARY KEY, raw BLOB)`)
 	db.Exec(`CREATE TABLE IF NOT EXISTS message_edits (
 		edit_id TEXT PRIMARY KEY,
 		target_id TEXT NOT NULL,
