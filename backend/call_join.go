@@ -11,9 +11,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// The group calls still going on that we were invited to but aren't in,
-// as last reported by meowcaller. The frontend swaps a group chat's call
-// buttons for "Join call" while one of these is for that group.
 var (
 	joinableCallsMu sync.Mutex
 	joinableCalls   []map[string]interface{}
@@ -43,8 +40,6 @@ func watchJoinableCalls(client *meowcaller.Client) {
 	})
 }
 
-// handleGetJoinableCalls replays the current list, for a frontend that
-// (re)connected after it last changed.
 func handleGetJoinableCalls() {
 	joinableCallsMu.Lock()
 	calls := joinableCalls
@@ -60,8 +55,6 @@ type JoinGroupCallData struct {
 	Video  bool   `json:"video"`
 }
 
-// handleJoinGroupCall joins a group call that's already going on. The
-// frontend handles it like joining a call link: no ringing, straight in.
 func handleJoinGroupCall(raw json.RawMessage) {
 	var data JoinGroupCallData
 	if err := json.Unmarshal(raw, &data); err != nil {

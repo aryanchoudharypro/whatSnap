@@ -16,25 +16,15 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-// How WhatsApp Web prepares a photo before sending it (WAWebMediaDataUtils
-// processRawImage, WAWebMediaConstants): turned upright, shrunk so its
-// longest edge is at most web_image_max_edge, and re-encoded as a JPEG at
-// web_jpeg_quality - which also drops the original's EXIF, location
-// included. The message carries the new size and a small JPEG preview,
-// IMG_THUMB_MAX_EDGE on its longest edge and at most 20 KB. With "HD
-// quality" picked as the media upload quality the longest edge may be
-// web_image_max_hd_edge instead (WAWebAttachMediaModel).
 const (
-	abPropImageMaxEdge  = 3042 // web_image_max_edge
-	abPropImageHDEdge   = 3204 // web_image_max_hd_edge
+	abPropImageMaxEdge  = 3042
+	abPropImageHDEdge   = 3204
 	defaultImageHDEdge  = 2560
-	abPropJPEGQuality   = 6619 // web_jpeg_quality
+	abPropJPEGQuality   = 6619
 	defaultImageMaxEdge = 1600
 	defaultJPEGQuality  = 92
 	thumbMaxEdge        = 100
 	thumbMaxBytes       = 20000
-	// A prepared photo is saved under this suffix, so a retry sends it as it
-	// is instead of re-encoding it a second time.
 	preparedPhotoSuffix = "_wa.jpg"
 )
 
@@ -44,10 +34,6 @@ type preparedPhoto struct {
 	thumbnail     []byte
 }
 
-// preparePhoto makes the photo at path ready to send the way WhatsApp Web
-// would, saving the result next to the other outgoing media, in HD when hd
-// is set. A GIF is only measured and previewed: re-encoding would flatten
-// its animation.
 func preparePhoto(id, path string, hd bool) (*preparedPhoto, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -86,8 +72,6 @@ func preparePhoto(id, path string, hd bool) (*preparedPhoto, error) {
 	return &preparedPhoto{path: out, width: b.Dx(), height: b.Dy(), thumbnail: thumb}, nil
 }
 
-// fitWithin scales img down so neither side exceeds maxEdge, keeping its
-// shape; a smaller image is returned as it is.
 func fitWithin(img image.Image, maxEdge int, f scaleFilter) image.Image {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
@@ -104,7 +88,6 @@ func fitWithin(img image.Image, maxEdge int, f scaleFilter) image.Image {
 	return scaleImage(img, b, w, h, f)
 }
 
-// onWhite flattens transparency onto white, since JPEG has none.
 func onWhite(img image.Image) image.Image {
 	b := img.Bounds()
 	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
@@ -113,8 +96,6 @@ func onWhite(img image.Image) image.Image {
 	return dst
 }
 
-// jpegThumbnail is the small preview a photo or video message carries, shown
-// before the full file downloads. The quality steps down until it fits.
 func jpegThumbnail(img image.Image) []byte {
 	small := onWhite(fitWithin(img, thumbMaxEdge, bilinear))
 	var buf bytes.Buffer
@@ -130,8 +111,6 @@ func jpegThumbnail(img image.Image) []byte {
 	return bytes.Clone(buf.Bytes())
 }
 
-// jpegOrientation reads the EXIF orientation (1-8) of a JPEG, or 1 when it
-// has none.
 func jpegOrientation(data []byte) int {
 	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
 		return 1
@@ -190,8 +169,6 @@ func tiffOrientation(tiff []byte) int {
 	return 1
 }
 
-// applyEXIFOrientation turns img upright for its EXIF orientation, as
-// browsers do when WhatsApp Web draws a photo before re-encoding it.
 func applyEXIFOrientation(img image.Image, orientation int) image.Image {
 	if orientation <= 1 || orientation > 8 {
 		return img
@@ -208,19 +185,19 @@ func applyEXIFOrientation(img image.Image, orientation int) image.Image {
 		for x := range w {
 			var dx, dy int
 			switch orientation {
-			case 2: // mirrored
+			case 2:
 				dx, dy = w-1-x, y
-			case 3: // turned 180
+			case 3:
 				dx, dy = w-1-x, h-1-y
-			case 4: // mirrored, turned 180
+			case 4:
 				dx, dy = x, h-1-y
-			case 5: // mirrored, turned 90 counter-clockwise
+			case 5:
 				dx, dy = y, x
-			case 6: // turned 90 clockwise
+			case 6:
 				dx, dy = h-1-y, x
-			case 7: // mirrored, turned 90 clockwise
+			case 7:
 				dx, dy = h-1-y, w-1-x
-			case 8: // turned 90 counter-clockwise
+			case 8:
 				dx, dy = y, w-1-x
 			}
 			dst.Set(dx, dy, img.At(b.Min.X+x, b.Min.Y+y))

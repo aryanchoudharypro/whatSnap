@@ -1,7 +1,3 @@
-//! Reporting, as in WhatsApp: a message (from its menu) or a chat, to
-//! WhatsApp, optionally blocking the contact or exiting the group; and in a
-//! group, sending a message to its admins to review.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -12,8 +8,6 @@ fn chat_name(state: &AppState, jid: &str) -> String {
 	state.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string())
 }
 
-/// Asks how to report, and sends the report. `message_id` is None for a
-/// whole chat, which WhatsApp receives with the last message they sent.
 fn confirm_and_report(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, message_id: Option<String>) {
 	if jid.ends_with("@newsletter") || jid.ends_with("@broadcast") {
 		return;
@@ -56,7 +50,6 @@ fn confirm_and_report(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Reporting...");
 }
 
-/// "Report..." on a message in the open chat.
 pub(crate) fn report_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message_id: String) {
 	let Some(jid) = state.borrow().selected_chat.clone() else {
 		return;
@@ -64,12 +57,10 @@ pub(crate) fn report_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	confirm_and_report(state, parts, jid, Some(message_id));
 }
 
-/// "Report..." on a chat.
 pub(crate) fn report_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	confirm_and_report(state, parts, jid, None);
 }
 
-/// "Report to group admins" on a message in the open group.
 pub(crate) fn report_to_admins(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message_id: String) {
 	let Some(jid) = state.borrow().selected_chat.clone().filter(|j| j.ends_with("@g.us")) else {
 		return;
@@ -92,7 +83,6 @@ pub(crate) fn report_to_admins(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending to the admins...");
 }
 
-/// The backend's answer to a report.
 pub(crate) fn reported(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let flag = |k: &str| data.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
 	let mut text = if data.get("admins").is_some() { "Sent to the group's admins." } else { "Reported." }.to_string();
@@ -105,8 +95,6 @@ pub(crate) fn reported(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
 }
 
-/// Saves Group Info's moderation switches; the backend only sends the ones
-/// that changed.
 pub(crate) fn update_group_moderation(
 	state: &Rc<RefCell<AppState>>,
 	no_frequently_forwarded: bool,
@@ -133,7 +121,6 @@ pub(crate) fn update_group_moderation(
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// Group Info's "Reported messages...": asks the backend for the list.
 pub(crate) fn request_reported_messages(state: &Rc<RefCell<AppState>>) {
 	let s = state.borrow();
 	let Some(jid) = s.selected_chat.clone().filter(|j| j.ends_with("@g.us")) else {
@@ -143,9 +130,6 @@ pub(crate) fn request_reported_messages(state: &Rc<RefCell<AppState>>) {
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// What members reported to the group's admins, one line per message: who
-/// sent it, what it says, and who reported it. Enter or "Go to message"
-/// closes Group Info and opens the chat at that message.
 pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let reports = data.get("reports").and_then(|r| r.as_array()).cloned().unwrap_or_default();
 	if reports.is_empty() {

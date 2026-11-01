@@ -1,6 +1,3 @@
-//! `handle_ui_command` arms for composing and managing messages (send/edit/delete/
-//! star/react/forward/retry, status posts, typing indicator, chat export).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -20,15 +17,8 @@ pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	let _slow = crate::backend::events::SlowUiLog::new("sending a message");
 	let mut s = state.borrow_mut();
 	if let Some(ref jid) = s.selected_chat.clone() {
-		// Sending a reply means the unread messages have obviously been
-		// seen, so drop the "N unread messages" divider from the list
-		// right away rather than waiting for the next time the chat is
-		// opened.
 		clear_unread_divider_for_open_chat(&mut s, parts, jid);
 
-		// Sending from a window opened around an old search hit: jump back to
-		// the newest messages first, so the one being sent shows up where it
-		// belongs (live messages aren't appended under such a window).
 		if !s.messages_at_latest {
 			let reload = serde_json::json!({
 				"action": "get_messages",
@@ -76,12 +66,6 @@ pub(crate) fn cancel_edit(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	}
 }
 
-/// Puts the composer into edit mode for `message_id`: fills `message_field`
-/// with its current text (caret at the end, nothing selected), swaps the
-/// composer's label to "Edit message", and shows the "Cancel edit" button in
-/// place of "Add attachment" - editing an existing message can't also attach
-/// new media, and hiding that button puts "Cancel edit" one Tab away from the
-/// field, mirroring the single-line edit dialog this replaced.
 pub(crate) fn begin_edit_message(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -94,15 +78,10 @@ pub(crate) fn begin_edit_message(
 	let mut s = state.borrow_mut();
 	s.editing_message_id = Some(message_id);
 	s.editing_message_original_text = Some(text.clone());
-	// Mentions already in the message are kept by the backend; this holds
-	// only ones picked during the edit.
 	s.composer_mentions.clear();
 	drop(s);
 	let field = &parts.conversations_parts.message_field;
 	field.set_value(&text);
-	// Caret at the end, nothing selected - typing continues the message
-	// rather than replacing it outright, since most edits are small tweaks
-	// (a typo, an added word) rather than a full rewrite.
 	let end = text.chars().count() as i64;
 	field.set_selection(end, end);
 	parts.conversations_parts.message_label.set_label("Edit message");
@@ -116,10 +95,6 @@ pub(crate) fn begin_edit_message(
 	);
 }
 
-/// Restores the composer to its normal (not editing) state - shared by
-/// `cancel_edit` and `edit_message` (once the edit is sent, the composer
-/// goes back to normal too), so the two only ever agree on what
-/// "not editing" looks like in one place.
 fn end_edit_mode(parts: &Rc<WindowParts>) {
 	parts.conversations_parts.message_field.set_value("");
 	parts.conversations_parts.cancel_edit_btn.show(false);
@@ -129,7 +104,6 @@ fn end_edit_mode(parts: &Rc<WindowParts>) {
 	parts.conversations_parts.message_field.set_focus();
 }
 
-/// Stops an edit from starting where nothing can be sent; says why.
 fn stop_edit_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
 	let reason = {
 		let s = state.borrow();
@@ -149,10 +123,6 @@ pub(crate) fn remove_quote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	parts.conversations_parts.message_field.set_focus();
 }
 
-/// Mirrors WhatsApp Web's WAWebPresenceChatAction: a keystroke in a non-empty
-/// composer marks composing (sent once, then resent every
-/// CHATSTATE_RESEND_EVERY while typing goes on), and CHATSTATE_PAUSE_AFTER
-/// without a keystroke - or the composer emptying - sends "paused".
 pub(crate) fn send_typing(
 	state: &Rc<RefCell<AppState>>,
 	_parts: &Rc<WindowParts>,
@@ -179,8 +149,6 @@ fn chatstate_allowed(jid: &str) -> bool {
 		|| jid == crate::types::META_AI_JID)
 }
 
-/// markComposing / markRecording: `media` empty for typing, "audio" while
-/// recording a voice note.
 pub(crate) fn mark_composing(s: &mut AppState, jid: &str, media: &str) {
 	if !chatstate_allowed(jid) {
 		return;
@@ -189,7 +157,6 @@ pub(crate) fn mark_composing(s: &mut AppState, jid: &str, media: &str) {
 	match s.composing.as_mut() {
 		Some(c) if c.jid == jid && c.media == media => c.last_key = now,
 		_ => {
-			// A different chat (or typing <-> recording): take the old one back first.
 			if let Some(old) = s.composing.as_ref().map(|c| c.jid.clone())
 				&& old != jid
 			{
@@ -206,14 +173,12 @@ pub(crate) fn mark_composing(s: &mut AppState, jid: &str, media: &str) {
 	}
 }
 
-/// markPaused: only a chatstate we actually sent needs taking back.
 pub(crate) fn mark_paused(s: &mut AppState, jid: &str) {
 	if s.composing.as_ref().is_some_and(|c| c.jid == jid) {
 		send_chatstate(s, jid, "paused", "");
 	}
 }
 
-/// Sends one chatstate. A "paused" also clears the tracked state, whoever sends it.
 pub(crate) fn send_chatstate(s: &mut AppState, jid: &str, typing_state: &str, media: &str) {
 	if typing_state == "paused" {
 		s.composing = None;
@@ -225,8 +190,6 @@ pub(crate) fn send_chatstate(s: &mut AppState, jid: &str, typing_state: &str, me
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// Periodic timer: WA Web's paused timer (typing only - recording has none)
-/// and its resend timer, which only resends while the contact is online.
 pub(crate) fn chatstate_tick(s: &mut AppState) {
 	let Some((jid, media, last_sent, last_key)) =
 		s.composing.as_ref().map(|c| (c.jid.clone(), c.media.clone(), c.last_sent, c.last_key))
@@ -245,8 +208,6 @@ pub(crate) fn chatstate_tick(s: &mut AppState) {
 	}
 }
 
-/// WA Web's presenceOnlineChanged: a contact coming online while we're still
-/// typing to them gets the chatstate straight away.
 pub(crate) fn contact_came_online(s: &mut AppState, jid: &str) {
 	let resend = s.composing.as_ref().filter(|c| c.jid == jid).map(|c| c.media.clone());
 	if let Some(media) = resend {
@@ -274,10 +235,6 @@ pub(crate) fn forward_message(
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Message forwarded.");
 }
 
-/// Saves an edit typed into the composer's edit mode. A trimmed-empty or
-/// unchanged-from-original result is treated as an implicit Cancel (matching
-/// the single-line edit dialog this replaced, which just closed with no
-/// action for either) rather than sent as a no-op edit.
 pub(crate) fn edit_message(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -421,7 +378,6 @@ pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		});
 		let ws_tx = state.borrow().ws_tx.clone();
 		if media_type == "video" {
-			// A preview of the first frame, as for a video sent to a chat.
 			std::thread::spawn(move || {
 				if let Some(png) = crate::media::video_thumbnail::first_frame_png(&path) {
 					payload["data"]["thumbnail"] = serde_json::json!(crate::util::base64(&png));
@@ -452,8 +408,6 @@ pub(crate) fn retry_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowPar
 }
 
 pub(crate) fn retry_selected_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	// The toolbar's Retry send button: unlike the context menu's single
-	// RetryMessage, this retries every failed item of an album.
 	let s = state.borrow();
 	let failed: Vec<String> = parts
 		.conversations_parts

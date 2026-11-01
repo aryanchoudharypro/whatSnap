@@ -37,8 +37,6 @@ var (
 	followedChannelsLast time.Time
 )
 
-// serverGroupList is the server's group list, fetched at most once per
-// groupListMaxAge unless invalidateJoinedGroups was called.
 func serverGroupList() ([]*types.GroupInfo, error) {
 	groupListMu.Lock()
 	defer groupListMu.Unlock()
@@ -53,16 +51,12 @@ func serverGroupList() ([]*types.GroupInfo, error) {
 	return groups, nil
 }
 
-// invalidateJoinedGroups makes the next refresh fetch the group list again.
 func invalidateJoinedGroups() {
 	groupListMu.Lock()
 	groupListCached = nil
 	groupListMu.Unlock()
 }
 
-// syncFollowedChannelsThrottled is the refresh's channel sync, run at most
-// once per followedChannelsEvery. Following or unfollowing a channel calls
-// syncFollowedChannels directly.
 func syncFollowedChannelsThrottled() {
 	followedChannelsMu.Lock()
 	if !followedChannelsLast.IsZero() && time.Since(followedChannelsLast) < followedChannelsEvery {

@@ -16,16 +16,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Status extras: who saw and reacted to our status updates, reacting to and
-// deleting status updates, muting someone's, and who ours go to.
-//
-// A view is a read receipt from status@broadcast. A reaction to a status
-// goes to its poster alone, as a reaction whose key names status@broadcast
-// (whatsapp-rust's send_reaction: status reactions fan out to the author's
-// devices). Who sees our updates syncs as the status_privacy app state
-// (WAWebStatusPrivacySettingSync), and whom an update is sent to is worked
-// out from it here.
-
 const statusPrivacyKey = "status_privacy"
 
 type StatusTargetData struct {
@@ -40,11 +30,10 @@ type StatusMuteData struct {
 }
 
 type StatusPrivacyData struct {
-	Mode string   `json:"mode"` // contacts, except or only
+	Mode string   `json:"mode"`
 	JIDs []string `json:"jids"`
 }
 
-// noteStatusViewers records who read one of our status updates.
 func noteStatusViewers(v *events.Receipt) {
 	if v.Type != types.ReceiptTypeRead && v.Type != types.ReceiptTypePlayed {
 		return
@@ -68,8 +57,6 @@ func noteStatusViewers(v *events.Receipt) {
 	}
 }
 
-// noteStatusReaction records a reaction to a status update: someone's to
-// ours, or ours (from another device) to someone else's.
 func noteStatusReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 	statusID := reaction.GetKey().GetID()
 	if statusID == "" {
@@ -89,8 +76,6 @@ func noteStatusReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 	}
 }
 
-// handleGetStatusViewers lists who saw one of our status updates, and how
-// they reacted.
 func handleGetStatusViewers(conn net.Conn, raw json.RawMessage) {
 	var data StatusTargetData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -118,7 +103,6 @@ func handleGetStatusViewers(conn net.Conn, raw json.RawMessage) {
 	sendEvent(conn, "status_viewers", map[string]interface{}{"id": data.ID, "viewers": viewers})
 }
 
-// statusPoster is who posted a stored status update.
 func statusPoster(id string) (types.JID, bool) {
 	var sender string
 	var fromMe bool
@@ -130,8 +114,6 @@ func statusPoster(id string) (types.JID, bool) {
 	return jid, err == nil && !fromMe
 }
 
-// handleReactStatus reacts to someone's status update (an empty emoji takes
-// the reaction back).
 func handleReactStatus(raw json.RawMessage) {
 	var data StatusTargetData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -164,8 +146,6 @@ func handleReactStatus(raw json.RawMessage) {
 	}()
 }
 
-// handleDeleteStatus deletes one of our status updates for everyone who can
-// see it.
 func handleDeleteStatus(raw json.RawMessage) {
 	var data StatusTargetData
 	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" {
@@ -182,15 +162,12 @@ func handleDeleteStatus(raw json.RawMessage) {
 	}()
 }
 
-// removeStatus drops a deleted status update, ours or someone else's.
 func removeStatus(id string) {
 	purgeMessages(`id = ? AND jid = 'status@broadcast'`, id)
 	db.Exec(`DELETE FROM status_viewers WHERE status_id = ?`, id)
 	broadcastEvent("status_deleted", map[string]interface{}{"id": id})
 }
 
-// noteStatusMute stores someone's status updates muted or not, synced from
-// app state.
 func noteStatusMute(v *events.UserStatusMute) {
 	setStatusMuted(v.JID, v.Action.GetMuted())
 }
@@ -223,8 +200,6 @@ func statusMuted() map[string]bool {
 	return muted
 }
 
-// statusMutedFor says whether a poster, by either of their addresses, is in
-// muted (from statusMuted).
 func statusMutedFor(muted map[string]bool, sender string) bool {
 	if muted[sender] {
 		return true
@@ -237,8 +212,6 @@ func statusMutedFor(muted map[string]bool, sender string) bool {
 	return !twin.IsEmpty() && muted[twin.ToNonAD().String()]
 }
 
-// quoteStatus marks a reply's quote as a status update's when it is one,
-// which is what makes it show as a reply to their status for the poster.
 func quoteStatus(ctxInfo *waE2E.ContextInfo, quotedID string) {
 	var n int
 	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ? AND jid = 'status@broadcast'`, quotedID).Scan(&n)
@@ -247,8 +220,6 @@ func quoteStatus(ctxInfo *waE2E.ContextInfo, quotedID string) {
 	}
 }
 
-// handleSetStatusMute mutes or unmutes someone's status updates, on every
-// device.
 func handleSetStatusMute(raw json.RawMessage) {
 	var data StatusMuteData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -267,7 +238,6 @@ func handleSetStatusMute(raw json.RawMessage) {
 	}()
 }
 
-// noteStatusPrivacy stores who sees our status updates when it syncs.
 func noteStatusPrivacy(v *events.StatusPrivacy) {
 	if v.Action == nil {
 		return
@@ -277,7 +247,6 @@ func noteStatusPrivacy(v *events.StatusPrivacy) {
 	}
 }
 
-// storedStatusPrivacy is the status audience last synced, or nil.
 func storedStatusPrivacy() *waSyncAction.StatusPrivacyAction {
 	var raw []byte
 	if db.QueryRow(`SELECT value FROM app_settings WHERE key = ?`, statusPrivacyKey).Scan(&raw) != nil || len(raw) == 0 {
@@ -290,8 +259,6 @@ func storedStatusPrivacy() *waSyncAction.StatusPrivacyAction {
 	return &action
 }
 
-// statusAudience is who sees our status updates: everyone in our contacts
-// ("contacts"), all but some ("except") or only some ("only").
 func statusAudience(ctx context.Context) (mode string, list []types.JID) {
 	if action := storedStatusPrivacy(); action != nil {
 		for _, s := range action.GetUserJID() {
@@ -318,15 +285,11 @@ func statusAudience(ctx context.Context) (mode string, list []types.JID) {
 	return "contacts", nil
 }
 
-// statusRecipients is who a status update we post goes to, from the synced
-// audience; nil before one has synced, so whatsmeow asks the server.
 func statusRecipients(ctx context.Context) []types.JID {
 	action := storedStatusPrivacy()
 	if action == nil {
 		return nil
 	}
-	// One address per person, by phone number where it's known, as contacts
-	// are keyed.
 	user := func(jid types.JID) types.JID {
 		jid = jid.ToNonAD()
 		if pn := storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
@@ -361,7 +324,6 @@ func statusRecipients(ctx context.Context) []types.JID {
 	return out
 }
 
-// handleGetStatusPrivacy tells the UI who sees our status updates.
 func handleGetStatusPrivacy(conn net.Conn) {
 	mode, list := statusAudience(context.Background())
 	people := []map[string]string{}
@@ -371,8 +333,6 @@ func handleGetStatusPrivacy(conn net.Conn) {
 	sendEvent(conn, "status_privacy", map[string]interface{}{"mode": mode, "people": people})
 }
 
-// handleSetStatusPrivacy changes who sees our status updates, on every
-// device.
 func handleSetStatusPrivacy(conn net.Conn, raw json.RawMessage) {
 	var data StatusPrivacyData
 	if err := json.Unmarshal(raw, &data); err != nil {

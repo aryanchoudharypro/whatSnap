@@ -1,17 +1,3 @@
-//! Draws the chat list's rows the way WhatsApp Web does: the profile picture,
-//! the name in bold with the time on the right, and below it the last
-//! message with an icon for its kind (voice message, photo, ...), the unread
-//! count and the pinned / muted marks.
-//!
-//! The list stays the native list box. It's made owner-drawn (wx's
-//! `wxLB_OWNERDRAW`, which keeps `LBS_HASSTRINGS`), so every row still holds
-//! its full text, and that text is all a screen reader is given: names,
-//! order, selection and keys are exactly what they were. Only the painting is
-//! ours, done here on the parent's `WM_DRAWITEM`.
-//!
-//! In a High Contrast theme the rows keep the pictures but use the system's
-//! colours throughout (see `theme::use_custom_colours`).
-
 use std::cell::RefCell;
 
 use windows::Win32::{
@@ -40,11 +26,9 @@ use super::{
 	theme::{self, Palette},
 };
 
-/// wx's `wxLB_OWNERDRAW`, which wxdragon has no name for.
 pub(crate) const OWNER_DRAW: i64 = 0x0100;
 const SUBCLASS_ID: usize = 0x5752_4f57;
 
-/// Icons, from the Windows icon font (Segoe Fluent Icons / MDL2 Assets).
 pub(crate) mod icon {
 	pub const MICROPHONE: char = '\u{E720}';
 	pub const CAMERA: char = '\u{E722}';
@@ -63,28 +47,19 @@ pub(crate) mod icon {
 	pub const PHONE: char = '\u{E717}';
 }
 
-/// What a chat row shows, besides its text.
 #[derive(Clone, Default, PartialEq)]
 pub(crate) struct RowArt {
 	pub jid: String,
 	pub title: String,
-	/// Tags with no icon of their own ("Community", "In Family").
 	pub extra: String,
 	pub time: String,
-	/// "You: " or "Name: " before the message.
 	pub preview_prefix: String,
 	pub icon: Option<char>,
 	pub preview: String,
-	/// Your own last message's ticks, drawn before it.
 	pub ticks: Option<super::message_art::Ticks>,
-	/// "typing..." or "recording audio...", drawn in green in place of the
-	/// last message while it lasts.
 	pub typing: Option<&'static str>,
-	/// A status's ring around the picture: green for new, grey for seen.
 	pub ring: Option<bool>,
-	/// The line under the name is bad news (a missed call), drawn in red.
 	pub alert: bool,
-	/// A section heading ("Recent calls"), not a chat.
 	pub heading: bool,
 	pub unread: u32,
 	pub pinned: bool,
@@ -93,8 +68,6 @@ pub(crate) struct RowArt {
 }
 
 impl RowArt {
-	/// For a row that only has its text (Status, Starred, Calls): the first
-	/// part is the title, the rest the line under it.
 	pub(crate) fn from_text(jid: &str, text: &str) -> Self {
 		let mut parts = text.split(" | ");
 		let title = parts.next().unwrap_or_default().to_string();
@@ -102,7 +75,6 @@ impl RowArt {
 		Self { jid: jid.to_string(), title, preview: rest.join(" · "), ..Default::default() }
 	}
 
-	/// A Status tab row: "Mum [New]: at the beach, 10:02 AM".
 	pub(crate) fn for_status(jid: &str, text: &str) -> Self {
 		let Some((name, rest)) = text.split_once(" [") else { return Self::from_text(jid, text) };
 		let Some((tag, preview)) = rest.split_once("]: ").or_else(|| rest.split_once(']')) else {
@@ -117,13 +89,10 @@ impl RowArt {
 		}
 	}
 
-	/// A Calls tab row: a heading ("Recent calls", with no chat), a contact,
-	/// or a call ("Missed voice call from Mum, Today 10:02 AM").
 	pub(crate) fn for_call(jid: &str, text: &str) -> Self {
 		if jid.is_empty() {
 			return Self { title: text.to_string(), heading: true, ..Default::default() };
 		}
-		// A call going on is joined, not someone's: it has no one picture.
 		let jid = if jid.starts_with(crate::ui_commands::calls::JOIN_ROW_PREFIX) { "" } else { jid };
 		let (text, ongoing) = match text.strip_suffix(crate::ui_commands::calls::ONGOING_CALL_SUFFIX) {
 			Some(t) => (t, true),
@@ -138,8 +107,6 @@ impl RowArt {
 			None => (desc, None),
 		};
 		let Some((kind, name)) = desc.split_once(" from ").or_else(|| desc.split_once(" to ")) else {
-			// A contact row ("Mum, +44 ...": the number under the name), or a
-			// call going on now.
 			let mut art = Self::from_text(jid, text);
 			if let Some((name, phone)) = text.split_once(", ")
 				&& !ongoing
@@ -174,7 +141,6 @@ impl RowArt {
 			jid: jid.to_string(),
 			title: name.to_string(),
 			time: time.to_string(),
-			// WhatsApp's arrows: out to the right, in from the left.
 			preview_prefix: if outgoing { "\u{2197} " } else { "\u{2199} " }.to_string(),
 			icon: Some(if video { icon::VIDEO } else { icon::PHONE }),
 			preview,
@@ -184,8 +150,6 @@ impl RowArt {
 	}
 }
 
-/// Splits a chat's raw last-message text ("[Voice Message]", "[Image] hi")
-/// into an icon and what follows it, as WhatsApp shows "🎤 Voice message".
 pub(crate) fn preview_icon(raw: &str) -> (Option<char>, String) {
 	let friendly = whatsnap::friendly_preview_text(raw);
 	let icon = [
@@ -206,7 +170,6 @@ pub(crate) fn preview_icon(raw: &str) -> (Option<char>, String) {
 	.iter()
 	.find(|(tag, _)| raw.starts_with(tag))
 	.map(|(_, icon)| *icon);
-	// "Photo: caption" shows as the camera and the caption alone.
 	let text = match (icon, friendly.split_once(": ")) {
 		(Some(_), Some((_, rest))) if !rest.is_empty() => rest.to_string(),
 		_ => friendly,
@@ -245,7 +208,6 @@ struct Layout {
 
 impl Layout {
 	fn for_line(line: i32) -> Self {
-		// Roomy, like WhatsApp for Windows' rows.
 		let pad = (line * 4 / 5).max(6);
 		let avatar = line * 11 / 4;
 		Self { pad, avatar, row: avatar + 2 * pad }
@@ -284,8 +246,6 @@ pub(crate) fn install(list: &ListBox, source: impl Fn(usize, &str) -> Option<Row
 	});
 }
 
-/// Redraws every row, for when the art behind them changed but their text
-/// didn't (a chat's picture, say).
 pub(crate) fn refresh() {
 	if let Some(hwnd) = ROWS.with(|r| r.borrow().list) {
 		unsafe {
@@ -301,8 +261,6 @@ fn set_row_height(hwnd: HWND) {
 	}
 }
 
-/// Runs `f` with fonts made from the list's own font, (re)making them when
-/// that font changed.
 fn with_fonts<R>(hwnd: HWND, f: impl FnOnce(&Fonts) -> R) -> R {
 	let base = HFONT(unsafe { SendMessageW(hwnd, WM_GETFONT, None, None) }.0 as *mut _);
 	ROWS.with(|r| {
@@ -353,8 +311,6 @@ unsafe extern "system" fn list_proc(
 	_data: usize,
 ) -> LRESULT {
 	match msg {
-		// wx sets the height for one line of text whenever the font changes;
-		// the rows are taller.
 		LB_SETITEMHEIGHT => {
 			let height = with_fonts(hwnd, |fonts| Layout::for_line(fonts.line).row);
 			unsafe { DefSubclassProc(hwnd, msg, wparam, LPARAM(height as isize)) }
@@ -364,7 +320,6 @@ unsafe extern "system" fn list_proc(
 			set_row_height(hwnd);
 			result
 		}
-		// The time sits at the right edge, so a new width moves every row.
 		WM_SIZE => {
 			let result = unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) };
 			unsafe {
@@ -450,15 +405,12 @@ fn colours(selected: bool, focused: bool) -> Colours {
 		};
 	}
 	Colours {
-		// WhatsApp Web's grey for the open chat, a little darker so it shows.
 		background: if selected { rgb(Palette::SELECTED_ROW()) } else { rgb(Palette::CONTENT_BG()) },
 		text: rgb(Palette::TEXT_PRIMARY()),
 		muted: rgb(Palette::TEXT_MUTED()),
 		accent: rgb(Palette::ACCENT()),
-		// WhatsApp's read blue, darkened to read on white.
 		read: rgb(Palette::READ()),
 		divider: Some(rgb(Palette::DIVIDER_SOFT())),
-		// Where the keyboard is, beyond the grey: a bar in the accent green.
 		focus_bar: (selected && focused).then(|| rgb(Palette::ACCENT())),
 	}
 }
@@ -509,9 +461,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		return;
 	}
 
-	// The picture, or WhatsApp's grey silhouette.
 	let avatar_top = (height - size) / 2;
-	// A status's ring: green while new, grey once seen.
 	if let Some(new) = art.ring {
 		let ring = if !theme::use_custom_colours() {
 			let t = if new { c.text.0 } else { c.muted.0 };
@@ -564,13 +514,11 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 	let line2 = (mid, avatar_top + size);
 	let gap = (pad / 2).max(4);
 
-	// Line one: name (and tags), time on the right.
 	let time_w = gdi::text_width(dc, fonts.small, &art.time);
 	let time_colour = if art.unread > 0 { c.accent } else { c.muted };
 	gdi::text(dc, fonts.small, time_colour, &art.time, rect(right - time_w, line1.0, right, line1.1), DT_RIGHT);
 	let name_right = if time_w > 0 { right - time_w - gap } else { right };
 	let name_w = gdi::text_width(dc, fonts.title, &art.title);
-	// A missed call's name is red too, as on WhatsApp.
 	let title_colour = if art.alert && theme::use_custom_colours() { rgb(Palette::DANGER()) } else { c.text };
 	gdi::text(dc, fonts.title, title_colour, &art.title, rect(left, line1.0, name_right, line1.1), Default::default());
 	if !art.extra.is_empty() && left + name_w + gap < name_right {
@@ -584,7 +532,6 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		);
 	}
 
-	// Line two, from the right: unread count, then pinned / muted / locked.
 	let mut line_right = right;
 	if art.unread > 0 {
 		let count = if art.unread > 999 { "999+".to_string() } else { art.unread.to_string() };
@@ -630,7 +577,6 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		}
 	}
 
-	// Someone typing takes the last message's place, in green.
 	if let Some(typing) = art.typing {
 		gdi::text(dc, fonts.body, c.accent, typing, rect(left, line2.0, line_right, line2.1), Default::default());
 		if let Some(divider) = c.divider {
@@ -639,8 +585,6 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		return;
 	}
 
-	// Then the last message: your ticks or "Name: ", its kind's icon, its text.
-	// A missed call is in WhatsApp's red.
 	if art.alert && theme::use_custom_colours() {
 		c.muted = rgb(Palette::DANGER());
 	}
@@ -653,7 +597,6 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 			let first = first.to_string();
 			let w = gdi::text_width(dc, font, &first);
 			gdi::text(dc, font, colour, &first, rect(x, line2.0, line_right, line2.1), Default::default());
-			// A second tick overlaps the first, as WhatsApp draws them.
 			let total = if let Some(second) = chars.next() {
 				gdi::text(
 					dc,

@@ -1,6 +1,3 @@
-//! Dialogs for running our own channels: creating one, editing its details,
-//! choosing its picture, and managing its followers and admins.
-
 use wxdragon::prelude::*;
 
 use crate::ui::{
@@ -8,17 +5,12 @@ use crate::ui::{
 	theme,
 };
 
-/// What the create and edit dialogs collect.
 pub struct ChannelDetails {
 	pub name: String,
 	pub description: String,
-	/// A picture file chosen in the create dialog.
 	pub picture: Option<String>,
 }
 
-/// Asks for a channel's name and description. `creating` adds a picture
-/// choice and WhatsApp's note about channels being public; editing starts
-/// from the current `name` and `description`.
 pub fn ask_channel_details(
 	parent: &dyn WxWidget,
 	creating: bool,
@@ -115,7 +107,6 @@ pub fn ask_channel_details(
 	details
 }
 
-/// Asks for a picture file for a channel.
 pub fn pick_channel_picture(parent: &dyn WxWidget) -> Option<String> {
 	let file_dialog = FileDialog::builder(parent)
 		.with_message("Choose a picture for the channel")
@@ -127,7 +118,6 @@ pub fn pick_channel_picture(parent: &dyn WxWidget) -> Option<String> {
 	path
 }
 
-/// One of a channel's followers.
 pub struct ChannelFollower {
 	pub jid: String,
 	pub name: String,
@@ -144,15 +134,12 @@ impl ChannelFollower {
 	}
 }
 
-/// What was chosen in the followers dialog.
 pub enum FollowerAction {
 	InviteAdmin { jid: String, name: String },
 	RemoveAdmin { jid: String, name: String },
 	MakeOwner { jid: String, name: String },
 }
 
-/// Lists a channel's followers, admins first. The owner can invite a
-/// follower to be an admin, remove an admin, or hand the channel over to one.
 pub fn show_channel_followers(
 	parent: &dyn WxWidget,
 	channel_name: &str,
@@ -224,7 +211,6 @@ pub fn show_channel_followers(
 	dialog.center();
 
 	let followers = std::rc::Rc::new(followers);
-	// The admin actions only show for an admin, and only to the owner.
 	let update_buttons = {
 		let followers = followers.clone();
 		move || {
@@ -304,9 +290,6 @@ pub fn show_channel_followers(
 	chosen.borrow_mut().take()
 }
 
-/// Who reacted to a channel post, or who voted for each option of a channel
-/// poll, as one list: "👍: Alice", "Pizza: Bob". A group no one is in reads
-/// "Salad: no one". `summary` heads the list.
 pub fn show_channel_people(parent: &dyn WxWidget, title: &str, summary: &str, groups: &[(String, Vec<String>)]) {
 	let mut rows = Vec::new();
 	for (label, names) in groups {
@@ -351,8 +334,6 @@ pub fn show_channel_people(parent: &dyn WxWidget, title: &str, summary: &str, gr
 	dialog.destroy();
 }
 
-/// The admin invites of a channel no one has accepted yet. Returns the
-/// invite (JID and name) the owner chose to cancel.
 pub fn show_pending_admin_invites(
 	parent: &dyn WxWidget,
 	channel_name: &str,

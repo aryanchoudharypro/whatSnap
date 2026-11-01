@@ -1,14 +1,3 @@
-//! Captures the local webcam, or the screen for a screen share, and encodes
-//! H.264 via Media Foundation, shipping Annex-B access units to the backend's
-//! per-call TCP video bridge (`backend/video_bridge.go`). A call has one video
-//! stream, so the two sources take turns on it rather than running together. Mirrors `calls/audio.rs`'s WASAPI pattern: a
-//! dedicated thread owns its own COM/MF objects for its whole life and is
-//! recreated wholesale (not fixed up in place) whenever the device changes
-//! or is lost, rather than trying to hot-patch a live session.
-//!
-//! Target: 1280x720 @ 30fps, ~1.5 Mbps CBR - see the Phase 2 design
-//! decisions in [[video_calls_work_status]].
-
 use std::{
 	io::Write,
 	net::TcpStream,
@@ -56,15 +45,11 @@ const TARGET_WIDTH: u32 = 1280;
 const TARGET_HEIGHT: u32 = 720;
 const TARGET_FPS: u32 = 30;
 const TARGET_BITRATE: u32 = 1_500_000;
-/// A screen changes far less often than a camera picture, and the bits a
-/// lower frame rate saves go into keeping text sharp.
 const SCREEN_FPS: u32 = 15;
 
-/// What a video session sends.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum VideoSource {
 	Camera,
-	/// A monitor or a window, see `calls/screen_capture.rs`.
 	Screen(ShareTarget),
 }
 
@@ -78,9 +63,6 @@ pub(crate) fn log_line(msg: &str) {
 	}
 }
 
-/// Handle to a running capture/encode/send session. Dropping it stops
-/// the background thread; the thread notices on its own timing, same as
-/// `call_audio::CallAudioState`.
 pub struct CallVideoSendState {
 	stop: Arc<AtomicBool>,
 	preferred_device: Arc<Mutex<Option<String>>>,
@@ -88,16 +70,10 @@ pub struct CallVideoSendState {
 }
 
 impl CallVideoSendState {
-	/// Switches the camera in place, without dropping the running session
-	/// wholesale from the caller's point of view - the capture thread notices
-	/// the change and reopens on the new device itself.
 	pub fn set_device(&self, name: Option<String>) {
 		*self.preferred_device.lock().unwrap() = name;
 	}
 
-	/// Asks the encoder to make its next access unit an IDR - wired to the
-	/// backend's `call_video_keyframe_request` event (WhatsApp's PLI/FIR
-	/// feedback, relayed from `OnVideoKeyframeRequest`).
 	pub fn request_keyframe(&self) {
 		self.force_keyframe.store(true, Ordering::Relaxed);
 	}
@@ -209,13 +185,11 @@ struct Session {
 	output: Output,
 }
 
-/// Where a session's pictures come from.
 enum Capture {
 	Camera { reader: IMFSourceReader, opened_symbolic_link: String },
 	Screen(ScreenCapture),
 }
 
-/// The encoder and the socket its access units go out on.
 struct Output {
 	encoder: IMFTransform,
 	codec_api: ICodecAPI,
@@ -226,9 +200,6 @@ fn pack(high: u32, low: u32) -> u64 {
 	foundation::pack_u64(high, low)
 }
 
-/// Finds the `IMFActivate` for the camera identified by `symbolic_link`,
-/// re-enumerating every time - Media Foundation hands out fresh activate
-/// objects per call and they can't usefully be cached across sessions.
 unsafe fn activate_camera_source(
 	symbolic_link: &str,
 ) -> crate::error::Result<windows::Win32::Media::MediaFoundation::IMFMediaSource> {
@@ -412,9 +383,6 @@ fn camera_loop(
 			return;
 		}
 
-		// Only "System Default" needs live-follow: an explicitly-picked
-		// device doesn't drift, it just eventually fails ReadSample below if
-		// it's unplugged, which already triggers a reopen.
 		if last_drift_check.elapsed() >= Duration::from_secs(3) {
 			last_drift_check = Instant::now();
 			let is_default = preferred_device.lock().unwrap().is_none();
@@ -428,7 +396,6 @@ fn camera_loop(
 
 		{
 			let current_pref = preferred_device.lock().unwrap().clone();
-			// Reopen if the explicit selection changed underneath us.
 			let device_matches = match &current_pref {
 				Some(name) => {
 					video_devices::resolve_camera_symbolic_link(Some(name)).as_deref() == Some(opened_symbolic_link)
@@ -471,10 +438,6 @@ fn camera_loop(
 	}
 }
 
-/// Sends the screen at `SCREEN_FPS`. Unlike a camera there's no device to
-/// follow or lose; a frame that can't be grabbed (the lock screen or a UAC
-/// prompt is up) is skipped and the viewers keep the last picture.
-/// `on_black_screen` hears when the screen starts or stops coming out black.
 fn screen_loop(
 	screen: &mut ScreenCapture,
 	output: &mut Output,
@@ -488,8 +451,6 @@ fn screen_loop(
 	let started = Instant::now();
 	let mut next_frame = started;
 	let mut grab_failing = false;
-	// A screen that's black for a moment (a video fading out, a full-screen
-	// switch) isn't worth interrupting for; one that stays black is.
 	let black_frames_to_report = SCREEN_FPS * 2;
 	let mut black_run = 0u32;
 	let mut reported_black = false;
@@ -520,7 +481,6 @@ fn screen_loop(
 				sample
 			}
 			Err(e) => {
-				// The window is gone: the session ends and says so.
 				if screen.target_gone() {
 					return;
 				}
@@ -551,8 +511,6 @@ fn screen_loop(
 	}
 }
 
-/// Grabs the screen straight into a new Media Foundation sample's buffer, and
-/// says whether what it got was a black screen.
 fn screen_sample(screen: &mut ScreenCapture, frame_bytes: usize) -> crate::error::Result<(IMFSample, bool)> {
 	unsafe {
 		let buffer = MFCreateMemoryBuffer(frame_bytes as u32)?;
@@ -570,7 +528,6 @@ fn screen_sample(screen: &mut ScreenCapture, frame_bytes: usize) -> crate::error
 	}
 }
 
-/// Runs one captured frame through the encoder and sends whatever comes out.
 fn encode(output: &mut Output, captured: &IMFSample, force_keyframe: &Arc<AtomicBool>) -> crate::error::Result<()> {
 	if force_keyframe.swap(false, Ordering::Relaxed) {
 		let _ = unsafe { output.codec_api.SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &VARIANT::from(true)) };
@@ -618,8 +575,6 @@ fn send_sample(output: &mut Output, sample: &IMFSample) -> crate::error::Result<
 		let duration_100ns = sample.GetSampleDuration().unwrap_or(0).max(0);
 		let duration_ms = (duration_100ns / 10_000) as u32;
 
-		// Written straight from the locked buffer: copying the frame out and
-		// then again behind its header was two copies of every frame.
 		let mut header = [0u8; 8];
 		header[..4].copy_from_slice(&len.to_be_bytes());
 		header[4..].copy_from_slice(&duration_ms.to_be_bytes());
@@ -637,8 +592,6 @@ mod tests {
 
 	use super::*;
 
-	/// Grabs the real screen and runs it through the real encoder, so it needs
-	/// an unlocked desktop: `cargo test screen_share_sends -- --ignored`.
 	#[test]
 	#[ignore]
 	fn screen_share_sends_h264_starting_with_a_keyframe() {

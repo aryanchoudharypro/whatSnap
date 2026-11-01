@@ -9,13 +9,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// "My contacts except..." for last seen, profile photo, About and group adds.
-// WhatsApp keeps each list keyed by LID and changes it by adding and removing
-// people (WAWebSetPrivacyJob), with the list's hash so a change made against
-// an outdated list is refused. The frontend only ever deals in the whole
-// list it wants; the diff against the server's list is worked out here.
-
-// privacyListCategories are the settings that have such a list.
 var privacyListCategories = map[string]bool{
 	string(types.PrivacySettingTypeLastSeen): true,
 	string(types.PrivacySettingTypeProfile):  true,
@@ -24,8 +17,7 @@ var privacyListCategories = map[string]bool{
 }
 
 type PrivacyListData struct {
-	Name string `json:"name"`
-	// JIDs is the whole list wanted (set_privacy_list only).
+	Name string   `json:"name"`
 	JIDs []string `json:"jids"`
 }
 
@@ -35,15 +27,11 @@ type privacyListEntry struct {
 	Phone string `json:"phone"`
 }
 
-// privacyListPerson is one person on a list, by LID and phone JID (either can
-// be empty when it isn't known).
 type privacyListPerson struct {
 	LID types.JID
 	PN  types.JID
 }
 
-// shownJID is the address the frontend knows them by: the phone JID when
-// it's known, as contacts are mostly keyed by it.
 func (p privacyListPerson) shownJID() types.JID {
 	if !p.PN.IsEmpty() {
 		return p.PN
@@ -97,12 +85,8 @@ func containsPerson(list []privacyListPerson, p privacyListPerson) bool {
 	return false
 }
 
-// privacyListChanges works out the adds and removes that turn the current
-// list into the wanted one. People are matched by LID, then by phone JID.
 func privacyListChanges(current, wanted []privacyListPerson) []types.PrivacyListChange {
 	change := func(action types.PrivacyListAction, p privacyListPerson) types.PrivacyListChange {
-		// The list is keyed by LID; a phone JID only stands in for one the
-		// server itself listed that way.
 		jid, pn := p.LID, p.PN
 		if jid.IsEmpty() {
 			jid, pn = p.PN, types.EmptyJID
@@ -125,8 +109,6 @@ func privacyListChanges(current, wanted []privacyListPerson) []types.PrivacyList
 	return changes
 }
 
-// resolvePrivacyListPerson finds someone's LID (which the list is keyed by)
-// and phone JID, asking the server for the LID when it isn't stored yet.
 func resolvePrivacyListPerson(ctx context.Context, jid types.JID) (privacyListPerson, error) {
 	jid = jid.ToNonAD()
 	person := privacyListPerson{}
@@ -166,8 +148,6 @@ func handleGetPrivacyList(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleSetPrivacyList switches a setting to "My contacts except..." with the
-// given people left out.
 func handleSetPrivacyList(raw json.RawMessage) {
 	var data PrivacyListData
 	if err := json.Unmarshal(raw, &data); err != nil || !privacyListCategories[data.Name] {
@@ -179,8 +159,6 @@ func handleSetPrivacyList(raw json.RawMessage) {
 		fail := func(err error) {
 			broadcastEvent("error", map[string]string{"message": "Couldn't save the excluded contacts: " + err.Error()})
 		}
-		// Fetched fresh each time, so the changes and hash match the list as
-		// the server has it now, even if the phone changed it meanwhile.
 		list, err := wa().GetPrivacyDisallowedList(ctx, name)
 		if err != nil {
 			fail(err)

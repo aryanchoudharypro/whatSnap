@@ -10,9 +10,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// groupInfoWrite stores what the server says about a group we're in: its
-// name and community structure, our admin rights, its size and timer. Shared
-// by the joined-groups refresh and the single-group lookup below.
 func groupInfoWrite(g *types.GroupInfo) func(tx sqlExecer) {
 	jidStr := g.JID.ToNonAD().String()
 	isAdmin := isViewerAdmin(g)
@@ -20,7 +17,6 @@ func groupInfoWrite(g *types.GroupInfo) func(tx sqlExecer) {
 	if !g.LinkedParentJID.IsEmpty() {
 		parentJID = g.LinkedParentJID.ToNonAD().String()
 	}
-	// The server's word on a group's timer is current by definition.
 	disappearing := uint32(0)
 	if g.IsEphemeral {
 		disappearing = g.DisappearingTimer
@@ -43,17 +39,8 @@ func groupInfoWrite(g *types.GroupInfo) func(tx sqlExecer) {
 	}
 }
 
-// A group can show up before anything told us its name: being added to it
-// arrives as a member change rather than a "joined" notice, its first message
-// can be handled before the notice, a history chunk can leave its subject out.
-// WhatsApp Web asks the server for that one group's metadata whenever it meets
-// a group it knows nothing about; requestGroupMetadata does the same, one
-// group at a time so a burst of them can't trip the server's rate limit.
-
 const (
-	groupMetadataSpacing = 500 * time.Millisecond
-	// A group that couldn't be looked up (left, removed, offline) isn't
-	// asked about again for a while.
+	groupMetadataSpacing    = 500 * time.Millisecond
 	groupMetadataRetryAfter = 2 * time.Minute
 )
 
@@ -65,7 +52,6 @@ var groupMetadataQueue struct {
 	running bool
 }
 
-// requestGroupMetadata queues a lookup of one group's name and settings.
 func requestGroupMetadata(jid types.JID) {
 	jid = jid.ToNonAD()
 	if jid.Server != types.GroupServer {
@@ -95,8 +81,6 @@ func runGroupMetadataQueue() {
 		q.Lock()
 		if len(q.queued) == 0 {
 			q.running = false
-			// Forget old attempts so the map doesn't grow with every group
-			// ever looked up.
 			for jid, at := range q.tried {
 				if time.Since(at) >= groupMetadataRetryAfter {
 					delete(q.tried, jid)
@@ -119,7 +103,6 @@ func runGroupMetadataQueue() {
 	}
 }
 
-// fetchGroupMetadata asks the server about one group and stores the answer.
 func fetchGroupMetadata(jid types.JID) {
 	if wa() == nil || !wa().IsLoggedIn() {
 		return

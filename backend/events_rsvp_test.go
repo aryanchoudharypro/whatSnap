@@ -17,7 +17,6 @@ func TestEventResponsesKeepEachResponderLatestAnswer(t *testing.T) {
 	openDisappearingTestDB(t)
 	const event, alice, bob = "EVT1", "1@s.whatsapp.net", "2@s.whatsapp.net"
 	storeEventResponse(db, event, alice, rsvp(waE2E.EventResponseMessage_GOING, 0, 2000), 0)
-	// An older answer delivered late doesn't replace a newer one.
 	storeEventResponse(db, event, alice, rsvp(waE2E.EventResponseMessage_NOT_GOING, 0, 1000), 0)
 	storeEventResponse(db, event, bob, rsvp(waE2E.EventResponseMessage_MAYBE, 0, 1000), 0)
 	storeEventResponse(db, event, bob, rsvp(waE2E.EventResponseMessage_GOING, 2, 3000), 0)

@@ -1,8 +1,3 @@
-//! A small PNG encoder for the pictures whatSnap makes itself (the pairing QR
-//! code and video previews): 8-bit RGBA, each row with whichever PNG filter
-//! suits it best, compressed by `deflate` below.
-
-/// Encodes `rgba` (`width * height` pixels, top row first) as a PNG.
 pub(crate) fn encode_rgba(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
 	let stride = width as usize * 4;
 	assert_eq!(rgba.len(), stride * height as usize, "pixel data doesn't match the size");
@@ -14,8 +9,6 @@ pub(crate) fn encode_rgba(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
 	for y in 0..height as usize {
 		let row = &rgba[y * stride..][..stride];
 		let above = if y == 0 { &zero_row[..] } else { &rgba[(y - 1) * stride..][..stride] };
-		// libpng's heuristic: the filter whose output bytes, read as signed,
-		// sum to the least.
 		let mut best_filter = 0u8;
 		let mut best_cost = u64::MAX;
 		for filter in 0..5u8 {
@@ -45,8 +38,6 @@ pub(crate) fn encode_rgba(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
 	let mut ihdr = Vec::with_capacity(13);
 	ihdr.extend_from_slice(&width.to_be_bytes());
 	ihdr.extend_from_slice(&height.to_be_bytes());
-	// 8 bits per channel, colour type 6 (RGBA), deflate, adaptive filtering,
-	// no interlacing.
 	ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
 	chunk(&mut png, b"IHDR", &ihdr);
 	chunk(&mut png, b"IDAT", &zlib(&filtered));
@@ -75,7 +66,6 @@ fn chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
 	png.extend_from_slice(&crc.to_be_bytes());
 }
 
-/// The CRC-32 PNG (and zip) use.
 fn crc32(data: &[u8]) -> u32 {
 	const TABLE: [u32; 256] = {
 		let mut table = [0u32; 256];
@@ -95,7 +85,6 @@ fn crc32(data: &[u8]) -> u32 {
 	!data.iter().fold(!0u32, |c, &b| TABLE[((c ^ b as u32) & 0xff) as usize] ^ (c >> 8))
 }
 
-/// `data` as a zlib stream.
 fn zlib(data: &[u8]) -> Vec<u8> {
 	let mut out = vec![0x78, 0x9c];
 	deflate(data, &mut out);
@@ -111,7 +100,6 @@ fn zlib(data: &[u8]) -> Vec<u8> {
 	out
 }
 
-/// Writes bits least significant first, as deflate packs them.
 struct BitWriter<'a> {
 	out: &'a mut Vec<u8>,
 	acc: u64,
@@ -129,7 +117,6 @@ impl BitWriter<'_> {
 		}
 	}
 
-	/// A Huffman code, which deflate stores most significant bit first.
 	fn code(&mut self, code: u32, len: u32) {
 		self.bits(code.reverse_bits() >> (32 - len), len);
 	}
@@ -146,10 +133,8 @@ impl BitWriter<'_> {
 const WINDOW: usize = 1 << 15;
 const MIN_MATCH: usize = 3;
 const MAX_MATCH: usize = 258;
-/// How many earlier positions with the same three bytes to try.
 const MAX_CHAIN: usize = 128;
 
-/// Base length and extra bits of length codes 257 to 285.
 const LENGTHS: [(u16, u8); 29] = [
 	(3, 0),
 	(4, 0),
@@ -182,7 +167,6 @@ const LENGTHS: [(u16, u8); 29] = [
 	(258, 0),
 ];
 
-/// Base distance and extra bits of distance codes 0 to 29.
 const DISTANCES: [(u16, u8); 30] = [
 	(1, 0),
 	(2, 0),
@@ -216,11 +200,8 @@ const DISTANCES: [(u16, u8); 30] = [
 	(24577, 13),
 ];
 
-/// Compresses `data` as one deflate block with the fixed Huffman codes:
-/// LZ77 matches found through hash chains, taken greedily.
 fn deflate(data: &[u8], out: &mut Vec<u8>) {
 	let mut w = BitWriter { out, acc: 0, bits: 0 };
-	// Final block, fixed codes.
 	w.bits(0b011, 3);
 	let literal = |w: &mut BitWriter, sym: u32| match sym {
 		0..=143 => w.code(0x30 + sym, 8),

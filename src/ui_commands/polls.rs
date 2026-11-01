@@ -1,7 +1,3 @@
-//! Voting in polls and quizzes: `V` on a poll asks the backend for it, and
-//! its answer (`poll_details`) opens the voting dialog here. `V` on an event
-//! answers it instead (going, maybe, not going).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -11,8 +7,6 @@ use crate::{
 	ui::{theme, window::WindowParts},
 };
 
-/// `V` on a message: if it's a poll, fetch it to vote in; if it's an event,
-/// fetch it to answer.
 pub(crate) fn open_poll_vote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message_id: String) {
 	let s = state.borrow();
 	let Some(jid) = s.selected_chat.clone() else {
@@ -36,9 +30,6 @@ pub(crate) fn open_poll_vote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// The voting dialog: radio buttons when the poll takes one answer, check
-/// boxes when it takes several, your current vote preselected. Vote sends it;
-/// in a multiple-answer poll, clearing every box takes your vote back.
 pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let str_of = |k: &str| data.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
 	let list_of = |k: &str| -> Vec<String> {
@@ -55,7 +46,6 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	if options.is_empty() {
 		return;
 	}
-	// A quiz is answered once, for good, as in WhatsApp.
 	if quiz && !selected.is_empty() {
 		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
@@ -160,7 +150,6 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending vote...");
 }
 
-/// Updates a poll's results line wherever that poll is shown.
 pub(crate) fn update_poll_results(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -178,9 +167,6 @@ pub(crate) fn update_poll_results(
 	}
 }
 
-/// Answering an event (`event_details` from the backend): going, maybe or
-/// not going, your current answer preselected, and how many guests you bring
-/// when the event allows guests.
 pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	const ANSWERS: [(&str, &str); 3] = [("Going", "going"), ("Maybe", "maybe"), ("Not going", "not_going")];
 	let str_of = |k: &str| data.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -268,8 +254,6 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending your answer...");
 }
 
-/// "Event" in the attach menu: name, description, when, where, and whether
-/// people may bring guests. The backend checks the date and time.
 pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;

@@ -1,10 +1,3 @@
-//! Opening received audio files for playback.
-//!
-//! Voice notes are Ogg Opus and go through libopus (`audio::decode_opus`).
-//! Everything else WhatsApp carries (MP3, AAC/M4A, WAV, FLAC, AMR...) is
-//! decoded by Media Foundation, which Windows already has, on a thread of
-//! its own that streams float samples to the player a few chunks ahead.
-
 use std::{
 	num::{NonZeroU16, NonZeroU32},
 	sync::mpsc::{Receiver, SyncSender, sync_channel},
@@ -33,10 +26,8 @@ use windows::{
 
 use crate::{audio::decode_opus, media::foundation};
 
-/// Decoded chunks the decoding thread may run ahead of playback.
 const CHUNKS_AHEAD: usize = 8;
 
-/// The audio file at `path`, ready to play from `start` on.
 pub(crate) fn open(path: &str, start: Duration) -> Option<Box<dyn Source + Send>> {
 	if let Some(opus) = read_ogg_opus(path) {
 		return Some(Box::new(decode_opus(&opus)?.skip_duration(start)));
@@ -44,7 +35,6 @@ pub(crate) fn open(path: &str, start: Duration) -> Option<Box<dyn Source + Send>
 	MfSource::open(path, start).map(|s| Box::new(s) as Box<dyn Source + Send>)
 }
 
-/// How long the audio file at `path` plays for.
 pub(crate) fn duration(path: &str) -> Option<Duration> {
 	if let Some(opus) = read_ogg_opus(path) {
 		return decode_opus(&opus)?.total_duration();
@@ -54,7 +44,6 @@ pub(crate) fn duration(path: &str) -> Option<Duration> {
 	unsafe { open_reader(path).ok().and_then(|reader| reader_duration(&reader)) }
 }
 
-/// The file's bytes, if it's an Ogg Opus stream.
 fn read_ogg_opus(path: &str) -> Option<Vec<u8>> {
 	use std::io::Read;
 	let mut head = [0u8; 36];
@@ -80,7 +69,6 @@ impl Drop for ComGuard {
 
 const AUDIO_STREAM: u32 = MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32;
 
-/// A Source Reader on the file's first audio stream, decoding to float PCM.
 unsafe fn open_reader(path: &str) -> windows::core::Result<IMFSourceReader> {
 	unsafe {
 		let reader = MFCreateSourceReaderFromURL(&HSTRING::from(path), None)?;
@@ -97,7 +85,6 @@ unsafe fn open_reader(path: &str) -> windows::core::Result<IMFSourceReader> {
 unsafe fn reader_duration(reader: &IMFSourceReader) -> Option<Duration> {
 	unsafe {
 		let value = reader.GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION).ok()?;
-		// In 100 ns units.
 		let ticks = PropVariantToUInt64(&value).ok()?;
 		Some(Duration::from_nanos(ticks.saturating_mul(100)))
 	}
@@ -109,9 +96,6 @@ struct Format {
 	duration: Option<Duration>,
 }
 
-/// Plays a file Media Foundation decodes. The reader lives on its own thread
-/// (COM objects stay on the thread that made them), which stops once this is
-/// dropped and its channel closes.
 struct MfSource {
 	chunks: Receiver<Vec<f32>>,
 	chunk: Vec<f32>,
@@ -134,9 +118,6 @@ impl MfSource {
 	}
 }
 
-/// Opens `path`, reports its format through `format_tx` (dropping it
-/// unsent if the file can't be decoded), then sends chunks until the end of
-/// the file or until nobody's listening.
 unsafe fn decode(path: &str, start: Duration, format_tx: &SyncSender<Format>, chunk_tx: &SyncSender<Vec<f32>>) {
 	unsafe {
 		let Ok(reader) = open_reader(path) else { return };
@@ -146,7 +127,6 @@ unsafe fn decode(path: &str, start: Duration, format_tx: &SyncSender<Format>, ch
 		let (Some(channels), Some(sample_rate)) = (channels, sample_rate) else { return };
 		let duration = reader_duration(&reader);
 		if !start.is_zero() {
-			// Positions are 100 ns units in a VT_I8.
 			let mut position = PROPVARIANT::default();
 			let inner = &mut *position.Anonymous.Anonymous;
 			inner.vt = VT_I8;
@@ -185,7 +165,6 @@ unsafe fn sample_floats(sample: &IMFSample) -> Option<Vec<f32>> {
 		let floats = if ptr.is_null() {
 			Vec::new()
 		} else {
-			// Media Foundation's buffers are aligned for any sample type.
 			std::slice::from_raw_parts(ptr as *const f32, len as usize / 4).to_vec()
 		};
 		let _ = buffer.Unlock();

@@ -18,21 +18,9 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-// A community is a parent group whose own chat carries no messages. People
-// talk in the groups linked under it: its announcements group (where only
-// admins post) and any number of member groups. The chats table records
-// which community each group belongs to (parent_jid) and which one is the
-// announcements group (is_announce_group).
-
 var (
-	joinedGroupsMu sync.RWMutex
-	// joinedGroups is the set of groups we're a member of, as of the last
-	// joined-groups refresh plus the join/leave events since. nil until the
-	// first refresh finishes.
-	joinedGroups map[string]bool
-	// subgroupParents remembers which community each listed group belongs to,
-	// so joining one we aren't in yet (and so have no chat row for) can go
-	// through its community.
+	joinedGroupsMu  sync.RWMutex
+	joinedGroups    map[string]bool
 	subgroupParents sync.Map
 )
 
@@ -55,17 +43,12 @@ func markGroupJoined(jid string, joined bool) {
 	}
 }
 
-// knownNotMember reports whether the last joined-groups refresh, plus the
-// join/leave events since, say we're not in a group. Before the first refresh
-// nothing is known and it reports false.
 func knownNotMember(jid string) bool {
 	joinedGroupsMu.RLock()
 	defer joinedGroupsMu.RUnlock()
 	return joinedGroups != nil && !joinedGroups[jid]
 }
 
-// isJoinedGroup reports whether we're a member of a group. Before the first
-// joined-groups refresh it falls back on having a chat row for it.
 func isJoinedGroup(jid string) bool {
 	joinedGroupsMu.RLock()
 	known, loaded := joinedGroups[jid], joinedGroups != nil
@@ -78,7 +61,6 @@ func isJoinedGroup(jid string) bool {
 	return n > 0
 }
 
-// communityParentOf returns the community a group belongs to, or "".
 func communityParentOf(jid string) string {
 	var parent string
 	db.QueryRow(`SELECT COALESCE(parent_jid, '') FROM chats WHERE jid = ?`, jid).Scan(&parent)
@@ -90,15 +72,12 @@ func communityParentOf(jid string) string {
 	return parent
 }
 
-// communityName is the name we show for a community.
 func communityName(jid string) string {
 	var name string
 	db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid).Scan(&name)
 	return cmp.Or(name, "community")
 }
 
-// recordGroupCommunity stores where a group sits in a community, from its
-// full group info (a join, or the group being created).
 func recordGroupCommunity(info *types.GroupInfo) {
 	parent := ""
 	if !info.LinkedParentJID.IsEmpty() {
@@ -108,11 +87,6 @@ func recordGroupCommunity(info *types.GroupInfo) {
 		boolToInt(info.IsParent), parent, boolToInt(info.IsDefaultSubGroup), info.JID.ToNonAD().String())
 }
 
-// applyCommunityLinkChange updates a group's community when it's linked into
-// or unlinked from one. WhatsApp tells the community ("sub_group": this group
-// was linked under you) and the group itself ("parent_group": you were linked
-// under this community); only the second gets a line in the chat, matching
-// the official apps.
 func applyCommunityLinkChange(v *events.GroupInfo, change *types.GroupLinkChange, linked bool) {
 	var parent, child types.JID
 	switch change.Type {
@@ -165,9 +139,6 @@ func applyCommunityLinkChange(v *events.GroupInfo, change *types.GroupLinkChange
 	insertGroupSystemMessage(childStr, fmt.Sprintf("system_%s_%d_%s", child.User, v.Timestamp.UnixNano(), suffix), text, v.Timestamp)
 }
 
-// handleGetCommunitySubGroups lists a community's groups for the Groups tab
-// of the group info dialog. Asked about a group inside a community, it lists
-// that community's groups instead, so the tab works from any of them.
 func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -189,8 +160,6 @@ func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't load the community's groups: " + err.Error()})
 			return
 		}
-		// Member counts come from a separate query, as in WhatsApp Web. The
-		// list is still worth showing without them.
 		counts, countErr := wa().GetSubGroupParticipantCounts(context.Background(), community)
 		if countErr != nil {
 			log.Printf("Couldn't get member counts for %s's groups: %v", community, countErr)
@@ -214,8 +183,6 @@ func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 				size:          cmp.Or(counts[g.JID.ToNonAD()], g.ParticipantCount),
 			})
 		}
-		// The order the official apps use: announcements, then the groups
-		// you're in, then the ones you could join.
 		rank := func(e entry) int {
 			switch {
 			case e.announcements:
@@ -249,9 +216,6 @@ func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleJoinCommunitySubgroup joins a group in a community we're a member
-// of, through the community, the way WhatsApp Web does. A group that needs
-// admin approval gets a join request instead.
 func handleJoinCommunitySubgroup(raw json.RawMessage) {
 	var data struct {
 		JID       string `json:"jid"`
@@ -287,9 +251,6 @@ func handleJoinCommunitySubgroup(raw json.RawMessage) {
 	}()
 }
 
-// communityMembers adds everyone in a community's groups to the community's
-// own participant list, which on its own holds only a few of them. Returns
-// the extra people, each flagged as a plain member.
 func communityMembers(community types.JID, known []types.GroupParticipant) []types.GroupParticipant {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

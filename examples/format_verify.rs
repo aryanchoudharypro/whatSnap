@@ -15,8 +15,6 @@ fn main() {
 
 	let qr_payload = "1@ABCD1234EFGH,IJKL5678MNOP,QRST9012UVWX";
 	let qr = qrcode::QrCode::new(qr_payload).expect("Failed to create QrCode");
-	// Rendered the way the app does: five pixels a module, four modules of
-	// quiet zone.
 	let side = (qr.width() + 8) * 5;
 	let mut data = vec![255u8; side * side * 4];
 	for (i, color) in qr.to_colors().iter().enumerate() {

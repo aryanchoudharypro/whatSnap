@@ -1,7 +1,3 @@
-//! Voice/video call helpers: message send-status ranking, the group-call
-//! roster (parsing, status text, join/leave/decline announcements), and the
-//! call window's mic/speaker device pickers.
-
 use wxdragon::prelude::*;
 
 use crate::{AppState, CallParticipant, ui::window::WindowParts};
@@ -45,16 +41,10 @@ pub(crate) fn join_names(names: &[&str]) -> String {
 	}
 }
 
-/// Whether a roster state means the person's phone is being rung right now.
-/// WhatsApp moves someone "outgoing" (offer sent) -> "receipt" (their phone
-/// is ringing) and, once the ring times out unanswered, to "invited": still
-/// welcome to join, but no longer ringing.
 pub(crate) fn is_ringing_state(state: &str) -> bool {
 	matches!(state, "outgoing" | "receipt" | "ringing")
 }
 
-/// Status line for the call window during a group call, e.g.
-/// "In group call with Asha and Ben. Ringing Chris."
 pub(crate) fn group_call_status_text(participants: &[CallParticipant]) -> String {
 	let connected: Vec<&str> =
 		participants.iter().filter(|p| p.state == "connected").map(|p| p.name.as_str()).collect();
@@ -70,8 +60,6 @@ pub(crate) fn group_call_status_text(participants: &[CallParticipant]) -> String
 	}
 }
 
-/// What changed between two group-call rosters, as screen-reader
-/// announcements ("Asha joined the call.", "Ben left the call.", ...).
 pub(crate) fn call_participant_changes(old: &[CallParticipant], new: &[CallParticipant]) -> Vec<String> {
 	let mut changes = Vec::new();
 	for p in new {
@@ -146,7 +134,6 @@ mod caller_info_tests {
 	}
 }
 
-/// incoming-call label, announcement and toast all use this.
 pub(crate) fn incoming_call_description(
 	is_group: bool,
 	is_video: bool,
@@ -193,15 +180,10 @@ pub(crate) fn peer_video_announcement(event: &str, was_on: Option<bool>, peer: O
 	}
 }
 
-/// What to announce when OUR OWN camera changes state, for the toggle button
-/// (Ctrl+Shift+V) and the menu item.
 pub(crate) fn local_camera_announcement(on: bool) -> &'static str {
 	if on { "Camera on." } else { "Camera off." }
 }
 
-/// What to announce when someone else in a group call starts or stops
-/// sharing their screen. Incoming video isn't shown, so this is all there is
-/// to it.
 pub(crate) fn peer_screen_share_announcement(name: &str, active: bool) -> String {
 	let who = if name.is_empty() { "Someone" } else { name };
 	if active {
@@ -211,11 +193,6 @@ pub(crate) fn peer_screen_share_announcement(name: &str, active: bool) -> String
 	}
 }
 
-/// What to announce when OUR OWN screen share starts or stops. A call has one
-/// video stream, so the camera going off or coming back on with the share
-/// is said in the same breath (`camera_changed`).
-/// `window` is the title of the window being shared, if it's a window and
-/// not a whole screen.
 pub(crate) fn local_screen_share_announcement(sharing: bool, window: Option<&str>, camera_changed: bool) -> String {
 	let start = match window {
 		Some(title) => format!("You're sharing a window: {title}."),
@@ -235,7 +212,6 @@ pub(crate) fn local_screen_share_announcement(sharing: bool, window: Option<&str
 pub(crate) const SYSTEM_AUDIO_ANNOUNCEMENT: &str =
 	"Your computer's sound is shared too, screen reader speech included. Muting your microphone mutes it as well.";
 
-/// mic/speaker pickers and shows them, once a call has actually connected.
 pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 	use crate::ui::dialogs::settings_dialog::set_device_combo;
 	set_device_combo(

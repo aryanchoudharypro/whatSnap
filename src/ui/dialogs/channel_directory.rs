@@ -1,9 +1,3 @@
-//! "Find channels": search WhatsApp's channel directory, or browse its
-//! recommended channels in any country or its featured channels in a
-//! category, as WhatsApp Web's Discover does, and follow or look at one. Results come back from
-//! the backend while the dialog is open (`channel_directory` events), so the
-//! dialog's parts live in AppState for as long as it's shown.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -63,17 +57,11 @@ struct DirectoryState {
 	query: String,
 	next_cursor: String,
 	loading: bool,
-	/// Set while the list shows channels like this one (its name) rather
-	/// than the directory's.
 	similar_to: Option<String>,
-	/// Whose channels are listed (ISO code); empty until the first answer
-	/// says which country is ours.
 	country: String,
-	/// The category listed, or empty for recommended channels.
 	category: String,
 }
 
-/// The open "Find channels" dialog.
 pub struct ChannelDirectory {
 	pub dialog: Dialog,
 	list: ListBox,
@@ -117,8 +105,6 @@ impl ChannelDirectory {
 		crate::platform::announce::announce(self.announcer, &loading);
 	}
 
-	/// Lists channels like the given one, as the official apps suggest on a
-	/// channel's info.
 	pub fn request_similar(&self, jid: &str, name: &str) {
 		let mut s = self.state.borrow_mut();
 		s.loading = true;
@@ -132,13 +118,11 @@ impl ChannelDirectory {
 		crate::platform::announce::announce(self.announcer, &format!("Loading channels like {}...", name));
 	}
 
-	/// Shows a page of results from the backend.
 	pub fn apply(&self, data: &serde_json::Value) {
 		let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
 		let append = data.get("append").and_then(|a| a.as_bool()).unwrap_or(false);
 		let mut s = self.state.borrow_mut();
 		s.loading = false;
-		// The first answer names our own country; show it as the chosen one.
 		let country = text(data, "country");
 		if s.country.is_empty() && !country.is_empty() {
 			s.country = country.clone();
@@ -149,7 +133,6 @@ impl ChannelDirectory {
 		let stale_filter = text(data, "category") != s.category
 			|| (!s.country.is_empty() && !country.is_empty() && country != s.country);
 		if text(data, "query") != s.query || (s.similar_to.is_none() && stale_filter) {
-			// An answer to an older search the user has since replaced.
 			return;
 		}
 		let page: Vec<Entry> = data
@@ -202,7 +185,6 @@ impl ChannelDirectory {
 		crate::platform::announce::announce(self.announcer, &message);
 	}
 
-	/// Updates a row after following or unfollowing from anywhere.
 	pub fn set_following(&self, jid: &str, following: bool) {
 		let mut s = self.state.borrow_mut();
 		if let Some(idx) = s.entries.iter().position(|e| e.jid == jid) {
@@ -224,8 +206,6 @@ impl ChannelDirectory {
 	}
 }
 
-/// Builds and shows the dialog, and returns once it's closed. `store` keeps
-/// it reachable for incoming results while it's open.
 pub fn show_channel_directory(
 	parent: &impl WxWidget,
 	ws_tx: std::sync::mpsc::Sender<String>,
@@ -248,8 +228,6 @@ pub fn show_channel_directory(
 		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::ProcessEnter)).build();
 	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
-	// Where the channels come from, as in WhatsApp Web's Discover: a country
-	// and, optionally, one category of featured channels.
 	let filters = BoxSizer::builder(Orientation::Horizontal).build();
 	let country_label = StaticText::builder(&panel).with_label("Country:").build();
 	let country_names: Vec<&str> = COUNTRIES.iter().map(|(_, name)| *name).collect();
@@ -286,7 +264,6 @@ pub fn show_channel_directory(
 	let follow_btn = Button::builder(&panel).with_label("Follow").build();
 	let more_btn = Button::builder(&panel).with_label("More channels").build();
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	// Follow is the main thing to do here, so it's the green one.
 	for (i, button) in [&view_btn, &follow_btn, &more_btn].into_iter().enumerate() {
 		dialog_look::pill_button(button, i == 1, theme::Palette::CONTENT_BG());
 		buttons.add(button, 0, SizerFlag::Right, 6);
@@ -316,8 +293,6 @@ pub fn show_channel_directory(
 	});
 	store(Some(directory.clone()));
 
-	// Searches only on Enter: each search is a request to WhatsApp's
-	// servers, so not one per keystroke.
 	let dir_search = directory.clone();
 	search_field.on_text_enter(move |_| {
 		dir_search.dialog.set_label("Find channels");
@@ -333,11 +308,6 @@ pub fn show_channel_directory(
 			dir_more.request(&query, &cursor);
 		}
 	});
-	// Changing either filter lists that country's or category's channels
-	// again, leaving any search. Arrowing through a list changes the choice
-	// on every key, so the list is only asked for once the choice has
-	// settled, and only if it really changed: one request, not one per
-	// country passed on the way.
 	let settle = Rc::new(Timer::new(&dialog));
 	let dir_settle = directory.clone();
 	settle.on_tick(move |_| {
@@ -363,7 +333,6 @@ pub fn show_channel_directory(
 				s.country = country;
 			}
 			s.category = category;
-			// A new filter replaces whatever was still loading.
 			s.loading = false;
 		}
 		dir_settle.dialog.set_label("Find channels");
@@ -394,8 +363,6 @@ pub fn show_channel_directory(
 	view_btn.on_click(move |_| view_click());
 	let view_double = view.clone();
 	list.on_item_double_clicked(move |_| view_double());
-	// Enter on a row: caught on key-up, since the dialog takes Enter's
-	// key-down for its default button.
 	let view_enter = view.clone();
 	crate::ui::keys::on_enter(&list, std::rc::Rc::default(), move || view_enter());
 

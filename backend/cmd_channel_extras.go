@@ -15,18 +15,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// What a channel's owner and admins see beyond posting: pinned posts, who
-// reacted to a post and who voted in a poll, and the admin invites still
-// waiting. Plus the similar channels anyone sees on a channel's info.
-
-// channelPostRef names a post in a channel by its stored message ID.
 type channelPostRef struct {
 	JID       string `json:"jid"`
 	MessageID string `json:"message_id"`
 }
 
-// channelPost resolves a post reference to the channel and the post's
-// server ID, which everything about channel posts goes by.
 func channelPost(ref channelPostRef) (types.JID, types.MessageServerID, bool) {
 	jid, err := types.ParseJID(ref.JID)
 	if err != nil || jid.Server != types.NewsletterServer {
@@ -37,8 +30,6 @@ func channelPost(ref channelPostRef) (types.JID, types.MessageServerID, bool) {
 	return jid, types.MessageServerID(serverID), serverID != 0
 }
 
-// channelPersonName is who someone in a channel is to us: a contact's name,
-// else their number, when the server gives one.
 func channelPersonName(jid types.JID) string {
 	pn := preferPN(jid)
 	for _, candidate := range []types.JID{pn, jid} {
@@ -52,7 +43,6 @@ func channelPersonName(jid types.JID) string {
 	return "Someone not in your contacts"
 }
 
-// refreshChannelPins reads which posts are pinned from the channel's info.
 func refreshChannelPins(ctx context.Context, jid types.JID) {
 	meta, err := wa().GetNewsletterInfo(ctx, jid)
 	if err != nil || meta == nil {
@@ -64,18 +54,11 @@ func refreshChannelPins(ctx context.Context, jid types.JID) {
 	storeChannelPins(jid.String(), meta.ThreadMeta.PinnedMessages)
 }
 
-// serverFlags are the server's feature flags for this account, so whatSnap only
-// offers what the server has turned on. whatsmeow fetches them after
-// connecting, and only when the server says they changed, as the official
-// apps do; this takes whatever it holds rather than asking a second time.
 var (
 	serverFlagsMu sync.RWMutex
 	serverFlags   whatsmeow.ABProps
 )
 
-// refreshServerFlags runs on each connect and whenever whatsmeow fetched a
-// new set. Right after the first connect there is nothing cached yet; the
-// fetch that follows brings it back here.
 func refreshServerFlags() {
 	props := wa().CachedABProps()
 	if len(props) == 0 {
@@ -88,16 +71,12 @@ func refreshServerFlags() {
 	broadcastEvent("server_flags", serverFlagsPayload())
 }
 
-// channelPinningEnabled is whether the server lets us pin posts in our
-// channels (off by default, as in WhatsApp Web).
 func channelPinningEnabled() bool {
 	serverFlagsMu.RLock()
 	defer serverFlagsMu.RUnlock()
 	return serverFlags.Bool(whatsmeow.ABPropChannelsPinAdminEnabled, false)
 }
 
-// serverFlagInt reads a number flag, with def when the server didn't send it
-// (WhatsApp Web falls back to the flag's own default the same way).
 func serverFlagInt(code, def int) int {
 	serverFlagsMu.RLock()
 	defer serverFlagsMu.RUnlock()
@@ -111,7 +90,6 @@ func serverFlagsPayload() map[string]interface{} {
 	return map[string]interface{}{"channelPinning": channelPinningEnabled()}
 }
 
-// handlePinChannelPost pins or unpins a post in a channel we own or run.
 func handlePinChannelPost(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		channelPostRef
@@ -148,7 +126,6 @@ func handlePinChannelPost(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 		db.Exec(`UPDATE messages SET channel_pinned = ? WHERE id = ?`, boolToInt(data.Pin), data.MessageID)
-		// What the server now has pinned, in case pinning replaced another.
 		refreshChannelPins(ctx, jid)
 		what := "Post pinned."
 		if !data.Pin {
@@ -159,7 +136,6 @@ func handlePinChannelPost(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleGetChannelReactions lists who reacted to a post, by emoji.
 func handleGetChannelReactions(conn net.Conn, raw json.RawMessage) {
 	var data channelPostRef
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -194,11 +170,8 @@ func handleGetChannelReactions(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// channelPollVotersLimit is how many voters are listed for each option.
 const channelPollVotersLimit = 100
 
-// handleGetChannelPollVoters lists who voted for each option of a poll in a
-// channel we own or run.
 func handleGetChannelPollVoters(conn net.Conn, raw json.RawMessage) {
 	var data channelPostRef
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -234,8 +207,6 @@ func handleGetChannelPollVoters(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleGetChannelPendingInvites lists the admin invites of our channel no
-// one has accepted yet.
 func handleGetChannelPendingInvites(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -265,11 +236,8 @@ func handleGetChannelPendingInvites(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// similarChannelsLimit is how many similar channels are suggested.
 const similarChannelsLimit = 20
 
-// handleGetSimilarChannels lists channels like one, answered as a page of
-// the channel directory so the Find channels list can show them.
 func handleGetSimilarChannels(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -304,7 +272,6 @@ func handleGetSimilarChannels(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// forwardedChannelInfo says which channel a forwarded post came from.
 func forwardedChannelInfo(channelJID, messageID string) *waE2E.ContextInfo_ForwardedNewsletterMessageInfo {
 	var serverID int64
 	var name string
@@ -323,7 +290,6 @@ func forwardedChannelInfo(channelJID, messageID string) *waE2E.ContextInfo_Forwa
 	return info
 }
 
-// mediaPart is a message's media, or nil if it has none.
 func mediaPart(msg *waE2E.Message) whatsmeow.DownloadableMessage {
 	switch {
 	case msg.GetImageMessage() != nil:
@@ -340,9 +306,6 @@ func mediaPart(msg *waE2E.Message) whatsmeow.DownloadableMessage {
 	return nil
 }
 
-// reuploadMedia downloads a message's media and uploads it again, for a
-// channel (unencrypted, named by the returned handle) or for a chat
-// (encrypted), and points the message at the new copy.
 func reuploadMedia(ctx context.Context, msg *waE2E.Message, toChannel bool) (string, error) {
 	media := mediaPart(msg)
 	if media == nil {

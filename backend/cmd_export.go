@@ -17,13 +17,9 @@ import (
 
 type ExportChatData struct {
 	JID      string `json:"jid"`
-	DestPath string `json:"dest_path"` // .zip file to write: transcript.txt + media/
+	DestPath string `json:"dest_path"`
 }
 
-// downloadMediaForExportSync blocks until a message's media is on disk (using
-// whatever's already cached) or gives up. It mirrors handleDownloadMedia's
-// "URL expired -> ask the phone to re-upload -> wait" retry, but synchronous
-// and silent: export just needs a yes/no per message, not progress events.
 func downloadMediaForExportSync(messageID string) (path string, ok bool) {
 	var cached string
 	db.QueryRow("SELECT COALESCE(media_path, '') FROM messages WHERE id = ?", messageID).Scan(&cached)
@@ -57,7 +53,6 @@ func downloadMediaForExportSync(messageID string) (path string, ok bool) {
 			if !success {
 				return "", false
 			}
-			// loop again to download the now-fresh media
 		case <-time.After(45 * time.Second):
 			retryWaitersMu.Lock()
 			delete(retryWaiters, messageID)
@@ -78,7 +73,6 @@ func handleExportChat(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	// Advanced chat privacy stops anyone in the chat exporting it.
 	if chatSharingLimited(jid.String()) {
 		broadcastEvent("error", map[string]string{"message": chatPrivacyName(jid.String()) + " is on in this chat, so it can't be exported."})
 		return
@@ -160,8 +154,6 @@ func handleExportChat(conn net.Conn, raw json.RawMessage) {
 
 			if r.mediaType != "" {
 				if path, ok := downloadMediaForExportSync(r.id); ok {
-					// Streamed into the archive rather than read whole: a chat's
-					// videos would otherwise each sit fully in memory in turn.
 					if f, openErr := os.Open(path); openErr == nil {
 						entryName := "media/" + sanitizeFilenameComponent(r.id) + extForFilePath(path)
 						if w, zerr := zw.Create(entryName); zerr == nil {
@@ -201,15 +193,9 @@ func handleExportChat(conn net.Conn, raw json.RawMessage) {
 
 type ExportChatTextData struct {
 	JID      string `json:"jid"`
-	DestPath string `json:"dest_path"` // .md file to write
+	DestPath string `json:"dest_path"`
 }
 
-// handleExportChatText writes a text-only Markdown transcript: no media is
-// downloaded (fast, works offline), each calendar date is an H2 heading, and
-// every message is one line "**Sender**, HH:MM — content". Deleted messages
-// render "This message was deleted"; media collapses to a placeholder
-// ([ptt] for voice, [file] for documents, [media] for everything else), with
-// any caption text kept after it.
 func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 	var data ExportChatTextData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -220,7 +206,6 @@ func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	// Advanced chat privacy stops anyone in the chat exporting it.
 	if chatSharingLimited(jid.String()) {
 		broadcastEvent("error", map[string]string{"message": chatPrivacyName(jid.String()) + " is on in this chat, so it can't be exported."})
 		return
@@ -279,18 +264,13 @@ func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 				content = text
 			}
 
-			// Nothing worth a line (e.g. a protocol/placeholder message with no
-			// text and no media) - skip it rather than emit an empty entry.
 			if strings.TrimSpace(content) == "" {
 				continue
 			}
-			// Keep one message per line so the "Sender, time — text" shape holds.
 			content = strings.ReplaceAll(content, "\r\n", " ")
 			content = strings.ReplaceAll(content, "\n", " ")
 
 			if date := t.Format("01/02/06"); date != lastDate {
-				// First date has no leading blank line so the file opens directly
-				// on the heading; later dates get a separating blank line.
 				if lastDate == "" {
 					fmt.Fprintf(&md, "# %s\n\n", date)
 				} else {
@@ -328,9 +308,6 @@ func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// extForFilePath pulls the extension straight off a cached media file's own
-// path rather than re-deriving it from mimetype, since that's exactly the
-// extension ensureMediaCached/downloadMessageMediaToFile already chose for it.
 func extForFilePath(path string) string {
 	for i := len(path) - 1; i >= 0; i-- {
 		if path[i] == '.' {

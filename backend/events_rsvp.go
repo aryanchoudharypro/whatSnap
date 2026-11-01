@@ -17,19 +17,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Events and their RSVPs. An RSVP is sealed with the event's message secret
-// like a poll vote, and each responder's latest answer replaces their
-// earlier one, so event_responses keeps one row per event and responder. The
-// tally is shown after the event the way a poll's results are (the
-// pollResults line), and V on an event answers it.
-
-// eventRSVP is one responder's answer.
 type eventRSVP struct {
 	response    waE2E.EventResponseMessage_EventResponseType
 	extraGuests int
 }
 
-// eventResponseNames maps the RSVP names the frontend sends to their types.
 var eventResponseNames = map[string]waE2E.EventResponseMessage_EventResponseType{
 	"going":     waE2E.EventResponseMessage_GOING,
 	"not_going": waE2E.EventResponseMessage_NOT_GOING,
@@ -45,7 +37,6 @@ func eventResponseName(r waE2E.EventResponseMessage_EventResponseType) string {
 	return ""
 }
 
-// loadEvent reads a stored event back from its message.
 func loadEvent(eventID string) (*waE2E.EventMessage, bool) {
 	var raw []byte
 	if db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, eventID).Scan(&raw) != nil || len(raw) == 0 {
@@ -74,7 +65,6 @@ func storeEventResponse(ex sqlExecer, eventID, responder string, resp *waE2E.Eve
 	}
 }
 
-// eventResponses returns each responder's current answer.
 func eventResponses(eventID string) map[string]eventRSVP {
 	responses := map[string]eventRSVP{}
 	rows, err := db.Query(`SELECT responder, response, extra_guests FROM event_responses WHERE event_id = ?`, eventID)
@@ -93,8 +83,6 @@ func eventResponses(eventID string) map[string]eventRSVP {
 	return responses
 }
 
-// eventResponsesText is the line shown after an event: how many are going
-// (guests they bring included), maybe and not going, and your own answer.
 func eventResponsesText(responses map[string]eventRSVP, me string) string {
 	var going, guests, maybe, notGoing int
 	for _, r := range responses {
@@ -130,8 +118,6 @@ func eventResponsesText(responses map[string]eventRSVP, me string) string {
 	return text
 }
 
-// eventResultsForMessage is the RSVP line for a stored event ("" if id isn't
-// one, or it's cancelled).
 func eventResultsForMessage(id string) string {
 	event, ok := loadEvent(id)
 	if !ok || event.GetIsCanceled() {
@@ -140,17 +126,12 @@ func eventResultsForMessage(id string) string {
 	return eventResponsesText(eventResponses(id), ownVoterKey())
 }
 
-// decryptEventResponse decrypts an RSVP even when it arrived wrapped
-// (ephemeral, device-sent...): DecryptEventResponse only looks at the
-// top-level message.
 func decryptEventResponse(v *events.Message) (*waE2E.EventResponseMessage, error) {
 	evt := *v
 	evt.Message = unwrapMessage(v.Message)
 	return wa().DecryptEventResponse(context.Background(), &evt)
 }
 
-// applyEventResponse handles a live RSVP: decrypt it with the event's
-// secret, record it, and refresh the event's tally.
 func applyEventResponse(v *events.Message) {
 	eventID := unwrapMessage(v.Message).GetEncEventResponseMessage().GetEventCreationMessageKey().GetID()
 	resp, err := decryptEventResponse(v)
@@ -163,8 +144,6 @@ func applyEventResponse(v *events.Message) {
 	broadcastPollResults(chat.String(), eventID)
 }
 
-// historyEventResponses records the RSVPs history sync delivers with an
-// event - already decrypted, one per responder.
 func historyEventResponses(exec sqlExecer, chat types.JID, webMsg *waWeb.WebMessageInfo) {
 	eventID := webMsg.GetKey().GetID()
 	for _, er := range webMsg.GetEventResponses() {
@@ -195,8 +174,6 @@ type EventRefData struct {
 	ExtraGuests int    `json:"extra_guests"`
 }
 
-// handleGetEvent sends the frontend an event and our current answer, for
-// the RSVP dialog.
 func handleGetEvent(conn net.Conn, raw json.RawMessage) {
 	var data EventRefData
 	if json.Unmarshal(raw, &data) != nil {
@@ -229,8 +206,6 @@ func handleGetEvent(conn net.Conn, raw json.RawMessage) {
 	})
 }
 
-// handleSendEventResponse answers an event: going, not going or maybe,
-// optionally bringing guests when the event allows it.
 func handleSendEventResponse(conn net.Conn, raw json.RawMessage) {
 	var data EventRefData
 	if json.Unmarshal(raw, &data) != nil {
@@ -288,8 +263,6 @@ type SendEventData struct {
 	JID         string `json:"jid"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// Date and Time are as typed: "2026-10-05" and "18:30", local time. An
-	// event with no date has no start time; a date alone starts at midnight.
 	Date        string `json:"date"`
 	Time        string `json:"time"`
 	Location    string `json:"location"`
@@ -298,7 +271,6 @@ type SendEventData struct {
 	ReplySender string `json:"reply_to_sender"`
 }
 
-// parseEventStart reads the date and time typed for an event, in local time.
 func parseEventStart(date, clock string, loc *time.Location) (time.Time, error) {
 	date, clock = strings.TrimSpace(date), strings.TrimSpace(clock)
 	if date == "" {
@@ -332,7 +304,6 @@ func parseEventStart(date, clock string, loc *time.Location) (time.Time, error) 
 	return time.Date(day.Year(), day.Month(), day.Day(), at.Hour(), at.Minute(), 0, 0, loc), nil
 }
 
-// handleSendEvent creates an event in a chat.
 func handleSendEvent(conn net.Conn, raw json.RawMessage) {
 	var data SendEventData
 	if err := json.Unmarshal(raw, &data); err != nil {

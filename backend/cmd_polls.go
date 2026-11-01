@@ -15,8 +15,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// WhatsApp Web's poll limits (WAWebPollsGatingUtils, AB props poll_name_length,
-// poll_option_length and poll_option_count at their defaults).
 const (
 	pollMaxQuestionLen = 255
 	pollMaxOptionLen   = 100
@@ -24,15 +22,6 @@ const (
 	pollMaxOptions     = 12
 )
 
-// buildPoll validates a poll the way WhatsApp Web's composer does and builds
-// its message with whatsmeow's BuildPollCreation. WhatsApp Web sends a
-// multiple-answer poll in the original pollCreationMessage field and a
-// single-answer one in pollCreationMessageV3
-// (WAWebPollsGeneratePollCreationMessageProto); BuildPollCreation always uses
-// the original field, so a single-answer poll is moved over.
-//
-// A non-empty correctAnswer makes it a quiz (single answer), built with
-// BuildQuizPollCreation.
 func buildPoll(question string, options []string, multipleAnswers bool, correctAnswer string) (*waE2E.Message, error) {
 	question = strings.TrimSpace(question)
 	if question == "" {
@@ -108,9 +97,6 @@ func handleSendPoll(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// startSendingBuiltMessage stores and announces an outgoing non-media message
-// that is sent as built (a poll or contact card) as "pending", keeping the
-// message itself with the row so a retry can send exactly it again.
 func startSendingBuiltMessage(id string, jid types.JID, msg *waE2E.Message, displayText, quotedID, quotedText, quotedSender string) {
 	senderJID := ""
 	if wa().Store.ID != nil {
@@ -145,8 +131,6 @@ func startSendingBuiltMessage(id string, jid types.JID, msg *waE2E.Message, disp
 	broadcastChats()
 }
 
-// finishSendingBuiltMessage sends a message stored by
-// startSendingBuiltMessage and marks its row sent or failed.
 func finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE2E.Message, displayText string) {
 	// The same in-flight claim the text path uses, so a manual retry and the
 	// background sweep can never send this twice at once.

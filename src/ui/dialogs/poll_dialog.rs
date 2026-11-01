@@ -5,8 +5,6 @@ use crate::ui::{
 	theme,
 };
 
-/// Every constructed widget is kept here for consistency even if not all of
-/// them are read back after construction (e.g. static labels).
 #[allow(dead_code)]
 pub struct PollDialogParts {
 	pub dialog: Dialog,
@@ -50,8 +48,6 @@ pub fn build_poll_dialog(parent: &impl WxWidget) -> PollDialogParts {
 	dialog_look::switch(&multiple_check, theme::Palette::CONTENT_BG());
 	sizer.add(&multiple_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	// A quiz has one right answer, asked for on Send; it takes one answer,
-	// so "Allow multiple answers" goes grey while it's on.
 	let quiz_check = CheckBox::builder(&panel).with_label("Quiz (one correct answer)").build();
 	dialog_look::switch(&quiz_check, theme::Palette::CONTENT_BG());
 	sizer.add(&quiz_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
@@ -71,8 +67,6 @@ pub fn build_poll_dialog(parent: &impl WxWidget) -> PollDialogParts {
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	// Escape cancels from any field, the options box included (a multi-line
-	// edit would otherwise keep it).
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	PollDialogParts { dialog, question_field, options_field, multiple_check, quiz_check, send_btn, cancel_btn }

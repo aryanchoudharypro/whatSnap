@@ -29,7 +29,6 @@ func TestViewOnceOpensOnceThenIsGone(t *testing.T) {
 	if _, _, _, _, err := ensureMediaCached("vo"); err == nil {
 		t.Fatal("opened view-once media could be fetched again")
 	}
-	// A redelivered copy can't make it openable again.
 	markViewOnce(db, "vo")
 	if viewOnceState("vo") != viewOnceOpened {
 		t.Fatal("re-marking reset an opened view-once message")

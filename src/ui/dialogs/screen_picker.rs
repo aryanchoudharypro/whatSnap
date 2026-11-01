@@ -1,6 +1,3 @@
-//! "Share screen": what to share, asked when a screen share starts - each
-//! monitor, or one application window, like WhatsApp Web's own picker.
-
 use std::rc::Rc;
 
 use wxdragon::prelude::*;
@@ -10,8 +7,6 @@ use crate::{
 	ui::{dialog_look, theme},
 };
 
-/// Shows the picker and returns what was chosen, or `None` if it was cancelled.
-/// The first choice, the main screen, is selected to start with.
 pub fn pick_share_target(parent: &impl WxWidget) -> Option<ShareChoice> {
 	let choices = share_choices();
 	let dialog = Dialog::builder(parent, "Share screen")

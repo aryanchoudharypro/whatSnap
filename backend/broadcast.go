@@ -25,8 +25,6 @@ func broadcastEvent(evtType string, data interface{}) {
 }
 
 func sendEvent(conn net.Conn, evtType string, data interface{}) {
-	// Encoded before taking wsMutex: marshalling a chat's history is the
-	// slow part, and nothing else could write to the pipe meanwhile.
 	line := encodeEvent(evtType, data)
 	if line == nil {
 		return
@@ -36,21 +34,11 @@ func sendEvent(conn net.Conn, evtType string, data interface{}) {
 	writeWithDeadline(conn, line)
 }
 
-// encodeEvent builds one newline-terminated {"type":..,"data":..} line.
-//
-// Assembled by hand rather than marshalling an Event: the payload is already
-// valid JSON once marshalled, so json.Marshal(evt) would copy the whole thing a
-// second time purely to wrap it, and a trailing append could copy it a third.
-// On a chat's full history that is tens of MB per copy. evtType still goes
-// through Marshal so it stays correctly escaped, and the empty-data case
-// matches Event's `omitempty`.
 func encodeEvent(evtType string, data interface{}) []byte {
 	var raw []byte
 	if data != nil {
 		bytes, err := json.Marshal(data)
 		if err != nil {
-			// Still send the bare event rather than dropping it, so the UI's
-			// dispatch is unchanged - but say so, it used to fail silently.
 			log.Println("encodeEvent: failed to marshal", evtType, "payload:", err)
 		} else {
 			raw = bytes
@@ -70,9 +58,6 @@ func encodeEvent(evtType string, data interface{}) []byte {
 	return append(buf, '}', '\n')
 }
 
-// pipeWriteTimeout bounds one write to the frontend. Writes happen under
-// wsMutex, so a frontend that stopped reading (a hung UI thread) used to block
-// every goroutine in the backend that tried to send anything, indefinitely.
 const pipeWriteTimeout = 15 * time.Second
 
 // writeWithDeadline writes buf to conn, dropping the connection if the
@@ -87,13 +72,8 @@ func writeWithDeadline(conn net.Conn, buf []byte) {
 	}
 }
 
-// broadcastChats re-reads the local chat list cache and pushes it to every
-// connected client. Display-name / pinned / muted / archived resolution is
-// centralized in resolveDisplayName and the chat-settings lookup below so
-// this and get_chats can't drift apart.
 var (
-	chatBroadcastTimer *time.Timer
-	// When the oldest not-yet-sent request arrived; zero when none is pending.
+	chatBroadcastTimer        *time.Timer
 	chatBroadcastPendingSince time.Time
 )
 
@@ -136,18 +116,16 @@ func broadcastChats() {
 // and re-sent after every message (debounced to 200ms), and a map meant a Go
 // map plus a boxed value per field of every chat each time.
 type ChatListEntry struct {
-	JID            string
-	FullName       string
-	Timestamp      int64
-	UnreadCount    int
-	Pinned         bool
-	Muted          bool
-	PreviewSnippet string
-	Archived       bool
-	PreviewSender  string
-	PreviewFromMe  bool
-	// PreviewStatus is your last message's ticks (sent, delivered, read...),
-	// drawn before it in the chat list.
+	JID                  string
+	FullName             string
+	Timestamp            int64
+	UnreadCount          int
+	Pinned               bool
+	Muted                bool
+	PreviewSnippet       string
+	Archived             bool
+	PreviewSender        string
+	PreviewFromMe        bool
 	PreviewStatus        string
 	PreviewIsReaction    bool
 	PreviewReactionEmoji string
@@ -159,18 +137,11 @@ type ChatListEntry struct {
 	CommunityName        string
 	IsChannel            bool
 	ChannelRole          string
-	// AdminsOnly is a group where only admins can send messages, and
-	// NotMember one we've left or been removed from.
-	AdminsOnly bool
-	NotMember  bool
-	// IsBusiness is a WhatsApp Business account's chat: only those have a
-	// catalogue to browse.
-	IsBusiness bool
+	AdminsOnly           bool
+	NotMember            bool
+	IsBusiness           bool
 }
 
-// buildChatsList is the shared query+formatting logic behind both
-// broadcastChats (pushed to everyone) and the get_chats command (requested
-// by one client). Keeping this in one place means the two can't drift.
 func buildChatsList() []ChatListEntry {
 	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, ''), COALESCE(admins_only, 0),
 		CASE WHEN COALESCE(preview_from_me, 0) = 1 THEN COALESCE((SELECT m.status FROM messages m WHERE m.jid = chats.jid AND m.from_me = 1 ORDER BY m.timestamp DESC LIMIT 1), '') ELSE '' END
@@ -181,7 +152,6 @@ func buildChatsList() []ChatListEntry {
 	}
 	defer rows.Close()
 
-	// Community names, for labelling the groups inside each one.
 	communityNames := map[string]string{}
 	if nameRows, nameErr := db.Query(`SELECT jid, COALESCE(name, '') FROM chats WHERE COALESCE(is_community, 0) = 1`); nameErr == nil {
 		for nameRows.Next() {
@@ -195,8 +165,6 @@ func buildChatsList() []ChatListEntry {
 
 	businessJIDs := businessContactJIDs()
 
-	// Preview senders repeat across chats (you, and the busiest people in
-	// your groups); each resolveDisplayName is several store lookups.
 	senderNames := map[string]string{}
 	settingsByChat := allChatSettings()
 	chats := []ChatListEntry{}
@@ -233,8 +201,6 @@ func buildChatsList() []ChatListEntry {
 
 		parsedJID, errJid := types.ParseJID(jid)
 		if errJid == nil {
-			// A group is named by its own subject, kept in the chats
-			// table; only people (and channels) need resolving.
 			if parsedJID.Server != types.GroupServer {
 				resolved := cachedDisplayName(parsedJID)
 				if resolved != parsedJID.String() {
@@ -251,8 +217,6 @@ func buildChatsList() []ChatListEntry {
 				if chatSettings.Pinned {
 					pinned = 1
 				}
-				// The synced mute end decides, not the stored flag: a mute "for 8
-				// hours" ends by itself, with no unmute ever sent.
 				muted = 0
 				if !chatSettings.MutedUntil.IsZero() && chatSettings.MutedUntil.After(time.Now()) {
 					muted = 1

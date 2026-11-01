@@ -12,11 +12,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// Settings WhatsApp Web keeps on the device rather than the account, with
-// its defaults: media auto-download (WAWebUserPrefsGeneral; the web app's
-// reset gives photos and audio on, videos and documents off), upload quality
-// (WAWebChatPreferenceModel hdMediaEnabled, off) and security notifications
-// (WAWebUserPrefsNotifications, on). Kept in app_settings.
 var appPrefDefaults = map[string]bool{
 	"auto_download_photos":    true,
 	"auto_download_audio":     true,
@@ -46,10 +41,6 @@ func handleGetAppPrefs(conn net.Conn) {
 	sendEvent(conn, "app_prefs", appPrefsPayload())
 }
 
-// handleSetAppPrefs saves the prefs given. "Turn off link previews" is the
-// account's own setting, so it goes to the phone and other devices as an
-// app state change (WAWebDisableLinkPreviewsAction) and is only kept once
-// that's accepted.
 func handleSetAppPrefs(raw json.RawMessage) {
 	var data map[string]bool
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -64,7 +55,6 @@ func handleSetAppPrefs(raw json.RawMessage) {
 			db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, "pref:"+name, boolToInt(v))
 		}
 	}
-	// WhatsApp's desktop apps share the auto-download and HD switches.
 	syncAppPrefs(changed)
 	off, ok := data["link_previews_disabled"]
 	if !ok || off == linkPreviewsDisabled() {
@@ -80,9 +70,6 @@ func handleSetAppPrefs(raw json.RawMessage) {
 	}()
 }
 
-// WhatsApp Web's auto-download limits (WAWebMediaAutoDownloadQueue): photos,
-// videos and documents up to 32 MB, audio under 512 KB, and a GIF under
-// 500 KB counts as a photo. At most 5 download at once.
 const (
 	autoDownloadMaxSize   = 32 << 20
 	autoDownloadAudioMax  = 512 << 10
@@ -93,9 +80,6 @@ const (
 
 var autoDownloadSlots = make(chan struct{}, autoDownloadParallel)
 
-// autoDownloadPref names the setting that covers a new message's media, or
-// "" when it isn't downloaded by itself. Voice messages and stickers always
-// are (see autoDownloadVoiceNote), as WhatsApp says of voice messages.
 func autoDownloadPref(mediaType string, size int64, gif bool) string {
 	switch mediaType {
 	case "image":
@@ -154,7 +138,6 @@ func maybeAutoDownload(msg *waE2E.Message, info types.MessageInfo, jid, mediaTyp
 			autoDownloadPending--
 			autoDownloadMu.Unlock()
 		}()
-		// The setting may have been turned off while this waited.
 		if appPref(pref) {
 			downloadMediaNow(MessageRefData{MessageID: info.ID, JID: jid}, true)
 		}

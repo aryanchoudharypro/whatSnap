@@ -7,10 +7,6 @@ import (
 	"time"
 )
 
-// sendEvent assembles its envelope by hand instead of marshalling an Event, to
-// avoid copying a large payload a second time. That hand-written framing has
-// to stay byte-identical to what json.Marshal(Event{...}) produced, since every
-// event the UI receives goes through it.
 func envelopeFor(t *testing.T, evtType string, data interface{}) []byte {
 	t.Helper()
 	server, client := net.Pipe()
@@ -56,7 +52,6 @@ func TestSendEventMatchesMarshalledEnvelope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := envelopeFor(t, tc.evtType, tc.data)
 
-			// What the previous implementation produced.
 			var raw json.RawMessage
 			if tc.data != nil {
 				b, err := json.Marshal(tc.data)

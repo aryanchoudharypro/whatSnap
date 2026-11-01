@@ -1,19 +1,3 @@
-//! The status viewer: WhatsApp Web's full-screen status player, built from
-//! native controls. It plays the Status tab's updates in the tab's order,
-//! one after another (a photo or text for a few seconds, a video to its
-//! end), and offers what WhatsApp Web does around them: reply, react, open
-//! the chat, mute the poster, and for our own updates who saw them (with
-//! their reactions) and delete. Photos and videos are shown in the window;
-//! nothing is handed to another app.
-//!
-//! Keys: Left/Right go to the previous or next update (outside text fields),
-//! Space pauses or resumes unless a button has focus, Escape closes; the
-//! video player's keys work too (`media_player.rs`). Typing a reply holds
-//! the current update, as on WhatsApp Web.
-//!
-//! The backend's answers (media_ready, status_viewers, status_reacted, ...)
-//! arrive while the viewer's modal loop runs; `on_event` routes them here.
-
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
@@ -27,18 +11,12 @@ use crate::{
 	ui_commands::status_extras::STATUS_REACTIONS,
 };
 
-/// The longest edge a photo is decoded at.
 const PHOTO_EDGE: u32 = 1280;
-/// How long a photo or text update stays up before the next, at least.
 const SHOW_MS: i32 = 6000;
-/// Added per character of text or caption, so a long one can be read, up to
-/// `MAX_SHOW_MS`.
 const PER_CHAR_MS: i32 = 60;
 const MAX_SHOW_MS: i32 = 20000;
-/// Text updates without a colour of their own use WhatsApp's teal.
 const DEFAULT_BACKGROUND: u32 = 0xFF07_5E54;
 
-/// One update, as the viewer plays it.
 #[derive(Clone)]
 struct Entry {
 	poster_jid: String,
@@ -55,10 +33,8 @@ struct Entry {
 	text_color: u32,
 }
 
-/// What the viewer was closed for.
 pub(crate) enum ViewerOutcome {
 	Closed,
-	/// Open the chat with this person.
 	OpenChat(String),
 }
 
@@ -91,13 +67,11 @@ struct Viewer {
 	entries: RefCell<Vec<Entry>>,
 	index: Cell<usize>,
 	paused: Cell<bool>,
-	/// The file of the update on screen, once the backend has it.
 	media_path: RefCell<Option<String>>,
 	outcome: RefCell<Option<ViewerOutcome>>,
 }
 
 thread_local! {
-	/// The open viewer, for `on_event`.
 	static OPEN: RefCell<Option<Rc<Viewer>>> = const { RefCell::new(None) };
 }
 
@@ -114,7 +88,6 @@ fn argb(colour: u32) -> Colour {
 	Colour::rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8)
 }
 
-/// Every live update in the Status tab's order.
 fn entries(s: &AppState) -> Vec<Entry> {
 	s.status_groups
 		.iter()
@@ -137,7 +110,6 @@ fn entries(s: &AppState) -> Vec<Entry> {
 		.collect()
 }
 
-/// What kind of update `entry` is, as spoken.
 fn kind(entry: &Entry) -> &'static str {
 	match entry.media_type.as_str() {
 		"image" => "Photo",
@@ -147,14 +119,10 @@ fn kind(entry: &Entry) -> &'static str {
 	}
 }
 
-/// How long a photo or text update stays up.
 fn show_ms(entry: &Entry) -> i32 {
 	(SHOW_MS + PER_CHAR_MS * entry.text.chars().count() as i32).min(MAX_SHOW_MS)
 }
 
-/// Opens the viewer on the update `start_id`, modally, and returns once it's
-/// closed. Rows the viewer marked seen are updated in `state`; the caller
-/// refreshes the list.
 pub(crate) fn show(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, start_id: &str) -> ViewerOutcome {
 	let (list, auto) = {
 		let s = state.borrow();
@@ -191,7 +159,6 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 	live_region::set_live_region(&announcer);
 	sizer.add(&announcer, 0, SizerFlag::All, 0);
 
-	// Who posted it, where it is in the list, and when.
 	let header = StaticText::builder(&panel).with_label("").build();
 	theme::style_heading(&header);
 	sizer.add(&header, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
@@ -232,7 +199,6 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 	nav_row.add(&auto_check, 0, SizerFlag::AlignCenterVertical, 0);
 	sizer.add_sizer(&nav_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	// Someone else's update: react, reply, open the chat, mute.
 	let reactions_panel = Panel::builder(&panel).build();
 	theme::style_content(&reactions_panel);
 	let reactions_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -251,8 +217,6 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 	reactions_panel.set_sizer(reactions_row, true);
 	sizer.add(&reactions_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	// Open chat comes ahead of the label: nothing may sit between a field's
-	// label and the field, or Windows names the field after it.
 	let reply_panel = Panel::builder(&panel).build();
 	theme::style_content(&reply_panel);
 	let reply_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -269,7 +233,6 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 	reply_panel.set_sizer(reply_row, true);
 	sizer.add(&reply_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	// Our own update: who saw it, and deleting it.
 	let viewers_panel = Panel::builder(&panel).build();
 	theme::style_content(&viewers_panel);
 	let viewers_column = BoxSizer::builder(Orientation::Vertical).build();
@@ -413,7 +376,6 @@ fn bind(viewer: &Rc<Viewer>, close_btn: Button) {
 	});
 }
 
-/// An event handler running `f` on the viewer while it's still there.
 fn handler<E>(weak: &std::rc::Weak<Viewer>, f: fn(&Viewer)) -> impl FnMut(E) + 'static {
 	let weak = weak.clone();
 	move |_| {
@@ -423,7 +385,6 @@ fn handler<E>(weak: &std::rc::Weak<Viewer>, f: fn(&Viewer)) -> impl FnMut(E) + '
 	}
 }
 
-/// Whether `hwnd` is a control Space already does something on.
 fn is_button_or_check(v: &Viewer, hwnd: *mut std::ffi::c_void) -> bool {
 	let mut controls = vec![
 		v.pause_btn.get_handle(),
@@ -437,7 +398,6 @@ fn is_button_or_check(v: &Viewer, hwnd: *mut std::ffi::c_void) -> bool {
 		v.save_btn.get_handle(),
 	];
 	controls.extend(v.reaction_btns.iter().map(|b| b.get_handle()));
-	// Anything else that's a button (Close, the player's own) counts too.
 	controls.contains(&hwnd) || window_class_is_button(hwnd)
 }
 
@@ -539,8 +499,6 @@ impl Viewer {
 		self.mark_viewed(&entry);
 	}
 
-	/// Puts focus on Next when the control that had it was just hidden or
-	/// disabled, which would leave the keyboard nowhere.
 	fn keep_focus(&self) {
 		use windows::Win32::{
 			Foundation::HWND,
@@ -554,7 +512,6 @@ impl Viewer {
 		}
 	}
 
-	/// Where `entry` is among its poster's updates, counting from 1.
 	fn position_in_group(&self, entry: &Entry) -> (usize, usize) {
 		let entries = self.entries.borrow();
 		let theirs: Vec<&Entry> = entries.iter().filter(|e| e.poster_jid == entry.poster_jid).collect();
@@ -591,7 +548,6 @@ impl Viewer {
 		if self.paused.get() || !self.auto_check.is_checked() {
 			return;
 		}
-		// Typing a reply holds the update, as on WhatsApp Web.
 		if self.replying() {
 			self.timer.start(2000, true);
 			return;
@@ -604,7 +560,6 @@ impl Viewer {
 		if next < self.entries.borrow().len() {
 			self.show_entry(next);
 		} else {
-			// WhatsApp closes the viewer after the last update.
 			self.dialog.end_modal(ID_CANCEL);
 		}
 	}
@@ -684,7 +639,6 @@ impl Viewer {
 
 	fn react(&self, emoji: &str) {
 		let Some(entry) = self.current() else { return };
-		// Choosing the reaction already there takes it back, as on WhatsApp.
 		let emoji = if entry.my_reaction == emoji { "" } else { emoji };
 		send(&self.state, "react_status", serde_json::json!({ "id": entry.id, "emoji": emoji }));
 	}
@@ -811,8 +765,6 @@ impl Viewer {
 		self.dialog.layout();
 	}
 
-	/// Drops `id` from the list after it was deleted, moving on if it was
-	/// the one on screen.
 	fn remove(&self, id: &str) {
 		let Some(at) = self.entries.borrow().iter().position(|e| e.id == id) else { return };
 		let current = self.index.get();
@@ -830,7 +782,6 @@ impl Viewer {
 	}
 }
 
-/// `name` with the characters Windows doesn't allow in file names replaced.
 fn safe_file_name(name: &str) -> String {
 	name.chars()
 		.map(
@@ -845,8 +796,6 @@ fn safe_file_name(name: &str) -> String {
 		.collect()
 }
 
-/// Hands a backend event to the open viewer. True when the viewer used it up
-/// and nothing else should act on it (the Viewed By list it asked for).
 pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 	let Some(viewer) = OPEN.with(|open| open.borrow().clone()) else { return false };
 	let current = viewer.current();

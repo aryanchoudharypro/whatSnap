@@ -1,9 +1,3 @@
-//! Blocking contacts, as in WhatsApp: block or unblock a chat's contact from
-//! its menus, and see everyone blocked under Account > Blocked contacts.
-//! WhatsApp keeps the list by LID while chats mostly go by phone JID, so the
-//! backend sends every address each person is blocked under and any of them
-//! matches.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -17,7 +11,6 @@ pub(crate) fn is_blocked(s: &AppState, jid: &str) -> bool {
 	s.blocked_jids.contains(jid)
 }
 
-/// Only people can be blocked: not groups, channels or Meta AI.
 fn can_block(jid: &str) -> bool {
 	jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid")
 }
@@ -26,8 +19,6 @@ fn chat_name(state: &AppState, jid: &str) -> String {
 	state.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string())
 }
 
-/// Speaks in the Blocked contacts dialog while it's open (the main window's
-/// live region is behind it then), otherwise in the main window.
 fn announce(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message: &str) {
 	let dialog = state.borrow().blocked_contacts.clone();
 	match dialog {
@@ -41,7 +32,6 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, jid: &str) {
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
-/// Asks before blocking, since it stops their messages and calls.
 fn block_with_confirm(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) {
 	let name = chat_name(&state.borrow(), jid);
 	let question = format!("Block {name}? They won't be able to call you or send you messages. They won't be told.");
@@ -63,7 +53,6 @@ fn block_with_confirm(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 	announce(state, parts, &format!("Blocking {name}..."));
 }
 
-/// "Block" / "Unblock" on a chat.
 pub(crate) fn toggle_block(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	if !can_block(&jid) {
 		announce(state, parts, "Only contacts can be blocked.");
@@ -78,7 +67,6 @@ pub(crate) fn toggle_block(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	}
 }
 
-/// Someone picked in the contact picker opened from "Block a contact...".
 pub(crate) fn block_picked_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	if is_blocked(&state.borrow(), &jid) {
 		let name = chat_name(&state.borrow(), &jid);
@@ -88,7 +76,6 @@ pub(crate) fn block_picked_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	block_with_confirm(state, parts, &jid);
 }
 
-/// The backend's list, sent when it changes.
 pub(crate) fn blocklist_received(state: &Rc<RefCell<AppState>>, data: &serde_json::Value) {
 	let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
 	let mut jids = std::collections::HashSet::new();
@@ -117,7 +104,6 @@ pub(crate) fn blocklist_received(state: &Rc<RefCell<AppState>>, data: &serde_jso
 	}
 }
 
-/// The backend's answer to a block or unblock.
 pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("Contact");
 	let blocked = data.get("blocked").and_then(|b| b.as_bool()).unwrap_or(false);
@@ -136,14 +122,11 @@ pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	};
 }
 
-/// Account > "Blocked contacts...".
 pub(crate) fn show_blocked_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let (ws_tx, entries) = {
 		let s = state.borrow();
 		(s.ws_tx.clone(), s.blocked_entries.clone())
 	};
-	// Blocks made on another device since the last connect show up once the
-	// server answers.
 	let _ = ws_tx.send(serde_json::json!({ "action": "get_blocklist" }).to_string());
 	let (state_add, parts_add) = (state.clone(), parts.clone());
 	let state_store = state.clone();
@@ -162,15 +145,11 @@ pub(crate) fn show_blocked_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	);
 }
 
-/// Called before sending to or calling the open chat. WhatsApp won't deliver
-/// to someone you've blocked, so, like the official apps, offer to unblock
-/// them instead. Returns true when the send should stop here.
 pub(crate) fn stop_if_blocked(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
 	let Some(jid) = state.borrow().selected_chat.clone() else { return false };
 	stop_if_blocked_jid(state, parts, &jid)
 }
 
-/// `stop_if_blocked` for a chat that needn't be the open one.
 pub(crate) fn stop_if_blocked_jid(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) -> bool {
 	let name = {
 		let s = state.borrow();
@@ -191,9 +170,6 @@ pub(crate) fn stop_if_blocked_jid(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	true
 }
 
-/// Called before sending in the open chat: `stop_if_blocked`, and for a group
-/// we can't send in (see `chat_ui::group_send_block_reason`) says why instead.
-/// Returns true when the send should stop here.
 pub(crate) fn stop_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
 	if stop_if_blocked(state, parts) {
 		return true;
@@ -209,7 +185,6 @@ pub(crate) fn stop_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	false
 }
 
-/// The line Chat Info adds for a blocked contact.
 pub(crate) fn info_line(s: &AppState, jid: &str) -> &'static str {
 	if is_blocked(s, jid) { "Blocked: Yes\n" } else { "" }
 }

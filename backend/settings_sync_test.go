@@ -6,8 +6,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 )
 
-// The names are WhatsApp Web's (WAWebSettingsSyncConst), and each key's
-// number is its field's.
 func TestSettingNamesMatchWhatsAppWeb(t *testing.T) {
 	for name, key := range map[string]waSyncAction.SettingsSyncAction_SettingKey{
 		"isEnterToSendEnabled":           waSyncAction.SettingsSyncAction_IS_ENTER_TO_SEND_ENABLED,

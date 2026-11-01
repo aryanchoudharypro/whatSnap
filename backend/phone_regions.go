@@ -1,10 +1,5 @@
 package main
 
-// Generated from libphonenumber metadata (nyaruka/phonenumbers v1.8.1) so
-// the backend can tell which country a number is from without shipping
-// that library's multi-megabyte tables.
-
-// callingCodeRegions is the main country of each calling code.
 var callingCodeRegions = map[string]string{
 	"1": "US", "7": "RU", "20": "EG", "27": "ZA", "30": "GR", "31": "NL", "32": "BE", "33": "FR",
 	"34": "ES", "36": "HU", "39": "IT", "40": "RO", "41": "CH", "43": "AT", "44": "GB", "45": "DK",
@@ -34,9 +29,6 @@ var callingCodeRegions = map[string]string{
 	"992": "TJ", "993": "TM", "994": "AZ", "995": "GE", "996": "KG", "998": "UZ",
 }
 
-// numberPrefixRegions are the calling code plus leading digits that belong
-// to a country other than the calling code's main one: the +1 area codes
-// outside the US, Kazakhstan's +7 7, and a few territories.
 var numberPrefixRegions = map[string]string{
 	"1268": "AG", "1264": "AI", "1684": "AS", "1246": "BB", "1441": "BM", "1242": "BS", "1204": "CA", "1226": "CA",
 	"1236": "CA", "1249": "CA", "1250": "CA", "1257": "CA", "1263": "CA", "1289": "CA", "1306": "CA", "1343": "CA",

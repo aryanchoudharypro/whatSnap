@@ -8,31 +8,19 @@ use crate::{
 	},
 };
 
-/// Display label -> wire value pairs for a privacy dropdown, matching the
-/// values WhatsApp Web offers for that category (WAWebPrivacySettings).
-/// "My Contacts Except..." comes with its own contact picker.
 pub const VISIBILITY_CHOICES: &[(&str, &str)] =
 	&[("Everyone", "all"), ("My Contacts", "contacts"), ("My Contacts Except...", EXCEPT_VALUE), ("Nobody", "none")];
-/// The wire value of "My Contacts Except...".
 pub const EXCEPT_VALUE: &str = "contact_blacklist";
 pub const ONLINE_CHOICES: &[(&str, &str)] = &[("Everyone", "all"), ("Same as Last Seen", "match_last_seen")];
 /// "calladd" is WhatsApp's "Silence unknown callers": with "known", calls
 /// from numbers that aren't contacts still come in, they just don't ring.
 /// Nobody is stopped from calling, so it isn't "who can call me".
 pub const CALL_CHOICES: &[(&str, &str)] = &[("Off", "all"), ("On", "known")];
-/// The default timer for disappearing messages in new chats, in seconds, as
-/// WhatsApp offers it.
 pub const DEFAULT_TIMER_CHOICES: &[(&str, &str)] =
 	&[("Off", "0"), ("24 Hours", "86400"), ("7 Days", "604800"), ("90 Days", "7776000")];
-/// "Media upload quality" (WAWebMediaUploadQualitySettings): HD sends photos
-/// bigger (up to 2560 pixels on the longest side instead of 1600).
 pub const UPLOAD_QUALITY_CHOICES: &[(&str, &str)] = &[("Standard Quality", "sd"), ("HD Quality", "hd")];
-/// WhatsApp's Theme choices, by their settings.json value.
-/// The update check's channels, as `Settings::update_channel` stores them.
 pub const UPDATE_CHANNEL_CHOICES: &[(&str, &str)] = &[("Stable releases", "stable"), ("Development builds", "dev")];
 pub const THEME_CHOICES: &[(&str, &str)] = &[("System Default", "system"), ("Light", "light"), ("Dark", "dark")];
-/// How long an About shows before it clears, in seconds: WhatsApp's
-/// text_status_ttl_seconds_allowlist, plus -1 for one that stays.
 pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
 	("Never", "-1"),
 	("30 Minutes", "1800"),
@@ -43,8 +31,6 @@ pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
 	("24 Hours", "86400"),
 ];
 
-/// One privacy dropdown: the setting's wire name, what it's called, and its
-/// "My Contacts Except..." button for the settings that have one.
 pub struct PrivacyControl {
 	pub name: &'static str,
 	pub label: &'static str,
@@ -54,21 +40,17 @@ pub struct PrivacyControl {
 }
 
 impl PrivacyControl {
-	/// Whether the dropdown is on "My Contacts Except...".
 	pub fn is_except(&self) -> bool {
 		self.except_btn.is_some() && combo_value(&self.combo, self.choices) == EXCEPT_VALUE
 	}
 }
 
-/// Every constructed widget is kept here for consistency, matching this
-/// codebase's convention for dialog parts structs.
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct SettingsDialogParts {
 	pub dialog: Dialog,
 	pub notebook: Notebook,
 
-	// General tab
 	pub general_panel: Panel,
 	pub announce_typing_check: CheckBox,
 	pub announce_recording_check: CheckBox,
@@ -82,7 +64,6 @@ pub struct SettingsDialogParts {
 	pub shortcuts_btn: Button,
 	pub share_menu_btn: Button,
 
-	// Notifications tab
 	pub notifications_panel: Panel,
 	pub sounds_check: CheckBox,
 	pub notifications_check: CheckBox,
@@ -95,7 +76,6 @@ pub struct SettingsDialogParts {
 	pub call_ringtone_check: CheckBox,
 	pub follow_dnd_check: CheckBox,
 
-	// Chats tab
 	pub chats_panel: Panel,
 	pub enter_is_send_check: CheckBox,
 	pub replace_emoji_check: CheckBox,
@@ -110,14 +90,12 @@ pub struct SettingsDialogParts {
 	pub upload_quality_combo: ComboBox,
 	pub theme_combo: ComboBox,
 
-	// Profile & Privacy tab
 	pub privacy_panel: Panel,
 	pub name_field: TextCtrl,
 	pub about_field: TextCtrl,
 	pub about_duration_combo: ComboBox,
 	pub change_photo_btn: Button,
 	pub remove_photo_btn: Button,
-	/// Disabled until the current timer has loaded.
 	pub default_timer_combo: ComboBox,
 	pub last_seen_combo: ComboBox,
 	pub last_seen_except_btn: Button,
@@ -125,8 +103,6 @@ pub struct SettingsDialogParts {
 	pub profile_photo_except_btn: Button,
 	pub about_privacy_combo: ComboBox,
 	pub about_privacy_except_btn: Button,
-	/// Read receipts are a switch in WhatsApp ("all" on, "none" off), not
-	/// an audience.
 	pub read_receipts_check: CheckBox,
 	pub groups_combo: ComboBox,
 	pub groups_except_btn: Button,
@@ -135,7 +111,6 @@ pub struct SettingsDialogParts {
 	pub link_previews_off_check: CheckBox,
 	pub security_notifications_check: CheckBox,
 
-	// Input & Output tab
 	pub audio_panel: Panel,
 	pub input_device_combo: ComboBox,
 	pub output_device_combo: ComboBox,
@@ -160,8 +135,6 @@ fn visibility_combo(panel: &Panel, sizer: &BoxSizer, label: &str, choices: &[(&s
 	combo
 }
 
-/// "Spelling Language": Windows' own first, then each language Windows can
-/// check, by name.
 fn spelling_language_combo(panel: &Panel, sizer: &BoxSizer) -> ComboBox {
 	let languages = crate::ui::spell_check::languages();
 	let mut labels: Vec<&str> = vec!["Windows default"];
@@ -177,8 +150,6 @@ fn spelling_language_combo(panel: &Panel, sizer: &BoxSizer) -> ComboBox {
 	combo
 }
 
-/// A setting's check box, drawn as WhatsApp's switch at the right of its
-/// row (see `dialog_look::switch`). It's still a check box with this label.
 fn setting_switch(panel: &Panel, sizer: &BoxSizer, label: &str) -> CheckBox {
 	let check = CheckBox::builder(panel).with_label(label).build();
 	dialog_look::switch(&check, theme::Palette::CONTENT_BG());
@@ -186,7 +157,6 @@ fn setting_switch(panel: &Panel, sizer: &BoxSizer, label: &str) -> CheckBox {
 	check
 }
 
-/// A button in a settings page, drawn as a white pill.
 fn setting_button(panel: &Panel, label: &str) -> Button {
 	let btn = Button::builder(panel).with_label(label).build();
 	dialog_look::pill_button(&btn, false, theme::Palette::CONTENT_BG());
@@ -213,7 +183,6 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let notebook = Notebook::builder(&dialog).build();
 
-	// --- General tab ---
 	let general_panel = Panel::builder(&notebook).build();
 	theme::style_content(&general_panel);
 	let general_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -253,8 +222,6 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	general_panel.set_sizer(general_sizer, true);
 
-	// --- Notifications tab ---
-	// WhatsApp Web's Settings > Notifications, in its order: messages, groups, calls.
 	let notifications_panel = Panel::builder(&notebook).build();
 	theme::style_content(&notifications_panel);
 	let notifications_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -275,8 +242,6 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	notifications_sizer.add_spacer(12);
 	notifications_panel.set_sizer(notifications_sizer, true);
 
-	// --- Chats tab ---
-	// WhatsApp Web's Settings > Chats, in its words.
 	let chats_panel = Panel::builder(&notebook).build();
 	theme::style_content(&chats_panel);
 	let chats_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -288,7 +253,6 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let spell_check_check = chats_check("Check spelling in the message box (F7 goes to the next mistake)");
 	let spell_announce_check = chats_check("Say when a word you type is misspelled");
 	let spell_language_combo = spelling_language_combo(&chats_panel, &chats_sizer);
-	// Disabled, like the privacy settings, until they've been read.
 	let auto_download_photos_check = chats_check("Download photos automatically");
 	let auto_download_audio_check = chats_check("Download audio automatically");
 	let auto_download_videos_check = chats_check("Download videos automatically");
@@ -303,7 +267,6 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let theme_combo = visibility_combo(&chats_panel, &chats_sizer, "Theme", THEME_CHOICES);
 	chats_panel.set_sizer(chats_sizer, true);
 
-	// --- Profile & Privacy tab ---
 	let privacy_panel = Panel::builder(&notebook).build();
 	theme::style_content(&privacy_panel);
 	let privacy_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -369,7 +332,6 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	privacy_panel.set_sizer(privacy_sizer, true);
 	dialog_look::paint_fields(&privacy_panel, &[(name_field, Field::Line), (about_field, Field::Line)]);
 
-	// --- Input & Output tab ---
 	let audio_panel = Panel::builder(&notebook).build();
 	theme::style_content(&audio_panel);
 	let audio_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -432,19 +394,12 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&main_sizer, &[&ok_btn, &cancel_btn]);
 	dialog.set_sizer(main_sizer, true);
-	// Tall enough for the longest page where the screen allows: its rows
-	// have room around them, as WhatsApp's do.
 	if let Some(display) = wxdragon::display::Display::from_window(&dialog) {
 		let height = (display.client_area().height - 60).clamp(520, 900);
 		dialog.set_size(Size::new(600, height));
 	}
 	dialog.center();
 
-	// CHAR_HOOK fires on this dialog (a top-level window) before the
-	// keypress reaches whichever control has focus, so Escape closes the
-	// dialog regardless of which checkbox/combo/field/tab is focused -
-	// binding it per-widget (as this used to, on sounds_check only) misses
-	// everything else in the dialog.
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 	emoji_help_btn.on_click(move |_| crate::ui::emoji_replace::show_help(&dialog));
 
@@ -517,9 +472,6 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	}
 }
 
-/// Repopulates a device-selection combo box with "System Default" followed by
-/// `names`, selecting whichever entry matches `selected` (or "System Default"
-/// if `selected` is `None` or no longer present in `names`).
 pub fn set_device_combo(combo: &ComboBox, names: &[String], selected: Option<&str>) {
 	combo.clear();
 	combo.append(DEFAULT_LABEL);
@@ -530,7 +482,6 @@ pub fn set_device_combo(combo: &ComboBox, names: &[String], selected: Option<&st
 	combo.set_selection(idx as u32);
 }
 
-/// The selected device's friendly name, or `None` for "System Default".
 pub fn device_combo_value(combo: &ComboBox) -> Option<String> {
 	match combo.get_string_selection() {
 		Some(label) if label != DEFAULT_LABEL => Some(label),
@@ -538,16 +489,11 @@ pub fn device_combo_value(combo: &ComboBox) -> Option<String> {
 	}
 }
 
-/// Sets a ReadOnly combo box's selection to whichever choice's wire value
-/// matches `value`, defaulting to the first choice if there's no match.
 pub fn set_combo_from_value(combo: &ComboBox, choices: &[(&str, &str)], value: &str) {
 	let idx = choices.iter().position(|(_, v)| *v == value).unwrap_or(0);
 	combo.set_selection(idx as u32);
 }
 
-/// The wire value a combo shows for `value`: `value` itself, or the first
-/// choice when it isn't one of them. Saving compares against this, so a
-/// setting the dropdown can't show is only sent if the user picks another.
 pub fn shown_value<'a>(choices: &[(&'a str, &'a str)], value: &str) -> &'a str {
 	choices.iter().find(|(_, v)| *v == value).unwrap_or(&choices[0]).1
 }
@@ -578,9 +524,6 @@ impl SettingsDialogParts {
 		]
 	}
 
-	/// Shows the privacy settings as the server has them, or, with None,
-	/// disables the dropdowns until they arrive, so nothing is shown (or
-	/// saved) that isn't the real setting.
 	pub fn show_privacy(&self, settings: Option<&std::collections::HashMap<String, String>>) {
 		for control in self.privacy_controls() {
 			if let Some(settings) = settings {
@@ -598,15 +541,12 @@ impl SettingsDialogParts {
 		self.read_receipts_check.enable(settings.is_some());
 	}
 
-	/// The read receipts setting to send, when the switch no longer matches
-	/// what the server has.
 	pub fn read_receipts_change(&self, settings: &std::collections::HashMap<String, String>) -> Option<&'static str> {
 		let on = self.read_receipts_check.is_checked();
 		let was_on = settings.get("readreceipts").map(String::as_str) != Some("none");
 		(on != was_on).then_some(if on { "all" } else { "none" })
 	}
 
-	/// The switches the backend keeps (see backend app_prefs.go), by name.
 	fn app_pref_checks(&self) -> [(&'static str, CheckBox); 6] {
 		[
 			("auto_download_photos", self.auto_download_photos_check),
@@ -618,8 +558,6 @@ impl SettingsDialogParts {
 		]
 	}
 
-	/// Shows the settings the backend keeps, or, with None, disables them
-	/// until they've been read.
 	pub fn show_app_prefs(&self, prefs: Option<&serde_json::Value>) {
 		let pref = |name: &str| prefs.and_then(|p| p.get(name)).and_then(|v| v.as_bool()).unwrap_or(false);
 		for (name, check) in self.app_pref_checks() {
@@ -635,8 +573,6 @@ impl SettingsDialogParts {
 		self.upload_quality_combo.enable(prefs.is_some());
 	}
 
-	/// What changed from `loaded` (as `show_app_prefs` was given it), to send
-	/// as set_app_prefs; empty when nothing did.
 	pub fn app_prefs_changes(&self, loaded: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
 		let was = |name: &str| loaded.get(name).and_then(|v| v.as_bool()).unwrap_or(false);
 		let hd = combo_value(&self.upload_quality_combo, UPLOAD_QUALITY_CHOICES) == "hd";
@@ -649,8 +585,6 @@ impl SettingsDialogParts {
 			.collect()
 	}
 
-	/// Puts the dialog in the theme that's on now. It's made once and kept,
-	/// so a theme change made since may have left parts of it in the old one.
 	pub fn match_theme(&self) {
 		for panel in
 			[&self.general_panel, &self.notifications_panel, &self.chats_panel, &self.privacy_panel, &self.audio_panel]
@@ -662,7 +596,6 @@ impl SettingsDialogParts {
 		theme::match_theme(&self.dialog);
 	}
 
-	/// Shows the settings this app keeps itself that WhatsApp Web has too.
 	pub fn show_chat_settings(&self, settings: &crate::settings::Settings) {
 		self.notification_previews_check.set_value(settings.notification_previews);
 		self.reaction_notifications_check.set_value(settings.reaction_notifications);
@@ -706,8 +639,6 @@ impl SettingsDialogParts {
 		settings.theme = serde_json::from_value(serde_json::Value::String(theme)).unwrap_or_default();
 	}
 
-	/// Shows the About and how long it lasts, or, with None, disables them
-	/// until the real one arrives.
 	pub fn show_about(&self, about: Option<(&str, i64)>) {
 		if let Some((text, duration)) = about {
 			self.about_field.set_value(text);
@@ -718,7 +649,6 @@ impl SettingsDialogParts {
 	}
 }
 
-/// The wire value for a ReadOnly combo box's current selection.
 pub fn combo_value(combo: &ComboBox, choices: &[(&str, &str)]) -> String {
 	let label = combo.get_string_selection().unwrap_or_default();
 	choices.iter().find(|(l, _)| *l == label).map(|(_, v)| v.to_string()).unwrap_or_else(|| choices[0].1.to_string())

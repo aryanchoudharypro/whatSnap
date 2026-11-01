@@ -12,24 +12,10 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// whatSnap keys people by phone JID, but WhatsApp often names someone by their
-// LID first and only says which phone number that is later - in a message's
-// participant_pn, a group's member list, a usync answer, a history chunk. Every
-// row written before then sits under the @lid: a second chat for the same
-// person, a nameless sender, a second vote in a poll. These used to be merged
-// only when a history-sync chunk carried the mapping, and only where no row
-// for the phone JID existed yet, so most duplicates stayed for good.
-//
-// Now every mapping whatsmeow stores, from any source, is noticed (lidHookStore)
-// and the rows it covers are merged into the phone JID's (mergeLIDRowsIntoPN).
-
-// lidHookStore wraps whatsmeow's LID store to learn about new mappings as they
-// are stored. Everything else passes straight through.
 type lidHookStore struct {
 	store.LIDStore
 }
 
-// hookLIDStore installs lidHookStore on a device, once.
 func hookLIDStore(dev *store.Device) {
 	if dev == nil || dev.LIDs == nil {
 		return
@@ -65,9 +51,6 @@ func (s *lidHookStore) PutManyLIDMappings(ctx context.Context, mappings []store.
 	return err
 }
 
-// isNew reports whether lid isn't already known to map to pn. whatsmeow stores
-// the same mapping again for nearly every message from a LID sender; only a
-// change is worth a merge.
 func (s *lidHookStore) isNew(ctx context.Context, lid, pn types.JID) bool {
 	if lid.Server != types.HiddenUserServer || pn.Server != types.DefaultUserServer {
 		return false
@@ -83,14 +66,11 @@ const (
 
 var lidMergeQueue struct {
 	sync.Mutex
-	pending map[string]types.JID // LID user -> phone JID
+	pending map[string]types.JID
 	timer   *time.Timer
 	since   time.Time
 }
 
-// queueLIDMerge schedules lid's rows to be merged into pn's. Mappings arrive
-// in bursts (a group's member list, a history chunk), so they're collected and
-// merged together a moment later, outside whatever whatsmeow is doing.
 func queueLIDMerge(lid, pn types.JID) {
 	q := &lidMergeQueue
 	q.Lock()
@@ -125,9 +105,6 @@ func flushLIDMerges() {
 	}
 }
 
-// mergeAllKnownLIDRows merges every @lid row whose phone number is known by
-// now - rows left behind by older builds, or written while the mapping was
-// still unknown and its merge was lost to a restart.
 func mergeAllKnownLIDRows() {
 	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
 		return
@@ -162,8 +139,6 @@ func mergeAllKnownLIDRows() {
 	}
 }
 
-// historyChunkLIDMap indexes a history-sync chunk's LID->phone mappings by
-// the LID's user part.
 func historyChunkLIDMap(mappings []*waHistorySync.PhoneNumberToLIDMapping) map[string]types.JID {
 	pns := make(map[string]types.JID, len(mappings))
 	for _, mapping := range mappings {
@@ -179,8 +154,6 @@ func historyChunkLIDMap(mappings []*waHistorySync.PhoneNumberToLIDMapping) map[s
 	return pns
 }
 
-// normalizePN gives a phone JID the server the rest of the app keys by:
-// history sync can name a number as <n>@c.us.
 func normalizePN(j types.JID) types.JID {
 	j = j.ToNonAD()
 	if j.Server == types.LegacyUserServer {
@@ -189,9 +162,6 @@ func normalizePN(j types.JID) types.JID {
 	return j
 }
 
-// keyedLIDTables are the tables with one row per (thing, person). When both
-// the LID and the phone JID have a row for the same thing, the newer one is
-// kept.
 var keyedLIDTables = []struct{ table, key, person, ts string }{
 	{"reactions", "message_id", "reactor_jid", "timestamp"},
 	{"poll_votes", "poll_id", "voter", "timestamp"},
@@ -200,25 +170,14 @@ var keyedLIDTables = []struct{ table, key, person, ts string }{
 	{"group_member_labels", "group_jid", "member", "set_at"},
 }
 
-// lidMergeMu keeps two merges from interleaving: each one rewrites its own
-// temp table and the same rows.
 var lidMergeMu sync.Mutex
 
-// mergeLIDRowsIntoPN moves every row stored under one of these LIDs (keyed by
-// LID user) to its phone JID. Where the phone JID already has its own row -
-// the same chat twice, the same person's reaction twice - the two are merged
-// into the phone JID's instead of leaving the LID's behind, which is what
-// WhatsApp Web does with a LID thread and a phone thread of the same person.
-// The LID is kept as the chat's and the message's wire address, since that is
-// what WhatsApp knows them by (see wire.go). Reports whether it ran.
 func mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 	if len(pns) == 0 {
 		return false
 	}
 	lidMergeMu.Lock()
 	defer lidMergeMu.Unlock()
-	// A temp table lives on one connection, so everything here has to go
-	// through the same transaction.
 	tx, err := db.Begin()
 	if err != nil {
 		log.Println("Error starting LID merge transaction:", err)
@@ -242,7 +201,6 @@ func mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 	insert.Close()
 
 	stmts := []string{
-		// Chats: fold the LID chat into the phone chat when both exist.
 		`UPDATE chats SET
 			timestamp = MAX(COALESCE(chats.timestamp, 0), COALESCE(l.timestamp, 0)),
 			unread_count = COALESCE(chats.unread_count, 0) + COALESCE(l.unread_count, 0),
@@ -268,22 +226,18 @@ func mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 		WHERE chats.jid = l.merge_pn`,
 		`DELETE FROM chats WHERE jid IN (SELECT lid FROM lid_merge_map)
 			AND EXISTS (SELECT 1 FROM lid_merge_map m JOIN chats p ON p.jid = m.pn WHERE m.lid = chats.jid)`,
-		// RHS values are the row's old ones, so wire_jid keeps the LID.
 		`UPDATE chats SET wire_jid = COALESCE(NULLIF(wire_jid, ''), jid), jid = (SELECT pn FROM lid_merge_map WHERE lid = chats.jid)
 			WHERE jid IN (SELECT lid FROM lid_merge_map)`,
 		`UPDATE chats SET preview_sender = (SELECT pn FROM lid_merge_map WHERE lid = chats.preview_sender)
 			WHERE preview_sender IN (SELECT lid FROM lid_merge_map)`,
 		`UPDATE messages SET jid = (SELECT pn FROM lid_merge_map WHERE lid = messages.jid)
 			WHERE jid IN (SELECT lid FROM lid_merge_map)`,
-		// A group message's sender keeps their LID as its wire address.
 		`UPDATE messages SET
 			wire_sender = CASE WHEN COALESCE(wire_sender, '') = '' AND jid LIKE '%@g.us' THEN sender_jid ELSE wire_sender END,
 			sender_jid = (SELECT pn FROM lid_merge_map WHERE lid = messages.sender_jid)
 			WHERE sender_jid IN (SELECT lid FROM lid_merge_map)`,
 		`UPDATE reactions SET chat_jid = (SELECT pn FROM lid_merge_map WHERE lid = reactions.chat_jid)
 			WHERE chat_jid IN (SELECT lid FROM lid_merge_map)`,
-		// The contact cache: keep the phone JID's row, borrowing the LID's
-		// name if it has none.
 		`UPDATE contacts_cache SET name = l.name
 			FROM (SELECT c.name, m.pn AS merge_pn FROM contacts_cache c JOIN lid_merge_map m ON m.lid = c.jid WHERE c.name != '') AS l
 			WHERE contacts_cache.jid = l.merge_pn AND COALESCE(contacts_cache.name, '') = ''`,
@@ -303,11 +257,9 @@ func mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 	for _, t := range keyedLIDTables {
 		r := strings.NewReplacer("{T}", t.table, "{K}", t.key, "{P}", t.person, "{S}", t.ts)
 		stmts = append(stmts,
-			// The phone JID's row is older than the LID's: the LID's wins.
 			r.Replace(`DELETE FROM {T} WHERE {P} IN (SELECT pn FROM lid_merge_map)
 				AND EXISTS (SELECT 1 FROM {T} o JOIN lid_merge_map m ON o.{P} = m.lid
 					WHERE m.pn = {T}.{P} AND o.{K} = {T}.{K} AND COALESCE(o.{S}, 0) > COALESCE({T}.{S}, 0))`),
-			// Otherwise the phone JID's row stays and the LID's goes.
 			r.Replace(`DELETE FROM {T} WHERE {P} IN (SELECT lid FROM lid_merge_map)
 				AND EXISTS (SELECT 1 FROM {T} o JOIN lid_merge_map m ON o.{P} = m.pn
 					WHERE m.lid = {T}.{P} AND o.{K} = {T}.{K})`),
@@ -328,8 +280,6 @@ func mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 	return true
 }
 
-// conversationLIDPair is the LID/phone pair a history-sync conversation names
-// for its own chat, if any.
 func conversationLIDPair(conv *waHistorySync.Conversation, id types.JID) (store.LIDMapping, bool) {
 	var lid, pn types.JID
 	switch id.Server {

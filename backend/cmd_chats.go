@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"net"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
+	"net"
 )
 
 func handleGetChats(conn net.Conn) {
@@ -26,19 +26,8 @@ func handleGetChats(conn net.Conn) {
 	}()
 }
 
-// Shared zero-length slice so a message with no reactions marshals as
-// `"reactions": []` (which the UI expects) without allocating one per message.
 var emptyReactions = []ReactionInfo{}
 
-// fetchMessagesPage runs the shared "one page of a chat's messages, oldest
-// first" query used by both a plain get_messages and the around-a-target
-// variant below, so a single page's worth of local history is always built
-// the same way regardless of who's asking for it.
-// pageCursor, when set, pages by position instead of offset: only messages
-// strictly older than (Timestamp, ID) are returned. Offsets drift - a message
-// arriving between two pages shifts every later one, and an offset counted
-// from the newest message is meaningless for a window opened around a search
-// hit in the middle of the chat.
 type pageCursor struct {
 	Timestamp int64
 	ID        string
@@ -52,10 +41,6 @@ func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) 
 	return fetchMessagesPageAt(jid, limit, offset, before, nil)
 }
 
-// fetchMessagesPageAt returns one page of a chat, oldest first. With after
-// set, it's the messages strictly newer than that cursor - paging forward
-// from a window opened around a search hit; otherwise the newest ones (before
-// the before cursor, or skipping offset).
 func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCursor) []MessageJSON {
 	return fetchMessagesWhere(jid, "", limit, offset, before, after)
 }
@@ -64,11 +49,7 @@ func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCurso
 // a fixed SQL condition (never user input) starting with AND.
 func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pageCursor) []MessageJSON {
 	now := time.Now().Unix()
-	var favorites map[string]bool // favorite stickers, read at the first sticker
-	// raw is only needed for the rare voice row stored without a duration,
-	// and for stickers (whether each is a favorite); selecting it
-	// unconditionally pulled every row's whole protobuf into memory just to
-	// throw it away.
+	var favorites map[string]bool
 	cols := `SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
 			COALESCE(status, ''), COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''), COALESCE(media_size, 0),
 			COALESCE(quoted_id, ''), COALESCE(quoted_text, ''), COALESCE(quoted_sender, ''), COALESCE(is_edited, 0), COALESCE(is_deleted, 0),
@@ -90,13 +71,9 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 		rows, queryErr = db.Query(cols+` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
 	}
 
-	// A page's size is known up front (a whole chat, limit -1, isn't).
 	msgs := make([]MessageJSON, 0, min(max(limit, 0), 5000))
 	ids := make([]string, 0, cap(msgs))
 	var quotedIDs []string
-	// A whole chat has thousands of rows from a handful of senders; resolving
-	// each row's names from scratch (a contact-store lookup, often a query
-	// too) was most of the cost of loading one.
 	names := map[string]string{}
 	nameFor := func(jidStr string) string {
 		if n, ok := names[jidStr]; ok {
@@ -194,8 +171,6 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 				MediaSize:     mediaSize,
 				QuotedID:      quotedID,
 				QuotedText:    quotedText,
-				// Resolved to a name below, once every quoted original
-				// has been looked up in one go.
 				QuotedSender:  quotedSender,
 				IsEdited:      isEdited == 1,
 				IsDeleted:     isDeleted == 1,
@@ -221,17 +196,10 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 	}
 
 	if after == nil {
-		// Queried newest first; the page goes out oldest first.
 		for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 			msgs[i], msgs[j] = msgs[j], msgs[i]
 		}
 	}
-	// The quoted_sender column is a denormalized snapshot taken when a reply
-	// first arrived, and can go stale or wrong (e.g. a participant field
-	// missing at delivery time). When we still have the original message
-	// locally, its own from_me/sender_jid is the authoritative answer, so
-	// prefer it over the snapshot. Looked up for the whole page at once:
-	// one query per reply was one query per reply in the chat.
 	origins := lookupMessageOrigins(quotedIDs)
 	for i := range msgs {
 		msgs[i].QuotedSender = quotedSenderName(msgs[i].QuotedID, msgs[i].QuotedSender, origins, nameFor)
@@ -247,8 +215,6 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 	return msgs
 }
 
-// quotedSenderName is who a reply quotes, as shown: "You", their name, or the
-// stored snapshot when it isn't a JID.
 func quotedSenderName(quotedID, quotedSender string, origins map[string]messageOrigin, nameFor func(string) string) string {
 	if quotedID != "" {
 		if origin, ok := origins[quotedID]; ok {
@@ -274,21 +240,15 @@ func quotedSenderName(quotedID, quotedSender string, origins map[string]messageO
 
 func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 	var data struct {
-		JID    string `json:"jid"`
-		Limit  int    `json:"limit"`
-		Offset int    `json:"offset"`
-		// Page cursor (see pageCursor): the oldest message already loaded.
+		JID             string `json:"jid"`
+		Limit           int    `json:"limit"`
+		Offset          int    `json:"offset"`
 		BeforeID        string `json:"before_id"`
 		BeforeTimestamp int64  `json:"before_timestamp"`
-		// The newest message already loaded, for paging forward from a
-		// window that stops short of the latest message.
-		AfterID        string `json:"after_id"`
-		AfterTimestamp int64  `json:"after_timestamp"`
-		// Set on the reload that follows a channel fetch, so it doesn't
-		// start another one.
-		NoServerFetch bool `json:"no_server_fetch"`
-		// The chat's oldest messages (Home from anywhere in it).
-		FromStart bool `json:"from_start"`
+		AfterID         string `json:"after_id"`
+		AfterTimestamp  int64  `json:"after_timestamp"`
+		NoServerFetch   bool   `json:"no_server_fetch"`
+		FromStart       bool   `json:"from_start"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -299,7 +259,6 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 			if limit == 0 {
 				limit = 50
 			}
-			// Everything after the earliest possible cursor: the oldest page.
 			msgs := fetchMessagesPageAt(data.JID, limit, 0, nil, &pageCursor{Timestamp: math.MinInt64})
 			older, newer := countAround(data.JID, msgs)
 			log.Printf("Got the %d oldest messages for %s", len(msgs), data.JID)
@@ -340,8 +299,6 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 			broadcastChats()
 		}
 
-		// A negative limit asks for every message (SQLite's LIMIT -1): the
-		// UI loads a whole chat when it's opened.
 		limit := data.Limit
 		if limit == 0 {
 			limit = 50
@@ -357,8 +314,6 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		start := time.Now()
 		msgs := fetchMessagesPageBefore(data.JID, limit, offset, before)
 		log.Printf("Got %d messages for %s in %s", len(msgs), data.JID, time.Since(start).Round(time.Millisecond))
-		// A channel's posts come from the server, not the phone: fetch the
-		// latest when it's opened. The stored ones show meanwhile.
 		if !loadMore && !data.NoServerFetch && isChannelJID(data.JID) {
 			go refreshChannel(data.JID)
 		}
@@ -371,25 +326,15 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 			"newer":    newer,
 		}
 		if !loadMore {
-			// An older page says nothing about the newer end the UI holds.
 			resp["isLatest"] = newer == 0
 		}
 		sendEvent(conn, "conversation_messages", resp)
-		// Opening a large chat is by far this process's biggest allocation
-		// burst, and every byte of it is garbage the moment the response is on
-		// the wire. Go's scavenger releases that back to the OS only gradually,
-		// so without an explicit nudge the process sits at its peak for minutes
-		// after the user has already closed the chat.
 		if len(msgs) >= collectAfterMessages {
 			debug.FreeOSMemory()
 		}
 	}()
 }
 
-// countAround is how many rows of the chat's list come before the first
-// message of page and after its last (page is oldest first), so the UI can
-// number a window of a chat against all of it ("2 of 28000"). An empty page
-// has nothing around it to count.
 func countAround(jid string, page []MessageJSON) (older, newer int) {
 	if len(page) == 0 {
 		return 0, 0
@@ -406,12 +351,6 @@ func localDay(ts int64) string {
 	return time.Unix(ts, 0).Local().Format("2006-01-02")
 }
 
-// rowCount is how many rows the UI's message list would show for the chat's
-// messages matching cond: one per message, one per date divider, and one per
-// album, following whatsnap's group_messages_into_display_items (a run of
-// photos and videos from one sender in the same album, or without album ids
-// sent within 10 seconds, on one day). skipDay's divider isn't counted: the
-// loaded window already shows it.
 func rowCount(jid, cond string, args []interface{}, skipDay string) int {
 	rows, err := db.Query(`SELECT timestamp, COALESCE(from_me, 0), COALESCE(sender_jid, ''), COALESCE(album_id, ''),
 			COALESCE(media_type, ''), substr(COALESCE(text, ''), 1, 7), COALESCE(is_deleted, 0)
@@ -428,7 +367,7 @@ func rowCount(jid, cond string, args []interface{}, skipDay string) int {
 	}
 	count := 0
 	day := ""
-	var prev *mediaRow // the last message, while it is media that an album could continue
+	var prev *mediaRow
 	for rows.Next() {
 		var m mediaRow
 		var mediaType, prefix string
@@ -464,17 +403,12 @@ func rowCount(jid, cond string, args []interface{}, skipDay string) int {
 	return count
 }
 
-// The filters for a chat's Media, Documents and Links tabs. The UI applies its
-// own exact tests to what comes back; these only keep the rest out.
 const (
 	mediaFilter    = ` AND COALESCE(media_type, '') NOT IN ('voice', 'audio') AND (media_type IN ('image', 'video') OR text LIKE '[Photo]%' OR text LIKE '[Image]%' OR text LIKE '[Video]%')`
 	documentFilter = ` AND (media_type = 'document' OR text LIKE '[Document]%')`
 	linkFilter     = ` AND text NOT LIKE '[%' AND (text LIKE '%http://%' OR text LIKE '%https://%' OR text LIKE '%www.%')`
 )
 
-// handleGetChatMedia sends a chat's media, documents and links from the whole
-// of its history: the UI only holds a window of a big chat, so its own copy
-// would leave most of them out.
 func handleGetChatMedia(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID string `json:"jid"`
@@ -492,17 +426,8 @@ func handleGetChatMedia(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// Messages in one response past which it is worth forcing the heap back to the
-// OS. Small responses are frequent and their garbage is cheap; paying for a
-// full GC plus scavenge on each of those would cost more than it returns.
 const collectAfterMessages = 2000
 
-// handleGetMessagesAround finds a target message (by id, falling back to a
-// text match) and returns a bounded window of local history centered on it,
-// instead of a plain get_messages with an enormous limit fetching the whole
-// chat just to jump to one message in it. If the target can't be found
-// locally, falls back to the most recent page so the caller still gets a
-// usable (if not-scrolled-to-target) view rather than nothing.
 func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID       string `json:"jid"`
@@ -555,8 +480,6 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 			"jid":      data.JID,
 			"messages": msgs,
 			"loadMore": false,
-			// offset 0 means the window runs right up to the newest message;
-			// otherwise newer ones exist that this view doesn't hold.
 			"isLatest": offset == 0,
 			"older":    older,
 			"newer":    newer,
@@ -567,14 +490,10 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// escapeLike makes a user's search text match literally in a LIKE pattern
-// (with ESCAPE '\'): otherwise "%" and "_" in it act as wildcards.
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
-// handleGetStarredMessages returns every starred message across all chats,
-// newest first, for the Starred Messages nav view.
 func handleGetStarredMessages(conn net.Conn) {
 	go func() {
 		rows, err := db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
@@ -617,9 +536,6 @@ func handleGetStarredMessages(conn net.Conn) {
 	}()
 }
 
-// handleSearchMessages implements real full-text search over the local
-// message cache (previously a stub). Search is scoped to one chat when jid
-// is provided, otherwise it searches everything.
 func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 	var data SearchMessagesData
 	if err := json.Unmarshal(raw, &data); err != nil || data.Query == "" {
@@ -714,7 +630,6 @@ func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) 
 	if err != nil {
 		return time.Time{}, nil
 	}
-	// The key names the chat the way the patch carrying it does.
 	remote := jid_str
 	if parsed, perr := types.ParseJID(jid_str); perr == nil {
 		remote = syncdChatJID(parsed).String()
@@ -765,11 +680,6 @@ func sendAppStateWithRetry(ctx context.Context, patch appstate.PatchInfo) error 
 	}
 	return nil
 }
-
-// --- chat-level state: pin / archive / mute / mark read / delete -----------
-// These write through to WhatsApp's app-state (SendAppState) rather than
-// just the local cache, so pin/archive/mute state matches what you'd see on
-// your phone or any other linked device, not just this backend's chat list.
 
 func handleSetChatPinned(raw json.RawMessage) {
 	var data ChatBoolData
@@ -896,9 +806,6 @@ func handleDeleteChat(raw json.RawMessage) {
 	}()
 }
 
-// handleClearChat empties a chat's messages while leaving the chat itself in
-// the list, mirroring "Clear chat" in official WhatsApp clients - distinct
-// from handleDeleteChat, which removes the chat entirely.
 func handleClearChat(raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -920,11 +827,6 @@ func handleClearChat(raw json.RawMessage) {
 	}()
 }
 
-// handleRequestMessageResend backs the "Request again" message action: the one
-// repair available for a message that arrived unreadable, or whose content we
-// lost. Nothing is guaranteed - the phone has to still hold the message and be
-// reachable - so this stays silent and lets the message reappear on its own if
-// it works.
 func handleRequestMessageResend(raw json.RawMessage) {
 	var data struct {
 		JID       string `json:"jid"`
@@ -954,7 +856,6 @@ func handleRequestHistorySync(raw json.RawMessage) {
 	if err != nil {
 		return
 	}
-	// A channel's history is on the server, not the phone.
 	if chatJID.Server == types.NewsletterServer {
 		go loadOlderChannelPosts(data.JID)
 		return
@@ -962,10 +863,6 @@ func handleRequestHistorySync(raw json.RawMessage) {
 	requestOlderHistory(chatJID, data.JID, data.Count, true)
 }
 
-// requestOlderHistory asks the phone for the messages before the chat's
-// oldest stored one. With autoRetry, a request the phone doesn't answer
-// within onDemandRetryAfter is sent once more with a different anchor (see
-// below), still inside the time the UI waits for an answer.
 func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry bool) {
 	data := struct {
 		JID   string
@@ -999,11 +896,6 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 		return
 	}
 	anchor := oldest
-	// The phone sends nothing at all when it can't use an anchor, and asking
-	// again with the same one gets nothing again, so a chat stayed stuck at
-	// that message for good. If the last request brought nothing older, anchor
-	// on a different message this time - preferably a plain one, not a photo
-	// in an album or a deleted message - and the phone answers from there.
 	if haveLast && lastOldest == oldest.id {
 		if alt, altErr := oldestHistoryAnchor(data.JID, []string{oldest.id, lastAnchor}); altErr == nil {
 			log.Printf("History request for %s before %s got nothing; trying %s instead", data.JID, lastAnchor, alt.id)
@@ -1023,9 +915,7 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 			Sender:   sender,
 			IsFromMe: fromMe,
 		},
-		ID: msgID,
-		// BuildHistorySyncRequest sends this as the anchor's time; left
-		// unset it went out as year 1.
+		ID:        msgID,
 		Timestamp: time.Unix(ts, 0),
 	}
 
@@ -1046,8 +936,6 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 		onDemandWaiters.Store(data.JID, answered)
 		defer onDemandWaiters.CompareAndDelete(data.JID, answered)
 		historyRequestMu.Lock()
-		// Spaced out even across different chats, so paging quickly through
-		// many of them can't turn into a burst.
 		if wait := historyRequestMinGap - time.Since(lastHistoryRequest); wait > 0 {
 			time.Sleep(wait)
 		}
@@ -1059,9 +947,6 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 			return
 		}
 		if autoRetry {
-			// Silence means the phone won't use this anchor, or there's nothing
-			// older: try another anchor now rather than waiting for another
-			// scroll to the top.
 			select {
 			case <-answered:
 			case <-time.After(onDemandRetryAfter):
@@ -1070,9 +955,6 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 			}
 			return
 		}
-		// This was that retry. If it also went unanswered, or its answer held
-		// nothing older than what's already here, both anchors came up empty:
-		// the chat really starts here.
 		select {
 		case <-answered:
 			if now, err := oldestHistoryAnchor(data.JID, nil); err != nil || now.id != oldest.id {
@@ -1086,16 +968,8 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 	}()
 }
 
-// emptyChatHistoryAsked is the chats with no stored message whose history
-// has been asked for since whatSnap started.
 var emptyChatHistoryAsked sync.Map
 
-// requestHistoryForEmptyChat asks the phone for the latest messages of a
-// chat that has none stored, which leaves nothing to anchor the request on:
-// it names only the chat and the present moment. Whether the phone answers
-// such a request is its own business, so this is tried once per chat per
-// run; silence ends the attempt quietly, and asking again is answered with
-// "this is the start of the chat" without troubling the phone.
 func requestHistoryForEmptyChat(chatJID types.JID, jid string, count int) {
 	if _, asked := emptyChatHistoryAsked.LoadOrStore(jid, true); asked {
 		broadcastEvent("history_start_reached", map[string]string{"jid": jid})
@@ -1137,12 +1011,8 @@ func requestHistoryForEmptyChat(chatJID types.JID, jid string, count int) {
 	}()
 }
 
-// onDemandWaiters holds, per chat, the channel an on-demand history request
-// is waiting on for the phone's answer (see noteOnDemandAnswer).
 var onDemandWaiters sync.Map
 
-// noteOnDemandAnswer tells a waiting on-demand request for jid that the
-// phone answered it.
 func noteOnDemandAnswer(jid string) {
 	if ch, ok := onDemandWaiters.Load(jid); ok {
 		select {
@@ -1153,20 +1023,10 @@ func noteOnDemandAnswer(jid string) {
 }
 
 const (
-	// historyRequestRepeatAfter is how long before the same on-demand
-	// history request (same chat, same anchor message) may be sent again.
 	historyRequestRepeatAfter = 10 * time.Second
-	// historyRequestMinGap spaces out on-demand history requests.
-	historyRequestMinGap = 2 * time.Second
-	// onDemandRetryAfter is how long an on-demand history request waits for
-	// the phone before being retried with another anchor. It's longer than
-	// historyRequestRepeatAfter, so the retry isn't refused as a repeat, and
-	// leaves the retry time to be answered before the UI's timeout.
-	onDemandRetryAfter = 12 * time.Second
-	// onDemandStartAfter is how long that retry waits before the chat is
-	// taken to start where it does. Both waits together stay inside the
-	// UI's 30s timeout for an older-history request.
-	onDemandStartAfter = 10 * time.Second
+	historyRequestMinGap      = 2 * time.Second
+	onDemandRetryAfter        = 12 * time.Second
+	onDemandStartAfter        = 10 * time.Second
 )
 
 var (
@@ -1174,18 +1034,12 @@ var (
 	lastHistoryRequest time.Time
 )
 
-// historyAnchor is a stored message an on-demand history request can name as
-// "send me what came before this".
 type historyAnchor struct {
 	id, sender string
 	fromMe     bool
 	ts         int64
 }
 
-// oldestHistoryAnchor is the chat's oldest real WhatsApp message (not one of
-// the group-event or call rows whatSnap makes up). With exclude set, it's the
-// oldest other than those, preferring plain ones: not deleted, not media, not
-// part of an album, falling back to any other message.
 func oldestHistoryAnchor(jid string, exclude []string) (historyAnchor, error) {
 	var a historyAnchor
 	if len(exclude) == 0 {

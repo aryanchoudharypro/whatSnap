@@ -24,7 +24,6 @@ import (
 // gets messages.expires_at, and the sweep below deletes it locally once that
 // passes, as the official apps do.
 
-// disappearingSweepEvery is how often expired messages are removed.
 const disappearingSweepEvery = time.Minute
 
 func init() {
@@ -39,7 +38,6 @@ func init() {
 	}()
 }
 
-// disappearingDurationText names a timer the way the official apps do.
 func disappearingDurationText(seconds uint32) string {
 	switch {
 	case seconds == 0:
@@ -61,7 +59,6 @@ func disappearingDurationText(seconds uint32) string {
 	}
 }
 
-// disappearingChangeText is the chat line for a timer change made by who.
 func disappearingChangeText(who string, on bool, seconds uint32) string {
 	if !on || seconds == 0 {
 		return fmt.Sprintf("%s turned off disappearing messages.", who)
@@ -70,9 +67,6 @@ func disappearingChangeText(who string, on bool, seconds uint32) string {
 		who, disappearingDurationText(seconds))
 }
 
-// setChatDisappearing records a chat's timer. settingTS (unix seconds, 0 when
-// unknown) keeps an older setting from undoing a newer one. Returns whether
-// the stored timer changed.
 func setChatDisappearing(jid string, seconds uint32, settingTS int64) bool {
 	var current uint32
 	var currentTS int64
@@ -98,16 +92,12 @@ func setChatDisappearing(jid string, seconds uint32, settingTS int64) bool {
 	return true
 }
 
-// chatDisappearing is a chat's current timer and when it was set.
 func chatDisappearing(jid string) (seconds uint32, settingTS int64) {
 	db.QueryRow(`SELECT COALESCE(ephemeral_expiration, 0), COALESCE(ephemeral_setting_ts, 0) FROM chats WHERE jid = ?`, jid).
 		Scan(&seconds, &settingTS)
 	return
 }
 
-// applyDisappearingTimer stamps an outgoing chat message with the chat's
-// timer. A plain Conversation has no ContextInfo, so it becomes an
-// ExtendedTextMessage when a timer applies. Returns msg for chaining.
 func applyDisappearingTimer(chat types.JID, msg *waE2E.Message) *waE2E.Message {
 	if msg == nil || (chat.Server != types.DefaultUserServer && chat.Server != types.GroupServer && chat.Server != types.HiddenUserServer) {
 		return msg
@@ -135,8 +125,6 @@ func applyDisappearingTimer(chat types.JID, msg *waE2E.Message) *waE2E.Message {
 	return msg
 }
 
-// noteMessageExpiry sets when a stored message disappears, if it carries a
-// disappearing timer.
 func noteMessageExpiry(ex sqlExecer, id string, ts int64, msg *waE2E.Message) {
 	seconds := getContextInfo(msg).GetExpiration()
 	if seconds == 0 || id == "" || ts <= 0 {
@@ -170,8 +158,6 @@ func adoptChatDisappearing(chat types.JID, msg *waE2E.Message) {
 	setChatDisappearing(chat.String(), seconds, settingTS)
 }
 
-// expireDisappearingMessages deletes the messages whose timer has run out.
-// Starred ones stay, as the official apps keep them.
 func expireDisappearingMessages() {
 	now := time.Now().Unix()
 	rows, err := db.Query(`SELECT id, jid FROM messages WHERE expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0 AND COALESCE(kept, 0) = 0`, now)
@@ -205,10 +191,6 @@ func expireDisappearingMessages() {
 	log.Printf("Removed %d disappearing messages from %d chats", len(gone), len(chats))
 }
 
-// applyEphemeralSettingMessage handles the EPHEMERAL_SETTING protocol message
-// a 1:1 chat's disappearing toggle travels as (ours from another device, or
-// the other person's). Groups announce theirs through group notifications,
-// which GroupInfo turns into the chat line.
 func applyEphemeralSettingMessage(v *events.Message, pm *waE2E.ProtocolMessage) {
 	chat, sender := resolveLIDChat(v)
 	jid := chat.String()
@@ -228,8 +210,6 @@ func applyEphemeralSettingMessage(v *events.Message, pm *waE2E.ProtocolMessage) 
 		disappearingChangeText(who, seconds > 0, seconds), v.Info.Timestamp)
 }
 
-// handleSetDisappearingTimer turns a chat's disappearing messages on or off
-// ("seconds": 0 for off; WhatsApp accepts 86400, 604800 and 7776000).
 func handleSetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID     string `json:"jid"`
@@ -259,7 +239,6 @@ func handleSetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleGetDisappearingTimer answers with a chat's current timer.
 func handleGetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID string `json:"jid"`

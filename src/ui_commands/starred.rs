@@ -1,6 +1,3 @@
-//! The Starred Messages tab's context menu. Its rows are messages, not
-//! chats, so they get message actions instead of the chat list's.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;

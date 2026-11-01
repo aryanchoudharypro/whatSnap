@@ -11,22 +11,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-// Call history arrives as app-state `call_log` mutations rather than as live
-// call stanzas, and it is the only channel that carries a call handled on the
-// phone: a call the handset places or answers puts nothing on this device's
-// socket. Each record is stored as an ordinary message row (media_type "call")
-// so it persists, lands in history order, and reads like any other line.
-
-// callLogChatJID works out which chat a call record belongs to. A group call
-// names its group outright. A 1:1 call names only its creator, which is us on an
-// outgoing call, so the peer has to come from the participant list instead.
-//
-// Every 1:1 answer goes through normalize (preferPN in production). A call
-// record addresses its peer by whichever form the authoring client used, and a
-// @lid stored as-is does not match the existing phone-JID-keyed chat: the row
-// lands in a second, nameless chat sitting beside the real one instead of in the
-// conversation it belongs to. Self-detection still runs on the RAW jid, before
-// normalizing, because that comparison is keyed on the addressing mode.
 func callLogChatJID(
 	rec *waSyncAction.CallLogRecord,
 	creator types.JID,
@@ -147,9 +131,6 @@ func callLogText(rec *waSyncAction.CallLogRecord, fromMe bool, isGroup bool) str
 	return fmt.Sprintf("%s %s", direction, strings.ToLower(kind))
 }
 
-// callLogTimestamp prefers the call's own start time. The mutation's timestamp
-// is its envelope's, and sorting history by it would file a call under when it
-// happened to sync rather than when it happened.
 func callLogTimestamp(rec *waSyncAction.CallLogRecord, mutation time.Time) int64 {
 	if st := rec.GetStartTime(); st > 0 {
 		return st
@@ -160,16 +141,10 @@ func callLogTimestamp(rec *waSyncAction.CallLogRecord, mutation time.Time) int64
 	return time.Now().Unix()
 }
 
-// handleCallLogSync stores one synced call record in its chat's history. Calls
-// are history, not an alert: the row goes in with no unread bump, so a chat does
-// not light up as having something to read because the phone rang.
 func handleCallLogSync(v *events.CallLogSync) {
 	storeSyncedCall(v.CallID, v.CallCreatorJID, v.FromMe, callLogTimestamp(v.Record, v.Timestamp), v.Record, v.FromFullSync)
 }
 
-// handleCallLogHistory stores a call record from a history sync chunk. The
-// phone sends these once, at pairing, for calls that predate this device; they
-// are otherwise the same records app state carries.
 func handleCallLogHistory(v *events.CallLogHistory) {
 	rec := v.Record
 	if rec == nil {
@@ -177,21 +152,16 @@ func handleCallLogHistory(v *events.CallLogHistory) {
 	}
 	fromMe := v.FromMe
 	if !v.FromMeKnown {
-		// No creator to derive direction from. A history record is written by
-		// the phone, whose isIncoming means what it says.
 		fromMe = !rec.GetIsIncoming()
 	}
 	ts := callLogTimestamp(rec, v.Timestamp)
 	id := v.CallID
 	if id == "" {
-		// Stable across re-syncs of the same chunk, so a replay doesn't add rows.
 		id = fmt.Sprintf("hist-%d-%s-%t", ts, v.CallCreatorJID.User, fromMe)
 	}
 	storeSyncedCall(id, v.CallCreatorJID, fromMe, ts, rec, true)
 }
 
-// storeSyncedCall files one record from either sync channel into its chat's
-// history and the call_records table behind the Calls tab.
 func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, rec *waSyncAction.CallLogRecord, fromFullSync bool) {
 	if rec == nil {
 		return
@@ -209,8 +179,6 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 	isGroup := rec.GetGroupJID() != ""
 	text := callLogText(rec, fromMe, isGroup)
 
-	// The call id is stable across the devices that sync this record, so a
-	// re-sync or a full sync updates the same row instead of adding another.
 	id := "call:" + callID
 	if err := saveMessage(StoredMessage{
 		ID: id, JID: jid, Text: text, Timestamp: ts,
@@ -224,13 +192,7 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 		Result: callResultName(rec.GetCallResult()), Duration: rec.GetDuration(),
 		Timestamp: ts, Text: text, Authoritative: true,
 	})
-	// A call is the chat's latest line only if nothing newer is there - a
-	// full sync replays calls from long ago.
 	if fromFullSync {
-		// The phone's call history is the Calls tab's, not a list of chats:
-		// WhatsApp Web doesn't start a chat for everyone ever called. The
-		// row above still puts the call in that chat's history, should it
-		// exist or be started later.
 		res, err := db.Exec(`UPDATE chats SET
 				preview_snippet = CASE WHEN ? >= COALESCE(timestamp, 0) THEN ? ELSE preview_snippet END,
 				preview_sender = CASE WHEN ? >= COALESCE(timestamp, 0) THEN '' ELSE preview_sender END,
@@ -273,10 +235,6 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 	})
 }
 
-// handleDeleteIndividualCallLog drops a call deleted from the call history on
-// another device. The action names the peer and the direction but no call id, so
-// it removes the newest matching call that had happened by the time of the
-// deletion. A group call, which has no single peer, is not matched.
 func handleDeleteIndividualCallLog(v *events.DeleteIndividualCallLog) {
 	peer := v.PeerJID
 	if peer.IsEmpty() {

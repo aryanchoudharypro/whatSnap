@@ -1,6 +1,3 @@
-//! `handle_ui_command` arms for the chat list and open conversation view (nav,
-//! filtering, search, selection, per-chat pin/mute/archive/lock/read toggles).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -16,8 +13,6 @@ use crate::{
 	},
 };
 
-/// Asks the backend for everything the Calls tab lists: past calls, and the
-/// people it can dial (frequent contacts plus all contacts).
 pub(crate) fn request_call_tab_data(s: &AppState) {
 	for action in ["get_call_logs", "get_call_targets"] {
 		let _ = s.ws_tx.send(serde_json::json!({ "action": action }).to_string());
@@ -36,7 +31,6 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	parts.conversations_parts.new_conv_btn.show(idx != 6);
 	match idx {
 		0 => {
-			// Conversations
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 0;
 			parts.conversations_parts.new_conv_btn.set_label("New Chat");
@@ -45,7 +39,6 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		1 => {
-			// Status
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 1;
 			parts.conversations_parts.new_conv_btn.set_label("Post Status Update...");
@@ -57,7 +50,6 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		2 => {
-			// Starred Messages
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 2;
 			parts.conversations_parts.new_conv_btn.set_label("New Chat");
@@ -68,7 +60,6 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		3 => {
-			// Archived Chats
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 3;
 			parts.conversations_parts.new_conv_btn.set_label("New Chat");
@@ -77,7 +68,6 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		4 => {
-			// Communities
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 4;
 			parts.conversations_parts.new_conv_btn.set_label("New Chat");
@@ -86,7 +76,6 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		5 => {
-			// Channels
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 5;
 			parts.conversations_parts.new_conv_btn.set_label("Find channels...");
@@ -96,7 +85,6 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		6 => {
-			// Calls
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 6;
 			parts.conversations_parts.post_media_status_btn.show(false);
@@ -121,15 +109,10 @@ pub(crate) fn filter_conversations(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 
 pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	if state.borrow().active_tab == 1 {
-		// Status: a row opens the status viewer on that update, which plays
-		// on through the rest of the list.
 		let message_id = state.borrow().filtered_status_message_ids.get(idx).cloned();
 		if let Some(message_id) = message_id {
 			let outcome = crate::ui::status_viewer::show(state, parts, &message_id);
-			// Enter on the viewer's Close button leaves its release for the
-			// list, which would open the viewer again.
 			crate::platform::tray::enter_release_guard().set(true);
-			// The viewer marked what it showed as seen.
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 			if let crate::ui::status_viewer::ViewerOutcome::OpenChat(jid) = outcome {
 				open_chat_for_jid(&jid, state, parts);
@@ -158,15 +141,12 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			}
 		}
 		open_chat_for_jid(jid, state, parts);
-		// Opening a community shows its groups, the way the official apps
-		// do - its own chat is always empty.
 		if state.borrow().community_jids.contains(jid) {
 			show_conversation_data(state, parts);
 		}
 	}
 }
 
-/// The Groups tab's page in the group info dialog's notebook.
 const GROUPS_TAB: usize = 4;
 
 pub(crate) fn open_chat_by_phone(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, digits: String) {
@@ -194,7 +174,6 @@ pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		parts.conversations_parts.record_voice_btn.show(false);
 		parts.conversations_parts.messages_select_list.set_focus();
 	} else {
-		// Back in the chat on the message the selection cursor was on.
 		let at = parts
 			.conversations_parts
 			.messages_select_list
@@ -300,9 +279,6 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 	s.history_loading = true;
 	if s.no_more_messages {
-		// Already know the local database has nothing older for this chat (a
-		// previous page came back short) - go straight to the phone instead
-		// of paying for another empty local query.
 		request_phone_history_sync(&mut s, &jid);
 	} else {
 		eprintln!("[LOG UI] Reached top of chat! Requesting next local page for {}", jid);
@@ -311,10 +287,6 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 }
 
-/// Pages in the messages just after the newest one loaded, when the open list
-/// is a window that stops short of the chat's latest message (opened around a
-/// search hit or starred message). Without it, arrowing down from such a hit
-/// ended at the window's edge with newer messages simply missing.
 pub(crate) fn load_newer_messages(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
 	if s.messages_at_latest || s.newer_loading {
@@ -335,16 +307,12 @@ pub(crate) fn load_newer_messages(state: &Rc<RefCell<AppState>>) {
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// End from a window around a search hit: reload the chat's newest page and
-/// land on its last message, rather than paging forward to it one page at a
-/// time.
 pub(crate) fn jump_to_latest_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	if s.messages_at_latest {
 		return;
 	}
 	let Some(jid) = s.selected_chat.clone() else { return };
-	// Treated as a fresh open, so the reply selects and focuses the last row.
 	s.prev_msg_count = 0;
 	s.newer_loading = true;
 	let payload = serde_json::json!({
@@ -354,16 +322,12 @@ pub(crate) fn jump_to_latest_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// Home from a window that doesn't start at the chat's oldest stored message:
-/// load the oldest page and land on its first row, rather than paging back to
-/// it one page at a time.
 pub(crate) fn jump_to_oldest_message(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
 	if s.older_unloaded == 0 || s.history_loading {
 		return;
 	}
 	let Some(jid) = s.selected_chat.clone() else { return };
-	// Treated as a fresh open, landing on the first row instead of the last.
 	s.prev_msg_count = 0;
 	s.land_on_first = true;
 	let payload = serde_json::json!({
@@ -373,10 +337,6 @@ pub(crate) fn jump_to_oldest_message(state: &Rc<RefCell<AppState>>) {
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// The `get_messages_around` request for a page with the message `id` (or,
-/// without one, the newest containing `text`) in its middle;
-/// `apply_conversation_messages` selects it via `search_target_id` /
-/// `search_target_text`.
 pub(crate) fn around_request(jid: &str, id: &str, text: &str) -> serde_json::Value {
 	serde_json::json!({
 		"action": "get_messages_around",
@@ -384,8 +344,6 @@ pub(crate) fn around_request(jid: &str, id: &str, text: &str) -> serde_json::Val
 	})
 }
 
-/// The `get_messages` request for the page just before the oldest message
-/// loaded (see `whatsnap::oldest_message_cursor`).
 pub(crate) fn older_page_request(messages: &[whatsnap::Msg], jid: &str) -> serde_json::Value {
 	let (before_ts, before_id) = whatsnap::oldest_message_cursor(messages).unwrap_or_default();
 	serde_json::json!({
@@ -474,7 +432,6 @@ pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 }
 
 pub(crate) fn close_search(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	// Hide search panel and reload the real chat messages
 	parts.conversations_parts.search_panel.show(false);
 	parts.conversations_parts.search_conv_field.set_value("");
 	if let Some(jid) = state.borrow().selected_chat.clone() {
@@ -493,7 +450,6 @@ pub(crate) fn jump_to_search_result(
 	message_id: String,
 	message_text: String,
 ) {
-	// Hide search, set the target so get_messages scrolls to it, reload chat
 	parts.conversations_parts.search_panel.show(false);
 	parts.conversations_parts.search_conv_field.set_value("");
 	{
@@ -504,8 +460,6 @@ pub(crate) fn jump_to_search_result(
 			s.search_target_text = Some(message_text.clone());
 		}
 		if let Some(jid) = s.selected_chat.clone() {
-			// A page with the target in its middle; arrowing past either end
-			// pages in more.
 			let payload = around_request(&jid, &message_id, &message_text);
 			let _ = s.ws_tx.send(payload.to_string());
 		}
@@ -529,13 +483,10 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			parts.group_data_dialog.groups_list.clear();
 			parts.group_data_dialog.groups_label.set_label("Groups in this community");
 			parts.group_data_dialog.join_group_btn.set_label("Join group");
-			// A community's own chat has nothing in it; what it holds is its
-			// groups, so its info opens on those.
 			if s.community_jids.contains(jid) {
 				parts.group_data_dialog.notebook.set_selection(GROUPS_TAB);
 			}
 
-			// The group's photo, shown big at the top once it comes.
 			parts.group_data_dialog.photo.show(false);
 			let payload = serde_json::json!({ "action": "get_avatar", "data": { "jid": jid } });
 			let _ = s.ws_tx.send(payload.to_string());
@@ -552,8 +503,6 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			drop(s);
 
 			parts.group_data_dialog.dialog.show_modal();
-			// The lists hold on to the chat's messages; a message still held
-			// here would be copied whole the next time it changes.
 			let mut s = state.borrow_mut();
 			s.group_data_media = Vec::new();
 			s.group_data_documents = Vec::new();
@@ -566,9 +515,6 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 }
 
-/// The 1:1 info page: who the person is, calling them, saving or deleting
-/// them as a contact, and the chat's media. From the open chat's menu or
-/// any row's menu in the chat list, so `jid` needn't be the open chat.
 pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	let s = state.borrow();
 	let local_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
@@ -595,7 +541,6 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		"data": { "jid": jid }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
-	// The full-size photo, shown big at the top once it comes.
 	dlg.photo.show(false);
 	let payload = serde_json::json!({ "action": "get_avatar", "data": { "jid": jid } });
 	let _ = s.ws_tx.send(payload.to_string());
@@ -605,8 +550,6 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	dlg.common_groups_list.append("Loading...");
 
 	let lists = InfoMediaLists { media: &dlg.media_list, documents: &dlg.documents_list, links: &dlg.links_list };
-	// The loaded messages are only this chat's when it's the open one;
-	// otherwise the backend reads its media from the database.
 	let (media, documents, links) = if s.selected_chat.as_deref() == Some(jid.as_str()) {
 		fill_info_media(&s, lists, None)
 	} else {
@@ -619,7 +562,6 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		Default::default()
 	};
 	drop(s);
-	// Add or Edit contact waits for user_info to say which applies.
 	let mut s_mut = state.borrow_mut();
 	s_mut.conversation_data_contact = None;
 	s_mut.info_chat = Some(jid);
@@ -634,7 +576,6 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 
 	parts.conversation_data_dialog.info_field.set_focus();
 	parts.conversation_data_dialog.dialog.show_modal();
-	// As for the group dialog: let go of the shared messages.
 	let mut s = state.borrow_mut();
 	s.info_chat = None;
 	s.conversation_data_media = Vec::new();
@@ -660,19 +601,12 @@ pub(crate) fn mark_read(
 
 pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
-	// See the matching guard in `open_chat_for_jid` - closing the
-	// conversation is just as much a "leave the message being edited" as
-	// switching to a different one is.
 	if s.editing_message_id.take().is_some() {
 		s.editing_message_original_text = None;
 		parts.conversations_parts.cancel_edit_btn.show(false);
 		parts.conversations_parts.add_attachment_btn.show(true);
 		parts.conversations_parts.emoji_btn.show(true);
 		parts.conversations_parts.message_label.set_label("Type a message");
-		// An edit-in-progress is not a new message someone was composing -
-		// clear it rather than letting the `save_composer_draft` call below
-		// pick up the message's own (edited) text as if it were an ordinary
-		// unsent draft for this chat.
 		parts.conversations_parts.message_field.set_value("");
 	}
 	save_composer_draft(&mut s, parts);
@@ -680,20 +614,11 @@ pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	crate::ui::window::refresh_menu_bar(&s, &parts.frame);
 	clear_pending_reply(&mut s, parts);
 	parts.conversations_parts.conversation_panel.show(false);
-	// Hiding the panel does not release anything: without this the closed
-	// chat's messages (and their second copy in display_items, and the native
-	// list's rows) stay resident for the rest of the session. On a chat with
-	// tens of thousands of messages that is tens of MB held for a view the
-	// user has explicitly left. `clear_chat` already does the same.
 	release_conversation_buffers(&mut s, parts);
 	parts.conversations_parts.panel.layout();
 	parts.conversations_parts.conversations_list.set_focus();
 }
 
-/// Drops everything tied to the currently-displayed conversation: the message
-/// vectors, their display-item copies, any selection-mode rows, the media /
-/// documents / links snapshots taken for the info dialogs, and the native list
-/// controls' contents. Called when a chat is closed or switched away from.
 pub(crate) fn release_conversation_buffers(s: &mut AppState, parts: &Rc<WindowParts>) {
 	s.messages = Vec::new();
 	s.display_items = Vec::new();
@@ -727,10 +652,7 @@ pub(crate) fn release_conversation_buffers(s: &mut AppState, parts: &Rc<WindowPa
 	parts.conversation_data_dialog.links_list.clear();
 }
 
-/// Asks for a disappearing-messages timer for `jid` and hands it to the
-/// backend, which tells WhatsApp and adds the change to the chat.
 pub(crate) fn choose_disappearing_timer(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
-	// The only timers WhatsApp accepts, in seconds.
 	const CHOICES: [(&str, u32); 4] = [("Off", 0), ("24 hours", 86_400), ("7 days", 604_800), ("90 days", 7_776_000)];
 	let chat_name = state.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 	let labels: Vec<&str> = CHOICES.iter().map(|(label, _)| *label).collect();
@@ -845,8 +767,6 @@ pub(crate) fn set_archived_alert(
 		let mut s = state.borrow_mut();
 		s.settings.set_archived_alert(&jid, level);
 		s.settings.save();
-		// The tooltip total only counts chats that would actually alert,
-		// so changing a level changes it.
 		refresh_tray_tooltip(&s, parts);
 		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 		let spoken = match level {
@@ -887,8 +807,6 @@ pub(crate) fn set_chat_notify(
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
-/// The chat's "Notification settings" dialog: what this computer alone does
-/// about its new messages. Mute stays WhatsApp's own, on every device.
 pub(crate) fn show_chat_notify(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	let (name, current) = {
 		let s = state.borrow();
@@ -900,13 +818,9 @@ pub(crate) fn show_chat_notify(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	}
 }
 
-/// WhatsApp Web's mute lengths (`WAWebMuteExpirations`): menu label, how
-/// long it's said to last, and seconds, where 0 is "Always" - a mute with no
-/// end.
 pub(crate) const MUTE_DURATIONS: [(&str, &str, u64); 3] =
 	[("&8 hours", " for 8 hours", 8 * 3600), ("1 &week", " for 1 week", 168 * 3600), ("&Always", "", 0)];
 
-/// Channels have no mute lengths on WhatsApp Web: muting one is a toggle.
 pub(crate) fn has_mute_durations(jid: &str) -> bool {
 	!jid.ends_with("@newsletter")
 }
@@ -929,8 +843,6 @@ pub(crate) fn mute_duration_menu(first_id: i32, on_choice: impl Fn(u64) + 'stati
 	menu
 }
 
-/// The Conversation menu's Mute Chat on a chat that isn't muted: the mute
-/// lengths pop up as a menu of their own, as the chat list's submenu has them.
 pub(crate) fn choose_mute_duration(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	if !has_mute_durations(&jid) {
 		toggle_mute_chat(state, parts, jid, true, 0);
@@ -948,7 +860,6 @@ pub(crate) fn choose_mute_duration(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 
 const MUTE_DURATION_POPUP_ID: i32 = 4601;
 
-/// Mutes for `seconds` (0 means always), or unmutes, which ignores `seconds`.
 pub(crate) fn toggle_mute_chat(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -1010,10 +921,6 @@ pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	);
 }
 
-/// Removes `jid` from every local chat-list bookkeeping structure and, if it
-/// was the open conversation, closes that view - the optimistic local half
-/// of both `delete_chat` and `delete_chat_and_leave_group`. Returns the
-/// chat's display name for the announcement each of those makes afterward.
 fn remove_chat_locally(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) -> String {
 	let mut s = state.borrow_mut();
 	s.chats.retain(|j| j != jid);
@@ -1050,11 +957,6 @@ pub(crate) fn delete_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	);
 }
 
-/// "Delete chat and exit group": one backend action (`leave_and_delete_group`)
-/// that leaves the group before deleting the chat, in that order, guarded
-/// against the group's own "You left" system message resurrecting the chat
-/// in between - see `handleLeaveAndDeleteGroup` on the backend. The local
-/// side is the same optimistic removal as a plain delete.
 pub(crate) fn delete_chat_and_leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	let chat_name = remove_chat_locally(state, parts, &jid);
 	let payload = serde_json::json!({
@@ -1070,11 +972,6 @@ pub(crate) fn delete_chat_and_leave_group(state: &Rc<RefCell<AppState>>, parts: 
 	);
 }
 
-/// Deletes a chat's messages while leaving the chat itself in the list -
-/// distinct from `delete_chat`, which removes the chat entirely. If the
-/// chat is currently open, its message list is cleared immediately rather
-/// than waiting for a later `chats` refresh (which wouldn't touch the open
-/// conversation view anyway).
 pub(crate) fn clear_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	let (chat_name, is_open) = {
 		let mut s = state.borrow_mut();

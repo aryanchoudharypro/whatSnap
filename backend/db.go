@@ -14,12 +14,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// migrateDB creates/extends all of this application's own tables. It is
-// called once at startup, after sql.Open and before the whatsmeow sqlstore
-// container is attached to the same *sql.DB. Every ALTER TABLE follows the
-// existing pattern in this codebase: errors are ignored because SQLite has
-// no "ADD COLUMN IF NOT EXISTS", so re-running this on a DB that already has
-// the column is expected to "fail" harmlessly.
 func migrateDB() error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chats (
 		jid TEXT PRIMARY KEY,
@@ -40,44 +34,24 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE chats ADD COLUMN is_community INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN is_admin INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN is_locked INTEGER DEFAULT 0")
-	// Member count for groups (from the joined-groups list), so a group
-	// message's own status only reaches "delivered"/"read" once every other
-	// member got there - the way official WhatsApp shows ticks in groups.
 	db.Exec("ALTER TABLE chats ADD COLUMN participant_count INTEGER DEFAULT 0")
-	// Community structure, from the joined-groups list and link/unlink
-	// events: which community a group belongs to, and whether it is that
-	// community's announcement group.
 	db.Exec("ALTER TABLE chats ADD COLUMN parent_jid TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE chats ADD COLUMN is_announce_group INTEGER DEFAULT 0")
-	// A group where only admins can send messages.
 	db.Exec("ALTER TABLE chats ADD COLUMN admins_only INTEGER DEFAULT 0")
-	// Channels we follow, and our role in each (owner, admin, subscriber).
 	db.Exec("ALTER TABLE chats ADD COLUMN is_channel INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN channel_role TEXT DEFAULT ''")
-	// Advanced chat privacy ("limit sharing"), and for a 1:1 chat the
-	// setting's own timestamp, so an older stamp can't undo a newer toggle.
 	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing_ts INTEGER DEFAULT 0")
-	// Restricted chat (WhatsApp's "ACP2", the newer advanced chat privacy
-	// that also keeps the chat off linked devices), likewise with its stamp.
 	db.Exec("ALTER TABLE chats ADD COLUMN restricted INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN restricted_ts INTEGER DEFAULT 0")
-	// Disappearing messages: the chat's timer in seconds (0 = off) and when
-	// it was set, so an older setting can't undo a newer one.
 	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_expiration INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_setting_ts INTEGER DEFAULT 0")
-	// Set while a chat is marked unread on purpose, so healStaleUnreadCounts
-	// leaves it alone. Reading the chat (its count going to 0) clears it.
 	db.Exec("ALTER TABLE chats ADD COLUMN marked_unread INTEGER DEFAULT 0")
-	// The address WhatsApp uses for a 1:1 chat when that isn't the phone JID
-	// the row is keyed by - the person's LID (see wire.go).
 	db.Exec("ALTER TABLE chats ADD COLUMN wire_jid TEXT DEFAULT ''")
 	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_marked_unread AFTER UPDATE OF unread_count ON chats
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
 		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)
 
-	// Who saw (and how they reacted to) a status update: ours, or with
-	// viewer 'me', our own reaction to someone else's.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS status_viewers (
 		status_id TEXT,
 		viewer TEXT,
@@ -87,13 +61,10 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	// People whose status updates are muted (userStatusMute app state).
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS status_mutes (jid TEXT PRIMARY KEY)`); err != nil {
 		return err
 	}
 
-	// Favorite stickers, synced from app state: the base64 SHA-256 of each
-	// sticker's file, and its StickerAction (where to download it).
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS sticker_favorites (
 		hash TEXT PRIMARY KEY,
 		action BLOB,
@@ -102,8 +73,6 @@ func migrateDB() error {
 		return err
 	}
 
-	// Chat lists (label_edit app state, the LabelEditAction as synced),
-	// which chats are in each (label_jid), and the favorite chats in order.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chat_lists (id TEXT PRIMARY KEY, action BLOB)`); err != nil {
 		return err
 	}
@@ -125,9 +94,6 @@ func migrateDB() error {
 		return err
 	}
 
-	// The last on-demand history request per chat (see
-	// handleRequestHistorySync): which message it asked for history before,
-	// and when.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS history_requests (
 		jid TEXT PRIMARY KEY,
 		anchor_id TEXT NOT NULL,
@@ -135,8 +101,6 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	// The chat's oldest message when that request went out: if it's still
-	// the oldest next time, the phone sent nothing older for that anchor.
 	db.Exec("ALTER TABLE history_requests ADD COLUMN oldest_id TEXT DEFAULT ''")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
@@ -152,7 +116,6 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN sender_jid TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE messages ADD COLUMN raw BLOB")
 	db.Exec("ALTER TABLE messages ADD COLUMN voice_waveform BLOB")
-	// New columns added for the enhancement pass:
 	db.Exec("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
 	db.Exec("ALTER TABLE messages ADD COLUMN media_type TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE messages ADD COLUMN media_mimetype TEXT DEFAULT ''")
@@ -170,37 +133,20 @@ func migrateDB() error {
 	db.Exec("ALTER TABLE messages ADD COLUMN played_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN edited_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN starred INTEGER DEFAULT 0")
-	// "viewed" only has meaning for jid = 'status@broadcast' rows (Status/Stories).
 	db.Exec("ALTER TABLE messages ADD COLUMN viewed INTEGER DEFAULT 0")
-	// A group message's sender as WhatsApp named them (their LID), when
-	// sender_jid holds their phone JID instead; empty otherwise (see wire.go).
 	db.Exec("ALTER TABLE messages ADD COLUMN wire_sender TEXT DEFAULT ''")
-	// Media that arrived as one WhatsApp album share the album header's
-	// message ID here, so the frontend can group them without guessing from
-	// timestamps. Empty for standalone media.
 	db.Exec("ALTER TABLE messages ADD COLUMN album_id TEXT DEFAULT ''")
-	// Channel posts: the server's ID for the post (what reactions and view
-	// receipts name), its view count and reaction totals as JSON.
 	db.Exec("ALTER TABLE messages ADD COLUMN server_id INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_views INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_reactions TEXT DEFAULT ''")
-	// A channel poll's vote counts as JSON, by option hash, and whether a
-	// channel post is pinned.
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_poll_votes TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE messages ADD COLUMN channel_pinned INTEGER DEFAULT 0")
 	// When a disappearing message is due to vanish (unix seconds, 0 = never).
 	db.Exec("ALTER TABLE messages ADD COLUMN expires_at INTEGER DEFAULT 0")
-	// View-once media: 1 = not opened yet, 2 = opened (see viewonce.go).
 	db.Exec("ALTER TABLE messages ADD COLUMN view_once INTEGER DEFAULT 0")
-	// A pinned message: until when (0 = not pinned) and when it was pinned,
-	// which decides the oldest pin to drop past the limit. kept = kept in a
-	// chat with disappearing messages, so it doesn't disappear.
 	db.Exec("ALTER TABLE messages ADD COLUMN pinned_until INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN pinned_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE messages ADD COLUMN kept INTEGER DEFAULT 0")
-	// An edit is delivered as its own stanza with its own message ID, so every
-	// receipt for it names an ID no message row has. This maps those IDs back
-	// to the message being edited.
 	db.Exec(`CREATE TABLE IF NOT EXISTS message_edits (
 		edit_id TEXT PRIMARY KEY,
 		target_id TEXT NOT NULL,
@@ -216,28 +162,13 @@ func migrateDB() error {
 	// me" removes the row outright, and that already happens immediately via
 	// deleteMessageForMe, not through this startup sweep.
 	db.Exec("DELETE FROM messages WHERE COALESCE(is_deleted, 0) = 0 AND (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
-	// Chats with no messages stored here are kept: the phone no longer sends
-	// every chat's history, so a chat last used months ago arrives as a
-	// timestamp and nothing else, and WhatsApp Web lists it all the same.
-	// Deleting them on every launch (as this used to) emptied the list of
-	// everyone not written to lately. Entries that aren't chats at all are
-	// kept out when history sync writes them (historyConversationIsChat), and
-	// populateChatsFromStoreOnce drops the empty leftovers.
-	// These re-derive rows stored by older builds. Each one only ever has
-	// work to do once, but used to rescan and re-decode every matching row's
-	// raw protobuf on every single launch.
 	runOnce("backfill_template_messages_v1", backfillTemplateMessages)
-	// v2: messages withheld from linked devices (placeholders) now have text.
 	runOnce("backfill_template_messages_v2", backfillTemplateMessages)
-	// v3: video notes, events, products and the other kinds extractText now
-	// knows, plus pins/RSVPs that were stored as bubbles.
 	runOnce("backfill_template_messages_v3", backfillTemplateMessages)
 	runOnce("backfill_album_messages_v1", backfillAlbumMessages)
 	runOnce("backfill_media_sizes_v1", backfillMediaSizes)
 	runOnce("remove_key_distribution_stubs_v1", removeKeyDistributionStubs)
 	runOnce("tokenize_system_line_names_v1", tokenizeBakedSystemLines)
-	// Push names for @lid senders were cached with the LID's digits as the
-	// phone number, shown as a "+<15 digits>" that was nobody's number.
 	runOnce("clear_lid_fake_phones_v1", func() {
 		db.Exec(`UPDATE contacts_cache SET phone = '' WHERE jid LIKE '%@lid'`)
 	})
@@ -250,26 +181,15 @@ func migrateDB() error {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
 	}
-	// History sync's LID->phone remap rewrites sender_jid by value; without
-	// this it scanned the whole messages table on nearly every chunk.
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_sender_jid ON messages(sender_jid)`); err != nil {
 		return err
 	}
-	// The retry sweep (every 3s while connected) and read-receipt lookups
-	// filter on status; without these each one scanned the whole table.
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_outgoing_status ON messages(status) WHERE from_me = 1`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_incoming_status ON messages(jid, status) WHERE from_me = 0`)
-	// The disappearing-message sweep runs every minute; only the few rows
-	// with a timer belong in its index.
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON messages(expires_at) WHERE expires_at > 0`)
-	// purgeMessages drops a deleted message's edit mappings by target; without
-	// this, clearing a big chat scanned the whole table once per message.
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_message_edits_target ON message_edits(target_id)`)
-	// Starred Messages and the starred-message sync look these up directly.
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(timestamp DESC) WHERE starred = 1`)
 
-	// One row per poll and voter: their current selection as comma-separated
-	// hex option hashes (see poll_votes.go).
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS poll_votes (
 		poll_id TEXT NOT NULL,
 		voter TEXT NOT NULL,
@@ -279,7 +199,6 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	// Group member tags, one row per group and member (the newest wins).
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS group_member_labels (
 		group_jid TEXT NOT NULL,
 		member TEXT NOT NULL,
@@ -289,8 +208,6 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	// RSVPs to events, one row per event and responder (the latest answer
-	// wins). response is waE2E.EventResponseMessage_EventResponseType.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS event_responses (
 		event_id TEXT NOT NULL,
 		responder TEXT NOT NULL,
@@ -311,18 +228,10 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	// UpdateChatSnippet looks up a chat's latest reaction for every chat it
-	// refreshes; without this each lookup scanned every reaction stored.
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_reactions_chat_timestamp ON reactions(chat_jid, timestamp DESC)`); err != nil {
 		return err
 	}
 
-	// Per-participant delivery/read status for group messages, so Message Info
-	// can show a WhatsApp-style "Read by ..." breakdown. Populated from live
-	// receipts and backfilled from history sync, whose group messages carry a
-	// per-member receipt list. status/timestamp are the furthest state reached;
-	// delivered_at/read_at/played_at keep each state's own time so both "read
-	// at" and "delivered at" can be shown.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS message_receipts (
 		message_id TEXT NOT NULL,
 		participant_jid TEXT NOT NULL,
@@ -357,7 +266,6 @@ func migrateDB() error {
 		return err
 	}
 
-	// The blocked list as the server gives it (mostly LIDs); see blocklist.go.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY, pn TEXT DEFAULT '')`); err != nil {
 		return err
 	}
@@ -368,8 +276,6 @@ func migrateDB() error {
 	return nil
 }
 
-// runOnce runs fn the first time a database sees key, then records it in
-// app_settings so later launches skip it.
 func runOnce(key string, fn func()) {
 	var done int
 	if db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, "migration:"+key).Scan(&done) == nil && done > 0 {
@@ -379,8 +285,6 @@ func runOnce(key string, fn func()) {
 	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
 }
 
-// cachePhone is the phone number to cache for a contact: the JID's own for a
-// phone JID, nothing for anything else (a LID's digits aren't a number).
 func cachePhone(jid types.JID) string {
 	if jid.Server == types.DefaultUserServer {
 		return jid.User
@@ -388,11 +292,6 @@ func cachePhone(jid types.JID) string {
 	return ""
 }
 
-// --- messages ---------------------------------------------------------------
-
-// statusRank lets us avoid a late/out-of-order receipt regressing a message's
-// status backwards (e.g. a delayed "delivered" arriving after we already know
-// it was "read").
 func statusRank(status string) int {
 	switch status {
 	case "pending":
@@ -459,9 +358,6 @@ func saveMessage(sm StoredMessage) error {
 	return err
 }
 
-// updateMessageStatusIfNewer applies a status transition only if it moves the
-// message forward (sent -> delivered -> read -> played), for one chat's worth
-// of message IDs at once (receipts can cover several messages read together).
 func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64) []string {
 	if len(ids) == 0 {
 		return nil
@@ -478,8 +374,6 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 	}
 	var updated []string
 	for _, id := range ids {
-		// Receipts for an edit name the edit stanza, not the message it
-		// changed - the status belongs to the message the reader actually sees.
 		if target := editTargetID(id); target != "" {
 			id = target
 		}
@@ -501,10 +395,6 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 	return updated
 }
 
-// updateParticipantReceiptIfNewer records one group member's delivery/read
-// status for a set of messages, ignoring a receipt that would regress a
-// status already recorded for that member (mirrors updateMessageStatusIfNewer,
-// but per-participant instead of per-message).
 func updateParticipantReceiptIfNewer(ids []string, participantJID, newStatus string, receiptTS int64) {
 	for _, id := range ids {
 		if target := editTargetID(id); target != "" {
@@ -516,13 +406,6 @@ func updateParticipantReceiptIfNewer(ids []string, participantJID, newStatus str
 	}
 }
 
-// updateGroupMessageStatuses advances our own group messages' overall status
-// from their per-member receipts, the way official WhatsApp draws group ticks:
-// "delivered" once every other member has it, "read"/"played" once every other
-// member has read/played it. Moving the whole message to "read" on the first
-// member's receipt (as for a 1:1 chat) showed blue ticks while most of the
-// group hadn't even opened it. Returns the IDs whose status changed and the
-// status they now have.
 func updateGroupMessageStatuses(ids []string, groupJID string, receiptTS int64) map[string][]string {
 	var members int
 	db.QueryRow(`SELECT COALESCE(participant_count, 0) FROM chats WHERE jid = ?`, groupJID).Scan(&members)
@@ -569,10 +452,6 @@ type sqlExecer interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 }
 
-// stmtTx is a transaction that parses each distinct statement once and reuses
-// it. Bulk writes (history sync, contact refresh) run the same few long
-// statements hundreds of times per transaction; a plain tx.Exec re-parses the
-// SQL on every call. The prepared statements close with the transaction.
 type stmtTx struct {
 	tx    *sql.Tx
 	stmts map[string]*sql.Stmt
@@ -598,9 +477,6 @@ func (t *stmtTx) Exec(query string, args ...interface{}) (sql.Result, error) {
 	return stmt.Exec(args...)
 }
 
-// batchSize caps how many statements one batched write transaction runs, so
-// live traffic (and whatsmeow's own store writes) get the write lock back
-// regularly during a big history-sync chat or contact refresh.
 const batchSize = 500
 
 // writeBatch runs pre-built writes in short transactions. The closures must
@@ -625,10 +501,6 @@ func writeBatch(writes []func(tx sqlExecer)) {
 	}
 }
 
-// recordParticipantReceipt stores one member's delivered/read/played receipt
-// for one message. Each state's own time is kept the first time it's seen,
-// even when it arrives out of order (a delivery receipt landing after the
-// read one); status/timestamp only ever advance.
 func recordParticipantReceipt(ex sqlExecer, messageID, participantJID, status string, ts int64) error {
 	var col string
 	switch status {
@@ -652,9 +524,6 @@ func recordParticipantReceipt(ex sqlExecer, messageID, participantJID, status st
 	return err
 }
 
-// recordEditStanza remembers that editID carries an edit of targetID. Called
-// before the edit goes out, because the delivery receipt can beat the send call
-// returning.
 func recordEditStanza(editID, targetID, jid string, ts int64) {
 	if editID == "" || targetID == "" || editID == targetID {
 		return
@@ -663,9 +532,6 @@ func recordEditStanza(editID, targetID, jid string, ts int64) {
 		ON CONFLICT(edit_id) DO UPDATE SET target_id = excluded.target_id`, editID, targetID, jid, ts)
 }
 
-// editTargetID resolves an edit stanza's ID to the message it edited, following
-// the chain when a message has been edited more than once. Returns "" for IDs
-// that aren't edits.
 func editTargetID(editID string) string {
 	seen := 0
 	current := editID
@@ -683,8 +549,6 @@ func editTargetID(editID string) string {
 	return current
 }
 
-// editPlainText is the bare new text an edit carries, whichever field it
-// arrived in (a text edit, or a caption on a media edit).
 func editPlainText(msg *waE2E.Message) string {
 	msg = unwrapMessage(msg)
 	switch {
@@ -736,8 +600,6 @@ func mergeEdit(id string, newContent *waE2E.Message) (raw []byte, text string, o
 		} else if inner.Conversation != nil {
 			inner.Conversation = proto.String(newText)
 		} else {
-			// Something that isn't text at all (a poll, a bot's rich
-			// response...): the edit's content replaces it, keeping any quote.
 			orig = proto.Clone(newContent).(*waE2E.Message)
 			if ctx != nil && orig.GetConversation() != "" {
 				orig = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
@@ -753,10 +615,6 @@ func mergeEdit(id string, newContent *waE2E.Message) (raw []byte, text string, o
 	return merged, extractText(orig), true
 }
 
-// markMessageEdited records an edit of message id. newContent is the edit's
-// payload (may be nil if it couldn't be decrypted, in which case only the text
-// is updated); fallbackText is used when there's nothing to merge into.
-// Returns the text the message now displays.
 func markMessageEdited(id, jid string, newContent *waE2E.Message, fallbackText string, editTime int64) (string, error) {
 	text := fallbackText
 	var err error
@@ -787,9 +645,6 @@ func markMessageDeleted(id, jid string) error {
 // another of your devices) deleted for yourself was never a "this message
 // was deleted" placeholder, it's simply gone from your view.
 func deleteMessageForMe(id, jid string) error {
-	// Through purgeMessages so the row's receipts, edit mappings, poll votes
-	// and downloaded media file go with it - deleting just the row and its
-	// reactions left the rest (the media file on disk included) behind.
 	purgeMessages(`id = ? AND jid = ?`, id, jid)
 	UpdateChatSnippet(jid)
 	return nil
@@ -804,11 +659,6 @@ func markMessageStarred(id, jid string, starred bool) error {
 	return err
 }
 
-// backfillMediaSizes fills in media_size for messages stored before that
-// column existed. Their raw protobuf was already kept for other reasons
-// (quoting, forwarding, downloading), so the size can be re-derived from it
-// without a history resync; the query's own filter means this is a no-op
-// after the first run, once every row it can resolve has been resolved.
 func backfillMediaSizes() {
 	rows, err := db.Query(`SELECT id, raw FROM messages
 		WHERE media_type != '' AND COALESCE(media_size, 0) = 0 AND raw IS NOT NULL AND length(raw) > 0`)
@@ -840,12 +690,6 @@ func backfillMediaSizes() {
 	}
 }
 
-// backfillTemplateMessages re-derives the text and media info of messages that
-// were stored back when business template / interactive / buttons messages had
-// no handling, so they landed as "[Unsupported Message]" with their header
-// image unreachable. Their raw protobuf was kept, so re-running the (now
-// smarter) extractors over it recovers them in place - no history resync, and
-// nothing to do on a DB that has none of them.
 func backfillTemplateMessages() {
 	rows, err := db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), raw FROM messages
 		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
@@ -857,8 +701,6 @@ func backfillTemplateMessages() {
 		fileSize                                     int64
 	}
 	var fixed []recovered
-	// Bookkeeping messages (pins, event RSVPs, ...) that older builds stored
-	// as bubbles and that are now known to show nothing.
 	var bookkeeping []string
 	for rows.Next() {
 		var id, jid, senderStr string
@@ -945,8 +787,6 @@ func removeKeyDistributionStubs() {
 
 	chats := make(map[string]struct{}, len(stubs))
 	for _, st := range stubs {
-		// Ask for the real message once we're connected. If it comes back it
-		// lands as a normal message and repopulates the row we're deleting.
 		requestMessageResend(st.id, st.jid, st.senderJID)
 		db.Exec("DELETE FROM messages WHERE id = ?", st.id)
 		chats[st.jid] = struct{}{}
@@ -999,14 +839,6 @@ func backfillAlbumMessages() {
 	}
 }
 
-// UpdateChatSnippet recomputes a chat's list preview from its latest real
-// message. If a reaction landed after that message (the normal "reacted to
-// the last message and nothing followed" case), the reaction preview wins
-// instead - otherwise a bulk resync (e.g. UpdateAllChatSnippets on app
-// restart/reconnect) would blindly overwrite a still-current reaction
-// preview with the plain last message, even though no new message actually
-// arrived to justify that. A real new message already clears the reaction
-// fields itself via the ON CONFLICT UPDATE in the live-message insert path.
 func UpdateChatSnippet(jid string) {
 	var msgText, msgSender string
 	var msgFromMe, msgDeleted int
@@ -1079,19 +911,12 @@ func setMessageMediaPath(id, path string) error {
 	return err
 }
 
-// getMessageRaw loads the stored raw protobuf bytes for a message, along with
-// its chat JID and original sender, so it can be re-parsed for downloads,
-// quoting, or media re-fetching.
 func getMessageRaw(id string) (raw []byte, jid string, senderJID string, fromMe bool, err error) {
 	err = db.QueryRow(`SELECT raw, jid, COALESCE(sender_jid, ''), from_me FROM messages WHERE id = ?`, id).
 		Scan(&raw, &jid, &senderJID, &fromMe)
 	return
 }
 
-// messageOrigin is the authoritative from_me/sender_jid of a message we still
-// have locally, so quoted-reply display can trust the actual original row
-// instead of a denormalized quoted_sender snapshot that may have been
-// captured wrong or gone stale.
 type messageOrigin struct {
 	FromMe    bool
 	SenderJID string
@@ -1101,8 +926,6 @@ type messageOrigin struct {
 // by id; ids we don't have are simply absent.
 func lookupMessageOrigins(ids []string) map[string]messageOrigin {
 	result := map[string]messageOrigin{}
-	// Chunked like getReactionsForMessageIDs, under SQLite's bound-parameter
-	// limit.
 	const chunk = 900
 	for start := 0; start < len(ids); start += chunk {
 		part := ids[start:min(start+chunk, len(ids))]
@@ -1128,9 +951,6 @@ func lookupMessageOrigins(ids []string) map[string]messageOrigin {
 	return result
 }
 
-// getMessageForQuote loads and parses a stored message so it can be used as
-// the QuotedMessage in a reply's ContextInfo, along with a short text preview
-// for locally caching alongside the new message.
 func getMessageForQuote(id string) (msg *waE2E.Message, senderJID string, preview string, err error) {
 	var raw []byte
 	var text string
@@ -1192,14 +1012,9 @@ func prepareForQuote(msg *waE2E.Message) *waE2E.Message {
 	return msg
 }
 
-// getReactionsForMessageIDs returns all current reactions for a batch of
-// message IDs, keyed by message ID, for embedding into get_messages results.
 func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 	result := map[string][]ReactionInfo{}
 	names := map[string]string{}
-	// In chunks: a whole chat can hold more IDs than SQLite allows bound
-	// parameters in one statement, and the query then failed outright -
-	// every reaction in the chat silently went missing.
 	const chunk = 900
 	for start := 0; start < len(ids); start += chunk {
 		part := ids[start:min(start+chunk, len(ids))]
@@ -1241,15 +1056,8 @@ func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 	return result
 }
 
-// upsertReaction records (or, for an empty emoji, effectively clears) a
-// single reactor's reaction to a message. WhatsApp only allows one active
-// reaction per person per message, so reactor_jid+message_id is the key.
 func upsertReaction(messageID, chatJID, reactorJID, emoji string, ts int64) error {
 	if emoji == "" {
-		// Only this reactor's row. Our own reactions (from any of our
-		// devices) are always stored under "me", so a removal by us already
-		// arrives as reactorJID "me" - also matching 'me' here deleted *our*
-		// reaction whenever anyone else removed theirs.
 		_, err := db.Exec(`DELETE FROM reactions WHERE message_id = ? AND reactor_jid = ?`, messageID, reactorJID)
 		return err
 	}
@@ -1259,13 +1067,6 @@ func upsertReaction(messageID, chatJID, reactorJID, emoji string, ts int64) erro
 	return err
 }
 
-// updateChatReactionPreview mirrors official WhatsApp's chat-list behaviour:
-// reacting to a message (even an old one) swaps the list row's preview to
-// "<reactor> reacted with <emoji> to: <message>" without bumping the chat's
-// position or displayed time - WhatsApp doesn't hand us a reaction
-// timestamp for that, so the row keeps showing the last real message's time.
-// Clearing a reaction (empty emoji) reverts the row to the actual last
-// message via UpdateChatSnippet.
 func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji string, reactorIsFromMe bool) {
 	if emoji == "" {
 		db.Exec(`UPDATE chats SET preview_is_reaction = 0, preview_reaction_emoji = '' WHERE jid = ?`, chatJID)
@@ -1290,8 +1091,6 @@ func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji stri
 			preview_reaction_emoji = ?
 		WHERE jid = ?`, text, reactorJID, fromMe, emoji, chatJID)
 }
-
-// --- contacts -----------------------------------------------------------------
 
 // upsertContactCacheRow keeps the local contacts_cache table (used for fast,
 // offline-friendly get_contacts/check_contacts responses) in sync. A real
@@ -1319,12 +1118,6 @@ func upsertContactCacheRowWith(ex sqlExecer, jid, name, phone string, isBusiness
 	return err
 }
 
-// deleteContactCacheRow removes a contact entirely from the local cache
-// (e.g. after it's deleted from WhatsApp's own contact list on another
-// device). Unlike upsertContactCacheRowWith, this doesn't go through the
-// "keep the existing name" guard meant to protect a real name from being
-// blanked by a lower-quality update - a removal is an explicit, intentional
-// deletion, not a stale sync.
 func deleteContactCacheRow(jid string) error {
 	_, err := db.Exec(`DELETE FROM contacts_cache WHERE jid = ?`, jid)
 	return err
@@ -1350,10 +1143,6 @@ func getCachedAvatarPath(jid string) string {
 	return path
 }
 
-// resolveDisplayName centralizes the "what name do we show for this JID"
-// logic that used to be duplicated between broadcastChats and get_chats. It
-// resolves LIDs to phone-number JIDs first, then falls back through contact
-// name -> push name -> business name -> "+<number>".
 func resolveDisplayName(jid types.JID) string {
 	if wa() != nil && wa().Store != nil && wa().Store.ID != nil {
 		if (jid.Server == types.DefaultUserServer && jid.User == wa().Store.ID.User) || (jid.Server == types.HiddenUserServer && jid.User == wa().Store.GetLID().User) {
@@ -1367,7 +1156,6 @@ func resolveDisplayName(jid types.JID) string {
 	if jid.User == types.NewMetaAIJID.User && jid.Server == types.NewMetaAIJID.Server {
 		return "Meta AI"
 	}
-	// A channel is named by its own title, which we keep in the chat list.
 	if jid.Server == types.NewsletterServer {
 		var name string
 		if db != nil {
@@ -1376,10 +1164,6 @@ func resolveDisplayName(jid types.JID) string {
 		return cmp.Or(name, "Channel")
 	}
 	contactJID := jid
-	// twin is the same person's other address (their LID for a phone JID,
-	// or the reverse). Group members who hide their number are only ever
-	// seen as a LID, so their push name is often stored under that alone,
-	// while the address-book name is under the phone JID.
 	var twin types.JID
 	redactedPhone := ""
 	if wa() != nil && wa().Store != nil && wa().Store.LIDs != nil {
@@ -1426,26 +1210,15 @@ func resolveDisplayName(jid types.JID) string {
 			return "+" + phone
 		}
 	}
-	// Fall back on contactJID, not jid: for a LID we already resolved to a
-	// phone JID above, and "+<number>" beats showing a raw "<n>@lid".
 	if contactJID.Server != "g.us" && contactJID.Server != "lid" && contactJID.Server != "" && contactJID.User != "" {
 		return "+" + contactJID.User
 	}
-	// A member who hides their number in a community: WhatsApp gives us the
-	// number with most digits masked ("+91∙∙∙∙∙∙∙∙62"), which is what the
-	// official apps show too - far better than a raw "<n>@lid".
 	if redactedPhone != "" {
 		return redactedPhone
 	}
 	return jid.String()
 }
 
-// removeOrphanedDeviceRows deletes whatsmeow rows belonging to devices that no
-// longer exist - what ON DELETE CASCADE would have done when each device was
-// logged out, had foreign keys been on for that connection (see main.go).
-// Each re-pair otherwise left the previous device's message secrets,
-// contacts, sessions, etc. behind. Only foreign keys that whatsmeow's own
-// schema declares against whatsmeow_device are followed.
 func removeOrphanedDeviceRows() {
 	rows, err := db.Query(`SELECT m.name, f."from"
 		FROM sqlite_master m, pragma_foreign_key_list(m.name) f

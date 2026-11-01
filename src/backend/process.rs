@@ -1,8 +1,3 @@
-//! Owns the Go backend process and brings it back if it dies while whatSnap is
-//! still running. Without this a backend crash left the UI up but inert: the
-//! pipe thread kept retrying a pipe nobody was listening on any more, and the
-//! only fix was restarting the whole app.
-
 use std::{
 	os::windows::process::CommandExt,
 	path::PathBuf,
@@ -32,7 +27,6 @@ pub struct BackendProcess {
 	verbose_logging: bool,
 	job: Option<KillOnCloseJob>,
 	child: Mutex<Option<Child>>,
-	/// PID of the live backend (0 = none), for the pipe peer check.
 	pid: AtomicU32,
 	started_at: Mutex<Instant>,
 	quick_crashes: AtomicU32,
@@ -130,7 +124,6 @@ impl BackendProcess {
 			} else {
 				self.quick_crashes.fetch_add(1, Ordering::SeqCst)
 			};
-			// 0s, 1s, 2s, 4s ... capped at 30s.
 			if crashes == 0 {
 				Duration::ZERO
 			} else {
@@ -148,10 +141,6 @@ impl BackendProcess {
 		child.is_some()
 	}
 
-	/// Stops the backend for good at app exit: asks it to shut down cleanly
-	/// via `request_shutdown`, then kills it if it hasn't exited in 5s.
-	/// Setting `shutting_down` first is what keeps `restart_if_dead` from
-	/// resurrecting it the moment it exits.
 	pub fn shutdown(&self, request_shutdown: impl FnOnce()) {
 		self.shutting_down.store(true, Ordering::SeqCst);
 		let Some(mut child) = self.child.lock().unwrap().take() else {

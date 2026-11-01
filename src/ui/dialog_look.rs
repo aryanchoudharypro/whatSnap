@@ -1,18 +1,3 @@
-//! WhatsApp Web's look for the app's small dialogs (New chat, New group,
-//! Create poll, Send to, ...): fields drawn as a grey search pill, a rounded
-//! box or a line that turns green while typing in it; buttons as pills
-//! (green for the main one); check boxes as switches; and contact lists as
-//! rows with each person's picture and a round check.
-//!
-//! Only painting changes. Every control stays the same native control with
-//! the same label, made in the same order, so what a screen reader says and
-//! where Tab goes are exactly what they were: buttons become owner-drawn
-//! (`BS_OWNERDRAW`, still push buttons with their text), check boxes are
-//! painted through `NM_CUSTOMDRAW` (still check boxes), and list rows on the
-//! parent's `WM_DRAWITEM` (the list keeps its strings). Nothing here is
-//! drawn in a High Contrast theme except the switches, rows and buttons,
-//! which then use the system's colours.
-
 use std::{cell::RefCell, collections::HashMap};
 
 use windows::Win32::{
@@ -48,28 +33,19 @@ use super::{
 const PARENT_SUBCLASS: usize = 0x444c_5052;
 const CONTROL_SUBCLASS: usize = 0x444c_4354;
 
-/// wx's `wxBORDER_NONE`.
 const BORDER_NONE: i64 = 0x0020_0000;
 
-/// How a text field is drawn.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Field {
-	/// A line under it, green and thicker while it has the focus (a name, a
-	/// question).
 	Line,
-	/// A grey pill with a magnifier (a search).
 	Search,
-	/// A grey rounded box (a longer, multi-line text).
 	Box,
 }
 
-/// `style` with no border of its own, when the dialog draws one (not in
-/// High Contrast, where the native border stays).
 pub(crate) fn field_style(style: TextCtrlStyle) -> TextCtrlStyle {
 	if theme::use_custom_colours() { style | TextCtrlStyle::from_bits_retain(BORDER_NONE) } else { style }
 }
 
-/// Adds `field` to `sizer` with the room its drawing needs around it.
 pub(crate) fn add_field(sizer: &BoxSizer, field: &TextCtrl, kind: Field, proportion: i32) {
 	field.set_font(&theme::Fonts::body());
 	if !theme::use_custom_colours() {
@@ -92,7 +68,6 @@ pub(crate) fn add_field(sizer: &BoxSizer, field: &TextCtrl, kind: Field, proport
 	}
 }
 
-/// Draws `fields`' pills, boxes and lines on `panel`, which holds them.
 pub(crate) fn paint_fields(panel: &Panel, fields: &[(TextCtrl, Field)]) {
 	if !theme::use_custom_colours() {
 		return;
@@ -127,7 +102,6 @@ pub(crate) fn paint_fields(panel: &Panel, fields: &[(TextCtrl, Field)]) {
 	});
 }
 
-/// Draws `field`'s pill, box or line around it, on the window that holds it.
 pub(crate) fn paint_field(dc: &impl DeviceContext, field: &TextCtrl, kind: Field) {
 	if !field.is_shown() {
 		return;
@@ -160,8 +134,6 @@ pub(crate) fn paint_field(dc: &impl DeviceContext, field: &TextCtrl, kind: Field
 	}
 }
 
-/// A small magnifier centred on (x, y), drawn with lines so it needs no
-/// icon font.
 fn draw_magnifier(dc: &impl DeviceContext, x: i32, y: i32) {
 	let grey = Palette::ICON();
 	dc.set_brush(Palette::FIELD_BG(), BrushStyle::Solid);
@@ -170,8 +142,6 @@ fn draw_magnifier(dc: &impl DeviceContext, x: i32, y: i32) {
 	dc.draw_line(x + 3, y + 3, x + 8, y + 8);
 }
 
-/// Lays out a dialog's buttons as WhatsApp does, on the right, in the order
-/// they were made (which is their Tab order).
 pub(crate) fn button_row(sizer: &BoxSizer, buttons: &[&Button]) {
 	let row = BoxSizer::builder(Orientation::Horizontal).build();
 	row.add_stretch_spacer(1);
@@ -183,12 +153,8 @@ pub(crate) fn button_row(sizer: &BoxSizer, buttons: &[&Button]) {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
-	/// A pill button; true for the main one (green).
 	Pill(bool),
-	/// A check box drawn as a switch.
 	Switch,
-	/// A list of contacts (or chats) with their pictures; the check list's
-	/// rows have a round check.
 	Rows,
 }
 
@@ -206,8 +172,6 @@ struct Rows {
 struct Registry {
 	controls: HashMap<isize, Control>,
 	rows: HashMap<isize, Rows>,
-	/// Switches by window, for their state: in the dark theme wx draws
-	/// check boxes itself and keeps it, not the control.
 	switches: HashMap<isize, CheckBox>,
 	parents: Vec<isize>,
 	avatars_hooked: bool,
@@ -241,8 +205,6 @@ fn register(hwnd: HWND, kind: Kind, background: Colour) {
 	}
 }
 
-/// Draws `button` as a pill on `background`: green with white text when
-/// `primary`, else white with green text. Its label is unchanged.
 pub(crate) fn pill_button(button: &Button, primary: bool, background: Colour) {
 	button.set_font(&if primary { theme::Fonts::body_strong() } else { theme::Fonts::body() });
 	let hwnd = hwnd_of(button);
@@ -274,7 +236,6 @@ pub(crate) fn switch(check: &CheckBox, background: Colour) {
 		let height = switch_height(hwnd, width);
 		if width > 0 && check_c.get_min_size().height != height {
 			check_c.set_min_size(Size::new(-1, height));
-			// Not from inside this size event: the layout resizes it again.
 			wxdragon::call_after(Box::new(move || {
 				if let Some(parent) = check_c.get_parent() {
 					parent.layout();
@@ -285,14 +246,11 @@ pub(crate) fn switch(check: &CheckBox, background: Colour) {
 	});
 }
 
-/// A switch's track: its height and width for a line of `line` pixels.
 fn track_size(line: i32) -> (i32, i32) {
 	let track_h = (line * 4 / 5).max(12);
 	(track_h, track_h * 2 - 2)
 }
 
-/// A switch's label as lines no wider than what the track leaves of
-/// `width`: the setting's name, then what it does (see [`switch`]).
 fn switch_lines(dc: HDC, font: HFONT, line: i32, label: &str, width: i32) -> (Vec<String>, Vec<String>) {
 	let (_, track_w) = track_size(line);
 	let room = (width - track_w - 4 - 14).max(40);
@@ -308,7 +266,6 @@ fn switch_lines(dc: HDC, font: HFONT, line: i32, label: &str, width: i32) -> (Ve
 	(wrap(dc, font, name, room), wrap(dc, font, &more, room))
 }
 
-/// `text` broken at spaces into lines no wider than `width`.
 fn wrap(dc: HDC, font: HFONT, text: &str, width: i32) -> Vec<String> {
 	let mut lines = Vec::new();
 	let mut current = String::new();
@@ -326,7 +283,6 @@ fn wrap(dc: HDC, font: HFONT, text: &str, width: i32) -> Vec<String> {
 	lines
 }
 
-/// How tall the switch `hwnd` needs to be at `width` for all of its label.
 fn switch_height(hwnd: HWND, width: i32) -> i32 {
 	let line = line_height(hwnd);
 	let label = strip_mnemonic(&window_text(hwnd));
@@ -341,14 +297,10 @@ fn switch_height(hwnd: HWND, width: i32) -> i32 {
 	(name.len() + more.len()).max(1) as i32 * line + gap + 14
 }
 
-/// Draws `list`'s rows as contacts: their picture (from `jid`, by row) with
-/// the name, and the number under it.
 pub(crate) fn contact_rows(list: &ListBox, jid: impl Fn(usize) -> Option<String> + 'static) {
 	install_rows(hwnd_of(list), None, Box::new(jid));
 }
 
-/// As [`contact_rows`], with a round check at the left of each row, where
-/// clicking toggles it.
 pub(crate) fn contact_check_rows(list: &CheckListBox, jid: impl Fn(usize) -> Option<String> + 'static) {
 	install_rows(hwnd_of(list), Some(*list), Box::new(jid));
 }
@@ -373,7 +325,6 @@ fn install_rows(hwnd: HWND, checks: Option<CheckListBox>, jid: Box<dyn Fn(usize)
 	set_row_height(hwnd);
 }
 
-/// The picture's size: the chat list's, so they share one cache.
 fn picture_size(line: i32) -> i32 {
 	avatars::size().unwrap_or(line * 2 + 6)
 }
@@ -427,7 +378,6 @@ unsafe extern "system" fn control_proc(
 ) -> LRESULT {
 	let kind = REGISTRY.with(|r| r.try_borrow().ok().and_then(|r| r.controls.get(&(hwnd.0 as isize)).map(|c| c.kind)));
 	match (msg, kind) {
-		// wx sets one line's height whenever the font changes; the rows are taller.
 		(LB_SETITEMHEIGHT, Some(Kind::Rows)) => {
 			let height = row_height(hwnd);
 			unsafe { DefSubclassProc(hwnd, msg, wparam, LPARAM(height as isize)) }
@@ -481,8 +431,6 @@ unsafe extern "system" fn parent_proc(
 				Some((Kind::Rows, background)) if item.CtlType == ODT_LISTBOX && item.itemID != u32::MAX => {
 					Some((Kind::Rows, background))
 				}
-				// The dark theme makes wx draw check boxes itself, so a
-				// switch is asked for here rather than by NM_CUSTOMDRAW.
 				Some((Kind::Switch, background)) if item.CtlType == ODT_BUTTON => {
 					let disabled = item.itemState.0 & ODS_DISABLED.0 != 0;
 					let focused = item.itemState.0 & ODS_FOCUS.0 != 0;
@@ -537,7 +485,6 @@ fn rect(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
 	RECT { left, top, right, bottom }
 }
 
-/// A filled circle (or pill) `w` by `h` at (x, y).
 fn blob(dc: HDC, x: i32, y: i32, w: i32, h: i32, colour: COLORREF) {
 	if w <= 0 || h <= 0 {
 		return;
@@ -548,7 +495,6 @@ fn blob(dc: HDC, x: i32, y: i32, w: i32, h: i32, colour: COLORREF) {
 	}
 }
 
-/// "&View once" -> "View once", as the button shows it.
 fn strip_mnemonic(label: &str) -> String {
 	let mut out = String::with_capacity(label.len());
 	let mut chars = label.chars();
@@ -589,8 +535,6 @@ fn list_text(hwnd: HWND, index: u32) -> String {
 	}
 }
 
-/// Paints into an off-screen bitmap and copies it in one go, so nothing
-/// flickers.
 fn buffered(target: HDC, r: RECT, paint: impl FnOnce(HDC, i32, i32)) {
 	let (width, height) = (r.right - r.left, r.bottom - r.top);
 	if width <= 0 || height <= 0 {
@@ -641,7 +585,6 @@ fn draw_item(item: &DRAWITEMSTRUCT, kind: Kind, background: Colour) {
 	}
 }
 
-/// `state` is (pressed, focused, disabled).
 #[allow(clippy::too_many_arguments)]
 fn paint_pill(
 	dc: HDC,
@@ -656,7 +599,6 @@ fn paint_pill(
 	let custom = theme::use_custom_colours();
 	let back = if custom { rgb(background) } else { sys(COLOR_BTNFACE) };
 	gdi::fill(dc, rect(0, 0, width, height), back);
-	// The pill sits 3px in, leaving room for the focus ring around it.
 	let (x, y, w, h) = (3, 3, width - 6, height - 6);
 	let (fill, ink, edge) = if !custom {
 		let (fill, ink) =
@@ -704,7 +646,6 @@ fn paint_switch(hwnd: HWND, hdc: HDC, rc: RECT, disabled: bool, focused: bool, b
 		let (name, more) = switch_lines(dc, font, line, &label, width);
 		let lines = (name.len() + more.len()).max(1) as i32;
 		let gap = if more.is_empty() { 0 } else { 2 };
-		// The text sits in the middle, the track level with its first line.
 		let top = ((height - lines * line - gap) / 2).max(0);
 		let (tx, ty) = (width - track_w - 4, top + (line - track_h) / 2);
 		let (text, muted) = if disabled {
@@ -739,7 +680,6 @@ fn paint_switch(hwnd: HWND, hdc: HDC, rc: RECT, disabled: bool, focused: bool, b
 		};
 		blob(dc, tx, ty, track_w, track_h, track);
 		if !custom && !checked {
-			// Off in High Contrast: an outline with the knob inside.
 			blob(dc, tx + 2, ty + 2, track_w - 4, track_h - 4, back);
 		}
 		let knob_side = track_h - 6;
@@ -752,14 +692,11 @@ fn paint_switch(hwnd: HWND, hdc: HDC, rc: RECT, disabled: bool, focused: bool, b
 struct RowLook<'a> {
 	text: &'a str,
 	jid: &'a str,
-	/// None for a list without checks.
 	checked: Option<bool>,
 	selected: bool,
 	focused: bool,
 }
 
-/// "Mum +44 7700 900123" -> ("Mum", "+44 7700 900123"); a number on its own
-/// stays the title.
 fn split_contact(text: &str) -> (&str, &str) {
 	match text.rfind(" +") {
 		Some(at) if at > 0 => (&text[..at], &text[at + 1..]),
@@ -790,7 +727,6 @@ fn paint_row(dc: HDC, width: i32, height: i32, font: HFONT, line: i32, look: &Ro
 	}
 	let lf = logfont(font);
 	let mut x = 10;
-	// The round check, where wx's check box was (clicking it toggles).
 	if let Some(checked) = look.checked {
 		let side = (line + 2).min(height - 4);
 		let y = (height - side) / 2;
@@ -838,7 +774,6 @@ fn paint_row(dc: HDC, width: i32, height: i32, font: HFONT, line: i32, look: &Ro
 		gdi::text(dc, small, muted, number, rect(tx, mid + 1, width - 8, mid + line + 1), Default::default());
 		gdi::delete_font(small);
 	}
-	// WhatsApp's faint line between rows, from the name onwards.
 	if custom && !look.selected {
 		gdi::fill(dc, rect(tx, height - 1, width, height), rgb(Palette::DIVIDER_SOFT()));
 	}

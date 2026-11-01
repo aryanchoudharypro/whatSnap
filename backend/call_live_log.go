@@ -20,16 +20,15 @@ import (
 // ours, since the phone's is authoritative.
 
 type liveCall struct {
-	chatJID   string
-	incoming  bool
-	video     bool
-	group     bool
-	started   time.Time
-	connected time.Time
-	// How it ended, as far as only this device can tell.
-	localReject   bool // declined from whatSnap
-	localHangup   bool // hung up / cancelled from whatSnap
-	rejectedByOwn bool // declined on another of our devices
+	chatJID       string
+	incoming      bool
+	video         bool
+	group         bool
+	started       time.Time
+	connected     time.Time
+	localReject   bool
+	localHangup   bool
+	rejectedByOwn bool
 }
 
 var (
@@ -37,9 +36,6 @@ var (
 	liveCalls   = map[string]*liveCall{}
 )
 
-// trackLiveCall starts tracking a call this device is ringing for or placing.
-// chatJID is the conversation the row belongs in: the group for a group call,
-// otherwise the other person.
 func trackLiveCall(callID string, chatJID types.JID, incoming, video, group bool) {
 	if callID == "" || chatJID.IsEmpty() {
 		return
@@ -63,10 +59,6 @@ func updateLiveCall(callID string, fn func(*liveCall)) {
 	liveCallsMu.Unlock()
 }
 
-// noteOwnDeviceReject is a whatsmeow event handler: a <reject> for an
-// incoming call that comes from one of our own devices means it was declined
-// there (on the phone), not by the caller. meowcaller reports both simply as
-// "rejected", so this has to be caught before it gets there.
 func noteOwnDeviceReject(evt interface{}) {
 	rej, ok := evt.(*events.CallReject)
 	if !ok || !isOwnJID(rej.From) {
@@ -79,10 +71,6 @@ func noteOwnDeviceReject(evt interface{}) {
 	})
 }
 
-// noteOfflineMissedCall is a whatsmeow event handler for a call that rang
-// while this device was offline. The server replays its offer once we're
-// back, flagged offline, and meowcaller doesn't ring for it, as WhatsApp Web
-// doesn't: it only goes in the history as a missed call, dated when it rang.
 func noteOfflineMissedCall(evt interface{}) {
 	offer, ok := evt.(*events.CallOffer)
 	if !ok || !offer.Offline || offer.CallID == "" {
@@ -116,8 +104,6 @@ func noteOfflineMissedCall(evt interface{}) {
 	storeLiveCallRow(offer.CallID, c, text, liveCallResult(c, ""), 0)
 }
 
-// finishLiveCall stops tracking a call, stores its history row, and returns
-// the line describing how it ended ("" if the call wasn't tracked).
 func finishLiveCall(callID, reason string) string {
 	liveCallsMu.Lock()
 	c := liveCalls[callID]
@@ -132,8 +118,6 @@ func finishLiveCall(callID, reason string) string {
 	return text
 }
 
-// liveCallText describes an ended call in the same words the synced call log
-// uses (callLogText), so a row reads the same whichever source wrote it.
 func liveCallText(c *liveCall, reason string, now time.Time) string {
 	kind := "Voice call"
 	if c.video {
@@ -178,8 +162,6 @@ func liveCallText(c *liveCall, reason string, now time.Time) string {
 	return fmt.Sprintf("%s, no answer", kind)
 }
 
-// liveCallResult names how an ended call finished, in callResultName's words,
-// following the same branches as liveCallText.
 func liveCallResult(c *liveCall, reason string) string {
 	if !c.connected.IsZero() {
 		return "connected"
@@ -211,8 +193,6 @@ func liveCallDuration(c *liveCall, now time.Time) int64 {
 	return int64(now.Sub(c.connected).Seconds())
 }
 
-// storeLiveCallRow writes the row unless a synced record for this call is
-// already there: the phone's own record wins either way round.
 func storeLiveCallRow(callID string, c *liveCall, text, result string, duration int64) {
 	id := "call:" + callID
 	ts := c.started.Unix()
@@ -225,13 +205,12 @@ func storeLiveCallRow(callID string, c *liveCall, text, result string, duration 
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return // the synced record got there first
+		return
 	}
 	storeCallRecord(callRecord{
 		CallID: callID, JID: c.chatJID, FromMe: fromMe, IsVideo: c.video, IsGroup: c.group,
 		Result: result, Duration: duration, Timestamp: ts, Text: text,
 	})
-	// History, not an alert - no unread bump, same as synced call rows.
 	db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
 		ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),

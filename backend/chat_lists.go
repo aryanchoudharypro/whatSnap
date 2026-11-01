@@ -17,12 +17,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Chat lists, as WA Web's chat filters have them: favorite chats, and lists
-// of our own (labels whose type is CUSTOM, as WPP.lists makes them). Both
-// sync with the phone: favorites as one favorites app state mutation holding
-// the whole list (WAWebFavoritesSync), lists as label_edit and which chats
-// are in one as label_jid. Unread and Groups need nothing stored.
-
 type ChatListData struct {
 	ID     string   `json:"id"`
 	Name   string   `json:"name"`
@@ -36,17 +30,10 @@ type FavoriteData struct {
 	Favorite bool   `json:"favorite"`
 }
 
-// listsMu keeps a list or favorites change from reading the stored state
-// while another is half way through rewriting it.
 var listsMu sync.Mutex
 
-// favoritesSendMu keeps two favorite changes in a row from both starting
-// from the list as it was before either.
 var favoritesSendMu sync.Mutex
 
-// shownListType says whether a label is a list of our own (or a business
-// account's label), rather than one of the predefined filters we show
-// ourselves.
 func shownListType(t waSyncAction.LabelEditAction_ListType) bool {
 	switch t {
 	case waSyncAction.LabelEditAction_CUSTOM, waSyncAction.LabelEditAction_NONE, waSyncAction.LabelEditAction_PREDEFINED:
@@ -167,8 +154,6 @@ func findList(id string) *waSyncAction.LabelEditAction {
 	return nil
 }
 
-// chatListsPayload is what the chat filter shows: the favorites in order,
-// and our lists in WA Web's order (orderIndex, falling back to the id).
 func chatListsPayload() map[string]interface{} {
 	members := map[string][]string{}
 	if rows, err := db.Query(`SELECT list_id, jid FROM chat_list_members`); err == nil {
@@ -228,8 +213,6 @@ func listError(what string, err error) {
 	broadcastEvent("error", map[string]string{"message": "Couldn't " + what + ": " + err.Error()})
 }
 
-// handleSetFavorite adds a chat to the favorites (at the end, as the phone
-// does) or takes it off, sending the whole list.
 func handleSetFavorite(conn net.Conn, raw json.RawMessage) {
 	var data FavoriteData
 	if err := json.Unmarshal(raw, &data); err != nil || data.JID == "" {
@@ -263,8 +246,6 @@ func handleSetFavorite(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleCreateList makes a list with the next free label id, after the
-// lists there are, with any chats given in it.
 func handleCreateList(conn net.Conn, raw json.RawMessage) {
 	var data ChatListData
 	if err := json.Unmarshal(raw, &data); err != nil || strings.TrimSpace(data.Name) == "" {
@@ -322,8 +303,6 @@ func handleRenameList(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleDeleteList deletes a list the way WA Web's labelDeleteAction does:
-// its last name and color, with deleted set. The chats in it stay as they are.
 func handleDeleteList(conn net.Conn, raw json.RawMessage) {
 	var data ChatListData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -345,8 +324,6 @@ func handleDeleteList(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleSetListMember adds chats to a list or takes them out: one as jid,
-// or several as jids (Manage Lists adds a few at once), said as one change.
 func handleSetListMember(conn net.Conn, raw json.RawMessage) {
 	var data ChatListData
 	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" {
@@ -393,8 +370,6 @@ func sendListMember(id, chat string, member bool) bool {
 	return true
 }
 
-// handleGetCommonGroups lists the groups we share with someone, for their
-// contact info, from the group list the chat list already keeps.
 func handleGetCommonGroups(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {

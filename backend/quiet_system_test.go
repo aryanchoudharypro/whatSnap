@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// A security code change goes into the chat but leaves the chat list alone:
-// same place, same preview, same unread count, even after a preview rebuild.
 func TestQuietSystemLineLeavesChatListAlone(t *testing.T) {
 	openDisappearingTestDB(t)
 	const chat = "1@s.whatsapp.net"

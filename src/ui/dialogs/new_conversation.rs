@@ -5,8 +5,6 @@ use crate::ui::{
 	theme,
 };
 
-/// Every constructed widget is kept here for consistency even if not all of
-/// them are read back after construction yet.
 #[allow(dead_code)]
 pub struct NewConversationDialogParts {
 	pub dialog: Dialog,
@@ -38,8 +36,6 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::ProcessEnter)).build();
 	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
-	// Owner-drawn (keeping its strings) so the rows can show each contact's
-	// picture; see `dialog_look::contact_rows`, installed in window.rs.
 	let results_list =
 		ListBox::builder(&panel).with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW)).build();
 	results_list.set_font(&theme::Fonts::body());
@@ -79,10 +75,6 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 
 	let dlg_esc1 = dialog;
 	search_field.on_key_down(crate::ui::keys::escape_cancels(dlg_esc1));
-
-	// Enter-to-select and Escape-to-cancel for `results_list` are bound in
-	// `ui::window::bind_input_handlers`, which has access to the app state
-	// needed to resolve a selected row back to a jid.
 
 	NewConversationDialogParts {
 		dialog,

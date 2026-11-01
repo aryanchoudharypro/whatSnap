@@ -47,8 +47,6 @@ func ensureCallRecords() error {
 	}
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_ts ON call_records (timestamp DESC)`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_jid ON call_records (jid)`)
-	// Builds from before this table kept calls only as message rows. Carry them
-	// over; the wording is all they recorded, so the flags come from it.
 	_, err := db.Exec(`INSERT OR IGNORE INTO call_records (call_id, jid, from_me, is_video, is_group, text, timestamp)
 		SELECT SUBSTR(id, 6), jid, COALESCE(from_me, 0), LOWER(COALESCE(text, '')) LIKE '%video%',
 			jid LIKE '%@g.us', COALESCE(text, ''), COALESCE(timestamp, 0)
@@ -56,7 +54,6 @@ func ensureCallRecords() error {
 	return err
 }
 
-// callResultName is the stable, wire-independent name of a call's outcome.
 func callResultName(r waSyncAction.CallLogRecord_CallResult) string {
 	switch r {
 	case waSyncAction.CallLogRecord_CONNECTED, waSyncAction.CallLogRecord_ONGOING:
@@ -103,8 +100,6 @@ func storeCallRecord(r callRecord) {
 	}
 }
 
-// deleteNewestCallRecord removes the newest one-to-one call with jid in the
-// given direction that started no later than until, and returns its id.
 func deleteNewestCallRecord(jid string, fromMe bool, until int64) (string, bool) {
 	var id string
 	err := db.QueryRow(`SELECT call_id FROM call_records
@@ -178,7 +173,6 @@ func handleGetCallLogs(conn net.Conn) {
 	}()
 }
 
-// CallTargetJSON is one person the Calls tab can dial.
 type CallTargetJSON struct {
 	JID   string `json:"jid"`
 	Name  string `json:"name"`
@@ -187,8 +181,6 @@ type CallTargetJSON struct {
 
 const frequentCallTargets = 8
 
-// callableJID reports whether a contact can be dialed one to one: a person, not
-// a group, newsletter, broadcast or ourselves.
 func callableJID(jid string) bool {
 	if !strings.HasSuffix(jid, "@s.whatsapp.net") && !strings.HasSuffix(jid, "@lid") {
 		return false
@@ -197,8 +189,6 @@ func callableJID(jid string) bool {
 	return err == nil && !isOwnJID(p)
 }
 
-// handleGetCallTargets answers the Calls tab's picker: the people called or
-// messaged most, then every contact A to Z, as the phone's Calls screen does.
 func handleGetCallTargets(conn net.Conn) {
 	go func() {
 		out := map[string]interface{}{"frequent": []CallTargetJSON{}, "contacts": []CallTargetJSON{}}
@@ -237,7 +227,6 @@ func handleGetCallTargets(conn net.Conn) {
 			seen[jid] = true
 			frequent = append(frequent, CallTargetJSON{JID: jid, Name: nameFor(jid), Phone: phones[jid]})
 		}
-		// Most-called first, the latest call breaking ties.
 		if rows, err := db.Query(`SELECT jid FROM call_records WHERE is_group = 0
 				GROUP BY jid ORDER BY COUNT(*) DESC, MAX(timestamp) DESC LIMIT 20`); err == nil {
 			for rows.Next() {
@@ -248,7 +237,6 @@ func handleGetCallTargets(conn net.Conn) {
 			}
 			rows.Close()
 		}
-		// Too few calls to fill the list: top it up with whoever was written to last.
 		if len(frequent) < frequentCallTargets {
 			if rows, err := db.Query(`SELECT jid FROM chats WHERE jid LIKE '%@s.whatsapp.net' OR jid LIKE '%@lid'
 					ORDER BY COALESCE(timestamp, 0) DESC LIMIT 20`); err == nil {

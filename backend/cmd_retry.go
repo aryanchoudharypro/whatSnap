@@ -17,17 +17,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Auto-retry policy for pending text sends, mirroring official WhatsApp:
-// keep quietly retrying with backoff while offline/erroring, and only
-// surface a "failed to send" state (requiring a manual tap) once retries
-// are exhausted.
 const (
-	maxAutoRetries   = 6
-	retryBaseDelay   = 3 * time.Second
-	retryMaxDelay    = 2 * time.Minute
-	retrySweepPeriod = 3 * time.Second
-	// A send the server rate-limited waits at least this long before
-	// it's tried again.
+	maxAutoRetries        = 6
+	retryBaseDelay        = 3 * time.Second
+	retryMaxDelay         = 2 * time.Minute
+	retrySweepPeriod      = 3 * time.Second
 	rateLimitedRetryDelay = time.Minute
 )
 
@@ -39,10 +33,6 @@ var (
 )
 
 func init() {
-	// Single periodic sweep, independent of the reconnect-triggered one in
-	// whatsapp_events.go, so messages that fail while the socket stays up
-	// (not just offline) still get retried. beginSendAttempt's in-flight
-	// guard makes the two triggers safe to overlap instead of double-sending.
 	go func() {
 		ticker := time.NewTicker(retrySweepPeriod)
 		defer ticker.Stop()
@@ -74,10 +64,6 @@ func endSendAttempt(id string) {
 	retryMu.Unlock()
 }
 
-// clearRetryState resets a message's backoff bookkeeping. Called on a
-// successful send, and on a manual retry so a user-initiated attempt always
-// gets a fresh run of automatic backoff rather than inheriting whatever was
-// left over from before.
 func clearRetryState(id string) {
 	retryMu.Lock()
 	delete(retryAttempts, id)
@@ -85,9 +71,6 @@ func clearRetryState(id string) {
 	retryMu.Unlock()
 }
 
-// recordSendFailure schedules the next backoff attempt, or - once
-// maxAutoRetries is exhausted - marks the message "failed" so the UI stops
-// silently retrying and asks the user to retry manually instead.
 func recordSendFailure(id, jidStr, text, quotedID, quotedSender string, err error) {
 	retryMu.Lock()
 	attempts := retryAttempts[id] + 1
@@ -124,13 +107,11 @@ func markSendFailed(id, jidStr, text, quotedID, quotedSender string) {
 // marks such a message failed and never resends it on its own; resending
 // into a limit is the kind of behaviour that gets an account flagged.
 const (
-	sendErrorRateLimited   = 429 // too many messages, slow down
-	sendErrorNoTrustToken  = 463 // contact not reachable without a privacy token
-	sendErrorNewChatCapped = 475 // too many messages to new chats
+	sendErrorRateLimited   = 429
+	sendErrorNoTrustToken  = 463
+	sendErrorNewChatCapped = 475
 )
 
-// sendServerErrorCode is the error code from the server's ack for a failed
-// send, or 0 when the failure was something else.
 func sendServerErrorCode(err error) int {
 	if !errors.Is(err, whatsmeow.ErrServerReturnedError) {
 		return 0
@@ -143,7 +124,6 @@ func sendServerErrorCode(err error) int {
 	return code
 }
 
-// sendRefusedForGood reports whether retrying a send can't help.
 func sendRefusedForGood(err error) bool {
 	if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) || errors.Is(err, whatsmeow.ErrRecipientNotOnWhatsApp) {
 		return true
@@ -155,10 +135,8 @@ func sendRefusedForGood(err error) bool {
 	return false
 }
 
-// notOnWhatsAppText is shown when WhatsApp has no account for a phone number.
 const notOnWhatsAppText = "This number isn't on WhatsApp."
 
-// sendErrorText is what the user is told when a send fails.
 func sendErrorText(err error) string {
 	if errors.Is(err, whatsmeow.ErrNoPermissionInGroup) {
 		return "Only admins can send messages to this group."
@@ -177,16 +155,6 @@ func sendErrorText(err error) string {
 	return err.Error()
 }
 
-// retryPendingTextMessages resends every text message still marked "pending"
-// that isn't already in flight and whose backoff delay has elapsed. It's
-// called from the events.Connected handler (for an immediate attempt right
-// on reconnect) and from the periodic sweep started in init() above.
-//
-// Media is deliberately excluded here: a stalled upload is surfaced as
-// "failed" instead of "pending", and is only retried when the user
-// explicitly asks via the message context menu — silently re-uploading a
-// possibly-large file in the background isn't something that should just
-// happen without the user noticing.
 func retryPendingTextMessages() {
 	rows, err := db.Query(`SELECT id, jid, COALESCE(text,''), COALESCE(quoted_id,''), COALESCE(quoted_sender,'')
 		FROM messages
@@ -222,9 +190,6 @@ func retryPendingTextMessages() {
 	}
 }
 
-// handleRetryMessage lets the frontend explicitly re-attempt a message that's
-// stuck "pending" or "failed" (context menu "Retry send"), for both text and
-// media.
 func handleRetryMessage(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" {
@@ -247,12 +212,9 @@ func retryOneMessage(conn net.Conn, id string) {
 		return
 	}
 	if status != "pending" && status != "failed" {
-		return // already sent (or something else entirely) - nothing to do
+		return
 	}
 
-	// Polls and contact cards keep their built message from the start: their
-	// display text ("[Poll] ...") is only a label, so resending it as text -
-	// the plain-text path below - would post the label instead.
 	if mediaType == "" && resendStoredMessage(conn, id, jidStr, text) {
 		return
 	}
@@ -283,11 +245,6 @@ func retryOneMessage(conn net.Conn, id string) {
 		return
 	}
 
-	// Unlike the text path (sendPendingTextMessage), nothing claimed an
-	// in-flight slot for media before this point - two overlapping retries
-	// (e.g. a double-tapped "Retry send" on a slow upload) would otherwise
-	// both pass the pending/failed status check above and both upload the
-	// same file concurrently.
 	if !beginSendAttempt(id) {
 		return
 	}
@@ -300,9 +257,6 @@ func retryOneMessage(conn net.Conn, id string) {
 		"mediaFilename": mediaFilename, "mediaPath": mediaPath, "status": "uploading",
 	})
 
-	// Re-derive the ContextInfo from the still-referenced quoted message
-	// (rather than trusting a possibly-stale quoted_text snapshot); if the
-	// quoted message is gone this just drops the quote, which is fine.
 	ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender := buildAttachmentContext(quotedID, quotedSender)
 
 	if mediaType == "voice" {
@@ -316,10 +270,6 @@ func retryOneMessage(conn net.Conn, id string) {
 	}
 }
 
-// attachmentFieldsFromDisplayText recovers the caption (and, for audio, the
-// length) from a stored attachment's display text - the inverse of
-// attachmentDisplayText. A retry used to pass the whole display text as the
-// caption, so a retried photo went out captioned "[Image] ...".
 func attachmentFieldsFromDisplayText(mediaType, filename, text string) (caption string, seconds int) {
 	switch mediaType {
 	case "audio":
@@ -345,9 +295,6 @@ func attachmentFieldsFromDisplayText(mediaType, filename, text string) (caption 
 	return rest, 0
 }
 
-// parseVoiceDurationSeconds pulls the "(m:ss)" duration back out of a stored
-// voice message's display text (e.g. "[Voice Message] (1:23)"), since that's
-// the only place the original recording length is kept.
 func parseVoiceDurationSeconds(text string) int {
 	start := strings.LastIndex(text, "(")
 	end := strings.LastIndex(text, ")")
@@ -366,9 +313,6 @@ func parseVoiceDurationSeconds(text string) int {
 	return minutes*60 + seconds
 }
 
-// resendStoredMessage retries a failed message whose built protobuf was
-// stored with it (see storesBuiltMessage), sending that exact message again.
-// Reports whether the message was one of those.
 func resendStoredMessage(conn net.Conn, id, jidStr, text string) bool {
 	var raw []byte
 	db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw)
@@ -393,8 +337,6 @@ func resendStoredMessage(conn net.Conn, id, jidStr, text string) bool {
 	return true
 }
 
-// storesBuiltMessage is true for the message kinds whose protobuf is saved
-// before sending so a retry can resend them as they are.
 func storesBuiltMessage(msg *waE2E.Message) bool {
 	return pollCreation(msg) != nil || msg.GetContactMessage() != nil || msg.GetContactsArrayMessage() != nil
 }

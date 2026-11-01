@@ -9,11 +9,8 @@ import (
 	"time"
 )
 
-// maxLogBytes is where a log file gets rotated (to <name>.1, replacing the
-// previous one) at startup. Nothing ever trimmed these, so they only grew.
 const maxLogBytes = 10 << 20
 
-// rotateLog moves path aside to path+".1" if it has grown past maxLogBytes.
 func rotateLog(path string) {
 	if info, err := os.Stat(path); err == nil && info.Size() > maxLogBytes {
 		os.Remove(path + ".1")
@@ -39,8 +36,6 @@ func pruneOldFiles(dir string, maxAge time.Duration, match func(name string) boo
 	}
 }
 
-// housekeepLogs rotates the backend's log files and prunes old dumps. Run
-// once at startup, before any of them are opened.
 func housekeepLogs() {
 	logs := filepath.Join(appDataDir(), "logs")
 	os.MkdirAll(logs, 0o700)
@@ -51,8 +46,6 @@ func housekeepLogs() {
 	pruneOldFiles(logs, 7*24*time.Hour, func(n string) bool { return strings.HasPrefix(n, "stall-") })
 }
 
-// debugf logs only with -verbose-logging: per-event lines that are useful when
-// troubleshooting but just noise (and log growth) the rest of the time.
 func debugf(format string, args ...interface{}) {
 	if *verboseLogFlag {
 		log.Printf(format, args...)
@@ -81,8 +74,6 @@ func defaultDBPath() string {
 	return filepath.Join(appDataDir(), "session.db")
 }
 
-// Deliberately not derived from -db, so logs stay put when a caller points the
-// database elsewhere for testing.
 func logFilePath() string {
 	dir := filepath.Join(appDataDir(), "logs")
 	os.MkdirAll(dir, 0o700)

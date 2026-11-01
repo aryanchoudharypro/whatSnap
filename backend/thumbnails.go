@@ -21,8 +21,6 @@ import (
 // are kept as files under media/thumbs, one per message, so each is made
 // once. View once media never gets one, as on WhatsApp.
 
-// The longest side of a picture made from a downloaded file: sharp in a
-// row of the message list at twice the usual screen scale.
 const listThumbMaxEdge = 320
 
 type thumbnailsData struct {
@@ -31,11 +29,9 @@ type thumbnailsData struct {
 
 type thumbnailItem struct {
 	ID   string `json:"id"`
-	Path string `json:"path"` // "" when there's nothing to show
+	Path string `json:"path"`
 }
 
-// Making one from a big photo takes a moment; one at a time is enough, and
-// keeps two requests for the same row from both doing it.
 var thumbnailMu sync.Mutex
 
 func thumbsDir() string { return filepath.Join(mediaBaseDir(), "thumbs") }
@@ -46,7 +42,6 @@ func handleGetThumbnails(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		// Sent in small groups, so the first rows show while the rest are made.
 		var batch []thumbnailItem
 		for i, id := range data.IDs {
 			if id == "" {
@@ -130,8 +125,6 @@ func isViewOnceProto(msg *waE2E.Message) bool {
 		inner.GetAudioMessage().GetViewOnce()
 }
 
-// makeFileThumbnail shrinks the picture at path into out: a JPEG for a
-// photo, a PNG for a sticker so it keeps its see-through background.
 func makeFileThumbnail(path, out string, keepAlpha bool) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -156,11 +149,9 @@ func makeFileThumbnail(path, out string, keepAlpha bool) bool {
 
 type waveformItem struct {
 	ID   string `json:"id"`
-	Bars []int  `json:"bars"` // loudness 0-100, usually 64 of them; empty when the note has none
+	Bars []int  `json:"bars"`
 }
 
-// handleGetWaveforms sends the loudness bars voice notes carry, which the
-// message list draws in a voice note's bubble, as WhatsApp does.
 func handleGetWaveforms(conn net.Conn, raw json.RawMessage) {
 	var data thumbnailsData
 	if err := json.Unmarshal(raw, &data); err != nil {

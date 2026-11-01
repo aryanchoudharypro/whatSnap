@@ -1,6 +1,3 @@
-//! `handle_ui_command` arms for placing, answering and controlling WhatsApp calls
-//! (`PlaceCall`, `AnswerCall`, `RejectCall`, `LeaveCall`, `MuteCall`, device switching).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -18,30 +15,21 @@ use crate::{
 	ui::window::WindowParts,
 };
 
-/// Whether a chat can be called at all. Channels, broadcast lists and a
-/// community itself (as opposed to its groups) have no calls in WhatsApp.
 pub(crate) fn can_call(s: &AppState, jid: &str) -> bool {
 	!jid.ends_with("@newsletter") && !jid.ends_with("@broadcast") && !s.community_jids.contains(jid)
 }
 
-/// A group call still going on that we're invited to but not in: one we
-/// missed, declined or left (the backend's `call_joinable` list).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct JoinableCall {
 	pub call_id: String,
 	pub group_jid: String,
-	/// Who started the call, for one with no group to name it by.
 	pub creator_name: String,
 	pub video: bool,
 	pub connected: u64,
 }
 
-/// A Calls tab row stands for a call going on rather than a chat when its
-/// jid starts with this, followed by the call ID.
 pub(crate) const JOIN_ROW_PREFIX: &str = "join:";
 
-/// The Calls tab's line for a group call going on, read before the
-/// instruction to press Enter.
 pub(crate) fn joinable_call_label(s: &AppState, call: &JoinableCall) -> String {
 	let kind = if call.video { "Group video call" } else { "Group voice call" };
 	let place = match s.contacts.get(&call.group_jid) {
@@ -57,15 +45,12 @@ pub(crate) fn joinable_call_label(s: &AppState, call: &JoinableCall) -> String {
 	format!("{}{}{}{}", kind, place, people, ONGOING_CALL_SUFFIX)
 }
 
-/// Added to a call-history row while its call is still going on.
 pub(crate) const ONGOING_CALL_SUFFIX: &str = ". Going on now, press Enter to join";
 
 pub(crate) fn joinable_call_for_chat<'a>(s: &'a AppState, jid: &str) -> Option<&'a JoinableCall> {
 	s.joinable_calls.iter().find(|c| !c.group_jid.is_empty() && c.group_jid == jid)
 }
 
-/// Shows a chat's call buttons: "Join call" in place of Call and Video call
-/// while one of its group calls is going on, like WhatsApp.
 pub(crate) fn apply_call_buttons(s: &AppState, parts: &WindowParts, jid: &str) {
 	let can_call = can_call(s, jid);
 	let joinable = can_call && joinable_call_for_chat(s, jid).is_some();
@@ -75,7 +60,6 @@ pub(crate) fn apply_call_buttons(s: &AppState, parts: &WindowParts, jid: &str) {
 	c.join_call_btn.show(joinable);
 }
 
-/// Marks the open chat's call-history rows whose call is still going on.
 pub(crate) fn mark_joinable_rows(s: &AppState, parts: &WindowParts) {
 	let Some(jid) = s.selected_chat.as_deref() else { return };
 	let is_group = jid.ends_with("@g.us");
@@ -93,13 +77,11 @@ pub(crate) fn mark_joinable_rows(s: &AppState, parts: &WindowParts) {
 	}
 }
 
-/// The joinable call a call-history row is for, if its call is still going on.
 pub(crate) fn joinable_call_for_row(s: &AppState, msg: &whatsnap::Msg) -> Option<String> {
 	let call_id = msg.id.strip_prefix("call:")?;
 	s.joinable_calls.iter().any(|c| c.call_id == call_id).then(|| call_id.to_string())
 }
 
-/// The backend's `call_joinable` event: the full list of joinable calls.
 pub(crate) fn on_joinable_calls(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let calls: Vec<JoinableCall> = data
 		.get("calls")
@@ -132,8 +114,6 @@ pub(crate) fn on_joinable_calls(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	}
 }
 
-/// "Join call": joins the open group's call that's going on, the way
-/// joining a call link does - no ringing, straight in.
 pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, call_id: Option<String>) {
 	let mut s = state.borrow_mut();
 	let call = match call_id {
@@ -196,8 +176,6 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 				if let Some(target) = sel.and_then(&row) {
 					target
 				} else if !search_val.is_empty() {
-					// Enter after typing a name dials the best match. With nothing
-					// typed and nothing selected there is no one to call.
 					match (0..s.filtered_chats.len()).find_map(&row) {
 						Some(target) => target,
 						None => return,
@@ -212,8 +190,6 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 			return;
 		}
 	};
-	// A row for a call going on, or a group whose call is going on, joins
-	// that call rather than starting a new one, as the chat's Join button does.
 	let join = match jid.strip_prefix(JOIN_ROW_PREFIX) {
 		Some(call_id) => Some(call_id.to_string()),
 		None => joinable_call_for_chat(&state.borrow(), &jid).map(|c| c.call_id.clone()),
@@ -226,10 +202,6 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 	dial(state, parts, jid, video);
 }
 
-/// Contact info's "Voice call" / "Video call": call the person it shows,
-/// whether or not their chat is the open one. Unlike the chat's own call
-/// buttons this leaves the open chat alone, so the composer can't end up
-/// sending to the person called.
 pub(crate) fn call_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, video: bool) {
 	if crate::ui_commands::blocking::stop_if_blocked_jid(state, parts, &jid) || !can_call(&state.borrow(), &jid) {
 		return;
@@ -249,10 +221,6 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 
 	let is_group = jid.ends_with("@g.us");
 	let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-	// Group calls have no video option on the backend (see handlePlaceCall) -
-	// always placed as voice and, if a video group call was requested, only
-	// upgraded to video once connected via the same autostart_camera path a
-	// mid-call toggle uses, not declared video at signaling time.
 	let signals_video = video && !is_group;
 	s.call_video = CallVideo {
 		is_video: signals_video,
@@ -275,13 +243,8 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	parts.call_parts.reject_btn.show(false);
 	parts.call_parts.mute_btn.show(true);
 	parts.call_parts.camera_btn.set_label("Turn camera on");
-	// Shown by call_connected - it needs the video bridge port from
-	// call_connected before the button can do anything, same reasoning as
-	// add_participant_btn below.
 	parts.call_parts.camera_btn.show(false);
 	hide_screen_share_controls(parts);
-	// Shown by call_connected - WhatsApp only accepts an invite into an
-	// established call, so offering it while ringing just fails.
 	parts.call_parts.add_participant_btn.show(false);
 	crate::ui_commands::call_extras::hide_call_buttons(parts);
 	parts.call_parts.leave_btn.show(true);
@@ -304,10 +267,6 @@ pub(crate) fn place_video_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	place_call_impl(state, parts, true);
 }
 
-/// Like WhatsApp Web, the first press wins: Accept and Decline make way for
-/// Leave call at once, so a call that takes a moment to connect can't be
-/// answered twice (the server ends a call answered again) or declined after
-/// it was accepted.
 pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	crate::backend::events::call_log(parts, &s, "answer pressed", "");
@@ -332,8 +291,6 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	}
 }
 
-/// Alt+Shift+Y / Alt+Shift+R. Acts only while the incoming call is still
-/// ringing: the keys can fire a moment after the call was answered or ended.
 pub(crate) fn call_hotkey(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -394,12 +351,6 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		stop_call_ringing_sound(&mut s);
 		play_call_fail_sound(&mut s);
 	} else if s.call_placing {
-		// We're in the window between sending place_call and hearing back
-		// call_placed/call_failed with a real call_id - there's nothing to
-		// send leave_call for yet. Hide the UI now for immediate feedback,
-		// and mark the cancel as pending so the call_placed handler hangs
-		// up as soon as the call_id actually arrives instead of leaving it
-		// ringing on the peer's end.
 		s.call_pending_cancel = true;
 		parts.call_parts.frame.show(false);
 		stop_call_ringing_sound(&mut s);
@@ -414,8 +365,6 @@ pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 		let status = if !current { "Microphone muted." } else { "Microphone unmuted." };
 		parts.call_parts.mute_btn.set_label(if !current { "Unmute microphone" } else { "Mute microphone" });
 		announce_call(parts, status);
-		// The local silence above is what actually mutes; this tells the other
-		// side, whose call screen then shows us muted.
 		if let Some(call_id) = &s.active_call_id {
 			let payload = serde_json::json!({
 				"action": "mute_call",
@@ -431,8 +380,6 @@ pub(crate) fn set_call_input_device(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	if let Some(audio) = &s.active_call_audio {
 		audio.set_input_device(name.clone());
 	}
-	// Remembered as the regular setting too, so the next call starts
-	// on the device just picked mid-call instead of reverting.
 	s.settings.input_device_name = name;
 	s.settings.save();
 	announce_call(parts, "Microphone changed.");
@@ -445,10 +392,6 @@ pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 	if name != s.settings.output_device_name {
 		s.settings.output_device_name = name;
-		// Same cache-invalidation as the Settings dialog's Save
-		// handler: drop the cached voice-message/notification
-		// playback stream so it reopens on the newly selected
-		// device next time something plays.
 		s.audio_stream = None;
 	}
 	s.settings.save();
@@ -465,8 +408,6 @@ pub(crate) fn set_call_camera_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	announce_call(parts, "Camera changed.");
 }
 
-/// Turns the local camera on or off - the button, Ctrl+Shift+V, and the
-/// auto-start after `PlaceVideoCall` connects (see `call_video.autostart_camera`).
 pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	let Some(call_id) = s.active_call_id.clone() else { return };
@@ -486,9 +427,6 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		announce_call(parts, "The camera isn't ready yet - wait for the call to connect.");
 		return;
 	};
-	// The call's one video stream goes back to the camera: the share ends,
-	// and video is already on, so there's nothing to turn on. A dual-stream
-	// share has its own stream and goes on.
 	let was_sharing = s.call_video.local_screen_on && s.call_video.screen_send.is_none();
 	start_camera(&mut s, port);
 	if was_sharing {
@@ -501,8 +439,6 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		send_call_toggle(&s, "set_video", &call_id, true);
 	}
 	parts.call_parts.camera_btn.set_label("Turn camera off");
-	// A voice call with a camera on is a video call now, so its screen can
-	// be shared too.
 	if !s.call_video.video_call {
 		s.call_video.video_call = true;
 		show_screen_share_controls(&s, parts);
@@ -516,7 +452,6 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	announce_call(parts, &message);
 }
 
-/// Tells the backend the call settings it acts on itself.
 pub(crate) fn send_call_options(s: &AppState) {
 	let msg = serde_json::json!({
 		"action": "set_call_options",
@@ -525,7 +460,6 @@ pub(crate) fn send_call_options(s: &AppState) {
 	let _ = s.ws_tx.send(msg.to_string());
 }
 
-/// Sends one of the backend's `{call_id, enabled}` call commands.
 fn send_call_toggle(s: &AppState, action: &str, call_id: &str, enabled: bool) {
 	let msg = serde_json::json!({
 		"action": action,
@@ -534,8 +468,6 @@ fn send_call_toggle(s: &AppState, action: &str, call_id: &str, enabled: bool) {
 	let _ = s.ws_tx.send(msg.to_string());
 }
 
-/// Points the call's video stream at the camera, replacing whatever session
-/// was sending before.
 fn start_camera(s: &mut AppState, port: u16) {
 	let device = s.settings.camera_device_name.clone();
 	let ui_tx = s.ui_tx.clone();
@@ -543,13 +475,9 @@ fn start_camera(s: &mut AppState, port: u16) {
 	s.call_video.local_camera_on = true;
 }
 
-/// Starts or stops sharing the screen - the button and Ctrl+Shift+S. The
-/// screen takes over the call's video stream from the camera, which comes
-/// back on afterwards if it was on before.
 pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	let Some(call_id) = s.active_call_id.clone() else { return };
-	// Ctrl+Shift+S still reaches here on a voice call, whose button is hidden.
 	if !s.call_video.video_call && !s.call_video.local_screen_on {
 		drop(s);
 		announce_call(parts, "Screen sharing is only on video calls. Turn your camera on to make this a video call.");
@@ -591,8 +519,6 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	}
 	drop(s);
 
-	// Asked every time, like WhatsApp's own share picker. The call can end,
-	// or a share start some other way, while the question is up.
 	let Some(choice) = crate::ui::dialogs::screen_picker::pick_share_target(&parts.call_parts.frame) else { return };
 	let Some(with_sound) = ask_share_sound(parts) else { return };
 	let mut s = state.borrow_mut();
@@ -604,8 +530,6 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	let camera_was_on = s.call_video.local_camera_on;
 	let ui_tx = s.ui_tx.clone();
 	let source = VideoSource::Screen(choice.target);
-	// With the camera on and the call offering the screen its own stream,
-	// the screen goes there and the camera stays as it is.
 	if let Some(screen_port) = s.call_video.screen_port.filter(|_| camera_was_on) {
 		s.call_video.screen_send = Some(video_send::start_video_send(screen_port, source, None, ui_tx));
 		s.call_video.local_screen_on = true;
@@ -649,9 +573,6 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	}
 }
 
-/// Whether a screen share about to start carries the computer's sound too:
-/// `Some(true)` for yes, `Some(false)` for the screen alone, `None` if the
-/// share was cancelled. The screen alone is the default button.
 fn ask_share_sound(parts: &WindowParts) -> Option<bool> {
 	let dialog = MessageDialog::builder(
 		&parts.call_parts.frame,
@@ -674,8 +595,6 @@ fn ask_share_sound(parts: &WindowParts) -> Option<bool> {
 	}
 }
 
-/// Starts or stops mixing the computer's sound into the call, when the call's
-/// audio is running.
 pub(crate) fn set_system_audio(s: &mut AppState, on: bool) {
 	let ui_tx = s.ui_tx.clone();
 	if let Some(audio) = s.active_call_audio.as_mut() {
@@ -683,8 +602,6 @@ pub(crate) fn set_system_audio(s: &mut AppState, on: bool) {
 	}
 }
 
-/// Shows the screen share button on a video call, once it has connected; a
-/// voice call has no video to share the screen over.
 pub(crate) fn show_screen_share_controls(s: &AppState, parts: &WindowParts) {
 	let c = &parts.call_parts;
 	let shown = s.call_video.video_call;
@@ -699,7 +616,6 @@ pub(crate) fn hide_screen_share_controls(parts: &WindowParts) {
 	c.screen_btn.show(false);
 }
 
-/// The computer's sound couldn't be captured; the screen share itself goes on.
 pub(crate) fn system_audio_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, reason: String) {
 	let mut s = state.borrow_mut();
 	if !s.active_call_audio.as_ref().is_some_and(|audio| audio.sharing_system_audio()) {
@@ -718,7 +634,6 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		return;
 	}
 	if s.call_video.screen_send.take().is_some() {
-		// A dual-stream share: only the screen's own stream stops.
 		s.call_video.local_screen_on = false;
 		set_system_audio(&mut s, false);
 		if let Some(call_id) = s.active_call_id.clone() {
@@ -759,13 +674,8 @@ pub(crate) fn screen_share_black(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	);
 }
 
-/// The capture/encode thread couldn't open a camera at all - see
-/// `video_send::start_video_send`'s doc comment for why this only
-/// fires once, for the very first open attempt.
 pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, reason: String) {
 	let mut s = state.borrow_mut();
-	// A camera session that was already replaced by a screen share reports
-	// nothing worth acting on.
 	if s.call_video.local_screen_on && s.call_video.screen_send.is_none() {
 		return;
 	}
@@ -786,7 +696,6 @@ const MENU_DELETE_CONTACT: i32 = 4504;
 
 const MENU_JOIN_CALL: i32 = 4505;
 
-/// The context menu of a Calls tab row for a group call going on.
 fn show_join_row_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, call_id: String) {
 	let group_jid = {
 		let s = state.borrow();
@@ -810,19 +719,13 @@ fn show_join_row_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ca
 	crate::platform::tray::enter_release_guard().set(true);
 }
 
-/// The Calls tab's context menu. Its rows are calls and contacts, so it offers
-/// call actions rather than the chat list's (pin, archive, mark as unread...).
 pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	let (jid, saved_contact) = {
 		let s = state.borrow();
 		let Some(jid) = s.filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned() else { return };
-		// Only a saved person can be deleted: not a group, and not someone known
-		// only from a call or a chat.
 		let saved_contact = s.call_contacts.iter().any(|c| c.jid == jid && !c.name.is_empty() && c.name != c.phone);
 		(jid, saved_contact)
 	};
-	// The list may not have the row selected yet (the key opens the menu on
-	// the focused row); the call actions dial the selection.
 	parts.conversations_parts.conversations_list.set_selection(idx as u32, true);
 	if let Some(call_id) = jid.strip_prefix(JOIN_ROW_PREFIX) {
 		show_join_row_menu(state, parts, call_id.to_string());

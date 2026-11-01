@@ -1,12 +1,7 @@
-//! A chat's "Notification settings": what this computer alone does when a
-//! message comes in. WhatsApp's own Mute, on every device, stays in the
-//! chat's menu.
-
 use wxdragon::prelude::*;
 
 use crate::ui::{dialog_look, theme};
 
-/// The choices, as the dropdown shows them, in its order.
 const ALERTS: [(&str, whatsnap::ChatAlert); 5] = [
 	("As set in Settings", whatsnap::ChatAlert::Default),
 	("Notification and sound", whatsnap::ChatAlert::Full),
@@ -15,7 +10,6 @@ const ALERTS: [(&str, whatsnap::ChatAlert); 5] = [
 	("Off on this computer", whatsnap::ChatAlert::Off),
 ];
 
-/// Asks for `chat`'s choices, starting from `current`. None when cancelled.
 pub fn ask(parent: &impl WxWidget, chat: &str, current: whatsnap::ChatNotify) -> Option<whatsnap::ChatNotify> {
 	let dialog = Dialog::builder(parent, &format!("Notification settings for {chat}"))
 		.with_size(460, 300)
@@ -70,7 +64,6 @@ pub fn ask(parent: &impl WxWidget, chat: &str, current: whatsnap::ChatNotify) ->
 		alert: ALERTS.get(picked).map(|(_, alert)| *alert).unwrap_or_default(),
 		hide_content: hide_check.is_checked(),
 	};
-	// A dialog built per use is destroyed, or it lives on hidden.
 	dialog.destroy();
 	saved.then_some(notify)
 }

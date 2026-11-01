@@ -1,17 +1,3 @@
-//! Release builds, run with `cargo release` (an alias in .cargo/config.toml).
-//!
-//! `cargo release` builds whatSnap (whose build script also builds the Go
-//! backend, readme.html and the installer script), the Share menu helper and
-//! its package, then makes `target\release\whatSnap.zip` and
-//! `target\release\whatSnap_setup.exe`. Inno Setup is used from PATH or its
-//! usual install folder, and is otherwise downloaded once into a per-user
-//! cache (shipfitter's `tools::iscc`).
-//!
-//! With `MINISIGN_KEY` (and `MINISIGN_PASSWORD`) set, each file gets a
-//! `.minisig` beside it. The update check (src/platform/update_check.rs) installs
-//! nothing whose signature doesn't verify. `cargo run -p xtask -- sign
-//! <file>...` signs other files the same way.
-
 use std::{
 	env,
 	error::Error,
@@ -46,7 +32,6 @@ fn project_root() -> PathBuf {
 
 fn release() -> Result<()> {
 	let root = project_root();
-	// Load the signing key before building anything, so a broken secret fails fast.
 	let minisign = Minisign::from_env()?;
 	cargo_build_release(&root, &[])?;
 	cargo_build_release(&root, &["whatsnap-share"])?;
@@ -67,9 +52,6 @@ fn release() -> Result<()> {
 		return Err(format!("expected build output missing: {}", missing.display()).into());
 	}
 
-	// The portable layout is the installed one: whatSnap.exe finds the
-	// backend in the backend folder next to it, so an unpacked folder works
-	// with no install step.
 	println!("Packaging the portable zip...");
 	let zip_path = target_dir.join("whatSnap.zip");
 	let mut zip = Zip::create(&zip_path)?;
@@ -110,9 +92,6 @@ fn sign(files: &[PathBuf]) -> Result<()> {
 	Ok(())
 }
 
-/// Packs packaging\share into the Share menu's sparse package, left
-/// unsigned: each PC that turns the menu on signs it with a certificate of
-/// its own (see share-target/src/sign.rs).
 fn pack_share_package(root: &Path, target_dir: &Path) -> Result<()> {
 	let makeappx = makeappx()
 		.ok_or("makeappx.exe not found. It comes with the Windows SDK (Visual Studio's C++ tools install it).")?;
@@ -130,7 +109,6 @@ fn pack_share_package(root: &Path, target_dir: &Path) -> Result<()> {
 	Ok(())
 }
 
-/// makeappx.exe from PATH, or else the newest x64 copy in the Windows 10/11 SDK.
 fn makeappx() -> Option<PathBuf> {
 	let on_path = env::var_os("PATH")
 		.into_iter()

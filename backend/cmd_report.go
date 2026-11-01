@@ -9,27 +9,19 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// Reporting to WhatsApp, as the official apps' "Report" does: a message
-// (from its menu) or a chat (the last message they sent), optionally
-// blocking the contact or exiting the group afterwards.
-
 type ReportData struct {
-	JID string `json:"jid"`
-	// MessageID is the reported message; empty reports the chat.
+	JID       string `json:"jid"`
 	MessageID string `json:"message_id"`
 	Block     bool   `json:"block"`
 	Leave     bool   `json:"leave"`
 }
 
-// reportableMessage is what a report needs of a stored message.
 type reportableMessage struct {
 	id, sender, mediaType string
 	ts                    int64
 	raw                   []byte
 }
 
-// latestReportable is the newest message in chat that someone else sent,
-// the one a chat report names.
 func latestReportable(chat string) (reportableMessage, bool) {
 	var m reportableMessage
 	err := db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), COALESCE(media_type, ''), COALESCE(timestamp, 0), raw FROM messages
@@ -46,8 +38,6 @@ func loadReportable(chat, messageID string) (reportableMessage, bool) {
 	return m, err == nil && !fromMe
 }
 
-// buildSpamReport describes a stored message for SendSpamReport. In a group
-// the message is named by the group and its sender, with the group's name.
 func buildSpamReport(chat types.JID, m reportableMessage, wholeChat bool, groupName string) whatsmeow.SpamReport {
 	report := whatsmeow.SpamReport{
 		MessageID:        m.id,

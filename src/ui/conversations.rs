@@ -2,8 +2,6 @@ use wxdragon::prelude::*;
 
 use crate::ui::theme;
 
-/// Every constructed widget is kept here for consistency even if not all of
-/// them are read back after construction yet (e.g. static labels).
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct ConversationsPanelParts {
@@ -11,8 +9,6 @@ pub struct ConversationsPanelParts {
 
 	pub search_label: StaticText,
 	pub search_field: TextCtrl,
-	/// All chats, Unread, Favorites, Groups, then the user's own lists.
-	/// Only shown in Conversations.
 	pub chat_filter_label: StaticText,
 	pub chat_filter_combo: ComboBox,
 	pub new_conv_btn: Button,
@@ -28,7 +24,6 @@ pub struct ConversationsPanelParts {
 	pub conversation_panel: Panel,
 	pub conv_data_btn: Button,
 	pub add_attachment_btn: Button,
-	/// "Emoji and stickers", just before the message box.
 	pub emoji_btn: Button,
 	pub search_in_conv_btn: Button,
 	pub place_call_btn: Button,
@@ -67,7 +62,6 @@ pub struct ConversationsPanelParts {
 
 	pub discard_voice_btn: Button,
 	pub pause_resume_btn: Button,
-	/// Sends the recording as view once: it can be played once, as on the phone.
 	pub view_once_voice_check: CheckBox,
 	pub send_voice_btn: Button,
 
@@ -101,11 +95,8 @@ fn skip_best_size(list: &impl WxWidget) {
 	list.set_min_size(Size::new(100, 100));
 }
 
-/// wx's `wxBORDER_NONE`.
 const BORDER_NONE: i64 = 0x0020_0000;
 
-/// How long the voice message being recorded has run, for the recording
-/// bar's clock (see `set_recording_clock`).
 #[derive(Clone, Copy)]
 pub struct RecordingClock {
 	pub start: std::time::Instant,
@@ -125,8 +116,6 @@ thread_local! {
 	static RECORDING_TICK: std::cell::RefCell<Option<Timer<Panel>>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Tells the recording bar how long the recording has run (None once it's
-/// sent or thrown away); its clock then ticks on its own.
 pub fn set_recording_clock(clock: Option<RecordingClock>) {
 	RECORDING.with(|r| r.set(clock));
 	RECORDING_TICK.with(|t| {
@@ -140,7 +129,6 @@ pub fn set_recording_clock(clock: Option<RecordingClock>) {
 	});
 }
 
-/// The controls the chat's painted parts are drawn around.
 struct ComposerParts {
 	field: TextCtrl,
 	pause: Button,
@@ -181,7 +169,6 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 			let Some(clock) = RECORDING.with(|r| r.get()) else { return };
 			let (left, mid) = (p.x + ps.width + 12, p.y + ps.height / 2);
 			let paused = clock.paused_at.is_some();
-			// The dot blinks while recording, as WhatsApp's does.
 			let secs = clock.elapsed().as_secs();
 			let blink = clock.elapsed().as_millis() / 500 % 2 == 0;
 			let dot = if paused { theme::Palette::TEXT_MUTED() } else { Colour::rgb(0xEA, 0x00, 0x38) };
@@ -196,7 +183,6 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 			let text = format!("{}:{:02}{}", secs / 60, secs % 60, if paused { "  Paused" } else { "" });
 			let (tw, th) = dc.get_text_extent(&text);
 			dc.draw_text(&text, left + 20, mid - th / 2);
-			// A dotted line where WhatsApp draws the recording's waveform.
 			let grey = theme::Palette::WAVE();
 			dc.set_brush(grey, BrushStyle::Solid);
 			dc.set_pen(grey, 1, PenStyle::Solid);
@@ -227,7 +213,6 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 	});
 }
 
-/// The Calls page's heading: a phone in a green circle and what to do.
 fn paint_calls_page(page: &Panel) {
 	let page_c = *page;
 	page.set_background_style(BackgroundStyle::Paint);
@@ -241,7 +226,6 @@ fn paint_calls_page(page: &Panel) {
 		let custom = theme::use_custom_colours();
 		let ink = |c: Colour| if custom { c } else { page_c.get_foreground_color() };
 		let line = page_c.get_char_height();
-		// The spacer above the buttons is 7 lines; the heading fills it.
 		let buttons_top = size.height / 2 - line * 2 + line * 7 / 2;
 		let mut y = buttons_top - line * 7;
 		let r = line * 3 / 2;
@@ -281,21 +265,14 @@ fn paint_calls_page(page: &Panel) {
 type ResizedCallback = Box<dyn Fn(i32)>;
 
 thread_local! {
-	/// The chat list column's width as the user last dragged it (0 = follow
-	/// the window), and who to tell when they drag it again.
 	static LIST_COLUMN: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
 	static ON_RESIZED: std::cell::RefCell<Option<ResizedCallback>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Calls `f` with the chat list column's new width whenever the user drags
-/// its edge, so it can be remembered.
 pub fn on_list_column_resized(f: impl Fn(i32) + 'static) {
 	ON_RESIZED.with(|r| *r.borrow_mut() = Some(Box::new(f)));
 }
 
-/// The chat list column's width for a window `width` wide: where the user
-/// dragged it, or else about a third, as WhatsApp has it, within bounds that
-/// keep both sides usable.
 fn list_column_width(width: i32) -> i32 {
 	let chosen = LIST_COLUMN.with(|c| c.get());
 	if chosen > 0 {
@@ -323,7 +300,6 @@ fn min_list_column(width: i32) -> i32 {
 fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &Panel, calls_page: &Panel) {
 	let (panel_c, list_c, conversation_c, calls_c) = (*panel, *list, *conversation, *calls_page);
 	let search_c = *search;
-	// The search pill shows the focus.
 	search.on_set_focus(move |event| {
 		panel_c.refresh(false, None);
 		event.skip(true);
@@ -335,7 +311,6 @@ fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &
 	LIST_COLUMN.with(|c| c.set(crate::settings::Settings::load().chat_list_width));
 	let fit = move || {
 		let width = panel_c.get_client_size().width;
-		// The column is as wide as its widest part, the list.
 		list_c.set_min_size(Size::new(list_column_width(width) - 20, 100));
 	};
 	panel.on_size(move |event| {
@@ -343,7 +318,6 @@ fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &
 		panel_c.refresh(true, None);
 		event.skip(true);
 	});
-	// The column's edge is the 10 pixels between the list and the chat.
 	let on_edge = move |x: i32| {
 		let right = list_c.get_position().x + list_c.get_size().width;
 		(right - 2..=right + 12).contains(&x)
@@ -367,12 +341,10 @@ fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &
 		if let WindowEventData::MouseMotion(ref mouse) = event
 			&& let Some(pos) = mouse.get_position()
 		{
-			// Windows took the mouse away mid-drag (a dialog opened, say).
 			if drag.get() && !panel_c.has_capture() {
 				drag.set(false);
 			}
 			if drag.get() {
-				// The column, and its dividing line, end under the mouse.
 				let width = panel_c.get_client_size().width;
 				let column = pos.x.clamp(min_list_column(width), max_list_column(width));
 				LIST_COLUMN.with(|c| c.set(column));
@@ -463,8 +435,6 @@ fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &
 pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelParts {
 	let panel = Panel::builder(parent).build();
 	theme::style_content(&panel);
-	// The chat list on the left and the open chat beside it, as on WhatsApp
-	// Web. The left column is as wide as its list (see `fit_columns`).
 	let outer_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let left_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
@@ -472,7 +442,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_muted_label(&search_label);
 	left_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	// A grey pill with a magnifier, as on WhatsApp (drawn in `fit_columns`).
 	let search_field =
 		TextCtrl::builder(&panel).with_style(crate::ui::dialog_look::field_style(TextCtrlStyle::Default)).build();
 	crate::ui::dialog_look::add_field(&left_sizer, &search_field, crate::ui::dialog_look::Field::Search, 0);
@@ -501,8 +470,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	);
 	locked_chats_btn.show(false);
 
-	// Only shown in the Status nav view, alongside new_conv_btn (which posts
-	// a text status there instead of opening the new-conversation dialog).
 	let post_media_status_btn = Button::builder(&panel).with_label("Post Photo/Video Status...").build();
 	left_sizer.add(
 		&post_media_status_btn,
@@ -528,17 +495,12 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	skip_best_size(&conversations_list);
 	left_sizer.add(&conversations_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
-	// The Calls tab's page on the right, as WhatsApp Web has it: what the
-	// buttons do, then round Call and Video call buttons for the person
-	// picked on the left. Made here, right after the list, so Tab still goes
-	// from the list straight to them.
 	let calls_btn_panel = Panel::builder(&panel).build();
 	if theme::use_custom_colours() {
 		calls_btn_panel.set_background_color(theme::Palette::PANEL_BG());
 	}
 	let calls_page = BoxSizer::builder(Orientation::Vertical).build();
 	calls_page.add_stretch_spacer(1);
-	// Room for the page's painted heading (see `paint_calls_page`).
 	calls_page.add_spacer(calls_btn_panel.get_char_height() * 7);
 	let calls_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let calls_call_btn = Button::builder(&calls_btn_panel).with_label("Call").build();
@@ -614,8 +576,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	search_panel.show(false);
 	conv_sizer.add(&search_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 
-	// Kept for anything that reads the window's texts, but not shown: the
-	// list says what it is itself, and WhatsApp has no such heading.
 	let messages_label = StaticText::builder(&conversation_panel).with_label("Messages").build();
 	theme::style_muted_label(&messages_label);
 	messages_label.set_min_size(Size::new(1, 1));
@@ -627,10 +587,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_chat_area(&messages_list);
 	conv_sizer.add(&messages_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
 
-	// Shown in place of `messages_list` while selection mode is active - kept
-	// as a separate widget rather than swapping messages_list's own type so
-	// every existing single-selection call site (context menu, search jump,
-	// keyboard nav) is unaffected by selection mode.
 	let messages_select_list = crate::ui::message_list::MessageList::new(&conversation_panel, "Select messages");
 	messages_select_list.set_checkable(true);
 	messages_select_list.set_font(&theme::Fonts::body());
@@ -736,7 +692,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		message_label.set_background_color(composer_bg);
 	}
 	message_row.add(&message_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
-	// No border of its own: it sits in the round white box drawn behind it.
 	let message_field = TextCtrl::builder(&conversation_panel)
 		.with_style(
 			TextCtrlStyle::MultiLine | TextCtrlStyle::ProcessEnter | TextCtrlStyle::from_bits_retain(BORDER_NONE),
@@ -796,7 +751,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	attachment_panel.show(false);
 	conv_sizer.add(&attachment_panel, 0, SizerFlag::Expand | SizerFlag::All, 5);
 
-	// Voice recording toolbar: same "row, not stack" treatment as the composer.
 	let voice_toolbar_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let discard_voice_btn = Button::builder(&conversation_panel).with_label("Discard voice message").build();
@@ -810,7 +764,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	crate::ui::owner_draw::install_icon_button(&pause_resume_btn, composer_bg);
 	voice_toolbar_sizer.add(&pause_resume_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	pause_resume_btn.show(false);
-	// Room for the recording bar's dot and clock (see `paint_composer`).
 	voice_toolbar_sizer.add_stretch_spacer(1);
 
 	let view_once_voice_check = CheckBox::builder(&conversation_panel).with_label("View once").build();

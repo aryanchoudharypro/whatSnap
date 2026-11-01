@@ -16,8 +16,6 @@ func box(kind string, parts ...[]byte) []byte {
 
 func u32(v uint32) []byte { return binary.BigEndian.AppendUint32(nil, v) }
 
-// testMovie builds a file with one video track: w x h, seconds long,
-// optionally shown turned 90 degrees, in the given brand and codec.
 func testMovie(brand, codec string, w, h, seconds uint32, turned bool) []byte {
 	mvhd := box("mvhd", u32(0), u32(0), u32(0), u32(1000), u32(seconds*1000), make([]byte, 80))
 	matrix := []uint32{0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000}

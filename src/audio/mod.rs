@@ -43,12 +43,6 @@ pub(crate) fn open_output_stream(
 	}
 }
 
-// A cached stream older than this is treated as untrustworthy and reopened
-// even if the resolved device name hasn't changed and no stream error fired -
-// see the doc comment on `AppState::audio_stream_opened_at`. Belt-and-braces
-// alongside the error callback above, short enough that a sleep/hibernate
-// cycle is always past it, long enough not to add a reopen to normal
-// back-to-back playback.
 const AUDIO_STREAM_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(20);
 
 fn log_line(msg: &str) {
@@ -102,12 +96,6 @@ pub(crate) fn play_notification_sound(
 		return;
 	}
 	std::thread::spawn(move || {
-		// COM is per-thread; without initializing it here, resolve_output_device's
-		// CoCreateInstance(MMDeviceEnumerator) silently fails on this freshly
-		// spawned thread (unlike the UI thread, which wx already initializes COM
-		// on) and every notification sound falls back to cpal's plain Console-role
-		// default, which doesn't follow a headset that only repoints the
-		// Communications role.
 		use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 		struct ComGuard(bool);
 		impl Drop for ComGuard {
@@ -118,13 +106,6 @@ pub(crate) fn play_notification_sound(
 			}
 		}
 		let _com_guard = ComGuard(unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok());
-		// Honor the user's configured output device (and, for "System
-		// Default", the Communications-role default - see
-		// `devices::resolve_output_device`) instead of always opening
-		// whatever cpal calls the default sink, which used to send
-		// notification sounds to a different device than calls/voice
-		// messages whenever the two audio roles disagreed (e.g. headphones
-		// plugged in).
 		let stream_result = match devices::resolve_output_device(output_device_name.as_deref()) {
 			Some(device) => DeviceSinkBuilder::from_device(device).and_then(|b| b.open_stream()),
 			None => DeviceSinkBuilder::open_default_sink(),
@@ -136,8 +117,6 @@ pub(crate) fn play_notification_sound(
 		if let Some(decoded) = decode_opus(sound.ogg()) {
 			sink.append(decoded);
 			sink.play();
-			// Block this worker thread until playback finishes, so `stream` and
-			// `sink` (and the device they hold open) stay alive for the duration.
 			sink.sleep_until_end();
 		}
 	});
@@ -167,8 +146,6 @@ pub(crate) fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'stat
 		match decode_opus(sound_bytes) {
 			Some(decoded) => {
 				use rodio::Source;
-				// A SamplesBuffer knows its length up front, which
-				// repeat_infinite() needs to loop it.
 				sink.append(decoded.repeat_infinite());
 				sink.play();
 				state.call_ringing_sink = Some(sink);
@@ -180,9 +157,6 @@ pub(crate) fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'stat
 	}
 }
 
-/// Starts the ringing heard while calling someone: WhatsApp's own ringback
-/// for the country of `self_phone` (see audio/ringback.rs), looped until the call is
-/// answered or ends. Stopped with `stop_call_ringing_sound` like the others.
 pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
 	use rodio::Source;
 	ensure_audio_stream(state);
@@ -196,9 +170,6 @@ pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
 	state.call_ringing_sink = Some(sink);
 }
 
-/// Plays WhatsApp's busy tone once (four beeps), for a call that ended
-/// because the person was on another call. Stopped with
-/// `stop_call_ringing_sound` like the others.
 pub(crate) fn play_busy_tone(state: &mut AppState) {
 	ensure_audio_stream(state);
 	let Some(ref stream_handle) = state.audio_stream else {
@@ -211,9 +182,6 @@ pub(crate) fn play_busy_tone(state: &mut AppState) {
 	state.call_ringing_sink = Some(sink);
 }
 
-/// Starts WhatsApp's reconnecting tone (see audio/ringback.rs), looped while a
-/// call's connection is being recovered. It has its own player so the ringing
-/// sounds and their hotkeys are left alone.
 pub(crate) fn start_call_reconnect_tone(state: &mut AppState) {
 	use rodio::Source;
 	if state.call_reconnect_sink.is_some() {
@@ -240,12 +208,9 @@ pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 	if let Some(sink) = state.call_ringing_sink.take() {
 		sink.pause();
 	}
-	// The call keys go with the ringing: a call that stopped ringing has
-	// nothing left for them to answer or reject.
 	state.call_hotkeys = None;
 }
 
-/// Length of an audio file in whole seconds (0 if it can't be read).
 pub(crate) fn audio_file_seconds(path: &str) -> u64 {
 	crate::audio::file::duration(path).map_or(0, |d| d.as_secs_f64().round() as u64)
 }
@@ -287,7 +252,6 @@ pub(crate) fn do_seek(stream_handle: &MixerDeviceSink, path: &str, target_secs: 
 	Some(sink)
 }
 
-/// Decodes an Ogg Opus stream (a voice note, or one of the built-in sounds).
 pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 	use opus::{Channels, Decoder};
 
@@ -301,11 +265,6 @@ pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 		pcm: &mut Vec<i16>,
 	) {
 		if packet.len() >= 8 && &packet[0..8] == b"OpusHead" {
-			// Header packet, not audio - (re)establish the decoder from it.
-			// Real chaining (a new pause/resume segment spliced in as its
-			// own logical stream) shows up as more of these later in the
-			// file; picking up its channel count/pre-skip here handles that
-			// case too, not just the file's very first stream.
 			*channels = if packet.len() >= 10 { (packet[9] as usize).max(1) } else { 1 };
 			*pre_skip = if packet.len() >= 12 { u16::from_le_bytes([packet[10], packet[11]]) as usize } else { 0 };
 			let opus_channels = if *channels >= 2 { Channels::Stereo } else { Channels::Mono };
@@ -318,8 +277,6 @@ pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 		}
 		let Some(dec) = decoder.as_mut() else { return };
 		let ch = (*channels).max(1);
-		// Max frame size for opus is 120ms at 48kHz. One buffer serves every
-		// packet of the file.
 		pcm.resize(5760 * ch, 0);
 		if let Ok(n) = dec.decode(packet, pcm, false) {
 			let mut decoded = &pcm[..n * ch];
@@ -340,13 +297,11 @@ pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 	let mut pre_skip: usize = 0;
 	let mut skipped: usize = 0;
 	let mut samples: Vec<f32> = Vec::new();
-	let mut pending: Vec<u8> = Vec::new(); // partial packet carried across a page boundary
+	let mut pending: Vec<u8> = Vec::new();
 	let mut pcm: Vec<i16> = Vec::new();
 
 	while pos + 27 <= len {
 		if &data[pos..pos + 4] != b"OggS" {
-			// Lost sync (or not actually at a page boundary yet) - scan
-			// forward for the next capture pattern rather than giving up.
 			match data[pos + 1..].windows(4).position(|w| w == b"OggS") {
 				Some(off) => {
 					pos += 1 + off;
@@ -388,9 +343,6 @@ pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 				first_packet_of_page = false;
 				if is_continuation {
 					if pending.is_empty() {
-						// No matching partial packet to complete this with
-						// (e.g. we just resynced) - can't recover it, drop
-						// it and move on to the next one.
 						continue;
 					}
 					pending.extend_from_slice(packet_bytes);
@@ -416,8 +368,6 @@ pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 					);
 				}
 			} else if is_last_segment {
-				// Page ends mid-packet - stash it for the next page to
-				// (hopefully) complete.
 				pending.extend_from_slice(&body[seg_run_start..offset]);
 			}
 		}
@@ -436,19 +386,10 @@ pub(crate) fn decode_opus(data: &[u8]) -> Option<rodio::buffer::SamplesBuffer> {
 	))
 }
 
-/// The 64 loudness bars WhatsApp draws on a voice message, 0-100 each - the
-/// `waveform` field of the AudioMessage.
-///
-/// Built the way WhatsApp Web builds a recorded voice note's
-/// (WAPttComposerWaveformRecorder): level in dB mapped from the -60..-10 dB
-/// range onto 0..100, the loudest moment in each slice of the recording, the
-/// slices then evened out to 64. `None` if the file can't be read or holds no
-/// audio.
 pub(crate) fn compute_voice_waveform(wav_path: &str) -> Option<Vec<u8>> {
 	let reader = crate::audio::wav::WavReader::open(wav_path).ok()?;
 	let spec = reader.spec();
 	let channels = spec.channels.max(1) as usize;
-	// 10 ms windows, first channel only (WhatsApp measures a mono stream).
 	let window = (spec.sample_rate as usize / 100).max(1);
 	let mut levels = Vec::new();
 	let (mut sum, mut count) = (0.0f64, 0usize);
@@ -470,9 +411,6 @@ pub(crate) fn compute_voice_waveform(wav_path: &str) -> Option<Vec<u8>> {
 	waveform_bars(&levels)
 }
 
-/// The same 64 bars for an audio file sent as audio (an MP3, M4A...), which
-/// WA Web measures too (WAWebWaveformUtils.computeWaveform) and sends with
-/// it. Decoded the way playback decodes it; `None` if it can't be.
 pub(crate) fn audio_file_waveform(path: &str) -> Option<Vec<u8>> {
 	use rodio::Source;
 	let source = crate::audio::file::open(path, std::time::Duration::ZERO)?;
@@ -498,8 +436,6 @@ pub(crate) fn audio_file_waveform(path: &str) -> Option<Vec<u8>> {
 	waveform_bars(&levels)
 }
 
-/// Evens 10 ms levels in dB out to WhatsApp's 64 bars, -60..-10 dB onto
-/// 0..100, each bar the loudest moment in its slice.
 fn waveform_bars(levels: &[f32]) -> Option<Vec<u8>> {
 	const BARS: usize = 64;
 	const MIN_DB: f32 = -60.0;
@@ -518,12 +454,6 @@ fn waveform_bars(levels: &[f32]) -> Option<Vec<u8>> {
 	Some(bars)
 }
 
-/// Encodes a recorded voice note laid out the way libopusenc and WhatsApp's
-/// own voice notes are, since the phone's player is far stricter than the Ogg
-/// spec: a page per second of audio, closed early rather than ever splitting
-/// a packet across two pages, granule positions that count the encoder's
-/// pre-skip, and a last page that always ends the stream. Four second pages
-/// with packets spanning them made the phone call some notes broken.
 pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::error::Result<()> {
 	use std::{
 		fs::File,
@@ -537,8 +467,8 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 		wav::WavReader,
 	};
 
-	const FRAME: usize = 960; // 20 ms at 48 kHz
-	const PACKETS_PER_PAGE: usize = 50; // one second
+	const FRAME: usize = 960;
+	const PACKETS_PER_PAGE: usize = 50;
 
 	let reader = WavReader::open(wav_path)?;
 	let spec = reader.spec();
@@ -556,37 +486,29 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 
 	let mut head = Vec::with_capacity(19);
 	head.extend_from_slice(b"OpusHead");
-	head.push(1); // Version
-	head.push(ch as u8); // Channels
+	head.push(1);
+	head.push(ch as u8);
 	head.extend_from_slice(&(pre_skip as u16).to_le_bytes());
-	head.extend_from_slice(&48000_u32.to_le_bytes()); // Input sample rate
-	head.extend_from_slice(&0_u16.to_le_bytes()); // Gain
-	head.push(0); // Channel mapping family
+	head.extend_from_slice(&48000_u32.to_le_bytes());
+	head.extend_from_slice(&0_u16.to_le_bytes());
+	head.push(0);
 	writer.write_packet(&head, PacketEnd::EndPage, 0)?;
 
 	let mut tags = Vec::with_capacity(24);
 	tags.extend_from_slice(b"OpusTags");
-	// The length has to match the vendor string exactly, or players read
-	// its last bytes as the comment count and reject the file.
 	const VENDOR: &[u8] = b"whatSnap";
 	tags.extend_from_slice(&(VENDOR.len() as u32).to_le_bytes());
 	tags.extend_from_slice(VENDOR);
-	tags.extend_from_slice(&0_u32.to_le_bytes()); // User comments list length
+	tags.extend_from_slice(&0_u32.to_le_bytes());
 	writer.write_packet(&tags, PacketEnd::EndPage, 0)?;
 
-	// Lacing values a packet takes up in a page.
 	let segments = |len: usize| len / 255 + 1;
 	let mut samples = reader;
 	let mut frame = [0i16; FRAME * 2];
-	let mut out = [0u8; 1275]; // the most one Opus frame can take
-	// Each packet is held back until the next one exists, so it's known
-	// whether the page has room for that one, and the last packet can go out
-	// as the end of the stream.
+	let mut out = [0u8; 1275];
 	let mut held: Option<(Vec<u8>, u64)> = None;
 	let (mut page_packets, mut page_segments) = (0, 0);
 	let mut input_done = false;
-	// Silence fed after the recording so its tail clears the encoder's
-	// lookahead instead of being cut off.
 	let mut pad = pre_skip;
 	let mut total = 0u64;
 	let mut encoded = 0u64;
@@ -601,7 +523,6 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 				None => input_done = true,
 			}
 		}
-		// A frame ending half way through a stereo pair drops that half.
 		filled -= filled % ch;
 		total += (filled / ch) as u64;
 		let pad_now = pad.min(FRAME - filled / ch);
@@ -633,7 +554,6 @@ pub(crate) fn convert_wav_to_opus_ogg(wav_path: &str, ogg_path: &str) -> crate::
 		return Err(crate::error::err!("no audio in the voice recording"));
 	}
 	if let Some((packet, _)) = held {
-		// The last page's granule marks where the audio really ends.
 		writer.write_packet(&packet, PacketEnd::EndStream, pre_skip as u64 + total)?;
 	}
 	writer.into_inner().flush()?;
@@ -649,7 +569,6 @@ mod waveform_tests {
 		let path = std::env::temp_dir().join(format!("whantv_waveform_test_{}.wav", std::process::id()));
 		let spec = crate::audio::wav::WavSpec { channels: 2, sample_rate: 48_000 };
 		let mut w = crate::audio::wav::WavWriter::create(path.to_str().unwrap(), spec).unwrap();
-		// 1 s silence, then 1 s of a loud tone.
 		for i in 0..96_000 {
 			let s = if i < 48_000 { 0.0 } else { 0.5 * (i as f32 * 0.05).sin() };
 			let v = (s * 32767.0) as i16;
@@ -691,7 +610,6 @@ mod voice_note_tests {
 
 	#[test]
 	fn voice_note_is_laid_out_like_whatsapps() {
-		// One ending on a partial frame, one on a whole frame.
 		for total in [350_000u64, 96_000] {
 			let dir = std::env::temp_dir();
 			let wav = dir.join(format!("whantv_voice_test_{}_{total}.wav", std::process::id()));
@@ -713,8 +631,6 @@ mod voice_note_tests {
 			assert_eq!(&data[28..36], b"OpusHead");
 			assert_eq!(data[37], 2, "stereo, as recorded");
 			let pre_skip = u16::from_le_bytes([data[38], data[39]]) as u64;
-			// OpusTags: the vendor length and the empty comment list account
-			// for every byte of the packet.
 			let tags = &data[75..75 + data[74] as usize];
 			assert_eq!(&tags[..8], b"OpusTags");
 			let vendor = u32::from_le_bytes(tags[8..12].try_into().unwrap()) as usize;
@@ -738,7 +654,6 @@ mod voice_note_tests {
 			assert_eq!(pos, data.len());
 			assert_eq!(last.0 & 4, 4, "last page ends the stream");
 			assert_eq!(last.1 as u64, pre_skip + total);
-			// Every sample comes back once the decoder's pre-skip is dropped.
 			assert!(decoded >= total * 2, "{decoded} < {}", total * 2);
 		}
 	}

@@ -1,15 +1,8 @@
-//! Chat-list filtering/rendering and per-message action-button visibility
-//! logic shared across the conversation view, group data dialog, and search.
-
 use whatsnap::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{AppState, CallTarget};
 
-/// Changes every loaded message `pick` selects, each one exactly once, and
-/// returns the display rows holding a changed message, in order. See
-/// [`whatsnap::update_shared_messages`] for why this, and not `Rc::make_mut` on
-/// each list in turn.
 pub(crate) fn update_loaded_messages(
 	s: &mut AppState,
 	pick: impl FnMut(&ChatMessage) -> bool,
@@ -18,8 +11,6 @@ pub(crate) fn update_loaded_messages(
 	whatsnap::update_shared_messages(&mut s.messages, &mut s.display_items, &mut s.selection_rows, pick, change)
 }
 
-/// [`update_loaded_messages`] for the one message with this id: its display
-/// row, if it's loaded.
 pub(crate) fn update_loaded_message(
 	s: &mut AppState,
 	id: &str,
@@ -33,7 +24,6 @@ pub(crate) fn update_loaded_message(
 	let rows = update_loaded_messages(
 		s,
 		|m| {
-			// Ids are unique; stop at the first.
 			let hit = !found && m.id == id;
 			found |= hit;
 			hit
@@ -47,7 +37,6 @@ pub(crate) fn update_loaded_message(
 	rows.first().copied()
 }
 
-// These share the loaded messages rather than copying them (see `whatsnap::Msg`).
 pub(crate) fn build_media_messages(messages: &[whatsnap::Msg]) -> Vec<whatsnap::Msg> {
 	messages.iter().filter(|m| m.is_photo_or_video()).cloned().collect()
 }
@@ -60,17 +49,12 @@ pub(crate) fn build_link_messages(messages: &[whatsnap::Msg]) -> Vec<whatsnap::M
 	messages.iter().filter(|m| m.first_link().is_some()).cloned().collect()
 }
 
-/// An info dialog's Media, Documents and Links tabs.
 pub(crate) struct InfoMediaLists<'a> {
 	pub(crate) media: &'a ListBox,
 	pub(crate) documents: &'a ListBox,
 	pub(crate) links: &'a ListBox,
 }
 
-/// The open chat's media, documents and links for its info dialog, filled into
-/// `lists`. A window of a big chat holds only some of them, so for one the
-/// backend is asked for the whole chat's instead (`chat_media`, which calls
-/// this again with them) and the tabs say "Loading..." meanwhile.
 pub(crate) fn fill_info_media(
 	s: &AppState,
 	lists: InfoMediaLists,
@@ -136,7 +120,6 @@ pub(crate) fn chat_visible_in_tab(
 		return false;
 	}
 	match tab {
-		// Channels have their own tab, as in the official apps.
 		0 => !archived.contains(jid) && !communities.contains(jid) && !channels.contains(jid),
 		3 => archived.contains(jid),
 		4 => communities.contains(jid) || parents.get(jid).is_some_and(|p| communities.contains(p)),
@@ -145,8 +128,6 @@ pub(crate) fn chat_visible_in_tab(
 	}
 }
 
-/// How many chats `tab` would show as unread: the same chats the Unread
-/// filter can reach there, so the navigation count agrees with the list.
 pub(crate) fn unread_chats_in_tab(s: &AppState, tab: usize) -> usize {
 	whatsnap::unread_chat_count(&s.chats, &s.unread_counts, |jid| {
 		chat_visible_in_tab(
@@ -162,10 +143,6 @@ pub(crate) fn unread_chats_in_tab(s: &AppState, tab: usize) -> usize {
 	})
 }
 
-/// The chat list in the order the active tab shows it: the usual order, except
-/// that the Communities tab puts each community's groups under it.
-/// Borrowed rather than copied: this runs on every chat-list refresh and
-/// filter keystroke.
 pub(crate) fn chats_in_tab_order(s: &AppState) -> Vec<&String> {
 	if s.active_tab == 4 {
 		whatsnap::community_tab_order(&s.chats, &s.community_jids, &s.chat_parents, &s.announcement_jids)
@@ -174,11 +151,6 @@ pub(crate) fn chats_in_tab_order(s: &AppState) -> Vec<&String> {
 	}
 }
 
-/// If `new` is exactly `old` with one element removed and a (possibly
-/// different) element inserted at the front, returns the index that element
-/// held in `old`. Used to detect "one chat bumped to the top" without an
-/// O(n^2) scan, so `apply_chat_filter` can patch the list in place instead
-/// of rebuilding it on every message sent or received.
 pub(crate) fn find_single_removal_offset(old: &[String], new: &[String]) -> Option<usize> {
 	if new.is_empty() || old.len() != new.len() {
 		return None;
@@ -201,12 +173,8 @@ pub(crate) fn find_single_removal_offset(old: &[String], new: &[String]) -> Opti
 	Some(skipped.unwrap_or(oi))
 }
 
-/// The Conversations tab's filters that are always there; the user's own
-/// lists follow them in the dropdown.
 pub(crate) const BUILT_IN_CHAT_FILTERS: [&str; 4] = ["All chats", "Unread", "Favorites", "Groups"];
 
-/// Whether the chat filter picked above the list lets this chat through.
-/// It only applies to Conversations, as WA Web's filter chips do.
 pub(crate) fn chat_passes_filter(s: &AppState, jid: &str) -> bool {
 	if s.active_tab != 0 || s.chats_unlocked {
 		return true;
@@ -222,9 +190,6 @@ pub(crate) fn chat_passes_filter(s: &AppState, jid: &str) -> bool {
 
 pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	crate::ui::window::refresh_menu_bar(s, &parts.frame);
-	// Archiving, locking and deleting move chats in and out of the Chats tab
-	// without touching their unread counts, so the navigation count is
-	// refreshed here as well as where the counts change.
 	crate::platform::tray::refresh_nav_unread_labels(s, parts);
 	let show_locked_btn = s.active_tab == 0 && !s.locked_jids.is_empty();
 	let show_filter = s.active_tab == 0 && !s.chats_unlocked;
@@ -237,8 +202,6 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	}
 
 	let lower_query = s.search_query.to_lowercase();
-	// The chat the user is on in the list (not necessarily the open one), so
-	// a reorder can put them back on the same chat rather than the same row.
 	let list_selected_jid = parts
 		.conversations_parts
 		.conversations_list
@@ -251,11 +214,6 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	let mut filtered_status_ids = Vec::new();
 
 	if s.active_tab == 1 {
-		// Status: a flat list, one row per status item (not grouped by
-		// contact) - own statuses first, then everyone else newest-post-first
-		// (status_groups is already sorted that way by the backend).
-		// filtered_chats holds the poster's jid per row, filtered_status_ids
-		// the status message id, so OpenConversation can look either up by idx.
 		for group in &s.status_groups {
 			for item in &group.items {
 				let viewed_tag = match (item.viewed, group.muted) {
@@ -297,9 +255,6 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		}
 	} else if s.active_tab == 2 {
-		// Starred Messages: a flat, cross-chat list built from starred_entries
-		// rather than s.chats. filtered_chats still holds one jid per row so
-		// OpenConversation's existing index -> jid lookup keeps working.
 		for entry in &s.starred_entries {
 			if lower_query.is_empty() || entry.label.to_lowercase().contains(&lower_query) {
 				labels.push(entry.label.clone());
@@ -308,10 +263,6 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		}
 	} else if s.active_tab == 6 {
-		// Calls, laid out like the phone's: frequent contacts, then recent
-		// calls, then every contact A to Z. A section with nothing to show is
-		// left out, and its heading with it. Heading rows have no jid, which is
-		// how a call or Enter on one knows to do nothing.
 		let matches_target = |t: &CallTarget| {
 			lower_query.is_empty()
 				|| t.name.to_lowercase().contains(&lower_query)
@@ -336,7 +287,6 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 		};
 
-		// Group calls going on that we can join come first, as on the phone.
 		let ongoing: Vec<(String, String)> = s
 			.joinable_calls
 			.iter()
@@ -361,7 +311,6 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			};
 
 			let mut label = format_call_log_label(name, &entry.text, entry.from_me, entry.timestamp);
-			// A call still going on joins on Enter rather than calling back.
 			let mut row_jid = entry.jid.clone();
 			if s.joinable_calls.iter().any(|c| c.call_id == entry.id) {
 				label.push_str(crate::ui_commands::calls::ONGOING_CALL_SUFFIX);
@@ -416,13 +365,6 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	let list = &parts.conversations_parts.conversations_list;
 	let had_focus = list.has_focus();
 
-	// The overwhelmingly common reason the label set changes at all is one
-	// chat (whichever was just messaged) jumping to the front, with every
-	// other row's relative order and text untouched. Detect that shape and
-	// apply it as a single delete+insert instead of tearing down and
-	// rebuilding the whole native list control - on a chat list with
-	// hundreds of entries, a full clear()+append() per row on every single
-	// message sent or received was the visible "UI freezes for a bit" hitch.
 	let moved_from = find_single_removal_offset(&s.displayed_chat_labels, &labels);
 
 	list.freeze();
@@ -430,14 +372,10 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		list.delete(idx as u32);
 		list.insert(&labels[0], 0);
 	} else {
-		// One native call for the whole list rather than one per row.
 		list.set_items(&labels.iter().map(String::as_str).collect::<Vec<_>>());
 	}
 	list.thaw();
 
-	// Stay on the chat the user was on in the list. Re-selecting the open
-	// chat instead made the list jump away from wherever they were arrowing
-	// every time a message moved some other chat to the top.
 	let target = list_selected_jid
 		.as_ref()
 		.and_then(|jid| s.filtered_chats.iter().position(|j| j == jid))
@@ -449,9 +387,6 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		}
 	}
 
-	// Filling the list clears its selection. If the list has focus and nothing
-	// is selected (first launch: Alt+1 arrived before any chats had loaded),
-	// select the first row so Enter opens it without a Space first.
 	if (had_focus || list.has_focus()) && list.get_selection().is_none() && list.get_count() > 0 {
 		list.set_selection(0_u32, true);
 	}
@@ -640,8 +575,6 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 	need_layout
 }
 
-/// Shows or hides `btn`, returning whether that changed anything (and so
-/// needs a layout).
 fn set_shown(btn: &Button, show: bool) -> bool {
 	if btn.is_shown() == show {
 		return false;
@@ -650,9 +583,6 @@ fn set_shown(btn: &Button, show: bool) -> bool {
 	true
 }
 
-/// Action buttons for an outgoing message that failed to send (Retry is the
-/// only thing to do) or is still uploading (nothing to do yet). Returns
-/// whether a layout is needed.
 fn show_send_state_buttons(parts: &crate::ui::conversations::ConversationsPanelParts, failed: bool) -> bool {
 	let mut need_layout = set_shown(&parts.action_retry_btn, failed);
 	need_layout |= set_shown(&parts.action_open_btn, false);
@@ -661,20 +591,6 @@ fn show_send_state_buttons(parts: &crate::ui::conversations::ConversationsPanelP
 	need_layout
 }
 
-/// Syncs `play_voice_btn` / `audio_slider` / `action_panel` visibility to
-/// whichever row `messages_list` currently has selected.
-///
-/// This duplicates the logic in `messages_list`'s `on_selection_changed`
-/// handler (ui/window.rs) because a *programmatic* `set_selection()` - used
-/// throughout this file to land on a particular row after rebuilding the
-/// list (e.g. the newest message after a send, the message just jumped to
-/// from search) - doesn't fire that wx event. Without this, those buttons
-/// keep reflecting whatever row was selected *before* the rebuild: e.g. if
-/// the user had a voice message selected, then sent a plain text message,
-/// `play_voice_btn` stayed visible and labeled for the old voice message
-/// even though the newly-selected row is the text message they just sent.
-/// Call this after any `messages_list.set_selection(...)` that isn't
-/// immediately followed by a real user-driven selection change.
 pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conversations::ConversationsPanelParts) {
 	parts.action_panel.freeze();
 	let mut need_layout = update_action_buttons_inner(s, parts);
@@ -746,7 +662,6 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 	}
 }
 
-/// Formats a call record as a spoken, screen-reader friendly line.
 pub(crate) fn format_call_log_label(name: &str, text: &str, from_me: bool, timestamp: i64) -> String {
 	let call_desc = if text.starts_with("Incoming ") {
 		let rest = &text["Incoming ".len()..];

@@ -1,12 +1,3 @@
-//! Named pipes: the line protocol to the backend and the single-instance
-//! activation pipe.
-//!
-//! Handles are opened for overlapped I/O, with each `PipeStream` (including a
-//! `try_clone`) waiting on its own event. A handle opened for synchronous
-//! I/O serializes every call on it, so a blocked read would hold up a write
-//! from another thread; overlapped I/O lets the reader and writer threads
-//! share one pipe.
-
 use std::{
 	io::{self, Read, Write},
 	sync::Arc,
@@ -34,10 +25,8 @@ use windows::{
 	core::{HRESULT, HSTRING},
 };
 
-/// Closes the handle when dropped.
 struct OwnedHandle(HANDLE);
 
-// A kernel handle may be used from any thread.
 unsafe impl Send for OwnedHandle {}
 unsafe impl Sync for OwnedHandle {}
 
@@ -53,8 +42,6 @@ fn pipe_path(name: &str) -> HSTRING {
 	HSTRING::from(format!(r"\\.\pipe\{name}"))
 }
 
-/// windows-rs errors carry an HRESULT; io::Error wants the Win32 code inside
-/// it so `kind()` works (NotFound for a pipe that doesn't exist, ...).
 fn io_error(e: windows::core::Error) -> io::Error {
 	let hr = e.code().0 as u32;
 	if hr >> 16 == 0x8007 { io::Error::from_raw_os_error((hr & 0xffff) as i32) } else { io::Error::other(e) }
@@ -75,7 +62,6 @@ impl PipeStream {
 		Ok(PipeStream { pipe, event: OwnedHandle(event) })
 	}
 
-	/// Connects to the pipe `\\.\pipe\<name>`.
 	pub(crate) fn connect(name: &str) -> io::Result<Self> {
 		let path = pipe_path(name);
 		let mut waited = false;
@@ -94,7 +80,6 @@ impl PipeStream {
 			};
 			match handle {
 				Ok(h) => return PipeStream::new(Arc::new(OwnedHandle(h))),
-				// Every instance is taken; wait a moment for one to free up.
 				Err(e) if is(&e, ERROR_PIPE_BUSY) && !waited => {
 					waited = true;
 					let _ = unsafe { WaitNamedPipeW(&path, 2000) };
@@ -104,20 +89,16 @@ impl PipeStream {
 		}
 	}
 
-	/// Another stream on the same pipe, for a second thread to use.
 	pub(crate) fn try_clone(&self) -> io::Result<Self> {
 		PipeStream::new(self.pipe.clone())
 	}
 
-	/// The process id of the pipe's server end.
 	pub(crate) fn server_pid(&self) -> Option<u32> {
 		let mut pid = 0;
 		unsafe { GetNamedPipeServerProcessId(self.pipe.0, &mut pid) }.ok()?;
 		Some(pid)
 	}
 
-	/// Starts an overlapped operation and waits for it to finish, returning
-	/// the bytes it moved.
 	fn wait(&self, start: impl FnOnce(*mut OVERLAPPED) -> windows::core::Result<()>) -> windows::core::Result<u32> {
 		let mut ov = OVERLAPPED { hEvent: self.event.0, ..Default::default() };
 		match start(&mut ov) {
@@ -139,7 +120,6 @@ impl Read for PipeStream {
 		let pipe = self.pipe.0;
 		match self.wait(|ov| unsafe { ReadFile(pipe, Some(&mut buf[..len]), None, Some(ov)) }) {
 			Ok(n) => Ok(n as usize),
-			// The other end closed: end of stream.
 			Err(e) if is(&e, ERROR_BROKEN_PIPE) => Ok(0),
 			Err(e) if is(&e, ERROR_MORE_DATA) => Ok(len),
 			Err(e) => Err(io_error(e)),
@@ -156,7 +136,6 @@ impl Write for PipeStream {
 			.map_err(io_error)
 	}
 
-	/// Waits until the other end has read everything written so far.
 	fn flush(&mut self) -> io::Result<()> {
 		unsafe { FlushFileBuffers(self.pipe.0) }.map_err(io_error)
 	}
@@ -171,7 +150,6 @@ pub(crate) struct PipeListener {
 }
 
 impl PipeListener {
-	/// Creates `\\.\pipe\<name>`, failing if another process already has.
 	pub(crate) fn bind(name: &str) -> io::Result<Self> {
 		let path = pipe_path(name);
 		let next = Self::instance(&path, true)?;
@@ -202,22 +180,16 @@ impl PipeListener {
 		Ok(OwnedHandle(handle))
 	}
 
-	/// Waits for the next client.
 	pub(crate) fn accept(&mut self) -> io::Result<PipeStream> {
 		let mut ov = OVERLAPPED { hEvent: self.event.0, ..Default::default() };
 		match unsafe { ConnectNamedPipe(self.next.0, Some(&mut ov)) } {
 			Ok(()) => {}
-			// The client got in before the call (and may even have written its
-			// message and closed already); either way there's a connection to
-			// read from.
 			Err(e) if is(&e, ERROR_PIPE_CONNECTED) || is(&e, ERROR_NO_DATA) => {}
 			Err(e) if is(&e, ERROR_IO_PENDING) => {
 				let mut n = 0;
 				unsafe { GetOverlappedResult(self.next.0, &ov, &mut n, true) }.map_err(io_error)?;
 			}
 			Err(e) => {
-				// The instance is unusable (say, the client gave up before we
-				// got to it); swap in a fresh one for the next call.
 				self.next = Self::instance(&self.path, false)?;
 				return Err(io_error(e));
 			}

@@ -18,22 +18,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// WhatsApp channels (whatsmeow calls them newsletters): one-way broadcasts
-// that people follow. They live in the chats table with is_channel set, and
-// their posts in messages with the post's server_id, which reactions and view
-// receipts are addressed by. Channel history isn't end-to-end encrypted or
-// synced from the phone; it's fetched from the server when a channel opens.
-
-// channelPageSize is how many recent posts are fetched when a channel opens,
-// the same page WhatsApp Web loads.
 const channelPageSize = 50
 
 func isChannelJID(jid string) bool {
 	return strings.HasSuffix(jid, "@"+types.NewsletterServer)
 }
 
-// syncFollowedChannels mirrors the channels we follow into the chat list, and
-// drops the ones we no longer follow.
 func syncFollowedChannels() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -72,8 +62,6 @@ func syncFollowedChannels() {
 	broadcastChats()
 }
 
-// markChannelsFollowed removes channel rows for channels not in followed,
-// along with their posts - a channel we stopped following isn't kept.
 func markChannelsFollowed(followed []string) {
 	keep := make(map[string]bool, len(followed))
 	for _, jid := range followed {
@@ -110,8 +98,6 @@ func canPostInChannel(jid string) bool {
 	return role == "owner" || role == "admin"
 }
 
-// channelPostID is the ID a fetched post is stored under: its own message
-// ID, or one made from its server ID when the server leaves that out.
 func channelPostID(jid string, msg *types.NewsletterMessage) string {
 	if msg.MessageID != "" {
 		return msg.MessageID
@@ -119,8 +105,6 @@ func channelPostID(jid string, msg *types.NewsletterMessage) string {
 	return fmt.Sprintf("nl_%s_%d", strings.TrimSuffix(jid, "@"+types.NewsletterServer), msg.MessageServerID)
 }
 
-// formatChannelStats renders a post's views and reaction totals, most-used
-// reaction first: "1,204 views, 👍 31, ❤️ 12".
 func formatChannelStats(views int, reactions map[string]int) string {
 	var parts []string
 	switch {
@@ -151,8 +135,6 @@ func formatChannelStats(views int, reactions map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
-// channelStatsFromColumns renders stored counts for the message list,
-// starting with "Pinned" for a pinned post.
 func channelStatsFromColumns(views int, reactionsJSON string, pinned bool) string {
 	var reactions map[string]int
 	if reactionsJSON != "" {
@@ -176,7 +158,6 @@ func groupThousands(n int) string {
 	return s
 }
 
-// storeChannelCounts saves a post's views, reaction totals and poll votes.
 func storeChannelCounts(ex sqlExecer, jid string, msg *types.NewsletterMessage) {
 	reactions, _ := json.Marshal(msg.ReactionCounts)
 	ex.Exec(`UPDATE messages SET channel_views = CASE WHEN ? > 0 THEN ? ELSE channel_views END,
@@ -189,8 +170,6 @@ func storeChannelCounts(ex sqlExecer, jid string, msg *types.NewsletterMessage) 
 	}
 }
 
-// channelPollVotesJSON stores a channel poll's counts by hex option hash,
-// the way chat poll votes name options.
 func channelPollVotesJSON(votes map[[32]byte]int) string {
 	byHash := make(map[string]int, len(votes))
 	for hash, n := range votes {
@@ -200,8 +179,6 @@ func channelPollVotesJSON(votes map[[32]byte]int) string {
 	return string(out)
 }
 
-// storeChannelPins marks which of a channel's posts are pinned. The server
-// names pinned posts by server ID.
 func storeChannelPins(jid string, pins []types.NewsletterPinnedMessage) {
 	ids := make([]any, 0, len(pins))
 	marks := make([]string, 0, len(pins))
@@ -223,29 +200,17 @@ func storeChannelPins(jid string, pins []types.NewsletterPinnedMessage) {
 var (
 	channelFetchMu      sync.Mutex
 	channelFetchRunning = map[string]bool{}
-	// channelFreshUntil is when each channel's last refresh stops covering
-	// it: as long as its live-updates subscription runs, new posts and
-	// counts arrive on their own, so reopening it needs no fetch. Without
-	// this, every open cost about five requests.
-	channelFreshUntil = map[string]time.Time{}
+	channelFreshUntil   = map[string]time.Time{}
 )
 
-// channelRefreshMinGap is the shortest time between two refreshes of one
-// channel when the server didn't say how long live updates last.
 const channelRefreshMinGap = 5 * time.Minute
 
-// forgetChannelRefreshes drops the freshness of every channel; live-updates
-// subscriptions end with the connection.
 func forgetChannelRefreshes() {
 	channelFetchMu.Lock()
 	clear(channelFreshUntil)
 	channelFetchMu.Unlock()
 }
 
-// refreshChannel fetches a channel's recent posts from the server when it's
-// opened, stores the new ones and their counts, marks them viewed the way
-// the official apps do when posts are shown, and asks the open chat to reload
-// if anything changed. It also subscribes to live count updates for a while.
 func refreshChannel(jid string) {
 	channelFetchMu.Lock()
 	if channelFetchRunning[jid] || time.Now().Before(channelFreshUntil[jid]) {
@@ -293,16 +258,11 @@ func refreshChannel(jid string) {
 			log.Printf("Couldn't mark channel %s posts viewed: %v", jid, err)
 		}
 	}
-	// The official apps show a channel's pinned posts as it opens; they come
-	// with the channel's info.
 	refreshChannelPins(ctx, parsed)
 	broadcastChats()
 	broadcastEvent("channel_messages_updated", map[string]interface{}{"jid": jid, "newPosts": changed})
 }
 
-// storeChannelPosts saves fetched posts not stored yet, and every post's
-// counts. Returns how many were new, the newest post's time and all their
-// server IDs.
 func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed int, newest int64, serverIDs []types.MessageServerID) {
 	var writes []func(tx sqlExecer)
 	for _, post := range posts {
@@ -317,7 +277,6 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 		var storedText string
 		db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(is_deleted), 0), COALESCE(MAX(text), '') FROM messages WHERE id = ?`, id).Scan(&exists, &deleted, &storedText)
 		if exists > 0 && deleted == 0 {
-			// Catch up on what happened to a post since we stored it.
 			switch {
 			case post.Edit == types.EditAttributeAdminRevoke:
 				changed++
@@ -391,17 +350,12 @@ func syncOwnChannelAddOns(ctx context.Context, parsed types.JID, jid string) {
 	writeBatch(writes)
 }
 
-// noteChannelPostSent keeps the server ID of a post we just sent to a
-// channel, which reacting to it, pinning it and its counts all go by.
 func noteChannelPostSent(jid types.JID, id string, resp whatsmeow.SendResponse) {
 	if jid.Server == types.NewsletterServer && resp.ServerID != 0 {
 		db.Exec(`UPDATE messages SET server_id = ? WHERE id = ?`, resp.ServerID, id)
 	}
 }
 
-// loadOlderChannelPosts fetches the page of posts before the oldest one we
-// have - what Home at the top of a channel asks for. It answers the way the
-// phone's history does, so the chat view pages them in the same way.
 func loadOlderChannelPosts(jid string) {
 	parsed, err := types.ParseJID(jid)
 	if err != nil {
@@ -430,17 +384,12 @@ func loadOlderChannelPosts(jid string) {
 	broadcastEvent("history_chats_synced", map[string]interface{}{"jids": []string{jid}, "onDemand": true})
 }
 
-// handleChannelDirectory browses (no query) or searches the channel
-// directory, a page at a time.
 func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 	var data struct {
-		Query  string `json:"query"`
-		View   string `json:"view"`
-		Cursor string `json:"cursor"`
-		// Country is whose channels to list (ISO code); ours when empty.
-		Country string `json:"country"`
-		// Category lists that category's featured channels, as WhatsApp
-		// Web does when one is picked.
+		Query    string `json:"query"`
+		View     string `json:"view"`
+		Cursor   string `json:"cursor"`
+		Country  string `json:"country"`
 		Category string `json:"category"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -449,7 +398,7 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		const pageSize = 50 // what WhatsApp Web asks for
+		const pageSize = 50
 		var page *whatsmeow.NewsletterDirectoryPage
 		var err error
 		query := strings.TrimSpace(data.Query)
@@ -496,8 +445,6 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleChannelReaction reacts to a channel post, which is addressed by its
-// server ID rather than being a message of its own like a chat reaction.
 func handleChannelReaction(data ReactMessageData) {
 	var serverID int64
 	db.QueryRow(`SELECT COALESCE(server_id, 0) FROM messages WHERE id = ?`, data.MessageID).Scan(&serverID)
@@ -519,8 +466,6 @@ func handleChannelReaction(data ReactMessageData) {
 	})
 }
 
-// handleChannelMute mutes or unmutes a channel's posts, which for channels
-// is a setting on the channel rather than an app-state mute.
 func handleChannelMute(jidStr string, muted bool) {
 	jid, err := types.ParseJID(jidStr)
 	if err != nil {
@@ -535,7 +480,6 @@ func handleChannelMute(jidStr string, muted bool) {
 	broadcastChats()
 }
 
-// channelInfoPayload is what the channel info dialog shows.
 func channelInfoPayload(meta *types.NewsletterMetadata, code string) map[string]interface{} {
 	role, muted := "", false
 	if meta.ViewerMeta != nil {
@@ -544,7 +488,6 @@ func channelInfoPayload(meta *types.NewsletterMetadata, code string) map[string]
 	}
 	following := role == "subscriber" || role == "admin" || role == "owner"
 	if !following {
-		// An invite lookup has no viewer data; what we have locally decides.
 		r := channelRole(meta.ID.String())
 		following = r != "" && r != "guest"
 		if following {
@@ -570,8 +513,6 @@ func channelInfoPayload(meta *types.NewsletterMetadata, code string) map[string]
 	}
 }
 
-// handleGetChannelInfo looks a channel up by JID or by invite code (a
-// whatsapp.com/channel/ link).
 func handleGetChannelInfo(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID  string `json:"jid"`
@@ -632,8 +573,6 @@ func handleFollowChannel(raw json.RawMessage, follow bool) {
 	}()
 }
 
-// handleChannelEvent keeps followed channels and post counts current from
-// what the server pushes.
 func handleChannelEvent(evt any) {
 	switch v := evt.(type) {
 	case *events.NewsletterJoin, *events.NewsletterLeave:
@@ -657,9 +596,6 @@ func handleChannelEvent(evt any) {
 	}
 }
 
-// isFollowedChannelPost reports whether a live message in jid is a post from
-// a channel we follow, which is kept like a chat message. Other channel
-// traffic stays ignored.
 func isFollowedChannelPost(jid string) bool {
 	if !isChannelJID(jid) {
 		return false
@@ -669,8 +605,6 @@ func isFollowedChannelPost(jid string) bool {
 	return n > 0
 }
 
-// ownCountryCode is the ISO country of our own phone number ("IN" for a +91
-// number), which picks whose channels the directory lists.
 func ownCountryCode() string {
 	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
 		return ""
@@ -678,9 +612,6 @@ func ownCountryCode() string {
 	return regionForPhone("+" + wa().Store.ID.User)
 }
 
-// regionForPhone is the ISO country of a number ("+919812345678" is "IN"):
-// its calling code's main country, unless its leading digits belong to
-// another one sharing that code (a Canadian +1 area code, say).
 func regionForPhone(number string) string {
 	digits := strings.TrimPrefix(number, "+")
 	for n := min(len(digits), 6); n > 0; n-- {
@@ -696,7 +627,6 @@ func regionForPhone(number string) string {
 	return ""
 }
 
-// nonEmpty is a one-item list of s, or no list when s is empty.
 func nonEmpty(s string) []string {
 	if s == "" {
 		return nil
@@ -704,10 +634,6 @@ func nonEmpty(s string) []string {
 	return []string{s}
 }
 
-// browseChannelDirectory lists channels to follow in a country: the
-// directory's recommended view, falling back to the separate
-// recommended-channels query WhatsApp Web also uses (which has no further
-// pages) if the server won't take the first.
 func browseChannelDirectory(ctx context.Context, country, cursor string, limit int) (*whatsmeow.NewsletterDirectoryPage, error) {
 	countries := nonEmpty(country)
 	page, err := wa().GetNewsletterDirectory(ctx, whatsmeow.NewsletterDirectoryRecommended, countries, cursor, limit)

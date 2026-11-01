@@ -1,25 +1,11 @@
-//! The ringing heard while calling someone ("ringback").
-//!
-//! WhatsApp doesn't ship this as a sound file: its calling engine
-//! (wa_call_ringback_tones.cc in WhatsApp Web's VoIP WebAssembly) synthesises
-//! it from a per-country table of telephone ringback tones, picked by the
-//! dialling code of your own number and falling back to the US tone. The table
-//! below is that table, read out of WhatsApp Web 2.3000.1047483476's engine, so
-//! calls ring the way they do in WhatsApp for your country.
-
 use std::num::NonZero;
 
 use rodio::buffer::SamplesBuffer;
 
 const SAMPLE_RATE: u32 = 48_000;
-/// Peak level of the tone, well under full scale like a phone's ringback.
 const LEVEL: f32 = 0.25;
-/// Short fade at each edge of a burst, so it doesn't click.
 const FADE_SECS: f32 = 0.005;
 
-/// (dialling code, first frequency Hz, second frequency Hz or 0, whether the
-/// second frequency amplitude-modulates the first rather than being mixed in,
-/// on/off cadence in ms).
 type Ringback = (&'static str, u16, u16, bool, &'static [u16]);
 
 const RINGBACKS: &[Ringback] = &[
@@ -176,9 +162,6 @@ const RINGBACKS: &[Ringback] = &[
 	("996", 425, 0, false, &[800, 3200]),
 ];
 
-/// The ringback for someone whose own number is `self_phone` (digits,
-/// international format without the +): the longest dialling code it starts
-/// with, else the US tone WhatsApp defaults to.
 fn ringback_for(self_phone: &str) -> Ringback {
 	RINGBACKS
 		.iter()
@@ -189,8 +172,6 @@ fn ringback_for(self_phone: &str) -> Ringback {
 		.expect("the US ringback is in the table")
 }
 
-/// One full on/off cycle of the ringback for `self_phone`, mono, ready to be
-/// looped.
 pub(crate) fn ringback_cycle(self_phone: &str) -> SamplesBuffer {
 	let (_, f1, f2, modulated, cadence) = ringback_for(self_phone);
 	let rate = SAMPLE_RATE as f32;
@@ -218,10 +199,6 @@ pub(crate) fn ringback_cycle(self_phone: &str) -> SamplesBuffer {
 	SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(SAMPLE_RATE).unwrap(), samples)
 }
 
-/// The busy tone heard when the person you're calling is on another call.
-/// WhatsApp Web (WAWebCallBusyTone) plays one tone for every country, not one
-/// per country like the ringback: 480 Hz and 620 Hz together, each at gain
-/// 0.15, half a second on and half off, four times.
 pub(crate) fn busy_tone() -> SamplesBuffer {
 	const FREQS: [f32; 2] = [480.0, 620.0];
 	const GAIN: f32 = 0.15;
@@ -234,7 +211,6 @@ pub(crate) fn busy_tone() -> SamplesBuffer {
 	for cycle in 0..CYCLES {
 		let start = cycle * 2 * n;
 		for k in 0..n {
-			// Oscillators run from the start, as WhatsApp's do, gated on and off.
 			let t = (start + k) as f32 / rate;
 			let tone: f32 = FREQS.iter().map(|f| (std::f32::consts::TAU * f * t).sin()).sum();
 			let edge = k.min(n - 1 - k);
@@ -246,10 +222,6 @@ pub(crate) fn busy_tone() -> SamplesBuffer {
 	SamplesBuffer::new(NonZero::new(1).unwrap(), NonZero::new(SAMPLE_RATE).unwrap(), samples)
 }
 
-/// One cycle of the tone played while a call is reconnecting after its
-/// connection dropped, ready to be looped. WhatsApp Web's calling engine plays
-/// the same pjmedia tone for every country (kToneTypeReconnecting): 480 Hz,
-/// 0.2 s on, 0.2 off, 0.2 on, then 3 s off.
 pub(crate) fn reconnect_tone() -> SamplesBuffer {
 	const FREQ: f32 = 480.0;
 	const CADENCE_MS: [usize; 4] = [200, 200, 200, 3000];
@@ -292,7 +264,6 @@ mod tests {
 
 	#[test]
 	fn cycle_matches_the_cadence() {
-		// India: 400 Hz modulated at 25 Hz, 0.4 on, 0.2 off, 0.4 on, 2.6 off.
 		let samples: Vec<f32> = ringback_cycle("919876543210").collect();
 		assert_eq!(samples.len(), 48_000 * 36 / 10);
 		assert!(samples.iter().all(|s| s.abs() <= LEVEL));

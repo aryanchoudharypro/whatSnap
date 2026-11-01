@@ -1,19 +1,3 @@
-//! Spell checking for the message box, with Windows' own spell checker
-//! (ISpellChecker, Windows 8 and later), so no dictionaries ship with the
-//! app and words added here go into the same user dictionary other Windows
-//! apps use.
-//!
-//! The box stays the plain edit control it always was, so screen readers
-//! read it exactly as before. Mistakes are:
-//! - drawn with a red wavy line under them (paint only, see `edit_proc`);
-//! - offered on the box's context menu (Applications key, Shift+F10 or a
-//!   right click on the word): suggestions, Add to Dictionary, Ignore;
-//! - found one by one with Next Spelling Error (F7), which selects the word
-//!   and opens that menu;
-//! - optionally said as you finish typing one. NVDA can't report them itself
-//!   here: it reads edit and RichEdit boxes without UI Automation, which is
-//!   the only way its spelling reports reach it.
-
 use std::cell::{Cell, RefCell};
 
 use windows::{
@@ -46,12 +30,9 @@ use windows::{
 };
 use wxdragon::prelude::*;
 
-/// A box longer than this isn't checked: a pasted essay shouldn't stall
-/// every keystroke.
 const MAX_CHECKED: usize = 20_000;
-/// At most this many suggestions on the menu, as Word offers.
 const MAX_SUGGESTIONS: usize = 7;
-const SUBCLASS_ID: usize = 0x5350_454C; // "SPEL"
+const SUBCLASS_ID: usize = 0x5350_454C;
 
 const MENU_ID_SUGGESTION: i32 = 7600;
 const MENU_ID_DELETE_REPEAT: i32 = 7620;
@@ -64,27 +45,20 @@ const MENU_ID_PASTE: i32 = 7626;
 const MENU_ID_DELETE: i32 = 7627;
 const MENU_ID_SELECT_ALL: i32 = 7628;
 
-/// One mistake in the box, in its UTF-16 positions.
 #[derive(Debug, Clone, PartialEq)]
 struct Mistake {
 	start: u32,
 	len: u32,
-	/// A word said twice ("the the"): the fix is deleting it.
 	repeated: bool,
-	/// Windows' own sure fix (an autocorrect pair like teh -> the).
 	replacement: Option<String>,
 }
 
 thread_local! {
 	static ENABLED: Cell<bool> = const { Cell::new(false) };
-	/// The chosen language tag, "" for Windows' own.
 	static LANGUAGE: RefCell<String> = const { RefCell::new(String::new()) };
-	/// The checker for LANGUAGE, made on first use (`None` inside: Windows
-	/// has none for it).
 	static CHECKER: RefCell<Option<Option<ISpellChecker>>> = const { RefCell::new(None) };
 	static MISTAKES: RefCell<Vec<Mistake>> = const { RefCell::new(Vec::new()) };
 	static FIELD: Cell<Option<TextCtrl>> = const { Cell::new(None) };
-	/// The box's length after the last check, to tell typing from deleting.
 	static LAST_LEN: Cell<usize> = const { Cell::new(0) };
 }
 
@@ -92,7 +66,6 @@ fn wide(s: &str) -> Vec<u16> {
 	s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// Takes a string Windows allocated, freeing it.
 unsafe fn take_pwstr(p: PWSTR) -> Option<String> {
 	if p.is_null() {
 		return None;
@@ -122,8 +95,6 @@ fn factory() -> Option<ISpellCheckerFactory> {
 	unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }.ok()
 }
 
-/// The languages Windows can check, as (tag, name in the user's language),
-/// by name.
 pub fn languages() -> Vec<(String, String)> {
 	let Some(factory) = factory() else { return Vec::new() };
 	let Ok(list) = (unsafe { factory.SupportedLanguages() }) else { return Vec::new() };
@@ -145,8 +116,6 @@ fn language_name(tag: &str) -> Option<String> {
 	(len > 1).then(|| String::from_utf16_lossy(&buf[..len as usize - 1]))
 }
 
-/// The language to check in: the chosen one, else Windows' own when it can
-/// be checked, else one of its family (en-IN -> en-GB), else US English.
 fn pick_language(chosen: &str, supported: &[String]) -> Option<String> {
 	if !chosen.is_empty() && supported.iter().any(|t| t.eq_ignore_ascii_case(chosen)) {
 		return Some(chosen.to_string());
@@ -188,8 +157,6 @@ fn with_checker<R>(f: impl FnOnce(&ISpellChecker) -> R) -> Option<R> {
 	})
 }
 
-/// Turns checking on or off and sets its language ("" for Windows' own),
-/// then checks the box again. Called at start and after Settings.
 pub fn configure(enabled: bool, language: &str) {
 	ENABLED.with(|e| e.set(enabled));
 	let changed = LANGUAGE.with(|l| {
@@ -199,7 +166,6 @@ pub fn configure(enabled: bool, language: &str) {
 		changed
 	});
 	if changed || !enabled {
-		// Dropped, so its memory goes; made again when next needed.
 		CHECKER.with(|c| c.borrow_mut().take());
 	}
 	if let Some(field) = FIELD.with(Cell::get) {
@@ -238,8 +204,6 @@ fn selection(hwnd: HWND) -> (u32, u32) {
 	(start, end)
 }
 
-/// Whether the mistake at `start..start+len` is part of something that isn't
-/// a word to check: a link, an @mention, an email address.
 fn in_skipped_token(text: &[u16], start: usize, len: usize) -> bool {
 	let is_space = |c: u16| char::from_u32(c as u32).is_some_and(char::is_whitespace);
 	let from = text[..start].iter().rposition(|&c| is_space(c)).map_or(0, |p| p + 1);
@@ -296,8 +260,6 @@ fn is_word_end(c: u16) -> bool {
 	char::from_u32(c as u32).is_some_and(|c| c.is_whitespace() || (c.is_ascii_punctuation() && c != '\'' && c != '-'))
 }
 
-/// The word just finished by typing a space or punctuation, if the caret
-/// sits right after that character and the word before it is a mistake.
 fn just_finished(mistakes: &[Mistake], text: &[u16], caret: u32) -> Option<String> {
 	let caret = caret as usize;
 	if caret < 2 || caret > text.len() || !is_word_end(text[caret - 1]) {
@@ -310,8 +272,6 @@ fn just_finished(mistakes: &[Mistake], text: &[u16], caret: u32) -> Option<Strin
 		.map(|m| String::from_utf16_lossy(&text[m.start as usize..word_end]))
 }
 
-/// Call on every change to the message box. Checks it again and, when
-/// `announce` is on and a word was just typed wrong, says so.
 pub fn text_changed(field: &TextCtrl, announce: Option<StaticText>) {
 	FIELD.with(|f| f.set(Some(*field)));
 	let all = recheck(field);
@@ -330,7 +290,6 @@ pub fn text_changed(field: &TextCtrl, announce: Option<StaticText>) {
 	}
 }
 
-/// Lets the box draw its mistakes; call once, after it's made.
 pub fn install(field: &TextCtrl) {
 	FIELD.with(|f| f.set(Some(*field)));
 	unsafe {
@@ -346,8 +305,6 @@ unsafe extern "system" fn edit_proc(
 	_id: usize,
 	_data: usize,
 ) -> LRESULT {
-	// The Applications key, Shift+F10 or a right click: the fixes, when
-	// there's a mistake there, else the box's own menu.
 	if msg == WM_CONTEXTMENU
 		&& let Some(field) = FIELD.with(Cell::get)
 	{
@@ -358,12 +315,9 @@ unsafe extern "system" fn edit_proc(
 		}
 	}
 	let result = unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) };
-	// The edit control draws typed text, selections and scrolling straight
-	// to the screen, outside WM_PAINT, over the lines; draw them again after.
 	let redraw = match msg {
 		WM_PAINT | WM_CHAR | WM_KEYDOWN | WM_KEYUP | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEWHEEL | WM_VSCROLL
 		| WM_HSCROLL | WM_SETFOCUS | WM_KILLFOCUS | WM_SETTEXT | WM_CUT | WM_PASTE | WM_CLEAR | WM_UNDO | WM_SIZE => true,
-		// With the left button down: selecting by dragging.
 		WM_MOUSEMOVE => wparam.0 & 0x0001 != 0,
 		_ => msg == EM_SETSEL || msg == EM_REPLACESEL || msg == WM_COPY,
 	};
@@ -381,7 +335,6 @@ fn pos_from_char(hwnd: HWND, index: u32) -> Option<(i32, i32)> {
 	Some(((r & 0xFFFF) as i16 as i32, ((r >> 16) & 0xFFFF) as i16 as i32))
 }
 
-/// A red wavy line under each mistake that's on screen.
 unsafe fn draw_squiggles(hwnd: HWND) {
 	let mistakes = MISTAKES.with(|m| m.borrow().clone());
 	if mistakes.is_empty() {
@@ -412,7 +365,6 @@ unsafe fn draw_squiggles(hwnd: HWND) {
 			if y < rect.top - tm.tmHeight || y > rect.bottom {
 				continue;
 			}
-			// A word wrapped onto the next line gets its first line's part.
 			let mut last = end;
 			while last > start + 1 && pos_from_char(hwnd, last as u32 - 1).is_some_and(|(_, ly)| ly != y) {
 				last -= 1;
@@ -456,7 +408,6 @@ fn suggestions(word: &str) -> Vec<String> {
 	.unwrap_or_default()
 }
 
-/// Replaces `from..to` with `with`, as typing would (Ctrl+Z undoes it).
 fn replace(hwnd: HWND, from: u32, to: u32, with: &str) {
 	let w = wide(with);
 	unsafe {
@@ -465,9 +416,6 @@ fn replace(hwnd: HWND, from: u32, to: u32, with: &str) {
 	}
 }
 
-/// The box's context menu with the mistake's fixes on top, when there's a
-/// mistake at the caret (keyboard) or under `screen` (mouse). Returns false
-/// when there's none, for the box's own menu to show.
 fn context_menu(field: &TextCtrl, screen: Option<Point>) -> bool {
 	if !is_enabled() {
 		return false;
@@ -540,7 +488,6 @@ fn show_fixes(field: &TextCtrl, mistake: Mistake, screen: Option<Point>) {
 		};
 		match id {
 			MENU_ID_DELETE_REPEAT => {
-				// The repeat and the space before it.
 				let all = text(hwnd);
 				let mut start = from as usize;
 				while start > 0 && all[start - 1] == b' ' as u16 {
@@ -573,15 +520,11 @@ fn show_fixes(field: &TextCtrl, mistake: Mistake, screen: Option<Point>) {
 			}
 		}
 	});
-	// From the keyboard, the menu opens at the word.
 	let at = screen.or_else(|| pos_from_char(hwnd, from).map(|(x, y)| field.client_to_screen(Point::new(x, y + 16))));
 	field.popup_menu(&mut menu, at);
 	menu.destroy_menu();
 }
 
-/// Next Spelling Error: selects the first mistake after the caret (going
-/// round to the start) and opens its fixes. Returns what to say when there's
-/// nothing to open.
 pub fn next_error(field: &TextCtrl) -> Option<&'static str> {
 	if !is_enabled() {
 		return Some("Spell check is off. Turn it on in Settings, on the Chats tab.");
@@ -635,7 +578,6 @@ mod tests {
 		assert_eq!(just_finished(&mistakes, &t, 8).as_deref(), Some("wrod"));
 		let t = w("hi wrod,");
 		assert_eq!(just_finished(&mistakes, &t, 8).as_deref(), Some("wrod"));
-		// Still typing it, or an apostrophe inside it.
 		assert_eq!(just_finished(&mistakes, &w("hi wrod"), 7), None);
 		assert_eq!(just_finished(&mistakes, &w("hi wrod'"), 8), None);
 	}

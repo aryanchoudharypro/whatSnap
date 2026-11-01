@@ -1,6 +1,3 @@
-//! `handle_ui_command` arms for contacts, groups and the shared contact picker
-//! (new contact, group creation/settings/membership, contact picker filtering).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -112,8 +109,6 @@ pub(crate) fn filter_group_members(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	}
 	s.group_data_visible_member_jids = visible_jids;
 	drop(s);
-	// Filtering rebuilds the list from scratch, so any prior selection
-	// is gone - reset the label to the no-selection default.
 	parts.group_data_dialog.make_admin_btn.set_label("Make admin");
 }
 
@@ -134,11 +129,6 @@ pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		ContactPickerMode::BlockContact => "Search a contact to block, then press Enter",
 	};
 	parts.new_conv_dialog.search_label.set_label(heading);
-	// "New Group" and "New Contact" only make sense when this dialog
-	// is opened to start a chat - shown regardless of mode, they
-	// caused exactly the confusion reported when adding a call
-	// participant: press Enter on a search match to add someone
-	// instead, which is the only action that applies here.
 	let is_open_chat = mode == ContactPickerMode::OpenChat;
 	parts.new_conv_dialog.new_group_btn.show(is_open_chat);
 	parts.new_conv_dialog.new_contact_btn.show(is_open_chat);
@@ -176,8 +166,6 @@ pub(crate) fn select_contact_picker_result(state: &Rc<RefCell<AppState>>, parts:
 				});
 				let _ = s.ws_tx.send(msg.to_string());
 				drop(s);
-				// The outcome arrives as call_participant_added /
-				// call_participant_add_failed once WhatsApp has answered.
 				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Adding to call...");
 			}
 		}
@@ -266,8 +254,6 @@ pub(crate) fn remove_group_member(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	}
 }
 
-/// Activates a row of a community's Groups list: opens a group we're in, or
-/// asks to join one we aren't.
 pub(crate) fn join_community_subgroup(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: u32) {
 	let s = state.borrow();
 	let Some(subgroup_jid) = s.group_data_subgroup_jids.get(idx as usize).cloned() else {
@@ -288,7 +274,6 @@ pub(crate) fn join_community_subgroup(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Joining group...");
 }
 
-/// Names the Groups tab's button after what it will do to the selected row.
 pub(crate) fn community_subgroup_selection_changed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let joined = parts
 		.group_data_dialog
@@ -348,7 +333,6 @@ pub(crate) fn leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	);
 }
 
-/// Sets our own member tag in the open group; an empty tag removes it.
 pub(crate) fn set_member_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, label: String) {
 	let s = state.borrow();
 	let Some(jid) = s.selected_chat.clone().filter(|j| j.ends_with("@g.us")) else {
@@ -363,17 +347,13 @@ pub(crate) fn set_member_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, text);
 }
 
-/// Who the open 1:1 chat's info page is about, as `user_info` described them:
-/// enough to offer Add, Edit or Delete contact and fill the form.
 #[derive(Clone, Default)]
 pub(crate) struct ContactCard {
 	pub jid: String,
 	pub saved: bool,
 	pub first_name: String,
 	pub full_name: String,
-	/// The name they gave WhatsApp, which an added contact starts from.
 	pub push_name: String,
-	/// International digits, empty when WhatsApp hasn't shared the number.
 	pub phone: String,
 }
 
@@ -390,8 +370,6 @@ impl ContactCard {
 		}
 	}
 
-	/// The form's Name and Surname: a saved contact's own, or for a new one
-	/// their WhatsApp name, as WhatsApp fills its add-contact form.
 	pub(crate) fn form_names(&self) -> (String, String) {
 		if !self.saved {
 			return (self.push_name.trim().to_string(), String::new());
@@ -402,7 +380,6 @@ impl ContactCard {
 	}
 }
 
-/// Labels the info page's contact buttons for what they'll do.
 pub(crate) fn show_contact_card(parts: &Rc<WindowParts>, card: Option<&ContactCard>) {
 	let info = &parts.conversation_data_dialog;
 	let saved = card.is_some_and(|c| c.saved);
@@ -412,7 +389,6 @@ pub(crate) fn show_contact_card(parts: &Rc<WindowParts>, card: Option<&ContactCa
 	info.info_panel.layout();
 }
 
-/// Opens the contact form, cleared, to save a new number.
 pub(crate) fn open_new_contact_form(parts: &Rc<WindowParts>) {
 	open_contact_form(parts, "New Contact", "Create", "", "", "", true);
 }
@@ -437,8 +413,6 @@ fn open_contact_form(
 	form.dialog.show_modal();
 }
 
-/// Contact info > "Add contact" or "Edit contact": the contact form, filled
-/// in. The number is who it's for, so it can't be changed here.
 pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let Some(card) = state.borrow().conversation_data_contact.clone() else { return };
 	if card.phone.is_empty() {
@@ -458,7 +432,6 @@ pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	open_contact_form(parts, title, "Save", &name, &surname, &phone, false);
 }
 
-/// Contact info > "Delete contact", once it's confirmed. The chat stays.
 pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let Some(card) = state.borrow().conversation_data_contact.clone().filter(|c| c.saved) else { return };
 	let name = if card.full_name.is_empty() { &card.first_name } else { &card.full_name };

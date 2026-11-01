@@ -1,16 +1,3 @@
-//! How a message list row looks: a bubble like WhatsApp Web's (yours on the
-//! right in green, theirs on the left in white), with the sender in their own
-//! colour in a group, the message it replies to in a box, the text wrapped
-//! over as many lines as it needs, the time and ticks in the corner and the
-//! reactions in a little pill below. Photos, videos and stickers show their
-//! picture, voice notes a play button and their waveform. Dates and notices
-//! sit in a pill in the middle.
-//!
-//! Drawing only. The screen reader reads the row's text, which this never
-//! changes (see `ui::message_list`). `units` says how tall a row needs to be,
-//! and `paint_row` draws it; both lay it out the same way (`layout`), with
-//! text measured a character at a time, so what's measured is what's drawn.
-
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use wxdragon::{bitmap::Bitmap, prelude::*};
@@ -21,7 +8,6 @@ use super::{
 	thumbnails::{self, Thumb},
 };
 
-/// Pictures an album row shows.
 const ALBUM_THUMBS: usize = 3;
 /// Lines of a message drawn at most; the rest ends in "…". The screen reader
 /// still gets all of it.
@@ -47,7 +33,6 @@ pub(crate) enum Ticks {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Look {
-	/// A date, "unread messages" or a notice ("Mum changed the group name").
 	Pill(String),
 	Bubble(Bubble),
 }
@@ -55,10 +40,8 @@ pub(crate) enum Look {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Bubble {
 	pub from_me: bool,
-	/// Who sent it, in a group, and which of the name colours is theirs.
 	pub sender: String,
 	pub sender_colour: usize,
-	/// The message it replies to: who sent that, and what it said.
 	pub quote: Option<(String, String)>,
 	pub icon: Option<char>,
 	pub body: String,
@@ -67,19 +50,12 @@ pub(crate) struct Bubble {
 	pub starred: bool,
 	pub edited: bool,
 	pub reactions: String,
-	/// The messages whose pictures it shows.
 	pub thumbs: Vec<String>,
 	pub video: bool,
-	/// A voice note: its message, for the waveform. `body` is its length.
 	pub voice: Option<String>,
-	/// The voice note is a sent audio file (a song, a recording shared as a
-	/// file): drawn as WhatsApp does, with a music icon and a plain slider
-	/// rather than a waveform.
 	pub audio_file: bool,
 }
 
-/// The icon-font glyphs for `ticks` (two overlapping checks for delivered
-/// and read), and whether they're drawn blue.
 pub(crate) fn tick_glyphs(ticks: Ticks) -> (&'static str, bool) {
 	match ticks {
 		Ticks::Pending => ("\u{E823}", false),
@@ -90,7 +66,6 @@ pub(crate) fn tick_glyphs(ticks: Ticks) -> (&'static str, bool) {
 	}
 }
 
-/// The ticks for a message's status ("delivered", "read", ...).
 pub(crate) fn ticks_for(status: &str) -> Ticks {
 	match status {
 		"pending" | "uploading" => Ticks::Pending,
@@ -105,8 +80,6 @@ fn short_time(ts: i64) -> String {
 	whatsnap::LocalTime::from_unix(ts).map(|t| t.format("%l:%M %p").trim().to_string()).unwrap_or_default()
 }
 
-/// A photo, video or sticker that shows its picture: not view once, and not
-/// deleted (its preview may still be stored).
 fn has_picture(msg: &whatsnap::ChatMessage) -> bool {
 	matches!(msg.media_type.as_str(), "image" | "video" | "sticker")
 		&& !msg.text.starts_with("[View once]")
@@ -122,8 +95,6 @@ fn sender_name(msg: &whatsnap::ChatMessage) -> String {
 	}
 }
 
-/// Group members' names come in one of these, picked by who they are, as on
-/// WhatsApp. Darker than WhatsApp's own so each reads at 4.5:1 on white.
 const NAME_COLOURS: [(u8, u8, u8); 10] = [
 	(0xB0, 0x2E, 0x26),
 	(0x7B, 0x3F, 0xA0),
@@ -137,8 +108,6 @@ const NAME_COLOURS: [(u8, u8, u8); 10] = [
 	(0x6D, 0x4C, 0x41),
 ];
 
-/// The same colours for the dark theme, lightened to read at 4.5:1 on its
-/// bubbles.
 const NAME_COLOURS_DARK: [(u8, u8, u8); 10] = [
 	(0xFF, 0x8A, 0x80),
 	(0xC7, 0x9B, 0xE8),
@@ -153,7 +122,6 @@ const NAME_COLOURS_DARK: [(u8, u8, u8); 10] = [
 ];
 
 fn name_colour(jid: &str) -> usize {
-	// FNV-1a: the same person gets the same colour every time.
 	let hash = jid.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
 	hash as usize % NAME_COLOURS.len()
 }
@@ -171,7 +139,6 @@ fn quote_of(msg: &whatsnap::ChatMessage) -> Option<(String, String)> {
 	Some((sender, body))
 }
 
-/// What a message list row draws for `item`.
 pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 	match item {
 		whatsnap::DisplayItem::Single(msg) => {
@@ -184,7 +151,6 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 				let text = if msg.from_me { "You deleted this message" } else { "This message was deleted" };
 				(Some(icon::DELETED), text.to_string())
 			} else if voice {
-				// "Voice message Duration: 0:12" shows as its waveform and 0:12.
 				let body = msg.body_text();
 				let glyph = if msg.text.starts_with("[Audio]") { icon::AUDIO } else { icon::MICROPHONE };
 				let duration = body.split_once("Duration: ").map(|(_, d)| d.to_string());
@@ -202,9 +168,7 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 				sender: if is_group && !mine { sender_name(msg) } else { String::new() },
 				sender_colour: name_colour(&msg.sender_jid),
 				quote: if deleted { None } else { quote_of(msg) },
-				// The picture says it's a photo; a caption stands alone.
 				icon: if picture && msg.media_type != "video" { None } else { icon },
-				// A photo's own placeholder ("Photo") under its picture says nothing.
 				body: if picture && matches!(body.as_str(), "Photo" | "Video" | "Sticker") {
 					String::new()
 				} else {
@@ -241,7 +205,6 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 	}
 }
 
-/// "👍❤️ 3": each emoji once, and how many there are when more than one.
 fn reaction_summary(msg: &whatsnap::ChatMessage) -> String {
 	let active: Vec<&str> = msg.reactions.iter().map(|r| r.emoji.as_str()).filter(|e| !e.is_empty()).collect();
 	let mut shown: Vec<&str> = Vec::new();
@@ -256,8 +219,6 @@ fn reaction_summary(msg: &whatsnap::ChatMessage) -> String {
 		n => format!("{} {}", shown.concat(), n),
 	}
 }
-
-// --- Fonts and measuring ---
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Face {
@@ -274,9 +235,7 @@ struct Fonts {
 	icons: Option<Font>,
 	icons_small: Option<Font>,
 	icons_big: Option<Font>,
-	/// Height of a line of body text.
 	line: i32,
-	/// Characters' widths, by font, as measured once.
 	widths: RefCell<HashMap<(Face, char), i32>>,
 }
 
@@ -303,7 +262,6 @@ impl Fonts {
 		text.chars().map(|c| self.char_width(dc, face, c)).sum()
 	}
 
-	/// `text` cut with "…" to fit in `max` pixels, on one line.
 	fn fit(&self, dc: &impl DeviceContext, face: Face, text: &str, max: i32) -> String {
 		let flat = text.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c });
 		let ellipsis = self.char_width(dc, face, '…');
@@ -324,8 +282,6 @@ impl Fonts {
 		if out.is_empty() { out } else { out + "…" }
 	}
 
-	/// Breaks `text` into lines no wider than `max` (the first `first_max`),
-	/// at spaces where it can, keeping its own line breaks.
 	fn wrap(&self, dc: &impl DeviceContext, face: Face, text: &str, first_max: i32, max: i32) -> Vec<String> {
 		let mut lines: Vec<String> = Vec::new();
 		for paragraph in text.split('\n') {
@@ -407,15 +363,12 @@ fn make_fonts(dc: &impl DeviceContext, base: &Font) -> Fonts {
 	}
 }
 
-/// Corner pieces that round off a square box: the background colour, see-
-/// through where the box's rounded corner is. Keyed by (background, radius).
 type Corners = [Bitmap; 4];
 
 #[derive(Default)]
 struct Cache {
 	fonts: Option<Rc<Fonts>>,
 	corners: HashMap<(u32, i32), Corners>,
-	/// Filled circles drawn lately, by size and colour (see `round_badge`).
 	badges: Vec<(i32, u32, Bitmap)>,
 }
 
@@ -435,14 +388,10 @@ fn fonts_for(dc: &impl DeviceContext, base_font: &Font) -> Rc<Fonts> {
 	})
 }
 
-// --- Layout ---
-
 const PAD: i32 = 8;
 const GAP: i32 = 6;
 const MARGIN: i32 = 12;
 
-/// Where everything in a bubble goes, worked out the same way for measuring
-/// and for drawing.
 struct Layout {
 	width: i32,
 	height: i32,
@@ -458,9 +407,7 @@ struct Layout {
 	meta_w: i32,
 	star_w: i32,
 	ticks_w: i32,
-	/// The time fits at the end of the last line rather than below it.
 	meta_inline: bool,
-	/// Room below the bubble for the reactions' pill.
 	reactions_h: i32,
 }
 
@@ -468,7 +415,6 @@ fn icon_width(dc: &impl DeviceContext, font: &Option<Font>, glyphs: &str) -> i32
 	let Some(font) = font else { return 0 };
 	dc.set_font(font);
 	let w = dc.get_text_extent(glyphs).0;
-	// Two ticks overlap, as WhatsApp draws them.
 	if glyphs.chars().count() == 2 { w * 2 / 3 } else { w }
 }
 
@@ -499,7 +445,6 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 	let voice_h = if b.voice.is_some() { line * 2 } else { 0 };
 	let voice_w = if b.voice.is_some() { content_max.min(line * 14) } else { 0 };
 
-	// Under a picture, the caption is as wide as the picture.
 	let text_max = if thumbs_w > 0 { thumbs_w.max(line * 6) } else { content_max };
 	let icon_w = match (b.icon, &fonts.icons, b.voice.is_some()) {
 		(Some(g), Some(_), false) => icon_width(dc, &fonts.icons, &g.to_string()) + 4,
@@ -576,12 +521,10 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 	}
 }
 
-/// The room a row's bubble has, beside the margins and a check box.
 fn bubble_room(width: i32, left: i32) -> i32 {
 	(width - left - MARGIN).max(80)
 }
 
-/// How many rows of text (`unit` pixels each) `look` needs at `width`.
 pub(crate) fn units(
 	dc: &impl DeviceContext,
 	base_font: &Font,
@@ -597,8 +540,6 @@ pub(crate) fn units(
 	let needed = l.height + 4 + l.reactions_h;
 	(needed as usize).div_ceil(unit.max(1) as usize).clamp(1, MAX_UNITS) as u8
 }
-
-// --- Drawing ---
 
 fn key(c: Colour) -> u32 {
 	(c.r as u32) << 16 | (c.g as u32) << 8 | c.b as u32
@@ -624,7 +565,6 @@ fn corners(background: Colour, radius: i32) -> Corners {
 	pieces.try_into().unwrap_or_else(|_| unreachable!())
 }
 
-/// A filled box with rounded, smoothed corners.
 #[allow(clippy::too_many_arguments)]
 fn round_box(dc: &impl DeviceContext, x: i32, y: i32, w: i32, h: i32, fill: Colour, bg: Colour) {
 	if w <= 0 || h <= 0 {
@@ -654,7 +594,6 @@ struct Colours {
 	read: Colour,
 	mine: Colour,
 	theirs: Colour,
-	/// The reply box inside a bubble: yours, theirs.
 	quote_mine: Colour,
 	quote_theirs: Colour,
 	pill: Colour,
@@ -704,7 +643,6 @@ fn colours(background: Colour, foreground: Colour, selected: bool, focused: bool
 		text: Palette::TEXT_PRIMARY(),
 		muted: Palette::TEXT_MUTED(),
 		accent: Palette::ACCENT(),
-		// Read ticks: WhatsApp's blue, darkened to show on the green bubble.
 		read: Palette::READ(),
 		mine: Palette::BUBBLE_MINE(),
 		theirs: Palette::BUBBLE_THEIRS(),
@@ -715,8 +653,6 @@ fn colours(background: Colour, foreground: Colour, selected: bool, focused: bool
 	}
 }
 
-/// An outline where colours are the system's (High Contrast), a filled
-/// rounded box otherwise.
 #[allow(clippy::too_many_arguments)]
 fn shape(dc: &impl DeviceContext, c: &Colours, x: i32, y: i32, w: i32, h: i32, fill: Colour, bg: Colour) {
 	if c.custom {
@@ -728,7 +664,6 @@ fn shape(dc: &impl DeviceContext, c: &Colours, x: i32, y: i32, w: i32, h: i32, f
 	}
 }
 
-/// One row of the list, `units` rows of `unit` pixels tall, at `y`.
 pub(crate) struct RowPaint<'a> {
 	pub y: i32,
 	pub width: i32,
@@ -738,7 +673,6 @@ pub(crate) struct RowPaint<'a> {
 	pub text: &'a str,
 	pub selected: bool,
 	pub focused: bool,
-	/// In a checkable list: whether it's checked.
 	pub check: Option<bool>,
 }
 
@@ -757,7 +691,6 @@ pub(crate) fn paint_row(
 	if let Some(band) = c.band {
 		dc.set_brush(band, BrushStyle::Solid);
 		dc.set_pen(band, 1, PenStyle::Solid);
-		// Past `width`, to the window's edge when there's no scrollbar (the list clips it).
 		dc.draw_rectangle(0, row.y, row.width + 64, height);
 	}
 	if let Some(bar) = c.focus_bar {
@@ -828,7 +761,6 @@ fn draw_bubble(
 		y += line;
 	}
 
-	// The message it replies to, in a box with a bar in its sender's colour.
 	if let Some((who, what)) = &l.quote {
 		let quote_fill = if b.from_me { c.quote_mine } else { c.quote_theirs };
 		shape(dc, c, inner_x - 2, y, inner_w + 4, l.quote_h, quote_fill, fill);
@@ -848,7 +780,6 @@ fn draw_bubble(
 		y += l.quote_h + 4;
 	}
 
-	// Pictures, or a grey box with the kind's icon until they come.
 	if l.thumb_h > 0 {
 		let mut tx = x + 4;
 		for id in &b.thumbs {
@@ -878,7 +809,6 @@ fn draw_bubble(
 		y += l.thumb_h + 4;
 	}
 
-	// An audio file: its music icon, the play button, then a slider.
 	if b.voice.is_some() && b.audio_file {
 		let size = l.voice_h;
 		let mid = y + size / 2;
@@ -905,7 +835,6 @@ fn draw_bubble(
 		round_badge(dc, track_x, mid - knob / 2, knob, (r, g, bl));
 		y += l.voice_h;
 	} else if let Some(id) = &b.voice {
-		// A voice note: the play button, then its waveform.
 		let size = l.voice_h;
 		let (r, g, bl) =
 			if c.custom { (Palette::ACCENT().r, Palette::ACCENT().g, Palette::ACCENT().b) } else { (0x80, 0x80, 0x80) };
@@ -915,7 +844,6 @@ fn draw_bubble(
 		thumbnails::with_waveform(id, |bars| {
 			let bars: Vec<u8> = match bars {
 				Some(bars) => bars.to_vec(),
-				// Until it comes (or for a note without one), a flat line.
 				None => vec![8; 48],
 			};
 			let count = bars.len().max(1) as i32;
@@ -935,7 +863,6 @@ fn draw_bubble(
 		y += l.voice_h;
 	}
 
-	// The message, wrapped, with its kind's icon before the first line.
 	let text_x = if l.thumb_h > 0 { x + 4 + 4 } else { inner_x };
 	for (i, text) in l.lines.iter().enumerate() {
 		let mut lx = text_x;
@@ -956,7 +883,6 @@ fn draw_bubble(
 		y += line;
 	}
 
-	// The corner: star, "Edited", time, ticks; a voice note's length on the left.
 	let corner_y = if l.meta_inline { y - line } else { y };
 	if let Some(_id) = &b.voice
 		&& !b.body.is_empty()
@@ -998,7 +924,6 @@ fn draw_bubble(
 		}
 	}
 
-	// Reactions, in a pill hanging off the bubble's bottom edge.
 	if !b.reactions.is_empty() {
 		dc.set_font(&fonts.small);
 		let (tw, th) = dc.get_text_extent(&b.reactions);
@@ -1017,8 +942,6 @@ fn draw_bubble(
 	}
 }
 
-/// A filled circle `size` across with its top left at (x, y): an audio file's
-/// icon behind its music note, a slider's knob.
 fn round_badge(dc: &impl DeviceContext, x: i32, y: i32, size: i32, rgb: (u8, u8, u8)) {
 	round_badge_alpha(dc, x, y, size, rgb, 255);
 }
@@ -1044,8 +967,6 @@ fn round_badge_alpha(dc: &impl DeviceContext, x: i32, y: i32, size: i32, rgb: (u
 	});
 }
 
-/// A round button with a white triangle: over a video's picture, or a voice
-/// note's play button. `size` across, centred on (cx, cy).
 fn play_button(dc: &impl DeviceContext, fonts: &Fonts, cx: i32, cy: i32, size: i32, rgb: (u8, u8, u8), alpha: u8) {
 	round_badge_alpha(dc, cx - size / 2, cy - size / 2, size, rgb, alpha);
 	let Some(font) = &fonts.icons else { return };
@@ -1056,13 +977,9 @@ fn play_button(dc: &impl DeviceContext, fonts: &Fonts, cx: i32, cy: i32, size: i
 	dc.draw_text(&g, cx - gw / 2 + 1, cy - gh / 2);
 }
 
-// --- Wallpaper ---
-
-/// The side of the wallpaper's tile.
 const WALLPAPER_TILE: i32 = 192;
 
 thread_local! {
-	/// The tile as last made, for its background colour.
 	static WALLPAPER: RefCell<Option<(u32, Bitmap)>> = const { RefCell::new(None) };
 }
 
@@ -1071,7 +988,6 @@ thread_local! {
 /// Made once (about 150 KB) from a fixed seed, so it never changes.
 fn wallpaper_tile(background: Colour) -> Option<Bitmap> {
 	let side = WALLPAPER_TILE;
-	// A shade off the background: darker on light, lighter on dark.
 	let ink = if theme::is_dark() {
 		(background.r.saturating_add(10), background.g.saturating_add(10), background.b.saturating_add(10))
 	} else {
@@ -1083,8 +999,6 @@ fn wallpaper_tile(background: Colour) -> Option<Bitmap> {
 		seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
 		((seed >> 8) % range.max(1) as u32) as i32
 	};
-	// Coverage of a pen 1.3px wide along the shape, wrapping at the edges so
-	// the tiles join without a seam.
 	let plot = |coverage: &mut Vec<f32>, cx: f32, cy: f32, distance: &dyn Fn(f32, f32) -> f32, reach: i32| {
 		for dy in -reach..=reach {
 			for dx in -reach..=reach {
@@ -1101,14 +1015,11 @@ fn wallpaper_tile(background: Colour) -> Option<Bitmap> {
 	for _ in 0..34 {
 		let (cx, cy) = (next(side) as f32, next(side) as f32);
 		match next(4) {
-			// A ring.
 			0 => {
 				let r = 4.0 + next(5) as f32;
 				plot(&mut coverage, cx, cy, &|x, y| ((x * x + y * y).sqrt() - r).abs(), r as i32 + 2);
 			}
-			// A dot.
 			1 => plot(&mut coverage, cx, cy, &|x, y| ((x * x + y * y).sqrt() - 1.2).max(0.0), 3),
-			// A cross.
 			2 => {
 				let a = 4.0 + next(3) as f32;
 				plot(
@@ -1119,7 +1030,6 @@ fn wallpaper_tile(background: Colour) -> Option<Bitmap> {
 					a as i32 + 2,
 				);
 			}
-			// A short slanted stroke.
 			_ => {
 				let a = 5.0 + next(5) as f32;
 				plot(
@@ -1140,7 +1050,6 @@ fn wallpaper_tile(background: Colour) -> Option<Bitmap> {
 	Bitmap::from_rgba(&rgba, side as u32, side as u32)
 }
 
-/// Covers `width` x `height` with the wallpaper, made for `background`.
 pub(crate) fn paint_wallpaper(dc: &impl DeviceContext, background: Colour, width: i32, height: i32) {
 	let key = key(background);
 	WALLPAPER.with(|w| {

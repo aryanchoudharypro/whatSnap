@@ -16,9 +16,6 @@ var (
 	mediaDirBase string
 )
 
-// mediaBaseDir returns (creating if needed) the local cache directory used
-// for all downloaded media and avatars, placed alongside the SQLite db file
-// so everything for one account lives together.
 func mediaBaseDir() string {
 	mediaDirOnce.Do(func() {
 		dbPath := *dbPathFlag
@@ -34,9 +31,6 @@ func mediaBaseDir() string {
 func mediaDir() string  { return filepath.Join(mediaBaseDir(), "media") }
 func avatarDir() string { return filepath.Join(mediaBaseDir(), "avatars") }
 
-// extForMime maps a MIME type to a reasonable file extension for locally
-// cached files. It's intentionally forgiving; an unrecognized mimetype just
-// falls back to using its subtype, or .bin as a last resort.
 func extForMime(mime string) string {
 	mime = strings.ToLower(strings.TrimSpace(mime))
 	switch mime {
@@ -92,10 +86,6 @@ func extForMime(mime string) string {
 	return ".bin"
 }
 
-// saveMediaBytes writes already-downloaded/decrypted media bytes to the
-// local cache under the given category ("media", "avatars", or "outgoing"),
-// keyed by id (typically a message ID, or a JID for avatars), and returns
-// the absolute path so it can be handed straight to the frontend.
 func saveMediaBytes(category, id, mime string, data []byte) (string, error) {
 	var dir string
 	switch category {
@@ -144,10 +134,6 @@ func sanitizeFilenameComponent(s string) string {
 	return replacer.Replace(s)
 }
 
-// readLocalFileOrDecode returns raw bytes from either a local file path or a
-// base64 payload, whichever the frontend supplied. Callers pass both fields
-// from the command payload; path wins when present since that's the primary
-// delivery mechanism this backend uses.
 func readLocalFileOrDecode(path string, base64Data string) ([]byte, error) {
 	if path != "" {
 		return os.ReadFile(path)
@@ -158,14 +144,10 @@ func readLocalFileOrDecode(path string, base64Data string) ([]byte, error) {
 	return nil, fmt.Errorf("no path or data provided")
 }
 
-// isInTempDir reports whether path sits under the OS temp directory - i.e.
-// is a scratch file the frontend handed over, not something of the user's.
 func isInTempDir(path string) bool {
 	return isUnderDir(path, os.TempDir())
 }
 
-// isUnderDir reports whether path is dir itself or somewhere beneath it,
-// comparing case-insensitively the way Windows paths compare.
 func isUnderDir(path, dir string) bool {
 	absPath, err1 := filepath.Abs(path)
 	absDir, err2 := filepath.Abs(dir)
@@ -186,13 +168,8 @@ func removeCachedMedia(path string) {
 	os.Remove(path)
 }
 
-// scratchTempDirs are the %TEMP% folders whatSnap (backend and frontend alike)
-// copies media into so another app can open it or it can go on the clipboard.
 var scratchTempDirs = []string{"whantv_open", "whantv_clipboard"}
 
-// cleanupScratchTempDirs removes scratch copies older than maxAge. Nothing
-// else ever deleted them, so every Open and every album copy left another
-// full copy of the media behind for good.
 func cleanupScratchTempDirs(maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
 	for _, name := range scratchTempDirs {
@@ -211,10 +188,6 @@ func cleanupScratchTempDirs(maxAge time.Duration) {
 	}
 }
 
-// purgeMessages deletes every message matched by where (a SQL condition on
-// the messages table, e.g. "jid = ?"), together with everything hanging off
-// those rows: reactions, per-member receipts, edit mappings and cached media
-// files. Deleting only the message rows used to strand all of that for good.
 func purgeMessages(where string, args ...interface{}) {
 	rows, err := db.Query(`SELECT id, COALESCE(media_path, '') FROM messages WHERE `+where, args...)
 	if err != nil {
@@ -235,8 +208,6 @@ func purgeMessages(where string, args ...interface{}) {
 		return
 	}
 
-	// Batched like every other bulk write, so clearing a huge chat doesn't
-	// hold SQLite's write lock (and stall live traffic) for its whole run.
 	writes := make([]func(tx sqlExecer), 0, len(ids))
 	for _, id := range ids {
 		writes = append(writes, func(tx sqlExecer) {
@@ -254,14 +225,11 @@ func purgeMessages(where string, args ...interface{}) {
 	}
 }
 
-// purgeExpiredStatuses drops Status posts older than 24 hours, media included.
 func purgeExpiredStatuses() {
 	purgeMessages(`jid = 'status@broadcast' AND timestamp <= ?`, time.Now().Add(-24*time.Hour).Unix())
 	db.Exec(`DELETE FROM status_viewers WHERE status_id NOT IN (SELECT id FROM messages WHERE jid = 'status@broadcast')`)
 }
 
-// sniffFileHeader returns up to the first 512 bytes of a file, for content
-// sniffing without reading the whole thing.
 func sniffFileHeader(path string) []byte {
 	f, err := os.Open(path)
 	if err != nil {

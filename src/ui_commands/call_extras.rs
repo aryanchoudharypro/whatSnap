@@ -1,11 +1,3 @@
-//! Call links (Call > "Create Call Link..." and "Join Call Link...", and
-//! call.whatsapp.com links), and the call window's "Raise hand" and
-//! "React...", plus its people list: who's in a group call and who's waiting
-//! to be let in through a call link, with "Let in", "Don't let in" and
-//! "Approve new participants". What the backend answers: `call_link_created`,
-//! `call_hand`, `call_reaction`, `call_waiting_room`, `call_action_done` and
-//! `call_action_failed`. Screen sharing lives with the camera in `calls.rs`.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -16,7 +8,6 @@ use crate::{
 	ui::window::WindowParts,
 };
 
-/// The reactions offered in a call, as WA Web's call reaction tray has them.
 const CALL_REACTIONS: [&str; 6] = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 fn send(s: &AppState, action: &str, data: serde_json::Value) {
@@ -32,7 +23,6 @@ fn this_call(s: &AppState, data: &serde_json::Value) -> bool {
 	s.active_call_id.as_deref() == Some(text(data, "call_id").as_str())
 }
 
-/// Raising a hand is a group call thing.
 pub(crate) fn show_call_buttons(s: &AppState, parts: &WindowParts) {
 	let group = s.call_video.peer_name.is_none();
 	let c = &parts.call_parts;
@@ -42,8 +32,6 @@ pub(crate) fn show_call_buttons(s: &AppState, parts: &WindowParts) {
 	c.frame.layout();
 }
 
-/// Until a call connects there's no hand to raise, and until a group roster
-/// arrives no one to list.
 pub(crate) fn hide_call_buttons(parts: &WindowParts) {
 	let c = &parts.call_parts;
 	c.raise_hand_btn.show(false);
@@ -52,7 +40,6 @@ pub(crate) fn hide_call_buttons(parts: &WindowParts) {
 	c.caller_info.show(false);
 }
 
-/// One row of the call window's people list.
 struct PersonRow {
 	jid: String,
 	name: String,
@@ -94,9 +81,6 @@ fn people_rows(s: &AppState) -> Vec<PersonRow> {
 	rows
 }
 
-/// Fills the people list from the latest roster and waiting room, keeping
-/// the selected person selected. Shown once a group call has a roster or
-/// we run a call link.
 pub(crate) fn refresh_people(s: &AppState, parts: &WindowParts) {
 	let c = &parts.call_parts;
 	let v = &s.call_video;
@@ -129,14 +113,11 @@ pub(crate) fn refresh_people(s: &AppState, parts: &WindowParts) {
 	c.frame.layout();
 }
 
-/// Which person a list row was for, by its label - the list is rebuilt from
-/// state, so the label is the stable thing to match on.
 fn people_rows_jid_at(label: Option<String>, rows: &[PersonRow]) -> Option<String> {
 	let label = label?;
 	rows.iter().find(|r| r.label == label).map(|r| r.jid.clone())
 }
 
-/// The person selected under People, if they're in the call.
 fn selected_person(s: &AppState, parts: &WindowParts) -> Option<PersonRow> {
 	let rows = people_rows(s);
 	let list = &parts.call_parts.people_list;
@@ -144,13 +125,9 @@ fn selected_person(s: &AppState, parts: &WindowParts) -> Option<PersonRow> {
 	rows.into_iter().find(|r| r.jid == jid && r.connected)
 }
 
-/// "Mute {name}" for whoever is selected and in the call, and "Remove
-/// {name}" too when we can remove people.
 pub(crate) fn person_buttons(s: &AppState, parts: &WindowParts) {
 	let c = &parts.call_parts;
 	let person = selected_person(s, parts);
-	// A call link's admins can remove people too; the waiting room says
-	// we're one before the next roster does.
 	let can_remove = s.call_video.can_remove || s.call_video.link_admin;
 	match &person {
 		Some(p) => {
@@ -167,7 +144,6 @@ pub(crate) fn person_buttons(s: &AppState, parts: &WindowParts) {
 	c.people_panel.layout();
 }
 
-/// "Mute {name}" (remove false) and "Remove {name}" (remove true).
 pub(crate) fn act_on_person(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, remove: bool) {
 	let s = state.borrow();
 	let Some(call_id) = s.active_call_id.clone() else { return };
@@ -184,8 +160,6 @@ pub(crate) fn act_on_person(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	announce_call(parts, &format!("{} {} {}", what, person.name, tail));
 }
 
-/// Someone else in the call muted us: meowcaller has already told the call,
-/// so only our microphone and the Mute button need to follow.
 fn muted_by(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let s = state.borrow();
 	if let Some(audio) = &s.active_call_audio {
@@ -226,14 +200,12 @@ pub(crate) fn admit_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	send(&s, "admit_call_participant", serde_json::json!({ "call_id": call_id, "jid": row.jid, "on": admit }));
 }
 
-/// "Approve new participants": whether people need letting in.
 pub(crate) fn set_approval(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, on: bool) {
 	let s = state.borrow();
 	let Some(call_id) = s.active_call_id.clone() else { return };
 	send(&s, "set_call_approval", serde_json::json!({ "call_id": call_id, "on": on }));
 }
 
-/// Call > "Create Call Link...": a voice or video link to share.
 pub(crate) fn create_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let choice =
 		SingleChoiceDialog::builder(&parts.frame, "What kind of call?", "Create Call Link", &["Voice", "Video"])
@@ -244,7 +216,6 @@ pub(crate) fn create_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	send(&state.borrow(), "create_call_link", serde_json::json!({ "video": choice.get_selection() == 1 }));
 }
 
-/// Call > "Join Call Link...": paste a link someone shared.
 pub(crate) fn ask_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let dialog = TextEntryDialog::builder(&parts.frame, "Call link:", "Join Call Link").build();
 	if dialog.show_modal() != wxdragon::id::ID_OK {
@@ -262,7 +233,6 @@ pub(crate) fn ask_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	}
 }
 
-/// Joins the call a link is for, as an outgoing group call.
 pub(crate) fn join_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, token: String, video: bool) {
 	let mut s = state.borrow_mut();
 	if s.active_call_id.is_some() || s.call_placing {
@@ -352,7 +322,6 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		},
 		"call_action_failed" => {
 			if text(data, "what").as_str() == "approval" {
-				// The switch moved before the server agreed; put it back.
 				let s = state.borrow();
 				parts.call_parts.approval_check.set_value(s.call_video.approval_required);
 			}
@@ -362,8 +331,6 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 	}
 }
 
-/// We're waiting to be let in, or (as the link's admin) someone is. New
-/// arrivals are announced and listed under People, where "Let in" admits them.
 fn waiting_room(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	if data.get("waiting").and_then(|v| v.as_bool()).unwrap_or(false) {
 		parts.call_parts.status_label.set_label("Waiting for someone in the call to let you in...");
@@ -402,7 +369,6 @@ fn waiting_room(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 	}
 }
 
-/// A new call link: copy it, send it to chats, or join the call now.
 fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: String, video: bool) {
 	let kind = if video { "video" } else { "voice" };
 	let dialog = Dialog::builder(&parts.frame, "Call Link").with_size(460, 220).build();

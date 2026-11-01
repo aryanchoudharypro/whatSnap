@@ -22,21 +22,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Creating and running our own channels: making one, changing its name,
-// description and picture, deleting it, and seeing and managing who follows
-// it. Only a channel's owner and admins get these; the server enforces it.
-
-// channelPictureSize is the side of the square JPEG a channel picture is sent
-// as, the size WhatsApp uses for profile pictures.
 const channelPictureSize = 640
 
-// channelFollowersLimit is how many followers the followers list asks for.
 const channelFollowersLimit = 500
 
 const channelNoticeAcceptedKey = "channel_creation_notice_accepted"
 
-// acceptChannelNotice accepts WhatsApp's channel-creation notice once, the
-// way the official apps do before someone's first channel.
 func acceptChannelNotice(ctx context.Context) {
 	var done int
 	if db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, channelNoticeAcceptedKey).Scan(&done) == nil && done > 0 {
@@ -49,8 +40,6 @@ func acceptChannelNotice(ctx context.Context) {
 	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, channelNoticeAcceptedKey)
 }
 
-// channelPictureJPEG reads an image file and makes it a square JPEG: the
-// middle of the picture, scaled down to channelPictureSize.
 func channelPictureJPEG(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -70,7 +59,6 @@ func channelPictureJPEG(path string) ([]byte, error) {
 	crop.Max = crop.Min.Add(image.Pt(side, side))
 	out := min(side, channelPictureSize)
 	dst := image.NewRGBA(image.Rect(0, 0, out, out))
-	// Each output pixel is the average of the source pixels it covers.
 	for y := 0; y < out; y++ {
 		sy0, sy1 := crop.Min.Y+y*side/out, crop.Min.Y+(y+1)*side/out
 		for x := 0; x < out; x++ {
@@ -246,8 +234,6 @@ func handleGetChannelFollowers(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// channelFollowerName is who a follower is: our name for them if they're a
-// contact, else the name they gave, else their username or number.
 func channelFollowerName(f whatsmeow.NewsletterFollower) string {
 	for _, jid := range []types.JID{f.PhoneJID, f.JID} {
 		if jid.IsEmpty() {
@@ -268,8 +254,6 @@ func channelFollowerName(f whatsmeow.NewsletterFollower) string {
 	return "Unknown follower"
 }
 
-// handleChannelAdminChange hands the channel over to an admin, or makes an
-// admin a plain follower again.
 func handleChannelAdminChange(conn net.Conn, raw json.RawMessage, makeOwner bool) {
 	var data struct {
 		JID  string `json:"jid"`
@@ -308,13 +292,8 @@ func handleChannelAdminChange(conn net.Conn, raw json.RawMessage, makeOwner bool
 	}()
 }
 
-// adminInviteCaption is the text that goes with an admin invite when the
-// owner doesn't write their own.
 const adminInviteCaption = "I'd like you to be an admin of my WhatsApp channel."
 
-// handleInviteChannelAdmins invites people to be admins of our channel: the
-// server records each invite, and it reaches them as an invite message in
-// our chat with them, the way WhatsApp sends it.
 func handleInviteChannelAdmins(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID     string   `json:"jid"`
@@ -364,8 +343,6 @@ func handleInviteChannelAdmins(conn net.Conn, raw json.RawMessage) {
 func sendChannelAdminInvite(channel types.JID, channelName string, user types.JID, caption string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	// The invite message goes to the person's phone-number chat when we know
-	// it, where our conversation with them lives.
 	chat := user.ToNonAD()
 	if chat.Server == types.HiddenUserServer {
 		if pn, err := wa().Store.LIDs.GetPNForLID(ctx, chat); err == nil && !pn.IsEmpty() {
@@ -393,8 +370,6 @@ func sendChannelAdminInvite(channel types.JID, channelName string, user types.JI
 	return nil
 }
 
-// storeOwnSentMessage saves a message we just sent that didn't go through the
-// normal compose path, and shows it in its chat.
 func storeOwnSentMessage(chatJID, id string, msg *waE2E.Message, ts int64) {
 	senderJID := ""
 	if wa().Store.ID != nil {
@@ -419,8 +394,6 @@ func storeOwnSentMessage(chatJID, id string, msg *waE2E.Message, ts int64) {
 	broadcastChats()
 }
 
-// adminInviteFromMessage reads the invite out of a stored admin invite
-// message.
 func adminInviteFromMessage(messageID string) (*waE2E.NewsletterAdminInviteMessage, string, bool, error) {
 	raw, chatJID, _, fromMe, err := getMessageRaw(messageID)
 	if err != nil || len(raw) == 0 {
@@ -437,8 +410,6 @@ func adminInviteFromMessage(messageID string) (*waE2E.NewsletterAdminInviteMessa
 	return invite, chatJID, fromMe, nil
 }
 
-// handleGetChannelAdminInvite describes an admin invite message: which
-// channel, whether it has expired, and whether we sent it or got it.
 func handleGetChannelAdminInvite(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -468,8 +439,6 @@ func handleGetChannelAdminInvite(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleChannelAdminInviteAnswer accepts an admin invite we were sent, or
-// cancels one we sent.
 func handleChannelAdminInviteAnswer(conn net.Conn, raw json.RawMessage, accept bool) {
 	var data struct {
 		JID  string `json:"jid"`

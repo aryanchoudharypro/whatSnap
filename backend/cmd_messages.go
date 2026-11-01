@@ -33,9 +33,6 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	// Pick the message ID up front (instead of taking whatever whatsmeow
-	// generates on success) so the pending row we persist right now and the
-	// eventual sent/failed row are the same message throughout.
 	id := wa().GenerateMessageID()
 
 	quotedID, quotedText, quotedSender := "", "", ""
@@ -50,8 +47,6 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 		}
 	}
 
-	// The text keeps its "@Name" mentions for display; the wire text and the
-	// mentioned JIDs go with the pending row, so a retry sends them too.
 	var pendingRaw []byte
 	if wireText, mentionJIDs := applyMentions(data.Text, data.Mentions); len(mentionJIDs) > 0 {
 		if !invokedBot(mentionJIDs).IsEmpty() && chatSharingLimited(jid.String()) {
@@ -71,9 +66,6 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	ts := time.Now().Unix()
 	quotedSenderDisplay := resolveQuotedSenderName(quotedSender)
 
-	// Persist and broadcast as "pending" immediately, before the network
-	// attempt: this is the local echo, and it's what makes a failed/offline
-	// send recoverable instead of just vanishing.
 	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
@@ -106,16 +98,8 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	sendPendingTextMessage(conn, id, jid.String(), data.Text, quotedID, quotedSender)
 }
 
-// sendPendingTextMessage attempts to actually deliver a text message that has
-// already been persisted (as "pending" or "failed"). It's the single place
-// that turns a stored row into a real WhatsApp send, shared by the initial
-// send above, the reconnect auto-retry sweep, and a user-triggered manual
-// retry, so all three behave identically.
 func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSender string) {
 	if !beginSendAttempt(id) {
-		// Already in flight - the reconnect sweep, the periodic auto-retry
-		// sweep, and a manual "Retry send" can all reach this function for
-		// the same message, and only one should ever hit the network.
 		return
 	}
 	defer endSendAttempt(id)
@@ -125,8 +109,6 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		return
 	}
 
-	// text is what's shown ("@Name"); a message with mentions was stored
-	// with its wire text ("@<JID user>") and mentioned JIDs.
 	wireText, mentionJIDs := storedMentionMessage(id)
 	if wireText == "" {
 		wireText = text
@@ -182,24 +164,16 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		msg = withLinkPreview(msg)
 	}
 	msg = applyDisappearingTimer(jid, msg)
-	// Mentioning Meta AI sends the message to it as well (whatsmeow's inline
-	// bot mode), which is what makes it answer in this chat.
 	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs), CheckPermissions: true})
 	if err != nil {
 		log.Printf("Error sending message %s: %v", id, err)
 		if conn != nil {
 			sendEvent(conn, "error", map[string]string{"message": sendErrorText(err)})
 		}
-		// Retrying won't help: an admins-only group, or the server refusing
-		// the message outright.
 		if sendRefusedForGood(err) {
 			markSendFailed(id, jidStr, text, quotedID, quotedSender)
 			return
 		}
-		// Stays "pending" in the DB while auto-retries remain; the periodic
-		// sweep (backend/cmd_retry.go) will pick it up again with backoff,
-		// or a manual retry from the context menu. Once retries are
-		// exhausted, recordSendFailure marks it "failed" instead.
 		recordSendFailure(id, jidStr, text, quotedID, quotedSender, err)
 		return
 	}
@@ -265,8 +239,6 @@ func handleReactMessage(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		// Name the message's sender the way the message did (their LID in a
-		// group that hides numbers), or the reaction doesn't attach to it.
 		if chatJID.Server == types.GroupServer && !senderJID.IsEmpty() {
 			if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
 				senderJID = wire
@@ -297,7 +269,6 @@ func handleEditMessage(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		// An edit can't invoke Meta AI, so a bot mention stays plain text.
 		var mentions []MentionRef
 		for _, m := range editMentions(data.MessageID, data.Mentions) {
 			if jid, err := types.ParseJID(m.JID); err == nil && !jid.IsBot() {
@@ -313,10 +284,6 @@ func handleEditMessage(raw json.RawMessage) {
 		}
 		msg := wa().BuildEdit(chatJID, data.MessageID, newContent)
 
-		// The edit travels as its own message with its own ID, and every
-		// receipt for it comes back under that ID. Note the pairing before
-		// sending - the first receipt can arrive before SendMessage returns.
-		// (A channel post's edit goes out under the post's own ID instead.)
 		editStanzaID := wa().GenerateMessageID()
 		if chatJID.Server != types.NewsletterServer {
 			recordEditStanza(editStanzaID, data.MessageID, data.JID, time.Now().Unix())
@@ -387,10 +354,6 @@ func handleDeleteMessage(raw json.RawMessage) {
 				return
 			}
 		} else if targetChatJID.Server != types.NewsletterServer {
-			// Channel posts aren't in app state; hiding one is local only.
-			// "Delete for me": syncs the local hide via app-state so it also
-			// applies on the user's other linked devices, not just this one
-			// (see appstate.BuildDeleteMessageForMe).
 			originalSender := types.EmptyJID
 			if storedFromMe {
 				if wa().Store.ID != nil {
@@ -413,9 +376,6 @@ func handleDeleteMessage(raw json.RawMessage) {
 			patch := appstate.BuildDeleteMessageForMe(syncdChatJID(targetChatJID), originalSender, data.MessageID, storedFromMe, true, msgTimestamp)
 			if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
 				log.Printf("Delete-for-me app-state sync failed for %s: %v", data.MessageID, err)
-				// Fall through to the local delete below regardless - at
-				// minimum this device drops it even if the sync to other
-				// linked devices didn't go through.
 			}
 		}
 		if data.ForEveryone {
@@ -482,11 +442,6 @@ func handleSendTyping(raw json.RawMessage) {
 	go wa().SendChatPresence(context.Background(), jid, pState, types.ChatPresenceMedia(data.Media))
 }
 
-// desiredPresence is what the frontend last asked for: available only while
-// its window is actually in use. It's replayed after every (re)connect instead
-// of always announcing "available" - which left the account showing online
-// around the clock while whatSnap sat in the tray, something no official client
-// does.
 var (
 	desiredPresenceMu sync.Mutex
 	desiredPresence   = types.PresenceUnavailable
@@ -511,10 +466,6 @@ func handleSetPresence(raw json.RawMessage) {
 	go sendDesiredPresence(false)
 }
 
-// sendDesiredPresence sends the frontend's desired presence. Repeats of the
-// state already sent on this connection are skipped unless force is set (a
-// fresh connection has no presence yet, and whatsmeow needs one sent after
-// connecting so the server has our push name).
 func sendDesiredPresence(force bool) {
 	c := wa()
 	if c == nil || !c.IsLoggedIn() {
@@ -529,8 +480,6 @@ func sendDesiredPresence(force bool) {
 	sentPresence = state
 	desiredPresenceMu.Unlock()
 	if state == types.PresenceUnavailable {
-		// WA Web drops every presence subscription when it goes unavailable
-		// and subscribes again when a chat is next looked at.
 		forgetPresenceSubscriptions()
 	}
 	if err := c.SendPresence(context.Background(), state); err != nil {
@@ -541,9 +490,6 @@ func sendDesiredPresence(force bool) {
 	}
 }
 
-// presenceSubscribed is who has been sent a presence subscribe since the
-// connection came up (or since we last went unavailable). WA Web subscribes
-// once per contact per such period, not on every chat open.
 var presenceSubscribed sync.Map
 
 func forgetPresenceSubscriptions() {
@@ -563,8 +509,6 @@ func handleSubscribePresence(raw json.RawMessage) {
 		log.Printf("Failed to parse JID for subscribe_presence: %v", err)
 		return
 	}
-	// Only people have presence; WA Web sends no subscribes for groups,
-	// channels or broadcast lists.
 	if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
 		return
 	}
@@ -584,8 +528,6 @@ func handleSubscribePresence(raw json.RawMessage) {
 	}
 }
 
-// maxOpenChatReceipts caps how many unread messages opening a chat
-// acknowledges (WA Web puts at most 256 IDs in one receipt).
 const maxOpenChatReceipts = 256
 
 func handleMarkRead(raw json.RawMessage) {
@@ -600,8 +542,6 @@ func handleMarkRead(raw json.RawMessage) {
 	if err != nil {
 		return
 	}
-	// Channel posts get view receipts when they're fetched (refreshChannel),
-	// not read receipts.
 	if chatJID.Server == types.NewsletterServer {
 		return
 	}
@@ -622,8 +562,6 @@ func handleMarkRead(raw json.RawMessage) {
 		for _, id := range data.MessageIDs {
 			var senderStr, mediaType string
 			_ = db.QueryRow("SELECT COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(media_type, '') FROM messages WHERE id = ?", id).Scan(&senderStr, &mediaType)
-			// Event lines and call rows are ours, with no real message behind
-			// them to acknowledge.
 			if mediaType == "system" || mediaType == "call" {
 				continue
 			}
@@ -638,21 +576,10 @@ func handleMarkRead(raw json.RawMessage) {
 			items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID})
 		}
 	}
-	// A chat marked unread (here, on the phone or on another device) has
-	// nothing unread to acknowledge, so receipts alone leave it marked
-	// everywhere else. WA Web clears the mark with a markChatAsRead patch
-	// when such a chat is opened; so does this.
 	var markedUnread bool
 	if len(data.MessageIDs) == 0 {
 		_ = db.QueryRow("SELECT COALESCE(marked_unread, 0) = 1 FROM chats WHERE jid = ?", data.JID).Scan(&markedUnread)
 
-		// Opening a chat acknowledges only what the chat really has unread -
-		// its unread count, which history sync, live messages and the phone's
-		// own reads keep current. Incoming messages from history sync are
-		// stored without a read time, so going by that alone re-sent "read"
-		// for up to 100 messages the phone read long ago on the first open of
-		// every chat - hundreds of receipts when flicking through chats. WA
-		// Web sends nothing for a chat with nothing unread.
 		var unread int
 		_ = db.QueryRow("SELECT COALESCE(unread_count, 0) FROM chats WHERE jid = ?", data.JID).Scan(&unread)
 		if unread > maxOpenChatReceipts {
@@ -705,7 +632,6 @@ func handleMarkRead(raw json.RawMessage) {
 				ok = false
 				continue
 			}
-			// Remember they're read, so the next open doesn't acknowledge them again.
 			for _, id := range ids {
 				db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(id))
 			}
@@ -721,8 +647,6 @@ func handleMarkRead(raw json.RawMessage) {
 			}
 		}
 		if len(data.MessageIDs) == 0 {
-			// Everything older was read elsewhere; note it locally so no later
-			// open picks it up.
 			db.Exec(`UPDATE messages SET read_at = ? WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), data.JID)
 		}
 		db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
@@ -733,13 +657,8 @@ func handleMarkRead(raw json.RawMessage) {
 	}()
 }
 
-// readReceiptAckTimeout is how long a read receipt waits for the server's ack.
 const readReceiptAckTimeout = 15 * time.Second
 
-// markReadAndWaitForAck sends a read receipt and waits for the server's
-// <ack class="receipt">, which carries the receipt's first message ID.
-// MarkRead alone only writes to the socket, which says nothing about whether
-// the server took it.
 func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender types.JID) error {
 	if len(ids) == 0 {
 		return nil
@@ -800,9 +719,6 @@ func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 		"media_type":   mediaType,
 	}
 
-	// Official WhatsApp only breaks receipts down per-member for messages you
-	// sent to a group - it has no visibility into who read someone else's
-	// message either, so we match that scope.
 	if fromMe && strings.HasSuffix(jid, "@g.us") {
 		if participants := groupMessageReceiptParticipants(data.ID, jid); len(participants) > 0 {
 			result["participants"] = participants
@@ -816,11 +732,6 @@ func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 	sendEvent(conn, "message_info", result)
 }
 
-// groupMessageReceiptParticipants lists every other member of groupJID with
-// whatever delivery/read status has been observed for messageID, for the
-// Message Info "Read by" breakdown. A member with no message_receipts row
-// just hasn't had a receipt recorded since that table existed - it does not
-// mean the message wasn't delivered.
 func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]interface{} {
 	jid, err := types.ParseJID(groupJID)
 	if err != nil {
@@ -847,8 +758,6 @@ func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]in
 		var r receipt
 		var pJID string
 		if rows.Scan(&pJID, &r.status, &r.ts, &r.delivered, &r.read, &r.played) == nil {
-			// Rows written before the per-state columns existed only have
-			// the latest state's time.
 			switch {
 			case r.status == "delivered" && r.delivered == 0:
 				r.delivered = r.ts
@@ -918,18 +827,10 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 
-		// View-once media can't be forwarded in the official apps. The stored
-		// message is already unwrapped, so the view_once column is what says so.
 		if viewOnceState(data.MessageID) != 0 || origMsg.GetViewOnceMessage() != nil || origMsg.GetViewOnceMessageV2() != nil || origMsg.GetViewOnceMessageV2Extension() != nil {
 			sendEvent(conn, "error", map[string]string{"message": "View once messages can't be forwarded."})
 			return
 		}
-		// Forward the content itself, not the envelope it arrived in
-		// (disappearing-message wrapper, an edit, ...), with a fresh
-		// context: forwarded, forwarding score bumped the way official
-		// clients do, and none of the original's reply quote - which
-		// otherwise showed up for the recipient as a reply to a message
-		// from some other chat entirely.
 		content := proto.Clone(unwrapMessage(&origMsg)).(*waE2E.Message)
 		if content.Conversation != nil {
 			txt := content.GetConversation()
@@ -946,16 +847,12 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 		}
 		fromChannel := isChannelJID(sourceJID)
 		if fromChannel {
-			// Like the official apps, a post forwarded out of a channel says
-			// which channel, so it links back there.
 			forwardCtx.ForwardedNewsletterMessageInfo = forwardedChannelInfo(sourceJID, data.MessageID)
 		}
 		if !setContextInfo(content, forwardCtx) {
 			sendEvent(conn, "error", map[string]string{"message": "This kind of message can't be forwarded."})
 			return
 		}
-		// WA Web's limits: 5 chats at a time, only 1 for a message that's
-		// already been forwarded many times.
 		limit := maxForwardTargets
 		if score >= frequentlyForwardedScore {
 			limit = 1
@@ -977,8 +874,6 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			outgoing := content
 			var extra whatsmeow.SendRequestExtra
 			if toChannel != fromChannel && mediaPart(content) != nil {
-				// Chat media is encrypted and channel media isn't, so media
-				// crossing between them has to go up again the other way.
 				outgoing = proto.Clone(content).(*waE2E.Message)
 				handle, reErr := reuploadMedia(context.Background(), outgoing, toChannel)
 				if reErr != nil {
@@ -989,8 +884,6 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				extra.MediaHandle = handle
 			}
 			if !toChannel {
-				// Each target chat has its own disappearing timer, so the
-				// shared content can't carry one.
 				outgoing = applyDisappearingTimer(targetJID, proto.Clone(outgoing).(*waE2E.Message))
 			}
 			resp, sendErr := wa().SendMessage(context.Background(), targetJID, outgoing, extra)

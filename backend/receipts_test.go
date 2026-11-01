@@ -19,7 +19,6 @@ func TestRecordParticipantReceiptKeepsEachStateTime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Read arrives before the (late) delivery receipt.
 	for _, r := range []struct {
 		status string
 		ts     int64

@@ -1,13 +1,3 @@
-//! Leaves a trace when whatSnap goes down. Panics are appended to panic.log,
-//! with when and on which thread, instead of each one overwriting the last
-//! (quitting the app can itself panic while Windows tears its threads down,
-//! which used to replace the crash that mattered). Native faults, such as an
-//! access violation inside Windows or a driver, never reach the panic hook,
-//! so an unhandled-exception filter writes their code and the module they
-//! happened in to crash.log. Code that ends the process straight away, or a
-//! library that replaces that filter, would skip it, so a vectored handler
-//! also notes the first time each kind of fatal fault is raised at all.
-
 use std::{
 	io::Write,
 	sync::atomic::{AtomicU32, Ordering},
@@ -40,12 +30,7 @@ pub(crate) fn install() {
 	}
 }
 
-/// Faults that end a process unless something catches them: access
-/// violation, illegal instruction, stack overflow, heap corruption, and a
-/// stack buffer overrun or other fail-fast.
 const FATAL_CODES: [u32; 5] = [0xC000_0005, 0xC000_001D, 0xC000_00FD, 0xC000_0374, 0xC000_0409];
-/// One bit per entry of `FATAL_CODES`, set once that kind has been logged:
-/// some libraries raise and catch access violations on purpose.
 static RAISED: AtomicU32 = AtomicU32::new(0);
 
 unsafe extern "system" fn on_fault_raised(info: *mut EXCEPTION_POINTERS) -> i32 {
@@ -55,7 +40,6 @@ unsafe extern "system" fn on_fault_raised(info: *mut EXCEPTION_POINTERS) -> i32 
 			&& RAISED.fetch_or(1 << i, Ordering::Relaxed) & (1 << i) == 0
 		{
 			let address = record.ExceptionAddress as usize;
-			// For an access violation: 0 read, 1 write, 8 execute, then the address.
 			let info = &record.ExceptionInformation[..(record.NumberParameters as usize).min(2)];
 			append(
 				"crash.log",
@@ -66,8 +50,6 @@ unsafe extern "system" fn on_fault_raised(info: *mut EXCEPTION_POINTERS) -> i32 
 	EXCEPTION_CONTINUE_SEARCH
 }
 
-/// The calling thread's stack as module+offset frames; from inside the
-/// handler that runs through the exception dispatcher into the faulting code.
 fn stack() -> String {
 	let mut frames = [std::ptr::null_mut(); 32];
 	let count = unsafe { RtlCaptureStackBackTrace(0, &mut frames, None) } as usize;
@@ -105,7 +87,6 @@ unsafe extern "system" fn on_native_crash(info: *const EXCEPTION_POINTERS) -> i3
 	EXCEPTION_CONTINUE_SEARCH
 }
 
-/// The file name and load address of the module holding `address`.
 fn module_of(address: usize) -> Option<(String, usize)> {
 	unsafe {
 		let mut module = HMODULE::default();

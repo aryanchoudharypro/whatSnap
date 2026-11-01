@@ -25,7 +25,6 @@ func TestStaleUnreadHealsButMarkedUnreadStays(t *testing.T) {
 	if n, marked := unread("marked@s.whatsapp.net"); n != 1 || marked != 1 {
 		t.Fatalf("marked-unread chat lost its mark: %d %d", n, marked)
 	}
-	// Reading the chat clears the mark, so the next heal can apply.
 	db.Exec(`UPDATE chats SET unread_count = 0 WHERE jid = 'marked@s.whatsapp.net'`)
 	if _, marked := unread("marked@s.whatsapp.net"); marked != 0 {
 		t.Fatal("reading the chat didn't clear its unread mark")

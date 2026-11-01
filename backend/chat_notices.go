@@ -9,21 +9,12 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-// Texts shown in place of a message this device couldn't decrypt, worded the
-// way the official apps word them.
 const (
 	undecryptableText = "Waiting for this message. This may take a while."
 	viewOnceOnPhone   = "View once message. Open WhatsApp on your phone to view it."
 )
 
-// storeUndecryptablePlaceholder records a message that arrived but couldn't be
-// decrypted, so it shows in the chat instead of silently not existing.
-// whatsmeow has already asked the sender (and the phone) to send it again;
-// when that copy decrypts it arrives as an ordinary events.Message under the
-// same ID and saveMessage replaces this row with the real content.
 func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
-	// The sender marked this one as not worth showing when it fails (a
-	// reaction, poll vote or edit, typically).
 	if v.DecryptFailMode == events.DecryptFailHide || v.Info.ID == "" {
 		return
 	}
@@ -96,8 +87,6 @@ func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 // Like WhatsApp Web it's a quiet line: the chat keeps its place, preview and
 // unread count, and nothing alerts (see insertQuietSystemMessage).
 func noteSecurityCodeChange(v *events.IdentityChange) {
-	// "Show security notifications on this computer" (Settings > Account >
-	// Security in WhatsApp Web).
 	if !appPref("security_notifications") {
 		return
 	}
@@ -114,8 +103,6 @@ func noteSecurityCodeChange(v *events.IdentityChange) {
 	if ts.IsZero() {
 		ts = time.Now()
 	}
-	// One line per second at most: an implicit change (an untrusted-identity
-	// error while decrypting) can repeat for every message in a burst.
 	id := fmt.Sprintf("system_%s_%d_identity", contact.User, ts.Unix())
 	insertQuietSystemMessage(jid, id, fmt.Sprintf("Your security code with %s changed.", nameToken(contact)), ts)
 }
@@ -152,7 +139,6 @@ func insertQuietSystemMessage(jid, id, text string, ts time.Time) {
 	})
 }
 
-// groupPictureChangeText is the chat line for a group icon change by author.
 func groupPictureChangeText(author types.JID, removed bool) string {
 	who := "Someone"
 	if isOwnJID(author) {

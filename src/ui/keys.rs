@@ -1,10 +1,3 @@
-//! Key checks and the Enter/Escape wiring most lists and dialogs share.
-//!
-//! Every check takes a key's numpad twin as the same key, since that's what
-//! the key is to someone pressing it with NumLock off. The numbers are wx key
-//! codes, not Windows virtual keys: wx has already translated those, so a
-//! Windows VK value compared here is some other key (VK_APPS, 93, is `]`).
-
 use std::{cell::Cell, rc::Rc};
 
 use wxdragon::{event::KeyboardEvent, prelude::*};
@@ -49,13 +42,10 @@ pub fn is_end(code: Option<i32>) -> bool {
 	matches!(code, Some(WXK_END | WXK_NUMPAD_END))
 }
 
-/// A letter key, which wx reports on key-down as its capital whatever the
-/// Shift or Caps Lock state.
 pub fn is_letter(code: Option<i32>, letter: char) -> bool {
 	code == Some(letter.to_ascii_uppercase() as i32)
 }
 
-/// The Menu key or Shift+F10, the two keyboard ways to ask for a context menu.
 pub fn is_context_menu_key(key: &KeyboardEvent) -> bool {
 	if key.meta_down() {
 		return false;
@@ -67,15 +57,6 @@ pub fn is_context_menu_key(key: &KeyboardEvent) -> bool {
 	}
 }
 
-/// Runs `action` once for each press of Enter or numpad Enter on `target`.
-///
-/// Which half of the keystroke `target` gets depends on where it sits: in a
-/// dialog, Windows hands Enter's key-down to the default button, and numpad
-/// Enter reaches some lists only as a key-up. So both halves are watched, the
-/// first to arrive runs `action`, and `release_handled` stops the release
-/// after a handled key-down from running it again. Share
-/// [`crate::platform::tray::enter_release_guard`] where a menu closing over `target`
-/// can leave a stray release behind; anywhere else, `Rc::default()`.
 pub fn on_enter<W: WindowEvents>(target: &W, release_handled: Rc<Cell<bool>>, action: impl Fn() + 'static) {
 	let action = Rc::new(action);
 	let action_down = action.clone();
@@ -88,8 +69,6 @@ pub fn on_enter<W: WindowEvents>(target: &W, release_handled: Rc<Cell<bool>>, ac
 				event.skip(false);
 				return;
 			}
-			// Some other key went down here, so the next release belongs to
-			// it, not to a keystroke this handler already dealt with.
 			handled_down.set(false);
 		}
 		event.skip(true);
@@ -108,9 +87,6 @@ pub fn on_enter<W: WindowEvents>(target: &W, release_handled: Rc<Cell<bool>>, ac
 	});
 }
 
-/// A key-down handler that closes `dialog` as cancelled on Escape and passes
-/// every other key on. For controls whose own handling of Escape would
-/// otherwise swallow it before the dialog does.
 pub fn escape_cancels(dialog: Dialog) -> impl FnMut(WindowEventData) + Copy + 'static {
 	move |event: WindowEventData| {
 		if let WindowEventData::Keyboard(ref key) = event
@@ -124,9 +100,6 @@ pub fn escape_cancels(dialog: Dialog) -> impl FnMut(WindowEventData) + Copy + 's
 	}
 }
 
-/// Closes `dialog` as cancelled on Escape from whichever of its controls has
-/// focus. Caught before the control sees the key, since a multi-line field or
-/// a combo box would otherwise keep Escape for itself.
 pub fn escape_cancels_anywhere(dialog: Dialog) {
 	dialog.bind_internal(EventType::CHAR_HOOK, move |event| {
 		escape_cancels(dialog)(WindowEventData::new(event));
@@ -148,7 +121,6 @@ mod tests {
 		assert!(is_down(Some(WXK_NUMPAD_DOWN)));
 	}
 
-	/// The codes the old handlers compared against by mistake.
 	#[test]
 	fn neighbouring_keys_are_not_confused() {
 		assert!(!is_home(Some(WXK_NUMPAD_INSERT)));

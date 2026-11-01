@@ -1,6 +1,3 @@
-//! WhatsApp links opened from outside the app (whatSnap is the whatsapp://
-//! handler), and sending a group's invite link.
-
 use std::{cell::RefCell, rc::Rc};
 
 use whatsnap::WhatsAppLink;
@@ -16,25 +13,17 @@ use crate::{
 	},
 };
 
-/// Acts on a `whatsnap://` link from one of our notifications: a click opens the
-/// chat, and "Mark as read" marks it read. Either way the chat's toasts go.
 fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: crate::platform::app_link::AppLink) {
 	match link {
 		crate::platform::app_link::AppLink::Open { jid } => open_chat_for_jid(&jid, state, parts),
 		crate::platform::app_link::AppLink::MarkRead { jid } => {
 			crate::ui::chat_ui::clear_chat_notifications(&jid);
-			// The chat shows as read only once the server has the receipts:
-			// see the "chat_updated" and "mark_read_failed" events.
 			state.borrow_mut().notification_reads.insert(jid.clone());
 			crate::handle_ui_command(crate::UiCommand::MarkRead { jid, message_ids: Vec::new() }, state, parts);
 		}
 	}
 }
 
-/// Acts on a WhatsApp link, the way the official app does: a link naming a
-/// number opens that chat with the text ready to send, a link with only text
-/// asks who to send it to, and an invite link offers to join the group.
-/// Before we're logged in and have the chat list, the link waits.
 pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: String) {
 	let app_link = crate::platform::app_link::parse(&link);
 	let parsed = if app_link.is_some() { None } else { whatsnap::parse_whatsapp_link(&link) };
@@ -88,7 +77,6 @@ pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 }
 
-/// Runs a link, or offers files, that arrived before the chat list was ready.
 pub(crate) fn open_pending_whatsapp_link(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
 	if !s.main_ui_shown || s.chats.is_empty() {
@@ -103,11 +91,6 @@ pub(crate) fn open_pending_whatsapp_link(state: &Rc<RefCell<AppState>>) {
 	}
 }
 
-/// Files sent to whatSnap from another app (Explorer's Send to menu): asks
-/// which chats (up to five) to send them to, with an optional caption, and
-/// sends them, photos and videos as media and anything else as a document,
-/// as when files are pasted. Before we're logged in and have the chat list,
-/// they wait.
 pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, paths: Vec<String>) {
 	{
 		let mut s = state.borrow_mut();
@@ -147,8 +130,6 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 }
 
-/// Everyone a message can go to: chats first, most recent first, then
-/// contacts we have no chat with.
 fn send_targets(s: &AppState) -> Vec<SendTarget> {
 	let mut seen = std::collections::HashSet::new();
 	let mut targets = Vec::new();
@@ -156,7 +137,6 @@ fn send_targets(s: &AppState) -> Vec<SendTarget> {
 		if jid.ends_with("@broadcast") || s.community_jids.contains(jid) || s.locked_jids.contains(jid) {
 			continue;
 		}
-		// Only a channel's admins can post in it.
 		if s.channel_jids.contains(jid) && !can_post_in_channel(s, jid) {
 			continue;
 		}
@@ -172,7 +152,6 @@ fn send_targets(s: &AppState) -> Vec<SendTarget> {
 	targets
 }
 
-/// Asks which chats (up to five) to send `text` to, then sends it.
 pub(crate) fn send_text_to_chosen_chats(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -198,8 +177,6 @@ pub(crate) fn send_text_to_chosen_chats(
 	);
 }
 
-/// Shows a group's invite link, with ways to copy it, send it, or replace it
-/// with a new one. `link` is the link the backend just fetched.
 pub(crate) fn show_group_invite_link(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -249,7 +226,6 @@ pub(crate) fn show_group_invite_link(
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	// What the dialog was closed to do next.
 	#[derive(Clone, Copy, PartialEq)]
 	enum Next {
 		Nothing,
@@ -308,8 +284,6 @@ pub(crate) fn show_group_invite_link(
 	}
 }
 
-/// Asks the backend for a group's invite link; the answer opens
-/// `show_group_invite_link`.
 pub(crate) fn request_group_invite_link(state: &Rc<RefCell<AppState>>) {
 	let s = state.borrow();
 	let Some(jid) = s.selected_chat.clone().filter(|j| j.ends_with("@g.us")) else { return };
@@ -320,9 +294,6 @@ pub(crate) fn request_group_invite_link(state: &Rc<RefCell<AppState>>) {
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// Whether we can post in a channel: only its owner and admins can.
-/// Whether a message can be forwarded to jid: anywhere but a channel we
-/// only follow.
 pub(crate) fn can_forward_to(s: &AppState, jid: &str) -> bool {
 	!jid.ends_with("@newsletter") || can_post_in_channel(s, jid)
 }
@@ -331,8 +302,6 @@ pub(crate) fn can_post_in_channel(s: &AppState, jid: &str) -> bool {
 	matches!(s.channel_roles.get(jid).map(String::as_str), Some("owner" | "admin"))
 }
 
-/// The channel info dialog: what the channel is, and follow, mute, open and
-/// copy-link actions. `info` is the backend's `channel_info` event data.
 pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, info: &serde_json::Value) {
 	let text = |key: &str| info.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
 	let flag = |key: &str| info.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
@@ -373,7 +342,6 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		details.push(description.clone());
 	}
 
-	// Over "Find channels" when it's open, so it isn't lost behind it.
 	let directory = state.borrow().channel_directory.clone();
 	let parent: &dyn WxWidget = match &directory {
 		Some(directory) => &directory.dialog,
@@ -387,8 +355,6 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let panel = Panel::builder(&dialog).build();
 	crate::ui::theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	// A read-only text field rather than labels, so the whole description can
-	// be read line by line and copied.
 	let details_label = StaticText::builder(&panel).with_label("About this channel").build();
 	crate::ui::theme::style_muted_label(&details_label);
 	sizer.add(&details_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 10);
@@ -412,7 +378,6 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
 	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	mute_btn.show(following);
-	// An owner can't unfollow their own channel, only delete it.
 	follow_btn.show(!is_owner);
 	manage_btn.show(can_manage);
 	open_btn.show(!is_open);
@@ -508,7 +473,6 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			open_chat_for_jid(&jid, state, parts);
 		}
 		Next::Similar => match &directory {
-			// Find channels is already open under this: list them there.
 			Some(directory) => directory.request_similar(&jid, &name),
 			None => show_channel_directory(state, parts, Some((jid.clone(), name.clone()))),
 		},
@@ -522,7 +486,6 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	}
 }
 
-/// Opens "Find channels", on the directory or on the channels like one.
 pub(crate) fn show_channel_directory(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,

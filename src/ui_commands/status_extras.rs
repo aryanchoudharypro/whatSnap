@@ -1,8 +1,3 @@
-//! The Status tab's context menu: reply to or react to someone's status
-//! update, mute theirs, see who saw ours and delete it, and choose who sees
-//! ours. The backend answers with `status_viewers`, `status_privacy` and
-//! the `status_*` changes handled in `on_event`.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -19,7 +14,6 @@ const VIEWERS: i32 = 4304;
 const DELETE: i32 = 4305;
 const PRIVACY: i32 = 4306;
 
-/// WhatsApp's quick reactions for a status update.
 pub(crate) const STATUS_REACTIONS: [&str; 8] = ["😍", "😂", "😮", "😢", "👏", "🎉", "💯", "🙏"];
 
 fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
@@ -31,7 +25,6 @@ fn announce(parts: &WindowParts, message: &str) {
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
-/// What a row of the Status tab is.
 struct Row {
 	poster_jid: String,
 	poster_name: String,
@@ -60,7 +53,6 @@ fn row_at(s: &AppState, idx: usize) -> Option<Row> {
 	})
 }
 
-/// The context menu of the Status tab's row `idx`.
 pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	let Some(row) = row_at(&state.borrow(), idx) else { return };
 	let mut builder = Menu::builder();
@@ -126,7 +118,6 @@ fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32,
 	}
 }
 
-/// Opens the chat with the poster, replying to their status update.
 fn reply(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, row: &Row) {
 	crate::ui::chat_ui::open_chat_for_jid(&row.poster_jid, state, parts);
 	let what = if !row.text.is_empty() {
@@ -154,7 +145,6 @@ fn text(data: &serde_json::Value, key: &str) -> String {
 	data.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
 }
 
-/// Updates the item `id` of the loaded status updates, and the list.
 fn update_item(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -171,7 +161,6 @@ fn update_item(
 }
 
 pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t: &str, data: &serde_json::Value) {
-	// The status viewer, while it's open, shows these itself.
 	if crate::ui::status_viewer::on_event(t, data) {
 		return;
 	}
@@ -218,7 +207,6 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 	}
 }
 
-/// Who saw one of our status updates.
 fn show_viewers(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let viewers = data.get("viewers").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 	if viewers.is_empty() {
@@ -251,8 +239,6 @@ fn show_viewers(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	SingleChoiceDialog::builder(&parts.frame, &title, "Viewed By", &refs).build().show_modal();
 }
 
-/// Who sees our status updates: pick one of WhatsApp's three choices, and the
-/// people for the two that name some.
 fn choose_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	const MODES: [(&str, &str); 3] =
 		[("contacts", "My contacts"), ("except", "My contacts except..."), ("only", "Only share with...")];
@@ -279,7 +265,6 @@ fn choose_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: 
 	let mut jids: Vec<String> = Vec::new();
 	if mode != "contacts" {
 		let contacts = state.borrow().all_contacts.clone();
-		// The list only carries over when it means the same thing.
 		let preset: &[Contact] = if mode == current { &listed } else { &[] };
 		let (title, hint) = if mode == "except" {
 			("Status: My Contacts Except...", "Checked contacts won't see your status updates")

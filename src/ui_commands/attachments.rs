@@ -1,6 +1,3 @@
-//! `handle_ui_command` arms for outgoing/incoming media attachments (add/paste/discard/
-//! send, download/open/save, album clipboard copy).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -11,7 +8,6 @@ use crate::{
 	ui::{contact_picker::refresh_attach_contact_list, message_display::update_action_buttons, window::WindowParts},
 };
 
-/// An attach-menu option: pick files the way that option does.
 pub(crate) fn attach_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, kind: whatsnap::AttachKind) {
 	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
@@ -25,8 +21,6 @@ pub(crate) fn attach_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	add_attachment(state, parts);
 }
 
-/// The file picker for the current batch's attach option (also "Add more
-/// files" in the attachment dialog, which stays with that option).
 pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
@@ -52,12 +46,8 @@ pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	}
 }
 
-/// How many files one batch can send, as in WhatsApp Web's attach picker
-/// (its media_picker_select_limit).
 pub(crate) const MAX_BATCH_FILES: usize = 30;
 
-/// Adds files to the pending batch, up to MAX_BATCH_FILES; returns how many
-/// didn't fit.
 fn add_to_batch(s: &mut AppState, paths: Vec<String>) -> usize {
 	let mut left_out = 0;
 	for path in paths.into_iter().filter(|p| !p.is_empty()) {
@@ -82,9 +72,6 @@ fn announce_left_out(parts: &Rc<WindowParts>, left_out: usize) {
 	}
 }
 
-/// Fills in and shows the attachment dialog for the pending batch. A new batch
-/// starts with `caption` (or an empty one); adding files to a batch that's
-/// already open keeps whatever caption has been typed.
 fn show_attachment_dialog(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -114,7 +101,6 @@ fn show_attachment_dialog(
 		d.caption_field.set_insertion_point_end();
 		d.view_once_check.set_value(false);
 	}
-	// View once is for photos and videos, and not in a channel.
 	let view_once = {
 		let s = state.borrow();
 		!s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@newsletter"))
@@ -258,8 +244,6 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 				let kind = s.pending_attachment_kind;
 				drop(s);
 				announce_left_out(parts, left_out);
-				// Text already typed in the message box becomes the caption,
-				// as in WhatsApp, rather than being left behind in the box.
 				let mut caption = None;
 				if !parts.attachment_dialog.dialog.is_shown() && kind.has_caption() {
 					let field = &parts.conversations_parts.message_field;
@@ -310,9 +294,6 @@ pub(crate) fn send_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	}
 }
 
-/// Sends each file to `jid` the way `kind` sends it, every one with `caption`.
-/// Only the first carries the reply-to context, so a reply isn't quoted once
-/// per file.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_files(
 	ws_tx: &std::sync::mpsc::Sender<String>,
@@ -324,11 +305,6 @@ pub(crate) fn send_files(
 	reply_sender: &str,
 	view_once: bool,
 ) {
-	// The backend persists a "uploading" row and broadcasts it
-	// immediately, before the upload even starts, so the local
-	// echo comes back through the normal "message" event handler
-	// with a real id from the start instead of a client-side
-	// placeholder here.
 	for (idx, path) in paths.iter().enumerate() {
 		let file_type = kind.send_type(path);
 		let filename = std::path::Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -348,9 +324,6 @@ pub(crate) fn send_files(
 		});
 		let ws_tx = ws_tx.clone();
 		if file_type == "audio" {
-			// An audio message carries its length and waveform, which
-			// means reading the file - off the UI thread, it can be a
-			// long track.
 			let path = path.clone();
 			std::thread::spawn(move || {
 				payload["data"]["duration"] = serde_json::json!(crate::audio::audio_file_seconds(&path));
@@ -358,8 +331,6 @@ pub(crate) fn send_files(
 				let _ = ws_tx.send(payload.to_string());
 			});
 		} else if file_type == "image" && path.to_lowercase().ends_with(".gif") {
-			// A GIF goes as a looping video, the way WhatsApp sends one; if
-			// it can't be converted it goes as a photo, as before.
 			let path = path.clone();
 			std::thread::spawn(move || {
 				let mp4 = std::env::temp_dir().join(format!("whantv_gif_{}.mp4", crate::util::random_hex()));
@@ -376,8 +347,6 @@ pub(crate) fn send_files(
 				let _ = ws_tx.send(payload.to_string());
 			});
 		} else if file_type == "video" {
-			// A video message carries a preview of its first frame; the
-			// backend shrinks it to WhatsApp's preview size.
 			let path = path.clone();
 			std::thread::spawn(move || {
 				if let Some(png) = crate::media::video_thumbnail::first_frame_png(&path) {
@@ -420,7 +389,6 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 		to_cancel.len(),
 		if jid_opt.is_some() { "open" } else { "none" }
 	));
-	// Already downloading: clicking again means "cancel", not "start over".
 	if let (Some(jid), false) = (jid_opt.clone(), to_cancel.is_empty()) {
 		for (msg_id, _) in &to_cancel {
 			let payload = serde_json::json!({
@@ -492,7 +460,6 @@ fn plays_in_app(msg: &whatsnap::ChatMessage) -> bool {
 	msg.media_type == "video" && !msg.text.starts_with("[View once]")
 }
 
-/// Plays a chat's video in the video window.
 fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str, msg: &whatsnap::ChatMessage) {
 	let title = if msg.from_me {
 		"Video you sent".to_string()
@@ -502,7 +469,6 @@ fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str,
 		"Video".to_string()
 	};
 	let choice = crate::ui::video_player::show(&parts.frame, &msg.media_path, &title, &msg.display_filename());
-	// Enter on Close leaves its release for the list underneath.
 	crate::platform::tray::enter_release_guard().set(true);
 	if let crate::ui::video_player::VideoChoice::OpenElsewhere = choice {
 		let payload = serde_json::json!({
@@ -533,10 +499,6 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	if let Some(item) = item_opt {
 		match item {
 			whatsnap::DisplayItem::Single(msg) => {
-				// Grab an owned copy and drop the borrow before opening the
-				// modal dialog below — show_modal() pumps the message loop,
-				// and any handler that needs state.borrow_mut() while we're
-				// still holding this Ref would panic with a BorrowMutError.
 				let jid_opt = state.borrow().selected_chat.clone();
 				if let Some(jid) = jid_opt {
 					let filename = msg.display_filename();
@@ -655,10 +617,6 @@ pub(crate) fn open_media_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 }
 
 pub(crate) fn save_media_message_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message_id: String) {
-	// Grab an owned copy and drop the borrow before opening the modal
-	// save dialog below - show_modal() pumps the message loop, and any
-	// handler that needs state.borrow_mut() while we're still holding
-	// this Ref would panic with a BorrowMutError.
 	let (jid_opt, msg_opt) = {
 		let s = state.borrow();
 		(s.selected_chat.clone(), s.messages.iter().find(|m| m.id == message_id).cloned())

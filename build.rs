@@ -14,13 +14,8 @@ fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-changed=backend");
 	println!("cargo:rerun-if-changed=doc");
-	// WHATSNAP_COMMIT_HASH, _SHORT_HASH and _IS_DEV: the update check compares
-	// the commit with the Development Build's.
 	let commit = embed_commit_info("WHATSNAP");
 
-	// Everything a release needs lands next to whatSnap.exe in the profile
-	// folder (target/release): the backend, the user manual as HTML and the
-	// installer script, for `cargo release` (xtask) to pack.
 	let target_dir = target_profile_dir().unwrap_or_else(|| {
 		let root = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
 		Path::new(&root).join("target").join(env::var("PROFILE").unwrap_or_default())
@@ -37,8 +32,6 @@ fn main() {
 	if let Err(e) = embed_manifest("whatSnap") {
 		println!("cargo:warning=Failed to embed manifest: {e}");
 	}
-	// A development build shows its commit beside the version in the exe's
-	// properties, so a bug report says exactly which build it was.
 	let version = env::var("CARGO_PKG_VERSION").unwrap_or_default();
 	let dev_version = format!("{version} ({})", commit.short_hash);
 	let version_info = VersionInfo {
@@ -54,8 +47,6 @@ fn main() {
 	}
 }
 
-/// Builds backend.exe into `target_dir\backend`, where whatSnap.exe looks
-/// for it.
 fn build_backend(target_dir: &Path) {
 	let out_path: PathBuf = target_dir.join("backend").join("backend.exe");
 	let _ = std::fs::create_dir_all(target_dir.join("backend"));
@@ -71,8 +62,6 @@ fn build_backend(target_dir: &Path) {
 	}
 }
 
-/// The user manual, doc/readme.md, as readme.html for the zip and the
-/// installer.
 fn build_docs(target_dir: &Path) {
 	let page = Page { title: "whatSnap User Manual", ..Page::default() };
 	if let Err(e) = convert(Path::new("doc/readme.md"), &target_dir.join("readme.html"), &page) {

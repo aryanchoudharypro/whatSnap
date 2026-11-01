@@ -1,13 +1,3 @@
-//! Registers whatSnap as a handler for whatsapp:// links, the kind "Share on
-//! WhatsApp" buttons and wa.me pages open. Everything goes under
-//! HKEY_CURRENT_USER, so no admin rights are needed, and it's rewritten on
-//! every start so the path follows the exe if it moves.
-//!
-//! Two parts: a plain `whatsapp` URL class, which Windows uses when nothing
-//! else claims the scheme, and a registered-application entry, which lists
-//! whatSnap in Settings > Apps > Default apps so it can be chosen when another
-//! app (such as the official WhatsApp) also handles these links.
-
 #![cfg(target_os = "windows")]
 
 use windows::{
@@ -18,7 +8,6 @@ use windows::{
 	core::PCWSTR,
 };
 
-// Registry keys keep the old name: changing them would leave a stale entry behind.
 const PROG_ID: &str = "whaNTV.WhatsAppLink";
 const CAPABILITIES_KEY: &str = "Software\\whaNTV\\Capabilities";
 
@@ -26,8 +15,6 @@ fn wide(s: &str) -> Vec<u16> {
 	s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// Sets `name` (None for the key's default value) under HKCU\`path`,
-/// creating the key if needed.
 fn set_string(path: &str, name: Option<&str>, value: &str) -> bool {
 	let key_name = wide(path);
 	let value_name = name.map(wide);
@@ -57,7 +44,6 @@ fn set_string(path: &str, name: Option<&str>, value: &str) -> bool {
 	}
 }
 
-/// Reads the default value of HKCU\`path`, if the key exists.
 fn get_default_string(path: &str) -> Option<String> {
 	let key_name = wide(path);
 	let mut buffer = vec![0u16; 2048];
@@ -86,9 +72,6 @@ fn write_url_class(class_key: &str, description: &str, command: &str, icon: &str
 	set_string(&format!("{}\\shell\\open\\command", class_key), None, command);
 }
 
-/// Registers whatSnap for whatsapp:// links. Doesn't take over a plain
-/// `whatsapp` class another program already set up in the user's registry;
-/// the Default apps entry still lets the user pick whatSnap.
 pub fn register() {
 	let Ok(exe) = std::env::current_exe() else { return };
 	let exe = exe.display().to_string();
@@ -97,7 +80,6 @@ pub fn register() {
 
 	write_url_class(&format!("Software\\Classes\\{}", PROG_ID), "URL:WhatsApp link", &command, &icon);
 
-	// whatsnap:// links come from our own toast notifications (see platform/app_link.rs).
 	write_url_class("Software\\Classes\\whatsnap", "URL:whatSnap link", &command, &icon);
 
 	let class_command_key = "Software\\Classes\\whatsapp\\shell\\open\\command";

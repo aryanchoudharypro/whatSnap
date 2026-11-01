@@ -16,12 +16,10 @@ func TestMemberLabelsKeepTheNewest(t *testing.T) {
 		{JID: alice, Label: "Treasurer", LabelSetAt: time.Unix(200, 0)},
 		{JID: bob},
 	})
-	// A change that happened before the one group info reported is stale.
 	storeMemberLabel(group.String(), memberLabelKey(alice), "Old", 100)
 	if got := memberLabels(group.String()); got[alice.String()] != "Treasurer" || len(got) != 1 {
 		t.Fatalf("labels = %v", got)
 	}
-	// Clearing a tag hides it.
 	storeMemberLabel(group.String(), memberLabelKey(alice), "", 300)
 	if got := memberLabels(group.String()); len(got) != 0 {
 		t.Fatalf("a cleared tag must not show, got %v", got)

@@ -1,17 +1,3 @@
-//! What happens when someone picks whatSnap in the Share menu: collect what
-//! was shared and start whatSnap.exe with it.
-//!
-//! - Files are copied to a folder of their own under %TEMP%, since the app
-//!   that shared them may delete them once the share is done, and passed as
-//!   paths, as Explorer's Send to does.
-//! - A picture with no file (a screenshot, say) is saved there as one.
-//! - Text and links become a whatsapp://send link, which whatSnap already
-//!   handles by asking which chats to send it to.
-//!
-//! whatSnap.exe is started by Explorer rather than by this process: a process
-//! started from here would run inside this package, under its identity, which
-//! would change where Windows sends whatSnap's notifications.
-
 use std::path::{Path, PathBuf};
 
 use windows::{
@@ -42,7 +28,6 @@ use windows::{
 
 use crate::package::{app_dir, log};
 
-/// What was shared, ready to hand to whatSnap.exe.
 enum Shared {
 	Files(Vec<PathBuf>),
 	Link(String),
@@ -58,7 +43,6 @@ pub fn handle_share_activation() -> i32 {
 		}
 	}) {
 		Ok(Some(share)) => share,
-		// Started some other way, e.g. by hand: there's nothing to do.
 		Ok(None) => return 0,
 		Err(e) => {
 			log(&format!("Couldn't read the share activation: {e}"));
@@ -87,8 +71,6 @@ pub fn handle_share_activation() -> i32 {
 	}
 }
 
-/// A new folder under %TEMP% for one share's files. Folders from shares more
-/// than a day old are cleared out first.
 fn share_folder() -> std::io::Result<PathBuf> {
 	let root = std::env::temp_dir().join("whatSnap shared");
 	if let Ok(entries) = std::fs::read_dir(&root) {
@@ -151,8 +133,6 @@ fn collect(data: &DataPackageView) -> windows::core::Result<Option<Shared>> {
 	Ok(Some(Shared::Link(format!("whatsapp://send?text={}", percent_encode(&text)))))
 }
 
-/// Copies one shared file into `folder`, by path when it has one, otherwise
-/// through the file object (files from some apps only exist that way).
 fn copy_item(item: &IStorageItem, folder: &Path) -> windows::core::Result<PathBuf> {
 	let name = item.Name()?.to_string();
 	let source = item.Path()?.to_string();
@@ -167,7 +147,6 @@ fn copy_item(item: &IStorageItem, folder: &Path) -> windows::core::Result<PathBu
 	Ok(PathBuf::from(copy.Path()?.to_string()))
 }
 
-/// Saves a shared picture as a file, named for its type.
 fn save_bitmap(data: &DataPackageView, folder: &Path) -> windows::core::Result<PathBuf> {
 	let stream = data.GetBitmapAsync()?.join()?.OpenReadAsync()?.join()?;
 	let extension = match stream.ContentType()?.to_string().to_ascii_lowercase().as_str() {
@@ -198,8 +177,6 @@ fn percent_encode(text: &str) -> String {
 	out
 }
 
-/// whatSnap.exe's command line for what was shared. Paths can't contain
-/// quotes, and the link is percent-encoded, so quoting each is enough.
 fn arguments(shared: &Shared) -> String {
 	match shared {
 		Shared::Files(files) => files.iter().map(|f| format!("\"{}\"", f.display())).collect::<Vec<_>>().join(" "),
@@ -211,8 +188,6 @@ fn launch_whatsnap(shared: &Shared) {
 	let exe = app_dir().join("whatSnap.exe");
 	let args = arguments(shared);
 	if let Err(e) = launch_through_explorer(&exe, &args) {
-		// Explorer isn't running (a replacement shell, say): start it
-		// directly, which is better than not at all.
 		log(&format!("Starting whatSnap through Explorer failed ({e}); starting it directly"));
 		let mut command = std::process::Command::new(&exe);
 		use std::os::windows::process::CommandExt;
@@ -223,9 +198,6 @@ fn launch_whatsnap(shared: &Shared) {
 	}
 }
 
-/// Has the desktop's Explorer start `exe`, so it doesn't inherit this
-/// process's package identity. Raymond Chen's "How can I launch an unelevated
-/// process from my elevated process" trick, which works for this as well.
 fn launch_through_explorer(exe: &Path, args: &str) -> windows::core::Result<()> {
 	unsafe {
 		let windows: IShellWindows = CoCreateInstance(&ShellWindows, None, CLSCTX_LOCAL_SERVER)?;

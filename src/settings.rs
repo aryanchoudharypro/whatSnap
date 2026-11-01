@@ -1,6 +1,3 @@
-//! User-configurable app preferences, persisted as JSON next to the session
-//! database (see [`crate::platform::paths::app_data_dir`]).
-
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -20,106 +17,42 @@ pub struct Settings {
 	/// Meta AI chat already in the chat list is left alone, same as other
 	/// settings here don't retroactively touch chat data.
 	pub meta_ai_enabled: bool,
-	/// Friendly name of the preferred microphone for calls, or `None` for the
-	/// system default communications device. Also used for voice-message
-	/// recording (see [`crate::audio::voice_recorder`]), which honors this device.
 	pub input_device_name: Option<String>,
-	/// Friendly name of the preferred speaker/output device for calls and for
-	/// voice-message/notification playback, or `None` for the system default.
 	pub output_device_name: Option<String>,
-	/// Friendly name of the preferred camera for video calls, or `None` for
-	/// "System Default" (the first device Media Foundation enumerates - see
-	/// `calls/video_devices.rs`).
 	pub camera_device_name: Option<String>,
-	/// Whether recorded voice messages go through `voice_dsp::VoiceCleanup`
-	/// (high-pass, noise suppression, automatic gain, limiter) - the processing
-	/// a browser gives WhatsApp Web's voice notes. Off keeps the raw mic signal.
-	/// (The field name predates it; kept so saved settings carry over.)
 	pub voice_message_noise_suppression: bool,
-	/// Per-chat alert level for archived chats, keyed by JID. A chat with no
-	/// entry uses [`whatsnap::ArchivedAlert::default`] (silent), so archiving
-	/// quiets a chat with no bookkeeping at all. Entries deliberately survive
-	/// unarchiving: re-archiving a chat shouldn't silently discard the choice
-	/// made for it last time.
 	pub archived_alert_levels: std::collections::HashMap<String, whatsnap::ArchivedAlert>,
-	/// Whether the backend logs every WhatsApp protocol frame and SQL query
-	/// (DEBUG level) instead of just warnings/errors. Off by default: it's
-	/// continuous, high-volume logging only useful while actively
-	/// troubleshooting a connection issue. Read once at startup when the
-	/// backend process is launched - toggling it takes effect the next time
-	/// whatSnap starts, not on the running backend.
 	pub verbose_backend_logging: bool,
-	/// Whether the main window opens maximized the first time it is shown,
-	/// like Paperback's "Start maximized" option.
 	pub start_maximized: bool,
-	/// Whether whatSnap looks for a new version when it starts.
 	pub check_for_updates_on_startup: bool,
-	/// Which releases the update check offers: `"stable"` (numbered
-	/// releases) or `"dev"` (the Development Build of every change).
 	pub update_channel: String,
-	/// How wide the user dragged the chat list column, in pixels; 0 lets it
-	/// follow the window's width.
 	pub chat_list_width: i32,
-	/// Menu shortcuts the user changed, by action id; see [`crate::keymap`].
-	/// Anything not listed keeps its default.
 	pub shortcuts: std::collections::BTreeMap<String, String>,
-	/// Order of the main navigation tabs, as tab ids (see [`TAB_NAMES`]).
-	/// Read it through [`Settings::tab_order`], which repairs a saved list that
-	/// is missing a tab or repeats one.
 	pub tab_order: Vec<usize>,
-	/// Last-used voice-message playback speed (1.0, 1.5, or 2.0). Persisted so
-	/// the chosen speed sticks across app restarts.
 	pub audio_speed: f32,
-	/// Experimental: a screen share goes out as its own stream next to the
-	/// camera (WhatsApp's dual-stream share) instead of taking the camera's
-	/// place. Applies to calls that connect after it's turned on.
 	pub dual_stream_screen_share: bool,
-	/// The status viewer moves on to the next update by itself (a photo or
-	/// text after a few seconds, a video when it ends), as WhatsApp's does.
-	/// Off, it waits for Next.
 	pub status_auto_advance: bool,
-	/// WhatsApp's "Enter is send": Enter sends and Shift+Enter starts a new
-	/// line. Off, Enter starts a new line and the Send button sends.
 	pub enter_is_send: bool,
-	/// WhatsApp's "Replace text with emoji": typing :-) or (y) and the like
-	/// turns it into the emoji (see `ui::emoji_replace`).
 	pub replace_text_with_emoji: bool,
-	/// Spell checking in the message box (see `ui::spell_check`).
 	pub spell_check: bool,
 	/// Say "Misspelled: word" when a word is finished wrongly. NVDA can't
 	/// report it in this box itself, so it's ours; off by default.
 	pub spell_check_announce: bool,
-	/// The language to check, as a tag like "en-GB"; empty for Windows' own.
 	pub spell_language: String,
-	/// WhatsApp's "Show previews": a message notification shows the
-	/// message's text. Off, it only says a message came.
 	pub notification_previews: bool,
-	/// WhatsApp's "Show reaction notifications": a reaction to one of our
-	/// messages in a chat that isn't open notifies.
 	pub reaction_notifications: bool,
-	/// WhatsApp's Theme: System default, Light or Dark.
 	pub theme: crate::ui::theme::ThemeChoice,
-	/// WhatsApp's separate group settings (its granular notifications): a
-	/// group's new messages show a notification, play the sound.
 	pub group_notifications: bool,
 	pub group_sounds: bool,
-	/// WhatsApp's "Play sounds for outgoing messages".
 	pub outgoing_sounds: bool,
-	/// WhatsApp's "Call notifications" and "Play sounds for incoming calls".
 	pub call_notifications: bool,
 	pub call_ringtone: bool,
-	/// Each chat's notification choices on this computer, by chat; chats
-	/// left as they come have no entry.
 	pub chat_notifications: std::collections::HashMap<String, whatsnap::ChatNotify>,
 }
 
-/// Tab names by tab id. The id is what the rest of the app keys on
-/// (`active_tab`, `nav_selected`, the Alt+N shortcuts); only the position in
-/// the list changes when tabs are reordered.
 pub const TAB_NAMES: [&str; 7] =
 	["Chats", "Status", "Starred Messages", "Archived Chats", "Communities", "Channels", "Calls"];
 
-/// Tabs whose navigation entry carries how many of their chats are unread.
 pub const NAV_UNREAD_TABS: [usize; 2] = [0, 3];
 
 /// The text a tab shows in the navigation list. Chats (tab id 0) and Archived
@@ -134,11 +67,8 @@ pub fn nav_tab_label(tab: usize, unread_chats: usize) -> String {
 	}
 }
 
-/// Chats and Calls first, then the rest in their original order.
 pub const DEFAULT_TAB_ORDER: [usize; 7] = [0, 6, 1, 2, 3, 4, 5];
 
-/// Moves the tab at `pos` one place by `delta` (-1 or 1). Returns its new
-/// position, or `None` at either end.
 pub fn move_tab(order: &mut [usize], pos: usize, delta: isize) -> Option<usize> {
 	let target = pos.checked_add_signed(delta).filter(|&t| t < order.len() && pos < order.len())?;
 	order.swap(pos, target);
@@ -206,8 +136,6 @@ impl Settings {
 		self.archived_alert_levels.get(jid).copied().unwrap_or_default()
 	}
 
-	/// Records `level` for `jid`, dropping the entry when it's the default so
-	/// settings.json doesn't grow a line for every archived chat left alone.
 	pub fn set_archived_alert(&mut self, jid: &str, level: whatsnap::ArchivedAlert) {
 		if level == whatsnap::ArchivedAlert::default() {
 			self.archived_alert_levels.remove(jid);
@@ -216,12 +144,10 @@ impl Settings {
 		}
 	}
 
-	/// `jid`'s notification choices on this computer.
 	pub fn chat_notify(&self, jid: &str) -> whatsnap::ChatNotify {
 		self.chat_notifications.get(jid).copied().unwrap_or_default()
 	}
 
-	/// Records `notify` for `jid`, dropping the entry when it's the default.
 	pub fn set_chat_notify(&mut self, jid: &str, notify: whatsnap::ChatNotify) {
 		if notify == whatsnap::ChatNotify::default() {
 			self.chat_notifications.remove(jid);
@@ -230,9 +156,6 @@ impl Settings {
 		}
 	}
 
-	/// What a new message in `jid` may do, by every rule there is: WhatsApp's
-	/// mute, archiving, the chat's choice on this computer, then the app's
-	/// own switches (a chat's own choice stands over the group ones).
 	pub fn message_alert(&self, jid: &str, muted: bool, archived: bool) -> whatsnap::IncomingAlert {
 		let base = whatsnap::incoming_alert(muted, archived, self.archived_alert(jid));
 		let chat = self.chat_notify(jid).alert;
@@ -244,8 +167,6 @@ impl Settings {
 		}
 	}
 
-	/// `muted` with the chats turned off on this computer: those the tray's
-	/// unread total leaves out.
 	pub fn quiet_chats(&self, muted: &std::collections::HashSet<String>) -> std::collections::HashSet<String> {
 		let off = self.chat_notifications.iter().filter(|(_, n)| n.alert == whatsnap::ChatAlert::Off);
 		muted.iter().cloned().chain(off.map(|(jid, _)| jid.clone())).collect()
@@ -257,8 +178,6 @@ impl Settings {
 		}
 	}
 
-	/// The saved tab order, or the default when it doesn't list each tab
-	/// exactly once.
 	pub fn tab_order(&self) -> Vec<usize> {
 		let mut seen = [false; TAB_NAMES.len()];
 		let valid = self.tab_order.len() == TAB_NAMES.len()
@@ -266,10 +185,6 @@ impl Settings {
 		if valid { self.tab_order.clone() } else { DEFAULT_TAB_ORDER.to_vec() }
 	}
 
-	/// The settings WhatsApp Web and its desktop apps share between
-	/// themselves (settings sync), by WhatsApp's name for each
-	/// (WAWebSettingsSyncConst) and in its form: a sound switch is a tone,
-	/// None (0) or Default (1), and the theme is 0 system, 1 light, 2 dark.
 	pub fn synced(&self) -> Vec<(&'static str, serde_json::Value)> {
 		use crate::ui::theme::ThemeChoice;
 		let theme = match self.theme {
@@ -293,7 +208,6 @@ impl Settings {
 		]
 	}
 
-	/// What changed in [`Settings::synced`] since `before` was taken.
 	pub fn synced_changes(
 		&self,
 		before: &[(&'static str, serde_json::Value)],
@@ -306,9 +220,6 @@ impl Settings {
 			.collect()
 	}
 
-	/// Takes a setting another WhatsApp desktop device changed; true when
-	/// it changed something here. Any tone but None means sounds are on, as
-	/// WhatsApp only plays none for None.
 	pub fn apply_synced(&mut self, name: &str, value: &serde_json::Value) -> bool {
 		use crate::ui::theme::ThemeChoice;
 		let on = value.as_bool().or_else(|| value.as_i64().map(|tone| tone != 0));
@@ -339,8 +250,6 @@ impl Settings {
 		std::mem::replace(field, on) != on
 	}
 
-	/// Voice message playback speed (1.0, 1.5, or 2.0), falling back to 1.0
-	/// if a saved value is missing, unrecognized, or non-finite.
 	pub fn audio_speed(&self) -> f32 {
 		if (self.audio_speed - 1.5).abs() < 0.01 {
 			1.5
@@ -422,7 +331,6 @@ mod tests {
 		}
 		assert!(!other.sounds_enabled);
 		assert_eq!(other.theme, crate::ui::theme::ThemeChoice::Dark);
-		// A chosen alert tone still means sounds on; the same value changes nothing.
 		assert!(other.apply_synced("defaultNotificationToneId", &serde_json::json!(5)));
 		assert!(!other.apply_synced("defaultNotificationToneId", &serde_json::json!(1)));
 		assert!(!other.apply_synced("appTheme", &serde_json::json!(9)));

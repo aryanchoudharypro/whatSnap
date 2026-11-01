@@ -1,6 +1,3 @@
-//! Reading and writing the 16-bit PCM WAV files voice messages are recorded
-//! to. That's the only kind whatSnap makes, so it's the only kind handled.
-
 use std::{
 	fs::File,
 	io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
@@ -24,7 +21,7 @@ impl WavWriter {
 		let block_align = spec.channels * 2;
 		out.write_all(b"RIFF\0\0\0\0WAVEfmt ")?;
 		out.write_all(&16u32.to_le_bytes())?;
-		out.write_all(&1u16.to_le_bytes())?; // PCM
+		out.write_all(&1u16.to_le_bytes())?;
 		out.write_all(&spec.channels.to_le_bytes())?;
 		out.write_all(&spec.sample_rate.to_le_bytes())?;
 		out.write_all(&(spec.sample_rate * block_align as u32).to_le_bytes())?;
@@ -40,7 +37,6 @@ impl WavWriter {
 		Ok(())
 	}
 
-	/// Fills in the sizes the header was written without.
 	pub(crate) fn finalize(mut self) -> io::Result<()> {
 		self.write_sizes()
 	}
@@ -65,7 +61,6 @@ impl Drop for WavWriter {
 	}
 }
 
-/// Iterates over a WAV file's samples, interleaved.
 pub(crate) struct WavReader {
 	input: BufReader<File>,
 	spec: WavSpec,
@@ -95,7 +90,6 @@ impl WavReader {
 					}
 					let tag = u16::from_le_bytes([fmt[0], fmt[1]]);
 					let bits = u16::from_le_bytes([fmt[14], fmt[15]]);
-					// 0xFFFE is WAVE_FORMAT_EXTENSIBLE, which still holds plain PCM here.
 					if !(tag == 1 || tag == 0xFFFE) || bits != 16 {
 						return Err(bad("unsupported sample format"));
 					}

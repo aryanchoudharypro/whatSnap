@@ -25,12 +25,10 @@ func TestHistoryAnchorSkipsAStuckOne(t *testing.T) {
 	if err != nil || oldest.id != "photo1" {
 		t.Fatalf("oldest = %+v, %v; want photo1 (made-up rows never anchor)", oldest, err)
 	}
-	// photo1 got nothing: the next try is the oldest plain message.
 	alt, err := oldestHistoryAnchor(chat, []string{"photo1", "photo1"})
 	if err != nil || alt.id != "text1" {
 		t.Fatalf("alternative = %+v, %v; want text1", alt, err)
 	}
-	// With no plain message left, any other message will do.
 	alt, err = oldestHistoryAnchor(chat, []string{"photo1", "text1"})
 	if err != nil || alt.id != "photo2" {
 		t.Fatalf("fallback = %+v, %v; want photo2", alt, err)

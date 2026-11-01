@@ -1,30 +1,3 @@
-//! The open chat's message list: a plain panel that draws only the rows on
-//! screen and describes itself to screen readers through AccessKit, instead of
-//! a native list box.
-//!
-//! A native list box holds a copy of every row, and screen readers read a
-//! virtual list view's rows through a 512-character buffer (NVDA) or not at all
-//! (the MSAA proxy), cutting long messages off. This list keeps its rows in one
-//! `Vec<String>` and tells the screen reader about the rows near the cursor
-//! only, with each row's whole text as its name and its place in the whole chat
-//! (`position_in_set` / `size_of_set`), so a 28,000-message chat still reads
-//! "2 of 28000" while only a few hundred rows are described.
-//!
-//! The methods mirror the `ListBox` calls the rest of the app makes, with the
-//! same behaviour: `set_selection` is silent (no `on_selection_changed`), and
-//! inserting or deleting rows keeps the selection on the same row. Rows can
-//! carry a key (the message id): `set_keyed_items` then keeps the cursor, and
-//! the screen reader's object for each row, on the same message through a
-//! rebuild, so NVDA doesn't read the cursor row again.
-//!
-//! It scrolls like a list box: a scrollbar with one step per row of text. A
-//! row can be several of those tall (a long message wraps, a photo shows its
-//! picture): each is measured for the list's width (see `remeasure`), and is
-//! drawn as `ui::message_art` says - a bubble, a picture - while the screen
-//! reader is still given only its text.
-//!
-//! The keyboard handling follows Fedra's timeline list (MIT, Quin Gillespie).
-
 use std::{
 	cell::{Cell, RefCell},
 	collections::HashMap,
@@ -41,25 +14,18 @@ const ROOT_ID: NodeId = NodeId(1);
 /// Row ids start here; they're never reused, so a screen reader never mistakes
 /// a new row for one it already knows.
 const FIRST_ROW_ID: u64 = 16;
-/// Rows described either side of the cursor. Moving within `MARGIN` of the
-/// edge of what's described re-centres it.
 const HALF_WINDOW: usize = 100;
 const MARGIN: usize = 20;
 const TYPE_AHEAD_RESET_MS: u128 = 1000;
-/// Space above and below a row's text, room for its bubble.
 const ROW_PADDING: i32 = 12;
 const WX_WANTS_CHARS: i64 = 0x0004_0000;
 
 struct Row {
 	id: u64,
-	/// What `set_keyed_items` knows the row by; empty for none.
 	key: String,
 	text: String,
-	/// Only in a checkable list (see `set_checkable`).
 	checked: bool,
-	/// How many rows of text tall it's drawn (see `remeasure`).
 	units: u8,
-	/// `units` is right for the list's current width and the row's text.
 	measured: bool,
 }
 
@@ -68,10 +34,8 @@ struct State {
 	rows: Vec<Row>,
 	next_id: u64,
 	selected: Option<usize>,
-	/// First row drawn: the scrollbar's position, which is in rows.
 	top: usize,
 	row_height: i32,
-	/// Row count and height the scrollbar was last set up for.
 	scrollbar: (usize, i32),
 	/// The rows described to the screen reader.
 	exposed: std::ops::Range<usize>,
@@ -81,16 +45,10 @@ struct State {
 	frozen: Option<(u64, String)>,
 	search: String,
 	last_search: Option<Instant>,
-	/// The chat's messages before and after the loaded rows, so a window of a
-	/// big chat is numbered against all of it (see `set_numbering`).
 	before: usize,
 	after: usize,
-	/// Rows have check boxes, as in a `CheckListBox` (see `set_checkable`).
 	checkable: bool,
-	/// The width the rows were last measured at.
 	measured_width: i32,
-	/// Where each row starts, in rows of text from the top; one more entry
-	/// than there are rows, the last being the total.
 	starts: Vec<usize>,
 }
 
@@ -101,7 +59,6 @@ impl State {
 		Row { id, key: key.to_string(), text: text.to_string(), checked: false, units: 1, measured: false }
 	}
 
-	/// Works out where every row starts again, after rows came or went.
 	fn reflow(&mut self) {
 		let mut at = 0;
 		self.starts.clear();
@@ -121,13 +78,10 @@ impl State {
 		self.starts.get(row).copied().unwrap_or_else(|| self.total_units())
 	}
 
-	/// The row covering line `unit` of the whole list.
 	fn row_at_unit(&self, unit: usize) -> usize {
 		self.starts.partition_point(|&s| s <= unit).saturating_sub(1).min(self.rows.len().saturating_sub(1))
 	}
 
-	/// Re-centres `exposed` on the cursor (or the end of the chat) when it has
-	/// drifted near an edge, or the rows changed under it.
 	fn expose(&mut self, force: bool) {
 		let count = self.rows.len();
 		let center = self.selected.unwrap_or(count.saturating_sub(1)).min(count.saturating_sub(1));
@@ -146,9 +100,6 @@ impl State {
 		self.selected.and_then(|i| self.rows.get(i)).map_or(ROOT_ID, |r| NodeId(r.id))
 	}
 
-	/// The whole described tree: the list and the rows around the cursor.
-	/// Nodes that didn't change are cheap, as AccessKit only raises events for
-	/// what differs from what it had.
 	fn tree(&self, label: &str) -> TreeUpdate {
 		let mut nodes = Vec::with_capacity(self.exposed.len() + 1);
 		let mut children = Vec::with_capacity(self.exposed.len());
@@ -253,13 +204,10 @@ struct Shared {
 	on_selection_changed: RefCell<Option<SelectionCallback>>,
 	on_toggled: RefCell<Option<SelectionCallback>>,
 	looks: RefCell<Option<LookSource>>,
-	/// A `remeasure` is already on its way.
 	measure_pending: Cell<bool>,
-	/// Times in a row the look source couldn't say (the app was busy).
 	measure_retries: Cell<u8>,
 }
 
-/// Gives a row's look from its index and key (see `set_look_source`).
 type LookSource = Rc<dyn Fn(usize, &str) -> Option<super::message_art::Look>>;
 
 thread_local! {
@@ -305,7 +253,6 @@ impl ActionHandler for Actions {
 	}
 }
 
-/// See the module docs. Copy, like the wx widgets it stands in for.
 #[derive(Clone, Copy)]
 pub struct MessageList {
 	panel: ScrolledWindow,
@@ -332,7 +279,6 @@ impl MessageList {
 	pub fn new(parent: &impl WxWidget, label: &str) -> Self {
 		let panel = ScrolledWindow::builder(parent).with_style(ScrolledWindowStyle::VScroll).build();
 		panel.set_name(label);
-		// Arrows, Tab and Enter come to the list rather than moving between controls.
 		unsafe {
 			let ptr = panel.handle_ptr();
 			wxdragon::ffi::wxd_Window_SetWindowStyle(
@@ -340,7 +286,6 @@ impl MessageList {
 				wxdragon::ffi::wxd_Window_GetWindowStyle(ptr) | WX_WANTS_CHARS,
 			);
 		}
-		// A tab stop, so Windows' Tab order includes it like the list box it replaces.
 		unsafe {
 			use windows::Win32::UI::WindowsAndMessaging::{
 				GWL_STYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_TABSTOP,
@@ -349,7 +294,6 @@ impl MessageList {
 			SetWindowLongPtrW(hwnd, GWL_STYLE, GetWindowLongPtrW(hwnd, GWL_STYLE) | WS_TABSTOP.0 as isize);
 		}
 		panel.set_background_style(BackgroundStyle::Paint);
-		// A list box's colours; the theme may set its own after.
 		panel.set_background_color(SystemSettings::get_colour(SystemColour::Window));
 		panel.set_foreground_color(SystemSettings::get_colour(SystemColour::WindowText));
 		let shared = Rc::new(Shared {
@@ -391,8 +335,6 @@ impl MessageList {
 	fn shared(&self) -> Rc<Shared> {
 		LISTS.with(|l| l.borrow()[self.slot].clone())
 	}
-
-	// --- The ListBox-shaped API the app uses ---
 
 	pub fn get_count(&self) -> u32 {
 		self.shared().state.borrow().rows.len() as u32
@@ -465,13 +407,10 @@ impl MessageList {
 		self.insert_items(&[text], pos as u32);
 	}
 
-	/// Inserts rows before `pos`; the selection stays on the row it was on.
 	pub fn insert_items(&self, texts: &[&str], pos: u32) {
 		self.insert_keyed_items(&[], texts, pos);
 	}
 
-	/// `insert_items`, giving each row the key at the same place in `keys`
-	/// (see `set_keyed_items`).
 	pub fn insert_keyed_items(&self, keys: &[&str], texts: &[&str], pos: u32) {
 		if texts.is_empty() {
 			return;
@@ -500,7 +439,6 @@ impl MessageList {
 		self.schedule_measure();
 	}
 
-	/// Removes a row; deleting the selected row leaves nothing selected.
 	pub fn delete(&self, index: u32) {
 		let shared = self.shared();
 		{
@@ -528,7 +466,6 @@ impl MessageList {
 		self.panel.refresh(false, None);
 	}
 
-	/// Replaces every row and clears the selection, as `ListBox::set_items`.
 	pub fn set_items(&self, texts: &[&str]) {
 		let shared = self.shared();
 		{
@@ -570,7 +507,6 @@ impl MessageList {
 		let shared = self.shared();
 		{
 			let mut state = shared.state.borrow_mut();
-			// Give the memory back: a big chat's rows are megabytes.
 			state.rows = Vec::new();
 			state.selected = None;
 			state.frozen = None;
@@ -620,7 +556,6 @@ impl MessageList {
 		self.shared().state.borrow().rows.get(index as usize).is_some_and(|r| r.checked)
 	}
 
-	/// Checks or unchecks a row without firing `on_toggled`.
 	pub fn check(&self, index: u32, checked: bool) {
 		let shared = self.shared();
 		{
@@ -635,7 +570,6 @@ impl MessageList {
 		self.panel.refresh(false, None);
 	}
 
-	/// Runs `callback` with the row whenever the user checks or unchecks it.
 	pub fn on_toggled(&self, callback: impl Fn(u32) + 'static) {
 		*self.shared().on_toggled.borrow_mut() = Some(Rc::new(callback));
 	}
@@ -646,25 +580,17 @@ impl MessageList {
 		*self.shared().on_selection_changed.borrow_mut() = Some(Rc::new(callback));
 	}
 
-	/// Where rows get their look (bubble, picture) from: called with a row's
-	/// index and key while painting it. None draws the row's text plainly.
 	pub fn set_look_source(&self, source: impl Fn(usize, &str) -> Option<super::message_art::Look> + 'static) {
 		*self.shared().looks.borrow_mut() = Some(Rc::new(source));
 		self.remeasure_all();
 	}
 
-	/// Measures every row again: what they look like changed (a picture
-	/// arrived, the theme changed) though their text didn't.
 	pub fn remeasure_all(&self) {
 		let shared = self.shared();
 		shared.state.borrow_mut().rows.iter_mut().for_each(|r| r.measured = false);
 		self.schedule_measure();
 	}
 
-	// --- Internals ---
-
-	/// Measures the rows that need it once the app is done with what it's
-	/// doing (the look source reads the app's state, which may be borrowed now).
 	fn schedule_measure(&self) {
 		let shared = self.shared();
 		if shared.measure_pending.replace(true) {
@@ -677,9 +603,6 @@ impl MessageList {
 		}));
 	}
 
-	/// Works out how tall each row not yet measured is drawn at the list's
-	/// width - a long message wraps, a photo has its picture - keeping the
-	/// same row at the top of the view.
 	fn remeasure(&self) {
 		let shared = self.shared();
 		let Some(looks) = shared.looks.borrow().clone() else { return };
@@ -728,7 +651,6 @@ impl MessageList {
 		}
 		drop(state);
 		if missing && shared.measure_retries.get() < 5 {
-			// The app's rows didn't match the list's yet; they will shortly.
 			shared.measure_retries.set(shared.measure_retries.get() + 1);
 			self.schedule_measure();
 		} else {
@@ -774,35 +696,26 @@ impl MessageList {
 		self.panel.refresh(false, None);
 	}
 
-	/// The width rows are laid out for: the window's, less a scrollbar's
-	/// whether there is one or not, so the scrollbar coming or going doesn't
-	/// change how tall the rows are (and so whether it's needed).
 	fn layout_width(&self) -> i32 {
 		use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXVSCROLL};
 		let scrollbar = unsafe { GetSystemMetrics(SM_CXVSCROLL) };
 		(self.panel.get_size().width - scrollbar).min(self.panel.get_client_size().width)
 	}
 
-	/// Rows of text the window has room for.
 	fn visible_units(&self, state: &State) -> usize {
 		let height = self.panel.get_client_size().height;
 		(height / state.row_height.max(1)).max(1) as usize
 	}
 
-	/// Rows that fit from the top row down, at least one.
 	fn visible_rows(&self, state: &State) -> usize {
 		let room = state.start_of(state.top) + self.visible_units(state);
 		(state.top..state.rows.len()).take_while(|&i| state.start_of(i + 1) <= room).count().max(1)
 	}
 
-	/// The top row as the scrollbar has it (the user may have scrolled).
 	fn view_top(&self, state: &State) -> usize {
 		state.row_at_unit(self.panel.get_view_start().1.max(0) as usize)
 	}
 
-	/// Sets the scrollbar up for the rows (one unit per row of text) and moves
-	/// it to `state.top`. Runs outside any borrow of the state: scrolling can
-	/// paint.
 	fn apply_view(&self, shared: &Shared) {
 		let (len, row_height, top, changed) = {
 			let mut state = shared.state.borrow_mut();
@@ -835,8 +748,6 @@ impl MessageList {
 		if sel < state.top {
 			state.top = sel;
 		} else if state.start_of(sel + 1) > state.start_of(state.top) + room {
-			// The highest top that still shows all of it (or its start, when
-			// it's taller than the window).
 			let end = state.start_of(sel + 1);
 			let mut top = sel;
 			while top > state.top && end - state.start_of(top - 1) <= room {
@@ -846,7 +757,6 @@ impl MessageList {
 		}
 	}
 
-	/// A cursor move the user made: like `set_selection`, then tells the app.
 	fn select_by_user(&self, index: usize) {
 		let shared = self.shared();
 		{
@@ -863,7 +773,6 @@ impl MessageList {
 		}
 	}
 
-	/// A check the user made: flips the row, then tells the app.
 	fn toggle_by_user(&self, index: usize) {
 		let shared = self.shared();
 		{
@@ -907,14 +816,11 @@ impl MessageList {
 			}
 			event.skip(true);
 		});
-		// The cursor row is drawn differently with and without focus.
 		let list = *self;
 		self.panel.on_set_focus(move |event| {
 			list.panel.refresh(false, None);
 			event.skip(true);
 		});
-		// Leaving the list, a row that changed while it had the cursor gets
-		// its new text, so coming back reads what's there now.
 		let list = *self;
 		self.panel.on_kill_focus(move |event| {
 			let shared = list.shared();
@@ -924,9 +830,6 @@ impl MessageList {
 			list.panel.refresh(false, None);
 			event.skip(true);
 		});
-		// Tab is taken on key down: the app's own key-down handler (bound later,
-		// so it runs first) lets it through, and acting here doesn't depend on
-		// wx turning it into a char event.
 		let list = *self;
 		self.panel.on_key_down(move |event| {
 			if let WindowEventData::Keyboard(ref key) = event
@@ -940,9 +843,6 @@ impl MessageList {
 			}
 			event.skip(true);
 		});
-		// Moving keys come as char events, which wx only sends for a key the
-		// app's own key-down handler let through - so its Home, End and
-		// shortcuts win, as they did over the list box.
 		let list = *self;
 		self.panel.on_char(move |event| {
 			let WindowEventData::Keyboard(ref key) = event else { return };
@@ -984,8 +884,6 @@ impl MessageList {
 			}
 			event.skip(true);
 		});
-		// A right click picks its row first, as in a list box; the context
-		// menu itself comes from the window's WM_CONTEXTMENU.
 		let list = *self;
 		self.panel.on_mouse_right_down(move |event| {
 			if let WindowEventData::MouseButton(ref mouse) = event
@@ -997,7 +895,6 @@ impl MessageList {
 			}
 			event.skip(true);
 		});
-		// The mouse wheel and the scrollbar are the scrolled window's own.
 	}
 
 	fn row_at(&self, y: i32) -> Option<usize> {
@@ -1007,12 +904,6 @@ impl MessageList {
 		(unit < state.total_units()).then(|| state.row_at_unit(unit))
 	}
 
-	/// Moves focus to the next (or previous) control in tab order, as Tab
-	/// does from a list box. The list takes every key (so arrows reach it), so
-	/// Tab has to be passed on by hand. Neither wx's `Navigate` (from a panel
-	/// with no children) nor Windows' `GetNextDlgTabItem` (wx panels aren't
-	/// dialog containers to it) went anywhere, so this walks the window's
-	/// controls itself, in creation order, as both of those do.
 	fn tab_away(&self, backwards: bool) {
 		use windows::Win32::UI::{
 			Input::KeyboardAndMouse::{IsWindowEnabled, SetFocus},
@@ -1021,9 +912,6 @@ impl MessageList {
 				WS_TABSTOP,
 			},
 		};
-		/// Appends the visible, enabled tab stops under `parent` in order. A
-		/// container with stops inside it is passed over for them. The list
-		/// itself always counts, whatever wx has done to its window style.
 		fn collect(parent: HWND, me: HWND, stops: &mut Vec<HWND>) {
 			let mut child = unsafe { GetWindow(parent, GW_CHILD) }.ok();
 			while let Some(hwnd) = child {
@@ -1058,7 +946,6 @@ impl MessageList {
 		));
 	}
 
-	/// Arrows, Page Up/Down, Tab and type-ahead. Home and End are the app's.
 	fn handle_char(&self, key: &wxdragon::event::KeyboardEvent) -> bool {
 		let Some(code) = key.get_key_code() else { return false };
 		if code == WXK_TAB {
@@ -1105,8 +992,6 @@ impl MessageList {
 		}
 	}
 
-	/// Jumps to the next row starting with what's been typed, as a list box
-	/// does. The same letter again moves on to the next match.
 	fn type_ahead(&self, ch: char) {
 		let found = {
 			let shared = self.shared();
@@ -1141,7 +1026,6 @@ impl MessageList {
 	fn paint(&self) {
 		let dc = AutoBufferedPaintDC::new(&self.panel);
 		let shared = self.shared();
-		// Painting can happen inside a scroll the list itself started.
 		let Ok(mut state) = shared.state.try_borrow_mut() else { return };
 		let top = self.view_top(&state);
 		state.top = top;
@@ -1154,7 +1038,6 @@ impl MessageList {
 		dc.set_brush(background, BrushStyle::Solid);
 		dc.set_pen(background, 1, PenStyle::Solid);
 		dc.draw_rectangle(0, 0, width, height);
-		// WhatsApp's faint doodles behind the chat.
 		if super::theme::use_custom_colours() {
 			super::message_art::paint_wallpaper(&dc, background, width, height);
 		}
@@ -1163,8 +1046,6 @@ impl MessageList {
 		dc.set_background_mode(BackgroundMode::Transparent);
 		let row_height = (dc.get_text_extent("Ag").1 + ROW_PADDING).max(1);
 		if state.row_height != row_height {
-			// A new font (the theme's, or another screen's scale): the
-			// scrollbar's steps are rows, so it's set up again after this paint.
 			state.row_height = row_height;
 			let list = *self;
 			wxdragon::call_after(Box::new(move || {
@@ -1177,7 +1058,6 @@ impl MessageList {
 		let focused = self.panel.has_focus();
 		let layout_width = self.layout_width();
 		let looks = shared.looks.borrow().clone();
-		// The top row may be scrolled partly out of view.
 		let view_unit = self.panel.get_view_start().1.max(0) as usize;
 		let mut y = -((view_unit.saturating_sub(state.start_of(state.top))) as i32) * row_height;
 		let mut index = state.top;
@@ -1185,7 +1065,6 @@ impl MessageList {
 			let row = &state.rows[index];
 			let look = looks.as_ref().and_then(|source| source(index, &row.key));
 			let row_px = row_height * row.units as i32;
-			// A row not measured yet keeps to its old height.
 			dc.set_clipping_region(0, y, width, row_px);
 			super::message_art::paint_row(
 				&dc,
@@ -1211,8 +1090,6 @@ impl MessageList {
 	}
 }
 
-/// The lists the "go back to where I was" shortcut can return to: the nav and
-/// chat list boxes and this list.
 pub trait CursorList {
 	fn count(&self) -> u32;
 	fn selection(&self) -> Option<u32>;

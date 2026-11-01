@@ -1,8 +1,3 @@
-//! Sending from the emoji and stickers panel (`ui::emoji_panel`): favorite
-//! stickers (synced from the phone), stickers recently seen in chats,
-//! WhatsApp's own sticker packs, or a .webp file; and favorites, whose
-//! changes the backend reports (`sticker_favorite`).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -20,7 +15,6 @@ fn announce(parts: &WindowParts, message: &str) {
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
-/// The pending reply, taken for a sticker going out now.
 fn take_reply(state: &Rc<RefCell<AppState>>, parts: &WindowParts) -> (String, String) {
 	let mut s = state.borrow_mut();
 	let reply_id = s.pending_reply_id.take().unwrap_or_default();
@@ -30,9 +24,6 @@ fn take_reply(state: &Rc<RefCell<AppState>>, parts: &WindowParts) -> (String, St
 	(reply_id, reply_sender)
 }
 
-/// The emoji and stickers panel, from the button by the message box, the
-/// Conversation menu or the attach menu's "Sticker": an emoji goes into the
-/// message box, a sticker straight to the chat.
 pub(crate) fn open_emoji_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, stickers: bool) {
 	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) || state.borrow().selected_chat.is_none() {
 		return;
@@ -89,14 +80,11 @@ pub(crate) fn open_emoji_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	announce(parts, "Sending sticker...");
 }
 
-/// The message menu's favorite item: add a sticker in a chat to the
-/// favorites, or take it off.
 pub(crate) fn set_favorite(state: &Rc<RefCell<AppState>>, message_id: &str, favorite: bool) {
 	let payload = serde_json::json!({ "action": "set_sticker_favorite", "data": { "message_id": message_id, "favorite": favorite } });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
-/// The backend changed a favorite.
 pub(crate) fn sticker_favorite(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let favorite = data.get("favorite").and_then(|v| v.as_bool()).unwrap_or(false);
 	let message_id = data.get("message_id").and_then(|v| v.as_str()).unwrap_or("");

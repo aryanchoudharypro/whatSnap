@@ -1,8 +1,3 @@
-//! Small GDI drawing helpers for the rows the app draws itself (the chat
-//! list's pictures, badges and icons): smooth circles and pills from raw
-//! pixels, text, and the Windows icon font. Drawing only; nothing here is
-//! seen by a screen reader.
-
 use windows::Win32::{
 	Foundation::{COLORREF, RECT, SIZE},
 	Graphics::Gdi::{
@@ -13,12 +8,10 @@ use windows::Win32::{
 	},
 };
 
-/// A colour as GDI wants it.
 pub(crate) fn colorref(r: u8, g: u8, b: u8) -> COLORREF {
 	COLORREF(r as u32 | (g as u32) << 8 | (b as u32) << 16)
 }
 
-/// A 32-bit premultiplied bitmap, deleted when dropped.
 pub(crate) struct Bitmap {
 	handle: HBITMAP,
 	pub width: i32,
@@ -34,7 +27,6 @@ impl Drop for Bitmap {
 }
 
 impl Bitmap {
-	/// From straight (not premultiplied) RGBA rows, top row first.
 	pub(crate) fn from_rgba(width: i32, height: i32, rgba: &[u8]) -> Option<Self> {
 		if width <= 0 || height <= 0 || rgba.len() < (width * height * 4) as usize {
 			return None;
@@ -70,7 +62,6 @@ impl Bitmap {
 		Some(Self { handle, width, height })
 	}
 
-	/// Draws it at (x, y), blending its edges into what's there.
 	pub(crate) fn draw(&self, dc: HDC, x: i32, y: i32) {
 		unsafe {
 			let mem = CreateCompatibleDC(Some(dc));
@@ -88,8 +79,6 @@ impl Bitmap {
 	}
 }
 
-/// How much of the pixel at (x, y) a rounded rectangle `w` x `h` with
-/// corner `radius` covers, smoothed over one pixel.
 pub(crate) fn round_rect_coverage(x: i32, y: i32, w: i32, h: i32, radius: f32) -> f32 {
 	let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
 	let cx = px.clamp(radius, w as f32 - radius);
@@ -98,13 +87,10 @@ pub(crate) fn round_rect_coverage(x: i32, y: i32, w: i32, h: i32, radius: f32) -
 	(radius + 0.5 - dist).clamp(0.0, 1.0)
 }
 
-/// A filled rounded rectangle (a circle when it's square with `radius` half
-/// its side, a pill when `radius` is half its height).
 pub(crate) fn round_rect(w: i32, h: i32, radius: f32, colour: (u8, u8, u8)) -> Option<Bitmap> {
 	Bitmap::from_rgba(w, h, &round_rect_rgba(w, h, radius, colour, 255))
 }
 
-/// The pixels of `round_rect` (straight RGBA), at most `alpha` opaque.
 pub(crate) fn round_rect_rgba(w: i32, h: i32, radius: f32, (r, g, b): (u8, u8, u8), alpha: u8) -> Vec<u8> {
 	let mut rgba = vec![0u8; (w.max(0) * h.max(0) * 4) as usize];
 	for y in 0..h {
@@ -119,8 +105,6 @@ pub(crate) fn round_rect_rgba(w: i32, h: i32, radius: f32, (r, g, b): (u8, u8, u
 	rgba
 }
 
-/// Cuts a `size` x `size` circle from the middle of a picture, shrinking it
-/// by averaging, so a 96-pixel profile picture stays smooth at 40.
 pub(crate) fn circle_crop(width: u32, height: u32, rgba: &[u8], size: i32) -> Option<Bitmap> {
 	if width == 0 || height == 0 || size <= 0 {
 		return None;
@@ -182,8 +166,6 @@ pub(crate) fn text_width(dc: HDC, font: HFONT, text: &str) -> i32 {
 	}
 }
 
-/// One line of text in `rect`, centred vertically, cut with "..." when it
-/// doesn't fit. `extra` adds alignment flags (DT_RIGHT, DT_CENTER).
 pub(crate) fn text(dc: HDC, font: HFONT, colour: COLORREF, text: &str, mut rect: RECT, extra: DRAW_TEXT_FORMAT) {
 	if text.is_empty() || rect.right <= rect.left {
 		return;
@@ -202,8 +184,6 @@ pub(crate) fn text(dc: HDC, font: HFONT, colour: COLORREF, text: &str, mut rect:
 	}
 }
 
-/// A font like `base` (a LOGFONT from the control's own font), with its
-/// height scaled by `scale` and the given weight.
 pub(crate) fn derived_font(base: &LOGFONTW, scale: f32, weight: i32) -> HFONT {
 	let mut lf = *base;
 	lf.lfHeight = (lf.lfHeight as f32 * scale).round() as i32;
@@ -212,9 +192,6 @@ pub(crate) fn derived_font(base: &LOGFONTW, scale: f32, weight: i32) -> HFONT {
 	unsafe { CreateFontIndirectW(&lf) }
 }
 
-/// The Windows icon font at `base`'s size, scaled: Segoe Fluent Icons
-/// (Windows 11), else Segoe MDL2 Assets (Windows 10). None when neither is
-/// installed, so no stray letters are drawn in place of icons.
 pub(crate) fn icon_font(dc: HDC, base: &LOGFONTW, scale: f32) -> Option<HFONT> {
 	for face in ["Segoe Fluent Icons", "Segoe MDL2 Assets"] {
 		let mut lf = *base;
@@ -230,7 +207,6 @@ pub(crate) fn icon_font(dc: HDC, base: &LOGFONTW, scale: f32) -> Option<HFONT> {
 		if font.is_invalid() {
 			continue;
 		}
-		// GDI quietly substitutes another font for one that isn't there.
 		let mut got = [0u16; 32];
 		unsafe {
 			let old = SelectObject(dc, HGDIOBJ(font.0));
@@ -249,7 +225,6 @@ pub(crate) fn icon_font(dc: HDC, base: &LOGFONTW, scale: f32) -> Option<HFONT> {
 	None
 }
 
-/// Whether GDI has a font named `face`, rather than quietly substituting one.
 pub(crate) fn face_installed(face: &str) -> bool {
 	unsafe {
 		let dc = windows::Win32::Graphics::Gdi::GetDC(None);

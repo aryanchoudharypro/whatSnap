@@ -1,8 +1,3 @@
-//! Small helpers written out here instead of pulling in a crate for each.
-
-/// 32 hex digits no other process can predict, for pipe and temp-file names.
-/// std seeds `RandomState` from the OS random source, and SipHash keyed with
-/// those secret keys gives output as unguessable as the keys themselves.
 pub(crate) fn random_hex() -> String {
 	use std::hash::{BuildHasher, Hasher, RandomState};
 	(0..2u64)
@@ -14,7 +9,6 @@ pub(crate) fn random_hex() -> String {
 		.collect()
 }
 
-/// Standard (padded) base64.
 pub(crate) fn base64(data: &[u8]) -> String {
 	const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	let mut out = String::with_capacity(data.len().div_ceil(3) * 4);

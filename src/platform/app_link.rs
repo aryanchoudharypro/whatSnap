@@ -1,32 +1,20 @@
-//! `whatsnap://` links, which the app's own notifications use: a toast's
-//! "Mark as read" button and clicking a toast. Windows hands them back to the
-//! app like any other protocol link, so they go through the same single-instance
-//! and `OpenWhatsAppLink` path as `whatsapp://` links.
-
-/// What a `whatsnap://` link asks the app to do for one chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppLink {
-	/// Open the chat, which also clears its notifications.
 	Open { jid: String },
-	/// Mark the chat's messages read, and clear its notifications.
 	MarkRead { jid: String },
 }
 
 const SCHEME: &str = "whatsnap://";
 
-/// The link a toast's click opens the chat with.
 pub fn open_link(jid: &str) -> String {
 	format!("{SCHEME}open?jid={}", encode(jid))
 }
 
-/// The link the toast's "Mark as read" button runs.
 pub fn mark_read_link(jid: &str) -> String {
 	format!("{SCHEME}markread?jid={}", encode(jid))
 }
 
-/// Parses a `whatsnap://` link, or returns `None` for anything else.
 pub fn parse(link: &str) -> Option<AppLink> {
-	// Quotes can come along from a command line, as with whatsapp:// links.
 	let link = link.trim().trim_matches('"');
 	let rest = link.get(..SCHEME.len()).filter(|s| s.eq_ignore_ascii_case(SCHEME)).map(|_| &link[SCHEME.len()..])?;
 	let (action, query) = rest.split_once('?').unwrap_or((rest, ""));
@@ -38,7 +26,6 @@ pub fn parse(link: &str) -> Option<AppLink> {
 	}
 }
 
-/// Percent-encodes everything but unreserved characters.
 fn encode(value: &str) -> String {
 	let mut out = String::with_capacity(value.len());
 	for byte in value.bytes() {
@@ -51,7 +38,6 @@ fn encode(value: &str) -> String {
 	out
 }
 
-/// Decodes `%XX` escapes. A malformed escape is kept as written.
 fn decode(value: &str) -> String {
 	let bytes = value.as_bytes();
 	let mut out = Vec::with_capacity(bytes.len());

@@ -2,8 +2,6 @@ use wxdragon::prelude::*;
 
 use crate::ui::theme;
 
-/// Every constructed widget is kept here for consistency, matching this
-/// codebase's convention for dialog parts structs.
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct ConversationDataDialogParts {
@@ -11,37 +9,27 @@ pub struct ConversationDataDialogParts {
 	pub back_btn: Button,
 	pub notebook: Notebook,
 
-	// Info tab
 	pub info_panel: Panel,
 	pub info_field: TextCtrl,
-	/// Hidden for a chat that can't be called, such as a broadcast list.
 	pub voice_call_btn: Button,
 	pub video_call_btn: Button,
-	/// "Add contact" when the person isn't saved, "Edit contact" when they are.
 	pub contact_btn: Button,
-	/// Only shown while the person is saved.
 	pub delete_contact_btn: Button,
 	pub chat_privacy_btn: Button,
-	/// The person's profile photo, big and round as on WhatsApp; hidden
-	/// until it arrives (see `show_photo`).
 	pub photo: StaticBitmap,
 
-	// Media tab (photos and videos only, matching official WhatsApp)
 	pub media_panel: Panel,
 	pub media_label: StaticText,
 	pub media_list: ListBox,
 
-	// Documents tab
 	pub documents_panel: Panel,
 	pub documents_label: StaticText,
 	pub documents_list: ListBox,
 
-	// Links tab
 	pub links_panel: Panel,
 	pub links_label: StaticText,
 	pub links_list: ListBox,
 
-	// Groups in common tab
 	pub common_groups_panel: Panel,
 	pub common_groups_label: StaticText,
 	pub common_groups_list: ListBox,
@@ -52,22 +40,16 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	theme::style_content(&dialog);
 	let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	// The back button comes first, both in tab order and on screen, matching
-	// the old WhatsApp UWP app's pattern of a "Back" control at the top of a
-	// detail screen rather than a "Close" button at the bottom.
 	let back_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("< Back").build();
 	main_sizer.add(&back_btn, 0, SizerFlag::All, 5);
 
 	let notebook = Notebook::builder(&dialog).build();
 
-	// --- Info Tab ---
 	let info_panel = Panel::builder(&notebook).build();
-	// WhatsApp's info page: a grey page with white cards on it.
 	if theme::use_custom_colours() {
 		info_panel.set_background_color(theme::Palette::PANEL_BG());
 	}
 	let info_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	// The photo goes at the top, though it's made last (see below).
 	let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
 	info_sizer.add_sizer(&photo_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 10);
 
@@ -77,7 +59,6 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	info_field.set_font(&theme::Fonts::body());
 	info_sizer.add(&info_field, 1, SizerFlag::Expand | SizerFlag::All, 12);
 
-	// What WhatsApp's contact info offers for the person and the chat.
 	let actions_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let voice_call_btn = Button::builder(&info_panel).with_label("Voice call").build();
 	crate::ui::owner_draw::install_tile(&voice_call_btn, theme::Palette::PANEL_BG());
@@ -106,19 +87,16 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 
 	info_panel.set_sizer(info_sizer, true);
 
-	// --- Media Tab ---
 	let media_panel = Panel::builder(&notebook).build();
 	let media_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let media_label = StaticText::builder(&media_panel).with_label("Media").build();
 	media_sizer.add(&media_label, 0, SizerFlag::All, 5);
-	// Each photo or video drawn beside its text (see `owner_draw::install_media_list`).
 	let media_list = ListBox::builder(&media_panel)
 		.with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW))
 		.build();
 	media_sizer.add(&media_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	media_panel.set_sizer(media_sizer, true);
 
-	// --- Documents Tab ---
 	let documents_panel = Panel::builder(&notebook).build();
 	let documents_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let documents_label = StaticText::builder(&documents_panel).with_label("Documents").build();
@@ -127,7 +105,6 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	documents_sizer.add(&documents_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	documents_panel.set_sizer(documents_sizer, true);
 
-	// --- Links Tab ---
 	let links_panel = Panel::builder(&notebook).build();
 	let links_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let links_label = StaticText::builder(&links_panel).with_label("Links").build();
@@ -136,7 +113,6 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	links_sizer.add(&links_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	links_panel.set_sizer(links_sizer, true);
 
-	// --- Groups in common Tab ---
 	let common_groups_panel = Panel::builder(&notebook).build();
 	let common_groups_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let common_groups_label = StaticText::builder(&common_groups_panel).with_label("Groups in common").build();
@@ -145,7 +121,6 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	common_groups_sizer.add(&common_groups_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	common_groups_panel.set_sizer(common_groups_sizer, true);
 
-	// Add pages to notebook
 	notebook.add_page(&info_panel, "Info", true, None);
 	notebook.add_page(&media_panel, "Media", false, None);
 	notebook.add_page(&documents_panel, "Documents", false, None);
@@ -186,8 +161,6 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	}
 }
 
-/// Shows the picture at `path` (a profile photo) round in `photo`, `size`
-/// pixels across, and lays out `panel` around it. An empty path hides it.
 pub fn show_photo(photo: &StaticBitmap, panel: &Panel, path: &str) {
 	let size = (photo.get_char_height() * 8).clamp(96, 320) as u32;
 	let bitmap = (!path.is_empty()).then(|| crate::ui::owner_draw::round_picture(path, size)).flatten();

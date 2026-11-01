@@ -1,7 +1,3 @@
-//! Misc chat-view UI helpers: toast notifications, backend shutdown
-//! signaling, and switching the conversation panel between chats (unread
-//! divider, composer draft, pending reply, opening a jid).
-
 use std::{
 	cell::RefCell,
 	io::{BufRead, BufReader, Write},
@@ -24,7 +20,6 @@ use crate::{
 /// main/GUI thread - wx (and the underlying WinRT toast COM calls) aren't
 /// thread-safe. Message toasts go through [`show_chat_notification`].
 pub(crate) fn show_toast_notification(title: &str, body: &str) {
-	// Debounce toast notifications globally to max 1 per second to avoid flooding on startup
 	static LAST_TOAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 	let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
 	let last = LAST_TOAST.swap(now, std::sync::atomic::Ordering::Relaxed);
@@ -32,9 +27,6 @@ pub(crate) fn show_toast_notification(title: &str, body: &str) {
 		return;
 	}
 
-	// `with_generic(false)` opts into the native backend, which uses the modern
-	// WinRT toast (registered via `msw_use_toasts` above) rather than wxdragon's
-	// default generic popup on Windows.
 	match wxdragon::prelude::NotificationMessage::builder()
 		.with_title(title)
 		.with_message(body)
@@ -50,11 +42,8 @@ pub(crate) fn show_toast_notification(title: &str, body: &str) {
 	}
 }
 
-/// How long a backlog replay has to go quiet before its summary goes out.
 const CATCH_UP_QUIET: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Tallies one message replayed from a backlog instead of alerting for it.
-/// `missed_call` is a call-history line for a call that went unanswered.
 pub(crate) fn record_catch_up_alert(s: &mut AppState, jid: &str, missed_call: bool, alert: whatsnap::IncomingAlert) {
 	if missed_call {
 		s.catch_up_alerts.record_missed_call(jid, alert);
@@ -66,9 +55,6 @@ pub(crate) fn record_catch_up_alert(s: &mut AppState, jid: &str, missed_call: bo
 	}
 }
 
-/// Answers a finished backlog replay with one sound and one notification
-/// covering everything in it. Called from the UI timer; does nothing until the
-/// replay has been quiet for [`CATCH_UP_QUIET`].
 pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 	match s.catch_up_last_at {
 		Some(last) if last.elapsed() >= CATCH_UP_QUIET => {}
@@ -91,10 +77,6 @@ pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 	}
 }
 
-/// Shows a message toast for `jid`. Its click and "Mark as read" button both go
-/// back through the app's own `whatsnap://` link handling, and opening the chat
-/// removes its toasts from Action Center (see [`clear_chat_notifications`]).
-/// Falls back to a plain notification if the WinRT toast can't be shown.
 pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str) {
 	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body) {
 		eprintln!("[NOTIFY] Chat toast failed, showing a plain notification: {err:?}");
@@ -102,8 +84,6 @@ pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str) {
 	}
 }
 
-/// Removes the chat's toasts from Action Center, so opening the chat or using
-/// "Mark as read" clears them, the way official WhatsApp does.
 pub(crate) fn clear_chat_notifications(jid: &str) {
 	crate::platform::toast::clear_chat_toasts(jid);
 }
@@ -132,12 +112,6 @@ pub(crate) fn request_backend_shutdown(pipe_id: &str) {
 	let _ = socket.flush();
 }
 
-/// Drops the "N unread messages" divider from `jid`'s message list right
-/// away, if `jid` is the chat currently open and it has one - shared by
-/// replying (obviously seen) and explicitly marking the chat read from the
-/// chat-list context menu. Removing just the divider row in place is O(1)
-/// against the widget rather than rebuilding+re-appending the whole
-/// (unvirtualized) list, which visibly froze the UI on long chats.
 pub(crate) fn clear_unread_divider_for_open_chat(s: &mut AppState, parts: &WindowParts, jid: &str) {
 	if s.unread_divider_jid.as_deref() != Some(jid) {
 		return;
@@ -174,11 +148,6 @@ pub(crate) fn save_composer_draft(s: &mut AppState, parts: &WindowParts) {
 	}
 }
 
-/// Drops a pending "reply to" quote and hides its Remove Quote button. A
-/// quote belongs to the chat it was picked in: every send path reads
-/// `pending_reply_id` against whatever chat is open *now*, so leaving it set
-/// across a chat switch sent the next message in the other chat as a reply
-/// to a message that isn't even there. Official WhatsApp cancels it too.
 pub(crate) fn clear_pending_reply(s: &mut AppState, parts: &WindowParts) {
 	s.pending_reply_id = None;
 	s.pending_reply_sender = None;
@@ -186,9 +155,6 @@ pub(crate) fn clear_pending_reply(s: &mut AppState, parts: &WindowParts) {
 	parts.conversations_parts.remove_quote_btn.show(false);
 }
 
-/// What the open chat's header says about it: its typing or recording state,
-/// else its presence (online, last seen...), else its name. Alt+T announces
-/// the same text.
 pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	let norm_jid = if let Some((user, server)) = jid.split_once('@') {
 		let base = user.split('.').next().unwrap_or(user).split(':').next().unwrap_or(user);
@@ -212,10 +178,6 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	crate::backend::events::format_conv_data_label(jid, &name, &name, kind == 1, kind == 2, presence_label)
 }
 
-/// Switches the conversation panel over to `jid`, requesting its message
-/// history. Shared by opening a chat from the sidebar (`OpenConversation`)
-/// and jumping straight to a phone number found in message text
-/// (`OpenChatByPhone`) — the latter's jid may not be in `filtered_chats` yet.
 pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
 	// An in-progress edit is tied to the message (and chat) it was started
@@ -228,10 +190,6 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		parts.conversations_parts.add_attachment_btn.show(true);
 		parts.conversations_parts.emoji_btn.show(true);
 		parts.conversations_parts.message_label.set_label("Type a message");
-		// An edit-in-progress is not a new message someone was composing -
-		// clear it rather than letting `save_composer_draft` below pick up
-		// the message's own (edited) text as if it were an ordinary unsent
-		// draft for the chat being left.
 		parts.conversations_parts.message_field.set_value("");
 	}
 	save_composer_draft(&mut s, parts);
@@ -245,25 +203,17 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	{
 		crate::ui_commands::messaging::send_chatstate(&mut s, &prev_jid, "paused", "");
 	}
-	// Re-opening the same chat keeps the quote; any other chat drops it.
 	if s.selected_chat.as_deref() != Some(jid) {
 		clear_pending_reply(&mut s, parts);
 	}
 	s.selected_chat = Some(jid.to_string());
 	crate::ui::window::refresh_menu_bar(&s, &parts.frame);
-	// Mirrors official WhatsApp: opening a chat clears any of its
-	// notifications still sitting in Action Center.
 	clear_chat_notifications(jid);
 	let unread = s.unread_counts.get(jid).copied().unwrap_or(0);
 	s.unread_divider_jid = if unread > 0 { Some(jid.to_string()) } else { None };
 	s.unread_divider_count = unread;
 	s.background_unread_message_ids.clear();
 	s.initial_presence_received = false;
-	// Releases the outgoing chat's messages, their display_items copies and the
-	// info dialogs' media snapshots. `s.messages.clear()` alone used to leave
-	// display_items holding a full second copy of the previous chat - both a
-	// retention leak and a source of stale row lookups in the window between
-	// the switch and the new conversation_messages response landing.
 	crate::ui_commands::chat_list::release_conversation_buffers(&mut s, parts);
 	s.loading_messages = false;
 	s.no_more_messages = false;
@@ -277,9 +227,6 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	s.newer_unloaded = 0;
 	s.land_on_first = false;
 	s.pending_attachments.clear();
-	// Selection mode's row list is tied to the chat it was built from -
-	// switching chats mid-selection would leave it pointing at messages that
-	// no longer belong to the now-displayed conversation.
 	if s.selection_mode {
 		s.selection_mode = false;
 		s.selected_message_ids.clear();
@@ -317,9 +264,6 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.message_field.set_value(&draft);
 	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
 	parts.conversations_parts.panel.layout();
-	// The newest page (see `MESSAGE_PAGE_SIZE`), stretched to reach the first
-	// unread message; or, opening onto a starred message, the page around it
-	// (`apply_conversation_messages` selects it via `search_target_id`).
 	let payload = match s.search_target_id.clone() {
 		Some(target) => crate::ui_commands::chat_list::around_request(jid, &target, ""),
 		None => {
@@ -337,8 +281,6 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	parts.conversations_parts.messages_list.set_focus();
 }
 
-/// Why messages can't be sent in a group, when they can't: we left or were
-/// removed, or only its admins can send and we aren't one.
 pub(crate) fn group_send_block_reason(s: &AppState, jid: &str) -> Option<&'static str> {
 	if !jid.ends_with("@g.us") {
 		None
@@ -363,7 +305,6 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	cp.add_attachment_btn.enable(enabled);
 	cp.emoji_btn.enable(enabled);
 	cp.record_voice_btn.enable(enabled);
-	// An edit in progress keeps its "Edit message" label.
 	if s.editing_message_id.is_none() {
 		let label = reason.unwrap_or("Type a message");
 		if cp.message_label.get_label() != label {

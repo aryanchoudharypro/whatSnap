@@ -9,8 +9,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// handleGetOwnProfile returns the local user's push name and about/status
-// text, for populating the privacy tab's profile fields.
 func handleGetOwnProfile(conn net.Conn) {
 	go func() {
 		if wa().Store.ID == nil {
@@ -27,7 +25,6 @@ func handleGetOwnProfile(conn net.Conn) {
 		// of that mutation and is the only reliable way to get a fresh
 		// value.
 		if status, err := wa().GetTextStatus(context.Background(), myJID); err == nil {
-			// No entry at all is an empty About, not a failure.
 			aboutLoaded = true
 			if status != nil {
 				about = status.Text
@@ -40,8 +37,6 @@ func handleGetOwnProfile(conn net.Conn) {
 			"jid":      myJID.String(),
 			"pushName": wa().Store.PushName,
 		}
-		// Without the real About, the settings dialog leaves it alone
-		// rather than show (and then save) an empty one.
 		if aboutLoaded {
 			profile["about"] = about
 			profile["aboutDuration"] = aboutDuration

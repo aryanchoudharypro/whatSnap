@@ -1,7 +1,3 @@
-//! The small pictures of photos, videos and stickers the message list draws:
-//! asked of the backend only for the rows on screen (see thumbnails.go),
-//! decoded to the size they're drawn at, and kept for a few dozen messages.
-
 use std::{
 	cell::RefCell,
 	collections::{HashMap, VecDeque},
@@ -11,17 +7,12 @@ use std::{
 
 use wxdragon::bitmap::Bitmap;
 
-/// Decoded pictures kept at once, each at most about 200 x 150 x 4 bytes.
 const MAX_BITMAPS: usize = 64;
 const RETRY_AFTER: Duration = Duration::from_secs(60);
-/// Known file paths kept before the ones not on screen are forgotten (they
-/// are asked for again if scrolled back to), so paging through a big chat's
-/// media all session doesn't keep one path per message seen.
 const MAX_PATHS: usize = 2048;
 
 pub(crate) enum Thumb<'a> {
 	Picture(&'a Bitmap),
-	/// Nothing to show (view once, no preview): the placeholder stays.
 	Nothing,
 	Waiting,
 }
@@ -29,7 +20,6 @@ pub(crate) enum Thumb<'a> {
 #[derive(Default)]
 struct Cache {
 	paths: HashMap<String, Option<String>>,
-	/// Each with the box it was made for; another box makes it again.
 	bitmaps: HashMap<String, ((i32, i32), Bitmap)>,
 	order: VecDeque<String>,
 	asked: HashMap<String, Instant>,
@@ -51,8 +41,6 @@ pub(crate) fn init(tx: mpsc::Sender<String>, on_change: impl Fn() + 'static) {
 	});
 }
 
-/// The file of message `id`'s picture: Some(None) when it has none, None
-/// while it's not known yet (it's asked for).
 pub(crate) fn path_of(id: &str) -> Option<Option<String>> {
 	CACHE.with(|cache| {
 		let mut c = cache.borrow_mut();
@@ -64,7 +52,6 @@ pub(crate) fn path_of(id: &str) -> Option<Option<String>> {
 	})
 }
 
-/// Runs `draw` with message `id`'s picture, fitted in `max_w` x `max_h`.
 pub(crate) fn with_thumb<R>(id: &str, max_w: i32, max_h: i32, draw: impl FnOnce(Thumb) -> R) -> R {
 	CACHE.with(|cache| {
 		let mut c = cache.borrow_mut();
@@ -115,8 +102,6 @@ fn ask(c: &mut Cache, id: &str) {
 		CACHE.with(|cache| {
 			let mut c = cache.borrow_mut();
 			c.flush_scheduled = false;
-			// The newest rows are at the bottom of the screen, where the
-			// user usually is: those first.
 			let mut ids = std::mem::take(&mut c.pending);
 			ids.reverse();
 			if let Some(tx) = &c.tx
@@ -129,7 +114,6 @@ fn ask(c: &mut Cache, id: &str) {
 	}));
 }
 
-/// The backend's `thumbnails`: {"items": [{"id", "path"}]}.
 pub(crate) fn on_thumbnails(data: &serde_json::Value) {
 	let Some(items) = data.get("items").and_then(|i| i.as_array()) else { return };
 	let on_change = CACHE.with(|cache| {
@@ -153,7 +137,6 @@ pub(crate) fn on_thumbnails(data: &serde_json::Value) {
 	}
 }
 
-/// A message's media finished downloading: a sharper picture can be made.
 pub(crate) fn forget(id: &str) {
 	CACHE.with(|cache| {
 		let mut c = cache.borrow_mut();
@@ -163,7 +146,6 @@ pub(crate) fn forget(id: &str) {
 	});
 }
 
-/// Voice notes' loudness bars (0-100), by message id: a few dozen bytes each.
 #[derive(Default)]
 struct Waveforms {
 	bars: HashMap<String, Vec<u8>>,
@@ -179,8 +161,6 @@ thread_local! {
 	static WAVEFORMS: RefCell<Waveforms> = RefCell::new(Waveforms::default());
 }
 
-/// Runs `draw` with voice note `id`'s bars, None until they've come (or
-/// when it has none).
 pub(crate) fn with_waveform<R>(id: &str, draw: impl FnOnce(Option<&[u8]>) -> R) -> R {
 	WAVEFORMS.with(|w| {
 		let mut w = w.borrow_mut();
@@ -208,7 +188,6 @@ pub(crate) fn with_waveform<R>(id: &str, draw: impl FnOnce(Option<&[u8]>) -> R) 
 	})
 }
 
-/// The backend's `waveforms`: {"items": [{"id", "bars": [0-100, ...]}]}.
 pub(crate) fn on_waveforms(data: &serde_json::Value) {
 	let Some(items) = data.get("items").and_then(|i| i.as_array()) else { return };
 	WAVEFORMS.with(|w| {

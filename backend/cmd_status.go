@@ -20,8 +20,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// whatsappTeal is the ARGB background official WhatsApp defaults a plain-text
-// status to when the poster doesn't pick a color.
 const whatsappTeal = 0xFF075E54
 
 type PostStatusData struct {
@@ -29,14 +27,12 @@ type PostStatusData struct {
 }
 
 type PostMediaStatusData struct {
-	Type     string `json:"type"` // image | video
-	Path     string `json:"path"`
-	Data     string `json:"data"`
-	Mimetype string `json:"mimetype"`
-	Filename string `json:"filename"`
-	Caption  string `json:"caption"`
-	// Thumbnail is a base64 PNG of a video's first frame, as for a chat
-	// attachment (SendAttachmentData.Thumbnail).
+	Type      string `json:"type"`
+	Path      string `json:"path"`
+	Data      string `json:"data"`
+	Mimetype  string `json:"mimetype"`
+	Filename  string `json:"filename"`
+	Caption   string `json:"caption"`
 	Thumbnail string `json:"thumbnail"`
 }
 
@@ -45,12 +41,6 @@ type MarkStatusViewedData struct {
 	PosterJID string `json:"poster_jid"`
 }
 
-// handleGetStatuses returns every still-live (posted within the last 24h)
-// Status/Stories update, grouped by poster: "My Status" first, then everyone
-// else newest-post-first. Statuses live in the same `messages` table as
-// regular chat messages, under the reserved jid 'status@broadcast' (see
-// handleIncomingStatus) - that's what lets media download/open/save reuse
-// their existing message-ID-keyed code paths unchanged.
 func handleGetStatuses(conn net.Conn) {
 	go func() {
 		purgeExpiredStatuses()
@@ -133,7 +123,6 @@ func handleGetStatuses(conn net.Conn) {
 			if fi != fj {
 				return fi
 			}
-			// Muted updates come last, as in WhatsApp's own "Muted updates".
 			if mi, mj := result[i]["muted"].(bool), result[j]["muted"].(bool); mi != mj {
 				return mj
 			}
@@ -145,9 +134,6 @@ func handleGetStatuses(conn net.Conn) {
 	}()
 }
 
-// textStatusColors is a text status update's background and text colours
-// (ARGB), for the in-app viewer to draw it the way its poster picked. Zero
-// means not given: the viewer then uses WhatsApp's teal and white.
 func textStatusColors(raw []byte) (background, text uint32) {
 	if len(raw) == 0 {
 		return 0, 0
@@ -213,9 +199,6 @@ func handlePostMediaStatus(raw json.RawMessage) {
 	go func() {
 		id := wa().GenerateMessageID()
 
-		// Resolve to a file on disk and upload from it as a stream, like chat
-		// attachments do - reading a video whole (and handing that buffer to
-		// Upload) put the entire file in memory, twice over.
 		srcPath := data.Path
 		if srcPath == "" {
 			fileBytes, err := readLocalFileOrDecode("", data.Data)
@@ -230,8 +213,6 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			}
 			srcPath = tmp
 		}
-		// A photo is prepared as for a chat (preparePhoto). The prepared copy
-		// is only an intermediate here: it's copied into the cache below.
 		var photo *preparedPhoto
 		preparedCopy := ""
 		if data.Type == "image" {
@@ -247,8 +228,6 @@ func handlePostMediaStatus(raw json.RawMessage) {
 				log.Printf("Posting status photo %s unprepared: %v", id, err)
 			}
 		}
-		// Statuses have their own size limit (WAWebMediaGatingUtils, for the
-		// status tab), for photos and videos alike.
 		if st, err := os.Stat(srcPath); err == nil {
 			if limit := int64(serverFlagInt(abPropStatusMediaLimitMB, defaultMediaLimitMB)) << 20; st.Size() > limit {
 				if data.Path == "" {
@@ -273,8 +252,6 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			}
 		}
 
-		// A video's details and preview, as for a chat (sendUploadedAttachment);
-		// cachedPath is our own copy, so an H.264 .mov can be relabelled.
 		var video *videoInfo
 		var videoThumb []byte
 		if data.Type == "video" {

@@ -1,20 +1,8 @@
-//! Contact/group-member picker helpers: formatting a contact's display
-//! label, filtering+repainting the New Group / Add Members / new-chat
-//! contact-picker listboxes, and the in-chat multi-select message list.
-
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{AppState, Contact, ui::window::WindowParts};
 
-/// Falls back to a formatted phone number (e.g. "+91 96671 74783") instead
-/// of the raw JID when a chat has no saved contact name yet — most visibly
-/// hit right after `OpenChatByPhone` jumps to a number that isn't a contact.
 pub(crate) fn display_name_for_jid(jid: &str) -> String {
-	// Meta AI's bot JID's user part is coincidentally all digits, so without
-	// this it fell through to the phone-number formatter below and showed a
-	// bogus "+86 7051314767696"-style number - visible for a brand-new Meta
-	// AI chat, before it has a chats-list row of its own (with a name
-	// resolved server-side) to override this fallback via `s.contacts`.
 	if jid == crate::types::META_AI_JID {
 		return "Meta AI".to_string();
 	}
@@ -28,9 +16,6 @@ pub(crate) fn display_name_for_jid(jid: &str) -> String {
 	jid.to_string()
 }
 
-/// Formats a raw digits-only phone number (e.g. "919800000003") as
-/// "+91 96671 74783", falling back to a plain "+"-prefixed string if it
-/// doesn't parse as a phone number at all.
 pub(crate) fn format_phone_digits(raw_phone: &str) -> String {
 	if let Some(formatted) = whatsnap::phone::format_international(raw_phone) {
 		return formatted;
@@ -38,13 +23,7 @@ pub(crate) fn format_phone_digits(raw_phone: &str) -> String {
 	format!("+{}", raw_phone)
 }
 
-/// Builds the "Name +91 96671 74783" (or just the number, if unnamed) label
-/// shown for a contact in the shared contact-picker dialog.
 pub(crate) fn contact_picker_label(contact: &Contact) -> String {
-	// A "@lid" jid's user part is WhatsApp's own large synthetic identifier,
-	// not a phone number - it just happens to also be all digits, so without
-	// this check an unresolved lid contact (no known phone) would get that
-	// identifier formatted as if it were one, e.g. "Name +1 10000000000004".
 	let is_lid = contact.jid.ends_with("@lid");
 	let raw_phone = if !contact.phone.is_empty() {
 		Some(contact.phone.as_str())
@@ -75,8 +54,6 @@ pub(crate) fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 		return;
 	}
 	let list = &parts.conversations_parts.messages_select_list;
-	// The rows are rebuilt when a page loads; keep the cursor on its message.
-	// Entering selection mode, start on the message the chat's cursor was on.
 	let cursor_id = list
 		.get_selection()
 		.and_then(|i| s.selection_rows.get(i as usize))
@@ -112,11 +89,6 @@ pub(crate) fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
 }
 
-/// Sets the group data dialog's `make_admin_btn` label to match whether the
-/// currently selected member (by position in the filtered `members_list`) is
-/// already an admin, mirroring official WhatsApp's per-member "Make admin" /
-/// "Dismiss as admin" toggle instead of one static label regardless of
-/// who's selected.
 pub(crate) fn update_make_admin_button_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let s = state.borrow();
 	let is_admin = parts
@@ -181,11 +153,6 @@ pub(crate) fn refresh_new_group_contacts_list(query: &str, state: &Rc<RefCell<Ap
 	}
 }
 
-/// Recomputes `group_state.all_contact_labels`/`all_contact_jids` from
-/// `s.all_contacts` without touching the New Group dialog's listbox widget.
-/// Used when a `contacts` response lands while the dialog is open, so the
-/// debounced rebuild it then schedules (via `new_group_contacts_timer`) has
-/// fresh data to filter once it actually fires.
 pub(crate) fn sync_new_group_contact_labels(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
 	let mut all_labels = Vec::new();
@@ -199,10 +166,6 @@ pub(crate) fn sync_new_group_contact_labels(state: &Rc<RefCell<AppState>>) {
 	gs.all_contact_jids = all_jids;
 }
 
-/// Same as `refresh_new_group_contacts_list` above, but for the Add Members
-/// dialog's `contacts_listbox`, and additionally excluding anyone already in
-/// the group (`group_data_member_jids`) - there's no reason to offer
-/// re-adding an existing member.
 pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let q = query.trim().to_lowercase();
 	let mut s = state.borrow_mut();
@@ -248,12 +211,6 @@ pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<
 	}
 }
 
-/// Recomputes `add_members_state.all_contact_labels`/`all_contact_jids` from
-/// `s.all_contacts` (excluding existing group members) without touching the
-/// Add Members dialog's listbox widget. Used when a `contacts` response
-/// lands while the dialog is open, so the debounced rebuild it then
-/// schedules (via `add_members_contacts_timer`) has fresh data to filter
-/// once it actually fires.
 pub(crate) fn sync_add_members_contact_labels(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
 	let existing_members: std::collections::HashSet<String> = s.group_data_member_jids.iter().cloned().collect();
@@ -271,9 +228,6 @@ pub(crate) fn sync_add_members_contact_labels(state: &Rc<RefCell<AppState>>) {
 	ams.all_contact_jids = all_jids;
 }
 
-/// Same as `refresh_new_group_contacts_list` above, but for the Attach
-/// Contact dialog's `contacts_listbox` - no membership exclusion, every
-/// contact is a valid pick.
 pub(crate) fn refresh_attach_contact_list(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let q = query.trim().to_lowercase();
 	let mut s = state.borrow_mut();
@@ -309,10 +263,6 @@ pub(crate) fn refresh_attach_contact_list(query: &str, state: &Rc<RefCell<AppSta
 	}
 }
 
-/// Recomputes `attach_contact_state.all_contact_labels`/`all_contact_jids`
-/// from `s.all_contacts` without touching the dialog's listbox widget. Used
-/// when a `contacts` response lands while the dialog is open - see the
-/// equivalent `sync_add_members_contact_labels`.
 pub(crate) fn sync_attach_contact_labels(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
 	let mut all_labels = Vec::new();
@@ -326,12 +276,6 @@ pub(crate) fn sync_attach_contact_labels(state: &Rc<RefCell<AppState>>) {
 	acs.all_contact_jids = all_jids;
 }
 
-/// Re-filters `s.all_contacts` by `query` (against the same "Name +phone"
-/// text shown to the user) and repaints `new_conv_dialog.results_list` with
-/// the matches, recording their jids in `contact_picker_current_jids` so a
-/// selected row index can be resolved back to a jid. Shared by opening the
-/// dialog (empty query - the whole contact list), typing in its search
-/// field, and a fresh `contacts` response landing while it's already open.
 pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let q = query.trim().to_lowercase();
 	let mut s = state.borrow_mut();

@@ -10,19 +10,14 @@ import (
 	"sync"
 	"time"
 
-	"net"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
+	"net"
 )
 
-// pendingGroupDeletes marks groups mid-way through "delete chat and exit
-// group" (handleLeaveAndDeleteGroup) so the GroupInfo event LeaveGroup
-// triggers ("You left") doesn't resurrect the chat row this same request is
-// about to delete - see that handler and its check in the *events.GroupInfo
-// case in whatsapp_events.go.
 var pendingGroupDeletes sync.Map
 
 func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
@@ -68,13 +63,6 @@ func handleCreateGroup(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 		sendEvent(conn, "create_group_status", map[string]interface{}{"status": "success", "jid": createResp.JID.String()})
-		// whatsmeow's local joined-groups store (what populateChatsFromStore
-		// reads from) doesn't reliably reflect a group we just created
-		// ourselves until a later JoinedGroup/GroupInfo event syncs it - for
-		// a self-created group that can take until the next message arrives,
-		// leaving it out of the chat list and then showing its raw jid
-		// instead of its name once it does appear. Insert it directly with
-		// the name we already have so it shows up correctly right away.
 		db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, ?)
 			ON CONFLICT(jid) DO UPDATE SET name=COALESCE(NULLIF(excluded.name, ''), chats.name)`,
 			createResp.JID.String(), groupData.Name, time.Now().Unix())
@@ -103,8 +91,6 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 
 		isMyAdmin := false
 		participants := info.Participants
-		// A community's own member list holds only a few people (its
-		// admins); everyone else is in it through its groups.
 		if info.IsParent {
 			participants = append(slices.Clone(participants), communityMembers(jid, participants)...)
 		}
@@ -113,11 +99,6 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 		labels := memberLabels(jid.String())
 
 		for _, p := range participants {
-			// p.JID is whichever address WhatsApp uses for this participant
-			// in this group (a phone JID, or a @lid in groups that hide
-			// numbers) - participant actions (add/remove/promote/demote) need
-			// it as-is. PhoneJID is their phone number when known, and empty
-			// for someone who hides it from us; the UI formats it for display.
 			phoneJID := p.PhoneNumber
 			if phoneJID.IsEmpty() {
 				if pn := preferPN(p.JID); pn.Server == types.DefaultUserServer {
@@ -129,10 +110,6 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 				isMyAdmin = true
 			}
 
-			// resolveDisplayName tries the address book, then push names
-			// under either address, then the masked number WhatsApp gives
-			// for people who hide theirs. Its bare "+<number>" fallback is
-			// left to the UI, which formats the number properly.
 			name := resolveDisplayName(p.JID)
 			if !phoneJID.IsEmpty() && name == "+"+phoneJID.User {
 				name = ""
@@ -159,10 +136,10 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 		broadcastChats()
 
 		sendEvent(conn, "group_info", map[string]interface{}{
-			"Info": info,
-			"Participants": participantsList,
+			"Info":          info,
+			"Participants":  participantsList,
 			"ViewerIsAdmin": isMyAdmin,
-			"MyLabel": labels[ownVoterKey()],
+			"MyLabel":       labels[ownVoterKey()],
 		})
 	}()
 }
@@ -187,12 +164,6 @@ func handleLeaveGroup(raw json.RawMessage) {
 	}()
 }
 
-// handleLeaveAndDeleteGroup backs "Delete chat and exit group": leaving then
-// deleting as two independent fire-and-forget commands (the frontend's old
-// approach) raced the group's own "You left" system-message notification
-// against the delete, which could resurrect the chat right after this
-// deleted it. Sequencing both in one goroutine, guarded by
-// pendingGroupDeletes, makes the delete always win.
 func handleLeaveAndDeleteGroup(raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -290,10 +261,6 @@ func handleUpdateGroupParticipants(raw json.RawMessage) {
 			broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		// A nil top-level err doesn't mean every participant change actually
-		// happened - WhatsApp reports per-participant failures (e.g. adding
-		// someone whose privacy settings block direct group adds queues an
-		// invite request instead) via a non-zero Error code on that entry.
 		var failed []string
 		var pendingInvite bool
 		for _, p := range results {
@@ -316,12 +283,6 @@ func handleUpdateGroupParticipants(raw json.RawMessage) {
 	}()
 }
 
-// groupInviteFromMessageID re-parses a stored message's raw protobuf to pull
-// out the fields a GroupInviteMessage needs for GetGroupInfoFromInvite /
-// JoinGroupWithInvite - those aren't columns of their own, just part of the
-// message content already saved for other purposes (forwarding, quoting).
-// The "inviter" WhatsApp wants is whoever sent us the invite: the message's
-// sender for a group-relayed invite, or the chat JID itself for a DM.
 func groupInviteFromMessageID(messageID string) (groupJID, inviterJID types.JID, code string, expiration int64, err error) {
 	rawBytes, chatJID, senderJID, _, dbErr := getMessageRaw(messageID)
 	if dbErr != nil || len(rawBytes) == 0 {
@@ -406,8 +367,6 @@ func handleJoinGroupInvite(raw json.RawMessage) {
 			return
 		}
 		markGroupJoined(groupJID.String(), true)
-		// The group's own metadata, rather than counting on the full group
-		// list (which can fail, or not have it yet) to name it.
 		fetchGroupMetadata(groupJID)
 		invalidateJoinedGroups()
 		populateChatsFromStore()
@@ -416,8 +375,6 @@ func handleJoinGroupInvite(raw json.RawMessage) {
 	}()
 }
 
-// handleGetGroupLinkInfo looks up the group behind an invite link (opened
-// from outside the app), for the "join this group?" question.
 func handleGetGroupLinkInfo(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		Code string `json:"code"`
@@ -452,7 +409,6 @@ func handleGetGroupLinkInfo(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleJoinGroupLink joins a group (or community) from an invite link.
 func handleJoinGroupLink(raw json.RawMessage) {
 	var data struct {
 		Code string `json:"code"`

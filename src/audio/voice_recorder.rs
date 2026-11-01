@@ -1,18 +1,3 @@
-//! WASAPI-based recorder for voice messages, honoring the user's chosen input
-//! device.
-//!
-//! Always writes 48kHz stereo 16-bit PCM, matching what the old MCI-based
-//! recorder always produced (it opened the waveaudio device with a hardcoded
-//! "channels 2", regardless of what the mic actually captured) and what
-//! `convert_wav_to_opus_ogg` (audio/mod.rs) requires of its input.
-//!
-//! When Settings -> "Clean up voice messages" is on, the signal goes through
-//! `voice_dsp::VoiceCleanup` (high-pass, noise suppression, automatic gain,
-//! limiter) on its way to the file - the same processing the browser gives
-//! WhatsApp Web's recordings. Windows' own communications effects are not used
-//! here: they vary by driver, often do nothing, and would stack a second noise
-//! suppressor on top.
-
 use std::{
 	sync::{
 		Arc,
@@ -42,18 +27,12 @@ use crate::{
 
 const OUTPUT_SAMPLE_RATE: u32 = 48000;
 
-/// One open recording segment. Dropped/finished sessions leave behind a
-/// complete, independently-playable WAV file at the path passed to `start`.
 pub struct RecordingSession {
 	stop: Arc<AtomicBool>,
 	thread: Option<JoinHandle<()>>,
 }
 
 impl RecordingSession {
-	/// Opens the input stream and starts writing to `path`, blocking briefly
-	/// until the device is confirmed open (or failed) so the caller can give
-	/// the same immediate success/failure feedback the old MCI-based
-	/// recorder gave.
 	pub fn start(path: &str, preferred_device_name: Option<String>, clean_up: bool) -> crate::error::Result<Self> {
 		let stop = Arc::new(AtomicBool::new(false));
 		let stop_thread = Arc::clone(&stop);
@@ -97,7 +76,6 @@ impl RecordingSession {
 		});
 	}
 
-	/// Stops capture and finalizes the WAV file.
 	pub fn finish(mut self) {
 		self.stop.store(true, Ordering::Relaxed);
 		if let Some(t) = self.thread.take() {
@@ -219,17 +197,6 @@ fn run_recording_session_inner(
 	Ok(())
 }
 
-// Maps an arbitrary-channel, device-native-rate signal to a stereo pair at
-// `OUTPUT_SAMPLE_RATE` via linear interpolation, same technique as
-// calls/audio.rs's CaptureDsp/RenderDsp. A mono source is duplicated to L=R
-// (matching what the old MCI-based recorder produced from a mono mic - it
-// always opened the device as 2-channel, and Windows' own format conversion
-// did this same duplication); a source with more than 2 channels keeps just
-// the first two. The anti-aliasing low-pass those use before decimating to
-// 16kHz is only engaged here when the device's native rate is above
-// `OUTPUT_SAMPLE_RATE` (uncommon, but some pro-audio interfaces do this) -
-// skipping it when upsampling or already at the target rate avoids dulling
-// the signal for the common case.
 struct StereoResampler {
 	channels: u16,
 	apply_lowpass: bool,
@@ -244,8 +211,6 @@ struct StereoResampler {
 impl StereoResampler {
 	fn new(sample_rate: u32, channels: u16) -> Self {
 		let apply_lowpass = sample_rate > OUTPUT_SAMPLE_RATE;
-		// See CaptureDsp in calls/audio.rs for why the per-stage cutoff is
-		// scaled up from the intended cascaded -3dB point.
 		let lp_target_hz: f32 = (OUTPUT_SAMPLE_RATE as f32 / 2.0) * 0.9;
 		let lp_cutoff_hz = lp_target_hz / (2.0_f32.sqrt() - 1.0).sqrt();
 		let lp_rc = 1.0 / (2.0 * std::f32::consts::PI * lp_cutoff_hz);

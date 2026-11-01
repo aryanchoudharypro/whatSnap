@@ -1,12 +1,3 @@
-//! Windows clipboard file-drop helpers, used when copying message
-//! attachments (single files or whole albums) to the system clipboard so
-//! they can be pasted into Explorer or another app, plus the plain text copy
-//! every Copy menu item and button goes through.
-
-/// Puts `text` on the clipboard and flushes it, so it is still there after
-/// whatSnap fully exits. wxWidgets hands Windows an OLE data object that
-/// lives in our process, and Windows empties the clipboard when that process
-/// goes away unless it was flushed first (the same fix Fedra uses).
 pub fn copy_text(text: &str) -> bool {
 	let clipboard = wxdragon::prelude::Clipboard::get();
 	let copied = clipboard.locker().is_some_and(|_locker| clipboard.set_text(text));
@@ -34,13 +25,6 @@ mod win_cb {
 	}
 }
 
-/// Disambiguates a generated clipboard filename against others already used
-/// in the same copy batch (e.g. photos from one album share the same
-/// second-precision timestamp, so `display_filename()` returns identical
-/// names for all of them). Collisions get " (2)", " (3)", ... appended before
-/// the extension, matching how Windows Explorer disambiguates duplicate
-/// names, so every file lands at its own temp path instead of overwriting
-/// the previous one.
 pub(crate) fn unique_clipboard_filename(name: &str, used: &mut std::collections::HashMap<String, u32>) -> String {
 	let count = used.entry(name.to_string()).or_insert(0);
 	*count += 1;

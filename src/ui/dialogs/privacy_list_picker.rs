@@ -1,7 +1,3 @@
-//! "My contacts except...": pick the contacts a privacy setting leaves out,
-//! as WhatsApp Web's privacy settings do for last seen, profile photo, About
-//! and who can add you to groups.
-
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -12,18 +8,11 @@ use crate::{
 };
 
 struct PickerState {
-	/// (jid, label) for every contact offered.
 	all: Vec<(String, String)>,
-	/// JIDs of the rows currently shown, in list order.
 	shown: Vec<String>,
 	checked: HashSet<String>,
 }
 
-/// The contacts offered and which of them start checked: every contact,
-/// plus anyone on the server's list who isn't one (they stay on it unless
-/// unchecked). Someone on the list is matched to a contact by JID, or by
-/// phone number, since the list and the contacts can know the same person by
-/// different addresses.
 fn picker_rows(contacts: &[Contact], excluded: &[Contact]) -> (Vec<(String, String)>, HashSet<String>) {
 	let mut rows: Vec<(String, String)> = Vec::new();
 	let mut checked = HashSet::new();
@@ -46,8 +35,6 @@ fn picker_rows(contacts: &[Contact], excluded: &[Contact]) -> (Vec<(String, Stri
 	(rows, checked)
 }
 
-/// Shows the picker modally and returns the JIDs chosen, or None if
-/// cancelled. `excluded` is who the setting leaves out now.
 pub fn pick_excluded_contacts(
 	parent: &impl WxWidget,
 	setting: &str,
@@ -63,8 +50,6 @@ pub fn pick_excluded_contacts(
 	)
 }
 
-/// What the picker calls its rows and a checked one, and what it says when
-/// Done is pressed with none checked (if that isn't allowed).
 pub struct PickerWords<'a> {
 	pub search: &'a str,
 	pub on: &'a str,
@@ -80,11 +65,9 @@ const EXCLUDED: PickerWords<'static> = PickerWords {
 	off: "not excluded",
 	one: "contact",
 	many: "contacts",
-	// WhatsApp's own picker won't save "except" with nobody excluded.
 	require_one: Some("Choose at least one contact to exclude."),
 };
 
-/// The same picker with its own title and hint, `listed` starting checked.
 pub fn pick_contacts(
 	parent: &impl WxWidget,
 	title: &str,
@@ -95,7 +78,6 @@ pub fn pick_contacts(
 	pick_with(parent, title, hint, contacts, listed, &EXCLUDED)
 }
 
-/// The picker with its own words, for rows that needn't be contacts.
 pub fn pick_with(
 	parent: &impl WxWidget,
 	title: &str,
@@ -168,7 +150,6 @@ pub fn pick_with(
 					list.check(idx as u32, true);
 				}
 			}
-			// SetSelection(0) on an empty list asserts.
 			if !shown.is_empty() {
 				list.set_selection(0, true);
 			}
@@ -240,7 +221,6 @@ pub fn pick_with(
 	let result = dialog.show_modal();
 	let chosen = (result == ID_OK).then(|| {
 		let s = state.borrow();
-		// In list order, so the choice reads back predictably.
 		s.all.iter().filter(|(jid, _)| s.checked.contains(jid)).map(|(jid, _)| jid.clone()).collect()
 	});
 	search_timer.stop();
@@ -250,7 +230,6 @@ pub fn pick_with(
 	chosen
 }
 
-/// "No contacts excluded.", "1 contact excluded.", "3 contacts excluded."
 fn counted((on, one, many): &(String, String, String), count: usize) -> String {
 	match count {
 		0 => format!("No {} {}.", many, on),
@@ -280,7 +259,6 @@ mod tests {
 			contact("9@lid", "", ""),
 		];
 		let (rows, checked) = picker_rows(&contacts, &excluded);
-		// The stranger is offered too, ahead of the contacts.
 		assert_eq!(rows.len(), 4);
 		assert_eq!(rows[0].0, "9@lid");
 		let want: HashSet<String> = ["911@s.whatsapp.net", "5@lid", "9@lid"].iter().map(|s| s.to_string()).collect();

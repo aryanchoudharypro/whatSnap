@@ -1,16 +1,3 @@
-//! @mention autocomplete in the composer, shaped like an editor's completion
-//! list: typing "@" offers everyone who can be mentioned, typing on narrows
-//! it, Up/Down pick, Enter or Tab insert "@Name ", Escape dismisses.
-//!
-//! Focus never leaves the message field - a list that took focus would break
-//! typing, and one that doesn't is invisible to a screen reader - so the
-//! highlighted suggestion is spoken through the conversation's announcer, and
-//! the list under the field is only there for sighted users.
-//!
-//! The field keeps the readable "@Name"; `composer_mentions` remembers which
-//! JID each picked name stands for, and the backend swaps them for the
-//! "@<number>" WhatsApp sends when the message goes out (backend/mentions.go).
-
 use std::{
 	cell::RefCell,
 	rc::Rc,
@@ -24,9 +11,7 @@ use crate::{
 	ui::{conversations::ConversationsPanelParts, keys},
 };
 
-/// Group members are fetched on the first "@" in a chat, then reused this long.
 const CANDIDATES_TTL: Duration = Duration::from_secs(10 * 60);
-/// A query longer than this is someone typing prose after an "@", not a name.
 const MAX_QUERY_CHARS: usize = 30;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -39,13 +24,11 @@ pub(crate) struct MentionCandidates {
 	jid: String,
 	/// Sorted by name; never includes us.
 	members: Vec<MentionEntry>,
-	/// Advanced chat privacy: Meta AI can't be mentioned while it's on.
 	limit_sharing: bool,
 	fetched: Instant,
 }
 
 pub(crate) struct MentionPopup {
-	/// Char index of the "@" being completed.
 	at: usize,
 	matches: Vec<MentionEntry>,
 	selected: usize,
@@ -55,15 +38,10 @@ fn meta_ai_entry() -> MentionEntry {
 	MentionEntry { jid: crate::types::META_AI_JID.to_string(), name: "Meta AI".to_string() }
 }
 
-/// Only groups and 1:1 chats with people take mentions - not channels,
-/// broadcasts, or a chat with Meta AI itself.
 fn can_mention_in(jid: &str) -> bool {
 	jid.ends_with("@g.us") || jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid")
 }
 
-/// The "@" the caret is completing, as (char index of the "@", text typed
-/// after it). The "@" has to start a word, so an email address doesn't
-/// count, and the query can hold spaces (names do) but not a line break.
 pub(crate) fn find_mention_query(text: &str, caret: usize) -> Option<(usize, String)> {
 	let chars: Vec<char> = text.chars().collect();
 	let caret = caret.min(chars.len());
@@ -89,8 +67,6 @@ pub(crate) fn find_mention_query(text: &str, caret: usize) -> Option<(usize, Str
 	None
 }
 
-/// How many positions a char takes in the native Windows edit control: UTF-16
-/// units, with a line break counting as two ("\r\n") though GetValue gives "\n".
 fn wx_width(c: char) -> i64 {
 	if c == '\n' && cfg!(windows) { 2 } else { c.len_utf16() as i64 }
 }
@@ -138,8 +114,6 @@ fn hide_list(cp: &ConversationsPanelParts) {
 	}
 }
 
-/// Drops the suggestions without dismissing them, e.g. when the chat changes
-/// or the message is sent. Takes the already-borrowed state.
 pub(crate) fn close(s: &mut AppState, cp: &ConversationsPanelParts) {
 	s.mention_popup = None;
 	s.mention_dismissed_at = None;
@@ -178,8 +152,6 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelPart
 		let payload = serde_json::json!({ "action": "get_mention_candidates", "data": { "jid": jid } });
 		let _ = s.ws_tx.send(payload.to_string());
 	}
-	// Until the first answer for this chat comes back there's nothing to
-	// offer; its arrival runs this again.
 	let Some(candidates) = s.mention_candidates.as_ref().filter(|c| c.jid == jid) else { return };
 	let matches = filter(candidates, &query);
 	if matches.is_empty() {
@@ -193,7 +165,6 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelPart
 	let previous = s.mention_popup.take();
 	let opening = previous.is_none();
 	let changed = previous.as_ref().is_none_or(|p| p.matches != matches);
-	// Keep the highlight on the same person while the list narrows around them.
 	let selected = previous
 		.as_ref()
 		.and_then(|p| p.matches.get(p.selected))
@@ -220,8 +191,6 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelPart
 	}
 }
 
-/// Keys for the open suggestions, from the composer's key-down handler.
-/// Returns true when the key was used up here.
 pub(crate) fn handle_key(
 	state: &Rc<RefCell<AppState>>,
 	cp: &ConversationsPanelParts,
@@ -229,7 +198,6 @@ pub(crate) fn handle_key(
 	shift: bool,
 	ctrl: bool,
 ) -> bool {
-	// Ctrl+Space brings back suggestions dismissed with Escape, as in an editor.
 	if ctrl && keys::is_space(code) {
 		if let Ok(mut s) = state.try_borrow_mut() {
 			s.mention_dismissed_at = None;
@@ -247,7 +215,6 @@ pub(crate) fn handle_key(
 		let announcement = describe(popup);
 		drop(s);
 		cp.mention_list.set_selection(selected as u32, true);
-		// Interrupts: arrowing through names should speak the one landed on.
 		live_region::announce_with_priority(cp.messages_announcer, &announcement, live_region::Priority::High);
 		return true;
 	}
@@ -263,7 +230,6 @@ pub(crate) fn handle_key(
 		hide_list(cp);
 		return true;
 	}
-	// Moving the caret sideways leaves the name being typed.
 	if keys::is_left(code) || keys::is_right(code) || keys::is_home(code) || keys::is_end(code) {
 		s.mention_popup = None;
 		drop(s);
@@ -272,7 +238,6 @@ pub(crate) fn handle_key(
 	false
 }
 
-/// Replaces "@query" with "@Name " for the highlighted suggestion.
 pub(crate) fn accept(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts) {
 	let field = cp.message_field;
 	let text = field.get_value();
@@ -298,7 +263,6 @@ pub(crate) fn accept(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts
 	crate::platform::announce::announce(announcer, &format!("{} mentioned", entry.name));
 }
 
-/// A suggestion clicked in the list: picked as if highlighted and accepted.
 pub(crate) fn pick(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts, index: usize) {
 	{
 		let Ok(mut s) = state.try_borrow_mut() else { return };
@@ -311,7 +275,6 @@ pub(crate) fn pick(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts, 
 	accept(state, cp);
 }
 
-/// The mentions to send with `text`: those picked whose "@Name" is still in it.
 pub(crate) fn mentions_payload(s: &AppState, text: &str) -> serde_json::Value {
 	serde_json::Value::Array(
 		s.composer_mentions
@@ -322,7 +285,6 @@ pub(crate) fn mentions_payload(s: &AppState, text: &str) -> serde_json::Value {
 	)
 }
 
-/// The backend's `mention_candidates` answer.
 pub(crate) fn on_candidates(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts, data: &serde_json::Value) {
 	let Some(jid) = data.get("jid").and_then(|j| j.as_str()) else { return };
 	let mut members: Vec<MentionEntry> = data
@@ -351,7 +313,6 @@ pub(crate) fn on_candidates(state: &Rc<RefCell<AppState>>, cp: &ConversationsPan
 	refresh(state, cp);
 }
 
-/// A chat's advanced chat privacy changed: Meta AI leaves or rejoins its list.
 pub(crate) fn on_limit_sharing(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts, jid: &str, enabled: bool) {
 	{
 		let mut s = state.borrow_mut();
@@ -385,7 +346,6 @@ mod tests {
 		let text = "a\nb😀c";
 		let nl = if cfg!(windows) { 2 } else { 1 };
 		assert_eq!(char_to_wx_pos(text, 3), 2 + nl);
-		// The emoji is two UTF-16 units.
 		assert_eq!(char_to_wx_pos(text, 4), 4 + nl);
 		assert_eq!(wx_pos_to_char(text, 4 + nl), 4);
 		assert_eq!(wx_pos_to_char(text, 100), 5);

@@ -1,8 +1,3 @@
-//! Creating and running our own channels: the Create channel button, the
-//! channel info dialog's "Manage channel..." menu, and what the backend
-//! answers (`channel_created`, `channel_updated`, `channel_deleted`,
-//! `channel_followers`).
-
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
@@ -25,11 +20,8 @@ use crate::{
 	},
 };
 
-/// The note an admin invite carries unless the owner writes their own.
 const ADMIN_INVITE_TEXT: &str = "I'd like you to be an admin of my WhatsApp channel.";
 
-/// The people an admin invite can go to: individual chats and contacts, not
-/// groups or channels.
 fn admin_invite_targets(s: &AppState) -> Vec<SendTarget> {
 	let person = |jid: &str| jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
 	let mut seen = std::collections::HashSet::new();
@@ -51,13 +43,10 @@ fn admin_invite_targets(s: &AppState) -> Vec<SendTarget> {
 	targets
 }
 
-/// Pressing Enter on an admin invite in a chat: ask the backend what it is.
 pub(crate) fn open_channel_admin_invite(state: &Rc<RefCell<AppState>>, message_id: String) {
 	send(state, "get_channel_admin_invite", serde_json::json!({ "message_id": message_id }));
 }
 
-/// The backend described an admin invite message: offer to accept one we
-/// got, or to cancel one we sent.
 pub(crate) fn channel_admin_invite(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let text = |key: &str| data.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
 	let flag = |key: &str| data.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
@@ -106,14 +95,12 @@ pub(crate) fn channel_admin_invite(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	}
 }
 
-/// A short confirmation from the backend about one of our channels.
 pub(crate) fn channel_notice(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	if let Some(message) = data.get("message").and_then(|m| m.as_str()) {
 		announce(parts, message);
 	}
 }
 
-/// A "Manage channel..." menu choice.
 #[derive(Clone, Copy)]
 pub(crate) enum ChannelManage {
 	InviteAdmins,
@@ -148,8 +135,6 @@ pub(crate) fn create_channel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	announce(parts, "Creating channel...");
 }
 
-/// Pops up the "Manage channel..." menu under `button` and returns the
-/// choice. Deleting is confirmed here, while the info dialog is still open.
 pub(crate) fn choose_manage_action(button: &Button, dialog: &Dialog, is_owner: bool) -> Option<ChannelManage> {
 	const EDIT: i32 = 3201;
 	const PICTURE: i32 = 3202;
@@ -255,7 +240,6 @@ pub(crate) fn manage_channel(
 	}
 }
 
-/// The backend made our new channel: open it.
 pub(crate) fn channel_created(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
 	let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
@@ -272,8 +256,6 @@ pub(crate) fn channel_created(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	announce(parts, &format!("Channel {} created.", name));
 }
 
-/// A change to one of our channels went through: say so, and show its info
-/// again with the change in it.
 pub(crate) fn channel_updated(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 	let message = data.get("message").and_then(|m| m.as_str()).unwrap_or("Channel updated.");
@@ -297,8 +279,6 @@ pub(crate) fn channel_deleted(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	announce(parts, &format!("{} was deleted.", name));
 }
 
-/// The backend sent a channel's followers: list them, and do what the owner
-/// chose there.
 pub(crate) fn channel_followers(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
 	let jid = text(data, "jid");
@@ -336,9 +316,6 @@ pub(crate) fn channel_followers(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	}
 }
 
-/// The "Channel post" submenu of a post in a channel we own or run: pin or
-/// unpin it, and see who reacted or, for a poll, who voted. Its items are only
-/// ever offered to its own handler, so it sends its requests itself.
 pub(crate) fn channel_post_menu(
 	state: &Rc<RefCell<AppState>>,
 	channel_jid: &str,
@@ -349,9 +326,6 @@ pub(crate) fn channel_post_menu(
 	const VOTERS: i32 = 3303;
 	let is_poll = post.text.starts_with("[Poll]") || post.text.starts_with("[Quiz]");
 	let mut builder = Menu::builder();
-	// Like WhatsApp Web, pinning is only offered once the server has turned
-	// it on for the account; it refuses pins otherwise. A post already pinned
-	// can always be unpinned.
 	if post.channel_pinned || state.borrow().channel_pinning {
 		builder = builder.append_item(
 			PIN,
@@ -384,7 +358,6 @@ pub(crate) fn channel_post_menu(
 	menu
 }
 
-/// The backend listed who reacted to a post or voted in a poll.
 pub(crate) fn channel_people(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
 	let groups: Vec<(String, Vec<String>)> = data
@@ -416,8 +389,6 @@ pub(crate) fn channel_people(parts: &Rc<WindowParts>, data: &serde_json::Value) 
 	show_channel_people(&parts.frame, &text(data, "title"), &summary, &groups);
 }
 
-/// The backend listed our channel's pending admin invites: show them, and
-/// cancel the one the owner picks.
 pub(crate) fn channel_pending_invites(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,

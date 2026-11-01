@@ -21,20 +21,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Poll votes. A vote names its options by their SHA-256 hashes, and each
-// voter's latest vote replaces their earlier one (an empty vote takes it
-// back), so poll_votes keeps one row per poll and voter.
-
-// poll is a stored poll's definition, read back from its message.
 type poll struct {
 	question string
 	options  []string
 	multiple bool
-	// A quiz has one right answer (correct), which is revealed once you've
-	// answered - or straight away if it's your own quiz (fromMe).
-	quiz    bool
-	correct string
-	fromMe  bool
+	quiz     bool
+	correct  string
+	fromMe   bool
 }
 
 func loadPoll(pollID string) (poll, bool) {
@@ -64,7 +57,6 @@ func pollFromMessage(msg *waE2E.Message) (poll, bool) {
 	if pc.GetPollType() == waE2E.PollType_QUIZ {
 		p.quiz, p.multiple = true, false
 		p.correct = pc.GetCorrectAnswer().GetOptionName()
-		// The name may be missing; the hash names it too.
 		if hash := pc.GetCorrectAnswer().GetOptionHash(); p.correct == "" && hash != "" {
 			for _, name := range p.options {
 				if optionHash(name) == hash {
@@ -76,8 +68,6 @@ func pollFromMessage(msg *waE2E.Message) (poll, bool) {
 	return p, true
 }
 
-// quizAnswerText is the sentence revealing a quiz's right answer, once
-// mine (our vote's option hashes) shows we've answered or the quiz is ours.
 func quizAnswerText(p poll, mine []string) string {
 	if !p.quiz || p.correct == "" || (!p.fromMe && len(mine) == 0) {
 		return ""
@@ -97,8 +87,6 @@ func optionHash(name string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// pollVoterKey names a voter the same way however their vote reached us
-// (phone number or LID, any device).
 func pollVoterKey(jid types.JID) string {
 	return preferPN(jid.ToNonAD()).String()
 }
@@ -126,7 +114,6 @@ func storePollVote(exec sqlExecer, pollID, voter string, selected [][]byte, ts i
 	}
 }
 
-// pollVotes returns each voter's current selection (option hashes).
 func pollVotes(pollID string) map[string][]string {
 	votes := map[string][]string{}
 	rows, err := db.Query(`SELECT voter, selected FROM poll_votes WHERE poll_id = ?`, pollID)
@@ -143,8 +130,6 @@ func pollVotes(pollID string) map[string][]string {
 	return votes
 }
 
-// pollResultsText is the line shown after a poll's question: each option's
-// share of the voters, like WhatsApp's bars, plus how you voted.
 func pollResultsText(p poll, votes map[string][]string, me string) string {
 	if len(p.options) == 0 {
 		return ""
@@ -192,8 +177,6 @@ func pollResultsText(p poll, votes map[string][]string, me string) string {
 	return text + "." + quizAnswerText(p, votes[me])
 }
 
-// newPollResults is the results line for a poll that has just arrived or
-// been sent - no votes yet, so it lists the options ("" if msg isn't a poll).
 func newPollResults(msg *waE2E.Message) string {
 	if p, ok := pollFromMessage(msg); ok {
 		return pollResultsText(p, nil, "")
@@ -204,10 +187,6 @@ func newPollResults(msg *waE2E.Message) string {
 	return ""
 }
 
-// pollResultsForMessage is the results line for a stored poll ("" if pollID
-// isn't one).
-//
-// For an event it is the RSVP line instead.
 func pollResultsForMessage(pollID string) string {
 	p, ok := loadPoll(pollID)
 	if !ok {
@@ -219,9 +198,6 @@ func pollResultsForMessage(pollID string) string {
 	return pollResultsText(p, pollVotes(pollID), ownVoterKey())
 }
 
-// channelPollCounts is a channel poll's vote counts from the server, by
-// option hash. Channel polls are counted by the server, which tells us the
-// totals but not who voted. The second result is false for a chat poll.
 func channelPollCounts(pollID string) (map[string]int, bool) {
 	var jid, raw string
 	db.QueryRow(`SELECT jid, COALESCE(channel_poll_votes, '') FROM messages WHERE id = ?`, pollID).Scan(&jid, &raw)
@@ -235,8 +211,6 @@ func channelPollCounts(pollID string) (map[string]int, bool) {
 	return counts, true
 }
 
-// channelPollResultsText is pollResultsText for a channel poll: each
-// option's share of the votes cast, and how we voted from here.
 func channelPollResultsText(p poll, counts map[string]int, mine []string) string {
 	if len(p.options) == 0 {
 		return ""
@@ -289,8 +263,6 @@ func broadcastPollResults(chatJID, pollID string) string {
 	return results
 }
 
-// applyPollVote handles a live vote: decrypt it with the poll's secret,
-// record it, and refresh the poll's results.
 func applyPollVote(v *events.Message) {
 	update := unwrapMessage(v.Message).GetPollUpdateMessage()
 	pollID := update.GetPollCreationMessageKey().GetID()
@@ -308,16 +280,12 @@ func applyPollVote(v *events.Message) {
 	broadcastPollResults(chat.String(), pollID)
 }
 
-// decryptPollVote decrypts a vote even when it arrived wrapped (ephemeral,
-// device-sent...): DecryptPollVote only looks at the top-level message.
 func decryptPollVote(v *events.Message) (*waE2E.PollVoteMessage, error) {
 	evt := *v
 	evt.Message = unwrapMessage(v.Message)
 	return wa().DecryptPollVote(context.Background(), &evt)
 }
 
-// historyPollVotes records the votes history sync delivers with a poll -
-// already decrypted, one per voter.
 func historyPollVotes(exec sqlExecer, chat types.JID, webMsg *waWeb.WebMessageInfo) {
 	pollID := webMsg.GetKey().GetID()
 	for _, pu := range webMsg.GetPollUpdates() {
@@ -347,8 +315,6 @@ type PollRefData struct {
 	Options   []string `json:"options"`
 }
 
-// handleGetPoll sends the frontend a poll's options, whether it takes
-// several answers, and what we voted last, for the voting dialog.
 func handleGetPoll(conn net.Conn, raw json.RawMessage) {
 	var data PollRefData
 	if json.Unmarshal(raw, &data) != nil {
@@ -378,8 +344,6 @@ func handleGetPoll(conn net.Conn, raw json.RawMessage) {
 	})
 }
 
-// handleSendPollVote votes in a poll (an empty selection takes the vote
-// back, as in WhatsApp) and reports the new results.
 func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 	var data PollRefData
 	if json.Unmarshal(raw, &data) != nil {
@@ -406,7 +370,6 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			fail("This poll takes only one answer.")
 			return
 		}
-		// As in WhatsApp, a quiz is answered once, for good.
 		if p.quiz && len(pollVotes(data.MessageID)[ownVoterKey()]) > 0 {
 			fail("You've already answered this quiz.")
 			return
@@ -445,8 +408,6 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// secretMessageInfo describes a stored poll or event for answering it: an
-// answer is sealed with the message's secret, keyed by who sent it.
 func secretMessageInfo(chat types.JID, messageID string) *types.MessageInfo {
 	var fromMe bool
 	var senderStr string
@@ -457,9 +418,6 @@ func secretMessageInfo(chat types.JID, messageID string) *types.MessageInfo {
 	} else if s, perr := types.ParseJID(senderStr); perr == nil && !s.IsEmpty() {
 		sender = s
 	}
-	// Answer in the addressing the secret was saved under: whatsmeow picks
-	// our own LID or phone number from the sender's server, and the other
-	// side decrypts with whichever the message used.
 	if _, realSender, serr := wa().Store.MsgSecrets.GetMessageSecret(context.Background(), chat, sender, messageID); serr == nil && !realSender.IsEmpty() {
 		sender = realSender
 	}
@@ -469,8 +427,6 @@ func secretMessageInfo(chat types.JID, messageID string) *types.MessageInfo {
 	}
 }
 
-// sendChannelPollVote votes in a channel poll, which the server counts: the
-// vote names the post by server ID and the options by hash, unencrypted.
 func sendChannelPollVote(conn net.Conn, data PollRefData, fail func(string)) {
 	var serverID int64
 	db.QueryRow(`SELECT COALESCE(server_id, 0) FROM messages WHERE id = ?`, data.MessageID).Scan(&serverID)
@@ -483,8 +439,6 @@ func sendChannelPollVote(conn net.Conn, data PollRefData, fail func(string)) {
 		fail("Couldn't send the vote: " + err.Error())
 		return
 	}
-	// Until the server's next counts arrive, move our vote in the counts we
-	// have, so the results read right straight away.
 	if counts, ok := channelPollCounts(data.MessageID); ok {
 		for _, h := range pollVotes(data.MessageID)[ownVoterKey()] {
 			if counts[h] > 0 {
@@ -507,10 +461,6 @@ func sendChannelPollVote(conn net.Conn, data PollRefData, fail func(string)) {
 	})
 }
 
-// pollInfoForMessage is what Message Info shows for a poll: its results and
-// each voter with what they picked, latest vote first. Channel polls are
-// counted by the server, so only our own vote is known there. nil if
-// pollID isn't a poll.
 func pollInfoForMessage(pollID string) map[string]interface{} {
 	p, ok := loadPoll(pollID)
 	if !ok {
@@ -561,10 +511,6 @@ func pollInfoForMessage(pollID string) map[string]interface{} {
 
 var convertStoredVotesOnce sync.Once
 
-// convertStoredPollVotes cleans up after older builds, which didn't know
-// votes and stored each one in its chat as an "[Unsupported Message]" row:
-// every such row that is really a vote becomes that vote on its poll, and
-// the row goes. Runs once, after connecting (decrypting needs the client).
 func convertStoredPollVotes() {
 	type storedRow struct {
 		id, jid, sender string
@@ -586,7 +532,7 @@ func convertStoredPollVotes() {
 	}
 	rows.Close()
 
-	polls := map[string]string{} // poll id -> chat
+	polls := map[string]string{}
 	converted := 0
 	for _, r := range found {
 		msg := &waE2E.Message{}
@@ -609,8 +555,6 @@ func convertStoredPollVotes() {
 			Timestamp:     time.Unix(r.ts, 0),
 		}}
 		vote, verr := decryptPollVote(evt)
-		// The row keeps the voter's phone number, but the vote may have been
-		// sealed to their LID - try that too.
 		if verr != nil && sender.Server == types.DefaultUserServer {
 			if lid, lerr := wa().Store.LIDs.GetLIDForPN(context.Background(), sender); lerr == nil && !lid.IsEmpty() {
 				evt.Info.Sender = lid

@@ -25,13 +25,9 @@ var callClient *meowcaller.Client
 var activeCalls = make(map[string]*meowcaller.Call)
 var activeCallsMutex sync.Mutex
 
-// Outbound video (our camera) bridges, one per active call, keyed the same
-// way as activeCalls. See video_bridge.go.
 var activeVideoBridges = make(map[string]*VideoBridge)
 var activeVideoBridgesMutex sync.Mutex
 
-// activeScreenBridges are the dual-stream screen ports, by call, guarded by
-// activeVideoBridgesMutex too.
 var activeScreenBridges = make(map[string]*VideoBridge)
 
 // Audio bridges, one per active call, keyed the same way as activeCalls. Each
@@ -41,10 +37,6 @@ var activeScreenBridges = make(map[string]*VideoBridge)
 var activeAudioBridges = make(map[string]*UDPBridge)
 var activeAudioBridgesMutex sync.Mutex
 
-// Debugging aid for call-audio issues reported in the field (e.g. one-sided
-// silence): the diag.Recorder dumps per-call JSONL (rtp/rtcp/srtp/relay/stun/
-// etc.) under logs/call-diag, and the zerolog logger writes meowcaller's own
-// debug/trace lines to logs/call.log, both alongside the main backend.log.
 func newCallDiagnosticsOptions() []meowcaller.Option {
 	var opts []meowcaller.Option
 
@@ -137,9 +129,6 @@ func peerVideoEvent(raw int) string {
 // (each registration overwrites the last), so this must be the only place
 // that registers them for a given call.
 func attachCallHandlers(call *meowcaller.Call) {
-	// Wiring the audio bridge here, rather than eagerly in handleAnswerCall,
-	// is what makes "connected" mean the media path is actually ready
-	// instead of just "Answer() didn't error".
 	call.OnReady(func() {
 		log.Println("Call ready (connected):", call.ID())
 		updateLiveCall(call.ID(), func(c *liveCall) { c.connected = time.Now() })
@@ -154,11 +143,6 @@ func attachCallHandlers(call *meowcaller.Call) {
 		activeAudioBridges[call.ID()] = bridge
 		activeAudioBridgesMutex.Unlock()
 
-		// The video bridge is created here too (even for a call that starts
-		// as voice-only) so a mid-call camera toggle has a port ready to
-		// connect to immediately - nothing is sent over it until the
-		// frontend's encoder actually connects and meowcaller's own
-		// StartVideo/SetVideoEnabled gating decides whether it's live.
 		videoPort := 0
 		if videoBridge, vport, err := NewVideoBridge(call.SendVideoWithDuration); err != nil {
 			log.Println("Failed to create video bridge:", err)
@@ -169,9 +153,6 @@ func attachCallHandlers(call *meowcaller.Call) {
 			activeVideoBridgesMutex.Unlock()
 			go videoBridge.Run()
 		}
-		// With dual-stream screen sharing on, the screen has a port of its
-		// own and the camera keeps the one above while it's shared. No port
-		// tells the frontend to share the screen over the camera's stream.
 		screenPort := 0
 		if dualStreamScreenShare.Load() {
 			if screenBridge, sport, err := NewVideoBridge(call.SendScreenVideo); err != nil {
@@ -193,8 +174,6 @@ func attachCallHandlers(call *meowcaller.Call) {
 		})
 	})
 	call.OnEnd(func(reason string) {
-		// summary is how the call ended in words ("Voice call, answered on
-		// another device"); it also lands in the chat as a history row.
 		summary := finishLiveCall(call.ID(), reason)
 		broadcastEvent("call_ended", map[string]string{
 			"call_id": call.ID(),
@@ -224,10 +203,6 @@ func attachCallHandlers(call *meowcaller.Call) {
 		}
 		activeAudioBridgesMutex.Unlock()
 	})
-	// Fires for group calls (placed as one, or a 1:1 call that became an
-	// ad-hoc group through add_participant) with WhatsApp's authoritative
-	// roster, and replays the current roster immediately on registration.
-	// Our own entry is dropped - the frontend only needs the other people.
 	call.OnGroupState(func(state meowcaller.GroupCallState) {
 		participants := make([]map[string]string, 0, len(state.Participants))
 		for _, p := range state.Participants {
@@ -246,8 +221,6 @@ func attachCallHandlers(call *meowcaller.Call) {
 			"can_remove":   call.CanRemoveParticipants(),
 		})
 	})
-	// The other side's camera, plus our own upgrade/enable acks land here
-	// too (peerVideoEvent only reports the ones worth announcing).
 	call.OnVideoState(func(vs meowcaller.VideoState) {
 		event := peerVideoEvent(vs.Raw)
 		if event == "" {
@@ -258,9 +231,6 @@ func attachCallHandlers(call *meowcaller.Call) {
 			"peer_video": event,
 		})
 	})
-	// No sound getting through: say so, rather than leaving the user
-	// wondering whether the other person is just quiet. Not while they've
-	// muted themselves - some clients stop sending altogether then.
 	var peerMuted atomic.Bool
 	call.OnMuteState(func(muted bool) { peerMuted.Store(muted) })
 	call.OnAudioHealth(func(health meowcaller.AudioHealth) {
@@ -282,15 +252,11 @@ func attachCallHandlers(call *meowcaller.Call) {
 			"reconnecting": reconnecting,
 		})
 	})
-	// WhatsApp's PLI/FIR feedback asking our camera for a fresh keyframe -
-	// forwarded to the frontend encoder, which has no other way to learn
-	// the network lost a frame and needs an IDR to recover.
 	call.OnVideoKeyframeRequest(func() {
 		broadcastEvent("call_video_keyframe_request", map[string]string{
 			"call_id": call.ID(),
 		})
 	})
-	// The same for the screen's own stream during a dual-stream share.
 	call.OnScreenKeyframeRequest(func() {
 		broadcastEvent("call_screen_keyframe_request", map[string]string{
 			"call_id": call.ID(),
@@ -314,8 +280,6 @@ func initCallClient() {
 
 	callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())
-		// Taken up front so the entry is consumed even when the call is
-		// auto-rejected as busy below.
 		groupJID, hasGroupJID := takeIncomingGroupCallJID(call.ID())
 
 		activeCallsMutex.Lock()
@@ -342,12 +306,7 @@ func initCallClient() {
 		trackLiveCall(call.ID(), chatJID, true, call.IsVideo(), isGroupCall)
 
 		if alreadyOnACall {
-			// Still goes in the history, as the official apps show it: a
-			// call that rang while you were on another one is a missed call.
 			defer finishLiveCall(call.ID(), "busy")
-			// reason="busy" says only this device can't take the call. A
-			// plain reject would decline it for the user, ending the
-			// caller's call and silencing the phone's ringing too.
 			log.Printf("Already on a call, rejecting incoming call from %v as busy\n", call.Peer())
 			if err := call.RejectBusy(); err != nil {
 				log.Println("Failed to auto-reject incoming call while busy:", err)
@@ -357,17 +316,13 @@ func initCallClient() {
 
 		attachCallHandlers(call)
 
-		// The peer JID is usually a @lid, which the frontend's contact map
-		// (keyed by phone JID) cannot look up - it would show the raw
-		// "...@lid" string instead of a name. Resolve it here, where the
-		// LID -> PN -> contact-name fallback chain already lives.
 		payload := map[string]interface{}{
 			"call_id":      call.ID(),
 			"caller":       call.Peer().String(),
 			"caller_name":  resolveDisplayName(call.Peer()),
 			"caller_phone": callerPhoneDigits(call.Peer()),
-			"is_group":    isGroupCall,
-			"is_video":    call.IsVideo(),
+			"is_group":     isGroupCall,
+			"is_video":     call.IsVideo(),
 		}
 		if hasGroupJID {
 			payload["group_jid"] = groupJID.String()
@@ -393,9 +348,6 @@ func callerPhoneDigits(jid types.JID) string {
 	return number.User
 }
 
-// placeGroupChatCall calls every other member of a WhatsApp group chat. A
-// group that is just you and one other person is still a group call bound
-// to the group, as WhatsApp's own clients place it.
 func placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*meowcaller.Call, error) {
 	info, err := wa().GetGroupInfo(ctx, groupJID)
 	if err != nil {
@@ -476,8 +428,6 @@ func handlePlaceCall(data []byte) {
 	activeCalls[call.ID()] = call
 	activeCallsMutex.Unlock()
 
-	// A group chat's call belongs in the group, unless it went out as a 1:1
-	// (a group with just one other member) - then it's that person's.
 	chatJID := call.Peer()
 	_, isGroupCall := call.GroupState()
 	if parsedJID.Server == types.GroupServer && isGroupCall {
@@ -485,11 +435,6 @@ func handlePlaceCall(data []byte) {
 	}
 	trackLiveCall(call.ID(), chatJID, false, req.Video, isGroupCall)
 
-	// call_placed goes out before attachCallHandlers: OnGroupState replays
-	// the seeded roster immediately, and the frontend ignores
-	// call_participants for a call_id it hasn't learned yet.
-	// self_phone picks the ringback the frontend plays: WhatsApp rings in
-	// the tone of the caller's own country.
 	selfPhone := ""
 	if wa().Store.ID != nil {
 		selfPhone = wa().Store.ID.User
@@ -519,10 +464,6 @@ func handleAnswerCall(data []byte) {
 
 	if !exists {
 		log.Println("Cannot answer call, not found:", req.CallID)
-		// Without this the frontend just sits on "Answering..." forever with
-		// no way to know the call is already gone (e.g. the caller hung up
-		// right as Accept was pressed) - it was previously indistinguishable
-		// from Accept silently doing nothing.
 		broadcastEvent("call_answer_failed", map[string]string{
 			"call_id": req.CallID,
 			"message": "That call is no longer available.",
@@ -530,17 +471,6 @@ func handleAnswerCall(data []byte) {
 		return
 	}
 
-	// meowcaller's accept always declares video as decode-only (no "enc"
-	// attribute, regardless of our local video-enabled state - see
-	// signaling.videoAcceptNode) when the offer was video, so the peer
-	// already learns we won't be sending anything: no separate camera-off
-	// signal is needed. Sending one anyway (an explicit <video state="0"/>
-	// right after answering) was tried and made the caller's own client
-	// collapse the whole call to voice - their camera went dark too, and
-	// they had to send an explicit upgrade request to get video back.
-	//
-	// The audio bridge is wired in the call.OnReady callback registered
-	// back in OnIncomingCall, once media is actually ready - not here.
 	err := call.Answer()
 	if err != nil {
 		log.Println("Failed to answer call:", err)
@@ -632,10 +562,6 @@ func handleMuteCall(data []byte) {
 	}()
 }
 
-// handleSetVideo turns the local camera on or off for an active call. This is
-// the only place local video state is ever transitioned, so it's what both
-// "start video call" (once connected) and "toggle camera mid-call" go
-// through - see [[video_calls_work_status]] Phase 2.
 func handleSetVideo(data []byte) {
 	var req struct {
 		CallID  string `json:"call_id"`
@@ -658,11 +584,6 @@ func handleSetVideo(data []byte) {
 	var err error
 	switch {
 	case req.Enabled && !call.IsVideo():
-		// A plain voice call has no video state yet - this is the only path
-		// that gets one started. StartVideo already gates outbound sending
-		// on, unlike SetVideoEnabled(true), which requires video to already
-		// be part of the call (see meowcaller's transitionVideo/
-		// setVideoEnabled) - using SetVideoEnabled here would silently no-op.
 		err = call.StartVideo()
 	default:
 		err = call.SetVideoEnabled(req.Enabled)
@@ -678,11 +599,10 @@ func handleSetVideo(data []byte) {
 	log.Println("Set video for call:", req.CallID, "enabled:", req.Enabled)
 }
 
-// localScreenShare is what whatSnap has told a call about its own screen share.
 type localScreenShare struct {
-	wanted    bool // the user is sharing; cleared when they stop
-	announced bool // the call's other participants were told
-	dual      bool // the screen has its own stream, next to the camera
+	wanted    bool
+	announced bool
+	dual      bool
 }
 
 var (
@@ -690,12 +610,8 @@ var (
 	localScreenSharesMutex sync.Mutex
 )
 
-// dualStreamScreenShare is the frontend's experimental "share the screen next
-// to the camera" setting. meowcaller reads it when a call's media starts.
 var dualStreamScreenShare atomic.Bool
 
-// handleSetCallOptions takes the frontend's call settings; it sends them on
-// every connect and whenever they're saved.
 func handleSetCallOptions(data []byte) {
 	var req struct {
 		DualStreamScreenShare bool `json:"dual_stream_screen_share"`
@@ -716,21 +632,13 @@ func forgetScreenShare(callID string) {
 	localScreenSharesMutex.Unlock()
 }
 
-// screenShareAnnounceWindow is how long a share waits for the call's video to
-// be accepted before giving up on telling the other participants about it.
 const screenShareAnnounceWindow = 15 * time.Second
 
-// handleSetScreenShare tells a call that our video is now a screen share, or
-// no longer one. The pictures themselves travel as the call's ordinary video
-// (the frontend sends set_video for that), so this only covers the
-// announcement, which group and 1:1 calls both get, as in WhatsApp.
 func handleSetScreenShare(data []byte) {
 	var req struct {
 		CallID  string `json:"call_id"`
 		Enabled bool   `json:"enabled"`
-		// Dual is a dual-stream share: the frontend sends the screen to the
-		// call's screen port and keeps the camera on its own.
-		Dual bool `json:"dual"`
+		Dual    bool   `json:"dual"`
 	}
 	if err := json.Unmarshal(data, &req); err != nil {
 		log.Println("Invalid set_screen_share format:", err)
@@ -777,9 +685,6 @@ func handleSetScreenShare(data []byte) {
 	}
 }
 
-// announceScreenShare tells a group call about our screen share once its
-// video is flowing: turning video on is only complete when the other side
-// accepts it, and the announcement is refused until then.
 func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 	deadline := time.Now().Add(screenShareAnnounceWindow)
 	for {
@@ -802,22 +707,18 @@ func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 			share.announced = stillWanted
 			localScreenSharesMutex.Unlock()
 			if !stillWanted {
-				// Stopped while the announcement was on its way out.
 				if err := call.StopScreenShare(); err != nil {
 					log.Println("Failed to announce the end of the screen share:", err)
 				}
 			}
 			return
 		case errors.Is(err, meowcaller.ErrScreenShareNeedsGroupCall) && time.Now().Before(deadline):
-			// A 1:1 call can only be told once it's answered.
 			time.Sleep(250 * time.Millisecond)
 		case errors.Is(err, meowcaller.ErrScreenShareNeedsVideo) && time.Now().Before(deadline):
 			time.Sleep(250 * time.Millisecond)
 		default:
 			log.Println("Failed to announce the screen share:", err)
 			if dual {
-				// The frontend is sending the screen to a stream nobody was
-				// told about, so it has to stop.
 				broadcastEvent("call_screen_share_failed", map[string]string{
 					"call_id": call.ID(),
 					"message": "dual-stream screen sharing isn't available on this call",
@@ -848,9 +749,6 @@ func handleAddParticipant(data []byte) {
 	activeCallsMutex.Unlock()
 
 	name := resolveDisplayName(parsedJID)
-	// The frontend used to announce "Participant added." the moment the
-	// contact was picked, so every failure here was silent to the user.
-	// Report the real outcome instead.
 	fail := func(message string) {
 		broadcastEvent("call_participant_add_failed", map[string]string{
 			"call_id": req.CallID,
@@ -885,9 +783,6 @@ func handleAddParticipant(data []byte) {
 	})
 }
 
-// addParticipantErrorMessage turns meowcaller's invite errors into something
-// worth reading aloud. meowcaller has no typed errors for these, so this
-// matches on its messages and falls back to the raw error otherwise.
 func addParticipantErrorMessage(err error, name string) string {
 	msg := err.Error()
 	switch {

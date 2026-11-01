@@ -1,13 +1,3 @@
-//! Native controls the app paints itself, WhatsApp-style, while they stay the
-//! same controls to a screen reader: the navigation strip's rows (an icon over
-//! a short name), round icon buttons (call, search, emoji, send, ...), and the
-//! open chat's header (picture, name, and "online" / "typing..." under it).
-//!
-//! Each is made owner-drawn (`BS_OWNERDRAW`, or wx's `wxLB_OWNERDRAW` for a
-//! list box, which keeps its strings), so its window text - all a screen
-//! reader reads - is untouched. Painting happens on the parent's
-//! `WM_DRAWITEM`. In a High Contrast theme everything uses system colours.
-
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use windows::Win32::{
@@ -42,25 +32,16 @@ const CONTROL_SUBCLASS: usize = 0x4f44_4354;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
-	/// A row of the navigation strip.
 	Nav,
-	/// A round button showing its label's icon.
 	Icon,
-	/// The open chat's header button.
 	Header,
-	/// A bigger round button with a caption under it (the call window's,
-	/// contact info's actions).
 	Tile,
-	/// A row of an info page's Media list: the picture, then its text.
 	Media,
-	/// A row of a list of people (a group's members): their picture, then
-	/// the row's text.
 	People,
 }
 
 struct Control {
 	kind: Kind,
-	/// What's behind it, so a round button sits on its bar.
 	background: Colour,
 }
 
@@ -85,7 +66,6 @@ impl Drop for Fonts {
 	}
 }
 
-/// A Media list's message id and whether it's a video, by row.
 type MediaSource = Rc<dyn Fn(usize) -> Option<(String, bool)>>;
 
 #[derive(Default)]
@@ -93,16 +73,11 @@ struct Registry {
 	controls: HashMap<isize, Control>,
 	parents: Vec<isize>,
 	fonts: HashMap<isize, Rc<Fonts>>,
-	/// The open chat, for the header's picture.
 	header_jid: String,
-	/// Your own account, for the picture at the foot of the navigation strip.
 	own_jid: String,
 	nav_panel: Option<HWND>,
-	/// Which message each Media list's rows are, by the list's window.
 	media_sources: HashMap<isize, MediaSource>,
-	/// Whose each People list's rows are, by the list's window.
 	people_sources: HashMap<isize, Rc<dyn Fn(usize) -> Option<String>>>,
-	/// Media rows' pictures, by message id and size, most recent last.
 	media_pictures: Vec<(String, i32, Option<gdi::Bitmap>)>,
 	header: Option<HWND>,
 }
@@ -111,7 +86,6 @@ thread_local! {
 	static REGISTRY: RefCell<Registry> = RefCell::new(Registry::default());
 }
 
-/// Icons, from the Windows icon font.
 mod glyph {
 	pub const CHATS: char = '\u{E8BD}';
 	pub const STATUS: char = '\u{EA3A}';
@@ -134,7 +108,6 @@ mod glyph {
 	pub const MIC_OFF: char = '\u{EC54}';
 	pub const SCREEN: char = '\u{E7F4}';
 	pub const ADD_PERSON: char = '\u{E8FA}';
-	/// Not in the icon font: drawn from the text font (see `paint_tile`).
 	pub const HAND: char = '\u{270B}';
 	pub const EDIT: char = '\u{E70F}';
 	pub const LOCK: char = '\u{E72E}';
@@ -143,9 +116,6 @@ mod glyph {
 	pub const LINK: char = '\u{E71B}';
 }
 
-/// A navigation tab's icon, the short name shown under it, and its unread
-/// count. Its text is the tab's name, with ": 5 unread" after it while some
-/// of its chats are unread (see `settings::nav_tab_label`).
 fn nav_look(text: &str) -> (Option<char>, &str, u32) {
 	let (name, unread) = match text.split_once(": ") {
 		Some((name, rest)) => (name, rest.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0)),
@@ -168,7 +138,6 @@ fn nav_icon(name: &str) -> (Option<char>, &str) {
 	}
 }
 
-/// The icon a button with this label shows; None draws the label itself.
 fn button_glyph(label: &str) -> Option<char> {
 	Some(match label {
 		"Search in conversation" => glyph::SEARCH,
@@ -217,16 +186,12 @@ fn make_owner_drawn_button(hwnd: HWND) {
 	}
 }
 
-/// Draws the navigation list (built with `chat_rows::OWNER_DRAW`) as
-/// WhatsApp's strip of icons, each with its short name under it.
 pub(crate) fn install_nav(list: &ListBox) {
 	let hwnd = hwnd_of(list);
 	register(hwnd, Kind::Nav, Palette::PANEL_BG());
 	set_nav_height(hwnd);
 }
 
-/// Makes `button` a round icon button, showing the icon for its label (see
-/// `button_glyph`), on a bar of `background`. Its label is its tooltip.
 pub(crate) fn install_icon_button(button: &Button, background: Colour) {
 	let hwnd = hwnd_of(button);
 	make_owner_drawn_button(hwnd);
@@ -236,8 +201,6 @@ pub(crate) fn install_icon_button(button: &Button, background: Colour) {
 	button.set_min_size(Size::new(side, side));
 }
 
-/// Makes `button` a round button with a caption under it, as WhatsApp's
-/// call and contact info buttons are (see `tile_look`), on `background`.
 pub(crate) fn install_tile(button: &Button, background: Colour) {
 	let hwnd = hwnd_of(button);
 	make_owner_drawn_button(hwnd);
@@ -247,8 +210,6 @@ pub(crate) fn install_tile(button: &Button, background: Colour) {
 	button.set_min_size(Size::new(line * 4 + 4, line * 4 + 12));
 }
 
-/// Draws the chat header button (its label is "Name (online)" and the like)
-/// with the chat's picture, the name in bold and the status under it.
 pub(crate) fn install_header(button: &Button, background: Colour) {
 	let hwnd = hwnd_of(button);
 	make_owner_drawn_button(hwnd);
@@ -284,8 +245,6 @@ pub(crate) fn install_nav_footer(panel: &Panel, frame: &Frame, settings_id: i32)
 		dc.set_pen(if custom { Palette::DIVIDER_SOFT() } else { ink }, 1, PenStyle::Solid);
 		dc.draw_line(8, top, size.width - 8, top);
 		let cx = size.width / 2;
-		// Your picture, round. As in WhatsApp for Windows, it is the way into
-		// Settings; there's no separate gear.
 		let jid = REGISTRY.with(|r| r.borrow().own_jid.clone());
 		let side = (item - 8).max(16);
 		let (x, y) = (cx - side / 2, top + 8 + (item - side) / 2);
@@ -325,7 +284,6 @@ pub(crate) fn install_nav_footer(panel: &Panel, frame: &Frame, settings_id: i32)
 }
 
 thread_local! {
-	/// Your picture as last drawn: (file, size, bitmap).
 	static OWN_PICTURE: RefCell<Option<(String, i32, wxdragon::bitmap::Bitmap)>> = const { RefCell::new(None) };
 }
 
@@ -339,8 +297,6 @@ fn own_picture(path: &str, side: i32) -> Option<wxdragon::bitmap::Bitmap> {
 	})
 }
 
-/// The picture at `path`, fitted into `side` pixels square and cut to a
-/// circle with a smoothed edge.
 pub(crate) fn round_picture(path: &str, side: u32) -> Option<wxdragon::bitmap::Bitmap> {
 	let (w, h, mut rgba) = crate::media::image_decode::decode_rgba_in_box(path, side, side).ok()?;
 	let (cx, cy, r) = (w as f32 / 2.0, h as f32 / 2.0, w.min(h) as f32 / 2.0);
@@ -376,8 +332,6 @@ fn row_height(kind: Kind, fonts: &Fonts) -> i32 {
 	}
 }
 
-/// People's pictures are drawn at the chat list's size, so they share its
-/// cache rather than making it start again at another size.
 fn person_side(fonts: &Fonts) -> i32 {
 	avatars::size().unwrap_or(fonts.line * 5 / 2).clamp(fonts.line, fonts.line * 3)
 }
@@ -440,11 +394,8 @@ fn paint_person(
 	gdi::text(dc, fonts.body, ink, text, rect(x + side + 12, 0, width - 8, height), Default::default());
 }
 
-/// Media rows' pictures kept decoded at once.
 const MEDIA_PICTURES: usize = 32;
 
-/// Runs `draw` with message `id`'s picture `side` pixels square (cropped to
-/// fill it, as WhatsApp's grid does), None while there's none to show.
 fn with_media_picture(id: &str, side: i32, draw: impl FnOnce(Option<&gdi::Bitmap>)) {
 	let cached = REGISTRY.with(|r| {
 		let r = r.borrow();
@@ -453,7 +404,6 @@ fn with_media_picture(id: &str, side: i32, draw: impl FnOnce(Option<&gdi::Bitmap
 	if cached.is_none() {
 		let Some(path) = super::thumbnails::path_of(id) else { return draw(None) };
 		let bitmap = path.and_then(|path| {
-			// Fit the short side, then take the middle square.
 			let (w, h, rgba) = crate::media::image_decode::decode_rgba(&path, (side * 3) as u32).ok()?;
 			let scale = side as f32 / w.min(h).max(1) as f32;
 			let (sw, sh) = (((w as f32 * scale) as i32).max(side), ((h as f32 * scale) as i32).max(side));
@@ -493,8 +443,6 @@ fn with_media_picture(id: &str, side: i32, draw: impl FnOnce(Option<&gdi::Bitmap
 	}
 }
 
-/// Forgets media rows' pictures, so new ones (a file just downloaded) are
-/// made again.
 pub(crate) fn refresh_media_lists() {
 	let lists: Vec<isize> = REGISTRY.with(|r| {
 		let mut r = r.borrow_mut();
@@ -560,8 +508,6 @@ fn paint_media(
 	gdi::text(dc, fonts.body, text_colour, text, rect(left, 0, width - pad, height), Default::default());
 }
 
-/// Says whose account this is, for the picture at the foot of the
-/// navigation strip. `jid` may carry a device (":12"), which is dropped.
 pub(crate) fn set_own_jid(jid: &str) {
 	let bare = match jid.split_once('@') {
 		Some((user, server)) => format!("{}@{}", user.split(':').next().unwrap_or(user), server),
@@ -579,7 +525,6 @@ pub(crate) fn set_own_jid(jid: &str) {
 	}
 }
 
-/// Says which chat is open, for the header's picture.
 pub(crate) fn set_header_chat(jid: &str) {
 	let header = REGISTRY.with(|r| {
 		let mut r = r.borrow_mut();
@@ -604,9 +549,6 @@ fn set_nav_height(hwnd: HWND) {
 	}
 }
 
-/// Runs `f` with fonts made from the control's own font. The registry isn't
-/// borrowed while `f` runs: painting sends the control messages, which come
-/// back through `control_proc`.
 fn with_fonts<R>(hwnd: HWND, f: impl FnOnce(&Fonts) -> R) -> R {
 	let base = HFONT(unsafe { SendMessageW(hwnd, WM_GETFONT, None, None) }.0 as *mut _);
 	let key = hwnd.0 as isize;
@@ -662,7 +604,6 @@ unsafe extern "system" fn control_proc(
 ) -> LRESULT {
 	let kind = REGISTRY.with(|r| r.try_borrow().ok().and_then(|r| r.controls.get(&(hwnd.0 as isize)).map(|c| c.kind)));
 	match (msg, kind) {
-		// wx sets one line's height whenever the font changes; the rows are taller.
 		(LB_SETITEMHEIGHT, Some(kind @ (Kind::Media | Kind::People))) => {
 			let height = with_fonts(hwnd, |f| row_height(kind, f));
 			unsafe { DefSubclassProc(hwnd, msg, wparam, LPARAM(height as isize)) }
@@ -684,7 +625,6 @@ unsafe extern "system" fn control_proc(
 			set_nav_height(hwnd);
 			result
 		}
-		// A new label can mean a new icon (Pause recording / Resume recording).
 		(WM_SETTEXT, Some(Kind::Icon | Kind::Header | Kind::Tile)) => {
 			let result = unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) };
 			unsafe {
@@ -754,9 +694,7 @@ struct Colours {
 	background: COLORREF,
 	text: COLORREF,
 	muted: COLORREF,
-	/// Under a selected tab or a pressed button.
 	pressed: COLORREF,
-	/// The keyboard's place: a ring or a bar.
 	focus: COLORREF,
 	custom: bool,
 }
@@ -790,7 +728,6 @@ fn colours(background: Colour, selected: bool) -> Colours {
 	}
 	Colours {
 		background: rgb(background),
-		// WhatsApp Web's icon grey, dark enough to read on its bars.
 		text: rgb(Palette::ICON()),
 		muted: rgb(Palette::TEXT_MUTED()),
 		pressed: rgb(Palette::PRESSED()),
@@ -856,7 +793,6 @@ fn draw(item: &DRAWITEMSTRUCT, kind: Kind, background: Colour) {
 	}
 }
 
-/// A filled circle (or pill) `w` by `h` at (x, y).
 fn blob(dc: HDC, x: i32, y: i32, w: i32, h: i32, colour: COLORREF) {
 	let (r, g, b) = ((colour.0 & 0xFF) as u8, (colour.0 >> 8 & 0xFF) as u8, (colour.0 >> 16 & 0xFF) as u8);
 	if let Some(shape) = gdi::round_rect(w, h, w.min(h) as f32 / 2.0, (r, g, b)) {
@@ -864,7 +800,6 @@ fn blob(dc: HDC, x: i32, y: i32, w: i32, h: i32, colour: COLORREF) {
 	}
 }
 
-/// A ring 2px wide, for the keyboard focus.
 fn ring(dc: HDC, x: i32, y: i32, w: i32, h: i32, colour: COLORREF, inside: COLORREF) {
 	blob(dc, x, y, w, h, colour);
 	blob(dc, x + 2, y + 2, w - 4, h - 4, inside);
@@ -901,7 +836,6 @@ fn paint_nav(
 		(Some(g), Some(font)) => gdi::text(dc, font, c.text, &g.to_string(), icon_rect, DT_CENTER),
 		_ => gdi::text(dc, fonts.bold, c.text, &name.chars().take(2).collect::<String>(), icon_rect, DT_CENTER),
 	}
-	// The unread count, a green badge at the icon's top right as WhatsApp has it.
 	if unread > 0 {
 		let count = if unread > 99 { "99+".to_string() } else { unread.to_string() };
 		let h = fonts.line * 4 / 5 + 2;
@@ -916,7 +850,6 @@ fn paint_nav(
 	gdi::text(dc, font, c.text, name, rect(2, py + pill_h + 2, width - 2, height - 2), DT_CENTER);
 }
 
-/// `state` is (pressed, focused, disabled).
 fn paint_icon(
 	dc: HDC,
 	width: i32,
@@ -935,7 +868,6 @@ fn paint_icon(
 	} else if pressed {
 		blob(dc, x, y, side, side, c.pressed);
 	}
-	// The send arrow is WhatsApp's green.
 	let send = matches!(label, "Send message" | "Send voice message");
 	let colour = if disabled {
 		c.muted
@@ -953,15 +885,11 @@ fn paint_icon(
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Tone {
 	Plain,
-	/// Switched on (muted, camera on, sharing): drawn the other way round.
 	On,
-	/// Accept: green.
 	Go,
-	/// End, reject, delete: red.
 	Stop,
 }
 
-/// A tile button's icon, caption and colour, from its label.
 fn tile_look(label: &str) -> (Option<char>, &str, Tone) {
 	match label {
 		"Accept call" => (Some(glyph::CALLS), "Accept", Tone::Go),
@@ -994,12 +922,10 @@ fn tile_look(label: &str) -> (Option<char>, &str, Tone) {
 	}
 }
 
-/// Whether text on `colour` should be light.
 fn is_dark(colour: Colour) -> bool {
 	(colour.r as u32 * 299 + colour.g as u32 * 587 + colour.b as u32 * 114) / 1000 < 110
 }
 
-/// `state` is (pressed, focused, disabled).
 fn paint_tile(
 	dc: HDC,
 	width: i32,
@@ -1034,13 +960,11 @@ fn paint_tile(
 	let fill = if pressed && c.custom { c.pressed } else { fill };
 	blob(dc, x, y, side, side, fill);
 	if !c.custom {
-		// An outline, so the circle shows in High Contrast.
 		ring(dc, x, y, side, side, c.text, fill);
 	}
 	let ink = if disabled { c.muted } else { ink };
 	let circle = rect(x, y, x + side, y + side);
 	match (icon, fonts.icons_big) {
-		// The icon font's own glyphs live in the private use area.
 		(Some(g), Some(font)) if ('\u{E000}'..='\u{F8FF}').contains(&g) => {
 			gdi::text(dc, font, ink, &g.to_string(), circle, DT_CENTER)
 		}
@@ -1057,8 +981,6 @@ fn paint_tile(
 	gdi::text(dc, fonts.small, text, caption, rect(0, y + side + 4, width, height), DT_CENTER);
 }
 
-/// "Mum (online)" -> ("Mum", "online"); "Family, Dad is typing..." ->
-/// ("Family", "Dad is typing...").
 fn split_header(label: &str) -> (&str, &str) {
 	if let Some(open) = label.rfind(" (")
 		&& label.ends_with(')')

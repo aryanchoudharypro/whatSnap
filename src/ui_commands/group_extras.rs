@@ -1,8 +1,3 @@
-//! Group Info's join requests and community buttons, and Chat menu > "New
-//! Community...": what they ask the backend for, and what it answers
-//! (`join_requests`, `join_requests_answered`, `linkable_groups`,
-//! `community_groups_changed`, `community_created`, `community_deactivated`).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -30,7 +25,6 @@ fn confirm(parent: &impl WxWidget, question: &str, title: &str, action: &str) ->
 	dialog.show_modal() == ID_YES
 }
 
-/// One of Group Info's buttons was pressed.
 pub(crate) fn group_action(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, action: &str) {
 	let Some(jid) = state.borrow().selected_chat.clone().filter(|j| j.ends_with("@g.us")) else { return };
 	let dialog = &parts.group_data_dialog.dialog;
@@ -64,7 +58,6 @@ pub(crate) fn group_action(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	}
 }
 
-/// Chat menu > "New Community...": a name, and a description if wanted.
 pub(crate) fn new_community(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let name_dialog = TextEntryDialog::builder(&parts.frame, "Community name:", "New Community").build();
 	if name_dialog.show_modal() != wxdragon::id::ID_OK {
@@ -147,7 +140,6 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 	}
 }
 
-/// Who's asking to join: approve or reject one, or everyone at once.
 fn answer_join_requests(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let dialog = &parts.group_data_dialog.dialog;
 	let jid = text(data, "jid");

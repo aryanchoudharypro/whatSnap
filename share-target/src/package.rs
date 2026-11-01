@@ -1,16 +1,3 @@
-//! Turning the Share menu entry on and off: the signed package's files, and
-//! registering it for this user.
-//!
-//! Layout, next to whatSnap.exe:
-//! - `share\whatSnapShare.msix`: the unsigned package, from the installer.
-//! - `share\local\whatSnapShare.msix`: the same package signed on this PC.
-//! - `share\local\source.msix`: a copy of the unsigned package it was signed
-//!   from, so an update that changes the package is noticed and re-signed.
-//!
-//! The installer never writes `share\local`, so an update leaves the signed
-//! copy alone and doesn't need administrator rights again unless the package
-//! itself changed.
-
 use std::{
 	io::Write,
 	path::{Path, PathBuf},
@@ -36,8 +23,6 @@ use windows::{
 pub const PACKAGE_NAME: &str = "whatSnap.Share";
 pub const PUBLISHER: &str = "CN=whatSnap Local Share";
 
-/// The folder whatSnap.exe and this exe are installed in; the package's
-/// external location.
 pub fn app_dir() -> PathBuf {
 	std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default()
 }
@@ -58,10 +43,6 @@ pub fn signed_source() -> PathBuf {
 	local_dir().join("source.msix")
 }
 
-/// Appends a line to share\share.log in the install folder, for when the
-/// menu entry doesn't appear and nobody saw why. It's there rather than in
-/// the logs folder because the administrator step may run as another
-/// account, with a logs folder of its own.
 pub fn log(line: &str) {
 	let dir = app_dir().join("share");
 	let _ = std::fs::create_dir_all(&dir);
@@ -71,8 +52,6 @@ pub fn log(line: &str) {
 	}
 }
 
-/// Whether the signed copy is missing or was signed from a different package
-/// than the one installed now.
 fn needs_signing() -> bool {
 	let Ok(unsigned) = std::fs::read(unsigned_package()) else { return false };
 	if !signed_package().is_file() {
@@ -91,21 +70,15 @@ fn message(text: &str, warning: bool) {
 	}
 }
 
-/// Where `--sign` leaves the reason it failed, for `--enable` to show. It
-/// runs as administrator, maybe as another account with its own logs folder.
 pub fn sign_error_file() -> PathBuf {
 	app_dir().join("share").join("sign-error.txt")
 }
 
-/// Why signing as administrator didn't work.
 enum SignFailure {
-	/// The approval prompt was cancelled or no administrator signed in.
 	NotApproved,
 	Failed(String),
 }
 
-/// Runs this exe again with `--sign` as administrator (Windows asks first)
-/// and waits for it.
 fn run_sign_as_admin() -> Result<(), SignFailure> {
 	let _ = std::fs::remove_file(sign_error_file());
 	let Ok(exe) = std::env::current_exe() else {
@@ -122,7 +95,6 @@ fn run_sign_as_admin() -> Result<(), SignFailure> {
 		..Default::default()
 	};
 	unsafe {
-		// Fails if the prompt is cancelled or no administrator signs in.
 		if let Err(e) = ShellExecuteExW(&mut info) {
 			log(&format!("Starting the administrator step failed: {e}"));
 			return Err(SignFailure::NotApproved);
@@ -145,7 +117,6 @@ fn run_sign_as_admin() -> Result<(), SignFailure> {
 	Err(SignFailure::Failed(reason))
 }
 
-/// A `file:` URI for a local path, which the package manager wants.
 fn file_uri(path: &Path) -> windows::core::Result<Uri> {
 	let mut uri = String::from("file:///");
 	for byte in path.to_string_lossy().replace('\\', "/").bytes() {
@@ -158,9 +129,6 @@ fn file_uri(path: &Path) -> windows::core::Result<Uri> {
 	Uri::CreateUri(&HSTRING::from(uri))
 }
 
-/// Registers the signed package for this user, with this folder as its
-/// external location. A package of the same version that was signed by an
-/// earlier certificate is removed first, since Windows won't replace it.
 fn register() -> Result<(), String> {
 	let manager = PackageManager::new().map_err(|e| e.to_string())?;
 	let add = || -> windows::core::Result<()> {
@@ -181,7 +149,6 @@ fn register() -> Result<(), String> {
 	Ok(())
 }
 
-/// Removes every registered version of the package for this user.
 fn remove_registered(manager: &PackageManager) {
 	let Ok(packages) = manager.FindPackagesByUserSecurityIdNamePublisher(
 		&HSTRING::new(),
@@ -202,13 +169,10 @@ fn remove_registered(manager: &PackageManager) {
 	}
 }
 
-/// Where `--enable` writes how it went, for the installer, which shows it in
-/// its own window so it gets focus (a box from here can open behind it).
 pub fn enable_result_file() -> PathBuf {
 	app_dir().join("share").join("enable-result.txt")
 }
 
-/// What `--enable` tells the user, and whether it worked.
 fn try_enable() -> Result<&'static str, String> {
 	if !unsigned_package().is_file() {
 		return Err(
@@ -233,9 +197,6 @@ fn try_enable() -> Result<&'static str, String> {
 	})
 }
 
-/// `--enable`: signs the package if needed (asking for administrator rights),
-/// then registers it. Says how it went unless `report` is false, and always
-/// leaves it in `enable_result_file`.
 pub fn enable(report: bool) -> i32 {
 	let result = try_enable();
 	let (text, failed) = match &result {
@@ -249,9 +210,6 @@ pub fn enable(report: bool) -> i32 {
 	i32::from(failed)
 }
 
-/// `--refresh`: after an update, keeps the entry if it was turned on: signs
-/// again only if the package changed (which asks for administrator rights),
-/// and registers it again so it points at this install.
 pub fn refresh() -> i32 {
 	if !signed_package().is_file() {
 		return 0;
@@ -259,9 +217,6 @@ pub fn refresh() -> i32 {
 	enable(false)
 }
 
-/// `--disable`: removes the entry and the signed copy. The certificate stays
-/// trusted, but its private key was deleted when it was made, so it can't
-/// sign anything else.
 pub fn disable() -> i32 {
 	if let Ok(manager) = PackageManager::new() {
 		remove_registered(&manager);

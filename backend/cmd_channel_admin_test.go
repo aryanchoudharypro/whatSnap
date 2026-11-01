@@ -12,8 +12,6 @@ import (
 )
 
 func TestChannelPictureJPEGIsSquareAndScaled(t *testing.T) {
-	// A wide picture: red on the left third, green in the middle, blue on
-	// the right. The square taken from it should be the green middle.
 	src := image.NewRGBA(image.Rect(0, 0, 1500, 800))
 	for y := 0; y < 800; y++ {
 		for x := 0; x < 1500; x++ {

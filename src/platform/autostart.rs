@@ -1,8 +1,3 @@
-//! Launch-at-login support via the per-user `Run` registry key. The registry
-//! is the source of truth (not the JSON settings file) so the checkbox always
-//! reflects what Windows will actually do, even if the setting file and the
-//! registry ever drift apart.
-
 use windows::{
 	Win32::System::Registry::{
 		HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
@@ -12,7 +7,6 @@ use windows::{
 };
 
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-// Kept as the old name so existing "start with Windows" entries still match.
 const VALUE_NAME: &str = "whaNTV";
 
 fn wide(s: &str) -> Vec<u16> {
@@ -63,8 +57,6 @@ pub fn set_enabled(enabled: bool) -> bool {
 			let bytes = std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), data.len() * 2);
 			RegSetValueExW(hkey, PCWSTR(value_name.as_ptr()), None, REG_SZ, Some(bytes)).is_ok()
 		} else {
-			// Absence of the value is the disabled state, so a missing value
-			// on delete is not a failure.
 			let result = RegDeleteValueW(hkey, PCWSTR(value_name.as_ptr()));
 			result.is_ok() || result == windows::Win32::Foundation::ERROR_FILE_NOT_FOUND
 		};

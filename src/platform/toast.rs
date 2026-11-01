@@ -1,8 +1,3 @@
-//! Windows toasts for chat messages. Each chat's toasts share a group, so
-//! opening that chat (or pressing "Mark as read" on one) removes them from
-//! Action Center, not just the popup. wx's notification API has no tags or
-//! groups, so the toasts are built here with WinRT.
-
 use std::{
 	collections::hash_map::DefaultHasher,
 	hash::{Hash, Hasher},
@@ -17,12 +12,8 @@ use windows::{
 
 use crate::platform::app_link;
 
-/// The app ID toasts are sent under. It has to match the app ID that
-/// `msw_use_toasts` writes onto the Start menu shortcut.
 pub const APP_ID: &str = "whatSnap";
 
-/// Where the Start menu shortcut that carries [`APP_ID`] lives. The installer
-/// creates the same shortcut here; the app repairs it on startup if needed.
 pub fn start_menu_shortcut_path() -> String {
 	match std::env::var_os("APPDATA") {
 		Some(appdata) => std::path::PathBuf::from(appdata)
@@ -37,15 +28,12 @@ pub fn start_menu_shortcut_path() -> String {
 	}
 }
 
-/// Tags and groups are limited to 16 characters, so the group is a short hash
-/// of the chat's JID.
 fn group_for(jid: &str) -> HSTRING {
 	let mut hasher = DefaultHasher::new();
 	jid.hash(&mut hasher);
 	HSTRING::from(format!("c{:015x}", hasher.finish() & 0x0fff_ffff_ffff_ffff))
 }
 
-/// A tag unique to one toast.
 fn next_tag() -> HSTRING {
 	static COUNTER: AtomicU64 = AtomicU64::new(0);
 	let nanos =
@@ -69,8 +57,6 @@ fn escape_xml(text: &str) -> String {
 	out
 }
 
-/// The toast's XML. Clicking the toast opens the chat, and its "Mark as read"
-/// button marks the chat read; both are `whatsnap://` links the app handles.
 fn toast_xml(title: &str, body: &str, jid: &str) -> String {
 	let open = escape_xml(&app_link::open_link(jid));
 	let mark_read = escape_xml(&app_link::mark_read_link(jid));
@@ -102,8 +88,6 @@ pub fn show_chat_toast(jid: &str, title: &str, body: &str) -> windows::core::Res
 	notifier.Show(&toast)
 }
 
-/// Removes every toast for `jid` from Action Center. Quietly does nothing if
-/// Windows keeps no history.
 pub fn clear_chat_toasts(jid: &str) {
 	if let Ok(history) = ToastNotificationManager::History() {
 		let _ = history.RemoveGroupWithId(&group_for(jid), &HSTRING::from(APP_ID));

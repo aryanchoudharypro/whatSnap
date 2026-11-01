@@ -1,25 +1,14 @@
-//! The video window: plays a chat's video inside whatSnap instead of handing
-//! it to another app, like WhatsApp Web's media viewer.
-//!
-//! Keys besides the player's own (see `media_player.rs`): Space plays or
-//! pauses unless a button has focus, Left/Right go back or forward 5 seconds,
-//! Up/Down change the volume, Escape closes.
-
 use std::{cell::Cell, rc::Rc};
 
 use wxdragon::prelude::*;
 
 use crate::ui::{keys, media_player::MediaPlayer, theme};
 
-/// What the user asked for when the window closed.
 pub(crate) enum VideoChoice {
 	Closed,
-	/// Play it in the app Windows uses for videos instead.
 	OpenElsewhere,
 }
 
-/// Shows the video at `path` modally. `title` names it ("Video from Sam"),
-/// `save_name` is the name Save as suggests.
 pub(crate) fn show(parent: &impl WxWidget, path: &str, title: &str, save_name: &str) -> VideoChoice {
 	let dialog = Dialog::builder(parent, title)
 		.with_size(760, 620)
@@ -30,8 +19,6 @@ pub(crate) fn show(parent: &impl WxWidget, path: &str, title: &str, save_name: &
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	// A dialog is its own foreground window: announcements have to come from
-	// a live region inside it to be spoken.
 	let announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&announcer);
 	sizer.add(&announcer, 0, SizerFlag::All, 0);
@@ -122,7 +109,6 @@ pub(crate) fn show(parent: &impl WxWidget, path: &str, title: &str, save_name: &
 	if elsewhere.get() { VideoChoice::OpenElsewhere } else { VideoChoice::Closed }
 }
 
-/// Asks where to save a copy of `source` and copies it there, saying how it went.
 pub(crate) fn save_copy(parent: &impl WxWidget, source: &str, name: &str, announcer: StaticText) {
 	let dialog = FileDialog::builder(parent)
 		.with_message("Save file as")

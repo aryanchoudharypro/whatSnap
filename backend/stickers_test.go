@@ -64,7 +64,6 @@ func TestStickerDescription(t *testing.T) {
 }
 
 func TestParseWebPStickerMeta(t *testing.T) {
-	// Construct a mock WebP RIFF file with an EXIF chunk
 	jsonPayload := []byte(`{"sticker-pack-name":"Funny Pack","emojis":["🐱","❤️"],"accessibility-text":"Cute cat"}`)
 	exifPayload := append([]byte("Exif\x00\x00"), jsonPayload...)
 
@@ -92,7 +91,6 @@ func TestParseWebPStickerMeta(t *testing.T) {
 }
 
 func TestParseLottieStickerMeta(t *testing.T) {
-	// A Lottie sticker is a zip whose animation.json carries the metadata.
 	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)
 	w, _ := zw.Create("animation/animation.json")
@@ -132,7 +130,6 @@ func TestLabelStickerFromFileFallsBackToPackName(t *testing.T) {
 	if st.GetAccessibilityLabel() != "Party Pack" {
 		t.Errorf("label = %q", st.GetAccessibilityLabel())
 	}
-	// A label the message carries is kept.
 	st = &waE2E.StickerMessage{AccessibilityLabel: proto.String("Sender's label")}
 	labelStickerFromFile(st, buf.Bytes())
 	if st.GetAccessibilityLabel() != "Sender's label" {
@@ -141,7 +138,6 @@ func TestLabelStickerFromFileFallsBackToPackName(t *testing.T) {
 }
 
 func TestLottieOverriddenMetadataGivesTheLabel(t *testing.T) {
-	// WhatsApp's own packs keep the accessibility text beside animation.json.
 	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)
 	w, _ := zw.Create("animation/animation.json")

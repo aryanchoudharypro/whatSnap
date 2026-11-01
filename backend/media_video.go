@@ -9,21 +9,15 @@ import (
 	"os"
 )
 
-// videoInfo is what a video message says about its file: how long it runs
-// and how big it shows (after any rotation the file asks for), plus the
-// container brand and video codec, which decide how it's labelled.
 type videoInfo struct {
 	seconds       int
 	width, height int
-	brand         string // ftyp major brand, "qt  " for a QuickTime .mov
-	codec         string // first video sample entry, e.g. "avc1", "hvc1"
+	brand         string
+	codec         string
 }
 
-// maxMoovBytes bounds how much of a file is read to find its metadata.
 const maxMoovBytes = 64 << 20
 
-// readVideoInfo reads an MP4/MOV/3GP file's metadata (its moov box) without
-// reading the media itself.
 func readVideoInfo(path string) (*videoInfo, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -67,8 +61,6 @@ func readVideoInfo(path string) (*videoInfo, error) {
 	return info, nil
 }
 
-// readBoxHeader returns a box's total size (0 for "to end of file"), type
-// and header length, at offset.
 func readBoxHeader(r io.ReaderAt, offset int64) (size int64, kind string, headerLen int64, err error) {
 	var h [16]byte
 	if _, err = r.ReadAt(h[:8], offset); err != nil {
@@ -87,7 +79,6 @@ func readBoxHeader(r io.ReaderAt, offset int64) (size int64, kind string, header
 	return
 }
 
-// eachBox calls fn for each box directly inside data.
 func eachBox(data []byte, fn func(kind string, body []byte)) {
 	for len(data) >= 8 {
 		size, headerLen := uint64(binary.BigEndian.Uint32(data)), uint64(8)
@@ -139,7 +130,7 @@ func mvhdSeconds(body []byte) int {
 
 func (info *videoInfo) parseTrak(trak []byte) {
 	if info.width != 0 {
-		return // the first video track decides
+		return
 	}
 	var tkhd, mdia []byte
 	eachBox(trak, func(kind string, body []byte) {
@@ -159,8 +150,6 @@ func (info *videoInfo) parseTrak(trak []byte) {
 			eachBox(body, func(kind string, body []byte) {
 				if kind == "stbl" {
 					eachBox(body, func(kind string, body []byte) {
-						// stsd: version/flags, entry count, then the first
-						// sample entry's size and type.
 						if kind == "stsd" && len(body) >= 16 {
 							codec = string(body[12:16])
 						}
@@ -172,24 +161,17 @@ func (info *videoInfo) parseTrak(trak []byte) {
 	if !isVideo || len(tkhd) < 84 {
 		return
 	}
-	// The track's display size closes tkhd, as 16.16 fixed point, after the
-	// transformation matrix that says whether it's shown turned.
 	n := len(tkhd)
 	w := int(binary.BigEndian.Uint32(tkhd[n-8:]) >> 16)
 	h := int(binary.BigEndian.Uint32(tkhd[n-4:]) >> 16)
 	matrix := tkhd[n-44 : n-8]
 	a, b := int32(binary.BigEndian.Uint32(matrix[0:])), int32(binary.BigEndian.Uint32(matrix[4:]))
-	if a == 0 && b != 0 { // turned 90 or 270 degrees
+	if a == 0 && b != 0 {
 		w, h = h, w
 	}
 	info.width, info.height, info.codec = w, h, codec
 }
 
-// mp4Brand rewrites a QuickTime file's ftyp in place to an MP4 one. Phones
-// play an H.264 .mov fine once it's labelled video/mp4: the two formats
-// share their structure, and WhatsApp Web repairs a .mov into an .mp4
-// before sending it (WAWebMediaAnalyzer checkAndRepair). The box keeps its
-// size, so nothing after it moves.
 func mp4Brand(path string) error {
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {

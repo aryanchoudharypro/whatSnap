@@ -1,13 +1,3 @@
-//! The in-app video player's picture and controls, shared by the video
-//! window (`video_player.rs`) and the status viewer (`status_viewer.rs`).
-//! Every control is a standard one, each slider named by the label created
-//! just before it, so a screen reader reads them like any other.
-//!
-//! Keys, wherever the player sits: K plays or pauses, J and L go back and
-//! forward 10 seconds, M mutes, T says where playback is. On the Position
-//! slider the arrows move 5 seconds and Page Up/Down 30; on Volume the arrows
-//! step 10%.
-
 use std::{
 	cell::{Cell, RefCell},
 	rc::{Rc, Weak},
@@ -21,14 +11,11 @@ use crate::{
 	ui::{keys, theme},
 };
 
-/// Playback speeds the Speed button steps through.
 const SPEEDS: [f64; 4] = [1.0, 1.5, 2.0, 0.5];
 const TICK_MS: i32 = 250;
 
 pub(crate) struct MediaPlayer {
-	/// Everything below, for showing or hiding the player as one.
 	pub(crate) panel: Panel,
-	/// Where the engine draws the picture.
 	video: Panel,
 	play_btn: Button,
 	mute_btn: Button,
@@ -39,20 +26,14 @@ pub(crate) struct MediaPlayer {
 	announcer: StaticText,
 	engine: RefCell<Option<MediaEngine>>,
 	timer: Timer<Panel>,
-	/// Whole seconds the Position slider spans; 0 until the length is known.
 	length: Cell<i32>,
 	speed: Cell<usize>,
-	/// When the user last moved the Position slider, so the timer doesn't
-	/// pull it back before the seek lands.
 	last_user_seek: Cell<Option<Instant>>,
-	/// Whether playback starts as soon as the file is loaded.
 	autoplay: Cell<bool>,
 	on_ended: RefCell<Option<Box<dyn Fn()>>>,
 }
 
 impl MediaPlayer {
-	/// Builds the player into `parent` (added to `sizer`), announcing through
-	/// `announcer`, the live region of the window it's in.
 	pub(crate) fn build(parent: &Panel, sizer: &BoxSizer, announcer: StaticText) -> Rc<Self> {
 		let panel = Panel::builder(parent).build();
 		theme::style_content(&panel);
@@ -142,13 +123,10 @@ impl MediaPlayer {
 		});
 	}
 
-	/// Calls `action` each time playback reaches the end.
 	pub(crate) fn on_ended(&self, action: impl Fn() + 'static) {
 		*self.on_ended.borrow_mut() = Some(Box::new(action));
 	}
 
-	/// Opens the file at `path`, playing it from the beginning once it's
-	/// loaded when `autoplay`.
 	pub(crate) fn load(&self, path: &str, autoplay: bool) {
 		self.stop();
 		self.autoplay.set(autoplay);
@@ -156,7 +134,6 @@ impl MediaPlayer {
 			Ok(engine) => {
 				engine.set_volume(self.volume.get_value() as f64 / 100.0);
 				engine.set_rate(SPEEDS[self.speed.get()]);
-				// Muting carries over from one video to the next.
 				engine.set_muted(self.mute_btn.get_label() == "Unmute");
 				*self.engine.borrow_mut() = Some(engine);
 				if autoplay {
@@ -171,11 +148,8 @@ impl MediaPlayer {
 		}
 	}
 
-	/// Stops playback and lets go of the file.
 	pub(crate) fn stop(&self) {
 		self.timer.stop();
-		// Taken out first: dropping the engine shuts it down, which can call
-		// back into the window.
 		let engine = self.engine.borrow_mut().take();
 		drop(engine);
 		self.length.set(0);
@@ -245,7 +219,6 @@ impl MediaPlayer {
 		crate::platform::announce::announce(self.announcer, &label);
 	}
 
-	/// Moves playback `seconds` forward (or back, when negative).
 	pub(crate) fn seek_by(&self, seconds: f64) {
 		let Some(at) = self.engine.borrow().as_ref().map(|e| {
 			let target = e.position() + seconds;
@@ -278,8 +251,6 @@ impl MediaPlayer {
 		crate::platform::announce::announce(self.announcer, &self.time_label());
 	}
 
-	/// Handles the player's own keys (see the module notes). True when the
-	/// key was one of them.
 	pub(crate) fn handle_key(&self, key: &KeyboardEvent) -> bool {
 		if key.control_down() || key.alt_down() || key.meta_down() || !self.is_loaded() {
 			return false;
@@ -339,7 +310,6 @@ impl MediaPlayer {
 		true
 	}
 
-	/// Puts focus on Play/Pause, the first control.
 	pub(crate) fn focus(&self) {
 		self.play_btn.set_focus();
 	}
@@ -399,14 +369,11 @@ impl MediaPlayer {
 		}
 	}
 
-	/// Whether the window `hwnd` is one of the player's sliders, which take
-	/// the arrow keys for themselves.
 	pub(crate) fn owns_arrows(&self, hwnd: *mut std::ffi::c_void) -> bool {
 		self.is_loaded() && (hwnd == self.position.get_handle() || hwnd == self.volume.get_handle())
 	}
 }
 
-/// An event handler running `f` on the player while it's still there.
 fn handler<E>(weak: &Weak<MediaPlayer>, f: fn(&MediaPlayer)) -> impl FnMut(E) + 'static {
 	let weak = weak.clone();
 	move |_| {
@@ -422,12 +389,10 @@ impl Drop for MediaPlayer {
 	}
 }
 
-/// The window with keyboard focus.
 pub(crate) fn focused_window() -> *mut std::ffi::c_void {
 	unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetFocus().0 }
 }
 
-/// `seconds` as m:ss, or h:mm:ss from an hour up.
 pub(crate) fn clock(seconds: i32) -> String {
 	let s = seconds.max(0);
 	if s >= 3600 {

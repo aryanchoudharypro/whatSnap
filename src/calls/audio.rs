@@ -36,19 +36,11 @@ use crate::{
 	ui::wake::UiCommandSender,
 };
 
-// Every frame on the wire to/from the Go backend is 60 ms of 16 kHz mono PCM
-// (meowcaller.FrameSamples) - see backend/audio_udp.go.
 const FRAME_SAMPLES: usize = 960;
 const NETWORK_SAMPLE_RATE: u32 = 16000;
 
-// Each mic frame also goes out as one standard Opus packet, after its PCM in
-// the same datagram. The backend encodes MLow itself from the PCM; the Opus
-// copy is for a call with someone whose WhatsApp isn't on MLow (WhatsApp for
-// Windows, for one) and decodes Opus instead, which the backend can't encode.
-// 24 kbit/s at complexity 5 is what the official clients use at 16 kHz.
 const OPUS_BITRATE: i32 = 24_000;
 const OPUS_COMPLEXITY: i32 = 5;
-// The largest packet libopus can produce for one frame.
 const OPUS_MAX_PACKET: usize = 1275;
 
 // Debugging aid for call-audio issues reported in the field (e.g. one-sided
@@ -67,21 +59,13 @@ pub(crate) fn log_line(msg: &str) {
 	}
 }
 
-// On Windows, a UDP socket that has sent a datagram to a port with no
-// listener can later fail recvfrom() with WSAECONNRESET when the OS
-// delivers the resulting ICMP Port Unreachable back to it - a purely local
-// artifact that has nothing to do with whether the actual call is still up,
-// but was previously killing the audio reader thread outright (see below).
-// SIO_UDP_CONNRESET with a FALSE input buffer disables that behavior for
-// this socket, matching how the OS itself recommends handling this for
-// UDP sockets that expect to keep listening regardless of ICMP replies.
 fn disable_udp_connreset(socket: &UdpSocket) {
 	use std::os::windows::io::AsRawSocket;
 
 	use windows::Win32::Networking::WinSock::{SOCKET, WSAIoctl};
 	const SIO_UDP_CONNRESET: u32 = 0x9800000C;
 	let sock = SOCKET(socket.as_raw_socket() as usize);
-	let input: u32 = 0; // FALSE - disable connection-reset reporting
+	let input: u32 = 0;
 	let mut bytes_returned: u32 = 0;
 	unsafe {
 		let _ = WSAIoctl(
@@ -98,7 +82,6 @@ fn disable_udp_connreset(socket: &UdpSocket) {
 	}
 }
 
-// Closes the WASAPI event handle when a capture/render thread exits, however it exits.
 pub(crate) struct EventGuard(pub(crate) HANDLE);
 impl Drop for EventGuard {
 	fn drop(&mut self) {
@@ -134,40 +117,24 @@ pub struct CallAudioState {
 	/// the signal the other loop still needs to see.
 	force_reopen_input: Arc<AtomicBool>,
 	force_reopen_output: Arc<AtomicBool>,
-	/// System audio on its way into the mic frames, and the capture filling
-	/// it while a screen share carries the computer's sound.
 	system_mix: Arc<Mutex<SystemMix>>,
 	system_audio: Option<SystemAudioCapture>,
 }
 
 impl CallAudioState {
-	/// Switches the capture device for this call in place, without dropping
-	/// or restarting the call. The capture session loop (see
-	/// `run_capture_session`) polls this value on the same cadence it
-	/// already polls for stream errors, and treats a change as a request to
-	/// close the current WASAPI stream and reopen a fresh one on the new
-	/// device - the same recovery path used when a device is lost, just
-	/// triggered deliberately instead of by an error.
 	pub fn set_input_device(&self, name: Option<String>) {
 		*self.preferred_input.lock().unwrap() = name;
 	}
 
-	/// Same as `set_input_device`, for the render (speaker) side.
 	pub fn set_output_device(&self, name: Option<String>) {
 		*self.preferred_output.lock().unwrap() = name;
 	}
 
-	/// Reopens both capture and render on their currently-resolved device
-	/// (system default, or a pinned device re-resolved in case the old one
-	/// came back or is still gone) without waiting for a name change.
 	pub fn force_device_refresh(&self) {
 		self.force_reopen_input.store(true, Ordering::Relaxed);
 		self.force_reopen_output.store(true, Ordering::Relaxed);
 	}
 
-	/// Starts or stops mixing what the computer plays into what this call
-	/// sends - a screen share that carries the computer's sound. A capture that can't
-	/// start reports `UiCommand::SystemAudioFailed` through `ui_tx`.
 	pub fn share_system_audio(&mut self, on: bool, ui_tx: &UiCommandSender) {
 		if on == self.system_audio.is_some() {
 			return;
@@ -224,9 +191,6 @@ pub(crate) unsafe fn open_communications_stream(
 ) -> crate::error::Result<WasapiOpen> {
 	unsafe {
 		let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-		// Falls back to the default communications-role device if no preference is
-		// set, or if the preferred device (unplugged, renamed, etc) can't be found -
-		// same behavior as before this became user-selectable.
 		let device = match preferred_device_name
 			.and_then(|name| crate::audio::devices::find_wasapi_device_by_name(&enumerator, dataflow, name))
 		{
@@ -247,34 +211,16 @@ pub(crate) unsafe fn open_communications_stream(
 			}
 		}
 
-		// GetMixFormat's returned pointer may point at a WAVEFORMATEXTENSIBLE (larger
-		// than WAVEFORMATEX) - only the pointer itself, still owning the full
-		// allocation, may be handed to Initialize; a truncated local copy would make
-		// Initialize read past a stack value if the format's cbSize claims extension
-		// bytes that aren't actually there.
 		let mix_format_ptr = client.GetMixFormat()?;
 		let format = *mix_format_ptr;
 		let channels = format.nChannels;
 		let sample_rate = format.nSamplesPerSec;
 		let bits_per_sample = format.wBitsPerSample;
 		let format_tag = format.wFormatTag as u32;
-		// wFormatTag alone doesn't say PCM vs float for WAVE_FORMAT_EXTENSIBLE (which is what
-		// GetMixFormat virtually always returns) - that's carried in the extended struct's
-		// SubFormat GUID instead. The previous `bits_per_sample == 32 && format_tag !=
-		// WAVE_FORMAT_PCM` heuristic would misread a 32-bit-PCM extensible mix format (some
-		// pro-audio interfaces/drivers report this) as float, feeding raw PCM integer bytes
-		// through the f32 path as garbage/noise audio. read_unaligned is required here: the
-		// windows crate's WAVEFORMATEXTENSIBLE is `repr(packed)`, so a plain deref/cast could
-		// read a misaligned field.
 		let is_float = match format_tag {
 			t if t == WAVE_FORMAT_IEEE_FLOAT => true,
 			t if t == WAVE_FORMAT_EXTENSIBLE => {
 				let ext = std::ptr::read_unaligned(mix_format_ptr as *const WAVEFORMATEXTENSIBLE);
-				// `ext.SubFormat == ...` would implicitly take `&ext.SubFormat` to call
-				// PartialEq::eq - a reference to a field of a repr(packed) struct, which is a
-				// hard compile error (E0793) since GUID's natural alignment (4) can exceed the
-				// struct's packed alignment (1). Block-copying the field out first (`{ ext.SubFormat }`)
-				// reads it by value with no reference ever formed.
 				let subformat = { ext.SubFormat };
 				subformat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
 			}
@@ -305,10 +251,6 @@ pub(crate) unsafe fn open_communications_stream(
 	}
 }
 
-// Mono downmix -> anti-aliasing low-pass -> linear-interpolation resample to
-// 16 kHz, for any capture stream: the mic below, and the system audio a screen
-// share can carry (audio/system_audio.rs). Identical to the filter design previously
-// run inside cpal's input callback.
 pub(crate) struct Downsampler {
 	channels: u16,
 	lp1: f32,
@@ -321,18 +263,6 @@ pub(crate) struct Downsampler {
 
 impl Downsampler {
 	pub(crate) fn new(sample_rate: u32, channels: u16) -> Self {
-		// The linear-interpolation resampler has no anti-aliasing of its own:
-		// decimating a 44.1/48kHz mic signal straight to 16kHz folds everything
-		// above the 8kHz output Nyquist back into the audible band. A cascaded
-		// two-pole one-pole low-pass at ~7kHz (comfortably under 8kHz) run on the
-		// native-rate signal before decimation removes that content first.
-		//
-		// Cascading two identical one-pole stages does NOT put the pair's -3dB point
-		// at the per-stage cutoff: each stage alone is already -3dB there, so the pair
-		// is -6dB, and the actual combined -3dB point lands at cutoff * sqrt(sqrt(2)-1)
-		// (~0.644x) - using 7kHz directly for both stages put the real rolloff around
-		// 4.5kHz, cutting into sibilance/formants and making voice sound muffled. Scale
-		// the per-stage cutoff up so the cascade's own -3dB point is the intended 7kHz.
 		let lp_target_hz: f32 = 7000.0;
 		let lp_cutoff_hz: f32 = lp_target_hz / (2.0_f32.sqrt() - 1.0).sqrt();
 		let lp_rc = 1.0 / (2.0 * std::f32::consts::PI * lp_cutoff_hz);
@@ -349,8 +279,6 @@ impl Downsampler {
 		}
 	}
 
-	/// Takes interleaved samples at the stream's own rate and appends what
-	/// they make at 16 kHz mono to `out`.
 	pub(crate) fn process(&mut self, data: &[f32], out: &mut Vec<f32>) {
 		for frame in data.chunks(self.channels as usize) {
 			let sum: f32 = frame.iter().sum();
@@ -374,22 +302,13 @@ impl Downsampler {
 	}
 }
 
-// Mic-side DSP: the mic downsampled to 16 kHz, with any shared system audio
-// mixed in, batched into FRAME_SAMPLES packets sent to Go. The buffer source
-// is a WASAPI capture-thread loop.
 struct CaptureDsp {
 	downsampler: Downsampler,
-	/// The mic at 16 kHz, before it is mixed.
 	resampled: Vec<f32>,
 	sample_accum: Vec<f32>,
-	/// System audio waiting to be mixed in; empty unless a screen share is
-	/// carrying it.
 	system: Arc<Mutex<SystemMix>>,
-	/// One frame's samples, then the datagram built from it; both reused so
-	/// the capture thread doesn't allocate every 20ms.
 	frame: Vec<f32>,
 	send_buf: Vec<u8>,
-	/// None if libopus refused to start: frames then go out as PCM alone.
 	opus: Option<opus::Encoder>,
 }
 
@@ -400,8 +319,6 @@ fn new_call_opus_encoder() -> Option<opus::Encoder> {
 	Some(encoder)
 }
 
-/// Builds one datagram for the backend: the frame as little-endian f32 PCM,
-/// then the same frame as a standard Opus packet when there's an encoder.
 fn pack_call_frame(frame: &[f32], opus: Option<&mut opus::Encoder>, out: &mut Vec<u8>) {
 	out.clear();
 	for sample in frame {
@@ -429,9 +346,6 @@ impl CaptureDsp {
 
 	fn process(&mut self, data: &[f32], muted: bool, socket_out: &UdpSocket, target_addr: &str) {
 		self.downsampler.process(data, &mut self.resampled);
-		// Muting silences shared system audio as well as the mic, as in
-		// WhatsApp's own calls. The system sound is still taken off its queue
-		// meanwhile, so unmuting doesn't play a backlog.
 		let mut system = self.system.lock().unwrap();
 		for sample in self.resampled.drain(..) {
 			let mixed = system.mix(sample);
@@ -448,21 +362,14 @@ impl CaptureDsp {
 	}
 }
 
-// How much received audio the speaker side holds before it starts playing, and
-// again after it runs dry. Without refilling after an underrun the queue stays
-// near empty and every late packet is another gap.
 const PLAYOUT_REFILL_SAMPLES: usize = FRAME_SAMPLES * 2;
 
-// Speaker-side DSP: pulls 16 kHz mono frames off frame_rx into a jitter-absorbing
-// queue, then linear-interpolation upsamples to the device's native rate on demand.
-// Identical to the filter design previously run inside cpal's output callback.
 struct RenderDsp {
 	channels: u16,
 	src_accum: VecDeque<f32>,
 	resample_phase: f64,
 	upsample_step: f64,
 	max_buffered_src: usize,
-	/// Playing silence until PLAYOUT_REFILL_SAMPLES have arrived.
 	refilling: bool,
 	played: Arc<AtomicU64>,
 	starved: Arc<AtomicU64>,
@@ -561,14 +468,6 @@ impl RenderDsp {
 	}
 }
 
-// Runs capture sessions back-to-back until `stop` is set. A single session ending in
-// error (any WASAPI call failing mid-stream, e.g. the communications-role device
-// changing or being temporarily reclaimed) used to permanently and silently kill mic
-// capture for the rest of the call, since every WASAPI call in the old single-pass
-// loop was a bare `?` with no caller to retry it. Reopening the device and starting a
-// fresh session is the same recovery WASAPI apps are expected to perform on
-// AUDCLNT_E_DEVICE_INVALIDATED and similar - there's no other way to recover a live
-// IAudioClient once the OS has torn down its underlying endpoint.
 fn run_capture(
 	stop: &AtomicBool,
 	is_muted: &AtomicBool,
@@ -605,12 +504,7 @@ fn run_capture_session(
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
-		// Snapshot the requested device for this session; a change made
-		// through CallAudioState::set_input_device while this session is
-		// running is picked up by the poll loop below, not here.
 		let session_device = preferred_device.lock().unwrap().clone();
-		// A refresh requested while we were still opening the previous
-		// session belongs to this new session's open, not a reopen after it.
 		force_reopen.store(false, Ordering::Relaxed);
 		let wasapi = open_communications_stream(eCapture, "capture", session_device.as_deref(), true)?;
 		let _event_guard = EventGuard(wasapi.event);
@@ -671,9 +565,6 @@ fn run_capture_session(
 	Ok(())
 }
 
-// Same back-to-back-sessions recovery as run_capture, and for the same reason: any
-// WASAPI call failing mid-stream used to permanently and silently kill speaker
-// playback for the rest of the call.
 fn run_render(
 	stop: &AtomicBool,
 	frame_rx: mpsc::Receiver<Vec<f32>>,
@@ -710,16 +601,12 @@ fn run_render_session(
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
-		// See run_capture_session: a later device switch is picked up by the
-		// poll loop below, not by re-reading this snapshot.
 		let session_device = preferred_device.lock().unwrap().clone();
 		force_reopen.store(false, Ordering::Relaxed);
 		let wasapi = open_communications_stream(eRender, "render", session_device.as_deref(), true)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let render_client: IAudioRenderClient = wasapi.client.GetService()?;
 
-		// Pre-fill the whole buffer with silence before Start(), the standard WASAPI
-		// render pattern - starting with an empty buffer glitches the first callback.
 		{
 			let data_ptr = render_client.GetBuffer(wasapi.buffer_frames)?;
 			if !data_ptr.is_null() {
@@ -789,7 +676,6 @@ pub fn start_audio_streams(
 	let socket = UdpSocket::bind("127.0.0.1:0")?;
 	let target_addr = format!("127.0.0.1:{}", target_port);
 
-	// Send a dummy packet to punch the hole for Go to learn our port!
 	socket.send_to(&[0u8; 4], &target_addr)?;
 
 	let socket_read = socket.try_clone()?;
@@ -819,11 +705,6 @@ pub fn start_audio_streams(
 	std::thread::spawn(move || {
 		let _ = socket_read.set_read_timeout(Some(Duration::from_millis(200)));
 		disable_udp_connreset(&socket_read);
-		// Sized to the max possible UDP datagram, not FRAME_SAMPLES * 4: on Windows,
-		// recv_from on an undersized buffer returns WSAEMSGSIZE and silently drops the
-		// *whole* datagram (no partial read like POSIX gives you), so a relay/peer that
-		// occasionally bursts more samples per packet than we send ourselves was having
-		// those packets discarded outright, causing choppy/starved audio for that call.
 		let mut buf = vec![0u8; 65536];
 		while !reader_stop_thread.load(Ordering::Relaxed) {
 			match socket_read.recv_from(&mut buf) {
@@ -835,22 +716,12 @@ pub fn start_audio_streams(
 						.iter()
 						.map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 						.collect();
-					// A full channel means playback is falling behind; drop
-					// the frame rather than block this thread's UDP reads.
 					if frame_tx.try_send(frame).is_err() {
 						tx_drop_count_thread.fetch_add(1, Ordering::Relaxed);
 					}
 				}
 				Err(ref e)
 					if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {}
-				// Any other recv error (notably WSAECONNRESET on Windows, which a
-				// loopback UDP socket can get handed after any datagram it sent found
-				// no listener at that instant - pure local plumbing noise, unrelated
-				// to whether the call/relay is still up) used to permanently kill
-				// this thread, which dropped frame_tx and silenced playback for the
-				// rest of the call even though nothing about the connection had
-				// changed. Keep listening instead; only the explicit stop flag above
-				// should end this loop.
 				Err(e) => {
 					reader_error_count_thread.fetch_add(1, Ordering::Relaxed);
 					log_line(&format!("reader recv_from error (ignored, continuing): {:?}", e));
@@ -860,11 +731,6 @@ pub fn start_audio_streams(
 		log_line("reader thread exiting (reader_stop set)");
 	});
 
-	// Periodic health snapshot so silence/one-sided-audio reports can be
-	// correlated against real counters instead of guessing: udp_recv tells
-	// us whether packets are even arriving, tx_drop tells us if the reader
-	// is receiving but playback can't keep up, and starved/played tell us
-	// whether the render loop actually had data to play.
 	{
 		let health_stop = Arc::clone(&stop);
 		let reader_recv_count = Arc::clone(&reader_recv_count);
@@ -895,10 +761,6 @@ pub fn start_audio_streams(
 	let is_muted = Arc::new(AtomicBool::new(false));
 	let preferred_input = Arc::new(Mutex::new(preferred_input_device));
 	let preferred_output = Arc::new(Mutex::new(preferred_output_device));
-	// One shared flag for both directions: a default-device-changed
-	// notification doesn't say which direction changed, so refresh both -
-	// reopening a session that turns out to already be on the right device
-	// is cheap and harmless.
 	let force_reopen_input = Arc::new(AtomicBool::new(false));
 	let force_reopen_output = Arc::new(AtomicBool::new(false));
 	let system_mix = Arc::new(Mutex::new(SystemMix::default()));
@@ -980,9 +842,6 @@ mod tests {
 				pcm.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
 			assert_eq!(sent, frame, "the PCM half is the frame, untouched");
 
-			// What the other side's WhatsApp expects on this payload type: one
-			// packet for the whole 60 ms, wideband (the official clients send
-			// SILK wideband, TOC 0x58).
 			assert!(!packet.is_empty(), "frame {n} has no Opus packet");
 			assert_eq!(opus::packet::get_nb_samples(packet, NETWORK_SAMPLE_RATE).unwrap(), FRAME_SAMPLES);
 			assert_eq!(packet[0], 0x58, "frame {n} is not one 60 ms SILK wideband frame");
@@ -1007,7 +866,6 @@ mod tests {
 		let (tx, rx) = mpsc::sync_channel::<Vec<f32>>(8);
 		let mut out = vec![0.0f32; 160];
 
-		// One frame is not enough to start on.
 		tx.send(vec![0.5; FRAME_SAMPLES]).unwrap();
 		dsp.process(&mut out, &rx);
 		assert!(out.iter().all(|&s| s == 0.0), "started before the refill level");
@@ -1016,13 +874,11 @@ mod tests {
 		dsp.process(&mut out, &rx);
 		assert!(out.iter().all(|&s| s == 0.5), "did not start once the refill level arrived");
 
-		// Play everything that is buffered, and run dry.
 		for _ in 0..(2 * FRAME_SAMPLES / out.len()) {
 			dsp.process(&mut out, &rx);
 		}
 		assert!(dsp.refilling, "running dry did not start a refill");
 
-		// A single late frame is held back instead of played straight away.
 		tx.send(vec![0.25; FRAME_SAMPLES]).unwrap();
 		dsp.process(&mut out, &rx);
 		assert!(out.iter().all(|&s| s == 0.0), "played a lone frame before refilling");

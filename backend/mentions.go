@@ -15,18 +15,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// MentionRef is one @mention picked in the composer: the name it shows as in
-// the typed text ("@Name") and the JID it stands for.
 type MentionRef struct {
 	JID  string `json:"jid"`
 	Name string `json:"name"`
 }
 
-// applyMentions turns composer text into wire text. Each picked "@Name" still
-// in the text becomes "@<JID user>" - what WhatsApp puts in the body, with the
-// full JID in ContextInfo.MentionedJID - and the JIDs it found come back in
-// the order they were picked. A mention whose "@Name" was since deleted or
-// retyped is simply dropped, leaving whatever text is there as plain text.
 func applyMentions(text string, mentions []MentionRef) (string, []types.JID) {
 	type pick struct {
 		token, wire string
@@ -41,7 +34,6 @@ func applyMentions(text string, mentions []MentionRef) (string, []types.JID) {
 		}
 		picks = append(picks, pick{token: "@" + name, wire: "@" + jid.User, jid: jid.ToNonAD()})
 	}
-	// Longest name first, so "@Ana" can't eat the front of "@Ana Maria".
 	byLength := make([]pick, len(picks))
 	copy(byLength, picks)
 	sort.SliceStable(byLength, func(i, j int) bool { return len(byLength[i].token) > len(byLength[j].token) })
@@ -63,8 +55,6 @@ func applyMentions(text string, mentions []MentionRef) (string, []types.JID) {
 	return text, jids
 }
 
-// replaceWholeToken replaces every occurrence of token that isn't followed
-// straight away by a letter or digit ("@Ana" in "@Anabel" is someone else).
 func replaceWholeToken(text, token, replacement string) (string, bool) {
 	var b strings.Builder
 	replaced := false
@@ -96,9 +86,6 @@ func jidStrings(jids []types.JID) []string {
 	return out
 }
 
-// invokedBot is the bot (Meta AI) a message mentions, if any. WhatsApp Web
-// finds it the same way (mentionedJidList.find(isBot)); the message then
-// also goes to the bot, which is how it answers in the chat.
 func invokedBot(jids []types.JID) types.JID {
 	for _, j := range jids {
 		if j.IsBot() {
@@ -108,8 +95,6 @@ func invokedBot(jids []types.JID) types.JID {
 	return types.EmptyJID
 }
 
-// storedMentionMessage is the wire text and mentions a pending text message
-// was stored with (see handleSend), so a retry sends the same mentions.
 func storedMentionMessage(id string) (string, []types.JID) {
 	var raw []byte
 	db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw)
@@ -137,10 +122,6 @@ func mentionsInMessage(msg *waE2E.Message) (string, []types.JID) {
 	return ext.GetText(), jids
 }
 
-// editMentions keeps the mentions an edited message already had: each one is
-// shown in the stored text as "@<resolved name>" (resolveMentions), so while
-// that is still in the new text it's still a mention. Mentions picked during
-// the edit come after.
 func editMentions(messageID string, picked []MentionRef) []MentionRef {
 	var raw []byte
 	db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, messageID).Scan(&raw)
@@ -156,24 +137,12 @@ func editMentions(messageID string, picked []MentionRef) []MentionRef {
 	return append(out, picked...)
 }
 
-// --- Advanced chat privacy (WhatsApp's "limit sharing") ---
-//
-// While it's on in a chat, nobody in it can mention Meta AI there (WA Web's
-// isLimitSharingReceiverEnabledForUsers blocks the send). A group's setting
-// comes with its metadata and a mex notification; a 1:1 chat's comes as a
-// LIMIT_SHARING protocol message, a limitSharingV2 stamp on any message, or
-// history sync.
-
 func chatLimitSharing(jid string) bool {
 	var on int
 	db.QueryRow(`SELECT COALESCE(limit_sharing, 0) FROM chats WHERE jid = ?`, jid).Scan(&on)
 	return on == 1
 }
 
-// setChatLimitSharing records a chat's setting. ts is the setting's own
-// timestamp; a nonzero one is only applied when newer than what's stored
-// (WAWebLimitSharingProtoUtils.updateChatWithLimitSharingIfNewer). Zero means
-// authoritative (group metadata), applied as is.
 func setChatLimitSharing(jid string, enabled bool, ts int64) (changed bool) {
 	var res interface{ RowsAffected() (int64, error) }
 	var err error
@@ -194,28 +163,16 @@ func setChatLimitSharing(jid string, enabled bool, ts int64) (changed bool) {
 	return false
 }
 
-// --- Restricted chat (WhatsApp's "ACP2") ---
-//
-// The newer advanced chat privacy: everything the old one stops, and the
-// chat stays on the phone that turned it on, off WhatsApp Web and other
-// linked devices. Only the phone can turn it on or off, so here it's only
-// followed: an ACP2_SETTING protocol message, an acp2Setting stamp on any
-// message, or history sync.
-
 func chatRestricted(jid string) bool {
 	var on int
 	db.QueryRow(`SELECT COALESCE(restricted, 0) FROM chats WHERE jid = ?`, jid).Scan(&on)
 	return on == 1
 }
 
-// chatSharingLimited is whether either kind of chat privacy is on, which is
-// what stops exporting the chat and mentioning Meta AI in it.
 func chatSharingLimited(jid string) bool {
 	return chatLimitSharing(jid) || chatRestricted(jid)
 }
 
-// setChatRestricted records a chat's restricted setting if ts is newer than
-// what's stored, as setChatLimitSharing does for a 1:1 chat.
 func setChatRestricted(jid string, enabled bool, ts int64) (changed bool) {
 	res, err := db.Exec(`UPDATE chats SET restricted = ?, restricted_ts = ? WHERE jid = ? AND COALESCE(restricted_ts, 0) < ?`,
 		boolToInt(enabled), ts, jid, ts)
@@ -229,7 +186,6 @@ func setChatRestricted(jid string, enabled bool, ts int64) (changed bool) {
 	return false
 }
 
-// chatPrivacyName names whichever chat privacy is on, for error messages.
 func chatPrivacyName(jid string) string {
 	if chatRestricted(jid) {
 		return "Restricted chat"
@@ -237,9 +193,6 @@ func chatPrivacyName(jid string) string {
 	return "Advanced chat privacy"
 }
 
-// acp2InMessage finds a restricted-chat setting a message carries, as
-// limitSharingInMessage does for the older setting: the ACP2_SETTING toggle
-// (possibly wrapped in acp2SettingMessage) or the stamp on any message.
 func acp2InMessage(msg *waE2E.Message) (setting *waCommon.ACP2Setting, toggle bool) {
 	if msg == nil {
 		return nil, false
@@ -257,10 +210,6 @@ func acp2InMessage(msg *waE2E.Message) (setting *waCommon.ACP2Setting, toggle bo
 	return nil, false
 }
 
-// limitSharingInMessage finds a chat-privacy setting a message carries: a
-// LIMIT_SHARING protocol message (the toggle itself, possibly wrapped in
-// limitSharingMessage) or the limitSharingV2 stamp WA Web reads off any
-// message. toggle is true for the former, which has nothing else to show.
 func limitSharingInMessage(msg *waE2E.Message) (setting *waCommon.LimitSharing, toggle bool) {
 	if msg == nil {
 		return nil, false

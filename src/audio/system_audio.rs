@@ -1,13 +1,3 @@
-//! Captures what the computer is playing, for a screen share that carries
-//! sound too. WhatsApp calls carry one audio stream per person, so the sound is
-//! mixed into the mic frames `calls/audio.rs` sends instead of travelling on
-//! its own.
-//!
-//! The capture is Windows' process loopback (Windows 10 2004 and later) in
-//! exclude mode: everything every other program plays, minus whatSnap and the
-//! backend it started. A plain loopback of the speakers would also pick up
-//! the call itself and send the others their own voices back.
-
 use std::{
 	collections::VecDeque,
 	sync::{
@@ -49,21 +39,12 @@ use crate::{
 	ui::wake::UiCommandSender,
 };
 
-/// What the capture asks Windows for; Windows converts whatever is playing.
 const CAPTURE_RATE: u32 = 48_000;
 const CAPTURE_CHANNELS: u16 = 2;
-/// 16 kHz samples held back before mixing starts, and again after the queue
-/// runs dry: the two capture threads wake on their own clocks, so mixing
-/// from an empty queue would cut the sound into pieces.
 const MIX_PRIME: usize = 960;
-/// More than this queued means the system clock runs ahead of the mic's;
-/// the oldest sound is dropped back down to `MIX_PRIME`.
 const MIX_MAX: usize = 4000;
-/// System audio goes in a little under full scale so a voice over loud music
-/// stays clear of clipping.
 const MIX_GAIN: f32 = 0.7;
 
-/// System audio at 16 kHz, between its capture thread and the mic thread.
 #[derive(Default)]
 pub(crate) struct SystemMix {
 	queue: VecDeque<f32>,
@@ -79,7 +60,6 @@ impl SystemMix {
 		}
 	}
 
-	/// One mic sample, with the next system sample added when there is one.
 	pub(crate) fn mix(&mut self, voice: f32) -> f32 {
 		if !self.primed {
 			if self.queue.len() < MIX_PRIME {
@@ -102,7 +82,6 @@ impl SystemMix {
 	}
 }
 
-/// A running system audio capture; dropping it stops the thread.
 pub(crate) struct SystemAudioCapture {
 	stop: Arc<AtomicBool>,
 }
@@ -117,9 +96,6 @@ pub(crate) fn start(mix: Arc<Mutex<SystemMix>>, ui_tx: UiCommandSender) -> Syste
 	let stop = Arc::new(AtomicBool::new(false));
 	let thread_stop = Arc::clone(&stop);
 	let spawned = std::thread::Builder::new().name("system audio".into()).spawn(move || {
-		// Like the mic, a session that fails mid-stream (the default speakers
-		// changing, say) is reopened. Only a first open that fails is
-		// reported, since then there's nothing being shared at all.
 		let mut first = true;
 		while !thread_stop.load(Ordering::Relaxed) {
 			if let Err(e) = run_session(&thread_stop, &mix, &mut first) {
@@ -152,7 +128,6 @@ impl IActivateAudioInterfaceCompletionHandler_Impl for Activated_Impl {
 	}
 }
 
-/// An audio client on everything playing except this process tree.
 unsafe fn activate_loopback() -> crate::error::Result<IAudioClient> {
 	unsafe {
 		let mut params = AUDIOCLIENT_ACTIVATION_PARAMS {
@@ -218,8 +193,6 @@ fn run_session(stop: &AtomicBool, mix: &Mutex<SystemMix>, first: &mut bool) -> c
 		log_line("system audio: opening process loopback");
 		let client = activate_loopback()?;
 		log_line("system audio: loopback opened");
-		// Process loopback has no mix format to ask for, so the format is
-		// ours to pick and Windows converts to it.
 		let block_align = CAPTURE_CHANNELS * 2;
 		let format = WAVEFORMATEX {
 			wFormatTag: WAVE_FORMAT_PCM as u16,
@@ -254,8 +227,6 @@ fn run_session(stop: &AtomicBool, mix: &Mutex<SystemMix>, first: &mut bool) -> c
 		let mut scratch: Vec<f32> = Vec::new();
 		let mut resampled: Vec<f32> = Vec::new();
 		while !stop.load(Ordering::Relaxed) {
-			// Loopback only signals while something is playing; the timeout
-			// keeps the stop flag checked through silence.
 			if WaitForSingleObject(event, 200) != WAIT_OBJECT_0 {
 				continue;
 			}

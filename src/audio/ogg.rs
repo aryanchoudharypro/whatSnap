@@ -1,15 +1,9 @@
-//! Writes Ogg pages (RFC 3533) for the Opus voice notes whatSnap sends.
-//! Reading them is done inline by `audio::decode_opus`.
-
 use std::io::{self, Write};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PacketEnd {
-	/// More packets may follow on the same page.
 	Normal,
-	/// The page is written out after this packet.
 	EndPage,
-	/// The page is written out after this packet, marked as the stream's last.
 	EndStream,
 }
 
@@ -18,11 +12,9 @@ pub(crate) struct OggWriter<W: Write> {
 	serial: u32,
 	sequence: u32,
 	first_page: bool,
-	/// The current page opens with the rest of a packet from the previous one.
 	continued: bool,
 	lacing: Vec<u8>,
 	body: Vec<u8>,
-	/// Granule position of the last packet that ended on the current page.
 	granule: Option<u64>,
 }
 
@@ -43,8 +35,6 @@ impl<W: Write> OggWriter<W> {
 	pub(crate) fn write_packet(&mut self, packet: &[u8], end: PacketEnd, granule: u64) -> io::Result<()> {
 		let mut rest = packet;
 		loop {
-			// A page holds at most 255 lacing values; a packet that doesn't fit
-			// carries on onto the next page.
 			let room = 255 - self.lacing.len();
 			let whole = rest.len() / 255;
 			if whole < room {
@@ -70,7 +60,6 @@ impl<W: Write> OggWriter<W> {
 		let mut page = Vec::with_capacity(27 + self.lacing.len() + self.body.len());
 		page.extend_from_slice(b"OggS\0");
 		page.push(std::mem::take(&mut self.continued) as u8 | (self.first_page as u8) << 1 | (last as u8) << 2);
-		// -1 marks a page on which no packet ends.
 		page.extend_from_slice(&self.granule.take().map_or(-1i64, |g| g as i64).to_le_bytes());
 		page.extend_from_slice(&self.serial.to_le_bytes());
 		page.extend_from_slice(&self.sequence.to_le_bytes());
@@ -93,7 +82,6 @@ impl<W: Write> OggWriter<W> {
 	}
 }
 
-/// Ogg's CRC-32: polynomial 0x04c11db7, unreflected, zero initial value.
 fn crc32(data: &[u8]) -> u32 {
 	const TABLE: [u32; 256] = {
 		let mut table = [0u32; 256];
@@ -119,8 +107,6 @@ mod tests {
 
 	#[test]
 	fn crc_matches_a_known_page() {
-		// The checksum of "123456789" under Ogg's CRC parameters (CRC-32/MPEG-2
-		// without its 0xFFFFFFFF init and final xor).
 		assert_eq!(crc32(b"123456789"), 0x89a1_897f);
 	}
 
@@ -129,7 +115,6 @@ mod tests {
 		let mut w = OggWriter::new(Vec::new(), 7);
 		w.write_packet(&[1u8; 300 * 255], PacketEnd::EndStream, 42).unwrap();
 		let data = w.into_inner();
-		// The first page carries 255 full segments and no packet end.
 		assert_eq!(data[5], 0x02);
 		assert_eq!(i64::from_le_bytes(data[6..14].try_into().unwrap()), -1);
 		assert_eq!(data[26], 255);

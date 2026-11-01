@@ -1,23 +1,14 @@
-//! Message timestamps as local wall-clock time, converted by Windows itself
-//! (so they follow the user's time zone and its daylight-saving rules), and
-//! the small strftime subset the UI formats them with.
-
-/// A moment in local time, to the second.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalTime {
 	pub year: i32,
-	/// 1 to 12.
 	pub month: u32,
-	/// 1 to 31.
 	pub day: u32,
 	pub hour: u32,
 	pub minute: u32,
 	pub second: u32,
-	/// 0 is Sunday.
 	pub weekday: u32,
 }
 
-/// A local calendar day, as days since 1970-01-01.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Date(i64);
 
@@ -26,7 +17,6 @@ impl Date {
 		Date(self.0 + days)
 	}
 
-	/// Whole days from `earlier` to this day.
 	pub fn days_since(self, earlier: Date) -> i64 {
 		self.0 - earlier.0
 	}
@@ -49,22 +39,18 @@ const MONTHS: [&str; 12] = [
 ];
 
 impl LocalTime {
-	/// The local time at `secs` seconds since the Unix epoch, or None if
-	/// that's outside what Windows can convert.
 	#[cfg(windows)]
 	pub fn from_unix(secs: i64) -> Option<LocalTime> {
 		use windows::Win32::{
 			Foundation::{FILETIME, SYSTEMTIME},
 			System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime},
 		};
-		// FILETIME counts 100 ns intervals since 1601.
 		let ticks = secs.checked_add(11_644_473_600)?.checked_mul(10_000_000)?;
 		let ticks = u64::try_from(ticks).ok()?;
 		let ft = FILETIME { dwLowDateTime: ticks as u32, dwHighDateTime: (ticks >> 32) as u32 };
 		let (mut utc, mut local) = (SYSTEMTIME::default(), SYSTEMTIME::default());
 		unsafe {
 			FileTimeToSystemTime(&ft, &mut utc).ok()?;
-			// No time zone given means the current one.
 			SystemTimeToTzSpecificLocalTime(None, &utc, &mut local).ok()?;
 		}
 		Some(LocalTime {
@@ -78,7 +64,6 @@ impl LocalTime {
 		})
 	}
 
-	/// UTC elsewhere, which is enough for the tests.
 	#[cfg(not(windows))]
 	pub fn from_unix(secs: i64) -> Option<LocalTime> {
 		let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
@@ -111,8 +96,6 @@ impl LocalTime {
 		Date(days_from_civil(self.year, self.month, self.day))
 	}
 
-	/// Formats with strftime's `%Y %m %d %e %H %I %l %M %S %p %A %a %B %b`
-	/// (`%e` and `%l` space-padded, the others zero-padded) and `%%`.
 	pub fn format(&self, fmt: &str) -> String {
 		use std::fmt::Write;
 		let mut out = String::with_capacity(fmt.len() + 16);
@@ -152,8 +135,6 @@ impl LocalTime {
 	}
 }
 
-/// Days since 1970-01-01 of a proleptic Gregorian date (Howard Hinnant's
-/// days_from_civil).
 fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
 	let y = year as i64 - (month <= 2) as i64;
 	let era = y.div_euclid(400);

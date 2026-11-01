@@ -11,10 +11,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// Group and community management WA Web has: people asking to join a group
-// that approves new members, creating a community, adding an existing group
-// to one or taking it out, and deactivating a community.
-
 type JoinRequestsData struct {
 	JID     string   `json:"jid"`
 	JIDs    []string `json:"jids"`
@@ -31,7 +27,6 @@ type CreateCommunityData struct {
 	Description string `json:"description"`
 }
 
-// handleGetJoinRequests lists who's asking to join a group.
 func handleGetJoinRequests(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -55,7 +50,6 @@ func handleGetJoinRequests(conn net.Conn, raw json.RawMessage) {
 	sendEvent(conn, "join_requests", map[string]interface{}{"jid": data.JID, "requests": list})
 }
 
-// handleAnswerJoinRequests approves or rejects people asking to join.
 func handleAnswerJoinRequests(conn net.Conn, raw json.RawMessage) {
 	var data JoinRequestsData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -96,8 +90,6 @@ func handleAnswerJoinRequests(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleCreateCommunity creates a community; WhatsApp makes its
-// announcement group along with it.
 func handleCreateCommunity(conn net.Conn, raw json.RawMessage) {
 	var data CreateCommunityData
 	if err := json.Unmarshal(raw, &data); err != nil || strings.TrimSpace(data.Name) == "" {
@@ -130,8 +122,6 @@ func handleCreateCommunity(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleGetLinkableGroups lists the groups we could add to a community:
-// ones we're an admin of that aren't in a community already.
 func handleGetLinkableGroups(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -161,8 +151,6 @@ func handleGetLinkableGroups(conn net.Conn, raw json.RawMessage) {
 	sendEvent(conn, "linkable_groups", map[string]interface{}{"community": data.JID, "groups": list})
 }
 
-// handleLinkCommunityGroup adds a group to a community, or with link false
-// takes it out.
 func handleLinkCommunityGroup(conn net.Conn, raw json.RawMessage, link bool) {
 	var data CommunityGroupData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -198,8 +186,6 @@ func handleLinkCommunityGroup(conn net.Conn, raw json.RawMessage, link bool) {
 	}()
 }
 
-// handleDeactivateCommunity deletes a community; its groups stay as groups
-// of their own.
 func handleDeactivateCommunity(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {

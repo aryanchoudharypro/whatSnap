@@ -1,8 +1,3 @@
-//! Profile pictures for the rows the app draws: asked of the backend only for
-//! the chats actually drawn, decoded small, and kept for a few hundred chats
-//! at most. The backend keeps the files on disk (see avatar_previews.go), so
-//! after the first run they come straight back.
-
 use std::{
 	cell::RefCell,
 	collections::{HashMap, VecDeque},
@@ -12,27 +7,20 @@ use std::{
 
 use super::gdi::Bitmap;
 
-/// Decoded pictures kept at once. Each is size x size x 4 bytes (~6 KB at
-/// 40 px), so this is about 1.5 MB at most.
 const MAX_BITMAPS: usize = 256;
-/// A request with no answer (offline, say) is asked again after this.
 const RETRY_AFTER: Duration = Duration::from_secs(60);
 
 pub(crate) enum Avatar<'a> {
 	Picture(&'a Bitmap),
-	/// No picture, or one we may not see: the default silhouette.
 	Nothing,
-	/// Not known yet; it's been asked for.
 	Waiting,
 }
 
 #[derive(Default)]
 struct Cache {
-	/// jid -> its file, or None for "has no picture".
 	paths: HashMap<String, Option<String>>,
 	bitmaps: HashMap<String, Bitmap>,
 	order: VecDeque<String>,
-	/// The size the bitmaps were made at; a change (DPI, font) drops them.
 	size: i32,
 	asked: HashMap<String, Instant>,
 	pending: Vec<String>,
@@ -45,14 +33,10 @@ thread_local! {
 	static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
 }
 
-/// Sets where requests go. Call once at startup.
 pub(crate) fn init(tx: mpsc::Sender<String>) {
 	CACHE.with(|c| c.borrow_mut().tx = Some(tx));
 }
 
-/// Runs `callback` whenever a picture arrives or changes, to redraw.
-/// The size pictures are being drawn at (the chat list's), so other places
-/// can draw them at it too and share the cache.
 pub(crate) fn size() -> Option<i32> {
 	CACHE.with(|c| Some(c.borrow().size).filter(|&s| s > 0))
 }
@@ -61,7 +45,6 @@ pub(crate) fn on_change(callback: impl Fn() + 'static) {
 	CACHE.with(|c| c.borrow_mut().on_change.push(Box::new(callback)));
 }
 
-/// The file of `jid`'s picture, asking for it if it's not known yet.
 pub(crate) fn path_of(jid: &str) -> Option<String> {
 	if jid.is_empty() {
 		return None;
@@ -78,8 +61,6 @@ pub(crate) fn path_of(jid: &str) -> Option<String> {
 	})
 }
 
-/// Runs `draw` with `jid`'s picture at `size` pixels, asking for it if it's
-/// not known yet.
 pub(crate) fn with_avatar<R>(jid: &str, size: i32, draw: impl FnOnce(Avatar) -> R) -> R {
 	if jid.is_empty() {
 		return draw(Avatar::Nothing);
@@ -131,7 +112,6 @@ fn ask(c: &mut Cache, jid: &str) {
 		return;
 	}
 	c.flush_scheduled = true;
-	// After this paint, so a screenful of rows goes as one request.
 	wxdragon::call_after(Box::new(|| {
 		CACHE.with(|cache| {
 			let mut c = cache.borrow_mut();
@@ -148,8 +128,6 @@ fn ask(c: &mut Cache, jid: &str) {
 }
 
 fn changed() {
-	// Taken out while they run, so a redraw that asks for a picture can
-	// borrow the cache.
 	let callbacks = CACHE.with(|c| std::mem::take(&mut c.borrow_mut().on_change));
 	for callback in &callbacks {
 		callback();
@@ -161,7 +139,6 @@ fn changed() {
 	});
 }
 
-/// The backend's `avatar_previews`: {"items": [{"jid", "path"}]}.
 pub(crate) fn on_previews(data: &serde_json::Value) {
 	let Some(items) = data.get("items").and_then(|i| i.as_array()) else { return };
 	CACHE.with(|cache| {
@@ -177,8 +154,6 @@ pub(crate) fn on_previews(data: &serde_json::Value) {
 	changed();
 }
 
-/// The backend's `avatar_updated`: someone changed or removed their picture.
-/// Forgetting it makes the next paint ask again.
 pub(crate) fn on_updated(jid: &str) {
 	CACHE.with(|cache| {
 		let mut c = cache.borrow_mut();

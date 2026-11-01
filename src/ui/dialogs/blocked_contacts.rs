@@ -1,15 +1,9 @@
-//! "Blocked contacts": everyone the account has blocked, with a way to
-//! unblock them or block someone else. The list changes while the dialog is
-//! open (`blocklist` events), so its parts live in AppState for as long as
-//! it's shown.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
 
 use crate::ui::theme;
 
-/// One blocked person.
 #[derive(Clone)]
 pub struct BlockedEntry {
 	pub jid: String,
@@ -19,7 +13,6 @@ pub struct BlockedEntry {
 
 impl BlockedEntry {
 	fn label(&self) -> String {
-		// Someone who isn't a saved contact is named by their number already.
 		if self.phone.is_empty() || self.name.starts_with('+') {
 			self.name.clone()
 		} else if self.name.is_empty() {
@@ -30,7 +23,6 @@ impl BlockedEntry {
 	}
 }
 
-/// The open "Blocked contacts" dialog.
 pub struct BlockedContacts {
 	pub dialog: Dialog,
 	list: ListBox,
@@ -41,7 +33,6 @@ pub struct BlockedContacts {
 }
 
 impl BlockedContacts {
-	/// Shows the list as it now stands, keeping the selection in place.
 	pub fn apply(&self, entries: &[BlockedEntry]) {
 		let previous = self.list.get_selection().unwrap_or(0) as usize;
 		let labels: Vec<String> = entries.iter().map(BlockedEntry::label).collect();
@@ -54,7 +45,6 @@ impl BlockedContacts {
 		if !entries.is_empty() {
 			self.list.set_selection(previous.min(entries.len() - 1) as u32, true);
 		} else if self.unblock_btn.has_focus() {
-			// A disabled button can't keep the focus.
 			self.list.set_focus();
 		}
 		self.unblock_btn.enable(!entries.is_empty());
@@ -71,9 +61,6 @@ impl BlockedContacts {
 	}
 }
 
-/// Builds and shows the dialog, and returns once it's closed. `store` keeps
-/// it reachable for list changes while it's open; `add` starts blocking
-/// someone new.
 pub fn show_blocked_contacts(
 	parent: &impl WxWidget,
 	entries: &[BlockedEntry],

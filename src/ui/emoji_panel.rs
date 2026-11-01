@@ -1,25 +1,14 @@
-//! "Emoji and stickers": WhatsApp Web's emoji and sticker panel as a dialog
-//! of native controls. Emoji are searched by name and listed by group;
-//! stickers are the favorites, the ones recently seen in chats, and every
-//! pack in WhatsApp's own sticker store, each read out by what it shows.
-//! The backend answers while it's open (`stickers`, `sticker_store`,
-//! `sticker_pack` events), so its parts live in AppState until it closes.
-
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use wxdragon::prelude::*;
 
 use crate::ui::theme;
 
-/// Emoji names and groups, from Unicode's emoji-test.txt: a "#Group" line
-/// starts each group, then one "emoji<TAB>name" line per emoji.
 const EMOJI_DATA: &str = include_str!("emoji.txt");
 
-/// How many emoji "Recently used" keeps.
 const RECENT_EMOJI_LIMIT: usize = 24;
 
 thread_local! {
-	/// Emoji inserted this session, newest first.
 	static RECENT_EMOJI: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -42,13 +31,11 @@ fn parse_emoji() -> (Vec<&'static str>, Vec<Emoji>) {
 	(groups, emoji)
 }
 
-/// Whether every word of the search is in the emoji's name.
 fn emoji_matches(name: &str, query: &str) -> bool {
 	let name = name.to_lowercase();
 	query.split_whitespace().all(|word| name.contains(word))
 }
 
-/// A sticker the panel can send.
 #[derive(Clone)]
 pub enum StickerPick {
 	Favorite(String),
@@ -67,7 +54,6 @@ struct Pack {
 	label: String,
 }
 
-/// What the panel was closed with.
 pub enum PanelChoice {
 	Emoji(String),
 	Sticker(StickerPick),
@@ -79,19 +65,14 @@ struct PanelState {
 	favorites: Vec<Sticker>,
 	recent: Vec<Sticker>,
 	packs: Vec<Pack>,
-	/// Store packs' stickers, by pack id, once loaded.
 	pack_stickers: HashMap<String, Vec<Sticker>>,
-	/// The stickers the list shows, in its order.
 	shown: Vec<Sticker>,
-	/// The emoji the list shows, as indexes into `emoji`.
 	shown_emoji: Vec<usize>,
-	/// "Recently used" leads the group list when there were any.
 	has_recent_group: bool,
 	stickers_loaded: bool,
 	choice: Option<PanelChoice>,
 }
 
-/// The open panel.
 pub struct EmojiPanel {
 	pub dialog: Dialog,
 	emoji_search: TextCtrl,
@@ -105,7 +86,6 @@ pub struct EmojiPanel {
 	ws_tx: std::sync::mpsc::Sender<String>,
 }
 
-/// The fixed sets ahead of the store's packs in the sticker set list.
 const FAVORITES_SET: u32 = 0;
 const RECENT_SET: u32 = 1;
 const FIRST_PACK_SET: u32 = 2;
@@ -120,7 +100,6 @@ impl EmojiPanel {
 		let _ = self.ws_tx.send(payload.to_string());
 	}
 
-	/// Fills the emoji list from the search, or else the chosen group.
 	fn show_emoji(&self) {
 		let query = self.emoji_search.get_value().trim().to_lowercase();
 		let mut s = self.state.borrow_mut();
@@ -178,7 +157,6 @@ impl EmojiPanel {
 		self.dialog.end_modal(ID_OK);
 	}
 
-	/// The backend listed the favorite and recent stickers.
 	pub fn apply_stickers(&self, data: &serde_json::Value) {
 		let list = |key: &str| data.get(key).and_then(|v| v.as_array()).cloned().unwrap_or_default();
 		let field = |v: &serde_json::Value, key: &str| v.get(key).and_then(|f| f.as_str()).unwrap_or("").to_string();
@@ -195,14 +173,12 @@ impl EmojiPanel {
 		s.stickers_loaded = true;
 		let (no_favorites, no_recent) = (s.favorites.is_empty(), s.recent.is_empty());
 		drop(s);
-		// Open on stickers there are: the favorites, else the recent ones.
 		if first_load && no_favorites && !no_recent {
 			self.sticker_set.set_selection(RECENT_SET);
 		}
 		self.show_set(first_load);
 	}
 
-	/// The backend listed the store's packs.
 	pub fn apply_store(&self, data: &serde_json::Value) {
 		if let Some(error) = data.get("error").and_then(|e| e.as_str()) {
 			self.announce(error);
@@ -236,7 +212,6 @@ impl EmojiPanel {
 		self.state.borrow_mut().packs = packs;
 	}
 
-	/// The backend listed a store pack's stickers.
 	pub fn apply_pack(&self, data: &serde_json::Value) {
 		let id = data.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
 		if let Some(error) = data.get("error").and_then(|e| e.as_str()) {
@@ -265,15 +240,12 @@ impl EmojiPanel {
 		}
 	}
 
-	/// The store pack the set list has chosen, if it's one.
 	fn shown_pack(&self) -> Option<String> {
 		let set = self.sticker_set.get_selection()?;
 		let index = set.checked_sub(FIRST_PACK_SET)? as usize;
 		self.state.borrow().packs.get(index).map(|p| p.id.clone())
 	}
 
-	/// Lists the chosen set's stickers, asking for a store pack's first.
-	/// `say` reads out what's there, for a set the user just chose.
 	fn show_set(&self, say: bool) {
 		let set = self.sticker_set.get_selection().unwrap_or(FAVORITES_SET);
 		let mut s = self.state.borrow_mut();
@@ -326,9 +298,6 @@ impl EmojiPanel {
 	}
 }
 
-/// Builds and shows the panel on its emoji or its stickers, and returns what
-/// was picked once it's closed. `store` keeps it reachable for the
-/// backend's answers while it's open.
 pub fn show_emoji_panel(
 	parent: &impl WxWidget,
 	ws_tx: std::sync::mpsc::Sender<String>,
@@ -343,7 +312,6 @@ pub fn show_emoji_panel(
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	let notebook = Notebook::builder(&dialog).build();
 
-	// --- Emoji ---
 	let emoji_page = Panel::builder(&notebook).build();
 	theme::style_content(&emoji_page);
 	let emoji_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -376,7 +344,6 @@ pub fn show_emoji_panel(
 	emoji_sizer.add(&insert_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 10);
 	emoji_page.set_sizer(emoji_sizer, true);
 
-	// --- Stickers ---
 	let sticker_page = Panel::builder(&notebook).build();
 	theme::style_content(&sticker_page);
 	let sticker_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -429,8 +396,6 @@ pub fn show_emoji_panel(
 	});
 	store(Some(panel.clone()));
 
-	// Emoji: the list follows the search as it's typed (it's all local),
-	// and the group when there's no search.
 	let p = panel.clone();
 	emoji_search.on_text_changed(move |_| p.show_emoji());
 	let p = panel.clone();
@@ -449,8 +414,6 @@ pub fn show_emoji_panel(
 	let p = panel.clone();
 	crate::ui::keys::on_enter(&emoji_list, Rc::default(), move || p.pick_emoji());
 
-	// Stickers: a store pack is only asked for once the choice has settled,
-	// not for every pack arrowed past on the way.
 	let settle = Rc::new(Timer::new(&dialog));
 	let p = panel.clone();
 	settle.on_tick(move |_| p.show_set(true));

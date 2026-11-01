@@ -13,7 +13,6 @@ import (
 	"go.mau.fi/whatsmeow/appstate"
 )
 
-// maxCommandBytes bounds a single JSON command line from the frontend.
 const maxCommandBytes = 1024 * 1024
 
 func handleConnection(conn net.Conn) {
@@ -33,9 +32,6 @@ func handleConnection(conn net.Conn) {
 	if wa().Store.ID != nil {
 		log.Println("Sending initial connected event to WS")
 		sendEvent(conn, "connected", map[string]string{"jid": wa().Store.ID.String()})
-		// "connected" here only means "logged in, show the chat list" - the
-		// WhatsApp socket itself may still be down (no network at startup),
-		// so follow up with its real state for the status bar.
 		sendEvent(conn, "connection_state", currentConnState())
 		sendEvent(conn, "server_flags", serverFlagsPayload())
 		sendEvent(conn, "blocklist", blocklistPayload())
@@ -79,16 +75,9 @@ func handleConnection(conn net.Conn) {
 	}
 }
 
-// commandStallThreshold is how long a command may run before it's logged as
-// holding up the ones behind it.
 const commandStallThreshold = 10 * time.Second
 
-// dispatchCommand runs one frontend command. A panic in a handler (a nil
-// JID right after logging out, unexpected data) is logged and dropped rather
-// than taking down the whole backend, as it did before.
 func dispatchCommand(conn net.Conn, cmd Command) {
-	// Commands run one at a time, so one that hangs holds up every command
-	// after it. Note it, with every goroutine's stack, so it can be traced.
 	stalled := time.AfterFunc(commandStallThreshold, func() {
 		log.Printf("Command %q still running after %s; later commands are waiting on it", cmd.Action, commandStallThreshold)
 		dumpGoroutinesForStall(fmt.Sprintf("command %q still running after %s", cmd.Action, commandStallThreshold))
@@ -106,7 +95,6 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		}
 	}()
 	switch cmd.Action {
-	// --- session / pairing ---
 	case "get_qr":
 		handleGetQR(conn)
 	case "cancel_qr", "cancel_pairing":
@@ -120,7 +108,6 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 	case "reconnect":
 		handleReconnect()
 
-	// --- messaging ---
 	case "send":
 		go handleSend(conn, cmd.Data)
 	case "forward_message":
@@ -166,7 +153,6 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 	case "mark_read":
 		handleMarkRead(cmd.Data)
 
-	// --- contacts ---
 	case "new_contact":
 		handleNewContact(conn, cmd.Data)
 	case "get_contacts":
@@ -222,7 +208,6 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 	case "set_privacy_list":
 		handleSetPrivacyList(cmd.Data)
 
-	// --- groups ---
 	case "create_group":
 		handleCreateGroup(conn, cmd.Data)
 	case "get_group_info":
@@ -316,7 +301,6 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 	case "get_reported_messages":
 		handleGetReportedMessages(conn, cmd.Data)
 
-	// --- chats ---
 	case "verify_chat_lock_code":
 		// PBKDF2 with the server's iteration count can take a moment -
 		// never on the goroutine that reads every other command.
@@ -440,12 +424,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 	case "set_call_options":
 		handleSetCallOptions(cmd.Data)
 
-	// --- settings (unchanged) ---
 	case "update_settings":
 		fmt.Println("Received update_settings command:", string(cmd.Data))
 		sendEvent(conn, "settings_updated", map[string]interface{}{"status": "success"})
 
-	// --- media / attachments / voice messages ---
 	case "send_attachment":
 		handleSendAttachment(conn, cmd.Data)
 	case "send_contacts":

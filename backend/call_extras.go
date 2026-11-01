@@ -13,9 +13,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// Call links, raising a hand, reactions, others' screen shares and a call
-// link's waiting room, all of which meowcaller does; this is the IPC around them.
-
 type CallLinkData struct {
 	Link  string `json:"link"`
 	Video bool   `json:"video"`
@@ -34,7 +31,6 @@ func activeCall(callID string) *meowcaller.Call {
 	return activeCalls[callID]
 }
 
-// callPersonName names someone in a call by their phone number if we know it.
 func callPersonName(jid, pn types.JID) string {
 	if !pn.IsEmpty() {
 		return resolveDisplayName(pn)
@@ -42,8 +38,6 @@ func callPersonName(jid, pn types.JID) string {
 	return resolveDisplayName(preferPN(jid))
 }
 
-// callJoinerName names someone who joined through a call link. Guests have no
-// account, so the name they typed in the browser is all we have.
 func callJoinerName(jid, pn types.JID, pushName string, guest bool) string {
 	if guest {
 		return cmp.Or(pushName, "Guest") + " (guest)"
@@ -51,11 +45,7 @@ func callJoinerName(jid, pn types.JID, pushName string, guest bool) string {
 	return callPersonName(jid, pn)
 }
 
-// attachCallExtras wires the hand, reaction, screen share and waiting room
-// listeners; attachCallHandlers calls it for every call.
 func attachCallExtras(call *meowcaller.Call) {
-	// meowcaller has already muted the call when this fires; the app mutes
-	// its microphone to match and says who did it.
 	call.OnMuteRequested(func(by types.JID) {
 		name := ""
 		if !by.IsEmpty() {
@@ -101,8 +91,6 @@ func attachCallExtras(call *meowcaller.Call) {
 	})
 }
 
-// handleCreateCallLink makes a call link to share; whoever opens it first
-// starts the call.
 func handleCreateCallLink(conn net.Conn, raw json.RawMessage) {
 	var data CallLinkData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -133,9 +121,6 @@ func callLinkJoinPushName(name string) (string, error) {
 	return name, nil
 }
 
-// handleJoinCallLink joins the call a link is for, or its waiting room when
-// the link needs an admin to let people in. The frontend handles it as an
-// outgoing group call.
 func handleJoinCallLink(raw json.RawMessage) {
 	var data CallLinkData
 	if err := json.Unmarshal(raw, &data); err != nil {

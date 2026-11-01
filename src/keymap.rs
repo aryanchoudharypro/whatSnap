@@ -1,17 +1,3 @@
-//! The remappable keyboard shortcuts: the menu bar's, the voice message
-//! keys (app-wide but with no menu item), and the message list's action keys.
-//!
-//! wx builds its accelerator table from the "\tCtrl+N" part of each menu
-//! label, so rebinding a menu shortcut means relabelling its menu item. The
-//! message list's keys are checked by its key handler through
-//! [`Keymap::is_pressed`]. Navigation and editing keys (arrows, Enter, Space,
-//! Escape, Ctrl+C/V) stay fixed in their handlers and aren't listed here.
-//!
-//! What's saved is only what the user changed, keyed by a stable action id:
-//! `"new_chat": "Ctrl+Shift+J"`, or `"none"` for a shortcut deliberately
-//! removed. Anything absent keeps its default, so a default changed in a later
-//! release still reaches everyone who never touched that one.
-
 use std::collections::BTreeMap;
 
 use key_chord::KeyChord;
@@ -20,7 +6,6 @@ use wxdragon::{event::KeyboardEvent, prelude::*};
 
 use crate::ui::window::*;
 
-/// Ids of the message list's actions, for [`Keymap::is_pressed`].
 pub mod message_list {
 	pub const SEEK_BACK: &str = "message_seek_back";
 	pub const SEEK_FORWARD: &str = "message_seek_forward";
@@ -34,41 +19,29 @@ pub mod message_list {
 	pub const VIEW_TEXT: &str = "message_view_text";
 }
 
-/// Ids of the voice message keys. They have no menu item: the main window
-/// checks them through [`Keymap::is_pressed`] before the focused control.
 pub mod voice {
 	pub const START_RECORDING: &str = "start_recording";
 	pub const PAUSE_RECORDING: &str = "pause_recording";
 	pub const SEND: &str = "send_voice_message";
 }
 
-/// Ids of the incoming-call keys. Unlike the others these are system-wide
-/// (see `call_hotkeys`), and they're read when a call starts ringing.
 pub mod incoming_call {
 	pub const ANSWER: &str = "call_answer";
 	pub const REJECT: &str = "call_reject";
 }
 
-/// One remappable action.
 pub struct ActionDef {
 	/// Key in settings.json. Never rename one: it would silently drop the
 	/// user's binding for it.
 	pub id: &'static str,
-	/// The menu item it's the shortcut of, or `None` for a key with no menu
-	/// item (a voice message or message-list key).
 	pub menu_id: Option<i32>,
-	/// Index into [`TABS`]: the menu the item lives in, or the Messages tab.
 	pub tab: usize,
-	/// The menu label without its shortcut, `&` mnemonic included; for a
-	/// message-list key, the name the shortcuts dialog lists it under.
 	pub label: &'static str,
 	pub default: &'static str,
 }
 
 pub const TABS: [&str; 7] = ["Account", "Go", "Chats", "Conversation", "Voice", "Call", "Messages"];
 
-/// Log Out is left out on purpose: it has no shortcut, and giving it one would
-/// make signing out of WhatsApp a single stray keypress away.
 pub const ACTIONS: &[ActionDef] = &[
 	ActionDef { id: "settings", menu_id: Some(MENU_ID_SETTINGS), tab: 0, label: "&Settings...", default: "Ctrl+," },
 	ActionDef { id: "reconnect", menu_id: Some(MENU_ID_RECONNECT), tab: 0, label: "&Reconnect Now", default: "F5" },
@@ -251,8 +224,6 @@ fn action_for_menu(menu_id: i32) -> usize {
 	ACTIONS.iter().position(|a| a.menu_id == Some(menu_id)).expect("menu id has no entry in keymap::ACTIONS")
 }
 
-/// A shortcut as a wx accelerator reads it. wx has no physical-Control
-/// modifier distinct from Ctrl, so a RawCtrl chord is written as Ctrl.
 fn accelerator_text(chord: &KeyChord) -> String {
 	if chord.raw_ctrl {
 		KeyChord::new(true, chord.alt, chord.shift, chord.key.as_str()).to_shortcut_string()
@@ -261,22 +232,16 @@ fn accelerator_text(chord: &KeyChord) -> String {
 	}
 }
 
-/// The label a menu item is built with, before any saved overrides are
-/// applied over it by [`Keymap::apply`].
 pub fn default_menu_label(menu_id: i32) -> String {
 	Keymap::default().menu_label(action_for_menu(menu_id))
 }
 
-/// The shortcuts in effect: the defaults with the user's overrides on top.
-/// The action type handed to the shortcuts dialog is an index into [`ACTIONS`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Keymap {
 	overrides: BTreeMap<String, String>,
 }
 
 impl Keymap {
-	/// Overrides for actions that no longer exist are dropped rather than kept
-	/// around, so a stale settings.json can't resurrect a binding later.
 	pub fn from_saved(saved: &BTreeMap<String, String>) -> Self {
 		let overrides = saved
 			.iter()
@@ -290,7 +255,6 @@ impl Keymap {
 		self.overrides.clone()
 	}
 
-	/// The chord bound to the action `id`, or `None` if the user removed it.
 	pub fn global_chord(&self, id: &str) -> Option<KeyChord> {
 		ACTIONS.iter().position(|a| a.id == id).and_then(|action| self.chord_for(action))
 	}
@@ -300,7 +264,6 @@ impl Keymap {
 		KeyChord::parse(self.overrides.get(def.id).map_or(def.default, String::as_str))
 	}
 
-	/// The label, with its shortcut, of the menu item `menu_id`.
 	pub fn menu_label_for(&self, menu_id: i32) -> String {
 		self.menu_label(action_for_menu(menu_id))
 	}
@@ -310,8 +273,6 @@ impl Keymap {
 		wx_utils::menu_label(ACTIONS[action].label, &shortcut)
 	}
 
-	/// Relabels every menu item, which is also what rebuilds wx's accelerator
-	/// table, so the new shortcuts work straight away.
 	pub fn apply(&self, frame: &Frame) {
 		let Some(menu_bar) = frame.get_menu_bar() else { return };
 		for (action, def) in ACTIONS.iter().enumerate() {
@@ -321,9 +282,6 @@ impl Keymap {
 		}
 	}
 
-	/// Whether `key` is the chord bound to the action `id` (one of
-	/// [`message_list`]'s). Modifiers have to match exactly, so R is Reply
-	/// but Ctrl+R isn't.
 	pub fn is_pressed(&self, id: &str, key: &KeyboardEvent) -> bool {
 		let Some(action) = ACTIONS.iter().position(|a| a.id == id) else { return false };
 		let Some(code) = key.get_key_code() else { return false };
@@ -357,8 +315,6 @@ impl ShortcutModel for Keymap {
 		self.chord_for(action)
 	}
 
-	/// Setting an action back to its own default drops the override instead of
-	/// storing it, so it keeps following the default from then on.
 	fn set_chord(&mut self, _tab: usize, action: usize, chord: Option<KeyChord>) {
 		let def = &ACTIONS[action];
 		if chord == KeyChord::parse(def.default) {
@@ -398,8 +354,6 @@ mod tests {
 		}
 	}
 
-	/// Numpad minus used to delete a message; it was compared as if it were
-	/// numpad Delete.
 	#[test]
 	fn delete_is_the_delete_keys_only() {
 		let delete = Keymap::default().chord_for(index_of(message_list::DELETE)).unwrap();

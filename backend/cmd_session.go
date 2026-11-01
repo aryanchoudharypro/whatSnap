@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"net"
 	"go.mau.fi/whatsmeow"
+	"net"
 )
 
 var shutdownOnce sync.Once
@@ -29,10 +29,6 @@ func handleShutdown() {
 		}
 
 		if db != nil {
-			// Disconnect returns before every handler goroutine has released
-			// its connection, and SQLite only drops the -wal/-shm files once
-			// the last one closes. Checkpointing explicitly folds the WAL back
-			// into the main database even if a straggler keeps a handle.
 			if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 				log.Println("WAL checkpoint failed:", err)
 			}
@@ -80,12 +76,6 @@ func handleCancelPairing() {
 	}
 }
 
-// handleLogout unlinks this device from the WhatsApp account (mirroring
-// WhatsApp Web's "Log out"): it tells the phone to remove this companion,
-// wipes the whatsmeow session/credentials, then swaps in a brand-new,
-// unpaired device so the app can be paired again without a restart. The
-// local chat cache (messages, chats, contacts_cache) is left untouched -
-// logging back into the same account brings it straight back.
 func handleLogout() {
 	go func() {
 		if wa() == nil || wa().Store.ID == nil {
@@ -108,8 +98,6 @@ func handleLogout() {
 // requests per phone number, so this must not run on forever.
 const maxPairingCodes = 3
 
-// pairingAttempt is the pairing-code request in progress, if any. Starting
-// another one, asking for a QR code or cancelling ends it.
 var pairingAttempt struct {
 	sync.Mutex
 	cancel context.CancelFunc
@@ -156,15 +144,6 @@ func handlePair(raw json.RawMessage) {
 	}()
 }
 
-// runPairingCode gets one pairing code and stays with it until it is used,
-// fails or dies. It reports whether the code expired unused, in which case
-// the caller asks for a replacement.
-//
-// A code only works on the connection it was requested on, and the server
-// closes an unpaired connection after about 160 seconds. Each code therefore
-// gets a connection of its own, so it has that whole window, and losing the
-// connection is treated as the code expiring instead of leaving a dead code
-// on screen for the phone to reject.
 func runPairingCode(ctx context.Context, phone string) (expired bool) {
 	c := wa()
 	if c.IsConnected() {
@@ -179,8 +158,6 @@ func runPairingCode(ctx context.Context, phone string) (expired bool) {
 		broadcastEvent("error", map[string]string{"message": err.Error()})
 		return false
 	}
-	// The first QR code is the sign that the connection is ready for a
-	// pairing request.
 	var first whatsmeow.QRChannelItem
 	select {
 	case first = <-qrChan:
@@ -193,9 +170,6 @@ func runPairingCode(ctx context.Context, phone string) (expired bool) {
 		}
 		return false
 	}
-	// The platform has to agree with store.DeviceProps (set in main.go),
-	// which is what the phone gets when the link completes. For a UWP
-	// device WhatsApp Web sends id 8 with a Chrome display name.
 	code, err := c.PairPhone(ctx, phone, true, whatsmeow.PairClientUWP, "Chrome (Windows)")
 	if err != nil {
 		if ctx.Err() == nil {
@@ -223,8 +197,6 @@ func runPairingCode(ctx context.Context, phone string) (expired bool) {
 		case whatsmeow.QRChannelEventCode:
 		case whatsmeow.QRChannelTimeout.Event:
 			log.Println("Pairing code expired unused")
-			// whatsmeow drops the connection right after reporting this;
-			// let that finish so it can't land on the next code's connection.
 			for i := 0; i < 50 && c.IsConnected(); i++ {
 				time.Sleep(100 * time.Millisecond)
 			}

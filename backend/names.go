@@ -8,20 +8,12 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// Group-event lines ("X added Y", "X left") are stored as message rows. They
-// used to be stored with the names already filled in, so a person whose name
-// or phone number wasn't known yet stayed "10000000000001@lid" forever, even
-// after WhatsApp told us who that was. Now each person is stored as a marker
-// around their JID and named when the line is shown.
 const nameMarker = "\x1f"
 
-// nameToken is the stored form of a person inside a group-event line.
 func nameToken(jid types.JID) string {
 	return nameMarker + preferPN(jid).String() + nameMarker
 }
 
-// renderNames fills in the people in a stored group-event line. nameFor
-// names one JID; pass nil to use resolveDisplayName.
 func renderNames(text string, nameFor func(string) string) string {
 	if !strings.Contains(text, nameMarker) {
 		return text
@@ -32,8 +24,6 @@ func renderNames(text string, nameFor func(string) string) string {
 	parts := strings.Split(text, nameMarker)
 	var b strings.Builder
 	for i, part := range parts {
-		// Odd parts sit between a pair of markers. A stray unpaired marker
-		// at the end is left as plain text.
 		switch {
 		case i%2 == 1 && i < len(parts)-1:
 			b.WriteString(nameFor(part))
@@ -59,11 +49,6 @@ var (
 	bakedPhonePattern = regexp.MustCompile(`\+(\d{8,15})\b`)
 )
 
-// tokenizeBakedSystemLines turns the raw LIDs and "+<number>" fallbacks that
-// older builds wrote into group-event lines into name markers, so those
-// people get named once we know who they are. Lines with a quote in them
-// quote a group name, which may contain a number of its own, so they're
-// left alone.
 func tokenizeBakedSystemLines() {
 	rows, err := db.Query(`SELECT id, text FROM messages WHERE media_type = 'system' AND (text LIKE '%@lid%' OR text LIKE '%+%')`)
 	if err != nil {

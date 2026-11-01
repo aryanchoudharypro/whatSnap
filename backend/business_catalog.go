@@ -14,26 +14,16 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// A business's catalogue, and the orders customers send from it, read the
-// way WA Web reads them (MEX queries in the whatsmeow fork, ported from
-// whatsapp-rust). Text only: names, prices, descriptions and links, no
-// product photos. Placing an order from a cart isn't possible: neither
-// whatsmeow nor whatsapp-rust can create the order WhatsApp needs for it.
-
 type CatalogRequest struct {
 	JID       string `json:"jid"`
 	MessageID string `json:"message_id"`
 }
 
-// catalogPageSize and catalogMaxProducts bound how much of a catalogue is
-// read in one go: a few pages are enough to browse, and the whole list is
-// sent at once so the dialog needn't page.
 const (
 	catalogPageSize    = 50
 	catalogMaxProducts = 300
 )
 
-// formatPrice writes a scaled price (thousandths) as "INR 499.00".
 func formatPrice(p *whatsmeow.CatalogPrice) string {
 	if p == nil {
 		return ""
@@ -46,7 +36,6 @@ func formatAmount1000(amount int64, currency string) string {
 	if amount < 0 {
 		sign, amount = "-", -amount
 	}
-	// Rounded to the cent, as WA Web's formatAmount1000 shows it.
 	cents := (amount + 5) / 10
 	text := fmt.Sprintf("%s%d.%02d", sign, cents/100, cents%100)
 	if currency != "" {
@@ -67,8 +56,6 @@ func availabilityText(a string) string {
 	return strings.ToLower(strings.ReplaceAll(a, "_", " "))
 }
 
-// productLink is WhatsApp's share link for a product, wa.me/p/<id>/<number>,
-// which opens it in WhatsApp. It needs the business's phone number.
 func productLink(business types.JID, productID string) string {
 	pn := business
 	if pn.Server == types.HiddenUserServer {
@@ -93,7 +80,6 @@ func handleGetCatalog(conn net.Conn, raw json.RawMessage) {
 		fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
 		business, err := types.ParseJID(data.JID)
 		select_ := ""
-		// Enter on a product someone shared: that business's catalogue, at it.
 		if data.MessageID != "" {
 			if msg, ok := loadMessageProto(data.MessageID); ok {
 				if product := unwrapMessage(msg).GetProductMessage(); product != nil {
@@ -160,7 +146,6 @@ func handleGetCatalog(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleGetOrder answers Enter on an order message with what was ordered.
 func handleGetOrder(conn net.Conn, raw json.RawMessage) {
 	var data CatalogRequest
 	if json.Unmarshal(raw, &data) != nil {
@@ -185,7 +170,6 @@ func handleGetOrder(conn net.Conn, raw json.RawMessage) {
 		defer cancel()
 		details, err := wa().GetBusinessOrder(ctx, seller, order.GetOrderID(), order.GetToken())
 		if err != nil {
-			// The older IQ form of the same lookup, which whatsmeow has had.
 			if old, oldErr := wa().GetOrderDetails(ctx, order.GetOrderID(), order.GetToken()); oldErr == nil {
 				details = orderFromIQ(old)
 				err = nil
@@ -220,7 +204,6 @@ func orderFromIQ(o *types.OrderDetails) *whatsmeow.BusinessOrder {
 	return out
 }
 
-// orderText lays an order out one line per item, then the totals.
 func orderText(order *waE2E.OrderMessage, d *whatsmeow.BusinessOrder) string {
 	var lines []string
 	if title := strings.TrimSpace(order.GetOrderTitle()); title != "" {

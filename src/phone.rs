@@ -1,45 +1,26 @@
-//! Phone numbers: telling whether digits make a real number and writing it
-//! in international format ("+1 650-253-0000"), from a trimmed-down copy of
-//! libphonenumber's metadata (phone_data.rs, see tools/gen_phone_data.py).
-//!
-//! The metadata's patterns only use digits, `\d`, character classes, `(?:)`
-//! groups, `|`, `?` and `{n}`/`{n,m}`, so a small matcher over that subset
-//! stands in for a regex engine. Numbers are at most 17 digits, which lets it
-//! track every position a pattern can reach as one bit mask.
-
 pub(crate) struct Country {
 	pub(crate) code: u16,
-	/// The trunk prefix dialled before national numbers, "0" in most places.
 	pub(crate) national_prefix: &'static str,
-	/// The main region for the code comes first.
 	pub(crate) regions: &'static [Region],
-	/// The main region's international formats.
 	pub(crate) formats: &'static [Format],
 }
 
 pub(crate) struct Region {
-	/// Numbers starting like this belong to this region, if given.
 	pub(crate) leading: Option<&'static str>,
 	pub(crate) general: Desc,
-	/// Fixed line, mobile, toll free and the other number types.
 	pub(crate) types: &'static [Desc],
 }
 
-/// A number pattern and the national lengths it allows (any, if empty).
 pub(crate) type Desc = (&'static str, &'static [u8]);
 
 pub(crate) struct Format {
 	pub(crate) leading: Option<&'static str>,
-	/// The digit groups the number splits into, as (min, max) lengths.
 	pub(crate) groups: &'static [(u8, u8)],
-	/// How the groups are written: "$1-$2-$3".
 	pub(crate) format: &'static str,
 }
 
-/// Longest national number libphonenumber accepts.
 const MAX_NATIONAL: usize = 17;
 
-/// A parsed number: its country and national digits.
 struct Number<'a> {
 	country: &'static Country,
 	national: &'a str,
@@ -56,8 +37,6 @@ fn parse(digits: &str) -> Option<Number<'_>> {
 		let i = crate::phone_data::COUNTRIES.binary_search_by_key(&code, |c| c.code).ok()?;
 		Some((&crate::phone_data::COUNTRIES[i], &digits[n..]))
 	})?;
-	// A national prefix written after the country code ("+44 (0)20...") isn't
-	// part of the number, if taking it off is what makes it a valid one.
 	let national = match national.strip_prefix(country.national_prefix) {
 		Some(stripped)
 			if !country.national_prefix.is_empty()
@@ -71,8 +50,6 @@ fn parse(digits: &str) -> Option<Number<'_>> {
 	(2..=MAX_NATIONAL).contains(&national.len()).then_some(Number { country, national })
 }
 
-/// The number in international format, or None if `digits` (all of them,
-/// country code first, with or without a leading +) aren't a phone number.
 pub fn format_international(digits: &str) -> Option<String> {
 	let n = parse(digits)?;
 	let mut out = format!("+{} ", n.country.code);
@@ -103,12 +80,9 @@ pub fn format_international(digits: &str) -> Option<String> {
 	Some(out)
 }
 
-/// Splits `national` into consecutive groups of the given lengths, if they
-/// cover it exactly.
 fn split_groups<'a>(groups: &[(u8, u8)], national: &'a str) -> Option<Vec<&'a str>> {
 	fn go<'a>(groups: &[(u8, u8)], rest: &'a str, out: &mut Vec<&'a str>) -> bool {
 		let Some(&(min, max)) = groups.first() else { return rest.is_empty() };
-		// Groups are greedy, as a regex's \d{n,m} would be.
 		for len in (min as usize..=(max as usize).min(rest.len())).rev() {
 			out.push(&rest[..len]);
 			if go(&groups[1..], &rest[len..], out) {
@@ -122,14 +96,10 @@ fn split_groups<'a>(groups: &[(u8, u8)], national: &'a str) -> Option<Vec<&'a st
 	go(groups, national, &mut out).then_some(out)
 }
 
-/// Whether the digits (country code first, with or without a leading +)
-/// are a valid number of one of the country's number types.
 pub fn is_valid(digits: &str) -> bool {
 	parse(digits).is_some_and(|n| is_valid_national(n.country, n.national))
 }
 
-/// The number's digits as a JID holds them (country code and national
-/// number, without a trunk prefix written in between), if it's valid.
 pub fn valid_digits(digits: &str) -> Option<String> {
 	let n = parse(digits)?;
 	is_valid_national(n.country, n.national).then(|| format!("{}{}", n.country.code, n.national))
@@ -137,8 +107,6 @@ pub fn valid_digits(digits: &str) -> Option<String> {
 
 fn is_valid_national(country: &Country, national: &str) -> bool {
 	let regions = country.regions;
-	// Which region the number is from: the first whose leading digits it
-	// starts with, or else the first it's a valid number of.
 	let region = if regions.len() == 1 {
 		Some(&regions[0])
 	} else {
@@ -154,25 +122,20 @@ fn is_valid_in(region: &Region, national: &str) -> bool {
 	matches_desc(region.general, national) && region.types.iter().any(|&d| matches_desc(d, national))
 }
 
-/// Like libphonenumber's descriptor check: a length the type allows, and
-/// the pattern matching from the start of the number.
 fn matches_desc((pattern, lengths): Desc, national: &str) -> bool {
 	(lengths.is_empty() || lengths.contains(&(national.len() as u8)))
 		&& Pattern::compile(pattern).match_ends(national) != 0
 }
 
-/// A parsed pattern: alternatives of sequences.
 struct Pattern(Vec<Vec<Node>>);
 
 enum Node {
-	/// One digit out of a set, as a bit per digit.
 	Digit(u16),
 	Group(Pattern),
 	Repeat(Box<Node>, u8, u8),
 }
 
 impl Pattern {
-	/// Parses the pattern; a malformed one matches nothing.
 	fn compile(src: &str) -> Pattern {
 		let mut bytes = src.as_bytes();
 		let p = Pattern::parse(&mut bytes);
@@ -224,8 +187,6 @@ impl Pattern {
 					*s = s.strip_prefix(b")").unwrap_or(&[]);
 					Node::Group(inner)
 				}
-				// Anything else isn't part of the subset; stop so `compile`
-				// sees the leftover.
 				_ => break,
 			};
 			let node = match s.first() {
@@ -248,7 +209,6 @@ impl Pattern {
 		Pattern(alts)
 	}
 
-	/// Every position in `digits` a match starting at 0 can end at, as bits.
 	fn match_ends(&self, digits: &str) -> u32 {
 		self.step(digits.as_bytes(), 1)
 	}

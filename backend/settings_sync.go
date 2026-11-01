@@ -30,10 +30,9 @@ import (
 // just ignore these mutations.
 
 const (
-	settingsSyncTimeKey = "settings_sync_ts:" // + the setting's key number
+	settingsSyncTimeKey = "settings_sync_ts:"
 )
 
-// The settings the backend keeps itself (app_prefs.go), by WhatsApp's name.
 var syncedAppPrefs = map[string]string{
 	"isPhotosAutodownloadEnabled":    "auto_download_photos",
 	"isAudiosAutodownloadEnabled":    "auto_download_audio",
@@ -42,8 +41,6 @@ var syncedAppPrefs = map[string]string{
 	"mediaUploadQuality":             "hd_media",
 }
 
-// settingName is WhatsApp Web's name for a SettingsSyncAction field
-// (WAWebSettingsSyncConst): the proto's, with "ID" written "Id".
 func settingName(fd protoreflect.FieldDescriptor) string {
 	name := fd.JSONName()
 	if strings.HasSuffix(name, "ID") {
@@ -52,7 +49,6 @@ func settingName(fd protoreflect.FieldDescriptor) string {
 	return name
 }
 
-// settingField finds a setting's field. Each key's number is its field's.
 func settingField(name string) protoreflect.FieldDescriptor {
 	fields := (&waSyncAction.SettingsSyncAction{}).ProtoReflect().Descriptor().Fields()
 	for i := range fields.Len() {
@@ -73,9 +69,6 @@ func noteSettingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey, at time
 	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, settingsSyncTimeKey+strconv.Itoa(int(key)), at.UnixMilli())
 }
 
-// noteSettingsSync applies a setting another WhatsApp desktop device
-// changed, unless a newer one for it was already applied or sent from here
-// (WA Web keeps only the newest of each in a batch the same way).
 func noteSettingsSync(v *events.SettingsSync) {
 	if v.Target != appstate.SettingsSyncAppTarget || (v.Platform != waSyncAction.SettingsSyncAction_WEB && v.Platform != waSyncAction.SettingsSyncAction_HYBRID) {
 		return
@@ -124,8 +117,6 @@ func noteSettingsSync(v *events.SettingsSync) {
 	broadcastEvent("synced_setting", map[string]interface{}{"name": name, "value": value})
 }
 
-// syncSettings shares settings changed here with the other WhatsApp desktop
-// devices, by WhatsApp's name and in its form (see Settings::synced).
 func syncSettings(changes map[string]interface{}) {
 	if len(changes) == 0 {
 		return
@@ -145,7 +136,7 @@ func syncSettings(changes map[string]interface{}) {
 				continue
 			}
 			val = protoreflect.ValueOfBool(v)
-		case float64: // a JSON number
+		case float64:
 			switch fd.Kind() {
 			case protoreflect.Int32Kind:
 				val = protoreflect.ValueOfInt32(int32(v))
@@ -177,7 +168,6 @@ func syncSettings(changes map[string]interface{}) {
 	}()
 }
 
-// handleSyncSettings takes the app's own settings that changed.
 func handleSyncSettings(raw json.RawMessage) {
 	var changes map[string]interface{}
 	if json.Unmarshal(raw, &changes) == nil {
@@ -185,7 +175,6 @@ func handleSyncSettings(raw json.RawMessage) {
 	}
 }
 
-// syncAppPrefs shares the backend's own synced prefs that changed.
 func syncAppPrefs(changed map[string]bool) {
 	changes := map[string]interface{}{}
 	for name, pref := range syncedAppPrefs {

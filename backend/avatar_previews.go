@@ -15,14 +15,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// The small profile pictures the chat list draws: WhatsApp's "preview" size
-// (96 px), not the full picture. Only the chats the list actually shows are
-// asked for, one at a time, as WhatsApp Web does, and each is kept on disk
-// so a restart draws them straight away.
-
-// How long a picture (or knowing there isn't one) is trusted before asking
-// again. Asking again with the picture's id costs WhatsApp nothing when it
-// hasn't changed, and a change usually arrives as an events.Picture anyway.
 const avatarPreviewRecheck = 3 * 24 * time.Hour
 
 type avatarPreviewsData struct {
@@ -31,7 +23,7 @@ type avatarPreviewsData struct {
 
 type avatarPreview struct {
 	JID  string `json:"jid"`
-	Path string `json:"path"` // "" when there's no picture we can see
+	Path string `json:"path"`
 }
 
 var avatarQueue = struct {
@@ -71,8 +63,6 @@ func storeAvatarPreview(jid, path, pictureID string) {
 		jid, path, pictureID, time.Now().Unix())
 }
 
-// handleGetAvatarPreviews answers at once with what's on disk, then fetches
-// whatever is missing or stale in the background, sending each as it lands.
 func handleGetAvatarPreviews(conn net.Conn, raw json.RawMessage) {
 	var data avatarPreviewsData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -115,8 +105,6 @@ func queueAvatarPreviews(jids []string) {
 	}
 }
 
-// runAvatarQueue fetches one picture at a time, newest request first: the
-// rows just scrolled to are the ones on screen.
 func runAvatarQueue() {
 	for {
 		avatarQueue.Lock()
@@ -141,9 +129,6 @@ func runAvatarQueue() {
 	}
 }
 
-// fetchAvatarPreview asks WhatsApp for jid's preview picture. ok is false
-// when nothing could be learned (offline, a network error), so it's asked
-// again later rather than remembered as having no picture.
 func fetchAvatarPreview(jid string) (path string, ok bool) {
 	cli := wa()
 	if cli == nil || !cli.IsConnected() {
@@ -181,7 +166,6 @@ func fetchAvatarPreview(jid string) (path string, ok bool) {
 			log.Printf("Couldn't get the profile picture of %s: %v", jid, err)
 			return "", false
 		case info == nil && cached && oldPath != "":
-			// Unchanged since we last asked.
 			storeAvatarPreview(jid, oldPath, oldID)
 			return oldPath, true
 		}
@@ -216,9 +200,6 @@ func isCommunityChat(jid string) bool {
 	return community == 1
 }
 
-// forgetAvatarPreview is for an events.Picture: the stored one is out of
-// date, so the next request fetches it again. A chat on screen asks again as
-// soon as the frontend hears "avatar_updated".
 func forgetAvatarPreview(jid string) {
 	db.Exec(`DELETE FROM avatar_previews WHERE jid = ?`, jid)
 }

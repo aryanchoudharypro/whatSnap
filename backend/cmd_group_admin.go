@@ -10,23 +10,15 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// Group moderation: the settings admins manage (restricting frequently
-// forwarded messages, letting members report messages to the admins,
-// sharing recent history with people added), members reporting a message to
-// the admins, and admins reviewing what was reported.
-
 type GroupModerationData struct {
 	JID                   string `json:"jid"`
 	NoFrequentlyForwarded bool   `json:"no_frequently_forwarded"`
 	AllowAdminReports     bool   `json:"allow_admin_reports"`
 	HasGroupHistory       bool   `json:"group_history"`
-	// Nil from an older frontend: left as they are.
-	AdminsAddOnly  *bool `json:"admins_add_only"`
-	ApproveMembers *bool `json:"approve_members"`
+	AdminsAddOnly         *bool  `json:"admins_add_only"`
+	ApproveMembers        *bool  `json:"approve_members"`
 }
 
-// handleSetGroupModeration applies the settings that differ from the group's
-// current ones, so saving the dialog doesn't resend what hasn't changed.
 func handleSetGroupModeration(raw json.RawMessage) {
 	var data GroupModerationData
 	if json.Unmarshal(raw, &data) != nil {
@@ -91,7 +83,6 @@ type ReportToAdminsData struct {
 	MessageIDs []string `json:"message_ids"`
 }
 
-// handleReportToAdmins sends messages to the group's admins to review.
 func handleReportToAdmins(conn net.Conn, raw json.RawMessage) {
 	var data ReportToAdminsData
 	if json.Unmarshal(raw, &data) != nil {
@@ -122,7 +113,6 @@ func handleReportToAdmins(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// reportedMessageEntry is one reported message as the admins' list shows it.
 func reportedMessageEntry(chat string, report whatsmeow.ReportedGroupMessage) map[string]interface{} {
 	var text, sender string
 	db.QueryRow(`SELECT COALESCE(text, ''), COALESCE(sender_jid, '') FROM messages WHERE id = ? AND jid = ?`,
@@ -152,8 +142,6 @@ func reportedMessageEntry(chat string, report whatsmeow.ReportedGroupMessage) ma
 	}
 }
 
-// handleGetReportedMessages lists the messages members reported to the
-// group's admins (only admins can read it).
 func handleGetReportedMessages(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if json.Unmarshal(raw, &data) != nil {

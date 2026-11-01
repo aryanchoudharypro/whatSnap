@@ -44,9 +44,6 @@ pub fn build_add_members_dialog(parent: &impl WxWidget) -> AddMembersDialogParts
 	contacts_listbox.set_font(&theme::Fonts::body());
 	sizer.add(&contacts_listbox, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	// See the equivalent live region in new_group.rs: checking someone and
-	// then narrowing the search filters them out of view (they're still
-	// checked, just not shown), which needs a running total to confirm.
 	let selection_announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&selection_announcer);
 	theme::style_muted_label(&selection_announcer);

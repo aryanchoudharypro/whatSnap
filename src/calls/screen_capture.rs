@@ -1,10 +1,3 @@
-//! Grabs a monitor or a single window for a call's screen share: GDI copies
-//! the desktop (or asks the window to paint itself), scaled, with the mouse
-//! pointer drawn in, into a fixed-size bitmap, which is then converted to the
-//! NV12 the H.264 encoder in `calls/video_send.rs` takes. GDI rather than
-//! Desktop Duplication because it needs no Direct3D device and its cost is
-//! small at a screen share's frame rate.
-
 use windows::{
 	Win32::{
 		Foundation::{HWND, LPARAM, POINT, RECT, TRUE},
@@ -28,32 +21,22 @@ use windows::{
 	core::BOOL,
 };
 
-/// `PW_RENDERFULLCONTENT`: has windows drawn by the GPU paint themselves too.
 const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(2);
-/// `MONITORINFOF_PRIMARY`.
 const MONITORINFOF_PRIMARY: u32 = 1;
 
-/// What a screen share captures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShareTarget {
-	/// One monitor, by its rectangle on the virtual desktop.
 	Monitor { left: i32, top: i32, width: i32, height: i32 },
-	/// One top-level window (an `HWND` as a number, so the target is `Send`).
 	Window(isize),
 }
 
-/// A choice in the share picker.
 #[derive(Debug, Clone)]
 pub struct ShareChoice {
 	pub target: ShareTarget,
-	/// What the picker lists it as.
 	pub label: String,
-	/// The window's title, for the announcement; `None` for a monitor.
 	pub window_title: Option<String>,
 }
 
-/// Everything that can be shared: each monitor (just "Entire screen" when
-/// there's only one), then each visible application window by its title.
 pub fn share_choices() -> Vec<ShareChoice> {
 	let mut monitors: Vec<(bool, ShareTarget)> = Vec::new();
 	unsafe extern "system" fn collect(monitor: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
@@ -75,7 +58,6 @@ pub fn share_choices() -> Vec<ShareChoice> {
 		let (width, height) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
 		monitors.push((true, ShareTarget::Monitor { left: 0, top: 0, width, height }));
 	}
-	// The main screen first, as "Screen 1" is the one people expect it to be.
 	monitors.sort_by_key(|(primary, _)| !primary);
 
 	let mut choices: Vec<ShareChoice> = Vec::new();
@@ -116,9 +98,6 @@ fn window_title(hwnd: HWND) -> String {
 	String::from_utf16_lossy(&buf[..len.max(0) as usize])
 }
 
-/// What shows up in Alt+Tab: visible, titled, not a tool window or a dialog
-/// owned by another window, and not on another virtual desktop or hidden
-/// away by a suspended Store app (both of which DWM calls cloaked).
 fn is_shareable_window(hwnd: HWND) -> bool {
 	unsafe {
 		if !IsWindowVisible(hwnd).as_bool() || window_title(hwnd).trim().is_empty() {
@@ -135,8 +114,6 @@ fn is_shareable_window(hwnd: HWND) -> bool {
 	}
 }
 
-/// Where the screen lands inside the output frame: scaled to fit, centred,
-/// with black bars filling whatever the aspect ratios leave over.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Placement {
 	pub(crate) x: i32,
@@ -145,9 +122,6 @@ pub(crate) struct Placement {
 	pub(crate) height: i32,
 }
 
-/// Fits a `screen_w` x `screen_h` display into a `frame_w` x `frame_h` frame.
-/// Sizes and offsets come out even, since NV12 stores colour once per 2x2
-/// block of pixels.
 pub(crate) fn fit(screen_w: i32, screen_h: i32, frame_w: i32, frame_h: i32) -> Placement {
 	if screen_w <= 0 || screen_h <= 0 {
 		return Placement { x: 0, y: 0, width: frame_w, height: frame_h };
@@ -162,9 +136,6 @@ pub(crate) fn fit(screen_w: i32, screen_h: i32, frame_w: i32, frame_h: i32) -> P
 	Placement { x: ((frame_w - width) / 2) & !1, y: ((frame_h - height) / 2) & !1, width, height }
 }
 
-/// Converts top-down 32-bit BGRA pixels to NV12 (BT.601, video range): a full
-/// plane of brightness, then one interleaved U/V pair per 2x2 block, averaged
-/// over the block so thin text strokes keep their colour.
 pub(crate) fn bgra_to_nv12(bgra: &[u8], width: usize, height: usize, out: &mut [u8]) {
 	debug_assert!(width % 2 == 0 && height % 2 == 0);
 	debug_assert!(bgra.len() >= width * height * 4 && out.len() >= width * height * 3 / 2);
@@ -200,12 +171,9 @@ pub(crate) fn bgra_to_nv12(bgra: &[u8], width: usize, height: usize, out: &mut [
 /// Curtain blacks out everything that reads the screen, not just the
 /// monitor), and the person sharing has no other way to find out.
 pub(crate) fn is_black(nv12: &[u8], width: usize, height: usize) -> bool {
-	// Video-range black is 16; a little headroom above it.
 	nv12[..width * height].iter().step_by(7).all(|&luma| luma <= 20)
 }
 
-/// A window's own picture: `PrintWindow` has it paint itself here, so what
-/// other windows cover, or a move to another monitor, doesn't matter.
 struct WindowSurface {
 	dc: HDC,
 	bitmap: HBITMAP,
@@ -224,8 +192,6 @@ impl Drop for WindowSurface {
 	}
 }
 
-/// The GDI objects of one screen-share session. Everything is created and
-/// used on the capture thread.
 pub(crate) struct ScreenCapture {
 	target: ShareTarget,
 	screen_dc: HDC,
@@ -235,7 +201,6 @@ pub(crate) struct ScreenCapture {
 	pixels: *mut u8,
 	width: i32,
 	height: i32,
-	/// Only for a window, and rebuilt whenever the window changes size.
 	surface: Option<WindowSurface>,
 }
 
@@ -260,7 +225,6 @@ impl ScreenCapture {
 				bmiHeader: BITMAPINFOHEADER {
 					biSize: size_of::<BITMAPINFOHEADER>() as u32,
 					biWidth: width as i32,
-					// Negative: rows run top to bottom, as the converter reads them.
 					biHeight: -(height as i32),
 					biPlanes: 1,
 					biBitCount: 32,
@@ -279,8 +243,6 @@ impl ScreenCapture {
 				}
 			};
 			let previous = SelectObject(mem_dc, bitmap.into());
-			// HALFTONE averages the pixels it drops, which keeps small text
-			// readable after the screen is scaled down.
 			SetStretchBltMode(mem_dc, HALFTONE);
 			let _ = SetBrushOrgEx(mem_dc, 0, 0, None);
 			Ok(Self {
@@ -297,12 +259,10 @@ impl ScreenCapture {
 		}
 	}
 
-	/// Whether a shared window has been closed, which ends the share.
 	pub(crate) fn target_gone(&self) -> bool {
 		matches!(self.target, ShareTarget::Window(hwnd) if !window_alive(hwnd))
 	}
 
-	/// Copies the target as it is right now into `out` as one NV12 frame.
 	pub(crate) fn grab_nv12(&mut self, out: &mut [u8]) -> crate::error::Result<()> {
 		let (origin, size, placement) = match self.target {
 			ShareTarget::Monitor { left, top, width, height } => {
@@ -322,8 +282,6 @@ impl ScreenCapture {
 						SRCCOPY | CAPTUREBLT,
 					)
 				};
-				// Fails while the secure desktop is up (a UAC prompt, the lock
-				// screen): the caller sends the previous picture again.
 				if !copied.as_bool() {
 					crate::error::bail!("the screen couldn't be read");
 				}
@@ -337,15 +295,10 @@ impl ScreenCapture {
 		Ok(())
 	}
 
-	/// Paints the window into the frame, wherever it is and however big it
-	/// has become since the last frame. Returns where the window sits on the
-	/// desktop and how it landed in the frame.
 	#[allow(clippy::type_complexity)]
 	fn grab_window(&mut self, hwnd: HWND) -> crate::error::Result<((i32, i32), (i32, i32), Placement)> {
 		unsafe {
 			let mut rect = RECT::default();
-			// A minimised window has nothing to paint: the viewers keep its
-			// last picture until it comes back.
 			if GetWindowRect(hwnd, &mut rect).is_err() || IsIconic(hwnd).as_bool() {
 				crate::error::bail!("the window can't be read right now");
 			}
@@ -374,7 +327,6 @@ impl ScreenCapture {
 				crate::error::bail!("the window couldn't be read");
 			}
 			let placement = fit(width, height, self.width, self.height);
-			// The bars around a window change as it resizes, so start clean.
 			let _ = PatBlt(self.mem_dc, 0, 0, self.width, self.height, BLACKNESS);
 			let copied = StretchBlt(
 				self.mem_dc,
@@ -396,9 +348,6 @@ impl ScreenCapture {
 		}
 	}
 
-	/// The mouse pointer isn't part of the desktop image, so it's drawn on
-	/// top - when it's over what's being shared. Purely cosmetic: any failure
-	/// just leaves the pointer out.
 	fn draw_pointer(&self, placement: Placement, origin: (i32, i32), size: (i32, i32)) {
 		unsafe {
 			let mut cursor = CURSORINFO { cbSize: size_of::<CURSORINFO>() as u32, ..Default::default() };
@@ -437,7 +386,6 @@ fn window_alive(hwnd: isize) -> bool {
 
 impl Drop for ScreenCapture {
 	fn drop(&mut self) {
-		// The window's surface goes first, as it was made from `screen_dc`.
 		self.surface = None;
 		unsafe {
 			SelectObject(self.mem_dc, self.previous);
@@ -482,7 +430,6 @@ mod tests {
 		};
 		assert_eq!(frame(0, 0, 0), [16, 16, 16, 16, 16, 16, 16, 16, 128, 128, 128, 128]);
 		assert_eq!(frame(255, 255, 255), [235, 235, 235, 235, 235, 235, 235, 235, 128, 128, 128, 128]);
-		// Pure red: dark, with V (the second of each pair) pushed to its ceiling.
 		assert_eq!(frame(0, 0, 255), [82, 82, 82, 82, 82, 82, 82, 82, 90, 240, 90, 240]);
 	}
 
@@ -490,13 +437,10 @@ mod tests {
 	fn tells_a_black_frame_from_one_with_a_picture() {
 		let mut frame = vec![16u8; 64 * 32 * 3 / 2];
 		assert!(is_black(&frame, 64, 32));
-		// One lit pixel on a sampled position is a picture.
 		frame[7 * 40] = 200;
 		assert!(!is_black(&frame, 64, 32));
 	}
 
-	/// Needs an unlocked desktop with no screen curtain:
-	/// `cargo test grabs_a_real -- --ignored`.
 	#[test]
 	#[ignore]
 	fn grabs_a_real_picture_of_the_screen() {
@@ -511,7 +455,6 @@ mod tests {
 
 	#[test]
 	fn colour_is_averaged_over_each_block() {
-		// One 2x2 block: two black and two white pixels average to mid grey.
 		let bgra = [0, 0, 0, 0, 255, 255, 255, 0, 255, 255, 255, 0, 0, 0, 0, 0];
 		let mut out = [0u8; 6];
 		bgra_to_nv12(&bgra, 2, 2, &mut out);

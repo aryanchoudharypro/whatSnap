@@ -55,11 +55,6 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	contacts_listbox.set_font(&theme::Fonts::body());
 	sizer.add(&contacts_listbox, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	// Checking a contact and then typing a new search filters them out of
-	// view (they're still selected - see NewGroupState::checked_jids - just
-	// not currently shown), which reads as "my selection got lost" with no
-	// way to otherwise confirm it didn't. This live region reports the
-	// running total whenever it changes.
 	let selection_announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&selection_announcer);
 	theme::style_muted_label(&selection_announcer);

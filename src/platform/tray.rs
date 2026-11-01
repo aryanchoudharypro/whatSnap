@@ -1,6 +1,3 @@
-//! Notification-area tray icon: install/refresh, and the unread-count
-//! tooltip shown on it.
-
 use crate::{AppState, ui::window::WindowParts};
 
 /// Repaints the tray icon's tooltip with the current unread total, so the count
@@ -44,11 +41,6 @@ pub(crate) fn enter_release_guard() -> std::rc::Rc<std::cell::Cell<bool>> {
 	ENTER_RELEASE_HANDLED.with(|guard| guard.clone())
 }
 
-/// Brings the main window back: from the tray (the icon or the menu's Open
-/// item) or when launching whatSnap again, say from the Start menu. When Enter is
-/// what did it, its release lands on whatever regains focus - the chat list,
-/// which opens a chat on Enter's release - so the Enter guard is armed to
-/// swallow it.
 pub(crate) fn restore_main_window(frame: &wxdragon::prelude::Frame) {
 	use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RETURN};
 	use wxdragon::prelude::*;
@@ -65,8 +57,6 @@ thread_local! {
 	static HIDDEN_TO_TRAY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Whether the main window is put away in the tray, as opposed to open or
-/// merely minimized.
 pub(crate) fn is_hidden_to_tray() -> bool {
 	HIDDEN_TO_TRAY.get()
 }
@@ -91,23 +81,17 @@ pub(crate) fn hide_main_window(frame: &wxdragon::prelude::Frame) {
 		},
 	};
 	use wxdragon::prelude::*;
-	// Minimizing first takes the frame's owned windows down with it. A bare
-	// hide can leave keyboard focus inside the now-hidden window, so its
-	// controls stay reachable.
 	frame.iconize(true);
 	frame.show(false);
 	HIDDEN_TO_TRAY.set(true);
 	let hwnd = HWND(frame.get_handle());
 	unsafe {
 		let _ = SetWindowSubclass(hwnd, Some(hidden_frame_subclass_proc), FRAME_SUBCLASS_ID, 0);
-		// Whatever wx believes: if something else showed the window behind its
-		// back, wx's own hide above was a no-op.
 		let _ = ShowWindow(hwnd, SW_HIDE);
 	}
 	release_foreground(hwnd);
 }
 
-/// Hands the foreground to the desktop if `hwnd` holds it.
 fn release_foreground(hwnd: windows::Win32::Foundation::HWND) {
 	use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetShellWindow, SetForegroundWindow};
 	unsafe {
@@ -118,8 +102,6 @@ fn release_foreground(hwnd: windows::Win32::Foundation::HWND) {
 }
 
 const FRAME_SUBCLASS_ID: usize = 0x6672_616d;
-/// Posted to the frame by itself to give the foreground up once the
-/// activation that prompted it has finished.
 const WM_RELEASE_FOREGROUND: u32 = 0x8000 + 0x3a71;
 
 unsafe extern "system" fn hidden_frame_subclass_proc(
@@ -142,14 +124,11 @@ unsafe extern "system" fn hidden_frame_subclass_proc(
 	}
 	if is_hidden_to_tray() {
 		if msg == WM_WINDOWPOSCHANGING {
-			// Every way of showing a window comes through here first.
 			let pos = lparam.0 as *mut WINDOWPOS;
 			if !pos.is_null() {
 				unsafe { (*pos).flags &= !SWP_SHOWWINDOW };
 			}
 		} else if msg == WM_ACTIVATE && wparam.0 & 0xFFFF != 0 {
-			// Activated while invisible: keyboard focus would sit in a window
-			// nobody can see. Not from inside the activation itself.
 			unsafe {
 				let _ = PostMessageW(
 					Some(hwnd),
@@ -163,8 +142,6 @@ unsafe extern "system" fn hidden_frame_subclass_proc(
 	unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
 
-/// Also refreshes the unread-chat count on the Chats entry of the navigation
-/// list, which has to track the same changes and is not gated on the tray icon.
 pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 	refresh_nav_unread_labels(s, parts);
 	if !s.settings.show_tray_icon || !s.main_ui_shown {
@@ -179,12 +156,6 @@ pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), &whatsnap::tray_tooltip_text(unread));
 }
 
-/// Writes the unread-chat counts into the Chats and Archived Chats entries of
-/// the navigation list.
-///
-/// A row changes only when its text does: rewriting a listbox row drops its
-/// selection on Windows, so the highlight is put back afterwards without an
-/// event, the same way the tab reorder keeps the list quiet.
 pub(crate) fn refresh_nav_unread_labels(s: &AppState, parts: &WindowParts) {
 	let order = s.settings.tab_order();
 	let list = &parts.nav_list;
@@ -250,7 +221,6 @@ pub(crate) fn enable_keyboard_select() {
 			Anonymous: NOTIFYICONDATAW_0 { uVersion: 3 },
 			..Default::default()
 		};
-		// Only the window that owns the icon can set its version.
 		if unsafe { Shell_NotifyIconW(NIM_SETVERSION, &data) }.as_bool() {
 			unsafe {
 				let _ = SetWindowSubclass(hwnd, Some(tray_subclass_proc), TRAY_SUBCLASS_ID, 0);
@@ -264,7 +234,6 @@ thread_local! {
 	static ON_SELECT: std::cell::RefCell<Option<Box<dyn Fn()>>> = std::cell::RefCell::new(None);
 }
 
-/// What clicking the tray icon, or selecting it from the keyboard, does.
 pub(crate) fn set_on_select(f: impl Fn() + 'static) {
 	ON_SELECT.with(|cell| *cell.borrow_mut() = Some(Box::new(f)));
 }
@@ -273,15 +242,10 @@ thread_local! {
 	static ON_TASKBAR_CREATED: std::cell::RefCell<Option<Box<dyn Fn() -> bool>>> = std::cell::RefCell::new(None);
 }
 
-/// What to do when the taskbar is recreated (Explorer restarting, or a display
-/// or DPI change). Left to wx, the icon comes back carrying its last tooltip,
-/// so the shell names it "20 unread messages" instead of "whatSnap", and at
-/// version 0 again. Returns false to let wx handle it after all.
 pub(crate) fn set_on_taskbar_created(f: impl Fn() -> bool + 'static) {
 	ON_TASKBAR_CREATED.with(|cell| *cell.borrow_mut() = Some(Box::new(f)));
 }
 
-/// The icon id wxWidgets' MSW wxTaskBarIcon always uses.
 const WX_TRAY_ICON_ID: u32 = 99;
 const TRAY_SUBCLASS_ID: usize = 0x7472_6179;
 const NIN_KEYSELECT: isize = 0x0401;
@@ -319,8 +283,6 @@ unsafe extern "system" fn tray_subclass_proc(
 	if msg == WX_TRAY_MSG.with(|m| *m) {
 		let event = lparam.0 & 0xFFFF;
 		if event == NIN_KEYSELECT || event == WM_LBUTTONUP as isize {
-			// Taken out while it runs: restoring the window can pump messages
-			// that land back here.
 			if let Some(f) = ON_SELECT.with(|cell| cell.borrow_mut().take()) {
 				f();
 				ON_SELECT.with(|cell| {

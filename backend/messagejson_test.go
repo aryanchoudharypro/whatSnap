@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// The UI deserializes these payloads into its own ChatMessage, matching on
-// exact JSON key names. MessageJSON replaced a map[string]interface{} that
-// spelled those keys out literally, so this pins the wire format: any renamed
-// or dropped tag breaks the client silently rather than at compile time.
 func TestMessageJSONWireFormatIsUnchanged(t *testing.T) {
 	want := []string{
 		"id", "text", "timestamp", "fromMe", "senderJid", "senderName", "status",

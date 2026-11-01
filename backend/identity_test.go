@@ -13,7 +13,7 @@ import (
 func TestParseWebViewMajor(t *testing.T) {
 	for version, want := range map[string]int{
 		"155.0.4283.45": 155,
-		"0.0.0.0":       0, // what an uninstalled runtime leaves behind
+		"0.0.0.0":       0,
 		"":              0,
 		"garbage":       0,
 	} {
@@ -30,8 +30,6 @@ func TestWebViewUserAgentIsAnEdgeWebView(t *testing.T) {
 	}
 }
 
-// The device props and the login payload name the Windows app everywhere but
-// the sub-platform: logging in as WIN_HYBRID stops every call connecting.
 func TestClientIdentityIsTheWindowsAppExceptSubPlatform(t *testing.T) {
 	applyClientIdentity()
 	agent := store.BaseClientPayload.GetUserAgent()

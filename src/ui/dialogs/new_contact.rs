@@ -5,8 +5,6 @@ use crate::ui::{
 	theme,
 };
 
-/// Every constructed widget is kept here for consistency even if not all of
-/// them are read back after construction (e.g. static labels).
 #[allow(dead_code)]
 pub struct NewContactDialogParts {
 	pub dialog: Dialog,

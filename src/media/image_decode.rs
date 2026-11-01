@@ -1,8 +1,3 @@
-//! Reads a photo (JPEG, PNG, WebP, ...) into RGBA pixels with the Windows
-//! Imaging Component, for the status viewer. WIC ships with Windows, so this
-//! costs the app nothing, and it shrinks the picture while decoding, so a
-//! 12-megapixel photo never sits in memory at full size.
-
 use windows::{
 	Win32::{
 		Foundation::GENERIC_READ,
@@ -34,7 +29,6 @@ pub(crate) fn fit_in_box(width: u32, height: u32, max_width: u32, max_height: u3
 		return (width, height);
 	}
 	let (w, h, mw, mh) = (width as u64, height as u64, max_width as u64, max_height as u64);
-	// Whichever side runs out of room first decides the scale.
 	if w * mh >= h * mw {
 		(max_width.max(1), ((h * mw + w / 2) / w).max(1) as u32)
 	} else {
@@ -42,13 +36,10 @@ pub(crate) fn fit_in_box(width: u32, height: u32, max_width: u32, max_height: u3
 	}
 }
 
-/// The picture at `path` as (width, height, RGBA), at most `max_edge` pixels
-/// on its longest side. Runs on the UI thread, which wx has set up for COM.
 pub(crate) fn decode_rgba(path: &str, max_edge: u32) -> crate::error::Result<(u32, u32, Vec<u8>)> {
 	decode_rgba_with(path, |w, h| fit_within(w, h, max_edge))
 }
 
-/// `decode_rgba`, fitted into a `max_width` x `max_height` box instead.
 pub(crate) fn decode_rgba_in_box(
 	path: &str,
 	max_width: u32,

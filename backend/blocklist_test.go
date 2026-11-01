@@ -15,7 +15,6 @@ var (
 	loneLID    = types.NewJID("100000099999999", types.HiddenUserServer)
 )
 
-// testTwin knows one pair the server's list doesn't spell out.
 func testTwin(jid types.JID) types.JID {
 	switch jid {
 	case mappedPN:
@@ -47,7 +46,6 @@ func TestBuildBlockedEntriesOnePerPerson(t *testing.T) {
 	if got[1].Name != "Meera" || got[1].JID != mappedPN.String() || got[1].Phone != "+919800000002" {
 		t.Fatalf("LID resolved through the store: %+v", got[1])
 	}
-	// Both of their LIDs fold into the one entry under the server's number.
 	z := got[2]
 	if z.Name != "Zoya" || z.JID != testPN.String() || z.Phone != "+919800000001" ||
 		len(z.Alts) != 2 || z.Alts[0] != testLID.String() || z.Alts[1] != testOldLID.String() {
@@ -56,7 +54,6 @@ func TestBuildBlockedEntriesOnePerPerson(t *testing.T) {
 }
 
 func TestBlockedAddressesOf(t *testing.T) {
-	// By phone JID or by either LID, unblocking reaches both LIDs.
 	for _, jid := range []types.JID{testPN, testLID, testOldLID} {
 		got := blockedAddressesOf(testRows(), jid, testTwin)
 		if len(got) != 2 || got[0] != testLID || got[1] != testOldLID {

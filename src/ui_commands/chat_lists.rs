@@ -1,10 +1,3 @@
-//! The Conversations filter (All chats, Unread, Favorites, Groups and the
-//! user's own lists, as WA Web's filter chips have them), adding a chat to
-//! the favorites or a list from its context menu, Chat menu > "Manage
-//! Lists...", and contact info's groups in common. What the backend answers:
-//! `chat_lists`, `favorite_saved`, `list_saved`, `list_deleted`,
-//! `list_member_saved` and `common_groups`.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -29,7 +22,6 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
-/// Says `message` in Manage Lists while it's open, or the main window.
 fn announce(state: &Rc<RefCell<AppState>>, parts: &WindowParts, message: &str) {
 	let announcer = state.borrow().list_manager.as_ref().map(|m| m.announcer());
 	let announcer = announcer.unwrap_or(parts.conversations_parts.messages_announcer);
@@ -59,7 +51,6 @@ fn ask_name(parent: &impl WxWidget, prompt: &str, title: &str, value: &str) -> O
 	Some(dialog.get_value().unwrap_or_default().trim().to_string()).filter(|n| !n.is_empty())
 }
 
-/// The filter dropdown changed: show those chats, and say how many there are.
 pub(crate) fn set_filter(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	let mut s = state.borrow_mut();
 	s.chat_filter = idx;
@@ -73,7 +64,6 @@ pub(crate) fn set_favorite(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowPart
 	send(state, "set_favorite", serde_json::json!({ "jid": jid, "favorite": favorite }));
 }
 
-/// A chat's context menu > "Add to list...": tick the lists it should be in.
 pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	let (name, lists): (String, Vec<(String, String, bool)>) = {
 		let s = state.borrow();
@@ -120,7 +110,6 @@ pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	dialog.set_sizer(outer, true);
 	dialog.center();
 
-	// "New List..." closes this with its own code, then asks for the name.
 	const NEW_LIST: i32 = 1;
 	list.on_key_down(crate::ui::keys::escape_cancels(dialog));
 	done_btn.on_click(move |_| dialog.end_modal(ID_OK));
@@ -142,7 +131,6 @@ pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	}
 }
 
-/// Asks for a new list's name, and makes it, with `jid` in it if given.
 fn new_list(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: Option<&str>, chat: &str) {
 	let prompt = match jid {
 		Some(_) => format!("Name a new list for {}:", chat),
@@ -153,10 +141,6 @@ fn new_list(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: Option<
 	send(state, "create_list", serde_json::json!({ "name": name, "jids": jids }));
 }
 
-/// The open "Manage Lists" dialog: the lists in one list box, with buttons
-/// that act on the selected one, as Fedra's List Manager has them. The lists
-/// change while it's open (`chat_lists` events), so it lives in AppState for
-/// as long as it's shown.
 pub(crate) struct ListManager {
 	dialog: Dialog,
 	list: ListBox,
@@ -165,13 +149,10 @@ pub(crate) struct ListManager {
 	chats_btn: Button,
 	delete_btn: Button,
 	announcer: StaticText,
-	/// The ids of the lists shown, in list order.
 	ids: RefCell<Vec<String>>,
-	/// "Chats in ...", while it's open over this.
 	chats: RefCell<Option<Rc<ListChats>>>,
 }
 
-/// "Chats in ...": the chats in one list, to add to or take out of it.
 struct ListChats {
 	dialog: Dialog,
 	list: ListBox,
@@ -186,8 +167,6 @@ fn count_chats(count: usize) -> String {
 	if count == 1 { "1 chat".to_string() } else { format!("{} chats", count) }
 }
 
-/// Selects row `idx` of `list` (kept in range), or, with no rows, moves the
-/// focus off any of `buttons`, since a disabled button can't keep it.
 fn keep_selection(list: &ListBox, idx: usize, buttons: &[&Button]) {
 	let count = list.get_count() as usize;
 	if count > 0 {
@@ -201,7 +180,6 @@ fn keep_selection(list: &ListBox, idx: usize, buttons: &[&Button]) {
 }
 
 impl ListManager {
-	/// Shows the lists as they now stand, keeping the same list selected.
 	fn apply(&self, s: &AppState) {
 		let previous = self.selected_id();
 		let previous_idx = self.list.get_selection().unwrap_or(0) as usize;
@@ -220,7 +198,6 @@ impl ListManager {
 		if let Some(chats) = chats {
 			match s.chat_lists.iter().find(|l| l.id == chats.list_id) {
 				Some(l) => chats.apply(s, l),
-				// Deleted from the phone while it was open.
 				None => chats.dialog.end_modal(ID_CANCEL),
 			}
 		}
@@ -237,7 +214,6 @@ impl ListManager {
 		self.ids.borrow().get(idx).cloned()
 	}
 
-	/// Where to say what happened: whichever of its dialogs is in front.
 	fn announcer(&self) -> StaticText {
 		self.chats.borrow().as_ref().map_or(self.announcer, |c| c.announcer)
 	}
@@ -264,8 +240,6 @@ impl ListChats {
 	}
 }
 
-/// A dialog with a labelled list box, a line that reads out what happened,
-/// and a row of buttons, the last of them Close on the far side.
 fn list_dialog(
 	parent: &impl WxWidget,
 	title: &str,
@@ -310,7 +284,6 @@ fn list_dialog(
 
 type Action = Rc<dyn Fn()>;
 
-/// Runs `action` on a click of `button`, and hands it back for a key to run.
 fn on_press(button: &Button, action: impl Fn() + 'static) -> Action {
 	let action: Action = Rc::new(action);
 	let on_click = action.clone();
@@ -318,8 +291,6 @@ fn on_press(button: &Button, action: impl Fn() + 'static) -> Action {
 	action
 }
 
-/// Escape closes `dialog`, Delete runs `delete`, F2 `rename` and Enter
-/// `open`, the last two when given. Each does nothing with no row selected.
 fn list_keys(dialog: Dialog, list: ListBox, delete: Action, rename: Option<Action>, open: Option<Action>) {
 	list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key) = event {
@@ -347,8 +318,6 @@ fn list_keys(dialog: Dialog, list: ListBox, delete: Action, rename: Option<Actio
 	}
 }
 
-/// Chat menu > "Manage Lists...": every list on one screen, with Add list,
-/// Rename, Chats and Delete buttons for the selected one.
 pub(crate) fn manage_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let (dialog, list_label, list, announcer, buttons) =
 		list_dialog(&parts.frame, "Manage Lists", &["&Add list...", "&Rename...", "&Chats...", "&Delete"]);
@@ -420,7 +389,6 @@ fn list_name(state: &Rc<RefCell<AppState>>, id: &str) -> Option<String> {
 	state.borrow().chat_lists.iter().find(|l| l.id == id).map(|l| l.name.clone())
 }
 
-/// Manage Lists > "Chats...": the chats in the list, with Add chats and Remove.
 fn show_list_chats(state: &Rc<RefCell<AppState>>, manager: &Rc<ListManager>, id: String) {
 	let Some(name) = list_name(state, &id) else { return };
 	let title = format!("Chats in {}", name);
@@ -518,8 +486,6 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"list_saved" => {
 			let created = data.get("created").and_then(|c| c.as_bool()).unwrap_or(false);
 			let verb = if created { "created" } else { "renamed" };
-			// The new list is on Manage Lists by now: select it, to go on to
-			// its chats.
 			let manager = state.borrow().list_manager.clone();
 			if let Some(manager) = manager.filter(|_| created) {
 				manager.select(&text(data, "id"));
@@ -544,8 +510,6 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 	}
 }
 
-/// The favorites or the lists changed: keep the filter on the same list if
-/// it's still there, and refilter.
 fn update_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let lists: Vec<ChatList> = data
 		.get("lists")
@@ -610,7 +574,6 @@ fn show_common_groups(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, da
 	parts.conversation_data_dialog.common_groups_label.set_label(&label);
 }
 
-/// Enter or a double click on one of contact info's groups in common: open it.
 pub(crate) fn open_common_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	let Some(jid) = state.borrow().common_group_jids.get(idx).cloned() else { return };
 	parts.conversation_data_dialog.dialog.end_modal(wxdragon::id::ID_CANCEL);

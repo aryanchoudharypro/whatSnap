@@ -26,30 +26,22 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Stickers: the picker's recent and favorite stickers, sending one again,
-// and adding one to the favorites. Recent stickers are the ones seen in
-// chats; favorites sync from the phone through app state, each named by the
-// base64 SHA-256 of its file (WAWebStickersFavoriteSyncAction).
-
 const recentStickerLimit = 50
 
 type SendStickerData struct {
 	JID         string `json:"jid"`
-	MessageID   string `json:"message_id"` // a sticker message to send again
-	Hash        string `json:"hash"`       // or a favorite, by file hash
-	PackID      string `json:"pack_id"`    // or, with hash, a sticker of a store pack
+	MessageID   string `json:"message_id"`
+	Hash        string `json:"hash"`
+	PackID      string `json:"pack_id"`
 	ReplyToID   string `json:"reply_to_id"`
 	ReplySender string `json:"reply_to_sender"`
 }
 
 type StickerFavoriteData struct {
 	MessageID string `json:"message_id"`
-	Favorite  *bool  `json:"favorite"` // nil switches it
+	Favorite  *bool  `json:"favorite"`
 }
 
-// stickerFileMeta is the metadata WhatsApp embeds in a sticker file: JSON in
-// a WebP's EXIF chunk, or a Lottie sticker's animation.json under
-// metadata.customProps (WAWebStickerMetadataParsing).
 type stickerFileMeta struct {
 	PackID        string   `json:"sticker-pack-id"`
 	PackName      string   `json:"sticker-pack-name"`
@@ -57,11 +49,9 @@ type stickerFileMeta struct {
 	Publisher     string   `json:"sticker-pack-publisher"`
 	Emojis        []string `json:"emojis"`
 	Accessibility string   `json:"accessibility-text"`
-	FirstParty    int      `json:"is-first-party-sticker"` // 1 for WhatsApp's own packs
+	FirstParty    int      `json:"is-first-party-sticker"`
 }
 
-// decodeStickerMeta reads the metadata JSON, keeping what it can when a
-// field has an unexpected type.
 func decodeStickerMeta(data []byte) *stickerFileMeta {
 	if len(data) == 0 {
 		return nil
@@ -77,8 +67,6 @@ func decodeStickerMeta(data []byte) *stickerFileMeta {
 	return &meta
 }
 
-// parseStickerMeta extracts the metadata (pack, emojis, accessibility text)
-// from a WebP or Lottie sticker file, or nil when it has none.
 func parseStickerMeta(data []byte) *stickerFileMeta {
 	if len(data) >= 4 && string(data[0:4]) == "PK\x03\x04" {
 		return parseLottieStickerMeta(data)
@@ -112,12 +100,6 @@ func parseStickerMeta(data []byte) *stickerFileMeta {
 	return nil
 }
 
-// parseLottieStickerMeta reads a Lottie sticker (application/was, a zip):
-// its animation/animation.json carries the metadata under
-// metadata.customProps, as WhatsApp's own animated packs do. Their files
-// also carry animation.json.overridden_metadata, the same keys again, and
-// that's where the accessibility text is (WhatsApp Web doesn't read it; the
-// phones do), so it's laid over the first.
 func parseLottieStickerMeta(data []byte) *stickerFileMeta {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -167,10 +149,6 @@ func parseLottieStickerMeta(data []byte) *stickerFileMeta {
 	return meta
 }
 
-// labelStickerFromFile fills in what a sticker shows from its file when the
-// message didn't say: the file's accessibility text, or for one of
-// WhatsApp's own packs the text its store gives that sticker (the phones
-// read these out), then its emojis, then its pack's name.
 func labelStickerFromFile(st *waE2E.StickerMessage, data []byte) {
 	if st == nil || st.GetAccessibilityLabel() != "" {
 		return
@@ -199,7 +177,6 @@ func labelStickerFromFile(st *waE2E.StickerMessage, data []byte) {
 	}
 }
 
-// labelStickerFromCache labels a sticker from its downloaded file, if any.
 func labelStickerFromCache(st *waE2E.StickerMessage, mediaPath string) {
 	if st == nil || st.GetAccessibilityLabel() != "" || mediaPath == "" {
 		return
@@ -209,8 +186,6 @@ func labelStickerFromCache(st *waE2E.StickerMessage, mediaPath string) {
 	}
 }
 
-// stickerText is a sticker's text in a chat: "[Sticker]", and what it shows
-// when the sender or pack provided a label or emojis ("[Sticker] 😂").
 func stickerText(sticker *waE2E.StickerMessage) string {
 	if sticker == nil {
 		return "[Sticker]"
@@ -229,7 +204,6 @@ func stickerHash(sticker *waE2E.StickerMessage) string {
 	return base64.StdEncoding.EncodeToString(sticker.GetFileSHA256())
 }
 
-// storedSticker is the sticker a stored message holds, or nil.
 func storedSticker(messageID string) *waE2E.StickerMessage {
 	raw, _, _, _, err := getMessageRaw(messageID)
 	if err != nil || len(raw) == 0 {
@@ -242,7 +216,6 @@ func storedSticker(messageID string) *waE2E.StickerMessage {
 	return unwrapMessage(&msg).GetStickerMessage()
 }
 
-// findStickerByHash finds a sticker message from chat history matching the given file hash.
 func findStickerByHash(hash string) *waE2E.StickerMessage {
 	if hash == "" {
 		return nil
@@ -276,8 +249,6 @@ type recentSticker struct {
 	sticker   *waE2E.StickerMessage
 }
 
-// recentStickers are the stickers last seen in chats, newest first, one per
-// sticker file.
 func recentStickers() []recentSticker {
 	rows, err := db.Query(`SELECT id, raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL
 		AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 500`)
@@ -308,8 +279,6 @@ func recentStickers() []recentSticker {
 			if mediaPath != "" {
 				labelStickerFromCache(sticker, mediaPath)
 			} else {
-				// Downloaded in the background, so next time it's cached and
-				// labelled from its file.
 				startMediaDownload(MessageRefData{MessageID: id}, true)
 			}
 		}
@@ -347,7 +316,6 @@ func stickerDescription(sticker *waE2E.StickerMessage) string {
 	return label
 }
 
-// noteFavoriteSticker stores a favorite synced from another device.
 func noteFavoriteSticker(v *events.FavoriteSticker) {
 	if !v.Action.GetIsFavorite() {
 		db.Exec(`DELETE FROM sticker_favorites WHERE hash = ?`, v.FileHash)
@@ -366,7 +334,6 @@ type favoriteSticker struct {
 	action *waSyncAction.StickerAction
 }
 
-// favoriteStickerHashes are the favorites' file hashes.
 func favoriteStickerHashes() map[string]bool {
 	hashes := map[string]bool{}
 	rows, err := db.Query(`SELECT hash FROM sticker_favorites`)
@@ -404,8 +371,6 @@ func favoriteStickers() []favoriteSticker {
 	return out
 }
 
-// handleGetStickers lists the picker's stickers: favorites first, then
-// recent ones that aren't favorites.
 func handleGetStickers(conn net.Conn) {
 	recent := recentStickers()
 	byHash := map[string]*waE2E.StickerMessage{}
@@ -446,9 +411,6 @@ func handleGetStickers(conn net.Conn) {
 	sendEvent(conn, "stickers", map[string]interface{}{"favorites": favorites, "recent": recents})
 }
 
-// favoriteAsSticker turns a favorite into a sticker message: the sticker as
-// seen in a chat when there is one, or else downloaded from where the
-// favorite says, which also gives the encrypted file's hash a message needs.
 func favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage, error) {
 	for _, r := range recentStickers() {
 		if stickerHash(r.sticker) == hash {
@@ -488,9 +450,6 @@ func favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage,
 	return sticker, nil
 }
 
-// handleSendSticker sends a recent or favorite sticker again. Its media is
-// already on WhatsApp's servers, so it isn't uploaded again, as with a
-// forward.
 func handleSendSticker(conn net.Conn, raw json.RawMessage) {
 	var data SendStickerData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -526,7 +485,6 @@ func handleSendSticker(conn net.Conn, raw json.RawMessage) {
 				sendEvent(conn, "error", map[string]string{"message": "Only this channel's admins can post in it."})
 				return
 			}
-			// Channel media isn't encrypted, so it goes up again.
 			if extra.MediaHandle, err = reuploadMedia(ctx, msg, true); err != nil {
 				sendEvent(conn, "error", map[string]string{"message": "Couldn't send the sticker: " + err.Error()})
 				return
@@ -567,8 +525,6 @@ func handleSendSticker(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleSetStickerFavorite adds a sticker in a chat to the favorites, or
-// takes it off, on every device.
 func handleSetStickerFavorite(conn net.Conn, raw json.RawMessage) {
 	var data StickerFavoriteData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -602,7 +558,6 @@ func handleSetStickerFavorite(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// isStickerFavorite says whether a sticker in a chat is a favorite.
 func isStickerFavorite(messageID string) bool {
 	hash := stickerHash(storedSticker(messageID))
 	if hash == "" {
@@ -613,8 +568,6 @@ func isStickerFavorite(messageID string) bool {
 	return n > 0
 }
 
-// webpInfo reads a WebP's size and whether it's animated: from its VP8X
-// header when it has one, which is also the only place animation is noted.
 func webpInfo(data []byte) (width, height int, animated bool) {
 	if len(data) >= 30 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" && string(data[12:16]) == "VP8X" {
 		animated = data[20]&0x02 != 0
@@ -628,12 +581,7 @@ func webpInfo(data []byte) (width, height int, animated bool) {
 	return 0, 0, false
 }
 
-// fixupLegacyStickerTexts migrates older sticker messages stored simply as "[Sticker]"
-// by re-extracting labels/emojis from the protobuf and attached media.
-// Downloaded stickers are looked at again too, so ones from WhatsApp's own
-// packs pick up the labels their store gives them.
 func fixupLegacyStickerTexts() {
-	// The store is asked through the WhatsApp client, made just after start.
 	for i := 0; i < 60 && wa() == nil; i++ {
 		time.Sleep(time.Second)
 	}
@@ -685,11 +633,6 @@ func fixupLegacyStickerTexts() {
 	}
 }
 
-// WhatsApp's own sticker packs, from its sticker store: the list of packs,
-// and each pack's stickers once asked for. Both are kept for the session
-// (a pack's data is a few KB), and a failed fetch is tried again after a
-// while rather than at every sticker.
-
 const stickerStoreRetry = 10 * time.Minute
 
 type stickerPackFetch struct {
@@ -704,11 +647,8 @@ var stickerStore struct {
 	data  map[string]stickerPackFetch
 }
 
-// stickerStoreLocale is the language the store names packs in, like the
-// app's own text.
 const stickerStoreLocale = "en"
 
-// storeStickerPacks lists the store's packs.
 func storeStickerPacks(ctx context.Context) ([]types.StickerPack, error) {
 	stickerStore.Lock()
 	defer stickerStore.Unlock()
@@ -728,8 +668,6 @@ func storeStickerPacks(ctx context.Context) ([]types.StickerPack, error) {
 	return packs, nil
 }
 
-// storeStickerPack is one of the store's packs with its stickers, or nil
-// if it can't be had.
 func storeStickerPack(ctx context.Context, id string) *types.StickerPack {
 	if id == "" || wa() == nil {
 		return nil
@@ -752,8 +690,6 @@ func storeStickerPack(ctx context.Context, id string) *types.StickerPack {
 	return pack
 }
 
-// storeStickerLabel is what WhatsApp's store says a sticker of its own
-// shows, by the sticker file's hash.
 func storeStickerLabel(packID string, fileHash []byte) string {
 	pack := storeStickerPack(context.Background(), packID)
 	if pack == nil {
@@ -767,8 +703,6 @@ func storeStickerLabel(packID string, fileHash []byte) string {
 	return ""
 }
 
-// storeSticker is a store sticker as a message: its media is already on
-// WhatsApp's servers, so it goes out as it is, as WhatsApp Web sends one.
 func storeSticker(pack *types.StickerPack, item *types.StickerPackItem) *waE2E.StickerMessage {
 	mimetype := firstNonEmpty(item.MimeType, "image/webp")
 	st := &waE2E.StickerMessage{
@@ -794,7 +728,6 @@ type StickerPackRequest struct {
 	ID string `json:"id"`
 }
 
-// handleGetStickerStore lists the store's packs for the sticker panel.
 func handleGetStickerStore(conn net.Conn) {
 	packs, err := storeStickerPacks(context.Background())
 	if err != nil {
@@ -814,7 +747,6 @@ func handleGetStickerStore(conn net.Conn) {
 	sendEvent(conn, "sticker_store", map[string]interface{}{"packs": out})
 }
 
-// handleGetStickerPack lists one store pack's stickers.
 func handleGetStickerPack(conn net.Conn, raw json.RawMessage) {
 	var data StickerPackRequest
 	if json.Unmarshal(raw, &data) != nil {
@@ -838,7 +770,6 @@ func handleGetStickerPack(conn net.Conn, raw json.RawMessage) {
 	sendEvent(conn, "sticker_pack", map[string]interface{}{"id": data.ID, "stickers": stickers})
 }
 
-// storePackSticker finds a sticker of a store pack by its file hash.
 func storePackSticker(ctx context.Context, packID, hash string) (*waE2E.StickerMessage, error) {
 	pack := storeStickerPack(ctx, packID)
 	if pack == nil {

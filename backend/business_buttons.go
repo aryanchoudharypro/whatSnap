@@ -14,25 +14,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Businesses send menus as messages: reply buttons, a list of choices behind
-// one button, or link / call / copy-code buttons. WhatsApp shows them as
-// buttons under the bubble; here Enter on such a message opens them as one
-// list (message_options), and picking a reply sends what WA Web sends for
-// that tap. The replies, from WA Web's own senders:
-//   - ButtonsMessage button: ButtonsResponseMessage (WAWebSendButtonsMsgReplyChatAction)
-//   - ListMessage row: ListResponseMessage, single select (WAWebSendListMsgReplyChatAction)
-//   - template quick reply, and a native-flow quick_reply button:
-//     TemplateButtonReplyMessage with the button's id and index (sendTextMsgToChat
-//     with selectedId / selectedIndex)
-// each quoting the business's message.
-
-// Kinds of option.
 const (
-	optionReply = "reply" // sends a reply
-	optionURL   = "url"   // opens a link
-	optionCall  = "call"  // a phone number to call
-	optionCopy  = "copy"  // a code to copy
-	optionPhone = "phone" // only works in WhatsApp on the phone
+	optionReply = "reply"
+	optionURL   = "url"
+	optionCall  = "call"
+	optionCopy  = "copy"
+	optionPhone = "phone"
 )
 
 type messageOption struct {
@@ -40,17 +27,14 @@ type messageOption struct {
 	Label       string `json:"label"`
 	Section     string `json:"section,omitempty"`
 	Description string `json:"description,omitempty"`
-	// Value is the link, number or code for url / call / copy.
-	Value string `json:"value,omitempty"`
+	Value       string `json:"value,omitempty"`
 
 	// What a reply needs; never sent to the UI.
-	replyType string // "buttons", "list", "template"
+	replyType string
 	id        string
 	index     uint32
 }
 
-// interactiveOf finds the business menu in a message, through the template
-// wrapper an interactive message can come in.
 func interactiveOf(msg *waE2E.Message) *waE2E.InteractiveMessage {
 	if im := msg.GetInteractiveMessage(); im != nil {
 		return im
@@ -58,8 +42,6 @@ func interactiveOf(msg *waE2E.Message) *waE2E.InteractiveMessage {
 	return msg.GetTemplateMessage().GetInteractiveMessageTemplate()
 }
 
-// nativeFlowOption turns one native-flow button into an option. index is its
-// place among the message's buttons, which a quick reply sends back.
 func nativeFlowOption(name, paramsJSON string, index int) (messageOption, bool) {
 	var params map[string]any
 	_ = json.Unmarshal([]byte(paramsJSON), &params)
@@ -93,8 +75,6 @@ func nativeFlowOption(name, paramsJSON string, index int) (messageOption, bool) 
 	if label == "" {
 		return messageOption{}, false
 	}
-	// Forms (flows), payments, single-select menus, catalogue and location
-	// requests: WA Web itself sends you to the phone for these.
 	return messageOption{Kind: optionPhone, Label: label}, true
 }
 
@@ -105,8 +85,6 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// messageOptions lists every button a business message offers, in order.
-// heading is what the menu is called (a list's button text), if anything.
 func messageOptions(msg *waE2E.Message) (heading string, options []messageOption) {
 	msg = unwrapMessage(msg)
 	if tpl := msg.GetTemplateMessage(); tpl != nil && tpl.GetInteractiveMessageTemplate() == nil {
@@ -177,9 +155,6 @@ func messageOptions(msg *waE2E.Message) (heading string, options []messageOption
 	return "", nil
 }
 
-// optionsSummary is the line added under a business message's text so it
-// reads with its buttons, as the bubble shows them, and so the UI knows Enter
-// opens them: "Buttons: Yes, No" or "Menu: <button text>, 5 choices".
 func optionsSummary(msg *waE2E.Message) string {
 	heading, options := messageOptions(msg)
 	if msg = unwrapMessage(msg); msg.GetListMessage() != nil {
@@ -194,7 +169,6 @@ func optionsSummary(msg *waE2E.Message) string {
 	}
 	var labels []string
 	for _, o := range options {
-		// Link and call buttons are already written out in the text.
 		if o.Kind == optionReply || o.Kind == optionCopy || o.Kind == optionPhone {
 			labels = append(labels, o.Label)
 		}
@@ -223,7 +197,6 @@ func loadMessageProto(id string) (*waE2E.Message, bool) {
 	return msg, true
 }
 
-// handleGetMessageOptions answers Enter on a business message with its buttons.
 func handleGetMessageOptions(conn net.Conn, raw json.RawMessage) {
 	var data MessageOptionData
 	if json.Unmarshal(raw, &data) != nil {
@@ -244,8 +217,6 @@ func handleGetMessageOptions(conn net.Conn, raw json.RawMessage) {
 	})
 }
 
-// buildOptionReply is the message WA Web sends for a tap on option, quoting
-// the business's message.
 func buildOptionReply(option messageOption, ctx *waE2E.ContextInfo) *waE2E.Message {
 	switch option.replyType {
 	case "buttons":
@@ -276,8 +247,6 @@ func buildOptionReply(option messageOption, ctx *waE2E.ContextInfo) *waE2E.Messa
 	}
 }
 
-// handleSendMessageOption sends the reply for one of a message's options, by
-// its place in the list message_options gave.
 func handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
 	var data MessageOptionData
 	if json.Unmarshal(raw, &data) != nil {

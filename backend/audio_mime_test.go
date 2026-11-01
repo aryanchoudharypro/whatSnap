@@ -7,8 +7,8 @@ func TestAudioMimetypeMatchesWhatsAppWeb(t *testing.T) {
 	opus = append(opus, []byte("OpusHead\x01\x02")...)
 	cases := []struct {
 		name, sniffed, file string
-		header             []byte
-		want               string
+		header              []byte
+		want                string
 	}{
 		{"voice note sniffed as application/ogg", "application/ogg", "a.ogg", opus, "audio/ogg; codecs=opus"},
 		{"ogg vorbis", "application/ogg", "a.ogg", []byte("OggS\x00\x02rest"), "audio/ogg"},

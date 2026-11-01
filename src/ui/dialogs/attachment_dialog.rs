@@ -2,15 +2,12 @@ use wxdragon::prelude::*;
 
 use crate::ui::{dialog_look, theme};
 
-/// Every constructed widget is kept here for consistency even if not all of
-/// them are read back after construction yet (e.g. static labels).
 #[allow(dead_code)]
 pub struct AttachmentDialogParts {
 	pub dialog: Dialog,
 	pub attachment_info_label: StaticText,
 	pub caption_label: StaticText,
 	pub caption_field: TextCtrl,
-	/// Photos and videos only: open once, then gone.
 	pub view_once_check: CheckBox,
 	pub add_more_btn: Button,
 	pub discard_btn: Button,
@@ -60,9 +57,6 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 
 	dialog.center();
 
-	// CHAR_HOOK fires on this dialog (a top-level window) before the
-	// keypress reaches whichever control has focus, so Escape discards the
-	// attachment regardless of what's focused, not just caption_field.
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	AttachmentDialogParts {

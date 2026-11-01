@@ -11,28 +11,18 @@ use crate::{
 	ui::{keys, message_list::CursorList, theme, wake::UiCommandSender},
 };
 
-/// Whether Enter (main or numpad) is physically down right now.
 fn enter_key_held() -> bool {
 	use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RETURN};
 	let state = unsafe { GetAsyncKeyState(i32::from(VK_RETURN.0)) };
 	state as u16 & 0x8000 != 0
 }
 
-/// Strips characters Windows can't have in a filename, for the default
-/// export filename built from a chat/contact name.
 fn sanitize_export_filename(name: &str) -> String {
 	let cleaned: String = name.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) { '_' } else { c }).collect();
 	let trimmed = cleaned.trim();
 	if trimmed.is_empty() { "chat".to_string() } else { trimmed.to_string() }
 }
 
-/// Confirms deleting `count` message(s). If every one of them is your own
-/// (`all_from_me`), offers a choice between revoking for everyone and
-/// removing them locally only ("delete for me"); if even one belongs to
-/// someone else, the whole batch can only ever be removed locally (matching
-/// official WhatsApp: "delete for everyone" is unavailable the moment a
-/// selection mixes in someone else's messages), so it's a plain yes/no
-/// confirm. Returns `None` if the user cancelled, else `Some(for_everyone)`.
 fn confirm_delete_choice(parent: &impl WxWidget, count: usize, can_delete_for_everyone: bool) -> Option<bool> {
 	let plural = if count == 1 { "this message" } else { "these messages" };
 	if can_delete_for_everyone {
@@ -64,12 +54,6 @@ fn confirm_delete_choice(parent: &impl WxWidget, count: usize, can_delete_for_ev
 	}
 }
 
-/// wxDialog::Create() on MSW doesn't set the native window's owner
-/// (GWLP_HWNDPARENT) from the `parent` it's given, so every dialog we build
-/// ends up as an unowned top-level window - Windows then gives each one its
-/// own Alt-Tab/taskbar entry instead of grouping it under the main frame
-/// like a proper child dialog. Setting the owner directly via the Win32 API
-/// right after construction fixes that.
 fn set_dialog_owner(dialog: &impl WxWidget, owner: &impl WxWidget) {
 	let dialog_handle = dialog.get_handle();
 	let owner_handle = owner.get_handle();
@@ -85,12 +69,6 @@ fn set_dialog_owner(dialog: &impl WxWidget, owner: &impl WxWidget) {
 	}
 }
 
-/// Wires a ListBox in one of the group/conversation "data" dialogs so that
-/// pressing Enter on a row closes the dialog and jumps to the message it
-/// came from (like a search result), and - for lists of actual media files -
-/// so the context menu (right-click or the Menu/Shift+F10 key) offers
-/// Download/Open/Save As, mirroring the actions available for a selected
-/// media message in the main conversation view.
 fn wire_media_list(
 	list: &ListBox,
 	dialog: &Dialog,
@@ -168,8 +146,6 @@ fn wire_media_list(
 	}
 }
 
-/// Every constructed widget is kept here for consistency even if not all of
-/// them are read back after construction yet (e.g. phone_panel).
 #[allow(dead_code)]
 pub struct WindowParts {
 	pub frame: Frame,
@@ -197,11 +173,6 @@ pub struct WindowParts {
 	pub new_group_dialog: crate::ui::dialogs::new_group::NewGroupDialogParts,
 	pub add_members_dialog: crate::ui::dialogs::add_members::AddMembersDialogParts,
 	pub attach_contact_dialog: crate::ui::dialogs::attach_contact::AttachContactDialogParts,
-	/// Shared with the search-field debounce in `bind_input_handlers` so a
-	/// `contacts` response landing while a picker is open coalesces with any
-	/// in-flight keystroke rebuild instead of firing an immediate rebuild
-	/// back-to-back with it - see the "bad wxCheckListBox index" comments in
-	/// `bind_input_handlers` and in main.rs's `refresh_*_contacts_list`.
 	pub new_group_contacts_timer: Rc<Timer<Dialog>>,
 	pub add_members_contacts_timer: Rc<Timer<Dialog>>,
 	pub attach_contact_timer: Rc<Timer<Dialog>>,
@@ -214,8 +185,6 @@ pub struct WindowParts {
 	pub tray_icon: Rc<TaskBarIcon>,
 }
 
-/// IDs for the frame's menu bar (Account menu). Not app-global command IDs -
-/// just needs to be outside wx's reserved/auto-assigned ranges.
 pub const MENU_ID_SETTINGS: i32 = 6001;
 pub const MENU_ID_LOGOUT: i32 = 6002;
 pub const MENU_ID_CHECK_UPDATES: i32 = 6061;
@@ -258,7 +227,6 @@ pub const MENU_ID_NEXT_SPELLING_ERROR: i32 = 6051;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 pub const MENU_ID_BUSINESS_CATALOG: i32 = 6060;
 
-/// The Conversation menu's items, which all act on the open chat.
 const CONVERSATION_MENU_IDS: [i32; 20] = [
 	MENU_ID_CHAT_INFO,
 	MENU_ID_BUSINESS_CATALOG,
@@ -282,7 +250,6 @@ const CONVERSATION_MENU_IDS: [i32; 20] = [
 	MENU_ID_NEXT_SPELLING_ERROR,
 ];
 
-/// The main panes Alt+E can come back to.
 #[derive(Clone, Copy)]
 enum ReturnPane {
 	Nav,
@@ -290,16 +257,11 @@ enum ReturnPane {
 	Messages,
 }
 
-/// Where Alt+E found the user before moving them into the message box: a main
-/// pane with its selected row (and which chat was open, since a row index means
-/// nothing once another chat is showing), or any other control, by its window
-/// handle.
 enum ReturnSpot {
 	Pane { pane: ReturnPane, index: Option<u32>, chat: Option<String> },
 	Control(usize),
 }
 
-/// Gives keyboard focus back to the window with this handle, if it still exists.
 fn restore_focus(handle: usize) -> bool {
 	let hwnd = windows::Win32::Foundation::HWND(handle as *mut std::ffi::c_void);
 	unsafe {
@@ -353,8 +315,6 @@ fn show_message_text(
 	dlg.destroy();
 }
 
-/// The chat the Conversation menu acts on: the open one, unless the Status
-/// or Starred tab is showing, whose rows aren't chats.
 pub(crate) fn conversation_menu_chat(s: &crate::AppState) -> Option<&str> {
 	if s.active_tab == 1 || s.active_tab == 2 {
 		return None;
@@ -362,8 +322,6 @@ pub(crate) fn conversation_menu_chat(s: &crate::AppState) -> Option<&str> {
 	s.selected_chat.as_deref()
 }
 
-/// The Go menu's item and help text for each tab, by tab id (see
-/// `settings::TAB_NAMES`).
 const GO_MENU_ITEMS: [(i32, &str); 7] = [
 	(MENU_ID_NAV_CONVERSATIONS, "Jump to the chat list"),
 	(MENU_ID_NAV_STATUS, "Jump to Status"),
@@ -374,8 +332,6 @@ const GO_MENU_ITEMS: [(i32, &str); 7] = [
 	(MENU_ID_NAV_CALLS, "Jump to Calls"),
 ];
 
-/// Puts the Go menu back in the Main Navigation order after a tab moves,
-/// keeping each item's label (and so any shortcut the user changed).
 fn reorder_go_menu(menu_bar: &MenuBar, order: &[usize]) {
 	for (pos, &tab) in order.iter().enumerate() {
 		let (id, help) = GO_MENU_ITEMS[tab];
@@ -386,9 +342,6 @@ fn reorder_go_menu(menu_bar: &MenuBar, order: &[usize]) {
 	}
 }
 
-/// One line of the Conversation menu: an item's id, its label if it has no
-/// shortcut (the rest take theirs from the keymap) and help text, or a
-/// separator.
 enum ConversationEntry {
 	Item(i32, Option<&'static str>, &'static str),
 	Separator,
@@ -396,7 +349,6 @@ enum ConversationEntry {
 
 use ConversationEntry::{Item, Separator};
 
-/// The Conversation menu in full, for a chat everything applies to.
 const CONVERSATION_MENU: [ConversationEntry; 24] = [
 	Item(MENU_ID_CHAT_INFO, None, "Open info for the open chat"),
 	Item(MENU_ID_FOCUS_MESSAGE_FIELD, None, "Move focus to the message box, or back to where you were"),
@@ -436,8 +388,6 @@ const CONVERSATION_MENU: [ConversationEntry; 24] = [
 	Item(MENU_ID_STAR_MESSAGE, None, "Star the selected message"),
 ];
 
-/// Whether a Conversation menu item fits the chat `jid` at all: no catalogue
-/// for anyone but a business, no blocking a group, no reporting a channel.
 fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
 	let is_person = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
 	let is_channel = jid.ends_with("@newsletter");
@@ -452,7 +402,6 @@ fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
 	}
 }
 
-/// The entries to show, with no separator first, last or twice in a row.
 fn conversation_entries(applies: impl Fn(i32) -> bool) -> Vec<&'static ConversationEntry> {
 	let mut shown: Vec<&ConversationEntry> = Vec::new();
 	for entry in &CONVERSATION_MENU {
@@ -468,8 +417,6 @@ fn conversation_entries(applies: impl Fn(i32) -> bool) -> Vec<&'static Conversat
 	shown
 }
 
-/// Empties `menu` and fills it with `entries`. Items with a shortcut get
-/// their label from `keymap`, so one the user changed stays changed.
 fn fill_conversation_menu(menu: &Menu, entries: &[&ConversationEntry], keymap: &crate::keymap::Keymap) {
 	while let Some(item) = menu.find_item_by_position(0) {
 		menu.delete_item(&item);
@@ -487,14 +434,10 @@ fn fill_conversation_menu(menu: &Menu, entries: &[&ConversationEntry], keymap: &
 	}
 }
 
-/// The ids now in the Conversation menu, in order; 0 for a separator.
 fn conversation_menu_layout(menu: &Menu) -> Vec<i32> {
 	menu.get_menu_items().iter().map(|item| item.get_item_id().max(0)).collect()
 }
 
-/// Leaves out of the Conversation menu what doesn't fit the open chat, and
-/// puts back what does. Only rebuilt when that changes, so the menu isn't
-/// churned on every chat-list update.
 fn fit_conversation_menu(s: &crate::AppState, menu_bar: &MenuBar, jid: &str) {
 	let Some((_, menu)) = menu_bar.find_item_and_menu(MENU_ID_CHAT_INFO) else { return };
 	let entries = conversation_entries(|id| conversation_item_applies(s, jid, id));
@@ -517,7 +460,6 @@ fn fit_conversation_menu(s: &crate::AppState, menu_bar: &MenuBar, jid: &str) {
 pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 	let Some(menu_bar) = frame.get_menu_bar() else { return };
 	let chat = conversation_menu_chat(s);
-	// With no chat open the menu keeps the last chat's items, all greyed.
 	if let Some(jid) = chat {
 		fit_conversation_menu(s, &menu_bar, jid);
 	}
@@ -540,7 +482,6 @@ pub fn build_main_window() -> WindowParts {
 	let main_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let nav_panel = Panel::builder(&main_panel).build();
-	// WhatsApp's narrow strip of icons, each with its name under it.
 	theme::style_sidebar(&nav_panel);
 	nav_panel.set_min_size(Size::new(nav_panel.get_char_width() * 12 + 8, -1));
 	let nav_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -556,11 +497,9 @@ pub fn build_main_window() -> WindowParts {
 	crate::ui::owner_draw::install_nav(&nav_list);
 	// It still names the list for a screen reader; there's no room to show it.
 	nav_label.set_min_size(Size::new(1, 1));
-	// Conversations is the tab the app starts on, wherever it was moved to.
 	nav_list.set_selection(tab_order.iter().position(|&t| t == 0).unwrap_or(0) as u32, true);
 	nav_sizer.add(&nav_label, 0, SizerFlag::Left, 0);
 	nav_sizer.add(&nav_list, 1, SizerFlag::Expand | SizerFlag::Top, 6);
-	// Room for your picture, drawn under the list; clicking it opens Settings.
 	if theme::use_custom_colours() {
 		let footer = crate::ui::owner_draw::install_nav_footer(&nav_panel, &frame, MENU_ID_SETTINGS);
 		nav_sizer.add_spacer(footer);
@@ -580,19 +519,11 @@ pub fn build_main_window() -> WindowParts {
 		.append_separator()
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
 		.build();
-	// The Alt+number shortcuts need to live on real menu items - wx only
-	// builds an app-wide accelerator table (honored no matter which control
-	// has focus) from the "\tAlt+1" accelerator syntax on a menu label; a
-	// plain key-down handler on a widget loses to that table for Alt-combos.
-	// In the same order as the Main Navigation list, so the two read alike.
 	let go_menu = Menu::builder().build();
 	for &tab in &tab_order {
 		let (id, help) = GO_MENU_ITEMS[tab];
 		go_menu.append(id, &default_menu_label(id), help, ItemKind::Normal);
 	}
-	// Matches official WhatsApp's shortcuts, minus Alt on every combo that
-	// also has Ctrl (kept only on the Alt-only ones) - see the Alt+number
-	// comment above for why these have to be real menu items.
 	let chats_menu = Menu::builder()
 		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), "Start a new chat")
 		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), "Start a new group")
@@ -601,9 +532,6 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), "Search chats")
 		.append_item(MENU_ID_MANAGE_LISTS, "Manage &Lists...", "Make, rename or delete your chat lists")
 		.build();
-	// Everything here acts on the open chat, so `refresh_menu_bar` greys it
-	// out on the Status and Starred tabs and when no chat is open, and leaves
-	// out what doesn't fit the open chat.
 	let conversation_menu = Menu::builder().build();
 	fill_conversation_menu(&conversation_menu, &CONVERSATION_MENU.iter().collect::<Vec<_>>(), &Default::default());
 	let call_menu = Menu::builder()
@@ -659,7 +587,6 @@ pub fn build_main_window() -> WindowParts {
 	qr_sizer.add(&qrcode_cancel_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	qrcode_dialog.set_sizer(qr_sizer, true);
 
-	// Phone Panel
 	let phone_panel = Panel::builder(&login_panel).build();
 	theme::style_content(&phone_panel);
 	let phone_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -695,7 +622,6 @@ pub fn build_main_window() -> WindowParts {
 	phone_panel.show(true);
 	login_panel.set_sizer(login_sizer, true);
 
-	// Pairing Dialog
 	let pairing_dialog = Dialog::builder(&frame, "Pairing Code").with_size(320, 170).build();
 	theme::style_content(&pairing_dialog);
 	let p_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -714,7 +640,7 @@ pub fn build_main_window() -> WindowParts {
 	pairing_cancel_btn.set_font(&theme::Fonts::body());
 	p_sizer.add(&pairing_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	p_sizer.add(&pairing_code_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
-	p_sizer.add(&pairing_announcer, 0, SizerFlag::Left, 0); // hidden visually but in DOM
+	p_sizer.add(&pairing_announcer, 0, SizerFlag::Left, 0);
 	pairing_announcer.show(false);
 	p_sizer.add(&pairing_cancel_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	pairing_dialog.set_sizer(p_sizer, true);
@@ -743,12 +669,6 @@ pub fn build_main_window() -> WindowParts {
 	content_sizer.add(&conv_panel.panel, 1, SizerFlag::Expand, 0);
 	conv_panel.panel.show(true);
 
-	// Start everything hidden until the backend reports login state. Showing
-	// the login panel here unconditionally made it flash on screen for a few
-	// seconds at every launch - even when a saved session was about to log us
-	// straight in - because it was the default startup screen rather than a
-	// choice gated on whether we're actually logged in. The "connected" /
-	// "needs_login" events (see main.rs) now pick the right screen instead.
 	nav_panel.show(false);
 	content_panel.show(false);
 	login_panel.show(false);
@@ -763,11 +683,6 @@ pub fn build_main_window() -> WindowParts {
 	frame_sizer.add(&main_panel, 1, SizerFlag::Expand, 0);
 	frame.set_sizer(frame_sizer, true);
 
-	// Group every dialog under the main frame's Alt-Tab/taskbar entry
-	// instead of letting each show up as its own independent window (see
-	// set_dialog_owner). The call window is deliberately left out - it's a
-	// Frame the user is meant to be able to switch to independently while a
-	// call is up, not a transient dialog.
 	set_dialog_owner(&login_panel, &frame);
 	set_dialog_owner(&qrcode_dialog, &frame);
 	set_dialog_owner(&pairing_dialog, &frame);
@@ -854,7 +769,6 @@ pub fn bind_input_handlers(
 	let login_from_qr = parts.login_panel;
 	let tx_cancel_qr = ui_tx.clone();
 	parts.qrcode_cancel_btn.on_click(move |_| {
-		// Back to the phone-entry screen, keeping the one-screen-at-a-time flow.
 		qr_dialog.show(false);
 		login_from_qr.show(true);
 		login_from_qr.set_focus();
@@ -883,8 +797,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// Spell checking: Windows' own checker, drawn under the words and offered
-	// on the box's context menu; the box itself stays the plain edit control.
 	{
 		let field = parts.conversations_parts.message_field;
 		{
@@ -898,8 +810,6 @@ pub fn bind_input_handlers(
 	let state_typing = state.clone();
 	let conv_parts_typing = parts.conversations_parts;
 	msg_ctrl_typing.on_text_changed(move |_| {
-		// Opening a chat restores its draft with set_value() while the state is
-		// borrowed, which lands here; that isn't typing, so nothing to replace.
 		let replace_emoji = state_typing.try_borrow().is_ok_and(|s| s.settings.replace_text_with_emoji);
 		crate::ui::emoji_replace::text_changed(&msg_ctrl_typing, replace_emoji);
 		let announce_spelling = state_typing.try_borrow().is_ok_and(|s| s.settings.spell_check_announce);
@@ -933,7 +843,6 @@ pub fn bind_input_handlers(
 	});
 
 	crate::ui::avatars::init(state.borrow().ws_tx.clone());
-	// The contact pickers' rows show each person's picture, found by row.
 	let picked = |state: &Rc<std::cell::RefCell<crate::AppState>>, jids: fn(&crate::AppState) -> &Vec<String>| {
 		let state = state.clone();
 		move |index: usize| state.try_borrow().ok().and_then(|s| jids(&s).get(index).cloned())
@@ -957,7 +866,6 @@ pub fn bind_input_handlers(
 	let state_rows = state.clone();
 	crate::ui::chat_rows::install(&parts.conversations_parts.conversations_list, move |index, text| {
 		let Ok(s) = state_rows.try_borrow() else {
-			// Drawn while the chat list is being rebuilt: draw it again after.
 			wxdragon::call_after(Box::new(crate::ui::chat_rows::refresh));
 			return None;
 		};
@@ -967,7 +875,6 @@ pub fn bind_input_handlers(
 		// never lands on someone else's row.
 		let in_step = s.displayed_chat_labels.get(index).is_some_and(|l| l == text);
 		let jid = s.filtered_chats.get(index).filter(|_| in_step).map_or("", String::as_str);
-		// Status, Starred and Calls rows aren't chats' rows.
 		let chat_row = in_step && !matches!(s.active_tab, 1 | 2 | 6);
 		match s.chat_row_art.get(jid) {
 			Some(art) if chat_row => {
@@ -988,8 +895,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// The message lists draw bubbles and pictures; what they look like comes
-	// from the messages behind the rows.
 	let (messages_list, select_list) =
 		(parts.conversations_parts.messages_list, parts.conversations_parts.messages_select_list);
 	crate::ui::thumbnails::init(state.borrow().ws_tx.clone(), move || {
@@ -997,12 +902,10 @@ pub fn bind_input_handlers(
 		select_list.refresh(false, None);
 		crate::ui::owner_draw::refresh_media_lists();
 	});
-	// A group's members with their pictures.
 	let state_members = state.clone();
 	crate::ui::owner_draw::install_people_list(&parts.group_data_dialog.members_list, move |index| {
 		state_members.try_borrow().ok()?.group_data_visible_member_jids.get(index).cloned()
 	});
-	// The info pages' Media lists show each photo's picture.
 	for group in [false, true] {
 		let list = if group { &parts.group_data_dialog.media_list } else { &parts.conversation_data_dialog.media_list };
 		let state_media = state.clone();
@@ -1017,12 +920,10 @@ pub fn bind_input_handlers(
 		let state_looks = state.clone();
 		list.set_look_source(move |index, key| {
 			let Ok(s) = state_looks.try_borrow() else {
-				// Drawn while the chat is being updated: draw it again after.
 				wxdragon::call_after(Box::new(move || list.refresh(false, None)));
 				return None;
 			};
 			let item = if selecting { s.selection_rows.get(index) } else { s.display_items.get(index) }?;
-			// A divider's key is its text; a message's, its id.
 			if !key.is_empty() && !key.starts_with('\u{1}') && item.id() != key {
 				return None;
 			}
@@ -1063,7 +964,6 @@ pub fn bind_input_handlers(
 	let tx_post_media_status = ui_tx.clone();
 	let state_post_media_status = state.clone();
 	parts.conversations_parts.post_media_status_btn.on_click(move |_| {
-		// The Channels tab borrows this second button for "Create channel".
 		if state_post_media_status.borrow().active_tab == 5 {
 			let _ = tx_post_media_status.send(UiCommand::CreateChannel);
 		} else {
@@ -1277,8 +1177,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// Ctrl+Shift+V toggles the camera and Ctrl+Shift+S the screen share from
-	// anywhere in the call window, matching their buttons.
 	let tx_camera_key = ui_tx.clone();
 	parts.call_parts.frame.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event
@@ -1309,7 +1207,6 @@ pub fn bind_input_handlers(
 		let info_dialog = parts.conversation_data_dialog.dialog;
 		button.on_click(move |_| {
 			let Some(jid) = state_call.borrow().info_chat.clone() else { return };
-			// The call window can't be used under a modal dialog.
 			info_dialog.end_modal(wxdragon::id::ID_CANCEL);
 			let _ = tx_call.send(UiCommand::CallContact { jid, video });
 		});
@@ -1338,10 +1235,6 @@ pub fn bind_input_handlers(
 		group_data_dialog_back.end_modal(0);
 	});
 
-	// ── Tray icon ────────────────────────────────────────────────────────────
-	// The icon bitmap and popup menu are set up once; whether it's actually
-	// installed (and thus whether closing the window hides to it) tracks the
-	// `show_tray_icon` setting, reconciled below and whenever Settings is saved.
 	let tray_icon = parts.tray_icon.clone();
 	let tray_bitmap = theme::build_app_icon(32);
 	// Whether an Enter release still to come has already been dealt with, so
@@ -1378,9 +1271,6 @@ pub fn bind_input_handlers(
 	tray_icon.set_popup_menu(&mut tray_menu);
 	std::mem::forget(tray_menu);
 
-	// A click on the icon, or Space/Enter on it from the keyboard, restores the
-	// window. See `tray::enable_keyboard_select` for why this isn't wx's
-	// on_left_up.
 	let frame_tray_select = parts.frame;
 	let tx_tray_select = ui_tx.clone();
 	crate::platform::tray::set_on_select(move || {
@@ -1394,11 +1284,6 @@ pub fn bind_input_handlers(
 		let state = state.clone();
 		move |enabled: bool| {
 			if enabled {
-				// Two calls on purpose - see `install_tray_icon` in main.rs. The
-				// icon is added under the app name so that becomes the item's
-				// accessible name, and the count is written over it straight after
-				// so switching the icon back on in Settings doesn't leave a bare
-				// name until the next chats broadcast refreshes it.
 				let s = state.borrow();
 				tray_icon.set_icon(&tray_bitmap, whatsnap::TRAY_APP_NAME);
 				let unread = whatsnap::unread_notification_total(
@@ -1414,9 +1299,6 @@ pub fn bind_input_handlers(
 			}
 		}
 	});
-	// When Explorer restarts, or the taskbar is recreated after a display or
-	// DPI change, wx adds the icon back with its last tooltip - the count - and
-	// that becomes the icon's name. Add it back under the app name instead.
 	{
 		let apply_tray_setting = apply_tray_setting.clone();
 		let tray_icon = tray_icon.clone();
@@ -1446,10 +1328,6 @@ pub fn bind_input_handlers(
 	};
 	apply_tray_setting(show_tray_now);
 
-	// Closing the window hides it to the tray instead of quitting, as long as
-	// the tray icon is actually installed to bring it back with. A forced
-	// close (the tray menu's Exit, or Windows shutting the app down) can't be
-	// vetoed, so `can_veto()` tells the two cases apart.
 	let frame_close = parts.frame;
 	let tray_icon_close = tray_icon.clone();
 	let tx_close = ui_tx.clone();
@@ -1468,10 +1346,6 @@ pub fn bind_input_handlers(
 				crate::platform::tray::hide_main_window(&frame_close);
 				let _ = tx_close.send(UiCommand::WindowHidden);
 			} else {
-				// A real close (tray icon disabled in Settings, so the X button
-				// actually quits) - see the tray Exit handler above for why this
-				// explicit ExitMainLoop is needed rather than relying on wx's
-				// default "last frame closed" behavior.
 				if let Some(app) = wxdragon::get_app_instance() {
 					app.exit_main_loop();
 				}
@@ -1479,10 +1353,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// The login dialog is only ever up while we're logged out, so Alt+F4 (or
-	// its close box) there should quit outright too. Without this the close
-	// could land on the dialog rather than the frame and fall through to wx's
-	// default hide, leaving an invisible, still-running app behind.
 	parts.login_panel.on_close(move |event| {
 		if let WindowEventData::General(_) = event
 			&& let Some(app) = wxdragon::get_app_instance()
@@ -1491,21 +1361,12 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// The window is only "actively in use" while it's focused at the OS
-	// level; losing focus (alt-tabbing away, minimizing, or hiding to tray)
-	// should stop broadcasting an online presence to WhatsApp, matching what
-	// the official clients do.
 	let tx_activate = ui_tx.clone();
 	parts.frame.on_activate(move |event| {
 		if let WindowEventData::Activate(ref ev) = event {
-			// Something else activating the window while it's put away in the
-			// tray isn't the user coming back - see tray::hide_main_window.
 			if ev.is_active() && crate::platform::tray::is_hidden_to_tray() {
 				return;
 			}
-			// Coming back with Enter held (a dialog closed with Enter, or
-			// whatSnap started again from the Start menu): its release lands
-			// on whatever has focus here and isn't a press of ours.
 			if ev.is_active() && enter_key_held() {
 				crate::platform::tray::enter_release_guard().set(true);
 			}
@@ -1516,8 +1377,6 @@ pub fn bind_input_handlers(
 	let keymap = Rc::new(crate::keymap::Keymap::from_saved(&state.borrow().settings.shortcuts));
 	keymap.apply(&parts.frame);
 	state.borrow_mut().keymap = keymap;
-	// Edits from the Keyboard Shortcuts dialog wait here until Settings is
-	// confirmed, so Cancel on Settings throws them away like everything else.
 	let pending_shortcuts: Rc<std::cell::RefCell<Option<crate::keymap::Keymap>>> = Rc::default();
 
 	let settings_dialog = parts.settings_dialog.dialog;
@@ -1567,10 +1426,6 @@ pub fn bind_input_handlers(
 		dual_stream_check_open.set_value(s.settings.dual_stream_screen_share);
 
 		name_field_open.set_value(&s.own_push_name);
-		// Everything on the privacy tab is fetched fresh on every open, and
-		// stays disabled until it arrives: a value cached from an earlier
-		// open (or a dropdown's placeholder) may not be what the phone has
-		// set since, and saving it would overwrite the real one.
 		s.own_about_loaded = false;
 		s.default_timer = None;
 		settings_parts_open.default_timer_combo.enable(false);
@@ -1584,8 +1439,6 @@ pub fn bind_input_handlers(
 		settings_parts_open.show_chat_settings(&s.settings);
 		settings_parts_open.match_theme();
 
-		// Re-enumerated on every open since WASAPI device lists can change
-		// (USB headset plugged/unplugged, etc) while the app is running.
 		set_device_combo(
 			&input_device_combo_open,
 			&crate::audio::devices::input_device_names(),
@@ -1607,7 +1460,6 @@ pub fn bind_input_handlers(
 				let _ = s.ws_tx.send(payload.to_string());
 			}
 		}
-		// The excluded-contacts picker offers every contact.
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_contacts"}).to_string());
 		drop(s);
 		autostart_check.set_value(crate::platform::autostart::is_enabled());
@@ -1652,8 +1504,6 @@ pub fn bind_input_handlers(
 			return;
 		}
 		let mut s = state_reconnect.borrow_mut();
-		// The backend answers with a "connection_state" either way (even if
-		// already online), and this flag makes sure that answer is spoken.
 		s.conn_manual_reconnect = true;
 		let online = s.conn_online;
 		let _ = s.ws_tx.send(serde_json::json!({"action": "reconnect"}).to_string());
@@ -1667,21 +1517,14 @@ pub fn bind_input_handlers(
 	let state_nav_menu = state.clone();
 	let nav_announcer = parts.conversations_parts.messages_announcer;
 	let tx_nav_menu = ui_tx.clone();
-	// One-shot: moves focus into the chat list once the tab name has been spoken.
 	let nav_focus_timer = std::rc::Rc::new(Timer::new(&parts.frame));
 	let conv_list_for_nav_timer = parts.conversations_parts.conversations_list;
 	nav_focus_timer.on_tick(move |_| {
-		// Focus may already be there (Alt+1 pressed from inside the list); then
-		// this is a no-op and the tab name is all that's spoken.
 		conv_list_for_nav_timer.set_focus();
-		// The list was just refilled, so nothing is selected. Pre-select the
-		// first row so Enter opens it without a Space first.
 		if conv_list_for_nav_timer.get_selection().is_none() && conv_list_for_nav_timer.get_count() > 0 {
 			conv_list_for_nav_timer.set_selection(0_u32, true);
 		}
 	});
-	// Alt+E's "where you were": each main pane records itself when it takes
-	// focus, and the row is captured at the moment Alt+E leaves for the box.
 	let return_pane = std::rc::Rc::new(std::cell::Cell::new(ReturnPane::Messages));
 	let return_spot: std::rc::Rc<std::cell::RefCell<Option<ReturnSpot>>> =
 		std::rc::Rc::new(std::cell::RefCell::new(None));
@@ -1695,8 +1538,6 @@ pub fn bind_input_handlers(
 		rp_chats.set(ReturnPane::Chats);
 		event.skip(true);
 	});
-	// Tab (or any other route) into the chat list with nothing selected: pre-select
-	// the first row so Enter opens it without a Space first.
 	let conv_list_focus_select = parts.conversations_parts.conversations_list;
 	parts.conversations_parts.conversations_list.on_set_focus(move |event| {
 		if conv_list_focus_select.get_selection().is_none() && conv_list_focus_select.get_count() > 0 {
@@ -1709,8 +1550,6 @@ pub fn bind_input_handlers(
 		rp_messages.set(ReturnPane::Messages);
 		event.skip(true);
 	});
-	// Leaving the box any other way (Tab, a click) forgets the spot, so a later
-	// Alt+E from the box doesn't jump back to a position from long ago.
 	let spot_on_leave = return_spot.clone();
 	parts.conversations_parts.message_field.on_kill_focus(move |event| {
 		spot_on_leave.borrow_mut().take();
@@ -1727,7 +1566,6 @@ pub fn bind_input_handlers(
 			MENU_ID_NAV_CALLS => 6,
 			_ => return,
 		};
-		// The shortcut names a tab; the list may have it anywhere.
 		let idx = state_nav_menu.borrow().settings.tab_order().iter().position(|&t| t == tab).unwrap_or(tab) as u32;
 		// set_selection's bool means select-vs-deselect, not "fire the change
 		// event" - wxListBox::SetSelection never generates one, so switching
@@ -1735,10 +1573,6 @@ pub fn bind_input_handlers(
 		// the (shared) list's content, same as a mouse click would trigger.
 		nav_list_for_menu.set_selection(idx, true);
 		let _ = tx_nav_menu.send(UiCommand::NavSelected(tab));
-		// Say the tab name now, then move focus into the chat list shortly
-		// after. Focus speech is not a live-region announcement, so it isn't
-		// queued behind one: moving focus straight away would talk over the
-		// tab name. The timer (below) waits long enough for it to finish.
 		let name = nav_list_for_menu.get_string(idx as u32).unwrap_or_default();
 		if !name.is_empty() {
 			crate::platform::announce::announce(nav_announcer, &name);
@@ -1788,7 +1622,6 @@ pub fn bind_input_handlers(
 				if !restored {
 					let (pane, index) = match spot {
 						Some(ReturnSpot::Pane { pane, index, chat: spot_chat }) => {
-							// Rows of another chat's messages aren't where the user was.
 							let index =
 								if matches!(pane, ReturnPane::Messages) && spot_chat != chat { None } else { index };
 							(pane, index)
@@ -1830,7 +1663,6 @@ pub fn bind_input_handlers(
 				msg_field_for_menu.set_focus();
 			}
 		} else if id == MENU_ID_FOCUS_MESSAGES_LIST {
-			// Jump straight to the messages list when a conversation is open.
 			if messages_list_for_menu.is_shown() {
 				messages_list_for_menu.set_focus();
 			}
@@ -1931,8 +1763,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// The voice message keys have no menu, so the frame checks them itself,
-	// before the focused control sees the key.
 	let tx_voice_keys = ui_tx.clone();
 	let state_voice_keys = state.clone();
 	parts.frame.on_char_hook(move |event| {
@@ -1982,13 +1812,7 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// whatSnapShare.exe does the work (it asks Windows for administrator
-	// permission the first time, which can't happen in here) and leaves how it
-	// went in a file. The result is shown from here, over Settings, so it gets
-	// focus and is read right away; a box from the helper could open behind.
 	let tx_share_menu = ui_tx.clone();
-	// Set while a run is going, so a second press doesn't start another. Not
-	// done by disabling the button, which would take the focus off it.
 	let share_menu_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 	parts.settings_dialog.share_menu_btn.on_click(move |_| {
 		if share_menu_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -2033,9 +1857,6 @@ pub fn bind_input_handlers(
 		let settings_parts = parts.settings_dialog;
 		let name = control.name;
 		let find = move || settings_parts.privacy_controls().into_iter().find(|c| c.name == name);
-		// Picking "My Contacts Except..." only enables the button: a combo
-		// fires this for every arrow-key step through it, so opening the
-		// picker from here would pop it up on the way past.
 		control.combo.on_selection_changed(move |_| {
 			if let Some(control) = find() {
 				except_btn.enable(control.is_except());
@@ -2073,8 +1894,6 @@ pub fn bind_input_handlers(
 	parts.settings_dialog.ok_btn.on_click(move |_| {
 		use crate::ui::dialogs::settings_dialog::*;
 		let mut s = state_settings_save.borrow_mut();
-		// "My Contacts Except..." needs someone to exclude: checked before
-		// anything is saved, so Save either saves everything or nothing.
 		if s.privacy_settings_loaded {
 			for control in settings_parts_ok.privacy_controls() {
 				let already_except = s.privacy_settings.get(control.name).map(String::as_str) == Some(EXCEPT_VALUE);
@@ -2124,7 +1943,6 @@ pub fn bind_input_handlers(
 		settings_parts_ok.read_chat_settings(&mut s.settings);
 		crate::ui::spell_check::configure(s.settings.spell_check, &s.settings.spell_language);
 		if s.settings.theme != old_theme {
-			// After this handler, with the dialog gone and nothing borrowed.
 			let theme = s.settings.theme;
 			wxdragon::call_after(Box::new(move || theme::change_theme(theme)));
 		}
@@ -2141,13 +1959,9 @@ pub fn bind_input_handlers(
 		let new_output_device = device_combo_value(&output_device_combo_ok);
 		if new_output_device != s.settings.output_device_name {
 			s.settings.output_device_name = new_output_device;
-			// Drop the cached playback stream so the next sound/voice-message
-			// play reopens it against the newly selected device instead of
-			// the one that was live when the dialog opened.
 			s.audio_stream = None;
 		}
 		s.settings.save();
-		// What WhatsApp shares between its desktop apps goes to them too.
 		let mut synced = s.settings.synced_changes(&synced_before);
 		if crate::platform::autostart::is_enabled() != autostart_check_ok.is_checked() {
 			synced.insert("startAtLogin".into(), autostart_check_ok.is_checked().into());
@@ -2162,12 +1976,9 @@ pub fn bind_input_handlers(
 			let _ =
 				s.ws_tx.send(serde_json::json!({"action": "set_push_name", "data": {"name": new_name}}).to_string());
 		}
-		// The About and privacy settings are only saved once they've loaded,
-		// and only what was changed is sent.
 		if s.own_about_loaded {
 			let new_about = settings_parts_ok.about_field.get_value();
 			let picked = combo_value(&settings_parts_ok.about_duration_combo, ABOUT_DURATION_CHOICES);
-			// A time the dropdown can't show is kept unless another is picked.
 			let duration = if picked == shown_value(ABOUT_DURATION_CHOICES, &s.own_about_duration.to_string()) {
 				s.own_about_duration
 			} else {
@@ -2202,7 +2013,6 @@ pub fn bind_input_handlers(
 			for control in settings_parts_ok.privacy_controls() {
 				let server = s.privacy_settings.get(control.name).cloned().unwrap_or_default();
 				if control.is_except() {
-					// Sent whole; the backend works out who to add and remove.
 					if let Some(jids) = s.privacy_list_edits.get(control.name) {
 						let payload = serde_json::json!({"action": "set_privacy_list", "data": {"name": control.name, "jids": jids}});
 						let _ = s.ws_tx.send(payload.to_string());
@@ -2227,7 +2037,6 @@ pub fn bind_input_handlers(
 		settings_dialog_ok.end_modal(wxdragon::id::ID_OK);
 	});
 
-	// Your own profile photo, changed or removed straight away.
 	let state_photo = state.clone();
 	let settings_dialog_photo = parts.settings_dialog.dialog;
 	parts.settings_dialog.change_photo_btn.on_click(move |_| {
@@ -2327,9 +2136,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// Keeps "Make admin" reading as "Dismiss as admin" when the selected
-	// member already is one, matching official WhatsApp's per-member toggle
-	// instead of one static label regardless of who's selected.
 	let tx_member_selection = ui_tx.clone();
 	parts.group_data_dialog.members_list.on_selection_changed(move |_| {
 		let _ = tx_member_selection.send(UiCommand::GroupMemberSelectionChanged);
@@ -2386,8 +2192,6 @@ pub fn bind_input_handlers(
 			let _ = tx_group_double_click.send(UiCommand::JoinCommunitySubgroup(idx as u32));
 		}
 	});
-	// Enter on the row opens or joins it. Caught on key-up: the dialog eats
-	// Enter's key-down for its default button (see the contact picker).
 	let tx_group_enter = ui_tx.clone();
 	let groups_list_enter = parts.group_data_dialog.groups_list;
 	keys::on_enter(&parts.group_data_dialog.groups_list, Rc::default(), move || {
@@ -2545,8 +2349,6 @@ pub fn bind_input_handlers(
 		let full_name = format!("{} {}", name, surname).trim().to_string();
 		let sync = sync_check.get_value();
 		dlg.end_modal(wxdragon::id::ID_OK);
-		// The number goes as typed: without a + it's read as one from your own
-		// country, as WhatsApp's own add-contact form does.
 		let _ = tx_new_contact.send(UiCommand::NewContact {
 			name: full_name,
 			first_name: name,
@@ -2603,8 +2405,6 @@ pub fn bind_input_handlers(
 		for jid in &gs.checked_jids {
 			participants.push(jid.clone());
 		}
-		// Let go of the state before the error box below: its modal loop
-		// handles incoming backend events, which borrow the state too.
 		drop(s);
 		let extra_raw = extra_ctrl.get_value();
 		for part in extra_raw.split([',', '\n']) {
@@ -2736,10 +2536,6 @@ pub fn bind_input_handlers(
 				}
 				let label = contacts_listbox_toggle.get_string(idx as usize).unwrap_or_default();
 				let state_str = if checked { "selected" } else { "not selected" };
-				// Checking someone and then filtering them out of view with
-				// a new search reads as "my selection got lost" with no way
-				// to otherwise confirm it didn't - this running total is how
-				// they can tell it's still there.
 				let count = gs.checked_jids.len();
 				crate::platform::announce::announce(
 					selection_announcer_toggle,
@@ -2893,9 +2689,6 @@ pub fn bind_input_handlers(
 		add_members_cancel.end_modal(0);
 	});
 
-	// Attach Contact dialog - mirrors the Add Members dialog's checkbox-list
-	// wiring above (debounced search, live-region running total), confirming
-	// with "Send" instead of adding group members.
 	let attach_contact_search_field = parts.attach_contact_dialog.search_field;
 	let attach_contact_listbox = parts.attach_contact_dialog.contacts_listbox;
 	let attach_contact_selection_announcer = parts.attach_contact_dialog.selection_announcer;
@@ -3039,9 +2832,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// Ctrl+Shift+Left/Right moves the highlighted tab up or down the list, like
-	// moving a timeline in Fedra. Swapping the two rows' text in place (rather
-	// than clearing and refilling) keeps the list from announcing itself anew.
 	let state_nav_move = state.clone();
 	let nav_list_move = parts.nav_list;
 	let frame_nav_move = parts.frame;
@@ -3105,8 +2895,6 @@ pub fn bind_input_handlers(
 	conv_msg_field_esc.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			// Open @mention suggestions get first say over arrows, Enter, Tab
-			// and Escape.
 			if crate::ui_commands::mentions::handle_key(
 				&state_field,
 				&conv_parts_field,
@@ -3126,12 +2914,9 @@ pub fn bind_input_handlers(
 			}
 			let is_editing = state_field.borrow().editing_message_id.is_some();
 			if keys::is_enter(code) {
-				// "Enter is send" on: Enter sends, Shift+Enter is a new line.
-				// Off: Enter is a new line too, and the Send button sends
-				// (Ctrl+Enter is already Send Voice Message).
 				let sends = state_field.borrow().settings.enter_is_send && !key_event.shift_down();
 				if !sends {
-					event.skip(true); // insert a newline in the multiline text box
+					event.skip(true);
 				} else {
 					let text = conv_msg_field_esc.get_value();
 					if is_editing {
@@ -3140,12 +2925,9 @@ pub fn bind_input_handlers(
 					} else if !text.is_empty() {
 						let _ = tx_send_field.send(UiCommand::SendMessage(text));
 					}
-					event.skip(false); // Suppress default Enter newline insertion
+					event.skip(false);
 				}
 			} else if keys::is_escape(code) {
-				// Escape key: cancel an in-progress edit instead of closing
-				// the conversation, so Escape always backs out of whatever
-				// the composer is currently doing.
 				if is_editing {
 					let _ = tx_send_field.send(UiCommand::CancelEdit);
 				} else {
@@ -3153,20 +2935,9 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if keys::is_tab(code) && is_editing && !key_event.shift_down() {
-				// Forward Tab while editing jumps straight to "Cancel edit" -
-				// native traversal would otherwise land on "Add attachment",
-				// which edit mode hides rather than removes from the tab
-				// order (see the same note on cancel_edit_btn's own handler).
-				// Shift+Tab is deliberately NOT overridden here: doing so
-				// bounced focus straight back to "Cancel edit" too, and since
-				// that button's own Shift+Tab handler sends focus right back
-				// to this field, the two together trapped keyboard users in
-				// an inescapable two-control loop with no way to tab out of
-				// the composer at all.
 				cancel_edit_btn_field.set_focus();
 				event.skip(false);
 			} else if keys::is_letter(code, 'V') && key_event.control_down() {
-				// Ctrl+V
 				let mut has_files = false;
 				if let Some(_locker) = Clipboard::get().locker() {
 					let fdo = FileDataObject::new();
@@ -3188,15 +2959,12 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// Suggestions stay put while focus is away (a click on one moves focus to
-	// the list first) and are worked out afresh from the caret on return.
 	let state_mention_focus = state.clone();
 	let conv_parts_focus = parts.conversations_parts;
 	parts.conversations_parts.message_field.on_set_focus(move |event| {
 		crate::ui_commands::mentions::refresh(&state_mention_focus, &conv_parts_focus);
 		event.skip(true);
 	});
-	// A click on a suggestion picks it, the way Enter would.
 	let state_mention_click = state.clone();
 	let conv_parts_click = parts.conversations_parts;
 	parts.conversations_parts.mention_list.on_selection_changed(move |event| {
@@ -3205,15 +2973,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// Escape only closed the conversation when the message list or composer
-	// itself had focus - hitting it from any other control in the
-	// conversation panel (a toolbar button, the "Conversation data" field,
-	// etc.) did nothing. CHAR_HOOK fires on the frame for every keypress
-	// before it reaches whichever control has focus, so it catches Escape
-	// regardless of what's focused. Left alone when the in-conversation
-	// search panel is showing (Escape closes that first, like official
-	// WhatsApp) or selection mode is active (its own list has dedicated
-	// Escape handling to exit selection instead).
 	let tx_escape_hook = ui_tx.clone();
 	let conv_panel_hook = parts.conversations_parts.conversation_panel;
 	let search_panel_hook = parts.conversations_parts.search_panel;
@@ -3224,8 +2983,6 @@ pub fn bind_input_handlers(
 		if let WindowEventData::Keyboard(ref key_event) = data
 			&& keys::is_escape(key_event.get_key_code())
 		{
-			// Escape closes open @mention suggestions first; the composer's
-			// own key handler does that.
 			if state_hook.borrow().mention_popup.is_some() && composer_hook.has_focus() {
 				data.skip(true);
 				return;
@@ -3287,37 +3044,8 @@ pub fn bind_input_handlers(
 	let ui_tx_chat_ctx = ui_tx.clone();
 	let parent_frame_chat_ctx = parts.frame;
 
-	// The chat list opens the selected chat from BOTH key-down and key-up, which
-	// needs a shared "this Enter release is already spoken for" flag to stay
-	// correct. Two separate releases would otherwise each open a chat:
-	//
-	//  - Plain Enter on the list opens on key-down, and the key-up that follows
-	//    would open it a second time. `open_chat_for_jid` has no already-open
-	//    guard, so that is two history round trips and two list rebuilds; on the
-	//    Status tab it is two `open_media` sends, i.e. two player windows.
-	//  - Activating a context-menu item with Enter closes the menu on the key
-	//    *down*, leaving the key-up to land on the list underneath, which read it
-	//    as "open this chat" - so picking an archived-alert level also opened the
-	//    chat.
-	//
-	// Key-up honours the flag once and clears it. Key-down sets it when it has
-	// already opened the chat itself, and clears it for any other key, so a menu
-	// dismissed with the mouse (no key-up follows at all) can't leave it armed to
-	// swallow a later numpad Enter, which only ever opens from key-up.
-	// (`enter_release_handled` is defined above the tray icon handlers, which
-	// arm it too.)
-
-	// Menu-bar items (Reconnect Now, Mute Chat, ...) close on Enter's key-down
-	// just like the context menu, so their release hits the list too. Arm the
-	// same flag - but only for real menu-bar IDs, and only while Enter is
-	// actually held: plain Enter on the list also reaches the frame as a menu
-	// event (Windows turns it into an IDOK command), and arming on that
-	// swallowed the list's own Enter so chats stopped opening; F5 or a mouse
-	// click has no Enter release to swallow.
 	let state_menu_open = state.clone();
 	let frame_menu_open = parts.frame;
-	// Popup menus open with the state sometimes still borrowed, so this
-	// only tries.
 	parts.frame.on_menu_opened(move |_| {
 		if let Ok(s) = state_menu_open.try_borrow() {
 			refresh_menu_bar(&s, &frame_menu_open);
@@ -3326,7 +3054,6 @@ pub fn bind_input_handlers(
 
 	let guard_menu_bar = enter_release_handled.clone();
 	parts.frame.on_menu_selected(move |evt| {
-		// Every menu-bar id is in 6001..=6099 (Check for Updates is 6061).
 		if (MENU_ID_SETTINGS..=6099).contains(&evt.get_id()) && enter_key_held() {
 			guard_menu_bar.set(true);
 		}
@@ -3334,16 +3061,10 @@ pub fn bind_input_handlers(
 
 	let guard_ctx = enter_release_handled.clone();
 	let tx_status_menu = ui_tx.clone();
-	// The Applications key reaches the list twice: as a key-down, and as a
-	// context-menu event once it's released. A menu shown straight away
-	// swallows the release, but the Status and Starred menus are shown from
-	// the command queue, so the release would open a second one.
 	let last_queued_menu =
 		Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
 	let open_chat_context_menu = Rc::new(move || {
 		if let Some(idx) = convs_list_ctx.get_selection() {
-			// Only chat rows get the chat menu: a status update or a starred
-			// message is not a chat.
 			let queued = match state_chat_ctx.borrow().active_tab {
 				1 => Some(UiCommand::ShowStatusMenu(idx as usize)),
 				2 => Some(UiCommand::ShowStarredMenu(idx as usize)),
@@ -3395,8 +3116,6 @@ pub fn bind_input_handlers(
 				drop(s);
 
 				let mut menu_builder = Menu::builder();
-				// A person's chat leads with their info, as WhatsApp's chat
-				// header does.
 				let is_person = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
 				if is_person {
 					menu_builder = menu_builder.append_item(
@@ -3461,9 +3180,6 @@ pub fn bind_input_handlers(
 
 				let mut popup_menu = menu_builder.build();
 
-				// Muting asks how long for, as on WhatsApp Web; unmuting and
-				// channels (which have no lengths) stay one item. It goes after
-				// pin, archive and lock either way.
 				let mute_pos = if is_person { 4 } else { 3 };
 				if is_muted || !crate::ui_commands::chat_list::has_mute_durations(&jid) {
 					let label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
@@ -3482,8 +3198,6 @@ pub fn bind_input_handlers(
 						"Choose how long to mute this chat",
 					);
 				}
-				// What this computer alone does about the chat's messages; Mute
-				// above is WhatsApp's own, on every device.
 				if !jid.ends_with("@broadcast") {
 					popup_menu.insert(
 						mute_pos + 1,
@@ -3696,7 +3410,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// The menu arms the Enter guard itself once it closes.
 	let open_chat_menu_key = open_chat_context_menu.clone();
 	parts.conversations_parts.conversations_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event
@@ -3840,8 +3553,6 @@ pub fn bind_input_handlers(
 			let is_channel_chat = s.selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
 			drop(s);
 
-			// A message someone else sent, which can be reported to WhatsApp
-			// (or, in a group, to its admins).
 			let reportable_id = display_item
 				.as_ref()
 				.and_then(|item| match item {
@@ -3918,8 +3629,6 @@ pub fn bind_input_handlers(
 				whatsnap::DisplayItem::Album { .. } => None,
 			});
 
-			// Only meaningful in a group: a 1:1 chat has no other "sender" to
-			// jump to, and messages from you have no other party to reach.
 			let sender_jid = if is_group_chat {
 				display_item.as_ref().and_then(|item| match item {
 					whatsnap::DisplayItem::Single(m)
@@ -4015,8 +3724,6 @@ pub fn bind_input_handlers(
 				display_item.as_ref(),
 			);
 
-			// A channel post has its own actions: pinning it and seeing who
-			// reacted or voted, for the channel's owner and admins.
 			let channel_post = match &display_item {
 				Some(whatsnap::DisplayItem::Single(m)) if !m.is_date_divider && !m.is_deleted => {
 					let s = state_ctx.borrow();
@@ -4313,7 +4020,6 @@ pub fn bind_input_handlers(
 							.as_ref()
 							.map(|jid| {
 								let s = state_clone.borrow();
-								// A channel's admins can delete any of its posts.
 								s.admin_group_jids.contains(jid)
 									|| crate::ui_commands::links::can_post_in_channel(&s, jid)
 							})
@@ -4536,19 +4242,15 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.messages_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			// A key went down here, so the next release is this list's own.
 			enter_guard_msgs_down.set(false);
 			let keymap = state_play.borrow().keymap.clone();
 			let pressed = |id| keymap.is_pressed(id, key_event);
 
 			if keys::is_left(code) {
-				// Left Arrow
 				let now = std::time::Instant::now();
 				let prev = last_left_arrow.get();
 				if now.duration_since(prev) < std::time::Duration::from_millis(600) {
 					last_left_arrow.set(now - std::time::Duration::from_secs(10));
-					// If search is active, double-left-arrow behaves like normal chats:
-					// if the message is a reply, jump to the quoted message; otherwise just close search
 					if search_panel_key.is_shown() {
 						if let Some(idx) = msgs_list_play.get_selection() {
 							let s = state_play.borrow();
@@ -4559,7 +4261,6 @@ pub fn bind_input_handlers(
 							if let Some(msg) = msg_opt {
 								drop(s);
 								if !msg.is_date_divider && (!msg.quoted_id.is_empty() || !msg.quoted_text.is_empty()) {
-									// Jump to the quoted message — pass both id and text so handler can try both
 									let _ = tx_close_list.send(UiCommand::JumpToSearchResult {
 										message_id: msg.quoted_id.clone(),
 										message_text: msg.quoted_text.clone(),
@@ -4623,7 +4324,6 @@ pub fn bind_input_handlers(
 									);
 								}
 							} else if !msg.quoted_id.is_empty() {
-								// Not in the loaded window: load the page around it.
 								let _ = tx_close_list.send(UiCommand::JumpToSearchResult {
 									message_id: msg.quoted_id.clone(),
 									message_text: String::new(),
@@ -4643,9 +4343,6 @@ pub fn bind_input_handlers(
 					if state_play.borrow().playing_msg_id.is_some() {
 						let _ = tx_close_list.send(UiCommand::SeekAudio(-5.0));
 					} else if let Some(idx) = msgs_list_play.get_selection() {
-						// One press on a reply reads out the message it replies to
-						// without moving the cursor; a second press within the
-						// window jumps to it (above).
 						let said = state_play.borrow().display_items.get(idx as usize).and_then(|item| match item {
 							whatsnap::DisplayItem::Single(m) => m.reply_announcement(),
 							whatsnap::DisplayItem::Album { messages, .. } => {
@@ -4680,7 +4377,6 @@ pub fn bind_input_handlers(
 					event.skip(true);
 				}
 			} else if keys::is_escape(key_event.get_key_code()) {
-				// Escape
 				let _ = tx_close_list.send(UiCommand::CloseConversation);
 				event.skip(false);
 			} else if keys::is_home(key_event.get_key_code()) {
@@ -4703,20 +4399,16 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if keys::is_end(key_event.get_key_code()) {
-				// WXK_END (312) -> Newest message at bottom
 				let count = msgs_list_play.get_count();
 				if count > 0 {
 					msgs_list_play.set_selection(count - 1, true);
 				}
-				// A window around a search hit doesn't hold the newest message;
-				// this fetches it (a no-op when the list already runs to it).
 				let _ = tx_close_list.send(UiCommand::JumpToLatestMessage);
 				event.skip(false);
 			} else if keys::is_letter(code, 'C') && key_event.control_down() {
 				copy_for_key.as_ref()();
 				event.skip(false);
 			} else if keys::is_letter(key_event.get_key_code(), 'V') && key_event.control_down() {
-				// Ctrl+V
 				let mut has_files = false;
 				if let Some(_locker) = Clipboard::get().locker() {
 					let fdo = FileDataObject::new();
@@ -4731,16 +4423,8 @@ pub fn bind_input_handlers(
 					event.skip(true);
 				}
 			} else if key_event.get_key_code() == Some(WXK_RETURN) && key_event.shift_down() {
-				// Shift+Enter is handled on key-up below (see that handler's
-				// comment) - just make sure it doesn't fall through to plain
-				// Enter's voice-toggle/call-back handling if this does reach
-				// on_key_down in some configuration.
 				event.skip(false);
 			} else if key_event.get_key_code() == Some(WXK_RETURN) {
-				// Enter key: play/pause a selected voice message directly,
-				// same as the Space handler below, instead of requiring a
-				// Tab to the play button. Non-voice messages keep whatever
-				// default Enter behavior the list already had.
 				let mut handled = false;
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
@@ -4749,10 +4433,6 @@ pub fn bind_input_handlers(
 						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
 					});
 					if let Some(msg) = msg_opt {
-						// Enter on a call-history row calls that chat back, the same
-						// shortcut the Call button gives, so the history is usable
-						// without leaving the message list. While that call is still
-						// going on, Enter joins it instead.
 						if msg.is_call() {
 							handled = true;
 							let cmd = match crate::ui_commands::calls::joinable_call_for_row(&s, &msg) {
@@ -4768,7 +4448,6 @@ pub fn bind_input_handlers(
 							let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
 							if is_currently_playing {
 								if s.is_audio_paused {
-									// Resume
 									if let Some(ref sink) = s.audio_sink {
 										sink.play();
 									}
@@ -4776,7 +4455,6 @@ pub fn bind_input_handlers(
 									s.audio_start_instant = Some(std::time::Instant::now());
 									play_voice_btn_space.set_label("Pause voice message");
 								} else {
-									// Pause — save elapsed
 									if let Some(inst) = s.audio_start_instant.take() {
 										s.audio_elapsed_secs += inst.elapsed().as_secs_f32();
 									}
@@ -4803,11 +4481,9 @@ pub fn bind_input_handlers(
 				}
 				event.skip(!handled);
 			} else if pressed(message_list::SELECTION_MODE) {
-				// Ctrl+Space: enter/exit selection mode.
 				let _ = tx_close_list.send(UiCommand::ToggleSelectionMode);
 				event.skip(false);
 			} else if keys::is_space(key_event.get_key_code()) && !key_event.control_down() {
-				// Space
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -4824,7 +4500,6 @@ pub fn bind_input_handlers(
 						let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
 						if is_currently_playing {
 							if s.is_audio_paused {
-								// Resume
 								if let Some(ref sink) = s.audio_sink {
 									sink.play();
 								}
@@ -4832,7 +4507,6 @@ pub fn bind_input_handlers(
 								s.audio_start_instant = Some(std::time::Instant::now());
 								play_voice_btn_space.set_label("Pause voice message");
 							} else {
-								// Pause — save elapsed
 								if let Some(inst) = s.audio_start_instant.take() {
 									s.audio_elapsed_secs += inst.elapsed().as_secs_f32();
 								}
@@ -4858,7 +4532,6 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if pressed(message_list::VOTE) {
-				// 'v' -> vote in the poll, or answer the event
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					if let Some(whatsnap::DisplayItem::Single(m)) = s.display_items.get(idx as usize)
@@ -4869,7 +4542,6 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if pressed(message_list::REPLY) {
-				// 'r' / 'R' -> Reply
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let mut s = state_play.borrow_mut();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -4915,7 +4587,6 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if pressed(message_list::EDIT) {
-				// 'e' / 'E' -> Edit
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -4953,7 +4624,6 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if pressed(message_list::STAR) {
-				// 's' / 'S' -> Star/Unstar
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -4975,7 +4645,6 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if pressed(message_list::FORWARD) {
-				// 'f' / 'F' -> Forward
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -5109,7 +4778,6 @@ pub fn bind_input_handlers(
 				}
 				event.skip(false);
 			} else if pressed(message_list::DELETE) {
-				// Delete key -> Delete
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
@@ -5126,7 +4794,6 @@ pub fn bind_input_handlers(
 							.as_ref()
 							.map(|jid| {
 								let s = state_play.borrow();
-								// A channel's admins can delete any of its posts.
 								s.admin_group_jids.contains(jid)
 									|| crate::ui_commands::links::can_post_in_channel(&s, jid)
 							})
@@ -5161,7 +4828,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// on_key_up catches Enter on ListBox — on_key_down misses it because the OS consumes it
 	let tx_jump_enter = ui_tx.clone();
 	let tx_phone_enter = ui_tx.clone();
 	let tx_invite_enter = ui_tx.clone();
@@ -5181,14 +4847,11 @@ pub fn bind_input_handlers(
 				return;
 			}
 			if code == Some(WXK_RETURN) && state_enter.borrow().keymap.is_pressed(message_list::VIEW_TEXT, key_event) {
-				// Enter-based chords open the message text here, on release: the OS
-				// eats the Enter key-down in a list box (other chords use key-down).
 				show_message_text(&parent_frame_enter, &msgs_list_enter, &state_enter);
 				event.skip(false);
 				return;
 			}
 			if keys::is_enter(code) {
-				// Enter or numpad Enter
 				if search_panel_enter.is_shown() {
 					if let Some(idx) = msgs_list_enter.get_selection() {
 						let s = state_enter.borrow();
@@ -5275,9 +4938,6 @@ pub fn bind_input_handlers(
 								}
 							}
 
-							// A WhatsApp link (a chat, group invite or channel) opens
-							// here, the way it would in WhatsApp; anything else goes
-							// to the browser.
 							let open_url = |url: &str| {
 								if whatsnap::parse_whatsapp_link(url).is_some() {
 									let _ = tx_invite_enter.send(UiCommand::OpenWhatsAppLink(url.to_string()));
@@ -5357,7 +5017,6 @@ pub fn bind_input_handlers(
 				let is_currently_playing = s.playing_msg_id.as_deref() == Some(&msg.id);
 				if is_currently_playing {
 					if s.is_audio_paused {
-						// Resume
 						if let Some(ref sink) = s.audio_sink {
 							sink.play();
 						}
@@ -5419,9 +5078,6 @@ pub fn bind_input_handlers(
 	});
 	parts.conversations_parts.messages_list.on_selection_changed(move |idx| {
 		if let Ok(idx) = i32::try_from(idx) {
-			// Pages in the next stored messages a little before the cursor
-			// reaches either end, so reading on in either direction doesn't
-			// stop at the seam; at the very top, older ones come from the phone.
 			const PREFETCH_ROWS: i32 = 50;
 			let (older_stored, newer_stored) = {
 				let s = state_sel.borrow();
@@ -5503,7 +5159,6 @@ pub fn bind_input_handlers(
 				}
 			}
 
-			// Show/hide action_panel based on whether any action buttons are visible
 			let any_action_visible = play_voice_btn_sel.is_shown()
 				|| conv_parts_sel.action_retry_btn.is_shown()
 				|| conv_parts_sel.action_open_btn.is_shown()
@@ -5542,7 +5197,6 @@ pub fn bind_input_handlers(
 				need_layout = true;
 			}
 
-			// Hide action_panel when no buttons are visible
 			if conv_parts_sel.action_panel.is_shown() {
 				conv_parts_sel.action_panel.show(false);
 				need_layout = true;
@@ -5588,8 +5242,6 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	// Arrowing to either end of what's loaded pages in more, as in the
-	// message list (the selection rows are rebuilt from the new messages).
 	let tx_select_paging = ui_tx.clone();
 	let state_select_paging = state.clone();
 	parts.conversations_parts.messages_select_list.on_selection_changed(move |idx| {
@@ -5720,7 +5372,6 @@ pub fn bind_input_handlers(
 	let tx_attach = ui_tx.clone();
 	let attach_btn_menu = parts.conversations_parts.add_attachment_btn;
 	parts.conversations_parts.add_attachment_btn.on_click(move |_| {
-		// WhatsApp's attach menu, in its order.
 		const ATTACH_DOCUMENT_ID: i32 = 4201;
 		const ATTACH_CONTACT_ID: i32 = 4202;
 		const ATTACH_MEDIA_ID: i32 = 4203;
@@ -5767,27 +5418,23 @@ pub fn bind_input_handlers(
 		let _ = tx_speed.send(UiCommand::ToggleAudioSpeed);
 	});
 
-	// Attachment dialog — Send button
 	let tx_send_attach = ui_tx.clone();
 	let caption_field_ref = parts.attachment_dialog.caption_field;
 	parts.attachment_dialog.send_btn.on_click(move |_| {
 		let caption = caption_field_ref.get_value();
 		let _ = tx_send_attach.send(UiCommand::SendAttachment { caption });
 	});
-	// Enter in the caption box sends, like the Send button.
 	let tx_send_attach_enter = ui_tx.clone();
 	caption_field_ref.on_text_enter(move |_| {
 		let caption = caption_field_ref.get_value();
 		let _ = tx_send_attach_enter.send(UiCommand::SendAttachment { caption });
 	});
 
-	// Attachment dialog — Add more files button
 	let tx_add_more = ui_tx.clone();
 	parts.attachment_dialog.add_more_btn.on_click(move |_| {
 		let _ = tx_add_more.send(UiCommand::AddAttachment);
 	});
 
-	// Attachment dialog — Discard button
 	let tx_discard_attach = ui_tx.clone();
 	parts.attachment_dialog.discard_btn.on_click(move |_| {
 		let _ = tx_discard_attach.send(UiCommand::DiscardAttachment);
@@ -5818,13 +5465,6 @@ pub fn bind_input_handlers(
 		let _ = tx_cancel_edit.send(UiCommand::CancelEdit);
 	});
 
-	// Tabbing away from here would normally rely on native tab-traversal
-	// landing on whatever's next/previous in the panel - but the neighbors
-	// on both sides ("Add attachment" before it, "Remove quote" after it)
-	// are hidden rather than removed from the tab order while editing (this
-	// button is only ever visible during an edit), so native traversal tries
-	// to focus a hidden control and silently goes nowhere. Route both
-	// directions explicitly instead of depending on that.
 	let msg_field_shift_tab = parts.conversations_parts.message_field;
 	let send_btn_tab = parts.conversations_parts.send_message_btn;
 	parts.conversations_parts.cancel_edit_btn.on_key_down(move |event| {
@@ -5852,14 +5492,12 @@ pub fn bind_input_handlers(
 		let _ = tx_read_more.send(UiCommand::LoadMoreMessages);
 	});
 
-	// Wire audio slider for seeking (drag/mouse)
 	let tx_slider = ui_tx.clone();
 	parts.conversations_parts.audio_slider.on_slider(move |event| {
 		let val = event.get_value();
 		let _ = tx_slider.send(UiCommand::SeekAudioAbsolute(val));
 	});
 
-	// Wire audio slider keyboard seeking (Left/Right arrow ±5 seconds)
 	let tx_slider_key = ui_tx.clone();
 	parts.conversations_parts.audio_slider.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key) = event {
@@ -5879,9 +5517,6 @@ pub fn bind_input_handlers(
 	});
 }
 
-/// Opens the "My Contacts Except..." picker for one privacy setting, starting
-/// from the list as last picked or as the server has it. The choice is kept
-/// until Settings is saved.
 fn choose_excluded_contacts(
 	state: &std::rc::Rc<std::cell::RefCell<crate::AppState>>,
 	dialog: Dialog,
@@ -5918,9 +5553,6 @@ fn choose_excluded_contacts(
 		} else {
 			match loaded {
 				Some(Ok(list)) => Ok(list.clone()),
-				// With no list in use there's nothing to lose by starting
-				// from an empty one; with one in use, an empty start would
-				// drop everyone on it.
 				Some(Err(_)) if !is_except => Ok(Vec::new()),
 				Some(Err(_)) => Err(format!(
 					"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later.",

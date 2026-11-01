@@ -4,9 +4,6 @@ pub mod phone;
 mod phone_data;
 pub use local_time::{Date, LocalTime};
 
-/// WhatsApp sends `notify="[]"` (and the backend forwards it verbatim as the
-/// sender/quoted-sender name) when a contact has no push name set. Treat that
-/// literal placeholder the same as an empty name rather than rendering it.
 fn is_placeholder_name(name: &str) -> bool {
 	name.is_empty() || name == "[]"
 }
@@ -76,39 +73,24 @@ pub struct ChatMessage {
 	pub media_path: String,
 	#[serde(rename = "mediaSize", alias = "media_size", default)]
 	pub media_size: i64,
-	/// ID of the album header the backend grouped this media under, empty for
-	/// standalone media. Authoritative when present: it comes from WhatsApp's
-	/// own album announcement rather than from guessing at timestamps.
 	#[serde(rename = "albumId", alias = "album_id", default)]
 	pub album_id: String,
-	/// For a poll: each option's share of the votes ("Yes 50%, 1 vote; ..."),
-	/// shown after the question.
 	#[serde(rename = "pollResults", alias = "poll_results", default)]
 	pub poll_results: String,
-	/// For a channel post: its view count and reaction totals ("1,204 views,
-	/// 👍 31, ❤️ 12"). Channels show counts, not who reacted.
 	#[serde(rename = "channelStats", alias = "channel_stats", default)]
 	pub channel_stats: String,
-	/// A pinned channel post.
 	#[serde(rename = "channelPinned", default)]
 	pub channel_pinned: bool,
-	/// Pinned in its chat.
 	#[serde(default)]
 	pub pinned: bool,
-	/// Kept in a chat with disappearing messages, so it won't disappear.
 	#[serde(default)]
 	pub kept: bool,
-	/// Will disappear (so can be kept).
 	#[serde(default)]
 	pub expiring: bool,
-	/// A sticker that's one of our favorites.
 	#[serde(default)]
 	pub sticker_favorite: bool,
 }
 
-/// Renders a byte count the way file managers do: whole numbers under 1000
-/// bytes, one decimal place from KB up. `0` (unknown size, e.g. an older
-/// message synced before the backend recorded it) renders as `None`.
 pub fn format_file_size(bytes: i64) -> Option<String> {
 	if bytes <= 0 {
 		return None;
@@ -123,10 +105,6 @@ pub fn format_file_size(bytes: i64) -> Option<String> {
 	Some(if unit == 0 { format!("{} {}", bytes, UNITS[0]) } else { format!("{:.1} {}", size, UNITS[unit]) })
 }
 
-/// Label shown on a date-divider row: "Today" / "Yesterday" for the two most
-/// recent days, otherwise the full weekday/month/day/year string. Used both to
-/// build the row text and (via `date_key`) to decide whether two messages fall
-/// on the same day, so the same calendar comparison always governs both.
 pub fn format_date_divider_label(local_dt: LocalTime) -> String {
 	let day = local_dt.date();
 	let today = LocalTime::now().date();
@@ -147,10 +125,6 @@ pub fn date_key(local_dt: LocalTime) -> Date {
 	local_dt.date()
 }
 
-/// Converts a raw backend placeholder like `"[Image] caption"` or
-/// `"[Document] file.pdf"` into the bracket-free text used in the chat list
-/// preview (`"Photo: caption"`, `"Document: file.pdf"`, ...). Plain text
-/// passes through unchanged.
 pub fn friendly_preview_text(text: &str) -> String {
 	if text.starts_with("[Voice Message]") {
 		return "Voice message".to_string();
@@ -205,15 +179,10 @@ impl ChatMessage {
 		self.media_type == "document" || self.text.starts_with("[Document]")
 	}
 
-	/// A synthesized group-change line ("Aryan added Rishit", "Rishit left"),
-	/// not a real message - shown as plain text with no sender/time framing.
 	pub fn is_system(&self) -> bool {
 		self.media_type == "system"
 	}
 
-	/// A message that reached us but carried nothing we could show. The content
-	/// isn't recoverable locally - the only way back is asking the phone for
-	/// its copy - so these are the ones worth offering "Request again" on.
 	pub fn is_unreadable(&self) -> bool {
 		!self.from_me && !self.is_date_divider && self.text == "[Unsupported Message]"
 	}
@@ -222,26 +191,20 @@ impl ChatMessage {
 		self.text.starts_with("[Poll]") || self.text.starts_with("[Quiz]")
 	}
 
-	/// An event (not a cancelled one) - `V` answers it.
 	pub fn is_event(&self) -> bool {
 		self.text.starts_with("[Event]")
 	}
 
-	/// A business message with reply buttons or a list menu: the backend
-	/// ends its text with a "Buttons: ..." or "Menu: ..." line, and Enter
-	/// opens them.
 	pub fn has_business_options(&self) -> bool {
 		!self.from_me
 			&& !self.is_deleted
 			&& self.text.lines().any(|line| line.starts_with("Buttons: ") || line.starts_with("Menu: "))
 	}
 
-	/// An order a customer sent a business: Enter shows what's in it.
 	pub fn is_order(&self) -> bool {
 		!self.is_deleted && self.text.starts_with("[Order]")
 	}
 
-	/// A product shared from a business's catalogue: Enter opens the catalogue.
 	pub fn is_product(&self) -> bool {
 		!self.is_deleted && self.text.starts_with("[Product]")
 	}
@@ -266,10 +229,6 @@ impl ChatMessage {
 	/// clock reading, so every call site in one pass agrees on "now" instead
 	/// of each computing it separately.
 	pub fn is_editable(&self, now: i64) -> bool {
-		// Plain text only. Caption edits on media go out in a different wire
-		// shape that hasn't been confirmed against the official apps yet, and
-		// sending an unusual edit is exactly the kind of thing worth not
-		// guessing at.
 		self.from_me
 			&& !self.is_deleted
 			&& !self.is_voice()
@@ -280,31 +239,16 @@ impl ChatMessage {
 			&& (now - self.timestamp) < Self::EDIT_WINDOW_SECS
 	}
 
-	/// How long after sending WhatsApp lets a message be deleted for everyone.
-	/// Unlike `EDIT_WINDOW_SECS`, whatsmeow documents no constant for this at
-	/// all (`BuildRevoke` just builds a REVOKE unconditionally) - 60 hours is
-	/// sourced from WhatsApp's own 2022 announcement of the extended window
-	/// (reported by TechCrunch and corroborated elsewhere), the current
-	/// settled figure as of this writing, not something whatsmeow verifies.
 	pub const DELETE_FOR_EVERYONE_WINDOW_SECS: i64 = 60 * 60 * 60;
 
-	/// Whether "Delete for everyone" is still offered for this message: ours,
-	/// not already deleted, and sent less than
-	/// `DELETE_FOR_EVERYONE_WINDOW_SECS` ago. `now` is the caller's own
-	/// unix-seconds clock reading, matching `is_editable`'s convention.
 	pub fn is_delete_for_everyone_eligible(&self, now: i64) -> bool {
 		self.from_me && !self.is_deleted && (now - self.timestamp) < Self::DELETE_FOR_EVERYONE_WINDOW_SECS
 	}
 
-	/// A synced call-history row (a call placed or received on any of this
-	/// account's devices), rather than a message somebody sent. Enter on one
-	/// calls the chat back, the way Enter on a voice message plays it.
 	pub fn is_call(&self) -> bool {
 		self.media_type == "call"
 	}
 
-	/// Photos and videos only - matches what official WhatsApp's Media tab
-	/// shows (voice messages and documents get their own tabs).
 	pub fn is_photo_or_video(&self) -> bool {
 		!self.is_voice()
 			&& (self.media_type == "image"
@@ -515,23 +459,16 @@ impl ChatMessage {
 			let sep = if question.ends_with(['?', '!', '.']) { " " } else { ". " };
 			format!("{question}{sep}{}", self.poll_results)
 		} else if self.is_event() && !self.poll_results.is_empty() {
-			// The RSVP tally, after the event's details.
 			let details = self.text.trim_end();
 			let sep = if details.ends_with(['?', '!', '.']) { " " } else { ". " };
 			format!("{details}{sep}{}", self.poll_results)
 		} else if self.text.starts_with('[') {
-			// text is the backend's "[Document] file.docx"-style placeholder
-			// (used for the chat-list preview and DB persistence), not a real
-			// caption — translate it the same way the chat list does instead
-			// of showing the bracket tag as if the user had typed it.
 			friendly_preview_text(&self.text)
 		} else {
 			self.text.clone()
 		}
 	}
 
-	/// Who a reply quotes and what it quotes, as ("You" | "@name" | "quoted
-	/// message", spoken body). None when this message is not a reply.
 	pub fn reply_parts(&self) -> Option<(String, String)> {
 		if self.quoted_text.is_empty() && self.quoted_id.is_empty() {
 			return None;
@@ -689,7 +626,6 @@ impl ChatMessage {
 			format!("{}, {}", reactions_suffix, self.channel_stats)
 		};
 
-		// "hi?," is read with the question mark swallowed by the comma; a space keeps it audible.
 		let sep = if format!("{}{}", body, reply_suffix).ends_with(['?', '!']) { " ," } else { "," };
 
 		if self.from_me {
@@ -737,17 +673,11 @@ impl ChatMessage {
 	}
 }
 
-/// Test helper: wraps plain messages as the shared `Msg`s the list code takes.
 #[cfg(test)]
 fn rc(msgs: &[ChatMessage]) -> Vec<Msg> {
 	msgs.iter().cloned().map(Msg::new).collect()
 }
 
-/// A loaded message, shared between the open chat's message list and the
-/// display items grouped from it rather than copied into both: a whole chat
-/// can be tens of thousands of messages, and the second copy was tens of MB.
-/// Code that changes a loaded message goes through
-/// `message_display::update_loaded_messages`, which keeps it shared.
 pub type Msg = std::rc::Rc<ChatMessage>;
 
 #[derive(Clone, Debug)]
@@ -768,7 +698,6 @@ impl DisplayItem {
 		matches!(self, DisplayItem::Album { .. })
 	}
 
-	/// The messages this row shows - shared, not copied.
 	pub fn messages(&self) -> &[Msg] {
 		match self {
 			DisplayItem::Single(msg) => std::slice::from_ref(msg),
@@ -805,8 +734,6 @@ impl DisplayItem {
 		}
 	}
 
-	/// Just this item's own content, with no sender/time/status wrapper — see
-	/// `ChatMessage::body_text`.
 	pub fn body_text(&self) -> String {
 		match self {
 			DisplayItem::Single(msg) => msg.body_text(),
@@ -895,17 +822,6 @@ impl DisplayItem {
 	}
 }
 
-/// Changes every message in `messages` that `pick` selects, each one exactly
-/// once, and returns the rows of `display` holding a changed message, in
-/// order. `display` and `other` are lists grouped from `messages` (the shown
-/// rows, and the selection-mode rows).
-///
-/// A message is one `Rc` shared by all three lists. `Rc::make_mut` on a
-/// shared one copies the whole message and leaves the other lists on the
-/// stale original, so changing it through each list in turn used to leave two
-/// or three copies of every edited, receipted or reacted-to message behind.
-/// Here the other lists let go of it first, it changes in place, and they all
-/// get it back.
 pub fn update_shared_messages(
 	messages: &mut [Msg],
 	display: &mut [DisplayItem],
@@ -919,7 +835,6 @@ pub fn update_shared_messages(
 	if hits.is_empty() {
 		return Vec::new();
 	}
-	// Keyed by the message's address, which is what every list shares.
 	let mut changed: HashMap<*const ChatMessage, Option<Msg>> =
 		hits.iter().map(|&i| (Rc::as_ptr(&messages[i]), None)).collect();
 	let placeholder = Msg::default();
@@ -1016,12 +931,6 @@ mod update_shared_messages_tests {
 	}
 }
 
-/// Whether `msg` belongs to the same album as the media in `prev`. The backend
-/// stamps media that arrived under one WhatsApp album header with a shared
-/// `album_id`, and when that's present it decides on its own - it is what the
-/// sender actually grouped, rather than an inference. Media stored before that
-/// existed, or synced from history, carries no stamp, so it falls back to the
-/// original "same sender, within ten seconds of each other" guess.
 pub fn same_album(prev: &ChatMessage, msg: &ChatMessage) -> bool {
 	if prev.from_me != msg.from_me || prev.sender_jid != msg.sender_jid {
 		return false;
@@ -1032,11 +941,6 @@ pub fn same_album(prev: &ChatMessage, msg: &ChatMessage) -> bool {
 	(msg.timestamp - prev.timestamp).abs() <= 10
 }
 
-/// Which attach-menu option a batch of files came from. Like WhatsApp's,
-/// each one sends differently: Document sends any file as a document (a photo
-/// too, at full quality), Photos & videos sends media, Audio sends playable
-/// audio files. Files pasted from the clipboard didn't come from the menu, so
-/// they're sorted by type.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AttachKind {
 	#[default]
@@ -1046,13 +950,8 @@ pub enum AttachKind {
 	Audio,
 }
 
-/// What WhatsApp Web sends as photos (its image check takes JPEG, PNG, WebP
-/// and GIF; a BMP isn't one, so it goes as a document).
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp"];
-/// What WhatsApp Web's Photos & videos picker takes without transcoding.
 const VIDEO_EXTS: &[&str] = &["mp4", "3gp", "mov"];
-/// WhatsApp Web's Audio picker (WAWebMimeTypes.AUDIO_MIMES), plus the other
-/// audio types it sends as audio messages (m4a, opus, amr).
 const AUDIO_EXTS: &[&str] = &["mp3", "wav", "ogg", "opus", "aac", "m4a", "amr"];
 
 fn ext_of(path: &str) -> String {
@@ -1060,7 +959,6 @@ fn ext_of(path: &str) -> String {
 }
 
 impl AttachKind {
-	/// The file-dialog filter for this option.
 	pub fn file_filter(self) -> String {
 		let pattern = |exts: &[&str]| exts.iter().map(|e| format!("*.{e}")).collect::<Vec<_>>().join(";");
 		match self {
@@ -1073,7 +971,6 @@ impl AttachKind {
 		}
 	}
 
-	/// The backend's message type for one file sent this way.
 	pub fn send_type(self, path: &str) -> &'static str {
 		let ext = ext_of(path);
 		let is = |exts: &[&str]| exts.contains(&ext.as_str());
@@ -1082,25 +979,19 @@ impl AttachKind {
 			AttachKind::Audio => "audio",
 			AttachKind::Media | AttachKind::Pasted if is(IMAGE_EXTS) => "image",
 			AttachKind::Media | AttachKind::Pasted if is(VIDEO_EXTS) => "video",
-			// A pasted file of another kind goes as a document, as before;
-			// the Media picker's filter keeps anything else out.
 			AttachKind::Media | AttachKind::Pasted => "document",
 		}
 	}
 
-	/// Audio messages carry no caption in WhatsApp.
 	pub fn has_caption(self) -> bool {
 		self != AttachKind::Audio
 	}
 }
 
-/// WhatsApp Web's poll limits (WAWebPollsGatingUtils defaults).
 pub const POLL_MAX_QUESTION_CHARS: usize = 255;
 pub const POLL_MAX_OPTION_CHARS: usize = 100;
 pub const POLL_MAX_OPTIONS: usize = 12;
 
-/// Checks a poll the way WhatsApp's composer does and returns its options
-/// (one per non-blank line, trimmed), or what's wrong with it.
 pub fn validate_poll(question: &str, options_text: &str) -> Result<Vec<String>, &'static str> {
 	let question = question.trim();
 	if question.is_empty() {
@@ -1128,12 +1019,6 @@ pub fn validate_poll(question: &str, options_text: &str) -> Result<Vec<String>, 
 	Ok(options)
 }
 
-/// The voice message to play automatically once `current_id` finishes, if
-/// any - WhatsApp's sequential playback (WAWebPttFindSequentialMsg): only the
-/// message straight after it counts, and only if that is itself a voice note
-/// (not an audio file). Anything else in between - text, a photo, a call row -
-/// ends the run. Date and unread dividers are ours, not messages, so they're
-/// looked past.
 pub fn next_sequential_voice<'a>(messages: &'a [Msg], current_id: &str) -> Option<&'a ChatMessage> {
 	let pos = messages.iter().position(|m| m.id == current_id)?;
 	let next: &ChatMessage = messages[pos + 1..].iter().find(|m| !m.is_date_divider && !m.is_unread_divider)?;
@@ -1145,10 +1030,6 @@ pub fn group_messages_into_display_items(messages: &[Msg]) -> Vec<DisplayItem> {
 	let mut items = Vec::with_capacity(messages.len());
 	let mut current_album: Vec<Msg> = Vec::new();
 
-	// Turns the album accumulated so far into an item and hands the buffer back
-	// empty. Takes ownership of the run rather than cloning it: the old code
-	// cloned `current_album` into the Album and then immediately overwrote or
-	// cleared it, so every album's messages were allocated twice.
 	fn flush(current_album: &mut Vec<Msg>, items: &mut Vec<DisplayItem>) {
 		match current_album.len() {
 			0 => {}
@@ -1179,8 +1060,6 @@ pub fn group_messages_into_display_items(messages: &[Msg]) -> Vec<DisplayItem> {
 				|| msg.text.starts_with("[Video]"));
 
 		if is_media {
-			// A media run continues only while consecutive media belong to the
-			// same album; anything else closes the run before starting a new one.
 			if current_album.last().is_some_and(|prev| same_album(prev, msg)) {
 				current_album.push(msg.clone());
 			} else {
@@ -1197,10 +1076,6 @@ pub fn group_messages_into_display_items(messages: &[Msg]) -> Vec<DisplayItem> {
 	items
 }
 
-/// The smallest change that turns the displayed rows `old` into `new` after an
-/// older page was prepended: drop `remove_leading` rows from the top, then
-/// insert `new[..insert]` there. The row `old[remove_leading]` ends up at
-/// index `insert`.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PrependPlan {
 	pub remove_leading: usize,
@@ -1211,17 +1086,7 @@ fn is_date_divider_item(item: &DisplayItem) -> bool {
 	matches!(item, DisplayItem::Single(m) if m.is_date_divider)
 }
 
-/// Works out a [`PrependPlan`], or `None` when `new` isn't just `old` with older
-/// rows added on top (an album spanning the seam regrouped, say) and the list
-/// has to be rebuilt.
-///
-/// The seam is the reason this can't just compare tails: `old` always starts
-/// with the date divider for its oldest day, and when the older page ends on
-/// that same day, `rebuild_date_dividers` moves the divider up above the new
-/// page's messages. Matching whole tails failed on that for almost every page,
-/// so each one cleared and re-added every row loaded so far.
 pub fn prepend_plan(old: &[DisplayItem], new: &[DisplayItem]) -> Option<PrependPlan> {
-	// Only date dividers may sit above the first real row being kept.
 	let old_first_real = old.iter().position(|d| !is_date_divider_item(d))?;
 	if old[..old_first_real].iter().any(|d| !is_date_divider_item(d)) {
 		return None;
@@ -1236,8 +1101,6 @@ pub fn prepend_plan(old: &[DisplayItem], new: &[DisplayItem]) -> Option<PrependP
 	if !tail_matches {
 		return None;
 	}
-	// The divider right above the anchor is the same day's either way - keep
-	// the one already on screen rather than removing and re-adding it.
 	let plan = if old_first_real > 0 && k > 0 && is_date_divider_item(&new[k - 1]) {
 		PrependPlan { remove_leading: old_first_real - 1, insert: k - 1 }
 	} else {
@@ -1304,10 +1167,6 @@ pub fn oldest_message_cursor<M: std::ops::Deref<Target = ChatMessage>>(messages:
 		.map(|m| (m.timestamp, m.id.clone()))
 }
 
-/// The newest real message loaded, as the `(after_timestamp, after_id)` cursor
-/// the next newer page is requested from - the mirror of
-/// [`oldest_message_cursor`] for a window that stops short of the latest
-/// message.
 pub fn newest_message_cursor<M: std::ops::Deref<Target = ChatMessage>>(messages: &[M]) -> Option<(i64, String)> {
 	messages
 		.iter()
@@ -1320,16 +1179,12 @@ pub fn real_message_count<M: std::ops::Deref<Target = ChatMessage>>(messages: &[
 	messages.iter().filter(|m| !m.is_date_divider && !m.is_unread_divider).count()
 }
 
-/// Keeps `keep` real messages of `messages` (the first ones with `keep_start`,
-/// else the last), dropping the rest and the dividers among them, and rebuilds
-/// the date dividers. Returns what's left and how many real messages went.
 pub fn trim_real_messages(mut messages: Vec<Msg>, keep: usize, keep_start: bool) -> (Vec<Msg>, usize) {
 	let real = real_message_count(&messages);
 	if real <= keep {
 		return (messages, 0);
 	}
 	let dropped = real - keep;
-	// The position of the real message numbered `n` (from 1), or the end.
 	let nth_real = |messages: &[Msg], n: usize| {
 		let mut seen = 0;
 		messages
@@ -1352,10 +1207,6 @@ pub fn trim_real_messages(mut messages: Vec<Msg>, keep: usize, keep_start: bool)
 	(rebuild_date_dividers(messages), dropped)
 }
 
-/// Inserts an "N unread messages" divider before the last `count` non-divider
-/// (real) messages in `messages`, e.g. to mark where messages that arrived
-/// while the chat was open but unread pick up. No-op if `count` is 0 or
-/// exceeds the number of real messages present.
 pub fn insert_unread_divider(messages: &mut Vec<Msg>, count: u64) {
 	let n = count as usize;
 	if n == 0 {
@@ -1384,17 +1235,12 @@ pub fn insert_unread_divider(messages: &mut Vec<Msg>, count: u64) {
 	messages.insert(insert_at, Msg::new(ChatMessage { text: label, is_unread_divider: true, ..Default::default() }));
 }
 
-/// How much noise an archived chat may make when a message arrives in it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArchivedAlert {
-	/// No sound and nothing on screen - what archiving means by default here,
-	/// matching WhatsApp's own "keep chats archived" behaviour.
 	#[default]
 	Silent,
-	/// The usual message sound, but no notification.
 	SoundOnly,
-	/// Alerts exactly like an unarchived chat.
 	Full,
 }
 
@@ -1404,32 +1250,21 @@ pub enum ArchivedAlert {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatAlert {
-	/// As the app's settings (and, for an archived chat, its archived alert
-	/// level) say.
 	#[default]
 	Default,
-	/// A notification and the sound.
 	Full,
-	/// A notification without the sound.
 	NoSound,
-	/// The sound without a notification.
 	SoundOnly,
-	/// Nothing: muted on this computer only.
 	Off,
 }
 
-/// A chat's notification choices on this computer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ChatNotify {
 	pub alert: ChatAlert,
-	/// Notifications leave out what the message says, as with "Show previews"
-	/// off, for this chat alone.
 	pub hide_content: bool,
 }
 
-/// `alert` (from [`incoming_alert`]) with the chat's own choice on this
-/// computer applied. WhatsApp's mute still wins: a muted chat stays silent.
 pub fn with_chat_alert(alert: IncomingAlert, muted: bool, chat: ChatAlert) -> IncomingAlert {
 	if muted {
 		return IncomingAlert { sound: false, toast: false };
@@ -1443,21 +1278,12 @@ pub fn with_chat_alert(alert: IncomingAlert, muted: bool, chat: ChatAlert) -> In
 	}
 }
 
-/// What an incoming message is allowed to do about itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IncomingAlert {
 	pub sound: bool,
 	pub toast: bool,
 }
 
-/// Decides whether a new message may play the background sound and raise a
-/// toast. Muting silences a chat outright, archived or not. An unmuted archived
-/// chat falls to its own per-chat level, which defaults to silent: archiving is
-/// how you say "stop bothering me about this", so an archived chat alerting like
-/// any other is the surprising behaviour, not the quiet one.
-///
-/// The global `sounds_enabled`/`notifications_enabled` settings still apply on
-/// top of this - it answers "is this chat allowed to", not "is the app".
 pub fn incoming_alert(muted: bool, archived: bool, level: ArchivedAlert) -> IncomingAlert {
 	if muted {
 		return IncomingAlert { sound: false, toast: false };
@@ -1521,12 +1347,6 @@ pub fn unread_notification_total(
 		.sum()
 }
 
-/// How many chats have something unread, however many messages each holds,
-/// among the chats `shown` accepts. Feeds the count on the Chats entry of the
-/// navigation list, where `shown` is the Chats tab's own visibility rule, so the
-/// number matches the Unread filter. Unlike [`unread_notification_total`] this
-/// counts muted chats too: it answers "how many chats am I behind on", not
-/// "what will make a sound".
 pub fn unread_chat_count<'a>(
 	chats: impl IntoIterator<Item = &'a String>,
 	unread_counts: &std::collections::HashMap<String, u64>,
@@ -1564,25 +1384,12 @@ pub fn tray_tooltip_text(unread: u64) -> String {
 	}
 }
 
-/// How old a message has to be on arrival to count as part of a backlog rather
-/// than as live traffic. A live message lands within a second or two of being
-/// sent; anything this stale was queued on the server while whatSnap was closed or
-/// offline and is now being replayed in a burst.
 pub const BACKLOG_MESSAGE_AGE_SECS: i64 = 60;
 
-/// Whether a message stamped `timestamp` (Unix seconds) and arriving at `now`
-/// is being replayed from a backlog. A missing timestamp (0) reads as live:
-/// alerting once too often beats swallowing a real message.
 pub fn is_backlog_message(timestamp: i64, now: i64) -> bool {
 	timestamp > 0 && now - timestamp > BACKLOG_MESSAGE_AGE_SECS
 }
 
-/// What piled up while whatSnap was away, tallied as the backlog is replayed so
-/// it can be answered with one sound and one notification once the replay goes
-/// quiet, instead of one of each per message.
-///
-/// Only things that would have alerted on their own are recorded - a muted
-/// chat adds nothing here, same as it adds nothing live.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CatchUpAlerts {
 	messages: u32,
@@ -1593,7 +1400,6 @@ pub struct CatchUpAlerts {
 }
 
 impl CatchUpAlerts {
-	/// Adds one replayed message from `jid`, which was allowed the given alert.
 	pub fn record_message(&mut self, jid: &str, alert: IncomingAlert) {
 		if !alert.sound && !alert.toast {
 			return;
@@ -1602,7 +1408,6 @@ impl CatchUpAlerts {
 		self.note(jid, alert);
 	}
 
-	/// Adds one replayed missed call from `jid`, which was allowed the given alert.
 	pub fn record_missed_call(&mut self, jid: &str, alert: IncomingAlert) {
 		if !alert.sound && !alert.toast {
 			return;
@@ -1621,18 +1426,14 @@ impl CatchUpAlerts {
 		self.messages == 0 && self.missed_calls == 0
 	}
 
-	/// Whether anything recorded was allowed to make a sound.
 	pub fn sound(&self) -> bool {
 		self.sound
 	}
 
-	/// Whether anything recorded was allowed to raise a notification.
 	pub fn toast(&self) -> bool {
 		self.toast
 	}
 
-	/// One line for the single notification, e.g.
-	/// "12 new messages in 3 chats and 2 missed calls".
 	pub fn summary(&self) -> String {
 		let mut segments = Vec::new();
 		if self.messages > 0 {
@@ -1640,8 +1441,6 @@ impl CatchUpAlerts {
 				1 => "1 new message".to_string(),
 				n => format!("{} new messages", n),
 			};
-			// With calls in the tally the chat count covers both, so it would
-			// misdescribe the messages alone.
 			if self.missed_calls == 0 && self.chats.len() > 1 {
 				segments.push(format!("{} in {} chats", messages, self.chats.len()));
 			} else {
@@ -1807,9 +1606,6 @@ mod tests {
 		assert_eq!(msg.status, "read");
 	}
 
-	/// Covers the field mapping itself - the camelCase renames and the
-	/// snake_case aliases the backend may send either of - independently of
-	/// which deserializer the caller happens to use.
 	#[test]
 	fn test_chat_message_field_aliases_and_renames() {
 		use serde::Deserialize;
@@ -1832,11 +1628,9 @@ mod tests {
 		assert_eq!(parsed[0].sent_at, 17);
 		assert_eq!(parsed[0].reactions.len(), 1);
 		assert_eq!(parsed[0].reactions[0].emoji, "x");
-		// Fields absent from the payload fall back to Default, not an error.
 		assert_eq!(parsed[0].quoted_id, "");
 		assert_eq!(parsed[0].read_at, 0);
 
-		// snake_case aliases resolve the same way.
 		assert_eq!(parsed[1].id, "m2");
 		assert!(!parsed[1].from_me);
 		assert_eq!(parsed[1].sender_jid, "b@s.whatsapp.net");
@@ -1856,8 +1650,6 @@ mod tests {
 		let no_levels = std::collections::HashMap::new();
 		assert_eq!(unread_notification_total(&counts, &muted, &none, &no_levels), 8);
 
-		// Every chat muted, and the read chats a chats broadcast leaves sitting
-		// at zero, both come out as "nothing waiting" rather than a stray count.
 		muted.insert("a@s.whatsapp.net".to_string());
 		muted.insert("b@s.whatsapp.net".to_string());
 		assert_eq!(unread_notification_total(&counts, &muted, &none, &no_levels), 0);
@@ -1878,11 +1670,8 @@ mod tests {
 		let archived: std::collections::HashSet<String> = counts.keys().cloned().collect();
 		let muted = std::collections::HashSet::new();
 
-		// Archived defaults to silent, so an archived chat with no stored level
-		// contributes nothing at all.
 		assert_eq!(unread_notification_total(&counts, &muted, &archived, &std::collections::HashMap::new()), 0);
 
-		// Sound-only still alerts, so it still counts; only Silent drops out.
 		let levels: std::collections::HashMap<String, ArchivedAlert> = [
 			("sound@s.whatsapp.net".to_string(), ArchivedAlert::SoundOnly),
 			("full@s.whatsapp.net".to_string(), ArchivedAlert::Full),
@@ -1891,7 +1680,6 @@ mod tests {
 		.collect();
 		assert_eq!(unread_notification_total(&counts, &muted, &archived, &levels), 7);
 
-		// Muting beats a per-chat level that would otherwise have alerted.
 		let muted_full: std::collections::HashSet<String> = ["full@s.whatsapp.net".to_string()].into_iter().collect();
 		assert_eq!(unread_notification_total(&counts, &muted_full, &archived, &levels), 3);
 	}
@@ -1939,11 +1727,9 @@ mod tests {
 
 	#[test]
 	fn test_incoming_alert() {
-		// Unarchived chats are unaffected by the archived level entirely.
 		for level in [ArchivedAlert::Silent, ArchivedAlert::SoundOnly, ArchivedAlert::Full] {
 			assert_eq!(incoming_alert(false, false, level), IncomingAlert { sound: true, toast: true });
 		}
-		// Muting wins over every archived level, including Full.
 		for level in [ArchivedAlert::Silent, ArchivedAlert::SoundOnly, ArchivedAlert::Full] {
 			assert_eq!(incoming_alert(true, true, level), IncomingAlert { sound: false, toast: false });
 			assert_eq!(incoming_alert(true, false, level), IncomingAlert { sound: false, toast: false });
@@ -1955,8 +1741,6 @@ mod tests {
 
 	#[test]
 	fn test_archived_alert_serde_roundtrip() {
-		// settings.json holds these by name - renaming a variant would silently
-		// reset every archived chat to the default on next load.
 		assert_eq!(serde_json::to_string(&ArchivedAlert::Silent).unwrap(), "\"silent\"");
 		assert_eq!(serde_json::to_string(&ArchivedAlert::SoundOnly).unwrap(), "\"sound_only\"");
 		assert_eq!(serde_json::to_string(&ArchivedAlert::Full).unwrap(), "\"full\"");
@@ -1969,7 +1753,6 @@ mod tests {
 		assert!(!is_backlog_message(1_000, 1_000));
 		assert!(!is_backlog_message(1_000, 1_000 + BACKLOG_MESSAGE_AGE_SECS));
 		assert!(is_backlog_message(1_000, 1_001 + BACKLOG_MESSAGE_AGE_SECS));
-		// A clock running behind the sender's, or no timestamp at all, is live.
 		assert!(!is_backlog_message(2_000, 1_000));
 		assert!(!is_backlog_message(0, 1_000_000));
 	}
@@ -2009,8 +1792,6 @@ mod tests {
 		assert_eq!(tray_tooltip_text(0), "No unread messages");
 		assert_eq!(tray_tooltip_text(1), "1 unread message");
 		assert_eq!(tray_tooltip_text(12), "12 unread messages");
-		// TRAY_APP_NAME is announced ahead of this string, so repeating the name
-		// here is what made the icon stutter it.
 		for n in [0, 1, 12] {
 			assert!(!tray_tooltip_text(n).contains(TRAY_APP_NAME));
 		}
@@ -2021,7 +1802,6 @@ mod tests {
 		let chats: Vec<String> = ["a", "b", "c", "d", "e"].iter().map(|j| j.to_string()).collect();
 		let counts: std::collections::HashMap<String, u64> =
 			[("a", 3), ("b", 1), ("c", 0), ("d", 40), ("e", 2)].into_iter().map(|(j, n)| (j.to_string(), n)).collect();
-		// "e" is unread but hidden from the Chats tab, so it's left out.
 		assert_eq!(unread_chat_count(&chats, &counts, |j| j != "e"), 3);
 		assert_eq!(unread_chat_count(&chats, &counts, |_| true), 4);
 		assert_eq!(unread_chat_count(&chats, &std::collections::HashMap::new(), |_| true), 0);
@@ -2086,7 +1866,6 @@ mod tests {
 		];
 		let items = group_messages_into_display_items(&rc(&msgs));
 		assert_eq!(ids(&items), vec![vec!["a", "b", "c"]]);
-		// The album's identity comes from its first message.
 		match &items[0] {
 			DisplayItem::Album { id, sender_jid, timestamp, .. } => {
 				assert_eq!(id, "a");
@@ -2115,7 +1894,6 @@ mod tests {
 
 	#[test]
 	fn grouping_falls_back_to_the_ten_second_window_without_album_ids() {
-		// No album_id on either side: same sender within 10s groups, beyond it splits.
 		let msgs = vec![
 			media("a", "", "x@s.whatsapp.net", 100),
 			media("b", "", "x@s.whatsapp.net", 105),
@@ -2254,8 +2032,6 @@ mod sequential_voice_tests {
 mod call_row_tests {
 	use super::ChatMessage;
 
-	/// A call-history row is recognised by its media_type alone, so Enter on it
-	/// calls back instead of falling through to the list's default.
 	#[test]
 	fn call_rows_are_recognised_and_nothing_else_is() {
 		let call = ChatMessage { media_type: "call".to_string(), ..Default::default() };
@@ -2268,7 +2044,6 @@ mod call_row_tests {
 		}
 	}
 
-	/// The backend sends media_type; the alias keeps the camelCase form working.
 	#[test]
 	fn call_rows_parse_from_either_spelling() {
 		let bodies = [
@@ -2308,7 +2083,6 @@ mod prepend_plan_tests {
 
 	#[test]
 	fn older_page_ending_on_the_same_day_moves_the_divider_up() {
-		// The case the old whole-tail comparison missed on nearly every page.
 		let old = vec![day("Tue"), msg("c"), msg("d")];
 		let new = vec![day("Mon"), msg("a"), day("Tue"), msg("b"), msg("c"), msg("d")];
 		assert_eq!(prepend_plan(&old, &new), Some(PrependPlan { remove_leading: 1, insert: 4 }));
@@ -2342,11 +2116,6 @@ mod prepend_plan_tests {
 	}
 }
 
-/// Orders the Communities tab the way the official apps lay it out: each
-/// community, followed by the groups in it that we're in, its announcements
-/// group first. `chats` is the chat list in its usual order, which the
-/// communities and the groups under each keep. Groups whose community isn't
-/// in the list are left out.
 pub fn community_tab_order<'a>(
 	chats: &'a [String],
 	communities: &std::collections::HashSet<String>,
@@ -2450,26 +2219,14 @@ mod community_group_label_tests {
 	}
 }
 
-/// A WhatsApp link we can act on: the whatsapp:// links that "Share on
-/// WhatsApp" buttons and wa.me pages open, and group invite links.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WhatsAppLink {
-	/// Send a message. With a phone number, the chat with that number opens
-	/// with the text ready to send; without one, the user picks who to send
-	/// it to.
 	Send { phone: Option<String>, text: String },
-	/// Join a group from its invite code.
 	Invite { code: String },
-	/// Look at (and maybe follow) a channel from its invite code.
 	Channel { code: String },
-	/// Join a call from its call link: call.whatsapp.com/voice/<token>, or
-	/// /audio/ as whatsapp-rust and meowcaller write it.
 	Call { token: String, video: bool },
 }
 
-/// Understands whatsapp://send, whatsapp://chat?code=, wa.me/<number>,
-/// api.whatsapp.com/send, web.whatsapp.com/send, chat.whatsapp.com/<code>
-/// and call.whatsapp.com/<voice|video>/<token> links. Returns None for anything else.
 pub fn parse_whatsapp_link(link: &str) -> Option<WhatsAppLink> {
 	let link = link.trim().trim_matches('"');
 	let (scheme, rest) = link.split_once("://")?;
@@ -2525,7 +2282,6 @@ pub fn parse_whatsapp_link(link: &str) -> Option<WhatsAppLink> {
 	}
 }
 
-/// Decodes a URL query value: %XX escapes (as UTF-8) and + for a space.
 fn percent_decode_query(value: &str) -> String {
 	let bytes = value.as_bytes();
 	let mut out = Vec::with_capacity(bytes.len());

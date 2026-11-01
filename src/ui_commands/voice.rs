@@ -1,6 +1,3 @@
-//! `handle_ui_command` arms for voice-message recording and playback (record/pause/
-//! stop/send/discard, `VoiceRecordingReady`, playback seek/speed).
-
 use std::{cell::RefCell, rc::Rc, thread};
 
 use wxdragon::prelude::*;
@@ -14,16 +11,8 @@ use crate::{
 	ui::window::WindowParts,
 };
 
-/// Reacts to a live "default audio device changed" notification (see
-/// `audio/device_watch.rs`). Forces the cached playback stream to reopen on
-/// its now-current device, reattaching any actively-playing voice message at
-/// its same position/pause state so the switch is inaudible-gap-free rather
-/// than silent until the next play, and nudges an active call's audio to do
-/// the same on its own capture/render threads.
 pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
-	// Bypasses ensure_audio_stream's name-match/TTL shortcuts: this
-	// notification is itself the authoritative "something changed" signal.
 	s.audio_stream_opened_at = None;
 
 	if s.playing_msg_id.is_some() {
@@ -104,9 +93,6 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	let mut s = state.borrow_mut();
 	if s.is_voice_recording && !s.voice_recording_opening {
 		if s.is_voice_paused {
-			// Resume by starting a brand new segment rather than a
-			// pause/resume on the same capture session - segments are
-			// spliced together on send.
 			let temp_dir = std::env::temp_dir();
 			let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
 			let seg_idx = s.voice_recording_segments.len();
@@ -137,8 +123,6 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				},
 			);
 		} else {
-			// Pause by closing off the current segment as a
-			// complete, valid WAV file.
 			if let Some(path) = s.voice_recording_path.take() {
 				if let Some(session) = s.voice_recording_session.take() {
 					session.finish();
@@ -175,9 +159,6 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 
 	let mut s = state.borrow_mut();
 	if pending.generation != s.voice_recording_generation {
-		// Stale: the recording was discarded/sent (or another open
-		// was kicked off) before this device-open finished. Clean up
-		// quietly instead of resurrecting recording state.
 		drop(s);
 		if let Ok(session) = pending.result {
 			session.finish();
@@ -240,7 +221,6 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				parts.conversations_parts.record_voice_btn.show(false);
 				parts.conversations_parts.discard_voice_btn.show(true);
 				parts.conversations_parts.pause_resume_btn.show(true);
-				// View once isn't offered in a channel.
 				let in_channel = s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@newsletter"));
 				parts.conversations_parts.view_once_voice_check.set_value(false);
 				parts.conversations_parts.view_once_voice_check.show(!in_channel);
@@ -281,12 +261,8 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		let mut s = state.borrow_mut();
 		s.is_voice_recording = false;
 		crate::ui::conversations::set_recording_clock(None);
-		// Invalidate a resume's device-open still in flight, if any -
-		// see the matching comment in DiscardRecording.
 		s.voice_recording_generation += 1;
 		s.voice_recording_opening = false;
-		// If still actively recording (not paused), close off the
-		// final segment as a complete, valid WAV file.
 		if let Some(path) = s.voice_recording_path.take() {
 			if let Some(session) = s.voice_recording_session.take() {
 				session.finish();
@@ -327,18 +303,12 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		let active_secs = total_elapsed.saturating_sub(total_paused).as_secs().max(1);
 
 		thread::spawn(move || {
-			// Splice pause/resume segments into one continuous
-			// WAV before encoding (a single-segment recording,
-			// the common case, needs no splicing).
 			let is_multi_segment = segments.len() > 1;
 			let wav_path = if !is_multi_segment {
 				segments[0].clone()
 			} else {
 				let merged_path = segments[0].replace(".wav", "_merged.wav");
 				let result = concat_wav_segments(&segments, &merged_path);
-				// The originals are fully absorbed into
-				// `merged_path` now (or, on failure, no longer
-				// useful) - clean them up either way.
 				for seg in &segments {
 					let _ = std::fs::remove_file(seg);
 				}
@@ -359,10 +329,6 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 			let ogg_path = wav_path.replace(".wav", ".ogg");
 			let (final_path, mimetype) = match convert_wav_to_opus_ogg(&wav_path, &ogg_path) {
 				Ok(_) => {
-					// The WAV is only an intermediate once converted -
-					// keeping the single-segment one left a full
-					// uncompressed copy of every voice note in %TEMP%.
-					// (The backend moves the .ogg into its own cache.)
 					let _ = std::fs::remove_file(&wav_path);
 					(ogg_path, "audio/ogg; codecs=opus")
 				}
@@ -419,15 +385,8 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		s.is_voice_recording = false;
 		crate::ui::conversations::set_recording_clock(None);
 		s.is_voice_paused = false;
-		// Invalidate any device-open still in flight (a resume, or the
-		// initial start) - its result will arrive later via
-		// VoiceRecordingReady and be cleaned up there instead of
-		// resurrecting the recording state we're tearing down here.
 		s.voice_recording_generation += 1;
 		s.voice_recording_opening = false;
-		// The in-progress segment's capture session (if any) is still
-		// writing to disk - stop it, then clean up its file along with
-		// any earlier segments from prior pause cycles.
 		if let Some(session) = s.voice_recording_session.take() {
 			session.finish();
 		}
@@ -541,14 +500,8 @@ pub(crate) fn toggle_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	s.settings.save();
 	parts.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", new_speed));
 
-	// Trigger soft-seek to apply new wsola speed
 	if s.playing_msg_id.is_some() && s.audio_sink.is_some() {
 		let was_paused = s.is_audio_paused;
-		// Use the *old* speed: the wall-clock time elapsed since the
-		// last seek/start was played back at the previous speed, not
-		// the one we're switching to. Using the new speed here made
-		// every speed change jump the position, i.e. "plays from a
-		// bit before" where it actually was.
 		let elapsed =
 			s.audio_elapsed_secs + s.audio_start_instant.map(|i| i.elapsed().as_secs_f32() * old_speed).unwrap_or(0.0);
 		let target = elapsed.max(0.0).min(s.audio_total_secs);
@@ -575,8 +528,6 @@ pub(crate) fn toggle_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 }
 
-/// Hands the recording bar's clock where the recording is (see
-/// `ui::conversations::set_recording_clock`).
 fn sync_recording_clock(s: &AppState) {
 	let clock = s.voice_recording_start.filter(|_| s.is_voice_recording).map(|start| {
 		crate::ui::conversations::RecordingClock {

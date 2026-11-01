@@ -1,15 +1,3 @@
-//! Whether Windows is currently holding notifications back (Do Not Disturb /
-//! Focus Assist, a full-screen game, presentation mode), so the background
-//! message sound can do the same. Toasts need nothing from here: they are real
-//! Windows notifications, and the shell already queues them silently in those
-//! states. The sound is ours, played outside the toast pipeline, so without
-//! this it would go on chiming through Do Not Disturb.
-//!
-//! Both probes fail open. A missed reading costs one sound the user didn't
-//! want; a false one silences whatSnap for a reason nothing on screen explains,
-//! which for someone listening rather than looking means not knowing messages
-//! are arriving at all.
-
 use std::{
 	sync::Mutex,
 	time::{Duration, Instant},
@@ -64,14 +52,10 @@ fn query_notification_state() -> Option<i32> {
 	unsafe { SHQueryUserNotificationState() }.ok().map(|state| state.0)
 }
 
-/// Whether the background message sound should stay quiet right now: the
-/// setting is on and Windows is holding its own notifications back.
 pub fn should_silence(settings: &crate::settings::Settings) -> bool {
 	settings.follow_windows_do_not_disturb && windows_is_quieting()
 }
 
-/// True while Windows is keeping its own notifications quiet. Memoized for
-/// [`CACHE_TTL`].
 fn windows_is_quieting() -> bool {
 	let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
 	if let Some((at, answer)) = *cache

@@ -18,8 +18,6 @@ import (
 // person carrying every address they're blocked under (whatsapp-rust hit the
 // same mismatch: a phone-number lookup never matched a LID-keyed block).
 
-// jidTwin returns the same person's other address (their LID for a phone
-// JID, or the reverse), or an empty JID when it isn't known.
 type jidTwin func(types.JID) types.JID
 
 func storeTwin(jid types.JID) types.JID {
@@ -40,15 +38,11 @@ func storeTwin(jid types.JID) types.JID {
 	return types.EmptyJID
 }
 
-// blockedRow is one item of the server's list: the address blocked, and the
-// phone JID the server gave with it (empty if it gave none).
 type blockedRow struct {
 	JID types.JID
 	PN  types.JID
 }
 
-// person is the address a blocked row is shown and matched under: the phone
-// JID whenever one is known.
 func (r blockedRow) person(twin jidTwin) types.JID {
 	if !r.PN.IsEmpty() {
 		return r.PN.ToNonAD()
@@ -62,16 +56,12 @@ func (r blockedRow) person(twin jidTwin) types.JID {
 }
 
 type blockedEntry struct {
-	// JID is the address chats use: the phone JID when it's known.
-	JID string `json:"jid"`
-	// Alts are the other addresses they're blocked under.
+	JID   string   `json:"jid"`
 	Alts  []string `json:"alts"`
 	Name  string   `json:"name"`
 	Phone string   `json:"phone"`
 }
 
-// buildBlockedEntries turns the stored list into one entry per person, named
-// and sorted for display.
 func buildBlockedEntries(rows []blockedRow, twin jidTwin, nameFor func(types.JID) string) []blockedEntry {
 	entries := []blockedEntry{}
 	index := map[string]int{}
@@ -98,12 +88,8 @@ func buildBlockedEntries(rows []blockedRow, twin jidTwin, nameFor func(types.JID
 	return entries
 }
 
-// blockedAddressesOf returns every address the list holds for the person
-// behind jid: unblocking someone means unblocking all of them, or they stay
-// listed under an old LID.
 func blockedAddressesOf(rows []blockedRow, jid types.JID, twin jidTwin) []types.JID {
 	target := blockedRow{JID: jid}.person(twin)
-	// The list itself may be the only place that pairs this LID with a number.
 	for _, row := range rows {
 		if row.JID.ToNonAD() == jid.ToNonAD() {
 			target = row.person(twin)
@@ -167,20 +153,12 @@ func blocklistPayload() map[string]interface{} {
 	}
 }
 
-// The hash of the list as last fetched over this session, which the server
-// compares against its own so an unchanged list isn't sent again (WA Web's
-// WAWebGetBlocklistJob does the same).
 var (
 	blocklistSyncMu    sync.Mutex
 	blocklistSyncedFor *whatsmeow.Client
 	blocklistDHash     string
 )
 
-// refreshBlocklistOnConnect fetches the list the first time a session
-// connects. Blocks made on the phone before this device was linked only ever
-// arrive this way. After that the server announces every change (a blocklist
-// notification, or an account_sync dirty bit for ones missed while offline),
-// so a reconnect asks for nothing, as in the official apps.
 func refreshBlocklistOnConnect() {
 	blocklistSyncMu.Lock()
 	synced := blocklistSyncedFor != nil && blocklistSyncedFor == wa()
@@ -190,8 +168,6 @@ func refreshBlocklistOnConnect() {
 	}
 }
 
-// refreshBlocklist asks the server for the list, stores it and tells the
-// frontend.
 func refreshBlocklist() {
 	c := wa()
 	if c == nil || !c.IsLoggedIn() {
@@ -208,7 +184,6 @@ func refreshBlocklist() {
 		return
 	}
 	if bl == nil {
-		// The server's list has the hash we sent: nothing changed.
 		return
 	}
 	blocklistSyncMu.Lock()
@@ -224,8 +199,6 @@ func refreshBlocklist() {
 	broadcastEvent("blocklist", blocklistPayload())
 }
 
-// setBlocked blocks or unblocks someone on the server, then fetches the list
-// again rather than trusting the shape of the server's answer.
 func setBlocked(jid types.JID, block bool) error {
 	jid = jid.ToNonAD()
 	targets := []types.JID{jid}

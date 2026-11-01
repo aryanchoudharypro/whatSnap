@@ -28,7 +28,6 @@ func TestUDPBridgeHandsOverTheOpusPacketThatCameWithTheFrame(t *testing.T) {
 	}
 	opusFrame := []byte{0x58, 1, 2, 3, 4}
 
-	// A frame with its Opus encoding after the PCM.
 	if _, err = frontend.Write(append(append([]byte(nil), pcm...), opusFrame...)); err != nil {
 		t.Fatalf("send frame: %v", err)
 	}
@@ -40,7 +39,6 @@ func TestUDPBridgeHandsOverTheOpusPacketThatCameWithTheFrame(t *testing.T) {
 		t.Fatalf("OpusFrame = %x, want %x", got, opusFrame)
 	}
 
-	// PCM alone: no stale Opus packet from the frame before.
 	if _, err = frontend.Write(pcm); err != nil {
 		t.Fatalf("send PCM frame: %v", err)
 	}
@@ -51,7 +49,6 @@ func TestUDPBridgeHandsOverTheOpusPacketThatCameWithTheFrame(t *testing.T) {
 		t.Fatalf("OpusFrame after a PCM-only frame = %x, want none", got)
 	}
 
-	// Nothing arrives: silence, and no Opus packet to go with it.
 	if _, err = frontend.Write(append(append([]byte(nil), pcm...), opusFrame...)); err != nil {
 		t.Fatalf("send frame: %v", err)
 	}
@@ -66,7 +63,6 @@ func TestUDPBridgeHandsOverTheOpusPacketThatCameWithTheFrame(t *testing.T) {
 		t.Fatalf("OpusFrame for a silence frame = %x, want none", got)
 	}
 
-	// The frontend's 4-byte hello is not a frame's worth of anything.
 	if pcmPart, opusPart := splitMicDatagram(make([]byte, 4)); len(pcmPart) != 4 || opusPart != nil {
 		t.Fatalf("hello datagram split into %d PCM bytes and %d Opus bytes", len(pcmPart), len(opusPart))
 	}

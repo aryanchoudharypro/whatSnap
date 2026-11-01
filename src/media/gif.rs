@@ -1,16 +1,8 @@
-//! Decodes animated GIFs into full RGBA frames, the way a browser shows
-//! them: each frame drawn over the last according to its disposal method,
-//! transparent pixels letting what's below show through.
-
 pub(crate) struct Frame {
-	/// The whole canvas, `width * height` RGBA pixels.
 	pub(crate) rgba: Vec<u8>,
-	/// How long the frame shows, in milliseconds (0 if the file doesn't say).
 	pub(crate) delay_ms: u32,
 }
 
-/// Steps through a GIF's frames one at a time, so only the canvas (and the
-/// frame before it, for "restore to previous") is held at once.
 pub(crate) struct GifDecoder<'a> {
 	data: &'a [u8],
 	pos: usize,
@@ -18,14 +10,11 @@ pub(crate) struct GifDecoder<'a> {
 	pub(crate) height: u32,
 	global_palette: Option<&'a [u8]>,
 	canvas: Vec<u8>,
-	/// What the last frame's disposal asks to happen before the next one.
 	pending_disposal: Option<Disposal>,
 }
 
 enum Disposal {
-	/// Clear the frame's rectangle to transparent.
 	Background { left: usize, top: usize, width: usize, height: usize },
-	/// Put the canvas back as it was before the frame.
 	Previous(Vec<u8>),
 }
 
@@ -72,7 +61,6 @@ impl<'a> GifDecoder<'a> {
 		Some(s)
 	}
 
-	/// The data sub-blocks that follow, joined.
 	fn sub_blocks(&mut self) -> Option<Vec<u8>> {
 		let mut out = Vec::new();
 		loop {
@@ -98,11 +86,9 @@ impl<'a> GifDecoder<'a> {
 		let (mut delay_ms, mut transparent, mut disposal) = (0u32, None, 0u8);
 		loop {
 			match self.byte()? {
-				// Extension.
 				0x21 => {
 					let label = self.byte()?;
 					if label == 0xf9 {
-						// Graphic Control Extension.
 						let block = self.sub_blocks()?;
 						if block.len() >= 4 {
 							disposal = (block[0] >> 2) & 7;
@@ -113,7 +99,6 @@ impl<'a> GifDecoder<'a> {
 						self.skip_sub_blocks()?;
 					}
 				}
-				// Image descriptor.
 				0x2c => {
 					let d = self.take(9)?;
 					let left = u16::from_le_bytes([d[0], d[1]]) as usize;
@@ -156,7 +141,6 @@ impl<'a> GifDecoder<'a> {
 					}
 					return Some(Frame { rgba: self.canvas.clone(), delay_ms });
 				}
-				// Trailer, or anything that isn't GIF.
 				_ => return None,
 			}
 		}
@@ -180,8 +164,6 @@ impl Iterator for GifDecoder<'_> {
 	}
 }
 
-/// Which canvas row the `n`th decoded row of an interlaced image lands on:
-/// every 8th row from 0, then from 4, every 4th from 2, every 2nd from 1.
 fn interlaced_row(n: usize, height: usize) -> usize {
 	let passes = [(0, 8), (4, 8), (2, 4), (1, 2)];
 	let mut n = n;
@@ -195,13 +177,10 @@ fn interlaced_row(n: usize, height: usize) -> usize {
 	height
 }
 
-/// GIF's variable-width LZW, decoding up to `max` palette indices.
 fn lzw_decode(data: &[u8], min_code_size: u8, max: usize) -> Vec<u8> {
 	let min_code_size = min_code_size.clamp(2, 11) as u32;
 	let clear = 1u16 << min_code_size;
 	let end = clear + 1;
-	// Each code is a prefix code plus its last byte; `first` is the byte
-	// its string starts with.
 	let mut prefix = [0u16; 4096];
 	let mut suffix = [0u8; 4096];
 	let mut first = [0u8; 4096];
@@ -232,15 +211,12 @@ fn lzw_decode(data: &[u8], min_code_size: u8, max: usize) -> Vec<u8> {
 			break;
 		}
 		let Some(prev) = last else {
-			// First code after a clear: a plain index.
 			if code < clear {
 				out.push(code as u8);
 				last = Some(code);
 			}
 			continue;
 		};
-		// A code not yet in the table is the previous string plus its own
-		// first byte.
 		let (start, known) = if code < next { (code, true) } else { (prev, false) };
 		if !known && code != next {
 			break;

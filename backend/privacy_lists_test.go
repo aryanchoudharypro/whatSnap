@@ -10,7 +10,6 @@ func TestPrivacyListChanges(t *testing.T) {
 	lid := func(u string) types.JID { return types.NewJID(u, types.HiddenUserServer) }
 	pn := func(u string) types.JID { return types.NewJID(u, types.DefaultUserServer) }
 	current := []privacyListPerson{{LID: lid("1"), PN: pn("911")}, {LID: lid("2")}}
-	// 1 stays (matched by phone alone), 2 goes, 3 is added once.
 	wanted := []privacyListPerson{{PN: pn("911")}, {LID: lid("3"), PN: pn("913")}, {LID: lid("3")}}
 	changes := privacyListChanges(current, wanted)
 	if len(changes) != 2 {

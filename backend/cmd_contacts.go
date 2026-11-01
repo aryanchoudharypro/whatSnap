@@ -21,10 +21,6 @@ import (
 
 func handleGetContacts(conn net.Conn) {
 	go func() {
-		// Straight from the cache. contacts_cache is already kept current by
-		// contact/push-name events and the refreshes after connect and history
-		// sync; rebuilding it here (every contact, plus a network fetch of all
-		// our groups) on every contact-picker open was pure overhead.
 		rows, err := db.Query(`SELECT jid, name, phone, is_business, about, avatar_path FROM contacts_cache WHERE name != '' OR phone != '' ORDER BY name COLLATE NOCASE ASC`)
 
 		if err != nil {
@@ -59,8 +55,6 @@ func handleGetAvatar(conn net.Conn, raw json.RawMessage) {
 	}
 	go func() {
 		info, err := wa().GetProfilePictureInfo(context.Background(), jid, &whatsmeow.GetProfilePictureParams{})
-		// Hidden by their privacy settings, or none: the info page just
-		// shows no photo, rather than an error.
 		if err != nil || info == nil {
 			sendEvent(conn, "avatar", map[string]interface{}{"jid": data.JID, "path": ""})
 			return
@@ -147,11 +141,6 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 				}
 			}
 		}
-		// userInfo.Status comes from the legacy usync <status/> node, which
-		// the server stops keeping in sync once a contact updates their
-		// About via the newer mex mutation. GetTextStatus is the read-side
-		// counterpart of that mutation and gives a fresh value; fall back to
-		// the usync value if the fresh fetch fails.
 		status := userInfo.Status
 		if fresh, sErr := wa().GetTextStatus(context.Background(), jid); sErr == nil && fresh != nil {
 			status = fresh.Text
@@ -163,10 +152,8 @@ func handleGetUserInfo(conn net.Conn, raw json.RawMessage) {
 			"pushName":    pushName,
 			"fullName":    fullName,
 			"firstName":   firstName,
-			// In the address book, so the info page offers Edit and Delete
-			// rather than Add.
-			"saved": fullName != "" || firstName != "",
-			"phone": pnJID.User,
+			"saved":       fullName != "" || firstName != "",
+			"phone":       pnJID.User,
 		})
 	}()
 }
@@ -192,14 +179,11 @@ func handleGetBusinessProfile(conn net.Conn, raw json.RawMessage) {
 
 func handleGetBlocklist(conn net.Conn) {
 	go func() {
-		// What's stored answers at once (and is all there is offline); the
-		// server's copy follows as a broadcast.
 		sendEvent(conn, "blocklist", blocklistPayload())
 		refreshBlocklist()
 	}()
 }
 
-// handleSetBlocked blocks or unblocks a contact and reports how it went.
 func handleSetBlocked(raw json.RawMessage, block bool) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -257,10 +241,6 @@ func handleSetAbout(raw json.RawMessage) {
 	}()
 }
 
-// handleNewContact is the original add-a-contact flow, preserved, with the
-// contacts_cache kept in sync and the previous "chats" event (which was
-// actually sending a raw, differently-shaped contacts map mislabeled as
-// chats) replaced with a proper chat-list refresh.
 func handleNewContact(conn net.Conn, raw json.RawMessage) {
 	var data NewContactCommandData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -307,10 +287,6 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 		sendEvent(conn, "new_contact_status", map[string]interface{}{"status": "success", "jid": jid.String(), "name": data.Name})
 		upsertContactCacheRow(jid.String(), data.Name, phone, false)
 
-		// IsOnWhatsApp is queried with addressing_mode=lid, so resp[0].JID is
-		// typically already the contact's LID rather than their phone-number
-		// JID (that's resp[0].PhoneNumber instead) - resolve both forms since
-		// an existing chat with this person may be keyed by either one.
 		pnJID, lidJID := resp[0].PhoneNumber, types.JID{}
 		if jid.Server == types.HiddenUserServer {
 			lidJID = jid
@@ -321,8 +297,6 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 			}
 		}
 
-		// Rename any existing chat with this person immediately, rather than
-		// waiting on populateChatsFromStore's full contact rescan below.
 		if !pnJID.IsEmpty() {
 			db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, data.Name, pnJID.String())
 		}
@@ -333,12 +307,6 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 		populateChatsFromStore()
 		broadcastChats()
 
-		// Push the contact to WhatsApp's own contact-sync (the same app-state
-		// patch official WhatsApp Web sends when you add a contact), so it
-		// actually shows up in the linked phone's WhatsApp/address book
-		// instead of only being cached locally by whatSnap. Best-effort: the
-		// contact was already created successfully above either way, so a
-		// failure here is only logged, not surfaced as an error to the user.
 		if data.Sync {
 			if syncErr := syncContactToPhone(pnJID, lidJID, data.Name, firstName); syncErr != nil {
 				log.Printf("Contact sync (app-state) failed for %s: %v", jid, syncErr)
@@ -347,8 +315,6 @@ func handleNewContact(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// contactForms are the phone number and LID forms of a person, either of
-// which may be empty when unknown.
 func contactForms(jid types.JID) (pn, lid types.JID) {
 	jid = jid.ToNonAD()
 	ctx := context.Background()
@@ -366,10 +332,6 @@ func contactForms(jid types.JID) (pn, lid types.JID) {
 	return pn, lid
 }
 
-// handleDeleteContact deletes a saved contact, as WA Web's "Delete contact"
-// does: a REMOVE of the contact's app-state record, which the phone takes out
-// of its address book too. The chat stays and goes back to showing the
-// number and WhatsApp name.
 func handleDeleteContact(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -459,15 +421,11 @@ func syncContactToPhone(pnJID, lidJID types.JID, name, firstName string) error {
 	return wa().SendAppState(context.Background(), patch)
 }
 
-// vCardEscape escapes the characters vCard 3.0 (RFC 2426) requires escaped
-// inside a property value: backslash, comma, semicolon and newline.
 func vCardEscape(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `,`, `\,`, `;`, `\;`, "\n", `\n`)
 	return r.Replace(s)
 }
 
-// callingCodeOf is the calling code a number in international digits starts
-// with ("44" for "447700900123"), or "" when none matches.
 func callingCodeOf(digits string) string {
 	for n := 3; n >= 1; n-- {
 		if len(digits) > n {
@@ -479,8 +437,6 @@ func callingCodeOf(digits string) string {
 	return ""
 }
 
-// ownCallingCode is the calling code of our own number, which a number typed
-// without one is taken to be from.
 func ownCallingCode() string {
 	if wa().Store.ID == nil {
 		return ""
@@ -488,11 +444,6 @@ func ownCallingCode() string {
 	return callingCodeOf(wa().Store.ID.User)
 }
 
-// phoneCandidates are the ways a typed number can be read, most likely first,
-// as WhatsApp's own add-contact form reads it with the country picker on your
-// own country. A + or 00 prefix means the number is already international;
-// otherwise it's your country's number (its national trunk 0 dropped) or, as
-// before, the digits as typed. WhatsApp itself says which one is registered.
 func phoneCandidates(typed, ownCode string) []string {
 	typed = strings.TrimSpace(typed)
 	var digits strings.Builder
@@ -524,8 +475,6 @@ func phoneCandidates(typed, ownCode string) []string {
 	return out
 }
 
-// formatPhone shows international digits as a contact card does: the
-// calling code apart from the rest ("+44 7700900123").
 func formatPhone(digits string) string {
 	if code := callingCodeOf(digits); code != "" {
 		return "+" + code + " " + digits[len(code):]
@@ -533,18 +482,13 @@ func formatPhone(digits string) string {
 	return "+" + digits
 }
 
-// sharedContact is what a shared contact card says about someone.
 type sharedContact struct {
 	name       string
-	phone      string // international digits, "" when their number is hidden from us
-	lid        string // their LID's user part, used only when there's no number
+	phone      string
+	lid        string
 	isBusiness bool
 }
 
-// buildVCard renders a contact card the way WhatsApp Web does
-// (WAWebFrontendVcardUtils vcardFromContactModel): N and FN, the number as a
-// waid TEL, or the LID when the number isn't known, and the business name
-// for a business.
 func buildVCard(c sharedContact) string {
 	display := c.name
 	if display == "" {
@@ -567,10 +511,6 @@ func buildVCard(c sharedContact) string {
 	return strings.Join(append(lines, "END:VCARD"), "\n")
 }
 
-// contactToShare resolves a contact's name, number and kind from the
-// local contacts cache. A contact known by their LID gets their number
-// from the LID mapping, as WhatsApp Web does: the LID itself is no phone
-// number.
 func contactToShare(jidStr string) sharedContact {
 	var c sharedContact
 	jid, err := types.ParseJID(jidStr)
@@ -648,8 +588,6 @@ func handleSendContacts(conn net.Conn, raw json.RawMessage) {
 			msg = &waE2E.Message{ContactMessage: vcards[0]}
 			displayText = "[Contact] " + names[0]
 		} else {
-			// WhatsApp Web sends only the cards (WAWebGenerateMultiVcardMessageProto);
-			// receivers title them themselves.
 			msg = &waE2E.Message{ContactsArrayMessage: &waE2E.ContactsArrayMessage{
 				Contacts:    vcards,
 				ContextInfo: ctxInfo,

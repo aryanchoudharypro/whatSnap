@@ -8,7 +8,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// resendTarget is one message we want the primary device to send us again.
 type resendTarget struct{ id, chatJID, senderJID string }
 
 var (
@@ -16,14 +15,6 @@ var (
 	pendingResends   []resendTarget
 )
 
-// requestMessageResend asks the phone for its copy of a single message we
-// couldn't make sense of - the per-message counterpart to a history sync, and
-// the only way back for a message whose content we lost (media keys included).
-// The reply arrives as an ordinary events.Message carrying the same ID, so the
-// normal save path upserts it over whatever stub we were left with.
-//
-// Requests can only go out over a live connection, so anything raised before
-// we're connected (startup repairs, for one) waits for events.Connected.
 func requestMessageResend(id, chatJID, senderJID string) {
 	if id == "" || chatJID == "" {
 		return
@@ -45,7 +36,6 @@ func sendResendRequest(t resendTarget) {
 	}
 	sender, err := types.ParseJID(t.senderJID)
 	if err != nil || sender.IsEmpty() {
-		// Our own messages and one-to-one chats have no separate participant.
 		sender = chat
 	}
 

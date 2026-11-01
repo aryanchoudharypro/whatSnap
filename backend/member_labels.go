@@ -13,13 +13,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-// Group member tags: the short label each member sets for themselves in a
-// group, shown next to their name. Group info carries everyone's current
-// tag; a member changing theirs sends the group a protocol message. The
-// newest wins, kept in group_member_labels by group and member.
-
-// memberLabelKey names a member the same way however they're addressed
-// (phone number or LID, any device).
 func memberLabelKey(jid types.JID) string {
 	return preferPN(jid.ToNonAD()).String()
 }
@@ -36,7 +29,6 @@ func storeMemberLabel(group, member, label string, setAt int64) {
 	}
 }
 
-// memberLabels is every stored tag in a group, by member.
 func memberLabels(group string) map[string]string {
 	labels := map[string]string{}
 	rows, err := db.Query(`SELECT member, label FROM group_member_labels WHERE group_jid = ? AND label != ''`, group)
@@ -53,7 +45,6 @@ func memberLabels(group string) map[string]string {
 	return labels
 }
 
-// noteParticipantLabels records the tags group info reports.
 func noteParticipantLabels(group types.JID, participants []types.GroupParticipant) {
 	for _, p := range participants {
 		if p.LabelSetAt.IsZero() && p.Label == "" {
@@ -63,7 +54,6 @@ func noteParticipantLabels(group types.JID, participants []types.GroupParticipan
 	}
 }
 
-// applyMemberLabelChange handles a member changing their tag.
 func applyMemberLabelChange(v *events.Message) {
 	label := unwrapMessage(v.Message).GetProtocolMessage().GetMemberLabel()
 	chat, sender := resolveLIDChat(v)
@@ -86,7 +76,6 @@ type SetMemberLabelData struct {
 	Label string `json:"label"`
 }
 
-// handleSetMemberLabel sets (or, empty, clears) our own tag in a group.
 func handleSetMemberLabel(conn net.Conn, raw json.RawMessage) {
 	var data SetMemberLabelData
 	if json.Unmarshal(raw, &data) != nil {

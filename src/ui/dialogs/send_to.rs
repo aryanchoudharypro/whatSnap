@@ -1,8 +1,3 @@
-//! The "Send to" dialog: pick up to five chats and send them a message. Used
-//! for WhatsApp links opened from elsewhere ("Share on WhatsApp" buttons
-//! and whatsapp://send links), for files sent from Explorer's Send to menu,
-//! and for sending a group's invite link.
-
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -12,18 +7,14 @@ use crate::ui::{
 	theme,
 };
 
-/// WhatsApp lets one message go to at most five chats at once, when
-/// forwarding or sharing into the app.
 pub const MAX_RECIPIENTS: usize = 5;
 
-/// One chat or contact the dialog offers.
 #[derive(Clone)]
 pub struct SendTarget {
 	pub jid: String,
 	pub label: String,
 }
 
-/// What the user chose in the dialog.
 pub struct SendToChoice {
 	pub jids: Vec<String>,
 	pub text: String,
@@ -31,15 +22,10 @@ pub struct SendToChoice {
 
 struct PickerState {
 	all: Vec<SendTarget>,
-	/// JIDs of the rows currently shown, in list order.
 	shown: Vec<String>,
-	/// In the order they were checked, so the send order is predictable.
 	checked: Vec<String>,
 }
 
-/// Shows the dialog modally and returns what to send, or None if cancelled.
-/// With `files`, the dialog sends those and the message is their optional
-/// caption; without, the message is what's sent and can't be empty.
 pub fn show_send_to_dialog(
 	parent: &impl WxWidget,
 	title: &str,
@@ -79,8 +65,6 @@ pub fn show_send_to_dialog(
 	list.set_font(&theme::Fonts::body());
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	// Checking someone and then searching again hides them from the list, so
-	// a running total confirms the choice is still there.
 	let announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&announcer);
 	theme::style_muted_label(&announcer);

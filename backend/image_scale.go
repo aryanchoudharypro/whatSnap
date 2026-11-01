@@ -6,8 +6,6 @@ import (
 	"math"
 )
 
-// A resampling filter: its weight at distance x (in source pixels at
-// scale 1) and how far it reaches.
 type scaleFilter struct {
 	support float64
 	at      func(x float64) float64
@@ -27,9 +25,6 @@ var (
 	bilinear = scaleFilter{1, func(x float64) float64 { return max(0, 1-math.Abs(x)) }}
 )
 
-// scaleWeights gives, for each of n output positions over m input ones, the
-// first input index and the normalised weights from there. When shrinking
-// the filter is widened so every input pixel contributes.
 func scaleWeights(m, n int, f scaleFilter) ([]int, [][]float32) {
 	ratio := float64(m) / float64(n)
 	width := max(ratio, 1)
@@ -62,9 +57,6 @@ func scaleWeights(m, n int, f scaleFilter) ([]int, [][]float32) {
 	return starts, weights
 }
 
-// scaleImage resamples the part sr of src to a new w×h image. It works in
-// premultiplied RGBA, one source row at a time, so only the half-scaled
-// image is held as floats.
 func scaleImage(src image.Image, sr image.Rectangle, w, h int, f scaleFilter) *image.RGBA {
 	sw, sh := sr.Dx(), sr.Dy()
 	xs, xw := scaleWeights(sw, w, f)
@@ -105,7 +97,6 @@ func scaleImage(src image.Image, sr image.Rectangle, w, h int, f scaleFilter) *i
 	return dst
 }
 
-// clampByte rounds v into 0..limit; premultiplied colour can't exceed alpha.
 func clampByte(v float32, limit uint8) uint8 {
 	if v <= 0 {
 		return 0

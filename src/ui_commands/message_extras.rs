@@ -1,8 +1,3 @@
-//! Pinning and keeping messages, and advanced chat privacy: the message
-//! menu's Pin and Keep items, the chat menu's "Pinned Messages..." and
-//! "Advanced Chat Privacy...", and what the backend answers
-//! (`message_pinned`, `message_kept`, `pinned_messages`, `chat_privacy`).
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -19,7 +14,6 @@ const KEEP: i32 = 3403;
 const UNKEEP: i32 = 3404;
 const STICKER_FAVORITE: i32 = 3405;
 
-/// How long a pin lasts, as WhatsApp offers it.
 const PIN_DURATIONS: [(&str, u32); 3] = [("24 hours", 86_400), ("7 days", 604_800), ("30 days", 2_592_000)];
 
 fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
@@ -31,8 +25,6 @@ fn announce(parts: &WindowParts, message: &str) {
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
-/// Adds Pin/Unpin and Keep/Unkeep to a message's context menu when they
-/// apply, and returns the message they act on.
 pub(crate) fn append_message_actions(
 	menu: &Menu,
 	state: &Rc<RefCell<AppState>>,
@@ -42,7 +34,6 @@ pub(crate) fn append_message_actions(
 	if m.is_date_divider || m.is_unread_divider || m.is_system() || m.is_deleted || m.id.is_empty() {
 		return None;
 	}
-	// Only a message WhatsApp has can be pinned or kept.
 	if m.from_me && (m.status == "pending" || m.status == "failed") {
 		return None;
 	}
@@ -51,7 +42,6 @@ pub(crate) fn append_message_actions(
 	if jid.ends_with("@newsletter") || jid.ends_with("@broadcast") {
 		return None;
 	}
-	// Like WA Web, a group where only admins can send only lets admins pin.
 	let can_pin = !s.admins_only_jids.contains(jid) || s.admin_group_jids.contains(jid);
 	if m.pinned {
 		menu.append(UNPIN, "Unpi&n", "Unpin this message for everyone in the chat", ItemKind::Normal);
@@ -83,8 +73,6 @@ pub(crate) fn append_message_actions(
 	Some((**m).clone())
 }
 
-/// Runs one of the items `append_message_actions` added. False when `id`
-/// isn't one of them.
 pub(crate) fn handle_message_action(
 	id: i32,
 	state: &Rc<RefCell<AppState>>,
@@ -98,7 +86,6 @@ pub(crate) fn handle_message_action(
 			let labels: Vec<&str> = PIN_DURATIONS.iter().map(|(label, _)| *label).collect();
 			let dialog =
 				SingleChoiceDialog::builder(frame, "Keep this message pinned for:", "Pin Message", &labels).build();
-			// WhatsApp's own default.
 			dialog.set_selection(1);
 			if dialog.show_modal() != wxdragon::id::ID_OK {
 				return true;
@@ -126,7 +113,6 @@ pub(crate) fn handle_message_action(
 	true
 }
 
-/// Whether two JIDs name the same chat, ignoring device parts.
 fn same_chat(a: &str, b: &str) -> bool {
 	let base = |jid: &str| match jid.split_once('@') {
 		Some((user, server)) => format!("{}@{}", user.split([':', '.']).next().unwrap_or(user), server),
@@ -135,8 +121,6 @@ fn same_chat(a: &str, b: &str) -> bool {
 	base(a) == base(b)
 }
 
-/// Rewrites one message's row in the open chat after `change`, and says
-/// `spoken` if it was there.
 fn update_open_message(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
@@ -160,27 +144,23 @@ fn update_open_message(
 	}
 }
 
-/// A message was pinned or unpinned, by us or someone else.
 pub(crate) fn message_pinned(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let pinned = data.get("pinned").and_then(|v| v.as_bool()).unwrap_or(false);
 	let spoken = if pinned { "Message pinned." } else { "Message unpinned." };
 	update_open_message(state, parts, data, spoken, |m| m.pinned = pinned);
 }
 
-/// A message was kept or unkept.
 pub(crate) fn message_kept(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let kept = data.get("kept").and_then(|v| v.as_bool()).unwrap_or(false);
 	let spoken = if kept { "Message kept." } else { "Message unkept." };
 	update_open_message(state, parts, data, spoken, |m| m.kept = kept);
 }
 
-/// Chat menu > "Pinned Messages...": ask the backend for the open chat's.
 pub(crate) fn show_pinned_messages(state: &Rc<RefCell<AppState>>) {
 	let Some(jid) = state.borrow().selected_chat.clone() else { return };
 	send(state, "get_pinned_messages", serde_json::json!({ "jid": jid }));
 }
 
-/// The backend listed a chat's pinned messages: pick one to go to it.
 pub(crate) fn pinned_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|v| v.as_str()).unwrap_or("");
 	if !state.borrow().selected_chat.as_deref().is_some_and(|sel| same_chat(sel, jid)) {
@@ -219,8 +199,6 @@ pub(crate) fn pinned_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		.send(UiCommand::JumpToSearchResult { message_id: id.clone(), message_text: String::new() });
 }
 
-/// Chat menu or contact info > "Advanced Chat Privacy...": find out whether
-/// it's on first. Contact info may be showing a chat that isn't open.
 pub(crate) fn show_chat_privacy(state: &Rc<RefCell<AppState>>) {
 	let Some(jid) = ({
 		let s = state.borrow();
@@ -234,9 +212,6 @@ pub(crate) fn show_chat_privacy(state: &Rc<RefCell<AppState>>) {
 	send(state, "get_chat_privacy", serde_json::json!({ "jid": jid }));
 }
 
-/// The backend said whether advanced chat privacy is on: offer to switch it.
-/// Restricted chat, the newer kind, can only be switched on a phone, so
-/// that's only explained.
 pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|v| v.as_str()).unwrap_or("").to_string();
 	let asked = {
@@ -246,7 +221,6 @@ pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	if !asked {
 		return;
 	}
-	// Over the contact info page when it was asked from there.
 	let info = &parts.conversation_data_dialog.dialog;
 	let parent: &dyn WxWidget = if info.is_shown() { info } else { &parts.frame };
 	if data.get("restricted").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -263,7 +237,6 @@ pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		return;
 	}
 	let enabled = data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-	// WhatsApp's own description of the setting.
 	let what = "When it's on, people in this chat can't export it, media isn't saved to their devices automatically, \
 	            and messages can't be used with AI features.";
 	let (question, action) = if enabled {

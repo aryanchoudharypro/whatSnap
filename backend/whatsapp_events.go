@@ -53,17 +53,12 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 			chatJID = senderJID
 		}
 	} else if chatJID.Server == types.BroadcastServer && chatJID.User != "status" && !v.Info.IsFromMe {
-		// Incoming broadcast-list messages belong in the sender's 1:1 chat,
-		// like official WhatsApp, not in a chat keyed by the broadcast JID.
 		chatJID = senderJID
 	}
 
 	return
 }
 
-// resolveSourcePN is resolveLIDChat for events that only carry a message
-// source (receipts, typing): the chat and sender as the phone JIDs the app
-// keys by, using the addresses the stanza itself paired them with first.
 func resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
 	chatJID = src.Chat.ToNonAD()
 	senderJID = src.Sender.ToNonAD()
@@ -92,7 +87,6 @@ func resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
 // It never creates a standalone chat message - if the reacted-to message isn't
 // in the local DB, updateChatReactionPreview silently leaves the preview alone.
 func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
-	// A reaction to a status update comes to its poster alone.
 	if reaction.GetKey().GetRemoteJID() == types.StatusBroadcastJID.String() {
 		noteStatusReaction(v, reaction)
 		return
@@ -120,10 +114,6 @@ func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 	updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
 	broadcastChats()
 
-	// Included so clients can show a WhatsApp-style "<name> reacted <emoji>
-	// to: <text>" desktop notification without having the reacted-to
-	// message loaded locally (e.g. reactions on chats other than the one
-	// currently open).
 	var reactedText string
 	var isDeleted int
 	if err := db.QueryRow(`SELECT COALESCE(text, ''), is_deleted FROM messages WHERE id = ?`, targetID).
@@ -141,9 +131,6 @@ func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 	})
 }
 
-// storeReactionTx applies a HistorySync-backfilled reaction within the
-// caller's transaction. Mirrors applyReaction but writes via tx and skips the
-// live "message_reaction" broadcast, since this runs during bulk backfill.
 func storeReactionTx(tx sqlExecer, jid string, evtMsg *events.Message, reaction *waE2E.ReactionMessage) {
 	targetID := reaction.GetKey().GetID()
 	emoji := reaction.GetText()
@@ -164,13 +151,6 @@ func storeReactionTx(tx sqlExecer, jid string, evtMsg *events.Message, reaction 
 	}
 }
 
-// isKeyDistributionOnly reports whether a decrypted payload carries nothing but
-// a sender key distribution message. Group messages arrive as two encrypted
-// blobs - a per-device one holding the sender key, and the skmsg holding the
-// actual content - and whatsmeow dispatches an events.Message for each, both
-// with the same message ID. The key-distribution half has no content to show,
-// so storing it would either create a phantom "[Unsupported Message]" bubble or
-// (when it lands last) overwrite the real message with one.
 func isKeyDistributionOnly(msg *waE2E.Message) bool {
 	if msg == nil || msg.GetSenderKeyDistributionMessage() == nil {
 		return false
@@ -232,9 +212,6 @@ func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
 			msg = msg.GetLottieStickerMessage().GetMessage()
 			continue
 		}
-		// An album item arrives wrapped as the album's associated child, and a
-		// Meta AI answer forwarded into a chat as a bot-forwarded wrapper;
-		// both carry an ordinary message inside.
 		if msg.GetAssociatedChildMessage() != nil && msg.GetAssociatedChildMessage().GetMessage() != nil {
 			msg = msg.GetAssociatedChildMessage().GetMessage()
 			continue
@@ -261,17 +238,10 @@ func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
 	return msg
 }
 
-// extractText returns the display text for a message, with any WhatsApp
-// @mention tokens (which arrive as raw "@<jid-user>" digit strings) resolved
-// to display names the same way the chat list resolves them.
 func extractText(msg *waE2E.Message) string {
 	return resolveMentions(extractTextRaw(msg), getContextInfo(msg))
 }
 
-// resolveMentions replaces each "@<jid-user>" token named in ctx's
-// mentionedJID list with "@<resolved display name>". WhatsApp sends mentions
-// as the bare numeric JID user part (a LID number for LID-addressed groups,
-// which is what rendered as "@10000000000003" instead of "@Sam Rivers").
 func resolveMentions(text string, ctx *waE2E.ContextInfo) string {
 	if text == "" || ctx == nil {
 		return text
@@ -286,9 +256,6 @@ func resolveMentions(text string, ctx *waE2E.ContextInfo) string {
 	return text
 }
 
-// replaceMentionToken replaces occurrences of token in text, skipping any
-// occurrence immediately followed by another digit (so "@123" inside
-// "@12345" - a different, longer JID user - is left untouched).
 func replaceMentionToken(text, token, replacement string) string {
 	var b strings.Builder
 	for {
@@ -331,8 +298,6 @@ func extractTextRaw(msg *waE2E.Message) string {
 	if msg.GetVideoMessage() != nil {
 		return videoText(msg.GetVideoMessage())
 	}
-	// A round "video note" - WhatsApp's video counterpart to a voice message -
-	// is a plain VideoMessage in a field of its own.
 	if ptv := msg.GetPtvMessage(); ptv != nil {
 		if sec := ptv.GetSeconds(); sec > 0 {
 			return fmt.Sprintf("[Video Note] (%d:%02d)", sec/60, sec%60)
@@ -430,17 +395,12 @@ func extractTextRaw(msg *waE2E.Message) string {
 	if text := describeOtherMessage(msg); text != "" {
 		return text
 	}
-	// A chat privacy toggle: recorded on the chat, not shown.
 	if msg.GetLimitSharingMessage() != nil || msg.GetAcp2SettingMessage() != nil {
 		return "[Protocol Message]"
 	}
 	if notice := msg.GetMessageHistoryNotice(); notice != nil {
 		return messageHistoryNoticeText(notice, types.EmptyJID)
 	}
-	// Bookkeeping with nothing to show as a bubble of its own: pinning or
-	// keeping a message, an RSVP to an event, a comment under a channel post,
-	// sticker-sync and scheduled-call edits. Left unhandled they were stored as
-	// "[Unsupported Message]" rows in the chat.
 	if msg.GetPinInChatMessage() != nil || msg.GetKeepInChatMessage() != nil ||
 		msg.GetEncEventResponseMessage() != nil || msg.GetEncCommentMessage() != nil ||
 		msg.GetStickerSyncRmrMessage() != nil || msg.GetScheduledCallEditMessage() != nil ||
@@ -493,10 +453,6 @@ func extractTextRaw(msg *waE2E.Message) string {
 	return "[Unsupported Message]"
 }
 
-// describeOtherMessage renders the less common message kinds that carry
-// something worth reading - events, scheduled calls, business products and
-// orders, poll result snapshots, sticker packs, payments, status mentions and
-// channel invites - or "" for anything else.
 func describeOtherMessage(msg *waE2E.Message) string {
 	withDetail := func(label, detail string) string {
 		if detail = strings.TrimSpace(detail); detail != "" {
@@ -578,20 +534,10 @@ func describeOtherMessage(msg *waE2E.Message) string {
 	return ""
 }
 
-// richResponseSection matches the real wire shape of one entry in a rich
-// response's "sections" array - unlike richresponse.RichResponse.Sections,
-// which expects "__typename" directly on the section and silently resolves
-// to an empty UnknownViewModel here, since WhatsApp nests it one level
-// deeper under "view_model".
 type richResponseSection struct {
 	ViewModel richresponse.ViewModelContainer `json:"view_model"`
 }
 
-// richResponseText renders a bot's AIRichResponseMessage (Meta AI and other
-// WhatsApp bots' replies) to plain text. The actual content isn't in any of
-// the normal Message oneof fields - it's JSON, describing a tree of
-// "primitives" (markdown text, code blocks, tables, ...), packed into
-// UnifiedResponse.Data.
 func richResponseText(rich *waE2E.AIRichResponseMessage) string {
 	data := rich.GetUnifiedResponse().GetData()
 	if len(data) == 0 {
@@ -616,12 +562,6 @@ func richResponseText(rich *waE2E.AIRichResponseMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-// pollCreation returns whichever of the poll-creation fields is populated.
-// WhatsApp has revised the poll format six times and each revision landed on a
-// new field number rather than replacing the last, so a client that only reads
-// the original one renders every poll sent by a current app as an unsupported
-// message. (V4 is a FutureProofMessage wrapper and is peeled off in
-// unwrapMessage, so it arrives here as one of the others.)
 func pollCreation(msg *waE2E.Message) *waE2E.PollCreationMessage {
 	for _, poll := range []*waE2E.PollCreationMessage{
 		msg.GetPollCreationMessage(),
@@ -637,16 +577,6 @@ func pollCreation(msg *waE2E.Message) *waE2E.PollCreationMessage {
 	return nil
 }
 
-// templateParts flattens a business template / interactive / buttons / list
-// message into the two things the rest of the app knows how to handle: the
-// header media (if any) and the visible text. Businesses send order updates,
-// OTPs and marketing broadcasts as these, and without this they all decode to
-// "[Unsupported Message]" with the header image unreachable, because the
-// media sits nested inside the template rather than at the top level.
-//
-// The returned media message deliberately shares its ImageMessage/etc pointer
-// with msg rather than copying, so callers that patch DirectPath after a media
-// retry still write through to the original when they re-marshal msg.
 func templateParts(msg *waE2E.Message) (media *waE2E.Message, text string, ok bool) {
 	var blocks, buttons []string
 	add := func(dst *[]string, s string) {
@@ -662,8 +592,6 @@ func templateParts(msg *waE2E.Message) (media *waE2E.Message, text string, ok bo
 			hydrated = tpl.GetHydratedFourRowTemplate()
 		}
 		if hydrated == nil {
-			// interactiveMessageTemplate is just an InteractiveMessage in a
-			// template wrapper, so hand it to the interactive branch below.
 			if inner := tpl.GetInteractiveMessageTemplate(); inner != nil {
 				return templateParts(&waE2E.Message{InteractiveMessage: inner})
 			}
@@ -674,9 +602,6 @@ func templateParts(msg *waE2E.Message) (media *waE2E.Message, text string, ok bo
 		add(&blocks, hydrated.GetHydratedContentText())
 		add(&blocks, hydrated.GetHydratedFooterText())
 		for _, button := range hydrated.GetHydratedButtons() {
-			// Quick-reply labels are just tap targets we can't offer, but URL
-			// and call buttons carry a link/number that appears nowhere else
-			// in the message, so they'd be lost if we dropped them.
 			if url := button.GetUrlButton(); url != nil {
 				add(&buttons, labeledValue(url.GetDisplayText(), url.GetURL()))
 			} else if call := button.GetCallButton(); call != nil {
@@ -709,8 +634,6 @@ func templateParts(msg *waE2E.Message) (media *waE2E.Message, text string, ok bo
 	default:
 		return nil, "", false
 	}
-	// The reply buttons and list menu go last, as one line the UI also uses
-	// to know Enter opens them (see business_buttons.go).
 	if summary := optionsSummary(msg); summary != "" {
 		buttons = append(buttons, summary)
 	}
@@ -724,8 +647,6 @@ func templateParts(msg *waE2E.Message) (media *waE2E.Message, text string, ok bo
 	return media, text, ok
 }
 
-// labeledValue renders a template button as "Label: value", degrading to just
-// the value when the button has no display text.
 func labeledValue(label, value string) string {
 	label, value = strings.TrimSpace(label), strings.TrimSpace(value)
 	if label == "" || value == "" {
@@ -734,8 +655,6 @@ func labeledValue(label, value string) string {
 	return label + ": " + value
 }
 
-// headerMedia wraps whichever of a template header's media slots is populated
-// back into a plain Message, so the normal media code paths can handle it.
 func headerMedia(image *waE2E.ImageMessage, video *waE2E.VideoMessage, document *waE2E.DocumentMessage) *waE2E.Message {
 	switch {
 	case image != nil:
@@ -748,11 +667,6 @@ func headerMedia(image *waE2E.ImageMessage, video *waE2E.VideoMessage, document 
 	return nil
 }
 
-// WhatsApp announces an album by sending a tiny albumMessage header ("3 videos
-// are coming") immediately before the media itself. The header carries no
-// content of its own, so storing it would show the user a stray empty bubble
-// next to their photos - instead we keep it only long enough to stamp the
-// media that follows with a shared album ID.
 type pendingAlbum struct {
 	id        string
 	remaining int
@@ -774,9 +688,6 @@ func albumKey(chatJID, senderJID string) string {
 	return chatJID + "|" + senderJID
 }
 
-// registerAlbum records an incoming album header so the media that follows can
-// claim it. Returns false if the header announced no media at all, in which
-// case there is nothing to group.
 func registerAlbum(chatJID, senderJID, headerID string, album *waE2E.AlbumMessage) bool {
 	expected := int(album.GetExpectedImageCount() + album.GetExpectedVideoCount())
 	if expected <= 0 || headerID == "" {
@@ -815,10 +726,6 @@ func claimAlbumID(chatJID, senderJID string) string {
 	return album.id
 }
 
-// stampAlbumMembers assigns an album ID to the media already sitting in the
-// database that a given album header announced. Used for history-synced and
-// previously-stored albums, where the header and its media arrive together (or
-// arrived long ago) and the in-memory handoff above doesn't apply.
 func stampAlbumMembers(headerID, chatJID, senderJID string, headerTS int64, expected int) {
 	if headerID == "" || expected <= 0 {
 		return
@@ -832,10 +739,6 @@ func stampAlbumMembers(headerID, chatJID, senderJID string, headerTS int64, expe
 		headerID, chatJID, senderJID, headerTS-1, headerTS+int64(albumWindow/time.Second), expected)
 }
 
-// mediaCarrier returns the message that actually holds msg's downloadable
-// media: msg itself for ordinary media messages, or the lifted-out header for
-// template-style ones. Use this anywhere a raw stored message is about to be
-// inspected for media.
 func mediaCarrier(msg *waE2E.Message) *waE2E.Message {
 	msg = unwrapMessage(msg)
 	if msg == nil {
@@ -844,9 +747,6 @@ func mediaCarrier(msg *waE2E.Message) *waE2E.Message {
 	if media, _, _ := templateParts(msg); media != nil {
 		return media
 	}
-	// A video note is downloaded, retried and played like any video. Shares
-	// the pointer, like templateParts, so a media retry's new DirectPath
-	// still lands in msg.
 	if ptv := msg.GetPtvMessage(); ptv != nil {
 		return &waE2E.Message{VideoMessage: ptv}
 	}
@@ -858,10 +758,6 @@ var (
 	groupSizes   = map[types.JID]int{}
 )
 
-// groupSize is how many people a group has, for spacing out its message
-// notifications as WhatsApp does (WAWebNotificationHelpers: quiet for
-// min(120, 30 + 5 x members) seconds after one). It's looked up once per
-// group per run, in the background; 0 until then, and for other chats.
 func groupSize(jid types.JID) int {
 	if jid.Server != types.GroupServer {
 		return 0
@@ -882,10 +778,6 @@ func groupSize(jid types.JID) int {
 	return size
 }
 
-// addressesMe says whether a message mentions us, mentions everyone (@all,
-// WAWebNonJidMentionType MENTION_ALL) or replies to one of ours: what
-// WhatsApp still notifies about in a muted group
-// (WAWebNotificationHelpers isMutedAndNotMentioned).
 func addressesMe(msg *waE2E.Message) bool {
 	ctx := getContextInfo(msg)
 	if ctx == nil || wa() == nil || wa().Store == nil {
@@ -907,8 +799,6 @@ func addressesMe(msg *waE2E.Message) bool {
 	return ctx.GetStanzaID() != "" && isMe(ctx.GetParticipant())
 }
 
-// getContextInfo pulls the ContextInfo (which carries reply/quote data) out
-// of whichever message type actually has it populated.
 func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 	msg = unwrapMessage(msg)
 	if msg == nil {
@@ -963,8 +853,6 @@ func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 	return nil
 }
 
-// setContextInfo replaces the ContextInfo on whichever message type msg
-// carries. Returns false for a type that has no ContextInfo to set.
 func setContextInfo(msg *waE2E.Message, ctx *waE2E.ContextInfo) bool {
 	switch {
 	case msg.GetExtendedTextMessage() != nil:
@@ -999,9 +887,6 @@ func setContextInfo(msg *waE2E.Message, ctx *waE2E.ContextInfo) bool {
 	return true
 }
 
-// quotedPreview produces the small denormalized snapshot we store alongside
-// a message that replies to another one, so the frontend can render
-// "replying to: ..." without a second lookup.
 func quotedPreview(msg *waE2E.Message) (quotedID, quotedText, quotedSender string) {
 	if ctx := getContextInfo(msg); ctx != nil && ctx.GetStanzaID() != "" {
 		quotedID = ctx.GetStanzaID()
@@ -1019,15 +904,6 @@ func quotedPreview(msg *waE2E.Message) (quotedID, quotedText, quotedSender strin
 	return
 }
 
-// resolveQuotedSenderName turns a reply's raw participant value - a JID
-// string, the literal "me", or empty - into the display name the frontend
-// shows in a "replied to X" suffix. It mirrors the resolveDisplayName(...)
-// call quotedPreview makes for *received* replies; the send paths below used
-// to skip it, leaving a raw JID (or "me") in QuotedSender until the chat was
-// reloaded and re-derived from the raw protobuf from scratch. The frontend
-// treats a QuotedSender containing '@' as unresolved and hides it behind a
-// generic "quoted message" instead of showing it, which is what made a reply
-// sent while the chat was open look different from one loaded on reopen.
 func resolveQuotedSenderName(participant string) string {
 	if participant == "" || participant == "me" {
 		return participant
@@ -1038,12 +914,6 @@ func resolveQuotedSenderName(participant string) string {
 	return participant
 }
 
-// mediaInfoFromMessage extracts a normalized (mediaType, mimetype, filename,
-// fileSize) tuple for the media-bearing message kinds, so we can tag rows in
-// the messages table for the frontend without it having to inspect raw
-// protobuf. fileSize is the sender-reported byte size (0 if unset) - the same
-// FileLength field downloadMessageMediaToFile uses, surfaced up front so the
-// frontend can show it before the user chooses to download.
 func mediaInfoFromMessage(msg *waE2E.Message) (mediaType, mimetype, filename string, fileSize int64) {
 	msg = mediaCarrier(msg)
 	if msg == nil {
@@ -1081,27 +951,11 @@ func isIgnoredChatJID(jid string) bool {
 }
 
 var (
-	historySyncMutex sync.Mutex
-	// historySyncChatsDone counts chats processed across every HistorySync
-	// chunk since the last (re)connect. WhatsApp splits history into many
-	// independent chunks - each with its own conversation count and a
-	// "progress" percentage that's only meaningful for that one chunk/sync
-	// type - so showing per-chunk numbers to the user just looks like the
-	// sync is jumping backward and forward. This cumulative, monotonically
-	// increasing count is what actually reads as progress.
+	historySyncMutex     sync.Mutex
 	historySyncChatsDone int
-	// historySyncMsgsDone mirrors historySyncChatsDone but counts individual
-	// messages. A single conversation can hold tens of thousands of messages,
-	// which takes a while to insert - without this, the status only updates
-	// once per *conversation*, so it looks stalled (and an idle-timeout on
-	// the frontend even reverts it to plain "Connected") while that one huge
-	// chat is still being written.
-	historySyncMsgsDone int
+	historySyncMsgsDone  int
 )
 
-// resetHistorySyncProgress zeroes the running counters shown for "Syncing
-// history...". Called on every fresh connect so a reconnect (or a new
-// account after logging out) doesn't keep adding to a stale total.
 func resetHistorySyncProgress() {
 	historySyncMutex.Lock()
 	historySyncChatsDone = 0
@@ -1178,10 +1032,6 @@ func eventHandler(evt interface{}) {
 					}
 				}
 			}
-			// On-demand syncs (fetching one older chat's history when it's
-			// opened) and chunks with no chat data (push names, app state)
-			// shouldn't flash the "Syncing history..." status - they're not
-			// part of the bulk sync the user is waiting on.
 			reportProgress := v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND && convCount > 0
 			if reportProgress {
 				broadcastEvent("history_sync", map[string]interface{}{
@@ -1198,14 +1048,8 @@ func eventHandler(evt interface{}) {
 			}
 			var albumHeaders []syncedAlbum
 			var syncedJIDs []string
-			// The chats this chunk actually brought messages for - the only
-			// ones the UI is told about (see history_chats_synced below).
 			var jidsWithMessages []string
-			// What this chunk's conversation entries turned out to be (see
-			// historyConversationIsChat), logged once per chunk.
 			var chunkListed, chunkSkipped, chunkTokenOnly int
-			// LID pairs that only the conversations themselves named, handed
-			// to whatsmeow's store once the chunk is written.
 			var convLIDPairs []store.LIDMapping
 
 			if gs := v.Data.GetGlobalSettings(); gs != nil {
@@ -1218,12 +1062,6 @@ func eventHandler(evt interface{}) {
 				}
 			}
 
-			// whatsmeow stores this chunk's LID->phone mappings in a goroutine of
-			// its own (DownloadHistorySync with synchronousStorage=false), so
-			// the store may not have them yet while this chunk is written -
-			// its chats then landed under @lid JIDs, split off from the
-			// phone-JID chat the rest of the app looks up. Resolve against the
-			// chunk's own mappings first.
 			chunkPNs := historyChunkLIDMap(v.Data.GetPhoneNumberToLidMappings())
 			resolvePN := func(j types.JID) types.JID {
 				j = j.ToNonAD()
@@ -1240,9 +1078,6 @@ func eventHandler(evt interface{}) {
 			}
 			mergeLIDRowsIntoPN(chunkPNs)
 
-			// A push-name chunk can carry thousands of names; one autocommit
-			// write per name made it crawl. Resolve every LID first (that goes
-			// through whatsmeow's store), then write them in batches.
 			var pushNameWrites []func(tx sqlExecer)
 			for _, p := range v.Data.GetPushnames() {
 				if p == nil {
@@ -1259,8 +1094,6 @@ func eventHandler(evt interface{}) {
 				}
 				targetJID := resolvePN(parsedJID)
 				phone := cachePhone(targetJID)
-				// whatsmeow already put these push names in its contact store
-				// before dispatching the chunk; only our own tables need them.
 				pushNameWrites = append(pushNameWrites, func(tx sqlExecer) {
 					upsertContactCacheRowWith(tx, targetJID.String(), pushname, phone, false)
 					tx.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, pushname, targetJID.String())
@@ -1299,8 +1132,6 @@ func eventHandler(evt interface{}) {
 				if parseErr != nil {
 					continue
 				}
-				// Each chat names its own other address too; the chunk-wide
-				// mapping list doesn't always include it.
 				if pair, ok := conversationLIDPair(conv, chatJID); ok {
 					if _, known := chunkPNs[pair.LID.User]; !known {
 						chunkPNs[pair.LID.User] = pair.PN
@@ -1334,7 +1165,6 @@ func eventHandler(evt interface{}) {
 
 				name := conv.GetName()
 				if name == "" && chatJID.Server == types.GroupServer && listed {
-					// A group's name is its subject, which only the server has.
 					requestGroupMetadata(chatJID)
 				}
 				if name == "" && chatJID.Server != types.GroupServer {
@@ -1399,7 +1229,6 @@ func eventHandler(evt interface{}) {
 						}
 					})
 				}
-				// Advanced chat privacy, applied only if newer than what we have.
 				if conv.LimitSharing != nil {
 					limitSharing, limitSharingTS := boolToInt(conv.GetLimitSharing()), conv.GetLimitSharingSettingTimestamp()
 					writes = append(writes, func(tx sqlExecer) {
@@ -1407,7 +1236,6 @@ func eventHandler(evt interface{}) {
 							limitSharing, limitSharingTS, jid, limitSharingTS)
 					})
 				}
-				// Restricted chat, the same way.
 				if conv.Acp2Setting != nil {
 					restricted, restrictedTS := boolToInt(conv.GetAcp2Setting().GetEnabled()), conv.GetAcp2Setting().GetSettingTimestamp()
 					writes = append(writes, func(tx sqlExecer) {
@@ -1415,7 +1243,6 @@ func eventHandler(evt interface{}) {
 							restricted, restrictedTS, jid, restrictedTS)
 					})
 				}
-				// Disappearing messages, likewise only if newer than ours.
 				if conv.EphemeralExpiration != nil {
 					expiration, expirationTS := conv.GetEphemeralExpiration(), conv.GetEphemeralSettingTimestamp()
 					writes = append(writes, func(tx sqlExecer) {
@@ -1435,9 +1262,6 @@ func eventHandler(evt interface{}) {
 						if stubID != "" {
 							stubFromMe := webMsg.GetKey().GetFromMe()
 							stubTS := int64(webMsg.GetMessageTimestamp())
-							// Without a sender the chat can only show "Contact:
-							// deleted this message" in a group, rather than who
-							// deleted it. 1:1 chats leave it empty as before.
 							stubSender := ""
 							if !stubFromMe {
 								if s := historyStubActor(webMsg); !s.IsEmpty() {
@@ -1456,16 +1280,9 @@ func eventHandler(evt interface{}) {
 						}
 						continue
 					}
-					// Group events (someone added, left, made admin, the
-					// subject changed...) arrive in history sync as content-less
-					// "stub" entries. Stored as-is they became empty rows the
-					// chat rendered as "[Media]"; turn the ones the live path
-					// also describes into the same system lines, drop the rest.
 					if webMsg.GetMessageStubType() != 0 && webMsg.GetMessage() == nil {
 						if text := historyStubText(webMsg); text != "" {
 							stubTS := int64(webMsg.GetMessageTimestamp())
-							// Same id the live GroupInfo handler gives this line, so
-							// a resync doesn't duplicate one we already showed live.
 							stubID := fmt.Sprintf("system_%s_%d_0", chatJID.User, time.Unix(stubTS, 0).UnixNano())
 							writes = append(writes, func(tx sqlExecer) {
 								if _, err := tx.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, status, media_type)
@@ -1501,10 +1318,6 @@ func eventHandler(evt interface{}) {
 						continue
 					}
 					if evtMsg.Message.GetEncReactionMessage() != nil {
-						// Same announcement-group encrypted-reaction case as the
-						// live-event path below - decrypt it instead of letting
-						// it fall through to extractText's "[Unsupported
-						// Message]" and get inserted as a bogus chat message.
 						if reaction, err := wa().DecryptReaction(context.Background(), evtMsg); err == nil {
 							writes = append(writes, func(tx sqlExecer) { storeReactionTx(tx, jid, evtMsg, reaction) })
 						} else {
@@ -1513,8 +1326,6 @@ func eventHandler(evt interface{}) {
 						continue
 					}
 					if update := unwrapMessage(evtMsg.Message).GetPollUpdateMessage(); update != nil {
-						// A vote is not a message of its own: record it on
-						// its poll instead of storing an empty row.
 						if vote, err := decryptPollVote(evtMsg); err == nil {
 							pollID, voter := update.GetPollCreationMessageKey().GetID(), pollVoterKey(evtMsg.Info.Sender)
 							ts := evtMsg.Info.Timestamp.Unix()
@@ -1527,7 +1338,6 @@ func eventHandler(evt interface{}) {
 						writes = append(writes, func(tx sqlExecer) { historyPollVotes(tx, chatJID, pollMsg) })
 					}
 					if enc := unwrapMessage(evtMsg.Message).GetEncEventResponseMessage(); enc != nil {
-						// An RSVP is recorded on its event, like a vote.
 						if resp, err := decryptEventResponse(evtMsg); err == nil {
 							eventID, responder := enc.GetEventCreationMessageKey().GetID(), pollVoterKey(evtMsg.Info.Sender)
 							ts := evtMsg.Info.Timestamp.Unix()
@@ -1541,10 +1351,6 @@ func eventHandler(evt interface{}) {
 					}
 
 					if album := unwrapMessage(evtMsg.Message).GetAlbumMessage(); album != nil {
-						// Same header-only stanza as the live path, but here
-						// the media it announces is being written in this very
-						// loop, so the grouping is applied by SQL once the
-						// batch has landed rather than as each one arrives.
 						headerID := evtMsg.Info.ID
 						if headerID == "" && webMsg.Key != nil {
 							headerID = webMsg.GetKey().GetID()
@@ -1695,33 +1501,13 @@ func eventHandler(evt interface{}) {
 				stampAlbumMembers(album.id, album.jid, album.senderJID, album.timestamp, album.expected)
 			}
 			if len(convLIDPairs) > 0 {
-				// A conversation can be the chat of a contact's old account
-				// (their number moved to a new one), naming the old LID.
-				// Stored over the current one, every message sent to the
-				// number went to that old chat, which the phone shows as a
-				// second chat for the same person, outside the chat lock.
-				// Its rows are already under the phone JID (chunkPNs), so
-				// only numbers without a LID yet take the pair.
 				wa().StoreObservedLIDMappings(context.Background(), convLIDPairs)
 			}
 			loopTook := time.Since(chunkStart)
 			tailStart := time.Now()
-			// Only this chunk's chats can have a new latest message.
 			for _, j := range syncedJIDs {
 				UpdateChatSnippet(j)
 			}
-			// The all-chats snippet pass and the contact/group re-sync (which
-			// also fetches the group list from WhatsApp) cost more the bigger
-			// the database gets. Running them whenever the queue was empty
-			// meant nearly every chunk, since the phone sends slower than we
-			// write - all while holding historySyncMutex. They now run once the
-			// sync has gone quiet, outside the lock.
-			//
-			// Not for an on-demand chunk: that's older messages for one chat,
-			// whose preview (its newest message) can't change from them, and it
-			// brings no new chats, contacts or groups. Refreshing after each one
-			// re-read every chat's preview and fetched the group list again for
-			// every 50 older messages loaded.
 			if v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND {
 				scheduleHistorySyncRefresh()
 			}
@@ -1804,8 +1590,6 @@ func eventHandler(evt interface{}) {
 				return
 			}
 		}
-		// A channel admin's edit or deletion of a post comes as the post's
-		// own ID with an edit attribute: the new content, or nothing.
 		if v.Info.Chat.Server == types.NewsletterServer {
 			switch v.Info.Edit {
 			case types.EditAttributeAdminRevoke:
@@ -1867,14 +1651,9 @@ func eventHandler(evt interface{}) {
 			editTime := v.Info.Timestamp.Unix()
 			if targetID != "" {
 				func() {
-					// An edit made on another of our devices reaches us as a
-					// normal message; its receipts will name this stanza too.
 					if v.Info.IsFromMe {
 						recordEditStanza(v.Info.ID, targetID, jid, editTime)
 					}
-					// Broadcast the merged text, not the edit's bare text: a
-					// caption edit carries only the caption, and the row
-					// would otherwise lose its "[Image]" marker on screen.
 					shown, _ := markMessageEdited(targetID, jid, newContent, newText, editTime)
 					broadcastEvent("message_edited", map[string]interface{}{
 						"jid":        jid,
@@ -1931,12 +1710,6 @@ func eventHandler(evt interface{}) {
 			return
 		}
 		if unwrappedMsg.GetEncReactionMessage() != nil {
-			// Reactions in community announcement groups are delivered as
-			// EncReactionMessage (encrypted separately from the outer stanza,
-			// since only admins can post but anyone can react). Without this,
-			// GetReactionMessage() above is nil, extractText falls through to
-			// "[Unsupported Message]", and the reaction gets inserted as a
-			// bogus standalone chat message instead of being applied.
 			reaction, err := wa().DecryptReaction(context.Background(), v)
 			if err != nil {
 				log.Printf("Failed to decrypt announcement-group reaction from %s: %v", v.Info.Sender, err)
@@ -1951,8 +1724,6 @@ func eventHandler(evt interface{}) {
 		}
 
 		if album := unwrappedMsg.GetAlbumMessage(); album != nil {
-			// Header only, no content of its own - remember it so the media
-			// that follows can be grouped, and store nothing.
 			albumChat, albumSender := resolveLIDChat(v)
 			if registerAlbum(albumChat.String(), albumSender.String(), v.Info.ID, album) {
 				log.Printf("Album header %s from %s: expecting %d media", v.Info.ID, albumSender,
@@ -1988,10 +1759,6 @@ func eventHandler(evt interface{}) {
 			text = viewOnceText(text)
 		}
 		if text == "[Unsupported Message]" && v.Info.Sender.IsBot() {
-			// Bots (Meta AI etc.) occasionally ship new response primitives
-			// richResponseText doesn't cover yet - dump the decrypted message
-			// so a new one can be identified and added there.
-			// Structure only unless verbose logging is on - this is message content.
 			if *verboseLogFlag {
 				log.Printf("Unrecognized bot message content from %s: %s", v.Info.Sender, unwrapMessage(v.Message).String())
 			} else {
@@ -2000,11 +1767,6 @@ func eventHandler(evt interface{}) {
 		}
 		if (v.Info.MsgBotInfo.EditType == types.EditTypeInner || v.Info.MsgBotInfo.EditType == types.EditTypeLast) &&
 			v.Info.MsgBotInfo.EditTargetID != "" {
-			// A bot streams one reply as a sequence of frames sharing the
-			// first frame's message ID via edit_target_id ("first" once,
-			// then "inner" repeatedly as it generates, then "last") rather
-			// than sending the finished text once - collapse them into
-			// updates of that first bubble instead of a new one per frame.
 			resolvedChat, _ := resolveLIDChat(v)
 			jid := resolvedChat.String()
 			targetID := v.Info.MsgBotInfo.EditTargetID
@@ -2025,20 +1787,12 @@ func eventHandler(evt interface{}) {
 		}
 		debugf("Received events.Message. ID: %s, Sender: %s, Chat: %s, text length: %d", v.Info.ID, v.Info.Sender.String(), v.Info.Chat.String(), len(text))
 
-		// Claimed here rather than inside the goroutine below so that media
-		// gets stamped in arrival order, which is the order the album header
-		// counted them in.
 		albumID := ""
 		if mt, _, _, _ := mediaInfoFromMessage(v.Message); mt == "image" || mt == "video" {
 			albumChat, albumSender := resolveLIDChat(v)
 			albumID = claimAlbumID(albumChat.String(), albumSender.String())
 		}
 
-		// Stored before the handler returns, not on a goroutine of its own:
-		// whatsmeow counts the event as handled (and drops its buffered
-		// plaintext) once we return, and events are handled in the order they
-		// arrive - so an edit or delete that follows this message can no longer
-		// be applied before the message itself exists.
 		func() {
 			chatJID, senderJID := resolveLIDChat(v)
 
@@ -2075,9 +1829,6 @@ func eventHandler(evt interface{}) {
 			if err != nil {
 				fmt.Println("Error updating chat timestamp:", err)
 			}
-			// A group we have no name for - just joined, or the join notice
-			// hasn't been handled yet - is looked up, as WhatsApp Web does,
-			// rather than listed as its bare JID.
 			if chatJID.Server == types.GroupServer {
 				var name string
 				db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid).Scan(&name)
@@ -2174,13 +1925,6 @@ func eventHandler(evt interface{}) {
 	case *events.Contact:
 		invalidateDisplayNames()
 		if v.FromFullSync && !v.Removed {
-			// A full app-state sync (first link, or a resync) delivers every
-			// address-book entry at once - thousands of events, each of which
-			// cost a goroutine, two single-row writes and a chat-list rebuild,
-			// all fighting history sync for SQLite's write lock. whatsmeow has
-			// already stored the name itself, and the AppStateSyncComplete that
-			// ends the sync reruns populateChatsFromStore, which writes every
-			// contact (LID twins merged) in batches.
 			return
 		}
 		go func() {
@@ -2200,8 +1944,6 @@ func eventHandler(evt interface{}) {
 				}
 			}
 			if fullName != "" {
-				// whatsmeow already stored this name (with the real first name)
-				// before dispatching the event.
 				phone := ""
 				if pj, err := types.ParseJID(jidStr); err == nil && pj.Server == types.DefaultUserServer {
 					phone = pj.User
@@ -2258,17 +2000,7 @@ func eventHandler(evt interface{}) {
 		connFailures.Store(0)
 		if wa().Store.ID != nil {
 			setConnState(connStateOnline, "", 0)
-			// Deliberately not resetting history-sync progress here: this event
-			// also fires on every keepalive-triggered auto-reconnect, not just
-			// the first connect of a session (that case is covered once in
-			// main.go). A sync spanning a large account can easily outlast a
-			// couple of those blips, and zeroing the counters (or the frontend
-			// clobbering its "Syncing history..." status text back to plain
-			// "Connected") on each one made the status look stalled or reset
-			// while it was still writing in the background.
 			broadcastEvent("connected", map[string]string{"jid": wa().Store.ID.String()})
-			// Whatever the window's actually doing - not "available" on every
-			// reconnect regardless (see desiredPresence).
 			go sendDesiredPresence(true)
 			go retryPendingTextMessages()
 			go flushPendingResends()
@@ -2302,17 +2034,11 @@ func eventHandler(evt interface{}) {
 			broadcastEvent("needs_login", map[string]string{"reason": reason})
 		}()
 	case *events.StreamReplaced:
-		// Another client (a second copy of the backend, or this account
-		// linked from elsewhere) took over this session's connection.
-		// whatsmeow won't auto-reconnect after this - doing so immediately
-		// would just bounce the other session right back off.
 		log.Println("Session replaced by another connection")
 		msg := "whatSnap was disconnected because this WhatsApp account connected from another session. Use Reconnect Now in the Account menu to take the session back."
 		broadcastEvent("error", map[string]string{"message": msg})
 		setConnState(connStateStopped, "Disconnected: this account connected from another session.", 0)
 	case *events.TemporaryBan:
-		// whatsmeow stops reconnecting on a temp ban; try again once it
-		// should have lifted rather than staying offline until a restart.
 		log.Println("Temporary ban:", v.String())
 		broadcastEvent("error", map[string]string{"message": v.String()})
 		if v.Expire > 0 {
@@ -2331,21 +2057,13 @@ func eventHandler(evt interface{}) {
 		log.Println("CAT refresh error:", v.Error)
 		scheduleRetryAfterFailure("Couldn't refresh WhatsApp's connection token.")
 	case *events.ConnectFailure:
-		// Reasons whatsmeow doesn't know how to recover from: it has
-		// already given up, so retry ourselves instead of leaving the app
-		// permanently offline behind an error popup.
 		log.Println("Unhandled connect failure:", v.Reason.String(), v.Message)
 		scheduleRetryAfterFailure("WhatsApp refused the connection (" + v.Reason.String() + ").")
 	case *events.StreamError:
 		log.Println("Unknown stream error, code:", v.Code)
 	case *events.Disconnected:
-		// whatsmeow's own reconnect loop is already running; autoReconnectHook
-		// reports any failed attempts from there.
 		setConnState(connStateConnecting, "Connection lost.", 0)
 	case *events.KeepAliveTimeout:
-		// The server stopped answering pings. The socket still looks open,
-		// but nothing is getting through, so stop claiming to be online;
-		// Reconnect Now then dials a fresh connection instead of trusting it.
 		log.Printf("Keepalive timed out (%d in a row, last answer %s ago)", v.ErrorCount, time.Since(v.LastSuccess).Round(time.Second))
 		if currentConnState()["state"] == connStateOnline {
 			setConnState(connStateConnecting, "Not responding.", 0)
@@ -2420,9 +2138,6 @@ func eventHandler(evt interface{}) {
 			}
 			receiptTS := v.Timestamp.Unix()
 			resolvedChatJID := chatJID
-			// One member's receipt for our own group message only counts
-			// towards that member; the message's own ticks follow the whole
-			// group (see updateGroupMessageStatuses).
 			updatedByStatus := map[string][]string{}
 			if chatJID.Server == "g.us" && !v.MessageSource.IsFromMe && (status == "delivered" || status == "read" || status == "played") {
 				updateParticipantReceiptIfNewer(ids, senderJID.String(), status, receiptTS)
@@ -2431,7 +2146,6 @@ func eventHandler(evt interface{}) {
 				updatedByStatus[status] = updated
 			}
 			if len(updatedByStatus) > 0 {
-				// The chat list draws your last message's ticks.
 				broadcastChats()
 			}
 			for newStatus, updated := range updatedByStatus {
@@ -2598,9 +2312,6 @@ func eventHandler(evt interface{}) {
 			})
 		}()
 	case *events.ClearChat:
-		// Previously nothing here at all - clearing a chat from the phone
-		// or another linked device left this app's copy of the chat's
-		// messages in place indefinitely.
 		go func() {
 			jidStr := preferPN(v.JID).String()
 			purgeMessages("jid = ?", jidStr)
@@ -2625,14 +2336,11 @@ func eventHandler(evt interface{}) {
 			if v.Remove {
 				updateContactAvatarCache(jidStr, "", "")
 			}
-			// The chat list may know them by their phone number instead.
 			forgetAvatarPreview(jidStr)
 			if pn := preferPN(v.JID).String(); pn != jidStr {
 				forgetAvatarPreview(pn)
 				broadcastEvent("avatar_updated", map[string]interface{}{"jid": pn, "removed": v.Remove})
 			}
-			// A group's icon change is also a line in the group, as in the
-			// official apps.
 			if v.JID.Server == types.GroupServer && !v.Timestamp.IsZero() {
 				insertGroupSystemMessage(jidStr, fmt.Sprintf("system_%s_%d_picture", v.JID.User, v.Timestamp.UnixNano()),
 					groupPictureChangeText(v.Author, v.Remove), v.Timestamp)
@@ -2686,10 +2394,6 @@ func eventHandler(evt interface{}) {
 	case *events.GroupInfo:
 		invalidateJoinedGroups()
 		if _, deleting := pendingGroupDeletes.Load(v.JID.String()); deleting {
-			// This group is mid-"delete chat and exit group" - most likely
-			// this very event is the "You left" notification LeaveGroup just
-			// triggered. Applying it (as usual, an unconditional upsert)
-			// would resurrect the chat row the delete is about to remove.
 			return
 		}
 		go func() {
@@ -2704,7 +2408,6 @@ func eventHandler(evt interface{}) {
 				setChatDisappearing(v.JID.String(), seconds, v.Timestamp.Unix())
 			}
 
-			// Who may send here changed: the chat list carries it to the composer.
 			sendRightsChanged := false
 			if v.Announce != nil {
 				db.Exec("UPDATE chats SET admins_only = ? WHERE jid = ?", boolToInt(v.Announce.IsAnnounce), v.JID.String())
@@ -2730,9 +2433,6 @@ func eventHandler(evt interface{}) {
 				if isParticipantMe(types.GroupParticipant{JID: j}) {
 					markGroupJoined(v.JID.String(), true)
 					sendRightsChanged = true
-					// Being added to a group (or let in after asking) comes as
-					// this member change, not as JoinedGroup, and carries no
-					// name: ask the server, as WhatsApp Web does.
 					requestGroupMetadata(v.JID)
 				}
 			}
@@ -2749,8 +2449,6 @@ func eventHandler(evt interface{}) {
 				applyCommunityLinkChange(v, v.Unlink, false)
 			}
 
-			// Keep the member count behind group ticks current between
-			// joined-groups refreshes.
 			if delta := len(v.Join) - len(v.Leave); delta != 0 {
 				db.Exec(`UPDATE chats SET participant_count = MAX(0, participant_count + ?) WHERE jid = ? AND participant_count > 0`, delta, v.JID.String())
 			}
@@ -2769,8 +2467,6 @@ func eventHandler(evt interface{}) {
 	case *events.NewsletterJoin, *events.NewsletterLeave, *events.NewsletterMuteChange, *events.NewsletterLiveUpdate:
 		handleChannelEvent(v)
 	case *events.GroupsDirty:
-		// whatsmeow has dropped its cached info for these groups; refresh
-		// ours (names, admin status, community structure) the same way.
 		log.Printf("Server marked %d groups as out of date; refreshing", len(v.Groups))
 		go func() {
 			invalidateJoinedGroups()
@@ -2787,8 +2483,6 @@ func eventHandler(evt interface{}) {
 				broadcastChats()
 			}()
 		case whatsmeow.DirtyTypeAccountSync:
-			// Account data changed while we were away; the blocklist is the
-			// part of it kept here.
 			go refreshBlocklist()
 		}
 	case *events.JoinedGroup:
@@ -2831,17 +2525,12 @@ func eventHandler(evt interface{}) {
 			"jid": v.JID.String(),
 		})
 	case *events.Blocklist:
-		// Whatever changed, the server's list says who it is by number too.
 		go refreshBlocklist()
 	case *events.ABPropsRefreshed:
 		go refreshServerFlags()
 	}
 }
 
-// joinedNamesList formats a list of JIDs as "A", "A and B", or "A, B and C",
-// matching how the official app lists multiple participants in one
-// group-change line. Each person is a name token (see nameToken), named when
-// the line is shown.
 func joinedNamesList(jids []types.JID) string {
 	names := make([]string, 0, len(jids))
 	for _, j := range jids {
@@ -2857,10 +2546,6 @@ func joinedNamesList(jids []types.JID) string {
 	}
 }
 
-// groupChangeMessages turns a GroupInfo event's participant/admin changes
-// into the human-readable lines the official WhatsApp app shows inline in the
-// chat (e.g. "Aryan added Rishit", "Rishit left"). Returns one line per kind
-// of change present in the event.
 func groupChangeMessages(v *events.GroupInfo) []string {
 	var lines []string
 	actor := ""
@@ -2874,8 +2559,6 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 		who = "Someone"
 	}
 
-	// Settings first: a subject change is index 0, the same id history sync
-	// gives its GROUP_CHANGE_SUBJECT stub, so a resync doesn't repeat it.
 	if v.Name != nil && v.Name.Name != "" {
 		lines = append(lines, fmt.Sprintf("%s changed the group name to \"%s\"", who, v.Name.Name))
 	}
@@ -2955,7 +2638,6 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 		}
 	}
 
-	// The official apps name the person by their new number here.
 	for _, j := range v.Modify {
 		lines = append(lines, fmt.Sprintf("%s changed their phone number", nameToken(j)))
 	}
@@ -2972,17 +2654,10 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	return lines
 }
 
-// historySyncStallThreshold is how long one chunk may take to write before
-// the backend records what every goroutine is doing - a chunk normally takes
-// well under a second per few thousand messages, so anything past this is
-// almost certainly stuck behind a lock.
 const historySyncStallThreshold = 8 * time.Second
 
 var lastStallDump atomic.Int64
 
-// dumpGoroutinesForStall writes every goroutine's stack to
-// logs/stall-<time>.txt (at most once a minute), so a lock stall can be traced
-// to exactly who holds what and who is waiting on it.
 func dumpGoroutinesForStall(reason string) {
 	now := time.Now()
 	if last := lastStallDump.Load(); last != 0 && now.Sub(time.Unix(0, last)) < time.Minute {
@@ -3015,13 +2690,8 @@ var (
 	historySyncRefreshTimer *time.Timer
 )
 
-// historySyncRefreshDelay is how long history sync has to stay quiet before
-// the full chat-list refresh runs.
 const historySyncRefreshDelay = 10 * time.Second
 
-// scheduleHistorySyncRefresh (re)arms the all-chats snippet pass and the
-// contact/group re-sync to run once no chunk has finished for
-// historySyncRefreshDelay and none are waiting to be written.
 func scheduleHistorySyncRefresh() {
 	historySyncRefreshMu.Lock()
 	defer historySyncRefreshMu.Unlock()
@@ -3043,26 +2713,11 @@ func scheduleHistorySyncRefresh() {
 var (
 	historySyncCheckpointMu  sync.Mutex
 	historySyncCheckpointGen int
-	// historySyncPending counts HistorySync chunks received but not yet
-	// written - each one waits its turn on historySyncMutex.
-	historySyncPending atomic.Int32
+	historySyncPending       atomic.Int32
 )
 
-// historySyncCheckpointDelay is how long after the final history-sync chunk
-// the WAL is folded back into the main database.
 const historySyncCheckpointDelay = 5 * time.Second
 
-// scheduleHistorySyncCheckpoint folds the WAL back into session.db once a
-// full history sync is done. It leaves tens of MB in -wal, and SQLite's
-// automatic checkpoint only moves that across in small passive steps
-// piggybacked on later writes, so session.db kept creeping up in bursts with
-// multi-second stalls long after the sync itself was done. One TRUNCATE
-// checkpoint does it in a single pass and shrinks -wal back to zero.
-//
-// Only called for the final chunk: an earlier version ran it after any 5s
-// lull, but the phone regularly pauses that long between chunks, so it
-// checkpointed mid-sync, held up the next chunk while it ran, and made
-// SQLite regrow a truncated -wal from scratch - a full sync got slower.
 func scheduleHistorySyncCheckpoint() {
 	historySyncCheckpointMu.Lock()
 	historySyncCheckpointGen++
@@ -3079,9 +2734,6 @@ func runHistorySyncCheckpointAfter(gen, attempt int) {
 		if stale {
 			return
 		}
-		// The final chunk isn't necessarily the last one written - chunks
-		// wait on historySyncMutex in no particular order. Wait until none
-		// are left rather than checkpointing between them.
 		if historySyncPending.Load() > 0 {
 			runHistorySyncCheckpointAfter(gen, attempt)
 			return
@@ -3096,18 +2748,11 @@ func runHistorySyncCheckpointAfter(gen, attempt int) {
 		}
 		log.Printf("History sync WAL checkpoint: busy=%d took=%s", busy, time.Since(start).Round(time.Millisecond))
 		if busy != 0 && attempt < 3 {
-			// A reader held an old snapshot past the busy timeout; the
-			// frames it pinned are still in -wal. Try again later - and if
-			// it keeps failing, SQLite's own passive checkpoints still get
-			// there eventually.
 			runHistorySyncCheckpointAfter(gen, attempt+1)
 		}
 	})
 }
 
-// appStateChatJID turns the chat JID in an app-state mutation index into the
-// phone JID the chats table is keyed by - newer accounts' indexes can carry
-// @lid JIDs.
 func appStateChatJID(raw string) string {
 	j, err := types.ParseJID(raw)
 	if err != nil {
@@ -3116,8 +2761,6 @@ func appStateChatJID(raw string) string {
 	return preferPN(j).String()
 }
 
-// preferPN swaps a @lid for the phone JID it maps to, when known - the
-// messages table and the frontend's contact lookups are keyed by phone JID.
 func preferPN(jid types.JID) types.JID {
 	jid = jid.ToNonAD()
 	if jid.Server == types.HiddenUserServer && wa() != nil {
@@ -3128,8 +2771,6 @@ func preferPN(jid types.JID) types.JID {
 	return jid
 }
 
-// historyStubActor is whoever caused a history-sync stub entry (the person
-// who deleted a message, added someone, ...), as a phone JID when known.
 func historyStubActor(webMsg *waWeb.WebMessageInfo) types.JID {
 	raw := webMsg.GetParticipant()
 	if raw == "" {
@@ -3145,9 +2786,6 @@ func historyStubActor(webMsg *waWeb.WebMessageInfo) types.JID {
 	return preferPN(jid)
 }
 
-// historyStubJIDs parses a stub's parameters as participant JIDs. Newer
-// WhatsApp versions sometimes send a small JSON object per participant
-// instead of a bare JID, so both are accepted; anything else is skipped.
 func historyStubJIDs(params []string) []types.JID {
 	var jids []types.JID
 	for _, p := range params {
@@ -3171,9 +2809,6 @@ func historyStubJIDs(params []string) []types.JID {
 	return jids
 }
 
-// historyStubText describes a history-sync group-event stub with the same
-// wording groupChangeMessages uses for the live event, or "" for stub types
-// the live path doesn't show either.
 func historyStubText(webMsg *waWeb.WebMessageInfo) string {
 	actor := ""
 	if a := historyStubActor(webMsg); !a.IsEmpty() {
@@ -3254,8 +2889,6 @@ func historyStubText(webMsg *waWeb.WebMessageInfo) string {
 	return ""
 }
 
-// messageHistoryNoticeText renders the system notice when recent group history
-// is shared with newly added participants.
 func messageHistoryNoticeText(notice *waE2E.MessageHistoryNotice, sender types.JID) string {
 	if notice == nil {
 		return ""
@@ -3285,9 +2918,6 @@ func messageHistoryNoticeText(notice *waE2E.MessageHistoryNotice, sender types.J
 	}
 }
 
-// insertGroupSystemMessage stores a synthesized "X added Y"-style line as a
-// message row (media_type "system") so it persists in history and appears in
-// the chat the same way a real message does, then broadcasts it live.
 func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
 	if text == "" {
 		return
@@ -3335,11 +2965,6 @@ var (
 	populateChatsPending bool
 )
 
-// populateChatsFromStore is called from many event handlers that can fire in
-// a burst (reconnect, history sync, bulk group joins). Without coalescing,
-// each call redundantly re-queries the whole joined-groups list over the
-// wire and races the others' chats-table writes against each other.
-// Concurrent calls collapse into one run followed by at most one more.
 func populateChatsFromStore() {
 	populateChatsMu.Lock()
 	if populateChatsRunning {
@@ -3377,31 +3002,14 @@ func populateChatsFromStoreOnce() {
 		return
 	}
 
-	// The same person is often stored twice - once under their phone JID
-	// (usually carrying the address-book name) and once under their @lid
-	// (usually nameless) - and both resolve to the same phone JID below.
-	// Writing each store entry straight to the cache let whichever came
-	// last in Go's random map order win, so a nameless twin's "+<phone>"
-	// fallback regularly overwrote the real name: the contact picker showed
-	// only a number for people whose name was known all along, and which
-	// people were affected changed from sync to sync. Merge the twins first
-	// and keep the best name instead.
 	type mergedContact struct {
 		name       string
-		nameRank   int // 3 = address-book name, 2 = push name, 1 = business name, 0 = "+<phone>"/none
+		nameRank   int
 		phone      string
 		isBusiness bool
 	}
 	merged := make(map[string]*mergedContact, len(allContacts))
 	var order []string
-	// Once a @lid identity resolves to its phone-number JID, its contact gets
-	// merged into (and written under) the PN's jidStr below - but a *previous*
-	// run, before the mapping was known, may already have written that same
-	// @lid as its own separate contacts_cache row (usually nameless/push-name
-	// only). Nothing ever deleted that stale row, so the picker went on
-	// showing both the resolved "Name +91 xxx" entry and the leftover
-	// "PushName +1 <lid-as-fake-phone>" twin forever. Track every @lid that
-	// resolves this run and delete its stale row once the merge is written.
 	var resolvedLIDJIDs []string
 	for jid, contact := range allContacts {
 		targetJID := jid.ToNonAD()
@@ -3484,11 +3092,7 @@ func populateChatsFromStoreOnce() {
 			tx.Exec(`DELETE FROM contacts_cache WHERE jid = ?`, lidJIDStr)
 		})
 	}
-	// Thousands of contacts, each its own autocommit write, made this the
-	// slowest part of every refresh. Everything above that touches
-	// whatsmeow's stores is already done, so these can be batched.
 	writeBatch(contactWrites)
-	// Names may have changed in the store or the cache above.
 	invalidateDisplayNames()
 	healStaleUnreadCounts()
 
@@ -3522,9 +3126,6 @@ func populateChatsFromStoreOnce() {
 			if err != nil {
 				continue
 			}
-			// Only the server knows a group's name; a person's can be
-			// worked out here. The group list just written named every group
-			// we're in, so this is only for when fetching it failed.
 			if pj.Server == types.GroupServer {
 				if joinedGroupsSnapshot == nil {
 					requestGroupMetadata(pj)
@@ -3591,8 +3192,6 @@ func populateChatsFromStoreOnce() {
 	// entry for contacts who were never chatted with, and those must go.
 	const emptyChat = `timestamp = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)`
 	db.Exec("DELETE FROM chats WHERE jid NOT LIKE '%@g.us' AND " + emptyChat)
-	// Without the server's list there is no telling which groups we are in,
-	// so no group is removed on a refresh where fetching it failed.
 	if joinedGroupsSnapshot != nil {
 		if emptyGroups, qErr := db.Query("SELECT jid FROM chats WHERE jid LIKE '%@g.us' AND " + emptyChat); qErr == nil {
 			var left []string
@@ -3608,19 +3207,10 @@ func populateChatsFromStoreOnce() {
 			}
 		}
 	}
-	// Channels we follow stay (see syncFollowedChannels); any other channel
-	// row is one history sync brought in, and isn't ours to show.
 	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR (jid LIKE '%@newsletter' AND COALESCE(is_channel, 0) = 0) OR jid LIKE '%@broadcast'")
 	go syncFollowedChannelsThrottled()
 }
 
-// handleIncomingStatus stores a Status/Stories post (someone else's, or our
-// own posted from another linked device) using the exact same messages-table
-// row shape as a normal message, just under the reserved "status@broadcast"
-// jid, which the rest of the app already treats as invisible to the regular
-// chat list (see isIgnoredChatJID). Reusing that table means every existing
-// media download/open/save code path (keyed purely by message ID) works for
-// status media with zero changes.
 func handleIncomingStatus(v *events.Message) {
 	text := extractText(v.Message)
 	if text == "[Protocol Message]" || text == "[Unsupported Message]" {
@@ -3655,23 +3245,12 @@ func handleIncomingStatus(v *events.Message) {
 }
 
 var (
-	appStateResyncMu    sync.Mutex
-	lastAppStateResync  = make(map[appstate.WAPatchName]time.Time)
-	appStateResyncCount = make(map[appstate.WAPatchName]int)
-	// lastFatalRecoveryRequest tracks the last time we asked our own primary
-	// device (the phone) for an unencrypted snapshot of a collection, because
-	// that request is a message sent to the phone rather than a plain HTTP-ish
-	// IQ - worth a longer, separate backoff so a phone that's briefly offline
-	// doesn't get hit repeatedly while the regular resync loop keeps retrying.
+	appStateResyncMu         sync.Mutex
+	lastAppStateResync       = make(map[appstate.WAPatchName]time.Time)
+	appStateResyncCount      = make(map[appstate.WAPatchName]int)
 	lastFatalRecoveryRequest = make(map[appstate.WAPatchName]time.Time)
 )
 
-// requestAppStateFatalRecovery asks our own primary device (the phone, if
-// we're a companion) to send an unencrypted snapshot of an app-state
-// collection whose server-side copy has itself failed LTHash verification.
-// Gated by a 5-minute backoff separate from the regular resync counters,
-// since this reaches the phone rather than the server and shouldn't be
-// retried on the same tight loop.
 func requestAppStateFatalRecovery(name appstate.WAPatchName) {
 	appStateResyncMu.Lock()
 	if wait := 5*time.Minute - time.Since(lastFatalRecoveryRequest[name]); wait > 0 {
@@ -3700,8 +3279,6 @@ func isDatabaseLocked(err error) bool {
 	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "SQLITE_BUSY")
 }
 
-// retryAppStateAfterLock re-fetches an app-state collection whose sync failed
-// on a database lock, backing off 15s, 30s, ... up to five times.
 func retryAppStateAfterLock(name appstate.WAPatchName, attempt int) {
 	if attempt >= 5 {
 		log.Printf("App state %s: still hitting database locks after %d retries, giving up until next connection", name, attempt)
@@ -3720,8 +3297,6 @@ func retryAppStateAfterLock(name appstate.WAPatchName, attempt int) {
 			appStateResyncMu.Lock()
 			appStateResyncCount[name] = 0
 			appStateResyncMu.Unlock()
-			// Saved contact names land in the contact store; carry them
-			// through to the chat list and contact picker.
 			populateChatsFromStore()
 			broadcastChats()
 		case isDatabaseLocked(err):
@@ -3842,8 +3417,6 @@ func isParticipantMe(p types.GroupParticipant) bool {
 	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
 		return false
 	}
-	// Each address is compared with ours of the same kind: a LID whose digits
-	// happen to spell our phone number is somebody else.
 	myJID := wa().Store.ID.ToNonAD()
 	myLID := wa().Store.GetLID().ToNonAD()
 	isMe := func(j types.JID) bool {
@@ -3878,10 +3451,6 @@ func isViewerAdmin(info *types.GroupInfo) bool {
 	return false
 }
 
-// videoText is a video's text in a chat: "[Video]" and its caption, and for
-// a GIF what it shows, from the description GIPHY or Tenor gave it, which
-// WhatsApp sends along ("[Video] GIF: Cat waving. hi"). The "[Video]" tag
-// stays, since that's what marks it as playable media.
 func videoText(video *waE2E.VideoMessage) string {
 	text := "[Video]"
 	if video.GetGifPlayback() {

@@ -14,10 +14,6 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-// Our own profile photo, and the default disappearing message timer new
-// chats start with.
-
-// profilePhotoEdge is the size WhatsApp keeps profile photos at.
 const profilePhotoEdge = 640
 
 type SetOwnPhotoData struct {
@@ -29,8 +25,6 @@ type DefaultTimerData struct {
 	Seconds int `json:"seconds"`
 }
 
-// profilePhotoJPEG makes a picture into a profile photo: its middle square,
-// at most profilePhotoEdge across, as a JPEG.
 func profilePhotoJPEG(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -54,7 +48,6 @@ func profilePhotoJPEG(path string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// handleSetOwnPhoto changes or removes our profile photo.
 func handleSetOwnPhoto(conn net.Conn, raw json.RawMessage) {
 	var data SetOwnPhotoData
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -69,7 +62,6 @@ func handleSetOwnPhoto(conn net.Conn, raw json.RawMessage) {
 				return
 			}
 		}
-		// An empty target is our own photo.
 		pictureID, err := wa().SetGroupPhoto(context.Background(), types.EmptyJID, photo)
 		if err != nil {
 			sendEvent(conn, "error", map[string]string{"message": "Couldn't change your profile photo: " + err.Error()})
@@ -84,7 +76,6 @@ func handleSetOwnPhoto(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-// handleGetDefaultTimer tells the UI the default disappearing message timer.
 func handleGetDefaultTimer(conn net.Conn) {
 	timer, err := wa().GetDefaultDisappearingTimer(context.Background())
 	if err != nil {

@@ -6,7 +6,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Protected DACL granting full access to the current user and nobody else.
 func currentUserPipeSDDL() (string, error) {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {

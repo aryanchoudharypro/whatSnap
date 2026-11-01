@@ -1,15 +1,3 @@
-//! `--sign`, run as administrator: signs the Share menu package with a
-//! certificate made here, and makes Windows trust that certificate.
-//!
-//! The private key is deleted as soon as the package is signed, so nothing
-//! can sign another package with this certificate. The certificate (public
-//! part only) goes into the machine's Trusted People store, which is where
-//! Windows looks for package signers and the step that needs administrator
-//! rights. Certificates from earlier runs are replaced.
-//!
-//! Signing follows Microsoft's "How to programmatically sign an app package"
-//! (SignerSignEx2 with an APPX_SIP_CLIENT_DATA).
-
 use std::ffi::c_void;
 
 use windows::{
@@ -23,7 +11,6 @@ use windows::{
 
 use crate::package::{PUBLISHER, local_dir, log, signed_package, signed_source, unsigned_package};
 
-/// SIGNER_SIGN_EX2_PARAMS, which the windows crate doesn't define.
 #[repr(C)]
 struct SignerSignEx2Params {
 	flags: u32,
@@ -41,7 +28,6 @@ struct SignerSignEx2Params {
 	reserved: *const c_void,
 }
 
-/// APPX_SIP_CLIENT_DATA: what the package SIP needs to sign an .msix.
 #[repr(C)]
 struct AppxSipClientData {
 	signer_params: *const SignerSignEx2Params,
@@ -50,7 +36,6 @@ struct AppxSipClientData {
 
 const ENCODING: CERT_QUERY_ENCODING_TYPE = CERT_QUERY_ENCODING_TYPE(X509_ASN_ENCODING.0 | PKCS_7_ASN_ENCODING.0);
 
-/// Encodes a CryptoAPI structure, asking for its size first.
 unsafe fn encode(struct_type: PCSTR, info: *const c_void) -> windows::core::Result<Vec<u8>> {
 	let mut size = 0u32;
 	unsafe {
@@ -70,9 +55,6 @@ unsafe fn encode(struct_type: PCSTR, info: *const c_void) -> windows::core::Resu
 	}
 }
 
-/// A 2048-bit RSA key in the software key storage provider, saved under
-/// `name` (signing finds keys by name, the way signtool's do); `sign_package`
-/// deletes it as soon as the package is signed.
 unsafe fn create_key(name: &HSTRING) -> windows::core::Result<NCRYPT_KEY_HANDLE> {
 	unsafe {
 		let mut provider = NCRYPT_PROV_HANDLE::default();
@@ -99,19 +81,15 @@ unsafe fn create_key(name: &HSTRING) -> windows::core::Result<NCRYPT_KEY_HANDLE>
 	}
 }
 
-/// Today plus `years`, in the form the certificate wants.
 fn years_from_now(years: u16) -> SYSTEMTIME {
 	let mut time = unsafe { GetSystemTime() };
 	time.wYear += years;
-	// 29 February doesn't exist in most years.
 	if time.wMonth == 2 && time.wDay == 29 {
 		time.wDay = 28;
 	}
 	time
 }
 
-/// A yesterday's date, so a clock that's a little behind doesn't make the
-/// certificate not yet valid.
 fn yesterday() -> SYSTEMTIME {
 	let now = unsafe { GetSystemTime() };
 	let mut file_time = FILETIME::default();
@@ -127,7 +105,6 @@ fn yesterday() -> SYSTEMTIME {
 	out
 }
 
-/// Makes the self-signed code-signing certificate for `key`, saved as `key_name`.
 unsafe fn create_certificate(key: NCRYPT_KEY_HANDLE, key_name: &HSTRING) -> windows::core::Result<*mut CERT_CONTEXT> {
 	unsafe {
 		let subject = HSTRING::from(PUBLISHER);
@@ -145,8 +122,6 @@ unsafe fn create_certificate(key: NCRYPT_KEY_HANDLE, key_name: &HSTRING) -> wind
 		)?;
 		let name_blob = CRYPT_INTEGER_BLOB { cbData: size, pbData: name.as_mut_ptr() };
 
-		// Package signing wants the code-signing usage, and an end-entity
-		// (not CA) certificate.
 		let mut usage_oid = [PSTR(szOID_PKIX_KP_CODE_SIGNING.0 as *mut u8)];
 		let usage = CTL_USAGE { cUsageIdentifier: 1, rgpszUsageIdentifier: usage_oid.as_mut_ptr() };
 		let mut usage_bytes = encode(X509_ENHANCED_KEY_USAGE, (&usage as *const CTL_USAGE).cast())?;
@@ -176,12 +151,8 @@ unsafe fn create_certificate(key: NCRYPT_KEY_HANDLE, key_name: &HSTRING) -> wind
 			Parameters: CRYPT_INTEGER_BLOB::default(),
 		};
 		let start = yesterday();
-		// Long-lived: the package is registered once and stays, and there's
-		// no key left to renew it with.
 		let end = years_from_now(30);
 
-		// Tells the signer where the key is: a CNG key (provider type 0) in the
-		// software provider, for this account.
 		let key_info = CRYPT_KEY_PROV_INFO {
 			pwszContainerName: PWSTR(key_name.as_ptr() as *mut u16),
 			pwszProvName: PWSTR(MS_KEY_STORAGE_PROVIDER.0 as *mut u16),
@@ -204,7 +175,6 @@ unsafe fn create_certificate(key: NCRYPT_KEY_HANDLE, key_name: &HSTRING) -> wind
 	}
 }
 
-/// Signs the package at `path` in place.
 unsafe fn sign_file(path: &std::path::Path, cert: *const CERT_CONTEXT) -> windows::core::Result<()> {
 	unsafe {
 		let path = HSTRING::from(path.as_os_str());
@@ -274,7 +244,6 @@ unsafe fn sign_file(path: &std::path::Path, cert: *const CERT_CONTEXT) -> window
 			None,
 			None,
 		);
-		// The SIP hands back a COM object it's done with.
 		if !sip_data.appx_sip_state.is_null() {
 			drop(IUnknown::from_raw(sip_data.appx_sip_state));
 		}
@@ -285,8 +254,6 @@ unsafe fn sign_file(path: &std::path::Path, cert: *const CERT_CONTEXT) -> window
 	}
 }
 
-/// Puts the certificate in the machine's Trusted People store, replacing any
-/// earlier whatSnap ones.
 unsafe fn trust(cert: *const CERT_CONTEXT) -> windows::core::Result<()> {
 	unsafe {
 		let store_name = HSTRING::from("TrustedPeople");
@@ -310,7 +277,6 @@ unsafe fn trust(cert: *const CERT_CONTEXT) -> windows::core::Result<()> {
 			if old.is_null() {
 				break;
 			}
-			// Deleting frees the context it's given.
 			if CertDeleteCertificateFromStore(old).is_err() {
 				break;
 			}
@@ -328,8 +294,6 @@ unsafe fn trust(cert: *const CERT_CONTEXT) -> windows::core::Result<()> {
 	}
 }
 
-/// Copies the installed package to `share\local`, signs the copy, and trusts
-/// the certificate that signed it.
 pub fn sign_package() -> Result<(), String> {
 	log("Signing: reading the package");
 	let unsigned = std::fs::read(unsigned_package()).map_err(|e| format!("reading the package: {e}"))?;
@@ -352,8 +316,6 @@ pub fn sign_package() -> Result<(), String> {
 				let _ = CertFreeCertificateContext(Some(cert));
 				signed
 			});
-		// Deleting the key also frees the handle: nothing can sign with this
-		// certificate after this.
 		if let Err(e) = NCryptDeleteKey(key, 0) {
 			crate::package::log(&format!("Deleting the signing key failed: {e}"));
 		}

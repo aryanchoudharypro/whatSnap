@@ -1,8 +1,3 @@
-//! WhatsApp's "Replace text with emoji": typing one of a few emoticons turns
-//! it into its emoji as soon as its last character is typed, and Backspace
-//! straight after turns it back (WAWebEmojisPlugin). Works on the message
-//! box's native edit control, in its own UTF-16 positions.
-
 use std::cell::{Cell, RefCell};
 
 use windows::Win32::{
@@ -14,8 +9,6 @@ use windows::Win32::{
 };
 use wxdragon::prelude::*;
 
-/// WhatsApp Web's own list, word for word, with each emoji's name and an
-/// example for the help (see `show_help`).
 const EMOTICONS: &[(&str, &str, &str, &str)] = &[
 	("(y)", "\u{1F44D}", "thumbs up", "Sounds good (y)"),
 	("(Y)", "\u{1F44D}", "thumbs up", "See you at 6 (Y)"),
@@ -37,8 +30,6 @@ const EMOTICONS: &[(&str, &str, &str, &str)] = &[
 	(">_<", "\u{1F606}", "grinning squinting face", "Oops >_<"),
 ];
 
-/// The emoticon `before` ends with, as (the emoticon, its emoji). Two
-/// characters are tried before three, as WhatsApp does.
 fn replacement(before: &[u16]) -> Option<(&'static str, &'static str)> {
 	(2..=3).find_map(|len| {
 		let tail = before.get(before.len().checked_sub(len)?..)?;
@@ -47,8 +38,6 @@ fn replacement(before: &[u16]) -> Option<(&'static str, &'static str)> {
 	})
 }
 
-/// The last replacement, for Backspace: where its emoji starts, how long it
-/// is, and the text it replaced.
 struct Last {
 	start: u32,
 	len: u32,
@@ -87,7 +76,6 @@ fn text(hwnd: HWND) -> Vec<u16> {
 	}
 }
 
-/// Replaces `from..to` with `with`, as typing would (it can be undone).
 fn replace(hwnd: HWND, from: u32, to: u32, with: &str) {
 	let mut wide: Vec<u16> = with.encode_utf16().collect();
 	wide.push(0);
@@ -99,9 +87,6 @@ fn replace(hwnd: HWND, from: u32, to: u32, with: &str) {
 	REPLACING.with(|r| r.set(false));
 }
 
-/// Call on every change to the message box, with whether the setting is
-/// on. Only typing counts: text put in while the box isn't focused (a draft
-/// coming back) is left as it is.
 pub fn text_changed(field: &TextCtrl, enabled: bool) {
 	if REPLACING.with(Cell::get) {
 		return;
@@ -118,15 +103,12 @@ pub fn text_changed(field: &TextCtrl, enabled: bool) {
 	let all = text(hwnd);
 	let Some(before) = all.get(..end as usize) else { return };
 	let Some((typed, emoji)) = replacement(before) else { return };
-	// Emoticons are plain ASCII: one UTF-16 unit a character.
 	let from = end - typed.len() as u32;
 	replace(hwnd, from, end, emoji);
 	let len = emoji.encode_utf16().count() as u32;
 	LAST.with(|l| *l.borrow_mut() = Some(Last { start: from, len, text: typed }));
 }
 
-/// Backspace right after a replacement puts the typed text back. Returns
-/// whether it did, so the key isn't also handled as a normal Backspace.
 pub fn undo_on_backspace(field: &TextCtrl) -> bool {
 	let Some(last) = LAST.with(|l| l.borrow_mut().take()) else { return false };
 	let hwnd = hwnd(field);
@@ -138,8 +120,6 @@ pub fn undo_on_backspace(field: &TextCtrl) -> bool {
 	true
 }
 
-/// The help's text: what the setting does, then every emoticon with its
-/// emoji, its name, and an example as typed and as sent.
 fn help_text() -> String {
 	let mut text = String::from(
 		"Replace text with emoji turns these into emoji as soon as you type their last character. \
@@ -152,7 +132,6 @@ fn help_text() -> String {
 	text
 }
 
-/// Shows `help_text` in a read-only box, for reading line by line.
 pub fn show_help(parent: &impl WxWidget) {
 	let dlg = Dialog::builder(parent, "Replace Text With Emoji")
 		.with_size(520, 420)
@@ -174,7 +153,6 @@ pub fn show_help(parent: &impl WxWidget) {
 	view.set_focus();
 	view.set_selection(0, 0);
 	dlg.show_modal();
-	// A dialog built per use is destroyed, or it lives on hidden.
 	dlg.destroy();
 }
 

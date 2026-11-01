@@ -1,6 +1,3 @@
-//! Kills the backend when this process dies, including on a hard kill that
-//! runs no shutdown code.
-
 #![cfg(target_os = "windows")]
 
 use std::os::windows::io::AsRawHandle;

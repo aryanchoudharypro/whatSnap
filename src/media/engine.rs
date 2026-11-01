@@ -1,13 +1,3 @@
-//! Video (and audio) playback for the in-app player, on Media Foundation's
-//! Media Engine: the same engine behind the HTML5 `<video>` element of
-//! Windows' own web views, so it plays what WhatsApp sends (H.264/AAC MP4)
-//! with nothing extra shipped. Given a window, it draws the picture into it
-//! itself; the controls around it are ordinary wx ones (`ui/media_player.rs`).
-//!
-//! The engine reports what happens (loaded, ended, failed) on a thread of its
-//! own. Those reports are only noted here, and the player's UI-thread timer
-//! picks them up, so nothing crosses threads but a few atomics.
-
 use std::sync::{
 	Arc,
 	atomic::{AtomicBool, AtomicU32, Ordering},
@@ -30,15 +20,12 @@ use windows::{
 
 use crate::media::foundation;
 
-/// DXGI_FORMAT_B8G8R8A8_UNORM, the picture format asked of the engine.
 const OUTPUT_FORMAT_BGRA: u32 = 87;
 
-/// What the engine has reported since it was last asked.
 #[derive(Default)]
 struct Reports {
 	loaded: AtomicBool,
 	ended: AtomicBool,
-	/// MF_MEDIA_ENGINE_ERR, 0 for none.
 	error: AtomicU32,
 }
 
@@ -55,22 +42,18 @@ impl IMFMediaEngineNotify_Impl for Notify_Impl {
 		} else if event == MF_MEDIA_ENGINE_EVENT_ENDED.0 {
 			self.reports.ended.store(true, Ordering::Release);
 		} else if event == MF_MEDIA_ENGINE_EVENT_ERROR.0 {
-			// param1 is the MF_MEDIA_ENGINE_ERR code.
 			self.reports.error.store((param1 as u32).max(1), Ordering::Release);
 		}
 		Ok(())
 	}
 }
 
-/// What changed since the last [`MediaEngine::take_reports`].
 pub(crate) struct Changes {
 	pub(crate) loaded: bool,
 	pub(crate) ended: bool,
-	/// A sentence for the user, when playback failed.
 	pub(crate) error: Option<&'static str>,
 }
 
-/// One file's playback, drawn into `hwnd`. Dropping it stops playback.
 pub(crate) struct MediaEngine {
 	engine: IMFMediaEngine,
 	hwnd: HWND,
@@ -102,9 +85,7 @@ impl MediaEngine {
 	pub(crate) fn take_reports(&self) -> Changes {
 		let error = match self.reports.error.swap(0, Ordering::AcqRel) {
 			0 => None,
-			// MF_MEDIA_ENGINE_ERR_SRC_NOT_SUPPORTED
 			4 => Some("This video's format can't be played here."),
-			// MF_MEDIA_ENGINE_ERR_DECODE
 			3 => Some("The video couldn't be decoded. The file may be damaged."),
 			_ => Some("The video couldn't be played."),
 		};
@@ -135,13 +116,11 @@ impl MediaEngine {
 		unsafe { self.engine.IsEnded().as_bool() }
 	}
 
-	/// Seconds into the file.
 	pub(crate) fn position(&self) -> f64 {
 		let at = unsafe { self.engine.GetCurrentTime() };
 		if at.is_finite() { at.max(0.0) } else { 0.0 }
 	}
 
-	/// Length in seconds, 0 until known.
 	pub(crate) fn duration(&self) -> f64 {
 		let length = unsafe { self.engine.GetDuration() };
 		if length.is_finite() { length.max(0.0) } else { 0.0 }
@@ -155,7 +134,6 @@ impl MediaEngine {
 		}
 	}
 
-	/// 0.0 to 1.0.
 	pub(crate) fn set_volume(&self, volume: f64) {
 		unsafe {
 			let _ = self.engine.SetVolume(volume.clamp(0.0, 1.0));
@@ -178,7 +156,6 @@ impl MediaEngine {
 		}
 	}
 
-	/// Fits the picture to the window again, after it was resized.
 	pub(crate) fn fit_to_window(&self) {
 		unsafe {
 			let mut rect = RECT::default();
@@ -195,8 +172,6 @@ impl MediaEngine {
 impl Drop for MediaEngine {
 	fn drop(&mut self) {
 		unsafe {
-			// Shutdown releases the engine's hold on the callback and window;
-			// without it the engine (and its decoder threads) outlive the player.
 			let _ = self.engine.Shutdown();
 		}
 	}

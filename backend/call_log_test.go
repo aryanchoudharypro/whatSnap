@@ -23,7 +23,6 @@ func TestCallLogChatJIDResolvesThePeer(t *testing.T) {
 	ownLID := jidOf(t, "9988776655443@lid")
 	peer := "5511999990000@s.whatsapp.net"
 	peerLID := "7766554433221@lid"
-	// Stands in for preferPN: the LID->PN mapping the store would supply.
 	normalize := func(j types.JID) types.JID {
 		if j.Server == types.HiddenUserServer && j.User == "7766554433221" {
 			return jidOf(t, peer)
@@ -47,8 +46,6 @@ func TestCallLogChatJIDResolvesThePeer(t *testing.T) {
 		}
 	})
 
-	// The case the creator cannot answer: on an outgoing call the creator is us,
-	// so the peer has to come from the participant list.
 	t.Run("outgoing 1:1 is the non-self participant", func(t *testing.T) {
 		rec := &waSyncAction.CallLogRecord{Participants: []*waSyncAction.CallLogRecord_ParticipantInfo{
 			{UserJID: proto.String(ownPN.String())},

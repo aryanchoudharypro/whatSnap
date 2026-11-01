@@ -1,9 +1,3 @@
-//! Talking to businesses: the reply buttons, list menus and link / call /
-//! copy-code buttons they send under a message. WhatsApp shows them as
-//! buttons on the bubble; here Enter on the message asks the backend for them
-//! (`get_message_options`) and they open as one list, each with the action it
-//! takes. Picking a reply sends what WhatsApp Web sends for that tap.
-
 use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
@@ -13,7 +7,6 @@ use crate::{
 	ui::{keys, theme, window::WindowParts},
 };
 
-/// One button, as the backend lists it.
 struct MessageOption {
 	kind: String,
 	label: String,
@@ -40,7 +33,6 @@ impl MessageOption {
 		row
 	}
 
-	/// What the action button says for this option.
 	fn action(&self) -> &'static str {
 		match self.kind.as_str() {
 			"reply" => "&Send",
@@ -52,7 +44,6 @@ impl MessageOption {
 	}
 }
 
-/// Enter on a business message: fetch its buttons.
 pub(crate) fn open_message_options(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, message_id: String) {
 	let s = state.borrow();
 	let Some(jid) = s.selected_chat.clone() else { return };
@@ -63,8 +54,6 @@ pub(crate) fn open_message_options(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wi
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// The backend's `message_options`: the list of buttons, one action button
-/// that does what the selected one does, and Close.
 pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
 	let (jid, message_id, heading) = (text(data, "jid"), text(data, "message_id"), text(data, "heading"));
@@ -94,8 +83,6 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	// A list's rows come in sections; each section's name goes in front of
-	// its first row, as the list on the phone shows it as a heading.
 	let mut rows = Vec::with_capacity(options.len());
 	let mut last_section = String::new();
 	for option in &options {
@@ -110,7 +97,6 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		1 => "1 option".to_string(),
 		n => format!("{n} options"),
 	};
-	// Nothing between the label and the list: it names the list.
 	let list_label = StaticText::builder(&panel)
 		.with_label(&format!("{} ({count})", if heading.is_empty() { "Buttons" } else { &heading }))
 		.build();
@@ -132,7 +118,6 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
 	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
-	// Spoken while the dialog is up (the main window's is behind it).
 	let announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&announcer);
 	theme::style_muted_label(&announcer);
@@ -152,8 +137,6 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		}
 	});
 
-	// Enter on the list, or the action button, does what the row says. A
-	// reply closes the dialog; the others leave it open for another pick.
 	let chosen: Rc<RefCell<Option<usize>>> = Rc::default();
 	let act = {
 		let (options, chosen, state) = (options.clone(), chosen.clone(), state.clone());
@@ -211,7 +194,6 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	);
 }
 
-/// Enter on an order message: ask for what was ordered.
 pub(crate) fn open_order_details(state: &Rc<RefCell<AppState>>, message_id: String) {
 	let s = state.borrow();
 	let Some(jid) = s.selected_chat.clone() else { return };
@@ -219,7 +201,6 @@ pub(crate) fn open_order_details(state: &Rc<RefCell<AppState>>, message_id: Stri
 	let _ = s.ws_tx.send(payload.to_string());
 }
 
-/// Conversation > Business Catalogue, or Enter on a shared product.
 pub(crate) fn open_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message_id: Option<String>) {
 	let s = state.borrow();
 	let Some(jid) = s.selected_chat.clone() else { return };
@@ -266,14 +247,12 @@ fn show_text(parts: &Rc<WindowParts>, title: &str, label: &str, text: &str) {
 	dialog.destroy();
 }
 
-/// The backend's `order_details`.
 pub(crate) fn show_order_details(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let title = data.get("title").and_then(|t| t.as_str()).unwrap_or("Order");
 	let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
 	show_text(parts, title, "Order details", text);
 }
 
-/// One product, as the backend sends it.
 struct Product {
 	name: String,
 	description: String,
@@ -288,7 +267,6 @@ struct Product {
 }
 
 impl Product {
-	/// The list row: name, price, and what stands out.
 	fn row(&self) -> String {
 		let mut row = self.name.clone();
 		if !self.sale_price.is_empty() {
@@ -305,7 +283,6 @@ impl Product {
 		row
 	}
 
-	/// Everything about it, for the details field.
 	fn details(&self) -> String {
 		let mut lines = vec![self.name.clone()];
 		if !self.price.is_empty() {
@@ -335,8 +312,6 @@ impl Product {
 	}
 }
 
-/// The backend's `catalog`: the products in a list, the selected one's
-/// details in a read-only field under it, and what you can do with it.
 pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
 	let products: Vec<Product> = data
@@ -444,8 +419,6 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	show();
 	list.on_selection_changed(move |_| show());
 
-	// The link is what WhatsApp shares a product as; in a message it shows
-	// as the product, so the business knows what you're asking about.
 	let link_of = {
 		let products = products.clone();
 		move || list.get_selection().and_then(|i| products.get(i as usize)).map(|p| p.link.clone())

@@ -1,7 +1,3 @@
-//! The countries "Find channels" can list channels from: the list WhatsApp
-//! Web's channel directory offers (its WHATSAPP_REGISTRATION countries).
-
-/// ISO code and English name, sorted by name.
 pub const COUNTRIES: &[(&str, &str)] = &[
 	("AF", "Afghanistan"),
 	("AX", "Åland Islands"),
@@ -248,8 +244,6 @@ pub const COUNTRIES: &[(&str, &str)] = &[
 	("ZW", "Zimbabwe"),
 ];
 
-/// The directory's categories: the code sent to WhatsApp, and the name
-/// WhatsApp Web shows.
 pub const CATEGORIES: &[(&str, &str)] = &[
 	("ENTERTAINMENT", "Entertainment"),
 	("SPORTS", "Sports"),
