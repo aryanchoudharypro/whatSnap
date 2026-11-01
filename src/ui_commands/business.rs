@@ -178,12 +178,12 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 				}
 				"call" | "copy" => {
 					let what = if option.kind == "call" { "Number" } else { "Code" };
-					if crate::clipboard::copy_text(&option.value) {
-						crate::announce::announce(announcer, &format!("{what} copied: {}", option.value));
+					if crate::platform::clipboard::copy_text(&option.value) {
+						crate::platform::announce::announce(announcer, &format!("{what} copied: {}", option.value));
 					}
 				}
 				_ => {
-					crate::announce::announce(announcer, "This button only works in WhatsApp on your phone.");
+					crate::platform::announce::announce(announcer, "This button only works in WhatsApp on your phone.");
 				}
 			}
 		}
@@ -205,7 +205,7 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		"data": { "jid": jid, "message_id": message_id, "index": i }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(
+	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
 		&format!("Sending {}...", options[i].label),
 	);
@@ -228,7 +228,7 @@ pub(crate) fn open_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		"data": { "jid": jid, "message_id": message_id.unwrap_or_default() }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Loading catalogue...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Loading catalogue...");
 }
 
 /// Read-only text in a field a screen reader can move through line by line,
@@ -464,9 +464,9 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	let link_copy = link_of.clone();
 	copy_btn.on_click(move |_| {
 		if let Some(link) = link_copy().filter(|l| !l.is_empty())
-			&& crate::clipboard::copy_text(&link)
+			&& crate::platform::clipboard::copy_text(&link)
 		{
-			crate::announce::announce(announcer, "Link copied.");
+			crate::platform::announce::announce(announcer, "Link copied.");
 		}
 	});
 	let products_site = products.clone();
@@ -485,7 +485,7 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	dialog.destroy();
 	if asked {
 		message_field.set_focus();
-		crate::announce::announce(
+		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
 			"Product link is in the message box. Add your question and send.",
 		);

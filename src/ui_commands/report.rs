@@ -53,7 +53,7 @@ fn confirm_and_report(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Reporting...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Reporting...");
 }
 
 /// "Report..." on a message in the open chat.
@@ -89,7 +89,7 @@ pub(crate) fn report_to_admins(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		"data": { "jid": jid, "message_ids": [message_id] }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Sending to the admins...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending to the admins...");
 }
 
 /// The backend's answer to a report.
@@ -102,7 +102,7 @@ pub(crate) fn reported(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	if flag("left") {
 		text.push_str(" You left the group.");
 	}
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &text);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
 }
 
 /// Saves Group Info's moderation switches; the backend only sends the ones
@@ -219,7 +219,7 @@ pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		return;
 	}
 	let Some(message_id) = chosen else {
-		crate::announce::announce(
+		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
 			"That message isn't on this computer, so it can't be shown.",
 		);

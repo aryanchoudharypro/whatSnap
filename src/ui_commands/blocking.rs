@@ -10,7 +10,7 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState, ContactPickerMode,
-	ui::{blocked_contacts::BlockedEntry, window::WindowParts},
+	ui::{dialogs::blocked_contacts::BlockedEntry, window::WindowParts},
 };
 
 pub(crate) fn is_blocked(s: &AppState, jid: &str) -> bool {
@@ -32,7 +32,7 @@ fn announce(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message: &st
 	let dialog = state.borrow().blocked_contacts.clone();
 	match dialog {
 		Some(dialog) => dialog.announce(message),
-		None => crate::announce::announce(parts.conversations_parts.messages_announcer, message),
+		None => crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message),
 	}
 }
 
@@ -147,7 +147,7 @@ pub(crate) fn show_blocked_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	let _ = ws_tx.send(serde_json::json!({ "action": "get_blocklist" }).to_string());
 	let (state_add, parts_add) = (state.clone(), parts.clone());
 	let state_store = state.clone();
-	crate::ui::blocked_contacts::show_blocked_contacts(
+	crate::ui::dialogs::blocked_contacts::show_blocked_contacts(
 		&parts.frame,
 		&entries,
 		ws_tx,
@@ -200,7 +200,7 @@ pub(crate) fn stop_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	}
 	let reason = {
 		let s = state.borrow();
-		s.selected_chat.as_deref().and_then(|jid| crate::chat_ui::group_send_block_reason(&s, jid))
+		s.selected_chat.as_deref().and_then(|jid| crate::ui::chat_ui::group_send_block_reason(&s, jid))
 	};
 	if let Some(reason) = reason {
 		announce(state, parts, reason);

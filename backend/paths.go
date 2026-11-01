@@ -59,7 +59,7 @@ func debugf(format string, args ...interface{}) {
 	}
 }
 
-// Must stay in sync with src/paths.rs. On Windows os.UserCacheDir is %LOCALAPPDATA%.
+// Must stay in sync with src/platform/paths.rs. On Windows os.UserCacheDir is %LOCALAPPDATA%.
 var (
 	appDataOnce sync.Once
 	appDataPath string

@@ -342,7 +342,7 @@ fn own_picture(path: &str, side: i32) -> Option<wxdragon::bitmap::Bitmap> {
 /// The picture at `path`, fitted into `side` pixels square and cut to a
 /// circle with a smoothed edge.
 pub(crate) fn round_picture(path: &str, side: u32) -> Option<wxdragon::bitmap::Bitmap> {
-	let (w, h, mut rgba) = crate::image_decode::decode_rgba_in_box(path, side, side).ok()?;
+	let (w, h, mut rgba) = crate::media::image_decode::decode_rgba_in_box(path, side, side).ok()?;
 	let (cx, cy, r) = (w as f32 / 2.0, h as f32 / 2.0, w.min(h) as f32 / 2.0);
 	for y in 0..h {
 		for x in 0..w {
@@ -454,7 +454,7 @@ fn with_media_picture(id: &str, side: i32, draw: impl FnOnce(Option<&gdi::Bitmap
 		let Some(path) = super::thumbnails::path_of(id) else { return draw(None) };
 		let bitmap = path.and_then(|path| {
 			// Fit the short side, then take the middle square.
-			let (w, h, rgba) = crate::image_decode::decode_rgba(&path, (side * 3) as u32).ok()?;
+			let (w, h, rgba) = crate::media::image_decode::decode_rgba(&path, (side * 3) as u32).ok()?;
 			let scale = side as f32 / w.min(h).max(1) as f32;
 			let (sw, sh) = (((w as f32 * scale) as i32).max(side), ((h as f32 * scale) as i32).max(side));
 			let (ox, oy) = ((sw - side) / 2, (sh - side) / 2);

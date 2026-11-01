@@ -74,7 +74,7 @@ pub fn is_context_menu_key(key: &KeyboardEvent) -> bool {
 /// Enter reaches some lists only as a key-up. So both halves are watched, the
 /// first to arrive runs `action`, and `release_handled` stops the release
 /// after a handled key-down from running it again. Share
-/// [`crate::tray::enter_release_guard`] where a menu closing over `target`
+/// [`crate::platform::tray::enter_release_guard`] where a menu closing over `target`
 /// can leave a stray release behind; anywhere else, `Rc::default()`.
 pub fn on_enter<W: WindowEvents>(target: &W, release_handled: Rc<Cell<bool>>, action: impl Fn() + 'static) {
 	let action = Rc::new(action);

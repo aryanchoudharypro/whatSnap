@@ -7,7 +7,11 @@ use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
 
-use crate::{AppState, message_display::update_loaded_message, types::UiCommand, ui::window::WindowParts};
+use crate::{
+	AppState,
+	types::UiCommand,
+	ui::{message_display::update_loaded_message, window::WindowParts},
+};
 
 const PIN: i32 = 3401;
 const UNPIN: i32 = 3402;
@@ -24,7 +28,7 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 }
 
 fn announce(parts: &WindowParts, message: &str) {
-	crate::announce::announce(parts.conversations_parts.messages_announcer, message);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
 /// Adds Pin/Unpin and Keep/Unkeep to a message's context menu when they

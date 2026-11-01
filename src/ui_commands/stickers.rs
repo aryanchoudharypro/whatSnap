@@ -9,15 +9,15 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState,
-	message_display::update_loaded_message,
 	ui::{
 		emoji_panel::{PanelChoice, StickerPick, show_emoji_panel},
+		message_display::update_loaded_message,
 		window::WindowParts,
 	},
 };
 
 fn announce(parts: &WindowParts, message: &str) {
-	crate::announce::announce(parts.conversations_parts.messages_announcer, message);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
 /// The pending reply, taken for a sticker going out now.

@@ -212,20 +212,20 @@ You can also paste files with `Ctrl+V` in the message box or the Messages list.
 You can also use the `Record voice message`, `Pause recording`, `Send voice message`, and `Discard voice message` buttons. Select `View once` before you send, to send it as a view once voice message.
 
 ### Other Chat Actions
-The Conversation menu has more actions for the open chat:
+The Conversation menu has more actions for the open chat. It shows only the ones that fit that chat:
 
 - `Search in Chat` (`Ctrl+Shift+F`)
-- `Pinned Messages...`
-- `Business Catalogue...`, in a chat with a business.
+- `Pinned Messages...`, not in broadcast lists.
+- `Business Catalogue...`, only in a chat with a business.
 - `Mute Chat` (`Ctrl+Shift+M`)
 - `Archive Chat` (`Ctrl+Shift+E`)
 - `Pin Chat` (`Ctrl+Shift+P`)
 - `Lock Chat` (`Ctrl+L`)
 - `Mark as Unread` (`Ctrl+Shift+U`)
-- `Disappearing Messages...`
-- `Advanced Chat Privacy...`
-- `Report...`
-- `Block or Unblock Contact`
+- `Disappearing Messages...`, not in channels.
+- `Advanced Chat Privacy...`, not in channels or broadcast lists.
+- `Report...`, not in channels or broadcast lists.
+- `Block or Unblock Contact`, only in a chat with one person.
 - `Star Message` (`Alt+8`)
 
 ## Calls
@@ -401,9 +401,9 @@ You can't change these keys:
 | Lock Chat | Conversation | `Ctrl+L` |
 | Mark as Unread | Conversation | `Ctrl+Shift+U` |
 | Star Message | Conversation | `Alt+8` |
-| Start Recording | Voice | `Ctrl+Shift+R` |
-| Pause Recording | Voice | `Alt+P` |
-| Send Voice Message | Voice | `Ctrl+Enter` |
+| Start Recording | None | `Ctrl+Shift+R` |
+| Pause Recording | None | `Alt+P` |
+| Send Voice Message | None | `Ctrl+Enter` |
 | Toggle Mute | Call | `Ctrl+M` |
 | End Call | Call | `Ctrl+W` |
 | Answer Incoming Call | Call, global | `Alt+Shift+Y` |

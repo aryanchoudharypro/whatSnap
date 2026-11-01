@@ -1771,6 +1771,9 @@ func eventHandler(evt interface{}) {
 
 	case *events.Message:
 		unwrappedMsg := unwrapMessage(v.Message)
+		if v.Info.VerifiedName != nil && !v.Info.IsFromMe && !v.Info.IsGroup {
+			go markBusinessContact(v.Info.Chat)
+		}
 		if setting, toggle := limitSharingInMessage(v.Message); setting != nil {
 			chat, _ := resolveLIDChat(v)
 			ts := setting.GetLimitSharingSettingTimestamp()

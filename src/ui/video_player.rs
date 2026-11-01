@@ -137,5 +137,5 @@ pub(crate) fn save_copy(parent: &impl WxWidget, source: &str, name: &str, announ
 		Ok(_) => format!("File saved to {dest}"),
 		Err(err) => format!("Couldn't save the file: {err}"),
 	};
-	crate::announce::announce(announcer, &text);
+	crate::platform::announce::announce(announcer, &text);
 }

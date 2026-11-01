@@ -8,11 +8,13 @@ use wxdragon::prelude::*;
 use crate::{
 	AppState, CallVideo,
 	audio::{play_call_fail_sound, stop_call_ringing_sound},
-	call_helpers::{
-		SYSTEM_AUDIO_ANNOUNCEMENT, announce_call, call_window_title, local_camera_announcement,
-		local_screen_share_announcement,
+	calls::{
+		helpers::{
+			SYSTEM_AUDIO_ANNOUNCEMENT, announce_call, call_window_title, local_camera_announcement,
+			local_screen_share_announcement,
+		},
+		video_send::{self, VideoSource},
 	},
-	call_video_send::{self, VideoSource},
 	ui::window::WindowParts,
 };
 
@@ -121,7 +123,7 @@ pub(crate) fn on_joinable_calls(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	}
 	s.joinable_calls = calls;
 	if s.active_tab == 6 {
-		crate::message_display::apply_chat_filter(&mut s, parts);
+		crate::ui::message_display::apply_chat_filter(&mut s, parts);
 	}
 	if let Some(jid) = s.selected_chat.clone() {
 		apply_call_buttons(&s, parts, &jid);
@@ -308,7 +310,7 @@ pub(crate) fn place_video_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 /// it was accepted.
 pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
-	crate::websocket_events::call_log(parts, &s, "answer pressed", "");
+	crate::backend::events::call_log(parts, &s, "answer pressed", "");
 	if s.call_answer_deadline.is_some() {
 		return;
 	}
@@ -335,7 +337,7 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 pub(crate) fn call_hotkey(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
-	hotkey: crate::call_hotkeys::CallHotkey,
+	hotkey: crate::calls::hotkeys::CallHotkey,
 ) {
 	let ringing = {
 		let s = state.borrow();
@@ -345,14 +347,14 @@ pub(crate) fn call_hotkey(
 		return;
 	}
 	match hotkey {
-		crate::call_hotkeys::CallHotkey::Answer => answer_call(state, parts),
-		crate::call_hotkeys::CallHotkey::Reject => reject_call(state, parts),
+		crate::calls::hotkeys::CallHotkey::Answer => answer_call(state, parts),
+		crate::calls::hotkeys::CallHotkey::Reject => reject_call(state, parts),
 	}
 }
 
 pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
-	crate::websocket_events::call_log(parts, &s, "reject pressed", "");
+	crate::backend::events::call_log(parts, &s, "reject pressed", "");
 	if let Some(call_id) = &s.active_call_id {
 		let msg = serde_json::json!({
 			"action": "reject_call",
@@ -374,7 +376,7 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 
 pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut s = state.borrow_mut();
-	crate::websocket_events::call_log(parts, &s, "leave pressed", "");
+	crate::backend::events::call_log(parts, &s, "leave pressed", "");
 	if let Some(call_id) = &s.active_call_id {
 		let msg = serde_json::json!({
 			"action": "leave_call",
@@ -537,7 +539,7 @@ fn send_call_toggle(s: &AppState, action: &str, call_id: &str, enabled: bool) {
 fn start_camera(s: &mut AppState, port: u16) {
 	let device = s.settings.camera_device_name.clone();
 	let ui_tx = s.ui_tx.clone();
-	s.active_call_video_send = Some(call_video_send::start_video_send(port, VideoSource::Camera, device, ui_tx));
+	s.active_call_video_send = Some(video_send::start_video_send(port, VideoSource::Camera, device, ui_tx));
 	s.call_video.local_camera_on = true;
 }
 
@@ -591,7 +593,7 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 
 	// Asked every time, like WhatsApp's own share picker. The call can end,
 	// or a share start some other way, while the question is up.
-	let Some(choice) = crate::ui::screen_picker::pick_share_target(&parts.call_parts.frame) else { return };
+	let Some(choice) = crate::ui::dialogs::screen_picker::pick_share_target(&parts.call_parts.frame) else { return };
 	let Some(with_sound) = ask_share_sound(parts) else { return };
 	let mut s = state.borrow_mut();
 	if s.active_call_id.as_deref() != Some(call_id.as_str()) || s.call_video.local_screen_on {
@@ -605,7 +607,7 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	// With the camera on and the call offering the screen its own stream,
 	// the screen goes there and the camera stays as it is.
 	if let Some(screen_port) = s.call_video.screen_port.filter(|_| camera_was_on) {
-		s.call_video.screen_send = Some(call_video_send::start_video_send(screen_port, source, None, ui_tx));
+		s.call_video.screen_send = Some(video_send::start_video_send(screen_port, source, None, ui_tx));
 		s.call_video.local_screen_on = true;
 		let msg = serde_json::json!({
 			"action": "set_screen_share",
@@ -625,7 +627,7 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 		return;
 	}
-	s.active_call_video_send = Some(call_video_send::start_video_send(port, source, None, ui_tx));
+	s.active_call_video_send = Some(video_send::start_video_send(port, source, None, ui_tx));
 	s.call_video.local_screen_on = true;
 	s.call_video.local_camera_on = false;
 	s.call_video.camera_before_share = camera_was_on;
@@ -758,7 +760,7 @@ pub(crate) fn screen_share_black(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 }
 
 /// The capture/encode thread couldn't open a camera at all - see
-/// `call_video_send::start_video_send`'s doc comment for why this only
+/// `video_send::start_video_send`'s doc comment for why this only
 /// fires once, for the very first open attempt.
 pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, reason: String) {
 	let mut s = state.borrow_mut();
@@ -800,12 +802,12 @@ fn show_join_row_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ca
 	let parts_menu = parts.clone();
 	menu.on_selected(move |evt| match evt.get_id() {
 		MENU_JOIN_CALL => join_group_call(&state_menu, &parts_menu, Some(call_id.clone())),
-		MENU_OPEN_CHAT => crate::chat_ui::open_chat_for_jid(&group_jid, &state_menu, &parts_menu),
+		MENU_OPEN_CHAT => crate::ui::chat_ui::open_chat_for_jid(&group_jid, &state_menu, &parts_menu),
 		_ => {}
 	});
 	parts.conversations_parts.conversations_list.popup_menu(&mut menu, None);
 	menu.destroy_menu();
-	crate::tray::enter_release_guard().set(true);
+	crate::platform::tray::enter_release_guard().set(true);
 }
 
 /// The Calls tab's context menu. Its rows are calls and contacts, so it offers
@@ -845,7 +847,7 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	menu.on_selected(move |evt| match evt.get_id() {
 		MENU_CALL => place_call(&state_menu, &parts_menu),
 		MENU_VIDEO_CALL => place_video_call(&state_menu, &parts_menu),
-		MENU_OPEN_CHAT => crate::chat_ui::open_chat_for_jid(&jid, &state_menu, &parts_menu),
+		MENU_OPEN_CHAT => crate::ui::chat_ui::open_chat_for_jid(&jid, &state_menu, &parts_menu),
 		MENU_DELETE_CONTACT => {
 			let name = {
 				let s = state_menu.borrow();
@@ -862,12 +864,15 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 			if confirm.show_modal() == wxdragon::id::ID_YES {
 				let payload = serde_json::json!({ "action": "delete_contact", "data": { "jid": jid } });
 				let _ = state_menu.borrow().ws_tx.send(payload.to_string());
-				crate::announce::announce(parts_menu.conversations_parts.messages_announcer, "Deleting contact...");
+				crate::platform::announce::announce(
+					parts_menu.conversations_parts.messages_announcer,
+					"Deleting contact...",
+				);
 			}
 		}
 		_ => {}
 	});
 	parts.conversations_parts.conversations_list.popup_menu(&mut menu, None);
 	menu.destroy_menu();
-	crate::tray::enter_release_guard().set(true);
+	crate::platform::tray::enter_release_guard().set(true);
 }

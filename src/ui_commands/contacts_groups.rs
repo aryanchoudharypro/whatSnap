@@ -7,14 +7,16 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState, ContactPickerMode,
-	chat_ui::{clear_pending_reply, open_chat_for_jid},
-	contact_picker::{
-		apply_contact_picker_filter, refresh_add_members_contacts_list, refresh_new_group_contacts_list,
-		update_make_admin_button_label,
+	platform::tray::refresh_tray_tooltip,
+	ui::{
+		chat_ui::{clear_pending_reply, open_chat_for_jid},
+		contact_picker::{
+			apply_contact_picker_filter, refresh_add_members_contacts_list, refresh_new_group_contacts_list,
+			update_make_admin_button_label,
+		},
+		message_display::apply_chat_filter,
+		window::WindowParts,
 	},
-	message_display::apply_chat_filter,
-	tray::refresh_tray_tooltip,
-	ui::window::WindowParts,
 };
 
 pub(crate) fn prepare_new_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -121,7 +123,7 @@ pub(crate) fn group_member_selection_changed(state: &Rc<RefCell<AppState>>, part
 
 pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, mode: ContactPickerMode) {
 	if mode == ContactPickerMode::AddCallParticipant && state.borrow().active_call_id.is_none() {
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "No active call.");
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "No active call.");
 		return;
 	}
 	state.borrow_mut().contact_picker_mode = mode;
@@ -176,7 +178,7 @@ pub(crate) fn select_contact_picker_result(state: &Rc<RefCell<AppState>>, parts:
 				drop(s);
 				// The outcome arrives as call_participant_added /
 				// call_participant_add_failed once WhatsApp has answered.
-				crate::announce::announce(parts.conversations_parts.messages_announcer, "Adding to call...");
+				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Adding to call...");
 			}
 		}
 		ContactPickerMode::BlockContact => crate::ui_commands::blocking::block_picked_contact(state, parts, jid),
@@ -219,7 +221,7 @@ pub(crate) fn update_group_settings(
 		});
 		let _ = s.ws_tx.send(msg_lock.to_string());
 
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "Group settings updated.");
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Group settings updated.");
 	}
 }
 
@@ -283,7 +285,7 @@ pub(crate) fn join_community_subgroup(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	});
 	let _ = s.ws_tx.send(msg.to_string());
 	drop(s);
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Joining group...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Joining group...");
 }
 
 /// Names the Groups tab's button after what it will do to the selected row.
@@ -340,7 +342,10 @@ pub(crate) fn leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Left group {}.", chat_name));
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		&format!("Left group {}.", chat_name),
+	);
 }
 
 /// Sets our own member tag in the open group; an empty tag removes it.
@@ -355,7 +360,7 @@ pub(crate) fn set_member_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	});
 	let _ = s.ws_tx.send(payload.to_string());
 	let text = if label.is_empty() { "Removing your tag..." } else { "Setting your tag..." };
-	crate::announce::announce(parts.conversations_parts.messages_announcer, text);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, text);
 }
 
 /// Who the open 1:1 chat's info page is about, as `user_info` described them:
@@ -470,7 +475,7 @@ pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	}
 	let payload = serde_json::json!({ "action": "delete_contact", "data": { "jid": card.jid } });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Deleting contact...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Deleting contact...");
 }
 
 #[cfg(test)]

@@ -163,6 +163,9 @@ type ChatListEntry struct {
 	// NotMember one we've left or been removed from.
 	AdminsOnly bool
 	NotMember  bool
+	// IsBusiness is a WhatsApp Business account's chat: only those have a
+	// catalogue to browse.
+	IsBusiness bool
 }
 
 // buildChatsList is the shared query+formatting logic behind both
@@ -189,6 +192,8 @@ func buildChatsList() []ChatListEntry {
 		}
 		nameRows.Close()
 	}
+
+	businessJIDs := businessContactJIDs()
 
 	// Preview senders repeat across chats (you, and the busiest people in
 	// your groups); each resolveDisplayName is several store lookups.
@@ -296,6 +301,7 @@ func buildChatsList() []ChatListEntry {
 			ChannelRole:          strings.ToLower(channelRole),
 			AdminsOnly:           adminsOnly == 1,
 			NotMember:            strings.HasSuffix(jid, "@g.us") && isCommunity == 0 && knownNotMember(jid),
+			IsBusiness:           errJid == nil && isBusinessChat(parsedJID, businessJIDs),
 		})
 	}
 	return chats

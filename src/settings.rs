@@ -1,5 +1,5 @@
 //! User-configurable app preferences, persisted as JSON next to the session
-//! database (see [`crate::paths::app_data_dir`]).
+//! database (see [`crate::platform::paths::app_data_dir`]).
 
 use std::path::PathBuf;
 
@@ -10,7 +10,7 @@ pub struct Settings {
 	pub notifications_enabled: bool,
 	/// Whether the background message sound stays quiet while Windows is
 	/// holding its own notifications back (Do Not Disturb / Focus Assist, a
-	/// full-screen game, presentation mode). See [`crate::do_not_disturb`].
+	/// full-screen game, presentation mode). See [`crate::platform::do_not_disturb`].
 	pub follow_windows_do_not_disturb: bool,
 	pub announce_typing: bool,
 	pub announce_recording: bool,
@@ -22,14 +22,14 @@ pub struct Settings {
 	pub meta_ai_enabled: bool,
 	/// Friendly name of the preferred microphone for calls, or `None` for the
 	/// system default communications device. Also used for voice-message
-	/// recording (see [`crate::voice_recorder`]), which honors this device.
+	/// recording (see [`crate::audio::voice_recorder`]), which honors this device.
 	pub input_device_name: Option<String>,
 	/// Friendly name of the preferred speaker/output device for calls and for
 	/// voice-message/notification playback, or `None` for the system default.
 	pub output_device_name: Option<String>,
 	/// Friendly name of the preferred camera for video calls, or `None` for
 	/// "System Default" (the first device Media Foundation enumerates - see
-	/// `video_devices.rs`).
+	/// `calls/video_devices.rs`).
 	pub camera_device_name: Option<String>,
 	/// Whether recorded voice messages go through `voice_dsp::VoiceCleanup`
 	/// (high-pass, noise suppression, automatic gain, limiter) - the processing
@@ -189,7 +189,7 @@ impl Default for Settings {
 }
 
 fn settings_path() -> PathBuf {
-	crate::paths::app_data_dir().join("settings.json")
+	crate::platform::paths::app_data_dir().join("settings.json")
 }
 
 impl Settings {

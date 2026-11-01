@@ -12,13 +12,15 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState,
-	chat_ui::open_chat_for_jid,
 	ui::{
-		channel_admin::{
-			ChannelFollower, FollowerAction, ask_channel_details, pick_channel_picture, show_channel_followers,
-			show_channel_people, show_pending_admin_invites,
+		chat_ui::open_chat_for_jid,
+		dialogs::{
+			channel_admin::{
+				ChannelFollower, FollowerAction, ask_channel_details, pick_channel_picture, show_channel_followers,
+				show_channel_people, show_pending_admin_invites,
+			},
+			send_to::{SendTarget, show_send_to_dialog},
 		},
-		send_to::{SendTarget, show_send_to_dialog},
 		window::WindowParts,
 	},
 };
@@ -42,7 +44,7 @@ fn admin_invite_targets(s: &AppState) -> Vec<SendTarget> {
 		if seen.insert(contact.jid.clone()) {
 			targets.push(SendTarget {
 				jid: contact.jid.clone(),
-				label: crate::contact_picker::contact_picker_label(contact),
+				label: crate::ui::contact_picker::contact_picker_label(contact),
 			});
 		}
 	}
@@ -129,7 +131,7 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 }
 
 fn announce(parts: &WindowParts, message: &str) {
-	crate::announce::announce(parts.conversations_parts.messages_announcer, message);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
 pub(crate) fn create_channel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {

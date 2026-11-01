@@ -216,7 +216,7 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelPart
 			cp.conversation_panel.layout();
 		}
 		let message = if opening { format!("Mention suggestions. {announcement}") } else { announcement };
-		crate::announce::announce(announcer, &message);
+		crate::platform::announce::announce(announcer, &message);
 	}
 }
 
@@ -295,7 +295,7 @@ pub(crate) fn accept(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts
 	let to = char_to_wx_pos(&text, caret.max(popup.at));
 	field.replace(from, to, &insert);
 	field.set_insertion_point(from + insert.chars().map(wx_width).sum::<i64>());
-	crate::announce::announce(announcer, &format!("{} mentioned", entry.name));
+	crate::platform::announce::announce(announcer, &format!("{} mentioned", entry.name));
 }
 
 /// A suggestion clicked in the list: picked as if highlighted and accepted.

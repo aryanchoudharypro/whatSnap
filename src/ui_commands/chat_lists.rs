@@ -11,8 +11,11 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState,
-	message_display::{BUILT_IN_CHAT_FILTERS, apply_chat_filter},
-	ui::{theme, window::WindowParts},
+	ui::{
+		message_display::{BUILT_IN_CHAT_FILTERS, apply_chat_filter},
+		theme,
+		window::WindowParts,
+	},
 };
 
 pub(crate) struct ChatList {
@@ -30,7 +33,7 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 fn announce(state: &Rc<RefCell<AppState>>, parts: &WindowParts, message: &str) {
 	let announcer = state.borrow().list_manager.as_ref().map(|m| m.announcer());
 	let announcer = announcer.unwrap_or(parts.conversations_parts.messages_announcer);
-	crate::announce::announce(announcer, message);
+	crate::platform::announce::announce(announcer, message);
 }
 
 fn text(data: &serde_json::Value, key: &str) -> String {
@@ -45,7 +48,7 @@ fn strings(data: &serde_json::Value, key: &str) -> Vec<String> {
 }
 
 fn chat_name(s: &AppState, jid: &str) -> String {
-	s.contacts.get(jid).cloned().unwrap_or_else(|| crate::contact_picker::display_name_for_jid(jid))
+	s.contacts.get(jid).cloned().unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(jid))
 }
 
 fn ask_name(parent: &impl WxWidget, prompt: &str, title: &str, value: &str) -> Option<String> {
@@ -457,7 +460,7 @@ fn show_list_chats(state: &Rc<RefCell<AppState>>, manager: &Rc<ListManager>, id:
 				.collect()
 		};
 		let name = list_name(&state_add, &id_add).unwrap_or_default();
-		let words = crate::ui::privacy_list_picker::PickerWords {
+		let words = crate::ui::dialogs::privacy_list_picker::PickerWords {
 			search: "Search chats",
 			on: "chosen",
 			off: "not chosen",
@@ -465,7 +468,7 @@ fn show_list_chats(state: &Rc<RefCell<AppState>>, manager: &Rc<ListManager>, id:
 			many: "chats",
 			require_one: None,
 		};
-		let picked = crate::ui::privacy_list_picker::pick_with(
+		let picked = crate::ui::dialogs::privacy_list_picker::pick_with(
 			&dialog,
 			&format!("Add Chats to {}", name),
 			"Check the chats to add",
@@ -611,5 +614,5 @@ fn show_common_groups(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, da
 pub(crate) fn open_common_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	let Some(jid) = state.borrow().common_group_jids.get(idx).cloned() else { return };
 	parts.conversation_data_dialog.dialog.end_modal(wxdragon::id::ID_CANCEL);
-	crate::chat_ui::open_chat_for_jid(&jid, state, parts);
+	crate::ui::chat_ui::open_chat_for_jid(&jid, state, parts);
 }

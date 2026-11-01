@@ -34,7 +34,7 @@ opus = "0.3.1"
 nnnoiseless = { version = "0.5.2", default-features = false }
 # The message list describes itself to screen readers (see ui/message_list.rs).
 accesskit = "0.25.1"
-# Update checks and installs from GitHub releases (see update_check.rs).
+# Update checks and installs from GitHub releases (see platform/update_check.rs).
 ship-shape = "0.5.0"
 
 [target.'cfg(windows)'.dependencies]

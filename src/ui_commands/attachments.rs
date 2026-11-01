@@ -7,10 +7,8 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState,
-	clipboard::{self, copy_files_to_clipboard},
-	contact_picker::refresh_attach_contact_list,
-	message_display::update_action_buttons,
-	ui::window::WindowParts,
+	platform::clipboard::{self, copy_files_to_clipboard},
+	ui::{contact_picker::refresh_attach_contact_list, message_display::update_action_buttons, window::WindowParts},
 };
 
 /// An attach-menu option: pick files the way that option does.
@@ -74,7 +72,7 @@ fn add_to_batch(s: &mut AppState, paths: Vec<String>) -> usize {
 
 fn announce_left_out(parts: &Rc<WindowParts>, left_out: usize) {
 	if left_out > 0 {
-		crate::announce::announce(
+		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
 			&format!(
 				"You can send up to {MAX_BATCH_FILES} files at once; {left_out} file{} weren't added.",
@@ -131,7 +129,7 @@ fn show_attachment_dialog(
 		d.caption_field.show(captioned);
 		d.dialog.layout();
 	}
-	crate::announce::announce(
+	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
 		&format!("{}: {}", announcement, file_names.len()),
 	);
@@ -195,7 +193,7 @@ pub(crate) fn send_poll(
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 	let sending = if correct_answer.is_some() { "Sending quiz..." } else { "Sending poll..." };
-	crate::announce::announce(parts.conversations_parts.messages_announcer, sending);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, sending);
 }
 
 pub(crate) fn prepare_attach_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -236,7 +234,7 @@ pub(crate) fn send_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
 		let count = contact_jids.len();
-		crate::announce::announce(
+		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
 			&format!("Sending {} contact{}...", count, if count == 1 { "" } else { "s" }),
 		);
@@ -366,7 +364,7 @@ pub(crate) fn send_files(
 			std::thread::spawn(move || {
 				let mp4 = std::env::temp_dir().join(format!("whantv_gif_{}.mp4", crate::util::random_hex()));
 				let mp4 = mp4.to_string_lossy().to_string();
-				match crate::gif_video::gif_to_mp4(&path, &mp4) {
+				match crate::media::gif_video::gif_to_mp4(&path, &mp4) {
 					Ok(first_png) => {
 						payload["data"]["type"] = serde_json::json!("video");
 						payload["data"]["path"] = serde_json::json!(mp4);
@@ -382,7 +380,7 @@ pub(crate) fn send_files(
 			// backend shrinks it to WhatsApp's preview size.
 			let path = path.clone();
 			std::thread::spawn(move || {
-				if let Some(png) = crate::video_thumbnail::first_frame_png(&path) {
+				if let Some(png) = crate::media::video_thumbnail::first_frame_png(&path) {
 					payload["data"]["thumbnail"] = serde_json::json!(crate::util::base64(&png));
 				}
 				let _ = ws_tx.send(payload.to_string());
@@ -416,7 +414,7 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 		}
 	};
 
-	crate::websocket_events::ui_timing_log(&format!(
+	crate::backend::events::ui_timing_log(&format!(
 		"Download pressed: {} to start, {} to cancel, chat {}",
 		to_start.len(),
 		to_cancel.len(),
@@ -455,12 +453,12 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		if count == 1 {
-			crate::announce::announce(
+			crate::platform::announce::announce(
 				parts.conversations_parts.messages_announcer,
 				&format!("Downloading {}", to_start[0].1),
 			);
 		} else {
-			crate::announce::announce(
+			crate::platform::announce::announce(
 				parts.conversations_parts.messages_announcer,
 				&format!("Downloading album of {} files...", count),
 			);
@@ -505,7 +503,7 @@ fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str,
 	};
 	let choice = crate::ui::video_player::show(&parts.frame, &msg.media_path, &title, &msg.display_filename());
 	// Enter on Close leaves its release for the list underneath.
-	crate::tray::enter_release_guard().set(true);
+	crate::platform::tray::enter_release_guard().set(true);
 	if let crate::ui::video_player::VideoChoice::OpenElsewhere = choice {
 		let payload = serde_json::json!({
 			"action": "open_media",
@@ -522,7 +520,7 @@ fn announce_saved(parts: &Rc<WindowParts>, result: std::io::Result<u64>, path: &
 		Ok(_) => format!("File saved to {path}"),
 		Err(err) => format!("Couldn't save the file: {err}"),
 	};
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &text);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
 }
 
 pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -603,7 +601,7 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 							}
 						}
 					}
-					crate::announce::announce(
+					crate::platform::announce::announce(
 						parts.conversations_parts.messages_announcer,
 						&format!("Saved {} {} to folder.", saved_count, noun),
 					);
@@ -630,7 +628,10 @@ pub(crate) fn download_media_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			"data": { "jid": jid, "message_id": message_id }
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
-		crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Downloading {}", filename));
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			&format!("Downloading {}", filename),
+		);
 	}
 }
 
@@ -734,9 +735,9 @@ pub(crate) fn copy_album_to_clipboard(
 			} else {
 				format!("Copied {} files to clipboard.", paths.len())
 			};
-			crate::announce::announce(parts.conversations_parts.messages_announcer, &ann_text);
+			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &ann_text);
 		} else {
-			crate::announce::announce(
+			crate::platform::announce::announce(
 				parts.conversations_parts.messages_announcer,
 				"Failed to copy file to clipboard.",
 			);
@@ -753,7 +754,7 @@ pub(crate) fn copy_album_to_clipboard(
 			}
 			let _ = s.ws_tx.send(payload.to_string());
 		}
-		crate::announce::announce(
+		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
 			"Downloading file before copying to clipboard...",
 		);

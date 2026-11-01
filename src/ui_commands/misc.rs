@@ -72,7 +72,7 @@ pub(crate) fn activate_window(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	// the launcher process doing it directly would just flash the
 	// taskbar icon, since Windows only lets a process steal focus
 	// for itself (see single_instance::request_activate).
-	crate::tray::restore_main_window(&parts.frame);
+	crate::platform::tray::restore_main_window(&parts.frame);
 	handle_ui_command(UiCommand::SetPresence(true), state, parts);
 }
 

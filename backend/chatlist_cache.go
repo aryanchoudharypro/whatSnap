@@ -159,3 +159,66 @@ func historyMuteActive(end uint64) bool {
 	}
 	return e > time.Now().Unix()
 }
+
+// businessContactJIDs is every contact known to be a WhatsApp Business
+// account, read in one query for the whole chat list.
+func businessContactJIDs() map[string]bool {
+	jids := map[string]bool{}
+	rows, err := db.Query(`SELECT jid FROM contacts_cache WHERE COALESCE(is_business, 0) = 1`)
+	if err != nil {
+		return jids
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var jid string
+		if rows.Scan(&jid) == nil {
+			jids[jid] = true
+		}
+	}
+	return jids
+}
+
+// isBusinessChat says whether a person's chat is with a business. The
+// contacts cache keys most people by phone number, so a @lid chat is also
+// looked up under its phone-number twin.
+func isBusinessChat(jid types.JID, business map[string]bool) bool {
+	if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+		return false
+	}
+	if business[jid.ToNonAD().String()] {
+		return true
+	}
+	if jid.Server != types.HiddenUserServer {
+		return false
+	}
+	cli := wa()
+	if cli == nil || cli.Store == nil || cli.Store.LIDs == nil {
+		return false
+	}
+	pn, err := cli.Store.LIDs.GetPNForLID(context.Background(), jid.ToNonAD())
+	return err == nil && !pn.IsEmpty() && business[pn.ToNonAD().String()]
+}
+
+// knownBusinesses remembers which chats markBusinessContact has already
+// written, so a business's every message doesn't touch the database.
+var knownBusinesses sync.Map
+
+// markBusinessContact records a person as a business account when one of
+// their messages carries a verified business name, which a business's
+// messages do even when the contact list never said so.
+func markBusinessContact(jid types.JID) {
+	key := jid.ToNonAD().String()
+	if _, seen := knownBusinesses.LoadOrStore(key, true); seen {
+		return
+	}
+	res, err := db.Exec(`INSERT INTO contacts_cache (jid, name, phone, is_business, updated_at) VALUES (?, '', '', 1, ?)
+		ON CONFLICT(jid) DO UPDATE SET is_business = 1 WHERE COALESCE(contacts_cache.is_business, 0) = 0`,
+		key, time.Now().Unix())
+	if err != nil {
+		knownBusinesses.Delete(key)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		broadcastChats()
+	}
+}

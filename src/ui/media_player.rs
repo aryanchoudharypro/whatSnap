@@ -17,7 +17,7 @@ use std::{
 use wxdragon::{event::KeyboardEvent, prelude::*};
 
 use crate::{
-	media_engine::MediaEngine,
+	media::engine::MediaEngine,
 	ui::{keys, theme},
 };
 
@@ -165,7 +165,7 @@ impl MediaPlayer {
 				self.timer.start(TICK_MS, false);
 			}
 			Err(err) => {
-				crate::announce::announce(self.announcer, "The video couldn't be played.");
+				crate::platform::announce::announce(self.announcer, "The video couldn't be played.");
 				eprintln!("Media engine failed to open {path}: {err}");
 			}
 		}
@@ -215,10 +215,10 @@ impl MediaPlayer {
 	pub(crate) fn toggle_play(&self) {
 		if self.is_playing() {
 			self.pause();
-			crate::announce::announce(self.announcer, "Paused");
+			crate::platform::announce::announce(self.announcer, "Paused");
 		} else {
 			self.play();
-			crate::announce::announce(self.announcer, "Playing");
+			crate::platform::announce::announce(self.announcer, "Playing");
 		}
 	}
 
@@ -231,7 +231,7 @@ impl MediaPlayer {
 			return;
 		};
 		self.mute_btn.set_label(if muted { "Unmute" } else { "Mute" });
-		crate::announce::announce(self.announcer, if muted { "Muted" } else { "Sound on" });
+		crate::platform::announce::announce(self.announcer, if muted { "Muted" } else { "Sound on" });
 	}
 
 	fn next_speed(&self) {
@@ -242,7 +242,7 @@ impl MediaPlayer {
 		if let Some(engine) = self.engine.borrow().as_ref() {
 			engine.set_rate(SPEEDS[next]);
 		}
-		crate::announce::announce(self.announcer, &label);
+		crate::platform::announce::announce(self.announcer, &label);
 	}
 
 	/// Moves playback `seconds` forward (or back, when negative).
@@ -257,7 +257,7 @@ impl MediaPlayer {
 		self.last_user_seek.set(Some(Instant::now()));
 		self.position.set_value(at as i32);
 		self.show_time();
-		crate::announce::announce(self.announcer, &clock(at as i32));
+		crate::platform::announce::announce(self.announcer, &clock(at as i32));
 	}
 
 	fn seek_to(&self, seconds: f64) {
@@ -271,11 +271,11 @@ impl MediaPlayer {
 		if let Some(engine) = self.engine.borrow().as_ref() {
 			engine.set_volume(value as f64 / 100.0);
 		}
-		crate::announce::announce(self.announcer, &format!("Volume {value}%"));
+		crate::platform::announce::announce(self.announcer, &format!("Volume {value}%"));
 	}
 
 	pub(crate) fn speak_time(&self) {
-		crate::announce::announce(self.announcer, &self.time_label());
+		crate::platform::announce::announce(self.announcer, &self.time_label());
 	}
 
 	/// Handles the player's own keys (see the module notes). True when the
@@ -367,7 +367,7 @@ impl MediaPlayer {
 		}
 		if let Some(error) = changes.error {
 			self.stop();
-			crate::announce::announce(self.announcer, error);
+			crate::platform::announce::announce(self.announcer, error);
 			return;
 		}
 		if self.length.get() == 0 && length > 0.0 {

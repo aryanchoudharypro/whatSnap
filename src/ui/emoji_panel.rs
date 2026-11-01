@@ -112,7 +112,7 @@ const FIRST_PACK_SET: u32 = 2;
 
 impl EmojiPanel {
 	fn announce(&self, message: &str) {
-		crate::announce::announce(self.announcer, message);
+		crate::platform::announce::announce(self.announcer, message);
 	}
 
 	fn send(&self, action: &str, data: serde_json::Value) {

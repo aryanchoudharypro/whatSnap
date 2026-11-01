@@ -481,7 +481,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_muted_label(&chat_filter_label);
 	left_sizer.add(&chat_filter_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let chat_filter_combo = ComboBox::builder(&panel)
-		.with_string_choices(&crate::message_display::BUILT_IN_CHAT_FILTERS)
+		.with_string_choices(&crate::ui::message_display::BUILT_IN_CHAT_FILTERS)
 		.with_style(ComboBoxStyle::ReadOnly)
 		.build();
 	chat_filter_combo.set_font(&theme::Fonts::body());

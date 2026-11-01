@@ -9,14 +9,13 @@ use crate::{
 	AppState, NotificationSound, PendingVoiceRecording, UiCommand,
 	audio::{
 		compute_voice_waveform, concat_wav_segments, convert_wav_to_opus_ogg, do_seek, ensure_audio_stream,
-		play_notification_sound,
+		play_notification_sound, voice_recorder,
 	},
 	ui::window::WindowParts,
-	voice_recorder,
 };
 
 /// Reacts to a live "default audio device changed" notification (see
-/// `audio_device_watch.rs`). Forces the cached playback stream to reopen on
+/// `audio/device_watch.rs`). Forces the cached playback stream to reopen on
 /// its now-current device, reattaching any actively-playing voice message at
 /// its same position/pause state so the switch is inaudible-gap-free rather
 /// than silent until the next play, and nudges an active call's audio to do
@@ -95,7 +94,10 @@ pub(crate) fn start_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 }
 
 pub(crate) fn stop_recording(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording stopped. Ready to send.");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		"Voice recording stopped. Ready to send.",
+	);
 }
 
 pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -154,7 +156,10 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				crate::ui_commands::messaging::mark_paused(&mut s, &jid);
 			}
 			parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
-			crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording paused.");
+			crate::platform::announce::announce(
+				parts.conversations_parts.messages_announcer,
+				"Voice recording paused.",
+			);
 		}
 	}
 }
@@ -197,11 +202,17 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
 				}
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
-				crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording resumed.");
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					"Voice recording resumed.",
+				);
 			}
 			Err(e) => {
 				eprintln!("[LOG UI] Failed to resume voice recording: {:?}", e);
-				crate::announce::announce(parts.conversations_parts.messages_announcer, "Failed to resume recording.");
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					"Failed to resume recording.",
+				);
 			}
 		}
 	} else {
@@ -237,11 +248,14 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
 				parts.conversations_parts.conversation_panel.layout();
 				parts.conversations_parts.send_voice_btn.set_focus();
-				crate::announce::announce(parts.conversations_parts.messages_announcer, "Recording voice message...");
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					"Recording voice message...",
+				);
 			}
 			Err(e) => {
 				eprintln!("[LOG UI] Failed to start voice recording: {:?}", e);
-				crate::announce::announce(
+				crate::platform::announce::announce(
 					parts.conversations_parts.messages_announcer,
 					"Failed to start microphone recording.",
 				);
@@ -376,7 +390,7 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 
 		play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled, output_device_name);
 		let sent = if view_once { "View once voice message sent." } else { "Voice message sent." };
-		crate::announce::announce(parts.conversations_parts.messages_announcer, sent);
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, sent);
 	}
 
 	parts.conversations_parts.message_field.show(true);
@@ -446,7 +460,7 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	parts.conversations_parts.send_voice_btn.show(false);
 
 	parts.conversations_parts.conversation_panel.layout();
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording discarded.");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording discarded.");
 }
 
 pub(crate) fn play_voice_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, msg_id: String) {

@@ -8,21 +8,21 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState,
-	chat_ui::open_chat_for_jid,
-	contact_picker::contact_picker_label,
 	ui::{
-		send_to::{SendTarget, show_send_to_dialog},
+		chat_ui::open_chat_for_jid,
+		contact_picker::contact_picker_label,
+		dialogs::send_to::{SendTarget, show_send_to_dialog},
 		window::WindowParts,
 	},
 };
 
 /// Acts on a `whatsnap://` link from one of our notifications: a click opens the
 /// chat, and "Mark as read" marks it read. Either way the chat's toasts go.
-fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: crate::app_link::AppLink) {
+fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: crate::platform::app_link::AppLink) {
 	match link {
-		crate::app_link::AppLink::Open { jid } => open_chat_for_jid(&jid, state, parts),
-		crate::app_link::AppLink::MarkRead { jid } => {
-			crate::chat_ui::clear_chat_notifications(&jid);
+		crate::platform::app_link::AppLink::Open { jid } => open_chat_for_jid(&jid, state, parts),
+		crate::platform::app_link::AppLink::MarkRead { jid } => {
+			crate::ui::chat_ui::clear_chat_notifications(&jid);
 			// The chat shows as read only once the server has the receipts:
 			// see the "chat_updated" and "mark_read_failed" events.
 			state.borrow_mut().notification_reads.insert(jid.clone());
@@ -36,7 +36,7 @@ fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link:
 /// asks who to send it to, and an invite link offers to join the group.
 /// Before we're logged in and have the chat list, the link waits.
 pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: String) {
-	let app_link = crate::app_link::parse(&link);
+	let app_link = crate::platform::app_link::parse(&link);
 	let parsed = if app_link.is_some() { None } else { whatsnap::parse_whatsapp_link(&link) };
 	if app_link.is_none() && parsed.is_none() {
 		return;
@@ -144,7 +144,7 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 			if left_out == 1 { "" } else { "s" }
 		));
 	}
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &message);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 }
 
 /// Everyone a message can go to: chats first, most recent first, then
@@ -192,7 +192,10 @@ pub(crate) fn send_text_to_chosen_chats(
 	let names: Vec<String> =
 		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
 	drop(s);
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Sent to {}.", names.join(", ")));
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		&format!("Sent to {}.", names.join(", ")),
+	);
 }
 
 /// Shows a group's invite link, with ways to copy it, send it, or replace it
@@ -260,7 +263,7 @@ pub(crate) fn show_group_invite_link(
 	copy_btn.on_click(move |_| {
 		let copied = crate::copy_text(&link_copy);
 		let message = if copied { "Link copied." } else { "Couldn't copy the link." };
-		crate::announce::announce(announcer_copy, message);
+		crate::platform::announce::announce(announcer_copy, message);
 	});
 	let next_send = next.clone();
 	send_btn.on_click(move |_| {
@@ -469,7 +472,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let link_copy = link.clone();
 	copy_btn.on_click(move |_| {
 		let copied = crate::copy_text(&link_copy);
-		crate::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
+		crate::platform::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
 	});
 	let next_manage = next.clone();
 	manage_btn.on_click(move |_| {
@@ -527,7 +530,7 @@ pub(crate) fn show_channel_directory(
 ) {
 	let ws_tx = state.borrow().ws_tx.clone();
 	let state_store = state.clone();
-	crate::ui::channel_directory::show_channel_directory(&parts.frame, ws_tx, similar_to, move |dir| {
+	crate::ui::dialogs::channel_directory::show_channel_directory(&parts.frame, ws_tx, similar_to, move |dir| {
 		state_store.borrow_mut().channel_directory = dir;
 	});
 }

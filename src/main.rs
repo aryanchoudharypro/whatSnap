@@ -1,65 +1,17 @@
 #![windows_subsystem = "windows"]
-mod types;
-pub use types::*;
-
-mod announce;
 mod audio;
-use audio::*;
-mod app_link;
-mod audio_device_watch;
-mod audio_devices;
-mod audio_file;
-mod autostart;
-mod backend_process;
-mod call_audio;
-mod call_helpers;
-mod call_video_send;
-mod chat_ui;
-mod gif;
-mod gif_video;
-mod image_decode;
-mod media_engine;
-mod media_foundation;
-mod screen_capture;
-mod system_audio;
-mod video_devices;
-mod video_thumbnail;
-use chat_ui::request_backend_shutdown;
-mod clipboard;
-mod error;
-pub use clipboard::{copy_files_to_clipboard, copy_text};
-mod contact_picker;
+mod backend;
+mod calls;
 mod countries;
-mod crash_log;
-mod do_not_disturb;
-#[cfg(target_os = "windows")]
-mod end_session;
+mod error;
 mod keymap;
-mod message_display;
-mod ogg;
-use message_display::update_action_buttons;
-mod call_hotkeys;
-#[cfg(target_os = "windows")]
-mod link_handler;
-mod paths;
-mod pipe;
-mod png;
-mod ringback;
+mod media;
+mod platform;
 mod settings;
-mod single_instance;
-mod toast;
-mod tray;
+mod types;
 mod ui;
 mod ui_commands;
-mod ui_wake;
-mod update_check;
 mod util;
-mod voice_dsp;
-mod voice_recorder;
-mod wav;
-mod websocket_events;
-use websocket_events::process_websocket_message;
-mod win_job;
 
 use std::{
 	cell::RefCell,
@@ -74,12 +26,17 @@ use std::{
 	time::Duration,
 };
 
+use audio::*;
+use backend::events::process_websocket_message;
+pub use platform::clipboard::{copy_files_to_clipboard, copy_text};
 use rodio::{MixerDeviceSink, Player};
+pub use types::*;
+use ui::{chat_ui::request_backend_shutdown, message_display::update_action_buttons};
 use wxdragon::prelude::*;
 
-use crate::{
-	ui::window::{WindowParts, bind_input_handlers, build_main_window},
-	ui_wake::{ID_UI_WAKE, UI_WAKE_HANDLERS, UiCommandSender, UiWaker},
+use crate::ui::{
+	wake::{ID_UI_WAKE, UI_WAKE_HANDLERS, UiCommandSender, UiWaker},
+	window::{WindowParts, bind_input_handlers, build_main_window},
 };
 
 /// How recently a message must have been sent for its "delivered" receipt to
@@ -210,8 +167,8 @@ struct AppState {
 	is_voice_paused: bool,
 	voice_recording_path: Option<String>,
 	/// The currently open WASAPI capture session for the in-progress segment,
-	/// if any (see `voice_recorder::RecordingSession`).
-	voice_recording_session: Option<voice_recorder::RecordingSession>,
+	/// if any (see `audio::voice_recorder::RecordingSession`).
+	voice_recording_session: Option<audio::voice_recorder::RecordingSession>,
 	/// Completed segments from earlier pause/resume cycles in the current
 	/// recording, in order. WASAPI capture doesn't have a reliable
 	/// pause/resume of its own, so each pause closes off a self-contained WAV
@@ -266,7 +223,7 @@ struct AppState {
 	/// channels_message_pin_admin_enabled flag, off unless it says so).
 	channel_pinning: bool,
 	/// The "Find channels" dialog while it's open, for results to land in.
-	channel_directory: Option<Rc<crate::ui::channel_directory::ChannelDirectory>>,
+	channel_directory: Option<Rc<crate::ui::dialogs::channel_directory::ChannelDirectory>>,
 	/// The emoji and stickers panel while it's open, for stickers to land in.
 	emoji_panel: Option<Rc<crate::ui::emoji_panel::EmojiPanel>>,
 	pinned_jids: std::collections::HashSet<String>,
@@ -276,9 +233,9 @@ struct AppState {
 	group_quiet_until: std::collections::HashMap<String, std::time::Instant>,
 	/// Everyone blocked, under each of their addresses (phone JID and LIDs).
 	blocked_jids: std::collections::HashSet<String>,
-	blocked_entries: Vec<crate::ui::blocked_contacts::BlockedEntry>,
+	blocked_entries: Vec<crate::ui::dialogs::blocked_contacts::BlockedEntry>,
 	/// The "Blocked contacts" dialog while it is open, for list changes to land in.
-	blocked_contacts: Option<Rc<crate::ui::blocked_contacts::BlockedContacts>>,
+	blocked_contacts: Option<Rc<crate::ui::dialogs::blocked_contacts::BlockedContacts>>,
 	unread_counts: std::collections::HashMap<String, u64>,
 	/// The chat and count an "N unread messages" divider was captured for
 	/// when it was opened, so the divider stays put in the message list even
@@ -323,15 +280,17 @@ struct AppState {
 	/// resolved back to a jid.
 	contact_picker_current_jids: Vec<String>,
 	presence_labels: std::collections::HashMap<String, String>,
-	group_state: crate::ui::new_group::NewGroupState,
-	add_members_state: crate::ui::add_members::AddMembersState,
-	attach_contact_state: crate::ui::attach_contact::AttachContactState,
+	group_state: crate::ui::dialogs::new_group::NewGroupState,
+	add_members_state: crate::ui::dialogs::add_members::AddMembersState,
+	attach_contact_state: crate::ui::dialogs::attach_contact::AttachContactState,
 	selected_chat: Option<String>,
 	admin_group_jids: std::collections::HashSet<String>,
 	/// Groups where only admins can send messages.
 	admins_only_jids: std::collections::HashSet<String>,
 	/// Groups we've left or been removed from.
 	not_member_jids: std::collections::HashSet<String>,
+	/// People's chats that are WhatsApp Business accounts.
+	business_jids: std::collections::HashSet<String>,
 	initial_presence_received: bool,
 	messages: Vec<whatsnap::Msg>,
 	/// Whether `messages` runs right up to the chat's newest message. False
@@ -486,7 +445,7 @@ struct AppState {
 	/// Messages and missed calls replayed from a backlog (after a long time
 	/// closed or offline), waiting to be answered with a single sound and
 	/// notification rather than one per message. See
-	/// [`chat_ui::flush_catch_up_alerts`].
+	/// [`ui::chat_ui::flush_catch_up_alerts`].
 	catch_up_alerts: whatsnap::CatchUpAlerts,
 	/// When the last backlog entry was tallied; the summary goes out once the
 	/// replay has been quiet for a moment.
@@ -518,10 +477,10 @@ struct AppState {
 	// so a screen reader hears "X is typing" once per state change instead of on
 	// every composing stanza WhatsApp resends while the sender keeps typing.
 	typing_announce_state: std::collections::HashMap<String, u8>,
-	active_call_audio: Option<call_audio::CallAudioState>,
+	active_call_audio: Option<calls::audio::CallAudioState>,
 	/// Running only while the local camera is on or the screen is being
-	/// shared - see `call_video_send.rs`.
-	active_call_video_send: Option<call_video_send::CallVideoSendState>,
+	/// shared - see `calls/video_send.rs`.
+	active_call_video_send: Option<calls::video_send::CallVideoSendState>,
 	/// TCP port `call_connected` handed us for the video bridge - what
 	/// `active_call_video_send` connects to when the camera is turned on.
 	/// `None` before `call_connected`, or if the backend couldn't open the
@@ -604,7 +563,7 @@ struct AppState {
 	/// loaded since Settings was opened.
 	default_timer: Option<i64>,
 	/// The Conversations filter's selection: 0-3 are
-	/// `message_display::BUILT_IN_CHAT_FILTERS`, then `chat_lists` in order.
+	/// `ui::message_display::BUILT_IN_CHAT_FILTERS`, then `chat_lists` in order.
 	chat_filter: usize,
 	/// Favorite chats and the user's own lists, as the phone syncs them.
 	favorite_jids: Vec<String>,
@@ -634,12 +593,12 @@ struct AppState {
 /// (Explorer's Send to passes each chosen file as an argument). Paths are made
 /// absolute because a running instance, with its own working directory, may be
 /// the one that sends them.
-fn launch_request_from_args(args: impl Iterator<Item = String>) -> Option<single_instance::LaunchRequest> {
+fn launch_request_from_args(args: impl Iterator<Item = String>) -> Option<platform::single_instance::LaunchRequest> {
 	let args: Vec<String> = args.collect();
 	if let Some(link) =
-		args.iter().find(|arg| whatsnap::parse_whatsapp_link(arg).is_some() || app_link::parse(arg).is_some())
+		args.iter().find(|arg| whatsnap::parse_whatsapp_link(arg).is_some() || platform::app_link::parse(arg).is_some())
 	{
-		return Some(single_instance::LaunchRequest::Link(link.clone()));
+		return Some(platform::single_instance::LaunchRequest::Link(link.clone()));
 	}
 	let files: Vec<String> = args
 		.iter()
@@ -648,18 +607,18 @@ fn launch_request_from_args(args: impl Iterator<Item = String>) -> Option<single
 		.filter_map(|path| std::path::absolute(path).ok())
 		.map(|path| path.to_string_lossy().to_string())
 		.collect();
-	(!files.is_empty()).then_some(single_instance::LaunchRequest::Files(files))
+	(!files.is_empty()).then_some(platform::single_instance::LaunchRequest::Files(files))
 }
 
-fn launch_command(request: single_instance::LaunchRequest) -> UiCommand {
+fn launch_command(request: platform::single_instance::LaunchRequest) -> UiCommand {
 	match request {
-		single_instance::LaunchRequest::Link(link) => UiCommand::OpenWhatsAppLink(link),
-		single_instance::LaunchRequest::Files(paths) => UiCommand::ShareFiles(paths),
+		platform::single_instance::LaunchRequest::Link(link) => UiCommand::OpenWhatsAppLink(link),
+		platform::single_instance::LaunchRequest::Files(paths) => UiCommand::ShareFiles(paths),
 	}
 }
 
 fn main() {
-	crash_log::install();
+	platform::crash_log::install();
 
 	// If whatSnap is already running, activate its window (restoring it from
 	// the tray if needed) instead of launching a second instance.
@@ -667,18 +626,18 @@ fn main() {
 	// started with a link to act on, and it's in Explorer's Send to menu, so
 	// it can be started with files to send.
 	let launch_request = launch_request_from_args(std::env::args().skip(1));
-	let _instance_lock = match single_instance::acquire_or_activate_existing(launch_request.as_ref()) {
+	let _instance_lock = match platform::single_instance::acquire_or_activate_existing(launch_request.as_ref()) {
 		Some(lock) => lock,
 		None => return,
 	};
 	// Before anything opens the session database: the first run after the rename copies it over.
-	paths::migrate_legacy_data();
+	platform::paths::migrate_legacy_data();
 	// Keeps whatSnap registered for whatsapp:// links, at the path it now runs
 	// from. Off the startup path; it's a few registry writes.
 	#[cfg(target_os = "windows")]
-	std::thread::spawn(link_handler::register);
+	std::thread::spawn(platform::link_handler::register);
 	for name in ["backend_process.log", "call_audio.log", "call_video_send.log", "panic.log", "crash.log"] {
-		paths::rotate_log(name);
+		platform::paths::rotate_log(name);
 	}
 
 	let exe_dir = std::env::current_exe()
@@ -709,7 +668,7 @@ fn main() {
 		.and_then(|p| p.parent().map(|d| d.to_path_buf()))
 		.unwrap_or_else(|| std::path::PathBuf::from("backend"));
 
-	let db_path_str = paths::db_path().to_string_lossy().into_owned();
+	let db_path_str = platform::paths::db_path().to_string_lossy().into_owned();
 
 	// Random rather than PID-derived: on Windows the first process to create a
 	// pipe name owns it, so a predictable name can be squatted by a local
@@ -726,7 +685,7 @@ fn main() {
 	// Before any window: every colour is picked as windows are made.
 	crate::ui::theme::set_theme(early_settings.theme);
 	let backend = backend_exe.map(|exe| {
-		Arc::new(backend_process::BackendProcess::start(
+		Arc::new(backend::process::BackendProcess::start(
 			exe,
 			backend_dir,
 			db_path_str,
@@ -753,7 +712,10 @@ fn main() {
 		// toasts from an app ID that has none. Give it an explicit path in the
 		// per-user Programs folder (where the installer puts its shortcut too),
 		// so the toast app ID is attached to that shortcut, not a guessed one.
-		wxdragon::prelude::NotificationMessage::msw_use_toasts(&toast::start_menu_shortcut_path(), toast::APP_ID);
+		wxdragon::prelude::NotificationMessage::msw_use_toasts(
+			&platform::toast::start_menu_shortcut_path(),
+			platform::toast::APP_ID,
+		);
 
 		let parts = build_main_window();
 		let frame = parts.frame;
@@ -762,7 +724,7 @@ fn main() {
 		#[cfg(target_os = "windows")]
 		{
 			let tray_icon = parts.tray_icon.clone();
-			end_session::install(&frame, move || {
+			platform::end_session::install(&frame, move || {
 				// The shell keeps a dead process's icon until the mouse passes over it.
 				tray_icon.remove_icon();
 				if let Some(backend) = &end_session_backend {
@@ -776,18 +738,18 @@ fn main() {
 		let ui_waker = UiWaker::new(frame, ui_alive.clone());
 		let ui_tx = UiCommandSender::new(ui_tx_raw, ui_waker.clone());
 
-		audio_device_watch::start(ui_tx.clone());
+		audio::device_watch::start(ui_tx.clone());
 
-		// Let future launches of the app (see `single_instance::acquire_or_activate_existing`
+		// Let future launches of the app (see `platform::single_instance::acquire_or_activate_existing`
 		// at the top of `main`) hand off to this window instead of starting a second instance.
 		let ui_tx_activate = ui_tx.clone();
-		single_instance::listen_for_activation(move |request| {
+		platform::single_instance::listen_for_activation(move |request| {
 			// A toast's "Mark as read" works in the background, like official
 			// WhatsApp's: no window, and no going online.
 			let mark_read = matches!(
 				&request,
-				Some(single_instance::LaunchRequest::Link(link))
-					if matches!(app_link::parse(link), Some(app_link::AppLink::MarkRead { .. }))
+				Some(platform::single_instance::LaunchRequest::Link(link))
+					if matches!(platform::app_link::parse(link), Some(platform::app_link::AppLink::MarkRead { .. }))
 			);
 			if !mark_read {
 				let _ = ui_tx_activate.send(UiCommand::ActivateWindow);
@@ -827,7 +789,7 @@ fn main() {
 					let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(notice.to_string()));
 				}
 
-				if let Ok(socket) = pipe::PipeStream::connect(&pipe_id) {
+				if let Ok(socket) = backend::pipe::PipeStream::connect(&pipe_id) {
 					// Confirm we reached the backend we spawned and not a
 					// process that beat it to the pipe name.
 					let expected_pid = pipe_backend.as_ref().map(|b| b.pid());
@@ -862,7 +824,7 @@ fn main() {
 							if let Some(out_msg) = msg_opt {
 								let msg = format!("{}\n", out_msg);
 								if let Err(e) = socket_writer.write_all(msg.as_bytes()) {
-									crate::websocket_events::ui_timing_log(&format!(
+									crate::backend::events::ui_timing_log(&format!(
 										"Backend pipe: sending a command failed ({e}); resending on the next connection"
 									));
 									// Writers from prior connections stay parked
@@ -884,7 +846,7 @@ fn main() {
 
 						match buf_reader.read_line(&mut line) {
 							Ok(0) => {
-								crate::websocket_events::ui_timing_log(
+								crate::backend::events::ui_timing_log(
 									"Backend pipe: closed by the backend; reconnecting",
 								);
 								break;
@@ -910,7 +872,7 @@ fn main() {
 							}
 							// Any read error breaks and triggers reconnect.
 							Err(e) => {
-								crate::websocket_events::ui_timing_log(&format!(
+								crate::backend::events::ui_timing_log(&format!(
 									"Backend pipe: reading failed ({e}); reconnecting"
 								));
 								break;
@@ -1027,20 +989,20 @@ fn main() {
 			app_prefs: None,
 			privacy_lists: std::collections::HashMap::new(),
 			privacy_list_edits: std::collections::HashMap::new(),
-			group_state: crate::ui::new_group::NewGroupState {
+			group_state: crate::ui::dialogs::new_group::NewGroupState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
 				checked_jids: std::collections::HashSet::new(),
 				current_jids: Vec::new(),
 			},
-			add_members_state: crate::ui::add_members::AddMembersState {
+			add_members_state: crate::ui::dialogs::add_members::AddMembersState {
 				group_jid: None,
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
 				checked_jids: std::collections::HashSet::new(),
 				current_jids: Vec::new(),
 			},
-			attach_contact_state: crate::ui::attach_contact::AttachContactState {
+			attach_contact_state: crate::ui::dialogs::attach_contact::AttachContactState {
 				all_contact_labels: Vec::new(),
 				all_contact_jids: Vec::new(),
 				checked_jids: std::collections::HashSet::new(),
@@ -1050,6 +1012,7 @@ fn main() {
 			admin_group_jids: std::collections::HashSet::new(),
 			admins_only_jids: std::collections::HashSet::new(),
 			not_member_jids: std::collections::HashSet::new(),
+			business_jids: std::collections::HashSet::new(),
 			initial_presence_received: false,
 			messages: Vec::new(),
 			messages_at_latest: true,
@@ -1160,9 +1123,9 @@ fn main() {
 				Err(_) => return, // State already borrowed, skip this update
 			};
 			ui_commands::messaging::chatstate_tick(&mut s);
-			chat_ui::flush_catch_up_alerts(&mut s);
+			ui::chat_ui::flush_catch_up_alerts(&mut s);
 			// Old data is only removed once the app is up on the migrated session.
-			paths::remove_legacy_data_if_running(s.main_ui_shown && !s.chats.is_empty());
+			platform::paths::remove_legacy_data_if_running(s.main_ui_shown && !s.chats.is_empty());
 			ui_commands::misc::presence_tick(&mut s);
 			if s.playing_msg_id.is_none() {
 				return;
@@ -1274,13 +1237,13 @@ fn main() {
 					.get(sel_jid)
 					.or_else(|| s.contacts.get(&norm_jid))
 					.cloned()
-					.unwrap_or_else(|| contact_picker::display_name_for_jid(sel_jid));
+					.unwrap_or_else(|| ui::contact_picker::display_name_for_jid(sel_jid));
 				let presence_label = s
 					.presence_labels
 					.get(sel_jid.as_str())
 					.or_else(|| s.presence_labels.get(&norm_jid))
 					.map(|l| l.as_str());
-				let label = websocket_events::format_conv_data_label(
+				let label = backend::events::format_conv_data_label(
 					sel_jid,
 					&chat_name,
 					&chat_name,
@@ -1322,7 +1285,7 @@ fn main() {
 				play_call_fail_sound(&mut s);
 				// The call window is hidden just above, so this falls back to the
 				// main window's announcer - which is the one with focus now.
-				call_helpers::announce_call(&parts_typing_timer, "No response - the call could not be answered.");
+				calls::helpers::announce_call(&parts_typing_timer, "No response - the call could not be answered.");
 			}
 		});
 		typing_timer.start(5000, false);
@@ -1351,7 +1314,7 @@ fn main() {
 			};
 
 			let now = std::time::Instant::now();
-			let db_size = paths::db_and_wal_size();
+			let db_size = platform::paths::db_and_wal_size();
 			// Only growth counts as sync activity. The backend's post-sync WAL
 			// checkpoint moves data from -wal into the main file and truncates
 			// -wal, which always shrinks the total - that's housekeeping, not
@@ -1428,7 +1391,7 @@ fn main() {
 		// not deleted, so the event loop stays alive to receive those events.
 	});
 	if let Err(e) = res {
-		let _ = std::fs::write(paths::log_dir().join("main_error.log"), format!("{:?}", e));
+		let _ = std::fs::write(platform::paths::log_dir().join("main_error.log"), format!("{:?}", e));
 	}
 
 	if let Some(backend) = backend {
@@ -1535,7 +1498,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ShowConversationData => ui_commands::chat_list::show_conversation_data(state, parts),
 		UiCommand::OpenChatAtMessage { jid, message_id } => {
 			state.borrow_mut().search_target_id = Some(message_id);
-			chat_ui::open_chat_for_jid(&jid, state, parts);
+			ui::chat_ui::open_chat_for_jid(&jid, state, parts);
 		}
 		UiCommand::ShowContactInfo(jid) => ui_commands::chat_list::show_contact_info(state, parts, jid),
 		UiCommand::AddOrEditContact => ui_commands::contacts_groups::add_or_edit_contact(state, parts),

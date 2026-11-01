@@ -77,9 +77,10 @@ pub(crate) fn with_thumb<R>(id: &str, max_w: i32, max_h: i32, draw: impl FnOnce(
 			}
 		};
 		if c.bitmaps.get(id).is_none_or(|(size, _)| *size != (max_w, max_h)) {
-			let decoded = crate::image_decode::decode_rgba_in_box(&path, max_w.max(1) as u32, max_h.max(1) as u32)
-				.ok()
-				.and_then(|(w, h, rgba)| Bitmap::from_rgba(&rgba, w, h));
+			let decoded =
+				crate::media::image_decode::decode_rgba_in_box(&path, max_w.max(1) as u32, max_h.max(1) as u32)
+					.ok()
+					.and_then(|(w, h, rgba)| Bitmap::from_rgba(&rgba, w, h));
 			let Some(bitmap) = decoded else {
 				c.paths.insert(id.to_string(), None);
 				return draw(Thumb::Nothing);

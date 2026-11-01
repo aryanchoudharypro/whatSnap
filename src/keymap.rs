@@ -1,5 +1,5 @@
-//! The remappable keyboard shortcuts: the menu bar's, which are the only
-//! app-wide ones, and the message list's action keys.
+//! The remappable keyboard shortcuts: the menu bar's, the voice message
+//! keys (app-wide but with no menu item), and the message list's action keys.
 //!
 //! wx builds its accelerator table from the "\tCtrl+N" part of each menu
 //! label, so rebinding a menu shortcut means relabelling its menu item. The
@@ -34,6 +34,14 @@ pub mod message_list {
 	pub const VIEW_TEXT: &str = "message_view_text";
 }
 
+/// Ids of the voice message keys. They have no menu item: the main window
+/// checks them through [`Keymap::is_pressed`] before the focused control.
+pub mod voice {
+	pub const START_RECORDING: &str = "start_recording";
+	pub const PAUSE_RECORDING: &str = "pause_recording";
+	pub const SEND: &str = "send_voice_message";
+}
+
 /// Ids of the incoming-call keys. Unlike the others these are system-wide
 /// (see `call_hotkeys`), and they're read when a call starts ringing.
 pub mod incoming_call {
@@ -46,7 +54,8 @@ pub struct ActionDef {
 	/// Key in settings.json. Never rename one: it would silently drop the
 	/// user's binding for it.
 	pub id: &'static str,
-	/// The menu item it's the shortcut of, or `None` for a message-list key.
+	/// The menu item it's the shortcut of, or `None` for a key with no menu
+	/// item (a voice message or message-list key).
 	pub menu_id: Option<i32>,
 	/// Index into [`TABS`]: the menu the item lives in, or the Messages tab.
 	pub tab: usize,
@@ -141,27 +150,9 @@ pub const ACTIONS: &[ActionDef] = &[
 		label: "&Star Message",
 		default: "Alt+8",
 	},
-	ActionDef {
-		id: "start_recording",
-		menu_id: Some(MENU_ID_START_RECORDING),
-		tab: 4,
-		label: "Start &Recording",
-		default: "Ctrl+Shift+R",
-	},
-	ActionDef {
-		id: "pause_recording",
-		menu_id: Some(MENU_ID_PAUSE_RECORDING),
-		tab: 4,
-		label: "&Pause Recording",
-		default: "Alt+P",
-	},
-	ActionDef {
-		id: "send_voice_message",
-		menu_id: Some(MENU_ID_SEND_PTT),
-		tab: 4,
-		label: "Sen&d Voice Message",
-		default: "Ctrl+Enter",
-	},
+	ActionDef { id: voice::START_RECORDING, menu_id: None, tab: 4, label: "Start Recording", default: "Ctrl+Shift+R" },
+	ActionDef { id: voice::PAUSE_RECORDING, menu_id: None, tab: 4, label: "Pause Recording", default: "Alt+P" },
+	ActionDef { id: voice::SEND, menu_id: None, tab: 4, label: "Send Voice Message", default: "Ctrl+Enter" },
 	ActionDef { id: "call_mute", menu_id: Some(MENU_ID_CALL_MUTE), tab: 5, label: "Toggle &Mute", default: "Ctrl+M" },
 	ActionDef { id: "call_end", menu_id: Some(MENU_ID_CALL_END), tab: 5, label: "&End Call", default: "Ctrl+W" },
 	ActionDef {
@@ -309,6 +300,11 @@ impl Keymap {
 		KeyChord::parse(self.overrides.get(def.id).map_or(def.default, String::as_str))
 	}
 
+	/// The label, with its shortcut, of the menu item `menu_id`.
+	pub fn menu_label_for(&self, menu_id: i32) -> String {
+		self.menu_label(action_for_menu(menu_id))
+	}
+
 	pub fn menu_label(&self, action: usize) -> String {
 		let shortcut = self.chord_for(action).map(|c| accelerator_text(&c)).unwrap_or_default();
 		wx_utils::menu_label(ACTIONS[action].label, &shortcut)
@@ -454,7 +450,6 @@ mod tests {
 		assert_eq!(default_menu_label(MENU_ID_SETTINGS), "&Settings...\tCtrl+,");
 		assert_eq!(default_menu_label(MENU_ID_NEW_GROUP), "New &Group\tCtrl+Shift+N");
 		assert_eq!(default_menu_label(MENU_ID_SEARCH_GLOBAL), "&Search\tCtrl+/");
-		assert_eq!(default_menu_label(MENU_ID_SEND_PTT), "Sen&d Voice Message\tCtrl+Enter");
 		assert_eq!(default_menu_label(MENU_ID_RECONNECT), "&Reconnect Now\tF5");
 		assert_eq!(default_menu_label(MENU_ID_FOCUS_MESSAGE_FIELD), "Jump to Message Fi&eld\tAlt+E");
 		assert_eq!(default_menu_label(MENU_ID_ANNOUNCE_STATUS), "Announce Chat Sta&tus\tAlt+T");

@@ -7,9 +7,8 @@ use wxdragon::{
 
 use crate::{
 	UiCommand,
-	keymap::{default_menu_label, message_list},
-	ui::{keys, message_list::CursorList, theme},
-	ui_wake::UiCommandSender,
+	keymap::{default_menu_label, message_list, voice},
+	ui::{keys, message_list::CursorList, theme, wake::UiCommandSender},
 };
 
 /// Whether Enter (main or numpad) is physically down right now.
@@ -192,12 +191,12 @@ pub struct WindowParts {
 	pub pairing_code_display: TextCtrl,
 	pub pairing_announcer: StaticText,
 	pub pairing_cancel_btn: Button,
-	pub new_conv_dialog: crate::ui::new_conversation::NewConversationDialogParts,
-	pub new_contact_dialog: crate::ui::new_contact::NewContactDialogParts,
-	pub poll_dialog: crate::ui::poll_dialog::PollDialogParts,
-	pub new_group_dialog: crate::ui::new_group::NewGroupDialogParts,
-	pub add_members_dialog: crate::ui::add_members::AddMembersDialogParts,
-	pub attach_contact_dialog: crate::ui::attach_contact::AttachContactDialogParts,
+	pub new_conv_dialog: crate::ui::dialogs::new_conversation::NewConversationDialogParts,
+	pub new_contact_dialog: crate::ui::dialogs::new_contact::NewContactDialogParts,
+	pub poll_dialog: crate::ui::dialogs::poll_dialog::PollDialogParts,
+	pub new_group_dialog: crate::ui::dialogs::new_group::NewGroupDialogParts,
+	pub add_members_dialog: crate::ui::dialogs::add_members::AddMembersDialogParts,
+	pub attach_contact_dialog: crate::ui::dialogs::attach_contact::AttachContactDialogParts,
 	/// Shared with the search-field debounce in `bind_input_handlers` so a
 	/// `contacts` response landing while a picker is open coalesces with any
 	/// in-flight keystroke rebuild instead of firing an immediate rebuild
@@ -206,12 +205,12 @@ pub struct WindowParts {
 	pub new_group_contacts_timer: Rc<Timer<Dialog>>,
 	pub add_members_contacts_timer: Rc<Timer<Dialog>>,
 	pub attach_contact_timer: Rc<Timer<Dialog>>,
-	pub attachment_dialog: crate::ui::attachment_dialog::AttachmentDialogParts,
+	pub attachment_dialog: crate::ui::dialogs::attachment_dialog::AttachmentDialogParts,
 	pub call_parts: crate::ui::call_window::CallWindowParts,
 	pub conversation_data_dialog: crate::ui::conversation_data::ConversationDataDialogParts,
 	pub group_data_dialog: crate::ui::group_data::GroupDataDialogParts,
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
-	pub settings_dialog: crate::ui::settings_dialog::SettingsDialogParts,
+	pub settings_dialog: crate::ui::dialogs::settings_dialog::SettingsDialogParts,
 	pub tray_icon: Rc<TaskBarIcon>,
 }
 
@@ -238,9 +237,6 @@ pub const MENU_ID_PIN_CHAT: i32 = 6026;
 pub const MENU_ID_MARK_UNREAD: i32 = 6027;
 pub const MENU_ID_CHAT_INFO: i32 = 6028;
 pub const MENU_ID_STAR_MESSAGE: i32 = 6029;
-pub const MENU_ID_START_RECORDING: i32 = 6030;
-pub const MENU_ID_PAUSE_RECORDING: i32 = 6031;
-pub const MENU_ID_SEND_PTT: i32 = 6032;
 pub const MENU_ID_CALL_MUTE: i32 = 6033;
 pub const MENU_ID_CALL_END: i32 = 6034;
 pub const MENU_ID_LOCK_CHAT: i32 = 6035;
@@ -390,24 +386,144 @@ fn reorder_go_menu(menu_bar: &MenuBar, order: &[usize]) {
 	}
 }
 
-/// Greys out what doesn't apply right now. A disabled item's shortcut does
-/// nothing either, so this runs whenever the tab or the open chat changes,
-/// not only when a menu opens.
+/// One line of the Conversation menu: an item's id, its label if it has no
+/// shortcut (the rest take theirs from the keymap) and help text, or a
+/// separator.
+enum ConversationEntry {
+	Item(i32, Option<&'static str>, &'static str),
+	Separator,
+}
+
+use ConversationEntry::{Item, Separator};
+
+/// The Conversation menu in full, for a chat everything applies to.
+const CONVERSATION_MENU: [ConversationEntry; 24] = [
+	Item(MENU_ID_CHAT_INFO, None, "Open info for the open chat"),
+	Item(MENU_ID_FOCUS_MESSAGE_FIELD, None, "Move focus to the message box, or back to where you were"),
+	Item(MENU_ID_FOCUS_MESSAGES_LIST, None, "Move focus to the messages list"),
+	Item(MENU_ID_ANNOUNCE_STATUS, None, "Say the open chat's status: online, typing and so on"),
+	Item(MENU_ID_EMOJI_PANEL, None, "Pick an emoji to put in the message box"),
+	Item(MENU_ID_STICKER_PANEL, None, "Pick a sticker to send: favorites, recent ones or WhatsApp's own packs"),
+	Item(MENU_ID_NEXT_SPELLING_ERROR, None, "Select the next misspelled word in the message box and offer its fixes"),
+	Item(MENU_ID_SEARCH_CHAT, None, "Search within the open chat"),
+	Item(MENU_ID_PINNED_MESSAGES, Some("Pi&nned Messages..."), "See and go to the open chat's pinned messages"),
+	Item(
+		MENU_ID_BUSINESS_CATALOG,
+		Some("Business Catalo&gue..."),
+		"Browse the products of the business you're chatting with",
+	),
+	Separator,
+	Item(MENU_ID_MUTE_CHAT, None, "Mute the open chat"),
+	Item(MENU_ID_ARCHIVE_CHAT, None, "Archive the open chat"),
+	Item(MENU_ID_PIN_CHAT, None, "Pin the open chat"),
+	Item(MENU_ID_LOCK_CHAT, None, "Lock or unlock the open chat"),
+	Item(MENU_ID_MARK_UNREAD, None, "Toggle read/unread on the open chat"),
+	Separator,
+	Item(
+		MENU_ID_DISAPPEARING,
+		Some("&Disappearing Messages..."),
+		"Turn disappearing messages on or off for the open chat",
+	),
+	Item(
+		MENU_ID_CHAT_PRIVACY,
+		Some("Ad&vanced Chat Privacy..."),
+		"Turn advanced chat privacy on or off for the open chat",
+	),
+	Separator,
+	Item(MENU_ID_REPORT_CHAT, Some("&Report..."), "Report the open chat's contact or group to WhatsApp"),
+	Item(MENU_ID_BLOCK_CHAT, Some("&Block or Unblock Contact"), "Block or unblock the open chat's contact"),
+	Separator,
+	Item(MENU_ID_STAR_MESSAGE, None, "Star the selected message"),
+];
+
+/// Whether a Conversation menu item fits the chat `jid` at all: no catalogue
+/// for anyone but a business, no blocking a group, no reporting a channel.
+fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
+	let is_person = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
+	let is_channel = jid.ends_with("@newsletter");
+	let is_broadcast = jid.ends_with("@broadcast");
+	match id {
+		MENU_ID_BUSINESS_CATALOG => is_person && s.business_jids.contains(jid),
+		MENU_ID_BLOCK_CHAT => is_person,
+		MENU_ID_PINNED_MESSAGES => !is_broadcast,
+		MENU_ID_DISAPPEARING => !is_channel,
+		MENU_ID_REPORT_CHAT | MENU_ID_CHAT_PRIVACY => !is_channel && !is_broadcast,
+		_ => true,
+	}
+}
+
+/// The entries to show, with no separator first, last or twice in a row.
+fn conversation_entries(applies: impl Fn(i32) -> bool) -> Vec<&'static ConversationEntry> {
+	let mut shown: Vec<&ConversationEntry> = Vec::new();
+	for entry in &CONVERSATION_MENU {
+		match entry {
+			Item(id, ..) if applies(*id) => shown.push(entry),
+			Separator if matches!(shown.last(), Some(Item(..))) => shown.push(entry),
+			_ => {}
+		}
+	}
+	if matches!(shown.last(), Some(Separator)) {
+		shown.pop();
+	}
+	shown
+}
+
+/// Empties `menu` and fills it with `entries`. Items with a shortcut get
+/// their label from `keymap`, so one the user changed stays changed.
+fn fill_conversation_menu(menu: &Menu, entries: &[&ConversationEntry], keymap: &crate::keymap::Keymap) {
+	while let Some(item) = menu.find_item_by_position(0) {
+		menu.delete_item(&item);
+	}
+	for entry in entries {
+		match entry {
+			Item(id, Some(label), help) => {
+				menu.append(*id, label, help, ItemKind::Normal);
+			}
+			Item(id, None, help) => {
+				menu.append(*id, &keymap.menu_label_for(*id), help, ItemKind::Normal);
+			}
+			Separator => menu.append_separator(),
+		}
+	}
+}
+
+/// The ids now in the Conversation menu, in order; 0 for a separator.
+fn conversation_menu_layout(menu: &Menu) -> Vec<i32> {
+	menu.get_menu_items().iter().map(|item| item.get_item_id().max(0)).collect()
+}
+
+/// Leaves out of the Conversation menu what doesn't fit the open chat, and
+/// puts back what does. Only rebuilt when that changes, so the menu isn't
+/// churned on every chat-list update.
+fn fit_conversation_menu(s: &crate::AppState, menu_bar: &MenuBar, jid: &str) {
+	let Some((_, menu)) = menu_bar.find_item_and_menu(MENU_ID_CHAT_INFO) else { return };
+	let entries = conversation_entries(|id| conversation_item_applies(s, jid, id));
+	let wanted: Vec<i32> = entries
+		.iter()
+		.map(|e| match e {
+			Item(id, ..) => *id,
+			Separator => 0,
+		})
+		.collect();
+	if conversation_menu_layout(&menu) != wanted {
+		fill_conversation_menu(&menu, &entries, &s.keymap);
+	}
+}
+
+/// Greys out what doesn't apply right now, and leaves out of the
+/// Conversation menu what never applies to the open chat. A disabled item's
+/// shortcut does nothing either, so this runs whenever the tab or the open
+/// chat changes, not only when a menu opens.
 pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 	let Some(menu_bar) = frame.get_menu_bar() else { return };
 	let chat = conversation_menu_chat(s);
+	// With no chat open the menu keeps the last chat's items, all greyed.
+	if let Some(jid) = chat {
+		fit_conversation_menu(s, &menu_bar, jid);
+	}
 	for id in CONVERSATION_MENU_IDS {
 		menu_bar.enable_item(id, chat.is_some());
 	}
-	let Some(jid) = chat else { return };
-	let is_contact = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
-	let is_channel = jid.ends_with("@newsletter");
-	let is_broadcast = jid.ends_with("@broadcast");
-	menu_bar.enable_item(MENU_ID_BLOCK_CHAT, is_contact);
-	menu_bar.enable_item(MENU_ID_BUSINESS_CATALOG, is_contact);
-	menu_bar.enable_item(MENU_ID_REPORT_CHAT, !is_channel && !is_broadcast);
-	menu_bar.enable_item(MENU_ID_DISAPPEARING, !is_channel);
-	menu_bar.enable_item(MENU_ID_CHAT_PRIVACY, !is_channel && !is_broadcast);
 }
 
 pub fn build_main_window() -> WindowParts {
@@ -486,86 +602,10 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_MANAGE_LISTS, "Manage &Lists...", "Make, rename or delete your chat lists")
 		.build();
 	// Everything here acts on the open chat, so `refresh_menu_bar` greys it
-	// out on the Status and Starred tabs and when no chat is open.
-	let conversation_menu = Menu::builder()
-		.append_item(MENU_ID_CHAT_INFO, &default_menu_label(MENU_ID_CHAT_INFO), "Open info for the open chat")
-		.append_item(
-			MENU_ID_FOCUS_MESSAGE_FIELD,
-			&default_menu_label(MENU_ID_FOCUS_MESSAGE_FIELD),
-			"Move focus to the message box, or back to where you were",
-		)
-		.append_item(
-			MENU_ID_FOCUS_MESSAGES_LIST,
-			&default_menu_label(MENU_ID_FOCUS_MESSAGES_LIST),
-			"Move focus to the messages list",
-		)
-		.append_item(
-			MENU_ID_ANNOUNCE_STATUS,
-			&default_menu_label(MENU_ID_ANNOUNCE_STATUS),
-			"Say the open chat's status: online, typing and so on",
-		)
-		.append_item(
-			MENU_ID_EMOJI_PANEL,
-			&default_menu_label(MENU_ID_EMOJI_PANEL),
-			"Pick an emoji to put in the message box",
-		)
-		.append_item(
-			MENU_ID_STICKER_PANEL,
-			&default_menu_label(MENU_ID_STICKER_PANEL),
-			"Pick a sticker to send: favorites, recent ones or WhatsApp's own packs",
-		)
-		.append_item(
-			MENU_ID_NEXT_SPELLING_ERROR,
-			&default_menu_label(MENU_ID_NEXT_SPELLING_ERROR),
-			"Select the next misspelled word in the message box and offer its fixes",
-		)
-		.append_item(MENU_ID_SEARCH_CHAT, &default_menu_label(MENU_ID_SEARCH_CHAT), "Search within the open chat")
-		.append_item(MENU_ID_PINNED_MESSAGES, "Pi&nned Messages...", "See and go to the open chat's pinned messages")
-		.append_item(
-			MENU_ID_BUSINESS_CATALOG,
-			"Business Catalo&gue...",
-			"Browse the products of the business you're chatting with",
-		)
-		.append_separator()
-		.append_item(MENU_ID_MUTE_CHAT, &default_menu_label(MENU_ID_MUTE_CHAT), "Mute the open chat")
-		.append_item(MENU_ID_ARCHIVE_CHAT, &default_menu_label(MENU_ID_ARCHIVE_CHAT), "Archive the open chat")
-		.append_item(MENU_ID_PIN_CHAT, &default_menu_label(MENU_ID_PIN_CHAT), "Pin the open chat")
-		.append_item(MENU_ID_LOCK_CHAT, &default_menu_label(MENU_ID_LOCK_CHAT), "Lock or unlock the open chat")
-		.append_item(
-			MENU_ID_MARK_UNREAD,
-			&default_menu_label(MENU_ID_MARK_UNREAD),
-			"Toggle read/unread on the open chat",
-		)
-		.append_separator()
-		.append_item(
-			MENU_ID_DISAPPEARING,
-			"&Disappearing Messages...",
-			"Turn disappearing messages on or off for the open chat",
-		)
-		.append_item(
-			MENU_ID_CHAT_PRIVACY,
-			"Ad&vanced Chat Privacy...",
-			"Turn advanced chat privacy on or off for the open chat",
-		)
-		.append_separator()
-		.append_item(MENU_ID_REPORT_CHAT, "&Report...", "Report the open chat's contact or group to WhatsApp")
-		.append_item(MENU_ID_BLOCK_CHAT, "&Block or Unblock Contact", "Block or unblock the open chat's contact")
-		.append_separator()
-		.append_item(MENU_ID_STAR_MESSAGE, &default_menu_label(MENU_ID_STAR_MESSAGE), "Star the selected message")
-		.build();
-	let voice_menu = Menu::builder()
-		.append_item(
-			MENU_ID_START_RECORDING,
-			&default_menu_label(MENU_ID_START_RECORDING),
-			"Start a voice message recording",
-		)
-		.append_item(
-			MENU_ID_PAUSE_RECORDING,
-			&default_menu_label(MENU_ID_PAUSE_RECORDING),
-			"Pause/resume the voice recording",
-		)
-		.append_item(MENU_ID_SEND_PTT, &default_menu_label(MENU_ID_SEND_PTT), "Send the recorded voice message")
-		.build();
+	// out on the Status and Starred tabs and when no chat is open, and leaves
+	// out what doesn't fit the open chat.
+	let conversation_menu = Menu::builder().build();
+	fill_conversation_menu(&conversation_menu, &CONVERSATION_MENU.iter().collect::<Vec<_>>(), &Default::default());
 	let call_menu = Menu::builder()
 		.append_item(
 			MENU_ID_CALL_MUTE,
@@ -582,7 +622,6 @@ pub fn build_main_window() -> WindowParts {
 		.append(go_menu, "&Go")
 		.append(chats_menu, "&Chats")
 		.append(conversation_menu, "C&onversation")
-		.append(voice_menu, "&Voice")
 		.append(call_menu, "Ca&ll")
 		.build();
 	frame.set_menu_bar(menu_bar);
@@ -683,20 +722,20 @@ pub fn build_main_window() -> WindowParts {
 	let pairing_dlg_esc = pairing_dialog;
 	pairing_code_display.on_key_down(keys::escape_cancels(pairing_dlg_esc));
 
-	let new_conv_dialog = crate::ui::new_conversation::build_new_conversation_dialog(&frame);
-	let new_contact_dialog = crate::ui::new_contact::build_new_contact_dialog(&frame);
-	let poll_dialog = crate::ui::poll_dialog::build_poll_dialog(&frame);
-	let new_group_dialog = crate::ui::new_group::build_new_group_dialog(&frame);
-	let add_members_dialog = crate::ui::add_members::build_add_members_dialog(&frame);
-	let attach_contact_dialog = crate::ui::attach_contact::build_attach_contact_dialog(&frame);
+	let new_conv_dialog = crate::ui::dialogs::new_conversation::build_new_conversation_dialog(&frame);
+	let new_contact_dialog = crate::ui::dialogs::new_contact::build_new_contact_dialog(&frame);
+	let poll_dialog = crate::ui::dialogs::poll_dialog::build_poll_dialog(&frame);
+	let new_group_dialog = crate::ui::dialogs::new_group::build_new_group_dialog(&frame);
+	let add_members_dialog = crate::ui::dialogs::add_members::build_add_members_dialog(&frame);
+	let attach_contact_dialog = crate::ui::dialogs::attach_contact::build_attach_contact_dialog(&frame);
 	let new_group_contacts_timer = Rc::new(Timer::new(&new_group_dialog.dialog));
 	let add_members_contacts_timer = Rc::new(Timer::new(&add_members_dialog.dialog));
 	let attach_contact_timer = Rc::new(Timer::new(&attach_contact_dialog.dialog));
-	let attachment_dialog = crate::ui::attachment_dialog::build_attachment_dialog(&frame);
+	let attachment_dialog = crate::ui::dialogs::attachment_dialog::build_attachment_dialog(&frame);
 	let call_parts = crate::ui::call_window::build_call_window();
 	let conversation_data_dialog = crate::ui::conversation_data::build_conversation_data_dialog(&frame);
 	let group_data_dialog = crate::ui::group_data::build_group_data_dialog(&frame);
-	let settings_dialog = crate::ui::settings_dialog::build_settings_dialog(&frame);
+	let settings_dialog = crate::ui::dialogs::settings_dialog::build_settings_dialog(&frame);
 	let tray_icon = Rc::new(TaskBarIcon::builder().build());
 
 	let conv_panel = crate::ui::conversations::build_conversations_panel(&content_panel);
@@ -1160,13 +1199,13 @@ pub fn bind_input_handlers(
 	let tx_call_input = ui_tx.clone();
 	let call_input_combo = parts.call_parts.input_device_combo;
 	parts.call_parts.input_device_combo.on_selection_changed(move |_| {
-		use crate::ui::settings_dialog::device_combo_value;
+		use crate::ui::dialogs::settings_dialog::device_combo_value;
 		let _ = tx_call_input.send(UiCommand::SetCallInputDevice(device_combo_value(&call_input_combo)));
 	});
 	let tx_call_output = ui_tx.clone();
 	let call_output_combo = parts.call_parts.output_device_combo;
 	parts.call_parts.output_device_combo.on_selection_changed(move |_| {
-		use crate::ui::settings_dialog::device_combo_value;
+		use crate::ui::dialogs::settings_dialog::device_combo_value;
 		let _ = tx_call_output.send(UiCommand::SetCallOutputDevice(device_combo_value(&call_output_combo)));
 	});
 	let tx_add_participant = ui_tx.clone();
@@ -1208,7 +1247,7 @@ pub fn bind_input_handlers(
 	let tx_call_camera = ui_tx.clone();
 	let call_camera_combo = parts.call_parts.camera_device_combo;
 	parts.call_parts.camera_device_combo.on_selection_changed(move |_| {
-		use crate::ui::settings_dialog::device_combo_value;
+		use crate::ui::dialogs::settings_dialog::device_combo_value;
 		let _ = tx_call_camera.send(UiCommand::SetCallCameraDevice(device_combo_value(&call_camera_combo)));
 	});
 	// Closing the call window (Alt+F4, its close box) must never destroy it:
@@ -1307,7 +1346,7 @@ pub fn bind_input_handlers(
 	let tray_bitmap = theme::build_app_icon(32);
 	// Whether an Enter release still to come has already been dealt with, so
 	// the chat list mustn't open a chat on it. See its uses on the chat list.
-	let enter_release_handled = crate::tray::enter_release_guard();
+	let enter_release_handled = crate::platform::tray::enter_release_guard();
 
 	let tray_open_id = 5001;
 	let tray_exit_id = 5002;
@@ -1320,7 +1359,7 @@ pub fn bind_input_handlers(
 	tray_icon.on_menu(move |event| {
 		let id = event.get_id();
 		if id == tray_open_id {
-			crate::tray::restore_main_window(&frame_tray_menu);
+			crate::platform::tray::restore_main_window(&frame_tray_menu);
 			let _ = tx_tray_menu.send(UiCommand::SetPresence(true));
 		} else if id == tray_exit_id {
 			// Closing just the main frame doesn't end the app on its own: wx only
@@ -1344,8 +1383,8 @@ pub fn bind_input_handlers(
 	// on_left_up.
 	let frame_tray_select = parts.frame;
 	let tx_tray_select = ui_tx.clone();
-	crate::tray::set_on_select(move || {
-		crate::tray::restore_main_window(&frame_tray_select);
+	crate::platform::tray::set_on_select(move || {
+		crate::platform::tray::restore_main_window(&frame_tray_select);
 		let _ = tx_tray_select.send(UiCommand::SetPresence(true));
 	});
 
@@ -1369,7 +1408,7 @@ pub fn bind_input_handlers(
 					&s.settings.archived_alert_levels,
 				);
 				tray_icon.set_icon(&tray_bitmap, &whatsnap::tray_tooltip_text(unread));
-				crate::tray::enable_keyboard_select();
+				crate::platform::tray::enable_keyboard_select();
 			} else {
 				tray_icon.remove_icon();
 			}
@@ -1382,7 +1421,7 @@ pub fn bind_input_handlers(
 		let apply_tray_setting = apply_tray_setting.clone();
 		let tray_icon = tray_icon.clone();
 		let state = state.clone();
-		crate::tray::set_on_taskbar_created(move || {
+		crate::platform::tray::set_on_taskbar_created(move || {
 			let Ok(s) = state.try_borrow() else {
 				return false;
 			};
@@ -1426,7 +1465,7 @@ pub fn bind_input_handlers(
 			let logged_in = state_close.borrow().main_ui_shown;
 			if logged_in && ev.can_veto() && tray_icon_close.is_icon_installed() {
 				ev.veto();
-				crate::tray::hide_main_window(&frame_close);
+				crate::platform::tray::hide_main_window(&frame_close);
 				let _ = tx_close.send(UiCommand::WindowHidden);
 			} else {
 				// A real close (tray icon disabled in Settings, so the X button
@@ -1461,7 +1500,7 @@ pub fn bind_input_handlers(
 		if let WindowEventData::Activate(ref ev) = event {
 			// Something else activating the window while it's put away in the
 			// tray isn't the user coming back - see tray::hide_main_window.
-			if ev.is_active() && crate::tray::is_hidden_to_tray() {
+			if ev.is_active() && crate::platform::tray::is_hidden_to_tray() {
 				return;
 			}
 			let _ = tx_activate.send(UiCommand::SetPresence(ev.is_active()));
@@ -1501,7 +1540,7 @@ pub fn bind_input_handlers(
 			return;
 		}
 		pending_shortcuts_open.borrow_mut().take();
-		use crate::ui::settings_dialog::*;
+		use crate::ui::dialogs::settings_dialog::*;
 		let mut s = state_settings_open.borrow_mut();
 		sounds_check.set_value(s.settings.sounds_enabled);
 		notifications_check.set_value(s.settings.notifications_enabled);
@@ -1513,9 +1552,9 @@ pub fn bind_input_handlers(
 		verbose_logging_check_open.set_value(s.settings.verbose_backend_logging);
 		start_maximized_check_open.set_value(s.settings.start_maximized);
 		check_updates_check_open.set_value(s.settings.check_for_updates_on_startup);
-		crate::ui::settings_dialog::set_combo_from_value(
+		crate::ui::dialogs::settings_dialog::set_combo_from_value(
 			&update_channel_combo_open,
-			crate::ui::settings_dialog::UPDATE_CHANNEL_CHOICES,
+			crate::ui::dialogs::settings_dialog::UPDATE_CHANNEL_CHOICES,
 			&s.settings.update_channel,
 		);
 		noise_suppression_check_open.set_value(s.settings.voice_message_noise_suppression);
@@ -1543,12 +1582,12 @@ pub fn bind_input_handlers(
 		// (USB headset plugged/unplugged, etc) while the app is running.
 		set_device_combo(
 			&input_device_combo_open,
-			&crate::audio_devices::input_device_names(),
+			&crate::audio::devices::input_device_names(),
 			s.settings.input_device_name.as_deref(),
 		);
 		set_device_combo(
 			&output_device_combo_open,
-			&crate::audio_devices::output_device_names(),
+			&crate::audio::devices::output_device_names(),
 			s.settings.output_device_name.as_deref(),
 		);
 
@@ -1565,7 +1604,7 @@ pub fn bind_input_handlers(
 		// The excluded-contacts picker offers every contact.
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_contacts"}).to_string());
 		drop(s);
-		autostart_check.set_value(crate::autostart::is_enabled());
+		autostart_check.set_value(crate::platform::autostart::is_enabled());
 		settings_dialog.show_modal();
 	});
 
@@ -1597,7 +1636,7 @@ pub fn bind_input_handlers(
 			return;
 		}
 		let channel = state_updates.borrow().settings.update_channel.clone();
-		crate::update_check::run(&frame_updates, &tx_updates, &channel, false);
+		crate::platform::update_check::run(&frame_updates, &tx_updates, &channel, false);
 	});
 
 	let state_reconnect = state.clone();
@@ -1614,7 +1653,7 @@ pub fn bind_input_handlers(
 		let _ = s.ws_tx.send(serde_json::json!({"action": "reconnect"}).to_string());
 		drop(s);
 		if !online {
-			crate::announce::announce(reconnect_announcer, "Reconnecting...");
+			crate::platform::announce::announce(reconnect_announcer, "Reconnecting...");
 		}
 	});
 
@@ -1696,7 +1735,7 @@ pub fn bind_input_handlers(
 		// tab name. The timer (below) waits long enough for it to finish.
 		let name = nav_list_for_menu.get_string(idx as u32).unwrap_or_default();
 		if !name.is_empty() {
-			crate::announce::announce(nav_announcer, &name);
+			crate::platform::announce::announce(nav_announcer, &name);
 		}
 		nav_focus_timer.start(700, true);
 	});
@@ -1732,7 +1771,7 @@ pub fn bind_input_handlers(
 			let _ = tx_chat_menu.send(UiCommand::ToggleSearchPanel);
 		} else if id == MENU_ID_FOCUS_MESSAGE_FIELD {
 			if !msg_field_for_menu.is_shown() {
-				crate::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
+				crate::platform::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
 			} else if msg_field_for_menu.has_focus() {
 				let spot = return_spot_for_menu.borrow_mut().take();
 				let chat = state_chat_menu.borrow().selected_chat.clone();
@@ -1792,16 +1831,16 @@ pub fn bind_input_handlers(
 		} else if id == MENU_ID_ANNOUNCE_STATUS {
 			let label = {
 				let s = state_chat_menu.borrow();
-				s.selected_chat.clone().map(|jid| crate::chat_ui::chat_status_label(&s, &jid))
+				s.selected_chat.clone().map(|jid| crate::ui::chat_ui::chat_status_label(&s, &jid))
 			};
 			if let Some(label) = label {
-				crate::announce::announce(msgs_announcer_for_menu, &label);
+				crate::platform::announce::announce(msgs_announcer_for_menu, &label);
 			}
 		} else if id == MENU_ID_NEXT_SPELLING_ERROR {
 			if !msg_field_for_menu.is_shown() {
-				crate::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
+				crate::platform::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
 			} else if let Some(say) = crate::ui::spell_check::next_error(&msg_field_for_menu) {
-				crate::announce::announce(msgs_announcer_for_menu, say);
+				crate::platform::announce::announce(msgs_announcer_for_menu, say);
 			}
 		} else if id == MENU_ID_EMOJI_PANEL || id == MENU_ID_STICKER_PANEL {
 			let _ = tx_chat_menu.send(UiCommand::OpenEmojiPanel { stickers: id == MENU_ID_STICKER_PANEL });
@@ -1886,15 +1925,29 @@ pub fn bind_input_handlers(
 		}
 	});
 
-	let tx_voice_menu = ui_tx.clone();
-	parts.frame.on_menu_selected(move |evt| {
-		let id = evt.get_id();
-		if id == MENU_ID_START_RECORDING {
-			let _ = tx_voice_menu.send(UiCommand::StartRecording);
-		} else if id == MENU_ID_PAUSE_RECORDING {
-			let _ = tx_voice_menu.send(UiCommand::TogglePauseRecording);
-		} else if id == MENU_ID_SEND_PTT {
-			let _ = tx_voice_menu.send(UiCommand::SendVoiceMessage);
+	// The voice message keys have no menu, so the frame checks them itself,
+	// before the focused control sees the key.
+	let tx_voice_keys = ui_tx.clone();
+	let state_voice_keys = state.clone();
+	parts.frame.on_char_hook(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			let keymap = state_voice_keys.borrow().keymap.clone();
+			let command = if keymap.is_pressed(voice::START_RECORDING, key_event) {
+				Some(UiCommand::StartRecording)
+			} else if keymap.is_pressed(voice::PAUSE_RECORDING, key_event) {
+				Some(UiCommand::TogglePauseRecording)
+			} else if keymap.is_pressed(voice::SEND, key_event) {
+				Some(UiCommand::SendVoiceMessage)
+			} else {
+				None
+			};
+			match command {
+				Some(command) => {
+					let _ = tx_voice_keys.send(command);
+					event.skip(false);
+				}
+				None => event.skip(true),
+			}
 		}
 	});
 
@@ -2012,7 +2065,7 @@ pub fn bind_input_handlers(
 	let state_settings_save = state.clone();
 	let frame_shortcuts_save = parts.frame;
 	parts.settings_dialog.ok_btn.on_click(move |_| {
-		use crate::ui::settings_dialog::*;
+		use crate::ui::dialogs::settings_dialog::*;
 		let mut s = state_settings_save.borrow_mut();
 		// "My Contacts Except..." needs someone to exclude: checked before
 		// anything is saved, so Save either saves everything or nothing.
@@ -2055,9 +2108,9 @@ pub fn bind_input_handlers(
 		s.settings.verbose_backend_logging = verbose_logging_check_ok.is_checked();
 		s.settings.start_maximized = start_maximized_check_ok.is_checked();
 		s.settings.check_for_updates_on_startup = check_updates_check_ok.is_checked();
-		s.settings.update_channel = crate::ui::settings_dialog::combo_value(
+		s.settings.update_channel = crate::ui::dialogs::settings_dialog::combo_value(
 			&update_channel_combo_ok,
-			crate::ui::settings_dialog::UPDATE_CHANNEL_CHOICES,
+			crate::ui::dialogs::settings_dialog::UPDATE_CHANNEL_CHOICES,
 		);
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
 		s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
@@ -2090,7 +2143,7 @@ pub fn bind_input_handlers(
 		s.settings.save();
 		// What WhatsApp shares between its desktop apps goes to them too.
 		let mut synced = s.settings.synced_changes(&synced_before);
-		if crate::autostart::is_enabled() != autostart_check_ok.is_checked() {
+		if crate::platform::autostart::is_enabled() != autostart_check_ok.is_checked() {
 			synced.insert("startAtLogin".into(), autostart_check_ok.is_checked().into());
 		}
 		if !synced.is_empty() {
@@ -2162,8 +2215,8 @@ pub fn bind_input_handlers(
 		drop(s);
 		// Respect the setting, but never surface the icon while logged out.
 		apply_tray_setting(tray_icon_check_ok.is_checked() && logged_in);
-		if crate::autostart::is_enabled() != autostart_check_ok.is_checked() {
-			crate::autostart::set_enabled(autostart_check_ok.is_checked());
+		if crate::platform::autostart::is_enabled() != autostart_check_ok.is_checked() {
+			crate::platform::autostart::set_enabled(autostart_check_ok.is_checked());
 		}
 		settings_dialog_ok.end_modal(wxdragon::id::ID_OK);
 	});
@@ -2644,7 +2697,7 @@ pub fn bind_input_handlers(
 		}
 		if !gs.checked_jids.is_empty() {
 			let count = gs.checked_jids.len();
-			crate::announce::announce(
+			crate::platform::announce::announce(
 				selection_announcer_search,
 				&format!(
 					"{} shown. {} contact{} selected.",
@@ -2682,7 +2735,7 @@ pub fn bind_input_handlers(
 				// to otherwise confirm it didn't - this running total is how
 				// they can tell it's still there.
 				let count = gs.checked_jids.len();
-				crate::announce::announce(
+				crate::platform::announce::announce(
 					selection_announcer_toggle,
 					&format!(
 						"{}: {}. {} contact{} selected.",
@@ -2744,7 +2797,7 @@ pub fn bind_input_handlers(
 		}
 		if !ams.checked_jids.is_empty() {
 			let count = ams.checked_jids.len();
-			crate::announce::announce(
+			crate::platform::announce::announce(
 				add_members_selection_announcer,
 				&format!(
 					"{} shown. {} contact{} selected.",
@@ -2778,7 +2831,7 @@ pub fn bind_input_handlers(
 				let label = add_members_listbox_toggle.get_string(idx as usize).unwrap_or_default();
 				let state_str = if checked { "selected" } else { "not selected" };
 				let count = ams.checked_jids.len();
-				crate::announce::announce(
+				crate::platform::announce::announce(
 					add_members_selection_announcer_toggle,
 					&format!(
 						"{}: {}. {} contact{} selected.",
@@ -2881,7 +2934,7 @@ pub fn bind_input_handlers(
 		}
 		if !acs.checked_jids.is_empty() {
 			let count = acs.checked_jids.len();
-			crate::announce::announce(
+			crate::platform::announce::announce(
 				attach_contact_selection_announcer,
 				&format!(
 					"{} shown. {} contact{} selected.",
@@ -2915,7 +2968,7 @@ pub fn bind_input_handlers(
 				let label = attach_contact_listbox_toggle.get_string(idx as usize).unwrap_or_default();
 				let state_str = if checked { "selected" } else { "not selected" };
 				let count = acs.checked_jids.len();
-				crate::announce::announce(
+				crate::platform::announce::announce(
 					attach_contact_selection_announcer_toggle,
 					&format!(
 						"{}: {}. {} contact{} selected.",
@@ -3009,7 +3062,7 @@ pub fn bind_input_handlers(
 		let Some(pos) = nav_list_move.get_selection().map(|p| p as usize) else { return };
 		let mut order = state_nav_move.borrow().settings.tab_order();
 		let Some(new_pos) = crate::settings::move_tab(&mut order, pos, delta) else {
-			crate::announce::announce(
+			crate::platform::announce::announce(
 				nav_move_announcer,
 				if delta < 0 { "Cannot move left" } else { "Cannot move right" },
 			);
@@ -3017,7 +3070,7 @@ pub fn bind_input_handlers(
 		};
 		let names: Vec<&str> = order.iter().map(|&t| crate::settings::TAB_NAMES[t]).collect();
 		for p in [pos, new_pos] {
-			let unread_chats = crate::message_display::unread_chats_in_tab(&state_nav_move.borrow(), order[p]);
+			let unread_chats = crate::ui::message_display::unread_chats_in_tab(&state_nav_move.borrow(), order[p]);
 			nav_list_move.set_string(p as u32, &crate::settings::nav_tab_label(order[p], unread_chats));
 		}
 		nav_list_move.set_selection(new_pos as u32, true);
@@ -3035,7 +3088,7 @@ pub fn bind_input_handlers(
 			(Some(before), None) => format!("Moved after {}", names[before]),
 			(None, None) => format!("Moved {}", names[new_pos]),
 		};
-		crate::announce::announce(nav_move_announcer, &msg);
+		crate::platform::announce::announce(nav_move_announcer, &msg);
 	});
 
 	let tx_send_field = ui_tx.clone();
@@ -3718,12 +3771,15 @@ pub fn bind_input_handlers(
 								};
 								if crate::copy_files_to_clipboard(&[path_to_copy]) {
 									let msg_kind = if is_voice { "voice message" } else { "file" };
-									crate::announce::announce(
+									crate::platform::announce::announce(
 										msgs_announcer_copy,
 										&format!("Copied {} to clipboard.", msg_kind),
 									);
 								} else {
-									crate::announce::announce(msgs_announcer_copy, "Failed to copy file to clipboard.");
+									crate::platform::announce::announce(
+										msgs_announcer_copy,
+										"Failed to copy file to clipboard.",
+									);
 								}
 							} else {
 								let _ =
@@ -3731,7 +3787,10 @@ pub fn bind_input_handlers(
 							}
 						} else {
 							if crate::copy_text(&msg.text) {
-								crate::announce::announce(msgs_announcer_copy, "Copied message text to clipboard.");
+								crate::platform::announce::announce(
+									msgs_announcer_copy,
+									"Copied message text to clipboard.",
+								);
 							}
 						}
 					}
@@ -4056,7 +4115,7 @@ pub fn bind_input_handlers(
 
 						let status_msg =
 							format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
-						crate::announce::announce(msgs_announcer_clone, &status_msg);
+						crate::platform::announce::announce(msgs_announcer_clone, &status_msg);
 						msg_input_field_clone.set_focus();
 						remove_quote_btn_ctx.show(true);
 						conv_panel_ctx.layout();
@@ -4223,7 +4282,7 @@ pub fn bind_input_handlers(
 							} else {
 								"Message can't be edited."
 							};
-							crate::announce::announce(msgs_announcer_clone, reason);
+							crate::platform::announce::announce(msgs_announcer_clone, reason);
 						} else {
 							let _ = tx_play_media_clone.send(UiCommand::BeginEditMessage {
 								message_id: msg.id.clone(),
@@ -4345,7 +4404,7 @@ pub fn bind_input_handlers(
 					if let Some((_, digits)) = phone_match_clone.as_ref()
 						&& crate::copy_text(&format!("+{}", digits))
 					{
-						crate::announce::announce(msgs_announcer_clone, "Copied phone number to clipboard.");
+						crate::platform::announce::announce(msgs_announcer_clone, "Copied phone number to clipboard.");
 					}
 				} else if id == message_number_id {
 					if let Some((_, digits)) = phone_match_clone.as_ref() {
@@ -4584,7 +4643,7 @@ pub fn bind_input_handlers(
 							}
 						});
 						if let Some(said) = said {
-							crate::announce::announce(msgs_announcer, &said);
+							crate::platform::announce::announce(msgs_announcer, &said);
 						}
 					}
 					event.skip(false);
@@ -4833,7 +4892,7 @@ pub fn bind_input_handlers(
 
 						let status_msg =
 							format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
-						crate::announce::announce(msgs_announcer, &status_msg);
+						crate::platform::announce::announce(msgs_announcer, &status_msg);
 						msg_input_field.set_focus();
 						remove_quote_btn_play.show(true);
 						conv_panel_play.layout();
@@ -4873,7 +4932,7 @@ pub fn bind_input_handlers(
 							} else {
 								"Message can't be edited."
 							};
-							crate::announce::announce(msgs_announcer, reason);
+							crate::platform::announce::announce(msgs_announcer, reason);
 						} else {
 							let _ = tx_play_media.send(UiCommand::BeginEditMessage {
 								message_id: msg.id.clone(),
@@ -5241,7 +5300,7 @@ pub fn bind_input_handlers(
 									let sel_id = menu_evt.get_id();
 									if sel_id == copy_num_id {
 										if crate::copy_text(&format!("+{}", digits)) {
-											crate::announce::announce(
+											crate::platform::announce::announce(
 												msgs_announcer_phone,
 												"Copied phone number to clipboard.",
 											);
@@ -5359,7 +5418,7 @@ pub fn bind_input_handlers(
 			}
 			let s = state_sel.borrow();
 			conv_parts_sel.action_panel.freeze();
-			let mut need_layout = crate::message_display::update_action_buttons(&s, &conv_parts_sel);
+			let mut need_layout = crate::ui::message_display::update_action_buttons(&s, &conv_parts_sel);
 
 			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
 				whatsnap::DisplayItem::Single(m) => Some(m.clone()),
@@ -5454,7 +5513,7 @@ pub fn bind_input_handlers(
 		} else {
 			let s = state_sel.borrow();
 			conv_parts_sel.action_panel.freeze();
-			let mut need_layout = crate::message_display::update_action_buttons(&s, &conv_parts_sel);
+			let mut need_layout = crate::ui::message_display::update_action_buttons(&s, &conv_parts_sel);
 			if play_voice_btn_sel.is_shown() {
 				play_voice_btn_sel.show(false);
 				need_layout = true;
@@ -5809,7 +5868,7 @@ pub fn bind_input_handlers(
 fn choose_excluded_contacts(
 	state: &std::rc::Rc<std::cell::RefCell<crate::AppState>>,
 	dialog: Dialog,
-	control: &crate::ui::settings_dialog::PrivacyControl,
+	control: &crate::ui::dialogs::settings_dialog::PrivacyControl,
 ) {
 	let tell = |message: &str| {
 		MessageDialog::builder(&dialog, message, "Settings")
@@ -5820,8 +5879,8 @@ fn choose_excluded_contacts(
 	let start: Result<(Vec<crate::Contact>, Vec<crate::Contact>), String> = {
 		let s = state.borrow();
 		let loaded = s.privacy_lists.get(control.name);
-		let is_except =
-			s.privacy_settings.get(control.name).map(String::as_str) == Some(crate::ui::settings_dialog::EXCEPT_VALUE);
+		let is_except = s.privacy_settings.get(control.name).map(String::as_str)
+			== Some(crate::ui::dialogs::settings_dialog::EXCEPT_VALUE);
 		let excluded = if let Some(jids) = s.privacy_list_edits.get(control.name) {
 			let known = loaded.and_then(|l| l.as_ref().ok());
 			Ok(jids
@@ -5863,7 +5922,7 @@ fn choose_excluded_contacts(
 		}
 	};
 	if let Some(jids) =
-		crate::ui::privacy_list_picker::pick_excluded_contacts(&dialog, control.label, &contacts, &excluded)
+		crate::ui::dialogs::privacy_list_picker::pick_excluded_contacts(&dialog, control.label, &contacts, &excluded)
 	{
 		state.borrow_mut().privacy_list_edits.insert(control.name.to_string(), jids);
 	}

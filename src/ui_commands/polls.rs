@@ -26,7 +26,7 @@ pub(crate) fn open_poll_vote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	} else if m.is_event() {
 		"get_event"
 	} else {
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "Not a poll or event.");
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Not a poll or event.");
 		return;
 	};
 	let payload = serde_json::json!({
@@ -57,7 +57,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	}
 	// A quiz is answered once, for good, as in WhatsApp.
 	if quiz && !selected.is_empty() {
-		crate::announce::announce(
+		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
 			&format!("You've already answered this quiz: {}.", selected.join(", ")),
 		);
@@ -149,7 +149,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		return;
 	}
 	if choice.is_empty() && selected.is_empty() {
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "No answer chosen.");
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "No answer chosen.");
 		return;
 	}
 	let payload = serde_json::json!({
@@ -157,7 +157,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		"data": { "jid": jid, "message_id": message_id, "options": choice }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Sending vote...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending vote...");
 }
 
 /// Updates a poll's results line wherever that poll is shown.
@@ -169,7 +169,7 @@ pub(crate) fn update_poll_results(
 ) {
 	let mut s = state.borrow_mut();
 	let is_group = s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@g.us"));
-	let row = crate::message_display::update_loaded_message(&mut s, message_id, |m| {
+	let row = crate::ui::message_display::update_loaded_message(&mut s, message_id, |m| {
 		m.poll_results = results.to_string();
 	})
 	.and_then(|i| s.display_items.get(i).map(|item| (i, item.format_display(is_group))));
@@ -265,7 +265,7 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		"data": { "jid": jid, "message_id": message_id, "response": choice, "extra_guests": extra_guests }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Sending your answer...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending your answer...");
 }
 
 /// "Event" in the attach menu: name, description, when, where, and whether
@@ -364,5 +364,5 @@ pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	parts.conversations_parts.remove_quote_btn.show(false);
 	let payload = serde_json::json!({ "action": "send_event", "data": data });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, "Sending event...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending event...");
 }

@@ -535,7 +535,7 @@ impl Viewer {
 		} else {
 			self.start_timer(&entry);
 		}
-		crate::announce::announce(self.announcer, &spoken);
+		crate::platform::announce::announce(self.announcer, &spoken);
 		self.mark_viewed(&entry);
 	}
 
@@ -612,7 +612,7 @@ impl Viewer {
 	fn previous(&self) {
 		match self.index.get().checked_sub(1) {
 			Some(prev) => self.show_entry(prev),
-			None => crate::announce::announce(self.announcer, "This is the first status update."),
+			None => crate::platform::announce::announce(self.announcer, "This is the first status update."),
 		}
 	}
 
@@ -623,7 +623,7 @@ impl Viewer {
 		if paused {
 			self.timer.stop();
 			self.player.pause();
-			crate::announce::announce(self.announcer, "Paused");
+			crate::platform::announce::announce(self.announcer, "Paused");
 		} else {
 			if self.player.is_loaded() {
 				self.player.play();
@@ -632,7 +632,7 @@ impl Viewer {
 			{
 				self.start_timer(&entry);
 			}
-			crate::announce::announce(self.announcer, "Playing");
+			crate::platform::announce::announce(self.announcer, "Playing");
 		}
 	}
 
@@ -664,7 +664,7 @@ impl Viewer {
 		let Some(entry) = self.current() else { return };
 		let reply = self.reply_field.get_value();
 		if reply.trim().is_empty() {
-			crate::announce::announce(self.announcer, "Type a reply first.");
+			crate::platform::announce::announce(self.announcer, "Type a reply first.");
 			return;
 		}
 		send(
@@ -679,7 +679,7 @@ impl Viewer {
 			}),
 		);
 		self.reply_field.set_value("");
-		crate::announce::announce(self.announcer, &format!("Reply sent to {}.", entry.poster_name));
+		crate::platform::announce::announce(self.announcer, &format!("Reply sent to {}.", entry.poster_name));
 	}
 
 	fn react(&self, emoji: &str) {
@@ -726,7 +726,7 @@ impl Viewer {
 		dialog.set_yes_no_labels("Delete", "Cancel");
 		if dialog.show_modal() == ID_YES {
 			send(&self.state, "delete_status", serde_json::json!({ "id": entry.id }));
-			crate::announce::announce(self.announcer, "Deleting...");
+			crate::platform::announce::announce(self.announcer, "Deleting...");
 		}
 		if !was_paused {
 			self.toggle_pause();
@@ -759,7 +759,7 @@ impl Viewer {
 			self.player.load(&path, !self.paused.get());
 			return;
 		}
-		match crate::image_decode::decode_rgba(&path, PHOTO_EDGE) {
+		match crate::media::image_decode::decode_rgba(&path, PHOTO_EDGE) {
 			Ok((width, height, rgba)) => {
 				if let Some(bitmap) = wxdragon::bitmap::Bitmap::from_rgba(&rgba, width, height) {
 					self.photo.set_bitmap(&bitmap);
@@ -769,14 +769,14 @@ impl Viewer {
 			}
 			Err(err) => {
 				eprintln!("Couldn't decode status photo {path}: {err}");
-				crate::announce::announce(self.announcer, "This photo couldn't be shown.");
+				crate::platform::announce::announce(self.announcer, "This photo couldn't be shown.");
 			}
 		}
 		self.start_timer(&entry);
 	}
 
 	fn media_failed(&self, message: &str) {
-		crate::announce::announce(self.announcer, message);
+		crate::platform::announce::announce(self.announcer, message);
 		if let Some(entry) = self.current() {
 			self.start_timer(&entry);
 		}
@@ -822,7 +822,7 @@ impl Viewer {
 			return;
 		}
 		if at == current {
-			crate::announce::announce(self.announcer, "Status update deleted.");
+			crate::platform::announce::announce(self.announcer, "Status update deleted.");
 			self.show_entry(current.min(self.entries.borrow().len() - 1));
 		} else if at < current {
 			self.index.set(current - 1);
@@ -854,7 +854,7 @@ pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 	match t {
 		"media_ready" if is_current("message_id") => viewer.media_ready(text(data, "path")),
 		"media_failed" if is_current("message_id") => viewer.media_failed(&text(data, "message")),
-		"media_pending" if is_current("message_id") => crate::announce::announce(
+		"media_pending" if is_current("message_id") => crate::platform::announce::announce(
 			viewer.announcer,
 			"Getting a fresh copy from the poster's phone. It will show when it arrives.",
 		),
@@ -874,7 +874,7 @@ pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 				viewer.show_reaction(&emoji);
 				let spoken =
 					if emoji.is_empty() { "Reaction removed.".to_string() } else { format!("You reacted {emoji}.") };
-				crate::announce::announce(viewer.announcer, &spoken);
+				crate::platform::announce::announce(viewer.announcer, &spoken);
 			}
 		}
 		"status_muted" => {
@@ -887,7 +887,10 @@ pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 			{
 				viewer.show_mute(&entry);
 				let verb = if muted { "muted" } else { "unmuted" };
-				crate::announce::announce(viewer.announcer, &format!("{}'s status updates {verb}.", entry.poster_name));
+				crate::platform::announce::announce(
+					viewer.announcer,
+					&format!("{}'s status updates {verb}.", entry.poster_name),
+				);
 			}
 		}
 		"status_deleted" => viewer.remove(&text(data, "id")),

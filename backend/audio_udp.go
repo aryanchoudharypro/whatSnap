@@ -80,7 +80,7 @@ func (b *UDPBridge) ReadFrame() ([]float32, error) {
 		// can hand back on a UDP socket after an unrelated ICMP Port
 		// Unreachable, with nothing to do with whether the call is still
 		// up (the same quirk hit the frontend's receive side; see
-		// call_audio.rs). Treat every read error as transient.
+		// calls/audio.rs). Treat every read error as transient.
 		if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
 			log.Printf("UDPBridge read error (continuing): %v", err)
 		}

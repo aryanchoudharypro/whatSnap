@@ -37,11 +37,14 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				}
 			});
 			let _ = state_menu.borrow().ws_tx.send(payload.to_string());
-			crate::announce::announce(parts_menu.conversations_parts.messages_announcer, "Message unstarred.");
+			crate::platform::announce::announce(
+				parts_menu.conversations_parts.messages_announcer,
+				"Message unstarred.",
+			);
 		}
 		_ => {}
 	});
 	parts.conversations_parts.conversations_list.popup_menu(&mut menu, None);
 	menu.destroy_menu();
-	crate::tray::enter_release_guard().set(true);
+	crate::platform::tray::enter_release_guard().set(true);
 }

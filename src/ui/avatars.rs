@@ -100,7 +100,7 @@ pub(crate) fn with_avatar<R>(jid: &str, size: i32, draw: impl FnOnce(Avatar) -> 
 			}
 		};
 		if !c.bitmaps.contains_key(jid) {
-			let decoded = crate::image_decode::decode_rgba(&path, (size * 2) as u32)
+			let decoded = crate::media::image_decode::decode_rgba(&path, (size * 2) as u32)
 				.ok()
 				.and_then(|(w, h, rgba)| super::gdi::circle_crop(w, h, &rgba, size));
 			let Some(bitmap) = decoded else {

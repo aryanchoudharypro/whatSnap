@@ -7,7 +7,10 @@ use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
 
-use crate::{AppState, Contact, message_display::apply_chat_filter, ui::window::WindowParts};
+use crate::{
+	AppState, Contact,
+	ui::{message_display::apply_chat_filter, window::WindowParts},
+};
 
 const REPLY: i32 = 4301;
 const REACT: i32 = 4302;
@@ -25,7 +28,7 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 }
 
 fn announce(parts: &WindowParts, message: &str) {
-	crate::announce::announce(parts.conversations_parts.messages_announcer, message);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
 /// What a row of the Status tab is.
@@ -83,7 +86,7 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	menu.on_selected(move |evt| on_menu_item(&state_menu, &parts_menu, evt.get_id(), &row));
 	parts.conversations_parts.conversations_list.popup_menu(&mut menu, None);
 	menu.destroy_menu();
-	crate::tray::enter_release_guard().set(true);
+	crate::platform::tray::enter_release_guard().set(true);
 }
 
 fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32, row: &Row) {
@@ -125,7 +128,7 @@ fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32,
 
 /// Opens the chat with the poster, replying to their status update.
 fn reply(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, row: &Row) {
-	crate::chat_ui::open_chat_for_jid(&row.poster_jid, state, parts);
+	crate::ui::chat_ui::open_chat_for_jid(&row.poster_jid, state, parts);
 	let what = if !row.text.is_empty() {
 		row.text.clone()
 	} else if row.media_type == "video" {
@@ -283,7 +286,8 @@ fn choose_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: 
 		} else {
 			("Status: Only Share With...", "Only checked contacts will see your status updates")
 		};
-		let Some(picked) = crate::ui::privacy_list_picker::pick_contacts(&parts.frame, title, hint, &contacts, preset)
+		let Some(picked) =
+			crate::ui::dialogs::privacy_list_picker::pick_contacts(&parts.frame, title, hint, &contacts, preset)
 		else {
 			return;
 		};

@@ -12,7 +12,7 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState, CallParticipant, CallVideo,
-	call_helpers::{announce_call, call_window_title, is_ringing_state},
+	calls::helpers::{announce_call, call_window_title, is_ringing_state},
 	ui::window::WindowParts,
 };
 
@@ -395,7 +395,7 @@ fn waiting_room(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 			parts,
 			&format!(
 				"{} {} to join the call. Choose Let in or Don't let in under People.",
-				crate::call_helpers::join_names(&names),
+				crate::calls::helpers::join_names(&names),
 				verb
 			),
 		);
@@ -442,7 +442,7 @@ fn show_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, url: S
 	let url_copy = url.clone();
 	copy_btn.on_click(move |_| {
 		let copied = crate::copy_text(&url_copy);
-		crate::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
+		crate::platform::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
 	});
 	send_btn.on_click(move |_| dialog.end_modal(SEND));
 	join_btn.on_click(move |_| dialog.end_modal(JOIN));

@@ -1,4 +1,4 @@
-use crate::voice_recorder;
+use crate::audio::voice_recorder;
 
 /// JID of WhatsApp's own Meta AI bot. Sending to a `@bot`-server JID makes
 /// whatsmeow's `SendMessage` automatically wrap the message with the bot
@@ -249,8 +249,8 @@ pub enum UiCommand {
 	JoinGroupCall(Option<String>),
 	AnswerCall,
 	RejectCall,
-	/// Alt+Shift+Y or Alt+Shift+R, pressed anywhere (see call_hotkeys.rs).
-	CallHotkey(crate::call_hotkeys::CallHotkey),
+	/// Alt+Shift+Y or Alt+Shift+R, pressed anywhere (see calls/hotkeys.rs).
+	CallHotkey(crate::calls::hotkeys::CallHotkey),
 	MuteCall,
 	LeaveCall,
 	/// Turns the local camera on or off - the button, and Ctrl+Shift+V.
@@ -258,14 +258,14 @@ pub enum UiCommand {
 	/// Starts or stops sharing the screen - the button, and Ctrl+Shift+S.
 	ToggleScreenShare,
 	/// The computer's sound couldn't be captured for a screen share - see
-	/// `system_audio.rs`.
+	/// `audio/system_audio.rs`.
 	SystemAudioFailed(String),
 	/// `None` means "System Default" (matches Settings' device combos).
 	SetCallInputDevice(Option<String>),
 	SetCallOutputDevice(Option<String>),
 	SetCallCameraDevice(Option<String>),
 	/// The camera capture/encode thread couldn't open a camera at all (no
-	/// camera present, access denied, etc) - see `call_video_send.rs`.
+	/// camera present, access denied, etc) - see `calls/video_send.rs`.
 	CameraFailed(String),
 	/// The same, for a screen share whose capture couldn't start.
 	ScreenShareFailed(String),
@@ -274,7 +274,7 @@ pub enum UiCommand {
 	ScreenShareBlack(bool),
 	/// Windows reported the system default audio input or output device
 	/// changed (headphones plugged/unplugged, a new default picked in
-	/// Windows Settings) - see `audio_device_watch.rs`. Reopens any live
+	/// Windows Settings) - see `audio/device_watch.rs`. Reopens any live
 	/// playback/call audio on the newly-current device instead of waiting
 	/// for the next unrelated action to notice.
 	AudioDeviceChanged,
@@ -583,7 +583,7 @@ pub(crate) struct CallVideo {
 	/// The screen session of a dual-stream share, sending to `screen_port`
 	/// while the camera keeps `active_call_video_send`. None for a share over
 	/// the camera's stream.
-	pub(crate) screen_send: Option<crate::call_video_send::CallVideoSendState>,
+	pub(crate) screen_send: Option<crate::calls::video_send::CallVideoSendState>,
 	/// The camera was on when the screen share started, so it comes back on
 	/// when the share stops.
 	pub(crate) camera_before_share: bool,

@@ -1296,7 +1296,9 @@ func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji stri
 // upsertContactCacheRow keeps the local contacts_cache table (used for fast,
 // offline-friendly get_contacts/check_contacts responses) in sync. A real
 // name is never downgraded to an empty one or to the "+<phone>" placeholder
-// callers use when they don't know the name.
+// callers use when they don't know the name. Nor is a business ever turned
+// back into a person: most callers (push names, address-book edits) don't
+// know either way and pass false.
 func upsertContactCacheRow(jid, name, phone string, isBusiness bool) error {
 	return upsertContactCacheRowWith(db, jid, name, phone, isBusiness)
 }
@@ -1311,7 +1313,7 @@ func upsertContactCacheRowWith(ex sqlExecer, jid, name, phone string, isBusiness
 				ELSE excluded.name
 			END,
 			phone = COALESCE(NULLIF(excluded.phone, ''), contacts_cache.phone),
-			is_business = excluded.is_business,
+			is_business = MAX(COALESCE(contacts_cache.is_business, 0), excluded.is_business),
 			updated_at = excluded.updated_at`,
 		jid, name, phone, isBusiness, time.Now().Unix())
 	return err

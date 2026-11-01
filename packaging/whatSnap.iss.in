@@ -206,7 +206,7 @@ end;
 // phone and losing local history, so it is never the default.
 //
 // Only the files and folders whatSnap creates there are removed (see
-// src/paths.rs and backend/paths.go), never the whole folder blindly: anything
+// src/platform/paths.rs and backend/paths.go), never the whole folder blindly: anything
 // else a user put in it, and anything a link points at, is left alone.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var

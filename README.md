@@ -45,7 +45,7 @@ It reads the version from `Cargo.toml`. You don't need to install Inno Setup: if
 
 ### Update Signatures
 
-whatSnap updates itself with [ship-shape](https://crates.io/crates/ship-shape). It installs an update only when the update's minisign signature verifies with the public key in `src/update_check.rs`. When the `MINISIGN_KEY` and `MINISIGN_PASSWORD` environment variables are set, `cargo release` signs the zip and the installer, and writes a `.minisig` file beside each one. Without the key, it makes the files but doesn't sign them. To sign other files, use `cargo run -p xtask -- sign <file>`.
+whatSnap updates itself with [ship-shape](https://crates.io/crates/ship-shape). It installs an update only when the update's minisign signature verifies with the public key in `src/platform/update_check.rs`. When the `MINISIGN_KEY` and `MINISIGN_PASSWORD` environment variables are set, `cargo release` signs the zip and the installer, and writes a `.minisig` file beside each one. Without the key, it makes the files but doesn't sign them. To sign other files, use `cargo run -p xtask -- sign <file>`.
 
 ### Releases
 

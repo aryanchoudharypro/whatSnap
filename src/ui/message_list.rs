@@ -1043,13 +1043,13 @@ impl MessageList {
 		let mut stops = Vec::new();
 		collect(unsafe { GetAncestor(me, GA_ROOT) }, me, &mut stops);
 		let Some(at) = stops.iter().position(|&h| h == me) else {
-			crate::websocket_events::ui_timing_log("Tab from the message list: the list isn't visible");
+			crate::backend::events::ui_timing_log("Tab from the message list: the list isn't visible");
 			return;
 		};
 		let n = stops.len();
 		let next = stops[if backwards { (at + n - 1) % n } else { (at + 1) % n }];
 		let moved = next != me && unsafe { SetFocus(Some(next)) }.is_ok();
-		crate::websocket_events::ui_timing_log(&format!(
+		crate::backend::events::ui_timing_log(&format!(
 			"Tab from the message list: {} stops, list at {}, moved to {}: {}",
 			n,
 			at,

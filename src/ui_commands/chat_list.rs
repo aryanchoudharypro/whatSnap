@@ -7,11 +7,13 @@ use wxdragon::prelude::*;
 
 use crate::{
 	AppState,
-	chat_ui::{clear_pending_reply, clear_unread_divider_for_open_chat, open_chat_for_jid, save_composer_draft},
-	contact_picker::refresh_selection_list,
-	message_display::{InfoMediaLists, apply_chat_filter, fill_info_media},
-	tray::refresh_tray_tooltip,
-	ui::window::WindowParts,
+	platform::tray::refresh_tray_tooltip,
+	ui::{
+		chat_ui::{clear_pending_reply, clear_unread_divider_for_open_chat, open_chat_for_jid, save_composer_draft},
+		contact_picker::refresh_selection_list,
+		message_display::{InfoMediaLists, apply_chat_filter, fill_info_media},
+		window::WindowParts,
+	},
 };
 
 /// Asks the backend for everything the Calls tab lists: past calls, and the
@@ -126,7 +128,7 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			let outcome = crate::ui::status_viewer::show(state, parts, &message_id);
 			// Enter on the viewer's Close button leaves its release for the
 			// list, which would open the viewer again.
-			crate::tray::enter_release_guard().set(true);
+			crate::platform::tray::enter_release_guard().set(true);
 			// The viewer marked what it showed as seen.
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 			if let crate::ui::status_viewer::ViewerOutcome::OpenChat(jid) = outcome {
@@ -274,7 +276,7 @@ pub(crate) fn delete_selected_messages(state: &Rc<RefCell<AppState>>, parts: &Rc
 		.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
 	parts.conversations_parts.conversation_panel.layout();
 	if !to_delete.is_empty() {
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "Selected messages deleted.");
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Selected messages deleted.");
 	}
 }
 
@@ -290,7 +292,10 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	};
 	if s.no_more_messages && s.history_start_chats.contains(&jid) {
 		drop(s);
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "This is the start of the chat.");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			"This is the start of the chat.",
+		);
 		return;
 	}
 	s.history_loading = true;
@@ -431,7 +436,7 @@ pub(crate) fn search_in_conversation(state: &Rc<RefCell<AppState>>, _parts: &Rc<
 
 pub(crate) fn toggle_search_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	if state.borrow().selected_chat.is_none() {
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "No chat open.");
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "No chat open.");
 		return;
 	}
 	let visible = parts.conversations_parts.search_panel.is_shown();
@@ -464,7 +469,7 @@ pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	if s.chats_unlocked {
 		s.chats_unlocked = false;
 		apply_chat_filter(&mut s, parts);
-		crate::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats hidden.");
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats hidden.");
 	}
 }
 
@@ -751,7 +756,7 @@ pub(crate) fn choose_disappearing_timer(state: &Rc<RefCell<AppState>>, parts: &R
 	} else {
 		format!("Disappearing messages set to {} for {}.", label, chat_name)
 	};
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
 pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, lock: bool) {
@@ -774,7 +779,7 @@ pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 	let action_str = if lock { "Locked" } else { "Unlocked" };
-	crate::announce::announce(
+	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
 		&format!("{} chat {}.", action_str, chat_name),
 	);
@@ -798,7 +803,7 @@ pub(crate) fn toggle_pin_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(
+	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
 		&format!("Chat {} {}.", chat_name, if pin { "pinned" } else { "unpinned" }),
 	);
@@ -824,7 +829,7 @@ pub(crate) fn toggle_archive_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(
+	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
 		&format!("Chat {} {}.", chat_name, if archive { "archived" } else { "unarchived" }),
 	);
@@ -851,7 +856,7 @@ pub(crate) fn set_archived_alert(
 		};
 		(name, spoken)
 	};
-	crate::announce::announce(
+	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
 		&format!("Archived alerts for {} set to {}.", chat_name, spoken),
 	);
@@ -879,7 +884,7 @@ pub(crate) fn set_chat_notify(
 		let content = if notify.hide_content { ", message content hidden" } else { "" };
 		format!("Notifications for {name}: {alert}{content}.")
 	};
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
 /// The chat's "Notification settings" dialog: what this computer alone does
@@ -889,7 +894,7 @@ pub(crate) fn show_chat_notify(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		let s = state.borrow();
 		(s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone()), s.settings.chat_notify(&jid))
 	};
-	let Some(notify) = crate::ui::chat_notify_dialog::ask(&parts.frame, &name, current) else { return };
+	let Some(notify) = crate::ui::dialogs::chat_notify_dialog::ask(&parts.frame, &name, current) else { return };
 	if notify != current {
 		set_chat_notify(state, parts, jid, notify);
 	}
@@ -938,7 +943,7 @@ pub(crate) fn choose_mute_duration(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	});
 	parts.frame.popup_menu(&mut menu, None);
 	menu.destroy_menu();
-	crate::tray::enter_release_guard().set(true);
+	crate::platform::tray::enter_release_guard().set(true);
 }
 
 const MUTE_DURATION_POPUP_ID: i32 = 4601;
@@ -976,7 +981,7 @@ pub(crate) fn toggle_mute_chat(
 	} else {
 		format!("Notifications from {} unmuted.", chat_name)
 	};
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
 pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, read: bool) {
@@ -999,7 +1004,7 @@ pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(
+	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
 		&format!("Chat {} marked as {}.", chat_name, if read { "read" } else { "unread" }),
 	);
@@ -1039,7 +1044,10 @@ pub(crate) fn delete_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Chat {} deleted.", chat_name));
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		&format!("Chat {} deleted.", chat_name),
+	);
 }
 
 /// "Delete chat and exit group": one backend action (`leave_and_delete_group`)
@@ -1056,7 +1064,7 @@ pub(crate) fn delete_chat_and_leave_group(state: &Rc<RefCell<AppState>>, parts: 
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(
+	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
 		&format!("Left and deleted chat {}.", chat_name),
 	);
@@ -1081,7 +1089,7 @@ pub(crate) fn clear_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 	};
 	if is_open {
 		parts.conversations_parts.messages_list.clear();
-		crate::message_display::update_action_buttons(&state.borrow(), &parts.conversations_parts);
+		crate::ui::message_display::update_action_buttons(&state.borrow(), &parts.conversations_parts);
 	}
 	let payload = serde_json::json!({
 		"action": "clear_chat",
@@ -1090,5 +1098,8 @@ pub(crate) fn clear_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::announce::announce(parts.conversations_parts.messages_announcer, &format!("Chat {} cleared.", chat_name));
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		&format!("Chat {} cleared.", chat_name),
+	);
 }

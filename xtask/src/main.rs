@@ -8,7 +8,7 @@
 //! cache (shipfitter's `tools::iscc`).
 //!
 //! With `MINISIGN_KEY` (and `MINISIGN_PASSWORD`) set, each file gets a
-//! `.minisig` beside it. The update check (src/update_check.rs) installs
+//! `.minisig` beside it. The update check (src/platform/update_check.rs) installs
 //! nothing whose signature doesn't verify. `cargo run -p xtask -- sign
 //! <file>...` signs other files the same way.
 
