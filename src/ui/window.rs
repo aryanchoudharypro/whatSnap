@@ -3428,6 +3428,7 @@ pub fn bind_input_handlers(
 	// menu or a menu-bar item with Enter leaves its release behind on this
 	// list, and that release mustn't open a chat.
 	let conv_list_key = parts.conversations_parts.conversations_list;
+	let conv_list_key_delete = parts.conversations_parts.conversations_list;
 	let tx_open_enter = ui_tx.clone();
 	keys::on_enter(&parts.conversations_parts.conversations_list, enter_release_handled.clone(), move || {
 		if let Some(idx) = conv_list_key.get_selection() {
@@ -3436,13 +3437,26 @@ pub fn bind_input_handlers(
 	});
 
 	let open_chat_menu_key = open_chat_context_menu.clone();
+	let state_conv_delete = state.clone();
+	let tx_delete_call = ui_tx.clone();
 	parts.conversations_parts.conversations_list.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event
-			&& keys::is_context_menu_key(key_event)
-		{
-			open_chat_menu_key.as_ref()();
-			event.skip(false);
-			return;
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			if keys::is_context_menu_key(key_event) {
+				open_chat_menu_key.as_ref()();
+				event.skip(false);
+				return;
+			}
+			if keys::is_delete(key_event.get_key_code())
+				&& !key_event.control_down()
+				&& !key_event.shift_down()
+				&& !key_event.alt_down()
+				&& state_conv_delete.borrow().active_tab == 6
+				&& let Some(idx) = conv_list_key_delete.get_selection()
+			{
+				let _ = tx_delete_call.send(UiCommand::DeleteCall(idx as usize));
+				event.skip(false);
+				return;
+			}
 		}
 		event.skip(true);
 	});

@@ -409,6 +409,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handlePlaceCall(cmd.Data)
 	case "get_call_logs":
 		handleGetCallLogs(conn)
+	case "delete_call_logs":
+		handleDeleteCallLogs(cmd.Data)
 	case "get_call_targets":
 		handleGetCallTargets(conn)
 	case "answer_call":

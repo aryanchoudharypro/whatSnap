@@ -2054,6 +2054,7 @@ func eventHandler(evt interface{}) {
 		// tombstone. See deleteMessageForMe's doc comment.
 		jid := v.ChatJID.String()
 		go deleteMessageForMe(v.MessageID, jid)
+		go applySyncedCallDelete(v.MessageID)
 		broadcastEvent("message_deleted", map[string]interface{}{
 			"jid":          jid,
 			"message_id":   v.MessageID,

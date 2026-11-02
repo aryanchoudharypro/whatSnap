@@ -693,6 +693,48 @@ const MENU_CALL: i32 = 4501;
 const MENU_VIDEO_CALL: i32 = 4502;
 const MENU_OPEN_CHAT: i32 = 4503;
 const MENU_DELETE_CONTACT: i32 = 4504;
+const MENU_DELETE_CALL: i32 = 4506;
+const MENU_CLEAR_CALL_LOG: i32 = 4507;
+
+fn call_id_at(s: &AppState, idx: usize) -> Option<String> {
+	s.filtered_call_ids.get(idx).filter(|id| !id.is_empty()).cloned()
+}
+
+/// Deletes the call on a Recent calls row, like WA Web's Delete on a call:
+/// no confirmation, and the backend sends it to your other devices as a
+/// Delete for me of the call's message.
+pub(crate) fn delete_call_at(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
+	let mut s = state.borrow_mut();
+	if s.active_tab != 6 {
+		return;
+	}
+	let Some(call_id) = call_id_at(&s, idx) else { return };
+	let payload = serde_json::json!({ "action": "delete_call_logs", "data": { "call_ids": [call_id] } });
+	let _ = s.ws_tx.send(payload.to_string());
+	s.call_logs.retain(|e| e.id != call_id);
+	crate::ui::message_display::apply_chat_filter(&mut s, parts);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Call deleted.");
+}
+
+/// Clears the whole call history after asking, with WA Web's wording.
+pub(crate) fn clear_call_log(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let confirm =
+		MessageDialog::builder(&parts.frame, "Your call history will be permanently deleted.", "Clear call log?")
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
+			.build();
+	confirm.set_yes_no_labels("Clear", "Cancel");
+	if confirm.show_modal() != wxdragon::id::ID_YES {
+		return;
+	}
+	let mut s = state.borrow_mut();
+	let payload = serde_json::json!({ "action": "delete_call_logs", "data": { "all": true } });
+	let _ = s.ws_tx.send(payload.to_string());
+	s.call_logs.clear();
+	if s.active_tab == 6 {
+		crate::ui::message_display::apply_chat_filter(&mut s, parts);
+	}
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Call log cleared.");
+}
 
 const MENU_JOIN_CALL: i32 = 4505;
 
@@ -720,11 +762,11 @@ fn show_join_row_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ca
 }
 
 pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
-	let (jid, saved_contact) = {
+	let (jid, saved_contact, is_call, has_calls) = {
 		let s = state.borrow();
 		let Some(jid) = s.filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned() else { return };
 		let saved_contact = s.call_contacts.iter().any(|c| c.jid == jid && !c.name.is_empty() && c.name != c.phone);
-		(jid, saved_contact)
+		(jid, saved_contact, call_id_at(&s, idx).is_some(), !s.call_logs.is_empty())
 	};
 	parts.conversations_parts.conversations_list.set_selection(idx as u32, true);
 	if let Some(call_id) = jid.strip_prefix(JOIN_ROW_PREFIX) {
@@ -743,6 +785,19 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 			"Delete this contact from your contacts and your phone's",
 		);
 	}
+	if is_call || has_calls {
+		builder = builder.append_separator();
+	}
+	if is_call {
+		builder = builder.append_item(MENU_DELETE_CALL, "&Delete call\tDel", "Delete this call from your call log");
+	}
+	if has_calls {
+		builder = builder.append_item(
+			MENU_CLEAR_CALL_LOG,
+			"C&lear call log...",
+			"Permanently delete your whole call history",
+		);
+	}
 	let mut menu = builder.build();
 
 	let state_menu = state.clone();
@@ -751,6 +806,8 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		MENU_CALL => place_call(&state_menu, &parts_menu),
 		MENU_VIDEO_CALL => place_video_call(&state_menu, &parts_menu),
 		MENU_OPEN_CHAT => crate::ui::chat_ui::open_chat_for_jid(&jid, &state_menu, &parts_menu),
+		MENU_DELETE_CALL => delete_call_at(&state_menu, &parts_menu, idx),
+		MENU_CLEAR_CALL_LOG => clear_call_log(&state_menu, &parts_menu),
 		MENU_DELETE_CONTACT => {
 			let name = {
 				let s = state_menu.borrow();

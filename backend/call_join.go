@@ -86,7 +86,7 @@ func handleJoinGroupCall(raw json.RawMessage) {
 		if !groupJID.IsEmpty() {
 			chat = groupJID
 		}
-		trackLiveCall(call.ID(), chat, false, data.Video, true)
+		trackLiveCall(call.ID(), chat, types.EmptyJID, false, data.Video, true)
 		broadcastEvent("call_placed", map[string]interface{}{
 			"call_id": call.ID(), "peer": chat.String(), "link": true, "video": data.Video,
 		})

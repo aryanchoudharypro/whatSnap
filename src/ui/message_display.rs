@@ -151,6 +151,16 @@ pub(crate) fn chats_in_tab_order(s: &AppState) -> Vec<&String> {
 	}
 }
 
+/// The index of the one row that `new` lacks when it is `old` with exactly one
+/// row taken out, keeping the order of the rest.
+pub(crate) fn dropped_row_offset(old: &[String], new: &[String]) -> Option<usize> {
+	if old.len() != new.len() + 1 {
+		return None;
+	}
+	let at = old.iter().zip(new).position(|(a, b)| a != b).unwrap_or(new.len());
+	(old[at + 1..] == new[at..]).then_some(at)
+}
+
 pub(crate) fn find_single_removal_offset(old: &[String], new: &[String]) -> Option<usize> {
 	if new.is_empty() || old.len() != new.len() {
 		return None;
@@ -212,6 +222,13 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	let mut labels = Vec::new();
 	let mut filtered_starred_ids = Vec::new();
 	let mut filtered_status_ids = Vec::new();
+	let mut filtered_call_ids: Vec<String> = Vec::new();
+	let selected_index = list_selected_index(parts);
+	let selected_call_id = selected_index
+		.filter(|_| s.active_tab == 6)
+		.and_then(|i| s.filtered_call_ids.get(i))
+		.filter(|id| !id.is_empty())
+		.cloned();
 
 	if s.active_tab == 1 {
 		for group in &s.status_groups {
@@ -275,29 +292,37 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				format!("{}, {}", t.name, t.phone)
 			}
 		};
-		let mut push_section = |heading: &str, rows: Vec<(String, String)>| {
+		let mut push_section = |heading: &str, rows: Vec<(String, String, String)>| {
 			if rows.is_empty() {
 				return;
 			}
 			labels.push(heading.to_string());
 			filtered.push(String::new());
-			for (label, jid) in rows {
+			filtered_call_ids.push(String::new());
+			for (label, jid, call_id) in rows {
 				labels.push(label);
 				filtered.push(jid);
+				filtered_call_ids.push(call_id);
 			}
 		};
 
-		let ongoing: Vec<(String, String)> = s
+		let ongoing: Vec<(String, String, String)> = s
 			.joinable_calls
 			.iter()
 			.map(|c| (crate::ui_commands::calls::joinable_call_label(s, c), c))
 			.filter(|(label, _)| lower_query.is_empty() || label.to_lowercase().contains(&lower_query))
-			.map(|(label, c)| (label, format!("{}{}", crate::ui_commands::calls::JOIN_ROW_PREFIX, c.call_id)))
+			.map(|(label, c)| {
+				(label, format!("{}{}", crate::ui_commands::calls::JOIN_ROW_PREFIX, c.call_id), String::new())
+			})
 			.collect();
 		push_section("Going on now", ongoing);
 
-		let frequent: Vec<(String, String)> =
-			s.call_frequent.iter().filter(|t| matches_target(t)).map(|t| (target_label(t), t.jid.clone())).collect();
+		let frequent: Vec<(String, String, String)> = s
+			.call_frequent
+			.iter()
+			.filter(|t| matches_target(t))
+			.map(|t| (target_label(t), t.jid.clone(), String::new()))
+			.collect();
 		push_section("Frequent contacts", frequent);
 
 		let mut recent = Vec::new();
@@ -319,13 +344,17 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 
 			if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) || entry.jid.contains(&lower_query)
 			{
-				recent.push((label, row_jid));
+				recent.push((label, row_jid, entry.id.clone()));
 			}
 		}
 		push_section("Recent calls", recent);
 
-		let all: Vec<(String, String)> =
-			s.call_contacts.iter().filter(|t| matches_target(t)).map(|t| (target_label(t), t.jid.clone())).collect();
+		let all: Vec<(String, String, String)> = s
+			.call_contacts
+			.iter()
+			.filter(|t| matches_target(t))
+			.map(|t| (target_label(t), t.jid.clone(), String::new()))
+			.collect();
 		push_section("All contacts", all);
 	} else {
 		for jid in chats_in_tab_order(s) {
@@ -354,6 +383,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	s.filtered_chats = filtered;
 	s.filtered_starred_message_ids = filtered_starred_ids;
 	s.filtered_status_message_ids = filtered_status_ids;
+	s.filtered_call_ids = filtered_call_ids;
 
 	// Clearing and refilling the list resets the focused item and makes the
 	// screen reader re-announce, so leave the control untouched when the
@@ -367,18 +397,33 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 
 	let moved_from = find_single_removal_offset(&s.displayed_chat_labels, &labels);
 
+	let removed_at = dropped_row_offset(&s.displayed_chat_labels, &labels);
+
 	list.freeze();
 	if let Some(idx) = moved_from {
 		list.delete(idx as u32);
 		list.insert(&labels[0], 0);
+	} else if let Some(idx) = removed_at {
+		// One row gone, like a deleted call: take just that row out, so the
+		// list isn't refilled and read out again from the top.
+		list.delete(idx as u32);
 	} else {
 		list.set_items(&labels.iter().map(String::as_str).collect::<Vec<_>>());
 	}
 	list.thaw();
 
-	let target = list_selected_jid
-		.as_ref()
-		.and_then(|jid| s.filtered_chats.iter().position(|j| j == jid))
+	// A deleted call leaves the focus where it was, on the next call, instead
+	// of jumping to the first row for the same person.
+	let call_target = selected_call_id.as_ref().map(|id| {
+		s.filtered_call_ids.iter().position(|c| c == id).or_else(|| {
+			let len = s.filtered_chats.len();
+			let from = selected_index.unwrap_or(0).min(len.saturating_sub(1));
+			(from..len).chain((0..from).rev()).find(|&i| !s.filtered_call_ids.get(i).is_none_or(|c| c.is_empty()))
+		})
+	});
+	let target = call_target
+		.flatten()
+		.or_else(|| list_selected_jid.as_ref().and_then(|jid| s.filtered_chats.iter().position(|j| j == jid)))
 		.or_else(|| s.selected_chat.as_ref().and_then(|sel| s.filtered_chats.iter().position(|j| j == sel)));
 	if let Some(idx) = target {
 		let count = list.get_count();
@@ -396,6 +441,10 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	}
 
 	s.displayed_chat_labels = labels;
+}
+
+fn list_selected_index(parts: &crate::ui::window::WindowParts) -> Option<usize> {
+	parts.conversations_parts.conversations_list.get_selection().map(|i| i as usize)
 }
 
 pub(crate) fn update_action_buttons(s: &AppState, parts: &crate::ui::conversations::ConversationsPanelParts) -> bool {
@@ -715,6 +764,16 @@ pub(crate) fn format_call_log_label(name: &str, text: &str, from_me: bool, times
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn test_dropped_row_offset() {
+		let v = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+		assert_eq!(dropped_row_offset(&v(&["a", "b", "c"]), &v(&["a", "c"])), Some(1));
+		assert_eq!(dropped_row_offset(&v(&["a", "b", "c"]), &v(&["a", "b"])), Some(2));
+		assert_eq!(dropped_row_offset(&v(&["a", "b", "c"]), &v(&["b", "c"])), Some(0));
+		assert_eq!(dropped_row_offset(&v(&["a", "b", "c"]), &v(&["a", "x"])), None);
+		assert_eq!(dropped_row_offset(&v(&["a", "b"]), &v(&["a", "b"])), None);
+	}
 
 	#[test]
 	fn test_format_call_log_label() {

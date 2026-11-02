@@ -21,6 +21,8 @@ import (
 
 type liveCall struct {
 	chatJID       string
+	creator       string // Who placed the call, empty when not known (calls joined later).
+	keyChat       string // The chat WA Web keys the call log message under; see callLogKeyChat.
 	incoming      bool
 	video         bool
 	group         bool
@@ -36,19 +38,35 @@ var (
 	liveCalls   = map[string]*liveCall{}
 )
 
-func trackLiveCall(callID string, chatJID types.JID, incoming, video, group bool) {
+// trackLiveCall starts tracking a call this device rings for or places.
+// creator is whoever placed it; leave it empty when that isn't known, and a
+// delete of the call then stays on this device.
+func trackLiveCall(callID string, chatJID, creator types.JID, incoming, video, group bool) {
 	if callID == "" || chatJID.IsEmpty() {
 		return
 	}
+	creatorStr, keyChat := liveCallKey(chatJID, creator)
 	liveCallsMu.Lock()
 	liveCalls[callID] = &liveCall{
 		chatJID:  preferPN(chatJID).String(),
+		creator:  creatorStr,
+		keyChat:  keyChat,
 		incoming: incoming,
 		video:    video,
 		group:    group,
 		started:  time.Now(),
 	}
 	liveCallsMu.Unlock()
+}
+
+// liveCallKey is the creator and key chat of a call log message for a call
+// this device saw, matching what WA Web writes for its own live calls: the
+// group for a group call, otherwise the other person.
+func liveCallKey(chatJID, creator types.JID) (string, string) {
+	if creator.IsEmpty() {
+		return "", ""
+	}
+	return creator.ToNonAD().String(), chatJID.ToNonAD().String()
 }
 
 func updateLiveCall(callID string, fn func(*liveCall)) {
@@ -92,8 +110,11 @@ func noteOfflineMissedCall(evt interface{}) {
 	if started.IsZero() {
 		started = time.Now()
 	}
+	creatorStr, keyChat := liveCallKey(chatJID, offer.CallCreator)
 	c := &liveCall{
 		chatJID:  preferPN(chatJID).String(),
+		creator:  creatorStr,
+		keyChat:  keyChat,
 		incoming: true,
 		video:    offer.Video,
 		group:    offer.Group != nil,
@@ -194,6 +215,9 @@ func liveCallDuration(c *liveCall, now time.Time) int64 {
 }
 
 func storeLiveCallRow(callID string, c *liveCall, text, result string, duration int64) {
+	if callDeleted(callID) {
+		return
+	}
 	id := "call:" + callID
 	ts := c.started.Unix()
 	fromMe := !c.incoming
@@ -210,6 +234,7 @@ func storeLiveCallRow(callID string, c *liveCall, text, result string, duration 
 	storeCallRecord(callRecord{
 		CallID: callID, JID: c.chatJID, FromMe: fromMe, IsVideo: c.video, IsGroup: c.group,
 		Result: result, Duration: duration, Timestamp: ts, Text: text,
+		Creator: c.creator, KeyChat: c.keyChat,
 	})
 	db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
 		ON CONFLICT(jid) DO UPDATE SET

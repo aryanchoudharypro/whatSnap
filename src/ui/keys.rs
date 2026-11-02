@@ -6,6 +6,10 @@ pub fn is_enter(code: Option<i32>) -> bool {
 	matches!(code, Some(WXK_RETURN | WXK_NUMPAD_ENTER))
 }
 
+pub fn is_delete(code: Option<i32>) -> bool {
+	matches!(code, Some(WXK_DELETE | WXK_NUMPAD_DELETE))
+}
+
 pub fn is_escape(code: Option<i32>) -> bool {
 	code == Some(WXK_ESCAPE)
 }

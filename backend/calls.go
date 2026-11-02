@@ -303,7 +303,7 @@ func initCallClient() {
 		if hasGroupJID {
 			chatJID = groupJID
 		}
-		trackLiveCall(call.ID(), chatJID, true, call.IsVideo(), isGroupCall)
+		trackLiveCall(call.ID(), chatJID, call.Peer(), true, call.IsVideo(), isGroupCall)
 
 		if alreadyOnACall {
 			defer finishLiveCall(call.ID(), "busy")
@@ -433,7 +433,7 @@ func handlePlaceCall(data []byte) {
 	if parsedJID.Server == types.GroupServer && isGroupCall {
 		chatJID = parsedJID
 	}
-	trackLiveCall(call.ID(), chatJID, false, req.Video, isGroupCall)
+	trackLiveCall(call.ID(), chatJID, ownCallCreator(), false, req.Video, isGroupCall)
 
 	selfPhone := ""
 	if wa().Store.ID != nil {

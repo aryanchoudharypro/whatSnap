@@ -150,7 +150,7 @@ func handleJoinCallLink(raw json.RawMessage) {
 		activeCallsMutex.Lock()
 		activeCalls[call.ID()] = call
 		activeCallsMutex.Unlock()
-		trackLiveCall(call.ID(), call.Peer(), false, video, true)
+		trackLiveCall(call.ID(), call.Peer(), types.EmptyJID, false, video, true)
 		broadcastEvent("call_placed", map[string]interface{}{
 			"call_id": call.ID(), "peer": call.Peer().String(), "link": true, "video": video,
 		})

@@ -211,6 +211,9 @@ struct AppState {
 	filtered_starred_message_ids: Vec<String>,
 	status_groups: Vec<StatusGroup>,
 	filtered_status_message_ids: Vec<String>,
+	/// The call id behind each Calls tab row, parallel to filtered_chats; empty
+	/// for headings and rows that aren't a call from the call history.
+	filtered_call_ids: Vec<String>,
 	call_logs: Vec<CallLogEntry>,
 	call_frequent: Vec<CallTarget>,
 	call_contacts: Vec<CallTarget>,
@@ -719,6 +722,7 @@ fn main() {
 			filtered_starred_message_ids: Vec::new(),
 			status_groups: Vec::new(),
 			filtered_status_message_ids: Vec::new(),
+			filtered_call_ids: Vec::new(),
 			call_logs: Vec::new(),
 			call_frequent: Vec::new(),
 			call_contacts: Vec::new(),
@@ -1116,6 +1120,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ShowStatusMenu(idx) => ui_commands::status_extras::show_status_menu(state, parts, idx),
 		UiCommand::ShowStarredMenu(idx) => ui_commands::starred::show_starred_menu(state, parts, idx),
 		UiCommand::ShowCallsMenu(idx) => ui_commands::calls::show_calls_menu(state, parts, idx),
+		UiCommand::DeleteCall(idx) => ui_commands::calls::delete_call_at(state, parts, idx),
 		UiCommand::SetChatFilter(idx) => ui_commands::chat_lists::set_filter(state, parts, idx),
 		UiCommand::SetFavorite { jid, favorite } => ui_commands::chat_lists::set_favorite(state, parts, jid, favorite),
 		UiCommand::ChooseChatLists(jid) => ui_commands::chat_lists::choose_lists(state, parts, jid),

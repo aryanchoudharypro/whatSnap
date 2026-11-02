@@ -248,6 +248,9 @@ In the call window, `Ctrl+Shift+V` turns the camera on or off, and `Ctrl+Shift+S
 
 In a group call, the People list shows who is in the call. Use `Mute` to ask the selected person to mute. When you can remove people from the call, a `Remove` button also shows. In a call from a call link that you made, `Approve new participants` makes people wait until you let them in. Use `Let in` and `Don't let in` for each one. You can also select your microphone, speaker, and camera in the call window.
 
+### Deleting Calls
+In the Calls section, select a call under Recent calls and press `Delete`, or open its context menu and choose `Delete call`. To delete all your calls, choose `Clear call log...` in the same menu. whatSnap deletes a call the same way WhatsApp Web does, so the call is also deleted on your other linked devices.
+
 ### Call Links
 - `Call -> Create Call Link...` makes a link that anyone can use to join a call.
 - `Call -> Join Call Link...` joins a call from a link.

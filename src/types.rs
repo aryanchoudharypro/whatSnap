@@ -63,6 +63,7 @@ pub enum UiCommand {
 	ShowStatusMenu(usize),
 	ShowStarredMenu(usize),
 	ShowCallsMenu(usize),
+	DeleteCall(usize),
 	SetChatFilter(usize),
 	SetFavorite {
 		jid: String,

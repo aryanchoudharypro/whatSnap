@@ -26,17 +26,7 @@ func callLogChatJID(
 	if !fromMe && !creator.IsEmpty() {
 		return normalize(creator.ToNonAD()).String()
 	}
-	isOwn := func(jid types.JID) bool {
-		// Keyed on the addressing mode, never across it: a peer LID whose digits
-		// spell our phone number is not us.
-		switch jid.Server {
-		case types.HiddenUserServer:
-			return !ownLID.IsEmpty() && ownLID.User == jid.User
-		case types.DefaultUserServer:
-			return !ownPN.IsEmpty() && ownPN.User == jid.User
-		}
-		return false
-	}
+	isOwn := func(jid types.JID) bool { return ownInSameMode(jid, ownPN, ownLID) }
 	for _, p := range rec.GetParticipants() {
 		jid, err := types.ParseJID(p.GetUserJID())
 		if err != nil || jid.IsEmpty() || isOwn(jid) {
@@ -48,6 +38,52 @@ func callLogChatJID(
 		return normalize(creator.ToNonAD()).String()
 	}
 	return ""
+}
+
+// callLogKeyChat is the chat WA Web files a synced call under, which is the
+// chat its Delete for me names (WAWebVoipBackendCallLogTargetResolver): the
+// group for a group call, the creator for a call someone else placed, and for
+// a call we placed the one other person in it, or our own chat when there
+// isn't exactly one (call links, ad hoc group calls). It is not the chat
+// whatSnap shows the call in, which for those last ones is the first person.
+func callLogKeyChat(rec *waSyncAction.CallLogRecord, creator types.JID, fromMe bool, ownPN, ownLID types.JID) string {
+	if g := rec.GetGroupJID(); g != "" {
+		if jid, err := types.ParseJID(g); err == nil {
+			return jid.String()
+		}
+		return ""
+	}
+	if creator.IsEmpty() {
+		return ""
+	}
+	if !fromMe {
+		return creator.ToNonAD().String()
+	}
+	var others []types.JID
+	for _, p := range rec.GetParticipants() {
+		jid, err := types.ParseJID(p.GetUserJID())
+		if err != nil || jid.IsEmpty() || ownInSameMode(jid, ownPN, ownLID) {
+			continue
+		}
+		others = append(others, jid)
+	}
+	if len(others) == 1 && !rec.GetIsCallLink() && rec.GetCallLinkToken() == "" {
+		return others[0].ToNonAD().String()
+	}
+	return creator.ToNonAD().String()
+}
+
+// ownInSameMode reports whether jid is this account, keyed on the addressing
+// mode, never across it: a peer LID whose digits spell our phone number is not
+// us.
+func ownInSameMode(jid, ownPN, ownLID types.JID) bool {
+	switch jid.Server {
+	case types.HiddenUserServer:
+		return !ownLID.IsEmpty() && ownLID.User == jid.User
+	case types.DefaultUserServer:
+		return !ownPN.IsEmpty() && ownPN.User == jid.User
+	}
+	return false
 }
 
 // callDurationText renders a call length the way it is spoken, since a screen
@@ -163,7 +199,7 @@ func handleCallLogHistory(v *events.CallLogHistory) {
 }
 
 func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, rec *waSyncAction.CallLogRecord, fromFullSync bool) {
-	if rec == nil {
+	if rec == nil || callDeleted(callID) {
 		return
 	}
 	ownPN := types.EmptyJID
@@ -187,10 +223,15 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 		log.Printf("call log: storing %s failed: %v", callID, err)
 		return
 	}
+	creatorStr := ""
+	if !creator.IsEmpty() {
+		creatorStr = creator.ToNonAD().String()
+	}
 	storeCallRecord(callRecord{
 		CallID: callID, JID: jid, FromMe: fromMe, IsVideo: rec.GetIsVideo(), IsGroup: isGroup,
 		Result: callResultName(rec.GetCallResult()), Duration: rec.GetDuration(),
 		Timestamp: ts, Text: text, Authoritative: true,
+		Creator: creatorStr, KeyChat: callLogKeyChat(rec, creator, fromMe, ownPN, ownLID),
 	})
 	if fromFullSync {
 		res, err := db.Exec(`UPDATE chats SET

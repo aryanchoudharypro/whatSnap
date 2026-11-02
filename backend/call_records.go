@@ -28,6 +28,11 @@ type callRecord struct {
 	// Authoritative marks a record that came from the phone's call history. It
 	// replaces a row this device wrote itself, never the other way round.
 	Authoritative bool
+	// Creator and KeyChat are the call log message's key the way WA Web builds
+	// it (see callLogKeyChat), which Delete for me has to name. Empty when it
+	// isn't known, and then a delete stays on this device.
+	Creator string
+	KeyChat string
 }
 
 func ensureCallRecords() error {
@@ -45,6 +50,11 @@ func ensureCallRecords() error {
 	)`); err != nil {
 		return err
 	}
+	db.Exec(`ALTER TABLE call_records ADD COLUMN creator TEXT DEFAULT ''`)
+	db.Exec(`ALTER TABLE call_records ADD COLUMN key_chat TEXT DEFAULT ''`)
+	// Calls deleted here or on another device, so a call log record or history
+	// chunk naming one later doesn't bring it back.
+	db.Exec(`CREATE TABLE IF NOT EXISTS deleted_calls (call_id TEXT PRIMARY KEY)`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_ts ON call_records (timestamp DESC)`)
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_jid ON call_records (jid)`)
 	_, err := db.Exec(`INSERT OR IGNORE INTO call_records (call_id, jid, from_me, is_video, is_group, text, timestamp)
@@ -82,22 +92,33 @@ func storeCallRecord(r callRecord) {
 	if r.CallID == "" || r.JID == "" {
 		return
 	}
+	if callDeleted(r.CallID) {
+		return
+	}
 	var q string
 	if r.Authoritative {
-		q = `INSERT INTO call_records (call_id, jid, from_me, is_video, is_group, result, duration, timestamp, text, authoritative)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+		q = `INSERT INTO call_records (call_id, jid, from_me, is_video, is_group, result, duration, timestamp, text, creator, key_chat, authoritative)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 			ON CONFLICT(call_id) DO UPDATE SET jid=excluded.jid, from_me=excluded.from_me, is_video=excluded.is_video,
 				is_group=excluded.is_group, result=excluded.result, duration=excluded.duration,
-				timestamp=excluded.timestamp, text=excluded.text, authoritative=1`
+				timestamp=excluded.timestamp, text=excluded.text,
+				creator=CASE WHEN excluded.creator != '' THEN excluded.creator ELSE call_records.creator END,
+				key_chat=CASE WHEN excluded.key_chat != '' THEN excluded.key_chat ELSE call_records.key_chat END,
+				authoritative=1`
 	} else {
-		q = `INSERT INTO call_records (call_id, jid, from_me, is_video, is_group, result, duration, timestamp, text, authoritative)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+		q = `INSERT INTO call_records (call_id, jid, from_me, is_video, is_group, result, duration, timestamp, text, creator, key_chat, authoritative)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
 			ON CONFLICT(call_id) DO NOTHING`
 	}
 	if _, err := db.Exec(q, r.CallID, r.JID, boolToInt(r.FromMe), boolToInt(r.IsVideo), boolToInt(r.IsGroup),
-		r.Result, r.Duration, r.Timestamp, r.Text); err != nil {
+		r.Result, r.Duration, r.Timestamp, r.Text, r.Creator, r.KeyChat); err != nil {
 		log.Printf("call records: storing %s failed: %v", r.CallID, err)
 	}
+}
+
+func callDeleted(callID string) bool {
+	var one int
+	return db.QueryRow(`SELECT 1 FROM deleted_calls WHERE call_id = ?`, callID).Scan(&one) == nil
 }
 
 func deleteNewestCallRecord(jid string, fromMe bool, until int64) (string, bool) {
@@ -111,6 +132,7 @@ func deleteNewestCallRecord(jid string, fromMe bool, until int64) (string, bool)
 	if _, err := db.Exec(`DELETE FROM call_records WHERE call_id = ?`, id); err != nil {
 		return "", false
 	}
+	db.Exec(`INSERT OR IGNORE INTO deleted_calls (call_id) VALUES (?)`, id)
 	return id, true
 }
 
