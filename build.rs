@@ -48,6 +48,9 @@ fn main() {
 }
 
 fn build_backend(target_dir: &Path) {
+	for var in ["GOFLAGS", "GOTOOLCHAIN", "CGO_ENABLED"] {
+		println!("cargo:rerun-if-env-changed={var}");
+	}
 	let out_path: PathBuf = target_dir.join("backend").join("backend.exe");
 	let _ = std::fs::create_dir_all(target_dir.join("backend"));
 	let mut args = vec!["build".to_string(), "-o".to_string(), out_path.display().to_string()];
@@ -55,10 +58,24 @@ fn build_backend(target_dir: &Path) {
 		args.push("-ldflags=-s -w".to_string());
 		args.push("-trimpath".to_string());
 	}
-	match Command::new("go").args(&args).current_dir("backend").status() {
-		Ok(status) if !status.success() => println!("cargo:warning=Go build failed with status {status}"),
+	// Build for the Rust target, not the host, so a cross check (say from Linux) builds the
+	// Windows backend instead of failing on its Windows-only imports.
+	let mut go = Command::new("go");
+	go.args(&args).current_dir("backend");
+	if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows") {
+		go.env("GOOS", "windows");
+	}
+	match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+		Ok("x86_64") => go.env("GOARCH", "amd64"),
+		Ok("aarch64") => go.env("GOARCH", "arm64"),
+		Ok("x86") => go.env("GOARCH", "386"),
+		_ => &mut go,
+	};
+	// A failed Go build fails the cargo build, so an old backend.exe never ships beside a new app.
+	match go.status() {
+		Ok(status) if !status.success() => panic!("go build failed with {status}"),
 		Ok(_) => {}
-		Err(_) => println!("cargo:warning=Failed to execute go build"),
+		Err(e) => panic!("couldn't run go build (is Go installed and on PATH?): {e}"),
 	}
 }
 
