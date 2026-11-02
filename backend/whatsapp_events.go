@@ -992,6 +992,7 @@ func resetHistorySyncProgress() {
 	historySyncChatsDone = 0
 	historySyncMsgsDone = 0
 	historySyncMutex.Unlock()
+	resetRecentSyncProgress()
 }
 
 func eventHandler(evt interface{}) {
@@ -1583,6 +1584,9 @@ func eventHandler(evt interface{}) {
 			}
 			broadcastChats()
 			tailTook := time.Since(tailStart)
+			// Before the chunk's last progress line, so that line already
+			// carries the percent this chunk brought.
+			noteHistoryChunkProgress(v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress())
 
 			if reportProgress {
 				broadcastEvent("history_sync", map[string]interface{}{
@@ -2041,8 +2045,11 @@ func eventHandler(evt interface{}) {
 				broadcastChats()
 			}
 		}()
+	case *events.OfflineSyncPreview, *events.OfflineSyncProgress:
+		handleOfflineSyncProgress(v)
 	case *events.OfflineSyncCompleted:
 		log.Printf("OfflineSyncCompleted event received. Count: %d", v.Count)
+		handleOfflineSyncProgress(v)
 		go func() {
 			UpdateAllChatSnippets()
 			populateChatsFromStore()

@@ -17,7 +17,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				.map(|t| t.elapsed() < std::time::Duration::from_secs(5))
 				.unwrap_or(false);
 			if !mid_sync {
-				parts.frame.set_status_text("Status: Connected", 0);
+				let label = crate::connected_status_text(&state.borrow());
+				parts.frame.set_status_text(&label, 0);
 			}
 
 			let first_show = !state.borrow().main_ui_shown;
@@ -180,7 +181,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						.map(|t| t.elapsed() < std::time::Duration::from_secs(5))
 						.unwrap_or(false);
 					if !mid_sync {
-						parts.frame.set_status_text("Status: Connected", 0);
+						parts.frame.set_status_text(&crate::connected_status_text(&s), 0);
 					}
 					s.conn_status_text = "Status: Connected".to_string();
 					let speak = s.conn_outage_announced || s.conn_manual_reconnect;
@@ -238,10 +239,18 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if let Some(data) = val.get("data") {
 				let chats_done = data.get("chatsDone").and_then(|v| v.as_i64()).unwrap_or(0);
 				let msgs_done = data.get("msgsDone").and_then(|v| v.as_i64()).unwrap_or(0);
-				let label =
-					format!("Status: Connected (Syncing history... {msgs_done} messages, {chats_done} chats so far)");
 				{
 					let mut s = state.borrow_mut();
+					let label = if s.recent_sync_active && s.recent_sync_percent >= 0 {
+						format!(
+							"Status: Connected (Syncing older messages, {}% complete: {msgs_done} messages, {chats_done} chats so far)",
+							s.recent_sync_percent
+						)
+					} else {
+						format!(
+							"Status: Connected (Syncing history... {msgs_done} messages, {chats_done} chats so far)"
+						)
+					};
 					// Batches already received keep being saved after the
 					// connection drops; don't paint "Connected" over that.
 					if s.conn_online {
@@ -251,6 +260,26 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.history_sync_last_update = Some(now);
 					s.history_sync_armed_until = Some(now + std::time::Duration::from_secs(60));
 				}
+			}
+		}
+		"history_sync_progress" | "offline_sync" => {
+			let Some(data) = val.get("data") else { return true };
+			let active = data.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+			let percent = data.get("percent").and_then(|v| v.as_i64()).unwrap_or(-1);
+			let mut s = state.borrow_mut();
+			if t == "offline_sync" {
+				s.offline_sync_percent = active.then_some(percent.clamp(0, 100));
+			} else {
+				s.recent_sync_active = active;
+				s.recent_sync_percent = percent.min(100);
+				s.recent_sync_paused = data.get("paused").and_then(|v| v.as_bool()).unwrap_or(false);
+			}
+			// A detailed "N messages, N chats" line that's still fresh keeps
+			// showing; the next one carries the new percent.
+			let detailed_fresh =
+				s.history_sync_last_update.map(|t| t.elapsed() < std::time::Duration::from_secs(3)).unwrap_or(false);
+			if s.conn_online && !detailed_fresh {
+				parts.frame.set_status_text(&crate::connected_status_text(&s), 0);
 			}
 		}
 		"history_access" => {

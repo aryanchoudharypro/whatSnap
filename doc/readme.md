@@ -61,6 +61,8 @@ The first time you start whatSnap, it asks you to link your phone. There are two
 
 After you link, whatSnap gets your recent chats from your phone. This can take a few minutes.
 
+While it does, the status bar says `Syncing older messages` and how much is done, like `45% complete`, the same as WhatsApp Web. Keep WhatsApp open on your phone until it finishes. If your phone stops sending for two minutes, the status bar says `Syncing paused. Open WhatsApp on your phone to continue syncing.` When whatSnap starts after being closed for a while, the status bar shows `Downloading messages` with how much of what you missed has come in.
+
 To unlink this computer, use `Account -> Log Out`. Log Out has no shortcut, so you can't log out by mistake.
 
 ## Main Window Layout

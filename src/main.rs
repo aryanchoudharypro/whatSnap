@@ -200,6 +200,15 @@ struct AppState {
 	db_size_last_seen: u64,
 	db_growth_last_seen: Option<std::time::Instant>,
 	db_growth_status_shown: bool,
+	/// The phone's recent history sync after linking (WA Web's "Syncing
+	/// older messages, N% complete" in its You tab): running, its percent
+	/// (-1 before the first chunk) and whether the phone stopped sending.
+	recent_sync_active: bool,
+	recent_sync_percent: i64,
+	recent_sync_paused: bool,
+	/// Percent of the backlog kept while whatSnap was offline, while it's
+	/// still downloading (WA Web's "Downloading messages: N%").
+	offline_sync_percent: Option<i64>,
 	history_start_chats: std::collections::HashSet<String>,
 	/// Chats that were opened with no messages and had the phone asked for
 	/// their history automatically. Never cleared: once per run is enough.
@@ -713,6 +722,10 @@ fn main() {
 			db_size_last_seen: 0,
 			db_growth_last_seen: None,
 			db_growth_status_shown: false,
+			recent_sync_active: false,
+			recent_sync_percent: -1,
+			recent_sync_paused: false,
+			offline_sync_percent: None,
 			history_start_chats: std::collections::HashSet::new(),
 			empty_chat_history_asked: std::collections::HashSet::new(),
 			quiet_reload_jid: None,
@@ -1027,12 +1040,18 @@ fn main() {
 			let db_growth_fresh =
 				s.db_growth_last_seen.map(|t| t.elapsed() < std::time::Duration::from_millis(5000)).unwrap_or(false);
 
+			let sync_reported = s.recent_sync_active || s.offline_sync_percent.is_some();
 			if armed && db_growth_fresh && s.conn_online {
-				parts_history_sync_timer.frame.set_status_text("Status: Connected (Syncing...)", 0);
+				let label = if sync_reported {
+					connected_status_text(&s)
+				} else {
+					"Status: Connected (Syncing...)".to_string()
+				};
+				parts_history_sync_timer.frame.set_status_text(&label, 0);
 				s.db_growth_status_shown = true;
 			} else if real_signal_just_expired || s.db_growth_status_shown {
 				if s.conn_online {
-					parts_history_sync_timer.frame.set_status_text("Status: Connected", 0);
+					parts_history_sync_timer.frame.set_status_text(&connected_status_text(&s), 0);
 				}
 				s.db_growth_status_shown = false;
 			}
@@ -1058,6 +1077,22 @@ fn main() {
 	// Stops the backend if Exit hasn't already, then ends the process without
 	// waiting on anything else that might hang on the way out.
 	platform::quit::finish();
+}
+
+/// The status bar text while online and nothing more detailed is showing:
+/// "Connected", plus the sync still going on the way WA Web reports it.
+pub(crate) fn connected_status_text(s: &AppState) -> String {
+	if let Some(pct) = s.offline_sync_percent {
+		format!("Status: Connected (Downloading messages: {pct}%)")
+	} else if s.recent_sync_paused {
+		"Status: Connected (Syncing paused. Open WhatsApp on your phone to continue syncing.)".to_string()
+	} else if s.recent_sync_active && s.recent_sync_percent >= 0 {
+		format!("Status: Connected (Syncing older messages, {}% complete)", s.recent_sync_percent)
+	} else if s.recent_sync_active {
+		"Status: Connected (Syncing older messages)".to_string()
+	} else {
+		"Status: Connected".to_string()
+	}
 }
 
 pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
