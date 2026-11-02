@@ -1019,10 +1019,9 @@ func eventHandler(evt interface{}) {
 		go handleMediaRetryEvent(v)
 	case *events.HistorySyncStatus:
 		handleHistorySyncStatus(v.Notification)
-	case *events.FullHistorySyncOnDemandResult:
-		handleFullHistoryResult(v)
 	case *events.HistorySyncChunkRetryResult:
-		logChunkRetryResult(v)
+		log.Printf("Phone answered history sync chunk retry for %s chunk %d: code %s (sent %v), can recover %v",
+			v.SyncType, v.ChunkOrder, v.Code, v.HasCode, v.CanRecover)
 	case *events.HistorySync:
 		historySyncPending.Add(1)
 		// Run inline, not in a goroutine: whatsmeow sends the chunk's receipt

@@ -188,7 +188,6 @@ pub struct WindowParts {
 pub const MENU_ID_SETTINGS: i32 = 6001;
 pub const MENU_ID_LOGOUT: i32 = 6002;
 pub const MENU_ID_CHECK_UPDATES: i32 = 6061;
-pub const MENU_ID_FULL_HISTORY: i32 = 6062;
 pub const MENU_ID_RECONNECT: i32 = 6003;
 pub const MENU_ID_NAV_CONVERSATIONS: i32 = 6010;
 pub const MENU_ID_NAV_STATUS: i32 = 6011;
@@ -514,11 +513,6 @@ pub fn build_main_window() -> WindowParts {
 			MENU_ID_RECONNECT,
 			&default_menu_label(MENU_ID_RECONNECT),
 			"Retry connecting to WhatsApp right away",
-		)
-		.append_item(
-			MENU_ID_FULL_HISTORY,
-			"Get &Full History From Phone",
-			"Ask your phone to send your whole chat history again",
 		)
 		.append_item(MENU_ID_BLOCKED_CONTACTS, "&Blocked Contacts...", "See and change who you have blocked")
 		.append_item(MENU_ID_CHECK_UPDATES, "Check for &Updates...", "See if a newer version of whatSnap is out")
@@ -1542,27 +1536,6 @@ pub fn bind_input_handlers(
 		if !online {
 			crate::platform::announce::announce(reconnect_announcer, "Reconnecting...");
 		}
-	});
-
-	let state_full_history = state.clone();
-	let full_history_announcer = parts.conversations_parts.messages_announcer;
-	parts.frame.on_menu_selected(move |evt| {
-		if evt.get_id() != MENU_ID_FULL_HISTORY {
-			return;
-		}
-		let s = state_full_history.borrow();
-		if !s.conn_online {
-			crate::platform::announce::announce(
-				full_history_announcer,
-				"Not connected. Try again once whatSnap is online.",
-			);
-			return;
-		}
-		let _ = s.ws_tx.send(serde_json::json!({"action": "request_full_history"}).to_string());
-		crate::platform::announce::announce(
-			full_history_announcer,
-			"Asked your phone for your full chat history. Waiting for its answer.",
-		);
 	});
 
 	let nav_list_for_menu = parts.nav_list;
