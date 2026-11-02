@@ -167,9 +167,14 @@ func main() {
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)
-	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(365)
-	// One year and 50k messages per chat (2026-11-01). Only
-	// sent at linking. 365 days brought about a month of "recent" history.
+	// Ten years and 2 GB of full history (aryan, 2026-11-02, second try:
+	// the phone sends sync chunks again). WA Web itself sends no limits,
+	// only storageQuotaMb from the browser's storage estimate (whatsmeow's
+	// default 10 GB stays). The phone has the final say.
+	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(3650)
+	store.DeviceProps.HistorySyncConfig.FullSyncSizeMbLimit = proto.Uint32(2048)
+	// One year and 50k messages per chat of recent history (2026-11-01).
+	// Only sent at linking. 365 days brought about a month of "recent" history.
 	store.DeviceProps.HistorySyncConfig.RecentSyncDaysLimit = proto.Uint32(365)
 	store.DeviceProps.HistorySyncConfig.InitialSyncMaxMessagesPerChat = proto.Uint32(50000)
 	store.DeviceProps.HistorySyncConfig.InlineInitialPayloadInE2EeMsg = proto.Bool(true)
