@@ -16,7 +16,7 @@ fn main() {
 	println!("cargo:rerun-if-changed=doc");
 	let commit = embed_commit_info("WHATSNAP");
 
-	let target_dir = target_profile_dir().unwrap_or_else(|| {
+	let target_dir = profile_dir().or_else(target_profile_dir).unwrap_or_else(|| {
 		let root = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
 		Path::new(&root).join("target").join(env::var("PROFILE").unwrap_or_default())
 	});
@@ -45,6 +45,15 @@ fn main() {
 	if let Err(e) = version_info.embed() {
 		println!("cargo:warning=Failed to embed version info: {e}");
 	}
+}
+
+/// The profile directory (target/release) found by walking up from OUT_DIR to the folder named
+/// after the profile. shipfitter counts a fixed number of levels, which lands in target/release/build
+/// with cargo's newer build/<package>/<hash>/out layout, so the Go backend ended up in the wrong place.
+fn profile_dir() -> Option<PathBuf> {
+	let profile = env::var("PROFILE").ok()?;
+	let out_dir = PathBuf::from(env::var("OUT_DIR").ok()?);
+	out_dir.ancestors().find(|dir| dir.file_name().is_some_and(|name| name == profile.as_str())).map(Path::to_path_buf)
 }
 
 fn build_backend(target_dir: &Path) {
