@@ -319,6 +319,7 @@ func initCallClient() {
 		payload := map[string]interface{}{
 			"call_id":      call.ID(),
 			"caller":       call.Peer().String(),
+			"chat_jid":     preferPN(chatJID).String(),
 			"caller_name":  resolveDisplayName(call.Peer()),
 			"caller_phone": callerPhoneDigits(call.Peer()),
 			"is_group":     isGroupCall,

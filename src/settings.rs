@@ -49,9 +49,17 @@ pub struct Settings {
 	/// folds both into one synced number, None meaning off.
 	pub message_tone: u8,
 	pub group_tone: u8,
+	/// The sound files a [`whatsnap::TONE_CUSTOM`] message or group tone plays.
+	pub message_tone_file: String,
+	pub group_tone_file: String,
 	pub outgoing_sounds: bool,
 	pub call_notifications: bool,
 	pub call_ringtone: bool,
+	/// What calls and group calls ring with, see [`whatsnap::RINGTONE_WHATSAPP`];
+	/// empty is WhatsApp's own ringtone. Whether they ring at all is
+	/// `call_ringtone`. Only this computer has these.
+	pub call_ringtone_sound: String,
+	pub group_call_ringtone_sound: String,
 	pub chat_notifications: std::collections::HashMap<String, whatsnap::ChatNotify>,
 }
 
@@ -117,11 +125,23 @@ impl Default for Settings {
 			group_sounds: true,
 			message_tone: whatsnap::TONE_DEFAULT,
 			group_tone: whatsnap::TONE_DEFAULT,
+			message_tone_file: String::new(),
+			group_tone_file: String::new(),
 			outgoing_sounds: true,
 			call_notifications: true,
 			call_ringtone: true,
+			call_ringtone_sound: String::new(),
+			group_call_ringtone_sound: String::new(),
 			chat_notifications: std::collections::HashMap::new(),
 		}
+	}
+}
+
+fn synced_tone(on: bool, tone: u8) -> serde_json::Value {
+	match tone {
+		_ if !on => whatsnap::TONE_NONE.into(),
+		whatsnap::TONE_CUSTOM => serde_json::Value::Null,
+		tone => tone.into(),
 	}
 }
 
@@ -152,7 +172,7 @@ impl Settings {
 	}
 
 	pub fn chat_notify(&self, jid: &str) -> whatsnap::ChatNotify {
-		self.chat_notifications.get(jid).copied().unwrap_or_default()
+		self.chat_notifications.get(jid).cloned().unwrap_or_default()
 	}
 
 	pub fn set_chat_notify(&mut self, jid: &str, notify: whatsnap::ChatNotify) {
@@ -172,7 +192,7 @@ impl Settings {
 			sound: alert.sound
 				&& self.sounds_enabled
 				&& (!group || self.group_sounds)
-				&& self.message_tone_for(jid) != whatsnap::TONE_NONE,
+				&& self.message_tone_for(jid).0 != whatsnap::TONE_NONE,
 			toast: alert.toast && self.notifications_enabled && (!group || self.group_notifications),
 		}
 	}
@@ -180,11 +200,26 @@ impl Settings {
 	/// The tone a new message in `jid` plays: the chat's own, else the group
 	/// or message tone from Settings (WAWebWindowsNotificationToneDropdown's
 	/// overrideDefaultTone).
-	pub fn message_tone_for(&self, jid: &str) -> u8 {
-		match self.chat_notify(jid).tone {
-			whatsnap::TONE_DEFAULT if jid.ends_with("@g.us") => self.group_tone,
-			whatsnap::TONE_DEFAULT => self.message_tone,
-			tone => tone,
+	/// With it, the sound file a [`whatsnap::TONE_CUSTOM`] tone plays.
+	pub fn message_tone_for(&self, jid: &str) -> (u8, String) {
+		let notify = self.chat_notify(jid);
+		match notify.tone {
+			whatsnap::TONE_DEFAULT if jid.ends_with("@g.us") => (self.group_tone, self.group_tone_file.clone()),
+			whatsnap::TONE_DEFAULT => (self.message_tone, self.message_tone_file.clone()),
+			tone => (tone, notify.tone_file),
+		}
+	}
+
+	/// What a call from `jid` (the group's, for a group call) rings with:
+	/// the chat's own ringtone, else the call or group call one.
+	pub fn ringtone_for(&self, jid: &str, group: bool) -> String {
+		let ringtone = self.chat_notify(jid).ringtone;
+		if !ringtone.is_empty() {
+			ringtone
+		} else if group {
+			self.group_call_ringtone_sound.clone()
+		} else {
+			self.call_ringtone_sound.clone()
 		}
 	}
 
@@ -216,6 +251,8 @@ impl Settings {
 		if valid { self.tab_order.clone() } else { DEFAULT_TAB_ORDER.to_vec() }
 	}
 
+	/// Null stands for a value WhatsApp can't hold (a custom tone), which is
+	/// then not sent.
 	pub fn synced(&self) -> Vec<(&'static str, serde_json::Value)> {
 		use crate::ui::theme::ThemeChoice;
 		let theme = match self.theme {
@@ -225,9 +262,9 @@ impl Settings {
 		};
 		vec![
 			("isMessagesNotificationEnabled", self.notifications_enabled.into()),
-			("defaultNotificationToneId", (if self.sounds_enabled { self.message_tone } else { 0 }).into()),
+			("defaultNotificationToneId", synced_tone(self.sounds_enabled, self.message_tone)),
 			("isGroupMessageNotificationEnabled", self.group_notifications.into()),
-			("groupDefaultNotificationToneId", (if self.group_sounds { self.group_tone } else { 0 }).into()),
+			("groupDefaultNotificationToneId", synced_tone(self.group_sounds, self.group_tone)),
 			("isTextPreviewForNotificationEnabled", self.notification_previews.into()),
 			("isReactionsNotificationEnabled", self.reaction_notifications.into()),
 			("isCallsNotificationEnabled", self.call_notifications.into()),
@@ -246,7 +283,7 @@ impl Settings {
 		self.synced()
 			.into_iter()
 			.zip(before)
-			.filter(|((_, now), (_, was))| now != was)
+			.filter(|((_, now), (_, was))| now != was && !now.is_null())
 			.map(|((name, now), _)| (name.to_string(), now))
 			.collect()
 	}
@@ -383,6 +420,9 @@ mod tests {
 		assert!(!other.apply_synced("defaultNotificationToneId", &serde_json::json!(12)));
 		other.group_tone = 4;
 		assert_eq!(other.synced()[3], ("groupDefaultNotificationToneId", serde_json::json!(4)));
+		let before = other.synced();
+		other.group_tone = whatsnap::TONE_CUSTOM;
+		assert!(other.synced_changes(&before).is_empty());
 		assert!(!other.apply_synced("appTheme", &serde_json::json!(9)));
 		assert!(!other.apply_synced("wallpaperId", &serde_json::json!(true)));
 	}
@@ -390,17 +430,27 @@ mod tests {
 	#[test]
 	fn a_chat_tone_beats_the_group_and_message_tones() {
 		let mut s = Settings { message_tone: 3, group_tone: 4, ..Settings::default() };
-		assert_eq!(s.message_tone_for("1@s.whatsapp.net"), 3);
-		assert_eq!(s.message_tone_for("2@g.us"), 4);
+		assert_eq!(s.message_tone_for("1@s.whatsapp.net").0, 3);
+		assert_eq!(s.message_tone_for("2@g.us").0, 4);
 		assert!(s.set_chat_tone("2@g.us", 9));
 		assert!(!s.set_chat_tone("2@g.us", 9));
-		assert_eq!(s.message_tone_for("2@g.us"), 9);
+		assert_eq!(s.message_tone_for("2@g.us").0, 9);
 		assert!(s.message_alert("2@g.us", false, false).sound);
 		s.set_chat_tone("2@g.us", whatsnap::TONE_NONE);
 		assert!(!s.message_alert("2@g.us", false, false).sound);
 		assert!(s.message_alert("2@g.us", false, false).toast);
 		s.set_chat_tone("2@g.us", whatsnap::TONE_DEFAULT);
 		assert!(s.chat_notifications.is_empty());
+	}
+
+	#[test]
+	fn a_chat_ringtone_beats_the_call_and_group_call_ringtones() {
+		let mut s = Settings { group_call_ringtone_sound: "g.wav".into(), ..Settings::default() };
+		assert_eq!(s.ringtone_for("1@s.whatsapp.net", false), "");
+		assert_eq!(s.ringtone_for("2@g.us", true), "g.wav");
+		let notify = whatsnap::ChatNotify { ringtone: whatsnap::RINGTONE_NONE.into(), ..Default::default() };
+		s.set_chat_notify("2@g.us", notify);
+		assert_eq!(s.ringtone_for("2@g.us", true), whatsnap::RINGTONE_NONE);
 	}
 
 	#[test]

@@ -4,6 +4,7 @@ pub mod devices;
 pub mod file;
 pub mod ogg;
 pub mod ringback;
+pub mod sound_file;
 pub mod system_audio;
 pub mod voice_dsp;
 pub mod voice_recorder;
@@ -98,20 +99,59 @@ pub(crate) fn play_notification_sound(
 }
 
 /// Plays a new message's tone (see [`whatsnap::TONE_DEFAULT`]): Default is
-/// the usual background message sound, None nothing.
-pub(crate) fn play_message_tone(tone: u8, sounds_enabled: bool, output_device_name: Option<String>) {
-	match tone {
-		whatsnap::TONE_NONE => {}
-		whatsnap::TONE_DEFAULT => {
-			play_notification_sound(NotificationSound::MessageBackground, sounds_enabled, output_device_name)
-		}
-		_ if sounds_enabled => play_once(output_device_name, move |sink| {
-			if let Some(alert) = alert_tones::alert_tone(tone) {
-				sink.append(alert);
-			}
-		}),
-		_ => {}
+/// the usual background message sound, None nothing, Custom `file` (or
+/// Default when it can't be played).
+pub(crate) fn play_message_tone(tone: u8, file: &str, sounds_enabled: bool, output_device_name: Option<String>) {
+	if sounds_enabled && let Some(fill) = message_tone(tone, file) {
+		play_once(output_device_name, fill);
 	}
+}
+
+/// Plays a tone picked in a tone list, stopping the one picked before.
+pub(crate) fn preview_message_tone(tone: u8, file: &str, output_device_name: Option<String>) {
+	match message_tone(tone, file) {
+		Some(fill) => play_preview(output_device_name, fill),
+		None => play_preview(output_device_name, |_| {}),
+	}
+}
+
+fn message_tone(tone: u8, file: &str) -> Option<impl FnOnce(&Player) + Send + 'static> {
+	if tone == whatsnap::TONE_NONE {
+		return None;
+	}
+	let file = file.to_string();
+	Some(move |sink: &Player| {
+		use rodio::Source;
+		if tone == whatsnap::TONE_CUSTOM
+			&& let Some(custom) = sound_file::open(&file)
+		{
+			sink.append(custom.take_duration(sound_file::LONGEST_TONE));
+		} else if let Some(alert) = alert_tones::alert_tone(tone) {
+			sink.append(alert);
+		} else if let Some(decoded) = decode_opus(NotificationSound::MessageBackground.ogg()) {
+			sink.append(decoded);
+		}
+	})
+}
+
+/// Plays a ringtone (see [`whatsnap::RINGTONE_WHATSAPP`]) once, cut short,
+/// for a ringtone list to preview, stopping the one picked before.
+pub(crate) fn preview_ringtone(ringtone: &str, output_device_name: Option<String>) {
+	use rodio::Source;
+	let ringtone = ringtone.to_string();
+	play_preview(output_device_name, move |sink| match ringtone.as_str() {
+		whatsnap::RINGTONE_NONE => {}
+		"" | whatsnap::RINGTONE_WHATSAPP => {
+			if let Some(ring) = decode_opus(WHATSAPP_RINGTONE) {
+				sink.append(ring.take_duration(sound_file::LONGEST_PREVIEW));
+			}
+		}
+		path => {
+			if let Some(ring) = sound_file::open(path) {
+				sink.append(ring.take_duration(sound_file::LONGEST_PREVIEW));
+			}
+		}
+	});
 }
 
 fn play_once(output_device_name: Option<String>, fill: impl FnOnce(&Player) + Send + 'static) {
@@ -120,6 +160,24 @@ fn play_once(output_device_name: Option<String>, fill: impl FnOnce(&Player) + Se
 	if now - last < 500 {
 		return;
 	}
+	play_on_own_stream(output_device_name, None, fill);
+}
+
+/// Each preview gets the next number; a preview still playing stops once
+/// it's no longer the latest, so arrowing through a list plays only the
+/// sound now picked.
+static PREVIEW: AtomicU64 = AtomicU64::new(0);
+
+fn play_preview(output_device_name: Option<String>, fill: impl FnOnce(&Player) + Send + 'static) {
+	let preview = PREVIEW.fetch_add(1, Ordering::Relaxed) + 1;
+	play_on_own_stream(output_device_name, Some(preview), fill);
+}
+
+fn play_on_own_stream(
+	output_device_name: Option<String>,
+	preview: Option<u64>,
+	fill: impl FnOnce(&Player) + Send + 'static,
+) {
 	std::thread::spawn(move || {
 		use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 		struct ComGuard(bool);
@@ -140,9 +198,21 @@ fn play_once(output_device_name: Option<String>, fill: impl FnOnce(&Player) + Se
 		};
 		let sink = Player::connect_new(stream.mixer());
 		fill(&sink);
-		if !sink.empty() {
-			sink.play();
-			sink.sleep_until_end();
+		if sink.empty() {
+			return;
+		}
+		sink.play();
+		match preview {
+			None => sink.sleep_until_end(),
+			Some(preview) => {
+				while !sink.empty() {
+					if PREVIEW.load(Ordering::Relaxed) != preview {
+						sink.stop();
+						return;
+					}
+					std::thread::sleep(std::time::Duration::from_millis(20));
+				}
+			}
 		}
 	});
 }
@@ -161,6 +231,34 @@ pub(crate) fn play_call_fail_sound(state: &mut AppState) {
 		}
 	} else {
 		eprintln!("[AUDIO] No audio stream available");
+	}
+}
+
+pub(crate) const WHATSAPP_RINGTONE: &[u8] = include_bytes!("../../sounds/ringtone_incoming_call.ogg");
+
+/// Rings for an incoming call with `ringtone` (see
+/// [`whatsnap::RINGTONE_WHATSAPP`]), looped, falling back to WhatsApp's own
+/// when its file can't be played.
+pub(crate) fn start_call_ringtone(state: &mut AppState, ringtone: &str) {
+	match ringtone {
+		whatsnap::RINGTONE_NONE => {}
+		"" | whatsnap::RINGTONE_WHATSAPP => start_call_ringing_sound(state, WHATSAPP_RINGTONE),
+		path => {
+			ensure_audio_stream(state);
+			let Some(ref stream_handle) = state.audio_stream else { return };
+			match sound_file::Looped::open(path) {
+				Some(ring) => {
+					let sink = Player::connect_new(stream_handle.mixer());
+					sink.append(ring);
+					sink.play();
+					state.call_ringing_sink = Some(sink);
+				}
+				None => {
+					eprintln!("[AUDIO] Couldn't play the ringtone {path}, using WhatsApp's");
+					start_call_ringing_sound(state, WHATSAPP_RINGTONE);
+				}
+			}
+		}
 	}
 }
 

@@ -17,6 +17,7 @@ pub mod message_art;
 pub mod message_display;
 pub mod message_list;
 pub mod owner_draw;
+pub mod sound_picker;
 pub mod spell_check;
 pub mod status_viewer;
 pub mod theme;

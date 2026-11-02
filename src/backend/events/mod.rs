@@ -22,7 +22,7 @@ use crate::{
 	StatusGroup, StatusItem, UiCommand,
 	audio::{
 		ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringback,
-		start_call_ringing_sound, stop_call_ringing_sound,
+		stop_call_ringing_sound,
 	},
 	calls::helpers::{
 		announce_call, call_participant_changes, caller_info_text, get_status_rank, group_call_status_text,

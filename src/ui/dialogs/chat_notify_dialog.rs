@@ -1,6 +1,13 @@
 use wxdragon::prelude::*;
 
-use crate::ui::{dialog_look, theme};
+use crate::{
+	audio::sound_file,
+	ui::{
+		dialog_look,
+		sound_picker::{Kind, SoundPicker},
+		theme,
+	},
+};
 
 const ALERTS: [(&str, whatsnap::ChatAlert); 5] = [
 	("As set in Settings", whatsnap::ChatAlert::Default),
@@ -10,20 +17,19 @@ const ALERTS: [(&str, whatsnap::ChatAlert); 5] = [
 	("Off on this computer", whatsnap::ChatAlert::Off),
 ];
 
-/// WhatsApp for Windows' per-chat tone list, in its order.
-const TONES: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, whatsnap::TONE_NONE];
-
-/// `default_tone` is what Default plays for this chat: the message or group
-/// tone from Settings.
+/// `default_tone` and `default_ringtone` are what Default plays for this
+/// chat: the message or group tone and the call or group call ringtone from
+/// Settings.
 pub fn ask(
 	parent: &impl WxWidget,
 	chat: &str,
 	current: whatsnap::ChatNotify,
-	default_tone: u8,
+	default_tone: (u8, String),
+	default_ringtone: String,
 	output_device: Option<String>,
 ) -> Option<whatsnap::ChatNotify> {
 	let dialog = Dialog::builder(parent, &format!("Notification settings for {chat}"))
-		.with_size(460, 360)
+		.with_size(460, 480)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	theme::style_content(&dialog);
@@ -32,7 +38,7 @@ pub fn ask(
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let note = StaticText::builder(&panel)
-		.with_label("The tone is shared with WhatsApp on your other computers; the rest only change this computer. To mute this chat on all your devices, use Mute in its menu.")
+		.with_label("The notification tone is shared with WhatsApp on your other computers, unless it is a custom sound file; the rest only change this computer. To mute this chat on all your devices, use Mute in its menu.")
 		.build();
 	theme::style_muted_label(&note);
 	sizer.add(&note, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
@@ -48,31 +54,29 @@ pub fn ask(
 	alert_combo.set_selection(at as u32);
 	sizer.add(&alert_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let tone_label = StaticText::builder(&panel).with_label("Notification tone").build();
-	tone_label.set_font(&theme::Fonts::body());
-	sizer.add(&tone_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
-	let tone_names: Vec<String> = TONES
-		.iter()
-		.map(|&tone| match tone {
-			whatsnap::TONE_DEFAULT if default_tone != tone => {
-				format!("Default ({})", whatsnap::tone_label(default_tone))
-			}
-			_ => whatsnap::tone_label(tone),
-		})
-		.collect();
-	let tone_names: Vec<&str> = tone_names.iter().map(String::as_str).collect();
-	let tone_combo =
-		ComboBox::builder(&panel).with_string_choices(&tone_names).with_style(ComboBoxStyle::ReadOnly).build();
-	tone_combo.set_font(&theme::Fonts::body());
-	tone_combo.set_selection(TONES.iter().position(|&tone| tone == current.tone).unwrap_or(0) as u32);
-	sizer.add(&tone_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
-	let picked_tone = move || TONES[tone_combo.get_selection().map_or(0, |i| i as usize).min(TONES.len() - 1)];
-	tone_combo.on_selection_changed(move |_| {
-		let tone = match picked_tone() {
-			whatsnap::TONE_DEFAULT => default_tone,
-			tone => tone,
-		};
-		crate::audio::play_message_tone(tone, true, output_device.clone());
+	let tone_default = match default_tone.0 {
+		whatsnap::TONE_DEFAULT => "Default".to_string(),
+		whatsnap::TONE_CUSTOM => format!("Default ({})", file_name(&default_tone.1)),
+		tone => format!("Default ({})", whatsnap::tone_label(tone)),
+	};
+	let tone_picker =
+		SoundPicker::new(&panel, &sizer, "Notification tone", "Notification Tone", Kind::ChatTone, &tone_default);
+	tone_picker.set_tone(current.tone, &current.tone_file);
+	let device = output_device.clone();
+	tone_picker.on_preview(move |picker| match picker.tone() {
+		(whatsnap::TONE_DEFAULT, _) => {
+			crate::audio::preview_message_tone(default_tone.0, &default_tone.1, device.clone())
+		}
+		_ => picker.preview(device.clone()),
+	});
+
+	let ringtone_default = format!("Default ({})", ringtone_name(&default_ringtone));
+	let ringtone_picker =
+		SoundPicker::new(&panel, &sizer, "Ringtone", "Ringtone", Kind::ChatRingtone, &ringtone_default);
+	ringtone_picker.set_ringtone(&current.ringtone);
+	ringtone_picker.on_preview(move |picker| match picker.ringtone().as_str() {
+		"" => crate::audio::preview_ringtone(&default_ringtone, output_device.clone()),
+		_ => picker.preview(output_device.clone()),
 	});
 
 	let hide_check = CheckBox::builder(&panel)
@@ -98,11 +102,32 @@ pub fn ask(
 
 	let saved = dialog.show_modal() == ID_OK;
 	let picked = alert_combo.get_selection().map(|i| i as usize).unwrap_or(0);
+	let (tone, tone_file) = tone_picker.tone();
 	let notify = whatsnap::ChatNotify {
 		alert: ALERTS.get(picked).map(|(_, alert)| *alert).unwrap_or_default(),
 		hide_content: hide_check.is_checked(),
-		tone: picked_tone(),
+		tone,
+		tone_file: if tone == whatsnap::TONE_CUSTOM { tone_file } else { String::new() },
+		ringtone: ringtone_picker.ringtone(),
 	};
+	tone_picker.forget();
+	ringtone_picker.forget();
 	dialog.destroy();
 	saved.then_some(notify)
+}
+
+fn file_name(path: &str) -> String {
+	std::path::Path::new(path).file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned())
+}
+
+/// How a ringtone (see [`whatsnap::RINGTONE_WHATSAPP`]) reads in a list.
+fn ringtone_name(ringtone: &str) -> String {
+	match ringtone {
+		"" | whatsnap::RINGTONE_WHATSAPP => "WhatsApp".to_string(),
+		whatsnap::RINGTONE_NONE => "None".to_string(),
+		path => sound_file::windows_ringtones()
+			.iter()
+			.find(|(_, p)| p == path)
+			.map_or_else(|| file_name(path), |(name, _)| name.clone()),
+	}
 }

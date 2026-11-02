@@ -124,7 +124,9 @@ A locked chat doesn't show in the chat list. When you have locked chats, a `Lock
 `Notification settings...` in the actions menu of a chat opens a dialog with these settings:
 
 - `When a message comes in`: `As set in Settings`, `Notification and sound`, `Notification only, no sound`, `Sound only, no notification`, or `Off on this computer`. This only changes this computer, not your phone.
-- `Notification tone`: the sound for this chat. `Default` uses the message or group tone from Settings. You can also pick `Alert 1` to `Alert 10`, or `None` for no sound. Each tone plays when you pick it. The tone is shared with WhatsApp for Windows and WhatsApp Web on your other computers, the same way WhatsApp shares it.
+- `Notification tone`: the sound for this chat. `Default` uses the message or group tone from Settings. You can also pick `Alert 1` to `Alert 10`, `Custom sound file`, or `None` for no sound. Each tone plays when you pick it. The tone is shared with WhatsApp for Windows and WhatsApp Web on your other computers, the same way WhatsApp shares it. A custom sound file stays on this computer.
+- `Ringtone`: what calls from this chat ring with. `Default` uses the call or group call ringtone from Settings. You can also pick `WhatsApp`, a Windows ringtone, `Custom sound file`, or `None` for a silent ring. This stays on this computer.
+- After you pick `Custom sound file`, press Tab to reach the `Choose ... File` button and pick a sound file, such as an MP3 or WAV file. The button shows the file's name once you pick one.
 - `Hide message content`: notifications from this chat don't show what the message says.
 
 For an archived chat, `Archived alerts` sets how the chat tells you about new messages.
@@ -317,13 +319,14 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
 - `Show previews`: show the message text in notifications.
 - `Reaction notifications`
 - `Incoming sounds`
-- `Message notification tone`: `Default`, or `Alert 1` to `Alert 10`. Each tone plays when you pick it.
+- `Message notification tone`: `Default`, `Alert 1` to `Alert 10`, or `Custom sound file`. Each tone plays when you pick it. For a custom file, press Tab to the `Choose Message Tone File` button after it. A custom tone plays for up to 10 seconds and is not shared with your other computers.
 - `Outgoing sounds`
 - `Group notifications`
 - `Group sounds`
 - `Group notification tone`
 - `Call notifications`
 - `Incoming call sounds`: play the ringtone for incoming calls.
+- `Call ringtone` and `Group call ringtone`: `WhatsApp`, the ringtones Windows comes with (`Windows Ring 1` to `10` and `Windows Alarm 1` to `10`), or `Custom sound file`, with a `Choose ... File` button after each. The ringtone repeats until you answer or the call stops. A short part plays when you pick one.
 - `No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on`
 
 ### Chats Tab

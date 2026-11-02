@@ -4,6 +4,7 @@ use crate::{
 	audio::devices::DEFAULT_LABEL,
 	ui::{
 		dialog_look::{self, Field},
+		sound_picker::{Kind, SoundPicker},
 		theme,
 	},
 };
@@ -21,21 +22,6 @@ pub const DEFAULT_TIMER_CHOICES: &[(&str, &str)] =
 pub const UPLOAD_QUALITY_CHOICES: &[(&str, &str)] = &[("Standard Quality", "sd"), ("HD Quality", "hd")];
 pub const DOWNLOAD_QUALITY_CHOICES: &[(&str, &str)] = &[("Standard Quality", "sd"), ("HD Quality", "hd")];
 pub const UPDATE_CHANNEL_CHOICES: &[(&str, &str)] = &[("Stable releases", "stable"), ("Development builds", "dev")];
-/// The tones WhatsApp for Windows offers for messages and groups, valued by
-/// their synced number (see whatsnap::TONE_DEFAULT). Off is the sounds switch.
-pub const TONE_CHOICES: &[(&str, &str)] = &[
-	("Default", "1"),
-	("Alert 1", "2"),
-	("Alert 2", "3"),
-	("Alert 3", "4"),
-	("Alert 4", "5"),
-	("Alert 5", "6"),
-	("Alert 6", "7"),
-	("Alert 7", "8"),
-	("Alert 8", "9"),
-	("Alert 9", "10"),
-	("Alert 10", "11"),
-];
 pub const THEME_CHOICES: &[(&str, &str)] = &[("System Default", "system"), ("Light", "light"), ("Dark", "dark")];
 pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
 	("Never", "-1"),
@@ -87,11 +73,13 @@ pub struct SettingsDialogParts {
 	pub reaction_notifications_check: CheckBox,
 	pub group_notifications_check: CheckBox,
 	pub group_sounds_check: CheckBox,
-	pub message_tone_combo: ComboBox,
-	pub group_tone_combo: ComboBox,
+	pub message_tone_picker: SoundPicker,
+	pub group_tone_picker: SoundPicker,
 	pub outgoing_sounds_check: CheckBox,
 	pub call_notifications_check: CheckBox,
 	pub call_ringtone_check: CheckBox,
+	pub call_ringtone_picker: SoundPicker,
+	pub group_call_ringtone_picker: SoundPicker,
 	pub follow_dnd_check: CheckBox,
 
 	pub chats_panel: Panel,
@@ -251,15 +239,18 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let reaction_notifications_check =
 		notify_switch("Reaction notifications: show notifications for reactions to your messages");
 	let sounds_check = notify_switch("Incoming sounds: play a sound for new messages");
-	let message_tone_combo =
-		visibility_combo(&notifications_panel, &notifications_sizer, "Message notification tone", TONE_CHOICES);
+	let sound_picker = |label: &str, what: &str, kind: Kind| {
+		SoundPicker::new(&notifications_panel, &notifications_sizer, label, what, kind, "Default")
+	};
+	let message_tone_picker = sound_picker("Message notification tone", "Message Tone", Kind::Tone);
 	let outgoing_sounds_check = notify_switch("Outgoing sounds: play sounds for messages you send");
 	let group_notifications_check = notify_switch("Group notifications: show notifications for new group messages");
 	let group_sounds_check = notify_switch("Group sounds: play sounds for new group messages");
-	let group_tone_combo =
-		visibility_combo(&notifications_panel, &notifications_sizer, "Group notification tone", TONE_CHOICES);
+	let group_tone_picker = sound_picker("Group notification tone", "Group Tone", Kind::Tone);
 	let call_notifications_check = notify_switch("Call notifications: show notifications for incoming calls");
 	let call_ringtone_check = notify_switch("Incoming call sounds: play the ringtone for incoming calls");
+	let call_ringtone_picker = sound_picker("Call ringtone", "Call Ringtone", Kind::Ringtone);
+	let group_call_ringtone_picker = sound_picker("Group call ringtone", "Group Call Ringtone", Kind::Ringtone);
 	let follow_dnd_check =
 		notify_switch("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on");
 	notifications_sizer.add_spacer(12);
@@ -431,8 +422,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 	emoji_help_btn.on_click(move |_| crate::ui::emoji_replace::show_help(&dialog));
-	for combo in [message_tone_combo, group_tone_combo] {
-		combo.on_selection_changed(move |_| preview_tone(&combo, TONE_CHOICES, &output_device_combo));
+	for picker in [message_tone_picker, group_tone_picker, call_ringtone_picker, group_call_ringtone_picker] {
+		picker.on_preview(move |picker| picker.preview(device_combo_value(&output_device_combo)));
 	}
 
 	SettingsDialogParts {
@@ -446,11 +437,13 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		reaction_notifications_check,
 		group_notifications_check,
 		group_sounds_check,
-		message_tone_combo,
-		group_tone_combo,
+		message_tone_picker,
+		group_tone_picker,
 		outgoing_sounds_check,
 		call_notifications_check,
 		call_ringtone_check,
+		call_ringtone_picker,
+		group_call_ringtone_picker,
 		follow_dnd_check,
 		announce_typing_check,
 		announce_recording_check,
@@ -521,14 +514,6 @@ pub fn device_combo_value(combo: &ComboBox) -> Option<String> {
 	match combo.get_string_selection() {
 		Some(label) if label != DEFAULT_LABEL => Some(label),
 		_ => None,
-	}
-}
-
-/// Plays the tone just picked in a tone list, as WhatsApp's tone list does,
-/// on the output device picked on the Audio tab.
-pub fn preview_tone(combo: &ComboBox, choices: &[(&str, &str)], output_device_combo: &ComboBox) {
-	if let Ok(tone) = combo_value(combo, choices).parse() {
-		crate::audio::play_message_tone(tone, true, device_combo_value(output_device_combo));
 	}
 }
 
@@ -648,8 +633,10 @@ impl SettingsDialogParts {
 		self.reaction_notifications_check.set_value(settings.reaction_notifications);
 		self.group_notifications_check.set_value(settings.group_notifications);
 		self.group_sounds_check.set_value(settings.group_sounds);
-		set_combo_from_value(&self.message_tone_combo, TONE_CHOICES, &settings.message_tone.to_string());
-		set_combo_from_value(&self.group_tone_combo, TONE_CHOICES, &settings.group_tone.to_string());
+		self.message_tone_picker.set_tone(settings.message_tone, &settings.message_tone_file);
+		self.group_tone_picker.set_tone(settings.group_tone, &settings.group_tone_file);
+		self.call_ringtone_picker.set_ringtone(&settings.call_ringtone_sound);
+		self.group_call_ringtone_picker.set_ringtone(&settings.group_call_ringtone_sound);
 		self.outgoing_sounds_check.set_value(settings.outgoing_sounds);
 		self.call_notifications_check.set_value(settings.call_notifications);
 		self.call_ringtone_check.set_value(settings.call_ringtone);
@@ -669,8 +656,10 @@ impl SettingsDialogParts {
 		settings.reaction_notifications = self.reaction_notifications_check.is_checked();
 		settings.group_notifications = self.group_notifications_check.is_checked();
 		settings.group_sounds = self.group_sounds_check.is_checked();
-		settings.message_tone = combo_value(&self.message_tone_combo, TONE_CHOICES).parse().unwrap_or(1);
-		settings.group_tone = combo_value(&self.group_tone_combo, TONE_CHOICES).parse().unwrap_or(1);
+		(settings.message_tone, settings.message_tone_file) = self.message_tone_picker.tone();
+		(settings.group_tone, settings.group_tone_file) = self.group_tone_picker.tone();
+		settings.call_ringtone_sound = self.call_ringtone_picker.ringtone();
+		settings.group_call_ringtone_sound = self.group_call_ringtone_picker.ringtone();
 		settings.outgoing_sounds = self.outgoing_sounds_check.is_checked();
 		settings.call_notifications = self.call_notifications_check.is_checked();
 		settings.call_ringtone = self.call_ringtone_check.is_checked();

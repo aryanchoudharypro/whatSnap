@@ -790,7 +790,7 @@ pub(crate) fn set_chat_notify(
 ) {
 	let spoken = {
 		let mut s = state.borrow_mut();
-		s.settings.set_chat_notify(&jid, notify);
+		s.settings.set_chat_notify(&jid, notify.clone());
 		s.settings.save();
 		refresh_tray_tooltip(&s, parts);
 		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
@@ -808,18 +808,31 @@ pub(crate) fn set_chat_notify(
 }
 
 pub(crate) fn show_chat_notify(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
-	let (name, current, default_tone, output_device) = {
+	let (name, current, default_tone, default_ringtone, output_device) = {
 		let s = state.borrow();
-		let default_tone = if jid.ends_with("@g.us") { s.settings.group_tone } else { s.settings.message_tone };
+		let group = jid.ends_with("@g.us");
+		let default_tone = if group {
+			(s.settings.group_tone, s.settings.group_tone_file.clone())
+		} else {
+			(s.settings.message_tone, s.settings.message_tone_file.clone())
+		};
+		let default_ringtone =
+			if group { s.settings.group_call_ringtone_sound.clone() } else { s.settings.call_ringtone_sound.clone() };
 		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-		(name, s.settings.chat_notify(&jid), default_tone, s.settings.output_device_name.clone())
+		(name, s.settings.chat_notify(&jid), default_tone, default_ringtone, s.settings.output_device_name.clone())
 	};
-	let Some(notify) =
-		crate::ui::dialogs::chat_notify_dialog::ask(&parts.frame, &name, current, default_tone, output_device)
-	else {
+	let Some(notify) = crate::ui::dialogs::chat_notify_dialog::ask(
+		&parts.frame,
+		&name,
+		current.clone(),
+		default_tone,
+		default_ringtone,
+		output_device,
+	) else {
 		return;
 	};
-	if notify.tone != current.tone {
+	// A custom tone is this computer's own; WhatsApp has nothing to hold it.
+	if notify.tone != current.tone && notify.tone != whatsnap::TONE_CUSTOM {
 		// Shared like WhatsApp for Windows does, as this chat's
 		// notificationToneId (WAWebChatNotificationToneSetting).
 		let payload = serde_json::json!({"action": "sync_chat_tone", "data": {"jid": jid, "tone": notify.tone}});

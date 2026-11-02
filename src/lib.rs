@@ -1258,19 +1258,33 @@ pub enum ChatAlert {
 	Off,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ChatNotify {
 	pub alert: ChatAlert,
 	pub hide_content: bool,
 	/// The chat's notification tone, numbered like [`TONE_DEFAULT`]. Unlike
-	/// the rest this one is shared with WhatsApp on other computers.
+	/// the rest this one is shared with WhatsApp on other computers, except
+	/// [`TONE_CUSTOM`], which only this computer can play.
 	pub tone: u8,
+	/// The sound file [`TONE_CUSTOM`] plays.
+	#[serde(skip_serializing_if = "String::is_empty")]
+	pub tone_file: String,
+	/// What a call from this chat rings with, see [`RINGTONE_WHATSAPP`]; empty
+	/// follows the call or group call ringtone from Settings.
+	#[serde(skip_serializing_if = "String::is_empty")]
+	pub ringtone: String,
 }
 
 impl Default for ChatNotify {
 	fn default() -> Self {
-		Self { alert: ChatAlert::Default, hide_content: false, tone: TONE_DEFAULT }
+		Self {
+			alert: ChatAlert::Default,
+			hide_content: false,
+			tone: TONE_DEFAULT,
+			tone_file: String::new(),
+			ringtone: String::new(),
+		}
 	}
 }
 
@@ -1281,11 +1295,20 @@ impl Default for ChatNotify {
 pub const TONE_NONE: u8 = 0;
 pub const TONE_DEFAULT: u8 = 1;
 pub const TONE_LAST: u8 = 11;
+/// A sound file picked on this computer. WhatsApp has no number for it, so
+/// it is never synced.
+pub const TONE_CUSTOM: u8 = 12;
+
+/// Ringtones are kept as text: WhatsApp's own ringtone, none, or the path of
+/// a sound file (a Windows ringtone or one the user picked), looped.
+pub const RINGTONE_WHATSAPP: &str = "whatsapp";
+pub const RINGTONE_NONE: &str = "none";
 
 pub fn tone_label(tone: u8) -> String {
 	match tone {
 		TONE_NONE => "None".to_string(),
 		2..=TONE_LAST => format!("Alert {}", tone - 1),
+		TONE_CUSTOM => "Custom".to_string(),
 		_ => "Default".to_string(),
 	}
 }

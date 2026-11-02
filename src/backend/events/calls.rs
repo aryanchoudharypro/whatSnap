@@ -426,7 +426,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.frame.iconize(false);
 					parts.call_parts.frame.raise();
 					if s.settings.call_ringtone {
-						start_call_ringing_sound(&mut s, include_bytes!("../../../sounds/ringtone_incoming_call.ogg"));
+						let chat_jid = data.get("chat_jid").and_then(|j| j.as_str()).unwrap_or(caller);
+						let ringtone = s.settings.ringtone_for(chat_jid, is_group);
+						crate::audio::start_call_ringtone(&mut s, &ringtone);
 					}
 					let (call_hotkeys, unavailable) = crate::calls::hotkeys::start(&s.ui_tx, &s.keymap);
 					s.call_hotkeys = call_hotkeys;
