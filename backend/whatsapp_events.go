@@ -1036,6 +1036,9 @@ func eventHandler(evt interface{}) {
 			if v.Data == nil {
 				return
 			}
+			if statuses := v.Data.GetStatusV3Messages(); len(statuses) > 0 {
+				storeHistoryStatuses(statuses)
+			}
 
 			// With StreamHistorySyncConversations on, the chats arrive still
 			// encoded and are decoded one at a time below, so a big chunk

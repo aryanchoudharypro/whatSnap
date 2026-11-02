@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
+	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -361,4 +363,29 @@ func handleSetStatusPrivacy(conn net.Conn, raw json.RawMessage) {
 		noteStatusPrivacy(&events.StatusPrivacy{Timestamp: time.Now(), Action: action})
 		sendEvent(conn, "status_privacy_saved", map[string]interface{}{"mode": data.Mode})
 	}()
+}
+
+// storeHistoryStatuses saves the status updates the phone sends at linking
+// (the INITIAL_STATUS_V3 history sync chunk: statuses still up from the last
+// 24 hours), which WA Web shows in its Updates tab right away. Before this
+// they were dropped, so only statuses posted after linking showed.
+func storeHistoryStatuses(statuses []*waWeb.WebMessageInfo) {
+	cutoff := time.Now().Add(-24 * time.Hour)
+	stored := 0
+	for _, wmi := range statuses {
+		evt, err := wa().ParseWebMessage(types.StatusBroadcastJID, wmi)
+		if err != nil {
+			log.Printf("Skipping history status %s: %v", wmi.GetKey().GetID(), err)
+			continue
+		}
+		if evt.Info.Timestamp.Before(cutoff) || evt.Message == nil {
+			continue
+		}
+		if evt.Info.Sender.IsEmpty() {
+			continue
+		}
+		handleIncomingStatus(evt)
+		stored++
+	}
+	log.Printf("History sync: %d of %d status updates stored", stored, len(statuses))
 }
