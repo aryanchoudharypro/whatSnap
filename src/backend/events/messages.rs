@@ -99,6 +99,16 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					} else {
 						let sender_name = if is_from_me {
 							"You".to_string()
+						} else if from.is_empty() && !is_group {
+							// Rows with no sender (call log lines) belong to the
+							// other person in a 1:1 chat, same as when loaded.
+							["senderName", "chatName"]
+								.iter()
+								.filter_map(|k| data.get(*k).and_then(|n| n.as_str()))
+								.find(|n| !n.is_empty())
+								.map(|n| n.to_string())
+								.or_else(|| s.contacts.get(jid).cloned())
+								.unwrap_or_else(|| jid.to_string())
 						} else {
 							let mut clean_jid = from.to_string();
 							if let Some(idx) = from.find(':') {
@@ -482,10 +492,14 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									};
 									crate::ui::chat_ui::show_chat_notification(jid, &chat_name, &toast_body);
 								} else {
+									// Call log lines have no sender: name the chat.
+									let fallback_jid = if from.is_empty() { jid } else { clean_from.as_str() };
 									let sender_name = provided_sender
 										.or_else(|| s.contacts.get(&clean_from).cloned())
 										.or_else(|| s.contacts.get(from).cloned())
-										.unwrap_or_else(|| display_name_for_jid(&clean_from));
+										.or_else(|| if from.is_empty() { provided_chat_name } else { None })
+										.or_else(|| s.contacts.get(jid).cloned())
+										.unwrap_or_else(|| display_name_for_jid(fallback_jid));
 									let body = if previews { body.to_string() } else { "New message".to_string() };
 									crate::ui::chat_ui::show_chat_notification(jid, &sender_name, &body);
 								}
