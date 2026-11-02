@@ -11,7 +11,13 @@ import (
 
 const (
 	undecryptableText = "Waiting for this message. This may take a while."
-	viewOnceOnPhone   = "View once message. Open WhatsApp on your phone to view it."
+	// WA Web's texts for <unavailable type="view_once"/>: the server never
+	// fans view once media out to linked devices, and WA Web doesn't ask the
+	// phone to resend it either, so only the phone can open it.
+	viewOnceReceived      = "You received a view once message. For added privacy, you can only open it on your phone."
+	viewOnceSentElsewhere = "You sent a view once message from another device."
+	// Older builds stored this text; kept so those rows still count as placeholders.
+	viewOnceOnPhoneOld = "View once message. Open WhatsApp on your phone to view it."
 )
 
 func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
@@ -32,7 +38,10 @@ func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 
 	text := undecryptableText
 	if v.UnavailableType == events.UnavailableTypeViewOnce {
-		text = viewOnceOnPhone
+		text = viewOnceReceived
+		if v.Info.IsFromMe {
+			text = viewOnceSentElsewhere
+		}
 	}
 	ts := v.Info.Timestamp.Unix()
 	unread := 1

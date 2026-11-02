@@ -605,7 +605,7 @@ const readReceiptChunk = 256
 // CIPHERTEXT): there's nothing on the server to acknowledge for those yet.
 const unacknowledgedIncoming = `from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
 	AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
-	AND NOT (COALESCE(length(raw), 0) = 0 AND text IN ('` + undecryptableText + `', '` + viewOnceOnPhone + `'))`
+	AND NOT (COALESCE(length(raw), 0) = 0 AND text IN ('` + undecryptableText + `', '` + viewOnceReceived + `', '` + viewOnceSentElsewhere + `', '` + viewOnceOnPhoneOld + `'))`
 
 func handleMarkRead(raw json.RawMessage) {
 	var data struct {

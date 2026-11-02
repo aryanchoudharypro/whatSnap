@@ -13,7 +13,7 @@ whatSnap is in development. Most features are tested with a real WhatsApp accoun
 - Chats, groups, communities, channels, status updates, starred messages, archived chats, and the call history.
 - Messages, with:
   - Replies, forwarding, editing, deleting, reactions, and stars.
-  - Photos, videos, audio files, documents, contacts, stickers, and view once media.
+  - Photos, videos, audio files, documents, contacts, stickers, and sending view once media. Like WhatsApp Web, view once messages you receive can only be opened on your phone.
   - Voice messages, which you can pause while you record. whatSnap can remove background noise from them.
   - Polls, quizzes, and events.
   - Mentions, link previews, and disappearing messages.
