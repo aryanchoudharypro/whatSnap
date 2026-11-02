@@ -808,11 +808,23 @@ pub(crate) fn set_chat_notify(
 }
 
 pub(crate) fn show_chat_notify(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
-	let (name, current) = {
+	let (name, current, default_tone, output_device) = {
 		let s = state.borrow();
-		(s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone()), s.settings.chat_notify(&jid))
+		let default_tone = if jid.ends_with("@g.us") { s.settings.group_tone } else { s.settings.message_tone };
+		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+		(name, s.settings.chat_notify(&jid), default_tone, s.settings.output_device_name.clone())
 	};
-	let Some(notify) = crate::ui::dialogs::chat_notify_dialog::ask(&parts.frame, &name, current) else { return };
+	let Some(notify) =
+		crate::ui::dialogs::chat_notify_dialog::ask(&parts.frame, &name, current, default_tone, output_device)
+	else {
+		return;
+	};
+	if notify.tone != current.tone {
+		// Shared like WhatsApp for Windows does, as this chat's
+		// notificationToneId (WAWebChatNotificationToneSetting).
+		let payload = serde_json::json!({"action": "sync_chat_tone", "data": {"jid": jid, "tone": notify.tone}});
+		let _ = state.borrow().ws_tx.send(payload.to_string());
+	}
 	if notify != current {
 		set_chat_notify(state, parts, jid, notify);
 	}

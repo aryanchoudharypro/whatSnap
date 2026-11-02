@@ -44,6 +44,11 @@ pub struct Settings {
 	pub theme: crate::ui::theme::ThemeChoice,
 	pub group_notifications: bool,
 	pub group_sounds: bool,
+	/// Which sound new messages play, as a [`whatsnap::TONE_DEFAULT`] style
+	/// number. Whether they play one at all is `sounds_enabled`; WhatsApp
+	/// folds both into one synced number, None meaning off.
+	pub message_tone: u8,
+	pub group_tone: u8,
 	pub outgoing_sounds: bool,
 	pub call_notifications: bool,
 	pub call_ringtone: bool,
@@ -110,6 +115,8 @@ impl Default for Settings {
 			theme: Default::default(),
 			group_notifications: true,
 			group_sounds: true,
+			message_tone: whatsnap::TONE_DEFAULT,
+			group_tone: whatsnap::TONE_DEFAULT,
 			outgoing_sounds: true,
 			call_notifications: true,
 			call_ringtone: true,
@@ -162,9 +169,33 @@ impl Settings {
 		let alert = whatsnap::with_chat_alert(base, muted, chat);
 		let group = jid.ends_with("@g.us") && chat == whatsnap::ChatAlert::Default;
 		whatsnap::IncomingAlert {
-			sound: alert.sound && self.sounds_enabled && (!group || self.group_sounds),
+			sound: alert.sound
+				&& self.sounds_enabled
+				&& (!group || self.group_sounds)
+				&& self.message_tone_for(jid) != whatsnap::TONE_NONE,
 			toast: alert.toast && self.notifications_enabled && (!group || self.group_notifications),
 		}
+	}
+
+	/// The tone a new message in `jid` plays: the chat's own, else the group
+	/// or message tone from Settings (WAWebWindowsNotificationToneDropdown's
+	/// overrideDefaultTone).
+	pub fn message_tone_for(&self, jid: &str) -> u8 {
+		match self.chat_notify(jid).tone {
+			whatsnap::TONE_DEFAULT if jid.ends_with("@g.us") => self.group_tone,
+			whatsnap::TONE_DEFAULT => self.message_tone,
+			tone => tone,
+		}
+	}
+
+	pub fn set_chat_tone(&mut self, jid: &str, tone: u8) -> bool {
+		let mut notify = self.chat_notify(jid);
+		if notify.tone == tone {
+			return false;
+		}
+		notify.tone = tone;
+		self.set_chat_notify(jid, notify);
+		true
 	}
 
 	pub fn quiet_chats(&self, muted: &std::collections::HashSet<String>) -> std::collections::HashSet<String> {
@@ -194,9 +225,9 @@ impl Settings {
 		};
 		vec![
 			("isMessagesNotificationEnabled", self.notifications_enabled.into()),
-			("defaultNotificationToneId", i32::from(self.sounds_enabled).into()),
+			("defaultNotificationToneId", (if self.sounds_enabled { self.message_tone } else { 0 }).into()),
 			("isGroupMessageNotificationEnabled", self.group_notifications.into()),
-			("groupDefaultNotificationToneId", i32::from(self.group_sounds).into()),
+			("groupDefaultNotificationToneId", (if self.group_sounds { self.group_tone } else { 0 }).into()),
 			("isTextPreviewForNotificationEnabled", self.notification_previews.into()),
 			("isReactionsNotificationEnabled", self.reaction_notifications.into()),
 			("isCallsNotificationEnabled", self.call_notifications.into()),
@@ -222,13 +253,25 @@ impl Settings {
 
 	pub fn apply_synced(&mut self, name: &str, value: &serde_json::Value) -> bool {
 		use crate::ui::theme::ThemeChoice;
+		let tone = match name {
+			"defaultNotificationToneId" => Some((&mut self.sounds_enabled, &mut self.message_tone)),
+			"groupDefaultNotificationToneId" => Some((&mut self.group_sounds, &mut self.group_tone)),
+			_ => None,
+		};
+		if let Some((on, kept)) = tone {
+			let Some(tone) = whatsnap::synced_tone(value) else { return false };
+			let was = (*on, *kept);
+			*on = tone != whatsnap::TONE_NONE;
+			if *on {
+				*kept = tone;
+			}
+			return was != (*on, *kept);
+		}
 		let on = value.as_bool().or_else(|| value.as_i64().map(|tone| tone != 0));
 		let Some(on) = on else { return false };
 		let field = match name {
 			"isMessagesNotificationEnabled" => &mut self.notifications_enabled,
-			"defaultNotificationToneId" => &mut self.sounds_enabled,
 			"isGroupMessageNotificationEnabled" => &mut self.group_notifications,
-			"groupDefaultNotificationToneId" => &mut self.group_sounds,
 			"isTextPreviewForNotificationEnabled" => &mut self.notification_previews,
 			"isReactionsNotificationEnabled" => &mut self.reaction_notifications,
 			"isCallsNotificationEnabled" => &mut self.call_notifications,
@@ -332,9 +375,32 @@ mod tests {
 		assert!(!other.sounds_enabled);
 		assert_eq!(other.theme, crate::ui::theme::ThemeChoice::Dark);
 		assert!(other.apply_synced("defaultNotificationToneId", &serde_json::json!(5)));
-		assert!(!other.apply_synced("defaultNotificationToneId", &serde_json::json!(1)));
+		assert!(other.sounds_enabled);
+		assert_eq!(other.message_tone, 5);
+		assert!(!other.apply_synced("defaultNotificationToneId", &serde_json::json!(5)));
+		assert!(other.apply_synced("defaultNotificationToneId", &serde_json::json!(0)));
+		assert_eq!((other.sounds_enabled, other.message_tone), (false, 5));
+		assert!(!other.apply_synced("defaultNotificationToneId", &serde_json::json!(12)));
+		other.group_tone = 4;
+		assert_eq!(other.synced()[3], ("groupDefaultNotificationToneId", serde_json::json!(4)));
 		assert!(!other.apply_synced("appTheme", &serde_json::json!(9)));
 		assert!(!other.apply_synced("wallpaperId", &serde_json::json!(true)));
+	}
+
+	#[test]
+	fn a_chat_tone_beats_the_group_and_message_tones() {
+		let mut s = Settings { message_tone: 3, group_tone: 4, ..Settings::default() };
+		assert_eq!(s.message_tone_for("1@s.whatsapp.net"), 3);
+		assert_eq!(s.message_tone_for("2@g.us"), 4);
+		assert!(s.set_chat_tone("2@g.us", 9));
+		assert!(!s.set_chat_tone("2@g.us", 9));
+		assert_eq!(s.message_tone_for("2@g.us"), 9);
+		assert!(s.message_alert("2@g.us", false, false).sound);
+		s.set_chat_tone("2@g.us", whatsnap::TONE_NONE);
+		assert!(!s.message_alert("2@g.us", false, false).sound);
+		assert!(s.message_alert("2@g.us", false, false).toast);
+		s.set_chat_tone("2@g.us", whatsnap::TONE_DEFAULT);
+		assert!(s.chat_notifications.is_empty());
 	}
 
 	#[test]

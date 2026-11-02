@@ -66,8 +66,8 @@ pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 		return;
 	}
 	if tally.sound() {
-		crate::audio::play_notification_sound(
-			crate::types::NotificationSound::MessageBackground,
+		crate::audio::play_message_tone(
+			s.settings.message_tone,
 			s.settings.sounds_enabled,
 			s.settings.output_device_name.clone(),
 		);

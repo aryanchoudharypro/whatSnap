@@ -1258,11 +1258,40 @@ pub enum ChatAlert {
 	Off,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct ChatNotify {
 	pub alert: ChatAlert,
 	pub hide_content: bool,
+	/// The chat's notification tone, numbered like [`TONE_DEFAULT`]. Unlike
+	/// the rest this one is shared with WhatsApp on other computers.
+	pub tone: u8,
+}
+
+impl Default for ChatNotify {
+	fn default() -> Self {
+		Self { alert: ChatAlert::Default, hide_content: false, tone: TONE_DEFAULT }
+	}
+}
+
+/// WhatsApp for Windows' notification tones (WAWebWindowsNotificationToneOption),
+/// numbered the way settings sync carries them: None 0, Default 1 and
+/// Alert 1 to Alert 10 as 2 to 11. A chat on Default follows the message or
+/// group tone from Settings.
+pub const TONE_NONE: u8 = 0;
+pub const TONE_DEFAULT: u8 = 1;
+pub const TONE_LAST: u8 = 11;
+
+pub fn tone_label(tone: u8) -> String {
+	match tone {
+		TONE_NONE => "None".to_string(),
+		2..=TONE_LAST => format!("Alert {}", tone - 1),
+		_ => "Default".to_string(),
+	}
+}
+
+pub fn synced_tone(value: &serde_json::Value) -> Option<u8> {
+	value.as_i64().filter(|tone| (0..=TONE_LAST as i64).contains(tone)).map(|tone| tone as u8)
 }
 
 pub fn with_chat_alert(alert: IncomingAlert, muted: bool, chat: ChatAlert) -> IncomingAlert {

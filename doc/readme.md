@@ -121,11 +121,11 @@ The `Filters` box shows only some chats: All chats, Unread, Favorites, Groups, a
 A locked chat doesn't show in the chat list. When you have locked chats, a `Locked Chats` button shows below `New Chat`. Press it and type your secret code to show them.
 
 ### Chat Notifications
-`Notification settings...` in the actions menu of a chat sets how this computer tells you about the chat. It does not change your phone. The choices are:
+`Notification settings...` in the actions menu of a chat opens a dialog with these settings:
 
-- `Silent`: no sound and no notification.
-- `Sound only`: the message sound, but no notification.
-- `Notify normally`.
+- `When a message comes in`: `As set in Settings`, `Notification and sound`, `Notification only, no sound`, `Sound only, no notification`, or `Off on this computer`. This only changes this computer, not your phone.
+- `Notification tone`: the sound for this chat. `Default` uses the message or group tone from Settings. You can also pick `Alert 1` to `Alert 10`, or `None` for no sound. Each tone plays when you pick it. The tone is shared with WhatsApp for Windows and WhatsApp Web on your other computers, the same way WhatsApp shares it.
+- `Hide message content`: notifications from this chat don't show what the message says.
 
 For an archived chat, `Archived alerts` sets how the chat tells you about new messages.
 
@@ -317,9 +317,11 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
 - `Show previews`: show the message text in notifications.
 - `Reaction notifications`
 - `Incoming sounds`
+- `Message notification tone`: `Default`, or `Alert 1` to `Alert 10`. Each tone plays when you pick it.
 - `Outgoing sounds`
 - `Group notifications`
 - `Group sounds`
+- `Group notification tone`
 - `Call notifications`
 - `Incoming call sounds`: play the ringtone for incoming calls.
 - `No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on`

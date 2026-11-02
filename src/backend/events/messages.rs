@@ -428,8 +428,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								alert
 							};
 							if alert.sound && !crate::platform::do_not_disturb::should_silence(&s.settings) {
-								play_notification_sound(
-									NotificationSound::MessageBackground,
+								crate::audio::play_message_tone(
+									s.settings.message_tone_for(jid),
 									s.settings.sounds_enabled,
 									s.settings.output_device_name.clone(),
 								);
@@ -1585,8 +1585,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								whatsnap::IncomingAlert { sound: false, toast: false }
 							};
 							if alert.sound && !crate::platform::do_not_disturb::should_silence(&s.settings) {
-								play_notification_sound(
-									NotificationSound::MessageBackground,
+								crate::audio::play_message_tone(
+									s.settings.message_tone_for(chat_jid),
 									s.settings.sounds_enabled,
 									s.settings.output_device_name.clone(),
 								);

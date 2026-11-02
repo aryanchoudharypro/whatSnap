@@ -1,3 +1,4 @@
+pub mod alert_tones;
 pub mod device_watch;
 pub mod devices;
 pub mod file;
@@ -87,9 +88,33 @@ pub(crate) fn play_notification_sound(
 	sounds_enabled: bool,
 	output_device_name: Option<String>,
 ) {
-	if !sounds_enabled {
-		return;
+	if sounds_enabled {
+		play_once(output_device_name, move |sink| {
+			if let Some(decoded) = decode_opus(sound.ogg()) {
+				sink.append(decoded);
+			}
+		});
 	}
+}
+
+/// Plays a new message's tone (see [`whatsnap::TONE_DEFAULT`]): Default is
+/// the usual background message sound, None nothing.
+pub(crate) fn play_message_tone(tone: u8, sounds_enabled: bool, output_device_name: Option<String>) {
+	match tone {
+		whatsnap::TONE_NONE => {}
+		whatsnap::TONE_DEFAULT => {
+			play_notification_sound(NotificationSound::MessageBackground, sounds_enabled, output_device_name)
+		}
+		_ if sounds_enabled => play_once(output_device_name, move |sink| {
+			if let Some(alert) = alert_tones::alert_tone(tone) {
+				sink.append(alert);
+			}
+		}),
+		_ => {}
+	}
+}
+
+fn play_once(output_device_name: Option<String>, fill: impl FnOnce(&Player) + Send + 'static) {
 	let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
 	let last = LAST_SOUND_TIME.swap(now, Ordering::Relaxed);
 	if now - last < 500 {
@@ -114,8 +139,8 @@ pub(crate) fn play_notification_sound(
 			return;
 		};
 		let sink = Player::connect_new(stream.mixer());
-		if let Some(decoded) = decode_opus(sound.ogg()) {
-			sink.append(decoded);
+		fill(&sink);
+		if !sink.empty() {
 			sink.play();
 			sink.sleep_until_end();
 		}

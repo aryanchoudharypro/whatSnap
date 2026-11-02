@@ -10,9 +10,20 @@ const ALERTS: [(&str, whatsnap::ChatAlert); 5] = [
 	("Off on this computer", whatsnap::ChatAlert::Off),
 ];
 
-pub fn ask(parent: &impl WxWidget, chat: &str, current: whatsnap::ChatNotify) -> Option<whatsnap::ChatNotify> {
+/// WhatsApp for Windows' per-chat tone list, in its order.
+const TONES: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, whatsnap::TONE_NONE];
+
+/// `default_tone` is what Default plays for this chat: the message or group
+/// tone from Settings.
+pub fn ask(
+	parent: &impl WxWidget,
+	chat: &str,
+	current: whatsnap::ChatNotify,
+	default_tone: u8,
+	output_device: Option<String>,
+) -> Option<whatsnap::ChatNotify> {
 	let dialog = Dialog::builder(parent, &format!("Notification settings for {chat}"))
-		.with_size(460, 300)
+		.with_size(460, 360)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	theme::style_content(&dialog);
@@ -21,7 +32,7 @@ pub fn ask(parent: &impl WxWidget, chat: &str, current: whatsnap::ChatNotify) ->
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let note = StaticText::builder(&panel)
-		.with_label("These only change this computer. To mute this chat on all your devices, use Mute in its menu.")
+		.with_label("The tone is shared with WhatsApp on your other computers; the rest only change this computer. To mute this chat on all your devices, use Mute in its menu.")
 		.build();
 	theme::style_muted_label(&note);
 	sizer.add(&note, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
@@ -36,6 +47,33 @@ pub fn ask(parent: &impl WxWidget, chat: &str, current: whatsnap::ChatNotify) ->
 	let at = ALERTS.iter().position(|(_, alert)| *alert == current.alert).unwrap_or(0);
 	alert_combo.set_selection(at as u32);
 	sizer.add(&alert_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+
+	let tone_label = StaticText::builder(&panel).with_label("Notification tone").build();
+	tone_label.set_font(&theme::Fonts::body());
+	sizer.add(&tone_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+	let tone_names: Vec<String> = TONES
+		.iter()
+		.map(|&tone| match tone {
+			whatsnap::TONE_DEFAULT if default_tone != tone => {
+				format!("Default ({})", whatsnap::tone_label(default_tone))
+			}
+			_ => whatsnap::tone_label(tone),
+		})
+		.collect();
+	let tone_names: Vec<&str> = tone_names.iter().map(String::as_str).collect();
+	let tone_combo =
+		ComboBox::builder(&panel).with_string_choices(&tone_names).with_style(ComboBoxStyle::ReadOnly).build();
+	tone_combo.set_font(&theme::Fonts::body());
+	tone_combo.set_selection(TONES.iter().position(|&tone| tone == current.tone).unwrap_or(0) as u32);
+	sizer.add(&tone_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+	let picked_tone = move || TONES[tone_combo.get_selection().map_or(0, |i| i as usize).min(TONES.len() - 1)];
+	tone_combo.on_selection_changed(move |_| {
+		let tone = match picked_tone() {
+			whatsnap::TONE_DEFAULT => default_tone,
+			tone => tone,
+		};
+		crate::audio::play_message_tone(tone, true, output_device.clone());
+	});
 
 	let hide_check = CheckBox::builder(&panel)
 		.with_label("Hide message content: notifications from this chat don't show what the message says")
@@ -63,6 +101,7 @@ pub fn ask(parent: &impl WxWidget, chat: &str, current: whatsnap::ChatNotify) ->
 	let notify = whatsnap::ChatNotify {
 		alert: ALERTS.get(picked).map(|(_, alert)| *alert).unwrap_or_default(),
 		hide_content: hide_check.is_checked(),
+		tone: picked_tone(),
 	};
 	dialog.destroy();
 	saved.then_some(notify)

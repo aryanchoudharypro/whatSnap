@@ -8,10 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -20,8 +22,9 @@ import (
 // Each setting is its own mutation, indexed by platform, setting and target
 // ("app" or a chat), holding just that one field of SettingsSyncAction.
 // WhatsApp for Windows writes HYBRID and takes WEB and HYBRID ones, so
-// whatSnap, a Windows app, does the same. Per-chat ones (wallpapers, chat
-// themes, tones) are left alone: whatSnap has none of those.
+// whatSnap, a Windows app, does the same. Of the per-chat ones only the
+// notification tone is used (WhatsApp for Windows' chat tone, applied by
+// WA Web's applyPerChatSetting); wallpapers and chat themes don't exist here.
 //
 // WhatsApp only sends them once the phone lists settings_sync_enabled
 // among its features and the server's flag of the same name is on. whatSnap
@@ -60,18 +63,71 @@ func settingField(name string) protoreflect.FieldDescriptor {
 	return nil
 }
 
-func settingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey) int64 {
+// settingTimeKey names where the newest change of a setting is remembered:
+// per key for app-wide ones, per key and chat for per-chat ones.
+func settingTimeKey(key waSyncAction.SettingsSyncAction_SettingKey, chat string) string {
+	name := settingsSyncTimeKey + strconv.Itoa(int(key))
+	if chat != "" {
+		name += ":" + chat
+	}
+	return name
+}
+
+func settingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey, chat string) int64 {
 	var ms int64
-	db.QueryRow(`SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = ?`, settingsSyncTimeKey+strconv.Itoa(int(key))).Scan(&ms)
+	db.QueryRow(`SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = ?`, settingTimeKey(key, chat)).Scan(&ms)
 	return ms
 }
 
-func noteSettingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey, at time.Time) {
-	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, settingsSyncTimeKey+strconv.Itoa(int(key)), at.UnixMilli())
+func noteSettingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey, chat string, at time.Time) {
+	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, settingTimeKey(key, chat), at.UnixMilli())
+}
+
+// noteChatToneSync takes another device's notification tone for one chat.
+// The target is that chat's JID as WhatsApp keeps it, often the LID.
+func noteChatToneSync(v *events.SettingsSync) {
+	if v.Key != waSyncAction.SettingsSyncAction_NOTIFICATION_TONE_ID || v.Action == nil || v.Action.NotificationToneID == nil {
+		return
+	}
+	chat := appStateChatJID(v.Target)
+	if v.Timestamp.UnixMilli() <= settingSyncedAt(v.Key, chat) {
+		return
+	}
+	noteSettingSyncedAt(v.Key, chat, v.Timestamp)
+	broadcastEvent("chat_tone", map[string]interface{}{"jid": chat, "tone": v.Action.GetNotificationToneID()})
+}
+
+// handleSyncChatTone shares a chat's notification tone the way WhatsApp
+// for Windows does (useMappedSettingSync with the chat as target).
+func handleSyncChatTone(raw json.RawMessage) {
+	var data struct {
+		JID  string `json:"jid"`
+		Tone int32  `json:"tone"`
+	}
+	if json.Unmarshal(raw, &data) != nil {
+		return
+	}
+	jid, err := types.ParseJID(data.JID)
+	if err != nil || data.Tone < 0 || data.Tone > 11 {
+		return
+	}
+	key := waSyncAction.SettingsSyncAction_NOTIFICATION_TONE_ID
+	action := &waSyncAction.SettingsSyncAction{NotificationToneID: proto.Int32(data.Tone)}
+	patch := appstate.BuildSettingsSync(waSyncAction.SettingsSyncAction_HYBRID, key, syncdChatJID(jid).String(), action)
+	noteSettingSyncedAt(key, preferPN(jid).String(), time.Now())
+	go func() {
+		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
+			log.Printf("Syncing the notification tone of %s failed: %v", jid, err)
+		}
+	}()
 }
 
 func noteSettingsSync(v *events.SettingsSync) {
-	if v.Target != appstate.SettingsSyncAppTarget || (v.Platform != waSyncAction.SettingsSyncAction_WEB && v.Platform != waSyncAction.SettingsSyncAction_HYBRID) {
+	if v.Platform != waSyncAction.SettingsSyncAction_WEB && v.Platform != waSyncAction.SettingsSyncAction_HYBRID {
+		return
+	}
+	if v.Target != appstate.SettingsSyncAppTarget {
+		noteChatToneSync(v)
 		return
 	}
 	msg := v.Action.ProtoReflect()
@@ -80,10 +136,10 @@ func noteSettingsSync(v *events.SettingsSync) {
 		log.Printf("Skipping settings sync for key %d: no value", v.Key)
 		return
 	}
-	if v.Timestamp.UnixMilli() <= settingSyncedAt(v.Key) {
+	if v.Timestamp.UnixMilli() <= settingSyncedAt(v.Key, "") {
 		return
 	}
-	noteSettingSyncedAt(v.Key, v.Timestamp)
+	noteSettingSyncedAt(v.Key, "", v.Timestamp)
 	name := settingName(fd)
 	var value interface{}
 	switch val := msg.Get(fd); fd.Kind() {
@@ -165,7 +221,7 @@ func syncSettings(changes map[string]interface{}) {
 		return
 	}
 	for _, key := range keys {
-		noteSettingSyncedAt(key, now)
+		noteSettingSyncedAt(key, "", now)
 	}
 	go func() {
 		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {

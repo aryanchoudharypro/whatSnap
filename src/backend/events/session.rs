@@ -345,6 +345,17 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				wxdragon::call_after(Box::new(move || crate::ui::theme::change_theme(theme)));
 			}
 		}
+		"chat_tone" => {
+			let Some(data) = val.get("data") else { return true };
+			let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+			let tone = data.get("tone").and_then(whatsnap::synced_tone);
+			if let Some(tone) = tone.filter(|_| !jid.is_empty()) {
+				let mut s = state.borrow_mut();
+				if s.settings.set_chat_tone(jid, tone) {
+					s.settings.save();
+				}
+			}
+		}
 		"app_prefs" => {
 			if let Some(data) = val.get("data") {
 				state.borrow_mut().app_prefs = Some(data.clone());
