@@ -1019,9 +1019,20 @@ func eventHandler(evt interface{}) {
 		go handleMediaRetryEvent(v)
 	case *events.HistorySyncStatus:
 		handleHistorySyncStatus(v.Notification)
+	case *events.FullHistorySyncOnDemandResult:
+		handleFullHistoryResult(v)
+	case *events.HistorySyncChunkRetryResult:
+		logChunkRetryResult(v)
 	case *events.HistorySync:
 		historySyncPending.Add(1)
-		go func() {
+		// Run inline, not in a goroutine: whatsmeow sends the chunk's receipt
+		// (AckHistorySyncAfterDispatch) once this returns, and the phone never
+		// sends a chunk again after its receipt. Saving in the background let
+		// the receipt go out first, so closing whatSnap mid-save lost that
+		// part of the history for good. This only holds up whatsmeow's
+		// history download loop (the next chunk waits), not other events: the
+		// fork no longer holds its handler lock while a handler runs.
+		func() {
 			historySyncMutex.Lock()
 			defer historySyncMutex.Unlock()
 			defer historySyncPending.Add(-1)

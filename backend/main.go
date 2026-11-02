@@ -65,6 +65,9 @@ func buildClient(deviceStore *store.Device) *whatsmeow.Client {
 	// the receipt waits until the chunk's blob has actually been downloaded.
 	// A chunk whose download failed stays unacknowledged and comes again.
 	c.AckHistorySyncAfterDispatch = true
+	// A chunk whose download fails (blob expired or broken) is asked for
+	// again with HISTORY_SYNC_CHUNK_RETRY, up to three times.
+	c.RetryFailedHistorySyncChunks = true
 	c.StreamHistorySyncConversations = true
 	c.SendReportingTokens = true
 	c.EmitAppStateEventsOnFullSync = true

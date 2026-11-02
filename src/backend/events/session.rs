@@ -282,6 +282,32 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				parts.frame.set_status_text(&crate::connected_status_text(&s), 0);
 			}
 		}
+		"full_history_result" => {
+			let code = val.get("data").and_then(|d| d.get("code")).and_then(|v| v.as_str()).unwrap_or("");
+			let msg = match code {
+				"REQUEST_SUCCESS" => {
+					"Your phone agreed to send your full chat history. It arrives in the background; the status bar shows how far it has got. Keep WhatsApp open on your phone until it finishes.".to_string()
+				}
+				"DECLINED_SHARING_HISTORY" => "Your phone declined to share its chat history.".to_string(),
+				"REQUEST_TIME_EXPIRED" => {
+					"Your phone says it's too late to ask for the full history on this linked device.".to_string()
+				}
+				"ERROR_REQUEST_ON_NON_SMB_PRIMARY" => {
+					"Your phone only sends the full history on request for WhatsApp Business accounts. To get more history on this account, link whatSnap again.".to_string()
+				}
+				"NO_ANSWER" => {
+					"Your phone didn't answer. Open WhatsApp on your phone and try again.".to_string()
+				}
+				"OFFLINE" | "SEND_FAILED" => {
+					"Couldn't send the request to your phone. Check that whatSnap is connected and try again.".to_string()
+				}
+				other => format!("Your phone couldn't send the full history (it answered {other})."),
+			};
+			MessageDialog::builder(&parts.frame, &msg, "Full chat history")
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+				.build()
+				.show_modal();
+		}
 		"history_access" => {
 			let none = val.get("data").and_then(|d| d.get("none")).and_then(|v| v.as_bool()).unwrap_or(false);
 			let msg = if none {

@@ -111,6 +111,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleLogout()
 	case "reconnect":
 		handleReconnect()
+	case "request_full_history":
+		go handleRequestFullHistory()
 
 	case "send":
 		go handleSend(conn, cmd.Data)
