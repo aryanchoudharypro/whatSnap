@@ -603,7 +603,10 @@ const readReceiptChunk = 256
 // read for. Like WA Web's pending-read rows it leaves out calls, system
 // notices and messages still waiting to be decrypted (WA Web skips
 // CIPHERTEXT): there's nothing on the server to acknowledge for those yet.
-const unacknowledgedIncoming = `from_me = 0 AND COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played')
+const unacknowledgedIncoming = `COALESCE(read_at, 0) = 0 AND status NOT IN ('read', 'played') AND ` + receivedMessage
+
+// receivedMessage is an incoming message a read receipt can name.
+const receivedMessage = `from_me = 0
 	AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
 	AND NOT (COALESCE(length(raw), 0) = 0 AND text IN ('` + undecryptableText + `', '` + viewOnceReceived + `', '` + viewOnceSentElsewhere + `', '` + viewOnceOnPhoneOld + `'))`
 
@@ -611,6 +614,11 @@ func handleMarkRead(raw json.RawMessage) {
 	var data struct {
 		JID        string   `json:"jid"`
 		MessageIDs []string `json:"message_ids"`
+		// Latest makes a whole-chat read name the newest received message
+		// even when it was acknowledged before, the way WA Web's Mark as
+		// read sends a receipt for chat.lastReceivedKey
+		// (WAWebUpdateUnreadChatAction.sendSeen -> markChatRead).
+		Latest bool `json:"latest"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -682,6 +690,20 @@ func handleMarkRead(raw json.RawMessage) {
 				}
 			}
 			rows.Close()
+		}
+		if len(items) == 0 && data.Latest {
+			var id, senderStr string
+			var sts int64
+			if db.QueryRow(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(server_sts, 0) FROM messages
+				WHERE jid = ? AND `+receivedMessage+` ORDER BY timestamp DESC LIMIT 1`, data.JID).Scan(&id, &senderStr, &sts) == nil {
+				sJID, _ := types.ParseJID(senderStr)
+				if sJID.IsEmpty() && chatJID.Server != types.GroupServer {
+					sJID = chatJID
+				}
+				if !sJID.IsEmpty() {
+					items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID, sts: sts})
+				}
+			}
 		}
 	}
 

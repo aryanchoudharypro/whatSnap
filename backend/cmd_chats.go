@@ -779,7 +779,7 @@ func handleSetChatRead(raw json.RawMessage) {
 		// when its range covers every message it has, otherwise it just
 		// clears a marked-unread flag and leaves the chat unread.
 		// handleMarkRead does both, the same way opening the chat does.
-		payload, _ := json.Marshal(map[string]string{"jid": data.JID})
+		payload, _ := json.Marshal(map[string]any{"jid": data.JID, "latest": true})
 		handleMarkRead(payload)
 		db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ?", data.JID)
 		broadcastChats()
