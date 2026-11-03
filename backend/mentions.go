@@ -240,13 +240,21 @@ func handleGetMentionCandidates(conn net.Conn, raw json.RawMessage) {
 	}
 	go func() {
 		members := []map[string]string{}
+		// The Meta AI to mention: in a group with private processing, Meta AI
+		// is a member under its own ID, and WA Web mentions that member.
+		metaAI := types.NewMetaAIJID
 		if jid.Server == types.GroupServer {
 			info, err := wa().GetGroupInfo(context.Background(), jid)
 			if err != nil {
 				sendEvent(conn, "error", map[string]string{"message": "Couldn't load the group's members to mention: " + err.Error()})
 			} else {
 				setChatLimitSharing(jid.String(), info.IsLimitSharingEnabled, 0)
+				bots := map[types.JID]bool{}
 				for _, p := range info.Participants {
+					if p.JID.IsBot() {
+						bots[p.JID.ToNonAD()] = true
+						continue
+					}
 					if isParticipantMe(p) {
 						continue
 					}
@@ -259,12 +267,16 @@ func handleGetMentionCandidates(conn net.Conn, raw json.RawMessage) {
 					}
 					members = append(members, map[string]string{"jid": p.JID.ToNonAD().String(), "name": name})
 				}
+				if bots[types.TeeMetaAIJID] && !bots[types.NewMetaAIJID] {
+					metaAI = types.TeeMetaAIJID
+				}
 			}
 		}
 		sendEvent(conn, "mention_candidates", map[string]interface{}{
 			"jid":           jid.String(),
 			"members":       members,
 			"limit_sharing": chatSharingLimited(jid.String()),
+			"meta_ai":       metaAI.String(),
 		})
 	}()
 }

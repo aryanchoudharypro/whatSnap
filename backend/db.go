@@ -1174,7 +1174,7 @@ func resolveDisplayName(jid types.JID) string {
 	// pushname ("Meta AI") from the notify attribute on its first reply -
 	// until then this fell through to the "+<user>" phone-number fallback
 	// below, showing a bogus number for a JID that was never a phone number.
-	if jid.User == types.NewMetaAIJID.User && jid.Server == types.NewMetaAIJID.Server {
+	if jid.Server == types.BotServer && (jid.User == types.NewMetaAIJID.User || jid.User == types.TeeMetaAIJID.User) {
 		return "Meta AI"
 	}
 	if jid.Server == types.NewsletterServer {

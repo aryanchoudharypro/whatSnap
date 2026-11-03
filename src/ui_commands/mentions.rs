@@ -25,6 +25,8 @@ pub(crate) struct MentionCandidates {
 	/// Sorted by name; never includes us.
 	members: Vec<MentionEntry>,
 	limit_sharing: bool,
+	/// The Meta AI to mention here: a private-processing group has its own.
+	meta_ai: String,
 	fetched: Instant,
 }
 
@@ -34,8 +36,8 @@ pub(crate) struct MentionPopup {
 	selected: usize,
 }
 
-fn meta_ai_entry() -> MentionEntry {
-	MentionEntry { jid: crate::types::META_AI_JID.to_string(), name: "Meta AI".to_string() }
+fn meta_ai_entry(jid: &str) -> MentionEntry {
+	MentionEntry { jid: jid.to_string(), name: "Meta AI".to_string() }
 }
 
 fn can_mention_in(jid: &str) -> bool {
@@ -98,7 +100,7 @@ fn matches_query(name: &str, query: &str) -> bool {
 }
 
 fn filter(candidates: &MentionCandidates, query: &str) -> Vec<MentionEntry> {
-	let meta_ai = (!candidates.limit_sharing).then(meta_ai_entry);
+	let meta_ai = (!candidates.limit_sharing).then(|| meta_ai_entry(&candidates.meta_ai));
 	meta_ai.into_iter().chain(candidates.members.iter().cloned()).filter(|e| matches_query(&e.name, query)).collect()
 }
 
@@ -302,13 +304,19 @@ pub(crate) fn on_candidates(state: &Rc<RefCell<AppState>>, cp: &ConversationsPan
 		.unwrap_or_default();
 	members.sort_by_key(|e| e.name.to_lowercase());
 	let limit_sharing = data.get("limit_sharing").and_then(|l| l.as_bool()).unwrap_or(false);
+	let meta_ai = data
+		.get("meta_ai")
+		.and_then(|m| m.as_str())
+		.filter(|m| m.ends_with("@bot"))
+		.unwrap_or(crate::types::META_AI_JID)
+		.to_string();
 	{
 		let mut s = state.borrow_mut();
 		if s.mention_request_pending.as_deref() == Some(jid) {
 			s.mention_request_pending = None;
 		}
 		s.mention_candidates =
-			Some(MentionCandidates { jid: jid.to_string(), members, limit_sharing, fetched: Instant::now() });
+			Some(MentionCandidates { jid: jid.to_string(), members, limit_sharing, meta_ai, fetched: Instant::now() });
 	}
 	refresh(state, cp);
 }
@@ -360,6 +368,7 @@ mod tests {
 				MentionEntry { jid: "2@lid".into(), name: "+91 98765 43210".into() },
 			],
 			limit_sharing: false,
+			meta_ai: crate::types::META_AI_JID.to_string(),
 			fetched: Instant::now(),
 		};
 		assert_eq!(filter(&candidates, "").len(), 3);
