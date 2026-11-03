@@ -3439,7 +3439,7 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 		}
 		if v.Error != nil {
 			errMsg := v.Error.Error()
-			if strings.Contains(errMsg, "mismatching LTHash") || strings.Contains(errMsg, "failed to verify snapshot") {
+			if strings.Contains(errMsg, "mismatching LTHash") || strings.Contains(errMsg, "failed to verify snapshot") || strings.Contains(errMsg, "terminal patch") {
 				// This used to hand-write a fake version + all-zero hash
 				// into whatsmeow_app_state_version and then do a plain
 				// (non-full) resync. That never touched
