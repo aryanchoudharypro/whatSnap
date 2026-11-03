@@ -514,6 +514,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 				let message_id = data.get("message_id").and_then(|m| m.as_str()).unwrap_or("");
 				let for_everyone = data.get("for_everyone").and_then(|f| f.as_bool()).unwrap_or(true);
+				let upload_cancelled = data.get("upload_cancelled").and_then(|f| f.as_bool()).unwrap_or(false);
 
 				let mut s = state.borrow_mut();
 				// A bulk delete (selection mode) fires one "message_deleted"
@@ -533,6 +534,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						let had_message = s.messages.iter().any(|m| m.id == message_id);
 						if had_message {
 							s.messages.retain(|m| m.id != message_id);
+							// A day's divider goes with its last message.
+							s.messages = whatsnap::rebuild_date_dividers(std::mem::take(&mut s.messages));
 							s.display_items = whatsnap::group_messages_into_display_items(&s.messages);
 							s.prev_msg_count = s.display_items.len();
 
@@ -554,7 +557,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							if !suppress_announce {
 								crate::platform::announce::announce(
 									parts.conversations_parts.messages_announcer,
-									"Message deleted.",
+									if upload_cancelled { "Upload cancelled." } else { "Message deleted." },
 								);
 							}
 						}
@@ -1873,22 +1876,42 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			}
 		}
 		"attachment_uploading" => {
+			// A gauge instead of spoken updates: NVDA users choose whether progress
+			// is beeped, spoken or ignored, and per-percent announcements drowned
+			// out everything else.
 			if let Some(data) = val.get("data") {
-				let filename = data.get("filename").and_then(|f| f.as_str()).unwrap_or("file");
-				let percent = data.get("percent").and_then(|p| p.as_i64());
-				let msg = if let Some(p) = percent {
-					format!("Uploading {} ({}%)...", filename, p)
-				} else {
-					format!("Uploading {}...", filename)
-				};
-				parts.attachment_dialog.attachment_info_label.set_label(&msg);
-				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
+				let percent = data.get("percent").and_then(|p| p.as_i64()).unwrap_or(0).clamp(0, 100) as i32;
+				let gauge = &parts.conversations_parts.upload_gauge;
+				if !gauge.is_shown() {
+					gauge.show(true);
+					parts.conversations_parts.conversation_panel.layout();
+				}
+				gauge.set_value(percent);
+				if let Some(id) = data.get("id").and_then(|i| i.as_str()) {
+					let mut s = state.borrow_mut();
+					s.uploads_in_progress.insert(id.to_string(), percent as i64);
+					refresh_action_buttons_now(&s, parts);
+				}
 			}
 		}
-		"attachment_sent" => {
+		"attachment_sent" | "attachment_upload_ended" => {
 			parts.attachment_dialog.attachment_info_label.set_label("");
+			if let Some(id) = val.get("data").and_then(|d| d.get("id")).and_then(|i| i.as_str()) {
+				state.borrow_mut().uploads_in_progress.remove(id);
+			}
+			let gauge = &parts.conversations_parts.upload_gauge;
+			if gauge.is_shown() {
+				gauge.show(false);
+				parts.conversations_parts.conversation_panel.layout();
+			}
 		}
 		_ => return false,
 	}
 	true
+}
+
+fn refresh_action_buttons_now(s: &AppState, parts: &WindowParts) {
+	// Also shows or hides the whole action row, which the Tab order needs.
+	refresh_voice_action_button(s, &parts.conversations_parts);
+	parts.conversations_parts.conversation_panel.layout();
 }

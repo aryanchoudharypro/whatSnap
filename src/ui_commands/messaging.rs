@@ -435,6 +435,51 @@ pub(crate) fn retry_selected_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 }
 
+pub(crate) fn cancel_selected_upload(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	// The borrow must end before the modal dialog: its event loop can run
+	// handlers that borrow the state themselves.
+	let (jid, uploading): (String, Vec<String>) = {
+		let s = state.borrow();
+		let Some(jid) = s.selected_chat.clone() else { return };
+		let uploading = parts
+			.conversations_parts
+			.messages_list
+			.get_selection()
+			.and_then(|idx| s.display_items.get(idx as usize))
+			.map(|item| match item {
+				whatsnap::DisplayItem::Single(m) => std::slice::from_ref(m),
+				whatsnap::DisplayItem::Album { messages, .. } => messages.as_slice(),
+			})
+			.unwrap_or_default()
+			.iter()
+			.filter(|m| m.from_me && !m.is_date_divider && m.status == "uploading")
+			.map(|m| m.id.clone())
+			.collect();
+		(jid, uploading)
+	};
+	if uploading.is_empty() {
+		return;
+	}
+	let confirm = MessageDialog::builder(
+		&parts.frame,
+		"Cancel this upload? The message will be removed from the chat.",
+		"Cancel upload",
+	)
+	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+	.build();
+	if confirm.show_modal() != ID_YES {
+		return;
+	}
+	let s = state.borrow();
+	for message_id in &uploading {
+		let payload = serde_json::json!({
+			"action": "cancel_upload",
+			"data": { "jid": jid, "message_id": message_id }
+		});
+		let _ = s.ws_tx.send(payload.to_string());
+	}
+}
+
 pub(crate) fn request_message_resend(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message_id: String) {
 	let s = state.borrow();
 	if let Some(jid) = s.selected_chat.clone() {

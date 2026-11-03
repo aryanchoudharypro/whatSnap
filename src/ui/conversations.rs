@@ -71,6 +71,7 @@ pub struct ConversationsPanelParts {
 	pub send_attachment_btn: Button,
 	pub add_more_btn: Button,
 	pub attachment_info_label: StaticText,
+	pub upload_gauge: Gauge,
 
 	pub audio_speed_btn: Button,
 	pub audio_progress_label: Button,
@@ -78,6 +79,7 @@ pub struct ConversationsPanelParts {
 
 	pub action_panel: Panel,
 	pub action_retry_btn: Button,
+	pub action_cancel_upload_btn: Button,
 	pub action_open_btn: Button,
 	pub action_save_as_btn: Button,
 	pub action_download_btn: Button,
@@ -640,6 +642,10 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	action_sizer.add(&action_retry_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_retry_btn.show(false);
 
+	let action_cancel_upload_btn = Button::builder(&action_panel).with_label("Cancel upload, 0% complete").build();
+	action_sizer.add(&action_cancel_upload_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
+	action_cancel_upload_btn.show(false);
+
 	let action_open_btn = Button::builder(&action_panel).with_label("Open").build();
 	action_sizer.add(&action_open_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_open_btn.show(false);
@@ -750,6 +756,10 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	attachment_panel.set_sizer(attach_sizer, true);
 	attachment_panel.show(false);
 	conv_sizer.add(&attachment_panel, 0, SizerFlag::Expand | SizerFlag::All, 5);
+	let upload_gauge = Gauge::builder(&conversation_panel).with_range(100).build();
+	upload_gauge.set_name("Upload progress");
+	conv_sizer.add(&upload_gauge, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
+	upload_gauge.show(false);
 
 	let voice_toolbar_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
@@ -856,11 +866,13 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		send_attachment_btn,
 		add_more_btn,
 		attachment_info_label,
+		upload_gauge,
 		audio_speed_btn,
 		audio_progress_label,
 		audio_slider,
 		action_panel,
 		action_retry_btn,
+		action_cancel_upload_btn,
 		action_open_btn,
 		action_save_as_btn,
 		action_download_btn,

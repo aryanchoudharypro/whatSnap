@@ -481,9 +481,11 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 				let is_failed = msg.from_me && !msg.is_date_divider && msg.status == "failed";
 				let is_uploading = msg.from_me && msg.status == "uploading";
 				if is_failed || is_uploading {
-					return need_layout | show_send_state_buttons(parts, is_failed);
+					let cancel_label = (is_uploading && !is_voice).then(|| upload_cancel_label(s, &msg.id));
+					return need_layout | show_send_state_buttons(parts, is_failed, cancel_label);
 				}
 				need_layout |= set_shown(&parts.action_retry_btn, false);
+				need_layout |= set_shown(&parts.action_cancel_upload_btn, false);
 
 				if is_media {
 					if msg.is_media_downloaded() {
@@ -532,9 +534,14 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 					let is_failed = valid_messages.iter().any(|m| m.from_me && m.status == "failed");
 					let is_uploading = valid_messages.iter().any(|m| m.from_me && m.status == "uploading");
 					if is_failed || is_uploading {
-						return need_layout | show_send_state_buttons(parts, is_failed);
+						let cancel_label = valid_messages
+							.iter()
+							.find(|m| m.from_me && m.status == "uploading")
+							.map(|m| upload_cancel_label(s, &m.id));
+						return need_layout | show_send_state_buttons(parts, is_failed, cancel_label);
 					}
 					need_layout |= set_shown(&parts.action_retry_btn, false);
+					need_layout |= set_shown(&parts.action_cancel_upload_btn, false);
 
 					let all_dl = valid_messages.iter().all(|m| m.is_media_downloaded());
 					if all_dl {
@@ -609,6 +616,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 	}
 
 	need_layout |= set_shown(&parts.action_retry_btn, false);
+	need_layout |= set_shown(&parts.action_cancel_upload_btn, false);
 	if parts.action_download_btn.is_shown() {
 		parts.action_download_btn.show(false);
 		need_layout = true;
@@ -632,8 +640,22 @@ fn set_shown(btn: &Button, show: bool) -> bool {
 	true
 }
 
-fn show_send_state_buttons(parts: &crate::ui::conversations::ConversationsPanelParts, failed: bool) -> bool {
+fn upload_cancel_label(s: &AppState, msg_id: &str) -> String {
+	format!("Cancel upload, {}% complete", s.uploads_in_progress.get(msg_id).copied().unwrap_or(0))
+}
+
+fn show_send_state_buttons(
+	parts: &crate::ui::conversations::ConversationsPanelParts,
+	failed: bool,
+	cancel_label: Option<String>,
+) -> bool {
 	let mut need_layout = set_shown(&parts.action_retry_btn, failed);
+	if let Some(label) = &cancel_label
+		&& parts.action_cancel_upload_btn.get_label() != *label
+	{
+		parts.action_cancel_upload_btn.set_label(label);
+	}
+	need_layout |= set_shown(&parts.action_cancel_upload_btn, cancel_label.is_some());
 	need_layout |= set_shown(&parts.action_open_btn, false);
 	need_layout |= set_shown(&parts.action_save_as_btn, false);
 	need_layout |= set_shown(&parts.action_download_btn, false);
@@ -695,6 +717,7 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 
 	let any_action_visible = parts.play_voice_btn.is_shown()
 		|| parts.action_retry_btn.is_shown()
+		|| parts.action_cancel_upload_btn.is_shown()
 		|| parts.action_open_btn.is_shown()
 		|| parts.action_save_as_btn.is_shown()
 		|| parts.action_download_btn.is_shown()

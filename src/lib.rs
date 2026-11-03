@@ -986,6 +986,34 @@ impl AttachKind {
 	pub fn has_caption(self) -> bool {
 		self != AttachKind::Audio
 	}
+
+	/// The ways a pasted batch can be sent, best match first, as (label, kind).
+	/// Empty when the files can only go as documents, so no menu is needed.
+	pub fn paste_choices(paths: &[String]) -> Vec<(&'static str, AttachKind)> {
+		if paths.is_empty() {
+			return Vec::new();
+		}
+		let all = |exts: &[&str]| paths.iter().all(|p| exts.contains(&ext_of(p).as_str()));
+		let media = |p: &String| IMAGE_EXTS.contains(&ext_of(p).as_str()) || VIDEO_EXTS.contains(&ext_of(p).as_str());
+		let plural = paths.len() > 1;
+		let mut choices = Vec::new();
+		if all(AUDIO_EXTS) {
+			choices.push(("Audio", AttachKind::Audio));
+		} else if paths.iter().all(media) {
+			let label = if all(IMAGE_EXTS) {
+				if plural { "Photos" } else { "Photo" }
+			} else if all(VIDEO_EXTS) {
+				if plural { "Videos" } else { "Video" }
+			} else {
+				"Photos and videos"
+			};
+			choices.push((label, AttachKind::Media));
+		}
+		if !choices.is_empty() {
+			choices.push((if plural { "Documents" } else { "Document" }, AttachKind::Document));
+		}
+		choices
+	}
 }
 
 pub const POLL_MAX_QUESTION_CHARS: usize = 255;
@@ -2417,5 +2445,36 @@ mod whatsapp_link_tests {
 		assert_eq!(parse_whatsapp_link("https://example.com/send?text=x"), None);
 		assert_eq!(parse_whatsapp_link("whatsapp://send"), None);
 		assert_eq!(parse_whatsapp_link("hello"), None);
+	}
+}
+
+#[cfg(test)]
+mod paste_choices_tests {
+	use super::AttachKind;
+
+	fn files(names: &[&str]) -> Vec<String> {
+		names.iter().map(|n| n.to_string()).collect()
+	}
+
+	#[test]
+	fn audio_offers_audio_or_document() {
+		let c = AttachKind::paste_choices(&files(&["song.MP3"]));
+		assert_eq!(c, vec![("Audio", AttachKind::Audio), ("Document", AttachKind::Document)]);
+	}
+
+	#[test]
+	fn images_and_videos_offer_media_or_document() {
+		let c = AttachKind::paste_choices(&files(&["a.png", "b.jpg"]));
+		assert_eq!(c, vec![("Photos", AttachKind::Media), ("Documents", AttachKind::Document)]);
+		let c = AttachKind::paste_choices(&files(&["a.png", "b.mp4"]));
+		assert_eq!(c[0], ("Photos and videos", AttachKind::Media));
+	}
+
+	#[test]
+	fn other_files_get_no_menu() {
+		assert!(AttachKind::paste_choices(&files(&["a.zip"])).is_empty());
+		assert!(AttachKind::paste_choices(&files(&["a.mp3", "b.zip"])).is_empty());
+		assert!(AttachKind::paste_choices(&files(&["a.mp3", "b.png"])).is_empty());
+		assert!(AttachKind::paste_choices(&[]).is_empty());
 	}
 }

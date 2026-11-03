@@ -466,6 +466,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleDownloadMedia(conn, cmd.Data)
 	case "cancel_download":
 		handleCancelDownload(conn, cmd.Data)
+	case "cancel_upload":
+		handleCancelUpload(cmd.Data)
 	case "open_media":
 		handleOpenMedia(conn, cmd.Data)
 	case "prepare_media":

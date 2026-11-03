@@ -257,6 +257,7 @@ struct AppState {
 	mention_dismissed_at: Option<usize>,
 	pending_receipts: std::collections::HashMap<String, String>,
 	downloads_in_progress: std::collections::HashMap<String, i64>,
+	uploads_in_progress: std::collections::HashMap<String, i64>,
 	pending_copy_announcements: std::collections::HashSet<String>,
 	search_target_id: Option<String>,
 	search_target_text: Option<String>,
@@ -765,6 +766,7 @@ fn main() {
 			mention_dismissed_at: None,
 			pending_receipts: std::collections::HashMap::new(),
 			downloads_in_progress: std::collections::HashMap::new(),
+			uploads_in_progress: std::collections::HashMap::new(),
 			pending_copy_announcements: std::collections::HashSet::new(),
 			search_target_id: None,
 			search_target_text: None,
@@ -1292,6 +1294,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::GetMessageInfo { message_id } => ui_commands::messaging::get_message_info(state, parts, message_id),
 		UiCommand::RetryMessage { message_id } => ui_commands::messaging::retry_message(state, parts, message_id),
 		UiCommand::RetrySelectedMessage => ui_commands::messaging::retry_selected_message(state, parts),
+		UiCommand::CancelSelectedUpload => ui_commands::messaging::cancel_selected_upload(state, parts),
 		UiCommand::RequestMessageResend { message_id } => {
 			ui_commands::messaging::request_message_resend(state, parts, message_id)
 		}

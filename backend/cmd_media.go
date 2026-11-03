@@ -78,6 +78,8 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 var (
 	activeDownloadsMu sync.Mutex
 	activeDownloads   = map[string]context.CancelFunc{}
+	activeUploadsMu   sync.Mutex
+	activeUploads     = map[string]context.CancelFunc{}
 	retryWaitersMu    sync.Mutex
 	retryWaiters      = map[string]chan bool{}
 	pendingAutoOpens  sync.Map
@@ -363,6 +365,19 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 		run()
 	} else {
 		go run()
+	}
+}
+
+func handleCancelUpload(raw json.RawMessage) {
+	var data MessageRefData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return
+	}
+	activeUploadsMu.Lock()
+	cancel := activeUploads[data.MessageID]
+	activeUploadsMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 
@@ -980,9 +995,32 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	if viewOnce {
 		displayText = viewOnceText(displayText)
 	}
+	uploadCtx, cancelUpload := context.WithCancel(context.Background())
+	activeUploadsMu.Lock()
+	activeUploads[id] = cancelUpload
+	activeUploadsMu.Unlock()
+	defer func() {
+		activeUploadsMu.Lock()
+		delete(activeUploads, id)
+		activeUploadsMu.Unlock()
+		cancelUpload()
+	}()
 	fail := func(errMsg string) {
+		if uploadCtx.Err() != nil {
+			// The user cancelled: the message goes away rather than sitting
+			// in the list as a failed send.
+			deleteMessageForMe(id, jid.String())
+			if conn != nil {
+				sendEvent(conn, "attachment_upload_ended", map[string]interface{}{"jid": jid.String(), "filename": filename, "id": id})
+			}
+			broadcastEvent("message_deleted", map[string]interface{}{
+				"jid": jid.String(), "message_id": id, "by": "me", "for_everyone": false, "upload_cancelled": true,
+			})
+			return
+		}
 		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
 		if conn != nil {
+			sendEvent(conn, "attachment_upload_ended", map[string]interface{}{"jid": jid.String(), "filename": filename, "id": id})
 			sendEvent(conn, "error", map[string]string{"message": errMsg})
 		}
 		broadcastEvent("message", map[string]interface{}{
@@ -1132,9 +1170,9 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		if !ok {
 			seeker = f
 		}
-		uploaded, err = wa().UploadNewsletterReader(context.Background(), seeker, waMediaType)
+		uploaded, err = wa().UploadNewsletterReader(uploadCtx, seeker, waMediaType)
 	} else {
-		uploaded, err = wa().UploadReader(context.Background(), f, uploadFile, waMediaType)
+		uploaded, err = wa().UploadReader(uploadCtx, f, uploadFile, waMediaType)
 	}
 	uploadTook := time.Since(uploadStarted)
 	if err != nil {
@@ -1267,7 +1305,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	})
 	broadcastChats()
 	if conn != nil {
-		sendEvent(conn, "attachment_sent", map[string]interface{}{"jid": jid.String(), "filename": filename, "status": "sent"})
+		sendEvent(conn, "attachment_sent", map[string]interface{}{"id": id, "jid": jid.String(), "filename": filename, "status": "sent"})
 	}
 }
 

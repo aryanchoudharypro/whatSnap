@@ -231,32 +231,49 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	if crate::ui_commands::blocking::stop_if_cant_send(state, parts) {
 		return;
 	}
-	if let Some(_locker) = wxdragon::prelude::Clipboard::get().locker() {
+	let paths = {
+		let clipboard = wxdragon::prelude::Clipboard::get();
+		let Some(_locker) = clipboard.locker() else { return };
 		let fdo = wxdragon::prelude::FileDataObject::new();
-		if wxdragon::prelude::Clipboard::get().get_data(&fdo) {
-			let paths = fdo.get_files();
-			if !paths.is_empty() {
-				let mut s = state.borrow_mut();
-				if s.pending_attachments.is_empty() {
-					s.pending_attachment_kind = whatsnap::AttachKind::Pasted;
-				}
-				let left_out = add_to_batch(&mut s, paths);
-				let kind = s.pending_attachment_kind;
-				drop(s);
-				announce_left_out(parts, left_out);
-				let mut caption = None;
-				if !parts.attachment_dialog.dialog.is_shown() && kind.has_caption() {
-					let field = &parts.conversations_parts.message_field;
-					let typed = field.get_value();
-					if !typed.trim().is_empty() {
-						field.set_value("");
-						caption = Some(typed);
-					}
-				}
-				show_attachment_dialog(state, parts, "Pasted files", caption);
+		if !clipboard.get_data(&fdo) {
+			return;
+		}
+		fdo.get_files()
+	};
+	if paths.is_empty() {
+		return;
+	}
+	let starting_batch = state.borrow().pending_attachments.is_empty();
+	let mut chosen = whatsnap::AttachKind::Pasted;
+	if starting_batch {
+		let choices = whatsnap::AttachKind::paste_choices(&paths);
+		if !choices.is_empty() {
+			let labels: Vec<&str> = choices.iter().map(|(label, _)| *label).collect();
+			let dialog = SingleChoiceDialog::builder(&parts.frame, "Send as:", "Send Pasted Files", &labels).build();
+			if dialog.show_modal() != wxdragon::id::ID_OK {
+				return;
 			}
+			chosen = choices.get(dialog.get_selection() as usize).map_or(chosen, |(_, kind)| *kind);
 		}
 	}
+	let mut s = state.borrow_mut();
+	if s.pending_attachments.is_empty() {
+		s.pending_attachment_kind = chosen;
+	}
+	let left_out = add_to_batch(&mut s, paths);
+	let kind = s.pending_attachment_kind;
+	drop(s);
+	announce_left_out(parts, left_out);
+	let mut caption = None;
+	if !parts.attachment_dialog.dialog.is_shown() && kind.has_caption() {
+		let field = &parts.conversations_parts.message_field;
+		let typed = field.get_value();
+		if !typed.trim().is_empty() {
+			field.set_value("");
+			caption = Some(typed);
+		}
+	}
+	show_attachment_dialog(state, parts, "Pasted files", caption);
 }
 
 pub(crate) fn discard_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {

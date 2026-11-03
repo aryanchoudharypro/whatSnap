@@ -140,6 +140,7 @@ pub enum UiCommand {
 		message_id: String,
 	},
 	RetrySelectedMessage,
+	CancelSelectedUpload,
 	RequestMessageResend {
 		message_id: String,
 	},

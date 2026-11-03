@@ -5200,6 +5200,7 @@ pub fn bind_input_handlers(
 
 			let any_action_visible = play_voice_btn_sel.is_shown()
 				|| conv_parts_sel.action_retry_btn.is_shown()
+				|| conv_parts_sel.action_cancel_upload_btn.is_shown()
 				|| conv_parts_sel.action_open_btn.is_shown()
 				|| conv_parts_sel.action_save_as_btn.is_shown()
 				|| conv_parts_sel.action_download_btn.is_shown()
@@ -5482,6 +5483,11 @@ pub fn bind_input_handlers(
 	let tx_retry = ui_tx.clone();
 	parts.conversations_parts.action_retry_btn.on_click(move |_| {
 		let _ = tx_retry.send(UiCommand::RetrySelectedMessage);
+	});
+
+	let tx_cancel_upload = ui_tx.clone();
+	parts.conversations_parts.action_cancel_upload_btn.on_click(move |_| {
+		let _ = tx_cancel_upload.send(UiCommand::CancelSelectedUpload);
 	});
 
 	let tx_download = ui_tx.clone();
