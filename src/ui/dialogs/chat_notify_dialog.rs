@@ -9,6 +9,8 @@ use crate::{
 	},
 };
 
+const ANNOUNCE: [(&str, Option<bool>); 3] = [("As set in Settings", None), ("On", Some(true)), ("Off", Some(false))];
+
 const ALERTS: [(&str, whatsnap::ChatAlert); 5] = [
 	("As set in Settings", whatsnap::ChatAlert::Default),
 	("Notification and sound", whatsnap::ChatAlert::Full),
@@ -29,7 +31,7 @@ pub fn ask(
 	output_device: Option<String>,
 ) -> Option<whatsnap::ChatNotify> {
 	let dialog = Dialog::builder(parent, &format!("Notification settings for {chat}"))
-		.with_size(460, 480)
+		.with_size(460, 540)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	theme::style_content(&dialog);
@@ -79,6 +81,18 @@ pub fn ask(
 		_ => picker.preview(output_device.clone()),
 	});
 
+	let announce_label =
+		StaticText::builder(&panel).with_label("Read new messages aloud while this chat is open (Alt+L)").build();
+	announce_label.set_font(&theme::Fonts::body());
+	sizer.add(&announce_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+	let announce_labels: Vec<&str> = ANNOUNCE.iter().map(|(label, _)| *label).collect();
+	let announce_combo =
+		ComboBox::builder(&panel).with_string_choices(&announce_labels).with_style(ComboBoxStyle::ReadOnly).build();
+	announce_combo.set_font(&theme::Fonts::body());
+	let at = ANNOUNCE.iter().position(|(_, value)| *value == current.announce).unwrap_or(0);
+	announce_combo.set_selection(at as u32);
+	sizer.add(&announce_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+
 	let hide_check = CheckBox::builder(&panel)
 		.with_label("Hide message content: notifications from this chat don't show what the message says")
 		.build();
@@ -109,6 +123,7 @@ pub fn ask(
 		tone,
 		tone_file: if tone == whatsnap::TONE_CUSTOM { tone_file } else { String::new() },
 		ringtone: ringtone_picker.ringtone(),
+		announce: announce_combo.get_selection().and_then(|i| ANNOUNCE.get(i as usize)).and_then(|(_, value)| *value),
 	};
 	tone_picker.forget();
 	ringtone_picker.forget();

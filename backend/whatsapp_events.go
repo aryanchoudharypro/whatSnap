@@ -2294,18 +2294,6 @@ func eventHandler(evt interface{}) {
 			// needs to be told about these explicitly or the chat never
 			// goes away locally (handleDeleteChat/handleClearChat cover the
 			// other direction: it happening here first).
-			if v.GetDeleteChatAction() != nil && len(v.Index) > 1 {
-				jid := appStateChatJID(v.Index[1])
-				purgeMessages("jid = ?", jid)
-				db.Exec("DELETE FROM chats WHERE jid = ?", jid)
-				broadcastChats()
-			}
-			if v.GetClearChatAction() != nil && len(v.Index) > 1 {
-				jid := appStateChatJID(v.Index[1])
-				purgeMessages("jid = ?", jid)
-				broadcastChats()
-				broadcastEvent("chat_cleared", map[string]interface{}{"jid": jid})
-			}
 		}()
 	case *events.AppStateSyncComplete:
 		if len(v.Name) > 0 {
@@ -2327,11 +2315,9 @@ func eventHandler(evt interface{}) {
 			if v.Action == nil {
 				return
 			}
-			archivedInt := 0
-			if v.Action.GetArchived() {
-				archivedInt = 1
-			}
-			db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", archivedInt, preferPN(v.JID).String())
+			jid := preferPN(v.JID).String()
+			noteArchiveAction(jid, v.Action.GetArchived(), v.Action.GetMessageRange(), v.Timestamp.Unix())
+			db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", boolToInt(v.Action.GetArchived()), jid)
 			broadcastChats()
 		}()
 	case *events.Mute:
@@ -2409,7 +2395,8 @@ func eventHandler(evt interface{}) {
 	case *events.ClearChat:
 		go func() {
 			jidStr := preferPN(v.JID).String()
-			purgeMessages("jid = ?", jidStr)
+			purgeChatRange(jidStr, v.Action.GetMessageRange())
+			UpdateChatSnippet(jidStr)
 			broadcastChats()
 			broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
 		}()
@@ -2421,8 +2408,12 @@ func eventHandler(evt interface{}) {
 		// deleted the chat.
 		go func() {
 			jidStr := preferPN(v.JID).String()
-			purgeMessages("jid = ?", jidStr)
-			db.Exec("DELETE FROM chats WHERE jid = ?", jidStr)
+			if purgeChatRange(jidStr, v.Action.GetMessageRange()) {
+				db.Exec("DELETE FROM chats WHERE jid = ?", jidStr)
+			} else {
+				UpdateChatSnippet(jidStr)
+				broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
+			}
 			broadcastChats()
 		}()
 	case *events.Picture:
@@ -2453,6 +2444,8 @@ func eventHandler(evt interface{}) {
 		})
 	case *events.DisableLinkPreviews:
 		go noteDisableLinkPreviews(v)
+	case *events.UnarchiveChatsSetting:
+		go noteUnarchiveChatsSetting(v)
 	case *events.SettingsSync:
 		go noteSettingsSync(v)
 	case *events.FavoriteSticker:
@@ -3587,5 +3580,8 @@ func applyPinChange(jid string, pinned bool, changedAt int64) {
 			archived = CASE WHEN ? = 1 THEN 0 ELSE archived END
 		WHERE jid = ? AND COALESCE(pin_changed_at, 0) <= ?`,
 		boolToInt(pinned), pinnedAt, changedAt, boolToInt(pinned), jid, changedAt)
+	if pinned {
+		db.Exec(`UPDATE archive_actions SET archived = 0, changed_at = MAX(changed_at, ?) WHERE jid = ?`, changedAt, jid)
+	}
 	broadcastChats()
 }

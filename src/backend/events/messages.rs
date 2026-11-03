@@ -88,10 +88,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 						if let Some(di) = target_di {
 							parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-							crate::platform::announce::announce(
-								parts.conversations_parts.messages_announcer,
-								&updated_display,
-							);
+							// What we send ourselves is never read back.
+							if !is_from_me && s.settings.announces_incoming(jid) {
+								crate::platform::announce::announce(
+									parts.conversations_parts.messages_announcer,
+									&updated_display,
+								);
+							}
 							if parts.conversations_parts.messages_list.get_selection() == Some(di as u32) {
 								refresh_voice_action_button(&s, &parts.conversations_parts);
 							}
@@ -315,8 +318,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							parts.conversations_parts.messages_list.set_selection(count - 1, true);
 							refresh_voice_action_button(&s, &parts.conversations_parts);
 						}
-						let formatted = chat_msg.format_display(is_group);
-						crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &formatted);
+						if !is_from_me && s.settings.announces_incoming(jid) {
+							let formatted = chat_msg.format_display(is_group);
+							crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &formatted);
+						}
 
 						if !is_from_me {
 							let sounds_enabled = s.settings.sounds_enabled && !s.muted_jids.contains(jid) && !is_system;

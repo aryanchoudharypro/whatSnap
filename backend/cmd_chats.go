@@ -697,6 +697,7 @@ func handleSetChatPinned(raw json.RawMessage) {
 		if data.Value {
 			lastTS, lastKey := getLastMessageKeyForChat(data.JID)
 			patch.Mutations = append(patch.Mutations, appstate.BuildArchive(syncdChatJID(jid), false, lastTS, lastKey).Mutations...)
+			patch = withChatRange(patch, data.JID)
 		}
 		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
 			broadcastChats()
@@ -717,15 +718,13 @@ func handleSetChatArchived(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildArchive(syncdChatJID(jid), data.Value, last_ts, last_key)); err != nil {
+		patch := withChatRange(appstate.BuildArchive(syncdChatJID(jid), data.Value, last_ts, last_key), data.JID)
+		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
 			broadcastChats()
 			return
 		}
-		archived_int := 0
-		if data.Value {
-			archived_int = 1
-		}
-		db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", archived_int, data.JID)
+		noteArchiveAction(data.JID, data.Value, patch.Mutations[0].Value.GetArchiveChatAction().GetMessageRange(), time.Now().Unix())
+		db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", boolToInt(data.Value), data.JID)
 		if data.Value {
 			// BuildArchive also unpins, as WA Web does.
 			applyPinChange(data.JID, false, time.Now().Unix())
@@ -802,7 +801,7 @@ func handleDeleteChat(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildDeleteChat(syncdChatJID(jid), last_ts, last_key, false)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildDeleteChat(syncdChatJID(jid), last_ts, last_key, false), data.JID)); err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to delete chat: " + err.Error()})
 			return
 		}
@@ -823,7 +822,7 @@ func handleClearChat(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildClearChat(syncdChatJID(jid), last_ts, last_key, false, false)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildClearChat(syncdChatJID(jid), last_ts, last_key, false, false), data.JID)); err != nil {
 			broadcastEvent("error", map[string]string{"message": "Failed to clear chat: " + err.Error()})
 			return
 		}

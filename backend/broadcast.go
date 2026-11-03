@@ -144,6 +144,7 @@ type ChatListEntry struct {
 }
 
 func buildChatsList() []ChatListEntry {
+	refreshArchivedChats()
 	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, ''), COALESCE(admins_only, 0),
 		CASE WHEN COALESCE(preview_from_me, 0) = 1 THEN COALESCE((SELECT m.status FROM messages m WHERE m.jid = chats.jid AND m.from_me = 1 ORDER BY m.timestamp DESC LIMIT 1), '') ELSE '' END
 		, COALESCE(pin_changed_at, 0)
@@ -214,9 +215,6 @@ func buildChatsList() []ChatListEntry {
 			}
 
 			if chatSettings, found := chatSettingsFromMap(settingsByChat, parsedJID); found {
-				if chatSettings.Archived {
-					archived = 1
-				}
 				// The settings store only fills in a pin the chat row never
 				// heard about (it has no time, so it can't outrank a stored
 				// pin change).

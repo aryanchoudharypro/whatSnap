@@ -186,6 +186,7 @@ func migrateDB() error {
 		db.Exec(`UPDATE contacts_cache SET phone = '' WHERE jid LIKE '%@lid'`)
 	})
 	runOnce("drop_call_history_only_chats_v1", dropCallHistoryOnlyChats)
+	initArchiveActions()
 	// An upload that was still running when the app last quit can never
 	// finish now - and retry only accepts pending/failed rows, so leaving it
 	// as "uploading" stranded it on screen forever with no way to resend.

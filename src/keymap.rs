@@ -150,6 +150,13 @@ pub const ACTIONS: &[ActionDef] = &[
 		default: "Alt+T",
 	},
 	ActionDef {
+		id: "toggle_announce_messages",
+		menu_id: Some(MENU_ID_TOGGLE_ANNOUNCE),
+		tab: 3,
+		label: "Read Ne&w Messages Aloud",
+		default: "Alt+L",
+	},
+	ActionDef {
 		id: "emoji_panel",
 		menu_id: Some(MENU_ID_EMOJI_PANEL),
 		tab: 3,

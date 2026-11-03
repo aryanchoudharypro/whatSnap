@@ -184,7 +184,7 @@ func handleLeaveAndDeleteGroup(raw json.RawMessage) {
 		invalidateJoinedGroups()
 
 		lastTS, lastKey := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildDeleteChat(jid, lastTS, lastKey, false)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildDeleteChat(jid, lastTS, lastKey, false), data.JID)); err != nil {
 			broadcastEvent("error", map[string]string{"message": "Left the group, but failed to delete the chat: " + err.Error()})
 			return
 		}

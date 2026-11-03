@@ -81,9 +81,12 @@ pub struct SettingsDialogParts {
 	pub call_ringtone_picker: SoundPicker,
 	pub group_call_ringtone_picker: SoundPicker,
 	pub follow_dnd_check: CheckBox,
+	pub announce_incoming_check: CheckBox,
 
 	pub chats_panel: Panel,
 	pub enter_is_send_check: CheckBox,
+	pub type_to_compose_check: CheckBox,
+	pub keep_list_position_check: CheckBox,
 	pub replace_emoji_check: CheckBox,
 	pub emoji_help_btn: Button,
 	pub spell_check_check: CheckBox,
@@ -253,6 +256,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let group_call_ringtone_picker = sound_picker("Group call ringtone", "Group Call Ringtone", Kind::Ringtone);
 	let follow_dnd_check =
 		notify_switch("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on");
+	let announce_incoming_check = notify_switch(
+		"Read new messages aloud in the open chat (Alt+L turns it on or off for one chat)",
+	);
 	notifications_sizer.add_spacer(12);
 	notifications_panel.set_sizer(notifications_sizer, true);
 
@@ -261,6 +267,10 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let chats_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let chats_check = |label: &str| setting_switch(&chats_panel, &chats_sizer, label);
 	let enter_is_send_check = chats_check("Enter is send: the Enter key sends your message");
+	let type_to_compose_check =
+		chats_check("Typing a letter in the message list starts a message (message shortcuts then need Alt)");
+	let keep_list_position_check =
+		chats_check("Keep my place in the message list instead of jumping to the newest message");
 	let replace_emoji_check = chats_check("Replace text with emoji as you type, like :-) or (y)");
 	let emoji_help_btn = setting_button(&chats_panel, "Replace Text With Emoji: See Help...");
 	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
@@ -445,6 +455,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		call_ringtone_picker,
 		group_call_ringtone_picker,
 		follow_dnd_check,
+		announce_incoming_check,
 		announce_typing_check,
 		announce_recording_check,
 		tray_icon_check,
@@ -458,6 +469,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		share_menu_btn,
 		chats_panel,
 		enter_is_send_check,
+		type_to_compose_check,
+		keep_list_position_check,
 		replace_emoji_check,
 		emoji_help_btn,
 		spell_check_check,
@@ -641,6 +654,9 @@ impl SettingsDialogParts {
 		self.call_notifications_check.set_value(settings.call_notifications);
 		self.call_ringtone_check.set_value(settings.call_ringtone);
 		self.enter_is_send_check.set_value(settings.enter_is_send);
+		self.type_to_compose_check.set_value(settings.type_to_compose);
+		self.keep_list_position_check.set_value(settings.keep_list_position);
+		self.announce_incoming_check.set_value(settings.announce_incoming);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
 		self.spell_check_check.set_value(settings.spell_check);
 		self.spell_announce_check.set_value(settings.spell_check_announce);
@@ -664,6 +680,9 @@ impl SettingsDialogParts {
 		settings.call_notifications = self.call_notifications_check.is_checked();
 		settings.call_ringtone = self.call_ringtone_check.is_checked();
 		settings.enter_is_send = self.enter_is_send_check.is_checked();
+		settings.type_to_compose = self.type_to_compose_check.is_checked();
+		settings.keep_list_position = self.keep_list_position_check.is_checked();
+		settings.announce_incoming = self.announce_incoming_check.is_checked();
 		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();
 		settings.spell_check = self.spell_check_check.is_checked();
 		settings.spell_check_announce = self.spell_announce_check.is_checked();

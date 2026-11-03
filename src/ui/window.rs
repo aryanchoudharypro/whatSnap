@@ -224,10 +224,11 @@ pub const MENU_ID_FOCUS_MESSAGES_LIST: i32 = 6048;
 pub const MENU_ID_EMOJI_PANEL: i32 = 6049;
 pub const MENU_ID_STICKER_PANEL: i32 = 6050;
 pub const MENU_ID_NEXT_SPELLING_ERROR: i32 = 6051;
+pub const MENU_ID_TOGGLE_ANNOUNCE: i32 = 6052;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 pub const MENU_ID_BUSINESS_CATALOG: i32 = 6060;
 
-const CONVERSATION_MENU_IDS: [i32; 20] = [
+const CONVERSATION_MENU_IDS: [i32; 21] = [
 	MENU_ID_CHAT_INFO,
 	MENU_ID_BUSINESS_CATALOG,
 	MENU_ID_SEARCH_CHAT,
@@ -245,6 +246,7 @@ const CONVERSATION_MENU_IDS: [i32; 20] = [
 	MENU_ID_FOCUS_MESSAGE_FIELD,
 	MENU_ID_FOCUS_MESSAGES_LIST,
 	MENU_ID_ANNOUNCE_STATUS,
+	MENU_ID_TOGGLE_ANNOUNCE,
 	MENU_ID_EMOJI_PANEL,
 	MENU_ID_STICKER_PANEL,
 	MENU_ID_NEXT_SPELLING_ERROR,
@@ -349,11 +351,12 @@ enum ConversationEntry {
 
 use ConversationEntry::{Item, Separator};
 
-const CONVERSATION_MENU: [ConversationEntry; 24] = [
+const CONVERSATION_MENU: [ConversationEntry; 25] = [
 	Item(MENU_ID_CHAT_INFO, None, "Open info for the open chat"),
 	Item(MENU_ID_FOCUS_MESSAGE_FIELD, None, "Move focus to the message box, or back to where you were"),
 	Item(MENU_ID_FOCUS_MESSAGES_LIST, None, "Move focus to the messages list"),
 	Item(MENU_ID_ANNOUNCE_STATUS, None, "Say the open chat's status: online, typing and so on"),
+	Item(MENU_ID_TOGGLE_ANNOUNCE, None, "Turn reading new messages aloud on or off for the open chat"),
 	Item(MENU_ID_EMOJI_PANEL, None, "Pick an emoji to put in the message box"),
 	Item(MENU_ID_STICKER_PANEL, None, "Pick a sticker to send: favorites, recent ones or WhatsApp's own packs"),
 	Item(MENU_ID_NEXT_SPELLING_ERROR, None, "Select the next misspelled word in the message box and offer its fixes"),
@@ -550,7 +553,7 @@ pub fn build_main_window() -> WindowParts {
 		.append(go_menu, "&Go")
 		.append(chats_menu, "&Chats")
 		.append(conversation_menu, "C&onversation")
-		.append(call_menu, "Ca&ll")
+		.append(call_menu, "Call&s")
 		.build();
 	frame.set_menu_bar(menu_bar);
 
@@ -1698,6 +1701,18 @@ pub fn bind_input_handlers(
 			};
 			if let Some(label) = label {
 				crate::platform::announce::announce(msgs_announcer_for_menu, &label);
+			}
+		} else if id == MENU_ID_TOGGLE_ANNOUNCE {
+			let said = {
+				let mut s = state_chat_menu.borrow_mut();
+				s.selected_chat.clone().map(|jid| {
+					let on = s.settings.toggle_chat_announce(&jid);
+					s.settings.save();
+					if on { "New messages in this chat will be read aloud." } else { "New messages in this chat won't be read aloud." }
+				})
+			};
+			if let Some(said) = said {
+				crate::platform::announce::announce(msgs_announcer_for_menu, said);
 			}
 		} else if id == MENU_ID_NEXT_SPELLING_ERROR {
 			if !msg_field_for_menu.is_shown() {

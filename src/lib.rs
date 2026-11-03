@@ -1302,6 +1302,10 @@ pub struct ChatNotify {
 	/// follows the call or group call ringtone from Settings.
 	#[serde(skip_serializing_if = "String::is_empty")]
 	pub ringtone: String,
+	/// Whether new messages are read out while this chat is open; None
+	/// follows the setting in Settings.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub announce: Option<bool>,
 }
 
 impl Default for ChatNotify {
@@ -1312,6 +1316,7 @@ impl Default for ChatNotify {
 			tone: TONE_DEFAULT,
 			tone_file: String::new(),
 			ringtone: String::new(),
+			announce: None,
 		}
 	}
 }

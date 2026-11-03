@@ -33,6 +33,16 @@ pub struct Settings {
 	pub dual_stream_screen_share: bool,
 	pub status_auto_advance: bool,
 	pub enter_is_send: bool,
+	/// Typing a letter while the message list has focus moves to the message
+	/// box with that letter, and the one-letter message shortcuts (R reply,
+	/// F forward...) then need Alt.
+	pub type_to_compose: bool,
+	/// Leaving the message list or sending doesn't jump it to the newest
+	/// message; it stays where the user was.
+	pub keep_list_position: bool,
+	/// New messages in the open chat are read out. Chats can override it,
+	/// see [`whatsnap::ChatNotify::announce`].
+	pub announce_incoming: bool,
 	pub replace_text_with_emoji: bool,
 	pub spell_check: bool,
 	/// Say "Misspelled: word" when a word is finished wrongly. NVDA can't
@@ -114,6 +124,9 @@ impl Default for Settings {
 			dual_stream_screen_share: false,
 			status_auto_advance: true,
 			enter_is_send: true,
+			type_to_compose: false,
+			keep_list_position: false,
+			announce_incoming: true,
 			replace_text_with_emoji: true,
 			spell_check: true,
 			spell_check_announce: false,
@@ -181,6 +194,22 @@ impl Settings {
 		} else {
 			self.chat_notifications.insert(jid.to_string(), notify);
 		}
+	}
+
+	/// Whether a new message in the open chat `jid` is read out.
+	pub fn announces_incoming(&self, jid: &str) -> bool {
+		self.chat_notify(jid).announce.unwrap_or(self.announce_incoming)
+	}
+
+	/// Turns reading out new messages in `jid` the other way round and says
+	/// whether it is now on. A chat that ends up like Settings follows
+	/// Settings again.
+	pub fn toggle_chat_announce(&mut self, jid: &str) -> bool {
+		let on = !self.announces_incoming(jid);
+		let mut notify = self.chat_notify(jid);
+		notify.announce = (on != self.announce_incoming).then_some(on);
+		self.set_chat_notify(jid, notify);
+		on
 	}
 
 	pub fn message_alert(&self, jid: &str, muted: bool, archived: bool) -> whatsnap::IncomingAlert {
