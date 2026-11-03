@@ -57,8 +57,21 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 					if let Some(idx) = temp_msg_idx {
 						let pick_id = s.messages[idx].id.clone();
+						let was_pending = s.messages[idx].status == "pending" || pick_id.starts_with("temp_upload_");
+						let was_voice = s.messages[idx].media_type == "voice";
 						let status =
 							data.get("status").and_then(|st| st.as_str()).filter(|st| !st.is_empty()).unwrap_or("sent");
+						// WA Web plays the sent tone once, when the server accepts the
+						// message (WAWebSendMsgChatAction -> playOutgoingMessageTone
+						// after the send resolves with ack SENT), not on delivery.
+						// Voice messages already have their own send sound.
+						if is_from_me && was_pending && status == "sent" && !was_voice {
+							play_notification_sound(
+								NotificationSound::MessageSent,
+								s.settings.sounds_enabled && s.settings.outgoing_sounds,
+								s.settings.output_device_name.clone(),
+							);
+						}
 						let field = |name: &str| data.get(name).and_then(|v| v.as_str()).unwrap_or("");
 						let quote_field = |snake: &str, camel: &str| {
 							data.get(snake).or_else(|| data.get(camel)).and_then(|v| v.as_str()).unwrap_or("")

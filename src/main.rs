@@ -39,11 +39,6 @@ use crate::ui::{
 	window::{WindowParts, bind_input_handlers, build_main_window},
 };
 
-/// How recently a message must have been sent for its "delivered" receipt to
-/// ding. Also bounds `AppState::played_sent_sounds`: an ack older than this
-/// can never ring, so it is never recorded and aged-out entries are dropped.
-const SENT_SOUND_WINDOW_SECS: i64 = 20;
-
 pub const MESSAGE_PAGE_SIZE: i32 = 500;
 
 pub const MAX_LOADED_MESSAGES: usize = 2000;
@@ -261,10 +256,6 @@ struct AppState {
 	pending_copy_announcements: std::collections::HashSet<String>,
 	search_target_id: Option<String>,
 	search_target_text: Option<String>,
-	/// Message id -> unix time of the ack that rang for it, kept only for
-	/// `SENT_SOUND_WINDOW_SECS` so one message never dings twice while the
-	/// map stays bounded by a single window's worth of acks.
-	played_sent_sounds: std::collections::HashMap<String, i64>,
 	catch_up_alerts: whatsnap::CatchUpAlerts,
 	catch_up_last_at: Option<std::time::Instant>,
 	display_items: Vec<whatsnap::DisplayItem>,
@@ -770,7 +761,6 @@ fn main() {
 			pending_copy_announcements: std::collections::HashSet::new(),
 			search_target_id: None,
 			search_target_text: None,
-			played_sent_sounds: std::collections::HashMap::new(),
 			catch_up_alerts: whatsnap::CatchUpAlerts::default(),
 			catch_up_last_at: None,
 			is_voice_recording: false,

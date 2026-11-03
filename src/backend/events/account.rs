@@ -158,7 +158,6 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					for msg in &s.messages {
 						missing.remove(msg.id.as_str());
 					}
-					let any_updated = missing.len() < ids.len();
 					for id in missing {
 						s.pending_receipts.insert(id.to_string(), norm_status.to_string());
 					}
@@ -186,40 +185,6 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								.conversations_parts
 								.messages_list
 								.set_string(di as u32, &item.format_display(is_group));
-						}
-					}
-					if any_updated && (norm_status == "sent" || norm_status == "delivered") {
-						let now_ts = std::time::SystemTime::now()
-							.duration_since(std::time::UNIX_EPOCH)
-							.unwrap_or_default()
-							.as_secs() as i64;
-						// Only IDs that could still ring are worth remembering.
-						// The recency gate means anything older than the window
-						// can never produce a sound again, so admitting it to
-						// the set was pure unbounded growth - and a reconnect
-						// admits the entire backlog at once. Drop what has aged
-						// out, and never take a backlogged ID in the first place.
-						s.played_sent_sounds.retain(|_, acked_at| now_ts - *acked_at < SENT_SOUND_WINDOW_SECS);
-						let mut should_play = false;
-						let recent: Vec<String> = s
-							.messages
-							.iter()
-							.filter(|m| ids.contains(m.id.as_str()) && now_ts - m.sent_at < SENT_SOUND_WINDOW_SECS)
-							.map(|m| m.id.clone())
-							.collect();
-						for target_id in recent {
-							if let std::collections::hash_map::Entry::Vacant(e) = s.played_sent_sounds.entry(target_id)
-							{
-								e.insert(now_ts);
-								should_play = true;
-							}
-						}
-						if should_play {
-							play_notification_sound(
-								NotificationSound::MessageSent,
-								s.settings.sounds_enabled && s.settings.outgoing_sounds,
-								s.settings.output_device_name.clone(),
-							);
 						}
 					}
 				}
