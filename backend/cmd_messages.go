@@ -733,7 +733,7 @@ func handleMarkRead(raw json.RawMessage) {
 		}
 		if markedUnread {
 			lastTS, lastKey := getLastMessageKeyForChat(data.JID)
-			if err := sendAppStateWithRetry(context.Background(), appstate.BuildMarkChatAsRead(syncJID, true, lastTS, lastKey)); err != nil {
+			if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildMarkChatAsRead(syncJID, true, lastTS, lastKey), data.JID)); err != nil {
 				log.Printf("Clearing the unread mark of %s on other devices failed: %v", data.JID, err)
 			}
 		}

@@ -186,6 +186,34 @@ func withChatRange(patch appstate.PatchInfo, jid string) appstate.PatchInfo {
 	return patch
 }
 
+// rangeCoversChat says whether a range from another device names every
+// message jid has from its start on (compareMessageRanges: the incoming range
+// encloses ours), so nothing came in here that the other device hadn't seen.
+// A missing range covers everything.
+func rangeCoversChat(jid string, msgRange *waSyncAction.SyncActionMessageRange) bool {
+	if msgRange == nil || (msgRange.LastMessageTimestamp == nil && len(msgRange.Messages) == 0) {
+		return true
+	}
+	named := map[string]bool{}
+	for _, m := range msgRange.GetMessages() {
+		named[m.GetKey().GetID()] = true
+	}
+	rows, err := db.Query(`SELECT id FROM messages WHERE jid = ? AND timestamp >= ?
+		AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\' AND id NOT LIKE 'call:%'`,
+		jid, msgRange.GetLastMessageTimestamp())
+	if err != nil {
+		return true
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil && !named[id] {
+			return false
+		}
+	}
+	return true
+}
+
 // purgeChatRange removes what a clear or delete chat mutation from another
 // device covers (WAWebMsgRangeContainmentHandlers): the messages up to its
 // range and the ones it names. Anything newer stays, as it does on the phone,

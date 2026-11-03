@@ -772,7 +772,7 @@ func handleSetChatRead(raw json.RawMessage) {
 	}
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMarkChatAsRead(syncdChatJID(jid), data.Value, last_ts, last_key)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildMarkChatAsRead(syncdChatJID(jid), data.Value, last_ts, last_key), data.JID)); err != nil {
 			broadcastChats()
 			return
 		}

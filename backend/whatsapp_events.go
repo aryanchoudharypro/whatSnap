@@ -2368,7 +2368,15 @@ func eventHandler(evt interface{}) {
 				return
 			}
 			jidStr := preferPN(v.JID).String()
-			if v.Action.GetRead() {
+			// Like WA Web (WAWebMarkChatAsReadSync): when messages have come
+			// in here since the other device marked the chat, a read only
+			// clears a "marked as unread" mark and an unread does nothing.
+			covers := rangeCoversChat(jidStr, v.Action.GetMessageRange())
+			if !covers {
+				if v.Action.GetRead() {
+					db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ? AND COALESCE(marked_unread, 0) = 1", jidStr)
+				}
+			} else if v.Action.GetRead() {
 				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", jidStr)
 			} else {
 				// "Mark as unread" only needs the chat to show as unread - it
