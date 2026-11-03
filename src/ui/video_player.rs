@@ -17,6 +17,14 @@ pub(crate) fn show(parent: &impl WxWidget, path: &str, title: &str, save_name: &
 	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
+	// Dark around the picture, like WhatsApp's player.
+	if theme::use_custom_colours() {
+		use crate::ui::status_viewer::{STAGE_BG, STAGE_TEXT};
+		for window in [&dialog as &dyn WxWidget, &panel] {
+			window.set_background_color(STAGE_BG);
+			window.set_foreground_color(STAGE_TEXT);
+		}
+	}
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let announcer = StaticText::builder(&panel).with_label("").build();

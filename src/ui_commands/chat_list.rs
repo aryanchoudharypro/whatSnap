@@ -109,7 +109,7 @@ pub(crate) fn filter_conversations(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 
 pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
 	if state.borrow().active_tab == 1 {
-		let message_id = state.borrow().filtered_status_message_ids.get(idx).cloned();
+		let message_id = state.borrow().filtered_status_message_ids.get(idx).filter(|id| !id.is_empty()).cloned();
 		if let Some(message_id) = message_id {
 			let outcome = crate::ui::status_viewer::show(state, parts, &message_id);
 			crate::platform::tray::enter_release_guard().set(true);

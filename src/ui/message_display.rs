@@ -231,45 +231,27 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		.cloned();
 
 	if s.active_tab == 1 {
-		for group in &s.status_groups {
-			for item in &group.items {
-				let viewed_tag = match (item.viewed, group.muted) {
-					(true, false) => "Viewed",
-					(false, false) => "New",
-					(true, true) => "Viewed, muted",
-					(false, true) => "New, muted",
-				};
-				let preview = if !item.text.is_empty() {
-					item.text.clone()
-				} else if !item.media_type.is_empty() {
-					"Media".to_string()
-				} else {
-					String::new()
-				};
-				let time_str = if item.timestamp > 0 {
-					whatsnap::LocalTime::from_unix(item.timestamp)
-						.map(whatsnap::time_or_day)
-						.unwrap_or_default()
-				} else {
-					String::new()
-				};
-				let mut label = if time_str.is_empty() {
-					format!("{} [{}]: {}", group.poster_name, viewed_tag, preview)
-				} else {
-					format!("{} [{}]: {}, {}", group.poster_name, viewed_tag, preview, time_str)
-				};
-				if group.from_me && item.viewers > 0 {
-					label.push_str(&format!(", {} view{}", item.viewers, if item.viewers == 1 { "" } else { "s" }));
-				}
-				if !item.my_reaction.is_empty() {
-					label.push_str(&format!(", you reacted {}", item.my_reaction));
-				}
-				if lower_query.is_empty() || label.to_lowercase().contains(&lower_query) {
-					labels.push(label);
-					filtered.push(group.poster_jid.clone());
-					filtered_status_ids.push(item.id.clone());
+		// One row per person, like WA Web, under its Recent / Viewed / Muted
+		// headings. A row opens the viewer at that person's first unseen
+		// update (its message id is the row's).
+		let mut section = None;
+		for (sec, group) in crate::ui_commands::status_extras::sorted_groups(&s.status_groups) {
+			let Some(start) = crate::ui_commands::status_extras::start_item(group) else { continue };
+			let label = status_row_label(group);
+			if !lower_query.is_empty() && !label.to_lowercase().contains(&lower_query) {
+				continue;
+			}
+			if section != Some(sec) {
+				section = Some(sec);
+				if let Some(heading) = sec.heading() {
+					labels.push(heading.to_string());
+					filtered.push(String::new());
+					filtered_status_ids.push(String::new());
 				}
 			}
+			labels.push(label);
+			filtered.push(group.poster_jid.clone());
+			filtered_status_ids.push(start.id.clone());
 		}
 	} else if s.active_tab == 2 {
 		for entry in &s.starred_entries {
@@ -811,4 +793,58 @@ mod tests {
 		assert_eq!(format_call_log_label("Aryan", "Missed voice call", false, 0), "Missed voice call from Aryan");
 		assert_eq!(format_call_log_label("Aryan", "Voice call, declined", true, 0), "Voice call, declined to Aryan");
 	}
+}
+
+fn status_time(item: &crate::StatusItem) -> String {
+	if item.timestamp > 0 {
+		whatsnap::LocalTime::from_unix(item.timestamp).map(whatsnap::time_or_day).unwrap_or_default()
+	} else {
+		String::new()
+	}
+}
+
+/// A person's row in the Status tab. With one update it reads as before
+/// (name, new or viewed, the update, its time); with several it says how
+/// many and how many are new, and the newest one's time.
+fn status_row_label(group: &crate::StatusGroup) -> String {
+	let Some(newest) = group.items.iter().max_by_key(|it| it.timestamp) else { return String::new() };
+	let time = status_time(newest);
+	let count = group.items.len();
+	let mut parts: Vec<String> = Vec::new();
+	if count == 1 {
+		let preview = if !newest.text.is_empty() {
+			newest.text.clone()
+		} else if !newest.media_type.is_empty() {
+			"Media".to_string()
+		} else {
+			String::new()
+		};
+		parts.push(preview);
+	} else {
+		parts.push(format!("{count} updates"));
+		let unseen = group.items.iter().filter(|it| !it.viewed).count();
+		if unseen > 0 && !group.from_me {
+			parts.push(format!("{unseen} new"));
+		}
+	}
+	if !time.is_empty() {
+		parts.push(time);
+	}
+	if group.from_me {
+		let views: i64 = if count == 1 { newest.viewers } else { 0 };
+		if views > 0 {
+			parts.push(format!("{} view{}", views, if views == 1 { "" } else { "s" }));
+		}
+		return format!("My status: {}", parts.join(", "));
+	}
+	if count == 1 && !newest.my_reaction.is_empty() {
+		parts.push(format!("you reacted {}", newest.my_reaction));
+	}
+	let viewed_tag = match (group.items.iter().all(|it| it.viewed), group.muted) {
+		(true, false) => "Viewed",
+		(false, false) => "New",
+		(true, true) => "Viewed, muted",
+		(false, true) => "New, muted",
+	};
+	format!("{} [{}]: {}", group.poster_name, viewed_tag, parts.join(", "))
 }

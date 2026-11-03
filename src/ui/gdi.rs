@@ -105,6 +105,56 @@ pub(crate) fn round_rect_rgba(w: i32, h: i32, radius: f32, (r, g, b): (u8, u8, u
 	rgba
 }
 
+/// WhatsApp's status ring: a `thickness`-wide circle of side `d`, cut into
+/// one arc per update with a small gap between arcs, starting at the top
+/// and going clockwise. The first `seen` arcs take `seen_colour`, the rest
+/// `new_colour`. Anti-aliased across the ring's edges and gaps.
+pub(crate) fn segmented_ring_rgba(
+	d: i32,
+	thickness: f32,
+	segments: usize,
+	seen: usize,
+	seen_colour: (u8, u8, u8),
+	new_colour: (u8, u8, u8),
+) -> Vec<u8> {
+	let segments = segments.max(1);
+	let mut rgba = vec![0u8; (d.max(0) * d.max(0) * 4) as usize];
+	let centre = d as f32 / 2.0;
+	let outer = centre;
+	let inner = outer - thickness;
+	let radius = (outer + inner) / 2.0;
+	let step = std::f32::consts::TAU / segments as f32;
+	// About 4 pixels of gap along the ring, none for a single update.
+	let gap = if segments > 1 { (4.0 / radius).min(step / 3.0) } else { 0.0 };
+	for y in 0..d {
+		for x in 0..d {
+			let (dx, dy) = (x as f32 + 0.5 - centre, y as f32 + 0.5 - centre);
+			let dist = (dx * dx + dy * dy).sqrt();
+			let radial = (outer - dist + 0.5).clamp(0.0, 1.0).min((dist - inner + 0.5).clamp(0.0, 1.0));
+			if radial <= 0.0 {
+				continue;
+			}
+			// Angle from the top, clockwise, in 0..TAU.
+			let angle = dx.atan2(-dy).rem_euclid(std::f32::consts::TAU);
+			let index = ((angle / step) as usize).min(segments - 1);
+			let into = angle - index as f32 * step;
+			let edge = into.min(step - into);
+			let along = if gap > 0.0 { ((edge - gap / 2.0) * radius + 0.5).clamp(0.0, 1.0) } else { 1.0 };
+			let cover = radial * along;
+			if cover <= 0.0 {
+				continue;
+			}
+			let (r, g, b) = if index < seen { seen_colour } else { new_colour };
+			let i = ((y * d + x) * 4) as usize;
+			rgba[i] = r;
+			rgba[i + 1] = g;
+			rgba[i + 2] = b;
+			rgba[i + 3] = (cover * 255.0) as u8;
+		}
+	}
+	rgba
+}
+
 pub(crate) fn circle_crop(width: u32, height: u32, rgba: &[u8], size: i32) -> Option<Bitmap> {
 	if width == 0 || height == 0 || size <= 0 {
 		return None;
@@ -262,5 +312,29 @@ mod tests {
 		assert_eq!(round_rect_coverage(0, 0, 40, 40, 20.0), 0.0);
 		let edge = round_rect_coverage(0, 20, 40, 40, 20.0);
 		assert!(edge > 0.0 && edge <= 1.0);
+	}
+}
+
+#[cfg(test)]
+mod ring_tests {
+	use super::segmented_ring_rgba;
+
+	fn alpha(rgba: &[u8], d: i32, x: i32, y: i32) -> u8 {
+		rgba[((y * d + x) * 4 + 3) as usize]
+	}
+
+	#[test]
+	fn a_ring_is_hollow_and_split_at_the_top() {
+		let d = 40;
+		let one = segmented_ring_rgba(d, 2.0, 1, 0, (0, 0, 0), (0, 255, 0));
+		assert_eq!(alpha(&one, d, 20, 20), 0, "the middle stays clear for the picture");
+		assert!(alpha(&one, d, 20, 0) > 200, "one update is a whole ring");
+		let three = segmented_ring_rgba(d, 2.0, 3, 1, (9, 9, 9), (0, 255, 0));
+		assert!(alpha(&three, d, 20, 0) < 60, "several updates leave a gap at the top");
+		// Right side (first third, clockwise) is seen, left side is new.
+		let right = ((20 * d + 39) * 4) as usize;
+		assert_eq!(three[right], 9);
+		let left = ((20 * d) * 4) as usize;
+		assert_eq!(three[left + 1], 255);
 	}
 }

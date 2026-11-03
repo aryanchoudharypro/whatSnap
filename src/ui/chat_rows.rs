@@ -59,6 +59,8 @@ pub(crate) struct RowArt {
 	pub ticks: Option<super::message_art::Ticks>,
 	pub typing: Option<&'static str>,
 	pub ring: Option<bool>,
+	/// Status rings: (updates, unseen); (0, 0) draws one plain ring.
+	pub segments: (u16, u16),
 	pub alert: bool,
 	pub heading: bool,
 	pub unread: u32,
@@ -77,16 +79,30 @@ impl RowArt {
 		Self { jid: jid.to_string(), title, preview: rest.join(" · "), ..Default::default() }
 	}
 
-	pub(crate) fn for_status(jid: &str, text: &str) -> Self {
-		let Some((name, rest)) = text.split_once(" [") else { return Self::from_text(jid, text) };
-		let Some((tag, preview)) = rest.split_once("]: ").or_else(|| rest.split_once(']')) else {
-			return Self::from_text(jid, text);
+	/// A Status tab row: "Mum [New]: 3 updates, 2 new, 10:02 AM", "My
+	/// status: at the beach, 9:00 AM", or a heading ("Recent"). `segments`
+	/// is (updates, unseen), drawn as WhatsApp's ring split in one arc per
+	/// update with the unseen ones green.
+	pub(crate) fn for_status(jid: &str, text: &str, segments: (u16, u16)) -> Self {
+		if jid.is_empty() {
+			return Self { title: text.to_string(), heading: true, ..Default::default() };
+		}
+		let (name, tag, preview) = match text.split_once(" [") {
+			Some((name, rest)) => match rest.split_once("]: ").or_else(|| rest.split_once(']')) {
+				Some((tag, preview)) => (name, tag, preview),
+				None => return Self::from_text(jid, text),
+			},
+			None => match text.split_once(": ") {
+				Some((name, preview)) => (name, "", preview),
+				None => return Self::from_text(jid, text),
+			},
 		};
 		Self {
 			jid: jid.to_string(),
 			title: name.to_string(),
 			preview: preview.trim_start_matches(": ").to_string(),
 			ring: Some(tag.starts_with("New")),
+			segments,
 			..Default::default()
 		}
 	}
@@ -465,21 +481,18 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 
 	let avatar_top = (height - size) / 2;
 	if let Some(new) = art.ring {
-		let ring = if !theme::use_custom_colours() {
-			let t = if new { c.text.0 } else { c.muted.0 };
-			(t as u8, (t >> 8) as u8, (t >> 16) as u8)
-		} else if new {
-			(Palette::ACCENT().r, Palette::ACCENT().g, Palette::ACCENT().b)
+		let (seen_colour, new_colour) = if !theme::use_custom_colours() {
+			let (t, m) = (c.text.0, c.muted.0);
+			((m as u8, (m >> 8) as u8, (m >> 16) as u8), (t as u8, (t >> 8) as u8, (t >> 16) as u8))
 		} else {
-			theme::tuple(Palette::WAVE())
+			(theme::tuple(Palette::WAVE()), (Palette::ACCENT().r, Palette::ACCENT().g, Palette::ACCENT().b))
 		};
-		let b = c.background.0;
-		let inside = (b as u8, (b >> 8) as u8, (b >> 16) as u8);
-		for (inset, colour) in [(-3, ring), (-1, inside)] {
-			let d = size - 2 * inset;
-			if let Some(circle) = gdi::round_rect(d, d, d as f32 / 2.0, colour) {
-				circle.draw(dc, pad + inset, avatar_top + inset);
-			}
+		let (total, unseen) = art.segments;
+		let (total, unseen) = if total == 0 { (1, u16::from(new)) } else { (total, unseen.min(total)) };
+		let d = size + 6;
+		let rgba = gdi::segmented_ring_rgba(d, 2.0, total as usize, (total - unseen) as usize, seen_colour, new_colour);
+		if let Some(ring) = gdi::Bitmap::from_rgba(d, d, &rgba) {
+			ring.draw(dc, pad - 3, avatar_top - 3);
 		}
 	}
 	let drawn = avatars::with_avatar(&art.jid, size, |avatar| match avatar {
@@ -678,9 +691,12 @@ mod tests {
 
 	#[test]
 	fn a_new_status_gets_a_green_ring() {
-		let art = RowArt::for_status("x", "Mum [New]: at the beach, 10:02 AM");
+		let art = RowArt::for_status("x", "Mum [New]: at the beach, 10:02 AM", (1, 1));
 		assert_eq!((art.title.as_str(), art.ring), ("Mum", Some(true)));
-		assert_eq!(RowArt::for_status("x", "Mum [Viewed, muted]: Media").ring, Some(false));
+		assert_eq!(RowArt::for_status("x", "Mum [Viewed, muted]: Media", (0, 0)).ring, Some(false));
+		let mine = RowArt::for_status("me", "My status: 3 updates, 9:00 AM", (3, 0));
+		assert_eq!((mine.title.as_str(), mine.preview.as_str()), ("My status", "3 updates, 9:00 AM"));
+		assert!(RowArt::for_status("", "Recent", (0, 0)).heading);
 	}
 
 	#[test]

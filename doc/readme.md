@@ -266,7 +266,9 @@ In the Calls section, select a call under Recent calls and press `Delete`, or op
 - `Call -> Join Call Link...` joins a call from a link.
 
 ## Status
-The Status section shows the status updates of your contacts. Press `Enter` on an update to open the status viewer. The viewer plays the updates one after another.
+The Status section shows the status updates of your contacts, one row for each person, the same as WhatsApp Web. Your own updates are first, as `My status`. Then come the headings `Recent` (people with updates that you did not see yet), `Viewed`, and `Muted`. A row says how many updates the person posted, how many are new, and the time of the newest one. A person with one update shows that update, as before.
+
+Press `Enter` on a row to open the status viewer. The viewer starts at the first update of that person that you did not see, and plays the updates one after another. After the last update of a person, it continues with the next person in the same part of the list. `My status` plays only your own updates.
 
 | Key | Action |
 |---|---|
@@ -275,7 +277,7 @@ The Status section shows the status updates of your contacts. Press `Enter` on a
 | `Space` | Pause or continue. |
 | `Escape` | Close the viewer. |
 
-In the viewer, you can reply, react, open the chat, and mute the person. For your own updates, you can see who viewed them and delete them.
+In the viewer, you can reply, react, open the chat, and mute the person. For your own updates, you can see who viewed them and delete them. The context menu of a row has the same actions. On `My status`, if you have more than one update, `Viewed by...` and `Delete...` ask which update you mean.
 
 To post a status, use `Post Status Update...` for text, or `Post Photo/Video Status...`.
 

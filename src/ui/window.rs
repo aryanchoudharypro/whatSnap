@@ -921,7 +921,18 @@ pub fn bind_input_handlers(
 				};
 				Some(art)
 			}
-			_ if in_step && s.active_tab == 1 => Some(crate::ui::chat_rows::RowArt::for_status(jid, text)),
+			_ if in_step && s.active_tab == 1 => {
+				let segments = s
+					.status_groups
+					.iter()
+					.find(|g| !jid.is_empty() && g.poster_jid == jid)
+					.map(|g| {
+						let unseen = if g.from_me { 0 } else { g.items.iter().filter(|it| !it.viewed).count() };
+						(g.items.len().min(u16::MAX as usize) as u16, unseen.min(u16::MAX as usize) as u16)
+					})
+					.unwrap_or((0, 0));
+				Some(crate::ui::chat_rows::RowArt::for_status(jid, text, segments))
+			}
 			_ if in_step && s.active_tab == 6 => Some(crate::ui::chat_rows::RowArt::for_call(jid, text)),
 			_ => Some(crate::ui::chat_rows::RowArt::from_text(jid, text)),
 		}
@@ -1742,7 +1753,11 @@ pub fn bind_input_handlers(
 				s.selected_chat.clone().map(|jid| {
 					let on = s.settings.toggle_chat_announce(&jid);
 					s.settings.save();
-					if on { "New messages in this chat will be read aloud." } else { "New messages in this chat won't be read aloud." }
+					if on {
+						"New messages in this chat will be read aloud."
+					} else {
+						"New messages in this chat won't be read aloud."
+					}
 				})
 			};
 			if let Some(said) = said {
@@ -3369,8 +3384,7 @@ pub fn bind_input_handlers(
 							seconds: 0,
 						});
 					} else if id == read_id {
-						let _ =
-							ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: is_unread });
+						let _ = ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: is_unread });
 					} else if id == delete_id {
 						if is_group {
 							let choices: Vec<&str> = vec!["Delete chat only", "Delete chat and exit group"];

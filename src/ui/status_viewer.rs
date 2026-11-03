@@ -42,7 +42,10 @@ struct Viewer {
 	state: Rc<RefCell<AppState>>,
 	dialog: Dialog,
 	announcer: StaticText,
+	bar: Panel,
+	avatar: Panel,
 	header: StaticText,
+	stage: Panel,
 	content: TextCtrl,
 	photo: StaticBitmap,
 	player: Rc<MediaPlayer>,
@@ -64,6 +67,9 @@ struct Viewer {
 	delete_btn: Button,
 	save_btn: Button,
 	timer: Timer<Dialog>,
+	bar_timer: Timer<Dialog>,
+	run: Cell<Run>,
+	picture: RefCell<Option<(String, Option<wxdragon::bitmap::Bitmap>)>>,
 	entries: RefCell<Vec<Entry>>,
 	index: Cell<usize>,
 	paused: Cell<bool>,
@@ -88,10 +94,20 @@ fn argb(colour: u32) -> Colour {
 	Colour::rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8)
 }
 
-fn entries(s: &AppState) -> Vec<Entry> {
-	s.status_groups
-		.iter()
-		.flat_map(|g| {
+/// The updates the viewer plays, in the Status tab's order: like WA Web,
+/// opening someone plays their updates and goes on through the other
+/// people in the same part of the list (Recent, Viewed or Muted), and your
+/// own row plays only your own updates.
+fn entries(s: &AppState, start_id: &str) -> Vec<Entry> {
+	use crate::ui_commands::status_extras::{section_of, sorted_groups};
+	let Some(section) = s.status_groups.iter().find(|g| g.items.iter().any(|it| it.id == start_id)).map(section_of)
+	else {
+		return Vec::new();
+	};
+	sorted_groups(&s.status_groups)
+		.into_iter()
+		.filter(|(sec, _)| *sec == section)
+		.flat_map(|(_, g)| {
 			g.items.iter().map(move |it| Entry {
 				poster_jid: g.poster_jid.clone(),
 				poster_name: g.poster_name.clone(),
@@ -126,15 +142,19 @@ fn show_ms(entry: &Entry) -> i32 {
 pub(crate) fn show(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, start_id: &str) -> ViewerOutcome {
 	let (list, auto) = {
 		let s = state.borrow();
-		(entries(&s), s.settings.status_auto_advance)
+		(entries(&s, start_id), s.settings.status_auto_advance)
 	};
 	let Some(start) = list.iter().position(|e| e.id == start_id) else { return ViewerOutcome::Closed };
 	let viewer = build(state, parts, list, auto);
 	OPEN.with(|open| *open.borrow_mut() = Some(viewer.clone()));
 	viewer.show_entry(start);
 	viewer.next_btn.set_focus();
+	if theme::use_custom_colours() {
+		viewer.bar_timer.start(100, false);
+	}
 	viewer.dialog.show_modal();
 	OPEN.with(|open| open.borrow_mut().take());
+	viewer.bar_timer.stop();
 	viewer.timer.stop();
 	viewer.player.stop();
 	// A dialog built per use must be destroyed, or it and every closure bound
@@ -143,14 +163,40 @@ pub(crate) fn show(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, start
 	viewer.outcome.borrow_mut().take().unwrap_or(ViewerOutcome::Closed)
 }
 
+/// WhatsApp's status viewer is dark whichever theme the app uses, like the
+/// call screen; a shade off the palette on purpose so a theme change
+/// (which swaps palette colours) leaves it alone.
+pub(crate) const STAGE_BG: Colour = Colour::rgb(0x0C, 0x15, 0x1B);
+pub(crate) const STAGE_TEXT: Colour = Colour::rgb(0xE9, 0xED, 0xEE);
+pub(crate) const STAGE_MUTED: Colour = Colour::rgb(0x8C, 0x9C, 0xA6);
+const AVATAR_SIDE: i32 = 40;
+
+fn on_stage(widget: &impl WxWidget, text: Colour) {
+	if theme::use_custom_colours() {
+		widget.set_background_color(STAGE_BG);
+		widget.set_foreground_color(text);
+	}
+}
+
+/// Keeps a label's text (it names the control after it for a screen
+/// reader) while taking no room, as WhatsApp shows no such label.
+fn hide_visually(label: &StaticText) {
+	if theme::use_custom_colours() {
+		label.set_min_size(Size::new(1, 1));
+		label.set_size(Size::new(1, 1));
+	}
+}
+
 fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry>, auto: bool) -> Rc<Viewer> {
 	let dialog = Dialog::builder(&parts.frame, "Status")
 		.with_size(820, 760)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder | DialogStyle::MaximizeBox)
 		.build();
 	theme::style_content(&dialog);
+	on_stage(&dialog, STAGE_TEXT);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
+	on_stage(&panel, STAGE_TEXT);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	// The dialog is the foreground window while it's up, so its own live
@@ -159,51 +205,100 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 	live_region::set_live_region(&announcer);
 	sizer.add(&announcer, 0, SizerFlag::All, 0);
 
+	// WhatsApp's top strip: one bar per update from this person, filling as
+	// each one plays, then their picture beside the name and time. Only
+	// painted; the header text below is what a screen reader reads.
+	let bar = Panel::builder(&panel).build();
+	on_stage(&bar, STAGE_TEXT);
+	bar.set_min_size(Size::new(-1, 12));
+	sizer.add(&bar, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	let header_row = BoxSizer::builder(Orientation::Horizontal).build();
+	let avatar = Panel::builder(&panel).build();
+	on_stage(&avatar, STAGE_TEXT);
+	avatar.set_min_size(Size::new(AVATAR_SIDE, AVATAR_SIDE));
+	header_row.add(&avatar, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 10);
+	avatar.show(theme::use_custom_colours());
 	let header = StaticText::builder(&panel).with_label("").build();
 	theme::style_heading(&header);
-	sizer.add(&header, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	on_stage(&header, STAGE_TEXT);
+	header_row.add(&header, 1, SizerFlag::AlignCenterVertical, 0);
+	sizer.add_sizer(&header_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	// The update itself: a text update's text (drawn in its colours), or
-	// what a photo or video is and its caption. Read-only, so a screen
-	// reader can go through it line by line.
-	let content_label = StaticText::builder(&panel).with_label("Status &update").build();
+	// The stage: a text update's text in its colours filling it, or a photo
+	// or video with its caption under it. The text is read-only, so a
+	// screen reader can go through it line by line.
+	let stage_row = BoxSizer::builder(Orientation::Horizontal).build();
+	let stage = Panel::builder(&panel).build();
+	on_stage(&stage, STAGE_TEXT);
+	let stage_column = BoxSizer::builder(Orientation::Vertical).build();
+	let content_label = StaticText::builder(&stage).with_label("Status &update").build();
 	theme::style_muted_label(&content_label);
-	sizer.add(&content_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let content = TextCtrl::builder(&panel)
-		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::Rich2)
+	on_stage(&content_label, STAGE_MUTED);
+	hide_visually(&content_label);
+	stage_column.add(&content_label, 0, SizerFlag::Left, 0);
+
+	let content = TextCtrl::builder(&stage)
+		.with_style(
+			TextCtrlStyle::MultiLine
+				| TextCtrlStyle::ReadOnly
+				| TextCtrlStyle::Rich2
+				| TextCtrlStyle::Centre
+				| borderless(),
+		)
 		.build();
 	content.set_font(&theme::Fonts::body());
 	content.set_min_size(Size::new(-1, 70));
-	sizer.add(&content, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	on_stage(&content, STAGE_TEXT);
 
 	let empty = wxdragon::bitmap::Bitmap::from_rgba(&[0, 0, 0, 0], 1, 1).expect("1x1 bitmap");
 	let photo =
-		StaticBitmap::builder(&panel).with_bitmap(Some(empty)).with_scale_mode(Some(ScaleMode::AspectFit)).build();
+		StaticBitmap::builder(&stage).with_bitmap(Some(empty)).with_scale_mode(Some(ScaleMode::AspectFit)).build();
+	on_stage(&photo, STAGE_TEXT);
 	photo.set_min_size(Size::new(480, 320));
-	sizer.add(&photo, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	photo.show(false);
 
-	let player = MediaPlayer::build(&panel, &sizer, announcer);
+	let player_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let player = MediaPlayer::build(&stage, &player_sizer, announcer);
 	player.panel.show(false);
 
-	let nav_row = BoxSizer::builder(Orientation::Horizontal).build();
+	// Built in the order a screen reader and Tab go through them (the label
+	// right before the update it names, then the player), laid out as
+	// WhatsApp does: the media first, its caption below.
+	stage_column.add(&photo, 4, SizerFlag::Expand, 0);
+	stage_column.add_sizer(&player_sizer, 4, SizerFlag::Expand, 0);
+	stage_column.add(&content, 1, SizerFlag::Expand | SizerFlag::Top, 6);
+	stage.set_sizer(stage_column, true);
+
 	let prev_btn = Button::builder(&panel).with_label("&Previous").build();
-	nav_row.add(&prev_btn, 0, SizerFlag::Right, 8);
 	let pause_btn = Button::builder(&panel).with_label("Pa&use").build();
-	nav_row.add(&pause_btn, 0, SizerFlag::Right, 8);
 	let next_btn = Button::builder(&panel).with_label("&Next").build();
-	theme::style_primary_button(&next_btn);
-	nav_row.add(&next_btn, 0, SizerFlag::Right, 16);
-	let auto_check = CheckBox::builder(&panel).with_label("Play next update &automatically").build();
+	for btn in [&prev_btn, &pause_btn, &next_btn] {
+		crate::ui::owner_draw::install_icon_button(btn, STAGE_BG);
+	}
+	stage_row.add(&prev_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+	stage_row.add(&stage, 1, SizerFlag::Expand, 0);
+	stage_row.add(&next_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
+	header_row.add(&pause_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
+	sizer.add_sizer(&stage_row, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	// A native check box can't draw light text on the dark stage without
+	// losing its check box role, so it sits on a light chip of its own.
+	let auto_panel = Panel::builder(&panel).build();
+	theme::style_sidebar(&auto_panel);
+	let auto_row = BoxSizer::builder(Orientation::Horizontal).build();
+	let auto_check = CheckBox::builder(&auto_panel).with_label("Play next update &automatically").build();
 	auto_check.set_value(auto);
-	nav_row.add(&auto_check, 0, SizerFlag::AlignCenterVertical, 0);
-	sizer.add_sizer(&nav_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+	auto_row.add(&auto_check, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 6);
+	auto_panel.set_sizer(auto_row, true);
 
 	let reactions_panel = Panel::builder(&panel).build();
-	theme::style_content(&reactions_panel);
+	on_stage(&reactions_panel, STAGE_TEXT);
 	let reactions_row = BoxSizer::builder(Orientation::Horizontal).build();
+	reactions_row.add_stretch_spacer(1);
 	let reactions_label = StaticText::builder(&reactions_panel).with_label("React:").build();
 	theme::style_muted_label(&reactions_label);
+	on_stage(&reactions_label, STAGE_MUTED);
 	reactions_row.add(&reactions_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
 	let reaction_btns: Vec<Button> = STATUS_REACTIONS
 		.iter()
@@ -214,48 +309,63 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 			btn
 		})
 		.collect();
+	reactions_row.add_stretch_spacer(1);
 	reactions_panel.set_sizer(reactions_row, true);
 	sizer.add(&reactions_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
+	// WhatsApp's reply bar: a round dark box with the field in it.
 	let reply_panel = Panel::builder(&panel).build();
-	theme::style_content(&reply_panel);
+	on_stage(&reply_panel, STAGE_TEXT);
 	let reply_row = BoxSizer::builder(Orientation::Horizontal).build();
 	let open_chat_btn = Button::builder(&reply_panel).with_label("&Open chat").build();
 	reply_row.add(&open_chat_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
 	let reply_label = StaticText::builder(&reply_panel).with_label("&Reply").build();
 	theme::style_muted_label(&reply_label);
+	on_stage(&reply_label, STAGE_MUTED);
 	reply_row.add(&reply_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
-	let reply_field = TextCtrl::builder(&reply_panel).with_style(TextCtrlStyle::ProcessEnter).build();
+	let reply_field = TextCtrl::builder(&reply_panel).with_style(TextCtrlStyle::ProcessEnter | borderless()).build();
 	reply_field.set_font(&theme::Fonts::body());
-	reply_row.add(&reply_field, 1, SizerFlag::Expand | SizerFlag::Right, 8);
+	if theme::use_custom_colours() {
+		reply_field.set_background_color(REPLY_BOX);
+		reply_field.set_foreground_color(STAGE_TEXT);
+	}
+	reply_row.add(&reply_field, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left | SizerFlag::Right, 14);
 	let reply_send_btn = Button::builder(&reply_panel).with_label("Send reply").build();
+	crate::ui::owner_draw::install_icon_button(&reply_send_btn, STAGE_BG);
 	reply_row.add(&reply_send_btn, 0, SizerFlag::AlignCenterVertical, 0);
 	reply_panel.set_sizer(reply_row, true);
+	paint_reply_box(&reply_panel, reply_field);
 	sizer.add(&reply_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let viewers_panel = Panel::builder(&panel).build();
-	theme::style_content(&viewers_panel);
+	on_stage(&viewers_panel, STAGE_TEXT);
 	let viewers_column = BoxSizer::builder(Orientation::Vertical).build();
 	let viewers_label = StaticText::builder(&viewers_panel).with_label("&Viewed by").build();
 	theme::style_muted_label(&viewers_label);
+	on_stage(&viewers_label, STAGE_MUTED);
 	viewers_column.add(&viewers_label, 0, SizerFlag::Bottom, 4);
 	let viewers_list = ListBox::builder(&viewers_panel).build();
 	viewers_list.set_font(&theme::Fonts::body());
 	viewers_list.set_min_size(Size::new(-1, 110));
+	if theme::use_custom_colours() {
+		viewers_list.set_background_color(REPLY_BOX);
+		viewers_list.set_foreground_color(STAGE_TEXT);
+	}
 	viewers_column.add(&viewers_list, 0, SizerFlag::Expand, 0);
 	viewers_panel.set_sizer(viewers_column, true);
 	sizer.add(&viewers_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let more_row = BoxSizer::builder(Orientation::Horizontal).build();
-	let mute_btn = Button::builder(&panel).with_label("&Mute").build();
-	more_row.add(&mute_btn, 0, SizerFlag::Right, 8);
-	let delete_btn = Button::builder(&panel).with_label("&Delete...").build();
-	more_row.add(&delete_btn, 0, SizerFlag::Right, 8);
-	let save_btn = Button::builder(&panel).with_label("&Save as...").build();
-	more_row.add(&save_btn, 0, SizerFlag::Right, 8);
+	more_row.add(&auto_panel, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 16);
 	more_row.add_stretch_spacer(1);
+	let mute_btn = Button::builder(&panel).with_label("&Mute").build();
+	more_row.add(&mute_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+	let delete_btn = Button::builder(&panel).with_label("&Delete...").build();
+	more_row.add(&delete_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+	let save_btn = Button::builder(&panel).with_label("&Save as...").build();
+	more_row.add(&save_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	more_row.add(&close_btn, 0, SizerFlag::Left, 0);
+	more_row.add(&close_btn, 0, SizerFlag::AlignCenterVertical, 0);
 	sizer.add_sizer(&more_row, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
 	panel.set_sizer(sizer, true);
@@ -268,7 +378,10 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 		state: state.clone(),
 		dialog,
 		announcer,
+		bar,
+		avatar,
 		header,
+		stage,
 		content,
 		photo,
 		player,
@@ -290,6 +403,9 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 		delete_btn,
 		save_btn,
 		timer: Timer::new(&dialog),
+		bar_timer: Timer::new(&dialog),
+		run: Cell::new(Run::default()),
+		picture: RefCell::new(None),
 		entries: RefCell::new(list),
 		index: Cell::new(0),
 		paused: Cell::new(false),
@@ -297,7 +413,162 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 		outcome: RefCell::new(None),
 	});
 	bind(&viewer, close_btn);
+	paint_stage(&viewer);
 	viewer
+}
+
+const REPLY_BOX: Colour = Colour::rgb(0x23, 0x2E, 0x35);
+const BORDER_NONE: i64 = 0x0020_0000;
+
+fn borderless() -> TextCtrlStyle {
+	if theme::use_custom_colours() { TextCtrlStyle::from_bits_retain(BORDER_NONE) } else { TextCtrlStyle::Default }
+}
+
+fn paint_reply_box(panel: &Panel, field: TextCtrl) {
+	if !theme::use_custom_colours() {
+		return;
+	}
+	let panel_c = *panel;
+	panel.set_background_style(BackgroundStyle::Paint);
+	panel.on_paint(move |_| {
+		let dc = AutoBufferedPaintDC::new(&panel_c);
+		let size = panel_c.get_client_size();
+		dc.set_brush(STAGE_BG, BrushStyle::Solid);
+		dc.set_pen(STAGE_BG, 1, PenStyle::Solid);
+		dc.draw_rectangle(0, 0, size.width, size.height);
+		if !field.is_shown() {
+			return;
+		}
+		let (p, s) = (field.get_position(), field.get_size());
+		let (x, y, w, h) = (p.x - 14, p.y - 8, s.width + 28, s.height + 16);
+		if field.has_focus() {
+			dc.set_brush(STAGE_TEXT, BrushStyle::Solid);
+			dc.set_pen(STAGE_TEXT, 1, PenStyle::Solid);
+			dc.draw_rounded_rectangle(x - 2, y - 2, w + 4, h + 4, (h + 4) as f64 / 2.0);
+		}
+		dc.set_brush(REPLY_BOX, BrushStyle::Solid);
+		dc.set_pen(REPLY_BOX, 1, PenStyle::Solid);
+		dc.draw_rounded_rectangle(x, y, w, h, h as f64 / 2.0);
+	});
+	field.on_set_focus(move |event| {
+		panel_c.refresh(false, None);
+		event.skip(true);
+	});
+	field.on_kill_focus(move |event| {
+		panel_c.refresh(false, None);
+		event.skip(true);
+	});
+	panel.on_size(move |event| {
+		panel_c.refresh(true, None);
+		event.skip(true);
+	});
+}
+
+/// Paints the progress bars, the poster's picture and, for a text update,
+/// the stage in the poster's colour around the text.
+fn paint_stage(viewer: &Rc<Viewer>) {
+	if !theme::use_custom_colours() {
+		return;
+	}
+	let weak = Rc::downgrade(viewer);
+	let bar = viewer.bar;
+	bar.set_background_style(BackgroundStyle::Paint);
+	bar.on_paint(move |_| {
+		let dc = AutoBufferedPaintDC::new(&bar);
+		let size = bar.get_client_size();
+		dc.set_brush(STAGE_BG, BrushStyle::Solid);
+		dc.set_pen(STAGE_BG, 1, PenStyle::Solid);
+		dc.draw_rectangle(0, 0, size.width, size.height);
+		let Some(v) = weak.upgrade() else { return };
+		let Some(entry) = v.current() else { return };
+		let (at, count) = v.position_in_group(&entry);
+		let fraction = v.fraction();
+		let gap = 4;
+		let count = count.max(1) as i32;
+		let width = ((size.width - gap * (count - 1)) / count).max(1);
+		let (top, height) = ((size.height - 3) / 2, 3);
+		for i in 0..count {
+			let x = i * (width + gap);
+			dc.set_brush(BAR_EMPTY, BrushStyle::Solid);
+			dc.set_pen(BAR_EMPTY, 1, PenStyle::Solid);
+			dc.draw_rounded_rectangle(x, top, width, height, 1.5);
+			let filled = match (i + 1).cmp(&(at as i32)) {
+				std::cmp::Ordering::Less => width,
+				std::cmp::Ordering::Equal => (width as f64 * fraction).round() as i32,
+				std::cmp::Ordering::Greater => 0,
+			};
+			if filled > 0 {
+				dc.set_brush(STAGE_TEXT, BrushStyle::Solid);
+				dc.set_pen(STAGE_TEXT, 1, PenStyle::Solid);
+				dc.draw_rounded_rectangle(x, top, filled, height, 1.5);
+			}
+		}
+	});
+
+	let weak = Rc::downgrade(viewer);
+	let avatar = viewer.avatar;
+	avatar.set_background_style(BackgroundStyle::Paint);
+	avatar.on_paint(move |_| {
+		let dc = AutoBufferedPaintDC::new(&avatar);
+		let size = avatar.get_client_size();
+		dc.set_brush(STAGE_BG, BrushStyle::Solid);
+		dc.set_pen(STAGE_BG, 1, PenStyle::Solid);
+		dc.draw_rectangle(0, 0, size.width, size.height);
+		let Some(v) = weak.upgrade() else { return };
+		let Some(entry) = v.current() else { return };
+		let side = size.width.min(size.height);
+		if let Some(picture) = v.picture_for(&entry.poster_jid, side) {
+			dc.draw_bitmap(&picture, 0, (size.height - side) / 2, true);
+			return;
+		}
+		dc.set_brush(AVATAR_EMPTY, BrushStyle::Solid);
+		dc.set_pen(AVATAR_EMPTY, 1, PenStyle::Solid);
+		dc.draw_circle(side / 2, size.height / 2, side / 2);
+		let initial: String = entry.poster_name.chars().find(|c| c.is_alphanumeric()).into_iter().collect();
+		dc.set_font(&theme::Fonts::body_strong());
+		dc.set_text_foreground(STAGE_TEXT);
+		let (tw, th) = dc.get_text_extent(&initial);
+		dc.draw_text(&initial, (side - tw) / 2, (size.height - th) / 2);
+	});
+
+	let weak = Rc::downgrade(viewer);
+	let stage = viewer.stage;
+	stage.set_background_style(BackgroundStyle::Paint);
+	stage.on_paint(move |_| {
+		let dc = AutoBufferedPaintDC::new(&stage);
+		let size = stage.get_client_size();
+		let colour = weak
+			.upgrade()
+			.and_then(|v| v.current())
+			.filter(|e| e.media_type.is_empty())
+			.map_or(STAGE_BG, |e| argb(if e.background == 0 { DEFAULT_BACKGROUND } else { e.background }));
+		dc.set_brush(colour, BrushStyle::Solid);
+		dc.set_pen(colour, 1, PenStyle::Solid);
+		dc.draw_rounded_rectangle(0, 0, size.width, size.height, 8.0);
+	});
+	stage.on_size(move |event| {
+		stage.refresh(true, None);
+		event.skip(true);
+	});
+
+	let weak = Rc::downgrade(viewer);
+	viewer.bar_timer.on_tick(move |_| {
+		if let Some(v) = weak.upgrade() {
+			v.bar.refresh(false, None);
+		}
+	});
+}
+
+const BAR_EMPTY: Colour = Colour::rgb(0x4A, 0x55, 0x5C);
+const AVATAR_EMPTY: Colour = Colour::rgb(0x6A, 0x71, 0x76);
+
+/// The plain-timer side of an update that isn't a video: how long it shows
+/// and how much of that is left, so a pause carries on where it stopped.
+#[derive(Clone, Copy, Default)]
+struct Run {
+	total_ms: i32,
+	left_ms: i32,
+	started: Option<std::time::Instant>,
 }
 
 fn bind(viewer: &Rc<Viewer>, close_btn: Button) {
@@ -423,6 +694,7 @@ impl Viewer {
 		let Some(entry) = self.entries.borrow().get(index).cloned() else { return };
 		self.index.set(index);
 		self.timer.stop();
+		self.run.set(Run::default());
 		self.player.stop();
 		*self.media_path.borrow_mut() = None;
 		self.reply_field.set_value("");
@@ -452,11 +724,16 @@ impl Viewer {
 			self.content.set_font(&theme::Fonts::heading());
 			self.content.set_min_size(Size::new(-1, 220));
 		} else {
+			// The caption under the media, light on the dark stage.
 			theme::style_content(&self.content);
+			on_stage(&self.content, STAGE_TEXT);
 			self.content.set_font(&theme::Fonts::body());
-			self.content.set_min_size(Size::new(-1, 70));
+			self.content.set_min_size(Size::new(-1, 50));
 		}
 		self.content.refresh(true, None);
+		self.stage.refresh(true, None);
+		self.avatar.refresh(false, None);
+		self.bar.refresh(false, None);
 
 		self.photo.show(false);
 		self.player.panel.show(false);
@@ -499,6 +776,10 @@ impl Viewer {
 		self.mark_viewed(&entry);
 	}
 
+	fn refresh_bar(&self) {
+		self.bar.refresh(false, None);
+	}
+
 	fn keep_focus(&self) {
 		use windows::Win32::{
 			Foundation::HWND,
@@ -538,10 +819,60 @@ impl Viewer {
 		send(&self.state, "mark_status_viewed", serde_json::json!({ "id": entry.id, "poster_jid": entry.poster_jid }));
 	}
 
+	/// Starts showing an update that isn't a video for its full time.
 	fn start_timer(&self, entry: &Entry) {
-		if self.auto_check.is_checked() && !self.paused.get() {
-			self.timer.start(show_ms(entry), true);
+		let total = show_ms(entry);
+		self.run.set(Run { total_ms: total, left_ms: total, started: None });
+		self.resume_run();
+	}
+
+	/// Carries on with what's left of the current update's time.
+	fn resume_run(&self) {
+		let mut run = self.run.get();
+		if run.started.is_some() || run.left_ms <= 0 || !self.auto_check.is_checked() || self.paused.get() {
+			return;
 		}
+		run.started = Some(std::time::Instant::now());
+		self.run.set(run);
+		self.timer.start(run.left_ms, true);
+	}
+
+	/// Stops the clock, keeping how much time the update has left.
+	fn halt_run(&self) {
+		self.timer.stop();
+		let mut run = self.run.get();
+		if let Some(started) = run.started.take() {
+			let spent = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
+			run.left_ms = (run.left_ms - spent).max(1);
+		}
+		self.run.set(run);
+	}
+
+	/// How far the current update has played, for the bar at the top.
+	fn fraction(&self) -> f64 {
+		if let Some(done) = self.player.progress() {
+			return done;
+		}
+		let run = self.run.get();
+		if run.total_ms <= 0 {
+			return 0.0;
+		}
+		let running = run.started.map_or(0, |t| t.elapsed().as_millis().min(i32::MAX as u128) as i32);
+		((run.total_ms - run.left_ms + running) as f64 / run.total_ms as f64).clamp(0.0, 1.0)
+	}
+
+	fn picture_for(&self, jid: &str, side: i32) -> Option<wxdragon::bitmap::Bitmap> {
+		if let Some((cached, picture)) = self.picture.borrow().as_ref()
+			&& cached == jid
+		{
+			return picture.clone();
+		}
+		// Not known yet: the avatar cache asks for it, and the next paint
+		// (the bar repaints every 100 ms) tries again.
+		let path = crate::ui::avatars::path_of(jid)?;
+		let picture = crate::ui::owner_draw::round_picture(&path, side.max(1) as u32);
+		*self.picture.borrow_mut() = Some((jid.to_string(), picture.clone()));
+		picture
 	}
 
 	fn advance_tick(&self) {
@@ -549,6 +880,8 @@ impl Viewer {
 			return;
 		}
 		if self.replying() {
+			// Wait while a reply is being typed, holding the bar full.
+			self.run.set(Run { total_ms: 1, left_ms: 1, started: None });
 			self.timer.start(2000, true);
 			return;
 		}
@@ -576,7 +909,7 @@ impl Viewer {
 		self.paused.set(paused);
 		self.pause_btn.set_label(if paused { "Res&ume" } else { "Pa&use" });
 		if paused {
-			self.timer.stop();
+			self.halt_run();
 			self.player.pause();
 			crate::platform::announce::announce(self.announcer, "Paused");
 		} else {
@@ -585,7 +918,11 @@ impl Viewer {
 			} else if let Some(entry) = self.current()
 				&& (entry.media_type.is_empty() || self.media_path.borrow().is_some())
 			{
-				self.start_timer(&entry);
+				if self.run.get().total_ms > 0 {
+					self.resume_run();
+				} else {
+					self.start_timer(&entry);
+				}
 			}
 			crate::platform::announce::announce(self.announcer, "Playing");
 		}
@@ -599,12 +936,16 @@ impl Viewer {
 			s.settings.save();
 		}
 		if !auto {
-			self.timer.stop();
+			self.halt_run();
 		} else if let Some(entry) = self.current()
 			&& !self.player.is_loaded()
 			&& (entry.media_type.is_empty() || self.media_path.borrow().is_some())
 		{
-			self.start_timer(&entry);
+			if self.run.get().total_ms > 0 {
+				self.resume_run();
+			} else {
+				self.start_timer(&entry);
+			}
 		}
 	}
 
@@ -693,13 +1034,13 @@ impl Viewer {
 		let ext = std::path::Path::new(&path).extension().and_then(|e| e.to_str()).unwrap_or("jpg").to_string();
 		let name = format!("Status {} {}.{}", entry.poster_name, entry.id, ext);
 		let was_playing = self.player.is_playing();
-		self.timer.stop();
+		self.halt_run();
 		self.player.pause();
 		crate::ui::video_player::save_copy(&self.dialog, &path, &safe_file_name(&name), self.announcer);
 		if was_playing {
 			self.player.play();
 		} else if !self.player.is_loaded() {
-			self.start_timer(&entry);
+			self.resume_run();
 		}
 	}
 
@@ -765,19 +1106,36 @@ impl Viewer {
 		self.dialog.layout();
 	}
 
+	/// A status update deleted while the viewer is up: by us (Delete), or
+	/// revoked by its poster. Like WA Web's revokeMsgs, it drops out of the
+	/// list and the viewer moves on to the next one.
 	fn remove(&self, id: &str) {
-		let Some(at) = self.entries.borrow().iter().position(|e| e.id == id) else { return };
 		let current = self.index.get();
-		self.entries.borrow_mut().remove(at);
-		if self.entries.borrow().is_empty() {
+		// Take what's needed and let go of `entries` before showing the next
+		// update: show_entry marks it viewed, which writes to `entries`, and a
+		// borrow still held here (it used to be, inside the show_entry call)
+		// panicked and took the app down.
+		let left = {
+			let mut entries = self.entries.borrow_mut();
+			let Some(at) = entries.iter().position(|e| e.id == id) else { return };
+			entries.remove(at);
+			(at, entries.len())
+		};
+		let (at, len) = left;
+		if len == 0 {
+			self.timer.stop();
+			self.player.stop();
 			self.dialog.end_modal(ID_CANCEL);
 			return;
 		}
 		if at == current {
 			crate::platform::announce::announce(self.announcer, "Status update deleted.");
-			self.show_entry(current.min(self.entries.borrow().len() - 1));
+			self.show_entry(current.min(len - 1));
 		} else if at < current {
 			self.index.set(current - 1);
+			self.refresh_bar();
+		} else {
+			self.refresh_bar();
 		}
 	}
 }

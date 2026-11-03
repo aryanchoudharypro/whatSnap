@@ -114,6 +114,10 @@ mod glyph {
 	pub const ADMIN: char = '\u{E8D7}';
 	pub const REMOVE_PERSON: char = '\u{E8E0}';
 	pub const LINK: char = '\u{E71B}';
+	pub const BACK: char = '\u{E76B}';
+	pub const FORWARD: char = '\u{E76C}';
+	pub const VOLUME: char = '\u{E767}';
+	pub const VOLUME_OFF: char = '\u{E74F}';
 }
 
 fn nav_look(text: &str) -> (Option<char>, &str, u32) {
@@ -139,7 +143,9 @@ fn nav_icon(name: &str) -> (Option<char>, &str) {
 }
 
 fn button_glyph(label: &str) -> Option<char> {
-	Some(match label {
+	// Labels may carry a keyboard shortcut ("Pa&use").
+	let label = label.replace('&', "");
+	Some(match label.as_str() {
 		"Search in conversation" => glyph::SEARCH,
 		"Call" => glyph::CALLS,
 		"Video call" => glyph::VIDEO,
@@ -149,8 +155,13 @@ fn button_glyph(label: &str) -> Option<char> {
 		"Record voice message" => glyph::MIC,
 		"Cancel edit" | "Remove quote" | "Close search" => glyph::CLOSE,
 		"Discard voice message" => glyph::DELETE,
-		"Pause recording" => glyph::PAUSE,
-		"Resume recording" => glyph::PLAY,
+		"Pause recording" | "Pause" => glyph::PAUSE,
+		"Resume recording" | "Resume" | "Play" => glyph::PLAY,
+		"Previous" => glyph::BACK,
+		"Next" => glyph::FORWARD,
+		"Mute" => glyph::VOLUME,
+		"Unmute" => glyph::VOLUME_OFF,
+		"Send reply" => glyph::SEND,
 		_ => return None,
 	})
 }
@@ -196,7 +207,7 @@ pub(crate) fn install_icon_button(button: &Button, background: Colour) {
 	let hwnd = hwnd_of(button);
 	make_owner_drawn_button(hwnd);
 	register(hwnd, Kind::Icon, background);
-	button.set_tooltip(&button.get_label());
+	button.set_tooltip(&button.get_label().replace('&', ""));
 	let side = button.get_char_height() * 2 + 10;
 	button.set_min_size(Size::new(side, side));
 }
@@ -859,7 +870,15 @@ fn paint_icon(
 	(pressed, focused, disabled): (bool, bool, bool),
 	background: Colour,
 ) {
-	let c = colours(background, false);
+	let mut c = colours(background, false);
+	// On a dark stage (status viewer, video player) in either theme: light
+	// icons, as WhatsApp draws them there.
+	if c.custom && is_dark(background) {
+		c.text = colorref(0xE9, 0xED, 0xEE);
+		c.muted = colorref(0x6B, 0x7A, 0x84);
+		c.pressed = colorref(0x3B, 0x4A, 0x54);
+		c.focus = colorref(0xE9, 0xED, 0xEE);
+	}
 	gdi::fill(dc, rect(0, 0, width, height), c.background);
 	let side = width.min(height) - 4;
 	let (x, y) = ((width - side) / 2, (height - side) / 2);
@@ -868,7 +887,7 @@ fn paint_icon(
 	} else if pressed {
 		blob(dc, x, y, side, side, c.pressed);
 	}
-	let send = matches!(label, "Send message" | "Send voice message");
+	let send = matches!(label, "Send message" | "Send voice message" | "Send reply");
 	let colour = if disabled {
 		c.muted
 	} else if send && c.custom {
@@ -878,7 +897,11 @@ fn paint_icon(
 	};
 	match (button_glyph(label), fonts.icons) {
 		(Some(g), Some(font)) => gdi::text(dc, font, colour, &g.to_string(), rect(0, 0, width, height), DT_CENTER),
-		_ => gdi::text(dc, fonts.body, colour, label, rect(2, 0, width - 2, height), DT_CENTER),
+		_ => {
+			// No icon (the player's "Speed 1.5x"): the words, shortest form.
+			let short = label.strip_prefix("Speed ").unwrap_or(label).replace('&', "");
+			gdi::text(dc, fonts.body, colour, &short, rect(2, 0, width - 2, height), DT_CENTER)
+		}
 	}
 }
 

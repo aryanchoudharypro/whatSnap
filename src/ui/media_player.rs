@@ -34,9 +34,20 @@ pub(crate) struct MediaPlayer {
 }
 
 impl MediaPlayer {
+	/// WhatsApp's player: the picture on black, and one dark bar under it
+	/// with play, the position and time, sound and speed. Built in the same
+	/// order as before, which is the order Tab and a screen reader go
+	/// through them; the labels naming the two sliders are kept but take no
+	/// room, as WhatsApp shows none.
 	pub(crate) fn build(parent: &Panel, sizer: &BoxSizer, announcer: StaticText) -> Rc<Self> {
+		use crate::ui::status_viewer::{STAGE_BG, STAGE_MUTED, STAGE_TEXT};
+		let custom = theme::use_custom_colours();
 		let panel = Panel::builder(parent).build();
 		theme::style_content(&panel);
+		if custom {
+			panel.set_background_color(STAGE_BG);
+			panel.set_foreground_color(STAGE_TEXT);
+		}
 		let column = BoxSizer::builder(Orientation::Vertical).build();
 
 		let video = Panel::builder(&panel).build();
@@ -44,31 +55,65 @@ impl MediaPlayer {
 		video.set_min_size(Size::new(480, 270));
 		column.add(&video, 1, SizerFlag::Expand | SizerFlag::Bottom, 8);
 
-		let position_row = BoxSizer::builder(Orientation::Horizontal).build();
+		let controls = BoxSizer::builder(Orientation::Horizontal).build();
 		let position_label = StaticText::builder(&panel).with_label("&Position").build();
 		theme::style_muted_label(&position_label);
-		position_row.add(&position_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
 		let position = Slider::builder(&panel).with_min_value(0).with_max_value(1).build();
-		position_row.add(&position, 1, SizerFlag::Expand | SizerFlag::Right, 8);
 		let time_text = StaticText::builder(&panel).with_label("0:00 of 0:00").build();
 		time_text.set_font(&theme::Fonts::body());
-		position_row.add(&time_text, 0, SizerFlag::AlignCenterVertical, 0);
-		column.add_sizer(&position_row, 0, SizerFlag::Expand | SizerFlag::Bottom, 8);
 
-		let button_row = BoxSizer::builder(Orientation::Horizontal).build();
 		let play_btn = Button::builder(&panel).with_label("Play").build();
-		theme::style_primary_button(&play_btn);
-		button_row.add(&play_btn, 0, SizerFlag::Right, 8);
 		let mute_btn = Button::builder(&panel).with_label("Mute").build();
-		button_row.add(&mute_btn, 0, SizerFlag::Right, 8);
 		let speed_btn = Button::builder(&panel).with_label("Speed 1x").build();
-		button_row.add(&speed_btn, 0, SizerFlag::Right, 16);
 		let volume_label = StaticText::builder(&panel).with_label("&Volume").build();
 		theme::style_muted_label(&volume_label);
-		button_row.add(&volume_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
 		let volume = Slider::builder(&panel).with_min_value(0).with_max_value(100).with_value(100).build();
-		button_row.add(&volume, 1, SizerFlag::Expand, 0);
-		column.add_sizer(&button_row, 0, SizerFlag::Expand, 0);
+
+		if custom {
+			for label in [&position_label, &volume_label] {
+				label.set_foreground_color(STAGE_MUTED);
+				label.set_min_size(Size::new(1, 1));
+				label.set_size(Size::new(1, 1));
+			}
+			time_text.set_foreground_color(STAGE_TEXT);
+			for slider in [&position, &volume] {
+				slider.set_background_color(STAGE_BG);
+			}
+			for btn in [&play_btn, &mute_btn, &speed_btn] {
+				crate::ui::owner_draw::install_icon_button(btn, STAGE_BG);
+			}
+			let side = speed_btn.get_min_size().height;
+			speed_btn.set_min_size(Size::new(side * 2, side));
+			volume.set_min_size(Size::new(90, -1));
+			controls.add(&play_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+			controls.add(&position_label, 0, SizerFlag::AlignCenterVertical, 0);
+			controls.add(&position, 1, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+			controls.add(&time_text, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
+			controls.add(&mute_btn, 0, SizerFlag::AlignCenterVertical, 0);
+			controls.add(&volume_label, 0, SizerFlag::AlignCenterVertical, 0);
+			controls.add(&volume, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+			controls.add(&speed_btn, 0, SizerFlag::AlignCenterVertical, 0);
+			column.add_sizer(
+				&controls,
+				0,
+				SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+				6,
+			);
+		} else {
+			// High contrast keeps the plain two-row layout in Windows' colours.
+			theme::style_primary_button(&play_btn);
+			controls.add(&position_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+			controls.add(&position, 1, SizerFlag::Expand | SizerFlag::Right, 8);
+			controls.add(&time_text, 0, SizerFlag::AlignCenterVertical, 0);
+			column.add_sizer(&controls, 0, SizerFlag::Expand | SizerFlag::Bottom, 8);
+			let button_row = BoxSizer::builder(Orientation::Horizontal).build();
+			button_row.add(&play_btn, 0, SizerFlag::Right, 8);
+			button_row.add(&mute_btn, 0, SizerFlag::Right, 8);
+			button_row.add(&speed_btn, 0, SizerFlag::Right, 16);
+			button_row.add(&volume_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+			button_row.add(&volume, 1, SizerFlag::Expand, 0);
+			column.add_sizer(&button_row, 0, SizerFlag::Expand, 0);
+		}
 
 		panel.set_sizer(column, true);
 		sizer.add(&panel, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
@@ -157,6 +202,14 @@ impl MediaPlayer {
 		self.position.set_value(0);
 		self.time_text.set_label("0:00 of 0:00");
 		self.play_btn.set_label("Play");
+	}
+
+	/// How far the video has played, 0 to 1, while one is loaded.
+	pub(crate) fn progress(&self) -> Option<f64> {
+		let engine = self.engine.borrow();
+		let engine = engine.as_ref()?;
+		let length = engine.duration();
+		Some(if length > 0.0 { (engine.position() / length).clamp(0.0, 1.0) } else { 0.0 })
 	}
 
 	pub(crate) fn is_loaded(&self) -> bool {

@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, Contact,
+	AppState, Contact, StatusGroup, StatusItem,
 	ui::{message_display::apply_chat_filter, window::WindowParts},
 };
 
@@ -25,31 +25,79 @@ fn announce(parts: &WindowParts, message: &str) {
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, message);
 }
 
+/// The parts of the Status tab, in WA Web's order: your own updates, then
+/// people with updates you haven't seen ("Recent"), people whose updates
+/// you've all seen ("Viewed"), and muted people last, whatever they posted.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Section {
+	Mine,
+	Recent,
+	Viewed,
+	Muted,
+}
+
+impl Section {
+	pub(crate) fn heading(self) -> Option<&'static str> {
+		match self {
+			Section::Mine => None,
+			Section::Recent => Some("Recent"),
+			Section::Viewed => Some("Viewed"),
+			Section::Muted => Some("Muted"),
+		}
+	}
+}
+
+pub(crate) fn section_of(group: &StatusGroup) -> Section {
+	if group.from_me {
+		Section::Mine
+	} else if group.muted {
+		Section::Muted
+	} else if group.items.iter().any(|it| !it.viewed) {
+		Section::Recent
+	} else {
+		Section::Viewed
+	}
+}
+
+fn latest(group: &StatusGroup) -> i64 {
+	group.items.iter().map(|it| it.timestamp).max().unwrap_or(0)
+}
+
+/// Each person's updates as one row, like WA Web's status list: sorted by
+/// section, then newest update first within a section. Empty groups (all
+/// their updates deleted) are left out.
+pub(crate) fn sorted_groups(groups: &[StatusGroup]) -> Vec<(Section, &StatusGroup)> {
+	let mut sorted: Vec<(Section, &StatusGroup)> =
+		groups.iter().filter(|g| !g.items.is_empty()).map(|g| (section_of(g), g)).collect();
+	let rank = |s: Section| s as u8;
+	sorted.sort_by(|(sa, a), (sb, b)| rank(*sa).cmp(&rank(*sb)).then_with(|| latest(b).cmp(&latest(a))));
+	sorted
+}
+
+/// Where a person's row opens the viewer, as WA Web does: at their first
+/// update you haven't seen, or their first update when you've seen them all.
+pub(crate) fn start_item(group: &StatusGroup) -> Option<&StatusItem> {
+	group.items.iter().find(|it| !it.viewed && !group.from_me).or_else(|| group.items.first())
+}
+
 struct Row {
 	poster_jid: String,
 	poster_name: String,
 	from_me: bool,
 	muted: bool,
-	id: String,
-	text: String,
-	media_type: String,
-	my_reaction: String,
+	items: Vec<StatusItem>,
 }
 
 fn row_at(s: &AppState, idx: usize) -> Option<Row> {
-	let poster_jid = s.filtered_chats.get(idx)?;
-	let id = s.filtered_status_message_ids.get(idx)?;
+	let poster_jid = s.filtered_chats.get(idx).filter(|j| !j.is_empty())?;
+	s.filtered_status_message_ids.get(idx).filter(|id| !id.is_empty())?;
 	let group = s.status_groups.iter().find(|g| &g.poster_jid == poster_jid)?;
-	let item = group.items.iter().find(|it| &it.id == id)?;
 	Some(Row {
 		poster_jid: poster_jid.clone(),
 		poster_name: group.poster_name.clone(),
 		from_me: group.from_me,
 		muted: group.muted,
-		id: id.clone(),
-		text: item.text.clone(),
-		media_type: item.media_type.clone(),
-		my_reaction: item.my_reaction.clone(),
+		items: group.items.clone(),
 	})
 }
 
@@ -58,8 +106,8 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	let mut builder = Menu::builder();
 	if row.from_me {
 		builder = builder
-			.append_item(VIEWERS, "&Viewed by...", "See who has seen this status update, and their reactions")
-			.append_item(DELETE, "&Delete...", "Delete this status update for everyone");
+			.append_item(VIEWERS, "&Viewed by...", "See who has seen one of your status updates, and their reactions")
+			.append_item(DELETE, "&Delete...", "Delete one of your status updates for everyone");
 	} else {
 		let mute = if row.muted {
 			format!("Un&mute {}'s status updates", row.poster_name)
@@ -67,8 +115,8 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 			format!("&Mute {}'s status updates", row.poster_name)
 		};
 		builder = builder
-			.append_item(REPLY, "&Reply...", "Reply to this status update in a chat with them")
-			.append_item(REACT, "Rea&ct...", "React to this status update")
+			.append_item(REPLY, "&Reply...", "Reply to their latest status update in a chat with them")
+			.append_item(REACT, "Rea&ct...", "React to their latest status update")
 			.append_item(MUTE, &mute, "Muted status updates are listed last");
 	}
 	builder = builder.append_item(PRIVACY, "Status &privacy...", "Choose who sees your status updates");
@@ -83,11 +131,16 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 
 fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32, row: &Row) {
 	match id {
-		REPLY => reply(state, parts, row),
+		REPLY => {
+			if let Some(item) = row.items.last() {
+				reply(state, parts, row, item);
+			}
+		}
 		REACT => {
+			let Some(item) = row.items.last() else { return };
 			let mut labels: Vec<String> = STATUS_REACTIONS.iter().map(|e| e.to_string()).collect();
-			if !row.my_reaction.is_empty() {
-				labels.push(format!("Remove my reaction ({})", row.my_reaction));
+			if !item.my_reaction.is_empty() {
+				labels.push(format!("Remove my reaction ({})", item.my_reaction));
 			}
 			let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 			let dialog = SingleChoiceDialog::builder(&parts.frame, "React with:", "React to Status", &refs).build();
@@ -96,11 +149,16 @@ fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32,
 			}
 			let Ok(choice) = usize::try_from(dialog.get_selection()) else { return };
 			let emoji = STATUS_REACTIONS.get(choice).copied().unwrap_or("");
-			send(state, "react_status", serde_json::json!({ "id": row.id, "emoji": emoji }));
+			send(state, "react_status", serde_json::json!({ "id": item.id, "emoji": emoji }));
 		}
 		MUTE => send(state, "set_status_mute", serde_json::json!({ "jid": row.poster_jid, "muted": !row.muted })),
-		VIEWERS => send(state, "get_status_viewers", serde_json::json!({ "id": row.id })),
+		VIEWERS => {
+			if let Some(item) = pick_update(parts, row, "Viewed By", "See who has seen:") {
+				send(state, "get_status_viewers", serde_json::json!({ "id": item.id }));
+			}
+		}
 		DELETE => {
+			let Some(item) = pick_update(parts, row, "Delete Status", "Delete which status update?") else { return };
 			let dialog = MessageDialog::builder(
 				&parts.frame,
 				"Delete this status update? It will be deleted for everyone who received it.",
@@ -110,7 +168,7 @@ fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32,
 			.build();
 			dialog.set_yes_no_labels("Delete", "Cancel");
 			if dialog.show_modal() == ID_YES {
-				send(state, "delete_status", serde_json::json!({ "id": row.id }));
+				send(state, "delete_status", serde_json::json!({ "id": item.id }));
 			}
 		}
 		PRIVACY => send(state, "get_status_privacy", serde_json::json!({})),
@@ -118,11 +176,50 @@ fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32,
 	}
 }
 
-fn reply(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, row: &Row) {
+/// What a status update is, in a few words: its text, or what kind of media.
+pub(crate) fn describe(item: &StatusItem) -> String {
+	match (item.media_type.as_str(), item.text.is_empty()) {
+		("", _) => item.text.clone(),
+		("video", true) => "Video".to_string(),
+		("video", false) => format!("Video: {}", item.text),
+		("image", true) => "Photo".to_string(),
+		("image", false) => format!("Photo: {}", item.text),
+		(_, true) => "Media".to_string(),
+		(_, false) => format!("Media: {}", item.text),
+	}
+}
+
+fn when(item: &StatusItem) -> String {
+	whatsnap::LocalTime::from_unix(item.timestamp).map(whatsnap::time_or_day).unwrap_or_default()
+}
+
+/// Your own row holds all your updates; with more than one, ask which,
+/// newest first like WA Web's My status list.
+fn pick_update<'a>(parts: &Rc<WindowParts>, row: &'a Row, title: &str, prompt: &str) -> Option<&'a StatusItem> {
+	if row.items.len() <= 1 {
+		return row.items.first();
+	}
+	let newest_first: Vec<&StatusItem> = row.items.iter().rev().collect();
+	let labels: Vec<String> = newest_first
+		.iter()
+		.map(|it| {
+			let views = if it.viewers == 1 { "1 view".to_string() } else { format!("{} views", it.viewers) };
+			format!("{}, {}, {}", describe(it), when(it), views)
+		})
+		.collect();
+	let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+	let dialog = SingleChoiceDialog::builder(&parts.frame, prompt, title, &refs).build();
+	if dialog.show_modal() != wxdragon::id::ID_OK {
+		return None;
+	}
+	usize::try_from(dialog.get_selection()).ok().and_then(|i| newest_first.get(i).copied())
+}
+
+fn reply(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, row: &Row, item: &StatusItem) {
 	crate::ui::chat_ui::open_chat_for_jid(&row.poster_jid, state, parts);
-	let what = if !row.text.is_empty() {
-		row.text.clone()
-	} else if row.media_type == "video" {
+	let what = if !item.text.is_empty() {
+		item.text.clone()
+	} else if item.media_type == "video" {
 		"Video".to_string()
 	} else {
 		"Photo".to_string()
@@ -130,7 +227,7 @@ fn reply(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, row: &Row) {
 	let preview = format!("Replying to {}'s status: {}", row.poster_name, what);
 	{
 		let mut s = state.borrow_mut();
-		s.pending_reply_id = Some(row.id.clone());
+		s.pending_reply_id = Some(item.id.clone());
 		s.pending_reply_sender = Some(row.poster_jid.clone());
 		s.pending_reply_preview = Some(preview.clone());
 	}
