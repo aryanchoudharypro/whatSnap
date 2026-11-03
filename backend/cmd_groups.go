@@ -94,6 +94,17 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 		if info.IsParent {
 			participants = append(slices.Clone(participants), communityMembers(jid, participants)...)
 		}
+		// WA Web lists Meta AI first when it's a member of the group
+		// (WAWebParticipantListUtils), named Meta AI with no number.
+		if i := slices.IndexFunc(participants, func(p types.GroupParticipant) bool {
+			bot := p.JID.ToNonAD()
+			return bot == types.NewMetaAIJID || bot == types.TeeMetaAIJID
+		}); i > 0 {
+			participants = slices.Clone(participants)
+			bot := participants[i]
+			copy(participants[1:i+1], participants[:i])
+			participants[0] = bot
+		}
 		participantsList := make([]map[string]interface{}, 0, len(participants))
 		noteParticipantLabels(jid, info.Participants)
 		labels := memberLabels(jid.String())

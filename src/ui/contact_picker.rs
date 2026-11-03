@@ -173,7 +173,8 @@ pub(crate) fn refresh_add_members_contacts_list(query: &str, state: &Rc<RefCell<
 	let mut all_labels = Vec::new();
 	let mut all_jids = Vec::new();
 	for contact in &s.all_contacts {
-		if existing_members.contains(&contact.jid) {
+		// WA Web's member picker leaves out bots, Meta AI included.
+		if existing_members.contains(&contact.jid) || contact.jid.ends_with("@bot") {
 			continue;
 		}
 		all_labels.push(contact_picker_label(contact));
