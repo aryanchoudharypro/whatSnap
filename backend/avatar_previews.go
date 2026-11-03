@@ -138,6 +138,13 @@ func fetchAvatarPreview(jid string) (path string, ok bool) {
 	if err != nil {
 		return "", false
 	}
+	if parsed.ToNonAD() == types.PSAJID || parsed.ToNonAD() == types.StatusBroadcastJID {
+		// The WhatsApp service chat and the status broadcast have no profile
+		// picture to ask for; the server never answers, and the queue would
+		// sit on the 20 s timeout every time.
+		storeAvatarPreview(jid, "", "")
+		return "", true
+	}
 	oldPath, oldID, _, cached := cachedAvatarPreview(jid)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
