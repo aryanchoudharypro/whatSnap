@@ -740,7 +740,7 @@ func handleMarkRead(raw json.RawMessage) {
 		if len(data.MessageIDs) == 0 {
 			db.Exec(`UPDATE messages SET read_at = ? WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), data.JID)
 		}
-		db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
+		db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ?", data.JID)
 		broadcastEvent("chat_updated", map[string]interface{}{
 			"jid":          data.JID,
 			"unread_count": 0,

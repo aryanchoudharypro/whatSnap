@@ -770,18 +770,28 @@ func handleSetChatRead(raw json.RawMessage) {
 	if err != nil {
 		return
 	}
+	if data.Value {
+		// WA Web's Mark as read (WAWebUpdateUnreadChatAction.markUnread with
+		// unread false -> sendConversationSeen) sends read receipts for the
+		// unread messages; the markChatAsRead mutation is only sent for a
+		// chat that was just marked unread with nothing really unread. The
+		// mutation alone isn't enough: another device only applies it fully
+		// when its range covers every message it has, otherwise it just
+		// clears a marked-unread flag and leaves the chat unread.
+		// handleMarkRead does both, the same way opening the chat does.
+		payload, _ := json.Marshal(map[string]string{"jid": data.JID})
+		handleMarkRead(payload)
+		db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ?", data.JID)
+		broadcastChats()
+		return
+	}
+	db.Exec("UPDATE chats SET unread_count = 1, marked_unread = 1 WHERE jid = ?", data.JID)
+	broadcastChats()
 	go func() {
 		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildMarkChatAsRead(syncdChatJID(jid), data.Value, last_ts, last_key), data.JID)); err != nil {
-			broadcastChats()
-			return
+		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildMarkChatAsRead(syncdChatJID(jid), false, last_ts, last_key), data.JID)); err != nil {
+			log.Printf("Marking %s unread on other devices failed: %v", data.JID, err)
 		}
-		if data.Value {
-			db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
-		} else {
-			db.Exec("UPDATE chats SET unread_count = 1, marked_unread = 1 WHERE jid = ?", data.JID)
-		}
-		broadcastChats()
 	}()
 }
 

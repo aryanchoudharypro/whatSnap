@@ -930,6 +930,7 @@ pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 			s.unread_counts.insert(jid.clone(), 1);
 		}
 		refresh_tray_tooltip(&s, parts);
+		apply_chat_filter(&mut s, parts);
 		s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
 	};
 	let payload = serde_json::json!({
