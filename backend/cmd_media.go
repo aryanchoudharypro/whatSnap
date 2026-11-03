@@ -78,9 +78,12 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 var (
 	activeDownloadsMu sync.Mutex
 	activeDownloads   = map[string]context.CancelFunc{}
-	// autoDownloadFailed holds the messages whose automatic download failed
-	// this session (guarded by activeDownloadsMu).
-	autoDownloadFailed = map[string]bool{}
+	// autoDownloadFailed caches auto_download_failed, the messages whose
+	// automatic download failed (guarded by activeDownloadsMu). It's kept in
+	// the database too, so the startup sticker pass doesn't try the same
+	// broken files on every launch.
+	autoDownloadFailed     = map[string]bool{}
+	autoDownloadFailedOnce sync.Once
 	activeUploadsMu   sync.Mutex
 	activeUploads     = map[string]context.CancelFunc{}
 	retryWaitersMu    sync.Mutex
@@ -256,6 +259,7 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 	// own; the message waits for the user to download it (WA Web's "tap to
 	// download", DownloadStage.NEED_POKE). Without this, the sticker panel
 	// and the startup sticker pass kept retrying the same files.
+	autoDownloadFailedOnce.Do(loadAutoDownloadFailed)
 	if auto && autoDownloadFailed[data.MessageID] {
 		activeDownloadsMu.Unlock()
 		return
@@ -270,8 +274,10 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 			delete(activeDownloads, data.MessageID)
 			if auto && failed {
 				autoDownloadFailed[data.MessageID] = true
+				db.Exec(`INSERT OR IGNORE INTO auto_download_failed (id, failed_at) VALUES (?, ?)`, data.MessageID, time.Now().Unix())
 			} else if !auto && !failed {
 				delete(autoDownloadFailed, data.MessageID)
+				db.Exec(`DELETE FROM auto_download_failed WHERE id = ?`, data.MessageID)
 			}
 			activeDownloadsMu.Unlock()
 			cancel()
@@ -329,7 +335,11 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 			// WA Web only asks the phone to upload a file again when the user
 			// asked for it (downloadEvenIfExpensive); an automatic download of
 			// an expired file just stops.
-			if !auto && attempt == 0 && (strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "410")) {
+			// A file whose bytes don't match its hash gets the same re-upload
+			// request as an expired one when the user asked for it (WA Web:
+			// "hash mismatch, requesting re-upload").
+			hashMismatch := errors.Is(err, whatsmeow.ErrInvalidMediaEncSHA256) || errors.Is(err, whatsmeow.ErrInvalidMediaSHA256)
+			if !auto && attempt == 0 && (hashMismatch || strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "410")) {
 				failed = false
 				fmt.Printf("Requesting media retry for %s...\n", data.MessageID)
 				retryErr := requestMediaRetry(data.MessageID)
@@ -1844,4 +1854,21 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 			"filename":   filename,
 		})
 	}()
+}
+
+// loadAutoDownloadFailed fills autoDownloadFailed from the database (called
+// once, under activeDownloadsMu).
+func loadAutoDownloadFailed() {
+	db.Exec(`CREATE TABLE IF NOT EXISTS auto_download_failed (id TEXT PRIMARY KEY, failed_at INTEGER NOT NULL DEFAULT 0)`)
+	rows, err := db.Query(`SELECT id FROM auto_download_failed`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			autoDownloadFailed[id] = true
+		}
+	}
 }
