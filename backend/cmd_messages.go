@@ -694,15 +694,23 @@ func handleMarkRead(raw json.RawMessage) {
 		if len(items) == 0 && data.Latest {
 			var id, senderStr string
 			var sts int64
-			if db.QueryRow(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(server_sts, 0) FROM messages
-				WHERE jid = ? AND `+receivedMessage+` ORDER BY timestamp DESC LIMIT 1`, data.JID).Scan(&id, &senderStr, &sts) == nil {
+			// In a group the receipt must name the sender, so skip rows that
+			// don't know theirs (deleted-message stubs from history sync).
+			senderKnown := ""
+			if chatJID.Server == types.GroupServer {
+				senderKnown = ` AND COALESCE(NULLIF(wire_sender, ''), sender_jid, '') != ''`
+			}
+			err := db.QueryRow(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(server_sts, 0) FROM messages
+				WHERE jid = ? AND `+receivedMessage+senderKnown+` ORDER BY timestamp DESC LIMIT 1`, data.JID).Scan(&id, &senderStr, &sts)
+			if err != nil {
+				log.Printf("Mark as read %s: no received message to name in a read receipt: %v", data.JID, err)
+			} else {
 				sJID, _ := types.ParseJID(senderStr)
-				if sJID.IsEmpty() && chatJID.Server != types.GroupServer {
+				if sJID.IsEmpty() {
 					sJID = chatJID
 				}
-				if !sJID.IsEmpty() {
-					items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID, sts: sts})
-				}
+				log.Printf("Mark as read %s: sending a read receipt for the newest received message %s from %s", data.JID, id, sJID)
+				items = append(items, msgSender{id: types.MessageID(id), senderJID: sJID, sts: sts})
 			}
 		}
 	}
