@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
+	"go.mau.fi/whatsmeow/proto/waWa6"
 	"go.mau.fi/whatsmeow/store"
 	"golang.org/x/sys/windows/registry"
 	"google.golang.org/protobuf/proto"
@@ -29,6 +30,11 @@ func applyClientIdentity() {
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_UWP.Enum()
 	store.DeviceProps.Os = proto.String("Windows")
 	store.DeviceProps.Version = &waCompanionReg.DeviceProps_AppVersion{Primary: proto.Uint32(10)}
+
+	// WIN_HYBRID is the sub-platform WhatsApp for Windows sends. It goes out
+	// on every connect, so it needs no new link. Calls with it get native
+	// relay blocks, which meowcaller dials over plain UDP like the real app.
+	store.BaseClientPayload.WebInfo.WebSubPlatform = waWa6.ClientPayload_WebInfo_WIN_HYBRID.Enum()
 }
 
 func webViewUserAgent() string {

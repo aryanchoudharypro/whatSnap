@@ -15,9 +15,9 @@ use windows::{
 		Media::{
 			Audio::{
 				AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-				AUDCLNT_STREAMOPTIONS_NONE, AudioCategory_Communications, AudioClientProperties, IAudioCaptureClient,
-				IAudioClient2, IAudioRenderClient, IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEXTENSIBLE,
-				eCapture, eCommunications, eRender,
+				AUDCLNT_STREAMOPTIONS_NONE, AudioCategory_Communications, AudioClientProperties,
+				Endpoints::IAudioEndpointVolume, IAudioCaptureClient, IAudioClient2, IAudioRenderClient, IMMDevice,
+				IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEXTENSIBLE, eCapture, eCommunications, eRender,
 			},
 			KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
 			Multimedia::{KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, WAVE_FORMAT_IEEE_FLOAT},
@@ -31,7 +31,11 @@ use windows::{
 };
 
 use crate::{
-	audio::system_audio::{SystemAudioCapture, SystemMix},
+	audio::{
+		denoise::Denoiser,
+		limiter::Limiter,
+		system_audio::{SystemAudioCapture, SystemMix},
+	},
 	platform::paths,
 	ui::wake::UiCommandSender,
 };
@@ -174,6 +178,7 @@ impl Drop for CallAudioState {
 // end to end. Calls always pass `apply_effects: true`; voice-message recording passes
 // false and does its own clean-up instead (audio/voice_dsp.rs).
 pub(crate) struct WasapiOpen {
+	pub(crate) device: IMMDevice,
 	pub(crate) client: IAudioClient2,
 	pub(crate) event: HANDLE,
 	pub(crate) buffer_frames: u32,
@@ -247,57 +252,86 @@ pub(crate) unsafe fn open_communications_stream(
 		client.SetEventHandle(event)?;
 		let buffer_frames = client.GetBufferSize()?;
 
-		Ok(WasapiOpen { client, event, buffer_frames, sample_rate, channels, bits_per_sample, is_float })
+		Ok(WasapiOpen { device, client, event, buffer_frames, sample_rate, channels, bits_per_sample, is_float })
 	}
 }
 
+// Downmix to mono and resample to NETWORK_SAMPLE_RATE through a Blackman-
+// windowed sinc low-pass, so voice keeps its top end up to about 7.5 kHz
+// and what lies above 8 kHz is removed instead of folding back as harshness
+// (two one-pole filters used to start rolling off from about 3 kHz and let
+// much of 8-12 kHz alias). The kernel is tabulated at DS_PHASES points per
+// input sample and read with linear interpolation, which handles any device
+// rate; each output is normalised by its weights so the gain stays at 1.
+const DS_CUTOFF_HZ: f64 = 7500.0;
+const DS_TRANSITION_HZ: f64 = 1000.0;
+const DS_PHASES: usize = 64;
+
 pub(crate) struct Downsampler {
 	channels: u16,
-	lp1: f32,
-	lp2: f32,
-	lp_alpha: f32,
-	mono_accum: Vec<f32>,
-	resample_phase: f64,
-	downsample_step: f64,
+	half: usize,
+	table: Vec<f32>,
+	history: Vec<f32>,
+	pos: f64,
+	step: f64,
 }
 
 impl Downsampler {
 	pub(crate) fn new(sample_rate: u32, channels: u16) -> Self {
-		let lp_target_hz: f32 = 7000.0;
-		let lp_cutoff_hz: f32 = lp_target_hz / (2.0_f32.sqrt() - 1.0).sqrt();
-		let lp_rc = 1.0 / (2.0 * std::f32::consts::PI * lp_cutoff_hz);
-		let lp_dt = 1.0 / sample_rate as f32;
-		let lp_alpha = lp_dt / (lp_rc + lp_dt);
+		let rate = sample_rate as f64;
+		let cutoff = (DS_CUTOFF_HZ / rate).min(0.45);
+		// A Blackman window's transition band is about 5.5 / length.
+		let half = ((5.5 * rate / DS_TRANSITION_HZ) / 2.0).ceil().max(4.0) as usize;
+		let table = (0..=half * DS_PHASES)
+			.map(|i| {
+				let t = i as f64 / DS_PHASES as f64;
+				let x = 2.0 * cutoff * t;
+				let sinc = if x == 0.0 { 1.0 } else { (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x) };
+				let w = std::f64::consts::PI * (t / half as f64 + 1.0);
+				let window = 0.42 - 0.5 * w.cos() + 0.08 * (2.0 * w).cos();
+				(sinc * window) as f32
+			})
+			.collect();
 		Self {
 			channels,
-			lp1: 0.0,
-			lp2: 0.0,
-			lp_alpha,
-			mono_accum: Vec::new(),
-			resample_phase: 0.0,
-			downsample_step: sample_rate as f64 / NETWORK_SAMPLE_RATE as f64,
+			half,
+			table,
+			// Start with a window of silence so the first output can be made.
+			history: vec![0.0; half],
+			pos: half as f64,
+			step: rate / NETWORK_SAMPLE_RATE as f64,
 		}
 	}
 
-	pub(crate) fn process(&mut self, data: &[f32], out: &mut Vec<f32>) {
-		for frame in data.chunks(self.channels as usize) {
-			let sum: f32 = frame.iter().sum();
-			let mono = sum / (self.channels as f32);
-			self.lp1 += self.lp_alpha * (mono - self.lp1);
-			self.lp2 += self.lp_alpha * (self.lp1 - self.lp2);
-			self.mono_accum.push(self.lp2);
+	fn tap(&self, distance: f64) -> f32 {
+		let x = distance * DS_PHASES as f64;
+		let i = x as usize;
+		if i + 1 >= self.table.len() {
+			return 0.0;
 		}
+		let frac = (x - i as f64) as f32;
+		self.table[i] + (self.table[i + 1] - self.table[i]) * frac
+	}
 
-		while self.resample_phase.floor() as usize + 1 < self.mono_accum.len() {
-			let idx = self.resample_phase.floor() as usize;
-			let frac = (self.resample_phase - idx as f64) as f32;
-			out.push(self.mono_accum[idx] + (self.mono_accum[idx + 1] - self.mono_accum[idx]) * frac);
-			self.resample_phase += self.downsample_step;
+	pub(crate) fn process(&mut self, data: &[f32], out: &mut Vec<f32>) {
+		let channels = self.channels.max(1) as usize;
+		self.history.extend(data.chunks(channels).map(|frame| frame.iter().sum::<f32>() / channels as f32));
+
+		while self.pos.floor() as usize + self.half < self.history.len() {
+			let centre = self.pos.floor() as usize;
+			let (mut acc, mut weights) = (0.0f32, 0.0f32);
+			for n in centre + 1 - self.half..=centre + self.half {
+				let w = self.tap((self.pos - n as f64).abs());
+				acc += w * self.history[n];
+				weights += w;
+			}
+			out.push(if weights > 0.0 { acc / weights } else { 0.0 });
+			self.pos += self.step;
 		}
-		let consumed = (self.resample_phase.floor() as usize).min(self.mono_accum.len());
+		let consumed = (self.pos.floor() as usize + 1).saturating_sub(self.half).min(self.history.len());
 		if consumed > 0 {
-			self.mono_accum.drain(0..consumed);
-			self.resample_phase -= consumed as f64;
+			self.history.drain(..consumed);
+			self.pos -= consumed as f64;
 		}
 	}
 }
@@ -305,11 +339,17 @@ impl Downsampler {
 struct CaptureDsp {
 	downsampler: Downsampler,
 	resampled: Vec<f32>,
+	denoiser: Denoiser,
+	denoised: Vec<f32>,
+	limiter: Limiter<1>,
 	sample_accum: Vec<f32>,
 	system: Arc<Mutex<SystemMix>>,
 	frame: Vec<f32>,
 	send_buf: Vec<u8>,
 	opus: Option<opus::Encoder>,
+	agc: VoiceAgc,
+	gate: PauseGate,
+	slices_since_mic_check: u32,
 }
 
 fn new_call_opus_encoder() -> Option<opus::Encoder> {
@@ -317,6 +357,231 @@ fn new_call_opus_encoder() -> Option<opus::Encoder> {
 	encoder.set_bitrate(opus::Bitrate::Bits(OPUS_BITRATE)).ok()?;
 	encoder.set_complexity(OPUS_COMPLEXITY).ok()?;
 	Some(encoder)
+}
+
+// Auto gain for the outgoing call audio, modelled on WebRTC's AGC2 adaptive
+// digital controller, which is what WhatsApp for Windows' native engine runs
+// (WhatsAppNative.Voip.dll ships webrtc/latest agc2 and the server sends it
+// agc {"enable_uwp_agc2":"true"}); WA Web gets the same from the browser's
+// getUserMedia autoGainControl. Windows' communications effects barely level
+// the mic: live calls measured voiced speech around -40 dBFS, and phones
+// that receive standard Opus play it as sent.
+//
+// Like AGC2 it works on 10 ms slices: a simple energy VAD over a tracked
+// noise floor, a slow speech-level estimate fed only by speech, a gain that
+// moves at most AGC_MAX_GAIN_CHANGE_DB_PER_S towards bringing that speech
+// level to AGC_TARGET_DBFS, capped so the noise floor isn't lifted above
+// AGC_MAX_NOISE_DBFS. The gain falls faster than it rises, so a loud start
+// or a raised mic level isn't left too hot for seconds. Peaks are handled
+// after the system audio mix by a lookahead limiter (audio/limiter.rs).
+const AGC_SLICE: usize = 160; // 10 ms at 16 kHz, one noise suppressor hop
+const AGC_TARGET_DBFS: f32 = -20.0;
+const AGC_MAX_GAIN_DB: f32 = 40.0;
+const AGC_INITIAL_GAIN_DB: f32 = 15.0;
+const AGC_MAX_GAIN_CHANGE_DB_PER_S: f32 = 6.0;
+const AGC_MAX_GAIN_DROP_DB_PER_S: f32 = 30.0;
+// As AGC2: the background left between words is never lifted above this.
+// The noise suppressor in front lowers it first, so speech still reaches the
+// target (live calls had a -52..-65 dBFS floor before suppression).
+const AGC_MAX_NOISE_DBFS: f32 = -50.0;
+const AGC_SPEECH_ABOVE_NOISE_DB: f32 = 10.0;
+const AGC_MIN_SPEECH_DBFS: f32 = -65.0;
+
+struct VoiceAgc {
+	gain_db: f32,
+	noise_db: f32,
+	speech_db: Option<f32>,
+	// Since the mic level controller last looked: speech slices, speech
+	// slices that needed more than MIC_RAISE_ABOVE_GAIN_DB of gain, and
+	// slices whose raw input came close to clipping.
+	speech_slices: u32,
+	quiet_speech_slices: u32,
+	clipped_slices: u32,
+}
+
+impl VoiceAgc {
+	fn new() -> Self {
+		Self {
+			gain_db: AGC_INITIAL_GAIN_DB,
+			noise_db: -70.0,
+			speech_db: None,
+			speech_slices: 0,
+			quiet_speech_slices: 0,
+			clipped_slices: 0,
+		}
+	}
+
+	#[cfg(test)]
+	fn process(&mut self, frame: &mut [f32]) {
+		for slice in frame.chunks_mut(AGC_SLICE) {
+			self.process_slice(slice);
+		}
+	}
+
+	fn process_slice(&mut self, slice: &mut [f32]) {
+		if slice.is_empty() {
+			return;
+		}
+		let rms = (slice.iter().map(|s| s * s).sum::<f32>() / slice.len() as f32).sqrt();
+		let level_db = 20.0 * rms.max(1e-6).log10();
+		let old_gain_db = self.gain_db;
+		if slice.iter().any(|s| s.abs() > MIC_CLIP_LEVEL) {
+			self.clipped_slices += 1;
+		}
+		if rms > 0.0 {
+			// Noise floor: follows quiet slices at once, creeps up 1 dB/s.
+			self.noise_db = if level_db < self.noise_db { level_db } else { self.noise_db + 0.01 };
+			if level_db > AGC_MIN_SPEECH_DBFS && level_db > self.noise_db + AGC_SPEECH_ABOVE_NOISE_DB {
+				// About half a second of speech to settle.
+				self.speech_db = Some(match self.speech_db {
+					Some(prev) => prev + 0.02 * (level_db - prev),
+					None => level_db,
+				});
+				self.speech_slices += 1;
+				if AGC_TARGET_DBFS - level_db > MIC_RAISE_ABOVE_GAIN_DB {
+					self.quiet_speech_slices += 1;
+				}
+			}
+			if let Some(speech_db) = self.speech_db {
+				let want =
+					(AGC_TARGET_DBFS - speech_db).min(AGC_MAX_NOISE_DBFS - self.noise_db).clamp(0.0, AGC_MAX_GAIN_DB);
+				let secs = slice.len() as f32 / NETWORK_SAMPLE_RATE as f32;
+				self.gain_db += (want - self.gain_db)
+					.clamp(-AGC_MAX_GAIN_DROP_DB_PER_S * secs, AGC_MAX_GAIN_CHANGE_DB_PER_S * secs);
+			}
+		}
+		let from = 10f32.powf(old_gain_db / 20.0);
+		let to = 10f32.powf(self.gain_db / 20.0);
+		let n = slice.len() as f32;
+		for (i, sample) in slice.iter_mut().enumerate() {
+			let g = from + (to - from) * (i + 1) as f32 / n;
+			*sample *= g;
+		}
+	}
+}
+
+// Turns the background down a further GATE_DEPTH_DB between words, so the
+// noise left by the suppressor isn't heard on its own once you stop talking.
+// Opens within a few ms when the noise suppressor hears speech (its verdict
+// is one hop ahead of its output, so word starts aren't cut), stays open
+// GATE_HOLD_SLICES after, then fades down slowly.
+const GATE_DEPTH_DB: f32 = 12.0;
+const GATE_OPEN_SPEECH: f32 = 0.4;
+const GATE_HOLD_SLICES: u32 = 25; // 250 ms
+const GATE_ATTACK_SECS: f32 = 0.005;
+const GATE_RELEASE_SECS: f32 = 0.15;
+
+struct PauseGate {
+	gain: f32,
+	hold: u32,
+	floor: f32,
+	attack: f32,
+	release: f32,
+}
+
+impl PauseGate {
+	fn new() -> Self {
+		let coeff = |secs: f32| 1.0 - (-1.0 / (secs * NETWORK_SAMPLE_RATE as f32)).exp();
+		Self {
+			gain: 1.0,
+			hold: GATE_HOLD_SLICES,
+			floor: 10f32.powf(-GATE_DEPTH_DB / 20.0),
+			attack: coeff(GATE_ATTACK_SECS),
+			release: coeff(GATE_RELEASE_SECS),
+		}
+	}
+
+	fn process_slice(&mut self, slice: &mut [f32], speech: f32) {
+		if speech >= GATE_OPEN_SPEECH {
+			self.hold = GATE_HOLD_SLICES;
+		} else {
+			self.hold = self.hold.saturating_sub(1);
+		}
+		let (target, rate) = if self.hold > 0 { (1.0, self.attack) } else { (self.floor, self.release) };
+		for sample in slice.iter_mut() {
+			self.gain += (target - self.gain) * rate;
+			*sample *= self.gain;
+		}
+	}
+}
+
+// Noise suppression before the auto gain, like WhatsApp for Windows' engine
+// and WebRTC. WhatsApp's server asks its engine for denoiser_intensity 0.55,
+// but on our scale that left too much background in a live call, so calls
+// use the same strength as voice messages (about 20 dB).
+const CALL_DENOISE_INTENSITY: f32 = 0.8;
+// The limiter after the mix: 2 ms lookahead, a little under full scale.
+const CALL_LIMIT_LOOKAHEAD: usize = 32;
+const CALL_LIMIT_CEILING: f32 = 0.9;
+const CALL_LIMIT_RELEASE_SECS: f32 = 0.08;
+
+// The other half of AGC2: its input volume controller turns the Windows mic
+// level itself up when speech stays quiet and down when the input clips, as
+// WhatsApp for Windows' engine and Chrome (for WA Web) both do. Checked about
+// once a second from the capture thread. The level the user had is put back
+// when the capture session ends, unless they moved the slider themselves
+// during the call, in which case we stop touching it.
+const MIC_CLIP_LEVEL: f32 = 0.95;
+const MIC_RAISE_ABOVE_GAIN_DB: f32 = 20.0;
+const MIC_STEP: f32 = 0.04;
+const MIC_CHECK_SLICES: u32 = 100; // 1 s
+
+struct MicLevelController {
+	volume: IAudioEndpointVolume,
+	original: f32,
+	ours: f32,
+	user_took_over: bool,
+}
+
+impl MicLevelController {
+	unsafe fn new(device: &IMMDevice) -> Option<Self> {
+		unsafe {
+			let volume: IAudioEndpointVolume = device.Activate(CLSCTX_ALL, None).ok()?;
+			let original = volume.GetMasterVolumeLevelScalar().ok()?;
+			log_line(&format!("mic level controller: starting at {:.2}", original));
+			Some(Self { volume, original, ours: original, user_took_over: false })
+		}
+	}
+
+	fn adjust(&mut self, agc: &mut VoiceAgc) {
+		let speech = std::mem::take(&mut agc.speech_slices);
+		let quiet = std::mem::take(&mut agc.quiet_speech_slices);
+		let clipped = std::mem::take(&mut agc.clipped_slices);
+		if self.user_took_over {
+			return;
+		}
+		let Ok(now) = (unsafe { self.volume.GetMasterVolumeLevelScalar() }) else { return };
+		if (now - self.ours).abs() > 0.02 {
+			self.user_took_over = true;
+			log_line(&format!("mic level controller: slider moved to {:.2} by the user, leaving it alone", now));
+			return;
+		}
+		let next = if clipped >= 3 {
+			(now - MIC_STEP).max(0.05)
+		} else if speech >= 20 && quiet * 2 > speech {
+			(now + MIC_STEP).min(1.0)
+		} else {
+			return;
+		};
+		if (next - now).abs() < 0.001 {
+			return;
+		}
+		if unsafe { self.volume.SetMasterVolumeLevelScalar(next, std::ptr::null()) }.is_ok() {
+			self.ours = next;
+		}
+	}
+}
+
+impl Drop for MicLevelController {
+	fn drop(&mut self) {
+		if self.user_took_over || (self.ours - self.original).abs() < 0.001 {
+			return;
+		}
+		unsafe {
+			let _ = self.volume.SetMasterVolumeLevelScalar(self.original, std::ptr::null());
+		}
+		log_line(&format!("mic level controller: put the mic back to {:.2} (was at {:.2})", self.original, self.ours));
+	}
 }
 
 fn pack_call_frame(frame: &[f32], opus: Option<&mut opus::Encoder>, out: &mut Vec<u8>) {
@@ -336,28 +601,65 @@ impl CaptureDsp {
 		Self {
 			downsampler: Downsampler::new(sample_rate, channels),
 			resampled: Vec::new(),
+			denoiser: Denoiser::new(NETWORK_SAMPLE_RATE, CALL_DENOISE_INTENSITY),
+			denoised: vec![0.0; AGC_SLICE],
+			limiter: Limiter::new(
+				NETWORK_SAMPLE_RATE as f32,
+				CALL_LIMIT_LOOKAHEAD,
+				CALL_LIMIT_CEILING,
+				CALL_LIMIT_RELEASE_SECS,
+			),
 			sample_accum: Vec::with_capacity(FRAME_SAMPLES * 2),
 			system,
 			frame: Vec::with_capacity(FRAME_SAMPLES),
 			send_buf: Vec::with_capacity(FRAME_SAMPLES * 4 + OPUS_MAX_PACKET),
 			opus: new_call_opus_encoder(),
+			agc: VoiceAgc::new(),
+			gate: PauseGate::new(),
+			slices_since_mic_check: 0,
 		}
 	}
 
-	fn process(&mut self, data: &[f32], muted: bool, socket_out: &UdpSocket, target_addr: &str) {
+	fn process(
+		&mut self,
+		data: &[f32],
+		muted: bool,
+		socket_out: &UdpSocket,
+		target_addr: &str,
+		mic: Option<&mut MicLevelController>,
+	) {
+		// mic -> noise suppressor -> auto gain -> + system audio -> limiter.
 		self.downsampler.process(data, &mut self.resampled);
 		let mut system = self.system.lock().unwrap();
-		for sample in self.resampled.drain(..) {
-			let mixed = system.mix(sample);
-			self.sample_accum.push(if muted { 0.0 } else { mixed });
+		let mut used = 0;
+		while self.resampled.len() - used >= AGC_SLICE {
+			let speech = self.denoiser.process_hop(&self.resampled[used..used + AGC_SLICE], &mut self.denoised);
+			used += AGC_SLICE;
+			if !muted {
+				self.agc.process_slice(&mut self.denoised);
+				self.gate.process_slice(&mut self.denoised, speech);
+				self.slices_since_mic_check += 1;
+			}
+			for &sample in &self.denoised {
+				let mixed = system.mix(sample);
+				let [limited] = self.limiter.process([if muted { 0.0 } else { mixed }]);
+				self.sample_accum.push(limited);
+			}
 		}
 		drop(system);
+		self.resampled.drain(..used);
 
 		while self.sample_accum.len() >= FRAME_SAMPLES {
 			self.frame.clear();
 			self.frame.extend(self.sample_accum.drain(..FRAME_SAMPLES));
 			pack_call_frame(&self.frame, self.opus.as_mut(), &mut self.send_buf);
 			let _ = socket_out.send_to(&self.send_buf, target_addr);
+		}
+		if self.slices_since_mic_check >= MIC_CHECK_SLICES {
+			self.slices_since_mic_check = 0;
+			if let Some(mic) = mic {
+				mic.adjust(&mut self.agc);
+			}
 		}
 	}
 }
@@ -511,6 +813,10 @@ fn run_capture_session(
 		let capture_client: IAudioCaptureClient = wasapi.client.GetService()?;
 
 		let mut dsp = CaptureDsp::new(wasapi.sample_rate, wasapi.channels, Arc::clone(system));
+		log_line(&format!(
+			"capture dsp: noise suppressor {CALL_DENOISE_INTENSITY}, auto gain to {AGC_TARGET_DBFS} dBFS, pause gate -{GATE_DEPTH_DB} dB, limiter {CALL_LIMIT_CEILING}"
+		));
+		let mut mic_level = MicLevelController::new(&wasapi.device);
 		let mut scratch: Vec<f32> = Vec::new();
 
 		wasapi.client.Start()?;
@@ -553,7 +859,7 @@ fn run_capture_session(
 				}
 
 				let muted = is_muted.load(Ordering::Relaxed);
-				dsp.process(&scratch, muted, socket_out, target_addr);
+				dsp.process(&scratch, muted, socket_out, target_addr, mic_level.as_mut());
 
 				capture_client.ReleaseBuffer(num_frames)?;
 			}
@@ -816,6 +1122,121 @@ pub fn start_audio_streams(
 
 #[cfg(test)]
 mod tests {
+
+	fn speechy(amp: f32, frames: usize) -> Vec<Vec<f32>> {
+		// 300 ms talk, 200 ms pause, repeated, over a faint noise floor.
+		(0..frames)
+			.map(|f| {
+				(0..FRAME_SAMPLES)
+					.map(|i| {
+						let t = f * FRAME_SAMPLES + i;
+						let talking = (t / 1600) % 5 < 3;
+						let noise = 0.0003 * (((t * 7919) % 1000) as f32 / 500.0 - 1.0);
+						noise + if talking { amp * 1.414 * ((t as f32) * 0.3).sin() } else { 0.0 }
+					})
+					.collect()
+			})
+			.collect()
+	}
+
+	fn speech_rms_db(frames: &[Vec<f32>]) -> f32 {
+		let loud: Vec<f32> = frames
+			.iter()
+			.flatten()
+			.copied()
+			.collect::<Vec<_>>()
+			.chunks(160)
+			.map(|c| (c.iter().map(|s| s * s).sum::<f32>() / c.len() as f32).sqrt())
+			.filter(|r| *r > 0.003)
+			.collect();
+		let mean = loud.iter().sum::<f32>() / loud.len() as f32;
+		20.0 * mean.log10()
+	}
+
+	#[test]
+	fn agc_brings_quiet_speech_up_to_target() {
+		let mut agc = VoiceAgc::new();
+		let mut frames = speechy(0.01, 200); // -40 dBFS speech, 12 s
+		for f in frames.iter_mut() {
+			agc.process(f);
+		}
+		let level = speech_rms_db(&frames[150..]);
+		assert!((level - AGC_TARGET_DBFS).abs() < 3.0, "settled speech level {level} dBFS");
+	}
+
+	#[test]
+	fn agc_brings_loud_speech_down_to_unity_within_a_second() {
+		let mut agc = VoiceAgc::new();
+		let mut frames = speechy(0.2, 20); // -14 dBFS speech
+		for f in frames.iter_mut() {
+			agc.process(f);
+		}
+		assert!(agc.gain_db < 0.5, "gain {} dB", agc.gain_db);
+	}
+
+	#[test]
+	fn agc_holds_gain_through_silence() {
+		let mut agc = VoiceAgc::new();
+		agc.gain_db = 12.0;
+		let mut silence = vec![0.0f32; FRAME_SAMPLES];
+		agc.process(&mut silence);
+		assert_eq!(agc.gain_db, 12.0);
+		assert!(silence.iter().all(|s| *s == 0.0));
+	}
+
+	fn tone_at(rate: u32, hz: f32, secs: f32) -> Vec<f32> {
+		(0..(rate as f32 * secs) as usize)
+			.map(|i| 0.5 * (2.0 * std::f32::consts::PI * hz * i as f32 / rate as f32).sin())
+			.collect()
+	}
+
+	fn level_db(x: &[f32]) -> f32 {
+		10.0 * (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32 + 1e-20).log10()
+	}
+
+	#[test]
+	fn pause_gate_opens_fast_holds_then_fades_the_background() {
+		let mut gate = PauseGate::new();
+		let mut slice = vec![1.0f32; AGC_SLICE];
+		gate.process_slice(&mut slice, 1.0);
+		assert!(slice[80] > 0.99, "open within 5 ms");
+		for _ in 0..GATE_HOLD_SLICES - 1 {
+			slice.fill(1.0);
+			gate.process_slice(&mut slice, 0.0);
+			assert!(slice.iter().all(|&s| s > 0.99), "held open after speech");
+		}
+		for _ in 0..100 {
+			slice.fill(1.0);
+			gate.process_slice(&mut slice, 0.0);
+		}
+		let db = 20.0 * slice[AGC_SLICE - 1].log10();
+		assert!((db + GATE_DEPTH_DB).abs() < 0.5, "settled at {db} dB");
+	}
+
+	#[test]
+	fn downsampler_keeps_voice_and_removes_what_would_alias() {
+		for rate in [44_100u32, 48_000, 96_000] {
+			let through = |hz: f32, chunk: usize| {
+				let mut ds = Downsampler::new(rate, 2);
+				let stereo: Vec<f32> = tone_at(rate, hz, 1.0).iter().flat_map(|&s| [s, s]).collect();
+				let mut out = Vec::new();
+				for c in stereo.chunks(chunk) {
+					ds.process(c, &mut out);
+				}
+				let expect = NETWORK_SAMPLE_RATE as usize;
+				assert!(out.len().abs_diff(expect) < 600, "{rate}: {} samples out", out.len());
+				level_db(&out[2000..out.len() - 2000]) - level_db(&tone_at(rate, hz, 1.0))
+			};
+			for hz in [100.0, 1000.0, 4000.0, 7000.0] {
+				let change = through(hz, 2 * 441);
+				assert!(change.abs() < 0.5, "{rate}: {hz} Hz changed {change} dB");
+			}
+			for hz in [9000.0, 12_000.0, 20_000.0] {
+				let change = through(hz, 2 * 480);
+				assert!(change < -40.0, "{rate}: {hz} Hz only fell {change} dB");
+			}
+		}
+	}
 	use super::*;
 
 	fn tone_frame(offset: usize) -> Vec<f32> {

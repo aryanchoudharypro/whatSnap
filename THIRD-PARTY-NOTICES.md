@@ -17,7 +17,6 @@ BSD, Zlib, or dual MIT/Apache-2.0):
 | rodio | MIT / Apache-2.0 |
 | rodio-wsola | Apache-2.0 |
 | opus (libopus bindings) | BSD-3-Clause |
-| nnnoiseless (RNNoise) | BSD-3-Clause |
 | qrcode, serde, serde_json, windows | MIT / Apache-2.0 |
 | wx-utils, key-chord | MIT |
 | Fedra's timeline list (adapted in `src/ui/message_list.rs`) | MIT |

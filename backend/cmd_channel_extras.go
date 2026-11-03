@@ -69,6 +69,7 @@ func refreshServerFlags() {
 	serverFlagsMu.Unlock()
 	log.Printf("Have %d server feature flags; channel pinning for admins: %v", len(props), channelPinningEnabled())
 	broadcastEvent("server_flags", serverFlagsPayload())
+	logHybridServerFlags()
 }
 
 func channelPinningEnabled() bool {

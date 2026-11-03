@@ -1,12 +1,16 @@
-use nnnoiseless::DenoiseState;
+use super::{denoise::Denoiser, limiter::Limiter};
 
-const FRAME: usize = DenoiseState::FRAME_SIZE;
+/// One 10 ms hop of the noise suppressor.
+const FRAME: usize = 480;
 const SAMPLE_RATE: f32 = 48_000.0;
+/// Voice messages get more noise suppression than calls (0.55, what
+/// WhatsApp's server asks its own engine for): about 20 dB.
+const DENOISE_INTENSITY: f32 = 0.8;
 
 const TARGET_SPEECH_DBFS: f32 = -20.0;
 const MAX_GAIN_DB: f32 = 30.0;
 const MIN_GAIN_DB: f32 = -12.0;
-/// Frames RNNoise must rate at least this likely to be speech before they
+/// Frames the noise suppressor must rate at least this likely to be speech before they
 /// count towards the level estimate or may raise the gain.
 const SPEECH_VAD: f32 = 0.6;
 const SPEECH_FLOOR_DBFS: f32 = -60.0;
@@ -27,7 +31,7 @@ const LOOKAHEAD: usize = 48;
 
 pub(crate) struct VoiceCleanup {
 	hpf: [HighPass; 2],
-	denoise: [Box<DenoiseState<'static>>; 2],
+	denoise: [Denoiser; 2],
 	agc: Agc,
 	pending: [Vec<f32>; 2],
 	frame_out: [Vec<f32>; 2],
@@ -42,7 +46,10 @@ impl VoiceCleanup {
 	pub(crate) fn new() -> Self {
 		Self {
 			hpf: [HighPass::new(80.0), HighPass::new(80.0)],
-			denoise: [DenoiseState::new(), DenoiseState::new()],
+			denoise: [
+				Denoiser::new(SAMPLE_RATE as u32, DENOISE_INTENSITY),
+				Denoiser::new(SAMPLE_RATE as u32, DENOISE_INTENSITY),
+			],
 			agc: Agc::new(),
 			pending: [Vec::with_capacity(FRAME * 2), Vec::with_capacity(FRAME * 2)],
 			frame_out: [vec![0.0; FRAME], vec![0.0; FRAME]],
@@ -88,15 +95,15 @@ impl VoiceCleanup {
 			let mut speech = [0.0f32; 2];
 			for c in 0..2 {
 				for (d, s) in frame_in[c].iter_mut().zip(self.pending[c].drain(..FRAME)) {
-					*d = s * 32768.0;
+					*d = s;
 				}
-				speech[c] = self.denoise[c].process_frame(&mut self.frame_out[c], &frame_in[c]);
+				speech[c] = self.denoise[c].process_hop(&frame_in[c], &mut self.frame_out[c]);
 			}
 			let vad = speech[0].max(speech[1]);
 			let blend = self.blend(0, speech[0]).min(self.blend(1, speech[1]));
 			for c in 0..2 {
 				for (s, d) in self.frame_out[c].iter_mut().zip(&self.dry[c]) {
-					*s = (*s + blend * (d - *s)) / 32768.0;
+					*s += blend * (d - *s);
 				}
 			}
 			self.dry = frame_in;
@@ -110,7 +117,7 @@ impl VoiceCleanup {
 	}
 
 	fn blend(&mut self, c: usize, speech: f32) -> f32 {
-		let energy = self.dry[c].iter().map(|s| s * s).sum::<f32>() / FRAME as f32 / (32768.0 * 32768.0);
+		let energy = self.dry[c].iter().map(|s| s * s).sum::<f32>() / FRAME as f32;
 		let level_db = 10.0 * (energy + 1e-12).log10();
 		if level_db < SILENCE_DBFS {
 			return 0.0;
@@ -171,12 +178,18 @@ struct Agc {
 	noise_db: Option<f32>,
 	speech_frames: u32,
 	gain_db: f32,
-	limiter: Limiter,
+	limiter: Limiter<2>,
 }
 
 impl Agc {
 	fn new() -> Self {
-		Self { level_db: None, noise_db: None, speech_frames: 0, gain_db: 0.0, limiter: Limiter::new() }
+		Self {
+			level_db: None,
+			noise_db: None,
+			speech_frames: 0,
+			gain_db: 0.0,
+			limiter: Limiter::new(SAMPLE_RATE, LOOKAHEAD, LIMIT_CEILING, LIMIT_RELEASE_SECS),
+		}
 	}
 
 	fn process(&mut self, left: &mut [f32], right: &mut [f32], vad: f32) {
@@ -219,40 +232,6 @@ impl Agc {
 			let g = g0 + (g1 - g0) * (i as f32 + 1.0) / n;
 			[*l, *r] = self.limiter.process([*l * g, *r * g]);
 		}
-	}
-}
-
-struct Limiter {
-	delay: [[f32; 2]; LOOKAHEAD],
-	need: [f32; LOOKAHEAD],
-	held: [f32; LOOKAHEAD],
-	pos: usize,
-	gain: f32,
-	release: f32,
-}
-
-impl Limiter {
-	fn new() -> Self {
-		Self {
-			delay: [[0.0; 2]; LOOKAHEAD],
-			need: [1.0; LOOKAHEAD],
-			held: [1.0; LOOKAHEAD],
-			pos: 0,
-			gain: 1.0,
-			release: 1.0 - (-1.0 / (LIMIT_RELEASE_SECS * SAMPLE_RATE)).exp(),
-		}
-	}
-
-	fn process(&mut self, sample: [f32; 2]) -> [f32; 2] {
-		let peak = sample[0].abs().max(sample[1].abs());
-		self.need[self.pos] = if peak > LIMIT_CEILING { LIMIT_CEILING / peak } else { 1.0 };
-		self.held[self.pos] = self.need.iter().copied().fold(1.0, f32::min);
-		let smooth = self.held.iter().sum::<f32>() / LOOKAHEAD as f32;
-		self.delay[self.pos] = sample;
-		self.pos = (self.pos + 1) % LOOKAHEAD;
-		self.gain = (self.gain + (1.0 - self.gain) * self.release).min(smooth);
-		let [l, r] = self.delay[self.pos];
-		[l * self.gain, r * self.gain]
 	}
 }
 
@@ -367,33 +346,15 @@ mod tests {
 	fn blend_only_while_talking_over_the_background() {
 		let mut c = VoiceCleanup::new();
 		for _ in 0..50 {
-			c.dry[0] = [0.001 * 32768.0; FRAME];
+			c.dry[0] = [0.001; FRAME];
 			c.blend(0, 0.0);
 		}
-		c.dry[0] = [0.001 * 32768.0; FRAME];
+		c.dry[0] = [0.001; FRAME];
 		assert_eq!(c.blend(0, 1.0), 0.0, "background alone, however speech-like");
-		c.dry[0] = [0.1 * 32768.0; FRAME];
+		c.dry[0] = [0.1; FRAME];
 		assert_eq!(c.blend(0, 0.0), 0.0, "loud but not speech");
 		assert_eq!(c.blend(0, 1.0), BLEND_MAX, "speech 40 dB over the background");
 		c.dry[0] = [0.0; FRAME];
 		assert_eq!(c.blend(0, 1.0), 0.0, "digital silence");
-	}
-
-	#[test]
-	fn limiter_ramps_before_a_peak() {
-		let mut lim = Limiter::new();
-		let mut input = vec![0.5f32; 20_000];
-		input[200] = 1.8;
-		let out: Vec<f32> = input
-			.iter()
-			.chain([0.0; LOOKAHEAD - 1].iter())
-			.map(|&s| lim.process([s, s])[0])
-			.skip(LOOKAHEAD - 1)
-			.collect();
-		assert!(out[..200 - LOOKAHEAD].iter().all(|&s| s == 0.5));
-		assert!((out[200] - LIMIT_CEILING).abs() < 1e-4, "peak came out at {}", out[200]);
-		assert!(out[200 - LOOKAHEAD / 2] < 0.5 && out[200 - LOOKAHEAD / 2] > 0.25);
-		assert!(out.iter().all(|s| s.abs() <= LIMIT_CEILING + 1e-6));
-		assert!(out[19_999] > 0.49);
 	}
 }

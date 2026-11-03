@@ -30,11 +30,11 @@ func TestWebViewUserAgentIsAnEdgeWebView(t *testing.T) {
 	}
 }
 
-func TestClientIdentityIsTheWindowsAppExceptSubPlatform(t *testing.T) {
+func TestClientIdentityIsTheWindowsApp(t *testing.T) {
 	applyClientIdentity()
 	agent := store.BaseClientPayload.GetUserAgent()
-	if got := store.BaseClientPayload.GetWebInfo().GetWebSubPlatform(); got == waWa6.ClientPayload_WebInfo_WIN_HYBRID {
-		t.Errorf("sub-platform %v breaks calls", got)
+	if got := store.BaseClientPayload.GetWebInfo().GetWebSubPlatform(); got != waWa6.ClientPayload_WebInfo_WIN_HYBRID {
+		t.Errorf("sub-platform %v", got)
 	}
 	if got := store.DeviceProps.GetPlatformType(); got != waCompanionReg.DeviceProps_UWP {
 		t.Errorf("platform type %v", got)

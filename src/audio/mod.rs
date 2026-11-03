@@ -1,7 +1,9 @@
 pub mod alert_tones;
+pub mod denoise;
 pub mod device_watch;
 pub mod devices;
 pub mod file;
+pub mod limiter;
 pub mod ogg;
 pub mod ringback;
 pub mod sound_file;
