@@ -3363,7 +3363,7 @@ pub fn bind_input_handlers(
 						});
 					} else if id == read_id {
 						let _ =
-							ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: !is_unread });
+							ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: is_unread });
 					} else if id == delete_id {
 						if is_group {
 							let choices: Vec<&str> = vec!["Delete chat only", "Delete chat and exit group"];
