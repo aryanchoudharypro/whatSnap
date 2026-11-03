@@ -485,8 +485,15 @@ pub(crate) fn refresh_menu_bar(s: &crate::AppState, frame: &Frame) {
 	if let Some(jid) = chat {
 		fit_conversation_menu(s, &menu_bar, jid);
 	}
+	// The chat list's own actions (mute, archive, pin, lock, mark unread)
+	// also work on the chat focused in the list, so they stay enabled
+	// wherever the list shows chats. Windows swallows the shortcut of a
+	// greyed item without passing the key on, so greying them made
+	// Ctrl+Shift+U and the rest do nothing in the list with no chat open.
+	let list_shows_chats = !matches!(s.active_tab, 1 | 2 | 6);
 	for id in CONVERSATION_MENU_IDS {
-		menu_bar.enable_item(id, chat.is_some());
+		let list_action = CHAT_LIST_ACTIONS.iter().any(|(action, _)| *action == id);
+		menu_bar.enable_item(id, chat.is_some() || (list_action && list_shows_chats));
 	}
 }
 
@@ -3484,15 +3491,17 @@ pub fn bind_input_handlers(
 	let frame_chat_list_keys = parts.frame;
 	parts.conversations_parts.conversations_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
-			// With no chat open these menu items are greyed out, and a greyed
-			// out item's shortcut never reaches the menu, so the list sends it.
+			// The menu bar's shortcut handles these, unless the open chat's
+			// Conversation menu leaves the item out (a channel has no Lock,
+			// for one); then the list sends it for the focused chat itself.
 			let action = {
 				let s = state_conv_delete.borrow();
-				if conversation_menu_chat(&s).is_none() {
-					CHAT_LIST_ACTIONS.iter().find(|(_, name)| s.keymap.is_pressed(name, key_event)).map(|(id, _)| *id)
-				} else {
-					None
-				}
+				let menu_bar = frame_chat_list_keys.get_menu_bar();
+				CHAT_LIST_ACTIONS
+					.iter()
+					.find(|(_, name)| s.keymap.is_pressed(name, key_event))
+					.map(|(id, _)| *id)
+					.filter(|id| menu_bar.as_ref().is_none_or(|bar| bar.find_item(*id).is_none()))
 			};
 			if let Some(id) = action {
 				unsafe {
