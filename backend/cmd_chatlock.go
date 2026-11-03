@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"hash"
 	"net"
+	"time"
 
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
@@ -71,18 +72,28 @@ func handleVerifyChatLockCode(conn net.Conn, raw json.RawMessage) {
 	})
 }
 
-func buildLockChat(target types.JID, lock bool) appstate.PatchInfo {
-	return appstate.PatchInfo{
-		Type: appstate.WAPatchRegularLow,
-		Mutations: []appstate.MutationInfo{
-			{
-				Index:   []string{"lock", target.String()},
-				Version: 1,
-				Value: &waSyncAction.SyncActionValue{
-					LockChatAction: &waSyncAction.LockChatAction{
-						Locked: proto.Bool(lock),
-					},
-				},
+// buildLockChat builds a lock or unlock like WA Web's
+// WAWebLockChatSync.sendLockMutation: version 7, and locking first takes the
+// chat out of the archive and unpins it, in the same patch. chat is the
+// chat's own JID, for the archive's message range.
+func buildLockChat(target types.JID, chat string, lock bool) appstate.PatchInfo {
+	patch := appstate.PatchInfo{Type: appstate.WAPatchRegularLow}
+	if lock {
+		lastTS, lastKey := getLastMessageKeyForChat(chat)
+		patch.Mutations = append(patch.Mutations, withChatRange(appstate.BuildArchive(target, false, lastTS, lastKey), chat).Mutations...)
+		patch.Mutations = append(patch.Mutations, appstate.BuildPin(target, false).Mutations...)
+	}
+	patch.Mutations = append(patch.Mutations, lockChatMutation(target, lock))
+	return patch
+}
+
+func lockChatMutation(target types.JID, lock bool) appstate.MutationInfo {
+	return appstate.MutationInfo{
+		Index:   []string{"lock", target.String()},
+		Version: 7,
+		Value: &waSyncAction.SyncActionValue{
+			LockChatAction: &waSyncAction.LockChatAction{
+				Locked: proto.Bool(lock),
 			},
 		},
 	}
@@ -106,7 +117,7 @@ func handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
 	}
 
 	go func() {
-		if err := sendAppStateWithRetry(context.Background(), buildLockChat(syncdChatJID(jid), data.Value)); err != nil {
+		if err := sendAppStateWithRetry(context.Background(), buildLockChat(syncdChatJID(jid), data.JID, data.Value)); err != nil {
 			broadcastChats()
 			return
 		}
@@ -115,6 +126,12 @@ func handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
 			locked_int = 1
 		}
 		db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", locked_int, data.JID)
+		if data.Value {
+			now := time.Now().Unix()
+			noteArchiveAction(data.JID, false, nil, now)
+			db.Exec("UPDATE chats SET archived = 0 WHERE jid = ?", data.JID)
+			applyPinChange(data.JID, false, now)
+		}
 		broadcastChats()
 	}()
 }
