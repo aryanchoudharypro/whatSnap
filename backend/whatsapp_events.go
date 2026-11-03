@@ -2096,6 +2096,12 @@ func eventHandler(evt interface{}) {
 		forgetChannelRefreshes()
 		convertStoredVotesOnce.Do(func() { go runOnce("convert_stored_poll_votes_v1", convertStoredPollVotes) })
 		recheckChatLIDsOnce.Do(func() { go recheckChatLIDs() })
+		learnKeepArchivedOnce.Do(func() {
+			go func() {
+				time.Sleep(10 * time.Second)
+				learnKeepChatsArchived()
+			}()
+		})
 		go refreshServerFlags()
 		appStateResyncMu.Lock()
 		for k := range appStateResyncCount {

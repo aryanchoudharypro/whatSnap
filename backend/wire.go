@@ -71,6 +71,7 @@ func syncdChatJID(chat types.JID) types.JID {
 }
 
 var recheckChatLIDsOnce sync.Once
+var learnKeepArchivedOnce sync.Once
 
 func recheckChatLIDs() {
 	rows, err := db.Query(`SELECT jid, wire_jid FROM chats WHERE jid LIKE '%@s.whatsapp.net' AND wire_jid LIKE '%@lid'`)

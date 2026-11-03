@@ -306,6 +306,18 @@ func runOnce(key string, fn func()) {
 	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
 }
 
+// runOnceIfOK is runOnce for work that can fail: it's only marked done when
+// fn reports success, so a failed try runs again next time.
+func runOnceIfOK(key string, fn func() bool) {
+	var done int
+	if db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, "migration:"+key).Scan(&done) == nil && done > 0 {
+		return
+	}
+	if fn() {
+		db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
+	}
+}
+
 func cachePhone(jid types.JID) string {
 	if jid.Server == types.DefaultUserServer {
 		return jid.User

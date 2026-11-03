@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"fmt"
+
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
@@ -67,6 +70,31 @@ func keepChatsArchived() bool {
 	var keep int
 	db.QueryRow(`SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = ?`, keepChatsArchivedKey).Scan(&keep)
 	return keep == 1
+}
+
+// learnKeepChatsArchived fetches the phone's "Keep chats archived" when we've
+// never heard it. The phone sends it only when it changes, so a setting that
+// was turned on before whatSnap started storing it (or before linking, when
+// the full sync's events weren't kept) never reached us, and every archived
+// chat came out of the archive on its next message. WA Web has it from the
+// regular_low snapshot it reads at link time; one full sync of that
+// collection gets it the same way. Tried once per launch until it works.
+func learnKeepChatsArchived() {
+	var known int
+	db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, keepChatsArchivedKey).Scan(&known)
+	if known > 0 {
+		return
+	}
+	runOnceIfOK("refetch_regular_low_for_keep_archived_v1", func() bool {
+		err := wa().FetchAppState(context.Background(), appstate.WAPatchRegularLow, true, false)
+		if err != nil {
+			fmt.Println("Couldn't fetch regular_low for Keep chats archived:", err)
+			return false
+		}
+		fmt.Println("Keep chats archived after regular_low resync:", keepChatsArchived())
+		broadcastChats()
+		return true
+	})
 }
 
 func noteUnarchiveChatsSetting(v *events.UnarchiveChatsSetting) {
