@@ -93,7 +93,7 @@ An archived chat comes out of the archive when a new message comes in, unless `K
 ## Chats
 
 ### The Chat List
-Each chat in the list shows its name, the number of unread messages, and the last message. Press `Enter` to open a chat. Press the Applications key or `Shift+F10` to open the actions menu of a chat. The menu has these items, when they apply to the chat:
+Each chat in the list shows its name, the number of unread messages, and the last message. A group also says how many of its unread messages mention you, mention everyone or reply to you, for example "3 unread messages, 1 mention". Press `Enter` to open a chat. Press the Applications key or `Shift+F10` to open the actions menu of a chat. The menu has these items, when they apply to the chat:
 
 - `Contact info`
 - `Pin chat` or `Unpin chat`

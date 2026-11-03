@@ -8,6 +8,8 @@ pub(super) struct ChatRow<'a> {
 	pub(super) full_name: Option<Cow<'a, str>>,
 	#[serde(rename = "UnreadCount", default)]
 	pub(super) unread_count: u64,
+	#[serde(rename = "UnreadMentions", default)]
+	pub(super) unread_mentions: u64,
 	#[serde(rename = "Pinned", default)]
 	pub(super) pinned: bool,
 	#[serde(rename = "Muted", default)]
@@ -175,13 +177,21 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 
 			let name_line = if tags.is_empty() { name.clone() } else { format!("{} [{}]", name, tags.join("] [")) };
 
-			let unread_line = if unread == 1 {
+			let mut unread_line = if unread == 1 {
 				"1 unread message".to_string()
 			} else if unread > 1 {
 				format!("{} unread messages", unread)
 			} else {
 				String::new()
 			};
+			// WA Web marks a group with an "@ message" icon while it has unread
+			// messages that mention you, mention everyone or reply to you.
+			let mentions = if unread > 0 && jid.ends_with("@g.us") { chat.unread_mentions } else { 0 };
+			if mentions == 1 {
+				unread_line.push_str(", 1 mention");
+			} else if mentions > 1 {
+				unread_line.push_str(&format!(", {} mentions", mentions));
+			}
 
 			let preview_line = if preview_is_reaction && !preview_reaction_emoji.is_empty() && !preview.is_empty() {
 				let who = if preview_from_me {
@@ -238,6 +248,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 					ticks: (preview_from_me && !preview_is_reaction && !preview.is_empty())
 						.then(|| crate::ui::message_art::ticks_for(&chat.preview_status)),
 					unread: unread.min(u32::MAX as u64) as u32,
+					mention: mentions > 0,
 					pinned,
 					muted,
 					locked: is_locked,

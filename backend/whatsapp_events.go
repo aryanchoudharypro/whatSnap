@@ -1288,13 +1288,18 @@ func eventHandler(evt interface{}) {
 				if markedUnread == 1 && unread == 0 {
 					unread = 1
 				}
+				mentions := conv.GetUnreadMentionCount()
+				if mentions > unread {
+					mentions = unread
+				}
 				if listed {
 					writes = append(writes, func(tx sqlExecer) {
-						_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, pinned_at, muted, archived, is_locked, marked_unread, wire_jid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+						_, err := tx.Exec(`INSERT INTO chats (jid, name, timestamp, unread_count, pinned, pinned_at, muted, archived, is_locked, marked_unread, wire_jid, unread_mentions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 							ON CONFLICT(jid) DO UPDATE SET
 							timestamp=MAX(timestamp, excluded.timestamp),
 							name=CASE WHEN chats.name IS NULL OR chats.name = '' OR chats.name LIKE '+%' THEN COALESCE(NULLIF(excluded.name, ''), chats.name) ELSE chats.name END,
 							unread_count=MAX(chats.unread_count, excluded.unread_count),
+							unread_mentions=CASE WHEN excluded.unread_count >= chats.unread_count THEN MAX(COALESCE(chats.unread_mentions, 0), excluded.unread_mentions) ELSE chats.unread_mentions END,
 							pinned=CASE WHEN COALESCE(chats.pin_changed_at, 0) > 0 THEN chats.pinned ELSE MAX(chats.pinned, excluded.pinned) END,
 							pinned_at=CASE WHEN COALESCE(chats.pin_changed_at, 0) > 0 THEN chats.pinned_at ELSE MAX(COALESCE(chats.pinned_at, 0), excluded.pinned_at) END,
 							muted=MAX(chats.muted, excluded.muted),
@@ -1302,7 +1307,7 @@ func eventHandler(evt interface{}) {
 							is_locked=MAX(chats.is_locked, excluded.is_locked),
 							marked_unread=MAX(COALESCE(chats.marked_unread, 0), excluded.marked_unread),
 							wire_jid=COALESCE(NULLIF(chats.wire_jid, ''), excluded.wire_jid)`,
-							jid, name, ts, unread, pinned, pinnedAt, muted, archived, locked, markedUnread, wireJID)
+							jid, name, ts, unread, pinned, pinnedAt, muted, archived, locked, markedUnread, wireJID, mentions)
 						if err != nil {
 							fmt.Println("Error inserting chat from HistorySync:", err)
 						}
@@ -1906,17 +1911,22 @@ func eventHandler(evt interface{}) {
 					increment = 0
 				}
 			}
-			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me, wire_jid) VALUES (?, ?, ?, ?, ?, ?, ?)
+			mentions := 0
+			if increment > 0 && chatJID.Server == types.GroupServer && addressesMe(v.Message) {
+				mentions = 1
+			}
+			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me, wire_jid, unread_mentions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 					timestamp=MAX(timestamp, excluded.timestamp),
 					unread_count=chats.unread_count + excluded.unread_count,
+					unread_mentions=COALESCE(chats.unread_mentions, 0) + excluded.unread_mentions,
 					preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
 					preview_sender=excluded.preview_sender,
 					preview_from_me=excluded.preview_from_me,
 					preview_is_reaction=0,
 					preview_reaction_emoji='',
 					wire_jid=COALESCE(NULLIF(excluded.wire_jid, ''), chats.wire_jid)`,
-				jid, ts, increment, text, senderJID.String(), v.Info.IsFromMe, wireChat(v.Info.Chat, chatJID))
+				jid, ts, increment, text, senderJID.String(), v.Info.IsFromMe, wireChat(v.Info.Chat, chatJID), mentions)
 			if err != nil {
 				fmt.Println("Error updating chat timestamp:", err)
 			}

@@ -54,6 +54,13 @@ func migrateDB() error {
 	// undo a newer one.
 	db.Exec("ALTER TABLE chats ADD COLUMN pinned_at INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE chats ADD COLUMN pin_changed_at INTEGER DEFAULT 0")
+	// Unread messages that mention me, mention everyone or reply to me (WA
+	// Web's getIsImportantMessage / unreadMentionsOfMe). WA Web drops them
+	// when the chat is read, so this goes to 0 with unread_count.
+	db.Exec("ALTER TABLE chats ADD COLUMN unread_mentions INTEGER DEFAULT 0")
+	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_unread_mentions AFTER UPDATE OF unread_count ON chats
+		WHEN NEW.unread_count = 0 AND COALESCE(OLD.unread_mentions, 0) > 0
+		BEGIN UPDATE chats SET unread_mentions = 0 WHERE jid = NEW.jid; END`)
 	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_marked_unread AFTER UPDATE OF unread_count ON chats
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
 		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)

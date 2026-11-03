@@ -62,6 +62,8 @@ pub(crate) struct RowArt {
 	pub alert: bool,
 	pub heading: bool,
 	pub unread: u32,
+	/// WA Web's "@ message" icon: unread messages that mention or reply to you.
+	pub mention: bool,
 	pub pinned: bool,
 	pub muted: bool,
 	pub locked: bool,
@@ -557,6 +559,18 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 			DT_CENTER,
 		);
 		line_right -= badge_w + gap;
+	}
+	if art.mention {
+		let w = gdi::text_width(dc, fonts.small_bold, "@");
+		gdi::text(
+			dc,
+			fonts.small_bold,
+			c.accent,
+			"@",
+			rect(line_right - w, line2.0, line_right, line2.1),
+			Default::default(),
+		);
+		line_right -= w + gap;
 	}
 	if let Some(font) = fonts.icons {
 		for (on, glyph) in [(art.pinned, icon::PIN), (art.muted, icon::MUTED), (art.locked, icon::LOCK)] {
