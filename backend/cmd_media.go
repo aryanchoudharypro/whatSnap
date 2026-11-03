@@ -78,6 +78,9 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 var (
 	activeDownloadsMu sync.Mutex
 	activeDownloads   = map[string]context.CancelFunc{}
+	// autoDownloadFailed holds the messages whose automatic download failed
+	// this session (guarded by activeDownloadsMu).
+	autoDownloadFailed = map[string]bool{}
 	activeUploadsMu   sync.Mutex
 	activeUploads     = map[string]context.CancelFunc{}
 	retryWaitersMu    sync.Mutex
@@ -249,16 +252,41 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 		activeDownloadsMu.Unlock()
 		return
 	}
+	// Like WA Web, an automatic download that failed isn't tried again on its
+	// own; the message waits for the user to download it (WA Web's "tap to
+	// download", DownloadStage.NEED_POKE). Without this, the sticker panel
+	// and the startup sticker pass kept retrying the same files.
+	if auto && autoDownloadFailed[data.MessageID] {
+		activeDownloadsMu.Unlock()
+		return
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	activeDownloads[data.MessageID] = cancel
 	activeDownloadsMu.Unlock()
+	failed := false
 	run := func() {
 		defer func() {
 			activeDownloadsMu.Lock()
 			delete(activeDownloads, data.MessageID)
+			if auto && failed {
+				autoDownloadFailed[data.MessageID] = true
+			} else if !auto && !failed {
+				delete(autoDownloadFailed, data.MessageID)
+			}
 			activeDownloadsMu.Unlock()
 			cancel()
 		}()
+		// Automatic downloads share WA Web's limit of 5 at a time
+		// (WAWebMediaAutoDownloadQueue); maybeAutoDownload already holds a
+		// slot when it waits for the download itself.
+		if auto && !wait {
+			select {
+			case autoDownloadSlots <- struct{}{}:
+				defer func() { <-autoDownloadSlots }()
+			case <-ctx.Done():
+				return
+			}
+		}
 		onProgress := func(percent int) {
 			broadcastEvent("media_download_progress", map[string]interface{}{
 				"message_id": data.MessageID,
@@ -297,7 +325,12 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 				return
 			}
 
-			if attempt == 0 && (strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "410")) {
+			failed = true
+			// WA Web only asks the phone to upload a file again when the user
+			// asked for it (downloadEvenIfExpensive); an automatic download of
+			// an expired file just stops.
+			if !auto && attempt == 0 && (strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "410")) {
+				failed = false
 				fmt.Printf("Requesting media retry for %s...\n", data.MessageID)
 				retryErr := requestMediaRetry(data.MessageID)
 				if retryErr != nil {
