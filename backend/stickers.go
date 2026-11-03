@@ -518,7 +518,7 @@ func handleSendSticker(conn net.Conn, raw json.RawMessage) {
 			preview_reaction_emoji=''`, jid.String(), ts, text, own)
 		broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": resp.ID, "text": text, "from_me": true, "timestamp": ts,
-			"has_media": true, "mediaType": "sticker", "status": "sent",
+			"has_media": true, "mediaType": "sticker", "status": "sent", "sentHere": true,
 			"quotedId": quotedID, "quotedText": quotedText, "quotedSender": quotedSender,
 		})
 		broadcastChats()

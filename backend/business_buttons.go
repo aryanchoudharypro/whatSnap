@@ -312,7 +312,7 @@ func handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
 			chat.String(), ts, option.Label, senderJID)
 		broadcastEvent("message", map[string]interface{}{
 			"jid": chat.String(), "from": "me", "id": id, "text": option.Label, "from_me": true,
-			"timestamp": ts, "has_media": false, "status": "sent",
+			"timestamp": ts, "has_media": false, "status": "sent", "sentHere": true,
 			"quotedId": data.MessageID, "quotedText": preview, "quotedSender": quotedSender,
 		})
 		broadcastChats()

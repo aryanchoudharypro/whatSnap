@@ -389,7 +389,7 @@ func storeOwnSentMessage(chatJID, id string, msg *waE2E.Message, ts int64) {
 		chatJID, ts, text, senderJID)
 	broadcastEvent("message", map[string]interface{}{
 		"jid": chatJID, "from": "me", "id": id, "text": text, "from_me": true,
-		"timestamp": ts, "has_media": false, "status": "sent",
+		"timestamp": ts, "has_media": false, "status": "sent", "sentHere": true,
 	})
 	broadcastChats()
 }

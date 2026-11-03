@@ -84,11 +84,11 @@ var (
 	// broken files on every launch.
 	autoDownloadFailed     = map[string]bool{}
 	autoDownloadFailedOnce sync.Once
-	activeUploadsMu   sync.Mutex
-	activeUploads     = map[string]context.CancelFunc{}
-	retryWaitersMu    sync.Mutex
-	retryWaiters      = map[string]chan bool{}
-	pendingAutoOpens  sync.Map
+	activeUploadsMu        sync.Mutex
+	activeUploads          = map[string]context.CancelFunc{}
+	retryWaitersMu         sync.Mutex
+	retryWaiters           = map[string]chan bool{}
+	pendingAutoOpens       sync.Map
 )
 
 type progressFile struct {

@@ -166,6 +166,7 @@ func finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE
 		"timestamp":    sentTs,
 		"has_media":    false,
 		"status":       "sent",
+		"sentHere":     true,
 		"quotedId":     quotedID,
 		"quotedText":   quotedText,
 		"quotedSender": quotedSender,

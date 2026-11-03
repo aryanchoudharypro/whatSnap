@@ -65,7 +65,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						// message (WAWebSendMsgChatAction -> playOutgoingMessageTone
 						// after the send resolves with ack SENT), not on delivery.
 						// Voice messages already have their own send sound.
-						if is_from_me && was_pending && status == "sent" && !was_voice {
+						let sent_here = data.get("sentHere").and_then(|v| v.as_bool()).unwrap_or(false);
+						if is_from_me && (was_pending || sent_here) && status == "sent" && !was_voice {
 							play_notification_sound(
 								NotificationSound::MessageSent,
 								s.settings.sounds_enabled && s.settings.outgoing_sounds,
@@ -249,6 +250,19 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							..Default::default()
 						});
 						s.messages.push(chat_msg.clone());
+						// Stickers, polls and other sends with no pending row:
+						// the sent tone once the server has accepted them, as
+						// in WA Web.
+						if is_from_me
+							&& chat_msg.status == "sent"
+							&& data.get("sentHere").and_then(|v| v.as_bool()).unwrap_or(false)
+						{
+							play_notification_sound(
+								NotificationSound::MessageSent,
+								s.settings.sounds_enabled && s.settings.outgoing_sounds,
+								s.settings.output_device_name.clone(),
+							);
+						}
 
 						let is_deleted_msg = chat_msg.is_deleted;
 						let is_media_msg = !is_deleted_msg
