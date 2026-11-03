@@ -296,6 +296,29 @@ impl Keymap {
 	}
 }
 
+impl Keymap {
+	/// Like [`Keymap::is_pressed`], for the message list. With
+	/// `letters_need_alt` (typing there starts a message) a shortcut that is
+	/// a bare letter or digit is pressed with Alt instead, so plain typing
+	/// stays typing.
+	pub fn is_pressed_in_list(&self, id: &str, key: &KeyboardEvent, letters_need_alt: bool) -> bool {
+		let Some(action) = ACTIONS.iter().position(|a| a.id == id) else { return false };
+		let Some(code) = key.get_key_code() else { return false };
+		let Some(chord) = self.chord_for(action) else { return false };
+		let bare_char = !chord.ctrl
+			&& !chord.raw_ctrl
+			&& !chord.alt
+			&& !chord.shift
+			&& chord.key.chars().count() == 1
+			&& chord.key.chars().all(|c| c.is_ascii_alphanumeric());
+		if letters_need_alt && bare_char {
+			key.alt_down() && chord.matches(code, key.control_down(), false, key.shift_down())
+		} else {
+			chord.matches(code, key.control_down(), key.alt_down(), key.shift_down())
+		}
+	}
+}
+
 impl ShortcutModel for Keymap {
 	type Action = usize;
 

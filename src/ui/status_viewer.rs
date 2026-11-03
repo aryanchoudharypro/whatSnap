@@ -428,7 +428,7 @@ impl Viewer {
 		self.reply_field.set_value("");
 
 		let (position, count) = self.position_in_group(&entry);
-		let time = whatsnap::LocalTime::from_unix(entry.timestamp).map(|t| t.format("%I:%M %p")).unwrap_or_default();
+		let time = whatsnap::LocalTime::from_unix(entry.timestamp).map(whatsnap::time_or_day).unwrap_or_default();
 		let who = if entry.from_me { "My status".to_string() } else { entry.poster_name.clone() };
 		let header = format!("{who}, {position} of {count}, {time}");
 		self.header.set_label(&header);
@@ -751,7 +751,7 @@ impl Viewer {
 					.get("timestamp")
 					.and_then(|t| t.as_i64())
 					.and_then(whatsnap::LocalTime::from_unix)
-					.map(|t| t.format("%I:%M %p"))
+					.map(whatsnap::time_or_day)
 					.unwrap_or_default();
 				let reaction = text(v, "reaction");
 				let mut row = format!("{}, {}", text(v, "name"), time);

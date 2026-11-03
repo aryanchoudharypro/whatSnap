@@ -158,7 +158,7 @@ fn answer_join_requests(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 			.get("requested_at")
 			.and_then(|t| t.as_i64())
 			.and_then(whatsnap::LocalTime::from_unix)
-			.map(|dt| dt.format("%b %d, %I:%M %p"))
+			.map(whatsnap::day_and_time)
 			.unwrap_or_default();
 		labels.push(format!("{}, asked {}", text(r, "name"), when));
 	}

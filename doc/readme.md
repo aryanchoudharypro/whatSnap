@@ -85,6 +85,8 @@ To change the order of the sections, select a section in the Main Navigation lis
 | Status | `Alt+3` | The status updates of your contacts, and your own. |
 | Starred Messages | `Alt+4` | The messages that you starred, in all chats. |
 | Archived Chats | `Alt+5` | The chats that you archived. |
+
+An archived chat comes out of the archive when a new message comes in, unless `Keep chats archived` is on in the settings of WhatsApp on your phone. whatSnap follows the setting of your phone, like WhatsApp Web.
 | Communities | `Alt+6` | Your communities and their groups. |
 | Channels | `Alt+7` | The channels that you follow. |
 
@@ -143,7 +145,7 @@ The open chat has these controls, in this order:
 - The message box, named `Type a message`.
 - The `Add attachment`, `Send message`, and `Record voice message` buttons.
 
-Press `Alt+M` to go to the Messages list. Press `Alt+E` to go to the message box. Press `Alt+E` again to go back to where you were. Press `Alt+T` to hear the status of the chat, for example online, or typing. Press `Alt+I` to open the information of the chat. Press `Escape` to close the chat.
+Press `Alt+M` to go to the Messages list. Press `Alt+E` to go to the message box. Press `Alt+E` again to go back to where you were. Press `Alt+T` to hear the status of the chat, for example online, or typing. Press `Alt+L` to turn reading new messages aloud on or off for the open chat. Press `Alt+I` to open the information of the chat. Press `Escape` to close the chat.
 
 ### The Messages List
 The newest message is at the bottom. When you go up, whatSnap loads older messages. Date lines between the messages tell you when each day starts.
@@ -170,6 +172,8 @@ The newest message is at the bottom. When you go up, whatSnap loads older messag
 | `Ctrl+Space` | Turn selection mode on or off. |
 | `Applications key` or `Shift+F10` | Open the actions menu of the message. |
 
+If `Typing a letter in the message list starts a message` is on in the settings, typing a letter, a digit, or a punctuation mark in the list moves you to the message box with that character. The letter keys of the list then need `Alt`: `Alt+R` replies, `Alt+F` forwards, `Alt+S` stars, `Alt+V` votes, and `Alt+J` goes back 5 seconds. `Alt+E` and `Alt+L` stay `Jump to Message Field` and `Read New Messages Aloud`, so to edit or go forward 5 seconds from the list, give those actions other keys in `Keyboard Shortcuts...`.
+
 While a voice message plays, `Left Arrow` and `J` go back 5 seconds, and `Right Arrow` and `L` go forward 5 seconds. To change the speed, use the speed button. Its name is the current speed, for example `1.0x`.
 
 The actions menu of a message has these items, when they apply to the message: `Copy`, `Reply`, `Forward...`, `Edit`, `Delete`, `React...`, `Star` or `Unstar`, `Retry send`, `Request again`, `Save voice message...`, `Message Info`, `Copy all photos`, `Copy Number`, `Message Number`, and `Report...`. In a group, a submenu for the sender lets you message or call them. In a channel, a submenu lets you pin a post, or see who reacted or voted.
@@ -178,7 +182,9 @@ The actions menu of a message has these items, when they apply to the message: `
 In selection mode, `Space` selects or clears a message. A bar shows how many messages you selected, with `Delete` and `Cancel` buttons. To leave selection mode, press `Ctrl+Space` or `Escape`.
 
 ### Writing Messages
-Type your message in the message box. If `Enter is send` is on in the settings, `Enter` sends the message, and `Shift+Enter` starts a new line. If it is off, use the `Send message` button.
+Type your message in the message box. If `Enter is send` is on in the settings, `Enter` sends the message, and `Shift+Enter` starts a new line. If it is off, use the `Send message` button. whatSnap doesn't read your own messages back to you when you send them.
+
+New messages in the open chat are read aloud. To stop this for all chats, turn off `Read new messages aloud in the open chat` on the Notifications tab of the settings. To change it for one chat, use the notification settings of that chat, or press `Alt+L` in it.
 
 - To reply, press `R` on a message. The reply shows above the message box. To remove it, use `Remove quote`.
 - To edit, press `E` on your message. To stop editing, press `Escape`, or use `Cancel edit`.
@@ -217,7 +223,7 @@ You can also paste files with `Ctrl+V` in the message box or the Messages list.
 You can also use the `Record voice message`, `Pause recording`, `Send voice message`, and `Discard voice message` buttons. Select `View once` before you send, to send it as a view once voice message.
 
 ### Other Chat Actions
-The Conversation menu has more actions for the open chat. It shows only the ones that fit that chat:
+The Conversation menu has more actions for the open chat. It shows only the ones that fit that chat. When the chat list has the focus, the shortcuts for `Mute Chat`, `Archive Chat`, `Pin Chat`, `Lock Chat` and `Mark as Unread` work on the chat you are on in the list, like in WhatsApp Web:
 
 - `Search in Chat` (`Ctrl+Shift+F`)
 - `Pinned Messages...`, not in broadcast lists.
@@ -330,9 +336,12 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
 - `Incoming call sounds`: play the ringtone for incoming calls.
 - `Call ringtone` and `Group call ringtone`: `WhatsApp`, the ringtones Windows comes with (`Windows Ring 1` to `10` and `Windows Alarm 1` to `10`), or `Custom sound file`, with a `Choose ... File` button after each. The ringtone repeats until you answer or the call stops. A short part plays when you pick one.
 - `No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on`
+- `Read new messages aloud in the open chat`: each chat can change this in its notification settings, or with `Alt+L`.
 
 ### Chats Tab
 - `Enter is send`
+- `Typing a letter in the message list starts a message`: the letter keys of the Messages list then need `Alt`.
+- `Keep my place in the message list instead of jumping to the newest message`: when you send or delete a message, the list stays where you were.
 - `Replace text with emoji as you type`
 - `Check spelling in the message box`
 - `Say when a word you type is misspelled`
@@ -403,6 +412,7 @@ You can't change these keys:
 | Jump to Message Field | Conversation | `Alt+E` |
 | Jump to Messages List | Conversation | `Alt+M` |
 | Announce Chat Status | Conversation | `Alt+T` |
+| Read New Messages Aloud | Conversation | `Alt+L` |
 | Emoji... | Conversation | `Alt+Shift+E` |
 | Stickers... | Conversation | `Alt+Shift+S` |
 | Next Spelling Error | Conversation | `F7` |
@@ -416,10 +426,10 @@ You can't change these keys:
 | Start Recording | None | `Ctrl+Shift+R` |
 | Pause Recording | None | `Alt+P` |
 | Send Voice Message | None | `Ctrl+Enter` |
-| Toggle Mute | Call | `Ctrl+M` |
-| End Call | Call | `Ctrl+W` |
-| Answer Incoming Call | Call, global | `Alt+Shift+Y` |
-| Reject Incoming Call | Call, global | `Alt+Shift+N` |
+| Toggle Mute | Calls | `Ctrl+M` |
+| End Call | Calls | `Ctrl+W` |
+| Answer Incoming Call | Calls, global | `Alt+Shift+Y` |
+| Reject Incoming Call | Calls, global | `Alt+Shift+N` |
 | Reply | Messages | `R` |
 | Edit | Messages | `E` |
 | Star or unstar | Messages | `S` |

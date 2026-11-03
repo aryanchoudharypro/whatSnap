@@ -221,6 +221,7 @@ func handleGetCallTargets(conn net.Conn) {
 		nameFor := nameResolver()
 		phones := map[string]string{}
 		var contacts []CallTargetJSON
+		saved := savedContactJIDs()
 		if rows, err := db.Query(`SELECT jid, COALESCE(name, ''), COALESCE(phone, '') FROM contacts_cache
 				WHERE name != '' OR phone != ''`); err == nil {
 			for rows.Next() {
@@ -229,6 +230,9 @@ func handleGetCallTargets(conn net.Conn) {
 					continue
 				}
 				phones[c.JID] = c.Phone
+				if saved != nil && !saved[c.JID] {
+					continue
+				}
 				if c.Name == "" {
 					c.Name = c.Phone
 				}

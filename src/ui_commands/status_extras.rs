@@ -223,7 +223,7 @@ fn show_viewers(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 				.get("timestamp")
 				.and_then(|t| t.as_i64())
 				.and_then(whatsnap::LocalTime::from_unix)
-				.map(|dt| dt.format("%I:%M %p"))
+				.map(whatsnap::time_or_day)
 				.unwrap_or_default();
 			let reaction = text(v, "reaction");
 			let mut label = format!("{}, {}", text(v, "name"), time);

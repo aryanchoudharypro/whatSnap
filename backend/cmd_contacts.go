@@ -28,11 +28,15 @@ func handleGetContacts(conn net.Conn) {
 			return
 		}
 		defer rows.Close()
+		saved := savedContactJIDs()
 		contacts := []map[string]interface{}{}
 		for rows.Next() {
 			var jid, name, phone, about, avatarPath string
 			var isBusiness int
 			if err := rows.Scan(&jid, &name, &phone, &isBusiness, &about, &avatarPath); err == nil {
+				if saved != nil && !saved[jid] {
+					continue
+				}
 				contacts = append(contacts, map[string]interface{}{
 					"jid": jid, "name": name, "phone": phone,
 					"isBusiness": isBusiness == 1, "about": about,
@@ -42,6 +46,33 @@ func handleGetContacts(conn net.Conn) {
 		}
 		sendEvent(conn, "contacts", contacts)
 	}()
+}
+
+// savedContactJIDs is everyone in the phone's address book: contacts the
+// phone synced with a name (ContactAction), under their phone number JID.
+// WA Web's contact lists (new chat, new call, add to group) show only these
+// (isAddressBookContact); people only known by their push name, or whom the
+// phone has since removed, stay out. Nil when the store isn't ready.
+func savedContactJIDs() map[string]bool {
+	if wa() == nil || wa().Store == nil || wa().Store.Contacts == nil {
+		return nil
+	}
+	all, err := wa().Store.Contacts.GetAllContacts(context.Background())
+	if err != nil {
+		return nil
+	}
+	saved := make(map[string]bool, len(all))
+	for jid, contact := range all {
+		if contact.FullName == "" && contact.FirstName == "" {
+			continue
+		}
+		saved[jid.ToNonAD().String()] = true
+		saved[preferPN(jid.ToNonAD()).String()] = true
+	}
+	if len(saved) == 0 {
+		return nil
+	}
+	return saved
 }
 
 func handleGetAvatar(conn net.Conn, raw json.RawMessage) {

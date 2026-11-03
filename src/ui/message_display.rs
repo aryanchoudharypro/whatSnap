@@ -248,7 +248,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				};
 				let time_str = if item.timestamp > 0 {
 					whatsnap::LocalTime::from_unix(item.timestamp)
-						.map(|local_dt| local_dt.format("%I:%M %p"))
+						.map(whatsnap::time_or_day)
 						.unwrap_or_default()
 				} else {
 					String::new()

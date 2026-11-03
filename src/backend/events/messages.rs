@@ -314,7 +314,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						crate::ui_commands::calls::mark_joinable_rows(&s, parts);
 
 						let count = parts.conversations_parts.messages_list.get_count();
-						if count > 0 && is_from_me {
+						if count > 0 && is_from_me && !s.settings.keep_list_position {
 							parts.conversations_parts.messages_list.set_selection(count - 1, true);
 							refresh_voice_action_button(&s, &parts.conversations_parts);
 						}
@@ -544,6 +544,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							s.display_items = whatsnap::group_messages_into_display_items(&s.messages);
 							s.prev_msg_count = s.display_items.len();
 
+							let previous_row = parts.conversations_parts.messages_list.get_selection();
 							let rows: Vec<String> =
 								s.display_items.iter().map(|item| item.format_display(is_group)).collect();
 							parts.conversations_parts.messages_list.freeze();
@@ -555,8 +556,14 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							refresh_selection_list(&mut s, parts);
 							crate::ui_commands::calls::mark_joinable_rows(&s, parts);
 							let count = parts.conversations_parts.messages_list.get_count();
-							if count > 0 {
-								parts.conversations_parts.messages_list.set_selection(count - 1, true);
+							match previous_row {
+								Some(row) if count > 0 && s.settings.keep_list_position => {
+									parts.conversations_parts.messages_list.set_selection(row.min(count - 1), true);
+								}
+								_ if count > 0 => {
+									parts.conversations_parts.messages_list.set_selection(count - 1, true);
+								}
+								_ => {}
 							}
 							refresh_voice_action_button(&s, &parts.conversations_parts);
 							if !suppress_announce {
@@ -705,7 +712,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let Some(dt) = whatsnap::LocalTime::from_unix(ts) else {
 						return String::new();
 					};
-					dt.format("%l:%M %p").trim().to_lowercase()
+					let time = dt.format("%l:%M %p").trim().to_lowercase();
+					if dt.date() == whatsnap::LocalTime::now().date() { time } else { whatsnap::day_and_time(dt) }
 				};
 				let msg_id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
 				let mut sent_s = data.get("sent_at").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -1005,7 +1013,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					};
 					let date_str = if timestamp > 0 {
 						whatsnap::LocalTime::from_unix(timestamp)
-							.map(|local_dt| local_dt.format("%b %e, %Y"))
+							.map(|local_dt| whatsnap::day_name(local_dt, "%b %e, %Y"))
 							.unwrap_or_default()
 					} else {
 						String::new()
@@ -1192,13 +1200,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let btn_label = if unavailable {
 					if last_seen > 0 {
 						if let Some(local_dt) = whatsnap::LocalTime::from_unix(last_seen) {
-							let now = whatsnap::LocalTime::now();
-							let time_str = local_dt.format("%l:%M %p").trim().to_string();
-							let date_str = if local_dt.date() == now.date() {
-								format!("today at {}", time_str)
-							} else {
-								local_dt.format("%b %e at %l:%M %p").replace("  ", " ")
-							};
+							let date_str = whatsnap::day_and_time(local_dt);
 							format!("{} (last seen {})", name, date_str)
 						} else {
 							name.clone()
@@ -1241,13 +1243,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let announcement = if unavailable {
 						if last_seen > 0 {
 							if let Some(local_dt) = whatsnap::LocalTime::from_unix(last_seen) {
-								let now = whatsnap::LocalTime::now();
-								let time_str = local_dt.format("%l:%M %p").trim().to_string();
-								let date_str = if local_dt.date() == now.date() {
-									format!("today at {}", time_str)
-								} else {
-									local_dt.format("%b %e at %l:%M %p").replace("  ", " ")
-								};
+								let date_str = whatsnap::day_and_time(local_dt);
 								format!("{}, last seen {}", name, date_str)
 							} else {
 								format!("{}, offline", name)

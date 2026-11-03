@@ -203,6 +203,7 @@ struct Shared {
 	adapter: RefCell<Option<SubclassingAdapter>>,
 	on_selection_changed: RefCell<Option<SelectionCallback>>,
 	on_toggled: RefCell<Option<SelectionCallback>>,
+	on_typed: RefCell<Option<Rc<dyn Fn(char) -> bool>>>,
 	looks: RefCell<Option<LookSource>>,
 	measure_pending: Cell<bool>,
 	measure_retries: Cell<u8>,
@@ -308,6 +309,7 @@ impl MessageList {
 			adapter: RefCell::new(None),
 			on_selection_changed: RefCell::new(None),
 			on_toggled: RefCell::new(None),
+			on_typed: RefCell::new(None),
 			looks: RefCell::new(None),
 			measure_pending: Cell::new(false),
 			measure_retries: Cell::new(0),
@@ -568,6 +570,12 @@ impl MessageList {
 		}
 		self.sync(&shared);
 		self.panel.refresh(false, None);
+	}
+
+	/// Offers each character typed on the list (no Ctrl or Alt, not a space)
+	/// to `callback`, which returns whether it took it.
+	pub fn on_typed(&self, callback: impl Fn(char) -> bool + 'static) {
+		*self.shared().on_typed.borrow_mut() = Some(Rc::new(callback));
 	}
 
 	pub fn on_toggled(&self, callback: impl Fn(u32) + 'static) {
@@ -846,6 +854,18 @@ impl MessageList {
 		let list = *self;
 		self.panel.on_char(move |event| {
 			let WindowEventData::Keyboard(ref key) = event else { return };
+			let typed = (!key.control_down() && !key.alt_down())
+				.then(|| key.get_unicode_key())
+				.flatten()
+				.and_then(|c| char::from_u32(c as u32))
+				.filter(|c| !c.is_control() && *c != ' ');
+			if let Some(c) = typed {
+				let callback = list.shared().on_typed.borrow().clone();
+				if callback.is_some_and(|callback| callback(c)) {
+					event.skip(false);
+					return;
+				}
+			}
 			// Moving keys the list leaves alone (with Ctrl, say) mustn't reach
 			// the scrolled window either, which would scroll away from the cursor.
 			let moving = key.get_key_code().is_some_and(|code| {

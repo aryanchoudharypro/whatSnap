@@ -117,6 +117,40 @@ pub fn format_date_divider_label(local_dt: LocalTime) -> String {
 	}
 }
 
+/// "Today" or "Yesterday" for those two days, otherwise `other`'s format of
+/// the date.
+pub fn day_name(local_dt: LocalTime, other: &str) -> String {
+	let day = local_dt.date();
+	let today = LocalTime::now().date();
+	if day == today {
+		"Today".to_string()
+	} else if day == today.add_days(-1) {
+		"Yesterday".to_string()
+	} else {
+		local_dt.format(other).replace("  ", " ")
+	}
+}
+
+/// "today at 9:05 PM", "yesterday at 9:05 PM" or "Mar 2 at 9:05 PM", for
+/// times read inside a sentence.
+pub fn day_and_time(local_dt: LocalTime) -> String {
+	let time = local_dt.format("%l:%M %p").trim().to_string();
+	let day = day_name(local_dt, "%b %e");
+	match day.as_str() {
+		"Today" | "Yesterday" => format!("{} at {}", day.to_lowercase(), time),
+		_ => format!("{day} at {time}"),
+	}
+}
+
+/// Just the time for today, otherwise [`day_and_time`].
+pub fn time_or_day(local_dt: LocalTime) -> String {
+	if local_dt.date() == LocalTime::now().date() {
+		local_dt.format("%I:%M %p")
+	} else {
+		day_and_time(local_dt)
+	}
+}
+
 /// Calendar-day key for a timestamp, used to decide whether two messages need
 /// a date divider between them. Independent of `format_date_divider_label`'s
 /// "Today"/"Yesterday" wording so that changes to the label never affect the

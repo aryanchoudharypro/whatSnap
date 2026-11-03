@@ -317,6 +317,25 @@ fn show_message_text(
 	dlg.destroy();
 }
 
+/// The chat management actions that work on the chat focused in the chat
+/// list as well as on the open one, like WA Web's chat list shortcuts.
+const CHAT_LIST_ACTIONS: [(i32, &str); 5] = [
+	(MENU_ID_MUTE_CHAT, "mute_chat"),
+	(MENU_ID_ARCHIVE_CHAT, "archive_chat"),
+	(MENU_ID_PIN_CHAT, "pin_chat"),
+	(MENU_ID_LOCK_CHAT, "lock_chat"),
+	(MENU_ID_MARK_UNREAD, "mark_unread"),
+];
+
+/// The chat the chat list's focus is on, when the list has focus and shows
+/// chats (not status, starred messages or calls).
+fn chat_list_focus_chat(s: &crate::AppState, list: &ListBox) -> Option<String> {
+	if matches!(s.active_tab, 1 | 2 | 6) || !list.has_focus() {
+		return None;
+	}
+	list.get_selection().and_then(|idx| s.filtered_chats.get(idx as usize).cloned())
+}
+
 pub(crate) fn conversation_menu_chat(s: &crate::AppState) -> Option<&str> {
 	if s.active_tab == 1 || s.active_tab == 2 {
 		return None;
@@ -1622,7 +1641,15 @@ pub fn bind_input_handlers(
 		let id = evt.get_id();
 		// Belt and braces for the greying out: never act on a chat that
 		// isn't the one being looked at.
-		if CONVERSATION_MENU_IDS.contains(&id) && conversation_menu_chat(&state_chat_menu.borrow()).is_none() {
+		let list_chat = CHAT_LIST_ACTIONS
+			.iter()
+			.any(|(action, _)| *action == id)
+			.then(|| chat_list_focus_chat(&state_chat_menu.borrow(), &conv_list_for_focus_menu))
+			.flatten();
+		if CONVERSATION_MENU_IDS.contains(&id)
+			&& list_chat.is_none()
+			&& conversation_menu_chat(&state_chat_menu.borrow()).is_none()
+		{
 			return;
 		}
 		if id == MENU_ID_NEW_CHAT {
@@ -1754,7 +1781,7 @@ pub fn bind_input_handlers(
 			|| id == MENU_ID_MARK_UNREAD
 		{
 			let s = state_chat_menu.borrow();
-			let Some(jid) = s.selected_chat.clone() else { return };
+			let Some(jid) = list_chat.or_else(|| s.selected_chat.clone()) else { return };
 			if id == MENU_ID_MUTE_CHAT {
 				let muted = s.muted_jids.contains(&jid);
 				drop(s);
@@ -3454,8 +3481,29 @@ pub fn bind_input_handlers(
 	let open_chat_menu_key = open_chat_context_menu.clone();
 	let state_conv_delete = state.clone();
 	let tx_delete_call = ui_tx.clone();
+	let frame_chat_list_keys = parts.frame;
 	parts.conversations_parts.conversations_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
+			// With no chat open these menu items are greyed out, and a greyed
+			// out item's shortcut never reaches the menu, so the list sends it.
+			let action = {
+				let s = state_conv_delete.borrow();
+				if conversation_menu_chat(&s).is_none() {
+					CHAT_LIST_ACTIONS.iter().find(|(_, name)| s.keymap.is_pressed(name, key_event)).map(|(id, _)| *id)
+				} else {
+					None
+				}
+			};
+			if let Some(id) = action {
+				unsafe {
+					wxdragon::ffi::wxd_Window_PostMenuCommand(
+						frame_chat_list_keys.handle_ptr() as *mut wxdragon::ffi::wxd_Window_t,
+						id,
+					);
+				}
+				event.skip(false);
+				return;
+			}
 			if keys::is_context_menu_key(key_event) {
 				open_chat_menu_key.as_ref()();
 				event.skip(false);
@@ -3887,11 +3935,6 @@ pub fn bind_input_handlers(
 						msg_input_field_clone.set_focus();
 						remove_quote_btn_ctx.show(true);
 						conv_panel_ctx.layout();
-						unsafe {
-							let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-								windows::Win32::UI::WindowsAndMessaging::MB_OK,
-							);
-						}
 					}
 				} else if id == forward_id {
 					let s = state_clone.borrow();
@@ -4297,8 +4340,11 @@ pub fn bind_input_handlers(
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
 			enter_guard_msgs_down.set(false);
-			let keymap = state_play.borrow().keymap.clone();
-			let pressed = |id| keymap.is_pressed(id, key_event);
+			let (keymap, type_to_compose) = {
+				let s = state_play.borrow();
+				(s.keymap.clone(), s.settings.type_to_compose)
+			};
+			let pressed = |id| keymap.is_pressed_in_list(id, key_event, type_to_compose);
 
 			if keys::is_left(code) {
 				let now = std::time::Instant::now();
@@ -4632,11 +4678,6 @@ pub fn bind_input_handlers(
 						msg_input_field.set_focus();
 						remove_quote_btn_play.show(true);
 						conv_panel_play.layout();
-						unsafe {
-							let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-								windows::Win32::UI::WindowsAndMessaging::MB_OK,
-							);
-						}
 					}
 				}
 				event.skip(false);
@@ -5125,6 +5166,19 @@ pub fn bind_input_handlers(
 	// previous row's buttons until some unrelated event happens to trigger
 	// another layout. This one-shot timer, (re)armed on every skipped
 	// layout, guarantees a trailing layout once the burst actually settles.
+	// Typing in the message list starts a message when that's turned on.
+	let state_typed = state.clone();
+	let field_typed = parts.conversations_parts.message_field;
+	parts.conversations_parts.messages_list.on_typed(move |c| {
+		if !state_typed.borrow().settings.type_to_compose || !field_typed.is_shown() || !field_typed.is_enabled() {
+			return false;
+		}
+		field_typed.set_focus();
+		field_typed.set_insertion_point_end();
+		field_typed.write_text(&c.to_string());
+		true
+	});
+
 	let action_layout_timer = Timer::new(&parts.frame);
 	let action_panel_for_timer = parts.conversations_parts.action_panel;
 	action_layout_timer.on_tick(move |_| {

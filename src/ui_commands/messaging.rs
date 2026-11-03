@@ -19,7 +19,7 @@ pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	if let Some(ref jid) = s.selected_chat.clone() {
 		clear_unread_divider_for_open_chat(&mut s, parts, jid);
 
-		if !s.messages_at_latest {
+		if !s.messages_at_latest && !s.settings.keep_list_position {
 			let reload = serde_json::json!({
 				"action": "get_messages",
 				"data": { "jid": jid, "limit": crate::MESSAGE_PAGE_SIZE, "offset": 0 }
