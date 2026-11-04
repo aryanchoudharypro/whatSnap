@@ -96,11 +96,14 @@ func handleGetStatusViewers(conn net.Conn, raw json.RawMessage) {
 		if rows.Scan(&viewer, &ts, &reaction) != nil {
 			continue
 		}
-		name := viewer
-		if jid, err := types.ParseJID(viewer); err == nil {
-			name = resolveDisplayName(jid)
+		viewers = append(viewers, map[string]interface{}{"name": viewer, "timestamp": ts, "reaction": reaction})
+	}
+	rows.Close()
+	// Names are looked up with the rows closed, as that runs queries of its own.
+	for _, v := range viewers {
+		if jid, err := types.ParseJID(v["name"].(string)); err == nil {
+			v["name"] = resolveDisplayName(jid)
 		}
-		viewers = append(viewers, map[string]interface{}{"name": name, "timestamp": ts, "reaction": reaction})
 	}
 	sendEvent(conn, "status_viewers", map[string]interface{}{"id": data.ID, "viewers": viewers})
 }

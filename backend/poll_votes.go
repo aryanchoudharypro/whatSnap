@@ -493,11 +493,17 @@ func pollInfoForMessage(pollID string) map[string]interface{} {
 			name := "You"
 			if voter != me {
 				name = voter
-				if jid, perr := types.ParseJID(voter); perr == nil {
-					name = resolveDisplayName(jid)
-				}
 			}
 			voters = append(voters, map[string]interface{}{"name": name, "options": picked, "timestamp": ts, "me": voter == me})
+		}
+		rows.Close()
+		// Names are looked up with the rows closed, as that runs queries of its own.
+		for _, v := range voters {
+			if !v["me"].(bool) {
+				if jid, perr := types.ParseJID(v["name"].(string)); perr == nil {
+					v["name"] = resolveDisplayName(jid)
+				}
+			}
 		}
 	}
 	_, isChannel := channelPollCounts(pollID)

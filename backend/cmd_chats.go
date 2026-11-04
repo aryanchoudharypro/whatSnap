@@ -86,25 +86,48 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 		names[jidStr] = n
 		return n
 	}
+	// The rows are read in full and closed before anything else touches the
+	// database: names, quotes and polls below run their own queries, and
+	// doing that with the rows still open held one pooled connection while
+	// waiting for another (and for whatsmeow's LID/contact cache locks, which
+	// are held across their own queries) - enough of those at once, as after
+	// a wake, and every database user hung for good.
+	type messageRow struct {
+		id, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath string
+		quotedID, quotedText, quotedSender, albumID                                     string
+		ts, sentAt, deliveredAt, readAt, playedAt, editedAt, mediaSize                  int64
+		fromMe                                                                          bool
+		isEdited, isDeleted, starred                                                    int
+		rawBytes                                                                        []byte
+		channelViews                                                                    int
+		channelReactions                                                                string
+		channelPinned, kept                                                             bool
+		pinnedUntil, expiresAt                                                          int64
+	}
+	var scanned []messageRow
 	if queryErr == nil {
-		defer rows.Close()
 		for rows.Next() {
-			var id, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath string
-			var quotedID, quotedText, quotedSender, albumID string
-			var ts, sentAt, deliveredAt, readAt, playedAt, editedAt, mediaSize int64
-			var fromMe bool
-			var isEdited, isDeleted, starred int
-			var rawBytes []byte
-			var channelViews int
-			var channelReactions string
-			var channelPinned, kept bool
-			var pinnedUntil, expiresAt int64
-			if err := rows.Scan(&id, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &mediaSize,
-				&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred, &albumID, &rawBytes,
-				&channelViews, &channelReactions, &channelPinned, &pinnedUntil, &kept, &expiresAt); err != nil {
+			var r messageRow
+			if err := rows.Scan(&r.id, &r.text, &r.ts, &r.fromMe, &r.senderJID, &r.status, &r.mediaType, &r.mediaMimetype, &r.mediaFilename, &r.mediaPath, &r.mediaSize,
+				&r.quotedID, &r.quotedText, &r.quotedSender, &r.isEdited, &r.isDeleted, &r.sentAt, &r.deliveredAt, &r.readAt, &r.playedAt, &r.editedAt, &r.starred, &r.albumID, &r.rawBytes,
+				&r.channelViews, &r.channelReactions, &r.channelPinned, &r.pinnedUntil, &r.kept, &r.expiresAt); err != nil {
 				log.Println("Error scanning message row:", err)
 				continue
 			}
+			scanned = append(scanned, r)
+		}
+		rows.Close()
+	} else {
+		log.Println("Error querying messages:", queryErr)
+	}
+	for _, r := range scanned {
+		{
+			id, text, senderJID, status, mediaType, mediaMimetype, mediaFilename, mediaPath := r.id, r.text, r.senderJID, r.status, r.mediaType, r.mediaMimetype, r.mediaFilename, r.mediaPath
+			quotedID, quotedText, quotedSender, albumID := r.quotedID, r.quotedText, r.quotedSender, r.albumID
+			ts, sentAt, deliveredAt, readAt, playedAt, editedAt, mediaSize := r.ts, r.sentAt, r.deliveredAt, r.readAt, r.playedAt, r.editedAt, r.mediaSize
+			fromMe, isEdited, isDeleted, starred, rawBytes := r.fromMe, r.isEdited, r.isDeleted, r.starred, r.rawBytes
+			channelViews, channelReactions, channelPinned, kept := r.channelViews, r.channelReactions, r.channelPinned, r.kept
+			pinnedUntil, expiresAt := r.pinnedUntil, r.expiresAt
 			if isDeleted == 1 {
 				if fromMe {
 					text = "[You deleted this message]"
@@ -191,8 +214,6 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 				Reactions:     emptyReactions,
 			})
 		}
-	} else {
-		log.Println("Error querying messages:", queryErr)
 	}
 
 	if after == nil {
@@ -490,6 +511,28 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
+// fillSenderNames adds senderName and renders names in text for result rows
+// read with their database rows already closed: resolving a name runs its own
+// queries, and doing that while still reading rows held a pooled connection
+// waiting on another.
+func fillSenderNames(results []map[string]interface{}) {
+	names := map[string]string{}
+	for _, r := range results {
+		senderJID, _ := r["senderJid"].(string)
+		name, ok := names[senderJID]
+		if !ok && senderJID != "" {
+			if parsed, err := types.ParseJID(senderJID); err == nil {
+				name = resolveDisplayName(parsed)
+			}
+			names[senderJID] = name
+		}
+		r["senderName"] = name
+		if text, ok := r["text"].(string); ok {
+			r["text"] = renderNames(text, nil)
+		}
+	}
+}
+
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
@@ -507,26 +550,21 @@ func handleGetStarredMessages(conn net.Conn) {
 				var ts int64
 				var fromMe bool
 				if scanErr := rows.Scan(&id, &jid, &text, &ts, &fromMe, &senderJID, &mediaType, &quotedText); scanErr == nil {
-					senderName := ""
-					if senderJID != "" {
-						if parsed, perr := types.ParseJID(senderJID); perr == nil {
-							senderName = resolveDisplayName(parsed)
-						}
-					}
 					results = append(results, map[string]interface{}{
 						"id":         id,
 						"jid":        jid,
 						"fromMe":     fromMe,
-						"text":       renderNames(text, nil),
+						"text":       text,
 						"timestamp":  ts,
 						"senderJid":  senderJID,
-						"senderName": senderName,
 						"mediaType":  mediaType,
 						"quotedText": quotedText,
 						"starred":    true,
 					})
 				}
 			}
+			rows.Close()
+			fillSenderNames(results)
 		} else {
 			log.Println("Error querying starred messages:", err)
 		}
@@ -569,20 +607,13 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 				var isEdited, isDeleted, starred int
 				if scanErr := rows.Scan(&id, &jid, &text, &ts, &fromMe, &senderJID, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath,
 					&quotedID, &quotedText, &quotedSender, &isEdited, &isDeleted, &sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &starred); scanErr == nil {
-					senderName := ""
-					if senderJID != "" {
-						if parsed, perr := types.ParseJID(senderJID); perr == nil {
-							senderName = resolveDisplayName(parsed)
-						}
-					}
 					results = append(results, map[string]interface{}{
 						"id":            id,
 						"jid":           jid,
 						"fromMe":        fromMe,
-						"text":          renderNames(text, nil),
+						"text":          text,
 						"timestamp":     ts,
 						"senderJid":     senderJID,
-						"senderName":    senderName,
 						"status":        status,
 						"mediaType":     mediaType,
 						"mediaMimetype": mediaMimetype,
@@ -602,6 +633,8 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 					})
 				}
 			}
+			rows.Close()
+			fillSenderNames(results)
 		} else {
 			log.Println("Error searching messages:", err)
 		}

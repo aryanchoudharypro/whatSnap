@@ -81,15 +81,9 @@ func handleGetStatuses(conn net.Conn) {
 				}
 				g, ok := groups[key]
 				if !ok {
-					name := "You"
-					if !fromMe {
-						if parsed, perr := types.ParseJID(senderJID); perr == nil {
-							name = resolveDisplayName(parsed)
-						} else {
-							name = senderJID
-						}
-					}
-					g = &groupMeta{posterJID: senderJID, posterName: name, fromMe: fromMe, muted: !fromMe && statusMutedFor(muted, senderJID)}
+					// The poster's name and mute state are looked up once the
+					// rows are closed, as those run queries of their own.
+					g = &groupMeta{posterJID: senderJID, posterName: "You", fromMe: fromMe}
 					groups[key] = g
 					order = append(order, key)
 				}
@@ -100,6 +94,18 @@ func handleGetStatuses(conn net.Conn) {
 					"mediaFilename": mediaFilename, "mediaPath": mediaPath, "timestamp": ts, "viewed": viewed == 1 || fromMe,
 					"viewers": viewers, "myReaction": myReaction, "background": background, "textColor": textColor,
 				})
+			}
+			rows.Close()
+		}
+		for _, g := range groups {
+			if g.fromMe {
+				continue
+			}
+			g.muted = statusMutedFor(muted, g.posterJID)
+			if parsed, perr := types.ParseJID(g.posterJID); perr == nil {
+				g.posterName = resolveDisplayName(parsed)
+			} else {
+				g.posterName = g.posterJID
 			}
 		}
 

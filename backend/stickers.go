@@ -623,12 +623,17 @@ func fixupLegacyStickerTexts() {
 
 	rowsRecent, errRecent := db.Query(`SELECT id, jid FROM messages WHERE media_type = 'sticker' AND (media_path IS NULL OR media_path = '') AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 50`)
 	if errRecent == nil {
-		defer rowsRecent.Close()
+		var recent []MessageRefData
 		for rowsRecent.Next() {
-			var mID, mJID string
-			if rowsRecent.Scan(&mID, &mJID) == nil {
-				startMediaDownload(MessageRefData{MessageID: mID, JID: mJID}, true)
+			var ref MessageRefData
+			if rowsRecent.Scan(&ref.MessageID, &ref.JID) == nil {
+				recent = append(recent, ref)
 			}
+		}
+		rowsRecent.Close()
+		// Started with the rows closed, as each start runs a query of its own.
+		for _, ref := range recent {
+			startMediaDownload(ref, true)
 		}
 	}
 }

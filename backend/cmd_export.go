@@ -227,16 +227,28 @@ func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 
 		var md strings.Builder
 
+		// Every row is read before any name is looked up: that runs queries
+		// of its own, which with the rows still open held one pooled
+		// connection while waiting for another.
+		type exportRow struct {
+			text, senderJID, mediaType string
+			ts                         int64
+			fromMe                     bool
+			deletedInt                 int
+		}
+		var exportRows []exportRow
+		for rows.Next() {
+			var r exportRow
+			if rows.Scan(&r.text, &r.ts, &r.fromMe, &r.senderJID, &r.mediaType, &r.deletedInt) == nil {
+				exportRows = append(exportRows, r)
+			}
+		}
+		rows.Close()
+
 		lastDate := ""
 		total := 0
-		for rows.Next() {
-			var text, senderJID, mediaType string
-			var ts int64
-			var fromMe bool
-			var deletedInt int
-			if scanErr := rows.Scan(&text, &ts, &fromMe, &senderJID, &mediaType, &deletedInt); scanErr != nil {
-				continue
-			}
+		for _, r := range exportRows {
+			text, senderJID, mediaType, ts, fromMe, deletedInt := r.text, r.senderJID, r.mediaType, r.ts, r.fromMe, r.deletedInt
 
 			t := time.Unix(ts, 0)
 			text = renderNames(text, nil)
@@ -295,7 +307,6 @@ func handleExportChatText(conn net.Conn, raw json.RawMessage) {
 			fmt.Fprintf(&md, "%s, %s — %s\n", sender, t.Format("15:04"), content)
 			total++
 		}
-		rows.Close()
 
 		if err := os.WriteFile(data.DestPath, []byte(md.String()), 0644); err != nil {
 			broadcastEvent("error", map[string]string{"message": "Export failed: " + err.Error()})

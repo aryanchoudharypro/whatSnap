@@ -146,16 +146,6 @@ type ChatListEntry struct {
 
 func buildChatsList() []ChatListEntry {
 	refreshArchivedChats()
-	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, ''), COALESCE(admins_only, 0),
-		CASE WHEN COALESCE(preview_from_me, 0) = 1 THEN COALESCE((SELECT m.status FROM messages m WHERE m.jid = chats.jid AND m.from_me = 1 ORDER BY m.timestamp DESC LIMIT 1), '') ELSE '' END
-		, COALESCE(pin_changed_at, 0), COALESCE(unread_mentions, 0)
-		FROM chats ORDER BY pinned DESC, COALESCE(pinned_at, 0) DESC, timestamp DESC, name ASC`)
-	if err != nil {
-		fmt.Println("Error querying chats:", err)
-		return []ChatListEntry{}
-	}
-	defer rows.Close()
-
 	communityNames := map[string]string{}
 	if nameRows, nameErr := db.Query(`SELECT jid, COALESCE(name, '') FROM chats WHERE COALESCE(is_community, 0) = 1`); nameErr == nil {
 		for nameRows.Next() {
@@ -171,35 +161,59 @@ func buildChatsList() []ChatListEntry {
 
 	senderNames := map[string]string{}
 	settingsByChat := allChatSettings()
-	chats := []ChatListEntry{}
-	for rows.Next() {
-		var jid string
-		var name sql.NullString
-		var ts int64
-		var unread int
-		var pinned int
-		var muted int
-		var preview sql.NullString
-		var archived int
-		var previewSender sql.NullString
-		var previewFromMe int
-		var previewIsReaction int
-		var previewReactionEmoji string
-		var isCommunity int
-		var isAdmin int
-		var isLocked int
-		var parentJID string
-		var isAnnounceGroup int
-		var adminsOnly int
-		var isChannel int
-		var channelRole string
-		var previewStatus string
-		var pinChangedAt int64
-		var unreadMentions int
+	rows, err := db.Query(`SELECT jid, name, timestamp, unread_count, pinned, muted, preview_snippet, archived, COALESCE(preview_sender, ''), COALESCE(preview_from_me, 0), COALESCE(preview_is_reaction, 0), COALESCE(preview_reaction_emoji, ''), COALESCE(is_community, 0), COALESCE(is_admin, 0), COALESCE(is_locked, 0), COALESCE(parent_jid, ''), COALESCE(is_announce_group, 0), COALESCE(is_channel, 0), COALESCE(channel_role, ''), COALESCE(admins_only, 0),
+		CASE WHEN COALESCE(preview_from_me, 0) = 1 THEN COALESCE((SELECT m.status FROM messages m WHERE m.jid = chats.jid AND m.from_me = 1 ORDER BY m.timestamp DESC LIMIT 1), '') ELSE '' END
+		, COALESCE(pin_changed_at, 0), COALESCE(unread_mentions, 0)
+		FROM chats ORDER BY pinned DESC, COALESCE(pinned_at, 0) DESC, timestamp DESC, name ASC`)
+	if err != nil {
+		fmt.Println("Error querying chats:", err)
+		return []ChatListEntry{}
+	}
 
-		if err := rows.Scan(&jid, &name, &ts, &unread, &pinned, &muted, &preview, &archived, &previewSender, &previewFromMe, &previewIsReaction, &previewReactionEmoji, &isCommunity, &isAdmin, &isLocked, &parentJID, &isAnnounceGroup, &isChannel, &channelRole, &adminsOnly, &previewStatus, &pinChangedAt, &unreadMentions); err != nil {
+	type chatRow struct {
+		jid                  string
+		name                 sql.NullString
+		ts                   int64
+		unread               int
+		pinned               int
+		muted                int
+		preview              sql.NullString
+		archived             int
+		previewSender        sql.NullString
+		previewFromMe        int
+		previewIsReaction    int
+		previewReactionEmoji string
+		isCommunity          int
+		isAdmin              int
+		isLocked             int
+		parentJID            string
+		isAnnounceGroup      int
+		adminsOnly           int
+		isChannel            int
+		channelRole          string
+		previewStatus        string
+		pinChangedAt         int64
+		unreadMentions       int
+	}
+	// Every chat row is read and the rows closed before anything else runs a
+	// query: names, settings and business checks below run their own, and
+	// doing that with the rows open held one pooled connection while waiting
+	// for another (and for whatsmeow's LID/contact cache locks, held across
+	// their own queries). This runs after every message, so a few of these at
+	// once, as after a wake, left every database user waiting for good.
+	var chatRows []chatRow
+	for rows.Next() {
+		var r chatRow
+		if err := rows.Scan(&r.jid, &r.name, &r.ts, &r.unread, &r.pinned, &r.muted, &r.preview, &r.archived, &r.previewSender, &r.previewFromMe, &r.previewIsReaction, &r.previewReactionEmoji, &r.isCommunity, &r.isAdmin, &r.isLocked, &r.parentJID, &r.isAnnounceGroup, &r.isChannel, &r.channelRole, &r.adminsOnly, &r.previewStatus, &r.pinChangedAt, &r.unreadMentions); err != nil {
 			continue
 		}
+		chatRows = append(chatRows, r)
+	}
+	rows.Close()
+
+	chats := []ChatListEntry{}
+	for _, r := range chatRows {
+		jid, name, ts, unread, pinned, muted, preview, archived, previewSender, previewFromMe, previewIsReaction, previewReactionEmoji, isCommunity, isAdmin, isLocked, parentJID, isAnnounceGroup, adminsOnly, isChannel, channelRole, previewStatus, pinChangedAt, unreadMentions := r.jid, r.name, r.ts, r.unread, r.pinned, r.muted, r.preview, r.archived, r.previewSender, r.previewFromMe, r.previewIsReaction, r.previewReactionEmoji, r.isCommunity, r.isAdmin, r.isLocked, r.parentJID, r.isAnnounceGroup, r.adminsOnly, r.isChannel, r.channelRole, r.previewStatus, r.pinChangedAt, r.unreadMentions
 		n := jid
 		if name.Valid && name.String != "" {
 			n = name.String

@@ -199,11 +199,19 @@ func handleGetPinnedMessages(conn net.Conn, raw json.RawMessage) {
 		name := "You"
 		if !fromMe {
 			name = sender
-			if parsed, err := types.ParseJID(sender); err == nil {
-				name = resolveDisplayName(parsed)
+		}
+		pins = append(pins, map[string]interface{}{"id": id, "text": text, "sender": name, "fromMe": fromMe})
+	}
+	rows.Close()
+	// Names are looked up with the rows closed, as that runs queries of its own.
+	for _, p := range pins {
+		p["text"] = renderNames(p["text"].(string), nil)
+		if !p["fromMe"].(bool) {
+			if parsed, err := types.ParseJID(p["sender"].(string)); err == nil {
+				p["sender"] = resolveDisplayName(parsed)
 			}
 		}
-		pins = append(pins, map[string]interface{}{"id": id, "text": renderNames(text, nil), "sender": name})
+		delete(p, "fromMe")
 	}
 	sendEvent(conn, "pinned_messages", map[string]interface{}{"jid": data.JID, "messages": pins})
 }

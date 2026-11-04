@@ -40,12 +40,18 @@ func lookUpBusinessNames() {
 		if err != nil || j.User == cli.Store.ID.User {
 			continue
 		}
-		if name := resolveDisplayName(j); name != "" && !strings.HasPrefix(name, "+") && name != j.String() {
-			continue
-		}
 		jids = append(jids, j)
 	}
 	rows.Close()
+	// Known names are checked with the rows closed, as that runs queries of
+	// its own.
+	unnamed := jids[:0]
+	for _, j := range jids {
+		if name := resolveDisplayName(j); name == "" || strings.HasPrefix(name, "+") || name == j.String() {
+			unnamed = append(unnamed, j)
+		}
+	}
+	jids = unnamed
 	found := 0
 	for start := 0; start < len(jids); start += 50 {
 		batch := jids[start:min(start+50, len(jids))]

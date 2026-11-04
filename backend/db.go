@@ -733,14 +733,25 @@ func backfillTemplateMessages() {
 		id, jid, text, mediaType, mimetype, filename string
 		fileSize                                     int64
 	}
+	type stored struct {
+		id, jid, senderStr string
+		raw                []byte
+	}
+	// Read in full first: the text extraction below can look up names, which
+	// runs queries of its own and mustn't wait on a second connection while
+	// these rows hold one.
+	var storedRows []stored
+	for rows.Next() {
+		var r stored
+		if rows.Scan(&r.id, &r.jid, &r.senderStr, &r.raw) == nil {
+			storedRows = append(storedRows, r)
+		}
+	}
+	rows.Close()
 	var fixed []recovered
 	var bookkeeping []string
-	for rows.Next() {
-		var id, jid, senderStr string
-		var raw []byte
-		if rows.Scan(&id, &jid, &senderStr, &raw) != nil {
-			continue
-		}
+	for _, r := range storedRows {
+		id, jid, senderStr, raw := r.id, r.jid, r.senderStr, r.raw
 		msg := &waE2E.Message{}
 		if proto.Unmarshal(raw, msg) != nil {
 			continue
@@ -766,7 +777,6 @@ func backfillTemplateMessages() {
 		mediaType, mimetype, filename, fileSize := mediaInfoFromMessage(msg)
 		fixed = append(fixed, recovered{id, jid, text, mediaType, mimetype, filename, fileSize})
 	}
-	rows.Close()
 
 	chats := make(map[string]struct{}, len(fixed))
 	for _, msg := range fixed {
@@ -1065,26 +1075,31 @@ func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 			var messageID, reactorJID, emoji string
 			var ts int64
 			if err := rows.Scan(&messageID, &reactorJID, &emoji, &ts); err == nil {
-				name := "You"
-				if reactorJID != "me" {
-					if cached, ok := names[reactorJID]; ok {
-						name = cached
-					} else if parsed, perr := types.ParseJID(reactorJID); perr == nil {
-						name = resolveDisplayName(parsed)
-						names[reactorJID] = name
-					} else {
-						name = reactorJID
-					}
-				}
 				result[messageID] = append(result[messageID], ReactionInfo{
-					ReactorJID:  reactorJID,
-					ReactorName: name,
-					Emoji:       emoji,
-					Timestamp:   ts,
+					ReactorJID: reactorJID,
+					Emoji:      emoji,
+					Timestamp:  ts,
 				})
 			}
 		}
 		rows.Close()
+	}
+	// Names are looked up with the rows closed, as that runs queries of its own.
+	for _, list := range result {
+		for i := range list {
+			jid := list[i].ReactorJID
+			name, ok := names[jid]
+			if !ok {
+				name = jid
+				if jid == "me" {
+					name = "You"
+				} else if parsed, perr := types.ParseJID(jid); perr == nil {
+					name = resolveDisplayName(parsed)
+				}
+				names[jid] = name
+			}
+			list[i].ReactorName = name
+		}
 	}
 	return result
 }
