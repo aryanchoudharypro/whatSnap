@@ -7,6 +7,8 @@ pub mod do_not_disturb;
 #[cfg(target_os = "windows")]
 pub mod end_session;
 #[cfg(target_os = "windows")]
+pub mod focus;
+#[cfg(target_os = "windows")]
 pub mod link_handler;
 pub mod paths;
 pub mod quit;
@@ -14,3 +16,5 @@ pub mod single_instance;
 pub mod toast;
 pub mod tray;
 pub mod update_check;
+#[cfg(target_os = "windows")]
+pub mod windows_hello;

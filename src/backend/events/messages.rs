@@ -347,7 +347,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						}
 						if !is_from_me && s.settings.announces_incoming(jid) {
 							let formatted = chat_msg.format_display(is_group);
-							crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &formatted);
+							crate::platform::announce::announce(
+								parts.conversations_parts.messages_announcer,
+								&formatted,
+							);
 						}
 
 						if !is_from_me {

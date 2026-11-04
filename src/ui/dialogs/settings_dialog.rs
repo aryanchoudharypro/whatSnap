@@ -33,6 +33,9 @@ pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
 	("24 Hours", "86400"),
 ];
 
+pub const CHAT_LOCK_HELLO_LABEL: &str =
+	"Unlock locked chats with Windows Hello (fingerprint, face or PIN) instead of the secret code";
+
 pub struct PrivacyControl {
 	pub name: &'static str,
 	pub label: &'static str,
@@ -87,6 +90,7 @@ pub struct SettingsDialogParts {
 	pub enter_is_send_check: CheckBox,
 	pub type_to_compose_check: CheckBox,
 	pub keep_list_position_check: CheckBox,
+	pub chat_lock_hello_check: CheckBox,
 	pub replace_emoji_check: CheckBox,
 	pub emoji_help_btn: Button,
 	pub spell_check_check: CheckBox,
@@ -256,9 +260,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let group_call_ringtone_picker = sound_picker("Group call ringtone", "Group Call Ringtone", Kind::Ringtone);
 	let follow_dnd_check =
 		notify_switch("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on");
-	let announce_incoming_check = notify_switch(
-		"Read new messages aloud in the open chat (Alt+L turns it on or off for one chat)",
-	);
+	let announce_incoming_check =
+		notify_switch("Read new messages aloud in the open chat (Alt+L turns it on or off for one chat)");
 	notifications_sizer.add_spacer(12);
 	notifications_panel.set_sizer(notifications_sizer, true);
 
@@ -271,6 +274,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		chats_check("Typing a letter in the message list starts a message (message shortcuts then need Alt)");
 	let keep_list_position_check =
 		chats_check("Keep my place in the message list instead of jumping to the newest message");
+	let chat_lock_hello_check = chats_check(CHAT_LOCK_HELLO_LABEL);
 	let replace_emoji_check = chats_check("Replace text with emoji as you type, like :-) or (y)");
 	let emoji_help_btn = setting_button(&chats_panel, "Replace Text With Emoji: See Help...");
 	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
@@ -471,6 +475,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		enter_is_send_check,
 		type_to_compose_check,
 		keep_list_position_check,
+		chat_lock_hello_check,
 		replace_emoji_check,
 		emoji_help_btn,
 		spell_check_check,
@@ -656,6 +661,11 @@ impl SettingsDialogParts {
 		self.enter_is_send_check.set_value(settings.enter_is_send);
 		self.type_to_compose_check.set_value(settings.type_to_compose);
 		self.keep_list_position_check.set_value(settings.keep_list_position);
+		// Only offered when Windows Hello is set up now; a saved "on" stays
+		// on, so it isn't lost while the sign-in method is missing.
+		let hello = crate::platform::windows_hello::availability();
+		self.chat_lock_hello_check.enable(hello == crate::platform::windows_hello::Availability::Ready);
+		self.chat_lock_hello_check.set_value(settings.chat_lock_hello);
 		self.announce_incoming_check.set_value(settings.announce_incoming);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
 		self.spell_check_check.set_value(settings.spell_check);
@@ -682,6 +692,7 @@ impl SettingsDialogParts {
 		settings.enter_is_send = self.enter_is_send_check.is_checked();
 		settings.type_to_compose = self.type_to_compose_check.is_checked();
 		settings.keep_list_position = self.keep_list_position_check.is_checked();
+		settings.chat_lock_hello = self.chat_lock_hello_check.is_checked();
 		settings.announce_incoming = self.announce_incoming_check.is_checked();
 		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();
 		settings.spell_check = self.spell_check_check.is_checked();

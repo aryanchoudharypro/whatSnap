@@ -19,10 +19,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							windows::Win32::UI::WindowsAndMessaging::MB_OK,
 						);
 					}
-					MessageDialog::builder(&parts.new_contact_dialog.dialog, err_msg, "Error")
-						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-						.build()
-						.show_modal();
+					let owner = windows::Win32::Foundation::HWND(parts.new_contact_dialog.dialog.get_handle());
+					crate::platform::focus::show_modal_and_refocus(owner, false, || {
+						MessageDialog::builder(&parts.new_contact_dialog.dialog, err_msg, "Error")
+							.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+							.build()
+							.show_modal()
+					});
 				}
 			}
 		}
@@ -99,10 +102,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
 						);
 					}
-					MessageDialog::builder(&parts.new_group_dialog.dialog, err_msg, "Error")
-						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-						.build()
-						.show_modal();
+					let owner = windows::Win32::Foundation::HWND(parts.new_group_dialog.dialog.get_handle());
+					crate::platform::focus::show_modal_and_refocus(owner, false, || {
+						MessageDialog::builder(&parts.new_group_dialog.dialog, err_msg, "Error")
+							.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+							.build()
+							.show_modal()
+					});
 				}
 			}
 		}

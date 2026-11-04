@@ -144,11 +144,7 @@ pub fn day_and_time(local_dt: LocalTime) -> String {
 
 /// Just the time for today, otherwise [`day_and_time`].
 pub fn time_or_day(local_dt: LocalTime) -> String {
-	if local_dt.date() == LocalTime::now().date() {
-		local_dt.format("%I:%M %p")
-	} else {
-		day_and_time(local_dt)
-	}
+	if local_dt.date() == LocalTime::now().date() { local_dt.format("%I:%M %p") } else { day_and_time(local_dt) }
 }
 
 /// Calendar-day key for a timestamp, used to decide whether two messages need

@@ -3,8 +3,8 @@ use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState,
-	platform::tray::refresh_tray_tooltip,
+	AppState, UiCommand,
+	platform::{tray::refresh_tray_tooltip, windows_hello},
 	ui::{
 		chat_ui::{clear_pending_reply, clear_unread_divider_for_open_chat, open_chat_for_jid, save_composer_draft},
 		contact_picker::refresh_selection_list,
@@ -406,7 +406,78 @@ pub(crate) fn toggle_search_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	parts.conversations_parts.conversation_panel.layout();
 }
 
+/// The Locked Chats button: Windows Hello when the user turned it on and it
+/// can be used, otherwise the secret code.
 pub(crate) fn prompt_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let (use_hello, ui_tx) = {
+		let s = state.borrow();
+		(s.settings.chat_lock_hello, s.ui_tx.clone())
+	};
+	if use_hello && windows_hello::availability() == windows_hello::Availability::Ready {
+		let started = windows_hello::verify("Unlock your locked chats in whatSnap".to_string(), move |verified| {
+			let _ = ui_tx.send(UiCommand::ChatLockHello { verified });
+		});
+		if started {
+			return;
+		}
+	}
+	ask_secret_code(state, parts);
+}
+
+/// The Windows Hello prompt finished. A pass shows the chats; a cancel or
+/// failure falls back to the secret code, so the chats are never out of reach.
+pub(crate) fn finish_chat_lock_hello(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, verified: bool) {
+	// The Hello prompt has closed. Give whatSnap the keyboard back and put
+	// focus on the button that opened it, so a screen reader user isn't left
+	// with nothing focused.
+	let frame = windows::Win32::Foundation::HWND(parts.frame.get_handle());
+	crate::platform::focus::bring_to_front(frame);
+	parts.conversations_parts.locked_chats_btn.set_focus();
+	if verified {
+		show_locked_chats(state, parts);
+	} else {
+		ask_secret_code(state, parts);
+	}
+}
+
+/// Shows the locked chats. Called once the user has proved they may see them.
+pub(crate) fn show_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	s.chats_unlocked = true;
+	s.search_query.clear();
+	parts.conversations_parts.search_field.set_value("");
+	apply_chat_filter(&mut s, parts);
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats shown.");
+}
+
+/// After the secret code works for the first time, offer Windows Hello for
+/// next time. Asked once, whatever the answer; if Windows Hello isn't ready
+/// yet, the offer waits for a later unlock.
+pub(crate) fn offer_chat_lock_hello(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if state.borrow().settings.chat_lock_hello_offered {
+		return;
+	}
+	if windows_hello::availability() != windows_hello::Availability::Ready {
+		return;
+	}
+	let question = MessageDialog::builder(
+		&parts.frame,
+		"Unlock your chats faster. Next time, use Windows Hello, with your fingerprint, face or PIN, instead of typing the secret code. You can change this in Settings, Chats.\n\nTurn on Windows Hello for locked chats?",
+		"Unlock Your Chats Faster",
+	)
+	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+	.build();
+	// The dialog is up with no state borrow held, so it can't clash with the UI.
+	let answer = question.show_modal();
+	let mut s = state.borrow_mut();
+	s.settings.chat_lock_hello_offered = true;
+	if answer == wxdragon::id::ID_YES {
+		s.settings.chat_lock_hello = true;
+	}
+	s.settings.save();
+}
+
+fn ask_secret_code(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let dlg = TextEntryDialog::builder(&parts.frame, "Enter Secret Code:", "Locked Chats").password().build();
 	if dlg.show_modal() == wxdragon::id::ID_OK
 		&& let Some(val) = dlg.get_value()

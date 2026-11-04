@@ -116,9 +116,17 @@ pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	let style = MessageDialogStyle::OK | MessageDialogStyle::IconError;
 	match dialog {
 		Some(dialog) => {
-			MessageDialog::builder(&dialog.dialog, &message, "Error").with_style(style).build().show_modal()
+			let owner = windows::Win32::Foundation::HWND(dialog.dialog.get_handle());
+			crate::platform::focus::show_modal_and_refocus(owner, false, || {
+				MessageDialog::builder(&dialog.dialog, &message, "Error").with_style(style).build().show_modal()
+			});
 		}
-		None => MessageDialog::builder(&parts.frame, &message, "Error").with_style(style).build().show_modal(),
+		None => {
+			let owner = windows::Win32::Foundation::HWND(parts.frame.get_handle());
+			crate::platform::focus::show_modal_and_refocus(owner, false, || {
+				MessageDialog::builder(&parts.frame, &message, "Error").with_style(style).build().show_modal()
+			});
+		}
 	};
 }
 

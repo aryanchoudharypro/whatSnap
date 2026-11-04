@@ -35,6 +35,10 @@ pub mod window;
 /// Escape, Cancel or OK (anything but 0) would never open again. Clearing it
 /// first is what wx 3.2 effectively did.
 pub(crate) fn show_modal_again(dialog: &wxdragon::prelude::Dialog) -> i32 {
+	use wxdragon::prelude::WxWidget;
 	dialog.set_return_code(0);
-	dialog.show_modal()
+	let hwnd = windows::Win32::Foundation::HWND(dialog.get_handle());
+	crate::platform::focus::show_modal_and_refocus(crate::platform::focus::owner_of(hwnd), false, || {
+		dialog.show_modal()
+	})
 }

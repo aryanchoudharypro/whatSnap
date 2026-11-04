@@ -34,6 +34,11 @@ pub enum UiCommand {
 	FilterConversations(String),
 	OpenConversation(usize),
 	PromptLockedChats,
+	/// The Windows Hello prompt for locked chats finished: `verified` is
+	/// whether the user passed it.
+	ChatLockHello {
+		verified: bool,
+	},
 	CloseLockedChats,
 	SearchInConversation(String),
 	ToggleSearchPanel,

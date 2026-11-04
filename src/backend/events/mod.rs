@@ -18,8 +18,8 @@ use whatsnap::ChatMessage;
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, CallLogEntry, CallTarget, CallVideo, Contact, NotificationSound, StarredEntry,
-	StatusGroup, StatusItem, UiCommand,
+	AppState, CallLogEntry, CallTarget, CallVideo, Contact, NotificationSound, StarredEntry, StatusGroup, StatusItem,
+	UiCommand,
 	audio::{
 		ensure_audio_stream, play_call_fail_sound, play_notification_sound, start_call_ringback,
 		stop_call_ringing_sound,

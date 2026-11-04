@@ -2474,6 +2474,7 @@ dependencies = [
  "shipfitter",
  "windows",
  "windows-core",
+ "windows-future",
  "wx-utils",
  "wxdragon",
 ]

@@ -2414,10 +2414,13 @@ pub fn bind_input_handlers(
 					windows::Win32::UI::WindowsAndMessaging::MB_OK,
 				);
 			}
-			MessageDialog::builder(&dlg, "Name is required.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+			let owner = windows::Win32::Foundation::HWND(dlg.get_handle());
+			crate::platform::focus::show_modal_and_refocus(owner, false, || {
+				MessageDialog::builder(&dlg, "Name is required.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal()
+			});
 			name_field.set_focus();
 			return;
 		}
@@ -2428,10 +2431,13 @@ pub fn bind_input_handlers(
 					windows::Win32::UI::WindowsAndMessaging::MB_OK,
 				);
 			}
-			MessageDialog::builder(&dlg, "Phone number must have at least 7 digits.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+			let owner = windows::Win32::Foundation::HWND(dlg.get_handle());
+			crate::platform::focus::show_modal_and_refocus(owner, false, || {
+				MessageDialog::builder(&dlg, "Phone number must have at least 7 digits.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal()
+			});
 			phone_field.set_focus();
 			return;
 		}
@@ -2469,10 +2475,13 @@ pub fn bind_input_handlers(
 					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
 				);
 			}
-			MessageDialog::builder(&group_dialog, "Group name is required.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+			let owner = windows::Win32::Foundation::HWND(group_dialog.get_handle());
+			crate::platform::focus::show_modal_and_refocus(owner, false, || {
+				MessageDialog::builder(&group_dialog, "Group name is required.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal()
+			});
 			name_ctrl.select_all();
 			name_ctrl.set_focus();
 			return;
@@ -2515,10 +2524,13 @@ pub fn bind_input_handlers(
 					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
 				);
 			}
-			MessageDialog::builder(&group_dialog, "At least one participant must be selected.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+			let owner = windows::Win32::Foundation::HWND(group_dialog.get_handle());
+			crate::platform::focus::show_modal_and_refocus(owner, false, || {
+				MessageDialog::builder(&group_dialog, "At least one participant must be selected.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal()
+			});
 			contacts_listbox_ok.set_focus();
 			return;
 		}
@@ -2762,10 +2774,13 @@ pub fn bind_input_handlers(
 					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
 				);
 			}
-			MessageDialog::builder(&add_members_dialog_ok, "At least one contact must be selected.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+			let owner = windows::Win32::Foundation::HWND(add_members_dialog_ok.get_handle());
+			crate::platform::focus::show_modal_and_refocus(owner, false, || {
+				MessageDialog::builder(&add_members_dialog_ok, "At least one contact must be selected.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal()
+			});
 			add_members_listbox_ok.set_focus();
 			return;
 		}
@@ -2896,10 +2911,13 @@ pub fn bind_input_handlers(
 					windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0x00000030),
 				);
 			}
-			MessageDialog::builder(&attach_contact_dialog_ok, "At least one contact must be selected.", "Error")
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+			let owner = windows::Win32::Foundation::HWND(attach_contact_dialog_ok.get_handle());
+			crate::platform::focus::show_modal_and_refocus(owner, false, || {
+				MessageDialog::builder(&attach_contact_dialog_ok, "At least one contact must be selected.", "Error")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal()
+			});
 			attach_contact_listbox_ok.set_focus();
 			return;
 		}
@@ -5513,7 +5531,7 @@ pub fn bind_input_handlers(
 		const ATTACH_STICKER_ID: i32 = 4207;
 		let mut popup_menu = Menu::builder()
 			.append_item(ATTACH_DOCUMENT_ID, "&Document", "Send any file as a document, photos at full quality")
-			.append_item(ATTACH_MEDIA_ID, "&Photos && videos", "Send photos and videos")
+			.append_item(ATTACH_MEDIA_ID, "&Photos and videos", "Send photos and videos")
 			.append_item(ATTACH_AUDIO_ID, "&Audio", "Send audio files to play in the chat")
 			.append_item(ATTACH_CONTACT_ID, "&Contact", "Attach a contact from your WhatsApp contacts")
 			.append_item(ATTACH_POLL_ID, "P&oll", "Create a poll or a quiz")

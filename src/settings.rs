@@ -71,6 +71,13 @@ pub struct Settings {
 	pub call_ringtone_sound: String,
 	pub group_call_ringtone_sound: String,
 	pub chat_notifications: std::collections::HashMap<String, whatsnap::ChatNotify>,
+	/// Unlock locked chats with Windows Hello (fingerprint, face or PIN)
+	/// instead of asking for the secret code each time. Only this computer
+	/// has it.
+	pub chat_lock_hello: bool,
+	/// The one-time "unlock your chats faster" offer has been made, so it is
+	/// not shown again whatever the answer was.
+	pub chat_lock_hello_offered: bool,
 }
 
 pub const TAB_NAMES: [&str; 7] =
@@ -146,6 +153,8 @@ impl Default for Settings {
 			call_ringtone_sound: String::new(),
 			group_call_ringtone_sound: String::new(),
 			chat_notifications: std::collections::HashMap::new(),
+			chat_lock_hello: false,
+			chat_lock_hello_offered: false,
 		}
 	}
 }

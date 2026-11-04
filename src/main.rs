@@ -1126,6 +1126,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::SearchInConversation(query) => ui_commands::chat_list::search_in_conversation(state, parts, query),
 		UiCommand::ToggleSearchPanel => ui_commands::chat_list::toggle_search_panel(state, parts),
 		UiCommand::PromptLockedChats => ui_commands::chat_list::prompt_locked_chats(state, parts),
+		UiCommand::ChatLockHello { verified } => ui_commands::chat_list::finish_chat_lock_hello(state, parts, verified),
 		UiCommand::CloseLockedChats => ui_commands::chat_list::close_locked_chats(state, parts),
 		UiCommand::CloseSearch => ui_commands::chat_list::close_search(state, parts),
 		UiCommand::JumpToSearchResult { message_id, message_text } => {

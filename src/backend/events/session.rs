@@ -156,10 +156,15 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"error" => {
 			if let Some(msg) = val.get("data").and_then(|d| d.get("message")).and_then(|m| m.as_str()) {
 				parts.conversations_parts.play_voice_btn.set_label("Play voice message");
-				MessageDialog::builder(&parts.frame, msg, "Error")
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-					.build()
-					.show_modal();
+				// This one arrives on its own, so whatSnap is brought forward
+				// for it, and the keyboard goes back to the window afterwards.
+				let frame = windows::Win32::Foundation::HWND(parts.frame.get_handle());
+				crate::platform::focus::show_modal_and_refocus(frame, true, || {
+					MessageDialog::builder(&parts.frame, msg, "Error")
+						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+						.build()
+						.show_modal()
+				});
 			}
 		}
 		"connection_state" => {
@@ -325,15 +330,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if let Some(data) = val.get("data") {
 				let success = data.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
 				if success {
-					let mut s = state.borrow_mut();
-					s.chats_unlocked = true;
-					s.search_query.clear();
-					parts.conversations_parts.search_field.set_value("");
-					apply_chat_filter(&mut s, parts);
-					crate::platform::announce::announce(
-						parts.conversations_parts.messages_announcer,
-						"Locked chats shown.",
-					);
+					crate::ui_commands::chat_list::show_locked_chats(state, parts);
+					crate::ui_commands::chat_list::offer_chat_lock_hello(state, parts);
 				}
 			}
 		}
