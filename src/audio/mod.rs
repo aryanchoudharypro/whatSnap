@@ -60,30 +60,70 @@ fn log_line(msg: &str) {
 	}
 }
 
+/// One open output stream plus what it was opened for. There are two: the
+/// alert one (notification sounds, voice messages) and the call one (ringing,
+/// ringback and the other call tones), so each can use its own device.
+pub(crate) struct OutputSlot {
+	pub(crate) stream: Option<MixerDeviceSink>,
+	pub(crate) device_name: Option<String>,
+	/// When `stream` was last (re)opened. A cached WASAPI stream can go
+	/// silently dead across a sleep/hibernate cycle even when the resolved
+	/// device name ends up unchanged, so a stream older than
+	/// `AUDIO_STREAM_MAX_AGE` is reopened rather than reused forever.
+	pub(crate) opened_at: Option<std::time::Instant>,
+	/// Set by the stream's error callback when it dies; see [`open_output_stream`].
+	pub(crate) failed: Arc<AtomicBool>,
+	/// Which of the two this is, for the log.
+	pub(crate) label: &'static str,
+}
+
+impl OutputSlot {
+	pub(crate) fn new(label: &'static str) -> Self {
+		Self { stream: None, device_name: None, opened_at: None, failed: Arc::new(AtomicBool::new(false)), label }
+	}
+
+	/// Opens or reopens the stream on `preferred` if it isn't open, is stale,
+	/// is on another device, or has died.
+	fn ensure(&mut self, preferred: Option<&str>) {
+		let current_name = devices::resolve_output_device_name(preferred);
+		let stream_errored = self.failed.swap(false, Ordering::Relaxed);
+		let fresh_enough = self.opened_at.map(|t| t.elapsed() < AUDIO_STREAM_MAX_AGE).unwrap_or(false);
+		if self.stream.is_some() && self.device_name == current_name && fresh_enough && !stream_errored {
+			return;
+		}
+		if stream_errored {
+			log_line(&format!("reopening {} output stream after a stream error", self.label));
+		}
+		match open_output_stream(preferred, self.failed.clone()) {
+			Ok(stream) => {
+				self.stream = Some(stream);
+				self.device_name = current_name;
+				self.opened_at = Some(std::time::Instant::now());
+			}
+			Err(e) => {
+				log_line(&format!(
+					"Failed to (re)open {} output stream (device {:?}): {:?}",
+					self.label, current_name, e
+				));
+				eprintln!("[AUDIO] Failed to (re)open {} output stream: {:?}", self.label, e);
+				self.stream = None;
+				self.device_name = None;
+				self.opened_at = None;
+			}
+		}
+	}
+}
+
+/// Makes sure the alert output stream (notification sounds, voice messages)
+/// is open on the alert output device.
 pub(crate) fn ensure_audio_stream(s: &mut AppState) {
-	let current_name = devices::resolve_output_device_name(s.settings.output_device_name.as_deref());
-	let stream_errored = s.audio_stream_failed.swap(false, Ordering::Relaxed);
-	let fresh_enough = s.audio_stream_opened_at.map(|t| t.elapsed() < AUDIO_STREAM_MAX_AGE).unwrap_or(false);
-	if s.audio_stream.is_some() && s.audio_stream_device_name == current_name && fresh_enough && !stream_errored {
-		return;
-	}
-	if stream_errored {
-		log_line("reopening output stream after a stream error");
-	}
-	match open_output_stream(s.settings.output_device_name.as_deref(), s.audio_stream_failed.clone()) {
-		Ok(stream) => {
-			s.audio_stream = Some(stream);
-			s.audio_stream_device_name = current_name;
-			s.audio_stream_opened_at = Some(std::time::Instant::now());
-		}
-		Err(e) => {
-			log_line(&format!("Failed to (re)open output stream (device {:?}): {:?}", current_name, e));
-			eprintln!("[AUDIO] Failed to (re)open output stream: {:?}", e);
-			s.audio_stream = None;
-			s.audio_stream_device_name = None;
-			s.audio_stream_opened_at = None;
-		}
-	}
+	s.audio_out.ensure(s.settings.output_device_name.as_deref());
+}
+
+/// Makes sure the call output stream (ringing and call tones) is open on the
+/// call output device.
+pub(crate) fn ensure_call_audio_stream(s: &mut AppState) {
+	s.call_audio_out.ensure(s.settings.call_output_device_name.as_deref());
 }
 
 pub(crate) fn play_notification_sound(
@@ -220,8 +260,8 @@ fn play_on_own_stream(
 }
 
 pub(crate) fn play_call_fail_sound(state: &mut AppState) {
-	ensure_audio_stream(state);
-	if let Some(ref stream_handle) = state.audio_stream {
+	ensure_call_audio_stream(state);
+	if let Some(ref stream_handle) = state.call_audio_out.stream {
 		let sink = Player::connect_new(stream_handle.mixer());
 		match decode_opus(include_bytes!("../../sounds/whatsapp_windows_hangup_01_705kbps.ogg")) {
 			Some(decoded) => {
@@ -246,8 +286,8 @@ pub(crate) fn start_call_ringtone(state: &mut AppState, ringtone: &str) {
 		whatsnap::RINGTONE_NONE => {}
 		"" | whatsnap::RINGTONE_WHATSAPP => start_call_ringing_sound(state, WHATSAPP_RINGTONE),
 		path => {
-			ensure_audio_stream(state);
-			let Some(ref stream_handle) = state.audio_stream else { return };
+			ensure_call_audio_stream(state);
+			let Some(ref stream_handle) = state.call_audio_out.stream else { return };
 			match sound_file::Looped::open(path) {
 				Some(ring) => {
 					let sink = Player::connect_new(stream_handle.mixer());
@@ -265,8 +305,8 @@ pub(crate) fn start_call_ringtone(state: &mut AppState, ringtone: &str) {
 }
 
 pub(crate) fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'static [u8]) {
-	ensure_audio_stream(state);
-	if let Some(ref stream_handle) = state.audio_stream {
+	ensure_call_audio_stream(state);
+	if let Some(ref stream_handle) = state.call_audio_out.stream {
 		let sink = Player::connect_new(stream_handle.mixer());
 		match decode_opus(sound_bytes) {
 			Some(decoded) => {
@@ -284,8 +324,8 @@ pub(crate) fn start_call_ringing_sound(state: &mut AppState, sound_bytes: &'stat
 
 pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
 	use rodio::Source;
-	ensure_audio_stream(state);
-	let Some(ref stream_handle) = state.audio_stream else {
+	ensure_call_audio_stream(state);
+	let Some(ref stream_handle) = state.call_audio_out.stream else {
 		eprintln!("[AUDIO] No audio stream available");
 		return;
 	};
@@ -296,8 +336,8 @@ pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
 }
 
 pub(crate) fn play_busy_tone(state: &mut AppState) {
-	ensure_audio_stream(state);
-	let Some(ref stream_handle) = state.audio_stream else {
+	ensure_call_audio_stream(state);
+	let Some(ref stream_handle) = state.call_audio_out.stream else {
 		eprintln!("[AUDIO] No audio stream available");
 		return;
 	};
@@ -312,8 +352,8 @@ pub(crate) fn start_call_reconnect_tone(state: &mut AppState) {
 	if state.call_reconnect_sink.is_some() {
 		return;
 	}
-	ensure_audio_stream(state);
-	let Some(ref stream_handle) = state.audio_stream else {
+	ensure_call_audio_stream(state);
+	let Some(ref stream_handle) = state.call_audio_out.stream else {
 		eprintln!("[AUDIO] No audio stream available");
 		return;
 	};

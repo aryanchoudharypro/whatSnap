@@ -13,7 +13,7 @@ use crate::{
 
 pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
-	s.audio_stream_opened_at = None;
+	s.audio_out.opened_at = None;
 
 	if s.playing_msg_id.is_some() {
 		let was_paused = s.is_audio_paused;
@@ -28,7 +28,7 @@ pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 		s.audio_sink = None;
 		let path = s.audio_path.clone().unwrap_or_default();
 		ensure_audio_stream(&mut s);
-		if let Some(ref stream_handle) = s.audio_stream {
+		if let Some(ref stream_handle) = s.audio_out.stream {
 			let new_sink = do_seek(stream_handle, &path, elapsed, s.audio_speed);
 			if was_paused && let Some(ref sink) = new_sink {
 				sink.pause();
@@ -445,7 +445,7 @@ pub(crate) fn seek_audio(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 		}
 		s.audio_sink = None;
 		let path = s.audio_path.clone().unwrap_or_default();
-		if let Some(ref stream_handle) = s.audio_stream {
+		if let Some(ref stream_handle) = s.audio_out.stream {
 			let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
 			s.audio_sink = new_sink;
 		}
@@ -470,7 +470,7 @@ pub(crate) fn seek_audio_absolute(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 		s.audio_sink = None;
 		let path = s.audio_path.clone().unwrap_or_default();
-		if let Some(ref stream_handle) = s.audio_stream {
+		if let Some(ref stream_handle) = s.audio_out.stream {
 			let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
 			s.audio_sink = new_sink;
 		}
@@ -510,7 +510,7 @@ pub(crate) fn toggle_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		}
 		s.audio_sink = None;
 		let path = s.audio_path.clone().unwrap_or_default();
-		if let Some(ref stream_handle) = s.audio_stream {
+		if let Some(ref stream_handle) = s.audio_out.stream {
 			let new_sink = do_seek(stream_handle, &path, target, new_speed);
 			if was_paused && let Some(ref sink) = new_sink {
 				sink.pause();

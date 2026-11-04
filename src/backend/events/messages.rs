@@ -1846,7 +1846,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 				ensure_audio_stream(&mut s);
 				let mut played = false;
-				if let Some(ref stream_handle) = s.audio_stream {
+				if let Some(ref stream_handle) = s.audio_out.stream {
 					if let Some(source) = source {
 						let sink = Player::connect_new(stream_handle.mixer());
 						sink.append(source.wsola(s.audio_speed));

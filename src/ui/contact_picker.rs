@@ -6,6 +6,9 @@ pub(crate) fn display_name_for_jid(jid: &str) -> String {
 	if jid == crate::types::META_AI_JID {
 		return "Meta AI".to_string();
 	}
+	if jid == crate::types::WHATSAPP_SERVICE_JID {
+		return "WhatsApp".to_string();
+	}
 	let raw_phone = jid.split('@').next().unwrap_or(jid);
 	if !raw_phone.is_empty() && raw_phone.chars().all(|c| c.is_ascii_digit()) {
 		if let Some(formatted) = whatsnap::phone::format_international(raw_phone) {
@@ -24,6 +27,9 @@ pub(crate) fn format_phone_digits(raw_phone: &str) -> String {
 }
 
 pub(crate) fn contact_picker_label(contact: &Contact) -> String {
+	if contact.jid == crate::types::WHATSAPP_SERVICE_JID && contact.name.trim().is_empty() {
+		return "WhatsApp".to_string();
+	}
 	let is_lid = contact.jid.ends_with("@lid");
 	let raw_phone = if !contact.phone.is_empty() {
 		Some(contact.phone.as_str())
@@ -294,4 +300,20 @@ pub(crate) fn apply_contact_picker_filter(query: &str, state: &Rc<RefCell<AppSta
 		parts.new_conv_dialog.results_list.append(label);
 	}
 	s.contact_picker_current_jids = jids;
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn the_whatsapp_news_account_is_named_not_shown_as_a_number() {
+		assert_eq!(display_name_for_jid(crate::types::WHATSAPP_SERVICE_JID), "WhatsApp");
+		let unnamed = Contact {
+			jid: crate::types::WHATSAPP_SERVICE_JID.to_string(),
+			name: String::new(),
+			phone: "0".to_string(),
+		};
+		assert_eq!(contact_picker_label(&unnamed), "WhatsApp");
+	}
 }

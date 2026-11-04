@@ -128,6 +128,7 @@ pub struct SettingsDialogParts {
 	pub audio_panel: Panel,
 	pub input_device_combo: ComboBox,
 	pub output_device_combo: ComboBox,
+	pub call_output_device_combo: ComboBox,
 	pub voice_message_noise_suppression_check: CheckBox,
 	pub dual_stream_screen_share_check: CheckBox,
 
@@ -393,18 +394,24 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	noise_suppression_note.set_font(&theme::Fonts::body());
 	audio_sizer.add(&noise_suppression_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 
-	let output_label = StaticText::builder(&audio_panel).with_label("Speaker (calls & playback)").build();
+	let output_label = StaticText::builder(&audio_panel).with_label("Speaker for alerts and voice messages").build();
 	output_label.set_font(&theme::Fonts::body());
 	audio_sizer.add(&output_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
 	let output_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
 	output_device_combo.set_font(&theme::Fonts::body());
 	audio_sizer.add(&output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
-
 	let output_note = StaticText::builder(&audio_panel)
-		.with_label("Used for call audio, voice message playback, and notification/ringtone sounds.")
+		.with_label("Used for notification sounds, message tones and voice message playback.")
 		.build();
 	output_note.set_font(&theme::Fonts::body());
 	audio_sizer.add(&output_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+
+	let call_output_label = StaticText::builder(&audio_panel).with_label("Speaker for calls").build();
+	call_output_label.set_font(&theme::Fonts::body());
+	audio_sizer.add(&call_output_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
+	let call_output_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	call_output_device_combo.set_font(&theme::Fonts::body());
+	audio_sizer.add(&call_output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
 
 	let dual_stream_screen_share_check = setting_switch(
 		&audio_panel,
@@ -436,8 +443,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 	emoji_help_btn.on_click(move |_| crate::ui::emoji_replace::show_help(&dialog));
-	for picker in [message_tone_picker, group_tone_picker, call_ringtone_picker, group_call_ringtone_picker] {
+	for picker in [message_tone_picker, group_tone_picker] {
 		picker.on_preview(move |picker| picker.preview(device_combo_value(&output_device_combo)));
+	}
+	for picker in [call_ringtone_picker, group_call_ringtone_picker] {
+		picker.on_preview(move |picker| picker.preview(device_combo_value(&call_output_device_combo)));
 	}
 
 	SettingsDialogParts {
@@ -511,6 +521,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		audio_panel,
 		input_device_combo,
 		output_device_combo,
+		call_output_device_combo,
 		voice_message_noise_suppression_check,
 		dual_stream_screen_share_check,
 		ok_btn,

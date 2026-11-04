@@ -965,10 +965,10 @@ pub fn same_album(prev: &ChatMessage, msg: &ChatMessage) -> bool {
 	if prev.from_me != msg.from_me || prev.sender_jid != msg.sender_jid {
 		return false;
 	}
-	if !prev.album_id.is_empty() || !msg.album_id.is_empty() {
-		return prev.album_id == msg.album_id;
-	}
-	(msg.timestamp - prev.timestamp).abs() <= 10
+	// Only the album packet groups media, the way WA Web does: a photo joins
+	// an album only when it links to the same album header. Photos from one
+	// sender sent close together, like a marketing burst, stay separate.
+	!prev.album_id.is_empty() && prev.album_id == msg.album_id
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -2008,13 +2008,13 @@ mod tests {
 	}
 
 	#[test]
-	fn grouping_falls_back_to_the_ten_second_window_without_album_ids() {
+	fn photos_sent_close_together_without_an_album_packet_stay_separate() {
 		let msgs = vec![
 			media("a", "", "x@s.whatsapp.net", 100),
 			media("b", "", "x@s.whatsapp.net", 105),
 			media("c", "", "x@s.whatsapp.net", 200),
 		];
-		assert_eq!(ids(&group_messages_into_display_items(&rc(&msgs))), vec![vec!["a", "b"], vec!["c"]]);
+		assert_eq!(ids(&group_messages_into_display_items(&rc(&msgs))), vec![vec!["a"], vec!["b"], vec!["c"]]);
 	}
 
 	#[test]

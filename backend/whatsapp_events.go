@@ -668,6 +668,7 @@ func templateParts(msg *waE2E.Message) (media *waE2E.Message, text string, ok bo
 	if summary := optionsSummary(msg); summary != "" {
 		buttons = append(buttons, summary)
 	}
+	buttons = append(buttons, optionLinks(msg)...)
 	text = strings.Join(blocks, "\n\n")
 	if len(buttons) > 0 {
 		if text != "" {

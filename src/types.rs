@@ -2,6 +2,10 @@ use crate::audio::voice_recorder;
 
 pub const META_AI_JID: &str = "867051314767696@bot";
 
+/// The "WhatsApp" news account (the PSA service chat). Its JID is the number
+/// 0, which isn't a phone number, so it gets a name rather than "+0".
+pub const WHATSAPP_SERVICE_JID: &str = "0@s.whatsapp.net";
+
 #[derive(Clone)]
 pub enum UiCommand {
 	RequestPairing(String),

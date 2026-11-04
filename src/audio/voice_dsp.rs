@@ -1,11 +1,9 @@
-use super::{denoise::Denoiser, limiter::Limiter};
+use nnnoiseless::DenoiseState;
 
-/// One 10 ms hop of the noise suppressor.
-const FRAME: usize = 480;
+use super::limiter::Limiter;
+
+const FRAME: usize = DenoiseState::FRAME_SIZE;
 const SAMPLE_RATE: f32 = 48_000.0;
-/// Voice messages get more noise suppression than calls (0.55, what
-/// WhatsApp's server asks its own engine for): about 20 dB.
-const DENOISE_INTENSITY: f32 = 0.8;
 
 const TARGET_SPEECH_DBFS: f32 = -20.0;
 const MAX_GAIN_DB: f32 = 30.0;
@@ -31,7 +29,7 @@ const LOOKAHEAD: usize = 48;
 
 pub(crate) struct VoiceCleanup {
 	hpf: [HighPass; 2],
-	denoise: [Denoiser; 2],
+	denoise: [Box<DenoiseState<'static>>; 2],
 	agc: Agc,
 	pending: [Vec<f32>; 2],
 	frame_out: [Vec<f32>; 2],
@@ -46,10 +44,7 @@ impl VoiceCleanup {
 	pub(crate) fn new() -> Self {
 		Self {
 			hpf: [HighPass::new(80.0), HighPass::new(80.0)],
-			denoise: [
-				Denoiser::new(SAMPLE_RATE as u32, DENOISE_INTENSITY),
-				Denoiser::new(SAMPLE_RATE as u32, DENOISE_INTENSITY),
-			],
+			denoise: [DenoiseState::new(), DenoiseState::new()],
 			agc: Agc::new(),
 			pending: [Vec::with_capacity(FRAME * 2), Vec::with_capacity(FRAME * 2)],
 			frame_out: [vec![0.0; FRAME], vec![0.0; FRAME]],
@@ -95,15 +90,15 @@ impl VoiceCleanup {
 			let mut speech = [0.0f32; 2];
 			for c in 0..2 {
 				for (d, s) in frame_in[c].iter_mut().zip(self.pending[c].drain(..FRAME)) {
-					*d = s;
+					*d = s * 32768.0;
 				}
-				speech[c] = self.denoise[c].process_hop(&frame_in[c], &mut self.frame_out[c]);
+				speech[c] = self.denoise[c].process_frame(&mut self.frame_out[c], &frame_in[c]);
 			}
 			let vad = speech[0].max(speech[1]);
 			let blend = self.blend(0, speech[0]).min(self.blend(1, speech[1]));
 			for c in 0..2 {
 				for (s, d) in self.frame_out[c].iter_mut().zip(&self.dry[c]) {
-					*s += blend * (d - *s);
+					*s = (*s + blend * (d - *s)) / 32768.0;
 				}
 			}
 			self.dry = frame_in;
@@ -117,7 +112,7 @@ impl VoiceCleanup {
 	}
 
 	fn blend(&mut self, c: usize, speech: f32) -> f32 {
-		let energy = self.dry[c].iter().map(|s| s * s).sum::<f32>() / FRAME as f32;
+		let energy = self.dry[c].iter().map(|s| s * s).sum::<f32>() / FRAME as f32 / (32768.0 * 32768.0);
 		let level_db = 10.0 * (energy + 1e-12).log10();
 		if level_db < SILENCE_DBFS {
 			return 0.0;
@@ -346,12 +341,12 @@ mod tests {
 	fn blend_only_while_talking_over_the_background() {
 		let mut c = VoiceCleanup::new();
 		for _ in 0..50 {
-			c.dry[0] = [0.001; FRAME];
+			c.dry[0] = [0.001 * 32768.0; FRAME];
 			c.blend(0, 0.0);
 		}
-		c.dry[0] = [0.001; FRAME];
+		c.dry[0] = [0.001 * 32768.0; FRAME];
 		assert_eq!(c.blend(0, 1.0), 0.0, "background alone, however speech-like");
-		c.dry[0] = [0.1; FRAME];
+		c.dry[0] = [0.1 * 32768.0; FRAME];
 		assert_eq!(c.blend(0, 0.0), 0.0, "loud but not speech");
 		assert_eq!(c.blend(0, 1.0), BLEND_MAX, "speech 40 dB over the background");
 		c.dry[0] = [0.0; FRAME];

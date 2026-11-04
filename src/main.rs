@@ -29,7 +29,7 @@ use std::{
 use audio::*;
 use backend::events::process_websocket_message;
 pub use platform::clipboard::{copy_files_to_clipboard, copy_text};
-use rodio::{MixerDeviceSink, Player};
+use rodio::Player;
 pub use types::*;
 use ui::{chat_ui::request_backend_shutdown, message_display::update_action_buttons};
 use wxdragon::prelude::*;
@@ -87,23 +87,13 @@ struct AppState {
 	keymap: Rc<crate::keymap::Keymap>,
 	ws_tx: mpsc::Sender<String>,
 	ui_tx: UiCommandSender,
-	audio_stream: Option<MixerDeviceSink>,
-	audio_stream_device_name: Option<String>,
-	/// When `audio_stream` was last (re)opened. A cached WASAPI stream can go
-	/// silently dead across a sleep/hibernate cycle even when the resolved
-	/// device name ends up unchanged (e.g. a transient enumeration race right
-	/// at wake, or the OS invalidating the session across suspend regardless
-	/// of name) - unlike notification sounds, which always open a stream
-	/// fresh and keep working. `ensure_audio_stream` treats a stream older
-	/// than `AUDIO_STREAM_MAX_AGE` as untrustworthy and reopens it rather
-	/// than reusing it forever based on name-match alone.
-	audio_stream_opened_at: Option<std::time::Instant>,
-	/// Flipped by `audio_stream`'s cpal error callback when the underlying
-	/// stream errors out (device removed/invalidated), so `ensure_audio_stream`
-	/// can reopen on the very next play instead of waiting to notice via a
-	/// name mismatch or `AUDIO_STREAM_MAX_AGE`, which don't catch every case
-	/// (e.g. the same device name, session invalidated anyway).
-	audio_stream_failed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+	/// Alert and voice message output (notification sounds, voice messages),
+	/// on the alert output device. See [`audio::OutputSlot`] for how the
+	/// stream is kept alive and reopened.
+	audio_out: audio::OutputSlot,
+	/// Call output (ringing and call tones), on the call output device. Call
+	/// audio itself has its own streams in `calls::audio`.
+	call_audio_out: audio::OutputSlot,
 	audio_sink: Option<Player>,
 	playing_msg_id: Option<String>,
 	voice_autoplay_id: Option<String>,
@@ -578,10 +568,8 @@ fn main() {
 			keymap: Rc::default(),
 			ws_tx: ws_out_tx,
 			ui_tx: ui_tx.clone(),
-			audio_stream: None,
-			audio_stream_device_name: None,
-			audio_stream_opened_at: None,
-			audio_stream_failed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+			audio_out: audio::OutputSlot::new("alert"),
+			call_audio_out: audio::OutputSlot::new("call"),
 			audio_sink: None,
 			playing_msg_id: None,
 			voice_autoplay_id: None,

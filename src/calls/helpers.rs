@@ -222,7 +222,7 @@ pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 	set_device_combo(
 		&parts.call_parts.output_device_combo,
 		&crate::audio::devices::output_device_names(),
-		s.settings.output_device_name.as_deref(),
+		s.settings.call_output_device_name.as_deref(),
 	);
 	set_device_combo(
 		&parts.call_parts.camera_device_combo,

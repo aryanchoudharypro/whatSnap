@@ -155,6 +155,25 @@ func messageOptions(msg *waE2E.Message) (heading string, options []messageOption
 	return "", nil
 }
 
+// optionLinks gives each link button as a line of text with its URL, so the
+// app's normal link handling finds it: Enter opens a single link straight away
+// in the browser, and several links get the usual chooser.
+func optionLinks(msg *waE2E.Message) []string {
+	_, options := messageOptions(msg)
+	var lines []string
+	for _, o := range options {
+		if o.Kind != optionURL || o.Value == "" {
+			continue
+		}
+		if o.Label == "" || o.Label == o.Value {
+			lines = append(lines, o.Value)
+		} else {
+			lines = append(lines, o.Label+": "+o.Value)
+		}
+	}
+	return lines
+}
+
 func optionsSummary(msg *waE2E.Message) string {
 	heading, options := messageOptions(msg)
 	if msg = unwrapMessage(msg); msg.GetListMessage() != nil {
@@ -231,7 +250,6 @@ func buildOptionReply(option messageOption, ctx *waE2E.ContextInfo) *waE2E.Messa
 			Title:             proto.String(option.Label),
 			ListType:          waE2E.ListResponseMessage_SINGLE_SELECT.Enum(),
 			SingleSelectReply: &waE2E.ListResponseMessage_SingleSelectReply{SelectedRowID: proto.String(option.id)},
-			ContextInfo:       ctx,
 		}
 		if option.Description != "" {
 			reply.Description = proto.String(option.Description)
@@ -274,9 +292,15 @@ func handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
 			fail("This message's buttons can't be used here.")
 			return
 		}
-		ctx := &waE2E.ContextInfo{StanzaID: proto.String(data.MessageID), QuotedMessage: quoted}
-		if participant := wireParticipantFor(data.MessageID, storedSender); participant != "" && participant != "me" {
-			ctx.Participant = proto.String(participant)
+		// A list reply goes out without quoting the list. WA Web's list
+		// reply carries only the chat's own context (disappearing timer),
+		// and quoting the list makes WhatsApp reject the stanza with 479.
+		var ctx *waE2E.ContextInfo
+		if option.replyType != "list" {
+			ctx = &waE2E.ContextInfo{StanzaID: proto.String(data.MessageID), QuotedMessage: quoted}
+			if participant := wireParticipantFor(data.MessageID, storedSender); participant != "" && participant != "me" {
+				ctx.Participant = proto.String(participant)
+			}
 		}
 		reply := applyDisappearingTimer(chat, buildOptionReply(option, ctx))
 		id := wa().GenerateMessageID()

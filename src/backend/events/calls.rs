@@ -21,7 +21,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					if let Ok(streams) = crate::calls::audio::start_audio_streams(
 						audio_port as u16,
 						s.settings.input_device_name.clone(),
-						s.settings.output_device_name.clone(),
+						s.settings.call_output_device_name.clone(),
 					) {
 						s.active_call_audio = Some(streams);
 						let connected_msg = if s.call_video.is_video {

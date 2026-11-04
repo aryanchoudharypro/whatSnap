@@ -410,12 +410,8 @@ func rowCount(jid, cond string, args []interface{}, skipDay string) int {
 			count++
 			continue
 		}
-		sameAlbum := prev != nil && prev.fromMe == m.fromMe && prev.sender == m.sender
-		if sameAlbum && (prev.albumID != "" || m.albumID != "") {
-			sameAlbum = prev.albumID == m.albumID
-		} else if sameAlbum {
-			sameAlbum = m.ts-prev.ts <= 10 && prev.ts-m.ts <= 10
-		}
+		// Only the album packet groups media, as WA Web does; see whatsnap::same_album.
+		sameAlbum := prev != nil && prev.fromMe == m.fromMe && prev.sender == m.sender && m.albumID != "" && prev.albumID == m.albumID
 		if !sameAlbum {
 			count++
 		}

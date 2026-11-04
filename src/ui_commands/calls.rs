@@ -390,9 +390,9 @@ pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	if let Some(audio) = &s.active_call_audio {
 		audio.set_output_device(name.clone());
 	}
-	if name != s.settings.output_device_name {
-		s.settings.output_device_name = name;
-		s.audio_stream = None;
+	if name != s.settings.call_output_device_name {
+		s.settings.call_output_device_name = name;
+		s.call_audio_out.stream = None;
 	}
 	s.settings.save();
 	announce_call(parts, "Speaker changed.");

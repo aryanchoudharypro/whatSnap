@@ -31,6 +31,7 @@ key-chord = "0.2.2"
 rodio = { version = "0.22.2", default-features = false, features = ["playback"] }
 rodio-wsola = "0.2.0"
 opus = "0.3.1"
+nnnoiseless = { version = "0.5.2", default-features = false }
 # The message list describes itself to screen readers (see ui/message_list.rs).
 accesskit = "0.25.1"
 # Update checks and installs from GitHub releases (see platform/update_check.rs).

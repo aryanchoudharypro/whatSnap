@@ -1437,6 +1437,7 @@ pub fn bind_input_handlers(
 	let settings_parts_open = parts.settings_dialog;
 	let input_device_combo_open = parts.settings_dialog.input_device_combo;
 	let output_device_combo_open = parts.settings_dialog.output_device_combo;
+	let call_output_device_combo_open = parts.settings_dialog.call_output_device_combo;
 	let noise_suppression_check_open = parts.settings_dialog.voice_message_noise_suppression_check;
 	let dual_stream_check_open = parts.settings_dialog.dual_stream_screen_share_check;
 	let state_settings_open = state.clone();
@@ -1513,6 +1514,11 @@ pub fn bind_input_handlers(
 			&output_device_combo_open,
 			&crate::audio::devices::output_device_names(),
 			s.settings.output_device_name.as_deref(),
+		);
+		set_device_combo(
+			&call_output_device_combo_open,
+			&crate::audio::devices::output_device_names(),
+			s.settings.call_output_device_name.as_deref(),
 		);
 
 		let _ = s.ws_tx.send(serde_json::json!({"action": "get_own_profile"}).to_string());
@@ -1976,6 +1982,7 @@ pub fn bind_input_handlers(
 	let settings_parts_ok = parts.settings_dialog;
 	let input_device_combo_ok = parts.settings_dialog.input_device_combo;
 	let output_device_combo_ok = parts.settings_dialog.output_device_combo;
+	let call_output_device_combo_ok = parts.settings_dialog.call_output_device_combo;
 	let noise_suppression_check_ok = parts.settings_dialog.voice_message_noise_suppression_check;
 	let dual_stream_check_ok = parts.settings_dialog.dual_stream_screen_share_check;
 	let state_settings_save = state.clone();
@@ -2048,7 +2055,12 @@ pub fn bind_input_handlers(
 		let new_output_device = device_combo_value(&output_device_combo_ok);
 		if new_output_device != s.settings.output_device_name {
 			s.settings.output_device_name = new_output_device;
-			s.audio_stream = None;
+			s.audio_out.stream = None;
+		}
+		let new_call_output_device = device_combo_value(&call_output_device_combo_ok);
+		if new_call_output_device != s.settings.call_output_device_name {
+			s.settings.call_output_device_name = new_call_output_device;
+			s.call_audio_out.stream = None;
 		}
 		s.settings.save();
 		let mut synced = s.settings.synced_changes(&synced_before);
@@ -3798,16 +3810,9 @@ pub fn bind_input_handlers(
 					.filter(|n| !n.is_empty() && n != jid);
 
 				let s = state_ctx.borrow();
-				msg_name.or_else(|| s.contacts.get(jid).cloned()).unwrap_or_else(|| {
-					let raw_phone = jid.split('@').next().unwrap_or(jid);
-					if !raw_phone.is_empty() && raw_phone.chars().all(|c| c.is_ascii_digit()) {
-						if let Some(formatted) = whatsnap::phone::format_international(raw_phone) {
-							return formatted;
-						}
-						return format!("+{}", raw_phone);
-					}
-					jid.clone()
-				})
+				msg_name
+					.or_else(|| s.contacts.get(jid).cloned())
+					.unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(jid))
 			});
 
 			let mut menu_builder = Menu::builder();

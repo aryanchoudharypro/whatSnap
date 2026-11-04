@@ -18,7 +18,12 @@ pub struct Settings {
 	/// settings here don't retroactively touch chat data.
 	pub meta_ai_enabled: bool,
 	pub input_device_name: Option<String>,
+	/// The output device for alert sounds and voice messages.
 	pub output_device_name: Option<String>,
+	/// The output device for calls: ringing, ringback and the other call
+	/// tones, and the call itself. Separate from `output_device_name` so
+	/// alerts can play on one device while calls use another.
+	pub call_output_device_name: Option<String>,
 	pub camera_device_name: Option<String>,
 	pub voice_message_noise_suppression: bool,
 	pub archived_alert_levels: std::collections::HashMap<String, whatsnap::ArchivedAlert>,
@@ -117,6 +122,7 @@ impl Default for Settings {
 			meta_ai_enabled: true,
 			input_device_name: None,
 			output_device_name: None,
+			call_output_device_name: None,
 			camera_device_name: None,
 			voice_message_noise_suppression: false,
 			archived_alert_levels: std::collections::HashMap::new(),
@@ -173,10 +179,17 @@ fn settings_path() -> PathBuf {
 
 impl Settings {
 	pub fn load() -> Self {
-		std::fs::read_to_string(settings_path())
-			.ok()
-			.and_then(|raw| serde_json::from_str(&raw).ok())
-			.unwrap_or_default()
+		let Some(raw) = std::fs::read_to_string(settings_path()).ok() else { return Self::default() };
+		let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) else { return Self::default() };
+		// Calls used to share the one output device with alerts. Settings
+		// saved before the split carry on using that device for calls too.
+		if let Some(obj) = value.as_object_mut()
+			&& !obj.contains_key("call_output_device_name")
+		{
+			let inherited = obj.get("output_device_name").cloned().unwrap_or(serde_json::Value::Null);
+			obj.insert("call_output_device_name".to_string(), inherited);
+		}
+		serde_json::from_value(value).unwrap_or_default()
 	}
 
 	/// Alert level for `jid` as an archived chat. Chats that aren't archived
