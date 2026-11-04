@@ -51,7 +51,7 @@ func waLogLevel() string {
 }
 
 func buildClient(deviceStore *store.Device) *whatsmeow.Client {
-	clientLog := waLog.Stdout("Client", waLogLevel(), true)
+	clientLog := stallLogger{waLog.Stdout("Client", waLogLevel(), true)}
 	hookLIDStore(deviceStore)
 	c := whatsmeow.NewClient(deviceStore, clientLog)
 	c.UserAgent = webViewUserAgent()
