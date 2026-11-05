@@ -102,8 +102,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 						if let Some(di) = target_di {
 							parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-							// What we send ourselves is never read back.
-							if !is_from_me && s.settings.announces_incoming(jid) {
+							// Our own sends are read once, when the server takes
+							// them, and only if the user asked for that.
+							if s.settings.announces_message(jid, is_from_me)
+								&& (!is_from_me || (was_pending && status == "sent"))
+							{
 								crate::platform::announce::announce(
 									parts.conversations_parts.messages_announcer,
 									&updated_display,
@@ -345,7 +348,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							parts.conversations_parts.messages_list.set_selection(count - 1, true);
 							refresh_voice_action_button(&s, &parts.conversations_parts);
 						}
-						if !is_from_me && s.settings.announces_incoming(jid) {
+						// Our own rows still pending are read when the send
+						// finishes (the update above), not twice.
+						let own_pending = is_from_me
+							&& (chat_msg.status == "pending" || chat_msg.status == "failed" || msg_id.starts_with("temp_"));
+						if s.settings.announces_message(jid, is_from_me) && !own_pending {
 							let formatted = chat_msg.format_display(is_group);
 							crate::platform::announce::announce(
 								parts.conversations_parts.messages_announcer,

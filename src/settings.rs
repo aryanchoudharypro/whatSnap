@@ -48,6 +48,9 @@ pub struct Settings {
 	/// New messages in the open chat are read out. Chats can override it,
 	/// see [`whatsnap::ChatNotify::announce`].
 	pub announce_incoming: bool,
+	/// Our own sent messages are read out too, when the chat reads new
+	/// messages aloud. Off by default.
+	pub announce_outgoing: bool,
 	pub replace_text_with_emoji: bool,
 	pub spell_check: bool,
 	/// Say "Misspelled: word" when a word is finished wrongly. NVDA can't
@@ -140,6 +143,7 @@ impl Default for Settings {
 			type_to_compose: false,
 			keep_list_position: false,
 			announce_incoming: true,
+			announce_outgoing: false,
 			replace_text_with_emoji: true,
 			spell_check: true,
 			spell_check_announce: false,
@@ -219,6 +223,12 @@ impl Settings {
 	}
 
 	/// Whether a new message in the open chat `jid` is read out.
+	/// Whether a message in the open chat is read out: received ones when
+	/// the chat reads new messages aloud, our own only if asked for too.
+	pub fn announces_message(&self, jid: &str, from_me: bool) -> bool {
+		(!from_me || self.announce_outgoing) && self.announces_incoming(jid)
+	}
+
 	pub fn announces_incoming(&self, jid: &str) -> bool {
 		self.chat_notify(jid).announce.unwrap_or(self.announce_incoming)
 	}

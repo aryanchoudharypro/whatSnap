@@ -184,7 +184,7 @@ In selection mode, `Space` selects or clears a message. A bar shows how many mes
 ### Writing Messages
 Type your message in the message box. If `Enter is send` is on in the settings, `Enter` sends the message, and `Shift+Enter` starts a new line. If it is off, use the `Send message` button. whatSnap doesn't read your own messages back to you when you send them.
 
-New messages in the open chat are read aloud. To stop this for all chats, turn off `Read new messages aloud in the open chat` on the Notifications tab of the settings. To change it for one chat, use the notification settings of that chat, or press `Alt+L` in it.
+New messages in the open chat are read aloud. To stop this for all chats, turn off `Read new messages aloud in the open chat` on the Notifications tab of the settings. To change it for one chat, use the notification settings of that chat, or press `Alt+L` in it. Messages you send yourself are not read, unless you turn on `Also read your own sent messages aloud`; they are then read once the message is sent.
 
 - To reply, press `R` on a message. The reply shows above the message box. To remove it, use `Remove quote`.
 - To edit, press `E` on your message. To stop editing, press `Escape`, or use `Cancel edit`.
@@ -339,6 +339,7 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
 - `Call ringtone` and `Group call ringtone`: `WhatsApp`, the ringtones Windows comes with (`Windows Ring 1` to `10` and `Windows Alarm 1` to `10`), or `Custom sound file`, with a `Choose ... File` button after each. The ringtone repeats until you answer or the call stops. A short part plays when you pick one.
 - `No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on`
 - `Read new messages aloud in the open chat`: each chat can change this in its notification settings, or with `Alt+L`.
+- `Also read your own sent messages aloud`: off by default. It follows the setting above, so a chat that doesn't read new messages doesn't read yours either.
 
 ### Chats Tab
 - `Enter is send`

@@ -85,6 +85,7 @@ pub struct SettingsDialogParts {
 	pub group_call_ringtone_picker: SoundPicker,
 	pub follow_dnd_check: CheckBox,
 	pub announce_incoming_check: CheckBox,
+	pub announce_outgoing_check: CheckBox,
 
 	pub chats_panel: Panel,
 	pub enter_is_send_check: CheckBox,
@@ -263,6 +264,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		notify_switch("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on");
 	let announce_incoming_check =
 		notify_switch("Read new messages aloud in the open chat (Alt+L turns it on or off for one chat)");
+	let announce_outgoing_check = notify_switch("Also read your own sent messages aloud");
 	notifications_sizer.add_spacer(12);
 	notifications_panel.set_sizer(notifications_sizer, true);
 
@@ -470,6 +472,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		group_call_ringtone_picker,
 		follow_dnd_check,
 		announce_incoming_check,
+		announce_outgoing_check,
 		announce_typing_check,
 		announce_recording_check,
 		tray_icon_check,
@@ -678,6 +681,7 @@ impl SettingsDialogParts {
 		self.chat_lock_hello_check.enable(hello == crate::platform::windows_hello::Availability::Ready);
 		self.chat_lock_hello_check.set_value(settings.chat_lock_hello);
 		self.announce_incoming_check.set_value(settings.announce_incoming);
+		self.announce_outgoing_check.set_value(settings.announce_outgoing);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
 		self.spell_check_check.set_value(settings.spell_check);
 		self.spell_announce_check.set_value(settings.spell_check_announce);
@@ -705,6 +709,7 @@ impl SettingsDialogParts {
 		settings.keep_list_position = self.keep_list_position_check.is_checked();
 		settings.chat_lock_hello = self.chat_lock_hello_check.is_checked();
 		settings.announce_incoming = self.announce_incoming_check.is_checked();
+		settings.announce_outgoing = self.announce_outgoing_check.is_checked();
 		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();
 		settings.spell_check = self.spell_check_check.is_checked();
 		settings.spell_check_announce = self.spell_announce_check.is_checked();
