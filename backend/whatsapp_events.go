@@ -2420,8 +2420,11 @@ func eventHandler(evt interface{}) {
 	case *events.ClearChat:
 		go func() {
 			jidStr := preferPN(v.JID).String()
-			purgeChatRange(jidStr, v.Action.GetMessageRange())
-			UpdateChatSnippet(jidStr)
+			if purgeChatRange(jidStr, v.Action.GetMessageRange()) {
+				clearChatPreview(jidStr)
+			} else {
+				UpdateChatSnippet(jidStr)
+			}
 			broadcastChats()
 			broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
 		}()

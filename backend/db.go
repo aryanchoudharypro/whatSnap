@@ -931,6 +931,20 @@ func UpdateChatSnippet(jid string) {
 		WHERE jid = ?`, snippet, msgSender, msgFromMe, jid)
 }
 
+// clearChatPreview empties a chat row's preview after Clear chat left no
+// messages in it. UpdateChatSnippet keeps the old text when it finds nothing
+// (history sync rows can have a preview without stored messages), so a
+// cleared chat kept showing its last message. WA Web keeps the row, its time
+// and its place in the list, with no preview and nothing unread.
+func clearChatPreview(jid string) {
+	db.Exec(`UPDATE chats SET
+			preview_snippet = '', preview_sender = '', preview_from_me = 0,
+			preview_is_reaction = 0, preview_reaction_emoji = '',
+			unread_mentions = 0,
+			unread_count = CASE WHEN COALESCE(marked_unread, 0) = 1 THEN unread_count ELSE 0 END
+		WHERE jid = ?`, jid)
+}
+
 func UpdateAllChatSnippets() {
 	rows, err := db.Query(`SELECT jid FROM chats`)
 	if err != nil {

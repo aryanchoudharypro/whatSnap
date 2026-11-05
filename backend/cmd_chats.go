@@ -866,6 +866,7 @@ func handleClearChat(raw json.RawMessage) {
 			return
 		}
 		purgeMessages("jid = ?", data.JID)
+		clearChatPreview(data.JID)
 		broadcastChats()
 		broadcastEvent("chat_cleared", map[string]interface{}{"jid": data.JID})
 	}()
