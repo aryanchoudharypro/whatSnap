@@ -4,6 +4,13 @@
 
 whatSnap is in development. Most features are tested with a real WhatsApp account, but some are not yet. See [Features Not Yet Tested](#features-not-yet-tested).
 
+## Disclaimer
+whatSnap is an unofficial client. It is not made, supported, or endorsed by WhatsApp or Meta, and it is not affiliated with them.
+
+Using a third-party client may go against the WhatsApp Terms of Service. WhatsApp could limit, suspend, or ban an account that uses it, at any time and without warning. The whatSnap developers can't undo that.
+
+You use whatSnap at your own risk. If you can't afford to lose your WhatsApp account, don't use whatSnap with it. whatSnap comes as is, with no warranty. Its authors and contributors are not responsible for anything that happens to your account, your data, or your device because you used it, including restrictions, bans, and lost messages.
+
 ## System Requirements
 - Windows 10 or 11, on x64.
 - WhatsApp on your phone. whatSnap is a linked device, so you need a phone with WhatsApp to link it the first time.

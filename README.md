@@ -4,6 +4,14 @@ whatSnap is a lightweight, fast, and accessible WhatsApp client for Windows. It 
 
 whatSnap is in development. Stable releases are on the Releases page, and each change to `master` also builds a new Development Build.
 
+## Disclaimer
+
+whatSnap is an unofficial client. It is not made, supported, or endorsed by WhatsApp or Meta, and it is not affiliated with them in any way. WhatsApp is a trademark of its owner, and whatSnap uses the name only to say what service it connects to.
+
+Using a third-party client may go against the WhatsApp Terms of Service. There is no promise that whatSnap will keep working, or that WhatsApp won't limit, suspend, or ban an account that uses it. This can happen at any time, without warning, and it is not something the whatSnap developers can undo.
+
+You use whatSnap at your own risk. If you can't afford to lose your WhatsApp account, or the messages and media in it, don't use whatSnap with that account. The software comes as is, with no warranty of any kind. The authors and contributors of whatSnap are not responsible for anything that happens to your account, your data, or your device because you used it, including restrictions, bans, and lost messages. By using whatSnap, you accept these risks.
+
 ## Documentation
 
 For a comprehensive user guide, including a full list of features and hotkeys, please see the [User Manual](doc/readme.md).
