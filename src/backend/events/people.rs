@@ -138,8 +138,6 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 
 				parts.group_data_dialog.add_member_btn.show(viewer_is_admin);
-				parts.group_data_dialog.make_admin_btn.show(viewer_is_admin);
-				parts.group_data_dialog.remove_member_btn.show(viewer_is_admin);
 				parts.group_data_dialog.invite_link_btn.show(viewer_is_admin);
 				parts.group_data_dialog.save_settings_btn.show(viewer_is_admin);
 				parts.group_data_dialog.announce_chk.enable(viewer_is_admin);
@@ -196,7 +194,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let s = state.borrow();
 				let mut member_strings = Vec::new();
 				let mut member_jids = Vec::new();
-				let mut member_admin = Vec::new();
+				let mut member_info = Vec::new();
 				if let Some(participants) = payload.get("Participants").and_then(|p| p.as_array()) {
 					for p in participants {
 						if let Some(jid) = p.get("JID").and_then(|j| j.as_str()) {
@@ -249,7 +247,16 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							};
 							member_strings.push(display);
 							member_jids.push(jid.to_string());
-							member_admin.push(is_admin || is_super);
+							member_info.push(crate::GroupMember {
+								jid: jid.to_string(),
+								phone_jid: phone_jid.to_string(),
+								name: local_name.clone(),
+								phone: phone.clone(),
+								admin: is_admin || is_super,
+								super_admin: is_super,
+								me: p.get("IsMe").and_then(|v| v.as_bool()).unwrap_or(false),
+								saved: p.get("Saved").and_then(|v| v.as_bool()).unwrap_or(false),
+							});
 						}
 					}
 				}
@@ -257,7 +264,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let mut s_mut = state.borrow_mut();
 				s_mut.group_data_members = member_strings;
 				s_mut.group_data_member_jids = member_jids;
-				s_mut.group_data_member_admin = member_admin;
+				s_mut.group_data_member_info = member_info;
 
 				let gd = &parts.group_data_dialog;
 				let lists =
@@ -276,7 +283,6 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 				s_mut.group_data_visible_member_jids = visible_jids;
 				drop(s_mut);
-				parts.group_data_dialog.make_admin_btn.set_label("Make admin");
 			}
 		}
 		"community_subgroups" => {

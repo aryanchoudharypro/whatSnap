@@ -6,6 +6,43 @@ pub const META_AI_JID: &str = "867051314767696@bot";
 /// 0, which isn't a phone number, so it gets a name rather than "+0".
 pub const WHATSAPP_SERVICE_JID: &str = "0@s.whatsapp.net";
 
+/// One person in the open group's Group Info member list.
+#[derive(Clone, Default)]
+pub struct GroupMember {
+	/// The address the group lists them under (may be a @lid).
+	pub jid: String,
+	/// Their phone-number JID, empty when the group hides it.
+	pub phone_jid: String,
+	/// Plain name, no role or tag, for menus and confirmations.
+	pub name: String,
+	/// Formatted international number, empty when hidden.
+	pub phone: String,
+	pub admin: bool,
+	pub super_admin: bool,
+	pub me: bool,
+	pub saved: bool,
+}
+
+impl GroupMember {
+	/// The JID to open a chat or contact info with: the phone JID when known,
+	/// since chats are keyed by it.
+	pub fn chat_jid(&self) -> &str {
+		if self.phone_jid.is_empty() { &self.jid } else { &self.phone_jid }
+	}
+}
+
+/// The items of a group member's context menu in Group Info (WA Web's
+/// participant menu).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MemberAction {
+	Message,
+	Info,
+	AddContact,
+	MakeAdmin,
+	DismissAdmin,
+	Remove,
+}
+
 #[derive(Clone)]
 pub enum UiCommand {
 	RequestPairing(String),
@@ -317,9 +354,10 @@ pub enum UiCommand {
 		jid: String,
 	},
 	FilterGroupMembers(String),
-	GroupMemberSelectionChanged,
-	ToggleGroupMemberAdmin(u32),
-	RemoveGroupMember(u32),
+	GroupMemberAction {
+		jid: String,
+		action: MemberAction,
+	},
 	JoinCommunitySubgroup(u32),
 	CommunitySubgroupSelectionChanged,
 	OpenGroupInvite(String),

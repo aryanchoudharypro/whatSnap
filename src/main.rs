@@ -279,7 +279,7 @@ struct AppState {
 	call_video: CallVideo,
 	group_data_members: Vec<String>,
 	group_data_member_jids: Vec<String>,
-	group_data_member_admin: Vec<bool>,
+	group_data_member_info: Vec<GroupMember>,
 	group_data_visible_member_jids: Vec<String>,
 	group_data_media: Vec<whatsnap::Msg>,
 	group_data_documents: Vec<whatsnap::Msg>,
@@ -633,7 +633,7 @@ fn main() {
 			call_video: CallVideo::default(),
 			group_data_members: Vec::new(),
 			group_data_member_jids: Vec::new(),
-			group_data_member_admin: Vec::new(),
+			group_data_member_info: Vec::new(),
 			group_data_visible_member_jids: Vec::new(),
 			group_data_media: Vec::new(),
 			group_data_documents: Vec::new(),
@@ -1201,9 +1201,6 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ScreenShareBlack(black) => ui_commands::calls::screen_share_black(state, parts, black),
 		UiCommand::SystemAudioFailed(reason) => ui_commands::calls::system_audio_failed(state, parts, reason),
 		UiCommand::FilterGroupMembers(query) => ui_commands::contacts_groups::filter_group_members(state, parts, query),
-		UiCommand::GroupMemberSelectionChanged => {
-			ui_commands::contacts_groups::group_member_selection_changed(state, parts)
-		}
 		UiCommand::DownloadMediaMessage(message_id) => {
 			ui_commands::attachments::download_media_message(state, parts, message_id)
 		}
@@ -1287,10 +1284,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::UpdateGroupSettings { name, topic, announce, locked } => {
 			ui_commands::contacts_groups::update_group_settings(state, parts, name, topic, announce, locked)
 		}
-		UiCommand::ToggleGroupMemberAdmin(idx) => {
-			ui_commands::contacts_groups::toggle_group_member_admin(state, parts, idx)
+		UiCommand::GroupMemberAction { jid, action } => {
+			ui_commands::contacts_groups::group_member_action(state, parts, jid, action)
 		}
-		UiCommand::RemoveGroupMember(idx) => ui_commands::contacts_groups::remove_group_member(state, parts, idx),
 		UiCommand::JoinCommunitySubgroup(idx) => {
 			ui_commands::contacts_groups::join_community_subgroup(state, parts, idx)
 		}

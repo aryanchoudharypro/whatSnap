@@ -108,6 +108,7 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 		participantsList := make([]map[string]interface{}, 0, len(participants))
 		noteParticipantLabels(jid, info.Participants)
 		labels := memberLabels(jid.String())
+		saved := savedContactJIDs()
 
 		for _, p := range participants {
 			phoneJID := p.PhoneNumber
@@ -140,6 +141,8 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 				"IsSuperAdmin": p.IsSuperAdmin,
 				"Name":         name,
 				"Label":        labels[memberLabelKey(p.JID)],
+				"IsMe":         isParticipantMe(p),
+				"Saved":        saved[p.JID.ToNonAD().String()] || (phoneStr != "" && saved[phoneStr]),
 			})
 		}
 

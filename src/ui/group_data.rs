@@ -13,8 +13,6 @@ pub struct GroupDataDialogParts {
 	pub members_list: ListBox,
 	pub photo: StaticBitmap,
 	pub add_member_btn: Button,
-	pub make_admin_btn: Button,
-	pub remove_member_btn: Button,
 	pub invite_link_btn: Button,
 	pub join_requests_btn: Button,
 	pub my_tag_label: StaticText,
@@ -91,14 +89,6 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let add_member_btn = Button::builder(&members_panel).with_label("Add member").build();
 	crate::ui::owner_draw::install_tile(&add_member_btn, members_panel.get_background_color());
 	mem_btn_sizer.add(&add_member_btn, 0, SizerFlag::Right, 5);
-
-	let make_admin_btn = Button::builder(&members_panel).with_label("Make admin").build();
-	crate::ui::owner_draw::install_tile(&make_admin_btn, members_panel.get_background_color());
-	mem_btn_sizer.add(&make_admin_btn, 0, SizerFlag::Right, 5);
-
-	let remove_member_btn = Button::builder(&members_panel).with_label("Remove member").build();
-	crate::ui::owner_draw::install_tile(&remove_member_btn, members_panel.get_background_color());
-	mem_btn_sizer.add(&remove_member_btn, 0, SizerFlag::Right, 5);
 
 	let invite_link_btn = Button::builder(&members_panel).with_label("Invite link...").build();
 	crate::ui::owner_draw::install_tile(&invite_link_btn, members_panel.get_background_color());
@@ -238,8 +228,6 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		members_list,
 		photo,
 		add_member_btn,
-		make_admin_btn,
-		remove_member_btn,
 		invite_link_btn,
 		join_requests_btn,
 		my_tag_label,

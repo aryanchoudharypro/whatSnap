@@ -95,20 +95,6 @@ pub(crate) fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
 }
 
-pub(crate) fn update_make_admin_button_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let s = state.borrow();
-	let is_admin = parts
-		.group_data_dialog
-		.members_list
-		.get_selection()
-		.and_then(|idx| s.group_data_visible_member_jids.get(idx as usize))
-		.and_then(|jid| s.group_data_member_jids.iter().position(|j| j == jid))
-		.and_then(|i| s.group_data_member_admin.get(i).copied())
-		.unwrap_or(false);
-	drop(s);
-	parts.group_data_dialog.make_admin_btn.set_label(if is_admin { "Dismiss as admin" } else { "Make admin" });
-}
-
 /// Re-filters `s.all_contacts` by `query` and repaints the New Group dialog's
 /// `contacts_listbox` (a wxCheckListBox) with the matches, preserving which
 /// jids are already checked. Shared by opening the dialog and by a fresh

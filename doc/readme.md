@@ -239,6 +239,17 @@ The Conversation menu has more actions for the open chat. It shows only the ones
 - `Block or Unblock Contact`, only in a chat with one person.
 - `Star Message` (`Alt+8`)
 
+### Group Info
+Press `Alt+I` in a group to open its information. The Members tab has a search box, the list of members, and the `Add member`, `Invite link...` and `Join requests...` buttons when you are an admin. Press `Enter`, the Applications key or `Shift+F10` on a member to open their menu. Like in WhatsApp Web, the menu shows only the items that fit that member:
+
+- `Message` and the name of the member, to open your chat with them.
+- `Contact info`, to see their info, call them, or save them.
+- `Add to contacts`, when they are not in your contacts.
+- `Make group admin`, when you are an admin and they are not. whatSnap asks first.
+- `Remove`, when you are an admin. The person who made the group can't be removed. whatSnap asks first.
+- `Dismiss as admin`, when you are an admin and they are an admin, but not the person who made the group.
+- `Edit member tag`, on your own name. It goes to the `Your tag in this group` box.
+
 ## Calls
 To call, open a chat and use `Call` or `Video call`. You can also call from the Calls section, or press `Enter` on a call in the Messages list.
 

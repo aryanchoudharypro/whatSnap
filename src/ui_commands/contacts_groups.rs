@@ -3,13 +3,12 @@ use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
 use crate::{
-	AppState, ContactPickerMode,
+	AppState, ContactPickerMode, MemberAction,
 	platform::tray::refresh_tray_tooltip,
 	ui::{
 		chat_ui::{clear_pending_reply, open_chat_for_jid},
 		contact_picker::{
 			apply_contact_picker_filter, refresh_add_members_contacts_list, refresh_new_group_contacts_list,
-			update_make_admin_button_label,
 		},
 		message_display::apply_chat_filter,
 		window::WindowParts,
@@ -108,12 +107,6 @@ pub(crate) fn filter_group_members(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		}
 	}
 	s.group_data_visible_member_jids = visible_jids;
-	drop(s);
-	parts.group_data_dialog.make_admin_btn.set_label("Make admin");
-}
-
-pub(crate) fn group_member_selection_changed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	update_make_admin_button_label(state, parts);
 }
 
 pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, mode: ContactPickerMode) {
@@ -213,43 +206,73 @@ pub(crate) fn update_group_settings(
 	}
 }
 
-pub(crate) fn toggle_group_member_admin(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, idx: u32) {
+/// Runs one item of a member's context menu in Group Info. Make admin and
+/// Remove ask first, like WA Web; Dismiss as admin doesn't.
+pub(crate) fn group_member_action(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	member_jid: String,
+	action: MemberAction,
+) {
 	let s = state.borrow();
-	if let Some(jid) = s.selected_chat.clone()
-		&& let Some(member_jid) = s.group_data_visible_member_jids.get(idx as usize).cloned()
-	{
-		let is_admin = s
-			.group_data_member_jids
-			.iter()
-			.position(|j| j == &member_jid)
-			.and_then(|i| s.group_data_member_admin.get(i).copied())
-			.unwrap_or(false);
-		let action = if is_admin { "demote" } else { "promote" };
+	let Some(group_jid) = s.selected_chat.clone().filter(|j| j.ends_with("@g.us")) else { return };
+	let Some(member) = s.group_data_member_info.iter().find(|m| m.jid == member_jid).cloned() else { return };
+	let subject =
+		s.contacts.get(&group_jid).cloned().unwrap_or_else(|| parts.group_data_dialog.group_name_field.get_value());
+	drop(s);
+	let dialog = &parts.group_data_dialog.dialog;
+	let ask = |text: &str, title: &str, yes: &str| {
+		let confirm = MessageDialog::builder(dialog, text, title)
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build();
+		confirm.set_yes_no_labels(yes, "Cancel");
+		confirm.show_modal() == wxdragon::id::ID_YES
+	};
+	let change = |what: &str| {
 		let msg = serde_json::json!({
 			"action": "update_group_participants",
-			"data": { "jid": jid, "participants": [member_jid], "action": action }
+			"data": { "jid": group_jid, "participants": [member.jid], "action": what }
 		});
-		let _ = s.ws_tx.send(msg.to_string());
-	}
-}
-
-pub(crate) fn remove_group_member(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: u32) {
-	let s = state.borrow();
-	if let Some(jid) = s.selected_chat.clone()
-		&& let Some(member_jid) = s.group_data_visible_member_jids.get(idx as usize).cloned()
-	{
-		let label = s.group_data_members.get(idx as usize).cloned().unwrap_or_default();
-		drop(s);
-		let confirm =
-			MessageDialog::builder(&parts.frame, &format!("Remove {} from the group?", label), "Remove Member")
-				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-				.build();
-		if confirm.show_modal() == wxdragon::id::ID_YES {
-			let msg = serde_json::json!({
-				"action": "update_group_participants",
-				"data": { "jid": jid, "participants": [member_jid], "action": "remove" }
-			});
-			let _ = state.borrow().ws_tx.send(msg.to_string());
+		let _ = state.borrow().ws_tx.send(msg.to_string());
+	};
+	match action {
+		MemberAction::Message => {
+			dialog.end_modal(wxdragon::id::ID_OK);
+			open_chat_for_jid(member.chat_jid(), state, parts);
+		}
+		MemberAction::Info => {
+			crate::ui_commands::chat_list::show_contact_info(state, parts, member.chat_jid().to_string());
+		}
+		MemberAction::AddContact => {
+			if member.phone_jid.is_empty() {
+				MessageDialog::builder(
+					dialog,
+					"WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact.",
+					"Add Contact",
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+				.build()
+				.show_modal();
+				return;
+			}
+			let number = member.phone_jid.split('@').next().unwrap_or_default();
+			let name = if member.name == member.phone { "" } else { member.name.as_str() };
+			open_contact_form(parts, "Add Contact", "Save", name, "", &format!("+{}", number), false);
+		}
+		MemberAction::MakeAdmin => {
+			if ask(
+				&format!("Make {} an admin for \"{}\" group?", member.name, subject),
+				"Make Group Admin",
+				"Make group admin",
+			) {
+				change("promote");
+			}
+		}
+		MemberAction::DismissAdmin => change("demote"),
+		MemberAction::Remove => {
+			if ask(&format!("Remove {} from \"{}\" group?", member.name, subject), "Remove Member", "Remove") {
+				change("remove");
+			}
 		}
 	}
 }

@@ -146,6 +146,159 @@ fn wire_media_list(
 	}
 }
 
+/// A group member's context menu in Group Info, with the items WA Web's
+/// participant menu has, each only when it applies: Message and Contact
+/// info for anyone but you, Add to contacts for someone not saved, and for
+/// group admins Make group admin, Remove and Dismiss as admin. Your own row
+/// gets Edit member tag. It opens on the Applications key, Shift+F10, a
+/// right click, Enter or a double click, like a click on a member in WA Web.
+fn wire_group_member_menu(
+	parts: &WindowParts,
+	ui_tx: &UiCommandSender,
+	state: &std::rc::Rc<std::cell::RefCell<crate::AppState>>,
+) {
+	use crate::MemberAction;
+	let list = parts.group_data_dialog.members_list;
+	let tag_field = parts.group_data_dialog.my_tag_field;
+	let tx = ui_tx.clone();
+	let state = state.clone();
+	let show = Rc::new(move || {
+		let Some(idx) = list.get_selection() else { return };
+		let (member, viewer_admin) = {
+			let s = state.borrow();
+			let Some(jid) = s.group_data_visible_member_jids.get(idx as usize) else { return };
+			let Some(member) = s.group_data_member_info.iter().find(|m| &m.jid == jid).cloned() else { return };
+			let group = s.selected_chat.clone().unwrap_or_default();
+			(member, s.admin_group_jids.contains(&group))
+		};
+		let is_bot = member.jid.ends_with("@bot");
+		let mut items: Vec<(i32, String, &str, Option<MemberAction>)> = Vec::new();
+		if !member.me {
+			items.push((
+				4201,
+				format!("&Message {}", member.name),
+				"Open your chat with this member",
+				Some(MemberAction::Message),
+			));
+			if !is_bot {
+				items.push((
+					4202,
+					"&Contact info".to_string(),
+					"See this member's info, call them, or save them as a contact",
+					Some(MemberAction::Info),
+				));
+			}
+			if !member.saved && !is_bot && !member.phone_jid.is_empty() {
+				items.push((
+					4203,
+					"&Add to contacts".to_string(),
+					"Save this member as a contact",
+					Some(MemberAction::AddContact),
+				));
+			}
+		}
+		if viewer_admin && !member.me {
+			if !member.admin && !is_bot {
+				items.push((
+					4204,
+					"Make group &admin".to_string(),
+					"Let this member change group info and settings and manage members",
+					Some(MemberAction::MakeAdmin),
+				));
+			}
+			if !member.super_admin {
+				items.push((
+					4205,
+					"&Remove".to_string(),
+					"Remove this member from the group",
+					Some(MemberAction::Remove),
+				));
+			}
+			if member.admin && !member.super_admin && !is_bot {
+				items.push((
+					4206,
+					"&Dismiss as admin".to_string(),
+					"Make this admin an ordinary member again",
+					Some(MemberAction::DismissAdmin),
+				));
+			}
+		}
+		if member.me {
+			items.push((
+				4207,
+				"Edit member &tag".to_string(),
+				"Change the tag shown next to your name in this group",
+				None,
+			));
+		}
+		if items.is_empty() {
+			return;
+		}
+		let mut builder = Menu::builder();
+		for (id, label, help, _) in &items {
+			builder = builder.append_item(*id, label, help);
+		}
+		let mut menu = builder.build();
+		let tx_menu = tx.clone();
+		let jid = member.jid.clone();
+		menu.on_selected(move |event| {
+			let id = event.get_id();
+			let Some((_, _, _, action)) = items.iter().find(|(item, ..)| *item == id) else { return };
+			match action {
+				Some(action) => {
+					let _ = tx_menu.send(UiCommand::GroupMemberAction { jid: jid.clone(), action: *action });
+				}
+				None => tag_field.set_focus(),
+			}
+		});
+		list.popup_menu(&mut menu, member_menu_position(&list, idx));
+		menu.destroy_menu();
+	});
+	let show_ctx = show.clone();
+	list.bind_internal(EventType::CONTEXT_MENU, move |_| show_ctx());
+	let show_dbl = show.clone();
+	list.on_item_double_clicked(move |_| show_dbl());
+	// Key down only: the Enter that picks a menu item is released on the
+	// list again, and must not open the menu a second time.
+	list.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event
+			&& keys::is_enter(key.get_key_code())
+		{
+			show();
+			event.skip(false);
+			return;
+		}
+		event.skip(true);
+	});
+}
+
+/// Where a member's menu opens: just under the selected row, so a menu
+/// opened from the keyboard isn't left wherever the mouse happens to be.
+fn member_menu_position(list: &ListBox, idx: u32) -> Option<Point> {
+	#[cfg(windows)]
+	{
+		use windows::Win32::{
+			Foundation::{HWND, LPARAM, RECT, WPARAM},
+			UI::WindowsAndMessaging::{LB_GETITEMRECT, SendMessageW},
+		};
+		let mut rect = RECT::default();
+		let got = unsafe {
+			SendMessageW(
+				HWND(list.get_handle()),
+				LB_GETITEMRECT,
+				Some(WPARAM(idx as usize)),
+				Some(LPARAM(&mut rect as *mut RECT as isize)),
+			)
+		};
+		if got.0 != -1 && rect.bottom > 0 {
+			return Some(Point::new(rect.left + 24, rect.bottom));
+		}
+	}
+	#[cfg(not(windows))]
+	let _ = (list, idx);
+	None
+}
+
 #[allow(dead_code)]
 pub struct WindowParts {
 	pub frame: Frame,
@@ -2229,26 +2382,7 @@ pub fn bind_input_handlers(
 		let _ = tx_add_member.send(UiCommand::PrepareAddMembers);
 	});
 
-	let tx_make_admin = ui_tx.clone();
-	let members_list_admin = parts.group_data_dialog.members_list;
-	parts.group_data_dialog.make_admin_btn.on_click(move |_| {
-		if let Some(idx) = members_list_admin.get_selection() {
-			let _ = tx_make_admin.send(UiCommand::ToggleGroupMemberAdmin(idx));
-		}
-	});
-
-	let tx_member_selection = ui_tx.clone();
-	parts.group_data_dialog.members_list.on_selection_changed(move |_| {
-		let _ = tx_member_selection.send(UiCommand::GroupMemberSelectionChanged);
-	});
-
-	let tx_remove_member = ui_tx.clone();
-	let members_list_remove = parts.group_data_dialog.members_list;
-	parts.group_data_dialog.remove_member_btn.on_click(move |_| {
-		if let Some(idx) = members_list_remove.get_selection() {
-			let _ = tx_remove_member.send(UiCommand::RemoveGroupMember(idx));
-		}
-	});
+	wire_group_member_menu(parts, &ui_tx, state);
 
 	let tx_invite_link = ui_tx.clone();
 	parts.group_data_dialog.invite_link_btn.on_click(move |_| {
@@ -4003,8 +4137,7 @@ pub fn bind_input_handlers(
 						}
 						for (jid, name) in &s.contacts {
 							if !jid.ends_with("@broadcast")
-								&& !jids.contains(jid)
-								&& crate::ui_commands::links::can_forward_to(&s, jid)
+								&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
 							{
 								labels.push(name.clone());
 								jids.push(jid.clone());
@@ -4806,8 +4939,7 @@ pub fn bind_input_handlers(
 						}
 						for (jid, name) in &s.contacts {
 							if !jid.ends_with("@broadcast")
-								&& !jids.contains(jid)
-								&& crate::ui_commands::links::can_forward_to(&s, jid)
+								&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
 							{
 								labels.push(name.clone());
 								jids.push(jid.clone());
