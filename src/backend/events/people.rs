@@ -256,6 +256,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								super_admin: is_super,
 								me: p.get("IsMe").and_then(|v| v.as_bool()).unwrap_or(false),
 								saved: p.get("Saved").and_then(|v| v.as_bool()).unwrap_or(false),
+								history_count: p.get("HistoryCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
 							});
 						}
 					}

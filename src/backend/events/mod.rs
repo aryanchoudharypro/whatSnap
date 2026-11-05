@@ -89,7 +89,7 @@ fn refresh_open_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	}
 }
 
-fn qr_rgba(qr: &qrcode::QrCode) -> (u32, u32, Vec<u8>) {
+pub(crate) fn qr_rgba(qr: &qrcode::QrCode) -> (u32, u32, Vec<u8>) {
 	const MODULE: usize = 5;
 	const QUIET: usize = 4;
 	let modules = qr.width();

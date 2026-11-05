@@ -269,6 +269,21 @@ pub(crate) fn group_member_action(
 			}
 		}
 		MemberAction::DismissAdmin => change("demote"),
+		MemberAction::VerifyCode => crate::ui_commands::member_extras::request_security_code(state, parts, &member),
+		MemberAction::SendHistory => {
+			let count = member.history_count;
+			let what = if count == 1 { "1 recent message".to_string() } else { format!("{count} recent messages") };
+			if ask(
+				&format!(
+					"Send message history to {}?\n\n{} will get {} from this group.",
+					member.name, member.name, what
+				),
+				"Send Message History",
+				"Send",
+			) {
+				crate::ui_commands::member_extras::send_history(state, parts, &group_jid, &member);
+			}
+		}
 		MemberAction::Remove => {
 			if ask(&format!("Remove {} from \"{}\" group?", member.name, subject), "Remove Member", "Remove") {
 				change("remove");

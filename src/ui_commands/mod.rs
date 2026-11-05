@@ -9,6 +9,7 @@ pub(crate) mod chat_lists;
 pub(crate) mod contacts_groups;
 pub(crate) mod group_extras;
 pub(crate) mod links;
+pub(crate) mod member_extras;
 pub(crate) mod mentions;
 pub(crate) mod message_extras;
 pub(crate) mod messaging;

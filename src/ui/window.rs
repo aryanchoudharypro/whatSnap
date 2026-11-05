@@ -223,6 +223,22 @@ fn wire_group_member_menu(
 				));
 			}
 		}
+		if !member.me && !is_bot {
+			items.push((
+				4208,
+				"&Verify security code".to_string(),
+				"Compare the security code with this member to check your chat is end-to-end encrypted",
+				Some(MemberAction::VerifyCode),
+			));
+		}
+		if member.history_count > 0 {
+			items.push((
+				4209,
+				"Send message &history".to_string(),
+				"Send this new member recent messages from before they joined",
+				Some(MemberAction::SendHistory),
+			));
+		}
 		if member.me {
 			items.push((
 				4207,

@@ -109,6 +109,12 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 		noteParticipantLabels(jid, info.Participants)
 		labels := memberLabels(jid.String())
 		saved := savedContactJIDs()
+		for _, p := range participants {
+			if isParticipantMe(p) && (p.IsAdmin || p.IsSuperAdmin) {
+				isMyAdmin = true
+			}
+		}
+		canShareHistory := groupCanShareHistory(info, isMyAdmin)
 
 		for _, p := range participants {
 			phoneJID := p.PhoneNumber
@@ -116,10 +122,6 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 				if pn := preferPN(p.JID); pn.Server == types.DefaultUserServer {
 					phoneJID = pn
 				}
-			}
-
-			if isParticipantMe(p) && (p.IsAdmin || p.IsSuperAdmin) {
-				isMyAdmin = true
 			}
 
 			name := resolveDisplayName(p.JID)
@@ -134,6 +136,10 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 			if !phoneJID.IsEmpty() {
 				phoneStr = phoneJID.ToNonAD().String()
 			}
+			historyCount := 0
+			if canShareHistory && !isParticipantMe(p) && groupHistoryMemberEligible(jid, p) {
+				historyCount = groupHistoryCount(jid, p)
+			}
 			participantsList = append(participantsList, map[string]interface{}{
 				"JID":          p.JID.String(),
 				"PhoneJID":     phoneStr,
@@ -143,6 +149,7 @@ func handleGetGroupInfo(conn net.Conn, raw json.RawMessage) {
 				"Label":        labels[memberLabelKey(p.JID)],
 				"IsMe":         isParticipantMe(p),
 				"Saved":        saved[p.JID.ToNonAD().String()] || (phoneStr != "" && saved[phoneStr]),
+				"HistoryCount": historyCount,
 			})
 		}
 

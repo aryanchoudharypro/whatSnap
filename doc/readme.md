@@ -248,6 +248,8 @@ Press `Alt+I` in a group to open its information. The Members tab has a search b
 - `Make group admin`, when you are an admin and they are not. whatSnap asks first.
 - `Remove`, when you are an admin. The person who made the group can't be removed. whatSnap asks first.
 - `Dismiss as admin`, when you are an admin and they are an admin, but not the person who made the group.
+- `Verify security code`, for anyone but you. It shows the 60 numbers to compare with the numbers on their phone, and a QR code their phone can scan. `Copy code` copies the numbers.
+- `Send message history`, for someone who joined in the last 30 days and hasn't had it yet, when you are an admin or the group lets all members share history. It sends them up to 100 messages from the 30 days before they joined. whatSnap asks first and tells you how many messages they will get.
 - `Edit member tag`, on your own name. It goes to the `Your tag in this group` box.
 
 ## Calls

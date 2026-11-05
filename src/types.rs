@@ -21,6 +21,9 @@ pub struct GroupMember {
 	pub super_admin: bool,
 	pub me: bool,
 	pub saved: bool,
+	/// How many recent messages "Send message history" would send them; 0
+	/// when it doesn't apply.
+	pub history_count: u32,
 }
 
 impl GroupMember {
@@ -41,6 +44,8 @@ pub enum MemberAction {
 	MakeAdmin,
 	DismissAdmin,
 	Remove,
+	VerifyCode,
+	SendHistory,
 }
 
 #[derive(Clone)]

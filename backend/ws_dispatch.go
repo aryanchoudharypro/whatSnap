@@ -218,6 +218,10 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		handleCreateGroup(conn, cmd.Data)
 	case "get_group_info":
 		handleGetGroupInfo(conn, cmd.Data)
+	case "send_group_history":
+		handleSendGroupHistory(conn, cmd.Data)
+	case "get_security_code":
+		handleGetSecurityCode(conn, cmd.Data)
 	case "get_community_subgroups":
 		handleGetCommunitySubGroups(conn, cmd.Data)
 	case "get_join_requests":
