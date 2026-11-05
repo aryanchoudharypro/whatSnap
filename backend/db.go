@@ -668,6 +668,9 @@ func markMessageEdited(id, jid string, newContent *waE2E.Message, fallbackText s
 func markMessageDeleted(id, jid string) error {
 	_, err := db.Exec(`UPDATE messages SET is_deleted = 1, text = '' WHERE id = ? AND jid = ?`, id, jid)
 	UpdateChatSnippet(jid)
+	// The chat list row shows the new preview straight away, not only on
+	// the next list refresh.
+	broadcastChats()
 	return err
 }
 
@@ -679,7 +682,14 @@ func markMessageDeleted(id, jid string) error {
 // was deleted" placeholder, it's simply gone from your view.
 func deleteMessageForMe(id, jid string) error {
 	purgeMessages(`id = ? AND jid = ?`, id, jid)
-	UpdateChatSnippet(jid)
+	var left int
+	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ?`, jid).Scan(&left)
+	if left == 0 {
+		emptyChatPreview(jid)
+	} else {
+		UpdateChatSnippet(jid)
+	}
+	broadcastChats()
 	return nil
 }
 
@@ -937,11 +947,16 @@ func UpdateChatSnippet(jid string) {
 // cleared chat kept showing its last message. WA Web keeps the row, its time
 // and its place in the list, with no preview and nothing unread.
 func clearChatPreview(jid string) {
+	emptyChatPreview(jid)
+	db.Exec(`UPDATE chats SET unread_mentions = 0,
+			unread_count = CASE WHEN COALESCE(marked_unread, 0) = 1 THEN unread_count ELSE 0 END
+		WHERE jid = ?`, jid)
+}
+
+func emptyChatPreview(jid string) {
 	db.Exec(`UPDATE chats SET
 			preview_snippet = '', preview_sender = '', preview_from_me = 0,
-			preview_is_reaction = 0, preview_reaction_emoji = '',
-			unread_mentions = 0,
-			unread_count = CASE WHEN COALESCE(marked_unread, 0) = 1 THEN unread_count ELSE 0 END
+			preview_is_reaction = 0, preview_reaction_emoji = ''
 		WHERE jid = ?`, jid)
 }
 
