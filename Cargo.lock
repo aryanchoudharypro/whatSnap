@@ -2624,6 +2624,7 @@ dependencies = [
  "serde_json",
  "ship-shape",
  "shipfitter",
+ "ureq",
  "windows",
  "windows-core",
  "windows-future",

@@ -86,6 +86,16 @@ pub enum UiCommand {
 		verified: bool,
 	},
 	CloseLockedChats,
+	OpenAccountSwitcher,
+	SwitchAccount(String),
+	AddAccount(Option<String>),
+	RenameAccount {
+		id: String,
+		new_name: String,
+	},
+	RemoveAccount(String),
+	OpenWhatsNew,
+	ResetAccountState,
 	/// Lock the whole app (Account, Lock App).
 	LockApp,
 	/// The Windows Hello prompt on the lock screen finished.

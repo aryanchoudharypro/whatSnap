@@ -108,8 +108,28 @@ pub fn remove_legacy_data_if_running(running: bool) {
 	}
 }
 
-pub fn db_path() -> PathBuf {
+pub fn accounts_dir() -> PathBuf {
+	let dir = app_data_dir().join("accounts");
+	let _ = std::fs::create_dir_all(&dir);
+	dir
+}
+
+pub fn account_dir(id: &str) -> PathBuf {
+	let dir = accounts_dir().join(id);
+	let _ = std::fs::create_dir_all(&dir);
+	dir
+}
+
+pub fn accounts_json_path() -> PathBuf {
+	app_data_dir().join("accounts.json")
+}
+
+pub fn default_db_path() -> PathBuf {
 	app_data_dir().join("session.db")
+}
+
+pub fn db_path() -> PathBuf {
+	default_db_path()
 }
 
 pub fn log_dir() -> PathBuf {

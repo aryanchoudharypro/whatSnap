@@ -5,6 +5,18 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"connected" => {
 			if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
 				crate::ui::owner_draw::set_own_jid(jid);
+				let phone_digits = jid.split('@').next().and_then(|u| u.split(':').next()).unwrap_or("");
+				let formatted = if !phone_digits.is_empty() { format!("+{}", phone_digits) } else { String::new() };
+				let mut mgr = crate::platform::accounts::AccountsManager::load();
+				if mgr.update_active_identity(
+					Some(jid),
+					None,
+					if formatted.is_empty() { None } else { Some(&formatted) },
+				) {
+					if let Some(acc) = mgr.active_account() {
+						parts.frame.set_title(&format!("whatSnap - [{}]", acc.display_label()));
+					}
+				}
 			}
 			// A reconnect (keepalive blip, brief network drop) also
 			// fires this event, not just the first connect - don't

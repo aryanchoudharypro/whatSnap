@@ -358,6 +358,9 @@ pub const MENU_ID_SETTINGS: i32 = 6001;
 pub const MENU_ID_LOGOUT: i32 = 6002;
 pub const MENU_ID_LOCK_APP: i32 = 6062;
 pub const MENU_ID_CHECK_UPDATES: i32 = 6061;
+pub const MENU_ID_SWITCH_ACCOUNT: i32 = 6063;
+pub const MENU_ID_ADD_ACCOUNT: i32 = 6064;
+pub const MENU_ID_WHATS_NEW: i32 = 6065;
 pub const MENU_ID_RECONNECT: i32 = 6003;
 pub const MENU_ID_NAV_CONVERSATIONS: i32 = 6010;
 pub const MENU_ID_NAV_STATUS: i32 = 6011;
@@ -709,12 +712,29 @@ pub fn build_main_window() -> WindowParts {
 	let account_menu = Menu::builder()
 		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), "Open settings")
 		.append_item(
+			MENU_ID_SWITCH_ACCOUNT,
+			&default_menu_label(MENU_ID_SWITCH_ACCOUNT),
+			"Switch between multiple WhatsApp accounts",
+		)
+		.append_item(
+			MENU_ID_ADD_ACCOUNT,
+			&default_menu_label(MENU_ID_ADD_ACCOUNT),
+			"Add another WhatsApp account to this device",
+		)
+		.append_separator()
+		.append_item(
 			MENU_ID_RECONNECT,
 			&default_menu_label(MENU_ID_RECONNECT),
 			"Retry connecting to WhatsApp right away",
 		)
 		.append_item(MENU_ID_LOCK_APP, &default_menu_label(MENU_ID_LOCK_APP), "Lock whatSnap until you unlock it")
 		.append_item(MENU_ID_BLOCKED_CONTACTS, "&Blocked Contacts...", "See and change who you have blocked")
+		.append_separator()
+		.append_item(
+			MENU_ID_WHATS_NEW,
+			&default_menu_label(MENU_ID_WHATS_NEW),
+			"See recent updates and changes from GitHub",
+		)
 		.append_item(MENU_ID_CHECK_UPDATES, "Check for &Updates...", "See if a newer version of whatSnap is out")
 		.append_separator()
 		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
@@ -1726,6 +1746,27 @@ pub fn bind_input_handlers(
 		}
 		let s = state_logout.borrow();
 		let _ = s.ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
+	});
+
+	let tx_switch_account = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() == MENU_ID_SWITCH_ACCOUNT {
+			let _ = tx_switch_account.send(UiCommand::OpenAccountSwitcher);
+		}
+	});
+
+	let tx_add_account = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() == MENU_ID_ADD_ACCOUNT {
+			let _ = tx_add_account.send(UiCommand::AddAccount(None));
+		}
+	});
+
+	let tx_whats_new = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() == MENU_ID_WHATS_NEW {
+			let _ = tx_whats_new.send(UiCommand::OpenWhatsNew);
+		}
 	});
 
 	let frame_updates = parts.frame;

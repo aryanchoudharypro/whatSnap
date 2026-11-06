@@ -83,6 +83,8 @@ impl Default for PresenceModel {
 }
 
 struct AppState {
+	backend: Option<Arc<backend::process::BackendProcess>>,
+	pipe_id: String,
 	settings: crate::settings::Settings,
 	keymap: Rc<crate::keymap::Keymap>,
 	ws_tx: mpsc::Sender<String>,
@@ -381,7 +383,8 @@ fn main() {
 		.and_then(|p| p.parent().map(|d| d.to_path_buf()))
 		.unwrap_or_else(|| std::path::PathBuf::from("backend"));
 
-	let db_path_str = platform::paths::db_path().to_string_lossy().into_owned();
+	let accounts_mgr = crate::platform::accounts::AccountsManager::load();
+	let db_path_str = accounts_mgr.active_db_path().to_string_lossy().into_owned();
 
 	let pipe_id = format!("whantv-{}", util::random_hex());
 	let go_pipe_name = format!(r"\\.\pipe\{}", pipe_id);
@@ -399,6 +402,8 @@ fn main() {
 		))
 	});
 	let pipe_backend = backend.clone();
+	let app_backend = backend.clone();
+	let app_pipe_id = pipe_id.clone();
 	if let Some(backend) = backend {
 		// Killing the backend outright skips both the WhatsApp disconnect and
 		// the database close, which strands the SQLite -wal/-shm files. Ask it
@@ -425,6 +430,10 @@ fn main() {
 
 		let parts = build_main_window();
 		let frame = parts.frame;
+		let accounts_mgr = crate::platform::accounts::AccountsManager::load();
+		if let Some(active_acc) = accounts_mgr.active_account() {
+			frame.set_title(&format!("whatSnap - [{}]", active_acc.display_label()));
+		}
 
 		#[cfg(target_os = "windows")]
 		{
@@ -564,6 +573,8 @@ fn main() {
 		let loaded_settings = crate::settings::Settings::load();
 		let saved_audio_speed = loaded_settings.audio_speed();
 		let state = Rc::new(RefCell::new(AppState {
+			backend: app_backend,
+			pipe_id: app_pipe_id,
 			settings: loaded_settings,
 			keymap: Rc::default(),
 			ws_tx: ws_out_tx,
@@ -1075,8 +1086,125 @@ pub(crate) fn connected_status_text(s: &AppState) -> String {
 	}
 }
 
+pub(crate) fn reset_account_ui_state(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	s.chats.clear();
+	s.filtered_chats.clear();
+	s.messages.clear();
+	s.display_items.clear();
+	s.unread_counts.clear();
+	s.selected_chat = None;
+	s.contacts.clear();
+	s.all_contacts.clear();
+	s.call_logs.clear();
+	s.filtered_call_ids.clear();
+	s.starred_entries.clear();
+	s.status_groups.clear();
+	s.editing_message_id = None;
+	s.pending_reply_id = None;
+	s.draft_messages.clear();
+	s.draft_mentions.clear();
+	s.composer_mentions.clear();
+	s.conn_online = false;
+	s.conn_status_text = "Status: Connecting to account...".to_string();
+	s.own_push_name = String::new();
+	s.own_about = String::new();
+	s.own_about_loaded = false;
+	drop(s);
+
+	parts.conversations_parts.conversations_list.clear();
+	parts.conversations_parts.messages_list.clear();
+	parts.conversations_parts.message_field.set_value("");
+	parts.conversations_parts.message_field.show(false);
+	parts.conversations_parts.send_message_btn.show(false);
+	parts.conversations_parts.add_attachment_btn.show(false);
+	parts.conversations_parts.emoji_btn.show(false);
+	parts.conversations_parts.record_voice_btn.show(false);
+	parts.conversations_parts.top_btns_panel.show(false);
+	parts.conversations_parts.panel.layout();
+	parts.frame.set_status_text("Status: Switching account...", 0);
+}
+
 pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	match cmd {
+		UiCommand::OpenAccountSwitcher => {
+			let ui_tx_switch = state.borrow().ui_tx.clone();
+			let ui_tx_add = state.borrow().ui_tx.clone();
+			let ui_tx_rename = state.borrow().ui_tx.clone();
+			let ui_tx_remove = state.borrow().ui_tx.clone();
+			let frame = parts.frame;
+			crate::ui::dialogs::accounts_dialog::show_accounts_dialog(
+				&frame,
+				move |target_id| {
+					let _ = ui_tx_switch.send(UiCommand::SwitchAccount(target_id));
+				},
+				move |custom_name| {
+					let _ = ui_tx_add.send(UiCommand::AddAccount(custom_name));
+				},
+				move |id, new_name| {
+					let _ = ui_tx_rename.send(UiCommand::RenameAccount { id, new_name });
+				},
+				move |id| {
+					let _ = ui_tx_remove.send(UiCommand::RemoveAccount(id));
+				},
+			);
+		}
+		UiCommand::OpenWhatsNew => {
+			let frame = parts.frame;
+			crate::ui::dialogs::whats_new_dialog::show_whats_new_dialog(&frame);
+		}
+		UiCommand::AddAccount(custom_name) => {
+			let mut mgr = crate::platform::accounts::AccountsManager::load();
+			let entry = mgr.add_account(custom_name.as_deref());
+			let new_id = entry.id.clone();
+			let _ = state.borrow().ui_tx.send(UiCommand::SwitchAccount(new_id));
+		}
+		UiCommand::RenameAccount { id, new_name } => {
+			let mut mgr = crate::platform::accounts::AccountsManager::load();
+			if mgr.rename_account(&id, &new_name)
+				&& mgr.active_id == id
+				&& let Some(acc) = mgr.active_account()
+			{
+				parts.frame.set_title(&format!("whatSnap - [{}]", acc.display_label()));
+			}
+		}
+		UiCommand::RemoveAccount(id) => {
+			let mut mgr = crate::platform::accounts::AccountsManager::load();
+			let was_active = mgr.active_id == id;
+			if let Ok(new_active) = mgr.remove_account(&id)
+				&& was_active
+			{
+				let _ = state.borrow().ui_tx.send(UiCommand::SwitchAccount(new_active));
+			}
+		}
+		UiCommand::ResetAccountState => {
+			reset_account_ui_state(state, parts);
+		}
+		UiCommand::SwitchAccount(target_id) => {
+			let mut mgr = crate::platform::accounts::AccountsManager::load();
+			if mgr.switch_to(&target_id) {
+				let new_db_path = mgr.active_db_path().to_string_lossy().into_owned();
+				let account_label =
+					mgr.active_account().map(|a| a.display_label()).unwrap_or_else(|| target_id.clone());
+				let pipe_id = state.borrow().pipe_id.clone();
+				let backend = state.borrow().backend.clone();
+
+				parts.frame.set_title(&format!("whatSnap - [{}]", account_label));
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					&format!("Switched to account {}. Reconnecting...", account_label),
+				);
+
+				reset_account_ui_state(state, parts);
+
+				if let Some(backend) = backend {
+					let pid = pipe_id.clone();
+					backend.switch_database_and_restart(new_db_path, move || {
+						request_backend_shutdown(&pid);
+					});
+				}
+			}
+		}
 		UiCommand::PrepareNewGroup => ui_commands::contacts_groups::prepare_new_group(state, parts),
 		UiCommand::PrepareAddMembers => ui_commands::contacts_groups::prepare_add_members(state, parts),
 		UiCommand::AddGroupMembers(participants) => {

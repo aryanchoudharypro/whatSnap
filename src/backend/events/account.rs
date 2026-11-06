@@ -12,6 +12,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let mut s = state.borrow_mut();
 				if let Some(push_name) = data.get("pushName").and_then(|p| p.as_str()) {
 					s.own_push_name = push_name.to_string();
+					let mut mgr = crate::platform::accounts::AccountsManager::load();
+					if mgr.update_active_identity(None, Some(push_name), None)
+						&& let Some(acc) = mgr.active_account()
+					{
+						parts.frame.set_title(&format!("whatSnap - [{}]", acc.display_label()));
+					}
 				}
 				let about_arrived = if let Some(about) = data.get("about").and_then(|a| a.as_str()) {
 					s.own_about = about.to_string();

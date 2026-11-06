@@ -22,7 +22,7 @@ const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
 pub struct BackendProcess {
 	exe: PathBuf,
 	dir: PathBuf,
-	db_path: String,
+	db_path: Mutex<String>,
 	pipe_name: String,
 	verbose_logging: bool,
 	job: Option<KillOnCloseJob>,
@@ -38,7 +38,7 @@ impl BackendProcess {
 		let backend = Self {
 			exe,
 			dir,
-			db_path,
+			db_path: Mutex::new(db_path),
 			pipe_name,
 			verbose_logging,
 			job: KillOnCloseJob::new().ok(),
@@ -52,6 +52,32 @@ impl BackendProcess {
 		*child = backend.spawn();
 		drop(child);
 		backend
+	}
+
+	pub fn switch_database_and_restart(&self, new_db_path: String, request_shutdown: impl FnOnce()) -> bool {
+		*self.db_path.lock().unwrap() = new_db_path;
+		self.shutting_down.store(true, Ordering::SeqCst);
+		if let Some(mut child) = self.child.lock().unwrap().take() {
+			request_shutdown();
+			let deadline = Instant::now() + Duration::from_secs(3);
+			loop {
+				match child.try_wait() {
+					Ok(Some(_)) => break,
+					Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+					_ => {
+						let _ = child.kill();
+						break;
+					}
+				}
+			}
+			let _ = child.wait();
+		}
+		self.pid.store(0, Ordering::SeqCst);
+		self.quick_crashes.store(0, Ordering::SeqCst);
+		self.shutting_down.store(false, Ordering::SeqCst);
+		let mut child = self.child.lock().unwrap();
+		*child = self.spawn();
+		child.is_some()
 	}
 
 	fn spawn(&self) -> Option<Child> {
@@ -70,7 +96,8 @@ impl BackendProcess {
 			.unwrap_or_else(|_| Stdio::null());
 
 		let mut cmd = Command::new(&self.exe);
-		cmd.arg("-db").arg(&self.db_path).arg("-pipe").arg(&self.pipe_name);
+		let current_db = self.db_path.lock().unwrap().clone();
+		cmd.arg("-db").arg(&current_db).arg("-pipe").arg(&self.pipe_name);
 		if self.verbose_logging {
 			cmd.arg("-verbose-logging");
 		}

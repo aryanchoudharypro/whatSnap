@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod announce;
 pub mod app_link;
 pub mod autostart;
@@ -16,5 +17,6 @@ pub mod single_instance;
 pub mod toast;
 pub mod tray;
 pub mod update_check;
+pub mod whats_new;
 #[cfg(target_os = "windows")]
 pub mod windows_hello;

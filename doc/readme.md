@@ -73,6 +73,20 @@ While it does, the status bar says `Syncing older messages` and how much is done
 
 To unlink this computer, use `Account -> Log Out`. Log Out has no shortcut, so you can't log out by mistake.
 
+## Multiple WhatsApp Accounts
+whatSnap supports multiple WhatsApp accounts (for example, Work and Personal) on the same computer:
+
+- **Switch Accounts (`Ctrl+Shift+A`)**: Choose `Account -> Switch Account...` to open the Account Switcher. Select an account and press Enter (or click `Switch to Account`).
+- **Add Another Account (`Ctrl+Alt+A`)**: Choose `Account -> Add Account...` or click `Add Account...` in the Account Switcher. Enter an account label (such as "Work" or "Business"). whatSnap immediately sets up an isolated profile and displays the pairing screen (phone pairing code or QR code) to link your second phone account.
+- **Strict Isolation & Zero Notification Bleed**: Only the active account connects to WhatsApp servers, updates unread counts, and plays alert sounds or shows Windows toast notifications. Inactive/idle accounts remain completely dormant on disk with zero network activity and zero notification interference.
+- **Rename & Remove**: In the Account Switcher, you can rename account labels at any time or remove secondary accounts (which safely removes that account's database and cached media).
+
+## What's New & Changelog Viewer (`Ctrl+Shift+W`)
+Choose `Account -> What's New...` or press `Ctrl+Shift+W` to see all recent updates, features, and fixes:
+- Fetches real-time release notes and commit history directly from GitHub (`aryanchoudharypro/whatSnap`).
+- Works completely offline by automatically falling back to cached or built-in change logs.
+- Screen-reader accessible with keyboard navigation, text review, copy to clipboard, and live region announcements.
+
 ## Main Window Layout
 The main window has three parts:
 
@@ -430,6 +444,9 @@ You can't change these keys:
 | Action | Menu | Default |
 |---|---|---|
 | Settings... | Account | `Ctrl+,` |
+| Switch Account... | Account | `Ctrl+Shift+A` |
+| Add Account... | Account | `Ctrl+Alt+A` |
+| What's New... | Account | `Ctrl+Shift+W` |
 | Lock App | Account | `Ctrl+Shift+L` |
 | Reconnect Now | Account | `F5` |
 | Chats | Go | `Alt+1` |

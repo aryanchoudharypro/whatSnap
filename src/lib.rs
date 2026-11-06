@@ -1,6 +1,6 @@
-pub mod passhash;
 pub mod countries;
 pub mod local_time;
+pub mod passhash;
 pub mod phone;
 mod phone_data;
 pub use local_time::{Date, LocalTime};
@@ -657,7 +657,7 @@ impl ChatMessage {
 			format!("{}, {}", reactions_suffix, self.channel_stats)
 		};
 
-		let sep = if format!("{}{}", body, reply_suffix).ends_with(['?', '!']) { " ," } else { "," };
+		let sep = ",";
 
 		if self.from_me {
 			if !formatted_time.is_empty() {
@@ -912,7 +912,8 @@ mod update_shared_messages_tests {
 	use super::*;
 
 	fn msg(id: &str, ts: i64, media: &str) -> ChatMessage {
-		ChatMessage { id: id.into(), timestamp: ts, media_type: media.into(), ..Default::default() }
+		let album_id = if media == "image" { "album1".into() } else { "".into() };
+		ChatMessage { id: id.into(), timestamp: ts, media_type: media.into(), album_id, ..Default::default() }
 	}
 
 	#[test]
