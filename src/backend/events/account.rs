@@ -10,23 +10,25 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"own_profile" => {
 			if let Some(data) = val.get("data") {
 				let mut s = state.borrow_mut();
-				if let Some(push_name) = data.get("pushName").and_then(|p| p.as_str()) {
-					s.own_push_name = push_name.to_string();
-					let mut mgr = crate::platform::accounts::AccountsManager::load();
-					if mgr.update_active_identity(None, Some(push_name), None)
-						&& let Some(acc) = mgr.active_account()
-					{
-						parts.frame.set_title(&format!("whatSnap - [{}]", acc.display_label()));
-					}
+				let push_name = data.get("pushName").and_then(|p| p.as_str());
+				if let Some(p) = push_name {
+					s.own_push_name = p.to_string();
 				}
-				let about_arrived = if let Some(about) = data.get("about").and_then(|a| a.as_str()) {
-					s.own_about = about.to_string();
+				let about = data.get("about").and_then(|a| a.as_str());
+				let about_arrived = if let Some(ab) = about {
+					s.own_about = ab.to_string();
 					s.own_about_duration = data.get("aboutDuration").and_then(|d| d.as_i64()).unwrap_or(-1);
 					s.own_about_loaded = true;
 					true
 				} else {
 					false
 				};
+				let mut mgr = crate::platform::accounts::AccountsManager::load();
+				if mgr.update_active_identity(None, push_name, about, None)
+					&& let Some(acc) = mgr.active_account()
+				{
+					parts.frame.set_title(&format!("whatSnap - [{}]", acc.display_label()));
+				}
 				let push_name = s.own_push_name.clone();
 				let about = (s.own_about.clone(), s.own_about_duration);
 				drop(s);

@@ -120,13 +120,12 @@ pub fn show_accounts_dialog(
 					"Idle (Disconnected / Completely silent)"
 				};
 
-				let phone_str = if selected.phone.is_empty() { "Not yet paired" } else { &selected.phone };
-
 				let push_str = if selected.push_name.is_empty() { "—" } else { &selected.push_name };
+				let about_str = if selected.about.is_empty() { "—" } else { &selected.about };
 
 				let info = format!(
-					"Label: {}\nStatus: {}\nPhone: {}\nWhatsApp Profile Name: {}\nProfile ID: {}",
-					selected.name, status_str, phone_str, push_str, selected.id
+					"Account Label: {}\nWhatsApp Name: {}\nAbout: {}\nStatus: {}\nAccount ID: {}",
+					selected.name, push_str, about_str, status_str, selected.id
 				);
 				details_label.set_label(&info);
 

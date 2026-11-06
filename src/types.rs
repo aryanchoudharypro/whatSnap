@@ -89,6 +89,7 @@ pub enum UiCommand {
 	OpenAccountSwitcher,
 	SwitchAccount(String),
 	AddAccount(Option<String>),
+	CancelAddAccount,
 	RenameAccount {
 		id: String,
 		new_name: String,

@@ -3,19 +3,21 @@ use super::*;
 pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
 	match t {
 		"connected" => {
-			if let Some(jid) = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str()) {
+			let jid = val.get("data").and_then(|d| d.get("jid")).and_then(|j| j.as_str());
+			let push_name = val.get("data").and_then(|d| d.get("pushName")).and_then(|p| p.as_str());
+			if let Some(jid) = jid {
 				crate::ui::owner_draw::set_own_jid(jid);
 				let phone_digits = jid.split('@').next().and_then(|u| u.split(':').next()).unwrap_or("");
 				let formatted = if !phone_digits.is_empty() { format!("+{}", phone_digits) } else { String::new() };
 				let mut mgr = crate::platform::accounts::AccountsManager::load();
 				if mgr.update_active_identity(
 					Some(jid),
+					push_name,
 					None,
 					if formatted.is_empty() { None } else { Some(&formatted) },
-				) {
-					if let Some(acc) = mgr.active_account() {
-						parts.frame.set_title(&format!("whatSnap - [{}]", acc.display_label()));
-					}
+				) && let Some(acc) = mgr.active_account()
+				{
+					parts.frame.set_title(&format!("whatSnap - [{}]", acc.display_label()));
 				}
 			}
 			// A reconnect (keepalive blip, brief network drop) also
@@ -34,19 +36,19 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			}
 
 			let first_show = !state.borrow().main_ui_shown;
-			if first_show {
+			if first_show || parts.login_panel.is_shown() {
 				parts.pairing_dialog.show(false);
 				parts.qrcode_dialog.show(false);
 				parts.login_panel.show(false);
 				parts.nav_panel.show(true);
 				parts.content_panel.show(true);
 				parts.main_panel.layout();
-				if state.borrow().settings.start_maximized {
+				if first_show && state.borrow().settings.start_maximized {
 					parts.frame.maximize(true);
 				}
 				// With the app lock on, the window opens empty and the lock
 				// screen is asked for below, so nothing shows before it.
-				let locked_at_start = state.borrow().settings.app_lock;
+				let locked_at_start = first_show && state.borrow().settings.app_lock;
 				if locked_at_start {
 					parts.main_panel.show(false);
 				}
@@ -57,18 +59,20 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if locked_at_start {
 					let _ = state.borrow().ui_tx.send(crate::UiCommand::LockApp);
 				}
-				let (check_updates, channel, ui_tx) = {
-					let s = state.borrow();
-					(s.settings.check_for_updates_on_startup, s.settings.update_channel.clone(), s.ui_tx.clone())
-				};
-				if check_updates {
-					crate::platform::update_check::run(&parts.frame, &ui_tx, &channel, true);
-				}
+				if first_show {
+					let (check_updates, channel, ui_tx) = {
+						let s = state.borrow();
+						(s.settings.check_for_updates_on_startup, s.settings.update_channel.clone(), s.ui_tx.clone())
+					};
+					if check_updates {
+						crate::platform::update_check::run(&parts.frame, &ui_tx, &channel, true);
+					}
 
-				// Now that we're logged in, install the tray icon if the
-				// user wants it - it's gated on login so an unpaired app
-				// never parks an icon in the tray (window.rs).
-				install_tray_icon(&state.borrow(), parts);
+					// Now that we're logged in, install the tray icon if the
+					// user wants it - it's gated on login so an unpaired app
+					// never parks an icon in the tray (window.rs).
+					install_tray_icon(&state.borrow(), parts);
+				}
 			}
 
 			let payload = serde_json::json!({
@@ -78,6 +82,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			let payload = serde_json::json!({ "action": "get_chat_lists" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 			let payload = serde_json::json!({ "action": "get_joinable_calls" });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+			let payload = serde_json::json!({ "action": "get_own_profile" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 			crate::ui_commands::calls::send_call_options(&state.borrow());
 
@@ -107,6 +113,22 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			parts.frame.show(false);
 			parts.pairing_dialog.show(false);
 			parts.qrcode_dialog.show(false);
+
+			let mgr = crate::platform::accounts::AccountsManager::load();
+			let other_accounts = mgr.accounts.len() > 1;
+			parts.cancel_login_btn.show(other_accounts);
+			parts.switch_account_login_btn.show(other_accounts);
+			if other_accounts {
+				let prev_label = mgr
+					.previous_account()
+					.or_else(|| mgr.accounts.iter().find(|a| a.id != mgr.active_id))
+					.map(|a| a.display_label())
+					.unwrap_or_else(|| "Previous Account".to_string());
+				parts.cancel_login_btn.set_label(&format!("Back to {}", prev_label));
+			}
+			parts.phone_panel.layout();
+			parts.login_panel.layout();
+
 			parts.login_panel.show(true);
 			parts.login_panel.set_focus();
 			state.borrow_mut().main_ui_shown = false;

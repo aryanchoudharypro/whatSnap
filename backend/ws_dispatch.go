@@ -31,7 +31,11 @@ func handleConnection(conn net.Conn) {
 
 	if wa().Store.ID != nil {
 		log.Println("Sending initial connected event to WS")
-		sendEvent(conn, "connected", map[string]string{"jid": wa().Store.ID.String()})
+		payload := map[string]string{"jid": wa().Store.ID.String()}
+		if wa().Store.PushName != "" {
+			payload["pushName"] = wa().Store.PushName
+		}
+		sendEvent(conn, "connected", payload)
 		sendEvent(conn, "connection_state", currentConnState())
 		sendEvent(conn, "server_flags", serverFlagsPayload())
 		sendEvent(conn, "blocklist", blocklistPayload())

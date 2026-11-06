@@ -8,8 +8,13 @@ use crate::platform::paths;
 pub struct AccountEntry {
 	pub id: String,
 	pub name: String,
+	#[serde(default)]
 	pub phone: String,
+	#[serde(default)]
 	pub push_name: String,
+	#[serde(default)]
+	pub about: String,
+	#[serde(default)]
 	pub jid: String,
 	pub created_at: u64,
 	pub last_active_at: u64,
@@ -17,20 +22,22 @@ pub struct AccountEntry {
 
 impl AccountEntry {
 	pub fn display_label(&self) -> String {
-		let mut title = if !self.name.is_empty() && !self.push_name.is_empty() && self.name != self.push_name {
-			format!("{} ({})", self.name, self.push_name)
+		// Priority 1: If WhatsApp profile name is known
+		if !self.push_name.is_empty() {
+			let is_default_name =
+				self.name.is_empty() || self.name == "Personal (Primary)" || self.name.starts_with("Account ");
+			if !is_default_name && self.name != self.push_name {
+				format!("{} ({})", self.name, self.push_name)
+			} else {
+				self.push_name.clone()
+			}
 		} else if !self.name.is_empty() {
 			self.name.clone()
-		} else if !self.push_name.is_empty() {
-			self.push_name.clone()
+		} else if !self.about.is_empty() {
+			self.about.clone()
 		} else {
 			format!("Account {}", self.id)
-		};
-
-		if !self.phone.is_empty() {
-			title = format!("{} • {}", title, self.phone);
 		}
-		title
 	}
 }
 
@@ -41,6 +48,8 @@ fn current_unix_time() -> u64 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountsManager {
 	pub active_id: String,
+	#[serde(default)]
+	pub previous_active_id: Option<String>,
 	pub accounts: Vec<AccountEntry>,
 }
 
@@ -49,11 +58,13 @@ impl Default for AccountsManager {
 		let now = current_unix_time();
 		Self {
 			active_id: "default".to_string(),
+			previous_active_id: None,
 			accounts: vec![AccountEntry {
 				id: "default".to_string(),
 				name: "Personal (Primary)".to_string(),
 				phone: String::new(),
 				push_name: String::new(),
+				about: String::new(),
 				jid: String::new(),
 				created_at: now,
 				last_active_at: now,
@@ -124,12 +135,14 @@ impl AccountsManager {
 			name,
 			phone: String::new(),
 			push_name: String::new(),
+			about: String::new(),
 			jid: String::new(),
 			created_at: now,
 			last_active_at: now,
 		};
 
 		let _ = paths::account_dir(&id);
+		self.previous_active_id = Some(self.active_id.clone());
 		self.accounts.push(entry.clone());
 		self.save();
 		entry
@@ -137,6 +150,9 @@ impl AccountsManager {
 
 	pub fn switch_to(&mut self, id: &str) -> bool {
 		if self.accounts.iter().any(|a| a.id == id) {
+			if self.active_id != id {
+				self.previous_active_id = Some(self.active_id.clone());
+			}
 			self.active_id = id.to_string();
 			let now = current_unix_time();
 			if let Some(acc) = self.active_account_mut() {
@@ -147,6 +163,40 @@ impl AccountsManager {
 		} else {
 			false
 		}
+	}
+
+	pub fn cancel_pending_account(&mut self, id: &str) -> Option<String> {
+		let is_unlinked = self.accounts.iter().find(|a| a.id == id).map(|a| a.jid.is_empty()).unwrap_or(false);
+		if is_unlinked && self.accounts.len() > 1 {
+			if let Some(idx) = self.accounts.iter().position(|a| a.id == id) {
+				self.accounts.remove(idx);
+				if id != "default" {
+					let dir = paths::account_dir(id);
+					let _ = std::fs::remove_dir_all(&dir);
+				}
+			}
+		}
+
+		let target_id = if let Some(prev) = &self.previous_active_id {
+			if self.accounts.iter().any(|a| &a.id == prev) {
+				prev.clone()
+			} else {
+				self.accounts.first().map(|a| a.id.clone()).unwrap_or_else(|| "default".to_string())
+			}
+		} else if let Some(first_other) = self.accounts.iter().find(|a| a.id != id) {
+			first_other.id.clone()
+		} else {
+			self.accounts.first().map(|a| a.id.clone()).unwrap_or_else(|| "default".to_string())
+		};
+
+		self.active_id = target_id.clone();
+		self.previous_active_id = None;
+		self.save();
+		Some(target_id)
+	}
+
+	pub fn previous_account(&self) -> Option<&AccountEntry> {
+		if let Some(prev) = &self.previous_active_id { self.accounts.iter().find(|a| &a.id == prev) } else { None }
 	}
 
 	pub fn rename_account(&mut self, id: &str, new_name: &str) -> bool {
@@ -181,7 +231,13 @@ impl AccountsManager {
 		Ok(self.active_id.clone())
 	}
 
-	pub fn update_active_identity(&mut self, jid: Option<&str>, push_name: Option<&str>, phone: Option<&str>) -> bool {
+	pub fn update_active_identity(
+		&mut self,
+		jid: Option<&str>,
+		push_name: Option<&str>,
+		about: Option<&str>,
+		phone: Option<&str>,
+	) -> bool {
 		let mut changed = false;
 		if let Some(acc) = self.active_account_mut() {
 			if let Some(j) = jid {
@@ -193,6 +249,12 @@ impl AccountsManager {
 			if let Some(p) = push_name {
 				if !p.is_empty() && acc.push_name != p {
 					acc.push_name = p.to_string();
+					changed = true;
+				}
+			}
+			if let Some(a) = about {
+				if !a.is_empty() && acc.about != a {
+					acc.about = a.to_string();
 					changed = true;
 				}
 			}
@@ -221,17 +283,32 @@ mod tests {
 			name: "Work".into(),
 			phone: "+1234567890".into(),
 			push_name: "Aryan".into(),
+			about: "Available".into(),
 			jid: "1234567890@s.whatsapp.net".into(),
 			created_at: 100,
 			last_active_at: 100,
 		};
-		assert_eq!(acc.display_label(), "Work (Aryan) • +1234567890");
+		// Custom name with distinct WhatsApp push name
+		assert_eq!(acc.display_label(), "Work (Aryan)");
 
+		// Default name gets replaced directly by WhatsApp profile name
+		acc.name = "Personal (Primary)".into();
+		assert_eq!(acc.display_label(), "Aryan");
+
+		acc.name = "Account 1".into();
+		assert_eq!(acc.display_label(), "Aryan");
+
+		// Identical custom name and push name
+		acc.name = "Work".into();
 		acc.push_name = "Work".into();
-		assert_eq!(acc.display_label(), "Work • +1234567890");
-
-		acc.phone = "".into();
 		assert_eq!(acc.display_label(), "Work");
+
+		// When push_name is empty, fallback to custom name
+		acc.push_name = "".into();
+		assert_eq!(acc.display_label(), "Work");
+
+		// Never contains any raw phone digits
+		assert!(!acc.display_label().contains("+1234567890"));
 	}
 
 	#[test]
@@ -240,20 +317,23 @@ mod tests {
 		assert_eq!(mgr.accounts.len(), 1);
 		assert_eq!(mgr.active_id, "default");
 
-		let added = mgr.add_account(Some("Work Phone"));
+		let added = mgr.add_account(Some("Work Profile"));
 		assert_eq!(mgr.accounts.len(), 2);
-		assert_eq!(added.name, "Work Phone");
+		assert_eq!(added.name, "Work Profile");
+		assert_eq!(mgr.previous_active_id, Some("default".to_string()));
 
 		assert!(mgr.switch_to(&added.id));
 		assert_eq!(mgr.active_id, added.id);
+		assert_eq!(mgr.previous_active_id, Some("default".to_string()));
 
 		assert!(mgr.rename_account(&added.id, "Office WhatsApp"));
 		assert_eq!(mgr.active_account().unwrap().name, "Office WhatsApp");
 
-		let remove_res = mgr.remove_account(&added.id);
-		assert!(remove_res.is_ok());
-		assert_eq!(mgr.accounts.len(), 1);
+		// Cancel pending unlinked account returns to previous account
+		let target = mgr.cancel_pending_account(&added.id);
+		assert_eq!(target, Some("default".to_string()));
 		assert_eq!(mgr.active_id, "default");
+		assert_eq!(mgr.accounts.len(), 1);
 
 		// Cannot remove only remaining account
 		assert!(mgr.remove_account("default").is_err());

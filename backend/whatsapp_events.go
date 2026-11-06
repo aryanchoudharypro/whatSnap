@@ -2115,7 +2115,11 @@ func eventHandler(evt interface{}) {
 		connFailures.Store(0)
 		if wa().Store.ID != nil {
 			setConnState(connStateOnline, "", 0)
-			broadcastEvent("connected", map[string]string{"jid": wa().Store.ID.String()})
+			payload := map[string]string{"jid": wa().Store.ID.String()}
+			if wa().Store.PushName != "" {
+				payload["pushName"] = wa().Store.PushName
+			}
+			broadcastEvent("connected", payload)
 			go sendDesiredPresence(true)
 			go retryPendingTextMessages()
 			go flushPendingResends()

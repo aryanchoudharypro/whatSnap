@@ -1110,6 +1110,7 @@ pub(crate) fn reset_account_ui_state(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	s.own_push_name = String::new();
 	s.own_about = String::new();
 	s.own_about_loaded = false;
+	s.main_ui_shown = false;
 	drop(s);
 
 	parts.conversations_parts.conversations_list.clear();
@@ -1132,22 +1133,40 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			let ui_tx_add = state.borrow().ui_tx.clone();
 			let ui_tx_rename = state.borrow().ui_tx.clone();
 			let ui_tx_remove = state.borrow().ui_tx.clone();
-			let frame = parts.frame;
-			crate::ui::dialogs::accounts_dialog::show_accounts_dialog(
-				&frame,
-				move |target_id| {
-					let _ = ui_tx_switch.send(UiCommand::SwitchAccount(target_id));
-				},
-				move |custom_name| {
-					let _ = ui_tx_add.send(UiCommand::AddAccount(custom_name));
-				},
-				move |id, new_name| {
-					let _ = ui_tx_rename.send(UiCommand::RenameAccount { id, new_name });
-				},
-				move |id| {
-					let _ = ui_tx_remove.send(UiCommand::RemoveAccount(id));
-				},
-			);
+			if parts.login_panel.is_shown() {
+				crate::ui::dialogs::accounts_dialog::show_accounts_dialog(
+					&parts.login_panel,
+					move |target_id| {
+						let _ = ui_tx_switch.send(UiCommand::SwitchAccount(target_id));
+					},
+					move |custom_name| {
+						let _ = ui_tx_add.send(UiCommand::AddAccount(custom_name));
+					},
+					move |id, new_name| {
+						let _ = ui_tx_rename.send(UiCommand::RenameAccount { id, new_name });
+					},
+					move |id| {
+						let _ = ui_tx_remove.send(UiCommand::RemoveAccount(id));
+					},
+				);
+			} else {
+				let frame = parts.frame;
+				crate::ui::dialogs::accounts_dialog::show_accounts_dialog(
+					&frame,
+					move |target_id| {
+						let _ = ui_tx_switch.send(UiCommand::SwitchAccount(target_id));
+					},
+					move |custom_name| {
+						let _ = ui_tx_add.send(UiCommand::AddAccount(custom_name));
+					},
+					move |id, new_name| {
+						let _ = ui_tx_rename.send(UiCommand::RenameAccount { id, new_name });
+					},
+					move |id| {
+						let _ = ui_tx_remove.send(UiCommand::RemoveAccount(id));
+					},
+				);
+			}
 		}
 		UiCommand::OpenWhatsNew => {
 			let frame = parts.frame;
@@ -1158,6 +1177,31 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			let entry = mgr.add_account(custom_name.as_deref());
 			let new_id = entry.id.clone();
 			let _ = state.borrow().ui_tx.send(UiCommand::SwitchAccount(new_id));
+		}
+		UiCommand::CancelAddAccount => {
+			let mut mgr = crate::platform::accounts::AccountsManager::load();
+			let current_id = mgr.active_id.clone();
+			if let Some(target_id) = mgr.cancel_pending_account(&current_id) {
+				let target_label = mgr
+					.accounts
+					.iter()
+					.find(|a| a.id == target_id)
+					.map(|a| a.display_label())
+					.unwrap_or_else(|| target_id.clone());
+
+				parts.login_panel.show(false);
+				parts.qrcode_dialog.show(false);
+				parts.pairing_dialog.show(false);
+				parts.frame.show(true);
+				parts.main_panel.show(true);
+
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					&format!("Cancelled. Switching back to {}.", target_label),
+				);
+
+				let _ = state.borrow().ui_tx.send(UiCommand::SwitchAccount(target_id));
+			}
 		}
 		UiCommand::RenameAccount { id, new_name } => {
 			let mut mgr = crate::platform::accounts::AccountsManager::load();
@@ -1182,6 +1226,15 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		}
 		UiCommand::SwitchAccount(target_id) => {
 			let mut mgr = crate::platform::accounts::AccountsManager::load();
+			let current_id = mgr.active_id.clone();
+			if current_id != target_id {
+				let is_unlinked =
+					mgr.accounts.iter().find(|a| a.id == current_id).map(|a| a.jid.is_empty()).unwrap_or(false);
+				if is_unlinked && mgr.accounts.len() > 1 {
+					let _ = mgr.remove_account(&current_id);
+				}
+			}
+
 			if mgr.switch_to(&target_id) {
 				let new_db_path = mgr.active_db_path().to_string_lossy().into_owned();
 				let account_label =
@@ -1189,6 +1242,10 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 				let pipe_id = state.borrow().pipe_id.clone();
 				let backend = state.borrow().backend.clone();
 
+				parts.login_panel.show(false);
+				parts.qrcode_dialog.show(false);
+				parts.pairing_dialog.show(false);
+				parts.frame.show(true);
 				parts.frame.set_title(&format!("whatSnap - [{}]", account_label));
 				crate::platform::announce::announce(
 					parts.conversations_parts.messages_announcer,

@@ -332,6 +332,8 @@ pub struct WindowParts {
 	pub phone_field: TextCtrl,
 	pub pair_btn: Button,
 	pub switch_to_qr_btn: Button,
+	pub cancel_login_btn: Button,
+	pub switch_account_login_btn: Button,
 	pub pairing_dialog: Dialog,
 	pub pairing_code_display: TextCtrl,
 	pub pairing_announcer: StaticText,
@@ -778,7 +780,7 @@ pub fn build_main_window() -> WindowParts {
 	theme::style_content(&content_panel);
 	let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let login_panel = Dialog::builder(&frame, "Login").with_size(500, 320).build();
+	let login_panel = Dialog::builder(&frame, "Login").with_size(500, 420).build();
 	theme::style_content(&login_panel);
 	let login_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
@@ -832,13 +834,23 @@ pub fn build_main_window() -> WindowParts {
 	theme::style_primary_button(&pair_btn);
 	let switch_to_qr_btn = Button::builder(&phone_panel).with_label("Connect with QR Code").build();
 	switch_to_qr_btn.set_font(&theme::Fonts::body());
+	let cancel_login_btn =
+		Button::builder(&phone_panel).with_id(wxdragon::id::ID_CANCEL).with_label("Back to Previous Account").build();
+	cancel_login_btn.set_font(&theme::Fonts::body());
+	let switch_account_login_btn = Button::builder(&phone_panel).with_label("Switch Account...").build();
+	switch_account_login_btn.set_font(&theme::Fonts::body());
+
+	cancel_login_btn.show(false);
+	switch_account_login_btn.show(false);
 
 	phone_sizer.add(&country_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	phone_sizer.add(&country_combo, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	phone_sizer.add(&phone_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	phone_sizer.add(&phone_field, 0, SizerFlag::Expand | SizerFlag::All, 10);
-	phone_sizer.add(&pair_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
-	phone_sizer.add(&switch_to_qr_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
+	phone_sizer.add(&pair_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 6);
+	phone_sizer.add(&switch_to_qr_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 6);
+	phone_sizer.add(&cancel_login_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 6);
+	phone_sizer.add(&switch_account_login_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 6);
 	phone_panel.set_sizer(phone_sizer, true);
 
 	login_sizer.add(&phone_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -936,6 +948,8 @@ pub fn build_main_window() -> WindowParts {
 		phone_field,
 		pair_btn,
 		switch_to_qr_btn,
+		cancel_login_btn,
+		switch_account_login_btn,
 		pairing_dialog,
 		pairing_code_display,
 		pairing_announcer,
@@ -998,6 +1012,16 @@ pub fn bind_input_handlers(
 		let _ = tx_cancel_qr.send(UiCommand::CancelQr);
 	});
 
+	let qr_dialog_close = parts.qrcode_dialog;
+	let login_from_qr_close = parts.login_panel;
+	let tx_cancel_qr_close = ui_tx.clone();
+	parts.qrcode_dialog.on_close(move |_| {
+		qr_dialog_close.show(false);
+		login_from_qr_close.show(true);
+		login_from_qr_close.set_focus();
+		let _ = tx_cancel_qr_close.send(UiCommand::CancelQr);
+	});
+
 	let pairing_dialog = parts.pairing_dialog;
 	let login_from_pairing = parts.login_panel;
 	let tx_cancel_pairing = ui_tx.clone();
@@ -1006,6 +1030,26 @@ pub fn bind_input_handlers(
 		login_from_pairing.show(true);
 		login_from_pairing.set_focus();
 		let _ = tx_cancel_pairing.send(UiCommand::CancelPairing);
+	});
+
+	let pairing_dialog_close = parts.pairing_dialog;
+	let login_from_pairing_close = parts.login_panel;
+	let tx_cancel_pairing_close = ui_tx.clone();
+	parts.pairing_dialog.on_close(move |_| {
+		pairing_dialog_close.show(false);
+		login_from_pairing_close.show(true);
+		login_from_pairing_close.set_focus();
+		let _ = tx_cancel_pairing_close.send(UiCommand::CancelPairing);
+	});
+
+	let tx_cancel_login = ui_tx.clone();
+	parts.cancel_login_btn.on_click(move |_| {
+		let _ = tx_cancel_login.send(UiCommand::CancelAddAccount);
+	});
+
+	let tx_switch_login = ui_tx.clone();
+	parts.switch_account_login_btn.on_click(move |_| {
+		let _ = tx_switch_login.send(UiCommand::OpenAccountSwitcher);
 	});
 
 	let tx_send = ui_tx.clone();
@@ -1586,10 +1630,16 @@ pub fn bind_input_handlers(
 
 	let tray_icon_login_close = tray_icon.clone();
 	let login_panel_close = parts.login_panel;
+	let tx_login_close = ui_tx.clone();
 	parts.login_panel.on_close(move |event| {
 		if let WindowEventData::General(_) = event {
-			login_panel_close.show(false);
-			crate::platform::tray::quit_app(&tray_icon_login_close, &[frame_login_close, call_frame_login_close]);
+			let mgr = crate::platform::accounts::AccountsManager::load();
+			if mgr.accounts.len() > 1 {
+				let _ = tx_login_close.send(UiCommand::CancelAddAccount);
+			} else {
+				login_panel_close.show(false);
+				crate::platform::tray::quit_app(&tray_icon_login_close, &[frame_login_close, call_frame_login_close]);
+			}
 		}
 	});
 
@@ -2226,6 +2276,7 @@ pub fn bind_input_handlers(
 	let dual_stream_check_ok = parts.settings_dialog.dual_stream_screen_share_check;
 	let state_settings_save = state.clone();
 	let frame_shortcuts_save = parts.frame;
+	let frame_title_save = parts.frame;
 	parts.settings_dialog.ok_btn.on_click(move |_| {
 		use crate::ui::dialogs::settings_dialog::*;
 		let mut s = state_settings_save.borrow_mut();
@@ -2340,6 +2391,12 @@ pub fn bind_input_handlers(
 		let new_name = name_field_ok.get_value();
 		if new_name != s.own_push_name {
 			s.own_push_name = new_name.clone();
+			let mut mgr = crate::platform::accounts::AccountsManager::load();
+			if mgr.update_active_identity(None, Some(&new_name), None, None)
+				&& let Some(acc) = mgr.active_account()
+			{
+				frame_title_save.set_title(&format!("whatSnap - [{}]", acc.display_label()));
+			}
 			let _ =
 				s.ws_tx.send(serde_json::json!({"action": "set_push_name", "data": {"name": new_name}}).to_string());
 		}
@@ -2354,6 +2411,8 @@ pub fn bind_input_handlers(
 			if new_about != s.own_about || duration != s.own_about_duration {
 				s.own_about = new_about.clone();
 				s.own_about_duration = duration;
+				let mut mgr = crate::platform::accounts::AccountsManager::load();
+				mgr.update_active_identity(None, None, Some(&new_about), None);
 				let payload =
 					serde_json::json!({"action": "set_about", "data": {"text": new_about, "duration": duration}});
 				let _ = s.ws_tx.send(payload.to_string());
