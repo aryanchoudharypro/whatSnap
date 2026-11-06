@@ -39,7 +39,7 @@ func (vb *VideoBridge) Run() {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		vb.readFrames(conn)
+		go vb.readFrames(conn)
 	}
 }
 

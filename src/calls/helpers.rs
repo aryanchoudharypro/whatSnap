@@ -104,33 +104,215 @@ pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
 	live_region::announce_with_priority(label, message, live_region::Priority::High);
 }
 
-/// The read-only "who is calling" line: "Call from Asha, +91 98100 12345", with
-/// ", in <group>" for a group call. The number is left out when we don't know it.
-pub(crate) fn caller_info_text(name: &str, phone_digits: Option<&str>, group: Option<&str>) -> String {
-	let mut text = format!("Call from {name}");
-	if let Some(digits) = phone_digits {
-		let shown = whatsnap::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}"));
-		text.push_str(", ");
-		text.push_str(&shown);
+pub(crate) fn format_call_duration(seconds: u64) -> String {
+	if seconds >= 3600 {
+		format!("{}:{:02}:{:02}", seconds / 3600, seconds / 60 % 60, seconds % 60)
+	} else {
+		format!("{}:{:02}", seconds / 60, seconds % 60)
 	}
-	if let Some(group) = group {
-		text.push_str(&format!(", in {group}"));
-	}
-	text
+}
+
+pub(crate) fn call_running_info_text(
+	is_incoming: bool,
+	is_video: bool,
+	peer_name: &str,
+	duration_secs: u64,
+	is_reconnecting: bool,
+) -> String {
+	let direction = if is_incoming { "Incoming" } else { "Outgoing" };
+	let kind = if is_video { " video call " } else { " call " };
+	let prep = if is_incoming { "from" } else { "to" };
+	let clock = format_call_duration(duration_secs);
+	let line2 =
+		if is_reconnecting { format!("Reconnecting... (Duration: {clock})") } else { format!("Duration: {clock}") };
+	format!("{direction}{kind}{prep} {peer_name}\r\n{line2}")
+}
+
+pub(crate) fn call_incoming_info_text(
+	peer_name: &str,
+	phone_digits: Option<&str>,
+	group: Option<&str>,
+	is_video: bool,
+) -> String {
+	let kind = if is_video { "video call" } else { "call" };
+	let line1 = if group.is_some() {
+		format!("Incoming group {kind} from {peer_name}")
+	} else {
+		format!("Incoming {kind} from {peer_name}")
+	};
+	let line2 = if let Some(digits) = phone_digits {
+		whatsnap::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}"))
+	} else if let Some(grp) = group {
+		format!("in {grp}")
+	} else {
+		"Ringing...".to_string()
+	};
+	format!("{line1}\r\n{line2}")
+}
+
+pub(crate) fn call_outgoing_info_text(peer_name: &str, is_video: bool, is_group: bool) -> String {
+	let kind = if is_video { "video call" } else { "call" };
+	let line1 = if is_group {
+		format!("Outgoing group {kind} in {peer_name}")
+	} else {
+		format!("Outgoing {kind} to {peer_name}")
+	};
+	format!("{line1}\r\nCalling...")
+}
+
+pub(crate) fn resolve_call_peer_name_and_phone(
+	contacts: &std::collections::HashMap<String, String>,
+	all_contacts: &[crate::Contact],
+	caller: &str,
+	chat_jid: Option<&str>,
+	caller_name: Option<&str>,
+	caller_phone: Option<&str>,
+) -> (String, Option<String>) {
+	// Normalize caller JID to remove any AD suffix (e.g. "123:0@s.whatsapp.net" -> "123@s.whatsapp.net")
+	let clean_caller = if let Some((user, rest)) = caller.split_once('@') {
+		let clean_user = user.split_once(':').map(|(u, _)| u).unwrap_or(user);
+		format!("{}@{}", clean_user, rest)
+	} else {
+		caller.to_string()
+	};
+
+	// Determine phone digits
+	let phone_digits = caller_phone
+		.filter(|p| !p.is_empty())
+		.map(|p| p.to_string())
+		.or_else(|| {
+			chat_jid.and_then(|j| {
+				let (user, server) = j.split_once('@')?;
+				let clean_user = user.split_once(':').map(|(u, _)| u).unwrap_or(user);
+				(server == "s.whatsapp.net" && clean_user.chars().all(|c| c.is_ascii_digit()))
+					.then(|| clean_user.to_string())
+			})
+		})
+		.or_else(|| {
+			let (user, server) = clean_caller.split_once('@')?;
+			(server == "s.whatsapp.net" && user.chars().all(|c| c.is_ascii_digit())).then(|| user.to_string())
+		})
+		.or_else(|| {
+			all_contacts.iter().find(|c| c.jid == clean_caller || chat_jid == Some(&c.jid)).map(|c| c.phone.clone())
+		});
+
+	// Find contact name from contacts map or all_contacts
+	let contact_name = chat_jid
+		.and_then(|j| contacts.get(j))
+		.or_else(|| contacts.get(&clean_caller))
+		.or_else(|| contacts.get(caller))
+		.cloned()
+		.or_else(|| {
+			if let Some(digits) = &phone_digits {
+				let jid_with_server = format!("{}@s.whatsapp.net", digits);
+				contacts.get(&jid_with_server).cloned().or_else(|| {
+					all_contacts.iter().find(|c| c.phone == *digits && !c.name.is_empty()).map(|c| c.name.clone())
+				})
+			} else {
+				None
+			}
+		});
+
+	let name = if let Some(saved) = contact_name {
+		saved
+	} else if let Some(n) = caller_name.filter(|n| !n.is_empty() && *n != caller && *n != clean_caller) {
+		n.to_string()
+	} else if let Some(digits) = &phone_digits {
+		crate::ui::contact_picker::format_phone_digits(digits)
+	} else {
+		crate::ui::contact_picker::display_name_for_jid(&clean_caller)
+	};
+
+	(name, phone_digits)
 }
 
 #[cfg(test)]
 mod caller_info_tests {
-	use super::caller_info_text;
+	use super::*;
 
 	#[test]
-	fn names_the_caller_then_the_number() {
-		assert_eq!(caller_info_text("Asha", Some("919810012345"), None), "Call from Asha, +91 98100 12345");
-		assert_eq!(caller_info_text("Asha", None, None), "Call from Asha");
+	fn formats_call_duration_clock() {
+		assert_eq!(format_call_duration(0), "0:00");
+		assert_eq!(format_call_duration(42), "0:42");
+		assert_eq!(format_call_duration(65), "1:05");
+		assert_eq!(format_call_duration(125), "2:05");
+		assert_eq!(format_call_duration(3665), "1:01:05");
+	}
+
+	#[test]
+	fn running_call_shows_direction_peer_and_formatted_duration() {
+		assert_eq!(call_running_info_text(true, false, "Asha", 0, false), "Incoming call from Asha\r\nDuration: 0:00");
 		assert_eq!(
-			caller_info_text("Asha", Some("919810012345"), Some("Family")),
-			"Call from Asha, +91 98100 12345, in Family"
+			call_running_info_text(true, true, "Asha", 42, false),
+			"Incoming video call from Asha\r\nDuration: 0:42"
 		);
+		assert_eq!(call_running_info_text(false, false, "Asha", 125, false), "Outgoing call to Asha\r\nDuration: 2:05");
+		assert_eq!(
+			call_running_info_text(false, true, "Asha", 65, true),
+			"Outgoing video call to Asha\r\nReconnecting... (Duration: 1:05)"
+		);
+	}
+
+	#[test]
+	fn incoming_info_text_formats_multiline() {
+		assert_eq!(
+			call_incoming_info_text("Asha", Some("919810012345"), None, false),
+			"Incoming call from Asha\r\n+91 98100 12345"
+		);
+		assert_eq!(
+			call_incoming_info_text("Asha", None, Some("Family"), false),
+			"Incoming group call from Asha\r\nin Family"
+		);
+		assert_eq!(call_incoming_info_text("Asha", None, None, true), "Incoming video call from Asha\r\nRinging...");
+	}
+
+	#[test]
+	fn outgoing_info_text_formats_multiline() {
+		assert_eq!(call_outgoing_info_text("Asha", false, false), "Outgoing call to Asha\r\nCalling...");
+		assert_eq!(call_outgoing_info_text("Family", false, true), "Outgoing group call in Family\r\nCalling...");
+	}
+
+	#[test]
+	fn resolves_peer_name_and_phone_from_contacts() {
+		let mut contacts = std::collections::HashMap::new();
+		contacts.insert("919810012345@s.whatsapp.net".to_string(), "Asha".to_string());
+		let all_contacts = vec![];
+
+		// Case 1: Caller JID has AD suffix (:0), backend didn't resolve name
+		let (name, phone) = resolve_call_peer_name_and_phone(
+			&contacts,
+			&all_contacts,
+			"919810012345:0@s.whatsapp.net",
+			Some("919810012345@s.whatsapp.net"),
+			Some("+919810012345"),
+			None,
+		);
+		assert_eq!(name, "Asha");
+		assert_eq!(phone.as_deref(), Some("919810012345"));
+
+		// Case 2: Caller is LID, chat_jid has PN
+		let (name, phone) = resolve_call_peer_name_and_phone(
+			&contacts,
+			&all_contacts,
+			"123456789@lid",
+			Some("919810012345@s.whatsapp.net"),
+			None,
+			None,
+		);
+		assert_eq!(name, "Asha");
+		assert_eq!(phone.as_deref(), Some("919810012345"));
+
+		// Case 3: Unknown number not in contacts
+		let (name, phone) = resolve_call_peer_name_and_phone(
+			&contacts,
+			&all_contacts,
+			"14155552671:1@s.whatsapp.net",
+			Some("14155552671@s.whatsapp.net"),
+			None,
+			None,
+		);
+		assert_eq!(name, "+1 415-555-2671");
+		assert_eq!(phone.as_deref(), Some("14155552671"));
 	}
 }
 

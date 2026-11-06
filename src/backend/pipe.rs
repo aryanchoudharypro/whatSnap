@@ -58,7 +58,7 @@ pub(crate) struct PipeStream {
 
 impl PipeStream {
 	fn new(pipe: Arc<OwnedHandle>) -> io::Result<Self> {
-		let event = unsafe { CreateEventW(None, true, false, None) }.map_err(io_error)?;
+		let event = unsafe { CreateEventW(None, false, false, None) }.map_err(io_error)?;
 		Ok(PipeStream { pipe, event: OwnedHandle(event) })
 	}
 
@@ -153,7 +153,7 @@ impl PipeListener {
 	pub(crate) fn bind(name: &str) -> io::Result<Self> {
 		let path = pipe_path(name);
 		let next = Self::instance(&path, true)?;
-		let event = OwnedHandle(unsafe { CreateEventW(None, true, false, None) }.map_err(io_error)?);
+		let event = OwnedHandle(unsafe { CreateEventW(None, false, false, None) }.map_err(io_error)?);
 		Ok(PipeListener { path, next, event })
 	}
 

@@ -26,6 +26,9 @@ type UDPBridge struct {
 	peerAddr   *net.UDPAddr
 	peerAddrMu sync.Mutex
 	opusFrame  []byte
+	readBuf    []byte
+	frameBuf   []float32
+	writeBuf   []byte
 }
 
 var _ meowcaller.OpusFrameSource = (*UDPBridge)(nil)
@@ -51,19 +54,26 @@ func NewUDPBridge() (*UDPBridge, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	return &UDPBridge{conn: conn}, conn.LocalAddr().(*net.UDPAddr).Port, nil
+	return &UDPBridge{
+		conn:     conn,
+		readBuf:  make([]byte, meowcaller.FrameSamples*4+maxOpusPacket),
+		frameBuf: make([]float32, meowcaller.FrameSamples),
+		writeBuf: make([]byte, meowcaller.FrameSamples*4),
+	}, conn.LocalAddr().(*net.UDPAddr).Port, nil
 }
 
 func (b *UDPBridge) ReadFrame() ([]float32, error) {
 	b.conn.SetReadDeadline(time.Now().Add(readTimeout))
 	b.opusFrame = nil
-	buf := make([]byte, meowcaller.FrameSamples*4+maxOpusPacket)
-	n, raddr, err := b.conn.ReadFromUDP(buf)
+	n, raddr, err := b.conn.ReadFromUDP(b.readBuf)
 	if err != nil {
 		if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
 			log.Printf("UDPBridge read error (continuing): %v", err)
 		}
-		return make([]float32, meowcaller.FrameSamples), nil
+		for i := range b.frameBuf {
+			b.frameBuf[i] = 0
+		}
+		return b.frameBuf, nil
 	}
 
 	b.peerAddrMu.Lock()
@@ -72,13 +82,15 @@ func (b *UDPBridge) ReadFrame() ([]float32, error) {
 	}
 	b.peerAddrMu.Unlock()
 
-	pcm, opusFrame := splitMicDatagram(buf[:n])
+	pcm, opusFrame := splitMicDatagram(b.readBuf[:n])
 	b.opusFrame = opusFrame
-	frame := make([]float32, meowcaller.FrameSamples)
-	for i := 0; i < len(pcm)/4; i++ {
-		frame[i] = math.Float32frombits(binary.LittleEndian.Uint32(pcm[i*4:]))
+	for i := range b.frameBuf {
+		b.frameBuf[i] = 0
 	}
-	return frame, nil
+	for i := 0; i < len(pcm)/4; i++ {
+		b.frameBuf[i] = math.Float32frombits(binary.LittleEndian.Uint32(pcm[i*4:]))
+	}
+	return b.frameBuf, nil
 }
 
 func (b *UDPBridge) Close() error {
@@ -95,7 +107,12 @@ func (b *UDPBridge) WriteFrame(frame []float32) error {
 		return nil
 	}
 
-	buf := make([]byte, len(frame)*4)
+	buf := b.writeBuf
+	if len(buf) < len(frame)*4 {
+		buf = make([]byte, len(frame)*4)
+		b.writeBuf = buf
+	}
+	buf = buf[:len(frame)*4]
 	for i, f := range frame {
 		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(f))
 	}

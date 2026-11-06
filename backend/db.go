@@ -14,7 +14,44 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// tableColumns returns the set of column names for a table, queried once and
+// cached in the provided map so repeated checks during migration are free.
+func tableColumns(cache map[string]map[string]bool, table string) map[string]bool {
+	if cols, ok := cache[table]; ok {
+		return cols
+	}
+	cols := map[string]bool{}
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var cid int
+			var name, typ string
+			var notNull, pk int
+			var dflt *string
+			if rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk) == nil {
+				cols[name] = true
+			}
+		}
+	}
+	cache[table] = cols
+	return cols
+}
+
+// addColumnIfMissing executes ALTER TABLE ADD COLUMN only when the column
+// doesn't already exist, avoiding the exclusive schema lock overhead on every
+// startup.
+func addColumnIfMissing(cache map[string]map[string]bool, table, column, rest string) {
+	cols := tableColumns(cache, table)
+	if cols[column] {
+		return
+	}
+	db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, rest))
+	cols[column] = true
+}
+
 func migrateDB() error {
+	colCache := map[string]map[string]bool{}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chats (
 		jid TEXT PRIMARY KEY,
 		name TEXT,
@@ -22,42 +59,42 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	db.Exec("ALTER TABLE chats ADD COLUMN unread_count INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN pinned INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN muted INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN preview_snippet TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE chats ADD COLUMN archived INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN preview_sender TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE chats ADD COLUMN preview_from_me INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN preview_is_reaction INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN preview_reaction_emoji TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE chats ADD COLUMN is_community INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN is_admin INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN is_locked INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN participant_count INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN parent_jid TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE chats ADD COLUMN is_announce_group INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN admins_only INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN is_channel INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN channel_role TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN limit_sharing_ts INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN restricted INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN restricted_ts INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_expiration INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN ephemeral_setting_ts INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN marked_unread INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN wire_jid TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "chats", "unread_count", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "pinned", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "muted", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "preview_snippet", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "chats", "archived", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "preview_sender", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "chats", "preview_from_me", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "preview_is_reaction", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "preview_reaction_emoji", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "chats", "is_community", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "is_admin", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "is_locked", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "participant_count", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "parent_jid", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "chats", "is_announce_group", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "admins_only", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "is_channel", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "channel_role", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "chats", "limit_sharing", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "limit_sharing_ts", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "restricted", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "restricted_ts", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "ephemeral_expiration", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "ephemeral_setting_ts", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "marked_unread", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "wire_jid", "TEXT DEFAULT ''")
 	// When the chat was pinned (orders the pinned chats, newest pin first,
 	// like WA Web's chat.pin) and when its pin state last changed through
 	// app state, so an older pin/unpin (or a later history chunk) can't
 	// undo a newer one.
-	db.Exec("ALTER TABLE chats ADD COLUMN pinned_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE chats ADD COLUMN pin_changed_at INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "pinned_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "pin_changed_at", "INTEGER DEFAULT 0")
 	// Unread messages that mention me, mention everyone or reply to me (WA
 	// Web's getIsImportantMessage / unreadMentionsOfMe). WA Web drops them
 	// when the chat is read, so this goes to 0 with unread_count.
-	db.Exec("ALTER TABLE chats ADD COLUMN unread_mentions INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "chats", "unread_mentions", "INTEGER DEFAULT 0")
 	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_unread_mentions AFTER UPDATE OF unread_count ON chats
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.unread_mentions, 0) > 0
 		BEGIN UPDATE chats SET unread_mentions = 0 WHERE jid = NEW.jid; END`)
@@ -114,7 +151,7 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	db.Exec("ALTER TABLE history_requests ADD COLUMN oldest_id TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "history_requests", "oldest_id", "TEXT DEFAULT ''")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
@@ -126,43 +163,43 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	db.Exec("ALTER TABLE messages ADD COLUMN sender_jid TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN raw BLOB")
-	db.Exec("ALTER TABLE messages ADD COLUMN voice_waveform BLOB")
-	db.Exec("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent'")
-	db.Exec("ALTER TABLE messages ADD COLUMN media_type TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN media_mimetype TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN media_filename TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN media_path TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN media_size INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN quoted_id TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN quoted_text TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN quoted_sender TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN is_edited INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN sent_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN delivered_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN read_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN played_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN edited_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN starred INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN viewed INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN wire_sender TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "sender_jid", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "raw", "BLOB")
+	addColumnIfMissing(colCache, "messages", "voice_waveform", "BLOB")
+	addColumnIfMissing(colCache, "messages", "status", "TEXT DEFAULT 'sent'")
+	addColumnIfMissing(colCache, "messages", "media_type", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "media_mimetype", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "media_filename", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "media_path", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "media_size", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "quoted_id", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "quoted_text", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "quoted_sender", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "is_edited", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "is_deleted", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "sent_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "delivered_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "read_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "played_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "edited_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "starred", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "viewed", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "wire_sender", "TEXT DEFAULT ''")
 	// The server's store time in microseconds (the incoming message's sts),
 	// which WA Web echoes back as the newest one on its read receipts.
-	db.Exec("ALTER TABLE messages ADD COLUMN server_sts INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN album_id TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN server_id INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN channel_views INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN channel_reactions TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN channel_poll_votes TEXT DEFAULT ''")
-	db.Exec("ALTER TABLE messages ADD COLUMN channel_pinned INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "server_sts", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "album_id", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "server_id", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "channel_views", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "channel_reactions", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "channel_poll_votes", "TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "messages", "channel_pinned", "INTEGER DEFAULT 0")
 	// When a disappearing message is due to vanish (unix seconds, 0 = never).
-	db.Exec("ALTER TABLE messages ADD COLUMN expires_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN view_once INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN pinned_until INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN pinned_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE messages ADD COLUMN kept INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "expires_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "view_once", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "pinned_until", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "pinned_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "messages", "kept", "INTEGER DEFAULT 0")
 	db.Exec(`CREATE TABLE IF NOT EXISTS hd_media (parent_id TEXT PRIMARY KEY, raw BLOB)`)
 	db.Exec(`CREATE TABLE IF NOT EXISTS message_edits (
 		edit_id TEXT PRIMARY KEY,
@@ -262,9 +299,9 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	db.Exec("ALTER TABLE message_receipts ADD COLUMN delivered_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE message_receipts ADD COLUMN read_at INTEGER DEFAULT 0")
-	db.Exec("ALTER TABLE message_receipts ADD COLUMN played_at INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "message_receipts", "delivered_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "message_receipts", "read_at", "INTEGER DEFAULT 0")
+	addColumnIfMissing(colCache, "message_receipts", "played_at", "INTEGER DEFAULT 0")
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS contacts_cache (
 		jid TEXT PRIMARY KEY,
@@ -290,7 +327,7 @@ func migrateDB() error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY, pn TEXT DEFAULT '')`); err != nil {
 		return err
 	}
-	db.Exec("ALTER TABLE blocked_contacts ADD COLUMN pn TEXT DEFAULT ''")
+	addColumnIfMissing(colCache, "blocked_contacts", "pn", "TEXT DEFAULT ''")
 
 	purgeExpiredStatuses()
 	cleanupScratchTempDirs(24 * time.Hour)
@@ -1221,6 +1258,7 @@ func getCachedAvatarPath(jid string) string {
 }
 
 func resolveDisplayName(jid types.JID) string {
+	jid = jid.ToNonAD()
 	if wa() != nil && wa().Store != nil && wa().Store.ID != nil {
 		if (jid.Server == types.DefaultUserServer && jid.User == wa().Store.ID.User) || (jid.Server == types.HiddenUserServer && jid.User == wa().Store.GetLID().User) {
 			return "You"

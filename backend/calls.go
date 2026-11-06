@@ -316,12 +316,13 @@ func initCallClient() {
 
 		attachCallHandlers(call)
 
+		peer := preferPN(call.Peer().ToNonAD())
 		payload := map[string]interface{}{
 			"call_id":      call.ID(),
-			"caller":       call.Peer().String(),
+			"caller":       peer.String(),
 			"chat_jid":     preferPN(chatJID).String(),
-			"caller_name":  resolveDisplayName(call.Peer()),
-			"caller_phone": callerPhoneDigits(call.Peer()),
+			"caller_name":  resolveDisplayName(peer),
+			"caller_phone": callerPhoneDigits(peer),
 			"is_group":     isGroupCall,
 			"is_video":     call.IsVideo(),
 		}
@@ -337,16 +338,19 @@ func initCallClient() {
 // their name on an incoming call. It's "" when we don't know it: a caller who
 // hides their number is a LID, and only a LID we've mapped to a number has one.
 func callerPhoneDigits(jid types.JID) string {
-	number := jid
-	if jid.Server == types.HiddenUserServer && wa() != nil && wa().Store != nil && wa().Store.LIDs != nil {
-		if mapped, err := wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !mapped.IsEmpty() {
-			number = mapped
+	jid = jid.ToNonAD()
+	pn := preferPN(jid)
+	if pn.Server == types.DefaultUserServer {
+		return pn.User
+	}
+	if db != nil {
+		var phone string
+		_ = db.QueryRow(`SELECT phone FROM contacts_cache WHERE (jid = ? OR jid = ?) AND phone != '' LIMIT 1`, jid.String(), pn.String()).Scan(&phone)
+		if phone != "" {
+			return phone
 		}
 	}
-	if number.Server != types.DefaultUserServer {
-		return ""
-	}
-	return number.User
+	return ""
 }
 
 func placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*meowcaller.Call, error) {

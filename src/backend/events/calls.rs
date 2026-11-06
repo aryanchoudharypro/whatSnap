@@ -13,6 +13,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					}
 					s.call_answer_deadline = None;
 					s.incoming_call_caller = None;
+					s.call_connected_duration = std::time::Duration::ZERO;
+					s.call_connected_segment_start = Some(std::time::Instant::now());
+					s.call_is_reconnecting = false;
 					s.call_video_port =
 						data.get("video_port").and_then(|p| p.as_u64()).map(|p| p as u16).filter(|&p| p != 0);
 					s.call_video.screen_port =
@@ -23,6 +26,19 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						s.settings.input_device_name.clone(),
 						s.settings.call_output_device_name.clone(),
 					) {
+						if s.call_start_muted {
+							streams.is_muted.store(true, std::sync::atomic::Ordering::Relaxed);
+							parts.call_parts.mute_btn.set_label("Unmute microphone");
+							if let Some(call_id) = &s.active_call_id {
+								let payload = serde_json::json!({
+									"action": "mute_call",
+									"data": { "call_id": call_id, "muted": true }
+								});
+								let _ = s.ws_tx.send(payload.to_string());
+							}
+						} else {
+							parts.call_parts.mute_btn.set_label("Mute microphone");
+						}
 						s.active_call_audio = Some(streams);
 						let connected_msg = if s.call_video.is_video {
 							"Video call connected. Your camera is off."
@@ -36,6 +52,21 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						} else {
 							parts.call_parts.status_label.set_label(&group_call_status_text(&s.call_participants));
 						}
+						let running_info = crate::calls::helpers::call_running_info_text(
+							s.call_is_incoming,
+							s.call_video.is_video,
+							&s.call_peer_name,
+							0,
+							false,
+						);
+						parts.call_parts.caller_info.set_value(&running_info);
+						parts.call_parts.caller_info.show(true);
+						let title = if s.call_video.is_video {
+							format!("Video call with {}", s.call_peer_name)
+						} else {
+							format!("Call with {}", s.call_peer_name)
+						};
+						parts.call_parts.frame.set_title(&title);
 						parts.call_parts.accept_btn.show(false);
 						parts.call_parts.reject_btn.show(false);
 						parts.call_parts.mute_btn.show(true);
@@ -119,10 +150,37 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if s.active_call_id.as_deref() != Some(call_id) {
 					return true;
 				}
-				if data.get("reconnecting").and_then(|r| r.as_bool()).unwrap_or(false) {
+				let is_reconnecting = data.get("reconnecting").and_then(|r| r.as_bool()).unwrap_or(false);
+				if is_reconnecting {
+					if let Some(start) = s.call_connected_segment_start.take() {
+						s.call_connected_duration += start.elapsed();
+					}
+					s.call_is_reconnecting = true;
+					let secs = s.call_connected_duration.as_secs();
+					let info = crate::calls::helpers::call_running_info_text(
+						s.call_is_incoming,
+						s.call_video.is_video,
+						&s.call_peer_name,
+						secs,
+						true,
+					);
+					parts.call_parts.caller_info.set_value(&info);
+					parts.call_parts.caller_info.show(true);
 					crate::audio::start_call_reconnect_tone(&mut s);
 					announce_call(parts, "Reconnecting...");
 				} else {
+					s.call_is_reconnecting = false;
+					s.call_connected_segment_start = Some(std::time::Instant::now());
+					let secs = s.call_connected_duration.as_secs();
+					let info = crate::calls::helpers::call_running_info_text(
+						s.call_is_incoming,
+						s.call_video.is_video,
+						&s.call_peer_name,
+						secs,
+						false,
+					);
+					parts.call_parts.caller_info.set_value(&info);
+					parts.call_parts.caller_info.show(true);
 					crate::audio::stop_call_reconnect_tone(&mut s);
 					announce_call(parts, "Reconnected.");
 				}
@@ -283,6 +341,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if s.call_placing {
 				s.call_placing = false;
 				s.call_pending_cancel = false;
+				s.call_connected_segment_start = None;
+				s.call_connected_duration = std::time::Duration::ZERO;
+				s.call_is_reconnecting = false;
+				s.call_is_incoming = false;
+				s.call_start_muted = false;
+				s.call_peer_name.clear();
 				s.call_video = CallVideo::default();
 				s.active_call_video_send = None;
 				s.call_video_port = None;
@@ -307,6 +371,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					crate::audio::stop_call_reconnect_tone(&mut s);
 					s.active_call_id = None;
 					s.active_call_audio = None;
+					s.call_connected_segment_start = None;
+					s.call_connected_duration = std::time::Duration::ZERO;
+					s.call_is_reconnecting = false;
+					s.call_is_incoming = false;
+					s.call_start_muted = false;
+					s.call_peer_name.clear();
 					s.call_participants.clear();
 					s.call_video = CallVideo::default();
 					s.active_call_video_send = None;
@@ -347,6 +417,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if s.active_call_id.as_deref() == Some(call_id) {
 					s.active_call_id = None;
 					s.active_call_audio = None;
+					s.call_connected_segment_start = None;
+					s.call_connected_duration = std::time::Duration::ZERO;
+					s.call_is_reconnecting = false;
+					s.call_is_incoming = false;
+					s.call_start_muted = false;
+					s.call_peer_name.clear();
 					s.call_participants.clear();
 					s.call_video = CallVideo::default();
 					s.active_call_video_send = None;
@@ -369,14 +445,24 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					call_log(parts, &s, "incoming", call_id);
 					s.active_call_id = Some(call_id.to_string());
 					s.call_answer_deadline = None;
-					let name = data
-						.get("caller_name")
-						.and_then(|n| n.as_str())
-						.filter(|n| !n.is_empty() && *n != caller)
-						.map(|n| n.to_string())
-						.or_else(|| s.contacts.get(caller).cloned())
-						.unwrap_or_else(|| caller.to_string());
+					let chat_jid = data.get("chat_jid").and_then(|j| j.as_str());
+					let raw_name = data.get("caller_name").and_then(|n| n.as_str());
+					let raw_phone = data.get("caller_phone").and_then(|p| p.as_str());
+					let (name, phone_digits) = crate::calls::helpers::resolve_call_peer_name_and_phone(
+						&s.contacts,
+						&s.all_contacts,
+						caller,
+						chat_jid,
+						raw_name,
+						raw_phone,
+					);
 					s.incoming_call_caller = Some(name.clone());
+					s.call_is_incoming = true;
+					s.call_peer_name = name.clone();
+					s.call_start_muted = false;
+					s.call_connected_segment_start = None;
+					s.call_connected_duration = std::time::Duration::ZERO;
+					s.call_is_reconnecting = false;
 					s.call_participants.clear();
 					s.call_video = CallVideo::default();
 					s.active_call_video_send = None;
@@ -404,27 +490,37 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						video_call: is_video,
 						..Default::default()
 					};
-					parts.call_parts.frame.set_title(&format!("Incoming {}", description));
-					parts.call_parts.status_label.set_label(&format!("Incoming {}", description));
+					let win_title = if is_video {
+						format!("Incoming video call from {name}")
+					} else if is_group {
+						format!("Incoming group call from {name}")
+					} else {
+						format!("Incoming call from {name}")
+					};
+					parts.call_parts.frame.set_title(&win_title);
+					parts.call_parts.status_label.set_label(&win_title);
 					parts.call_parts.accept_btn.show(true);
 					parts.call_parts.reject_btn.show(true);
 					crate::ui_commands::call_extras::hide_call_buttons(parts);
-					let caller_phone = data.get("caller_phone").and_then(|p| p.as_str()).filter(|p| !p.is_empty());
-					parts.call_parts.caller_info.set_value(&caller_info_text(
+					parts.call_parts.caller_info.set_value(&crate::calls::helpers::call_incoming_info_text(
 						&name,
-						caller_phone,
+						phone_digits.as_deref(),
 						group_name.as_deref(),
+						is_video,
 					));
 					parts.call_parts.caller_info.show(true);
-					parts.call_parts.mute_btn.show(false);
-					parts.call_parts.camera_btn.show(false);
+					parts.call_parts.mute_btn.set_label("Mute microphone");
+					parts.call_parts.mute_btn.show(true);
+					parts.call_parts.camera_btn.set_label("Turn camera on");
+					parts.call_parts.camera_btn.show(true);
 					crate::ui_commands::calls::hide_screen_share_controls(parts);
 					parts.call_parts.leave_btn.show(false);
 					parts.call_parts.add_participant_btn.show(false);
-					parts.call_parts.devices_panel.show(false);
+					show_call_device_combos(&s, parts);
 					parts.call_parts.frame.show(true);
 					parts.call_parts.frame.iconize(false);
 					parts.call_parts.frame.raise();
+					parts.call_parts.accept_btn.set_focus();
 					if s.settings.call_ringtone {
 						let chat_jid = data.get("chat_jid").and_then(|j| j.as_str()).unwrap_or(caller);
 						let ringtone = s.settings.ringtone_for(chat_jid, is_group);
@@ -443,7 +539,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						toast_body[..1].make_ascii_uppercase();
 						show_toast_notification("Incoming call", &toast_body);
 					}
-					announce_call(parts, &format!("Incoming {}", description));
+					announce_call(parts, &win_title);
 					call_log(parts, &s, "incoming shown", call_id);
 				}
 			}

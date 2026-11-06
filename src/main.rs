@@ -275,6 +275,12 @@ struct AppState {
 	call_reconnect_sink: Option<Player>,
 	call_hotkeys: Option<wx_utils::global_hotkeys::GlobalHotkeys>,
 	incoming_call_caller: Option<String>,
+	call_start_muted: bool,
+	call_connected_segment_start: Option<std::time::Instant>,
+	call_connected_duration: std::time::Duration,
+	call_is_reconnecting: bool,
+	call_is_incoming: bool,
+	call_peer_name: String,
 	call_participants: Vec<CallParticipant>,
 	call_video: CallVideo,
 	group_data_members: Vec<String>,
@@ -629,6 +635,12 @@ fn main() {
 			call_reconnect_sink: None,
 			call_hotkeys: None,
 			incoming_call_caller: None,
+			call_start_muted: false,
+			call_connected_segment_start: None,
+			call_connected_duration: std::time::Duration::ZERO,
+			call_is_reconnecting: false,
+			call_is_incoming: false,
+			call_peer_name: String::new(),
 			call_participants: Vec::new(),
 			call_video: CallVideo::default(),
 			group_data_members: Vec::new(),
@@ -802,6 +814,23 @@ fn main() {
 			ui::chat_ui::flush_catch_up_alerts(&mut s);
 			platform::paths::remove_legacy_data_if_running(s.main_ui_shown && !s.chats.is_empty());
 			ui_commands::misc::presence_tick(&mut s);
+			if s.call_connected_segment_start.is_some() || s.call_is_reconnecting {
+				let mut total = s.call_connected_duration;
+				if let Some(start) = s.call_connected_segment_start {
+					total += start.elapsed();
+				}
+				let secs = total.as_secs();
+				let info = calls::helpers::call_running_info_text(
+					s.call_is_incoming,
+					s.call_video.is_video,
+					&s.call_peer_name,
+					secs,
+					s.call_is_reconnecting,
+				);
+				if parts_timer.call_parts.caller_info.get_value() != info {
+					parts_timer.call_parts.caller_info.set_value(&info);
+				}
+			}
 			if s.playing_msg_id.is_none() {
 				return;
 			}

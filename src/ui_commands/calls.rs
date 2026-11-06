@@ -140,10 +140,19 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	}
 	s.call_placing = true;
 	s.call_pending_cancel = false;
+	let group_name = s.contacts.get(&call.group_jid).cloned().unwrap_or_else(|| call.group_jid.clone());
+	s.call_is_incoming = false;
+	s.call_peer_name = group_name.clone();
+	s.call_start_muted = false;
+	s.call_connected_segment_start = None;
+	s.call_connected_duration = std::time::Duration::ZERO;
+	s.call_is_reconnecting = false;
 	s.call_video = CallVideo { video_call: call.video, ..Default::default() };
 	let c = &parts.call_parts;
 	c.frame.set_title(call_window_title(true, call.video));
 	c.status_label.set_label("Joining call...");
+	c.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(&group_name, call.video, true));
+	c.caller_info.show(true);
 	c.accept_btn.show(false);
 	c.reject_btn.show(false);
 	c.mute_btn.show(true);
@@ -152,6 +161,7 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	c.add_participant_btn.show(false);
 	crate::ui_commands::call_extras::hide_call_buttons(parts);
 	c.leave_btn.show(true);
+	crate::calls::helpers::show_call_device_combos(&s, parts);
 	c.frame.show(true);
 	drop(s);
 	announce_call(parts, "Joining call...");
@@ -221,6 +231,12 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 
 	let is_group = jid.ends_with("@g.us");
 	let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+	s.call_is_incoming = false;
+	s.call_peer_name = name.clone();
+	s.call_start_muted = false;
+	s.call_connected_segment_start = None;
+	s.call_connected_duration = std::time::Duration::ZERO;
+	s.call_is_reconnecting = false;
 	let signals_video = video && !is_group;
 	s.call_video = CallVideo {
 		is_video: signals_video,
@@ -239,6 +255,8 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	} else {
 		parts.call_parts.status_label.set_label(&format!("In call with {}", name));
 	}
+	parts.call_parts.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(&name, video, is_group));
+	parts.call_parts.caller_info.show(true);
 	parts.call_parts.accept_btn.show(false);
 	parts.call_parts.reject_btn.show(false);
 	parts.call_parts.mute_btn.show(true);
@@ -248,6 +266,7 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	parts.call_parts.add_participant_btn.show(false);
 	crate::ui_commands::call_extras::hide_call_buttons(parts);
 	parts.call_parts.leave_btn.show(true);
+	crate::calls::helpers::show_call_device_combos(&s, parts);
 	parts.call_parts.frame.show(true);
 	drop(s);
 
@@ -358,13 +377,15 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 }
 
 pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let s = state.borrow();
+	let mut s = state.borrow_mut();
 	if let Some(audio) = &s.active_call_audio {
 		let current = audio.is_muted.load(std::sync::atomic::Ordering::Relaxed);
 		audio.is_muted.store(!current, std::sync::atomic::Ordering::Relaxed);
 		let status = if !current { "Microphone muted." } else { "Microphone unmuted." };
 		parts.call_parts.mute_btn.set_label(if !current { "Unmute microphone" } else { "Mute microphone" });
+		drop(s);
 		announce_call(parts, status);
+		let s = state.borrow();
 		if let Some(call_id) = &s.active_call_id {
 			let payload = serde_json::json!({
 				"action": "mute_call",
@@ -372,6 +393,13 @@ pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 			});
 			let _ = s.ws_tx.send(payload.to_string());
 		}
+	} else if s.active_call_id.is_some() || s.call_placing || s.incoming_call_caller.is_some() {
+		s.call_start_muted = !s.call_start_muted;
+		let muted = s.call_start_muted;
+		parts.call_parts.mute_btn.set_label(if muted { "Unmute microphone" } else { "Mute microphone" });
+		let status = if muted { "Microphone muted." } else { "Microphone unmuted." };
+		drop(s);
+		announce_call(parts, status);
 	}
 }
 
@@ -423,6 +451,14 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	}
 
 	let Some(port) = s.call_video_port else {
+		if s.incoming_call_caller.is_some() || s.call_placing {
+			s.call_video.autostart_camera = !s.call_video.autostart_camera;
+			let on = s.call_video.autostart_camera;
+			parts.call_parts.camera_btn.set_label(if on { "Turn camera off" } else { "Turn camera on" });
+			drop(s);
+			announce_call(parts, local_camera_announcement(on));
+			return;
+		}
 		drop(s);
 		announce_call(parts, "The camera isn't ready yet - wait for the call to connect.");
 		return;

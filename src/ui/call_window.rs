@@ -44,7 +44,7 @@ const CALL_BG: Colour = Colour::rgb(0x10, 0x1A, 0x20);
 const CALL_TEXT: Colour = Colour::rgb(0xE9, 0xED, 0xEE);
 
 pub fn build_call_window() -> CallWindowParts {
-	let frame = Frame::builder().with_title("Call").with_size(Size::new(580, 460)).build();
+	let frame = Frame::builder().with_title("Call").with_size(Size::new(580, 520)).build();
 	let panel = Panel::builder(&frame).build();
 	if theme::use_custom_colours() {
 		panel.set_background_color(CALL_BG);
@@ -59,9 +59,17 @@ pub fn build_call_window() -> CallWindowParts {
 	}
 	sizer.add(&status_label, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
-	let caller_info = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ReadOnly).build();
-	caller_info.show(false);
-	sizer.add(&caller_info, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
+	let caller_info = TextCtrl::builder(&panel)
+		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
+		.with_size(Size::new(-1, 56))
+		.build();
+	caller_info.set_font(&theme::Fonts::body());
+	if theme::use_custom_colours() {
+		caller_info.set_background_color(CALL_BG);
+		caller_info.set_foreground_color(CALL_TEXT);
+	}
+	caller_info.show(true);
+	sizer.add(&caller_info, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 
 	let announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&announcer);
