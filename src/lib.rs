@@ -1,3 +1,4 @@
+pub mod passhash;
 pub mod countries;
 pub mod local_time;
 pub mod phone;

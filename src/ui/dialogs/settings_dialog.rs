@@ -33,6 +33,7 @@ pub const ABOUT_DURATION_CHOICES: &[(&str, &str)] = &[
 	("24 Hours", "86400"),
 ];
 
+pub const APP_LOCK_METHOD_CHOICES: &[(&str, &str)] = &[("Windows Hello", "hello"), ("Password", "password")];
 pub const CHAT_LOCK_HELLO_LABEL: &str =
 	"Unlock locked chats with Windows Hello (fingerprint, face or PIN) instead of the secret code";
 
@@ -92,6 +93,9 @@ pub struct SettingsDialogParts {
 	pub type_to_compose_check: CheckBox,
 	pub keep_list_position_check: CheckBox,
 	pub chat_lock_hello_check: CheckBox,
+	pub app_lock_check: CheckBox,
+	pub app_lock_method_combo: ComboBox,
+	pub app_lock_password_btn: Button,
 	pub replace_emoji_check: CheckBox,
 	pub emoji_help_btn: Button,
 	pub spell_check_check: CheckBox,
@@ -304,6 +308,19 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let theme_combo = visibility_combo(&chats_panel, &chats_sizer, "Theme", THEME_CHOICES);
 	chats_panel.set_sizer(chats_sizer, true);
 
+	let lock_panel = Panel::builder(&notebook).build();
+	theme::style_content(&lock_panel);
+	let lock_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let app_lock_check = setting_switch(
+		&lock_panel,
+		&lock_sizer,
+		"Lock whatSnap when it starts, and whenever I press Ctrl+Shift+L (Account, Lock App)",
+	);
+	let app_lock_method_combo = visibility_combo(&lock_panel, &lock_sizer, "Unlock with", APP_LOCK_METHOD_CHOICES);
+	let app_lock_password_btn = setting_button(&lock_panel, "Set App Lock Password...");
+	lock_sizer.add(&app_lock_password_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
+	lock_panel.set_sizer(lock_sizer, true);
+
 	let privacy_panel = Panel::builder(&notebook).build();
 	theme::style_content(&privacy_panel);
 	let privacy_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -428,6 +445,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	notebook.add_page(&chats_panel, "Chats", false, None);
 	notebook.add_page(&privacy_panel, "Profile & Privacy", false, None);
 	notebook.add_page(&audio_panel, "Input & Output", false, None);
+	notebook.add_page(&lock_panel, "App Lock", false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
@@ -489,6 +507,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		type_to_compose_check,
 		keep_list_position_check,
 		chat_lock_hello_check,
+		app_lock_check,
+		app_lock_method_combo,
+		app_lock_password_btn,
 		replace_emoji_check,
 		emoji_help_btn,
 		spell_check_check,
@@ -680,6 +701,12 @@ impl SettingsDialogParts {
 		let hello = crate::platform::windows_hello::availability();
 		self.chat_lock_hello_check.enable(hello == crate::platform::windows_hello::Availability::Ready);
 		self.chat_lock_hello_check.set_value(settings.chat_lock_hello);
+		self.app_lock_check.set_value(settings.app_lock);
+		set_combo_from_value(
+			&self.app_lock_method_combo,
+			APP_LOCK_METHOD_CHOICES,
+			if settings.app_lock_hello { "hello" } else { "password" },
+		);
 		self.announce_incoming_check.set_value(settings.announce_incoming);
 		self.announce_outgoing_check.set_value(settings.announce_outgoing);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
@@ -708,6 +735,8 @@ impl SettingsDialogParts {
 		settings.type_to_compose = self.type_to_compose_check.is_checked();
 		settings.keep_list_position = self.keep_list_position_check.is_checked();
 		settings.chat_lock_hello = self.chat_lock_hello_check.is_checked();
+		settings.app_lock = self.app_lock_check.is_checked();
+		settings.app_lock_hello = combo_value(&self.app_lock_method_combo, APP_LOCK_METHOD_CHOICES) == "hello";
 		settings.announce_incoming = self.announce_incoming_check.is_checked();
 		settings.announce_outgoing = self.announce_outgoing_check.is_checked();
 		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();

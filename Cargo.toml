@@ -25,6 +25,7 @@ serde_json = { version = "1.0.150", features = ["raw_value"] }
 # needs it.
 wxdragon = { version = "0.9.22", default-features = false }
 qrcode = { version = "0.14.1", default-features = false }
+ring = "0.17.14"
 live-region = "0.3.3"
 wx-utils = { version = "0.4.2", features = ["shortcuts", "global-hotkeys"] }
 key-chord = "0.2.2"

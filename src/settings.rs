@@ -86,6 +86,14 @@ pub struct Settings {
 	/// The one-time "unlock your chats faster" offer has been made, so it is
 	/// not shown again whatever the answer was.
 	pub chat_lock_hello_offered: bool,
+	/// Lock the whole app (on start and with the Lock App shortcut) until
+	/// the user unlocks it. Only this computer has it.
+	pub app_lock: bool,
+	/// Unlock the app with Windows Hello; otherwise with the password.
+	pub app_lock_hello: bool,
+	/// The password's salted hash, see [`whatsnap::passhash`]; never the
+	/// password itself. Empty until one is set.
+	pub app_lock_password: String,
 }
 
 pub const TAB_NAMES: [&str; 7] =
@@ -165,6 +173,9 @@ impl Default for Settings {
 			chat_notifications: std::collections::HashMap::new(),
 			chat_lock_hello: false,
 			chat_lock_hello_offered: false,
+			app_lock: false,
+			app_lock_hello: false,
+			app_lock_password: String::new(),
 		}
 	}
 }

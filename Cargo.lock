@@ -2617,6 +2617,7 @@ dependencies = [
  "nnnoiseless",
  "opus",
  "qrcode",
+ "ring",
  "rodio",
  "rodio-wsola",
  "serde",

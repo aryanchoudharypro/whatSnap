@@ -32,6 +32,7 @@ You use whatSnap at your own risk. If you can't afford to lose your WhatsApp acc
   - Call links. Create a link, or join a call from a link.
   - Join a group call that is already in progress.
   - whatSnap connects again by itself if your network drops during a call.
+- An app lock. Unlock whatSnap with Windows Hello or a password, and lock it at any time with `Ctrl+Shift+L`.
 - A status viewer and a video player in the app.
 - Emoji and stickers, including the WhatsApp sticker store and your favorite stickers.
 - Spell checking in the message box, with the Windows spell checker.
@@ -401,6 +402,15 @@ The choices for the "Who can" settings are Everyone, My Contacts, My Contacts Ex
 - `Speaker (calls & playback)`: used for calls, voice messages, and sounds.
 - `Experimental: keep the camera on while sharing the screen`: the change takes effect in the next call.
 
+### App Lock Tab
+- `Lock whatSnap when it starts, and whenever I press Ctrl+Shift+L`: turns the app lock on.
+- `Unlock with`: `Windows Hello` (fingerprint, face or PIN) or `Password`.
+- `Set App Lock Password...`: asks for the new password twice. If a password is already set, it asks for that one first. The password is saved only as a salted hash.
+
+When the app is locked, a `whatSnap Locked` window with `Unlock` and `Exit` buttons covers the app, and the rest of the app is empty. Press `Account -> Lock App` (`Ctrl+Shift+L`) at any time to lock it. whatSnap also locks when it starts. With a password, type it in the `Password` field and press `Enter`. With Windows Hello, press `Unlock` and confirm in the Windows prompt. `Exit` closes whatSnap.
+
+While the app is locked, calls still ring, and notifications leave out the message text. This lock keeps people who walk past your PC out of your chats. It is not protection against programs running as you. If Windows Hello stops working and you can't unlock, choose `Exit`, then open `settings.json` in the data folder and change `"app_lock": true` to `false`.
+
 ## Keyboard Shortcuts
 You can change the shortcuts in the tables below with `Keyboard Shortcuts...` on the General tab of the settings. The dialog has a tab for each menu, and a Messages tab for the keys of the Messages list. You can set a new shortcut, remove a shortcut, or set the default again.
 
@@ -420,6 +430,7 @@ You can't change these keys:
 | Action | Menu | Default |
 |---|---|---|
 | Settings... | Account | `Ctrl+,` |
+| Lock App | Account | `Ctrl+Shift+L` |
 | Reconnect Now | Account | `F5` |
 | Chats | Go | `Alt+1` |
 | Calls | Go | `Alt+2` |

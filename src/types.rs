@@ -86,6 +86,12 @@ pub enum UiCommand {
 		verified: bool,
 	},
 	CloseLockedChats,
+	/// Lock the whole app (Account, Lock App).
+	LockApp,
+	/// The Windows Hello prompt on the lock screen finished.
+	AppLockHello {
+		verified: bool,
+	},
 	SearchInConversation(String),
 	ToggleSearchPanel,
 	CloseSearch,

@@ -32,10 +32,19 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if state.borrow().settings.start_maximized {
 					parts.frame.maximize(true);
 				}
+				// With the app lock on, the window opens empty and the lock
+				// screen is asked for below, so nothing shows before it.
+				let locked_at_start = state.borrow().settings.app_lock;
+				if locked_at_start {
+					parts.main_panel.show(false);
+				}
 				parts.frame.show(true);
 				ship_shape::ui::bring_to_front_after_update(&parts.frame);
 				parts.conversations_parts.search_field.set_focus();
 				state.borrow_mut().main_ui_shown = true;
+				if locked_at_start {
+					let _ = state.borrow().ui_tx.send(crate::UiCommand::LockApp);
+				}
 				let (check_updates, channel, ui_tx) = {
 					let s = state.borrow();
 					(s.settings.check_for_updates_on_startup, s.settings.update_channel.clone(), s.ui_tx.clone())

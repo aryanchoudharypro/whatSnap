@@ -351,7 +351,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						// Our own rows still pending are read when the send
 						// finishes (the update above), not twice.
 						let own_pending = is_from_me
-							&& (chat_msg.status == "pending" || chat_msg.status == "failed" || msg_id.starts_with("temp_"));
+							&& (chat_msg.status == "pending"
+								|| chat_msg.status == "failed"
+								|| msg_id.starts_with("temp_"));
 						if s.settings.announces_message(jid, is_from_me) && !own_pending {
 							let formatted = chat_msg.format_display(is_group);
 							crate::platform::announce::announce(
@@ -497,8 +499,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								};
 								crate::ui::chat_ui::show_chat_notification(jid, "WhatsApp", &body);
 							} else if alert.toast {
-								let previews =
-									s.settings.notification_previews && !s.settings.chat_notify(jid).hide_content;
+								let previews = s.settings.notification_previews
+									&& !s.settings.chat_notify(jid).hide_content
+									&& !crate::ui_commands::app_lock::is_locked();
 								let body = whatsnap::friendly_preview_text(text);
 								let is_group = jid.ends_with("@g.us");
 								let clean_from = match from.find(':') {
@@ -1653,8 +1656,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							if alert.toast && s.locked_jids.contains(chat_jid) {
 								crate::ui::chat_ui::show_chat_notification(chat_jid, "WhatsApp", "New reaction");
 							} else if alert.toast {
-								let previews =
-									s.settings.notification_previews && !s.settings.chat_notify(chat_jid).hide_content;
+								let previews = s.settings.notification_previews
+									&& !s.settings.chat_notify(chat_jid).hide_content
+									&& !crate::ui_commands::app_lock::is_locked();
 								let body = if previews {
 									format!("Reacted {} to \"{}\"", emoji, whatsnap::friendly_preview_text(text))
 								} else {

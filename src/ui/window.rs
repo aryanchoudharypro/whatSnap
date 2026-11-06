@@ -356,6 +356,7 @@ pub struct WindowParts {
 
 pub const MENU_ID_SETTINGS: i32 = 6001;
 pub const MENU_ID_LOGOUT: i32 = 6002;
+pub const MENU_ID_LOCK_APP: i32 = 6062;
 pub const MENU_ID_CHECK_UPDATES: i32 = 6061;
 pub const MENU_ID_RECONNECT: i32 = 6003;
 pub const MENU_ID_NAV_CONVERSATIONS: i32 = 6010;
@@ -712,6 +713,7 @@ pub fn build_main_window() -> WindowParts {
 			&default_menu_label(MENU_ID_RECONNECT),
 			"Retry connecting to WhatsApp right away",
 		)
+		.append_item(MENU_ID_LOCK_APP, &default_menu_label(MENU_ID_LOCK_APP), "Lock whatSnap until you unlock it")
 		.append_item(MENU_ID_BLOCKED_CONTACTS, "&Blocked Contacts...", "See and change who you have blocked")
 		.append_item(MENU_ID_CHECK_UPDATES, "Check for &Updates...", "See if a newer version of whatSnap is out")
 		.append_separator()
@@ -1737,6 +1739,13 @@ pub fn bind_input_handlers(
 		crate::platform::update_check::run(&frame_updates, &tx_updates, &channel, false);
 	});
 
+	let tx_lock_app = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() == MENU_ID_LOCK_APP {
+			let _ = tx_lock_app.send(UiCommand::LockApp);
+		}
+	});
+
 	let state_reconnect = state.clone();
 	let reconnect_announcer = parts.conversations_parts.messages_announcer;
 	parts.frame.on_menu_selected(move |evt| {
@@ -2134,6 +2143,26 @@ pub fn bind_input_handlers(
 		});
 	}
 
+	let state_lock_password = state.clone();
+	let lock_password_dialog = parts.settings_dialog.dialog;
+	parts.settings_dialog.app_lock_password_btn.on_click(move |_| {
+		// Read the current hash and let go of the state before asking: the
+		// prompts run their own loop, during which the app must stay free.
+		let Ok(current) = state_lock_password.try_borrow().map(|s| s.settings.app_lock_password.clone()) else {
+			return;
+		};
+		if let Some(hash) = crate::ui_commands::app_lock::ask_new_password(&lock_password_dialog, &current)
+			&& let Ok(mut s) = state_lock_password.try_borrow_mut()
+		{
+			s.settings.app_lock_password = hash;
+			s.settings.save();
+			MessageDialog::builder(&lock_password_dialog, "The app lock password is set.", "App Lock Password")
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+				.build()
+				.show_modal();
+		}
+	});
+
 	let settings_dialog_ok = parts.settings_dialog.dialog;
 	let sounds_check_ok = parts.settings_dialog.sounds_check;
 	let notifications_check_ok = parts.settings_dialog.notifications_check;
@@ -2180,6 +2209,33 @@ pub fn bind_input_handlers(
 					}
 					return;
 				}
+			}
+		}
+		if settings_parts_ok.app_lock_check.is_checked() {
+			use crate::ui::dialogs::settings_dialog::{APP_LOCK_METHOD_CHOICES, combo_value};
+			let hello = combo_value(&settings_parts_ok.app_lock_method_combo, APP_LOCK_METHOD_CHOICES) == "hello";
+			let problem = if hello {
+				(crate::platform::windows_hello::availability() != crate::platform::windows_hello::Availability::Ready)
+					.then_some(
+						"Windows Hello isn't set up on this PC, so it can't unlock whatSnap. Set it up in Windows Settings, or choose Password.",
+					)
+			} else {
+				s.settings
+					.app_lock_password
+					.is_empty()
+					.then_some("Set an app lock password first, with the Set App Lock Password button.")
+			};
+			if let Some(problem) = problem {
+				MessageDialog::builder(&settings_dialog_ok, problem, "Settings")
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+					.build()
+					.show_modal();
+				if hello {
+					settings_parts_ok.app_lock_method_combo.set_focus();
+				} else {
+					settings_parts_ok.app_lock_password_btn.set_focus();
+				}
+				return;
 			}
 		}
 		if let Some(keymap) = pending_shortcuts.borrow_mut().take() {
@@ -4153,7 +4209,8 @@ pub fn bind_input_handlers(
 						}
 						for (jid, name) in &s.contacts {
 							if !jid.ends_with("@broadcast")
-								&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
+								&& !jids.contains(jid)
+								&& crate::ui_commands::links::can_forward_to(&s, jid)
 							{
 								labels.push(name.clone());
 								jids.push(jid.clone());
@@ -4955,7 +5012,8 @@ pub fn bind_input_handlers(
 						}
 						for (jid, name) in &s.contacts {
 							if !jid.ends_with("@broadcast")
-								&& !jids.contains(jid) && crate::ui_commands::links::can_forward_to(&s, jid)
+								&& !jids.contains(jid)
+								&& crate::ui_commands::links::can_forward_to(&s, jid)
 							{
 								labels.push(name.clone());
 								jids.push(jid.clone());
