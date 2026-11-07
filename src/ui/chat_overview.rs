@@ -32,7 +32,7 @@ pub fn build(notebook: &Notebook) -> ChatOverviewParts {
 		.build();
 	sizer.add(&summary, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
-	let lock_chk = CheckBox::builder(&panel).with_label("Lock this chat (opens with the app lock)").build();
+	let lock_chk = CheckBox::builder(&panel).with_label("Lock this chat").build();
 	sizer.add(&lock_chk, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 	let restricted_chk = CheckBox::builder(&panel).with_label("Restricted chat (changed on your phone)").build();
 	restricted_chk.enable(false);

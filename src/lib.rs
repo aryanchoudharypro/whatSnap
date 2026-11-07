@@ -1,6 +1,5 @@
 pub mod countries;
 pub mod local_time;
-pub mod passhash;
 pub mod phone;
 mod phone_data;
 pub use local_time::{Date, LocalTime};

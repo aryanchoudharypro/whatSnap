@@ -456,8 +456,7 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 		return;
 	}
 	let previews = s.settings.notification_previews
-		&& !s.settings.chat_notify(jid).hide_content
-		&& !crate::ui_commands::app_lock::is_locked();
+		&& !s.settings.chat_notify(jid).hide_content;
 	let preview = whatsnap::friendly_preview_text(text);
 	let body = match (previews, jid.ends_with("@g.us"), sender) {
 		(false, _, _) => "New message".to_string(),

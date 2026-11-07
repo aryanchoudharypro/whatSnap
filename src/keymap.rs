@@ -51,7 +51,6 @@ pub const ACTIONS: &[ActionDef] = &[
 		label: "A&ccounts...",
 		default: "Ctrl+Shift+A",
 	},
-	ActionDef { id: "lock_app", menu_id: Some(MENU_ID_LOCK_APP), tab: 0, label: "Loc&k App", default: "Ctrl+Shift+L" },
 	ActionDef { id: "reconnect", menu_id: Some(MENU_ID_RECONNECT), tab: 0, label: "&Reconnect Now", default: "F5" },
 	ActionDef {
 		id: "go_conversations",

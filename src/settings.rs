@@ -86,19 +86,6 @@ pub struct Settings {
 	/// The one-time "unlock your chats faster" offer has been made, so it is
 	/// not shown again whatever the answer was.
 	pub chat_lock_hello_offered: bool,
-	/// Lock the whole app (on start and with the Lock App shortcut) until
-	/// the user unlocks it. Only this computer has it.
-	/// The three app lock fields are not in `settings.json`: they live in a
-	/// DPAPI blob, see [`crate::platform::lock_store`].
-	#[serde(skip)]
-	pub app_lock: bool,
-	/// Unlock the app with Windows Hello; otherwise with the password.
-	#[serde(skip)]
-	pub app_lock_hello: bool,
-	/// The password's salted hash, see [`whatsnap::passhash`]; never the
-	/// password itself. Empty until one is set.
-	#[serde(skip)]
-	pub app_lock_password: String,
 }
 
 pub const TAB_NAMES: [&str; 7] =
@@ -178,9 +165,6 @@ impl Default for Settings {
 			chat_notifications: std::collections::HashMap::new(),
 			chat_lock_hello: false,
 			chat_lock_hello_offered: false,
-			app_lock: false,
-			app_lock_hello: false,
-			app_lock_password: String::new(),
 		}
 	}
 }
@@ -199,13 +183,8 @@ fn settings_path() -> PathBuf {
 
 impl Settings {
 	pub fn load() -> Self {
-		let fallback = || {
-			let mut settings = Self::default();
-			settings.apply_lock_store(None);
-			settings
-		};
-		let Some(raw) = std::fs::read_to_string(settings_path()).ok() else { return fallback() };
-		let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) else { return fallback() };
+		let Some(raw) = std::fs::read_to_string(settings_path()).ok() else { return Self::default() };
+		let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) else { return Self::default() };
 		// Calls used to share the one output device with alerts. Settings
 		// saved before the split carry on using that device for calls too.
 		if let Some(obj) = value.as_object_mut()
@@ -214,41 +193,7 @@ impl Settings {
 			let inherited = obj.get("output_device_name").cloned().unwrap_or(serde_json::Value::Null);
 			obj.insert("call_output_device_name".to_string(), inherited);
 		}
-		// App lock settings used to be plain keys in this file.
-		let old_lock = value.as_object_mut().and_then(|obj| {
-			let on = obj.remove("app_lock");
-			let hello = obj.remove("app_lock_hello");
-			let hash = obj.remove("app_lock_password");
-			(on.is_some() || hello.is_some() || hash.is_some()).then(|| {
-				(
-					on.and_then(|v| v.as_bool()).unwrap_or(false),
-					hello.and_then(|v| v.as_bool()).unwrap_or(false),
-					hash.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(),
-				)
-			})
-		});
-		let mut settings: Self = serde_json::from_value(value).unwrap_or_default();
-		settings.apply_lock_store(old_lock);
-		settings
-	}
-
-	/// Fills in the app lock from the protected store. Keys the old
-	/// `settings.json` had are used once, when no store exists yet, and are
-	/// then scrubbed from the file; otherwise they are ignored.
-	fn apply_lock_store(&mut self, old: Option<(bool, bool, String)>) {
-		let had_old = old.is_some();
-		match old {
-			Some((on, hello, hash)) if !crate::platform::lock_store::exists() => {
-				(self.app_lock, self.app_lock_hello, self.app_lock_password) = (on, hello, hash);
-			}
-			_ => {
-				let data = crate::platform::lock_store::load();
-				(self.app_lock, self.app_lock_hello, self.app_lock_password) = (data.enabled, data.hello, data.hash);
-			}
-		}
-		if had_old {
-			self.save();
-		}
+		serde_json::from_value(value).unwrap_or_default()
 	}
 
 	/// Alert level for `jid` as an archived chat. Chats that aren't archived
@@ -358,11 +303,6 @@ impl Settings {
 		if let Ok(json) = serde_json::to_string_pretty(self) {
 			let _ = std::fs::write(settings_path(), json);
 		}
-		crate::platform::lock_store::save(&crate::platform::lock_store::LockData {
-			enabled: self.app_lock,
-			hello: self.app_lock_hello,
-			hash: self.app_lock_password.clone(),
-		});
 	}
 
 	pub fn tab_order(&self) -> Vec<usize> {

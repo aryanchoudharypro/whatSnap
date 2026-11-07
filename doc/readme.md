@@ -33,7 +33,6 @@ You use whatSnap at your own risk. If you can't afford to lose your WhatsApp acc
   - Join a group call that is already in progress.
   - whatSnap connects again by itself if your network drops during a call.
 - Several WhatsApp accounts in one window. Every account stays connected and alerts you, and you switch between them with `Ctrl+Shift+A`.
-- An app lock. Unlock whatSnap with Windows Hello or a password, and lock it at any time with `Ctrl+Shift+L`.
 - A status viewer and a video player in the app.
 - Emoji and stickers, including the WhatsApp sticker store and your favorite stickers.
 - Spell checking in the message box, with the Windows spell checker.
@@ -265,7 +264,7 @@ The Conversation menu has more actions for the open chat. It shows only the ones
 ### Overview Tab
 Contact Info (`Alt+I` in a one-to-one chat) and Group Info both end with an `Overview` tab, like the info page of WhatsApp Web. It shows a short summary of the chat, then only the items that fit this chat:
 
-- `Lock this chat (opens with the app lock)`: a switch for locking the chat.
+- `Lock this chat`: a switch for locking the chat.
 - `Restricted chat (changed on your phone)`: shown only when the chat is restricted. Like in WhatsApp Web it is always dimmed, because only your phone can change it.
 - `Notification settings...`, `Disappearing messages...` (not in channels) and `Advanced chat privacy...` (not in channels or broadcast lists).
 - `Starred messages`: goes to the Starred Messages list.
@@ -448,20 +447,6 @@ The choices for the "Who can" settings are Everyone, My Contacts, My Contacts Ex
 - `Speaker for calls`
 - `Experimental: keep the camera on while sharing the screen`: the change takes effect in the next call.
 
-### App Lock Tab
-- `Lock whatSnap when it starts, and whenever I press Ctrl+Shift+L`: turns the app lock on.
-- `Unlock with`: `Windows Hello` (fingerprint, face or PIN) or `Password`.
-- `Set App Lock Password...`: asks for the new password twice. If a password is already set, it asks for that one first. The password is saved only as a salted hash.
-- `Unlock locked chats with Windows Hello (fingerprint, face or PIN) instead of the secret code`
-
-When the app is locked, a `whatSnap Locked` window with `Unlock` and `Exit` buttons covers the app, and the rest of the app is empty. Press `Account -> Lock App` (`Ctrl+Shift+L`) at any time to lock it. whatSnap also locks when it starts. With a password, type it in the `Password` field and press `Enter`. With Windows Hello, press `Unlock` and confirm in the Windows prompt. `Exit` closes whatSnap.
-
-While the app is locked, calls still ring, and notifications leave out the message text. This lock keeps people who walk past your PC out of your chats. It is not protection against programs running as you.
-
-The lock's settings (on or off, the unlock method and the password hash) are not in `settings.json`. They are in the file `cversions.4.db` in `%LOCALAPPDATA%\Microsoft\Windows\Caches` (not in the whatSnap folder), protected by Windows for your Windows account, so changing `settings.json` does nothing to the lock and the file doesn't work on another PC or account. Settings from an older version are moved there the first time whatSnap starts. If that file is damaged or came from another account, whatSnap stays locked and only `Exit` works.
-
-If Windows Hello stops working and you can't unlock, choose `Exit`, then delete `cversions.4.db` from that folder. This removes the app lock, its method and its password; whatSnap then starts unlocked, and you can turn the lock on again in Settings.
-
 ## Keyboard Shortcuts
 You can change the shortcuts in the tables below with `Keyboard Shortcuts...` on the General tab of the settings. The dialog has a tab for each menu, and a Messages tab for the keys of the Messages list. You can set a new shortcut, remove a shortcut, or set the default again.
 
@@ -482,7 +467,6 @@ You can't change these keys:
 |---|---|---|
 | Settings... | Account | `Ctrl+,` |
 | Accounts... | Account | `Ctrl+Shift+A` |
-| Lock App | Account | `Ctrl+Shift+L` |
 | Reconnect Now | Account | `F5` |
 | Chats | Go | `Alt+1` |
 | Calls | Go | `Alt+2` |
