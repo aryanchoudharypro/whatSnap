@@ -85,7 +85,7 @@ You can link more than one WhatsApp account, for example a personal and a work n
 
 Every account stays connected while whatSnap runs, not just the one on screen. A message to another account plays its sound and shows a notification with the account's name in brackets after the chat name, using the same notification settings. Selecting the notification switches to that account and opens the chat. `Mark as read` on the notification marks the chat read without switching. When another account gets a call, whatSnap switches to it and rings, so you can answer as usual. During a call or while you record a voice message, whatSnap doesn't switch: a notification says who is calling which account.
 
-With more than one account, the window title starts with the name of the account on screen.
+With more than one account, the window title starts with the name of the account on screen. When the other accounts have unread chats, the window title and the tray icon also say how many, for example `2 unread chats in other accounts`. Muted and archived chats don't count, and neither do accounts whose message notifications are off.
 
 ## Main Window Layout
 The main window has three parts:

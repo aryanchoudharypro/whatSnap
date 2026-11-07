@@ -184,7 +184,9 @@ pub(crate) fn refresh_tray_tooltip(s: &AppState, parts: &WindowParts) {
 		&s.archived_jids,
 		&s.settings.archived_alert_levels,
 	);
-	parts.tray_icon.set_icon(&crate::ui::theme::build_app_icon(32), &whatsnap::tray_tooltip_text(unread));
+	parts
+		.tray_icon
+		.set_icon(&crate::ui::theme::build_app_icon(32), &crate::ui_commands::accounts::tray_text(s, unread));
 }
 
 pub(crate) fn refresh_nav_unread_labels(s: &AppState, parts: &WindowParts) {

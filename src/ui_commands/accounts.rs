@@ -150,12 +150,41 @@ pub(crate) fn has_other_account(state: &Rc<RefCell<AppState>>) -> bool {
 pub(crate) fn refresh_title(state: &Rc<RefCell<AppState>>, parts: &WindowParts) {
 	let accounts = accounts(state);
 	let a = accounts.borrow();
-	let title = if a.registry.live_count() > 1 {
+	let mut title = if a.registry.live_count() > 1 {
 		format!("{} - whatSnap", a.registry.display_name(&a.registry.active))
 	} else {
 		"whatSnap".to_string()
 	};
-	parts.frame.set_title(&title);
+	if let Some(elsewhere) = whatsnap::unread_elsewhere_text(unread_elsewhere(&a)) {
+		title.push_str(" - ");
+		title.push_str(&elsewhere);
+	}
+	drop(a);
+	if parts.frame.get_title() != title {
+		parts.frame.set_title(&title);
+	}
+}
+
+/// Unread chats of the accounts not on screen, for the window title and the
+/// tray icon. Like the tray's own count, muted and archived chats don't
+/// count, and neither do accounts whose message alerts are off.
+pub(crate) fn unread_elsewhere(a: &Accounts) -> usize {
+	a.registry
+		.live()
+		.filter(|x| x.id != a.registry.active && x.messages != crate::platform::accounts::MessageAlerts::Off)
+		.filter_map(|x| a.background.get(&x.id))
+		.map(|bg| bg.unread.iter().filter(|j| !bg.muted.contains(*j) && !bg.archived.contains(*j)).count())
+		.sum()
+}
+
+/// The tray icon's text: the unread messages of the account on screen, and
+/// the unread chats of the others.
+pub(crate) fn tray_text(s: &AppState, unread: u64) -> String {
+	let elsewhere = s.accounts.try_borrow().map(|a| unread_elsewhere(&a)).unwrap_or(0);
+	match whatsnap::unread_elsewhere_text(elsewhere) {
+		Some(elsewhere) => format!("{}, {elsewhere}", whatsnap::tray_tooltip_text(unread)),
+		None => whatsnap::tray_tooltip_text(unread),
+	}
 }
 
 /// Every event from every account comes through here.
@@ -170,6 +199,8 @@ pub(crate) fn backend_event(
 		crate::backend::events::process_websocket_message(payload, state, parts);
 	} else {
 		background_event(&account, &payload, state, parts);
+		refresh_title(state, parts);
+		crate::platform::tray::refresh_tray_tooltip(&state.borrow(), parts);
 	}
 }
 
@@ -782,6 +813,9 @@ fn notifications(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &st
 		account.calls = calls;
 	}
 	a.save();
+	drop(a);
+	refresh_title(state, parts);
+	crate::platform::tray::refresh_tray_tooltip(&state.borrow(), parts);
 }
 
 fn rename(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {

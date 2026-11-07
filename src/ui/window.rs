@@ -1508,7 +1508,7 @@ pub fn bind_input_handlers(
 					&s.archived_jids,
 					&s.settings.archived_alert_levels,
 				);
-				tray_icon.set_icon(&tray_bitmap, &whatsnap::tray_tooltip_text(unread));
+				tray_icon.set_icon(&tray_bitmap, &crate::ui_commands::accounts::tray_text(&s, unread));
 				crate::platform::tray::enable_keyboard_select();
 			} else {
 				tray_icon.remove_icon();

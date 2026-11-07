@@ -1500,6 +1500,16 @@ pub fn tray_tooltip_text(unread: u64) -> String {
 	}
 }
 
+/// How the unread chats of the accounts not on screen read in the window
+/// title and the tray icon; nothing when there are none.
+pub fn unread_elsewhere_text(chats: usize) -> Option<String> {
+	match chats {
+		0 => None,
+		1 => Some("1 unread chat in other accounts".to_string()),
+		n => Some(format!("{n} unread chats in other accounts")),
+	}
+}
+
 pub const BACKLOG_MESSAGE_AGE_SECS: i64 = 60;
 
 pub fn is_backlog_message(timestamp: i64, now: i64) -> bool {
@@ -1901,6 +1911,13 @@ mod tests {
 		calls.record_missed_call("c@s.whatsapp.net", full);
 		calls.record_missed_call("c@s.whatsapp.net", full);
 		assert_eq!(calls.summary(), "2 missed calls");
+	}
+
+	#[test]
+	fn test_unread_elsewhere_text() {
+		assert_eq!(unread_elsewhere_text(0), None);
+		assert_eq!(unread_elsewhere_text(1).as_deref(), Some("1 unread chat in other accounts"));
+		assert_eq!(unread_elsewhere_text(3).as_deref(), Some("3 unread chats in other accounts"));
 	}
 
 	#[test]
