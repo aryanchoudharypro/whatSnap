@@ -846,8 +846,7 @@ pub fn build_main_window() -> WindowParts {
 	theme::style_primary_button(&qrcode_reload_btn);
 	qrcode_reload_btn.show(false);
 
-	let qrcode_cancel_btn =
-		Button::builder(&qr_panel).with_id(wxdragon::id::ID_CANCEL).with_label("Back to Phone Number Login").build();
+	let qrcode_cancel_btn = Button::builder(&qr_panel).with_label("Back to Phone Number Login").build();
 	qrcode_cancel_btn.set_font(&theme::Fonts::body());
 	qr_sizer.add(&qrcode_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	qr_sizer.add(&qrcode_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
@@ -907,10 +906,9 @@ pub fn build_main_window() -> WindowParts {
 	let pairing_announcer = StaticText::builder(&pairing_panel).with_label("").build();
 	live_region::set_live_region(&pairing_announcer);
 
-	let pairing_cancel_btn = Button::builder(&pairing_panel)
-		.with_id(wxdragon::id::ID_CANCEL)
-		.with_label("Back to Phone Number Login")
-		.build();
+	// No ID_CANCEL on the Back buttons: the dialog would treat a press as
+	// Cancel and hide the whole login window, which now holds all three views.
+	let pairing_cancel_btn = Button::builder(&pairing_panel).with_label("Back to Phone Number Login").build();
 	pairing_cancel_btn.set_font(&theme::Fonts::body());
 	p_sizer.add(&pairing_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	p_sizer.add(&pairing_code_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
