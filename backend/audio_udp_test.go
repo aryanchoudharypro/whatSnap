@@ -67,3 +67,14 @@ func TestUDPBridgeHandsOverTheOpusPacketThatCameWithTheFrame(t *testing.T) {
 		t.Fatalf("hello datagram split into %d PCM bytes and %d Opus bytes", len(pcmPart), len(opusPart))
 	}
 }
+
+func TestSplitOpusPartsReadsLengthPrefixedPackets(t *testing.T) {
+	rest := []byte{2, 0, 0x48, 1, 3, 0, 0x48, 2, 3, 1, 0, 0x48}
+	parts := splitOpusParts(rest)
+	if len(parts) != 3 || len(parts[0]) != 2 || len(parts[1]) != 3 || len(parts[2]) != 1 {
+		t.Fatalf("parts = %v", parts)
+	}
+	if splitOpusParts([]byte{9, 0, 1}) != nil {
+		t.Fatal("a length past the end of the datagram must give no packets")
+	}
+}

@@ -46,6 +46,8 @@ const NETWORK_SAMPLE_RATE: u32 = 16000;
 const OPUS_BITRATE: i32 = 24_000;
 const OPUS_COMPLEXITY: i32 = 5;
 const OPUS_MAX_PACKET: usize = 1275;
+/// Samples in one 20 ms Opus packet at the network rate.
+const OPUS_PACKET_SAMPLES: usize = NETWORK_SAMPLE_RATE as usize / 50;
 
 // Debugging aid for call-audio issues reported in the field (e.g. one-sided
 // silence). Appends timestamped lines to call_audio.log alongside the main
@@ -609,10 +611,15 @@ fn pack_call_frame(frame: &[f32], opus: Option<&mut opus::Encoder>, out: &mut Ve
 		out.extend_from_slice(&sample.to_le_bytes());
 	}
 	let Some(encoder) = opus else { return };
-	let pcm_len = out.len();
-	out.resize(pcm_len + OPUS_MAX_PACKET, 0);
-	let encoded = encoder.encode_float(frame, &mut out[pcm_len..]).unwrap_or(0);
-	out.truncate(pcm_len + encoded);
+	// WhatsApp's own stack sends 20 ms Opus packets, so a lost packet costs 20 ms
+	// of audio, not 60. The frame goes out as three of them, each after a 16-bit
+	// little-endian length, for the backend to space out.
+	let mut packet = [0u8; OPUS_MAX_PACKET];
+	for part in frame.chunks(OPUS_PACKET_SAMPLES) {
+		let Ok(encoded) = encoder.encode_float(part, &mut packet) else { continue };
+		out.extend_from_slice(&(encoded as u16).to_le_bytes());
+		out.extend_from_slice(&packet[..encoded]);
+	}
 }
 
 impl CaptureDsp {
@@ -1276,7 +1283,7 @@ mod tests {
 	}
 
 	#[test]
-	fn a_call_frame_carries_its_pcm_then_one_60ms_opus_packet() {
+	fn a_call_frame_carries_its_pcm_then_three_20ms_opus_packets() {
 		let mut encoder = new_call_opus_encoder().expect("libopus encoder");
 		let mut decoder = opus::Decoder::new(NETWORK_SAMPLE_RATE, opus::Channels::Mono).expect("libopus decoder");
 		let mut datagram = Vec::new();
@@ -1285,20 +1292,27 @@ mod tests {
 			let frame = tone_frame(n * FRAME_SAMPLES);
 			pack_call_frame(&frame, Some(&mut encoder), &mut datagram);
 
-			let (pcm, packet) = datagram.split_at(FRAME_SAMPLES * 4);
+			let (pcm, mut rest) = datagram.split_at(FRAME_SAMPLES * 4);
 			let sent: Vec<f32> =
 				pcm.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
 			assert_eq!(sent, frame, "the PCM half is the frame, untouched");
 
-			assert!(!packet.is_empty(), "frame {n} has no Opus packet");
-			assert_eq!(opus::packet::get_nb_samples(packet, NETWORK_SAMPLE_RATE).unwrap(), FRAME_SAMPLES);
-			assert_eq!(packet[0], 0x58, "frame {n} is not one 60 ms SILK wideband frame");
+			let mut packets = 0;
+			while !rest.is_empty() {
+				let len = u16::from_le_bytes([rest[0], rest[1]]) as usize;
+				let packet = &rest[2..2 + len];
+				rest = &rest[2 + len..];
+				packets += 1;
+				assert_eq!(opus::packet::get_nb_samples(packet, NETWORK_SAMPLE_RATE).unwrap(), OPUS_PACKET_SAMPLES);
+				assert_eq!(packet[0] >> 3, 9, "frame {n} is not one 20 ms SILK wideband packet");
 
-			let mut decoded = vec![0.0f32; FRAME_SAMPLES];
-			assert_eq!(decoder.decode_float(packet, &mut decoded, false).unwrap(), FRAME_SAMPLES);
-			if n >= 2 {
-				energy += decoded.iter().map(|s| s * s).sum::<f32>();
+				let mut decoded = vec![0.0f32; OPUS_PACKET_SAMPLES];
+				assert_eq!(decoder.decode_float(packet, &mut decoded, false).unwrap(), OPUS_PACKET_SAMPLES);
+				if n >= 2 {
+					energy += decoded.iter().map(|s| s * s).sum::<f32>();
+				}
 			}
+			assert_eq!(packets, 3, "frame {n} is three 20 ms packets");
 		}
 		assert!(energy > 1.0, "the Opus packets decode back to the tone, not silence");
 	}

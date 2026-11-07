@@ -26,12 +26,14 @@ type UDPBridge struct {
 	peerAddr   *net.UDPAddr
 	peerAddrMu sync.Mutex
 	opusFrame  []byte
+	opusFrames [][]byte
 	readBuf    []byte
 	frameBuf   []float32
 	writeBuf   []byte
 }
 
 var _ meowcaller.OpusFrameSource = (*UDPBridge)(nil)
+var _ meowcaller.OpusFramesSource = (*UDPBridge)(nil)
 
 func splitMicDatagram(datagram []byte) (pcm, opusFrame []byte) {
 	const pcmBytes = meowcaller.FrameSamples * 4
@@ -43,6 +45,27 @@ func splitMicDatagram(datagram []byte) (pcm, opusFrame []byte) {
 
 func (b *UDPBridge) OpusFrame() []byte {
 	return b.opusFrame
+}
+
+// OpusFrames is the last frame as WhatsApp-sized 20 ms Opus packets.
+func (b *UDPBridge) OpusFrames() [][]byte {
+	return b.opusFrames
+}
+
+// splitOpusParts reads the packets after the PCM in a mic datagram: each is a
+// 16-bit little-endian length and then the Opus packet.
+func splitOpusParts(rest []byte) [][]byte {
+	var parts [][]byte
+	for len(rest) >= 2 {
+		n := int(binary.LittleEndian.Uint16(rest))
+		rest = rest[2:]
+		if n > len(rest) {
+			return nil
+		}
+		parts = append(parts, rest[:n])
+		rest = rest[n:]
+	}
+	return parts
 }
 
 func NewUDPBridge() (*UDPBridge, int, error) {
@@ -65,6 +88,7 @@ func NewUDPBridge() (*UDPBridge, int, error) {
 func (b *UDPBridge) ReadFrame() ([]float32, error) {
 	b.conn.SetReadDeadline(time.Now().Add(readTimeout))
 	b.opusFrame = nil
+	b.opusFrames = nil
 	n, raddr, err := b.conn.ReadFromUDP(b.readBuf)
 	if err != nil {
 		if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
@@ -82,8 +106,12 @@ func (b *UDPBridge) ReadFrame() ([]float32, error) {
 	}
 	b.peerAddrMu.Unlock()
 
-	pcm, opusFrame := splitMicDatagram(b.readBuf[:n])
-	b.opusFrame = opusFrame
+	pcm, opusRest := splitMicDatagram(b.readBuf[:n])
+	b.opusFrames = splitOpusParts(opusRest)
+	b.opusFrame = nil
+	if len(b.opusFrames) == 1 {
+		b.opusFrame = b.opusFrames[0]
+	}
 	for i := range b.frameBuf {
 		b.frameBuf[i] = 0
 	}
