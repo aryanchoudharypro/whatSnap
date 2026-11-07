@@ -669,6 +669,7 @@ pub(crate) fn copy_album_to_clipboard(
 	let (paths, is_single_voice): (Vec<String>, bool) = {
 		let s = state.borrow();
 		let mut p = Vec::new();
+		let mut all_local = true;
 		let mut voice_count = 0;
 		let temp_dir = std::env::temp_dir().join("whantv_clipboard");
 		let _ = std::fs::create_dir_all(&temp_dir);
@@ -696,7 +697,14 @@ pub(crate) fn copy_album_to_clipboard(
 				{
 					voice_count += 1;
 				}
+			} else {
+				all_local = false;
 			}
+		}
+		// Files still to download: the backend fetches them all and copies
+		// the whole set, rather than copying only those already here.
+		if !all_local {
+			p.clear();
 		}
 		(p, message_ids.len() == 1 && voice_count > 0)
 	};

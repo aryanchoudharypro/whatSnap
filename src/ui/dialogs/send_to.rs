@@ -33,6 +33,24 @@ pub fn show_send_to_dialog(
 	initial_text: &str,
 	files: &[String],
 ) -> Option<SendToChoice> {
+	show_picker(parent, title, targets, Some(initial_text), files, "Send")
+}
+
+/// The same chat picker with no message box, for forwarding messages that
+/// already exist: the chats chosen (up to [`MAX_RECIPIENTS`]), or `None` if
+/// cancelled.
+pub fn show_forward_dialog(parent: &impl WxWidget, title: &str, targets: Vec<SendTarget>) -> Option<Vec<String>> {
+	show_picker(parent, title, targets, None, &[], "Forward").map(|choice| choice.jids)
+}
+
+fn show_picker(
+	parent: &impl WxWidget,
+	title: &str,
+	targets: Vec<SendTarget>,
+	initial_text: Option<&str>,
+	files: &[String],
+	send_label: &str,
+) -> Option<SendToChoice> {
 	let dialog = Dialog::builder(parent, title)
 		.with_size(440, 560)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -70,23 +88,29 @@ pub fn show_send_to_dialog(
 	theme::style_muted_label(&announcer);
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let message_label =
-		StaticText::builder(&panel).with_label(if files.is_empty() { "Message" } else { "Caption (optional)" }).build();
-	theme::style_muted_label(&message_label);
-	sizer.add(&message_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let message_field =
-		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::MultiLine)).build();
-	message_field.set_value(initial_text);
-	message_field.set_min_size(Size::new(-1, 90));
-	dialog_look::add_field(&sizer, &message_field, Field::Box, 0);
+	let message_field = initial_text.map(|initial_text| {
+		let message_label = StaticText::builder(&panel)
+			.with_label(if files.is_empty() { "Message" } else { "Caption (optional)" })
+			.build();
+		theme::style_muted_label(&message_label);
+		sizer.add(&message_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
+		let message_field =
+			TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::MultiLine)).build();
+		message_field.set_value(initial_text);
+		message_field.set_min_size(Size::new(-1, 90));
+		dialog_look::add_field(&sizer, &message_field, Field::Box, 0);
+		message_field
+	});
 
-	let send_btn = Button::builder(&panel).with_id(ID_OK).with_label("Send").build();
+	let send_btn = Button::builder(&panel).with_id(ID_OK).with_label(send_label).build();
 	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&send_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
-	dialog_look::paint_fields(&panel, &[(search_field, Field::Search), (message_field, Field::Box)]);
+	let mut painted = vec![(search_field, Field::Search)];
+	painted.extend(message_field.map(|field| (field, Field::Box)));
+	dialog_look::paint_fields(&panel, &painted);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
 	dialog.set_sizer(outer, true);
@@ -183,7 +207,7 @@ pub fn show_send_to_dialog(
 	search_field.on_key_down(escape_closes);
 	list.on_key_down(escape_closes);
 
-	let caption_only = !files.is_empty();
+	let text_required = files.is_empty();
 	let state_send = state.clone();
 	let announcer_send = announcer;
 	send_btn.on_click(move |_| {
@@ -192,7 +216,7 @@ pub fn show_send_to_dialog(
 			crate::platform::announce::announce(announcer_send, "Choose at least one chat to send to.");
 			return;
 		}
-		if !caption_only && message_field.get_value().trim().is_empty() {
+		if text_required && message_field.is_some_and(|field| field.get_value().trim().is_empty()) {
 			crate::platform::announce::announce(announcer_send, "The message is empty.");
 			return;
 		}
@@ -202,8 +226,10 @@ pub fn show_send_to_dialog(
 
 	search_field.set_focus();
 	let result = dialog.show_modal();
-	let choice = (result == ID_OK)
-		.then(|| SendToChoice { jids: state.borrow().checked.clone(), text: message_field.get_value() });
+	let choice = (result == ID_OK).then(|| SendToChoice {
+		jids: state.borrow().checked.clone(),
+		text: message_field.map(|field| field.get_value()).unwrap_or_default(),
+	});
 	search_timer.stop();
 	// A dialog built per use must be destroyed, or it and every closure bound
 	// to it live on hidden.

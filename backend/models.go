@@ -53,6 +53,17 @@ type DeleteMessageData struct {
 	ForEveryone bool   `json:"for_everyone"`
 }
 
+type DeleteMessageItem struct {
+	MessageID string `json:"message_id"`
+	SenderJID string `json:"sender_jid"`
+}
+
+type DeleteMessagesData struct {
+	JID         string              `json:"jid"`
+	Messages    []DeleteMessageItem `json:"messages"`
+	ForEveryone bool                `json:"for_everyone"`
+}
+
 type StarMessageData struct {
 	JID       string `json:"jid"`
 	MessageID string `json:"message_id"`

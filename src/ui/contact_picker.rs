@@ -92,7 +92,7 @@ pub(crate) fn refresh_selection_list(s: &mut AppState, parts: &WindowParts) {
 	if let Some(pos) = cursor.or_else(|| rows.len().checked_sub(1)) {
 		list.set_selection(pos as u32, true);
 	}
-	parts.conversations_parts.selection_count_label.set_label(&format!("{} selected", s.selected_message_ids.len()));
+	crate::ui_commands::selection::update_bar(s, &parts.conversations_parts);
 }
 
 /// Re-filters `s.all_contacts` by `query` and repaints the New Group dialog's

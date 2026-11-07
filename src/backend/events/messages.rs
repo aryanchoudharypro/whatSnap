@@ -565,7 +565,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				// event per message; announcing each individually would spam
 				// a screen reader with "Message deleted" N times back to
 				// back, on top of the one summary announcement
-				// DeleteSelectedMessages already made - suppress the
+				// the select bar's Delete already made - suppress the
 				// per-message announce while draining that batch's set.
 				// Keyed by (jid, message_id) so an unrelated delete arriving
 				// mid-batch (e.g. synced from another linked device) isn't
@@ -1508,6 +1508,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				} else {
 					false
 				};
+				let quiet = s.bulk_quiet_pending.remove(target_id);
 
 				if is_match {
 					let is_group = chat_jid.ends_with("@g.us");
@@ -1516,10 +1517,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					{
 						let updated_display = item.format_display(is_group);
 						parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
-						crate::platform::announce::announce(
-							parts.conversations_parts.messages_announcer,
-							if starred { "Message starred." } else { "Message unstarred." },
-						);
+						if !quiet {
+							crate::platform::announce::announce(
+								parts.conversations_parts.messages_announcer,
+								if starred { "Message starred." } else { "Message unstarred." },
+							);
+						}
 					}
 				}
 				if s.active_tab == 2 {

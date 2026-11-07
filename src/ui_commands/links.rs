@@ -149,7 +149,7 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 }
 
-fn send_targets(s: &AppState) -> Vec<SendTarget> {
+pub(crate) fn send_targets(s: &AppState) -> Vec<SendTarget> {
 	let mut seen = std::collections::HashSet::new();
 	let mut targets = Vec::new();
 	for jid in &s.chats {

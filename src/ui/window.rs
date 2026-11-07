@@ -28,35 +28,13 @@ pub(crate) fn sanitize_export_filename(name: &str) -> String {
 	if trimmed.is_empty() { "chat".to_string() } else { trimmed.to_string() }
 }
 
-fn confirm_delete_choice(parent: &impl WxWidget, count: usize, can_delete_for_everyone: bool) -> Option<bool> {
-	let plural = if count == 1 { "this message" } else { "these messages" };
-	if can_delete_for_everyone {
-		let choices: Vec<&str> = vec!["Delete for Everyone", "Delete for Me"];
-		let dialog = SingleChoiceDialog::builder(
-			parent,
-			&format!("Delete {plural} for everyone, or just remove {} from your own device?", plural),
-			"Delete Message",
-			&choices,
-		)
-		.build();
-		if dialog.show_modal() != wxdragon::id::ID_OK {
-			return None;
-		}
-		match dialog.get_string_selection().as_deref() {
-			Some("Delete for Everyone") => Some(true),
-			Some("Delete for Me") => Some(false),
-			_ => None,
-		}
-	} else {
-		let dlg = MessageDialog::builder(
-			parent,
-			&format!("Are you sure you want to delete {plural} from your device?"),
-			"Confirm Delete",
-		)
-		.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
-		.build();
-		if dlg.show_modal() == wxdragon::id::ID_OK { Some(false) } else { None }
-	}
+/// The messages of a message list row, for its Delete: every photo of an
+/// album, as WhatsApp Web deletes the whole album.
+fn deletable_ids(s: &crate::AppState, row: u32) -> Vec<String> {
+	s.display_items
+		.get(row as usize)
+		.map(|item| item.messages().iter().filter(|m| !m.is_date_divider).map(|m| m.id.clone()).collect())
+		.unwrap_or_default()
 }
 
 fn set_dialog_owner(dialog: &impl WxWidget, owner: &impl WxWidget) {
@@ -4350,41 +4328,9 @@ pub fn bind_input_handlers(
 						}
 					}
 				} else if id == delete_id {
-					let s = state_clone.borrow();
-					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
-						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
-					});
-					drop(s);
-					if let Some(msg) = msg_opt
-						&& !msg.is_date_divider
-					{
-						let is_group_admin = state_clone
-							.borrow()
-							.selected_chat
-							.as_ref()
-							.map(|jid| {
-								let s = state_clone.borrow();
-								s.admin_group_jids.contains(jid)
-									|| crate::ui_commands::links::can_post_in_channel(&s, jid)
-							})
-							.unwrap_or(false);
-						let now = std::time::SystemTime::now()
-							.duration_since(std::time::UNIX_EPOCH)
-							.unwrap_or_default()
-							.as_secs() as i64;
-						let can_delete_for_everyone =
-							(msg.from_me && msg.is_delete_for_everyone_eligible(now)) || is_group_admin;
-						if let Some(for_everyone) =
-							confirm_delete_choice(&parent_frame_clone, 1, can_delete_for_everyone)
-						{
-							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-							let _ = tx_play_media_clone.send(UiCommand::DeleteMessage {
-								message_id: msg.id.clone(),
-								sender_jid,
-								for_everyone,
-							});
-						}
+					let ids = deletable_ids(&state_clone.borrow(), idx);
+					if !ids.is_empty() {
+						let _ = tx_play_media_clone.send(UiCommand::AskDeleteMessages(ids));
 					}
 				} else if id == star_id {
 					let s = state_clone.borrow();
@@ -5128,39 +5074,9 @@ pub fn bind_input_handlers(
 				event.skip(false);
 			} else if pressed(message_list::DELETE) {
 				if let Some(idx) = msgs_list_play.get_selection() {
-					let s = state_play.borrow();
-					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
-						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
-					});
-					drop(s);
-					if let Some(msg) = msg_opt
-						&& !msg.is_date_divider
-					{
-						let is_group_admin = state_play
-							.borrow()
-							.selected_chat
-							.as_ref()
-							.map(|jid| {
-								let s = state_play.borrow();
-								s.admin_group_jids.contains(jid)
-									|| crate::ui_commands::links::can_post_in_channel(&s, jid)
-							})
-							.unwrap_or(false);
-						let now = std::time::SystemTime::now()
-							.duration_since(std::time::UNIX_EPOCH)
-							.unwrap_or_default()
-							.as_secs() as i64;
-						let can_delete_for_everyone =
-							(msg.from_me && msg.is_delete_for_everyone_eligible(now)) || is_group_admin;
-						if let Some(for_everyone) = confirm_delete_choice(&parent_frame, 1, can_delete_for_everyone) {
-							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-							let _ = tx_play_media.send(UiCommand::DeleteMessage {
-								message_id: msg.id.clone(),
-								sender_jid,
-								for_everyone,
-							});
-						}
+					let ids = deletable_ids(&state_play.borrow(), idx);
+					if !ids.is_empty() {
+						let _ = tx_play_media.send(UiCommand::AskDeleteMessages(ids));
 					}
 				}
 			} else if pressed(message_list::VIEW_TEXT) && code != Some(WXK_RETURN) {
@@ -5590,7 +5506,7 @@ pub fn bind_input_handlers(
 	});
 
 	let selection_list_toggle = parts.conversations_parts.messages_select_list;
-	let selection_count_label_toggle = parts.conversations_parts.selection_count_label;
+	let conv_parts_selection_toggle = parts.conversations_parts;
 	let selection_announcer = parts.conversations_parts.messages_announcer;
 	let state_selection_toggle = state.clone();
 	selection_list_toggle.on_toggled(move |idx| {
@@ -5601,10 +5517,9 @@ pub fn bind_input_handlers(
 			} else {
 				s.selected_message_ids.remove(&id);
 			}
-			let count = s.selected_message_ids.len();
-			let text = selection_text(count);
-			selection_count_label_toggle.set_label(&text);
-			crate::platform::announce::announce(selection_announcer, &text);
+			crate::ui_commands::selection::update_bar(&s, &conv_parts_selection_toggle);
+			let count = crate::ui_commands::selection::selected_messages(&s).len();
+			crate::platform::announce::announce(selection_announcer, &selection_text(count));
 		}
 	});
 
@@ -5639,37 +5554,19 @@ pub fn bind_input_handlers(
 		event.skip(true);
 	});
 
-	let tx_delete_selection = ui_tx.clone();
-	let parent_frame_selection = parts.frame;
-	let state_delete_selection = state.clone();
-	parts.conversations_parts.selection_delete_btn.on_click(move |_| {
-		let (count, can_delete_for_everyone) = {
-			let s = state_delete_selection.borrow();
-			let ids = &s.selected_message_ids;
-			let msgs: Vec<&whatsnap::Msg> = s
-				.selection_rows
-				.iter()
-				.filter(|item| ids.contains(item.id()))
-				.flat_map(|item| item.messages())
-				.collect();
-			let now =
-				std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-			let all_from_me_and_eligible =
-				!msgs.is_empty() && msgs.iter().all(|m| m.from_me && m.is_delete_for_everyone_eligible(now));
-			let is_group_admin = s
-				.selected_chat
-				.as_ref()
-				.map(|jid| s.admin_group_jids.contains(jid) || crate::ui_commands::links::can_post_in_channel(&s, jid))
-				.unwrap_or(false);
-			(msgs.len(), all_from_me_and_eligible || is_group_admin)
-		};
-		if count == 0 {
-			return;
-		}
-		if let Some(for_everyone) = confirm_delete_choice(&parent_frame_selection, count, can_delete_for_everyone) {
-			let _ = tx_delete_selection.send(UiCommand::DeleteSelectedMessages { for_everyone });
-		}
-	});
+	for (button, action) in [
+		(parts.conversations_parts.selection_copy_btn, crate::ui_commands::selection::BarAction::Copy),
+		(parts.conversations_parts.selection_star_btn, crate::ui_commands::selection::BarAction::Star),
+		(parts.conversations_parts.selection_keep_btn, crate::ui_commands::selection::BarAction::Keep),
+		(parts.conversations_parts.selection_delete_btn, crate::ui_commands::selection::BarAction::Delete),
+		(parts.conversations_parts.selection_forward_btn, crate::ui_commands::selection::BarAction::Forward),
+		(parts.conversations_parts.selection_save_btn, crate::ui_commands::selection::BarAction::Save),
+	] {
+		let tx_selection_action = ui_tx.clone();
+		button.on_click(move |_| {
+			let _ = tx_selection_action.send(UiCommand::SelectionAction(action));
+		});
+	}
 
 	let tx_close_search = ui_tx.clone();
 	parts.conversations_parts.search_close_btn.on_click(move |_| {

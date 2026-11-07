@@ -42,7 +42,12 @@ pub struct ConversationsPanelParts {
 
 	pub selection_bar_panel: Panel,
 	pub selection_count_label: StaticText,
+	pub selection_copy_btn: Button,
+	pub selection_star_btn: Button,
+	pub selection_keep_btn: Button,
 	pub selection_delete_btn: Button,
+	pub selection_forward_btn: Button,
+	pub selection_save_btn: Button,
 	pub selection_cancel_btn: Button,
 
 	pub play_voice_btn: Button,
@@ -604,12 +609,22 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_muted_label(&selection_count_label);
 	selection_bar_sizer.add(&selection_count_label, 0, SizerFlag::Left | SizerFlag::AlignCenterVertical, 5);
 	selection_bar_sizer.add_stretch_spacer(1);
-	let selection_delete_btn = Button::builder(&selection_bar_panel).with_label("Delete").build();
-	selection_delete_btn.set_font(&theme::Fonts::body());
-	selection_bar_sizer.add(&selection_delete_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
-	let selection_cancel_btn = Button::builder(&selection_bar_panel).with_label("Cancel").build();
-	selection_cancel_btn.set_font(&theme::Fonts::body());
-	selection_bar_sizer.add(&selection_cancel_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
+	// The buttons of WhatsApp Web's select bar, in its order; which show and
+	// which are available is decided by ui_commands::selection::update_bar.
+	let bar_button = |label: &str| {
+		let button = Button::builder(&selection_bar_panel).with_label(label).build();
+		button.set_font(&theme::Fonts::body());
+		selection_bar_sizer.add(&button, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
+		button
+	};
+	let selection_copy_btn = bar_button("Copy");
+	let selection_star_btn = bar_button("Star");
+	let selection_keep_btn = bar_button("Keep");
+	let selection_delete_btn = bar_button("Delete");
+	let selection_forward_btn = bar_button("Forward");
+	let selection_save_btn = bar_button("Save as...");
+	let selection_cancel_btn = bar_button("Cancel");
+	selection_keep_btn.show(false);
 	selection_bar_panel.set_sizer(selection_bar_sizer, true);
 	conv_sizer.add(
 		&selection_bar_panel,
@@ -843,7 +858,12 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		messages_select_list,
 		selection_bar_panel,
 		selection_count_label,
+		selection_copy_btn,
+		selection_star_btn,
+		selection_keep_btn,
 		selection_delete_btn,
+		selection_forward_btn,
+		selection_save_btn,
 		selection_cancel_btn,
 		play_voice_btn,
 		messages_announcer,

@@ -131,6 +131,7 @@ fn update_open_message(
 	let text = |key: &str| data.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
 	let (jid, message_id) = (text("jid"), text("message_id"));
 	let mut s = state.borrow_mut();
+	let quiet = s.bulk_quiet_pending.remove(&message_id);
 	if !s.selected_chat.as_deref().is_some_and(|sel| same_chat(sel, &jid)) {
 		return;
 	}
@@ -140,7 +141,9 @@ fn update_open_message(
 	{
 		parts.conversations_parts.messages_list.set_string(row as u32, &item.format_display(is_group));
 		drop(s);
-		announce(parts, spoken);
+		if !quiet {
+			announce(parts, spoken);
+		}
 	}
 }
 

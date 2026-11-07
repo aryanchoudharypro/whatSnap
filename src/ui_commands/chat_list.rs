@@ -159,53 +159,66 @@ pub(crate) fn open_chat_by_jid(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 }
 
 pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let on = !state.borrow().selection_mode;
+	set_selection_mode(state, parts, on, true);
+}
+
+/// Turns selection mode on or off. `speak` says so; the select bar's actions
+/// turn it off quietly and announce what they did instead.
+pub(crate) fn set_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, on: bool, speak: bool) {
 	let mut s = state.borrow_mut();
-	s.selection_mode = !s.selection_mode;
-	if s.selection_mode {
+	if s.selection_mode == on {
+		return;
+	}
+	s.selection_mode = on;
+	let cp = &parts.conversations_parts;
+	if on {
 		s.selected_message_ids.clear();
 		refresh_selection_list(&mut s, parts);
-		parts.conversations_parts.messages_list.show(false);
-		parts.conversations_parts.messages_select_list.show(true);
-		parts.conversations_parts.selection_bar_panel.show(true);
-		parts.conversations_parts.message_field.show(false);
-		parts.conversations_parts.add_attachment_btn.show(false);
-		parts.conversations_parts.emoji_btn.show(false);
-		parts.conversations_parts.send_message_btn.show(false);
-		parts.conversations_parts.record_voice_btn.show(false);
-		parts.conversations_parts.selection_count_label.set_label(&crate::ui::window::selection_text(0));
-		parts.conversations_parts.messages_select_list.set_focus();
-		crate::platform::announce::announce(
-			parts.conversations_parts.messages_announcer,
-			"Selection mode. Press Space to select a message. 0 messages selected.",
-		);
+		cp.messages_list.show(false);
+		cp.messages_select_list.show(true);
+		cp.selection_bar_panel.show(true);
+		cp.message_field.show(false);
+		cp.add_attachment_btn.show(false);
+		cp.emoji_btn.show(false);
+		cp.send_message_btn.show(false);
+		cp.record_voice_btn.show(false);
+		crate::ui_commands::selection::update_bar(&s, cp);
+		drop(s);
+		cp.messages_select_list.set_focus();
+		if speak {
+			crate::platform::announce::announce(
+				cp.messages_announcer,
+				"Selection mode. Press Space to select a message. 0 messages selected.",
+			);
+		}
 	} else {
-		let at = parts
-			.conversations_parts
+		let at = cp
 			.messages_select_list
 			.get_selection()
 			.and_then(|i| s.selection_rows.get(i as usize))
 			.and_then(|item| s.display_items.iter().position(|d| d.id() == item.id()));
 		if let Some(pos) = at {
-			parts.conversations_parts.messages_list.set_selection(pos as u32, true);
+			cp.messages_list.set_selection(pos as u32, true);
 		}
 		s.selected_message_ids.clear();
 		s.selection_rows = Vec::new();
-		parts.conversations_parts.messages_select_list.clear();
-		parts.conversations_parts.messages_select_list.show(false);
-		parts.conversations_parts.selection_bar_panel.show(false);
-		parts.conversations_parts.messages_list.show(true);
-		parts.conversations_parts.message_field.show(true);
-		parts.conversations_parts.add_attachment_btn.show(true);
-		parts.conversations_parts.emoji_btn.show(true);
-		parts
-			.conversations_parts
-			.send_message_btn
-			.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
-		parts.conversations_parts.record_voice_btn.show(true);
-		parts.conversations_parts.messages_list.set_focus();
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Selection mode off.");
+		drop(s);
+		cp.messages_select_list.clear();
+		cp.messages_select_list.show(false);
+		cp.selection_bar_panel.show(false);
+		cp.messages_list.show(true);
+		cp.message_field.show(true);
+		cp.add_attachment_btn.show(true);
+		cp.emoji_btn.show(true);
+		cp.send_message_btn.show(!cp.message_field.get_value().trim().is_empty());
+		cp.record_voice_btn.show(true);
+		cp.messages_list.set_focus();
+		if speak {
+			crate::platform::announce::announce(cp.messages_announcer, "Selection mode off.");
+		}
 	}
-	parts.conversations_parts.conversation_panel.layout();
+	cp.conversation_panel.layout();
 }
 
 /// Asks for a date (YYYY-MM-DD) and shows the open chat around its first
@@ -236,63 +249,6 @@ pub(crate) fn go_to_date(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 	say(&format!("Going to {}.", date));
-}
-
-pub(crate) fn delete_selected_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, for_everyone: bool) {
-	let (jid_opt, ws_tx, to_delete) = {
-		let s = state.borrow();
-		let ids = &s.selected_message_ids;
-		let msgs: Vec<whatsnap::Msg> = s
-			.selection_rows
-			.iter()
-			.filter(|item| ids.contains(item.id()))
-			.flat_map(|item| item.messages())
-			.cloned()
-			.collect();
-		(s.selected_chat.clone(), s.ws_tx.clone(), msgs)
-	};
-	if let Some(jid) = jid_opt {
-		{
-			let mut s = state.borrow_mut();
-			for msg in &to_delete {
-				s.bulk_delete_pending.insert((jid.clone(), msg.id.clone()));
-			}
-		}
-		for msg in &to_delete {
-			let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-			let payload = serde_json::json!({
-				"action": "delete_message",
-				"data": {
-					"jid": jid,
-					"message_id": msg.id,
-					"sender_jid": sender_jid,
-					"for_everyone": for_everyone
-				}
-			});
-			let _ = ws_tx.send(payload.to_string());
-		}
-	}
-
-	let mut s = state.borrow_mut();
-	s.selection_mode = false;
-	s.selected_message_ids.clear();
-	s.selection_rows.clear();
-	drop(s);
-	parts.conversations_parts.messages_select_list.show(false);
-	parts.conversations_parts.selection_bar_panel.show(false);
-	parts.conversations_parts.messages_list.show(true);
-	parts.conversations_parts.message_field.show(true);
-	parts.conversations_parts.add_attachment_btn.show(true);
-	parts.conversations_parts.emoji_btn.show(true);
-	parts.conversations_parts.record_voice_btn.show(true);
-	parts
-		.conversations_parts
-		.send_message_btn
-		.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
-	parts.conversations_parts.conversation_panel.layout();
-	if !to_delete.is_empty() {
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Selected messages deleted.");
-	}
 }
 
 pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {

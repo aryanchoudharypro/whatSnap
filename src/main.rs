@@ -249,6 +249,9 @@ struct AppState {
 	selected_message_ids: std::collections::HashSet<String>,
 	selection_rows: Vec<whatsnap::DisplayItem>,
 	bulk_delete_pending: std::collections::HashSet<(String, String)>,
+	/// Messages starred, unstarred, kept or unkept together from the select
+	/// bar, which already said so once: their own confirmations stay quiet.
+	bulk_quiet_pending: std::collections::HashSet<String>,
 	typing_timestamps: std::collections::HashMap<String, std::time::Instant>,
 	// Last announced typing/recording state per chat (0=none, 1=typing, 2=recording),
 	// so a screen reader hears "X is typing" once per state change instead of on
@@ -1003,6 +1006,7 @@ pub(crate) fn new_app_state(
 		selected_message_ids: std::collections::HashSet::new(),
 		selection_rows: Vec::new(),
 		bulk_delete_pending: std::collections::HashSet::new(),
+		bulk_quiet_pending: std::collections::HashSet::new(),
 	}
 }
 
@@ -1056,9 +1060,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::OpenChatByPhone(digits) => ui_commands::chat_list::open_chat_by_phone(state, parts, digits),
 		UiCommand::OpenChatByJid(jid) => ui_commands::chat_list::open_chat_by_jid(state, parts, jid),
 		UiCommand::ToggleSelectionMode => ui_commands::chat_list::toggle_selection_mode(state, parts),
-		UiCommand::DeleteSelectedMessages { for_everyone } => {
-			ui_commands::chat_list::delete_selected_messages(state, parts, for_everyone)
-		}
+		UiCommand::SelectionAction(action) => ui_commands::selection::run(state, parts, action),
+		UiCommand::AskDeleteMessages(ids) => ui_commands::selection::delete_row(state, parts, ids),
 		UiCommand::LoadMoreMessages => ui_commands::chat_list::load_more_messages(state, parts),
 		UiCommand::LoadNewerMessages => ui_commands::chat_list::load_newer_messages(state),
 		UiCommand::JumpToLatestMessage => ui_commands::chat_list::jump_to_latest_message(state, parts),
