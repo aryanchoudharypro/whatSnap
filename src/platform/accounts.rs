@@ -1,7 +1,6 @@
 //! The WhatsApp accounts linked on this computer (accounts.json).
 //!
-//! Every account has its own folder with its own session.db, media cache and
-//! backend logs. The first account keeps the folder whatSnap always used (the
+//! Every account has its own folder with its own session.db and media cache. The first account keeps the folder whatSnap always used (the
 //! app data folder itself), so nothing moves for someone who only has one.
 //! Later accounts live in `accounts/<id>`, where the id is 32 hex digits and is
 //! checked before it is ever turned into a path.
@@ -30,6 +29,40 @@ pub enum AccountState {
 	Deleting,
 }
 
+/// How messages to an account that isn't on screen alert.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageAlerts {
+	/// Notification and sound, as the chat's own settings allow.
+	#[default]
+	Full,
+	NoSound,
+	SoundOnly,
+	Off,
+}
+
+impl MessageAlerts {
+	pub fn sound(self) -> bool {
+		matches!(self, Self::Full | Self::SoundOnly)
+	}
+
+	pub fn toast(self) -> bool {
+		matches!(self, Self::Full | Self::NoSound)
+	}
+}
+
+/// What a call to an account that isn't on screen does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CallAlerts {
+	/// Switch to the account and ring, unless a call or recording is on.
+	#[default]
+	Switch,
+	/// A notification that says who is calling, and missed call notifications.
+	Notify,
+	Off,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
 	pub id: String,
@@ -44,6 +77,12 @@ pub struct Account {
 	pub phone: String,
 	#[serde(default)]
 	pub state: AccountState,
+	/// Message alerts while another account is on screen.
+	#[serde(default)]
+	pub messages: MessageAlerts,
+	/// Call alerts while another account is on screen.
+	#[serde(default)]
+	pub calls: CallAlerts,
 }
 
 impl Account {
@@ -280,6 +319,18 @@ fn purge_files_in(base: &Path, id: &str) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn alert_choices_default_and_round_trip() {
+		let old: Account = serde_json::from_str(r#"{"id":"default","state":"paired"}"#).unwrap();
+		assert_eq!((old.messages, old.calls), (MessageAlerts::Full, CallAlerts::Switch));
+		let quiet = Account { messages: MessageAlerts::NoSound, calls: CallAlerts::Notify, ..old };
+		let text = serde_json::to_string(&quiet).unwrap();
+		assert!(text.contains(r#""messages":"no_sound""#) && text.contains(r#""calls":"notify""#));
+		assert_eq!(serde_json::from_str::<Account>(&text).unwrap(), quiet);
+		assert!(!MessageAlerts::NoSound.sound() && MessageAlerts::NoSound.toast());
+		assert!(MessageAlerts::SoundOnly.sound() && !MessageAlerts::SoundOnly.toast());
+	}
 
 	fn temp_base(name: &str) -> PathBuf {
 		let dir = std::env::temp_dir().join(format!("whatsnap-accounts-{name}-{}", crate::util::random_hex()));

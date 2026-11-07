@@ -25,7 +25,7 @@ use wxdragon::prelude::*;
 use crate::{
 	AppState, UiCommand,
 	backend::links::{self, Link},
-	platform::accounts::{AccountState, FIRST_ACCOUNT, Registry},
+	platform::accounts::{AccountState, CallAlerts, FIRST_ACCOUNT, Registry},
 	ui::window::WindowParts,
 };
 
@@ -362,6 +362,7 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 	let accounts = accounts(state);
 	let mut a = accounts.borrow_mut();
 	let account_name = a.registry.display_name(account);
+	let (messages, calls) = a.registry.get(account).map(|x| (x.messages, x.calls)).unwrap_or_default();
 	let bg = a.background.entry(account.to_string()).or_default();
 	bg.unread.insert(jid.to_string());
 	let addresses_me = data.get("addressesMe").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -373,6 +374,15 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 	let s = state.borrow();
 	let mut alert =
 		s.settings.message_alert(jid, bg.muted.contains(jid) && !reaches_me, bg.archived.contains(jid) && !reaches_me);
+	// The account's own choice comes on top of the chat's. A missed call
+	// follows the account's call choice instead.
+	if is_call_line {
+		alert.sound &= calls != CallAlerts::Off && messages.sound();
+		alert.toast &= calls != CallAlerts::Off;
+	} else {
+		alert.sound &= messages.sound();
+		alert.toast &= messages.toast();
+	}
 	if jid.ends_with("@g.us") && (alert.sound || alert.toast) {
 		let now = Instant::now();
 		if bg.group_quiet_until.get(jid).is_some_and(|until| now < *until) && !addresses_me {
@@ -428,7 +438,8 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 
 /// A call to an account that isn't on screen. With nothing else going on, the
 /// window switches to that account and rings there, so it can be answered
-/// like any call. Otherwise a notification says who is calling which account.
+/// like any call. Otherwise, or when the account is set to only notify, a
+/// notification says who is calling which account. Set to off, nothing shows.
 fn background_call(
 	account: &str,
 	payload: &str,
@@ -436,7 +447,11 @@ fn background_call(
 	state: &Rc<RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
 ) {
-	if busy(&state.borrow()).is_none() && switch_to(state, parts, account) {
+	let calls = accounts(state).borrow().registry.get(account).map(|x| x.calls).unwrap_or_default();
+	if calls == CallAlerts::Off {
+		return;
+	}
+	if calls == CallAlerts::Switch && busy(&state.borrow()).is_none() && switch_to(state, parts, account) {
 		crate::backend::events::process_websocket_message(payload.to_string(), state, parts);
 		return;
 	}
@@ -703,6 +718,9 @@ fn account_rows(a: &Accounts) -> Vec<crate::ui::dialogs::accounts::AccountRow> {
 				let n = bg.unread.len();
 				label.push_str(&format!(", {n} unread chat{}", if n == 1 { "" } else { "s" }));
 			}
+			if x.messages == crate::platform::accounts::MessageAlerts::Off && x.calls == CallAlerts::Off {
+				label.push_str(", notifications off");
+			}
 			crate::ui::dialogs::accounts::AccountRow { id: x.id.clone(), label }
 		})
 		.collect()
@@ -733,8 +751,32 @@ pub(crate) fn open_accounts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		Some(AccountsAction::Remove(id)) => {
 			remove(state, parts, &id);
 		}
+		Some(AccountsAction::Notifications(id)) => {
+			notifications(state, parts, &id);
+			let _ = state.borrow().ui_tx.send(UiCommand::OpenAccounts(Some(id)));
+		}
 		None => {}
 	}
+}
+
+/// Accounts, Notifications...: how an account alerts while it isn't on screen.
+fn notifications(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
+	let accounts = accounts(state);
+	let Some((name, messages, calls)) =
+		accounts.borrow().registry.get(id).map(|x| (x.display_name(), x.messages, x.calls))
+	else {
+		return;
+	};
+	let Some((messages, calls)) = crate::ui::dialogs::accounts::ask_notifications(&parts.frame, &name, messages, calls)
+	else {
+		return;
+	};
+	let mut a = accounts.borrow_mut();
+	if let Some(account) = a.registry.get_mut(id) {
+		account.messages = messages;
+		account.calls = calls;
+	}
+	a.save();
 }
 
 fn rename(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
