@@ -1815,7 +1815,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 		if notice := unwrappedMsg.GetMessageHistoryNotice(); notice != nil {
 			chat, _ := acc.resolveLIDChat(v)
 			text := acc.messageHistoryNoticeText(notice, v.Info.Sender)
-			acc.insertGroupSystemMessage(chat.String(), v.Info.ID, text, v.Info.Timestamp)
+			acc.insertGroupSystemMessage(chat.String(), v.Info.ID, text, v.Info.Timestamp, true)
 			return
 		}
 
@@ -2440,7 +2440,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 			}
 			if v.JID.Server == types.GroupServer && !v.Timestamp.IsZero() {
 				acc.insertGroupSystemMessage(jidStr, fmt.Sprintf("system_%s_%d_picture", v.JID.User, v.Timestamp.UnixNano()),
-					acc.groupPictureChangeText(v.Author, v.Remove), v.Timestamp)
+					acc.groupPictureChangeText(v.Author, v.Remove), v.Timestamp, false)
 			}
 			acc.broadcastEvent("avatar_updated", map[string]interface{}{
 				"jid":     jidStr,
@@ -2552,8 +2552,8 @@ func (acc *Account) eventHandler(evt interface{}) {
 				acc.db.Exec(`UPDATE chats SET participant_count = MAX(0, participant_count + ?) WHERE jid = ? AND participant_count > 0`, delta, v.JID.String())
 			}
 
-			for i, text := range acc.groupChangeMessages(v) {
-				acc.insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d_%d", v.JID.User, v.Timestamp.UnixNano(), i), text, v.Timestamp)
+			for i, line := range acc.groupChangeMessages(v) {
+				acc.insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d_%d", v.JID.User, v.Timestamp.UnixNano(), i), line.Text, v.Timestamp, line.MovesChat)
 			}
 
 			if isAdminChanged || sendRightsChanged {
@@ -2614,7 +2614,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 					msg = "You joined the group"
 				}
 			}
-			acc.insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d", v.JID.User, time.Now().UnixNano()), msg, time.Now())
+			acc.insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d", v.JID.User, time.Now().UnixNano()), msg, time.Now(), true)
 
 			acc.invalidateJoinedGroups()
 			acc.populateChatsFromStore()
@@ -2645,8 +2645,24 @@ func (acc *Account) joinedNamesList(jids []types.JID) string {
 	}
 }
 
-func (acc *Account) groupChangeMessages(v *events.GroupInfo) []string {
-	var lines []string
+// groupChangeLine is one system line for a group change, and whether WA Web
+// moves the chat to the top for it (see insertGroupSystemMessage).
+type groupChangeLine struct {
+	Text      string
+	MovesChat bool
+}
+
+func (acc *Account) groupChangeMessages(v *events.GroupInfo) []groupChangeLine {
+	var lines []groupChangeLine
+	quiet := func(text string) { lines = append(lines, groupChangeLine{Text: text}) }
+	includesMe := func(jids []types.JID) bool {
+		for _, j := range jids {
+			if acc.isParticipantMe(types.GroupParticipant{JID: j}) {
+				return true
+			}
+		}
+		return false
+	}
 	actor := ""
 	if v.Sender != nil {
 		actor = acc.nameToken(*v.Sender)
@@ -2659,94 +2675,99 @@ func (acc *Account) groupChangeMessages(v *events.GroupInfo) []string {
 	}
 
 	if v.Name != nil && v.Name.Name != "" {
-		lines = append(lines, fmt.Sprintf("%s changed the group name to \"%s\"", who, v.Name.Name))
+		lines = append(lines, groupChangeLine{Text: fmt.Sprintf("%s changed the group name to \"%s\"", who, v.Name.Name), MovesChat: true})
 	}
 	if v.Topic != nil {
 		if v.Topic.TopicDeleted || v.Topic.Topic == "" {
-			lines = append(lines, fmt.Sprintf("%s deleted the group description", who))
+			quiet(fmt.Sprintf("%s deleted the group description", who))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s changed the group description", who))
+			quiet(fmt.Sprintf("%s changed the group description", who))
 		}
 	}
 	if v.Announce != nil {
 		if v.Announce.IsAnnounce {
-			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow only admins to send messages to this group", who))
+			quiet(fmt.Sprintf("%s changed this group's settings to allow only admins to send messages to this group", who))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow all members to send messages to this group", who))
+			quiet(fmt.Sprintf("%s changed this group's settings to allow all members to send messages to this group", who))
 		}
 	}
 	if v.Locked != nil {
 		if v.Locked.IsLocked {
-			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow only admins to edit this group's info", who))
+			quiet(fmt.Sprintf("%s changed this group's settings to allow only admins to edit this group's info", who))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow all members to edit this group's info", who))
+			quiet(fmt.Sprintf("%s changed this group's settings to allow all members to edit this group's info", who))
 		}
 	}
 	if v.Ephemeral != nil {
-		lines = append(lines, disappearingChangeText(who, v.Ephemeral.IsEphemeral, v.Ephemeral.DisappearingTimer))
+		quiet(disappearingChangeText(who, v.Ephemeral.IsEphemeral, v.Ephemeral.DisappearingTimer))
 	}
 	if v.MembershipApprovalMode != nil {
 		if v.MembershipApprovalMode.IsJoinApprovalRequired {
-			lines = append(lines, fmt.Sprintf("%s turned on admin approval to join this group", who))
+			quiet(fmt.Sprintf("%s turned on admin approval to join this group", who))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s turned off admin approval to join this group", who))
+			quiet(fmt.Sprintf("%s turned off admin approval to join this group", who))
 		}
 	}
 	if v.MemberAddMode != nil {
 		switch *v.MemberAddMode {
 		case types.GroupMemberAddModeAdmin:
-			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow only admins to add others to this group", who))
+			quiet(fmt.Sprintf("%s changed this group's settings to allow only admins to add others to this group", who))
 		case types.GroupMemberAddModeAllMember:
-			lines = append(lines, fmt.Sprintf("%s changed this group's settings to allow all members to add others to this group", who))
+			quiet(fmt.Sprintf("%s changed this group's settings to allow all members to add others to this group", who))
 		}
 	}
 	if v.Delete != nil && v.Delete.Deleted {
-		lines = append(lines, fmt.Sprintf("%s deleted this group", who))
+		quiet(fmt.Sprintf("%s deleted this group", who))
 	}
 	if v.NewInviteLink != nil && actor != "" {
-		lines = append(lines, fmt.Sprintf("%s reset this group's invite link", actor))
+		quiet(fmt.Sprintf("%s reset this group's invite link", actor))
 	}
 
 	if len(v.Join) > 0 {
 		names := acc.joinedNamesList(v.Join)
+		// Only a join that brings you in moves the chat.
+		moves := includesMe(v.Join)
 		switch {
 		case actor != "" && actor != names:
-			lines = append(lines, fmt.Sprintf("%s added %s", actor, names))
+			lines = append(lines, groupChangeLine{Text: fmt.Sprintf("%s added %s", actor, names), MovesChat: moves})
 		case v.JoinReason == "invite":
-			lines = append(lines, fmt.Sprintf("%s joined using this group's invite link", names))
+			lines = append(lines, groupChangeLine{Text: fmt.Sprintf("%s joined using this group's invite link", names), MovesChat: moves})
 		default:
-			lines = append(lines, fmt.Sprintf("%s joined", names))
+			lines = append(lines, groupChangeLine{Text: fmt.Sprintf("%s joined", names), MovesChat: moves})
 		}
 	}
 
 	if len(v.Leave) > 0 {
 		names := acc.joinedNamesList(v.Leave)
 		if actor != "" && actor != names {
-			lines = append(lines, fmt.Sprintf("%s removed %s", actor, names))
+			// Being removed yourself moves the chat; anyone else, or
+			// leaving (even you), doesn't.
+			moves := includesMe(v.Leave) && !acc.isParticipantMe(types.GroupParticipant{JID: *v.Sender})
+			lines = append(lines, groupChangeLine{Text: fmt.Sprintf("%s removed %s", actor, names), MovesChat: moves})
 		} else {
-			lines = append(lines, fmt.Sprintf("%s left", names))
+			quiet(fmt.Sprintf("%s left", names))
 		}
 	}
 
 	if len(v.Promote) > 0 {
 		names := acc.joinedNamesList(v.Promote)
 		if actor != "" {
-			lines = append(lines, fmt.Sprintf("%s made %s a group admin", actor, names))
+			quiet(fmt.Sprintf("%s made %s a group admin", actor, names))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s is now a group admin", names))
+			quiet(fmt.Sprintf("%s is now a group admin", names))
 		}
 	}
 
 	for _, j := range v.Modify {
-		lines = append(lines, fmt.Sprintf("%s changed their phone number", acc.nameToken(j)))
+		quiet(fmt.Sprintf("%s changed their phone number", acc.nameToken(j)))
 	}
 
 	if len(v.Demote) > 0 {
 		names := acc.joinedNamesList(v.Demote)
 		if actor != "" {
-			lines = append(lines, fmt.Sprintf("%s removed %s as group admin", actor, names))
+			quiet(fmt.Sprintf("%s removed %s as group admin", actor, names))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s is no longer a group admin", names))
+			quiet(fmt.Sprintf("%s is no longer a group admin", names))
 		}
 	}
 
@@ -3017,7 +3038,16 @@ func (acc *Account) messageHistoryNoticeText(notice *waE2E.MessageHistoryNotice,
 	}
 }
 
-func (acc *Account) insertGroupSystemMessage(jid, id, text string, ts time.Time) {
+// insertGroupSystemMessage stores a system line and makes it the chat's
+// preview. movesChat says whether the line also raises the chat's time and so
+// takes it to the top of the list. WA Web (WAWebMsgDataUtils
+// eventTypeFromMsgType) only moves a chat for a few of these lines: a new
+// group name, the group being created, you being added or removed, linking to
+// a community, and pins and history notices. Everything else (other people
+// joining, leaving or being removed, admin changes, description, icon,
+// settings, disappearing messages, chat privacy) gets EventType.IGNORE: the
+// chat keeps its place, though the line still becomes its preview.
+func (acc *Account) insertGroupSystemMessage(jid, id, text string, ts time.Time, movesChat bool) {
 	if text == "" {
 		return
 	}
@@ -3032,9 +3062,13 @@ func (acc *Account) insertGroupSystemMessage(jid, id, text string, ts time.Time)
 		fmt.Println("Error inserting group system message:", err)
 		return
 	}
+	newTime := "timestamp"
+	if movesChat {
+		newTime = "MAX(timestamp, excluded.timestamp)"
+	}
 	acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', 0)
 		ON CONFLICT(jid) DO UPDATE SET
-			timestamp=MAX(timestamp, excluded.timestamp),
+			timestamp=`+newTime+`,
 			preview_snippet=excluded.preview_snippet,
 			preview_sender='',
 			preview_from_me=0,

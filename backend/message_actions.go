@@ -170,7 +170,7 @@ func (acc *Account) setMessagePin(jid, messageID string, until int64, by types.J
 		if !acc.isOwnJID(by) && !by.IsEmpty() {
 			who = acc.nameToken(by)
 		}
-		acc.insertGroupSystemMessage(jid, fmt.Sprintf("system_pin_%s_%d", messageID, ts.Unix()), who+" pinned a message", ts)
+		acc.insertGroupSystemMessage(jid, fmt.Sprintf("system_pin_%s_%d", messageID, ts.Unix()), who+" pinned a message", ts, true)
 	}
 	acc.broadcastEvent("message_pinned", map[string]interface{}{
 		"jid": jid, "message_id": messageID, "pinned": until > time.Now().Unix(),
@@ -340,7 +340,7 @@ func (acc *Account) noteRestrictedChatChange(jid string, by types.JID, enabled b
 	if enabled {
 		text = who + " turned on restricted chat. New messages in this chat won't appear on linked devices like this one"
 	}
-	acc.insertGroupSystemMessage(jid, fmt.Sprintf("system_restricted_%d", ts.UnixMilli()), text, ts)
+	acc.insertGroupSystemMessage(jid, fmt.Sprintf("system_restricted_%d", ts.UnixMilli()), text, ts, false)
 }
 
 func (acc *Account) noteChatPrivacyChange(jid string, by types.JID, enabled bool, ts time.Time) {
@@ -352,5 +352,5 @@ func (acc *Account) noteChatPrivacyChange(jid string, by types.JID, enabled bool
 	if enabled {
 		state = "on"
 	}
-	acc.insertGroupSystemMessage(jid, fmt.Sprintf("system_privacy_%d", ts.UnixMilli()), who+" turned "+state+" advanced chat privacy", ts)
+	acc.insertGroupSystemMessage(jid, fmt.Sprintf("system_privacy_%d", ts.UnixMilli()), who+" turned "+state+" advanced chat privacy", ts, false)
 }

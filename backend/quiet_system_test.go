@@ -31,3 +31,25 @@ func TestQuietSystemLineLeavesChatListAlone(t *testing.T) {
 		t.Fatalf("system line not stored")
 	}
 }
+
+func TestGroupLineMovesChatOnlyWhenWAWebWould(t *testing.T) {
+	openDisappearingTestDB(t)
+	const group = "1@g.us"
+	if _, err := acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet) VALUES (?, 100, 0, 'hi')`, group); err != nil {
+		t.Fatal(err)
+	}
+	read := func() (ts int64, preview string) {
+		acc.db.QueryRow(`SELECT timestamp, preview_snippet FROM chats WHERE jid = ?`, group).Scan(&ts, &preview)
+		return
+	}
+
+	acc.insertGroupSystemMessage(group, "system_1_500_0", "A removed B", time.Unix(500, 0), false)
+	if ts, preview := read(); ts != 100 || preview != "A removed B" {
+		t.Fatalf("quiet line: timestamp %d, preview %q; want 100 and the line", ts, preview)
+	}
+
+	acc.insertGroupSystemMessage(group, "system_1_600_0", `A changed the group name to "Trip"`, time.Unix(600, 0), true)
+	if ts, _ := read(); ts != 600 {
+		t.Fatalf("moving line: timestamp %d, want 600", ts)
+	}
+}

@@ -129,7 +129,7 @@ func (acc *Account) applyCommunityLinkChange(v *events.GroupInfo, change *types.
 	if !linked {
 		suffix = "unlink"
 	}
-	acc.insertGroupSystemMessage(childStr, fmt.Sprintf("system_%s_%d_%s", child.User, v.Timestamp.UnixNano(), suffix), text, v.Timestamp)
+	acc.insertGroupSystemMessage(childStr, fmt.Sprintf("system_%s_%d_%s", child.User, v.Timestamp.UnixNano(), suffix), text, v.Timestamp, linked)
 }
 
 func (acc *Account) handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {

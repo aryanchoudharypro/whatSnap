@@ -208,7 +208,7 @@ func (acc *Account) applyEphemeralSettingMessage(v *events.Message, pm *waE2E.Pr
 		who = acc.nameToken(sender)
 	}
 	acc.insertGroupSystemMessage(jid, fmt.Sprintf("system_%s_%d_ephemeral", chat.User, v.Info.Timestamp.UnixNano()),
-		disappearingChangeText(who, seconds > 0, seconds), v.Info.Timestamp)
+		disappearingChangeText(who, seconds > 0, seconds), v.Info.Timestamp, false)
 }
 
 func (acc *Account) handleSetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
@@ -235,7 +235,7 @@ func (acc *Account) handleSetDisappearingTimer(conn net.Conn, raw json.RawMessag
 		}
 		if acc.setChatDisappearing(jid.String(), data.Seconds, now.Unix()) && jid.Server != types.GroupServer {
 			acc.insertGroupSystemMessage(jid.String(), fmt.Sprintf("system_%s_%d_ephemeral", jid.User, now.UnixNano()),
-				disappearingChangeText("You", data.Seconds > 0, data.Seconds), now)
+				disappearingChangeText("You", data.Seconds > 0, data.Seconds), now, false)
 		}
 	}()
 }

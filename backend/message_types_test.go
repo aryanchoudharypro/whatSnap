@@ -83,20 +83,20 @@ func TestGroupSettingLines(t *testing.T) {
 		Announce:  &types.GroupAnnounce{IsAnnounce: true},
 		Ephemeral: &types.GroupEphemeral{IsEphemeral: true, DisappearingTimer: 86400},
 	})
-	if len(lines) != 3 {
-		t.Fatalf("got %d lines: %q", len(lines), lines)
+	if len(lines) != 3 || !lines[0].MovesChat || lines[1].MovesChat || lines[2].MovesChat {
+		t.Fatalf("got %d lines: %+v", len(lines), lines)
 	}
 	// Index 0 must be the subject line: history sync's GROUP_CHANGE_SUBJECT
 	// stub is stored under the same id, so a resync doesn't repeat it.
-	if !strings.Contains(lines[0], `changed the group name to "Trip"`) {
-		t.Errorf("line 0 = %q", lines[0])
+	if !strings.Contains(lines[0].Text, `changed the group name to "Trip"`) {
+		t.Errorf("line 0 = %+v", lines[0])
 	}
-	if !strings.Contains(lines[1], "only admins to send messages") || !strings.Contains(lines[2], "24 hours") {
-		t.Errorf("lines = %q", lines)
+	if !strings.Contains(lines[1].Text, "only admins to send messages") || !strings.Contains(lines[2].Text, "24 hours") {
+		t.Errorf("lines = %+v", lines)
 	}
 	if lines := acc.groupChangeMessages(&events.GroupInfo{Topic: &types.GroupTopic{TopicDeleted: true}}); len(lines) != 1 ||
-		lines[0] != "Someone deleted the group description" {
-		t.Errorf("senderless topic delete = %q", lines)
+		lines[0].Text != "Someone deleted the group description" || lines[0].MovesChat {
+		t.Errorf("senderless topic delete = %+v", lines)
 	}
 }
 
