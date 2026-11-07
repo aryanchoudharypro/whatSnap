@@ -2184,6 +2184,27 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	let settings_dialog_logout = parts.settings_dialog.dialog;
+	let state_logout_btn = state.clone();
+	parts.settings_dialog.logout_btn.on_click(move |_| {
+		let dlg = MessageDialog::builder(
+			&settings_dialog_logout,
+			"Log out of WhatsApp on this device? You'll need to scan a QR code or re-enter your phone number to use whatSnap again.",
+			"Log Out",
+		)
+		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::NoDefault | MessageDialogStyle::IconWarning)
+		.build();
+		if dlg.show_modal() == wxdragon::id::ID_YES {
+			settings_dialog_logout.end_modal(wxdragon::id::ID_CANCEL);
+			let _ = state_logout_btn.borrow().ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
+		}
+	});
+
+	let tx_blocked = ui_tx.clone();
+	parts.settings_dialog.blocked_contacts_btn.on_click(move |_| {
+		let _ = tx_blocked.send(UiCommand::ShowBlockedContacts);
+	});
+
 	let settings_dialog_ok = parts.settings_dialog.dialog;
 	let sounds_check_ok = parts.settings_dialog.sounds_check;
 	let notifications_check_ok = parts.settings_dialog.notifications_check;

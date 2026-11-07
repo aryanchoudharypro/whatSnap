@@ -70,6 +70,20 @@ pub struct SettingsDialogParts {
 	pub shortcuts_btn: Button,
 	pub share_menu_btn: Button,
 
+	pub account_panel: Panel,
+	pub security_notifications_check: CheckBox,
+	pub logout_btn: Button,
+
+	pub chats_panel: Panel,
+	pub enter_is_send_check: CheckBox,
+	pub type_to_compose_check: CheckBox,
+	pub keep_list_position_check: CheckBox,
+	pub replace_emoji_check: CheckBox,
+	pub emoji_help_btn: Button,
+	pub spell_check_check: CheckBox,
+	pub spell_announce_check: CheckBox,
+	pub spell_language_combo: ComboBox,
+
 	pub notifications_panel: Panel,
 	pub sounds_check: CheckBox,
 	pub notifications_check: CheckBox,
@@ -88,33 +102,17 @@ pub struct SettingsDialogParts {
 	pub announce_incoming_check: CheckBox,
 	pub announce_outgoing_check: CheckBox,
 
-	pub chats_panel: Panel,
-	pub enter_is_send_check: CheckBox,
-	pub type_to_compose_check: CheckBox,
-	pub keep_list_position_check: CheckBox,
-	pub chat_lock_hello_check: CheckBox,
-	pub app_lock_check: CheckBox,
-	pub app_lock_method_combo: ComboBox,
-	pub app_lock_password_btn: Button,
-	pub replace_emoji_check: CheckBox,
-	pub emoji_help_btn: Button,
-	pub spell_check_check: CheckBox,
-	pub spell_announce_check: CheckBox,
-	pub spell_language_combo: ComboBox,
-	pub auto_download_photos_check: CheckBox,
-	pub auto_download_audio_check: CheckBox,
-	pub auto_download_videos_check: CheckBox,
-	pub auto_download_documents_check: CheckBox,
-	pub download_quality_combo: ComboBox,
-	pub upload_quality_combo: ComboBox,
+	pub personalization_panel: Panel,
 	pub theme_combo: ComboBox,
 
-	pub privacy_panel: Panel,
+	pub profile_panel: Panel,
 	pub name_field: TextCtrl,
 	pub about_field: TextCtrl,
 	pub about_duration_combo: ComboBox,
 	pub change_photo_btn: Button,
 	pub remove_photo_btn: Button,
+
+	pub privacy_panel: Panel,
 	pub default_timer_combo: ComboBox,
 	pub last_seen_combo: ComboBox,
 	pub last_seen_except_btn: Button,
@@ -128,7 +126,15 @@ pub struct SettingsDialogParts {
 	pub calls_combo: ComboBox,
 	pub online_combo: ComboBox,
 	pub link_previews_off_check: CheckBox,
-	pub security_notifications_check: CheckBox,
+	pub blocked_contacts_btn: Button,
+
+	pub storage_panel: Panel,
+	pub auto_download_photos_check: CheckBox,
+	pub auto_download_audio_check: CheckBox,
+	pub auto_download_videos_check: CheckBox,
+	pub auto_download_documents_check: CheckBox,
+	pub download_quality_combo: ComboBox,
+	pub upload_quality_combo: ComboBox,
 
 	pub audio_panel: Panel,
 	pub input_device_combo: ComboBox,
@@ -136,6 +142,12 @@ pub struct SettingsDialogParts {
 	pub call_output_device_combo: ComboBox,
 	pub voice_message_noise_suppression_check: CheckBox,
 	pub dual_stream_screen_share_check: CheckBox,
+
+	pub lock_panel: Panel,
+	pub app_lock_check: CheckBox,
+	pub app_lock_method_combo: ComboBox,
+	pub app_lock_password_btn: Button,
+	pub chat_lock_hello_check: CheckBox,
 
 	pub ok_btn: Button,
 	pub cancel_btn: Button,
@@ -193,9 +205,21 @@ fn except_button(panel: &Panel, sizer: &BoxSizer, setting: &str) -> Button {
 	btn
 }
 
+fn setting_note(panel: &Panel, sizer: &BoxSizer, text: &str) {
+	let label = StaticText::builder(panel).with_label(text).build();
+	theme::style_muted_label(&label);
+	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
+}
+
+fn section_header(panel: &Panel, sizer: &BoxSizer, label: &str) {
+	let text = StaticText::builder(panel).with_label(label).build();
+	text.set_font(&theme::Fonts::body_strong());
+	sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Top, 12);
+}
+
 pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let dialog = Dialog::builder(parent, "Settings")
-		.with_size(600, 680)
+		.with_size(640, 720)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	theme::style_content(&dialog);
@@ -203,50 +227,109 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let notebook = Notebook::builder(&dialog).build();
 
+	// 1. General Panel
 	let general_panel = Panel::builder(&notebook).build();
 	theme::style_content(&general_panel);
 	let general_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let announce_typing_check = setting_switch(&general_panel, &general_sizer, "Announce when someone is typing");
-
-	let announce_recording_check =
-		setting_switch(&general_panel, &general_sizer, "Announce when someone is recording a voice message");
-
+	section_header(&general_panel, &general_sizer, "Startup & Window");
+	let autostart_check = setting_switch(&general_panel, &general_sizer, "Start whatSnap when Windows starts");
 	let tray_icon_check = setting_switch(
 		&general_panel,
 		&general_sizer,
-		"Show an icon in the notification area; closing the window minimizes to it",
+		"Show an icon in the notification area; closing minimizes to it",
 	);
-
-	let autostart_check = setting_switch(&general_panel, &general_sizer, "Start whatSnap when Windows starts");
-
 	let start_maximized_check = setting_switch(&general_panel, &general_sizer, "Start maximized");
 
-	let check_updates_check = setting_switch(&general_panel, &general_sizer, "Check for updates when whatSnap starts");
-	let update_channel_combo = visibility_combo(&general_panel, &general_sizer, "Updates", UPDATE_CHANNEL_CHOICES);
-
+	general_sizer.add_spacer(6);
+	section_header(&general_panel, &general_sizer, "Accessibility & Announcements");
+	let announce_typing_check = setting_switch(&general_panel, &general_sizer, "Announce when someone is typing");
+	let announce_recording_check =
+		setting_switch(&general_panel, &general_sizer, "Announce when someone is recording a voice message");
 	let meta_ai_enabled_check =
 		setting_switch(&general_panel, &general_sizer, "Show a button to message Meta AI in New Chat");
 
+	general_sizer.add_spacer(6);
+	section_header(&general_panel, &general_sizer, "Updates & Troubleshooting");
+	let check_updates_check = setting_switch(&general_panel, &general_sizer, "Check for updates when whatSnap starts");
+	let update_channel_combo = visibility_combo(&general_panel, &general_sizer, "Updates", UPDATE_CHANNEL_CHOICES);
 	let verbose_backend_logging_check = setting_switch(
 		&general_panel,
 		&general_sizer,
 		"Verbose backend logging, for troubleshooting connection issues (takes effect next time whatSnap starts)",
 	);
 
+	let general_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let shortcuts_btn = setting_button(&general_panel, "&Keyboard Shortcuts...");
-	general_sizer.add(&shortcuts_btn, 0, SizerFlag::Left | SizerFlag::Top, 16);
-
+	general_btn_sizer.add(&shortcuts_btn, 0, SizerFlag::Right, 8);
 	let share_menu_btn = setting_button(&general_panel, "Add whatSnap to the Windows Share Menu...");
-	general_sizer.add(&share_menu_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
-
+	general_btn_sizer.add(&share_menu_btn, 0, SizerFlag::empty(), 0);
+	general_sizer.add_sizer(&general_btn_sizer, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
 	general_panel.set_sizer(general_sizer, true);
 
+	// 2. Account Panel
+	let account_panel = Panel::builder(&notebook).build();
+	theme::style_content(&account_panel);
+	let account_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	section_header(&account_panel, &account_sizer, "Security Notifications");
+	let security_notifications_check = setting_switch(
+		&account_panel,
+		&account_sizer,
+		"Show security notifications: say in a chat when a contact's security code changes",
+	);
+	setting_note(
+		&account_panel,
+		&account_sizer,
+		"WhatsApp protects your conversations with end-to-end encryption. Turn this on to get notified when a contact's security code changes.",
+	);
+
+	account_sizer.add_spacer(12);
+	section_header(&account_panel, &account_sizer, "Account Session");
+	setting_note(
+		&account_panel,
+		&account_sizer,
+		"This computer is connected as a linked companion device to your WhatsApp account on your phone. To unlink this computer, use the Log Out button below.",
+	);
+	let logout_btn = setting_button(&account_panel, "Log Out of whatSnap...");
+	account_sizer.add(&logout_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
+	account_panel.set_sizer(account_sizer, true);
+
+	// 3. Chats Panel
+	let chats_panel = Panel::builder(&notebook).build();
+	theme::style_content(&chats_panel);
+	let chats_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	section_header(&chats_panel, &chats_sizer, "Messaging & Navigation");
+	let enter_is_send_check = setting_switch(&chats_panel, &chats_sizer, "Enter is send: the Enter key sends your message");
+	let type_to_compose_check = setting_switch(
+		&chats_panel,
+		&chats_sizer,
+		"Typing a letter in the message list starts a message (message shortcuts then need Alt)",
+	);
+	let keep_list_position_check = setting_switch(
+		&chats_panel,
+		&chats_sizer,
+		"Keep my place in the message list instead of jumping to the newest message",
+	);
+	let replace_emoji_check = setting_switch(&chats_panel, &chats_sizer, "Replace text with emoji as you type, like :-) or (y)");
+	let emoji_help_btn = setting_button(&chats_panel, "Replace Text With Emoji: See Help...");
+	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
+
+	chats_sizer.add_spacer(10);
+	section_header(&chats_panel, &chats_sizer, "Spelling");
+	let spell_check_check = setting_switch(&chats_panel, &chats_sizer, "Check spelling in the message box (F7 goes to the next mistake)");
+	let spell_announce_check = setting_switch(&chats_panel, &chats_sizer, "Say when a word you type is misspelled");
+	let spell_language_combo = spelling_language_combo(&chats_panel, &chats_sizer);
+	chats_panel.set_sizer(chats_sizer, true);
+
+	// 4. Notifications Panel
 	let notifications_panel = Panel::builder(&notebook).build();
 	theme::style_content(&notifications_panel);
 	let notifications_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let notify_switch = |label: &str| setting_switch(&notifications_panel, &notifications_sizer, label);
 
+	section_header(&notifications_panel, &notifications_sizer, "Messages");
 	let notifications_check = notify_switch("Message notifications: show desktop notifications for new messages");
 	let notification_previews_check = notify_switch("Show previews: message text in notifications");
 	let reaction_notifications_check =
@@ -257,13 +340,22 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	};
 	let message_tone_picker = sound_picker("Message notification tone", "Message Tone", Kind::Tone);
 	let outgoing_sounds_check = notify_switch("Outgoing sounds: play sounds for messages you send");
+
+	notifications_sizer.add_spacer(8);
+	section_header(&notifications_panel, &notifications_sizer, "Groups");
 	let group_notifications_check = notify_switch("Group notifications: show notifications for new group messages");
 	let group_sounds_check = notify_switch("Group sounds: play sounds for new group messages");
 	let group_tone_picker = sound_picker("Group notification tone", "Group Tone", Kind::Tone);
+
+	notifications_sizer.add_spacer(8);
+	section_header(&notifications_panel, &notifications_sizer, "Calls");
 	let call_notifications_check = notify_switch("Call notifications: show notifications for incoming calls");
 	let call_ringtone_check = notify_switch("Incoming call sounds: play the ringtone for incoming calls");
 	let call_ringtone_picker = sound_picker("Call ringtone", "Call Ringtone", Kind::Ringtone);
 	let group_call_ringtone_picker = sound_picker("Group call ringtone", "Group Call Ringtone", Kind::Ringtone);
+
+	notifications_sizer.add_spacer(8);
+	section_header(&notifications_panel, &notifications_sizer, "Quiet Hours & Screen Reader");
 	let follow_dnd_check =
 		notify_switch("No message sound while Windows Do Not Disturb, a full-screen game or a presentation is on");
 	let announce_incoming_check =
@@ -272,86 +364,64 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	notifications_sizer.add_spacer(12);
 	notifications_panel.set_sizer(notifications_sizer, true);
 
-	let chats_panel = Panel::builder(&notebook).build();
-	theme::style_content(&chats_panel);
-	let chats_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let chats_check = |label: &str| setting_switch(&chats_panel, &chats_sizer, label);
-	let enter_is_send_check = chats_check("Enter is send: the Enter key sends your message");
-	let type_to_compose_check =
-		chats_check("Typing a letter in the message list starts a message (message shortcuts then need Alt)");
-	let keep_list_position_check =
-		chats_check("Keep my place in the message list instead of jumping to the newest message");
-	let chat_lock_hello_check = chats_check(CHAT_LOCK_HELLO_LABEL);
-	let replace_emoji_check = chats_check("Replace text with emoji as you type, like :-) or (y)");
-	let emoji_help_btn = setting_button(&chats_panel, "Replace Text With Emoji: See Help...");
-	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
-	let spell_check_check = chats_check("Check spelling in the message box (F7 goes to the next mistake)");
-	let spell_announce_check = chats_check("Say when a word you type is misspelled");
-	let spell_language_combo = spelling_language_combo(&chats_panel, &chats_sizer);
-	let auto_download_photos_check = chats_check("Download photos automatically");
-	let auto_download_audio_check = chats_check("Download audio automatically");
-	let auto_download_videos_check = chats_check("Download videos automatically");
-	let auto_download_documents_check = chats_check("Download documents automatically");
-	let auto_download_note = StaticText::builder(&chats_panel)
-		.with_label("Voice messages are always downloaded. Other media downloads by itself only from contacts and chats you've written in.")
-		.build();
-	auto_download_note.set_font(&theme::Fonts::body());
-	chats_sizer.add(&auto_download_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
-	let download_quality_combo = visibility_combo(
-		&chats_panel,
-		&chats_sizer,
-		"Download Quality for Photos and Videos Sent in HD",
-		DOWNLOAD_QUALITY_CHOICES,
+	// 5. Personalization Panel
+	let personalization_panel = Panel::builder(&notebook).build();
+	theme::style_content(&personalization_panel);
+	let personalization_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	section_header(&personalization_panel, &personalization_sizer, "Theme");
+	let theme_combo = visibility_combo(&personalization_panel, &personalization_sizer, "Choose Theme", THEME_CHOICES);
+	setting_note(
+		&personalization_panel,
+		&personalization_sizer,
+		"System Default follows your Windows system-wide light or dark mode setting. Light and Dark themes provide dedicated color schemes.",
 	);
-	let upload_quality_combo =
-		visibility_combo(&chats_panel, &chats_sizer, "Media Upload Quality", UPLOAD_QUALITY_CHOICES);
-	let theme_combo = visibility_combo(&chats_panel, &chats_sizer, "Theme", THEME_CHOICES);
-	chats_panel.set_sizer(chats_sizer, true);
+	personalization_panel.set_sizer(personalization_sizer, true);
 
-	let lock_panel = Panel::builder(&notebook).build();
-	theme::style_content(&lock_panel);
-	let lock_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let app_lock_check = setting_switch(
-		&lock_panel,
-		&lock_sizer,
-		"Lock whatSnap when it starts, and whenever I press Ctrl+Shift+L (Account, Lock App)",
+	// 6. Profile Panel
+	let profile_panel = Panel::builder(&notebook).build();
+	theme::style_content(&profile_panel);
+	let profile_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	section_header(&profile_panel, &profile_sizer, "Profile Photo");
+	let photo_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let change_photo_btn = setting_button(&profile_panel, "Change Profile Photo...");
+	photo_sizer.add(&change_photo_btn, 0, SizerFlag::Right, 8);
+	let remove_photo_btn = setting_button(&profile_panel, "Remove Profile Photo...");
+	photo_sizer.add(&remove_photo_btn, 0, SizerFlag::Right, 8);
+	profile_sizer.add_sizer(&photo_sizer, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
+
+	section_header(&profile_panel, &profile_sizer, "Name");
+	let name_field =
+		TextCtrl::builder(&profile_panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
+	dialog_look::add_field(&profile_sizer, &name_field, Field::Line, 0);
+	setting_note(
+		&profile_panel,
+		&profile_sizer,
+		"This is not your username or phone number. This name will be visible to your WhatsApp contacts.",
 	);
-	let app_lock_method_combo = visibility_combo(&lock_panel, &lock_sizer, "Unlock with", APP_LOCK_METHOD_CHOICES);
-	let app_lock_password_btn = setting_button(&lock_panel, "Set App Lock Password...");
-	lock_sizer.add(&app_lock_password_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
-	lock_panel.set_sizer(lock_sizer, true);
 
+	profile_sizer.add_spacer(12);
+	section_header(&profile_panel, &profile_sizer, "About");
+	let about_field =
+		TextCtrl::builder(&profile_panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
+	dialog_look::add_field(&profile_sizer, &about_field, Field::Line, 0);
+	let about_duration_combo =
+		visibility_combo(&profile_panel, &profile_sizer, "Clear About After", ABOUT_DURATION_CHOICES);
+	profile_panel.set_sizer(profile_sizer, true);
+	dialog_look::paint_fields(&profile_panel, &[(name_field, Field::Line), (about_field, Field::Line)]);
+
+	// 7. Privacy Panel
 	let privacy_panel = Panel::builder(&notebook).build();
 	theme::style_content(&privacy_panel);
 	let privacy_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let name_label = StaticText::builder(&privacy_panel).with_label("Name").build();
-	name_label.set_font(&theme::Fonts::body());
-	privacy_sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 12);
-	let name_field =
-		TextCtrl::builder(&privacy_panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
-	dialog_look::add_field(&privacy_sizer, &name_field, Field::Line, 0);
-
-	let about_label = StaticText::builder(&privacy_panel).with_label("About").build();
-	about_label.set_font(&theme::Fonts::body());
-	privacy_sizer.add(&about_label, 0, SizerFlag::Left | SizerFlag::Top, 16);
-	let about_field =
-		TextCtrl::builder(&privacy_panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
-	dialog_look::add_field(&privacy_sizer, &about_field, Field::Line, 0);
-	let about_duration_combo =
-		visibility_combo(&privacy_panel, &privacy_sizer, "Clear About After", ABOUT_DURATION_CHOICES);
-
-	let photo_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let change_photo_btn = setting_button(&privacy_panel, "Change Profile Photo...");
-	photo_sizer.add(&change_photo_btn, 0, SizerFlag::Right, 8);
-	let remove_photo_btn = setting_button(&privacy_panel, "Remove Profile Photo...");
-	photo_sizer.add(&remove_photo_btn, 0, SizerFlag::Right, 8);
-	privacy_sizer.add_sizer(&photo_sizer, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
-
+	section_header(&privacy_panel, &privacy_sizer, "Disappearing Messages");
 	let default_timer_combo =
 		visibility_combo(&privacy_panel, &privacy_sizer, "Default Message Timer for New Chats", DEFAULT_TIMER_CHOICES);
 	default_timer_combo.enable(false);
 
+	privacy_sizer.add_spacer(8);
+	section_header(&privacy_panel, &privacy_sizer, "Who Can See My Info");
 	let last_seen_combo =
 		visibility_combo(&privacy_panel, &privacy_sizer, "Who Can See My Last Seen", VISIBILITY_CHOICES);
 	let last_seen_except_btn = except_button(&privacy_panel, &privacy_sizer, "Last Seen");
@@ -368,62 +438,86 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		"Read receipts: if turned off, you won't send or receive read receipts. They're always sent in groups.",
 	);
 	read_receipts_check.enable(false);
+
+	privacy_sizer.add_spacer(8);
+	section_header(&privacy_panel, &privacy_sizer, "Groups & Calls");
 	let groups_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Add Me to Groups", VISIBILITY_CHOICES);
 	let groups_except_btn = except_button(&privacy_panel, &privacy_sizer, "Groups");
 	let calls_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Silence Unknown Callers", CALL_CHOICES);
 
+	privacy_sizer.add_spacer(8);
+	section_header(&privacy_panel, &privacy_sizer, "Advanced & Blocked Contacts");
 	let link_previews_off_check = setting_switch(
 		&privacy_panel,
 		&privacy_sizer,
 		"Turn off link previews: links you send go without a preview, on all your devices",
 	);
-	let security_notifications_check = setting_switch(
-		&privacy_panel,
-		&privacy_sizer,
-		"Show security notifications: say in a chat when a contact's security code changes",
+	let blocked_contacts_btn = setting_button(&privacy_panel, "Manage Blocked Contacts...");
+	privacy_sizer.add(&blocked_contacts_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
+	privacy_panel.set_sizer(privacy_sizer, true);
+
+	// 8. Storage & Media Panel
+	let storage_panel = Panel::builder(&notebook).build();
+	theme::style_content(&storage_panel);
+	let storage_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	section_header(&storage_panel, &storage_sizer, "Media Auto-Download");
+	let auto_download_photos_check = setting_switch(&storage_panel, &storage_sizer, "Download photos automatically");
+	let auto_download_audio_check = setting_switch(&storage_panel, &storage_sizer, "Download audio automatically");
+	let auto_download_videos_check = setting_switch(&storage_panel, &storage_sizer, "Download videos automatically");
+	let auto_download_documents_check = setting_switch(&storage_panel, &storage_sizer, "Download documents automatically");
+	setting_note(
+		&storage_panel,
+		&storage_sizer,
+		"Voice messages are always downloaded automatically. Other media downloads by itself only from contacts and chats you've written in.",
 	);
 
-	privacy_panel.set_sizer(privacy_sizer, true);
-	dialog_look::paint_fields(&privacy_panel, &[(name_field, Field::Line), (about_field, Field::Line)]);
+	storage_sizer.add_spacer(10);
+	section_header(&storage_panel, &storage_sizer, "Media Quality");
+	let download_quality_combo = visibility_combo(
+		&storage_panel,
+		&storage_sizer,
+		"Download Quality for Photos and Videos Sent in HD",
+		DOWNLOAD_QUALITY_CHOICES,
+	);
+	let upload_quality_combo =
+		visibility_combo(&storage_panel, &storage_sizer, "Media Upload Quality", UPLOAD_QUALITY_CHOICES);
+	storage_panel.set_sizer(storage_sizer, true);
 
+	// 9. Audio & Calls Panel
 	let audio_panel = Panel::builder(&notebook).build();
 	theme::style_content(&audio_panel);
 	let audio_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let input_label = StaticText::builder(&audio_panel).with_label("Microphone (calls)").build();
+	section_header(&audio_panel, &audio_sizer, "Microphone");
+	let input_label = StaticText::builder(&audio_panel).with_label("Microphone (calls and voice notes)").build();
 	input_label.set_font(&theme::Fonts::body());
 	audio_sizer.add(&input_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
 	let input_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
 	input_device_combo.set_font(&theme::Fonts::body());
 	audio_sizer.add(&input_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
-
-	let input_note = StaticText::builder(&audio_panel).with_label("Also used for recording voice messages.").build();
-	input_note.set_font(&theme::Fonts::body());
-	audio_sizer.add(&input_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+	setting_note(&audio_panel, &audio_sizer, "Used for voice/video calls and recording voice messages.");
 
 	let voice_message_noise_suppression_check = setting_switch(
 		&audio_panel,
 		&audio_sizer,
 		"Clean up voice messages: reduce background noise and even out the volume",
 	);
+	setting_note(
+		&audio_panel,
+		&audio_sizer,
+		"Like WhatsApp Web: removes background noise and brings quiet speech up to a steady, loud level. Off sends the raw mic signal.",
+	);
 
-	let noise_suppression_note = StaticText::builder(&audio_panel)
-		.with_label("Like WhatsApp Web: removes background noise and brings quiet speech up to a steady, loud level. Off sends the raw mic signal.")
-		.build();
-	noise_suppression_note.set_font(&theme::Fonts::body());
-	audio_sizer.add(&noise_suppression_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
-
+	audio_sizer.add_spacer(10);
+	section_header(&audio_panel, &audio_sizer, "Speakers");
 	let output_label = StaticText::builder(&audio_panel).with_label("Speaker for alerts and voice messages").build();
 	output_label.set_font(&theme::Fonts::body());
 	audio_sizer.add(&output_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
 	let output_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
 	output_device_combo.set_font(&theme::Fonts::body());
 	audio_sizer.add(&output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
-	let output_note = StaticText::builder(&audio_panel)
-		.with_label("Used for notification sounds, message tones and voice message playback.")
-		.build();
-	output_note.set_font(&theme::Fonts::body());
-	audio_sizer.add(&output_note, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+	setting_note(&audio_panel, &audio_sizer, "Used for notification sounds, message tones and voice message playback.");
 
 	let call_output_label = StaticText::builder(&audio_panel).with_label("Speaker for calls").build();
 	call_output_label.set_font(&theme::Fonts::body());
@@ -432,19 +526,49 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	call_output_device_combo.set_font(&theme::Fonts::body());
 	audio_sizer.add(&call_output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
 
+	audio_sizer.add_spacer(10);
+	section_header(&audio_panel, &audio_sizer, "Screen Sharing");
 	let dual_stream_screen_share_check = setting_switch(
 		&audio_panel,
 		&audio_sizer,
 		"Experimental: keep the camera on while sharing the screen (applies to the next call)",
 	);
-
 	audio_panel.set_sizer(audio_sizer, true);
 
+	// 10. App Lock Panel
+	let lock_panel = Panel::builder(&notebook).build();
+	theme::style_content(&lock_panel);
+	let lock_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	section_header(&lock_panel, &lock_sizer, "Application Lock");
+	let app_lock_check = setting_switch(
+		&lock_panel,
+		&lock_sizer,
+		"Lock whatSnap when it starts, and whenever I press Ctrl+Shift+L (Account, Lock App)",
+	);
+	let app_lock_method_combo = visibility_combo(&lock_panel, &lock_sizer, "Unlock with", APP_LOCK_METHOD_CHOICES);
+	let app_lock_password_btn = setting_button(&lock_panel, "Set App Lock Password...");
+	lock_sizer.add(&app_lock_password_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
+
+	lock_sizer.add_spacer(12);
+	section_header(&lock_panel, &lock_sizer, "Chat Lock");
+	let chat_lock_hello_check = setting_switch(&lock_panel, &lock_sizer, CHAT_LOCK_HELLO_LABEL);
+	setting_note(
+		&lock_panel,
+		&lock_sizer,
+		"Allows unlocking hidden and locked chats using your Windows Hello biometric or PIN credentials.",
+	);
+	lock_panel.set_sizer(lock_sizer, true);
+
 	notebook.add_page(&general_panel, "General", true, None);
-	notebook.add_page(&notifications_panel, "Notifications", false, None);
+	notebook.add_page(&account_panel, "Account", false, None);
 	notebook.add_page(&chats_panel, "Chats", false, None);
-	notebook.add_page(&privacy_panel, "Profile & Privacy", false, None);
-	notebook.add_page(&audio_panel, "Input & Output", false, None);
+	notebook.add_page(&notifications_panel, "Notifications", false, None);
+	notebook.add_page(&personalization_panel, "Personalization", false, None);
+	notebook.add_page(&profile_panel, "Profile", false, None);
+	notebook.add_page(&privacy_panel, "Privacy", false, None);
+	notebook.add_page(&storage_panel, "Storage & Media", false, None);
+	notebook.add_page(&audio_panel, "Audio & Calls", false, None);
 	notebook.add_page(&lock_panel, "App Lock", false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -456,8 +580,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	dialog_look::button_row(&main_sizer, &[&ok_btn, &cancel_btn]);
 	dialog.set_sizer(main_sizer, true);
 	if let Some(display) = wxdragon::display::Display::from_window(&dialog) {
-		let height = (display.client_area().height - 60).clamp(520, 900);
-		dialog.set_size(Size::new(600, height));
+		let height = (display.client_area().height - 60).clamp(540, 920);
+		dialog.set_size(Size::new(640, height));
 	}
 	dialog.center();
 
@@ -474,6 +598,17 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		dialog,
 		notebook,
 		general_panel,
+		account_panel,
+		logout_btn,
+		chats_panel,
+		enter_is_send_check,
+		type_to_compose_check,
+		keep_list_position_check,
+		replace_emoji_check,
+		emoji_help_btn,
+		spell_check_check,
+		spell_announce_check,
+		spell_language_combo,
 		notifications_panel,
 		sounds_check,
 		notifications_check,
@@ -502,32 +637,15 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		verbose_backend_logging_check,
 		shortcuts_btn,
 		share_menu_btn,
-		chats_panel,
-		enter_is_send_check,
-		type_to_compose_check,
-		keep_list_position_check,
-		chat_lock_hello_check,
-		app_lock_check,
-		app_lock_method_combo,
-		app_lock_password_btn,
-		replace_emoji_check,
-		emoji_help_btn,
-		spell_check_check,
-		spell_announce_check,
-		spell_language_combo,
-		auto_download_photos_check,
-		auto_download_audio_check,
-		auto_download_videos_check,
-		auto_download_documents_check,
-		download_quality_combo,
-		upload_quality_combo,
+		personalization_panel,
 		theme_combo,
-		privacy_panel,
+		profile_panel,
 		name_field,
 		about_field,
 		about_duration_combo,
 		change_photo_btn,
 		remove_photo_btn,
+		privacy_panel,
 		default_timer_combo,
 		last_seen_combo,
 		last_seen_except_btn,
@@ -541,13 +659,26 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		calls_combo,
 		online_combo,
 		link_previews_off_check,
-		security_notifications_check,
+		blocked_contacts_btn,
+		storage_panel,
+		auto_download_photos_check,
+		auto_download_audio_check,
+		auto_download_videos_check,
+		auto_download_documents_check,
+		download_quality_combo,
+		upload_quality_combo,
 		audio_panel,
 		input_device_combo,
 		output_device_combo,
 		call_output_device_combo,
 		voice_message_noise_suppression_check,
 		dual_stream_screen_share_check,
+		lock_panel,
+		app_lock_check,
+		app_lock_method_combo,
+		app_lock_password_btn,
+		chat_lock_hello_check,
+		security_notifications_check,
 		ok_btn,
 		cancel_btn,
 	}
@@ -671,9 +802,18 @@ impl SettingsDialogParts {
 	}
 
 	pub fn match_theme(&self) {
-		for panel in
-			[&self.general_panel, &self.notifications_panel, &self.chats_panel, &self.privacy_panel, &self.audio_panel]
-		{
+		for panel in [
+			&self.general_panel,
+			&self.account_panel,
+			&self.chats_panel,
+			&self.notifications_panel,
+			&self.personalization_panel,
+			&self.profile_panel,
+			&self.privacy_panel,
+			&self.storage_panel,
+			&self.audio_panel,
+			&self.lock_panel,
+		] {
 			theme::style_content(panel);
 		}
 		theme::style_content(&self.notebook);

@@ -1,6 +1,6 @@
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::ui::{dialog_look, theme};
 
 #[allow(dead_code)]
 #[derive(Clone)]
@@ -36,19 +36,24 @@ pub struct ConversationDataDialogParts {
 }
 
 pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDataDialogParts {
-	let dialog = Dialog::builder(parent, "Contact Info").with_size(600, 500).build();
+	let dialog = Dialog::builder(parent, "Contact Info")
+		.with_size(620, 560)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
 	theme::style_content(&dialog);
 	let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let back_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("< Back").build();
-	main_sizer.add(&back_btn, 0, SizerFlag::All, 5);
+	dialog_look::pill_button(&back_btn, false, theme::Palette::CONTENT_BG());
+	main_sizer.add(&back_btn, 0, SizerFlag::All, 6);
 
 	let notebook = Notebook::builder(&dialog).build();
+	if theme::use_custom_colours() {
+		notebook.set_background_color(theme::Palette::CONTENT_BG());
+	}
 
 	let info_panel = Panel::builder(&notebook).build();
-	if theme::use_custom_colours() {
-		info_panel.set_background_color(theme::Palette::PANEL_BG());
-	}
+	theme::style_content(&info_panel);
 	let info_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
 	info_sizer.add_sizer(&photo_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 10);
@@ -88,37 +93,49 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	info_panel.set_sizer(info_sizer, true);
 
 	let media_panel = Panel::builder(&notebook).build();
+	theme::style_content(&media_panel);
 	let media_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let media_label = StaticText::builder(&media_panel).with_label("Media").build();
-	media_sizer.add(&media_label, 0, SizerFlag::All, 5);
+	theme::style_heading(&media_label);
+	media_sizer.add(&media_label, 0, SizerFlag::All, 6);
 	let media_list = ListBox::builder(&media_panel)
 		.with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW))
 		.build();
-	media_sizer.add(&media_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	media_list.set_font(&theme::Fonts::body());
+	media_sizer.add(&media_list, 1, SizerFlag::Expand | SizerFlag::All, 6);
 	media_panel.set_sizer(media_sizer, true);
 
 	let documents_panel = Panel::builder(&notebook).build();
+	theme::style_content(&documents_panel);
 	let documents_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let documents_label = StaticText::builder(&documents_panel).with_label("Documents").build();
-	documents_sizer.add(&documents_label, 0, SizerFlag::All, 5);
+	theme::style_heading(&documents_label);
+	documents_sizer.add(&documents_label, 0, SizerFlag::All, 6);
 	let documents_list = ListBox::builder(&documents_panel).build();
-	documents_sizer.add(&documents_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	documents_list.set_font(&theme::Fonts::body());
+	documents_sizer.add(&documents_list, 1, SizerFlag::Expand | SizerFlag::All, 6);
 	documents_panel.set_sizer(documents_sizer, true);
 
 	let links_panel = Panel::builder(&notebook).build();
+	theme::style_content(&links_panel);
 	let links_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let links_label = StaticText::builder(&links_panel).with_label("Links").build();
-	links_sizer.add(&links_label, 0, SizerFlag::All, 5);
+	theme::style_heading(&links_label);
+	links_sizer.add(&links_label, 0, SizerFlag::All, 6);
 	let links_list = ListBox::builder(&links_panel).build();
-	links_sizer.add(&links_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	links_list.set_font(&theme::Fonts::body());
+	links_sizer.add(&links_list, 1, SizerFlag::Expand | SizerFlag::All, 6);
 	links_panel.set_sizer(links_sizer, true);
 
 	let common_groups_panel = Panel::builder(&notebook).build();
+	theme::style_content(&common_groups_panel);
 	let common_groups_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let common_groups_label = StaticText::builder(&common_groups_panel).with_label("Groups in common").build();
-	common_groups_sizer.add(&common_groups_label, 0, SizerFlag::All, 5);
+	theme::style_heading(&common_groups_label);
+	common_groups_sizer.add(&common_groups_label, 0, SizerFlag::All, 6);
 	let common_groups_list = ListBox::builder(&common_groups_panel).build();
-	common_groups_sizer.add(&common_groups_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	common_groups_list.set_font(&theme::Fonts::body());
+	common_groups_sizer.add(&common_groups_list, 1, SizerFlag::Expand | SizerFlag::All, 6);
 	common_groups_panel.set_sizer(common_groups_sizer, true);
 
 	notebook.add_page(&info_panel, "Info", true, None);
@@ -127,12 +144,14 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	notebook.add_page(&links_panel, "Links", false, None);
 	notebook.add_page(&common_groups_panel, "Groups in Common", false, None);
 
-	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 6);
 
 	dialog.set_sizer(main_sizer, true);
+	dialog.center();
 
 	let dlg_info = dialog;
 	info_field.on_key_down(crate::ui::keys::escape_cancels(dlg_info));
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	ConversationDataDialogParts {
 		dialog,

@@ -60,6 +60,7 @@ pub fn build_attach_contact_dialog(parent: &impl WxWidget) -> AttachContactDialo
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
 	dialog.set_sizer(outer, true);
 	dialog.center();
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	let dlg_esc1 = dialog;
 	search_field.on_key_down(crate::ui::keys::escape_cancels(dlg_esc1));
