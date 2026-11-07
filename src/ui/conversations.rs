@@ -63,6 +63,7 @@ pub struct ConversationsPanelParts {
 
 	pub message_label: StaticText,
 	pub message_field: TextCtrl,
+	pub blocked_banner_btn: Button,
 	/// @mention suggestions, shown above the composer while completing one.
 	/// Never focused: the composer keeps focus and announces the highlight.
 	pub mention_list: ListBox,
@@ -780,6 +781,13 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	message_field.set_font(&theme::Fonts::body());
 	message_field.set_min_size(Size::new(-1, message_field.get_char_height() * 2 + 6));
 	message_row.add(&message_field, 1, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
+	let blocked_banner_btn = Button::builder(&conversation_panel)
+		.with_label("You blocked this contact. Click to unblock.")
+		.build();
+	blocked_banner_btn.set_font(&theme::Fonts::body());
+	crate::ui::owner_draw::install_tile(&blocked_banner_btn, composer_bg);
+	message_row.add(&blocked_banner_btn, 1, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
+	blocked_banner_btn.show(false);
 	// Created after the field, so it's never ahead of it in tab order.
 	let mention_list = ListBox::builder(&conversation_panel).build();
 	mention_list.set_font(&theme::Fonts::body());
@@ -946,6 +954,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		read_more_btn,
 		message_label,
 		message_field,
+		blocked_banner_btn,
 		mention_list,
 		cancel_edit_btn,
 		remove_quote_btn,

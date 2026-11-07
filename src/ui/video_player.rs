@@ -101,6 +101,23 @@ pub(crate) fn show(parent: &impl WxWidget, path: &str, title: &str, save_name: &
 			} else if keys::is_down(code) {
 				player_keys.change_volume(-10);
 				true
+			} else if keys::is_letter(code, 'f') {
+				#[cfg(target_os = "windows")]
+				{
+					let hwnd = windows::Win32::Foundation::HWND(dialog.get_handle());
+					let is_max = unsafe { windows::Win32::UI::WindowsAndMessaging::IsZoomed(hwnd).as_bool() };
+					let cmd = if is_max {
+						windows::Win32::UI::WindowsAndMessaging::SW_RESTORE
+					} else {
+						windows::Win32::UI::WindowsAndMessaging::SW_MAXIMIZE
+					};
+					unsafe {
+						let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, cmd);
+					}
+					let announcement = if is_max { "Exit fullscreen" } else { "Fullscreen" };
+					crate::platform::announce::announce(announcer, announcement);
+				}
+				true
 			} else {
 				false
 			};

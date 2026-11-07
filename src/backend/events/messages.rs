@@ -497,7 +497,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								} else {
 									format!("{unread} new messages")
 								};
-								crate::ui::chat_ui::show_chat_notification(jid, "WhatsApp", &body);
+								crate::ui::chat_ui::show_chat_notification(jid, "WhatsApp", &body, true);
 							} else if alert.toast {
 								let previews =
 									s.settings.notification_previews && !s.settings.chat_notify(jid).hide_content;
@@ -534,7 +534,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 										(true, true) => body.to_string(),
 										(true, false) => format!("{}: {}", sender_name, body),
 									};
-									crate::ui::chat_ui::show_chat_notification(jid, &chat_name, &toast_body);
+									crate::ui::chat_ui::show_chat_notification(jid, &chat_name, &toast_body, false);
 								} else {
 									// Call log lines have no sender: name the chat.
 									let fallback_jid = if from.is_empty() { jid } else { clean_from.as_str() };
@@ -545,7 +545,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 										.or_else(|| s.contacts.get(jid).cloned())
 										.unwrap_or_else(|| display_name_for_jid(fallback_jid));
 									let body = if previews { body.to_string() } else { "New message".to_string() };
-									crate::ui::chat_ui::show_chat_notification(jid, &sender_name, &body);
+									crate::ui::chat_ui::show_chat_notification(jid, &sender_name, &body, false);
 								}
 							}
 						}
@@ -1085,6 +1085,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						}
 					}
 
+					let match_count = parsed_msgs.len();
 					let mut with_dates = Vec::new();
 					let mut last_date: Option<whatsnap::Date> = None;
 					for msg in parsed_msgs {
@@ -1123,6 +1124,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.conversations_parts.messages_list.set_selection(0, true);
 					}
 					refresh_voice_action_button(&s, &parts.conversations_parts);
+
+					let announcement = match match_count {
+						0 => "No messages found.".to_string(),
+						1 => "1 message found.".to_string(),
+						n => format!("{} messages found.", n),
+					};
+					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &announcement);
 				}
 			}
 		}
@@ -1656,7 +1664,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								);
 							}
 							if alert.toast && s.locked_jids.contains(chat_jid) {
-								crate::ui::chat_ui::show_chat_notification(chat_jid, "WhatsApp", "New reaction");
+								crate::ui::chat_ui::show_chat_notification(chat_jid, "WhatsApp", "New reaction", true);
 							} else if alert.toast {
 								let previews =
 									s.settings.notification_previews && !s.settings.chat_notify(chat_jid).hide_content;
@@ -1665,7 +1673,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								} else {
 									format!("Reacted {}", emoji)
 								};
-								crate::ui::chat_ui::show_chat_notification(chat_jid, &resolved_name, &body);
+								crate::ui::chat_ui::show_chat_notification(chat_jid, &resolved_name, &body, false);
 							}
 						}
 					}

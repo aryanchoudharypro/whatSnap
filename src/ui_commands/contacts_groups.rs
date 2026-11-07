@@ -393,6 +393,7 @@ pub(crate) struct ContactCard {
 	pub full_name: String,
 	pub push_name: String,
 	pub phone: String,
+	pub status: String,
 }
 
 impl ContactCard {
@@ -405,6 +406,7 @@ impl ContactCard {
 			full_name: text("fullName"),
 			push_name: text("pushName"),
 			phone: text("phone"),
+			status: text("status"),
 		}
 	}
 

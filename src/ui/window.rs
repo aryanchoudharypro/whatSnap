@@ -1,8 +1,11 @@
 use std::rc::Rc;
 
 use wxdragon::{
+	color::Colour,
 	event::{EventType, WxEvtHandler},
+	font::{FontFamily, FontStyle, FontWeight},
 	prelude::*,
+	widgets::textctrl::TextAttr,
 };
 
 use crate::{
@@ -501,42 +504,435 @@ fn restore_focus(handle: usize) -> bool {
 	}
 }
 
-/// Shows the selected message's own content (no sender, time or reply wrapper:
-/// see `ChatMessage::body_text`) in a read-only multi-line field. A list row's
-/// text can be read by NVDA but not selected or copied, so this gives a normal
-/// field to browse and Ctrl+C from without letting anyone change the message.
+fn parse_heading_1(line: &str) -> Option<&str> {
+	if let Some(rest) = line.strip_prefix("# ") {
+		return Some(rest.trim());
+	}
+	if line.starts_with("***") && line.ends_with("***") && line.len() >= 6 {
+		let inner = line[3..line.len() - 3].trim();
+		if !inner.is_empty() {
+			return Some(inner);
+		}
+	}
+	if line.starts_with("===") && line.ends_with("===") && line.len() >= 6 {
+		let inner = line[3..line.len() - 3].trim();
+		if !inner.is_empty() {
+			return Some(inner);
+		}
+	}
+	None
+}
+
+fn parse_heading_2(line: &str) -> Option<&str> {
+	if let Some(rest) = line.strip_prefix("## ") {
+		return Some(rest.trim());
+	}
+	if line.starts_with("**") && line.ends_with("**") && line.len() >= 4 && !line[2..line.len() - 2].contains("**") {
+		let inner = line[2..line.len() - 2].trim();
+		if !inner.is_empty() {
+			return Some(inner);
+		}
+	}
+	if line.starts_with("--") && line.ends_with("--") && line.len() >= 4 {
+		let inner = line[2..line.len() - 2].trim();
+		if !inner.is_empty() {
+			return Some(inner);
+		}
+	}
+	None
+}
+
+fn parse_heading_3(line: &str) -> Option<&str> {
+	if let Some(rest) = line.strip_prefix("### ") {
+		return Some(rest.trim());
+	}
+	None
+}
+
+fn parse_blockquote(line: &str) -> Option<&str> {
+	if let Some(rest) = line.strip_prefix("> ") {
+		return Some(rest.trim());
+	}
+	if let Some(rest) = line.strip_prefix('>') {
+		return Some(rest.trim());
+	}
+	None
+}
+
+fn parse_bullet_list(line: &str) -> Option<&str> {
+	if let Some(rest) = line.strip_prefix("- ") {
+		return Some(rest.trim());
+	}
+	if let Some(rest) = line.strip_prefix("• ") {
+		return Some(rest.trim());
+	}
+	if let Some(rest) = line.strip_prefix("+ ") {
+		return Some(rest.trim());
+	}
+	if line.starts_with("* ") && !line[2..].ends_with('*') {
+		return Some(line[2..].trim());
+	}
+	None
+}
+
+fn parse_numbered_list(line: &str) -> Option<(&str, &str)> {
+	let dot_pos = line.find(". ")?;
+	let prefix = &line[..=dot_pos];
+	if !prefix[..prefix.len() - 1].chars().all(|c| c.is_ascii_digit()) || prefix.len() <= 1 {
+		return None;
+	}
+	let content = line[dot_pos + 2..].trim();
+	Some((prefix, content))
+}
+
+fn render_spans_into_textctrl(
+	text_view: &TextCtrl,
+	text: &str,
+	base_attr: Option<&TextAttr>,
+) {
+	let spans = whatsnap::markdown::parse_markdown_spans(text);
+	for span in spans {
+		let start = text_view.get_last_position();
+		text_view.append_text(&span.text);
+		let end = text_view.get_last_position();
+		if end <= start {
+			continue;
+		}
+
+		let mut attr = TextAttr::new();
+		attr.set_font_size(10);
+		if let Some(base) = base_attr {
+			if base.get_left_indent() > 0 {
+				attr.set_left_indent(base.get_left_indent(), base.get_left_sub_indent());
+			}
+			if base.get_font_style() == FontStyle::Italic {
+				attr.set_font_style(FontStyle::Italic);
+			}
+		}
+
+		if span.style.bold {
+			attr.set_font_weight(FontWeight::Bold);
+			attr.set_text_colour(Colour::rgb(10, 10, 10));
+		}
+		if span.style.italic {
+			attr.set_font_style(FontStyle::Italic);
+		}
+		if span.style.strike {
+			attr.set_font_strikethrough(true);
+		}
+		if span.style.mono {
+			attr.set_font_family(FontFamily::Teletype);
+			attr.set_text_colour(Colour::rgb(180, 45, 45));
+		}
+		if !span.style.bold && !span.style.mono && base_attr.is_none() {
+			attr.set_text_colour(Colour::rgb(35, 35, 35));
+		}
+
+		text_view.set_style(start, end, &attr);
+	}
+}
+
+fn render_formatted_text(text_view: &TextCtrl, raw_text: &str) {
+	let lines: Vec<&str> = raw_text.lines().collect();
+	let mut in_code_block = false;
+
+	for line in lines {
+		let trimmed = line.trim();
+
+		if trimmed.starts_with("```") {
+			in_code_block = !in_code_block;
+			let mut attr = TextAttr::new();
+			attr.set_font_family(FontFamily::Teletype);
+			attr.set_font_size(9);
+			attr.set_text_colour(Colour::rgb(120, 120, 120));
+			let start = text_view.get_last_position();
+			text_view.append_text(line);
+			let end = text_view.get_last_position();
+			text_view.set_style(start, end, &attr);
+			text_view.append_text("\r\n");
+			continue;
+		}
+
+		if in_code_block {
+			let mut attr = TextAttr::new();
+			attr.set_font_family(FontFamily::Teletype);
+			attr.set_font_size(10);
+			attr.set_text_colour(Colour::rgb(0, 110, 80));
+			attr.set_left_indent(150, 150);
+			let start = text_view.get_last_position();
+			text_view.append_text(line);
+			let end = text_view.get_last_position();
+			text_view.set_style(start, end, &attr);
+			text_view.append_text("\r\n");
+			continue;
+		}
+
+		// Heading 1:
+		if let Some(h1) = parse_heading_1(trimmed) {
+			let mut attr = TextAttr::new();
+			attr.set_font_size(14);
+			attr.set_font_weight(FontWeight::Bold);
+			attr.set_text_colour(Colour::rgb(16, 92, 160));
+			attr.set_outline_level(1);
+			let start = text_view.get_last_position();
+			text_view.append_text(h1);
+			let end = text_view.get_last_position();
+			text_view.set_style(start, end, &attr);
+			text_view.append_text("\r\n");
+			continue;
+		}
+
+		// Heading 2:
+		if let Some(h2) = parse_heading_2(trimmed) {
+			let mut attr = TextAttr::new();
+			attr.set_font_size(12);
+			attr.set_font_weight(FontWeight::Bold);
+			attr.set_text_colour(Colour::rgb(28, 110, 180));
+			attr.set_outline_level(2);
+			let start = text_view.get_last_position();
+			text_view.append_text(h2);
+			let end = text_view.get_last_position();
+			text_view.set_style(start, end, &attr);
+			text_view.append_text("\r\n");
+			continue;
+		}
+
+		// Heading 3:
+		if let Some(h3) = parse_heading_3(trimmed) {
+			let mut attr = TextAttr::new();
+			attr.set_font_size(11);
+			attr.set_font_weight(FontWeight::SemiBold);
+			attr.set_text_colour(Colour::rgb(45, 90, 140));
+			attr.set_outline_level(3);
+			let start = text_view.get_last_position();
+			text_view.append_text(h3);
+			let end = text_view.get_last_position();
+			text_view.set_style(start, end, &attr);
+			text_view.append_text("\r\n");
+			continue;
+		}
+
+		// Blockquote:
+		if let Some(quote) = parse_blockquote(trimmed) {
+			let mut attr = TextAttr::new();
+			attr.set_font_size(10);
+			attr.set_font_style(FontStyle::Italic);
+			attr.set_text_colour(Colour::rgb(95, 95, 95));
+			attr.set_left_indent(180, 180);
+			let start = text_view.get_last_position();
+			text_view.append_text("▎ ");
+			let end = text_view.get_last_position();
+			text_view.set_style(start, end, &attr);
+			render_spans_into_textctrl(text_view, quote, Some(&attr));
+			text_view.append_text("\r\n");
+			continue;
+		}
+
+		// Bullet list:
+		if let Some(item) = parse_bullet_list(trimmed) {
+			let mut attr = TextAttr::new();
+			attr.set_left_indent(160, 80);
+			let start = text_view.get_last_position();
+			text_view.append_text("  • ");
+			let end = text_view.get_last_position();
+			text_view.set_style(start, end, &attr);
+			render_spans_into_textctrl(text_view, item, Some(&attr));
+			text_view.append_text("\r\n");
+			continue;
+		}
+
+		// Numbered list:
+		if let Some((num_str, item)) = parse_numbered_list(trimmed) {
+			let mut attr = TextAttr::new();
+			attr.set_left_indent(160, 80);
+			let start = text_view.get_last_position();
+			text_view.append_text(&format!("  {} ", num_str));
+			let end = text_view.get_last_position();
+			text_view.set_style(start, end, &attr);
+			render_spans_into_textctrl(text_view, item, Some(&attr));
+			text_view.append_text("\r\n");
+			continue;
+		}
+
+		// Paragraph / regular text:
+		render_spans_into_textctrl(text_view, line, None);
+		text_view.append_text("\r\n");
+	}
+}
+
+/// Shows the selected message's content in a rich formatted modal dialog.
 ///
-/// Uses `Rich2` and `DontWrap` with CRLF newlines so screen readers (NVDA/JAWS)
-/// can navigate paragraph by paragraph with Ctrl+Up/Down and lines aren't
-/// artificially split by word wrapping.
+/// Headings (Level 1, 2, 3) are rendered with distinct font sizes, colors, and
+/// outline levels for screen readers (NVDA/JAWS), matching MS Word accessibility.
+/// Blockquotes, code blocks, lists, and inline styles (bold, italic, strike, mono)
+/// are formatted and displayed along with sender, timestamp, and message stats.
 fn show_message_text(
 	parent: &Frame,
 	list: &crate::ui::message_list::MessageList,
 	state: &std::cell::RefCell<crate::AppState>,
 ) {
 	let Some(idx) = list.get_selection() else { return };
-	let text = state.borrow().display_items.get(idx as usize).map(|item| item.body_text());
-	let Some(text) = text else { return };
-	let text = text.replace("\r\n", "\n").replace('\n', "\r\n");
-	let dlg = Dialog::builder(parent, "Message Text")
-		.with_size(480, 320)
+	let (body_text, sender_label, time_label, status_tags, quoted_info) = {
+		let s = state.borrow();
+		let item = match s.display_items.get(idx as usize) {
+			Some(item) => item,
+			None => return,
+		};
+		let body = item.body_text();
+		let msg = match item {
+			whatsnap::DisplayItem::Single(m) => Some((**m).clone()),
+			whatsnap::DisplayItem::Album { messages, .. } => messages.first().map(|m| (**m).clone()),
+		};
+		let (sender, time, tags, quote) = if let Some(m) = msg {
+			let sender = if m.from_me {
+				"You".to_string()
+			} else if !m.sender_name.is_empty() {
+				m.sender_name.clone()
+			} else if let Some(name) = s.contacts.get(&m.sender_jid) {
+				name.clone()
+			} else if !m.sender_jid.is_empty() {
+				crate::ui::contact_picker::display_name_for_jid(&m.sender_jid)
+			} else {
+				"Unknown sender".to_string()
+			};
+
+			let time = if m.timestamp > 0 {
+				whatsnap::LocalTime::from_unix(m.timestamp)
+					.map(|lt| format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", lt.year, lt.month, lt.day, lt.hour, lt.minute, lt.second))
+					.unwrap_or_default()
+			} else {
+				String::new()
+			};
+
+			let mut tags = Vec::new();
+			if m.is_edited {
+				tags.push("[Edited]");
+			}
+			if m.starred {
+				tags.push("[Starred]");
+			}
+			if m.pinned || m.channel_pinned {
+				tags.push("[Pinned]");
+			}
+			if m.kept {
+				tags.push("[Kept]");
+			}
+			if !m.media_type.is_empty() && m.media_type != "chat" {
+				tags.push(match m.media_type.as_str() {
+					"image" => "[Photo]",
+					"video" => "[Video]",
+					"audio" | "voice" => "[Audio/Voice]",
+					"document" => "[Document]",
+					"sticker" => "[Sticker]",
+					"location" => "[Location]",
+					"contact" => "[Contact card]",
+					"poll" => "[Poll]",
+					_ => "[Media]",
+				});
+			}
+
+			let quote = if !m.quoted_text.is_empty() {
+				let who = if m.quoted_sender.is_empty() { "Message" } else { &m.quoted_sender };
+				Some(format!("Replying to {}: \"{}\"", who, m.quoted_text.replace('\n', " ")))
+			} else {
+				None
+			};
+
+			(sender, time, tags, quote)
+		} else {
+			("Message".to_string(), String::new(), Vec::new(), None)
+		};
+		(body, sender, time, tags, quote)
+	};
+
+	let dlg = Dialog::builder(parent, "Message Details & Formatted Text (Shift+Enter)")
+		.with_size(660, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	let dlg_panel = Panel::builder(&dlg).build();
 	let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
+	// Header
+	let header_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let mut header_text = format!("From: {}", sender_label);
+	if !time_label.is_empty() {
+		header_text.push_str(&format!("  |  {}", time_label));
+	}
+	if !status_tags.is_empty() {
+		header_text.push_str(&format!("  |  {}", status_tags.join(" ")));
+	}
+	let header_label = StaticText::builder(&dlg_panel).with_label(&header_text).build();
+	header_sizer.add(&header_label, 0, SizerFlag::Expand | SizerFlag::Bottom, 4);
+
+	if let Some(quote) = quoted_info.as_deref() {
+		let quote_label = StaticText::builder(&dlg_panel).with_label(quote).build();
+		header_sizer.add(&quote_label, 0, SizerFlag::Expand | SizerFlag::Bottom, 4);
+	}
+
+	let divider = StaticLine::builder(&dlg_panel).build();
+	header_sizer.add(&divider, 0, SizerFlag::Expand | SizerFlag::Top | SizerFlag::Bottom, 4);
+	dlg_sizer.add_sizer(&header_sizer, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	// Rich text view
 	let text_view = TextCtrl::builder(&dlg_panel)
 		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::Rich2 | TextCtrlStyle::DontWrap)
 		.build();
-	text_view.set_value(&text);
+	render_formatted_text(&text_view, &body_text);
 	dlg_sizer.add(&text_view, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
-	let close_btn = Button::builder(&dlg_panel).with_id(wxdragon::id::ID_OK).with_label("Close").build();
-	dlg_sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
+	// Bottom stats & action bar
+	let bottom_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let word_count = body_text.split_whitespace().count();
+	let char_count = body_text.chars().count();
+	let line_count = body_text.lines().count();
+	let stats_str = format!("Words: {}  |  Characters: {}  |  Lines: {}", word_count, char_count, line_count);
+
+	let stats_label = StaticText::builder(&dlg_panel).with_label(&stats_str).build();
+	bottom_sizer.add(&stats_label, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
+
+	let copy_btn = Button::builder(&dlg_panel).with_label("&Copy Text").build();
+	let select_all_btn = Button::builder(&dlg_panel).with_label("Select &All").build();
+	let close_btn = Button::builder(&dlg_panel).with_id(wxdragon::id::ID_OK).with_label("&Close").build();
+
+	bottom_sizer.add(&copy_btn, 0, SizerFlag::All, 4);
+	bottom_sizer.add(&select_all_btn, 0, SizerFlag::All, 4);
+	bottom_sizer.add(&close_btn, 0, SizerFlag::All, 4);
+	dlg_sizer.add_sizer(&bottom_sizer, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+
 	dlg_panel.set_sizer(dlg_sizer, true);
 
+	let text_for_copy = body_text.clone();
+	let stats_for_copy = stats_label;
+	copy_btn.on_click(move |_| {
+		if crate::copy_text(&text_for_copy) {
+			stats_for_copy.set_label("Message text copied to clipboard!");
+		}
+	});
+
+	let text_view_for_select = text_view;
+	select_all_btn.on_click(move |_| {
+		text_view_for_select.select_all();
+		text_view_for_select.set_focus();
+	});
+
 	let dlg_esc = dlg;
-	text_view.on_key_down(keys::escape_cancels(dlg_esc));
+	let tv = text_view;
+	text_view.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref ke) = event {
+			let code = ke.get_key_code();
+			if code == Some(wxdragon::keycode::WXK_ESCAPE) {
+				dlg_esc.end_modal(wxdragon::id::ID_CANCEL);
+				event.skip(false);
+				return;
+			}
+			if ke.control_down() && (code == Some(b'A' as i32) || code == Some(b'a' as i32)) {
+				tv.select_all();
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
+	});
 
 	text_view.set_focus();
 	text_view.set_selection(0, 0);
@@ -1391,6 +1787,13 @@ pub fn bind_input_handlers(
 	let tx_conv_data = ui_tx.clone();
 	parts.conversations_parts.conv_data_btn.on_click(move |_| {
 		let _ = tx_conv_data.send(UiCommand::ShowConversationData);
+	});
+
+	let tx_unblock_banner = ui_tx.clone();
+	let state_unblock_banner = state.clone();
+	parts.conversations_parts.blocked_banner_btn.on_click(move |_| {
+		let Some(jid) = state_unblock_banner.borrow().selected_chat.clone() else { return };
+		let _ = tx_unblock_banner.send(UiCommand::ToggleBlockChat { jid });
 	});
 
 	let tx_enter_call = ui_tx.clone();
@@ -4134,11 +4537,18 @@ pub fn bind_input_handlers(
 			let message_number_id = 3015;
 			let report_id = 3016;
 			let report_admins_id = 3017;
+			let view_text_id = 3018;
+			let select_messages_id = 3019;
 
 			let s = state_ctx.borrow();
 			let display_item = s.display_items.get(idx as usize).cloned();
 			let is_group_chat = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 			let is_channel_chat = s.selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
+			let can_post_in_channel = is_channel_chat
+				&& s.selected_chat
+					.as_ref()
+					.map(|jid| crate::ui_commands::links::can_post_in_channel(&s, jid))
+					.unwrap_or(false);
 			drop(s);
 
 			let is_divider = match display_item.as_ref() {
@@ -4269,8 +4679,12 @@ pub fn bind_input_handlers(
 
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard");
+			let can_reply = !is_deleted && (!is_channel_chat || can_post_in_channel);
+			if can_reply {
+				menu_builder = menu_builder.append_item(reply_id, "&Reply", "Reply to message");
+			}
 			if !is_deleted {
-				menu_builder = menu_builder.append_item(reply_id, "&Reply", "Reply to message").append_item(
+				menu_builder = menu_builder.append_item(
 					forward_id,
 					"&Forward...",
 					"Forward message to another contact",
@@ -4279,10 +4693,25 @@ pub fn bind_input_handlers(
 					menu_builder = menu_builder.append_item(edit_id, "&Edit", "Edit message");
 				}
 			}
-			menu_builder = menu_builder.append_item(delete_id, "&Delete", "Delete message");
+			let can_delete = !is_channel_chat || can_post_in_channel || is_from_me;
+			if can_delete {
+				menu_builder = menu_builder.append_item(delete_id, "&Delete", "Delete message");
+			}
 			if !is_deleted {
 				menu_builder = menu_builder.append_item(react_dialog_id, "&React...", "React to message");
 			}
+			if !is_deleted {
+				menu_builder = menu_builder.append_item(
+					view_text_id,
+					"&View formatted message...\tShift+Enter",
+					"View message text with headings and formatting",
+				);
+			}
+			menu_builder = menu_builder.append_item(
+				select_messages_id,
+				"Select &messages",
+				"Select multiple messages",
+			);
 			let is_single_message = matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if !m.is_date_divider && !m.is_deleted);
 			if is_single_message {
 				let star_label = if is_starred { "&Unstar" } else { "&Star" };
@@ -4393,6 +4822,7 @@ pub fn bind_input_handlers(
 			let tx_play_media_clone = tx_play_media_ctx.clone();
 			let phone_match_clone = phone_match.clone();
 			let copy_for_menu = copy_for_ctx.clone();
+			let msgs_list_clone = msgs_list_ctx;
 
 			popup_menu.on_selected(move |menu_evt| {
 				let id = menu_evt.get_id();
@@ -4405,8 +4835,26 @@ pub fn bind_input_handlers(
 					) {
 					return;
 				}
+				if id == view_text_id {
+					show_message_text(&parent_frame_clone, &msgs_list_clone, &state_clone);
+					return;
+				}
+				if id == select_messages_id {
+					let _ = tx_play_media_clone.send(UiCommand::ToggleSelectionMode);
+					return;
+				}
 				if id == reply_id {
 					let mut s = state_clone.borrow_mut();
+					let is_channel = s.selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
+					if is_channel
+						&& !s
+							.selected_chat
+							.as_ref()
+							.map(|j| crate::ui_commands::links::can_post_in_channel(&s, j))
+							.unwrap_or(false)
+					{
+						return;
+					}
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
 						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
 						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),
@@ -5855,9 +6303,18 @@ pub fn bind_input_handlers(
 	let msgs_list_search_focus = parts.conversations_parts.messages_list;
 	search_field_ref.on_text_changed(move |_| {
 		let query = search_field_ref.get_value();
-		if !query.is_empty() {
-			let _ = tx_search_text.send(UiCommand::SearchInConversation(query));
+		let _ = tx_search_text.send(UiCommand::SearchInConversation(query));
+	});
+	let tx_search_esc = ui_tx.clone();
+	search_field_ref.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			if keys::is_escape(key_event.get_key_code()) {
+				let _ = tx_search_esc.send(UiCommand::CloseSearch);
+				event.skip(false);
+				return;
+			}
 		}
+		event.skip(true);
 	});
 	let state_search_focus = state.clone();
 	search_field_ref.on_text_enter(move |_| {

@@ -108,9 +108,12 @@ func (b *UDPBridge) ReadFrame() ([]float32, error) {
 
 	pcm, opusRest := splitMicDatagram(b.readBuf[:n])
 	b.opusFrames = splitOpusParts(opusRest)
-	b.opusFrame = nil
 	if len(b.opusFrames) == 1 {
 		b.opusFrame = b.opusFrames[0]
+	} else if len(b.opusFrames) == 0 && len(opusRest) > 0 {
+		b.opusFrame = opusRest
+	} else {
+		b.opusFrame = nil
 	}
 	for i := range b.frameBuf {
 		b.frameBuf[i] = 0

@@ -125,15 +125,65 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid:
 	let a = applies(jid);
 	let mut s = state.borrow_mut();
 	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
-	let kind = if jid.ends_with("@g.us") { "Group" } else { "Contact" };
+	let is_group = jid.ends_with("@g.us");
+	let is_channel = jid.ends_with("@newsletter");
 	let locked = s.locked_jids.contains(jid);
 	let blocked = crate::ui_commands::blocking::is_blocked(&s, jid);
-	let mut lines = vec![format!("{}: {}", kind, name)];
-	lines.push(format!("Notifications: {}", if s.muted_jids.contains(jid) { "muted" } else { "on" }));
-	lines.push(format!("Locked: {}", if locked { "yes" } else { "no" }));
-	if a.block && blocked {
-		lines.push("Blocked: yes".to_string());
+
+	let mut lines = Vec::new();
+	if is_group {
+		lines.push(format!("Group: {}", name));
+		let members_count = s.group_data_members.len();
+		if members_count > 0 {
+			lines.push(format!("Participants: {} members", members_count));
+		}
+		lines.push("Security: End-to-end encrypted (Messages and calls stay between members of this group)".to_string());
+	} else if is_channel {
+		lines.push(format!("Channel: {}", name));
+		lines.push("Type: Public broadcast channel".to_string());
+	} else {
+		lines.push(format!("Contact: {}", name));
+		let (card_phone, card_push, card_status) = if let Some(ref c) = s.conversation_data_contact {
+			(c.phone.clone(), c.push_name.clone(), c.status.clone())
+		} else {
+			(String::new(), String::new(), String::new())
+		};
+
+		let raw_phone = if !card_phone.is_empty() {
+			card_phone
+		} else {
+			jid.split('@').next().unwrap_or(jid).to_string()
+		};
+		let phone = whatsnap::phone::format_international(&raw_phone).unwrap_or(raw_phone);
+		if !phone.is_empty() && phone != name {
+			lines.push(format!("Phone: {}", phone));
+		}
+
+		if !card_push.is_empty() && card_push != name {
+			lines.push(format!("WhatsApp Name: ~{}", card_push));
+		}
+
+		if !card_status.is_empty() {
+			lines.push(format!("About: {}", card_status));
+		}
+
+		lines.push("Security: End-to-end encrypted (Messages and calls stay between you and this contact)".to_string());
 	}
+
+	lines.push(format!("Notifications: {}", if s.muted_jids.contains(jid) { "Muted" } else { "On" }));
+	lines.push(format!("Chat Lock: {}", if locked { "Locked (Protected)" } else { "Unlocked" }));
+
+	if a.block {
+		lines.push(format!("Block Status: {}", if blocked { "Blocked" } else { "Not blocked" }));
+	}
+
+	let media_count = s.conversation_data_media.len();
+	let doc_count = s.conversation_data_documents.len();
+	let link_count = s.conversation_data_links.len();
+	if media_count > 0 || doc_count > 0 || link_count > 0 {
+		lines.push(format!("Media & Docs: {} media, {} documents, {} links", media_count, doc_count, link_count));
+	}
+
 	o.summary.set_value(&lines.join("\n"));
 	o.lock_chk.set_value(locked);
 	o.restricted_chk.set_value(false);
@@ -143,6 +193,10 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid:
 	o.block_btn.show(a.block);
 	o.block_btn.set_label(if blocked { "Unblock contact" } else { "Block contact..." });
 	o.report_btn.show(a.report);
+	if let Some(ref btn) = o.details_btn {
+		let is_saved = s.conversation_data_contact.as_ref().is_some_and(|c| c.saved);
+		btn.set_label(if is_saved { "Edit contact / details..." } else { "Add to contacts / details..." });
+	}
 	if a.privacy {
 		s.overview_probe = true;
 		let payload = serde_json::json!({ "action": "get_chat_privacy", "data": { "jid": jid } });

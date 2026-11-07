@@ -609,6 +609,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let card = crate::ui_commands::contacts_groups::ContactCard::from_user_info(data);
 					crate::ui_commands::contacts_groups::show_contact_card(parts, Some(&card));
 					state.borrow_mut().conversation_data_contact = Some(card);
+					crate::ui::chat_overview::refresh(state, &parts.conversation_data_dialog.overview, jid);
 					crate::platform::announce::announce(
 						parts.conversations_parts.messages_announcer,
 						&format!("Conversation data loaded for {}", local_name),

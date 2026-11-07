@@ -147,6 +147,7 @@ pub struct SettingsDialogParts {
 
 	pub lock_panel: Panel,
 	pub chat_lock_hello_check: CheckBox,
+	pub chat_lock_hello_status: StaticText,
 
 	pub ok_btn: Button,
 	pub cancel_btn: Button,
@@ -204,10 +205,11 @@ fn except_button(panel: &Panel, sizer: &BoxSizer, setting: &str) -> Button {
 	btn
 }
 
-fn setting_note(panel: &Panel, sizer: &BoxSizer, text: &str) {
+fn setting_note(panel: &Panel, sizer: &BoxSizer, text: &str) -> StaticText {
 	let label = StaticText::builder(panel).with_label(text).build();
 	theme::style_muted_label(&label);
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
+	label
 }
 
 fn section_header(panel: &Panel, sizer: &BoxSizer, label: &str) {
@@ -577,6 +579,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		&lock_sizer,
 		"Allows unlocking hidden and locked chats using your Windows Hello biometric or PIN credentials.",
 	);
+	let chat_lock_hello_status = setting_note(
+		&lock_panel,
+		&lock_sizer,
+		crate::platform::windows_hello::status_text(crate::platform::windows_hello::availability()),
+	);
 	lock_panel.set_sizer(lock_sizer, true);
 
 	notebook.add_page(&general_panel, "General", true, None);
@@ -697,6 +704,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		dual_stream_screen_share_check,
 		lock_panel,
 		chat_lock_hello_check,
+		chat_lock_hello_status,
 		security_notifications_check,
 		ok_btn,
 		cancel_btn,
@@ -862,6 +870,7 @@ impl SettingsDialogParts {
 		let hello = crate::platform::windows_hello::availability();
 		self.chat_lock_hello_check.enable(hello == crate::platform::windows_hello::Availability::Ready);
 		self.chat_lock_hello_check.set_value(settings.chat_lock_hello);
+		self.chat_lock_hello_status.set_label(crate::platform::windows_hello::status_text(hello));
 		self.announce_incoming_check.set_value(settings.announce_incoming);
 		self.announce_outgoing_check.set_value(settings.announce_outgoing);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);

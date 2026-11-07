@@ -204,6 +204,10 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	let show_locked_btn = s.active_tab == 0 && !s.locked_jids.is_empty();
 	let show_filter = s.active_tab == 0 && !s.chats_unlocked;
 	let conv = &parts.conversations_parts;
+	let btn_label = if s.chats_unlocked { "Hide Locked Chats" } else { "Locked Chats" };
+	if conv.locked_chats_btn.get_label() != btn_label {
+		conv.locked_chats_btn.set_label(btn_label);
+	}
 	if conv.locked_chats_btn.is_shown() != show_locked_btn || conv.chat_filter_combo.is_shown() != show_filter {
 		conv.locked_chats_btn.show(show_locked_btn);
 		conv.chat_filter_label.show(show_filter);

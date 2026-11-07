@@ -26,6 +26,17 @@ pub enum Availability {
 	Unavailable,
 }
 
+/// The outcome of a Windows Hello verification request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifyOutcome {
+	/// Verified successfully via fingerprint, face, or PIN.
+	Verified,
+	/// The user explicitly dismissed or canceled the prompt.
+	Canceled,
+	/// Verification failed (wrong biometric, retries exhausted, device busy, or error).
+	Failed,
+}
+
 /// A prompt is on screen. A second request while one is open is refused, so
 /// two Windows Hello prompts never stack up.
 static IN_FLIGHT: AtomicBool = AtomicBool::new(false);
@@ -73,22 +84,34 @@ pub fn availability() -> Availability {
 	}
 }
 
+/// A human-readable description of the current Windows Hello availability.
+pub fn status_text(availability: Availability) -> &'static str {
+	match availability {
+		Availability::Ready => "Windows Hello (fingerprint, face, or PIN) is set up and ready on this PC.",
+		Availability::NotSetUp => {
+			"Windows Hello is not set up on this PC. You can configure it in Windows Settings > Accounts > Sign-in options, or use your WhatsApp Secret Code."
+		}
+		Availability::Unavailable => {
+			"Windows Hello is currently unavailable on this PC. Your WhatsApp Secret Code will be used to unlock chats."
+		}
+	}
+}
+
 /// Shows the Windows Hello prompt with `message` as its text. `done` then runs
-/// on a worker thread with `true` only if the user verified; a cancel, a
-/// failure or a missing sign-in method all give `false`. Returns `false`
-/// straight away, without calling `done`, when a prompt is already open.
+/// on a worker thread with the verification outcome.
+/// Returns `false` straight away, without calling `done`, when a prompt is already open.
 ///
 /// The prompt has no owner window on purpose. Parenting it to any window made
 /// Windows disable that window while the prompt was up, and it stayed
 /// "unavailable" afterwards (the main window, then the hidden Settings dialog).
-pub fn verify(message: String, done: impl FnOnce(bool) + Send + 'static) -> bool {
+pub fn verify(message: String, done: impl FnOnce(VerifyOutcome) + Send + 'static) -> bool {
 	if IN_FLIGHT.swap(true, Ordering::SeqCst) {
 		return false;
 	}
 	let spawned = std::thread::Builder::new().name("windows-hello".into()).spawn(move || {
-		let verified = ask(&message).unwrap_or(false);
+		let outcome = ask(&message).unwrap_or(VerifyOutcome::Failed);
 		IN_FLIGHT.store(false, Ordering::SeqCst);
-		done(verified);
+		done(outcome);
 	});
 	if spawned.is_err() {
 		IN_FLIGHT.store(false, Ordering::SeqCst);
@@ -98,9 +121,14 @@ pub fn verify(message: String, done: impl FnOnce(bool) + Send + 'static) -> bool
 }
 
 /// The blocking part of [`verify`]; runs on its own thread.
-fn ask(message: &str) -> windows::core::Result<bool> {
+fn ask(message: &str) -> windows::core::Result<VerifyOutcome> {
 	let _apartment = WinRtApartment::enter()?;
 	let operation: IAsyncOperation<UserConsentVerificationResult> =
 		UserConsentVerifier::RequestVerificationAsync(&HSTRING::from(message))?;
-	Ok(operation.join()? == UserConsentVerificationResult::Verified)
+	let result = operation.join()?;
+	Ok(match result {
+		UserConsentVerificationResult::Verified => VerifyOutcome::Verified,
+		UserConsentVerificationResult::Canceled => VerifyOutcome::Canceled,
+		_ => VerifyOutcome::Failed,
+	})
 }
