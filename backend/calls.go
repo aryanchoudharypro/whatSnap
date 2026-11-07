@@ -460,6 +460,11 @@ func (acc *Account) handlePlaceCall(data []byte) {
 	}
 
 	acc.activeCallsMutex.Lock()
+	for id, c := range acc.activeCalls {
+		if c.State() == meowcaller.CallPhaseEnded {
+			delete(acc.activeCalls, id)
+		}
+	}
 	acc.activeCalls[call.ID()] = call
 	acc.activeCallsMutex.Unlock()
 
@@ -550,6 +555,9 @@ func (acc *Account) handleRejectCall(data []byte) {
 	err := call.Reject()
 	if err != nil {
 		log.Println("Failed to reject call:", err)
+		acc.activeCallsMutex.Lock()
+		delete(acc.activeCalls, req.CallID)
+		acc.activeCallsMutex.Unlock()
 	} else {
 		log.Println("Rejected call:", req.CallID)
 	}
@@ -577,6 +585,9 @@ func (acc *Account) handleLeaveCall(data []byte) {
 	err := call.Hangup()
 	if err != nil {
 		log.Println("Failed to leave call:", err)
+		acc.activeCallsMutex.Lock()
+		delete(acc.activeCalls, req.CallID)
+		acc.activeCallsMutex.Unlock()
 	} else {
 		log.Println("Left call:", req.CallID)
 	}
@@ -758,12 +769,14 @@ func (acc *Account) announceScreenShare(call *meowcaller.Call, share *localScree
 			time.Sleep(250 * time.Millisecond)
 		default:
 			log.Println("Failed to announce the screen share:", err)
+			msg := "screen sharing isn't available on this call"
 			if dual {
-				acc.broadcastEvent("call_screen_share_failed", map[string]string{
-					"call_id": call.ID(),
-					"message": "dual-stream screen sharing isn't available on this call",
-				})
+				msg = "dual-stream screen sharing isn't available on this call"
 			}
+			acc.broadcastEvent("call_screen_share_failed", map[string]string{
+				"call_id": call.ID(),
+				"message": msg,
+			})
 			return
 		}
 	}

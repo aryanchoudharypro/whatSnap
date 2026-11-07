@@ -207,10 +207,10 @@ pub(crate) fn update_call_avatar(parts: &WindowParts, jid: &str) {
 	let avatar_bm = if !jid.is_empty() {
 		crate::ui::avatars::path_of(jid)
 			.as_deref()
-			.and_then(|path| crate::ui::owner_draw::round_picture(path, 96))
-			.unwrap_or_else(|| crate::ui::call_window::empty_avatar_bitmap(96))
+			.and_then(|path| crate::ui::owner_draw::round_picture(path, 112))
+			.unwrap_or_else(|| crate::ui::call_window::empty_avatar_bitmap(112))
 	} else {
-		crate::ui::call_window::empty_avatar_bitmap(96)
+		crate::ui::call_window::empty_avatar_bitmap(112)
 	};
 	parts.call_parts.avatar_bitmap.set_bitmap(&avatar_bm);
 	parts.call_parts.avatar_bitmap.show(true);
@@ -514,7 +514,7 @@ pub(crate) fn peer_video_announcement(event: &str, was_on: Option<bool>, peer: O
 		"on" if was_on != Some(true) => Some(format!("{} turned their camera on.", who)),
 		"off" if was_on != Some(false) => Some(format!("{} turned their camera off.", who)),
 		"upgrade_requested" => {
-			Some(format!("{} wants to switch to video, but this app can't show incoming video yet.", who))
+			Some(format!("{} wants to switch to video. Turn on your camera (Ctrl+Shift+V) to switch to video.", who))
 		}
 		_ => None,
 	}
@@ -574,7 +574,6 @@ pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 			s.settings.camera_device_name.as_deref(),
 		);
 	}
-	parts.call_parts.devices_panel.show(true);
 	parts.call_parts.devices_panel.layout();
 }
 
@@ -644,7 +643,7 @@ mod call_participant_tests {
 		assert_eq!(peer_video_announcement("off", Some(false), Some("Asha")), None);
 		assert_eq!(
 			peer_video_announcement("upgrade_requested", Some(false), Some("Asha")).as_deref(),
-			Some("Asha wants to switch to video, but this app can't show incoming video yet.")
+			Some("Asha wants to switch to video. Turn on your camera (Ctrl+Shift+V) to switch to video.")
 		);
 		assert_eq!(peer_video_announcement("bogus", None, Some("Asha")), None);
 	}

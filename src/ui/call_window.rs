@@ -21,6 +21,7 @@ pub struct CallWindowParts {
 	pub mute_btn: Button,
 	pub camera_btn: Button,
 	pub screen_btn: Button,
+	pub device_settings_btn: Button,
 	pub add_participant_btn: Button,
 	pub raise_hand_btn: Button,
 	pub react_btn: Button,
@@ -35,6 +36,7 @@ pub struct CallWindowParts {
 	pub keep_out_btn: Button,
 	pub approval_check: CheckBox,
 	pub devices_panel: Panel,
+	pub close_devices_btn: Button,
 	pub input_device_combo: ComboBox,
 	pub output_device_combo: ComboBox,
 	pub camera_device_label: StaticText,
@@ -56,10 +58,28 @@ pub fn empty_avatar_bitmap(side: u32) -> wxdragon::bitmap::Bitmap {
 			let dist = (dx * dx + dy * dy).sqrt();
 			let cover = (r - dist + 0.5).clamp(0.0, 1.0);
 			if cover > 0.0 {
+				// Anti-aliased WhatsApp contact silhouette: head circle + shoulder curve
+				let h_dx = x as f32 + 0.5 - cx;
+				let h_dy = y as f32 + 0.5 - (cy - r * 0.20);
+				let h_dist = (h_dx * h_dx + h_dy * h_dy).sqrt();
+				let head_cover = (r * 0.32 - h_dist + 0.5).clamp(0.0, 1.0);
+
+				let b_dx = x as f32 + 0.5 - cx;
+				let b_dy = y as f32 + 0.5 - (cy + r * 0.96);
+				let b_dist = (b_dx * b_dx + b_dy * b_dy).sqrt();
+				let body_cover = (r * 0.72 - b_dist + 0.5).clamp(0.0, 1.0);
+
+				let sil_factor = (head_cover + body_cover).clamp(0.0, 1.0);
+
+				// Dark circle base: rgb(0x23, 0x31, 0x38), Silhouette: rgb(0x6A, 0x7B, 0x85)
+				let red = 0x23 as f32 * (1.0 - sil_factor) + 0x6A as f32 * sil_factor;
+				let green = 0x31 as f32 * (1.0 - sil_factor) + 0x7B as f32 * sil_factor;
+				let blue = 0x38 as f32 * (1.0 - sil_factor) + 0x85 as f32 * sil_factor;
+
 				let idx = ((y * side + x) * 4) as usize;
-				rgba[idx] = 0x23;
-				rgba[idx + 1] = 0x31;
-				rgba[idx + 2] = 0x38;
+				rgba[idx] = red as u8;
+				rgba[idx + 1] = green as u8;
+				rgba[idx + 2] = blue as u8;
 				rgba[idx + 3] = (255.0 * cover) as u8;
 			}
 		}
@@ -76,9 +96,9 @@ pub fn build_call_window() -> CallWindowParts {
 	}
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let avatar_bm = empty_avatar_bitmap(96);
+	let avatar_bm = empty_avatar_bitmap(112);
 	let avatar_bitmap = StaticBitmap::builder(&panel).with_bitmap(Some(avatar_bm)).build();
-	sizer.add(&avatar_bitmap, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top | SizerFlag::Bottom, 12);
+	sizer.add(&avatar_bitmap, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top | SizerFlag::Bottom, 14);
 
 	let status_label = StaticText::builder(&panel).with_label("Incoming call...").build();
 	status_label.set_font(&theme::Fonts::heading());
@@ -88,10 +108,15 @@ pub fn build_call_window() -> CallWindowParts {
 	sizer.add(&status_label, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 
 	let caller_info = TextCtrl::builder(&panel)
-		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
-		.with_size(Size::new(-1, 85))
+		.with_style(
+			TextCtrlStyle::MultiLine
+				| TextCtrlStyle::ReadOnly
+				| TextCtrlStyle::Centre
+				| TextCtrlStyle::from_bits_retain(0x0020_0000),
+		)
+		.with_size(Size::new(-1, 80))
 		.build();
-	caller_info.set_font(&theme::Fonts::body());
+	caller_info.set_font(&theme::Fonts::body_strong());
 	if theme::use_custom_colours() {
 		caller_info.set_background_color(CALL_BG);
 		caller_info.set_foreground_color(CALL_TEXT);
@@ -110,11 +135,15 @@ pub fn build_call_window() -> CallWindowParts {
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
 	let accept_btn = Button::builder(&btn_panel).with_label("Accept call").build();
-	crate::ui::owner_draw::install_tile(&accept_btn, CALL_BG);
+	theme::style_primary_button(&accept_btn);
 	btn_sizer.add(&accept_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 
 	let reject_btn = Button::builder(&btn_panel).with_label("Decline call").build();
-	crate::ui::owner_draw::install_tile(&reject_btn, CALL_BG);
+	if theme::use_custom_colours() {
+		reject_btn.set_background_color(Colour::rgb(0xEA, 0x00, 0x38));
+		reject_btn.set_foreground_color(Colour::rgb(0xFF, 0xFF, 0xFF));
+		reject_btn.set_font(&theme::Fonts::body_strong());
+	}
 	btn_sizer.add(&reject_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 
 	let dismiss_btn = Button::builder(&btn_panel).with_label("Dismiss").build();
@@ -137,6 +166,11 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_sizer.add(&screen_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	screen_btn.show(false);
 
+	let device_settings_btn = Button::builder(&btn_panel).with_label("Device settings").build();
+	crate::ui::owner_draw::install_tile(&device_settings_btn, CALL_BG);
+	btn_sizer.add(&device_settings_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	device_settings_btn.show(false);
+
 	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
 	crate::ui::owner_draw::install_tile(&add_participant_btn, CALL_BG);
 	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
@@ -153,11 +187,16 @@ pub fn build_call_window() -> CallWindowParts {
 	react_btn.show(false);
 
 	let leave_btn = Button::builder(&btn_panel).with_label("End call").build();
-	crate::ui::owner_draw::install_tile(&leave_btn, CALL_BG);
+	if theme::use_custom_colours() {
+		leave_btn.set_background_color(Colour::rgb(0xEA, 0x00, 0x38));
+		leave_btn.set_foreground_color(Colour::rgb(0xFF, 0xFF, 0xFF));
+		leave_btn.set_font(&theme::Fonts::body_strong());
+	}
 	btn_sizer.add(&leave_btn, 1, SizerFlag::Expand | SizerFlag::Left, 5);
 	leave_btn.show(false);
 
 	let callback_btn = Button::builder(&btn_panel).with_label("Call back").build();
+	theme::style_primary_button(&callback_btn);
 	crate::ui::owner_draw::install_tile(&callback_btn, CALL_BG);
 	btn_sizer.add(&callback_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	callback_btn.show(false);
@@ -202,9 +241,22 @@ pub fn build_call_window() -> CallWindowParts {
 
 	let devices_panel = Panel::builder(&panel).build();
 	if theme::use_custom_colours() {
-		devices_panel.set_background_color(CALL_BG);
+		devices_panel.set_background_color(Colour::rgb(0x18, 0x24, 0x2C));
 	}
 	let devices_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let devices_title = StaticText::builder(&devices_panel).with_label("Audio & Video Devices").build();
+	devices_title.set_font(&theme::Fonts::body_strong());
+	if theme::use_custom_colours() {
+		devices_title.set_foreground_color(CALL_TEXT);
+	}
+	header_sizer.add(&devices_title, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
+
+	let close_devices_btn = Button::builder(&devices_panel).with_label("Done").build();
+	close_devices_btn.set_font(&theme::Fonts::body());
+	header_sizer.add(&close_devices_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+	devices_sizer.add_sizer(&header_sizer, 0, SizerFlag::Expand | SizerFlag::Top | SizerFlag::Bottom, 6);
 
 	let input_device_label = StaticText::builder(&devices_panel).with_label("Microphone").build();
 	input_device_label.set_font(&theme::Fonts::label());
@@ -251,6 +303,7 @@ pub fn build_call_window() -> CallWindowParts {
 		mute_btn,
 		camera_btn,
 		screen_btn,
+		device_settings_btn,
 		add_participant_btn,
 		raise_hand_btn,
 		react_btn,
@@ -265,6 +318,7 @@ pub fn build_call_window() -> CallWindowParts {
 		keep_out_btn,
 		approval_check,
 		devices_panel,
+		close_devices_btn,
 		input_device_combo,
 		output_device_combo,
 		camera_device_label,

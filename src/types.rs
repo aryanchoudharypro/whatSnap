@@ -267,6 +267,7 @@ pub enum UiCommand {
 	LeaveCall,
 	ToggleCamera,
 	ToggleScreenShare,
+	ToggleCallDeviceSettings,
 	SystemAudioFailed(String),
 	SetCallInputDevice(Option<String>),
 	SetCallOutputDevice(Option<String>),

@@ -82,6 +82,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.conversations_parts.panel.layout();
 						parts.frame.layout();
 						parts.call_parts.mute_btn.show(true);
+						parts.call_parts.device_settings_btn.show(true);
 						parts.call_parts.camera_btn.show(true);
 						parts.call_parts.camera_btn.set_label(if s.call_video.local_camera_on {
 							"Turn camera off"
@@ -278,10 +279,23 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						s.call_video.peer_camera_on = Some(true);
 						if !s.call_video.video_call {
 							s.call_video.video_call = true;
+							s.call_video.is_video = true;
 							if s.active_call_audio.is_some() {
 								crate::ui_commands::calls::show_screen_share_controls(&s, parts);
 							}
 						}
+						let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
+						let name = s.call_peer_name.clone();
+						let is_saved = s.call_peer_is_saved;
+						let is_incoming = s.call_is_incoming;
+						let elapsed = s.call_connected_duration + s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
+						let secs = elapsed.as_secs();
+						let clock = if secs > 0 { Some(crate::calls::helpers::format_call_duration(secs)) } else { None };
+						let win_title = crate::calls::helpers::format_call_window_title(is_incoming, is_group, true, &name, is_saved, clock.as_deref());
+						parts.call_parts.frame.set_title(&win_title);
+						let running_info = crate::calls::helpers::call_running_info_text(is_incoming, true, &name, secs, s.call_is_reconnecting);
+						parts.call_parts.caller_info.set_value(&running_info);
+						crate::calls::helpers::show_call_device_combos(&s, parts);
 					}
 					"off" => s.call_video.peer_camera_on = Some(false),
 					_ => {}
@@ -467,7 +481,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					}
 
 					if was_frame_shown {
-						let end_text = crate::calls::helpers::call_ended_info_text(&peer_name_saved, total_duration.as_secs(), reason);
+						let end_text = if was_connected {
+							let clock = crate::calls::helpers::format_call_duration(total_duration.as_secs());
+							format!("Call ended with {}\r\nDuration: {}", peer_name_saved, clock)
+						} else {
+							crate::calls::helpers::call_ended_info_text(&peer_name_saved, total_duration.as_secs(), reason)
+						};
 						let title_name = crate::calls::helpers::clean_call_title_peer_name(&peer_name_saved, s.call_peer_is_saved);
 						parts.call_parts.frame.set_title(&format!("Call ended with {}", title_name));
 						parts.call_parts.status_label.set_label("Call ended");
@@ -479,6 +498,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.call_parts.mute_btn.show(false);
 						parts.call_parts.camera_btn.show(false);
 						parts.call_parts.screen_btn.show(false);
+						parts.call_parts.device_settings_btn.show(false);
+						parts.call_parts.device_settings_btn.set_label("Device settings");
 						parts.call_parts.leave_btn.show(false);
 						parts.call_parts.add_participant_btn.show(false);
 						parts.call_parts.raise_hand_btn.show(false);
@@ -617,6 +638,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.mute_btn.show(true);
 					parts.call_parts.camera_btn.set_label("Turn camera on");
 					parts.call_parts.camera_btn.show(true);
+					parts.call_parts.device_settings_btn.set_label("Device settings");
+					parts.call_parts.device_settings_btn.show(true);
+					parts.call_parts.devices_panel.show(false);
 					crate::ui_commands::calls::hide_screen_share_controls(parts);
 					parts.call_parts.leave_btn.show(false);
 					parts.call_parts.add_participant_btn.show(false);

@@ -1187,6 +1187,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::CallHotkey(hotkey) => ui_commands::calls::call_hotkey(state, parts, hotkey),
 		UiCommand::LeaveCall => ui_commands::calls::leave_call(state, parts),
 		UiCommand::ToggleCamera => ui_commands::calls::toggle_camera(state, parts),
+		UiCommand::ToggleCallDeviceSettings => ui_commands::calls::toggle_call_device_settings(state, parts),
 		UiCommand::CameraFailed(reason) => ui_commands::calls::camera_failed(state, parts, reason),
 		UiCommand::ToggleScreenShare => ui_commands::calls::toggle_screen_share(state, parts),
 		UiCommand::ScreenShareFailed(reason) => ui_commands::calls::screen_share_failed(state, parts, reason),
