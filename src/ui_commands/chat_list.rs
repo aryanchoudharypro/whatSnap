@@ -172,7 +172,12 @@ pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		parts.conversations_parts.emoji_btn.show(false);
 		parts.conversations_parts.send_message_btn.show(false);
 		parts.conversations_parts.record_voice_btn.show(false);
+		parts.conversations_parts.selection_count_label.set_label(&crate::ui::window::selection_text(0));
 		parts.conversations_parts.messages_select_list.set_focus();
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			"Selection mode. Press Space to select a message. 0 messages selected.",
+		);
 	} else {
 		let at = parts
 			.conversations_parts
@@ -198,8 +203,39 @@ pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 			.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
 		parts.conversations_parts.record_voice_btn.show(true);
 		parts.conversations_parts.messages_list.set_focus();
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Selection mode off.");
 	}
 	parts.conversations_parts.conversation_panel.layout();
+}
+
+/// Asks for a date (YYYY-MM-DD) and shows the open chat around its first
+/// message on or after that day.
+pub(crate) fn go_to_date(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let Some(jid) = state.borrow().selected_chat.clone() else { return };
+	let dlg =
+		TextEntryDialog::builder(&parts.frame, "Date to go to, as year-month-day, like 2026-03-27:", "Go to Date")
+			.build();
+	let answer = (dlg.show_modal() == wxdragon::id::ID_OK).then(|| dlg.get_value()).flatten();
+	dlg.destroy();
+	let Some(answer) = answer else { return };
+	let say = |text: &str| crate::platform::announce::announce(parts.conversations_parts.messages_announcer, text);
+	let nums: Vec<u32> = answer.trim().split(['-', '/', '.']).filter_map(|p| p.trim().parse().ok()).collect();
+	let valid = answer.trim().split(['-', '/', '.']).count() == 3
+		&& nums.len() == 3
+		&& (1..=12).contains(&nums[1])
+		&& (1..=31).contains(&nums[2])
+		&& nums[0] >= 2009;
+	if !valid {
+		say("That is not a date. Use year-month-day, like 2026-03-27.");
+		return;
+	}
+	let date = format!("{:04}-{:02}-{:02}", nums[0], nums[1], nums[2]);
+	let payload = serde_json::json!({
+		"action": "get_messages_around",
+		"data": { "jid": jid, "date": date, "context": crate::MESSAGE_PAGE_SIZE / 2 }
+	});
+	let _ = state.borrow().ws_tx.send(payload.to_string());
+	say(&format!("Going to {}.", date));
 }
 
 pub(crate) fn delete_selected_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, for_everyone: bool) {
@@ -561,6 +597,7 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			parts.group_data_dialog.photo.show(false);
 			let payload = serde_json::json!({ "action": "get_avatar", "data": { "jid": jid } });
 			let _ = s.ws_tx.send(payload.to_string());
+			let jid_for_overview = jid.clone();
 			let payload = serde_json::json!({
 				"action": "get_group_info",
 				"data": { "jid": jid }
@@ -573,6 +610,7 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			s.group_data_community = None;
 			drop(s);
 
+			crate::ui::chat_overview::refresh(state, &parts.group_data_dialog.overview, &jid_for_overview);
 			crate::ui::show_modal_again(&parts.group_data_dialog.dialog);
 			let mut s = state.borrow_mut();
 			s.group_data_media = Vec::new();
@@ -646,6 +684,10 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	drop(s_mut);
 
 	parts.conversation_data_dialog.info_field.set_focus();
+	let overview_jid = state.borrow().info_chat.clone();
+	if let Some(jid) = overview_jid {
+		crate::ui::chat_overview::refresh(state, &parts.conversation_data_dialog.overview, &jid);
+	}
 	crate::ui::show_modal_again(&parts.conversation_data_dialog.dialog);
 	let mut s = state.borrow_mut();
 	s.info_chat = None;

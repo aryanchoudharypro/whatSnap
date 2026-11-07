@@ -151,7 +151,13 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	let c = &parts.call_parts;
 	c.frame.set_title(call_window_title(true, call.video));
 	c.status_label.set_label("Joining call...");
-	c.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(&group_name, call.video, true));
+	c.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(
+		&group_name,
+		None,
+		call.video,
+		true,
+		"Calling...",
+	));
 	c.caller_info.show(true);
 	c.accept_btn.show(false);
 	c.reject_btn.show(false);
@@ -230,7 +236,18 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	s.call_pending_cancel = false;
 
 	let is_group = jid.ends_with("@g.us");
-	let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+	let (name, phone) = if is_group {
+		(s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone()), None)
+	} else {
+		crate::calls::helpers::resolve_call_peer_name_and_phone(
+			&s.contacts,
+			&s.all_contacts,
+			&jid,
+			Some(&jid),
+			None,
+			None,
+		)
+	};
 	s.call_is_incoming = false;
 	s.call_peer_name = name.clone();
 	s.call_start_muted = false;
@@ -241,6 +258,7 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	s.call_video = CallVideo {
 		is_video: signals_video,
 		peer_name: if is_group { None } else { Some(name.clone()) },
+		peer_phone: phone,
 		peer_camera_on: Some(false),
 		local_camera_on: false,
 		local_screen_on: false,
@@ -252,10 +270,16 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	parts.call_parts.frame.set_title(call_window_title(is_group, video));
 	if is_group {
 		parts.call_parts.status_label.set_label(&format!("Starting group call in {}", name));
+		parts.call_parts.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(
+			&name,
+			None,
+			video,
+			true,
+			"Calling...",
+		));
 	} else {
-		parts.call_parts.status_label.set_label(&format!("In call with {}", name));
+		show_outgoing_call_status(&s, parts, "Calling...");
 	}
-	parts.call_parts.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(&name, video, is_group));
 	parts.call_parts.caller_info.show(true);
 	parts.call_parts.accept_btn.show(false);
 	parts.call_parts.reject_btn.show(false);
@@ -276,6 +300,37 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 		(false, false) => "Placing call...",
 	};
 	announce_call(parts, placing_msg);
+}
+
+/// Shows where a 1:1 call we placed has got to, the way WhatsApp's call
+/// screen does: the status ("Calling...", "Ringing...", "Connecting...") as
+/// the heading, and who we're calling with their number under it.
+pub(crate) fn show_outgoing_call_status(s: &AppState, parts: &WindowParts, status: &str) {
+	let c = &parts.call_parts;
+	c.status_label.set_label(status);
+	c.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(
+		&s.call_peer_name,
+		s.call_video.peer_phone.as_deref(),
+		s.call_video.video_call,
+		false,
+		status,
+	));
+}
+
+/// The backend's `call_progress` event: the other phone got our call
+/// ("ringing") or they answered ("connecting"). Only a 1:1 call we placed
+/// that hasn't connected yet shows it.
+pub(crate) fn on_call_progress(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
+	let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+	let progress = data.get("state").and_then(|p| p.as_str()).unwrap_or("");
+	let s = state.borrow();
+	let waiting = s.active_call_id.as_deref() == Some(call_id)
+		&& !s.call_is_incoming
+		&& s.call_video.peer_name.is_some()
+		&& s.active_call_audio.is_none();
+	if let Some(status) = crate::calls::helpers::outgoing_call_status(progress).filter(|_| waiting) {
+		show_outgoing_call_status(&s, parts, status);
+	}
 }
 
 pub(crate) fn place_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {

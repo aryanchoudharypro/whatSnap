@@ -55,6 +55,8 @@ pub struct GroupDataDialogParts {
 	pub deactivate_btn: Button,
 	pub save_settings_btn: Button,
 	pub reported_btn: Button,
+
+	pub overview: crate::ui::chat_overview::ChatOverviewParts,
 }
 
 pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
@@ -271,6 +273,7 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	notebook.add_page(&links_panel, "Links", false, None);
 	notebook.add_page(&groups_panel, "Groups", false, None);
 	notebook.add_page(&settings_panel, "Settings", false, None);
+	let overview = crate::ui::chat_overview::build(&notebook);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 6);
 
@@ -284,6 +287,7 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	GroupDataDialogParts {
+		overview,
 		dialog,
 		back_btn,
 		notebook,

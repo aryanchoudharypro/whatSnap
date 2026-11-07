@@ -330,6 +330,8 @@ pub enum UiCommand {
 	ReportToAdmins {
 		message_id: String,
 	},
+	/// Ask for a date and show the open chat around it.
+	GoToDate,
 	ReportChat {
 		jid: String,
 	},
@@ -507,6 +509,9 @@ pub(crate) struct StatusGroup {
 pub(crate) struct CallVideo {
 	pub(crate) is_video: bool,
 	pub(crate) peer_name: Option<String>,
+	/// The other person's phone number (digits) on a 1:1 call we placed,
+	/// shown under their name while it rings.
+	pub(crate) peer_phone: Option<String>,
 	pub(crate) peer_camera_on: Option<bool>,
 	pub(crate) local_camera_on: bool,
 	/// Whether we're sharing the screen. Over the call's one video stream

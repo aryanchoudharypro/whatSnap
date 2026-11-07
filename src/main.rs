@@ -294,6 +294,8 @@ struct AppState {
 	conversation_data_links: Vec<whatsnap::Msg>,
 	conversation_data_contact: Option<ui_commands::contacts_groups::ContactCard>,
 	info_chat: Option<String>,
+	/// The Overview tab asked the backend whether the chat is restricted.
+	overview_probe: bool,
 	own_push_name: String,
 	own_about: String,
 	own_about_duration: i64,
@@ -341,6 +343,12 @@ fn launch_command(request: platform::single_instance::LaunchRequest) -> UiComman
 
 fn main() {
 	platform::crash_log::install();
+
+	// Recovery when Windows Hello breaks and the app lock can't be opened.
+	if std::env::args().skip(1).any(|arg| arg == "--reset-app-lock") {
+		platform::lock_store::reset();
+		return;
+	}
 
 	let launch_request = launch_request_from_args(std::env::args().skip(1));
 	let _instance_lock = match platform::single_instance::acquire_or_activate_existing(launch_request.as_ref()) {
@@ -878,6 +886,7 @@ pub(crate) fn new_app_state(
 		conversation_data_links: Vec::new(),
 		conversation_data_contact: None,
 		info_chat: None,
+		overview_probe: false,
 		own_push_name: String::new(),
 		own_about: String::new(),
 		own_about_duration: -1,
@@ -1264,6 +1273,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		}
 		UiCommand::ReportMessage { message_id } => ui_commands::report::report_message(state, parts, message_id),
 		UiCommand::ReportToAdmins { message_id } => ui_commands::report::report_to_admins(state, parts, message_id),
+		UiCommand::GoToDate => ui_commands::chat_list::go_to_date(state, parts),
 		UiCommand::ReportChat { jid } => ui_commands::report::report_chat(state, parts, jid),
 		UiCommand::ToggleBlockChat { jid } => ui_commands::blocking::toggle_block(state, parts, jid),
 		UiCommand::ShowBlockedContacts => ui_commands::blocking::show_blocked_contacts(state, parts),

@@ -33,6 +33,8 @@ pub struct ConversationDataDialogParts {
 	pub common_groups_panel: Panel,
 	pub common_groups_label: StaticText,
 	pub common_groups_list: ListBox,
+
+	pub overview: crate::ui::chat_overview::ChatOverviewParts,
 }
 
 pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDataDialogParts {
@@ -143,6 +145,7 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	notebook.add_page(&documents_panel, "Documents", false, None);
 	notebook.add_page(&links_panel, "Links", false, None);
 	notebook.add_page(&common_groups_panel, "Groups in Common", false, None);
+	let overview = crate::ui::chat_overview::build(&notebook);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 6);
 
@@ -152,6 +155,7 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	ConversationDataDialogParts {
+		overview,
 		dialog,
 		back_btn,
 		notebook,

@@ -337,6 +337,8 @@ pub(super) struct ConversationMessagesData<'a> {
 	newer: Option<usize>,
 	#[serde(rename = "targetFound", default = "default_true")]
 	target_found: bool,
+	#[serde(rename = "targetId", default)]
+	target_id: Option<String>,
 }
 
 pub(super) struct MessagesPage {
@@ -347,6 +349,8 @@ pub(super) struct MessagesPage {
 	pub(super) older: Option<usize>,
 	pub(super) newer: Option<usize>,
 	pub(super) target_found: bool,
+	/// The message a Go to Date jump landed on.
+	pub(super) target_id: Option<String>,
 	pub(super) messages: Vec<ChatMessage>,
 }
 
@@ -394,6 +398,7 @@ pub(super) fn parse_conversation_messages(raw: &str) -> Option<MessagesPage> {
 		older: data.older,
 		newer: data.newer,
 		target_found: data.target_found,
+		target_id: data.target_id.filter(|id| !id.is_empty()),
 		messages: parsed,
 	})
 }

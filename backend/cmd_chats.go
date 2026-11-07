@@ -450,6 +450,7 @@ func (acc *Account) handleGetMessagesAround(conn net.Conn, raw json.RawMessage) 
 		JID       string `json:"jid"`
 		MessageID string `json:"messageId"`
 		Text      string `json:"text"`
+		Date      string `json:"date"`
 		Context   int    `json:"context"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -467,6 +468,20 @@ func (acc *Account) handleGetMessagesAround(conn net.Conn, raw json.RawMessage) 
 		if data.MessageID != "" {
 			lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND id = ?`,
 				data.JID, data.MessageID).Scan(&targetTS, &targetID)
+		} else if data.Date != "" {
+			// The first message on or after that local day; a date past the
+			// last message lands on the latest one.
+			day, perr := time.ParseInLocation("2006-01-02", data.Date, time.Local)
+			if perr != nil {
+				lookupErr = perr
+			} else {
+				lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND timestamp >= ?
+					ORDER BY timestamp ASC, id ASC LIMIT 1`, data.JID, day.Unix()).Scan(&targetTS, &targetID)
+				if lookupErr == sql.ErrNoRows {
+					lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ?
+						ORDER BY timestamp DESC, id DESC LIMIT 1`, data.JID).Scan(&targetTS, &targetID)
+				}
+			}
 		} else if data.Text != "" {
 			lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND text LIKE ? ESCAPE '\'
 				ORDER BY timestamp DESC LIMIT 1`, data.JID, "%"+escapeLike(data.Text)+"%").Scan(&targetTS, &targetID)
@@ -503,6 +518,7 @@ func (acc *Account) handleGetMessagesAround(conn net.Conn, raw json.RawMessage) 
 			// Lets the UI stay where it is when jumping to a quoted message
 			// that was never stored.
 			"targetFound": lookupErr == nil,
+			"targetId":    targetID,
 		})
 	}()
 }

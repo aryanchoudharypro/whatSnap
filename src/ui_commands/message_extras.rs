@@ -221,6 +221,13 @@ pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	if !asked {
 		return;
 	}
+	if crate::ui::chat_overview::privacy_answer(
+		state,
+		parts,
+		data.get("restricted").and_then(|v| v.as_bool()).unwrap_or(false),
+	) {
+		return;
+	}
 	let info = &parts.conversation_data_dialog.dialog;
 	let parent: &dyn WxWidget = if info.is_shown() { info } else { &parts.frame };
 	if data.get("restricted").and_then(|v| v.as_bool()).unwrap_or(false) {

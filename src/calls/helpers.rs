@@ -150,14 +150,42 @@ pub(crate) fn call_incoming_info_text(
 	format!("{line1}\r\n{line2}")
 }
 
-pub(crate) fn call_outgoing_info_text(peer_name: &str, is_video: bool, is_group: bool) -> String {
+/// The call window's details for a call we're placing, laid out like
+/// WhatsApp's call screen: who (name, then their number when the name isn't
+/// just the number), then where the call is - "Calling..." until their phone
+/// gets it, "Ringing...", then "Connecting..." once they answer.
+pub(crate) fn call_outgoing_info_text(
+	peer_name: &str,
+	phone_digits: Option<&str>,
+	is_video: bool,
+	is_group: bool,
+	status: &str,
+) -> String {
 	let kind = if is_video { "video call" } else { "call" };
-	let line1 = if is_group {
+	let mut text = if is_group {
 		format!("Outgoing group {kind} in {peer_name}")
 	} else {
 		format!("Outgoing {kind} to {peer_name}")
 	};
-	format!("{line1}\r\nCalling...")
+	let name_is_number = |digits: &str| peer_name.chars().filter(char::is_ascii_digit).eq(digits.chars());
+	if let Some(digits) = phone_digits.filter(|d| !d.is_empty() && !name_is_number(d)) {
+		text.push_str("\r\n");
+		text.push_str(&whatsnap::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}")));
+	}
+	text.push_str("\r\n");
+	text.push_str(status);
+	text
+}
+
+/// What WhatsApp's call screen says about a call we're placing that hasn't
+/// connected yet. `progress` is the backend's `call_progress` state.
+pub(crate) fn outgoing_call_status(progress: &str) -> Option<&'static str> {
+	match progress {
+		"calling" => Some("Calling..."),
+		"ringing" => Some("Ringing..."),
+		"connecting" => Some("Connecting..."),
+		_ => None,
+	}
 }
 
 pub(crate) fn resolve_call_peer_name_and_phone(
@@ -268,8 +296,25 @@ mod caller_info_tests {
 
 	#[test]
 	fn outgoing_info_text_formats_multiline() {
-		assert_eq!(call_outgoing_info_text("Asha", false, false), "Outgoing call to Asha\r\nCalling...");
-		assert_eq!(call_outgoing_info_text("Family", false, true), "Outgoing group call in Family\r\nCalling...");
+		assert_eq!(
+			call_outgoing_info_text("Asha", None, false, false, "Calling..."),
+			"Outgoing call to Asha\r\nCalling..."
+		);
+		assert_eq!(
+			call_outgoing_info_text("Family", None, false, true, "Calling..."),
+			"Outgoing group call in Family\r\nCalling..."
+		);
+		assert_eq!(
+			call_outgoing_info_text("Asha", Some("919810012345"), true, false, "Ringing..."),
+			"Outgoing video call to Asha\r\n+91 98100 12345\r\nRinging..."
+		);
+		// An unsaved number is already the name, so it isn't repeated.
+		assert_eq!(
+			call_outgoing_info_text("+1 415-555-2671", Some("14155552671"), false, false, "Connecting..."),
+			"Outgoing call to +1 415-555-2671\r\nConnecting..."
+		);
+		assert_eq!(outgoing_call_status("ringing"), Some("Ringing..."));
+		assert_eq!(outgoing_call_status("bogus"), None);
 	}
 
 	#[test]

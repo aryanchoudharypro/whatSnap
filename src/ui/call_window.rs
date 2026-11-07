@@ -6,8 +6,9 @@ use crate::ui::theme;
 pub struct CallWindowParts {
 	pub frame: Frame,
 	pub status_label: StaticText,
-	/// "Call from <name>, <phone>" for an incoming call. Read-only, so a screen
-	/// reader can move through it to read the caller's details.
+	/// Who the call is with: name, then phone number, and for a call we placed
+	/// "Calling..."/"Ringing..."/"Connecting..." until it connects. Read-only,
+	/// so a screen reader can move through it to read the details.
 	pub caller_info: TextCtrl,
 	/// Live region for anything announced while the call window has focus.
 	/// The call frame is its own top-level window, and a screen reader only
@@ -61,7 +62,7 @@ pub fn build_call_window() -> CallWindowParts {
 
 	let caller_info = TextCtrl::builder(&panel)
 		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
-		.with_size(Size::new(-1, 56))
+		.with_size(Size::new(-1, 80))
 		.build();
 	caller_info.set_font(&theme::Fonts::body());
 	if theme::use_custom_colours() {

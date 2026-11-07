@@ -17,7 +17,12 @@ fn enter_key_held() -> bool {
 	state as u16 & 0x8000 != 0
 }
 
-fn sanitize_export_filename(name: &str) -> String {
+/// "1 message selected", spoken and shown as the selection changes.
+pub(crate) fn selection_text(count: usize) -> String {
+	format!("{} {} selected", count, if count == 1 { "message" } else { "messages" })
+}
+
+pub(crate) fn sanitize_export_filename(name: &str) -> String {
 	let cleaned: String = name.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) { '_' } else { c }).collect();
 	let trimmed = cleaned.trim();
 	if trimmed.is_empty() { "chat".to_string() } else { trimmed.to_string() }
@@ -398,9 +403,11 @@ pub const MENU_ID_NEXT_SPELLING_ERROR: i32 = 6051;
 pub const MENU_ID_TOGGLE_ANNOUNCE: i32 = 6052;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 pub const MENU_ID_BUSINESS_CATALOG: i32 = 6060;
+pub const MENU_ID_GO_TO_DATE: i32 = 6061;
 
-const CONVERSATION_MENU_IDS: [i32; 21] = [
+const CONVERSATION_MENU_IDS: [i32; 22] = [
 	MENU_ID_CHAT_INFO,
+	MENU_ID_GO_TO_DATE,
 	MENU_ID_BUSINESS_CATALOG,
 	MENU_ID_SEARCH_CHAT,
 	MENU_ID_PINNED_MESSAGES,
@@ -541,7 +548,7 @@ enum ConversationEntry {
 
 use ConversationEntry::{Item, Separator};
 
-const CONVERSATION_MENU: [ConversationEntry; 25] = [
+const CONVERSATION_MENU: [ConversationEntry; 26] = [
 	Item(MENU_ID_CHAT_INFO, None, "Open info for the open chat"),
 	Item(MENU_ID_FOCUS_MESSAGE_FIELD, None, "Move focus to the message box, or back to where you were"),
 	Item(MENU_ID_FOCUS_MESSAGES_LIST, None, "Move focus to the messages list"),
@@ -551,6 +558,7 @@ const CONVERSATION_MENU: [ConversationEntry; 25] = [
 	Item(MENU_ID_STICKER_PANEL, None, "Pick a sticker to send: favorites, recent ones or WhatsApp's own packs"),
 	Item(MENU_ID_NEXT_SPELLING_ERROR, None, "Select the next misspelled word in the message box and offer its fixes"),
 	Item(MENU_ID_SEARCH_CHAT, None, "Search within the open chat"),
+	Item(MENU_ID_GO_TO_DATE, Some("Go to &Date..."), "Jump to the messages of a date in the open chat"),
 	Item(MENU_ID_PINNED_MESSAGES, Some("Pi&nned Messages..."), "See and go to the open chat's pinned messages"),
 	Item(
 		MENU_ID_BUSINESS_CATALOG,
@@ -1445,6 +1453,8 @@ pub fn bind_input_handlers(
 		let _ = tx_info_privacy.send(UiCommand::ShowChatPrivacy);
 	});
 
+	crate::ui::chat_overview::wire(&parts, &state, &ui_tx);
+
 	let conv_data_dialog_back = parts.conversation_data_dialog.dialog;
 	parts.conversation_data_dialog.back_btn.on_click(move |_| {
 		conv_data_dialog_back.end_modal(0);
@@ -1971,6 +1981,8 @@ pub fn bind_input_handlers(
 			if let Some(jid) = jid {
 				let _ = tx_chat_menu.send(UiCommand::ChooseDisappearingTimer { jid });
 			}
+		} else if id == MENU_ID_GO_TO_DATE {
+			let _ = tx_chat_menu.send(UiCommand::GoToDate);
 		} else if id == MENU_ID_REPORT_CHAT {
 			let jid = state_chat_menu.borrow().selected_chat.clone();
 			if let Some(jid) = jid {
@@ -5621,6 +5633,7 @@ pub fn bind_input_handlers(
 
 	let selection_list_toggle = parts.conversations_parts.messages_select_list;
 	let selection_count_label_toggle = parts.conversations_parts.selection_count_label;
+	let selection_announcer = parts.conversations_parts.messages_announcer;
 	let state_selection_toggle = state.clone();
 	selection_list_toggle.on_toggled(move |idx| {
 		let mut s = state_selection_toggle.borrow_mut();
@@ -5631,7 +5644,9 @@ pub fn bind_input_handlers(
 				s.selected_message_ids.remove(&id);
 			}
 			let count = s.selected_message_ids.len();
-			selection_count_label_toggle.set_label(&format!("{} selected", count));
+			let text = selection_text(count);
+			selection_count_label_toggle.set_label(&text);
+			crate::platform::announce::announce(selection_announcer, &text);
 		}
 	});
 

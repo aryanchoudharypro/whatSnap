@@ -99,6 +99,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				crate::ui_commands::calls::on_joinable_calls(state, parts, data);
 			}
 		}
+		"call_progress" => {
+			if let Some(data) = val.get("data") {
+				crate::ui_commands::calls::on_call_progress(state, parts, data);
+			}
+		}
 		"call_placed" => {
 			if let Some(data) = val.get("data")
 				&& let Some(call_id) = data.get("call_id").and_then(|c| c.as_str())

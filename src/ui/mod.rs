@@ -1,5 +1,6 @@
 pub mod avatars;
 pub mod call_window;
+pub mod chat_overview;
 pub mod chat_rows;
 pub mod chat_ui;
 pub mod contact_picker;

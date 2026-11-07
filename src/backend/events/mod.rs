@@ -166,6 +166,9 @@ pub(crate) fn process_websocket_message(raw: String, state: &Rc<RefCell<AppState
 						apply_newer_messages(page, state, parts);
 						return;
 					}
+					if let Some(id) = page.target_id.clone() {
+						state.borrow_mut().search_target_id = Some(id);
+					}
 					if !page.target_found && !state.borrow().display_items.is_empty() {
 						// A quoted message we don't have: stay put, as before.
 						let mut s = state.borrow_mut();

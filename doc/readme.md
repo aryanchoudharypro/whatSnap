@@ -201,7 +201,7 @@ While a voice message plays, `Left Arrow` and `J` go back 5 seconds, and `Right 
 The actions menu of a message has these items, when they apply to the message: `Copy`, `Reply`, `Forward...`, `Edit`, `Delete`, `React...`, `Star` or `Unstar`, `Retry send`, `Request again`, `Save voice message...`, `Message Info`, `Copy all photos`, `Copy Number`, `Message Number`, and `Report...`. In a group, a submenu for the sender lets you message or call them. In a channel, a submenu lets you pin a post, or see who reacted or voted.
 
 ### Selection Mode
-In selection mode, `Space` selects or clears a message. A bar shows how many messages you selected, with `Delete` and `Cancel` buttons. To leave selection mode, press `Ctrl+Space` or `Escape`.
+In selection mode, `Space` selects or clears a message. whatSnap says "Selection mode" when you enter it and "1 message selected", "2 messages selected" and so on each time you select or clear a message. A bar shows how many messages you selected, with `Delete` and `Cancel` buttons. To leave selection mode, press `Ctrl+Space` or `Escape`.
 
 ### Writing Messages
 Type your message in the message box. If `Enter is send` is on in the settings, `Enter` sends the message, and `Shift+Enter` starts a new line. If it is off, use the `Send message` button. whatSnap doesn't read your own messages back to you when you send them.
@@ -248,6 +248,7 @@ You can also use the `Record voice message`, `Pause recording`, `Send voice mess
 The Conversation menu has more actions for the open chat. It shows only the ones that fit that chat. When the chat list has the focus, the shortcuts for `Mute Chat`, `Archive Chat`, `Pin Chat`, `Lock Chat` and `Mark as Unread` work on the chat you are on in the list, like in WhatsApp Web:
 
 - `Search in Chat` (`Ctrl+Shift+F`)
+- `Go to Date...`: asks for a date as year-month-day, like `2026-03-27`, and goes to the first message on or after that day. A date after the last message goes to the latest one.
 - `Pinned Messages...`, not in broadcast lists.
 - `Business Catalogue...`, only in a chat with a business.
 - `Mute Chat` (`Ctrl+Shift+M`)
@@ -260,6 +261,17 @@ The Conversation menu has more actions for the open chat. It shows only the ones
 - `Report...`, not in channels or broadcast lists.
 - `Block or Unblock Contact`, only in a chat with one person.
 - `Star Message` (`Alt+8`)
+
+### Overview Tab
+Contact Info (`Alt+I` in a one-to-one chat) and Group Info both end with an `Overview` tab, like the info page of WhatsApp Web. It shows a short summary of the chat, then only the items that fit this chat:
+
+- `Lock this chat (opens with the app lock)`: a switch for locking the chat.
+- `Restricted chat (changed on your phone)`: shown only when the chat is restricted. Like in WhatsApp Web it is always dimmed, because only your phone can change it.
+- `Notification settings...`, `Disappearing messages...` (not in channels) and `Advanced chat privacy...` (not in channels or broadcast lists).
+- `Starred messages`: goes to the Starred Messages list.
+- `Export chat...`, `Clear chat...`, `Block contact...` or `Unblock contact` (one person only), `Report...` and `Delete chat...`.
+
+Chat themes are not in whatSnap yet.
 
 ### Group Info
 Press `Alt+I` in a group to open its information. The Members tab has a search box, the list of members, and the `Add member`, `Invite link...` and `Join requests...` buttons when you are an admin. Press `Enter`, the Applications key or `Shift+F10` on a member to open their menu. Like in WhatsApp Web, the menu shows only the items that fit that member:
@@ -276,6 +288,8 @@ Press `Alt+I` in a group to open its information. The Members tab has a search b
 
 ## Calls
 To call, open a chat and use `Call` or `Video call`. You can also call from the Calls section, or press `Enter` on a call in the Messages list.
+
+When you call someone, the call window shows the name of the person you call and their phone number, if whatSnap knows it. Below that it shows how the call is going, like WhatsApp does: `Calling...` until their phone gets the call, then `Ringing...`, and `Connecting...` when they answer.
 
 When a call comes in, the call window opens and whatSnap plays the ringtone. Press `Alt+Shift+Y` to answer, or `Alt+Shift+N` to reject. These two shortcuts work from all programs, but only while a call rings. If another program uses one of them, whatSnap tells you.
 
@@ -442,7 +456,11 @@ The choices for the "Who can" settings are Everyone, My Contacts, My Contacts Ex
 
 When the app is locked, a `whatSnap Locked` window with `Unlock` and `Exit` buttons covers the app, and the rest of the app is empty. Press `Account -> Lock App` (`Ctrl+Shift+L`) at any time to lock it. whatSnap also locks when it starts. With a password, type it in the `Password` field and press `Enter`. With Windows Hello, press `Unlock` and confirm in the Windows prompt. `Exit` closes whatSnap.
 
-While the app is locked, calls still ring, and notifications leave out the message text. This lock keeps people who walk past your PC out of your chats. It is not protection against programs running as you. If Windows Hello stops working and you can't unlock, choose `Exit`, then open `settings.json` in the data folder and change `"app_lock": true` to `false`.
+While the app is locked, calls still ring, and notifications leave out the message text. This lock keeps people who walk past your PC out of your chats. It is not protection against programs running as you.
+
+The lock's settings (on or off, the unlock method and the password hash) are not in `settings.json`. They are in `app_lock.dat` in the data folder, protected by Windows for your Windows account, so changing `settings.json` does nothing to the lock and the file doesn't work on another PC or account. Settings from an older version are moved there the first time whatSnap starts. If `app_lock.dat` is damaged or came from another account, whatSnap stays locked and only `Exit` works.
+
+If Windows Hello stops working and you can't unlock, choose `Exit`, then run `whatSnap.exe --reset-app-lock` (for example from the Run box, `Windows+R`). This removes the app lock, its method and its password; whatSnap then starts unlocked, and you can turn the lock on again in Settings.
 
 ## Keyboard Shortcuts
 You can change the shortcuts in the tables below with `Keyboard Shortcuts...` on the General tab of the settings. The dialog has a tab for each menu, and a Messages tab for the keys of the Messages list. You can set a new shortcut, remove a shortcut, or set the default again.

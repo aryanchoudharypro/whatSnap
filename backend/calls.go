@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -72,6 +73,44 @@ func (acc *Account) takeIncomingGroupCallJID(callID string) (types.JID, bool) {
 	jid, ok := acc.incomingGroupCallJIDs[callID]
 	delete(acc.incomingGroupCallJIDs, callID)
 	return jid, ok
+}
+
+// outgoingCallProgress is how far each call we placed has got before it
+// connects, for the call screen to show the way WhatsApp's does: "ringing"
+// once the other phone has the offer (<preaccept>), "connecting" once they
+// answer (<accept>). meowcaller's own phase can't be used: it jumps to
+// Connecting as soon as the relay is up, before the phone even rings. A
+// <preaccept> can land before handlePlaceCall has sent call_placed, so the
+// latest state is kept and sent again right after it.
+var outgoingCallProgress = make(map[string]string)
+var outgoingCallProgressMutex sync.Mutex
+
+func (acc *Account) noteOutgoingCallProgress(evt interface{}) {
+	var meta types.BasicCallMeta
+	var state string
+	switch e := evt.(type) {
+	case *events.CallPreAccept:
+		meta, state = e.BasicCallMeta, "ringing"
+	case *events.CallAccept:
+		meta, state = e.BasicCallMeta, "connecting"
+	default:
+		return
+	}
+	if meta.CallID == "" || acc.isOwnJID(meta.From) || (!meta.CallCreator.IsEmpty() && !acc.isOwnJID(meta.CallCreator)) {
+		return
+	}
+	outgoingCallProgressMutex.Lock()
+	if outgoingCallProgress[meta.CallID] == "connecting" {
+		outgoingCallProgressMutex.Unlock()
+		return
+	}
+	outgoingCallProgress[meta.CallID] = state
+	outgoingCallProgressMutex.Unlock()
+	acc.broadcastCallProgress(meta.CallID, state)
+}
+
+func (acc *Account) broadcastCallProgress(callID, state string) {
+	acc.broadcastEvent("call_progress", map[string]string{"call_id": callID, "state": state})
 }
 
 func (acc *Account) groupChatName(jid types.JID) string {
@@ -160,6 +199,9 @@ func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 		})
 	})
 	call.OnEnd(func(reason string) {
+		outgoingCallProgressMutex.Lock()
+		delete(outgoingCallProgress, call.ID())
+		outgoingCallProgressMutex.Unlock()
 		summary := acc.finishLiveCall(call.ID(), reason)
 		acc.broadcastEvent("call_ended", map[string]string{
 			"call_id": call.ID(),
@@ -435,6 +477,12 @@ func (acc *Account) handlePlaceCall(data []byte) {
 		"peer":       parsedJID.String(),
 		"self_phone": selfPhone,
 	})
+	outgoingCallProgressMutex.Lock()
+	progress := outgoingCallProgress[call.ID()]
+	outgoingCallProgressMutex.Unlock()
+	if progress != "" {
+		acc.broadcastCallProgress(call.ID(), progress)
+	}
 	acc.attachCallHandlers(call)
 
 	log.Printf("Placed call to %s, call ID: %s", parsedJID.String(), call.ID())
