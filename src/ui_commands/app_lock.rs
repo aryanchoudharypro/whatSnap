@@ -82,7 +82,13 @@ pub(crate) fn lock_app(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	parts.main_panel.layout();
 	crate::platform::tray::restore_main_window(&parts.frame);
 	let _ = ui_tx.send(UiCommand::SetPresence(true));
-	parts.conversations_parts.conversations_list.set_focus();
+	// Not at once: the Enter that pressed Unlock is still down, and its key-up
+	// would land on the chat list and open its first chat.
+	let list = parts.conversations_parts.conversations_list;
+	let timer = Timer::new(&parts.frame);
+	timer.on_tick(move |_| list.set_focus());
+	timer.start(300, true);
+	std::mem::forget(timer);
 }
 
 /// Runs the lock screen until the user unlocks or exits; true means Exit.

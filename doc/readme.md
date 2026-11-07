@@ -460,7 +460,7 @@ While the app is locked, calls still ring, and notifications leave out the messa
 
 The lock's settings (on or off, the unlock method and the password hash) are not in `settings.json`. They are in `app_lock.dat` in the data folder, protected by Windows for your Windows account, so changing `settings.json` does nothing to the lock and the file doesn't work on another PC or account. Settings from an older version are moved there the first time whatSnap starts. If `app_lock.dat` is damaged or came from another account, whatSnap stays locked and only `Exit` works.
 
-If Windows Hello stops working and you can't unlock, choose `Exit`, then run `whatSnap.exe --reset-app-lock` (for example from the Run box, `Windows+R`). This removes the app lock, its method and its password; whatSnap then starts unlocked, and you can turn the lock on again in Settings.
+If Windows Hello stops working and you can't unlock, choose `Exit`, then delete `app_lock.dat` in the data folder. This removes the app lock, its method and its password; whatSnap then starts unlocked, and you can turn the lock on again in Settings.
 
 ## Keyboard Shortcuts
 You can change the shortcuts in the tables below with `Keyboard Shortcuts...` on the General tab of the settings. The dialog has a tab for each menu, and a Messages tab for the keys of the Messages list. You can set a new shortcut, remove a shortcut, or set the default again.

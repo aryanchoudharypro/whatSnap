@@ -344,12 +344,6 @@ fn launch_command(request: platform::single_instance::LaunchRequest) -> UiComman
 fn main() {
 	platform::crash_log::install();
 
-	// Recovery when Windows Hello breaks and the app lock can't be opened.
-	if std::env::args().skip(1).any(|arg| arg == "--reset-app-lock") {
-		platform::lock_store::reset();
-		return;
-	}
-
 	let launch_request = launch_request_from_args(std::env::args().skip(1));
 	let _instance_lock = match platform::single_instance::acquire_or_activate_existing(launch_request.as_ref()) {
 		Some(lock) => lock,

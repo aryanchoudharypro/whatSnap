@@ -4,8 +4,7 @@
 //! lock off, and the file is useless on another PC or under another account.
 //!
 //! This is still a convenience lock: code running as the user can read the
-//! blob. The recovery path is `whatSnap.exe --reset-app-lock`, see
-//! [`reset`].
+//! blob. The recovery path is deleting `app_lock.dat`, see [`reset`].
 
 use std::path::PathBuf;
 
@@ -26,7 +25,7 @@ fn path() -> PathBuf {
 
 /// The stored lock. No file means the lock is off. A file that can't be read
 /// (damaged, or made on another PC or account) fails closed: the app stays
-/// locked and only Exit, or `--reset-app-lock`, gets out.
+/// locked and only Exit gets out.
 pub fn load() -> LockData {
 	let Ok(bytes) = std::fs::read(path()) else { return LockData::default() };
 	unprotect(&bytes).and_then(|plain| serde_json::from_slice(&plain).ok()).unwrap_or(LockData {
