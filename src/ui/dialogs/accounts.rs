@@ -100,7 +100,9 @@ pub fn show(parent: &impl WxWidget, rows: &[AccountRow], active: &str, focus: Op
 	notify_btn.on_click(move |_| p(5));
 	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
 	let p = pick.clone();
-	crate::ui::keys::on_enter(&list, Rc::default(), move || p(1));
+	// The dialog may have been opened with Enter on its menu item; the release
+	// of that Enter lands in the list and must not press Switch.
+	crate::ui::keys::on_enter(&list, Rc::new(Cell::new(true)), move || p(1));
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	list.set_focus();

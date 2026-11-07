@@ -451,7 +451,8 @@ fn background_call(
 	if calls == CallAlerts::Off {
 		return;
 	}
-	if calls == CallAlerts::Switch && busy(&state.borrow()).is_none() && switch_to(state, parts, account) {
+	let free = busy(&state.borrow()).is_none();
+	if calls == CallAlerts::Switch && free && switch_to(state, parts, account) {
 		crate::backend::events::process_websocket_message(payload.to_string(), state, parts);
 		return;
 	}
@@ -493,7 +494,10 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 	if !accounts.borrow().registry.live().any(|a| a.id == target) {
 		return false;
 	}
-	if let Some(reason) = busy(&state.borrow()) {
+	// No borrow of the state may be held while the dialog is up: its focus
+	// change sets presence, which borrows the state mutably.
+	let reason = busy(&state.borrow());
+	if let Some(reason) = reason {
 		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, reason);
 		MessageDialog::builder(&parts.frame, reason, "Switch Account")
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
@@ -584,7 +588,8 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 /// Account, Add Account: a new account waiting to be linked, shown at once
 /// on the login window.
 fn add_account(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	if let Some(reason) = busy(&state.borrow()) {
+	let reason = busy(&state.borrow());
+	if let Some(reason) = reason {
 		MessageDialog::builder(&parts.frame, reason, "Add Account")
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 			.build()
