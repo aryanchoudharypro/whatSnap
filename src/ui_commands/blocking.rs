@@ -138,19 +138,21 @@ pub(crate) fn show_blocked_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	let _ = ws_tx.send(serde_json::json!({ "action": "get_blocklist" }).to_string());
 	let (state_add, parts_add) = (state.clone(), parts.clone());
 	let state_store = state.clone();
-	crate::ui::dialogs::blocked_contacts::show_blocked_contacts(
-		&parts.frame,
-		&entries,
-		ws_tx,
-		move || {
-			crate::ui_commands::contacts_groups::prepare_contact_picker(
-				&state_add,
-				&parts_add,
-				ContactPickerMode::BlockContact,
-			);
-		},
-		move |dialog| state_store.borrow_mut().blocked_contacts = dialog,
-	);
+	let add = move || {
+		crate::ui_commands::contacts_groups::prepare_contact_picker(
+			&state_add,
+			&parts_add,
+			ContactPickerMode::BlockContact,
+		);
+	};
+	let store = move |dialog| state_store.borrow_mut().blocked_contacts = dialog;
+	// Opened from Settings, it goes over Settings, so focus comes back there.
+	let settings = parts.settings_dialog.dialog;
+	if settings.is_shown() {
+		crate::ui::dialogs::blocked_contacts::show_blocked_contacts(&settings, &entries, ws_tx, add, store);
+	} else {
+		crate::ui::dialogs::blocked_contacts::show_blocked_contacts(&parts.frame, &entries, ws_tx, add, store);
+	}
 }
 
 pub(crate) fn stop_if_blocked(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {

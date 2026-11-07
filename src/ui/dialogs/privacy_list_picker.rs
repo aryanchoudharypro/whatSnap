@@ -201,9 +201,6 @@ pub fn pick_with(
 		);
 	});
 
-	let escape_closes = crate::ui::keys::escape_cancels(dialog);
-	search_field.on_key_down(escape_closes);
-	list.on_key_down(escape_closes);
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	let state_done = state.clone();

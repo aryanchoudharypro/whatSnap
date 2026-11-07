@@ -346,18 +346,36 @@ whatSnap tells you when it loses the connection to WhatsApp, and when it connect
 ## Settings
 To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings sync with WhatsApp on your phone and your other linked devices. You can't change these settings until whatSnap gets them from WhatsApp.
 
+Settings has ten tabs: General, Account, Chats, Notifications, Personalization, Profile, Privacy, Storage & Media, Audio & Calls, and App Lock. Each tab groups its settings under short headings.
+
 ### General Tab
+- `Start whatSnap when Windows starts`
+- `Show an icon in the notification area; closing the window minimizes to it`
+- `Start maximized`
 - `Announce when someone is typing`
 - `Announce when someone is recording a voice message`
-- `Show an icon in the notification area; closing the window minimizes to it`
-- `Start whatSnap when Windows starts`
-- `Start maximized`
+- `Show a button to message Meta AI in New Chat`
 - `Check for updates when whatSnap starts`
 - `Updates`: Stable releases or Development builds.
-- `Show a button to message Meta AI in New Chat`
 - `Verbose backend logging, for troubleshooting connection issues`: the change takes effect the next time whatSnap starts.
 - `Keyboard Shortcuts...`
 - `Add whatSnap to the Windows Share Menu...`
+
+### Account Tab
+- `Show security notifications`: say in a chat when the security code of a contact changes.
+- `Accounts...`: opens the Accounts dialog, the same as `Account -> Accounts...`. See [Several Accounts](#several-accounts).
+- `Log Out...`: logs the account on screen out of WhatsApp on this computer, the same as `Account -> Log Out`. It asks first.
+
+Both buttons close the settings without saving them.
+
+### Chats Tab
+- `Enter is send`
+- `Typing a letter in the message list starts a message`: the letter keys of the Messages list then need `Alt`.
+- `Keep my place in the message list instead of jumping to the newest message`: when you send or delete a message, the list stays where you were.
+- `Replace text with emoji as you type`, and `Replace Text With Emoji: See Help...` for the full list.
+- `Check spelling in the message box`
+- `Say when a word you type is misspelled`
+- `Spelling Language`
 
 ### Notifications Tab
 - `Message notifications`
@@ -376,27 +394,17 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
 - `Read new messages aloud in the open chat`: each chat can change this in its notification settings, or with `Alt+L`.
 - `Also read your own sent messages aloud`: off by default. It follows the setting above, so a chat that doesn't read new messages doesn't read yours either.
 
-### Chats Tab
-- `Enter is send`
-- `Typing a letter in the message list starts a message`: the letter keys of the Messages list then need `Alt`.
-- `Keep my place in the message list instead of jumping to the newest message`: when you send or delete a message, the list stays where you were.
-- `Replace text with emoji as you type`
-- `Check spelling in the message box`
-- `Say when a word you type is misspelled`
-- `Spelling Language`
-- Automatic downloads:
-  - `Download photos automatically`
-  - `Download audio automatically`
-  - `Download videos automatically`
-  - `Download documents automatically`
-  - Voice messages always download. Other media downloads automatically only from contacts, and from chats that you wrote in.
-- `Download Quality for Photos and Videos Sent in HD`: Standard Quality or HD Quality. People can send a photo or video in HD; with HD Quality, whatSnap downloads the HD copy instead of the standard one.
-- `Media Upload Quality`: Standard Quality or HD Quality.
-- `Theme`: System Default, Light, or Dark.
+How accounts that aren't on screen alert you is set for each account in the Accounts dialog.
 
-### Profile & Privacy Tab
-- `Name` and `About`, with `Clear About After`.
+### Personalization Tab
+- `Choose Theme`: System Default, Light, or Dark. System Default follows the light or dark mode of Windows.
+
+### Profile Tab
 - `Change Profile Photo...` and `Remove Profile Photo...`
+- `Name`
+- `About`, with `Clear About After`.
+
+### Privacy Tab
 - `Default Message Timer for New Chats`
 - `Who Can See My Last Seen`
 - `Who Can See When I'm Online`
@@ -406,20 +414,31 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
 - `Who Can Add Me to Groups`
 - `Silence Unknown Callers`
 - `Turn off link previews`: links that you send go without a preview, on all your devices.
-- `Show security notifications`: say in a chat when the security code of a contact changes.
+- `Manage Blocked Contacts...`: the same list as `Blocked Contacts...` in the menu. It opens over the settings.
 
 The choices for the "Who can" settings are Everyone, My Contacts, My Contacts Except..., and Nobody. When you select My Contacts Except..., use the button below it to select the contacts.
 
-### Input & Output Tab
-- `Microphone (calls)`: also used for voice messages.
+### Storage & Media Tab
+- `Download photos automatically`
+- `Download audio automatically`
+- `Download videos automatically`
+- `Download documents automatically`
+- Voice messages always download. Other media downloads automatically only from contacts, and from chats that you wrote in.
+- `Download Quality for Photos and Videos Sent in HD`: Standard Quality or HD Quality. People can send a photo or video in HD; with HD Quality, whatSnap downloads the HD copy instead of the standard one.
+- `Media Upload Quality`: Standard Quality or HD Quality.
+
+### Audio & Calls Tab
+- `Microphone (calls and voice notes)`
 - `Clean up voice messages`: remove background noise and make the volume even, as WhatsApp Web does.
-- `Speaker (calls & playback)`: used for calls, voice messages, and sounds.
+- `Speaker for alerts and voice messages`: used for notification sounds, message tones, and voice messages.
+- `Speaker for calls`
 - `Experimental: keep the camera on while sharing the screen`: the change takes effect in the next call.
 
 ### App Lock Tab
 - `Lock whatSnap when it starts, and whenever I press Ctrl+Shift+L`: turns the app lock on.
 - `Unlock with`: `Windows Hello` (fingerprint, face or PIN) or `Password`.
 - `Set App Lock Password...`: asks for the new password twice. If a password is already set, it asks for that one first. The password is saved only as a salted hash.
+- `Unlock locked chats with Windows Hello (fingerprint, face or PIN) instead of the secret code`
 
 When the app is locked, a `whatSnap Locked` window with `Unlock` and `Exit` buttons covers the app, and the rest of the app is empty. Press `Account -> Lock App` (`Ctrl+Shift+L`) at any time to lock it. whatSnap also locks when it starts. With a password, type it in the `Password` field and press `Enter`. With Windows Hello, press `Unlock` and confirm in the Windows prompt. `Exit` closes whatSnap.
 

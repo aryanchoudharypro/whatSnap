@@ -201,7 +201,12 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 
 	let group_name_field = TextCtrl::builder(&settings_panel).build();
 	group_name_field.set_font(&theme::Fonts::body());
-	settings_sizer.add(&group_name_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
+	settings_sizer.add(
+		&group_name_field,
+		0,
+		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+		6,
+	);
 
 	let desc_label = StaticText::builder(&settings_panel).with_label("Group Description").build();
 	theme::style_heading(&desc_label);
@@ -209,7 +214,12 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 
 	let group_desc_field = TextCtrl::builder(&settings_panel).with_style(TextCtrlStyle::MultiLine).build();
 	group_desc_field.set_font(&theme::Fonts::body());
-	settings_sizer.add(&group_desc_field, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
+	settings_sizer.add(
+		&group_desc_field,
+		1,
+		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+		6,
+	);
 
 	let announce_chk = CheckBox::builder(&settings_panel).with_label("Only admins can send messages").build();
 	dialog_look::switch(&announce_chk, theme::Palette::CONTENT_BG());

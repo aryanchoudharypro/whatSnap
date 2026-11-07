@@ -135,8 +135,6 @@ pub fn show_blocked_contacts(
 	add_btn.on_click(move |_| add());
 	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
 
-	let escape_closes = crate::ui::keys::escape_cancels(dialog);
-	list.on_key_down(escape_closes);
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	list.set_focus();

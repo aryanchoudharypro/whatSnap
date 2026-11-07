@@ -73,6 +73,7 @@ pub struct SettingsDialogParts {
 	pub account_panel: Panel,
 	pub security_notifications_check: CheckBox,
 	pub logout_btn: Button,
+	pub accounts_btn: Button,
 
 	pub chats_panel: Panel,
 	pub enter_is_send_check: CheckBox,
@@ -285,14 +286,18 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	);
 
 	account_sizer.add_spacer(12);
-	section_header(&account_panel, &account_sizer, "Account Session");
+	section_header(&account_panel, &account_sizer, "Linked Accounts");
 	setting_note(
 		&account_panel,
 		&account_sizer,
-		"This computer is connected as a linked companion device to your WhatsApp account on your phone. To unlink this computer, use the Log Out button below.",
+		"whatSnap is linked to WhatsApp on your phone as one of its linked devices. Accounts switches between, adds and removes accounts, and sets how each one alerts you. Log Out unlinks the account on screen from this computer. Both close Settings.",
 	);
-	let logout_btn = setting_button(&account_panel, "Log Out of whatSnap...");
-	account_sizer.add(&logout_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
+	let account_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let accounts_btn = setting_button(&account_panel, "Accounts...");
+	account_btn_sizer.add(&accounts_btn, 0, SizerFlag::Right, 8);
+	let logout_btn = setting_button(&account_panel, "Log Out...");
+	account_btn_sizer.add(&logout_btn, 0, SizerFlag::empty(), 0);
+	account_sizer.add_sizer(&account_btn_sizer, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 12);
 	account_panel.set_sizer(account_sizer, true);
 
 	// 3. Chats Panel
@@ -301,7 +306,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let chats_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	section_header(&chats_panel, &chats_sizer, "Messaging & Navigation");
-	let enter_is_send_check = setting_switch(&chats_panel, &chats_sizer, "Enter is send: the Enter key sends your message");
+	let enter_is_send_check =
+		setting_switch(&chats_panel, &chats_sizer, "Enter is send: the Enter key sends your message");
 	let type_to_compose_check = setting_switch(
 		&chats_panel,
 		&chats_sizer,
@@ -312,13 +318,15 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		&chats_sizer,
 		"Keep my place in the message list instead of jumping to the newest message",
 	);
-	let replace_emoji_check = setting_switch(&chats_panel, &chats_sizer, "Replace text with emoji as you type, like :-) or (y)");
+	let replace_emoji_check =
+		setting_switch(&chats_panel, &chats_sizer, "Replace text with emoji as you type, like :-) or (y)");
 	let emoji_help_btn = setting_button(&chats_panel, "Replace Text With Emoji: See Help...");
 	chats_sizer.add(&emoji_help_btn, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	chats_sizer.add_spacer(10);
 	section_header(&chats_panel, &chats_sizer, "Spelling");
-	let spell_check_check = setting_switch(&chats_panel, &chats_sizer, "Check spelling in the message box (F7 goes to the next mistake)");
+	let spell_check_check =
+		setting_switch(&chats_panel, &chats_sizer, "Check spelling in the message box (F7 goes to the next mistake)");
 	let spell_announce_check = setting_switch(&chats_panel, &chats_sizer, "Say when a word you type is misspelled");
 	let spell_language_combo = spelling_language_combo(&chats_panel, &chats_sizer);
 	chats_panel.set_sizer(chats_sizer, true);
@@ -465,7 +473,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let auto_download_photos_check = setting_switch(&storage_panel, &storage_sizer, "Download photos automatically");
 	let auto_download_audio_check = setting_switch(&storage_panel, &storage_sizer, "Download audio automatically");
 	let auto_download_videos_check = setting_switch(&storage_panel, &storage_sizer, "Download videos automatically");
-	let auto_download_documents_check = setting_switch(&storage_panel, &storage_sizer, "Download documents automatically");
+	let auto_download_documents_check =
+		setting_switch(&storage_panel, &storage_sizer, "Download documents automatically");
 	setting_note(
 		&storage_panel,
 		&storage_sizer,
@@ -600,6 +609,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		general_panel,
 		account_panel,
 		logout_btn,
+		accounts_btn,
 		chats_panel,
 		enter_is_send_check,
 		type_to_compose_check,

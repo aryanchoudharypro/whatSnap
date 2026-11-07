@@ -149,8 +149,6 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	dialog.set_sizer(main_sizer, true);
 	dialog.center();
 
-	let dlg_info = dialog;
-	info_field.on_key_down(crate::ui::keys::escape_cancels(dlg_info));
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	ConversationDataDialogParts {

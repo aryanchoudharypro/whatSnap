@@ -1725,21 +1725,9 @@ pub fn bind_input_handlers(
 	let frame_logout = parts.frame;
 	let state_logout = state.clone();
 	parts.frame.on_menu_selected(move |evt| {
-		if evt.get_id() != MENU_ID_LOGOUT {
-			return;
+		if evt.get_id() == MENU_ID_LOGOUT {
+			confirm_logout(&frame_logout, &state_logout);
 		}
-		let dlg = MessageDialog::builder(
-			&frame_logout,
-			"Log out of WhatsApp on this device? You'll need to scan a QR code or re-enter your phone number to use whatSnap again.",
-			"Log Out",
-		)
-		.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
-		.build();
-		if dlg.show_modal() != wxdragon::id::ID_OK {
-			return;
-		}
-		let s = state_logout.borrow();
-		let _ = s.ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
 	});
 
 	let frame_updates = parts.frame;
@@ -2184,22 +2172,24 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	// Log Out and Accounts leave Settings: what they lead to (the login
+	// window, another account's chats) doesn't belong under it.
 	let settings_dialog_logout = parts.settings_dialog.dialog;
 	let state_logout_btn = state.clone();
 	parts.settings_dialog.logout_btn.on_click(move |_| {
-		let dlg = MessageDialog::builder(
-			&settings_dialog_logout,
-			"Log out of WhatsApp on this device? You'll need to scan a QR code or re-enter your phone number to use whatSnap again.",
-			"Log Out",
-		)
-		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::NoDefault | MessageDialogStyle::IconWarning)
-		.build();
-		if dlg.show_modal() == wxdragon::id::ID_YES {
+		if confirm_logout(&settings_dialog_logout, &state_logout_btn) {
 			settings_dialog_logout.end_modal(wxdragon::id::ID_CANCEL);
-			let _ = state_logout_btn.borrow().ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
 		}
 	});
 
+	let settings_dialog_accounts = parts.settings_dialog.dialog;
+	let tx_accounts_btn = ui_tx.clone();
+	parts.settings_dialog.accounts_btn.on_click(move |_| {
+		settings_dialog_accounts.end_modal(wxdragon::id::ID_CANCEL);
+		let _ = tx_accounts_btn.send(UiCommand::OpenAccounts(None));
+	});
+
+	// Blocked Contacts opens over Settings (see blocking::show_blocked_contacts).
 	let tx_blocked = ui_tx.clone();
 	parts.settings_dialog.blocked_contacts_btn.on_click(move |_| {
 		let _ = tx_blocked.send(UiCommand::ShowBlockedContacts);
@@ -5983,4 +5973,28 @@ fn choose_excluded_contacts(
 	{
 		state.borrow_mut().privacy_list_edits.insert(control.name.to_string(), jids);
 	}
+}
+
+/// Account, Log Out (also the Log Out button in Settings): asks first, then
+/// logs the account on screen out. True when it went ahead.
+fn confirm_logout(parent: &impl WxWidget, state: &Rc<std::cell::RefCell<crate::AppState>>) -> bool {
+	let name = {
+		let accounts = state.borrow().accounts.clone();
+		let a = accounts.borrow();
+		(a.registry.live_count() > 1).then(|| a.registry.display_name(&a.registry.active))
+	};
+	let question = match name {
+		Some(name) => format!(
+			"Log {name} out of WhatsApp on this computer? You'll need to scan a QR code or enter its phone number to use it in whatSnap again."
+		),
+		None => "Log out of WhatsApp on this computer? You'll need to scan a QR code or re-enter your phone number to use whatSnap again.".to_string(),
+	};
+	let dlg = MessageDialog::builder(parent, &question, "Log Out")
+		.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+		.build();
+	if dlg.show_modal() != wxdragon::id::ID_OK {
+		return false;
+	}
+	let _ = state.borrow().ws_tx.send(serde_json::json!({"action": "logout"}).to_string());
+	true
 }
