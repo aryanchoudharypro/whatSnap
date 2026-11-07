@@ -281,6 +281,20 @@ func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 			"reconnecting": reconnecting,
 		})
 	})
+	// What the peer's reports say about our outbound audio, so the app can
+	// size the encoder's loss protection to the network, as WhatsApp's does.
+	go func() {
+		last := uint32(0)
+		for range time.Tick(2 * time.Second) {
+			if call.State() == meowcaller.CallPhaseEnded {
+				return
+			}
+			if loss := call.MediaStats().PeerReportedLossPercent; loss != last {
+				last = loss
+				acc.broadcastEvent("call_loss", map[string]interface{}{"call_id": call.ID(), "percent": loss})
+			}
+		}
+	}()
 	call.OnVideoKeyframeRequest(func() {
 		acc.broadcastEvent("call_video_keyframe_request", map[string]string{
 			"call_id": call.ID(),

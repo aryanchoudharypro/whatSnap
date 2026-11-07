@@ -175,6 +175,15 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				announce_call(parts, message);
 			}
 		}
+		"call_loss" => {
+			if let Some(data) = val.get("data") {
+				let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+				if state.borrow().active_call_id.as_deref() == Some(call_id) {
+					let percent = data.get("percent").and_then(|p| p.as_i64()).unwrap_or(0) as i32;
+					crate::calls::audio::set_call_packet_loss_percent(percent);
+				}
+			}
+		}
 		"call_reconnecting" => {
 			if let Some(data) = val.get("data") {
 				let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");

@@ -347,9 +347,23 @@ struct CaptureDsp {
 	frame: Vec<f32>,
 	send_buf: Vec<u8>,
 	opus: Option<opus::Encoder>,
+	/// The packet-loss percentage last given to `opus`.
+	applied_loss_percent: i32,
 	agc: VoiceAgc,
 	gate: PauseGate,
 	slices_since_mic_check: u32,
+}
+
+/// How much of our audio the peer says never arrived, in percent, as the
+/// backend last reported it.
+static CALL_PACKET_LOSS_PERCENT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// The loss the encoder plans for is capped, like WhatsApp's `max_plr_to_opus`:
+/// past this, more redundancy costs more quality than it saves.
+const MAX_PLANNED_LOSS_PERCENT: i32 = 30;
+
+pub(crate) fn set_call_packet_loss_percent(percent: i32) {
+	CALL_PACKET_LOSS_PERCENT.store(percent.clamp(0, MAX_PLANNED_LOSS_PERCENT), Ordering::Relaxed);
 }
 
 fn new_call_opus_encoder() -> Option<opus::Encoder> {
@@ -357,7 +371,10 @@ fn new_call_opus_encoder() -> Option<opus::Encoder> {
 	encoder.set_bitrate(opus::Bitrate::Bits(OPUS_BITRATE)).ok()?;
 	encoder.set_complexity(OPUS_COMPLEXITY).ok()?;
 	let _ = encoder.set_inband_fec(true);
-	let _ = encoder.set_packet_loss_perc(10);
+	// WhatsApp's own encoder starts at 0% expected loss and follows what the
+	// peer's reports measure, see `set_call_packet_loss_percent`.
+	let _ = encoder.set_packet_loss_perc(0);
+	CALL_PACKET_LOSS_PERCENT.store(0, Ordering::Relaxed);
 	Some(encoder)
 }
 
@@ -616,6 +633,7 @@ impl CaptureDsp {
 			frame: Vec::with_capacity(FRAME_SAMPLES),
 			send_buf: Vec::with_capacity(FRAME_SAMPLES * 4 + OPUS_MAX_PACKET),
 			opus: new_call_opus_encoder(),
+			applied_loss_percent: 0,
 			agc: VoiceAgc::new(),
 			gate: PauseGate::new(),
 			slices_since_mic_check: 0,
@@ -654,6 +672,13 @@ impl CaptureDsp {
 		while self.sample_accum.len() >= FRAME_SAMPLES {
 			self.frame.clear();
 			self.frame.extend(self.sample_accum.drain(..FRAME_SAMPLES));
+			let planned_loss = CALL_PACKET_LOSS_PERCENT.load(Ordering::Relaxed);
+			if planned_loss != self.applied_loss_percent {
+				if let Some(encoder) = self.opus.as_mut() {
+					let _ = encoder.set_packet_loss_perc(planned_loss);
+				}
+				self.applied_loss_percent = planned_loss;
+			}
 			pack_call_frame(&self.frame, self.opus.as_mut(), &mut self.send_buf);
 			let _ = socket_out.send_to(&self.send_buf, target_addr);
 		}
