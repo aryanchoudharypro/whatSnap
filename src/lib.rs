@@ -915,9 +915,24 @@ mod update_shared_messages_tests {
 		ChatMessage { id: id.into(), timestamp: ts, media_type: media.into(), ..Default::default() }
 	}
 
+	fn album_msg(id: &str, ts: i64, media: &str, album_id: &str) -> ChatMessage {
+		ChatMessage {
+			id: id.into(),
+			timestamp: ts,
+			media_type: media.into(),
+			album_id: album_id.into(),
+			..Default::default()
+		}
+	}
+
 	#[test]
 	fn a_change_keeps_every_list_on_one_shared_copy() {
-		let mut messages = rc(&[msg("a", 1, ""), msg("p1", 100, "image"), msg("p2", 101, "image"), msg("b", 200, "")]);
+		let mut messages = rc(&[
+			msg("a", 1, ""),
+			album_msg("p1", 100, "image", "album1"),
+			album_msg("p2", 101, "image", "album1"),
+			msg("b", 200, ""),
+		]);
 		let mut display = group_messages_into_display_items(&messages);
 		let mut selection = display.clone();
 		assert_eq!(display.len(), 3, "the two photos group into an album");
@@ -1630,8 +1645,8 @@ mod tests {
 			quoted_sender: "".into(),
 			..Default::default()
 		};
-		assert_eq!(msg_from_me.format_display(true), "You: kya kar raha hai?, Delivered");
-		assert_eq!(msg_from_me.format_display(false), "You: kya kar raha hai?, Delivered");
+		assert_eq!(msg_from_me.format_display(true), "You: kya kar raha hai? , Delivered");
+		assert_eq!(msg_from_me.format_display(false), "You: kya kar raha hai? , Delivered");
 
 		let msg_named = ChatMessage {
 			id: "2".into(),

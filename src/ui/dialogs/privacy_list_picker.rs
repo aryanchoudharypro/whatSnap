@@ -4,7 +4,7 @@ use wxdragon::prelude::*;
 
 use crate::{
 	Contact,
-	ui::{contact_picker::contact_picker_label, theme},
+	ui::{contact_picker::contact_picker_label, dialog_look, theme},
 };
 
 struct PickerState {
@@ -117,12 +117,13 @@ pub fn pick_with(
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let done_btn = Button::builder(&panel).with_id(ID_OK).with_label("Done").build();
-	theme::style_primary_button(&done_btn);
+	dialog_look::pill_button(&done_btn, true, theme::Palette::CONTENT_BG());
 	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	btn_sizer.add(&done_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
-	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);
-	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
+	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 12);
 	panel.set_sizer(sizer, true);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
@@ -203,6 +204,7 @@ pub fn pick_with(
 	let escape_closes = crate::ui::keys::escape_cancels(dialog);
 	search_field.on_key_down(escape_closes);
 	list.on_key_down(escape_closes);
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	let state_done = state.clone();
 	let require_one = words.require_one.map(str::to_string);

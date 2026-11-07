@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use wxdragon::prelude::*;
 
-use crate::ui::theme;
+use crate::ui::{dialog_look, theme};
 
 #[derive(Clone)]
 pub struct BlockedEntry {
@@ -68,8 +68,8 @@ pub fn show_blocked_contacts(
 	add: impl Fn() + 'static,
 	store: impl Fn(Option<Rc<BlockedContacts>>),
 ) {
-	let dialog = Dialog::builder(parent, "Blocked contacts")
-		.with_size(440, 480)
+	let dialog = Dialog::builder(parent, "Blocked Contacts")
+		.with_size(460, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	theme::style_content(&dialog);
@@ -77,9 +77,15 @@ pub fn show_blocked_contacts(
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
+	let info_label = StaticText::builder(&panel)
+		.with_label("Blocked contacts will no longer be able to call you or send you messages.")
+		.build();
+	theme::style_muted_label(&info_label);
+	sizer.add(&info_label, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
+
 	let list_label = StaticText::builder(&panel).with_label("Blocked contacts").build();
-	theme::style_muted_label(&list_label);
-	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	list_label.set_font(&theme::Fonts::body_strong());
+	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 12);
 	let list = ListBox::builder(&panel).build();
 	list.set_font(&theme::Fonts::body());
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
@@ -87,17 +93,20 @@ pub fn show_blocked_contacts(
 	let announcer = StaticText::builder(&panel).with_label("").build();
 	live_region::set_live_region(&announcer);
 	theme::style_muted_label(&announcer);
-	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 8);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
 	let unblock_btn = Button::builder(&panel).with_label("Unblock").build();
+	dialog_look::pill_button(&unblock_btn, true, theme::Palette::CONTENT_BG());
 	let add_btn = Button::builder(&panel).with_label("Block a contact...").build();
+	dialog_look::pill_button(&add_btn, false, theme::Palette::CONTENT_BG());
 	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	buttons.add(&unblock_btn, 0, SizerFlag::Right, 8);
 	buttons.add(&add_btn, 0, SizerFlag::Right, 8);
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
-	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 12);
 	panel.set_sizer(sizer, true);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
 	outer.add(&panel, 1, SizerFlag::Expand, 0);
@@ -128,6 +137,7 @@ pub fn show_blocked_contacts(
 
 	let escape_closes = crate::ui::keys::escape_cancels(dialog);
 	list.on_key_down(escape_closes);
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	list.set_focus();
 	dialog.show_modal();
