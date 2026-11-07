@@ -575,7 +575,17 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 	};
 	let old = {
 		let mut s = state.borrow_mut();
+		// The account we leave goes offline and stops typing, as if its
+		// window had closed: nothing will update its presence from now on.
+		if let Some(jid) = s.composing.as_ref().map(|c| c.jid.clone()) {
+			crate::ui_commands::messaging::mark_paused(&mut s, &jid);
+		}
+		s.presence_sent = None;
+		crate::ui_commands::misc::send_presence(&mut s, false);
 		let mut fresh = fresh;
+		// The account we switch to is as present as the window: online right
+		// away if the window is in front and in use.
+		fresh.presence = std::mem::take(&mut s.presence);
 		std::mem::swap(&mut fresh.audio_out, &mut s.audio_out);
 		std::mem::swap(&mut fresh.call_audio_out, &mut s.call_audio_out);
 		fresh.keymap = s.keymap.clone();
