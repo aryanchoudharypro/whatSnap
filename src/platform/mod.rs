@@ -11,6 +11,7 @@ pub mod end_session;
 pub mod focus;
 #[cfg(target_os = "windows")]
 pub mod link_handler;
+pub mod lock_store;
 pub mod paths;
 pub mod quit;
 pub mod single_instance;
