@@ -7,7 +7,7 @@ use crate::{
 	audio::{play_call_fail_sound, stop_call_ringing_sound},
 	calls::{
 		helpers::{
-			SYSTEM_AUDIO_ANNOUNCEMENT, announce_call, call_window_title, local_camera_announcement,
+			SYSTEM_AUDIO_ANNOUNCEMENT, announce_call, local_camera_announcement,
 			local_screen_share_announcement,
 		},
 		video_send::{self, VideoSource},
@@ -148,8 +148,10 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	s.call_connected_duration = std::time::Duration::ZERO;
 	s.call_is_reconnecting = false;
 	s.call_video = CallVideo { video_call: call.video, ..Default::default() };
+	s.call_peer_is_saved = true;
 	let c = &parts.call_parts;
-	c.frame.set_title(call_window_title(true, call.video));
+	let win_title = crate::calls::helpers::format_call_window_title(false, true, call.video, &group_name, true, None);
+	c.frame.set_title(&win_title);
 	c.status_label.set_label("Joining call...");
 	c.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(
 		&group_name,
@@ -158,14 +160,19 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		true,
 		"Calling...",
 	));
+	crate::calls::helpers::update_call_avatar(parts, &call.group_jid);
 	c.caller_info.show(true);
 	c.accept_btn.show(false);
 	c.reject_btn.show(false);
+	c.dismiss_btn.show(false);
+	c.callback_btn.show(false);
+	c.close_btn.show(false);
 	c.mute_btn.show(true);
 	c.camera_btn.set_label("Turn camera on");
 	c.camera_btn.show(false);
 	c.add_participant_btn.show(false);
 	crate::ui_commands::call_extras::hide_call_buttons(parts);
+	c.leave_btn.set_label("Leave call");
 	c.leave_btn.show(true);
 	crate::calls::helpers::show_call_device_combos(&s, parts);
 	c.frame.show(true);
@@ -197,6 +204,8 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 						None => return,
 					}
 				} else {
+					drop(s);
+					announce_call(parts, "Select a contact or call from the list first.");
 					return;
 				}
 			}
@@ -267,7 +276,17 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 		video_call: video,
 		..Default::default()
 	};
-	parts.call_parts.frame.set_title(call_window_title(is_group, video));
+	let is_saved = !is_group && (s.contacts.contains_key(&jid) || s.all_contacts.iter().any(|c| c.jid == jid && !c.name.is_empty()));
+	s.call_peer_is_saved = is_saved;
+	let win_title = crate::calls::helpers::format_call_window_title(
+		false,
+		is_group,
+		video,
+		&name,
+		is_saved,
+		None,
+	);
+	parts.call_parts.frame.set_title(&win_title);
 	if is_group {
 		parts.call_parts.status_label.set_label(&format!("Starting group call in {}", name));
 		parts.call_parts.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(
@@ -280,15 +299,20 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	} else {
 		show_outgoing_call_status(&s, parts, "Calling...");
 	}
+	crate::calls::helpers::update_call_avatar(parts, &jid);
 	parts.call_parts.caller_info.show(true);
 	parts.call_parts.accept_btn.show(false);
 	parts.call_parts.reject_btn.show(false);
+	parts.call_parts.dismiss_btn.show(false);
+	parts.call_parts.callback_btn.show(false);
+	parts.call_parts.close_btn.show(false);
 	parts.call_parts.mute_btn.show(true);
 	parts.call_parts.camera_btn.set_label("Turn camera on");
 	parts.call_parts.camera_btn.show(false);
 	hide_screen_share_controls(parts);
 	parts.call_parts.add_participant_btn.show(false);
 	crate::ui_commands::call_extras::hide_call_buttons(parts);
+	parts.call_parts.leave_btn.set_label(if is_group { "Leave call" } else { "End call" });
 	parts.call_parts.leave_btn.show(true);
 	crate::calls::helpers::show_call_device_combos(&s, parts);
 	parts.call_parts.frame.show(true);
@@ -324,12 +348,26 @@ pub(crate) fn on_call_progress(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
 	let progress = data.get("state").and_then(|p| p.as_str()).unwrap_or("");
 	let s = state.borrow();
-	let waiting = s.active_call_id.as_deref() == Some(call_id)
+	let waiting = (s.active_call_id.as_deref() == Some(call_id) || s.call_placing)
 		&& !s.call_is_incoming
 		&& s.call_video.peer_name.is_some()
 		&& s.active_call_audio.is_none();
 	if let Some(status) = crate::calls::helpers::outgoing_call_status(progress).filter(|_| waiting) {
 		show_outgoing_call_status(&s, parts, status);
+		announce_call(parts, status);
+		if progress == "ringing" {
+			let needs_ringback = s.call_ringing_sink.is_none();
+			let self_phone = s.call_self_phone.clone();
+			drop(s);
+			if needs_ringback {
+				let mut s = state.borrow_mut();
+				crate::audio::start_call_ringback(&mut s, &self_phone);
+			}
+		} else if progress == "connecting" {
+			drop(s);
+			let mut s = state.borrow_mut();
+			crate::audio::stop_call_ringing_sound(&mut s);
+		}
 	}
 }
 
@@ -355,11 +393,25 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		let _ = s.ws_tx.send(msg.to_string());
 		stop_call_ringing_sound(&mut s);
 		s.call_answer_deadline = Some(std::time::Instant::now());
-		parts.call_parts.frame.set_title(call_window_title(s.call_video.peer_name.is_none(), s.call_video.video_call));
+		parts.conversations_parts.incoming_call_banner.show(false);
+		parts.frame.layout();
+		let is_group = s.call_video.peer_name.is_none();
+		let win_title = crate::calls::helpers::format_call_window_title(
+			false,
+			is_group,
+			s.call_video.video_call,
+			&s.call_peer_name,
+			s.call_peer_is_saved,
+			None,
+		);
+		parts.call_parts.frame.set_title(&win_title);
 		parts.call_parts.status_label.set_label("Connecting...");
 		parts.call_parts.leave_btn.show(true);
 		parts.call_parts.accept_btn.show(false);
 		parts.call_parts.reject_btn.show(false);
+		parts.call_parts.dismiss_btn.show(false);
+		parts.call_parts.callback_btn.show(false);
+		parts.call_parts.close_btn.show(false);
 		parts.call_parts.leave_btn.set_focus();
 		announce_call(parts, "Connecting...");
 	}
@@ -372,8 +424,8 @@ pub(crate) fn call_hotkey(
 ) {
 	let ringing = {
 		let s = state.borrow();
-		s.active_call_id.is_some() && s.call_answer_deadline.is_none()
-	} && parts.call_parts.accept_btn.is_shown();
+		s.active_call_id.is_some() && s.call_answer_deadline.is_none() && s.call_is_incoming
+	};
 	if !ringing {
 		return;
 	}
@@ -392,7 +444,12 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 			"data": { "call_id": call_id }
 		});
 		let _ = s.ws_tx.send(msg.to_string());
+		parts.conversations_parts.incoming_call_banner.show(false);
+		parts.frame.layout();
 		parts.call_parts.frame.show(false);
+		parts.call_parts.dismiss_btn.show(false);
+		parts.call_parts.callback_btn.show(false);
+		parts.call_parts.close_btn.show(false);
 		s.active_call_id = None;
 		s.active_call_video_send = None;
 		s.call_video_port = None;
@@ -414,6 +471,8 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 			"data": { "call_id": call_id }
 		});
 		let _ = s.ws_tx.send(msg.to_string());
+		parts.conversations_parts.incoming_call_banner.show(false);
+		parts.frame.layout();
 		parts.call_parts.frame.show(false);
 		s.active_call_id = None;
 		s.active_call_audio = None;
@@ -426,9 +485,55 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		play_call_fail_sound(&mut s);
 	} else if s.call_placing {
 		s.call_pending_cancel = true;
+		parts.conversations_parts.incoming_call_banner.show(false);
+		parts.frame.layout();
 		parts.call_parts.frame.show(false);
 		stop_call_ringing_sound(&mut s);
 	}
+}
+
+pub(crate) fn dismiss_incoming_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let s = state.borrow();
+	if !s.call_is_incoming || s.active_call_id.is_none() || s.active_call_audio.is_some() {
+		return;
+	}
+	let caller = s.call_peer_name.clone();
+	drop(s);
+	parts.call_parts.frame.show(false);
+	parts.conversations_parts.incoming_call_banner_label.set_label(&format!("Incoming call from {}", caller));
+	parts.conversations_parts.incoming_call_banner.show(true);
+	parts.frame.layout();
+	announce_call(parts, "Incoming call minimized. Call is still ringing.");
+}
+
+pub(crate) fn restore_incoming_call(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	parts.conversations_parts.incoming_call_banner.show(false);
+	parts.frame.layout();
+	parts.call_parts.frame.show(true);
+	parts.call_parts.frame.raise();
+	parts.call_parts.accept_btn.set_focus();
+}
+
+pub(crate) fn redial_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let s = state.borrow();
+	let jid = s.selected_chat.clone().or_else(|| {
+		if !s.call_peer_name.is_empty() {
+			s.contacts.iter().find(|(_, name)| **name == s.call_peer_name).map(|(j, _)| j.clone())
+		} else {
+			None
+		}
+	});
+	let is_video = s.call_video.video_call;
+	drop(s);
+	parts.call_parts.callback_btn.show(false);
+	parts.call_parts.close_btn.show(false);
+	if let Some(jid) = jid {
+		dial(state, parts, jid, is_video);
+	}
+}
+
+pub(crate) fn close_call_window(parts: &Rc<WindowParts>) {
+	parts.call_parts.frame.show(false);
 }
 
 pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {

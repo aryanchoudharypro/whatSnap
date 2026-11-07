@@ -177,6 +177,40 @@ pub(crate) fn call_outgoing_info_text(
 	text
 }
 
+pub(crate) fn call_ended_info_text(
+	peer_name: &str,
+	duration_secs: u64,
+	reason: &str,
+) -> String {
+	let status = match reason {
+		"busy" => "Busy, on another call",
+		"declined" | "rejected" => "Call declined",
+		"connection_lost" => "Call ended. Connection lost.",
+		"cancelled" => "Call cancelled",
+		"timeout" | "no_answer" => "No answer",
+		_ => "Call ended",
+	};
+	if duration_secs > 0 {
+		let clock = format_call_duration(duration_secs);
+		format!("{status} with {peer_name}\r\nDuration: {clock}")
+	} else {
+		format!("{status} with {peer_name}")
+	}
+}
+
+pub(crate) fn update_call_avatar(parts: &WindowParts, jid: &str) {
+	let avatar_bm = if !jid.is_empty() {
+		crate::ui::avatars::path_of(jid)
+			.as_deref()
+			.and_then(|path| crate::ui::owner_draw::round_picture(path, 96))
+			.unwrap_or_else(|| crate::ui::call_window::empty_avatar_bitmap(96))
+	} else {
+		crate::ui::call_window::empty_avatar_bitmap(96)
+	};
+	parts.call_parts.avatar_bitmap.set_bitmap(&avatar_bm);
+	parts.call_parts.avatar_bitmap.show(true);
+}
+
 /// What WhatsApp's call screen says about a call we're placing that hasn't
 /// connected yet. `progress` is the backend's `call_progress` state.
 pub(crate) fn outgoing_call_status(progress: &str) -> Option<&'static str> {
@@ -385,6 +419,60 @@ pub(crate) fn call_window_title(is_group: bool, is_video: bool) -> &'static str 
 	}
 }
 
+/// Returns the peer's display name for title bars.
+/// Numbers and JIDs are NEVER shown in title bars.
+/// If saved: returns the saved name.
+/// If unsaved with a push name: returns "PushName (Unknown contact)".
+/// If unsaved without a name: returns "Unknown contact".
+pub(crate) fn clean_call_title_peer_name(raw_name: &str, is_saved: bool) -> String {
+	let trimmed = raw_name.trim();
+	let is_number = trimmed.is_empty()
+		|| trimmed.starts_with('+')
+		|| trimmed.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || c == '-' || c == '+' || c == '(' || c == ')')
+		|| trimmed.contains('@');
+
+	if is_saved && !is_number {
+		trimmed.to_string()
+	} else if !is_number {
+		format!("{} (Unknown contact)", trimmed)
+	} else {
+		"Unknown contact".to_string()
+	}
+}
+
+/// Formats the title bar for call windows according to WhatsApp standards.
+/// NEVER includes raw phone digits.
+pub(crate) fn format_call_window_title(
+	is_incoming: bool,
+	is_group: bool,
+	is_video: bool,
+	peer_name: &str,
+	is_saved: bool,
+	duration_clock: Option<&str>,
+) -> String {
+	if is_group {
+		let kind = if is_video { "Group video call" } else { "Group voice call" };
+		if let Some(clock) = duration_clock {
+			format!("{kind} in {peer_name} ({clock})")
+		} else {
+			format!("{kind} in {peer_name}")
+		}
+	} else {
+		let title_name = clean_call_title_peer_name(peer_name, is_saved);
+		if is_incoming {
+			let kind = if is_video { "Incoming video call" } else { "Incoming voice call" };
+			format!("{kind} from {title_name}")
+		} else {
+			let kind = if is_video { "Video call" } else { "Voice call" };
+			if let Some(clock) = duration_clock {
+				format!("{kind} with {title_name} ({clock})")
+			} else {
+				format!("{kind} with {title_name}")
+			}
+		}
+	}
+}
+
 /// What to announce for a `call_video_state` event. `peer` is the other
 /// person's name on a 1:1 call and None on a group call (the stanza doesn't
 /// say who sent it). `was_on` is their last known camera state, so a
@@ -451,12 +539,18 @@ pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 		&crate::audio::devices::output_device_names(),
 		s.settings.call_output_device_name.as_deref(),
 	);
-	set_device_combo(
-		&parts.call_parts.camera_device_combo,
-		&crate::calls::video_devices::camera_names(),
-		s.settings.camera_device_name.as_deref(),
-	);
+	let is_video = s.call_video.video_call || s.call_video.is_video || s.call_video.local_camera_on;
+	parts.call_parts.camera_device_label.show(is_video);
+	parts.call_parts.camera_device_combo.show(is_video);
+	if is_video {
+		set_device_combo(
+			&parts.call_parts.camera_device_combo,
+			&crate::calls::video_devices::camera_names(),
+			s.settings.camera_device_name.as_deref(),
+		);
+	}
 	parts.call_parts.devices_panel.show(true);
+	parts.call_parts.devices_panel.layout();
 }
 
 #[cfg(test)]
@@ -543,5 +637,37 @@ mod call_participant_tests {
 	fn local_camera_announces_on_and_off() {
 		assert_eq!(local_camera_announcement(true), "Camera on.");
 		assert_eq!(local_camera_announcement(false), "Camera off.");
+	}
+
+	#[test]
+	fn titles_format_cleanly_without_numbers() {
+		assert_eq!(
+			format_call_window_title(false, false, false, "Shubham Sharma", true, None),
+			"Voice call with Shubham Sharma"
+		);
+		assert_eq!(
+			format_call_window_title(false, false, false, "Shubham Sharma", true, Some("01:25")),
+			"Voice call with Shubham Sharma (01:25)"
+		);
+		assert_eq!(
+			format_call_window_title(false, false, true, "Aarav", false, None),
+			"Video call with Aarav (Unknown contact)"
+		);
+		assert_eq!(
+			format_call_window_title(false, false, false, "+91 98765 43210", false, None),
+			"Voice call with Unknown contact"
+		);
+		assert_eq!(
+			format_call_window_title(true, false, false, "Priya", false, None),
+			"Incoming voice call from Priya (Unknown contact)"
+		);
+		assert_eq!(
+			format_call_window_title(true, false, true, "+1234567890", false, None),
+			"Incoming video call from Unknown contact"
+		);
+		assert_eq!(
+			format_call_window_title(false, true, false, "Dev Group", true, Some("04:12")),
+			"Group voice call in Dev Group (04:12)"
+		);
 	}
 }

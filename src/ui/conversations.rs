@@ -21,6 +21,12 @@ pub struct ConversationsPanelParts {
 	pub calls_call_btn: Button,
 	pub calls_video_btn: Button,
 
+	pub incoming_call_banner: Panel,
+	pub incoming_call_banner_label: StaticText,
+	pub incoming_call_restore_btn: Button,
+	pub incoming_call_answer_btn: Button,
+	pub incoming_call_decline_btn: Button,
+
 	pub conversation_panel: Panel,
 	pub conv_data_btn: Button,
 	pub add_attachment_btn: Button,
@@ -584,6 +590,35 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	top_btns_panel.set_sizer(top_btns_sizer, true);
 	conv_sizer.add(&top_btns_panel, 0, SizerFlag::Expand, 0);
 
+	let incoming_call_banner = Panel::builder(&conversation_panel).build();
+	if theme::use_custom_colours() {
+		incoming_call_banner.set_background_color(Colour::rgb(0x1B, 0x2A, 0x32));
+	}
+	let icb_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let incoming_call_banner_label = StaticText::builder(&incoming_call_banner).with_label("Incoming call...").build();
+	incoming_call_banner_label.set_font(&theme::Fonts::body());
+	if theme::use_custom_colours() {
+		incoming_call_banner_label.set_foreground_color(Colour::rgb(0xE9, 0xED, 0xEE));
+	}
+	icb_sizer.add(&incoming_call_banner_label, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 10);
+
+	let incoming_call_restore_btn = Button::builder(&incoming_call_banner).with_label("Open call window").build();
+	incoming_call_restore_btn.set_font(&theme::Fonts::body());
+	icb_sizer.add(&incoming_call_restore_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+
+	let incoming_call_answer_btn = Button::builder(&incoming_call_banner).with_label("Answer").build();
+	incoming_call_answer_btn.set_font(&theme::Fonts::body());
+	theme::style_primary_button(&incoming_call_answer_btn);
+	icb_sizer.add(&incoming_call_answer_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+
+	let incoming_call_decline_btn = Button::builder(&incoming_call_banner).with_label("Decline").build();
+	incoming_call_decline_btn.set_font(&theme::Fonts::body());
+	icb_sizer.add(&incoming_call_decline_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 10);
+
+	incoming_call_banner.set_sizer(icb_sizer, true);
+	incoming_call_banner.show(false);
+	conv_sizer.add(&incoming_call_banner, 0, SizerFlag::Expand | SizerFlag::All, 4);
+
 	let search_panel = Panel::builder(&conversation_panel).build();
 	theme::style_content(&search_panel);
 	let search_sizer = BoxSizer::builder(Orientation::Horizontal).build();
@@ -865,6 +900,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		calls_btn_panel,
 		calls_call_btn,
 		calls_video_btn,
+		incoming_call_banner,
+		incoming_call_banner_label,
+		incoming_call_restore_btn,
+		incoming_call_answer_btn,
+		incoming_call_decline_btn,
 		conversation_panel,
 		conv_data_btn,
 		add_attachment_btn,

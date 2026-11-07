@@ -106,6 +106,7 @@ func (acc *Account) noteOutgoingCallProgress(evt interface{}) {
 	}
 	outgoingCallProgress[meta.CallID] = state
 	outgoingCallProgressMutex.Unlock()
+	log.Printf("[CALL PROGRESS] Call %s progress: %s", meta.CallID, state)
 	acc.broadcastCallProgress(meta.CallID, state)
 }
 
@@ -294,7 +295,7 @@ func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 }
 
 func (acc *Account) initCallClient() {
-	if acc.wa() == nil {
+	if acc.wa() == nil || acc.callClient != nil {
 		return
 	}
 	// Must be registered before meowcaller.NewClient installs its own
@@ -302,6 +303,7 @@ func (acc *Account) initCallClient() {
 	acc.wa().AddEventHandler(acc.recordIncomingGroupCallJID)
 	acc.wa().AddEventHandler(acc.noteOwnDeviceReject)
 	acc.wa().AddEventHandler(acc.noteOfflineMissedCall)
+	acc.wa().AddEventHandler(acc.noteOutgoingCallProgress)
 	acc.callClient = meowcaller.NewClient(acc.wa(), newCallDiagnosticsOptions()...)
 	acc.callClient.SetDualStreamScreenShare(dualStreamScreenShare.Load())
 	acc.watchJoinableCalls(acc.callClient)
@@ -468,6 +470,7 @@ func (acc *Account) handlePlaceCall(data []byte) {
 	}
 	acc.trackLiveCall(call.ID(), chatJID, acc.ownCallCreator(), false, req.Video, isGroupCall)
 
+	peerName := acc.resolveDisplayName(parsedJID)
 	selfPhone := ""
 	if acc.wa().Store.ID != nil {
 		selfPhone = acc.wa().Store.ID.User
@@ -475,14 +478,17 @@ func (acc *Account) handlePlaceCall(data []byte) {
 	acc.broadcastEvent("call_placed", map[string]string{
 		"call_id":    call.ID(),
 		"peer":       parsedJID.String(),
+		"peer_name":  peerName,
 		"self_phone": selfPhone,
 	})
 	outgoingCallProgressMutex.Lock()
 	progress := outgoingCallProgress[call.ID()]
-	outgoingCallProgressMutex.Unlock()
-	if progress != "" {
-		acc.broadcastCallProgress(call.ID(), progress)
+	if progress == "" {
+		progress = "calling"
+		outgoingCallProgress[call.ID()] = progress
 	}
+	outgoingCallProgressMutex.Unlock()
+	acc.broadcastCallProgress(call.ID(), progress)
 	acc.attachCallHandlers(call)
 
 	log.Printf("Placed call to %s, call ID: %s", parsedJID.String(), call.ID())

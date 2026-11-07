@@ -37,7 +37,6 @@ pub(crate) fn hide_call_buttons(parts: &WindowParts) {
 	c.raise_hand_btn.show(false);
 	c.react_btn.show(false);
 	c.people_panel.show(false);
-	c.caller_info.show(false);
 }
 
 struct PersonRow {
