@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -26,15 +25,8 @@ type avatarPreview struct {
 	Path string `json:"path"`
 }
 
-var avatarQueue = struct {
-	sync.Mutex
-	pending []string
-	queued  map[string]bool
-	running bool
-}{queued: map[string]bool{}}
-
-func ensureAvatarPreviews() error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS avatar_previews (
+func (acc *Account) ensureAvatarPreviews() error {
+	_, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS avatar_previews (
 		jid TEXT PRIMARY KEY,
 		path TEXT DEFAULT '',
 		picture_id TEXT DEFAULT '',
@@ -43,8 +35,8 @@ func ensureAvatarPreviews() error {
 	return err
 }
 
-func cachedAvatarPreview(jid string) (path, pictureID string, checkedAt int64, ok bool) {
-	err := db.QueryRow(`SELECT path, picture_id, checked_at FROM avatar_previews WHERE jid = ?`, jid).
+func (acc *Account) cachedAvatarPreview(jid string) (path, pictureID string, checkedAt int64, ok bool) {
+	err := acc.db.QueryRow(`SELECT path, picture_id, checked_at FROM avatar_previews WHERE jid = ?`, jid).
 		Scan(&path, &pictureID, &checkedAt)
 	if err != nil {
 		return "", "", 0, false
@@ -57,13 +49,13 @@ func cachedAvatarPreview(jid string) (path, pictureID string, checkedAt int64, o
 	return path, pictureID, checkedAt, true
 }
 
-func storeAvatarPreview(jid, path, pictureID string) {
-	db.Exec(`INSERT INTO avatar_previews (jid, path, picture_id, checked_at) VALUES (?, ?, ?, ?)
+func (acc *Account) storeAvatarPreview(jid, path, pictureID string) {
+	acc.db.Exec(`INSERT INTO avatar_previews (jid, path, picture_id, checked_at) VALUES (?, ?, ?, ?)
 		ON CONFLICT(jid) DO UPDATE SET path=excluded.path, picture_id=excluded.picture_id, checked_at=excluded.checked_at`,
 		jid, path, pictureID, time.Now().Unix())
 }
 
-func handleGetAvatarPreviews(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetAvatarPreviews(conn net.Conn, raw json.RawMessage) {
 	var data avatarPreviewsData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -75,7 +67,7 @@ func handleGetAvatarPreviews(conn net.Conn, raw json.RawMessage) {
 			if jid == "" || strings.HasSuffix(jid, "@broadcast") {
 				continue
 			}
-			path, _, checkedAt, ok := cachedAvatarPreview(jid)
+			path, _, checkedAt, ok := acc.cachedAvatarPreview(jid)
 			if ok {
 				known = append(known, avatarPreview{JID: jid, Path: path})
 			}
@@ -84,53 +76,53 @@ func handleGetAvatarPreviews(conn net.Conn, raw json.RawMessage) {
 			}
 		}
 		if len(known) > 0 {
-			sendEvent(conn, "avatar_previews", map[string]interface{}{"items": known})
+			acc.sendEvent(conn, "avatar_previews", map[string]interface{}{"items": known})
 		}
-		queueAvatarPreviews(fetch)
+		acc.queueAvatarPreviews(fetch)
 	}()
 }
 
-func queueAvatarPreviews(jids []string) {
-	avatarQueue.Lock()
-	defer avatarQueue.Unlock()
+func (acc *Account) queueAvatarPreviews(jids []string) {
+	acc.avatarQueue.Lock()
+	defer acc.avatarQueue.Unlock()
 	for _, jid := range jids {
-		if !avatarQueue.queued[jid] {
-			avatarQueue.queued[jid] = true
-			avatarQueue.pending = append(avatarQueue.pending, jid)
+		if !acc.avatarQueue.queued[jid] {
+			acc.avatarQueue.queued[jid] = true
+			acc.avatarQueue.pending = append(acc.avatarQueue.pending, jid)
 		}
 	}
-	if !avatarQueue.running && len(avatarQueue.pending) > 0 {
-		avatarQueue.running = true
-		go runAvatarQueue()
+	if !acc.avatarQueue.running && len(acc.avatarQueue.pending) > 0 {
+		acc.avatarQueue.running = true
+		go acc.runAvatarQueue()
 	}
 }
 
-func runAvatarQueue() {
+func (acc *Account) runAvatarQueue() {
 	for {
-		avatarQueue.Lock()
-		n := len(avatarQueue.pending)
+		acc.avatarQueue.Lock()
+		n := len(acc.avatarQueue.pending)
 		if n == 0 {
-			avatarQueue.running = false
-			avatarQueue.Unlock()
+			acc.avatarQueue.running = false
+			acc.avatarQueue.Unlock()
 			return
 		}
-		jid := avatarQueue.pending[n-1]
-		avatarQueue.pending = avatarQueue.pending[:n-1]
-		avatarQueue.Unlock()
+		jid := acc.avatarQueue.pending[n-1]
+		acc.avatarQueue.pending = acc.avatarQueue.pending[:n-1]
+		acc.avatarQueue.Unlock()
 
-		path, ok := fetchAvatarPreview(jid)
+		path, ok := acc.fetchAvatarPreview(jid)
 
-		avatarQueue.Lock()
-		delete(avatarQueue.queued, jid)
-		avatarQueue.Unlock()
+		acc.avatarQueue.Lock()
+		delete(acc.avatarQueue.queued, jid)
+		acc.avatarQueue.Unlock()
 		if ok {
-			broadcastEvent("avatar_previews", map[string]interface{}{"items": []avatarPreview{{JID: jid, Path: path}}})
+			acc.broadcastEvent("avatar_previews", map[string]interface{}{"items": []avatarPreview{{JID: jid, Path: path}}})
 		}
 	}
 }
 
-func fetchAvatarPreview(jid string) (path string, ok bool) {
-	cli := wa()
+func (acc *Account) fetchAvatarPreview(jid string) (path string, ok bool) {
+	cli := acc.wa()
 	if cli == nil || !cli.IsConnected() {
 		return "", false
 	}
@@ -142,10 +134,10 @@ func fetchAvatarPreview(jid string) (path string, ok bool) {
 		// The WhatsApp service chat and the status broadcast have no profile
 		// picture to ask for; the server never answers, and the queue would
 		// sit on the 20 s timeout every time.
-		storeAvatarPreview(jid, "", "")
+		acc.storeAvatarPreview(jid, "", "")
 		return "", true
 	}
-	oldPath, oldID, _, cached := cachedAvatarPreview(jid)
+	oldPath, oldID, _, cached := acc.cachedAvatarPreview(jid)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -160,36 +152,36 @@ func fetchAvatarPreview(jid string) (path string, ok bool) {
 			info = &preview
 		}
 	} else {
-		params := &whatsmeow.GetProfilePictureParams{Preview: true, IsCommunity: isCommunityChat(jid)}
+		params := &whatsmeow.GetProfilePictureParams{Preview: true, IsCommunity: acc.isCommunityChat(jid)}
 		if cached && oldPath != "" {
 			params.ExistingID = oldID
 		}
 		info, err = cli.GetProfilePictureInfo(ctx, parsed, params)
 		switch {
 		case errors.Is(err, whatsmeow.ErrProfilePictureNotSet), errors.Is(err, whatsmeow.ErrProfilePictureUnauthorized):
-			storeAvatarPreview(jid, "", "")
+			acc.storeAvatarPreview(jid, "", "")
 			return "", true
 		case err != nil:
 			log.Printf("Couldn't get the profile picture of %s: %v", jid, err)
 			return "", false
 		case info == nil && cached && oldPath != "":
-			storeAvatarPreview(jid, oldPath, oldID)
+			acc.storeAvatarPreview(jid, oldPath, oldID)
 			return oldPath, true
 		}
 	}
 	if info == nil {
-		storeAvatarPreview(jid, "", "")
+		acc.storeAvatarPreview(jid, "", "")
 		return "", true
 	}
 	if cached && oldPath != "" && info.ID != "" && info.ID == oldID {
-		storeAvatarPreview(jid, oldPath, oldID)
+		acc.storeAvatarPreview(jid, oldPath, oldID)
 		return oldPath, true
 	}
 	url := info.URL
 	if url == "" && info.DirectPath != "" {
 		url = "https://mmg.whatsapp.net" + info.DirectPath
 	}
-	newPath, _, err := downloadURLToFile("avatars", "preview_"+jid, url)
+	newPath, _, err := acc.downloadURLToFile("avatars", "preview_"+jid, url)
 	if err != nil {
 		log.Printf("Couldn't download the profile picture of %s: %v", jid, err)
 		return "", false
@@ -197,16 +189,16 @@ func fetchAvatarPreview(jid string) (path string, ok bool) {
 	if oldPath != "" && oldPath != newPath {
 		os.Remove(oldPath)
 	}
-	storeAvatarPreview(jid, newPath, info.ID)
+	acc.storeAvatarPreview(jid, newPath, info.ID)
 	return newPath, true
 }
 
-func isCommunityChat(jid string) bool {
+func (acc *Account) isCommunityChat(jid string) bool {
 	var community int
-	db.QueryRow(`SELECT COALESCE(is_community, 0) FROM chats WHERE jid = ?`, jid).Scan(&community)
+	acc.db.QueryRow(`SELECT COALESCE(is_community, 0) FROM chats WHERE jid = ?`, jid).Scan(&community)
 	return community == 1
 }
 
-func forgetAvatarPreview(jid string) {
-	db.Exec(`DELETE FROM avatar_previews WHERE jid = ?`, jid)
+func (acc *Account) forgetAvatarPreview(jid string) {
+	acc.db.Exec(`DELETE FROM avatar_previews WHERE jid = ?`, jid)
 }

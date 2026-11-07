@@ -7,29 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
-var (
-	mediaDirOnce sync.Once
-	mediaDirBase string
-)
-
-func mediaBaseDir() string {
-	mediaDirOnce.Do(func() {
-		dbPath := *dbPathFlag
-		dir := filepath.Dir(dbPath)
-		mediaDirBase = filepath.Join(dir, "media_cache")
-		os.MkdirAll(filepath.Join(mediaDirBase, "media"), 0755)
-		os.MkdirAll(filepath.Join(mediaDirBase, "avatars"), 0755)
-		os.MkdirAll(filepath.Join(mediaDirBase, "outgoing"), 0755)
+func (acc *Account) mediaBaseDir() string {
+	acc.mediaDirOnce.Do(func() {
+		dir := filepath.Dir(acc.dbPath)
+		acc.mediaDirBase = filepath.Join(dir, "media_cache")
+		os.MkdirAll(filepath.Join(acc.mediaDirBase, "media"), 0755)
+		os.MkdirAll(filepath.Join(acc.mediaDirBase, "avatars"), 0755)
+		os.MkdirAll(filepath.Join(acc.mediaDirBase, "outgoing"), 0755)
 	})
-	return mediaDirBase
+	return acc.mediaDirBase
 }
 
-func mediaDir() string  { return filepath.Join(mediaBaseDir(), "media") }
-func avatarDir() string { return filepath.Join(mediaBaseDir(), "avatars") }
+func (acc *Account) mediaDir() string  { return filepath.Join(acc.mediaBaseDir(), "media") }
+func (acc *Account) avatarDir() string { return filepath.Join(acc.mediaBaseDir(), "avatars") }
 
 func extForMime(mime string) string {
 	mime = strings.ToLower(strings.TrimSpace(mime))
@@ -86,15 +79,15 @@ func extForMime(mime string) string {
 	return ".bin"
 }
 
-func saveMediaBytes(category, id, mime string, data []byte) (string, error) {
+func (acc *Account) saveMediaBytes(category, id, mime string, data []byte) (string, error) {
 	var dir string
 	switch category {
 	case "avatars":
-		dir = avatarDir()
+		dir = acc.avatarDir()
 	case "outgoing":
-		dir = filepath.Join(mediaBaseDir(), "outgoing")
+		dir = filepath.Join(acc.mediaBaseDir(), "outgoing")
 	default:
-		dir = mediaDir()
+		dir = acc.mediaDir()
 	}
 	safeID := sanitizeFilenameComponent(id)
 	path := filepath.Join(dir, safeID+extForMime(mime))
@@ -107,7 +100,7 @@ func saveMediaBytes(category, id, mime string, data []byte) (string, error) {
 // downloadURLToFile fetches an unauthenticated direct-download URL (this is
 // how WhatsApp serves profile pictures) and caches it locally. It's a plain
 // HTTP GET since these CDN links don't require auth.
-func downloadURLToFile(category, id, url string) (path string, mime string, err error) {
+func (acc *Account) downloadURLToFile(category, id, url string) (path string, mime string, err error) {
 	httpClient := &http.Client{Timeout: 20 * time.Second}
 	resp, err := httpClient.Get(url)
 	if err != nil {
@@ -125,7 +118,7 @@ func downloadURLToFile(category, id, url string) (path string, mime string, err 
 	if mime == "" {
 		mime = "image/jpeg"
 	}
-	path, err = saveMediaBytes(category, id, mime, data)
+	path, err = acc.saveMediaBytes(category, id, mime, data)
 	return path, mime, err
 }
 
@@ -161,8 +154,8 @@ func isUnderDir(path, dir string) bool {
 // removeCachedMedia deletes a message's media file, but only when it lives in
 // our own media cache. Outgoing attachments sent by path point at the user's
 // original file, which must never be touched.
-func removeCachedMedia(path string) {
-	if path == "" || !isUnderDir(path, mediaBaseDir()) {
+func (acc *Account) removeCachedMedia(path string) {
+	if path == "" || !isUnderDir(path, acc.mediaBaseDir()) {
 		return
 	}
 	os.Remove(path)
@@ -188,8 +181,8 @@ func cleanupScratchTempDirs(maxAge time.Duration) {
 	}
 }
 
-func purgeMessages(where string, args ...interface{}) {
-	rows, err := db.Query(`SELECT id, COALESCE(media_path, '') FROM messages WHERE `+where, args...)
+func (acc *Account) purgeMessages(where string, args ...interface{}) {
+	rows, err := acc.db.Query(`SELECT id, COALESCE(media_path, '') FROM messages WHERE `+where, args...)
 	if err != nil {
 		return
 	}
@@ -219,15 +212,15 @@ func purgeMessages(where string, args ...interface{}) {
 			tx.Exec(`DELETE FROM messages WHERE id = ?`, id)
 		})
 	}
-	writeBatch(writes)
+	acc.writeBatch(writes)
 	for _, p := range paths {
-		removeCachedMedia(p)
+		acc.removeCachedMedia(p)
 	}
 }
 
-func purgeExpiredStatuses() {
-	purgeMessages(`jid = 'status@broadcast' AND timestamp <= ?`, time.Now().Add(-24*time.Hour).Unix())
-	db.Exec(`DELETE FROM status_viewers WHERE status_id NOT IN (SELECT id FROM messages WHERE jid = 'status@broadcast')`)
+func (acc *Account) purgeExpiredStatuses() {
+	acc.purgeMessages(`jid = 'status@broadcast' AND timestamp <= ?`, time.Now().Add(-24*time.Hour).Unix())
+	acc.db.Exec(`DELETE FROM status_viewers WHERE status_id NOT IN (SELECT id FROM messages WHERE jid = 'status@broadcast')`)
 }
 
 func sniffFileHeader(path string) []byte {

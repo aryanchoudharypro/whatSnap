@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -21,21 +20,10 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-var callClient *meowcaller.Client
-var activeCalls = make(map[string]*meowcaller.Call)
-var activeCallsMutex sync.Mutex
-
-var activeVideoBridges = make(map[string]*VideoBridge)
-var activeVideoBridgesMutex sync.Mutex
-
-var activeScreenBridges = make(map[string]*VideoBridge)
-
 // Audio bridges, one per active call, keyed the same way as activeCalls. Each
 // wraps a real UDP socket (see audio_udp.go), so it must be closed on
 // OnEnd just like activeVideoBridges - otherwise every call leaks the socket
 // for the rest of the process's life.
-var activeAudioBridges = make(map[string]*UDPBridge)
-var activeAudioBridgesMutex sync.Mutex
 
 func newCallDiagnosticsOptions() []meowcaller.Option {
 	var opts []meowcaller.Option
@@ -63,10 +51,8 @@ func newCallDiagnosticsOptions() []meowcaller.Option {
 // registration order, and this one is registered before meowcaller's (see
 // initCallClient), so the entry is always in place by the time
 // OnIncomingCall fires.
-var incomingGroupCallJIDs = make(map[string]types.JID)
-var incomingGroupCallJIDsMutex sync.Mutex
 
-func recordIncomingGroupCallJID(evt interface{}) {
+func (acc *Account) recordIncomingGroupCallJID(evt interface{}) {
 	offer, ok := evt.(*events.CallOffer)
 	if !ok || offer.Data == nil || offer.Offline {
 		return
@@ -75,32 +61,32 @@ func recordIncomingGroupCallJID(evt interface{}) {
 	if err != nil || !isGroup || snapshot.GroupJID.IsEmpty() {
 		return
 	}
-	incomingGroupCallJIDsMutex.Lock()
-	incomingGroupCallJIDs[offer.CallID] = snapshot.GroupJID
-	incomingGroupCallJIDsMutex.Unlock()
+	acc.incomingGroupCallJIDsMutex.Lock()
+	acc.incomingGroupCallJIDs[offer.CallID] = snapshot.GroupJID
+	acc.incomingGroupCallJIDsMutex.Unlock()
 }
 
-func takeIncomingGroupCallJID(callID string) (types.JID, bool) {
-	incomingGroupCallJIDsMutex.Lock()
-	defer incomingGroupCallJIDsMutex.Unlock()
-	jid, ok := incomingGroupCallJIDs[callID]
-	delete(incomingGroupCallJIDs, callID)
+func (acc *Account) takeIncomingGroupCallJID(callID string) (types.JID, bool) {
+	acc.incomingGroupCallJIDsMutex.Lock()
+	defer acc.incomingGroupCallJIDsMutex.Unlock()
+	jid, ok := acc.incomingGroupCallJIDs[callID]
+	delete(acc.incomingGroupCallJIDs, callID)
 	return jid, ok
 }
 
-func groupChatName(jid types.JID) string {
+func (acc *Account) groupChatName(jid types.JID) string {
 	var name string
-	if db != nil {
-		_ = db.QueryRow("SELECT name FROM chats WHERE jid = ?", jid.String()).Scan(&name)
+	if acc.db != nil {
+		_ = acc.db.QueryRow("SELECT name FROM chats WHERE jid = ?", jid.String()).Scan(&name)
 	}
 	return name
 }
 
-func isOwnJID(jid types.JID) bool {
-	if wa() == nil || wa().Store == nil || jid.User == "" {
+func (acc *Account) isOwnJID(jid types.JID) bool {
+	if acc.wa() == nil || acc.wa().Store == nil || jid.User == "" {
 		return false
 	}
-	for _, own := range []types.JID{wa().Store.GetJID(), wa().Store.GetLID()} {
+	for _, own := range []types.JID{acc.wa().Store.GetJID(), acc.wa().Store.GetLID()} {
 		if own.User != "" && own.User == jid.User {
 			return true
 		}
@@ -128,10 +114,10 @@ func peerVideoEvent(raw int) string {
 // calls. OnReady/OnEnd/OnGroupState/OnVideoState are single-slot on *meowcaller.Call
 // (each registration overwrites the last), so this must be the only place
 // that registers them for a given call.
-func attachCallHandlers(call *meowcaller.Call) {
+func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 	call.OnReady(func() {
 		log.Println("Call ready (connected):", call.ID())
-		updateLiveCall(call.ID(), func(c *liveCall) { c.connected = time.Now() })
+		acc.updateLiveCall(call.ID(), func(c *liveCall) { c.connected = time.Now() })
 		bridge, port, err := NewUDPBridge()
 		if err != nil {
 			log.Println("Failed to create UDP bridge:", err)
@@ -139,18 +125,18 @@ func attachCallHandlers(call *meowcaller.Call) {
 		}
 		call.Play(bridge)
 		call.Receive(bridge)
-		activeAudioBridgesMutex.Lock()
-		activeAudioBridges[call.ID()] = bridge
-		activeAudioBridgesMutex.Unlock()
+		acc.activeAudioBridgesMutex.Lock()
+		acc.activeAudioBridges[call.ID()] = bridge
+		acc.activeAudioBridgesMutex.Unlock()
 
 		videoPort := 0
 		if videoBridge, vport, err := NewVideoBridge(call.SendVideoWithDuration); err != nil {
 			log.Println("Failed to create video bridge:", err)
 		} else {
 			videoPort = vport
-			activeVideoBridgesMutex.Lock()
-			activeVideoBridges[call.ID()] = videoBridge
-			activeVideoBridgesMutex.Unlock()
+			acc.activeVideoBridgesMutex.Lock()
+			acc.activeVideoBridges[call.ID()] = videoBridge
+			acc.activeVideoBridgesMutex.Unlock()
 			go videoBridge.Run()
 		}
 		screenPort := 0
@@ -159,14 +145,14 @@ func attachCallHandlers(call *meowcaller.Call) {
 				log.Println("Failed to create screen bridge:", err)
 			} else {
 				screenPort = sport
-				activeVideoBridgesMutex.Lock()
-				activeScreenBridges[call.ID()] = screenBridge
-				activeVideoBridgesMutex.Unlock()
+				acc.activeVideoBridgesMutex.Lock()
+				acc.activeScreenBridges[call.ID()] = screenBridge
+				acc.activeVideoBridgesMutex.Unlock()
 				go screenBridge.Run()
 			}
 		}
 
-		broadcastEvent("call_connected", map[string]interface{}{
+		acc.broadcastEvent("call_connected", map[string]interface{}{
 			"call_id":     call.ID(),
 			"audio_port":  port,
 			"video_port":  videoPort,
@@ -174,48 +160,48 @@ func attachCallHandlers(call *meowcaller.Call) {
 		})
 	})
 	call.OnEnd(func(reason string) {
-		summary := finishLiveCall(call.ID(), reason)
-		broadcastEvent("call_ended", map[string]string{
+		summary := acc.finishLiveCall(call.ID(), reason)
+		acc.broadcastEvent("call_ended", map[string]string{
 			"call_id": call.ID(),
 			"reason":  reason,
 			"summary": summary,
 		})
-		activeCallsMutex.Lock()
-		delete(activeCalls, call.ID())
-		activeCallsMutex.Unlock()
+		acc.activeCallsMutex.Lock()
+		delete(acc.activeCalls, call.ID())
+		acc.activeCallsMutex.Unlock()
 
-		activeVideoBridgesMutex.Lock()
-		if bridge, ok := activeVideoBridges[call.ID()]; ok {
+		acc.activeVideoBridgesMutex.Lock()
+		if bridge, ok := acc.activeVideoBridges[call.ID()]; ok {
 			bridge.Close()
-			delete(activeVideoBridges, call.ID())
+			delete(acc.activeVideoBridges, call.ID())
 		}
-		if bridge, ok := activeScreenBridges[call.ID()]; ok {
+		if bridge, ok := acc.activeScreenBridges[call.ID()]; ok {
 			bridge.Close()
-			delete(activeScreenBridges, call.ID())
+			delete(acc.activeScreenBridges, call.ID())
 		}
-		activeVideoBridgesMutex.Unlock()
-		forgetScreenShare(call.ID())
+		acc.activeVideoBridgesMutex.Unlock()
+		acc.forgetScreenShare(call.ID())
 
-		activeAudioBridgesMutex.Lock()
-		if bridge, ok := activeAudioBridges[call.ID()]; ok {
+		acc.activeAudioBridgesMutex.Lock()
+		if bridge, ok := acc.activeAudioBridges[call.ID()]; ok {
 			bridge.Close()
-			delete(activeAudioBridges, call.ID())
+			delete(acc.activeAudioBridges, call.ID())
 		}
-		activeAudioBridgesMutex.Unlock()
+		acc.activeAudioBridgesMutex.Unlock()
 	})
 	call.OnGroupState(func(state meowcaller.GroupCallState) {
 		participants := make([]map[string]string, 0, len(state.Participants))
 		for _, p := range state.Participants {
-			if isOwnJID(p.JID) || isOwnJID(p.PN) {
+			if acc.isOwnJID(p.JID) || acc.isOwnJID(p.PN) {
 				continue
 			}
 			participants = append(participants, map[string]string{
 				"jid":   p.JID.String(),
-				"name":  callJoinerName(p.JID, p.PN, p.PushName, p.Guest),
+				"name":  acc.callJoinerName(p.JID, p.PN, p.PushName, p.Guest),
 				"state": p.State,
 			})
 		}
-		broadcastEvent("call_participants", map[string]interface{}{
+		acc.broadcastEvent("call_participants", map[string]interface{}{
 			"call_id":      call.ID(),
 			"participants": participants,
 			"can_remove":   call.CanRemoveParticipants(),
@@ -226,7 +212,7 @@ func attachCallHandlers(call *meowcaller.Call) {
 		if event == "" {
 			return
 		}
-		broadcastEvent("call_video_state", map[string]string{
+		acc.broadcastEvent("call_video_state", map[string]string{
 			"call_id":    call.ID(),
 			"peer_video": event,
 		})
@@ -237,7 +223,7 @@ func attachCallHandlers(call *meowcaller.Call) {
 		if peerMuted.Load() {
 			return
 		}
-		broadcastEvent("call_audio_health", map[string]interface{}{
+		acc.broadcastEvent("call_audio_health", map[string]interface{}{
 			"call_id":    call.ID(),
 			"stalled":    health.Stalled,
 			"reason":     string(health.Reason),
@@ -247,66 +233,66 @@ func attachCallHandlers(call *meowcaller.Call) {
 	// The call's media stopped and meowcaller is redialing its relays, or
 	// it came back. One that never comes back ends as "connection_lost".
 	call.OnReconnecting(func(reconnecting bool) {
-		broadcastEvent("call_reconnecting", map[string]interface{}{
+		acc.broadcastEvent("call_reconnecting", map[string]interface{}{
 			"call_id":      call.ID(),
 			"reconnecting": reconnecting,
 		})
 	})
 	call.OnVideoKeyframeRequest(func() {
-		broadcastEvent("call_video_keyframe_request", map[string]string{
+		acc.broadcastEvent("call_video_keyframe_request", map[string]string{
 			"call_id": call.ID(),
 		})
 	})
 	call.OnScreenKeyframeRequest(func() {
-		broadcastEvent("call_screen_keyframe_request", map[string]string{
+		acc.broadcastEvent("call_screen_keyframe_request", map[string]string{
 			"call_id": call.ID(),
 		})
 	})
-	attachCallExtras(call)
+	acc.attachCallExtras(call)
 }
 
-func initCallClient() {
-	if wa() == nil {
+func (acc *Account) initCallClient() {
+	if acc.wa() == nil {
 		return
 	}
 	// Must be registered before meowcaller.NewClient installs its own
 	// handler - see incomingGroupCallJIDs.
-	wa().AddEventHandler(recordIncomingGroupCallJID)
-	wa().AddEventHandler(noteOwnDeviceReject)
-	wa().AddEventHandler(noteOfflineMissedCall)
-	callClient = meowcaller.NewClient(wa(), newCallDiagnosticsOptions()...)
-	callClient.SetDualStreamScreenShare(dualStreamScreenShare.Load())
-	watchJoinableCalls(callClient)
+	acc.wa().AddEventHandler(acc.recordIncomingGroupCallJID)
+	acc.wa().AddEventHandler(acc.noteOwnDeviceReject)
+	acc.wa().AddEventHandler(acc.noteOfflineMissedCall)
+	acc.callClient = meowcaller.NewClient(acc.wa(), newCallDiagnosticsOptions()...)
+	acc.callClient.SetDualStreamScreenShare(dualStreamScreenShare.Load())
+	acc.watchJoinableCalls(acc.callClient)
 
-	callClient.OnIncomingCall(func(call *meowcaller.Call) {
+	acc.callClient.OnIncomingCall(func(call *meowcaller.Call) {
 		log.Printf("Incoming call from %v\n", call.Peer())
-		groupJID, hasGroupJID := takeIncomingGroupCallJID(call.ID())
+		groupJID, hasGroupJID := acc.takeIncomingGroupCallJID(call.ID())
 
-		activeCallsMutex.Lock()
+		acc.activeCallsMutex.Lock()
 		// A call only leaves activeCalls through its OnEnd handler, and one
 		// that ended before attachCallHandlers registered it never gets
 		// there. Drop those here, or whatSnap stays "busy" and declines every
 		// call until it restarts.
-		for id, c := range activeCalls {
+		for id, c := range acc.activeCalls {
 			if c.State() == meowcaller.CallPhaseEnded {
-				delete(activeCalls, id)
+				delete(acc.activeCalls, id)
 			}
 		}
-		alreadyOnACall := len(activeCalls) > 0
+		alreadyOnACall := len(acc.activeCalls) > 0
 		if !alreadyOnACall {
-			activeCalls[call.ID()] = call
+			acc.activeCalls[call.ID()] = call
 		}
-		activeCallsMutex.Unlock()
+		acc.activeCallsMutex.Unlock()
 
 		_, isGroupCall := call.GroupState()
 		chatJID := call.Peer()
 		if hasGroupJID {
 			chatJID = groupJID
 		}
-		trackLiveCall(call.ID(), chatJID, call.Peer(), true, call.IsVideo(), isGroupCall)
+		acc.trackLiveCall(call.ID(), chatJID, call.Peer(), true, call.IsVideo(), isGroupCall)
 
 		if alreadyOnACall {
-			defer finishLiveCall(call.ID(), "busy")
+			defer acc.finishLiveCall(call.ID(), "busy")
 			log.Printf("Already on a call, rejecting incoming call from %v as busy\n", call.Peer())
 			if err := call.RejectBusy(); err != nil {
 				log.Println("Failed to auto-reject incoming call while busy:", err)
@@ -314,38 +300,38 @@ func initCallClient() {
 			return
 		}
 
-		attachCallHandlers(call)
+		acc.attachCallHandlers(call)
 
-		peer := preferPN(call.Peer().ToNonAD())
+		peer := acc.preferPN(call.Peer().ToNonAD())
 		payload := map[string]interface{}{
 			"call_id":      call.ID(),
 			"caller":       peer.String(),
-			"chat_jid":     preferPN(chatJID).String(),
-			"caller_name":  resolveDisplayName(peer),
-			"caller_phone": callerPhoneDigits(peer),
+			"chat_jid":     acc.preferPN(chatJID).String(),
+			"caller_name":  acc.resolveDisplayName(peer),
+			"caller_phone": acc.callerPhoneDigits(peer),
 			"is_group":     isGroupCall,
 			"is_video":     call.IsVideo(),
 		}
 		if hasGroupJID {
 			payload["group_jid"] = groupJID.String()
-			payload["group_name"] = groupChatName(groupJID)
+			payload["group_name"] = acc.groupChatName(groupJID)
 		}
-		broadcastEvent("incoming_call", payload)
+		acc.broadcastEvent("incoming_call", payload)
 	})
 }
 
 // callerPhoneDigits is the caller's phone number, digits only, to show beside
 // their name on an incoming call. It's "" when we don't know it: a caller who
 // hides their number is a LID, and only a LID we've mapped to a number has one.
-func callerPhoneDigits(jid types.JID) string {
+func (acc *Account) callerPhoneDigits(jid types.JID) string {
 	jid = jid.ToNonAD()
-	pn := preferPN(jid)
+	pn := acc.preferPN(jid)
 	if pn.Server == types.DefaultUserServer {
 		return pn.User
 	}
-	if db != nil {
+	if acc.db != nil {
 		var phone string
-		_ = db.QueryRow(`SELECT phone FROM contacts_cache WHERE (jid = ? OR jid = ?) AND phone != '' LIMIT 1`, jid.String(), pn.String()).Scan(&phone)
+		_ = acc.db.QueryRow(`SELECT phone FROM contacts_cache WHERE (jid = ? OR jid = ?) AND phone != '' LIMIT 1`, jid.String(), pn.String()).Scan(&phone)
 		if phone != "" {
 			return phone
 		}
@@ -353,14 +339,14 @@ func callerPhoneDigits(jid types.JID) string {
 	return ""
 }
 
-func placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*meowcaller.Call, error) {
-	info, err := wa().GetGroupInfo(ctx, groupJID)
+func (acc *Account) placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*meowcaller.Call, error) {
+	info, err := acc.wa().GetGroupInfo(ctx, groupJID)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't load the group's members: %w", err)
 	}
 	var others []types.JID
 	for _, p := range info.Participants {
-		if isOwnJID(p.JID) || isOwnJID(p.PhoneNumber) || isOwnJID(p.LID) {
+		if acc.isOwnJID(p.JID) || acc.isOwnJID(p.PhoneNumber) || acc.isOwnJID(p.LID) {
 			continue
 		}
 		others = append(others, p.JID)
@@ -371,10 +357,10 @@ func placeGroupChatCall(ctx context.Context, groupJID types.JID, video bool) (*m
 	case len(others) > 31:
 		return nil, fmt.Errorf("This group has %d other members; WhatsApp group calls allow at most 32 people.", len(others))
 	}
-	return callClient.GroupCallByIDWithOptions(ctx, groupJID.String(), meowcaller.GroupCallOptions{Video: video})
+	return acc.callClient.GroupCallByIDWithOptions(ctx, groupJID.String(), meowcaller.GroupCallOptions{Video: video})
 }
 
-func handlePlaceCall(data []byte) {
+func (acc *Account) handlePlaceCall(data []byte) {
 	var req struct {
 		JID   string `json:"jid"`
 		Video bool   `json:"video"`
@@ -401,18 +387,18 @@ func handlePlaceCall(data []byte) {
 		return
 	}
 
-	if callClient == nil {
-		initCallClient()
+	if acc.callClient == nil {
+		acc.initCallClient()
 	}
 
 	ctx := context.Background()
 	var call *meowcaller.Call
 	if parsedJID.Server == types.GroupServer {
-		call, err = placeGroupChatCall(ctx, parsedJID, req.Video)
+		call, err = acc.placeGroupChatCall(ctx, parsedJID, req.Video)
 	} else if req.Video {
-		call, err = callClient.CallWithOptions(ctx, parsedJID.String(), meowcaller.CallOptions{Video: true})
+		call, err = acc.callClient.CallWithOptions(ctx, parsedJID.String(), meowcaller.CallOptions{Video: true})
 	} else {
-		call, err = callClient.Call(ctx, parsedJID.String())
+		call, err = acc.callClient.Call(ctx, parsedJID.String())
 	}
 	if err != nil {
 		log.Println("Failed to place call:", err)
@@ -422,39 +408,39 @@ func handlePlaceCall(data []byte) {
 		// offer never made it onto the wire, that event never arrives and
 		// the UI is stuck showing a live-looking call forever with no way
 		// to dismiss it.
-		broadcastEvent("call_failed", map[string]string{
+		acc.broadcastEvent("call_failed", map[string]string{
 			"jid":     parsedJID.String(),
 			"message": err.Error(),
 		})
 		return
 	}
 
-	activeCallsMutex.Lock()
-	activeCalls[call.ID()] = call
-	activeCallsMutex.Unlock()
+	acc.activeCallsMutex.Lock()
+	acc.activeCalls[call.ID()] = call
+	acc.activeCallsMutex.Unlock()
 
 	chatJID := call.Peer()
 	_, isGroupCall := call.GroupState()
 	if parsedJID.Server == types.GroupServer && isGroupCall {
 		chatJID = parsedJID
 	}
-	trackLiveCall(call.ID(), chatJID, ownCallCreator(), false, req.Video, isGroupCall)
+	acc.trackLiveCall(call.ID(), chatJID, acc.ownCallCreator(), false, req.Video, isGroupCall)
 
 	selfPhone := ""
-	if wa().Store.ID != nil {
-		selfPhone = wa().Store.ID.User
+	if acc.wa().Store.ID != nil {
+		selfPhone = acc.wa().Store.ID.User
 	}
-	broadcastEvent("call_placed", map[string]string{
+	acc.broadcastEvent("call_placed", map[string]string{
 		"call_id":    call.ID(),
 		"peer":       parsedJID.String(),
 		"self_phone": selfPhone,
 	})
-	attachCallHandlers(call)
+	acc.attachCallHandlers(call)
 
 	log.Printf("Placed call to %s, call ID: %s", parsedJID.String(), call.ID())
 }
 
-func handleAnswerCall(data []byte) {
+func (acc *Account) handleAnswerCall(data []byte) {
 	var req struct {
 		CallID string `json:"call_id"`
 	}
@@ -463,13 +449,13 @@ func handleAnswerCall(data []byte) {
 		return
 	}
 
-	activeCallsMutex.Lock()
-	call, exists := activeCalls[req.CallID]
-	activeCallsMutex.Unlock()
+	acc.activeCallsMutex.Lock()
+	call, exists := acc.activeCalls[req.CallID]
+	acc.activeCallsMutex.Unlock()
 
 	if !exists {
 		log.Println("Cannot answer call, not found:", req.CallID)
-		broadcastEvent("call_answer_failed", map[string]string{
+		acc.broadcastEvent("call_answer_failed", map[string]string{
 			"call_id": req.CallID,
 			"message": "That call is no longer available.",
 		})
@@ -479,7 +465,7 @@ func handleAnswerCall(data []byte) {
 	err := call.Answer()
 	if err != nil {
 		log.Println("Failed to answer call:", err)
-		broadcastEvent("call_answer_failed", map[string]string{
+		acc.broadcastEvent("call_answer_failed", map[string]string{
 			"call_id": req.CallID,
 			"message": "Failed to answer call: " + err.Error(),
 		})
@@ -488,7 +474,7 @@ func handleAnswerCall(data []byte) {
 	}
 }
 
-func handleRejectCall(data []byte) {
+func (acc *Account) handleRejectCall(data []byte) {
 	var req struct {
 		CallID string `json:"call_id"`
 	}
@@ -497,16 +483,16 @@ func handleRejectCall(data []byte) {
 		return
 	}
 
-	activeCallsMutex.Lock()
-	call, exists := activeCalls[req.CallID]
-	activeCallsMutex.Unlock()
+	acc.activeCallsMutex.Lock()
+	call, exists := acc.activeCalls[req.CallID]
+	acc.activeCallsMutex.Unlock()
 
 	if !exists {
 		log.Println("Cannot reject call, not found:", req.CallID)
 		return
 	}
 
-	updateLiveCall(req.CallID, func(c *liveCall) { c.localReject = true })
+	acc.updateLiveCall(req.CallID, func(c *liveCall) { c.localReject = true })
 	err := call.Reject()
 	if err != nil {
 		log.Println("Failed to reject call:", err)
@@ -515,7 +501,7 @@ func handleRejectCall(data []byte) {
 	}
 }
 
-func handleLeaveCall(data []byte) {
+func (acc *Account) handleLeaveCall(data []byte) {
 	var req struct {
 		CallID string `json:"call_id"`
 	}
@@ -524,16 +510,16 @@ func handleLeaveCall(data []byte) {
 		return
 	}
 
-	activeCallsMutex.Lock()
-	call, exists := activeCalls[req.CallID]
-	activeCallsMutex.Unlock()
+	acc.activeCallsMutex.Lock()
+	call, exists := acc.activeCalls[req.CallID]
+	acc.activeCallsMutex.Unlock()
 
 	if !exists {
 		log.Println("Cannot leave call, not found:", req.CallID)
 		return
 	}
 
-	updateLiveCall(req.CallID, func(c *liveCall) { c.localHangup = true })
+	acc.updateLiveCall(req.CallID, func(c *liveCall) { c.localHangup = true })
 	err := call.Hangup()
 	if err != nil {
 		log.Println("Failed to leave call:", err)
@@ -545,7 +531,7 @@ func handleLeaveCall(data []byte) {
 // handleMuteCall tells the other side of a call that our microphone was
 // muted or unmuted. The frontend already silences the audio itself; without
 // this the peer's call screen never showed us as muted.
-func handleMuteCall(data []byte) {
+func (acc *Account) handleMuteCall(data []byte) {
 	var req struct {
 		CallID string `json:"call_id"`
 		Muted  bool   `json:"muted"`
@@ -554,9 +540,9 @@ func handleMuteCall(data []byte) {
 		log.Println("Invalid mute_call format:", err)
 		return
 	}
-	activeCallsMutex.Lock()
-	call, exists := activeCalls[req.CallID]
-	activeCallsMutex.Unlock()
+	acc.activeCallsMutex.Lock()
+	call, exists := acc.activeCalls[req.CallID]
+	acc.activeCallsMutex.Unlock()
 	if !exists {
 		return
 	}
@@ -567,7 +553,7 @@ func handleMuteCall(data []byte) {
 	}()
 }
 
-func handleSetVideo(data []byte) {
+func (acc *Account) handleSetVideo(data []byte) {
 	var req struct {
 		CallID  string `json:"call_id"`
 		Enabled bool   `json:"enabled"`
@@ -577,9 +563,9 @@ func handleSetVideo(data []byte) {
 		return
 	}
 
-	activeCallsMutex.Lock()
-	call, exists := activeCalls[req.CallID]
-	activeCallsMutex.Unlock()
+	acc.activeCallsMutex.Lock()
+	call, exists := acc.activeCalls[req.CallID]
+	acc.activeCallsMutex.Unlock()
 
 	if !exists {
 		log.Println("Cannot set video, call not found:", req.CallID)
@@ -595,7 +581,7 @@ func handleSetVideo(data []byte) {
 	}
 	if err != nil {
 		log.Println("Failed to set video:", err)
-		broadcastEvent("call_set_video_failed", map[string]string{
+		acc.broadcastEvent("call_set_video_failed", map[string]string{
 			"call_id": req.CallID,
 			"message": err.Error(),
 		})
@@ -610,14 +596,9 @@ type localScreenShare struct {
 	dual      bool
 }
 
-var (
-	localScreenShares      = make(map[string]*localScreenShare)
-	localScreenSharesMutex sync.Mutex
-)
-
 var dualStreamScreenShare atomic.Bool
 
-func handleSetCallOptions(data []byte) {
+func (acc *Account) handleSetCallOptions(data []byte) {
 	var req struct {
 		DualStreamScreenShare bool `json:"dual_stream_screen_share"`
 	}
@@ -626,20 +607,20 @@ func handleSetCallOptions(data []byte) {
 		return
 	}
 	dualStreamScreenShare.Store(req.DualStreamScreenShare)
-	if callClient != nil {
-		callClient.SetDualStreamScreenShare(req.DualStreamScreenShare)
+	if acc.callClient != nil {
+		acc.callClient.SetDualStreamScreenShare(req.DualStreamScreenShare)
 	}
 }
 
-func forgetScreenShare(callID string) {
-	localScreenSharesMutex.Lock()
-	delete(localScreenShares, callID)
-	localScreenSharesMutex.Unlock()
+func (acc *Account) forgetScreenShare(callID string) {
+	acc.localScreenSharesMutex.Lock()
+	delete(acc.localScreenShares, callID)
+	acc.localScreenSharesMutex.Unlock()
 }
 
 const screenShareAnnounceWindow = 15 * time.Second
 
-func handleSetScreenShare(data []byte) {
+func (acc *Account) handleSetScreenShare(data []byte) {
 	var req struct {
 		CallID  string `json:"call_id"`
 		Enabled bool   `json:"enabled"`
@@ -650,19 +631,19 @@ func handleSetScreenShare(data []byte) {
 		return
 	}
 
-	activeCallsMutex.Lock()
-	call, exists := activeCalls[req.CallID]
-	activeCallsMutex.Unlock()
+	acc.activeCallsMutex.Lock()
+	call, exists := acc.activeCalls[req.CallID]
+	acc.activeCallsMutex.Unlock()
 	if !exists {
 		log.Println("Cannot set screen share, call not found:", req.CallID)
 		return
 	}
 
-	localScreenSharesMutex.Lock()
-	share := localScreenShares[req.CallID]
+	acc.localScreenSharesMutex.Lock()
+	share := acc.localScreenShares[req.CallID]
 	if share == nil {
 		share = &localScreenShare{}
-		localScreenShares[req.CallID] = share
+		acc.localScreenShares[req.CallID] = share
 	}
 	alreadyWanted := share.wanted
 	share.wanted = req.Enabled
@@ -673,11 +654,11 @@ func handleSetScreenShare(data []byte) {
 	if !req.Enabled {
 		share.announced = false
 	}
-	localScreenSharesMutex.Unlock()
+	acc.localScreenSharesMutex.Unlock()
 
 	if req.Enabled {
 		if !alreadyWanted {
-			go announceScreenShare(call, share)
+			go acc.announceScreenShare(call, share)
 		}
 		return
 	}
@@ -690,12 +671,12 @@ func handleSetScreenShare(data []byte) {
 	}
 }
 
-func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
+func (acc *Account) announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 	deadline := time.Now().Add(screenShareAnnounceWindow)
 	for {
-		localScreenSharesMutex.Lock()
+		acc.localScreenSharesMutex.Lock()
 		wanted, dual := share.wanted, share.dual
-		localScreenSharesMutex.Unlock()
+		acc.localScreenSharesMutex.Unlock()
 		if !wanted || call.State() == meowcaller.CallPhaseEnded {
 			return
 		}
@@ -707,10 +688,10 @@ func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 		}
 		switch {
 		case err == nil:
-			localScreenSharesMutex.Lock()
+			acc.localScreenSharesMutex.Lock()
 			stillWanted := share.wanted
 			share.announced = stillWanted
-			localScreenSharesMutex.Unlock()
+			acc.localScreenSharesMutex.Unlock()
 			if !stillWanted {
 				if err := call.StopScreenShare(); err != nil {
 					log.Println("Failed to announce the end of the screen share:", err)
@@ -724,7 +705,7 @@ func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 		default:
 			log.Println("Failed to announce the screen share:", err)
 			if dual {
-				broadcastEvent("call_screen_share_failed", map[string]string{
+				acc.broadcastEvent("call_screen_share_failed", map[string]string{
 					"call_id": call.ID(),
 					"message": "dual-stream screen sharing isn't available on this call",
 				})
@@ -734,7 +715,7 @@ func announceScreenShare(call *meowcaller.Call, share *localScreenShare) {
 	}
 }
 
-func handleAddParticipant(data []byte) {
+func (acc *Account) handleAddParticipant(data []byte) {
 	var req struct {
 		CallID string `json:"call_id"`
 		JID    string `json:"jid"`
@@ -749,13 +730,13 @@ func handleAddParticipant(data []byte) {
 		return
 	}
 
-	activeCallsMutex.Lock()
-	call, exists := activeCalls[req.CallID]
-	activeCallsMutex.Unlock()
+	acc.activeCallsMutex.Lock()
+	call, exists := acc.activeCalls[req.CallID]
+	acc.activeCallsMutex.Unlock()
 
-	name := resolveDisplayName(parsedJID)
+	name := acc.resolveDisplayName(parsedJID)
 	fail := func(message string) {
-		broadcastEvent("call_participant_add_failed", map[string]string{
+		acc.broadcastEvent("call_participant_add_failed", map[string]string{
 			"call_id": req.CallID,
 			"jid":     parsedJID.String(),
 			"name":    name,
@@ -781,7 +762,7 @@ func handleAddParticipant(data []byte) {
 		return
 	}
 	log.Println("Added participant to call:", req.CallID)
-	broadcastEvent("call_participant_added", map[string]string{
+	acc.broadcastEvent("call_participant_added", map[string]string{
 		"call_id": req.CallID,
 		"jid":     parsedJID.String(),
 		"name":    name,

@@ -9,7 +9,6 @@ import (
 	"net"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -24,10 +23,10 @@ func isChannelJID(jid string) bool {
 	return strings.HasSuffix(jid, "@"+types.NewsletterServer)
 }
 
-func syncFollowedChannels() {
+func (acc *Account) syncFollowedChannels() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	channels, err := wa().GetSubscribedNewsletters(ctx)
+	channels, err := acc.wa().GetSubscribedNewsletters(ctx)
 	if err != nil {
 		log.Printf("Couldn't list followed channels: %v", err)
 		return
@@ -57,17 +56,17 @@ func syncFollowedChannels() {
 				jid, name, role, boolToInt(muted))
 		})
 	}
-	writeBatch(writes)
-	markChannelsFollowed(followed)
-	broadcastChats()
+	acc.writeBatch(writes)
+	acc.markChannelsFollowed(followed)
+	acc.broadcastChats()
 }
 
-func markChannelsFollowed(followed []string) {
+func (acc *Account) markChannelsFollowed(followed []string) {
 	keep := make(map[string]bool, len(followed))
 	for _, jid := range followed {
 		keep[jid] = true
 	}
-	rows, err := db.Query(`SELECT jid FROM chats WHERE COALESCE(is_channel, 0) = 1`)
+	rows, err := acc.db.Query(`SELECT jid FROM chats WHERE COALESCE(is_channel, 0) = 1`)
 	if err != nil {
 		return
 	}
@@ -80,21 +79,21 @@ func markChannelsFollowed(followed []string) {
 	}
 	rows.Close()
 	for _, jid := range gone {
-		purgeMessages("jid = ?", jid)
-		db.Exec(`DELETE FROM chats WHERE jid = ?`, jid)
+		acc.purgeMessages("jid = ?", jid)
+		acc.db.Exec(`DELETE FROM chats WHERE jid = ?`, jid)
 	}
 }
 
 // channelRole is our role in a channel ("owner", "admin", "subscriber",
 // "guest"), or "" if we don't follow it.
-func channelRole(jid string) string {
+func (acc *Account) channelRole(jid string) string {
 	var role string
-	db.QueryRow(`SELECT COALESCE(channel_role, '') FROM chats WHERE jid = ?`, jid).Scan(&role)
+	acc.db.QueryRow(`SELECT COALESCE(channel_role, '') FROM chats WHERE jid = ?`, jid).Scan(&role)
 	return strings.ToLower(role)
 }
 
-func canPostInChannel(jid string) bool {
-	role := channelRole(jid)
+func (acc *Account) canPostInChannel(jid string) bool {
+	role := acc.channelRole(jid)
 	return role == "owner" || role == "admin"
 }
 
@@ -179,7 +178,7 @@ func channelPollVotesJSON(votes map[[32]byte]int) string {
 	return string(out)
 }
 
-func storeChannelPins(jid string, pins []types.NewsletterPinnedMessage) {
+func (acc *Account) storeChannelPins(jid string, pins []types.NewsletterPinnedMessage) {
 	ids := make([]any, 0, len(pins))
 	marks := make([]string, 0, len(pins))
 	for _, pin := range pins {
@@ -190,39 +189,33 @@ func storeChannelPins(jid string, pins []types.NewsletterPinnedMessage) {
 		marks = append(marks, "?")
 	}
 	if len(ids) == 0 {
-		db.Exec(`UPDATE messages SET channel_pinned = 0 WHERE jid = ? AND channel_pinned = 1`, jid)
+		acc.db.Exec(`UPDATE messages SET channel_pinned = 0 WHERE jid = ? AND channel_pinned = 1`, jid)
 		return
 	}
-	db.Exec(`UPDATE messages SET channel_pinned = CASE WHEN CAST(server_id AS TEXT) IN (`+strings.Join(marks, ",")+`) THEN 1 ELSE 0 END
+	acc.db.Exec(`UPDATE messages SET channel_pinned = CASE WHEN CAST(server_id AS TEXT) IN (`+strings.Join(marks, ",")+`) THEN 1 ELSE 0 END
 		WHERE jid = ? AND server_id > 0`, append(ids, jid)...)
 }
 
-var (
-	channelFetchMu      sync.Mutex
-	channelFetchRunning = map[string]bool{}
-	channelFreshUntil   = map[string]time.Time{}
-)
-
 const channelRefreshMinGap = 5 * time.Minute
 
-func forgetChannelRefreshes() {
-	channelFetchMu.Lock()
-	clear(channelFreshUntil)
-	channelFetchMu.Unlock()
+func (acc *Account) forgetChannelRefreshes() {
+	acc.channelFetchMu.Lock()
+	clear(acc.channelFreshUntil)
+	acc.channelFetchMu.Unlock()
 }
 
-func refreshChannel(jid string) {
-	channelFetchMu.Lock()
-	if channelFetchRunning[jid] || time.Now().Before(channelFreshUntil[jid]) {
-		channelFetchMu.Unlock()
+func (acc *Account) refreshChannel(jid string) {
+	acc.channelFetchMu.Lock()
+	if acc.channelFetchRunning[jid] || time.Now().Before(acc.channelFreshUntil[jid]) {
+		acc.channelFetchMu.Unlock()
 		return
 	}
-	channelFetchRunning[jid] = true
-	channelFetchMu.Unlock()
+	acc.channelFetchRunning[jid] = true
+	acc.channelFetchMu.Unlock()
 	defer func() {
-		channelFetchMu.Lock()
-		delete(channelFetchRunning, jid)
-		channelFetchMu.Unlock()
+		acc.channelFetchMu.Lock()
+		delete(acc.channelFetchRunning, jid)
+		acc.channelFetchMu.Unlock()
 	}()
 
 	parsed, err := types.ParseJID(jid)
@@ -231,39 +224,39 @@ func refreshChannel(jid string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	posts, err := wa().GetNewsletterMessages(ctx, parsed, &whatsmeow.GetNewsletterMessagesParams{Count: channelPageSize})
+	posts, err := acc.wa().GetNewsletterMessages(ctx, parsed, &whatsmeow.GetNewsletterMessagesParams{Count: channelPageSize})
 	if err != nil {
 		log.Printf("Couldn't fetch posts for channel %s: %v", jid, err)
-		broadcastEvent("error", map[string]string{"message": "Couldn't load this channel's posts: " + err.Error()})
+		acc.broadcastEvent("error", map[string]string{"message": "Couldn't load this channel's posts: " + err.Error()})
 		return
 	}
 	fresh := channelRefreshMinGap
-	if dur, err := wa().NewsletterSubscribeLiveUpdates(ctx, parsed); err != nil {
+	if dur, err := acc.wa().NewsletterSubscribeLiveUpdates(ctx, parsed); err != nil {
 		log.Printf("Couldn't subscribe to live updates for channel %s: %v", jid, err)
 	} else if dur > fresh {
 		fresh = dur
 	}
-	channelFetchMu.Lock()
-	channelFreshUntil[jid] = time.Now().Add(fresh)
-	channelFetchMu.Unlock()
+	acc.channelFetchMu.Lock()
+	acc.channelFreshUntil[jid] = time.Now().Add(fresh)
+	acc.channelFetchMu.Unlock()
 
-	changed, newest, serverIDs := storeChannelPosts(jid, posts)
-	syncOwnChannelAddOns(ctx, parsed, jid)
+	changed, newest, serverIDs := acc.storeChannelPosts(jid, posts)
+	acc.syncOwnChannelAddOns(ctx, parsed, jid)
 	if newest > 0 {
-		db.Exec(`UPDATE chats SET timestamp = MAX(timestamp, ?) WHERE jid = ?`, newest, jid)
-		UpdateChatSnippet(jid)
+		acc.db.Exec(`UPDATE chats SET timestamp = MAX(timestamp, ?) WHERE jid = ?`, newest, jid)
+		acc.UpdateChatSnippet(jid)
 	}
 	if len(serverIDs) > 0 {
-		if err := wa().NewsletterMarkViewed(ctx, parsed, serverIDs); err != nil {
+		if err := acc.wa().NewsletterMarkViewed(ctx, parsed, serverIDs); err != nil {
 			log.Printf("Couldn't mark channel %s posts viewed: %v", jid, err)
 		}
 	}
-	refreshChannelPins(ctx, parsed)
-	broadcastChats()
-	broadcastEvent("channel_messages_updated", map[string]interface{}{"jid": jid, "newPosts": changed})
+	acc.refreshChannelPins(ctx, parsed)
+	acc.broadcastChats()
+	acc.broadcastEvent("channel_messages_updated", map[string]interface{}{"jid": jid, "newPosts": changed})
 }
 
-func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed int, newest int64, serverIDs []types.MessageServerID) {
+func (acc *Account) storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed int, newest int64, serverIDs []types.MessageServerID) {
 	var writes []func(tx sqlExecer)
 	for _, post := range posts {
 		if post == nil {
@@ -275,28 +268,28 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 		newest = max(newest, ts)
 		var exists, deleted int
 		var storedText string
-		db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(is_deleted), 0), COALESCE(MAX(text), '') FROM messages WHERE id = ?`, id).Scan(&exists, &deleted, &storedText)
+		acc.db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(is_deleted), 0), COALESCE(MAX(text), '') FROM messages WHERE id = ?`, id).Scan(&exists, &deleted, &storedText)
 		if exists > 0 && deleted == 0 {
 			switch {
 			case post.Edit == types.EditAttributeAdminRevoke:
 				changed++
-				markMessageDeleted(id, jid)
+				acc.markMessageDeleted(id, jid)
 			case post.Edit == types.EditAttributeAdminEdit && post.Message != nil:
-				if text := extractText(post.Message); text != storedText {
+				if text := acc.extractText(post.Message); text != storedText {
 					changed++
-					markMessageEdited(id, jid, post.Message, text, ts)
+					acc.markMessageEdited(id, jid, post.Message, text, ts)
 				}
 			}
 		}
 		if exists > 0 && post.IsSender {
-			db.Exec(`UPDATE messages SET from_me = 1 WHERE id = ? AND from_me = 0`, id)
+			acc.db.Exec(`UPDATE messages SET from_me = 1 WHERE id = ? AND from_me = 0`, id)
 		}
 		if exists > 0 {
-			db.Exec(`UPDATE messages SET server_id = ? WHERE id = ? AND COALESCE(server_id, 0) = 0`, post.MessageServerID, id)
+			acc.db.Exec(`UPDATE messages SET server_id = ? WHERE id = ? AND COALESCE(server_id, 0) = 0`, post.MessageServerID, id)
 		}
 		if exists == 0 && post.Message != nil {
 			changed++
-			text := extractText(post.Message)
+			text := acc.extractText(post.Message)
 			mediaType, mimetype, filename, size := mediaInfoFromMessage(post.Message)
 			raw, _ := proto.Marshal(post.Message)
 			sm := StoredMessage{
@@ -304,14 +297,14 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 				MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: size,
 				ServerID: int64(post.MessageServerID),
 			}
-			if err := saveMessage(sm); err != nil {
+			if err := acc.saveMessage(sm); err != nil {
 				log.Printf("Couldn't store channel post %s: %v", id, err)
 				continue
 			}
 		}
 		writes = append(writes, func(tx sqlExecer) { storeChannelCounts(tx, jid, post) })
 	}
-	writeBatch(writes)
+	acc.writeBatch(writes)
 	return changed, newest, serverIDs
 }
 
@@ -321,17 +314,17 @@ func storeChannelPosts(jid string, posts []*types.NewsletterMessage) (changed in
 // so without this a vote cast on the phone never showed as ours, and voting
 // again here counted it twice. Only posts we have something on come back, so
 // a missing post says nothing and nothing is cleared.
-func syncOwnChannelAddOns(ctx context.Context, parsed types.JID, jid string) {
-	addOns, err := wa().GetNewsletterMyAddOns(ctx, parsed, channelPageSize)
+func (acc *Account) syncOwnChannelAddOns(ctx context.Context, parsed types.JID, jid string) {
+	addOns, err := acc.wa().GetNewsletterMyAddOns(ctx, parsed, channelPageSize)
 	if err != nil {
 		log.Printf("Couldn't fetch our own votes and reactions for channel %s: %v", jid, err)
 		return
 	}
-	me := ownVoterKey()
+	me := acc.ownVoterKey()
 	var writes []func(tx sqlExecer)
 	for _, addOn := range addOns {
 		var id string
-		db.QueryRow(`SELECT id FROM messages WHERE jid = ? AND server_id = ?`, jid, addOn.MessageServerID).Scan(&id)
+		acc.db.QueryRow(`SELECT id FROM messages WHERE jid = ? AND server_id = ?`, jid, addOn.MessageServerID).Scan(&id)
 		if id == "" {
 			continue
 		}
@@ -344,47 +337,47 @@ func syncOwnChannelAddOns(ctx context.Context, parsed types.JID, jid string) {
 			writes = append(writes, func(tx sqlExecer) { storePollVote(tx, id, me, selected, ts) })
 		}
 		if reaction := addOn.Reaction; reaction != nil && reaction.Code != "" {
-			upsertReaction(id, jid, "me", reaction.Code, reaction.Timestamp.Unix())
+			acc.upsertReaction(id, jid, "me", reaction.Code, reaction.Timestamp.Unix())
 		}
 	}
-	writeBatch(writes)
+	acc.writeBatch(writes)
 }
 
-func noteChannelPostSent(jid types.JID, id string, resp whatsmeow.SendResponse) {
+func (acc *Account) noteChannelPostSent(jid types.JID, id string, resp whatsmeow.SendResponse) {
 	if jid.Server == types.NewsletterServer && resp.ServerID != 0 {
-		db.Exec(`UPDATE messages SET server_id = ? WHERE id = ?`, resp.ServerID, id)
+		acc.db.Exec(`UPDATE messages SET server_id = ? WHERE id = ?`, resp.ServerID, id)
 	}
 }
 
-func loadOlderChannelPosts(jid string) {
+func (acc *Account) loadOlderChannelPosts(jid string) {
 	parsed, err := types.ParseJID(jid)
 	if err != nil {
 		return
 	}
 	var oldest int64
-	db.QueryRow(`SELECT COALESCE(MIN(server_id), 0) FROM messages WHERE jid = ? AND server_id > 0`, jid).Scan(&oldest)
+	acc.db.QueryRow(`SELECT COALESCE(MIN(server_id), 0) FROM messages WHERE jid = ? AND server_id > 0`, jid).Scan(&oldest)
 	params := &whatsmeow.GetNewsletterMessagesParams{Count: channelPageSize}
 	if oldest > 0 {
 		params.Before = types.MessageServerID(oldest)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	posts, err := wa().GetNewsletterMessages(ctx, parsed, params)
+	posts, err := acc.wa().GetNewsletterMessages(ctx, parsed, params)
 	if err != nil {
 		log.Printf("Couldn't fetch older posts for channel %s: %v", jid, err)
-		broadcastEvent("no_more_history", map[string]string{"jid": jid})
+		acc.broadcastEvent("no_more_history", map[string]string{"jid": jid})
 		return
 	}
-	changed, _, _ := storeChannelPosts(jid, posts)
+	changed, _, _ := acc.storeChannelPosts(jid, posts)
 	log.Printf("Fetched %d older posts for channel %s (%d new)", len(posts), jid, changed)
 	if changed == 0 {
-		broadcastEvent("no_more_history", map[string]string{"jid": jid})
+		acc.broadcastEvent("no_more_history", map[string]string{"jid": jid})
 		return
 	}
-	broadcastEvent("history_chats_synced", map[string]interface{}{"jids": []string{jid}, "onDemand": true})
+	acc.broadcastEvent("history_chats_synced", map[string]interface{}{"jids": []string{jid}, "onDemand": true})
 }
 
-func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		Query    string `json:"query"`
 		View     string `json:"view"`
@@ -404,25 +397,25 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 		query := strings.TrimSpace(data.Query)
 		country := strings.ToUpper(strings.TrimSpace(data.Country))
 		if country == "" {
-			country = ownCountryCode()
+			country = acc.ownCountryCode()
 		}
 		log.Printf("Channel directory: query=%q country=%s category=%q next page=%v", query, country, data.Category, data.Cursor != "")
 		switch {
 		case query != "":
-			page, err = wa().SearchNewsletterDirectory(ctx, query, data.Cursor, pageSize)
+			page, err = acc.wa().SearchNewsletterDirectory(ctx, query, data.Cursor, pageSize)
 		case data.Category != "":
-			page, err = wa().GetNewsletterDirectoryInCategories(ctx, whatsmeow.NewsletterDirectoryFeatured,
+			page, err = acc.wa().GetNewsletterDirectoryInCategories(ctx, whatsmeow.NewsletterDirectoryFeatured,
 				nonEmpty(country), []string{strings.ToUpper(data.Category)}, data.Cursor, pageSize)
 		default:
-			page, err = browseChannelDirectory(ctx, country, data.Cursor, pageSize)
+			page, err = acc.browseChannelDirectory(ctx, country, data.Cursor, pageSize)
 		}
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't load channels: " + err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't load channels: " + err.Error()})
 			return
 		}
 		channels := make([]map[string]interface{}, 0, len(page.Channels))
 		for _, ch := range page.Channels {
-			role := channelRole(ch.ID.String())
+			role := acc.channelRole(ch.ID.String())
 			channels = append(channels, map[string]interface{}{
 				"jid":         ch.ID.String(),
 				"name":        ch.Name,
@@ -433,7 +426,7 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 				"code":        ch.InviteCode,
 			})
 		}
-		sendEvent(conn, "channel_directory", map[string]interface{}{
+		acc.sendEvent(conn, "channel_directory", map[string]interface{}{
 			"query":      query,
 			"country":    country,
 			"category":   data.Category,
@@ -445,42 +438,42 @@ func handleChannelDirectory(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleChannelReaction(data ReactMessageData) {
+func (acc *Account) handleChannelReaction(data ReactMessageData) {
 	var serverID int64
-	db.QueryRow(`SELECT COALESCE(server_id, 0) FROM messages WHERE id = ?`, data.MessageID).Scan(&serverID)
+	acc.db.QueryRow(`SELECT COALESCE(server_id, 0) FROM messages WHERE id = ?`, data.MessageID).Scan(&serverID)
 	if serverID == 0 {
-		broadcastEvent("error", map[string]string{"message": "Can't react to this post: it hasn't finished loading from the channel."})
+		acc.broadcastEvent("error", map[string]string{"message": "Can't react to this post: it hasn't finished loading from the channel."})
 		return
 	}
 	jid, err := types.ParseJID(data.JID)
 	if err != nil {
 		return
 	}
-	if err := wa().NewsletterSendReaction(context.Background(), jid, types.MessageServerID(serverID), data.Emoji, ""); err != nil {
-		broadcastEvent("error", map[string]string{"message": "Couldn't react: " + err.Error()})
+	if err := acc.wa().NewsletterSendReaction(context.Background(), jid, types.MessageServerID(serverID), data.Emoji, ""); err != nil {
+		acc.broadcastEvent("error", map[string]string{"message": "Couldn't react: " + err.Error()})
 		return
 	}
-	upsertReaction(data.MessageID, data.JID, "me", data.Emoji, time.Now().Unix())
-	broadcastEvent("message_reaction", map[string]interface{}{
+	acc.upsertReaction(data.MessageID, data.JID, "me", data.Emoji, time.Now().Unix())
+	acc.broadcastEvent("message_reaction", map[string]interface{}{
 		"jid": data.JID, "message_id": data.MessageID, "reactor": "me", "reactor_name": "You", "emoji": data.Emoji,
 	})
 }
 
-func handleChannelMute(jidStr string, muted bool) {
+func (acc *Account) handleChannelMute(jidStr string, muted bool) {
 	jid, err := types.ParseJID(jidStr)
 	if err != nil {
 		return
 	}
-	if err := wa().NewsletterToggleMute(context.Background(), jid, muted); err != nil {
-		broadcastEvent("error", map[string]string{"message": "Couldn't change this channel's mute setting: " + err.Error()})
-		broadcastChats()
+	if err := acc.wa().NewsletterToggleMute(context.Background(), jid, muted); err != nil {
+		acc.broadcastEvent("error", map[string]string{"message": "Couldn't change this channel's mute setting: " + err.Error()})
+		acc.broadcastChats()
 		return
 	}
-	db.Exec(`UPDATE chats SET muted = ? WHERE jid = ?`, boolToInt(muted), jidStr)
-	broadcastChats()
+	acc.db.Exec(`UPDATE chats SET muted = ? WHERE jid = ?`, boolToInt(muted), jidStr)
+	acc.broadcastChats()
 }
 
-func channelInfoPayload(meta *types.NewsletterMetadata, code string) map[string]interface{} {
+func (acc *Account) channelInfoPayload(meta *types.NewsletterMetadata, code string) map[string]interface{} {
 	role, muted := "", false
 	if meta.ViewerMeta != nil {
 		role = strings.ToLower(string(meta.ViewerMeta.Role))
@@ -488,7 +481,7 @@ func channelInfoPayload(meta *types.NewsletterMetadata, code string) map[string]
 	}
 	following := role == "subscriber" || role == "admin" || role == "owner"
 	if !following {
-		r := channelRole(meta.ID.String())
+		r := acc.channelRole(meta.ID.String())
 		following = r != "" && r != "guest"
 		if following {
 			role = r
@@ -513,7 +506,7 @@ func channelInfoPayload(meta *types.NewsletterMetadata, code string) map[string]
 	}
 }
 
-func handleGetChannelInfo(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetChannelInfo(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID  string `json:"jid"`
 		Code string `json:"code"`
@@ -527,9 +520,9 @@ func handleGetChannelInfo(conn net.Conn, raw json.RawMessage) {
 		var meta *types.NewsletterMetadata
 		var err error
 		if data.Code != "" {
-			meta, err = wa().GetNewsletterInfoWithInvite(ctx, data.Code)
+			meta, err = acc.wa().GetNewsletterInfoWithInvite(ctx, data.Code)
 		} else if jid, perr := types.ParseJID(data.JID); perr == nil {
-			meta, err = wa().GetNewsletterInfo(ctx, jid)
+			meta, err = acc.wa().GetNewsletterInfo(ctx, jid)
 		} else {
 			return
 		}
@@ -538,14 +531,14 @@ func handleGetChannelInfo(conn net.Conn, raw json.RawMessage) {
 			if err != nil {
 				msg = "Couldn't load this channel: " + err.Error()
 			}
-			sendEvent(conn, "error", map[string]string{"message": msg})
+			acc.sendEvent(conn, "error", map[string]string{"message": msg})
 			return
 		}
-		sendEvent(conn, "channel_info", channelInfoPayload(meta, data.Code))
+		acc.sendEvent(conn, "channel_info", acc.channelInfoPayload(meta, data.Code))
 	}()
 }
 
-func handleFollowChannel(raw json.RawMessage, follow bool) {
+func (acc *Account) handleFollowChannel(raw json.RawMessage, follow bool) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -556,31 +549,31 @@ func handleFollowChannel(raw json.RawMessage, follow bool) {
 	}
 	go func() {
 		if follow {
-			err = wa().FollowNewsletter(context.Background(), jid)
+			err = acc.wa().FollowNewsletter(context.Background(), jid)
 		} else {
-			err = wa().UnfollowNewsletter(context.Background(), jid)
+			err = acc.wa().UnfollowNewsletter(context.Background(), jid)
 		}
 		if err != nil {
 			verb := "follow"
 			if !follow {
 				verb = "unfollow"
 			}
-			broadcastEvent("error", map[string]string{"message": fmt.Sprintf("Couldn't %s this channel: %v", verb, err)})
+			acc.broadcastEvent("error", map[string]string{"message": fmt.Sprintf("Couldn't %s this channel: %v", verb, err)})
 			return
 		}
-		syncFollowedChannels()
-		broadcastEvent("channel_follow_changed", map[string]interface{}{"jid": data.JID, "following": follow})
+		acc.syncFollowedChannels()
+		acc.broadcastEvent("channel_follow_changed", map[string]interface{}{"jid": data.JID, "following": follow})
 	}()
 }
 
-func handleChannelEvent(evt any) {
+func (acc *Account) handleChannelEvent(evt any) {
 	switch v := evt.(type) {
 	case *events.NewsletterJoin, *events.NewsletterLeave:
-		go syncFollowedChannels()
+		go acc.syncFollowedChannels()
 	case *events.NewsletterMuteChange:
 		muted := v.Mute == types.NewsletterMuteOn
-		db.Exec(`UPDATE chats SET muted = ? WHERE jid = ?`, boolToInt(muted), v.ID.String())
-		broadcastChats()
+		acc.db.Exec(`UPDATE chats SET muted = ? WHERE jid = ?`, boolToInt(muted), v.ID.String())
+		acc.broadcastChats()
 	case *events.NewsletterLiveUpdate:
 		jid := v.JID.String()
 		var writes []func(tx sqlExecer)
@@ -589,27 +582,27 @@ func handleChannelEvent(evt any) {
 				writes = append(writes, func(tx sqlExecer) { storeChannelCounts(tx, jid, post) })
 			}
 		}
-		writeBatch(writes)
+		acc.writeBatch(writes)
 		if len(writes) > 0 {
-			broadcastEvent("channel_messages_updated", map[string]interface{}{"jid": jid, "newPosts": 0})
+			acc.broadcastEvent("channel_messages_updated", map[string]interface{}{"jid": jid, "newPosts": 0})
 		}
 	}
 }
 
-func isFollowedChannelPost(jid string) bool {
+func (acc *Account) isFollowedChannelPost(jid string) bool {
 	if !isChannelJID(jid) {
 		return false
 	}
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ? AND COALESCE(is_channel, 0) = 1`, jid).Scan(&n)
+	acc.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ? AND COALESCE(is_channel, 0) = 1`, jid).Scan(&n)
 	return n > 0
 }
 
-func ownCountryCode() string {
-	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
+func (acc *Account) ownCountryCode() string {
+	if acc.wa() == nil || acc.wa().Store == nil || acc.wa().Store.ID == nil {
 		return ""
 	}
-	return regionForPhone("+" + wa().Store.ID.User)
+	return regionForPhone("+" + acc.wa().Store.ID.User)
 }
 
 func regionForPhone(number string) string {
@@ -634,9 +627,9 @@ func nonEmpty(s string) []string {
 	return []string{s}
 }
 
-func browseChannelDirectory(ctx context.Context, country, cursor string, limit int) (*whatsmeow.NewsletterDirectoryPage, error) {
+func (acc *Account) browseChannelDirectory(ctx context.Context, country, cursor string, limit int) (*whatsmeow.NewsletterDirectoryPage, error) {
 	countries := nonEmpty(country)
-	page, err := wa().GetNewsletterDirectory(ctx, whatsmeow.NewsletterDirectoryRecommended, countries, cursor, limit)
+	page, err := acc.wa().GetNewsletterDirectory(ctx, whatsmeow.NewsletterDirectoryRecommended, countries, cursor, limit)
 	if err == nil {
 		return page, nil
 	}
@@ -644,7 +637,7 @@ func browseChannelDirectory(ctx context.Context, country, cursor string, limit i
 	if cursor != "" {
 		return nil, err
 	}
-	page, fallbackErr := wa().GetRecommendedNewsletters(ctx, countries, limit)
+	page, fallbackErr := acc.wa().GetRecommendedNewsletters(ctx, countries, limit)
 	if fallbackErr != nil {
 		log.Printf("Recommended channels failed too: %v", fallbackErr)
 		return nil, err

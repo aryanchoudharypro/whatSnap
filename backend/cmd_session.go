@@ -9,86 +9,79 @@ import (
 	"sync"
 	"time"
 
-	"go.mau.fi/whatsmeow"
 	"net"
+
+	"go.mau.fi/whatsmeow"
 )
 
 var shutdownOnce sync.Once
 
-// handleShutdown closes the WhatsApp connection and the database before
-// exiting. Without it the process is terminated abruptly, which leaves the
-// SQLite -wal/-shm files behind (recovered on next open, but never
-// checkpointed away) and drops the WhatsApp socket without a clean
-// companion-device disconnect.
-func handleShutdown() {
+// shutdownBackend closes every account's connection and database, then
+// exits.
+func shutdownBackend() {
 	shutdownOnce.Do(func() {
 		log.Println("Shutdown requested")
-
-		if wa() != nil && wa().IsConnected() {
-			wa().Disconnect()
+		var wg sync.WaitGroup
+		for _, acc := range openAccounts() {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				acc.close()
+			}()
 		}
-
-		if db != nil {
-			if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-				log.Println("WAL checkpoint failed:", err)
-			}
-			if err := db.Close(); err != nil {
-				log.Println("Error closing database:", err)
-			}
-		}
-
+		wg.Wait()
 		log.Println("Shutdown complete")
 		os.Exit(0)
 	})
 }
 
-func handleGetQR(conn net.Conn) {
+func (acc *Account) handleGetQR(conn net.Conn) {
 	go func() {
-		if wa().Store.ID == nil {
-			endPairingAttempt()
-			if wa() != nil && wa().IsConnected() {
-				wa().Disconnect()
+		if acc.wa().Store.ID == nil {
+			acc.endPairingAttempt()
+			if acc.wa() != nil && acc.wa().IsConnected() {
+				acc.wa().Disconnect()
 			}
-			qrChan, err := wa().GetQRChannel(context.Background())
+			qrChan, err := acc.wa().GetQRChannel(context.Background())
 			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": err.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 				return
 			}
-			err = wa().Connect()
+			err = acc.wa().Connect()
 			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": err.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 				return
 			}
 			for qr := range qrChan {
 				if qr.Event == "code" {
-					sendEvent(conn, "qr", map[string]string{"code": qr.Code})
+					acc.sendEvent(conn, "qr", map[string]string{"code": qr.Code})
 				}
 			}
 		}
 	}()
 }
 
-func handleCancelPairing() {
+func (acc *Account) handleCancelPairing() {
 	fmt.Println("Received cancel request")
-	endPairingAttempt()
-	if wa().Store.ID == nil {
-		wa().Disconnect()
+	acc.endPairingAttempt()
+	if acc.wa().Store.ID == nil {
+		acc.wa().Disconnect()
 	}
 }
 
-func handleLogout() {
+func (acc *Account) handleLogout() {
 	go func() {
-		if wa() == nil || wa().Store.ID == nil {
-			broadcastEvent("needs_login", nil)
+		if acc.wa() == nil || acc.wa().Store.ID == nil {
+			acc.broadcastEvent("needs_login", nil)
 			return
 		}
-		if err := wa().Logout(context.Background()); err != nil {
-			broadcastEvent("error", map[string]string{"message": "Logout failed: " + err.Error()})
+		if err := acc.wa().Logout(context.Background()); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": "Logout failed: " + err.Error()})
 			return
 		}
 
-		replaceWithFreshClient()
-		broadcastEvent("needs_login", nil)
+		acc.replaceWithFreshClient()
+		acc.broadcastEvent("needs_login", nil)
 	}()
 }
 
@@ -98,64 +91,59 @@ func handleLogout() {
 // requests per phone number, so this must not run on forever.
 const maxPairingCodes = 3
 
-var pairingAttempt struct {
-	sync.Mutex
-	cancel context.CancelFunc
-}
-
-func beginPairingAttempt() context.Context {
+func (acc *Account) beginPairingAttempt() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
-	pairingAttempt.Lock()
-	if pairingAttempt.cancel != nil {
-		pairingAttempt.cancel()
+	acc.pairingAttempt.Lock()
+	if acc.pairingAttempt.cancel != nil {
+		acc.pairingAttempt.cancel()
 	}
-	pairingAttempt.cancel = cancel
-	pairingAttempt.Unlock()
+	acc.pairingAttempt.cancel = cancel
+	acc.pairingAttempt.Unlock()
 	return ctx
 }
 
-func endPairingAttempt() {
-	pairingAttempt.Lock()
-	if pairingAttempt.cancel != nil {
-		pairingAttempt.cancel()
-		pairingAttempt.cancel = nil
+func (acc *Account) endPairingAttempt() {
+	acc.pairingAttempt.Lock()
+	if acc.pairingAttempt.cancel != nil {
+		acc.pairingAttempt.cancel()
+		acc.pairingAttempt.cancel = nil
 	}
-	pairingAttempt.Unlock()
+	acc.pairingAttempt.Unlock()
 }
 
-func handlePair(raw json.RawMessage) {
+func (acc *Account) handlePair(raw json.RawMessage) {
 	var data PairCommandData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		if wa().Store.ID != nil {
+		if acc.wa().Store.ID != nil {
 			return
 		}
-		ctx := beginPairingAttempt()
+		ctx := acc.beginPairingAttempt()
 		for range maxPairingCodes {
-			if !runPairingCode(ctx, data.Phone) {
+			if !acc.runPairingCode(ctx, data.Phone) {
 				return
 			}
 		}
 		if ctx.Err() == nil {
-			broadcastEvent("error", map[string]string{"message": "The pairing code expired. Ask for a new one to try again."})
+			acc.broadcastEvent("error", map[string]string{"message": "The pairing code expired. Ask for a new one to try again."})
 		}
 	}()
 }
 
-func runPairingCode(ctx context.Context, phone string) (expired bool) {
-	c := wa()
+func (acc *Account) runPairingCode(ctx context.Context, phone string) (expired bool) {
+	c := acc.wa()
 	if c.IsConnected() {
 		c.Disconnect()
 	}
 	qrChan, err := c.GetQRChannel(ctx)
 	if err != nil {
-		broadcastEvent("error", map[string]string{"message": err.Error()})
+		acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 		return false
 	}
 	if err = c.Connect(); err != nil {
-		broadcastEvent("error", map[string]string{"message": err.Error()})
+		acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 		return false
 	}
 	var first whatsmeow.QRChannelItem
@@ -166,22 +154,22 @@ func runPairingCode(ctx context.Context, phone string) (expired bool) {
 	}
 	if first.Event != whatsmeow.QRChannelEventCode {
 		if ctx.Err() == nil {
-			broadcastEvent("error", map[string]string{"message": "Could not start pairing: " + first.Event})
+			acc.broadcastEvent("error", map[string]string{"message": "Could not start pairing: " + first.Event})
 		}
 		return false
 	}
 	code, err := c.PairPhone(ctx, phone, true, whatsmeow.PairClientUWP, "Chrome (Windows)")
 	if err != nil {
 		if ctx.Err() == nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 		}
 		return false
 	}
 	if ctx.Err() != nil {
 		return false
 	}
-	pairingCode = code
-	broadcastEvent("pairing_code", map[string]string{"code": code})
+	acc.pairingCode = code
+	acc.broadcastEvent("pairing_code", map[string]string{"code": code})
 	for {
 		var item whatsmeow.QRChannelItem
 		var ok bool
@@ -206,7 +194,7 @@ func runPairingCode(ctx context.Context, phone string) (expired bool) {
 		default:
 			if item.Error != nil {
 				log.Printf("Pairing failed (%s): %v", item.Event, item.Error)
-				broadcastEvent("error", map[string]string{"message": "Pairing failed: " + item.Error.Error()})
+				acc.broadcastEvent("error", map[string]string{"message": "Pairing failed: " + item.Error.Error()})
 				return false
 			}
 			log.Printf("Pairing: %s", item.Event)

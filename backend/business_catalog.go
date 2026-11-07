@@ -56,10 +56,10 @@ func availabilityText(a string) string {
 	return strings.ToLower(strings.ReplaceAll(a, "_", " "))
 }
 
-func productLink(business types.JID, productID string) string {
+func (acc *Account) productLink(business types.JID, productID string) string {
 	pn := business
 	if pn.Server == types.HiddenUserServer {
-		if mapped, err := wa().Store.LIDs.GetPNForLID(context.Background(), business); err == nil && !mapped.IsEmpty() {
+		if mapped, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), business); err == nil && !mapped.IsEmpty() {
 			pn = mapped
 		} else {
 			return ""
@@ -71,17 +71,17 @@ func productLink(business types.JID, productID string) string {
 	return "https://wa.me/p/" + productID + "/" + pn.User
 }
 
-func handleGetCatalog(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetCatalog(conn net.Conn, raw json.RawMessage) {
 	var data CatalogRequest
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
 	go func() {
-		fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
+		fail := func(msg string) { acc.sendEvent(conn, "error", map[string]string{"message": msg}) }
 		business, err := types.ParseJID(data.JID)
 		select_ := ""
 		if data.MessageID != "" {
-			if msg, ok := loadMessageProto(data.MessageID); ok {
+			if msg, ok := acc.loadMessageProto(data.MessageID); ok {
 				if product := unwrapMessage(msg).GetProductMessage(); product != nil {
 					select_ = product.GetProduct().GetProductID()
 					if owner, ownerErr := types.ParseJID(product.GetBusinessOwnerJID()); ownerErr == nil && owner.User != "" {
@@ -100,7 +100,7 @@ func handleGetCatalog(conn net.Conn, raw json.RawMessage) {
 		var products []map[string]interface{}
 		after := ""
 		for len(products) < catalogMaxProducts {
-			page, err := wa().GetBusinessCatalog(ctx, business, catalogPageSize, after)
+			page, err := acc.wa().GetBusinessCatalog(ctx, business, catalogPageSize, after)
 			if err != nil {
 				if len(products) > 0 {
 					break
@@ -121,7 +121,7 @@ func handleGetCatalog(conn net.Conn, raw json.RawMessage) {
 					"availability": availabilityText(p.Availability),
 					"url":          p.URL,
 					"retailer_id":  p.RetailerID,
-					"link":         productLink(business, p.ID),
+					"link":         acc.productLink(business, p.ID),
 				}
 				if p.SalePrice != nil {
 					item["sale_price"] = formatPrice(p.SalePrice)
@@ -140,20 +140,20 @@ func handleGetCatalog(conn net.Conn, raw json.RawMessage) {
 			fail("This business's catalogue is empty.")
 			return
 		}
-		sendEvent(conn, "catalog", map[string]interface{}{
+		acc.sendEvent(conn, "catalog", map[string]interface{}{
 			"jid": business.String(), "products": products, "select": select_, "more": after != "",
 		})
 	}()
 }
 
-func handleGetOrder(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetOrder(conn net.Conn, raw json.RawMessage) {
 	var data CatalogRequest
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
 	go func() {
-		fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
-		msg, ok := loadMessageProto(data.MessageID)
+		fail := func(msg string) { acc.sendEvent(conn, "error", map[string]string{"message": msg}) }
+		msg, ok := acc.loadMessageProto(data.MessageID)
 		order := (*waE2E.OrderMessage)(nil)
 		if ok {
 			order = unwrapMessage(msg).GetOrderMessage()
@@ -168,9 +168,9 @@ func handleGetOrder(conn net.Conn, raw json.RawMessage) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		details, err := wa().GetBusinessOrder(ctx, seller, order.GetOrderID(), order.GetToken())
+		details, err := acc.wa().GetBusinessOrder(ctx, seller, order.GetOrderID(), order.GetToken())
 		if err != nil {
-			if old, oldErr := wa().GetOrderDetails(ctx, order.GetOrderID(), order.GetToken()); oldErr == nil {
+			if old, oldErr := acc.wa().GetOrderDetails(ctx, order.GetOrderID(), order.GetToken()); oldErr == nil {
 				details = orderFromIQ(old)
 				err = nil
 			}
@@ -180,7 +180,7 @@ func handleGetOrder(conn net.Conn, raw json.RawMessage) {
 			fail("Couldn't load the order's details.")
 			return
 		}
-		sendEvent(conn, "order_details", map[string]interface{}{
+		acc.sendEvent(conn, "order_details", map[string]interface{}{
 			"title": cmpOr(strings.TrimSpace(order.GetOrderTitle()), "Order"),
 			"text":  orderText(order, details),
 		})

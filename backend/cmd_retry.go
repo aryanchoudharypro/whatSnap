@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -25,59 +24,57 @@ const (
 	rateLimitedRetryDelay = time.Minute
 )
 
-var (
-	retryMu       sync.Mutex
-	sendInFlight  = map[string]bool{}
-	retryAttempts = map[string]int{}
-	retryNextAt   = map[string]time.Time{}
-)
-
-func init() {
-	go func() {
-		ticker := time.NewTicker(retrySweepPeriod)
-		defer ticker.Stop()
-		for range ticker.C {
-			if wa() == nil || !wa().IsConnected() {
-				continue
-			}
-			retryPendingTextMessages()
+// runRetrySweep resends this account's pending text messages while it's
+// connected, until the account is closed.
+func (acc *Account) runRetrySweep() {
+	ticker := time.NewTicker(retrySweepPeriod)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-acc.ctx.Done():
+			return
+		case <-ticker.C:
 		}
-	}()
+		if acc.wa() == nil || !acc.wa().IsConnected() {
+			continue
+		}
+		acc.retryPendingTextMessages()
+	}
 }
 
 // beginSendAttempt claims the single in-flight slot for a message ID so the
 // reconnect sweep, the periodic sweep, and a manual "Retry send" can never
 // dispatch the same message to the network at the same time.
-func beginSendAttempt(id string) bool {
-	retryMu.Lock()
-	defer retryMu.Unlock()
-	if sendInFlight[id] {
+func (acc *Account) beginSendAttempt(id string) bool {
+	acc.retryMu.Lock()
+	defer acc.retryMu.Unlock()
+	if acc.sendInFlight[id] {
 		return false
 	}
-	sendInFlight[id] = true
+	acc.sendInFlight[id] = true
 	return true
 }
 
-func endSendAttempt(id string) {
-	retryMu.Lock()
-	delete(sendInFlight, id)
-	retryMu.Unlock()
+func (acc *Account) endSendAttempt(id string) {
+	acc.retryMu.Lock()
+	delete(acc.sendInFlight, id)
+	acc.retryMu.Unlock()
 }
 
-func clearRetryState(id string) {
-	retryMu.Lock()
-	delete(retryAttempts, id)
-	delete(retryNextAt, id)
-	retryMu.Unlock()
+func (acc *Account) clearRetryState(id string) {
+	acc.retryMu.Lock()
+	delete(acc.retryAttempts, id)
+	delete(acc.retryNextAt, id)
+	acc.retryMu.Unlock()
 }
 
-func recordSendFailure(id, jidStr, text, quotedID, quotedSender string, err error) {
-	retryMu.Lock()
-	attempts := retryAttempts[id] + 1
-	retryAttempts[id] = attempts
+func (acc *Account) recordSendFailure(id, jidStr, text, quotedID, quotedSender string, err error) {
+	acc.retryMu.Lock()
+	attempts := acc.retryAttempts[id] + 1
+	acc.retryAttempts[id] = attempts
 	if attempts >= maxAutoRetries {
-		retryMu.Unlock()
-		markSendFailed(id, jidStr, text, quotedID, quotedSender)
+		acc.retryMu.Unlock()
+		acc.markSendFailed(id, jidStr, text, quotedID, quotedSender)
 		return
 	}
 	delay := retryBaseDelay * time.Duration(uint64(1)<<uint(attempts-1))
@@ -87,16 +84,16 @@ func recordSendFailure(id, jidStr, text, quotedID, quotedSender string, err erro
 	if sendServerErrorCode(err) == sendErrorRateLimited {
 		delay = max(delay, rateLimitedRetryDelay)
 	}
-	retryNextAt[id] = time.Now().Add(delay)
-	retryMu.Unlock()
+	acc.retryNextAt[id] = time.Now().Add(delay)
+	acc.retryMu.Unlock()
 }
 
 // markSendFailed stops retrying a text message and marks it "failed", for
 // when retries are used up or the send can never succeed.
-func markSendFailed(id, jidStr, text, quotedID, quotedSender string) {
-	clearRetryState(id)
-	db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
-	broadcastEvent("message", map[string]interface{}{
+func (acc *Account) markSendFailed(id, jidStr, text, quotedID, quotedSender string) {
+	acc.clearRetryState(id)
+	acc.db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
 		"timestamp": time.Now().Unix(), "has_media": false, "status": "failed",
 		"quotedId": quotedID, "quotedSender": quotedSender,
@@ -155,8 +152,8 @@ func sendErrorText(err error) string {
 	return err.Error()
 }
 
-func retryPendingTextMessages() {
-	rows, err := db.Query(`SELECT id, jid, COALESCE(text,''), COALESCE(quoted_id,''), COALESCE(quoted_sender,'')
+func (acc *Account) retryPendingTextMessages() {
+	rows, err := acc.db.Query(`SELECT id, jid, COALESCE(text,''), COALESCE(quoted_id,''), COALESCE(quoted_sender,'')
 		FROM messages
 		WHERE from_me = 1 AND status = 'pending' AND (media_type IS NULL OR media_type = '')
 		ORDER BY timestamp ASC`)
@@ -175,39 +172,39 @@ func retryPendingTextMessages() {
 
 	now := time.Now()
 	for _, p := range pending {
-		retryMu.Lock()
-		inFlight := sendInFlight[p.id]
-		next, hasNext := retryNextAt[p.id]
-		retryMu.Unlock()
+		acc.retryMu.Lock()
+		inFlight := acc.sendInFlight[p.id]
+		next, hasNext := acc.retryNextAt[p.id]
+		acc.retryMu.Unlock()
 		if inFlight || (hasNext && now.Before(next)) {
 			continue
 		}
 		log.Printf("Retrying pending message %s", p.id)
-		if resendStoredMessage(nil, p.id, p.jid, p.text) {
+		if acc.resendStoredMessage(nil, p.id, p.jid, p.text) {
 			continue
 		}
-		sendPendingTextMessage(nil, p.id, p.jid, p.text, p.quotedID, p.quotedSender)
+		acc.sendPendingTextMessage(nil, p.id, p.jid, p.text, p.quotedID, p.quotedSender)
 	}
 }
 
-func handleRetryMessage(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleRetryMessage(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" {
 		return
 	}
-	go retryOneMessage(conn, data.MessageID)
+	go acc.retryOneMessage(conn, data.MessageID)
 }
 
-func retryOneMessage(conn net.Conn, id string) {
+func (acc *Account) retryOneMessage(conn net.Conn, id string) {
 	var jidStr, text, status, mediaType, mediaMimetype, mediaFilename, mediaPath, quotedID, quotedSender string
-	err := db.QueryRow(`SELECT jid, COALESCE(text,''), COALESCE(status,''),
+	err := acc.db.QueryRow(`SELECT jid, COALESCE(text,''), COALESCE(status,''),
 			COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 			COALESCE(quoted_id,''), COALESCE(quoted_sender,'')
 		FROM messages WHERE id = ? AND from_me = 1`, id).
 		Scan(&jidStr, &text, &status, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &quotedID, &quotedSender)
 	if err != nil {
 		if conn != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Message not found for retry"})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Message not found for retry"})
 		}
 		return
 	}
@@ -215,28 +212,28 @@ func retryOneMessage(conn net.Conn, id string) {
 		return
 	}
 
-	if mediaType == "" && resendStoredMessage(conn, id, jidStr, text) {
+	if mediaType == "" && acc.resendStoredMessage(conn, id, jidStr, text) {
 		return
 	}
 
 	if mediaType == "" {
-		clearRetryState(id)
+		acc.clearRetryState(id)
 		if status != "pending" {
-			db.Exec(`UPDATE messages SET status = 'pending' WHERE id = ?`, id)
+			acc.db.Exec(`UPDATE messages SET status = 'pending' WHERE id = ?`, id)
 		}
-		sendPendingTextMessage(conn, id, jidStr, text, quotedID, quotedSender)
+		acc.sendPendingTextMessage(conn, id, jidStr, text, quotedID, quotedSender)
 		return
 	}
 
 	if mediaPath == "" {
 		if conn != nil {
-			sendEvent(conn, "error", map[string]string{"message": "The original file is no longer available to retry."})
+			acc.sendEvent(conn, "error", map[string]string{"message": "The original file is no longer available to retry."})
 		}
 		return
 	}
 	if _, statErr := os.Stat(mediaPath); statErr != nil {
 		if conn != nil {
-			sendEvent(conn, "error", map[string]string{"message": "The original file is no longer available to retry."})
+			acc.sendEvent(conn, "error", map[string]string{"message": "The original file is no longer available to retry."})
 		}
 		return
 	}
@@ -245,28 +242,28 @@ func retryOneMessage(conn net.Conn, id string) {
 		return
 	}
 
-	if !beginSendAttempt(id) {
+	if !acc.beginSendAttempt(id) {
 		return
 	}
-	defer endSendAttempt(id)
+	defer acc.endSendAttempt(id)
 
-	db.Exec(`UPDATE messages SET status = 'uploading' WHERE id = ?`, id)
-	broadcastEvent("message", map[string]interface{}{
+	acc.db.Exec(`UPDATE messages SET status = 'uploading' WHERE id = ?`, id)
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
 		"timestamp": time.Now().Unix(), "has_media": true, "mediaType": mediaType,
 		"mediaFilename": mediaFilename, "mediaPath": mediaPath, "status": "uploading",
 	})
 
-	ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender := buildAttachmentContext(quotedID, quotedSender)
+	ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender := acc.buildAttachmentContext(quotedID, quotedSender)
 
 	if mediaType == "voice" {
 		duration := parseVoiceDurationSeconds(text)
 		var waveform []byte
-		db.QueryRow(`SELECT voice_waveform FROM messages WHERE id = ?`, id).Scan(&waveform)
-		sendUploadedVoiceMessage(conn, id, jid, mediaPath, mediaMimetype, duration, waveform, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
+		acc.db.QueryRow(`SELECT voice_waveform FROM messages WHERE id = ?`, id).Scan(&waveform)
+		acc.sendUploadedVoiceMessage(conn, id, jid, mediaPath, mediaMimetype, duration, waveform, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
 	} else {
 		caption, seconds := attachmentFieldsFromDisplayText(mediaType, mediaFilename, text)
-		sendUploadedAttachment(conn, id, jid, mediaType, mediaPath, mediaMimetype, mediaFilename, caption, seconds, nil, false, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
+		acc.sendUploadedAttachment(conn, id, jid, mediaType, mediaPath, mediaMimetype, mediaFilename, caption, seconds, nil, false, ctxInfo, finalQuotedID, finalQuotedText, finalQuotedSender)
 	}
 }
 
@@ -313,9 +310,9 @@ func parseVoiceDurationSeconds(text string) int {
 	return minutes*60 + seconds
 }
 
-func resendStoredMessage(conn net.Conn, id, jidStr, text string) bool {
+func (acc *Account) resendStoredMessage(conn net.Conn, id, jidStr, text string) bool {
 	var raw []byte
-	db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw)
+	acc.db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw)
 	if len(raw) == 0 {
 		return false
 	}
@@ -327,13 +324,13 @@ func resendStoredMessage(conn net.Conn, id, jidStr, text string) bool {
 	if err != nil {
 		return true
 	}
-	clearRetryState(id)
-	db.Exec(`UPDATE messages SET status = 'pending' WHERE id = ?`, id)
-	broadcastEvent("message", map[string]interface{}{
+	acc.clearRetryState(id)
+	acc.db.Exec(`UPDATE messages SET status = 'pending' WHERE id = ?`, id)
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid": jidStr, "from": "me", "id": id, "text": text, "from_me": true,
 		"timestamp": time.Now().Unix(), "has_media": false, "status": "pending",
 	})
-	finishSendingBuiltMessage(conn, id, jid, msg, text)
+	acc.finishSendingBuiltMessage(conn, id, jid, msg, text)
 	return true
 }
 

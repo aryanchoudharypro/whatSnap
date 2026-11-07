@@ -36,15 +36,6 @@ const (
 	settingsSyncTimeKey = "settings_sync_ts:"
 )
 
-var syncedAppPrefs = map[string]string{
-	"isPhotosAutodownloadEnabled":    "auto_download_photos",
-	"isAudiosAutodownloadEnabled":    "auto_download_audio",
-	"isVideosAutodownloadEnabled":    "auto_download_videos",
-	"isDocumentsAutodownloadEnabled": "auto_download_documents",
-	"mediaUploadQuality":             "hd_media",
-	"mediaAutoDownloadQuality":       "hd_auto_download",
-}
-
 func settingName(fd protoreflect.FieldDescriptor) string {
 	name := fd.JSONName()
 	if strings.HasSuffix(name, "ID") {
@@ -73,33 +64,33 @@ func settingTimeKey(key waSyncAction.SettingsSyncAction_SettingKey, chat string)
 	return name
 }
 
-func settingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey, chat string) int64 {
+func (acc *Account) settingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey, chat string) int64 {
 	var ms int64
-	db.QueryRow(`SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = ?`, settingTimeKey(key, chat)).Scan(&ms)
+	acc.db.QueryRow(`SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = ?`, settingTimeKey(key, chat)).Scan(&ms)
 	return ms
 }
 
-func noteSettingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey, chat string, at time.Time) {
-	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, settingTimeKey(key, chat), at.UnixMilli())
+func (acc *Account) noteSettingSyncedAt(key waSyncAction.SettingsSyncAction_SettingKey, chat string, at time.Time) {
+	acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, settingTimeKey(key, chat), at.UnixMilli())
 }
 
 // noteChatToneSync takes another device's notification tone for one chat.
 // The target is that chat's JID as WhatsApp keeps it, often the LID.
-func noteChatToneSync(v *events.SettingsSync) {
+func (acc *Account) noteChatToneSync(v *events.SettingsSync) {
 	if v.Key != waSyncAction.SettingsSyncAction_NOTIFICATION_TONE_ID || v.Action == nil || v.Action.NotificationToneID == nil {
 		return
 	}
-	chat := appStateChatJID(v.Target)
-	if v.Timestamp.UnixMilli() <= settingSyncedAt(v.Key, chat) {
+	chat := acc.appStateChatJID(v.Target)
+	if v.Timestamp.UnixMilli() <= acc.settingSyncedAt(v.Key, chat) {
 		return
 	}
-	noteSettingSyncedAt(v.Key, chat, v.Timestamp)
-	broadcastEvent("chat_tone", map[string]interface{}{"jid": chat, "tone": v.Action.GetNotificationToneID()})
+	acc.noteSettingSyncedAt(v.Key, chat, v.Timestamp)
+	acc.broadcastEvent("chat_tone", map[string]interface{}{"jid": chat, "tone": v.Action.GetNotificationToneID()})
 }
 
 // handleSyncChatTone shares a chat's notification tone the way WhatsApp
 // for Windows does (useMappedSettingSync with the chat as target).
-func handleSyncChatTone(raw json.RawMessage) {
+func (acc *Account) handleSyncChatTone(raw json.RawMessage) {
 	var data struct {
 		JID  string `json:"jid"`
 		Tone int32  `json:"tone"`
@@ -113,21 +104,21 @@ func handleSyncChatTone(raw json.RawMessage) {
 	}
 	key := waSyncAction.SettingsSyncAction_NOTIFICATION_TONE_ID
 	action := &waSyncAction.SettingsSyncAction{NotificationToneID: proto.Int32(data.Tone)}
-	patch := appstate.BuildSettingsSync(waSyncAction.SettingsSyncAction_HYBRID, key, syncdChatJID(jid).String(), action)
-	noteSettingSyncedAt(key, preferPN(jid).String(), time.Now())
+	patch := appstate.BuildSettingsSync(waSyncAction.SettingsSyncAction_HYBRID, key, acc.syncdChatJID(jid).String(), action)
+	acc.noteSettingSyncedAt(key, acc.preferPN(jid).String(), time.Now())
 	go func() {
-		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
+		if err := acc.sendAppStateWithRetry(context.Background(), patch); err != nil {
 			log.Printf("Syncing the notification tone of %s failed: %v", jid, err)
 		}
 	}()
 }
 
-func noteSettingsSync(v *events.SettingsSync) {
+func (acc *Account) noteSettingsSync(v *events.SettingsSync) {
 	if v.Platform != waSyncAction.SettingsSyncAction_WEB && v.Platform != waSyncAction.SettingsSyncAction_HYBRID {
 		return
 	}
 	if v.Target != appstate.SettingsSyncAppTarget {
-		noteChatToneSync(v)
+		acc.noteChatToneSync(v)
 		return
 	}
 	msg := v.Action.ProtoReflect()
@@ -136,10 +127,10 @@ func noteSettingsSync(v *events.SettingsSync) {
 		log.Printf("Skipping settings sync for key %d: no value", v.Key)
 		return
 	}
-	if v.Timestamp.UnixMilli() <= settingSyncedAt(v.Key, "") {
+	if v.Timestamp.UnixMilli() <= acc.settingSyncedAt(v.Key, "") {
 		return
 	}
-	noteSettingSyncedAt(v.Key, "", v.Timestamp)
+	acc.noteSettingSyncedAt(v.Key, "", v.Timestamp)
 	name := settingName(fd)
 	var value interface{}
 	switch val := msg.Get(fd); fd.Kind() {
@@ -154,7 +145,7 @@ func noteSettingsSync(v *events.SettingsSync) {
 	default:
 		return
 	}
-	if pref, ok := syncedAppPrefs[name]; ok {
+	if pref, ok := acc.syncedAppPrefs[name]; ok {
 		on, isBool := value.(bool)
 		if name == "mediaUploadQuality" {
 			switch waSyncAction.SettingsSyncAction_MediaQualitySetting(value.(int)) {
@@ -172,14 +163,14 @@ func noteSettingsSync(v *events.SettingsSync) {
 		if !isBool {
 			return
 		}
-		db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, "pref:"+pref, boolToInt(on))
-		broadcastEvent("app_prefs", appPrefsPayload())
+		acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, "pref:"+pref, boolToInt(on))
+		acc.broadcastEvent("app_prefs", acc.appPrefsPayload())
 		return
 	}
-	broadcastEvent("synced_setting", map[string]interface{}{"name": name, "value": value})
+	acc.broadcastEvent("synced_setting", map[string]interface{}{"name": name, "value": value})
 }
 
-func syncSettings(changes map[string]interface{}) {
+func (acc *Account) syncSettings(changes map[string]interface{}) {
 	if len(changes) == 0 {
 		return
 	}
@@ -221,25 +212,25 @@ func syncSettings(changes map[string]interface{}) {
 		return
 	}
 	for _, key := range keys {
-		noteSettingSyncedAt(key, "", now)
+		acc.noteSettingSyncedAt(key, "", now)
 	}
 	go func() {
-		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
+		if err := acc.sendAppStateWithRetry(context.Background(), patch); err != nil {
 			log.Printf("Syncing %d settings to the other devices failed: %v", len(patch.Mutations), err)
 		}
 	}()
 }
 
-func handleSyncSettings(raw json.RawMessage) {
+func (acc *Account) handleSyncSettings(raw json.RawMessage) {
 	var changes map[string]interface{}
 	if json.Unmarshal(raw, &changes) == nil {
-		syncSettings(changes)
+		acc.syncSettings(changes)
 	}
 }
 
-func syncAppPrefs(changed map[string]bool) {
+func (acc *Account) syncAppPrefs(changed map[string]bool) {
 	changes := map[string]interface{}{}
-	for name, pref := range syncedAppPrefs {
+	for name, pref := range acc.syncedAppPrefs {
 		v, ok := changed[pref]
 		if !ok {
 			continue
@@ -260,5 +251,5 @@ func syncAppPrefs(changed map[string]bool) {
 			changes[name] = v
 		}
 	}
-	syncSettings(changes)
+	acc.syncSettings(changes)
 }

@@ -20,11 +20,11 @@ const (
 	viewOnceOnPhoneOld = "View once message. Open WhatsApp on your phone to view it."
 )
 
-func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
+func (acc *Account) storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 	if v.DecryptFailMode == events.DecryptFailHide || v.Info.ID == "" {
 		return
 	}
-	chatJID, senderJID := resolveLIDChat(&events.Message{Info: v.Info})
+	chatJID, senderJID := acc.resolveLIDChat(&events.Message{Info: v.Info})
 	jid := chatJID.String()
 	if isIgnoredChatJID(jid) {
 		return
@@ -32,7 +32,7 @@ func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 	// A retry that also failed raises this event again; and a message that
 	// has since arrived intact must never be downgraded to a placeholder.
 	var exists int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ?`, v.Info.ID).Scan(&exists); err != nil || exists > 0 {
+	if err := acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ?`, v.Info.ID).Scan(&exists); err != nil || exists > 0 {
 		return
 	}
 
@@ -52,13 +52,13 @@ func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 	if v.Info.IsFromMe {
 		status = "sent"
 	}
-	if err := saveMessage(StoredMessage{
+	if err := acc.saveMessage(StoredMessage{
 		ID: v.Info.ID, JID: jid, SenderJID: senderJID.String(), FromMe: v.Info.IsFromMe,
 		Text: text, Timestamp: ts, Status: status,
 	}); err != nil {
 		return
 	}
-	if _, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, ?, ?)
+	if _, err := acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			unread_count=chats.unread_count + excluded.unread_count,
@@ -74,10 +74,10 @@ func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 
 	senderName := ""
 	if !v.Info.IsFromMe {
-		senderName = resolveDisplayName(senderJID)
+		senderName = acc.resolveDisplayName(senderJID)
 	}
-	broadcastChats()
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastChats()
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid":        jid,
 		"from":       senderJID.String(),
 		"senderName": senderName,
@@ -95,17 +95,17 @@ func storeUndecryptablePlaceholder(v *events.UndecryptableMessage) {
 // identity change for someone we've never talked to has nowhere to go.
 // Like WhatsApp Web it's a quiet line: the chat keeps its place, preview and
 // unread count, and nothing alerts (see insertQuietSystemMessage).
-func noteSecurityCodeChange(v *events.IdentityChange) {
-	if !appPref("security_notifications") {
+func (acc *Account) noteSecurityCodeChange(v *events.IdentityChange) {
+	if !acc.appPref("security_notifications") {
 		return
 	}
-	contact := preferPN(v.JID)
-	if contact.Server != types.DefaultUserServer || isOwnJID(contact) {
+	contact := acc.preferPN(v.JID)
+	if contact.Server != types.DefaultUserServer || acc.isOwnJID(contact) {
 		return
 	}
 	jid := contact.String()
 	var exists int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ?`, jid).Scan(&exists); err != nil || exists == 0 {
+	if err := acc.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ?`, jid).Scan(&exists); err != nil || exists == 0 {
 		return
 	}
 	ts := v.Timestamp
@@ -113,7 +113,7 @@ func noteSecurityCodeChange(v *events.IdentityChange) {
 		ts = time.Now()
 	}
 	id := fmt.Sprintf("system_%s_%d_identity", contact.User, ts.Unix())
-	insertQuietSystemMessage(jid, id, fmt.Sprintf("Your security code with %s changed.", nameToken(contact)), ts)
+	acc.insertQuietSystemMessage(jid, id, fmt.Sprintf("Your security code with %s changed.", acc.nameToken(contact)), ts)
 }
 
 // quietSystemSuffix ends the id of every system line that only goes into the
@@ -125,22 +125,22 @@ const quietSystemSuffix = "_identity"
 // the chat list: no move to the top, no new preview, no unread. The UI still
 // gets the "message" event so an open chat shows it, and system lines never
 // play a sound or show a notification there.
-func insertQuietSystemMessage(jid, id, text string, ts time.Time) {
+func (acc *Account) insertQuietSystemMessage(jid, id, text string, ts time.Time) {
 	if text == "" || isIgnoredChatJID(jid) {
 		return
 	}
 	tsUnix := ts.Unix()
-	if err := saveMessage(StoredMessage{
+	if err := acc.saveMessage(StoredMessage{
 		ID: id, JID: jid, Text: text, Timestamp: tsUnix, Status: "sent", MediaType: "system",
 	}); err != nil {
 		log.Println("Error inserting quiet system message:", err)
 		return
 	}
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid":       jid,
 		"from":      "",
 		"id":        id,
-		"text":      renderNames(text, nil),
+		"text":      acc.renderNames(text, nil),
 		"from_me":   false,
 		"timestamp": tsUnix,
 		"has_media": false,
@@ -148,12 +148,12 @@ func insertQuietSystemMessage(jid, id, text string, ts time.Time) {
 	})
 }
 
-func groupPictureChangeText(author types.JID, removed bool) string {
+func (acc *Account) groupPictureChangeText(author types.JID, removed bool) string {
 	who := "Someone"
-	if isOwnJID(author) {
+	if acc.isOwnJID(author) {
 		who = "You"
 	} else if !author.IsEmpty() {
-		who = nameToken(preferPN(author))
+		who = acc.nameToken(acc.preferPN(author))
 	}
 	if removed {
 		return who + " deleted this group's icon"

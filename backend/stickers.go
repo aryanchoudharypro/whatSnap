@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -149,7 +148,7 @@ func parseLottieStickerMeta(data []byte) *stickerFileMeta {
 	return meta
 }
 
-func labelStickerFromFile(st *waE2E.StickerMessage, data []byte) {
+func (acc *Account) labelStickerFromFile(st *waE2E.StickerMessage, data []byte) {
 	if st == nil || st.GetAccessibilityLabel() != "" {
 		return
 	}
@@ -164,7 +163,7 @@ func labelStickerFromFile(st *waE2E.StickerMessage, data []byte) {
 			sum := sha256.Sum256(data)
 			hash = sum[:]
 		}
-		label = storeStickerLabel(meta.PackID, hash)
+		label = acc.storeStickerLabel(meta.PackID, hash)
 	}
 	if st.GetEmojis() == "" && len(meta.Emojis) > 0 {
 		st.Emojis = proto.String(strings.Join(meta.Emojis, " "))
@@ -177,12 +176,12 @@ func labelStickerFromFile(st *waE2E.StickerMessage, data []byte) {
 	}
 }
 
-func labelStickerFromCache(st *waE2E.StickerMessage, mediaPath string) {
+func (acc *Account) labelStickerFromCache(st *waE2E.StickerMessage, mediaPath string) {
 	if st == nil || st.GetAccessibilityLabel() != "" || mediaPath == "" {
 		return
 	}
 	if data, err := os.ReadFile(mediaPath); err == nil {
-		labelStickerFromFile(st, data)
+		acc.labelStickerFromFile(st, data)
 	}
 }
 
@@ -204,8 +203,8 @@ func stickerHash(sticker *waE2E.StickerMessage) string {
 	return base64.StdEncoding.EncodeToString(sticker.GetFileSHA256())
 }
 
-func storedSticker(messageID string) *waE2E.StickerMessage {
-	raw, _, _, _, err := getMessageRaw(messageID)
+func (acc *Account) storedSticker(messageID string) *waE2E.StickerMessage {
+	raw, _, _, _, err := acc.getMessageRaw(messageID)
 	if err != nil || len(raw) == 0 {
 		return nil
 	}
@@ -216,11 +215,11 @@ func storedSticker(messageID string) *waE2E.StickerMessage {
 	return unwrapMessage(&msg).GetStickerMessage()
 }
 
-func findStickerByHash(hash string) *waE2E.StickerMessage {
+func (acc *Account) findStickerByHash(hash string) *waE2E.StickerMessage {
 	if hash == "" {
 		return nil
 	}
-	rows, err := db.Query(`SELECT raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL ORDER BY timestamp DESC LIMIT 200`)
+	rows, err := acc.db.Query(`SELECT raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL ORDER BY timestamp DESC LIMIT 200`)
 	if err != nil {
 		return nil
 	}
@@ -237,7 +236,7 @@ func findStickerByHash(hash string) *waE2E.StickerMessage {
 		}
 		st := unwrapMessage(&msg).GetStickerMessage()
 		if st != nil && stickerHash(st) == hash {
-			labelStickerFromCache(st, mediaPath)
+			acc.labelStickerFromCache(st, mediaPath)
 			return st
 		}
 	}
@@ -249,8 +248,8 @@ type recentSticker struct {
 	sticker   *waE2E.StickerMessage
 }
 
-func recentStickers() []recentSticker {
-	rows, err := db.Query(`SELECT id, raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL
+func (acc *Account) recentStickers() []recentSticker {
+	rows, err := acc.db.Query(`SELECT id, raw, COALESCE(media_path, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL
 		AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 500`)
 	if err != nil {
 		return nil
@@ -277,9 +276,9 @@ func recentStickers() []recentSticker {
 		seen[hash] = true
 		if sticker.GetAccessibilityLabel() == "" {
 			if mediaPath != "" {
-				labelStickerFromCache(sticker, mediaPath)
+				acc.labelStickerFromCache(sticker, mediaPath)
 			} else {
-				startMediaDownload(MessageRefData{MessageID: id}, true)
+				acc.startMediaDownload(MessageRefData{MessageID: id}, true)
 			}
 		}
 		out = append(out, recentSticker{
@@ -316,16 +315,16 @@ func stickerDescription(sticker *waE2E.StickerMessage) string {
 	return label
 }
 
-func noteFavoriteSticker(v *events.FavoriteSticker) {
+func (acc *Account) noteFavoriteSticker(v *events.FavoriteSticker) {
 	if !v.Action.GetIsFavorite() {
-		db.Exec(`DELETE FROM sticker_favorites WHERE hash = ?`, v.FileHash)
+		acc.db.Exec(`DELETE FROM sticker_favorites WHERE hash = ?`, v.FileHash)
 		return
 	}
 	raw, err := proto.Marshal(v.Action)
 	if err != nil {
 		return
 	}
-	db.Exec(`INSERT INTO sticker_favorites (hash, action, ts) VALUES (?, ?, ?)
+	acc.db.Exec(`INSERT INTO sticker_favorites (hash, action, ts) VALUES (?, ?, ?)
 		ON CONFLICT(hash) DO UPDATE SET action = excluded.action, ts = excluded.ts`, v.FileHash, raw, v.Timestamp.Unix())
 }
 
@@ -334,9 +333,9 @@ type favoriteSticker struct {
 	action *waSyncAction.StickerAction
 }
 
-func favoriteStickerHashes() map[string]bool {
+func (acc *Account) favoriteStickerHashes() map[string]bool {
 	hashes := map[string]bool{}
-	rows, err := db.Query(`SELECT hash FROM sticker_favorites`)
+	rows, err := acc.db.Query(`SELECT hash FROM sticker_favorites`)
 	if err != nil {
 		return hashes
 	}
@@ -350,8 +349,8 @@ func favoriteStickerHashes() map[string]bool {
 	return hashes
 }
 
-func favoriteStickers() []favoriteSticker {
-	rows, err := db.Query(`SELECT hash, action FROM sticker_favorites ORDER BY ts DESC`)
+func (acc *Account) favoriteStickers() []favoriteSticker {
+	rows, err := acc.db.Query(`SELECT hash, action FROM sticker_favorites ORDER BY ts DESC`)
 	if err != nil {
 		return nil
 	}
@@ -371,22 +370,22 @@ func favoriteStickers() []favoriteSticker {
 	return out
 }
 
-func handleGetStickers(conn net.Conn) {
-	recent := recentStickers()
+func (acc *Account) handleGetStickers(conn net.Conn) {
+	recent := acc.recentStickers()
 	byHash := map[string]*waE2E.StickerMessage{}
 	for _, r := range recent {
 		byHash[stickerHash(r.sticker)] = r.sticker
 	}
 	favorites := []map[string]string{}
 	isFavorite := map[string]bool{}
-	for _, f := range favoriteStickers() {
+	for _, f := range acc.favoriteStickers() {
 		isFavorite[f.hash] = true
 		label := ""
 		if s := byHash[f.hash]; s != nil {
 			label = stickerDescription(s)
 		}
 		if label == "" || label == "Sticker" {
-			if s := findStickerByHash(f.hash); s != nil {
+			if s := acc.findStickerByHash(f.hash); s != nil {
 				label = stickerDescription(s)
 			}
 		}
@@ -408,20 +407,20 @@ func handleGetStickers(conn net.Conn) {
 			recents = append(recents, map[string]string{"message_id": r.messageID, "label": stickerDescription(r.sticker)})
 		}
 	}
-	sendEvent(conn, "stickers", map[string]interface{}{"favorites": favorites, "recent": recents})
+	acc.sendEvent(conn, "stickers", map[string]interface{}{"favorites": favorites, "recent": recents})
 }
 
-func favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage, error) {
-	for _, r := range recentStickers() {
+func (acc *Account) favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage, error) {
+	for _, r := range acc.recentStickers() {
 		if stickerHash(r.sticker) == hash {
 			return r.sticker, nil
 		}
 	}
-	if s := findStickerByHash(hash); s != nil {
+	if s := acc.findStickerByHash(hash); s != nil {
 		return s, nil
 	}
 	var raw []byte
-	if err := db.QueryRow(`SELECT action FROM sticker_favorites WHERE hash = ?`, hash).Scan(&raw); err != nil {
+	if err := acc.db.QueryRow(`SELECT action FROM sticker_favorites WHERE hash = ?`, hash).Scan(&raw); err != nil {
 		return nil, fmt.Errorf("that sticker isn't a favorite any more")
 	}
 	var action waSyncAction.StickerAction
@@ -432,7 +431,7 @@ func favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage,
 	if err != nil {
 		return nil, err
 	}
-	data, encHash, err := wa().DownloadMediaWithoutEncHash(ctx, action.GetDirectPath(), fileHash, action.GetMediaKey(), whatsmeow.MediaImage, "")
+	data, encHash, err := acc.wa().DownloadMediaWithoutEncHash(ctx, action.GetDirectPath(), fileHash, action.GetMediaKey(), whatsmeow.MediaImage, "")
 	if err != nil {
 		return nil, fmt.Errorf("couldn't download the sticker: %w", err)
 	}
@@ -446,11 +445,11 @@ func favoriteAsSticker(ctx context.Context, hash string) (*waE2E.StickerMessage,
 	if width > 0 {
 		sticker.Width, sticker.Height = proto.Uint32(uint32(width)), proto.Uint32(uint32(height))
 	}
-	labelStickerFromFile(sticker, data)
+	acc.labelStickerFromFile(sticker, data)
 	return sticker, nil
 }
 
-func handleSendSticker(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendSticker(conn net.Conn, raw json.RawMessage) {
 	var data SendStickerData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -463,52 +462,52 @@ func handleSendSticker(conn net.Conn, raw json.RawMessage) {
 		ctx := context.Background()
 		var sticker *waE2E.StickerMessage
 		if data.PackID != "" {
-			sticker, err = storePackSticker(ctx, data.PackID, data.Hash)
+			sticker, err = acc.storePackSticker(ctx, data.PackID, data.Hash)
 		} else if data.Hash != "" {
-			sticker, err = favoriteAsSticker(ctx, data.Hash)
-		} else if sticker = storedSticker(data.MessageID); sticker == nil {
+			sticker, err = acc.favoriteAsSticker(ctx, data.Hash)
+		} else if sticker = acc.storedSticker(data.MessageID); sticker == nil {
 			err = fmt.Errorf("that sticker isn't here any more")
 		}
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't send the sticker: " + err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't send the sticker: " + err.Error()})
 			return
 		}
 		sticker = proto.Clone(sticker).(*waE2E.StickerMessage)
-		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
+		ctxInfo, quotedID, quotedText, quotedSender := acc.buildAttachmentContext(data.ReplyToID, data.ReplySender)
 		sticker.ContextInfo = ctxInfo
 		sticker.StickerSentTS = proto.Int64(time.Now().UnixMilli())
 		msg := &waE2E.Message{StickerMessage: sticker}
 
 		var extra whatsmeow.SendRequestExtra
 		if jid.Server == types.NewsletterServer {
-			if !canPostInChannel(jid.String()) {
-				sendEvent(conn, "error", map[string]string{"message": "Only this channel's admins can post in it."})
+			if !acc.canPostInChannel(jid.String()) {
+				acc.sendEvent(conn, "error", map[string]string{"message": "Only this channel's admins can post in it."})
 				return
 			}
-			if extra.MediaHandle, err = reuploadMedia(ctx, msg, true); err != nil {
-				sendEvent(conn, "error", map[string]string{"message": "Couldn't send the sticker: " + err.Error()})
+			if extra.MediaHandle, err = acc.reuploadMedia(ctx, msg, true); err != nil {
+				acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't send the sticker: " + err.Error()})
 				return
 			}
 		} else {
-			msg = applyDisappearingTimer(jid, msg)
+			msg = acc.applyDisappearingTimer(jid, msg)
 		}
-		extra.ID = wa().GenerateMessageID()
-		resp, err := wa().SendMessage(ctx, jid, msg, extra)
+		extra.ID = acc.wa().GenerateMessageID()
+		resp, err := acc.wa().SendMessage(ctx, jid, msg, extra)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't send the sticker: " + sendErrorText(err)})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't send the sticker: " + sendErrorText(err)})
 			return
 		}
 		ts := resp.Timestamp.Unix()
 		text := stickerText(sticker)
 		rawBytes, _ := proto.Marshal(msg)
-		own := ownJIDString()
-		saveMessage(StoredMessage{
+		own := acc.ownJIDString()
+		acc.saveMessage(StoredMessage{
 			ID: resp.ID, JID: jid.String(), SenderJID: own, FromMe: true, Text: text, Timestamp: ts, Raw: rawBytes,
 			Status: "sent", MediaType: "sticker", MediaMimetype: sticker.GetMimetype(), MediaSize: int64(sticker.GetFileLength()),
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender, ServerID: int64(resp.ServerID),
 		})
-		noteMessageExpiry(db, resp.ID, ts, msg)
-		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+		noteMessageExpiry(acc.db, resp.ID, ts, msg)
+		acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=excluded.preview_snippet,
@@ -516,25 +515,25 @@ func handleSendSticker(conn net.Conn, raw json.RawMessage) {
 			preview_from_me=1,
 			preview_is_reaction=0,
 			preview_reaction_emoji=''`, jid.String(), ts, text, own)
-		broadcastEvent("message", map[string]interface{}{
+		acc.broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": resp.ID, "text": text, "from_me": true, "timestamp": ts,
 			"has_media": true, "mediaType": "sticker", "status": "sent", "sentHere": true,
 			"quotedId": quotedID, "quotedText": quotedText, "quotedSender": quotedSender,
 		})
-		broadcastChats()
+		acc.broadcastChats()
 	}()
 }
 
-func handleSetStickerFavorite(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetStickerFavorite(conn net.Conn, raw json.RawMessage) {
 	var data StickerFavoriteData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		sticker := storedSticker(data.MessageID)
+		sticker := acc.storedSticker(data.MessageID)
 		hash := stickerHash(sticker)
 		if hash == "" {
-			sendEvent(conn, "error", map[string]string{"message": "That isn't a sticker that can be added to favorites."})
+			acc.sendEvent(conn, "error", map[string]string{"message": "That isn't a sticker that can be added to favorites."})
 			return
 		}
 		action := &waSyncAction.StickerAction{
@@ -544,27 +543,27 @@ func handleSetStickerFavorite(conn net.Conn, raw json.RawMessage) {
 			FileLength: proto.Uint64(sticker.GetFileLength()), IsLottie: proto.Bool(sticker.GetIsLottie()),
 			IsAvatarSticker: proto.Bool(sticker.GetIsAvatar()), ImageHash: proto.String(hash),
 		}
-		favorite := !isStickerFavorite(data.MessageID)
+		favorite := !acc.isStickerFavorite(data.MessageID)
 		if data.Favorite != nil {
 			favorite = *data.Favorite
 		}
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildFavoriteSticker(hash, action, favorite)); err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't change your favorite stickers: " + err.Error()})
+		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildFavoriteSticker(hash, action, favorite)); err != nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't change your favorite stickers: " + err.Error()})
 			return
 		}
 		action.IsFavorite = proto.Bool(favorite)
-		noteFavoriteSticker(&events.FavoriteSticker{FileHash: hash, Timestamp: time.Now(), Action: action})
-		sendEvent(conn, "sticker_favorite", map[string]interface{}{"message_id": data.MessageID, "favorite": favorite})
+		acc.noteFavoriteSticker(&events.FavoriteSticker{FileHash: hash, Timestamp: time.Now(), Action: action})
+		acc.sendEvent(conn, "sticker_favorite", map[string]interface{}{"message_id": data.MessageID, "favorite": favorite})
 	}()
 }
 
-func isStickerFavorite(messageID string) bool {
-	hash := stickerHash(storedSticker(messageID))
+func (acc *Account) isStickerFavorite(messageID string) bool {
+	hash := stickerHash(acc.storedSticker(messageID))
 	if hash == "" {
 		return false
 	}
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM sticker_favorites WHERE hash = ?`, hash).Scan(&n)
+	acc.db.QueryRow(`SELECT COUNT(*) FROM sticker_favorites WHERE hash = ?`, hash).Scan(&n)
 	return n > 0
 }
 
@@ -581,11 +580,11 @@ func webpInfo(data []byte) (width, height int, animated bool) {
 	return 0, 0, false
 }
 
-func fixupLegacyStickerTexts() {
-	for i := 0; i < 60 && wa() == nil; i++ {
+func (acc *Account) fixupLegacyStickerTexts() {
+	for i := 0; i < 60 && acc.wa() == nil; i++ {
 		time.Sleep(time.Second)
 	}
-	rows, err := db.Query(`SELECT id, raw, COALESCE(media_path, ''), COALESCE(text, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL
+	rows, err := acc.db.Query(`SELECT id, raw, COALESCE(media_path, ''), COALESCE(text, '') FROM messages WHERE media_type = 'sticker' AND raw IS NOT NULL
 		AND (text = '[Sticker]' OR text = '' OR COALESCE(media_path, '') != '') ORDER BY timestamp DESC LIMIT 1000`)
 	if err != nil {
 		return
@@ -611,17 +610,17 @@ func fixupLegacyStickerTexts() {
 		if st == nil {
 			continue
 		}
-		labelStickerFromCache(st, mediaPath)
+		acc.labelStickerFromCache(st, mediaPath)
 		txt := stickerText(st)
 		if txt != "[Sticker]" && txt != text {
 			fixes = append(fixes, fix{id, txt})
 		}
 	}
 	for _, f := range fixes {
-		db.Exec(`UPDATE messages SET text = ? WHERE id = ?`, f.text, f.id)
+		acc.db.Exec(`UPDATE messages SET text = ? WHERE id = ?`, f.text, f.id)
 	}
 
-	rowsRecent, errRecent := db.Query(`SELECT id, jid FROM messages WHERE media_type = 'sticker' AND (media_path IS NULL OR media_path = '') AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 50`)
+	rowsRecent, errRecent := acc.db.Query(`SELECT id, jid FROM messages WHERE media_type = 'sticker' AND (media_path IS NULL OR media_path = '') AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 50`)
 	if errRecent == nil {
 		var recent []MessageRefData
 		for rowsRecent.Next() {
@@ -633,7 +632,7 @@ func fixupLegacyStickerTexts() {
 		rowsRecent.Close()
 		// Started with the rows closed, as each start runs a query of its own.
 		for _, ref := range recent {
-			startMediaDownload(ref, true)
+			acc.startMediaDownload(ref, true)
 		}
 	}
 }
@@ -645,58 +644,51 @@ type stickerPackFetch struct {
 	at   time.Time
 }
 
-var stickerStore struct {
-	sync.Mutex
-	packs []types.StickerPack
-	at    time.Time
-	data  map[string]stickerPackFetch
-}
-
 const stickerStoreLocale = "en"
 
-func storeStickerPacks(ctx context.Context) ([]types.StickerPack, error) {
-	stickerStore.Lock()
-	defer stickerStore.Unlock()
-	if stickerStore.packs != nil {
-		return stickerStore.packs, nil
+func (acc *Account) storeStickerPacks(ctx context.Context) ([]types.StickerPack, error) {
+	acc.stickerStore.Lock()
+	defer acc.stickerStore.Unlock()
+	if acc.stickerStore.packs != nil {
+		return acc.stickerStore.packs, nil
 	}
-	if time.Since(stickerStore.at) < time.Minute {
+	if time.Since(acc.stickerStore.at) < time.Minute {
 		return nil, fmt.Errorf("the sticker store isn't answering, try again in a minute")
 	}
-	country := firstNonEmpty(ownCountryCode(), "default")
-	packs, err := wa().FetchStickerStore(ctx, stickerStoreLocale, country)
-	stickerStore.at = time.Now()
+	country := firstNonEmpty(acc.ownCountryCode(), "default")
+	packs, err := acc.wa().FetchStickerStore(ctx, stickerStoreLocale, country)
+	acc.stickerStore.at = time.Now()
 	if err != nil {
 		return nil, err
 	}
-	stickerStore.packs = packs
+	acc.stickerStore.packs = packs
 	return packs, nil
 }
 
-func storeStickerPack(ctx context.Context, id string) *types.StickerPack {
-	if id == "" || wa() == nil {
+func (acc *Account) storeStickerPack(ctx context.Context, id string) *types.StickerPack {
+	if id == "" || acc.wa() == nil {
 		return nil
 	}
-	stickerStore.Lock()
-	defer stickerStore.Unlock()
-	if f, ok := stickerStore.data[id]; ok && (f.pack != nil || time.Since(f.at) < stickerStoreRetry) {
+	acc.stickerStore.Lock()
+	defer acc.stickerStore.Unlock()
+	if f, ok := acc.stickerStore.data[id]; ok && (f.pack != nil || time.Since(f.at) < stickerStoreRetry) {
 		return f.pack
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	pack, err := wa().FetchStickerPack(ctx, id)
+	pack, err := acc.wa().FetchStickerPack(ctx, id)
 	if err != nil {
 		pack = nil
 	}
-	if stickerStore.data == nil {
-		stickerStore.data = map[string]stickerPackFetch{}
+	if acc.stickerStore.data == nil {
+		acc.stickerStore.data = map[string]stickerPackFetch{}
 	}
-	stickerStore.data[id] = stickerPackFetch{pack, time.Now()}
+	acc.stickerStore.data[id] = stickerPackFetch{pack, time.Now()}
 	return pack
 }
 
-func storeStickerLabel(packID string, fileHash []byte) string {
-	pack := storeStickerPack(context.Background(), packID)
+func (acc *Account) storeStickerLabel(packID string, fileHash []byte) string {
+	pack := acc.storeStickerPack(context.Background(), packID)
 	if pack == nil {
 		return ""
 	}
@@ -733,10 +725,10 @@ type StickerPackRequest struct {
 	ID string `json:"id"`
 }
 
-func handleGetStickerStore(conn net.Conn) {
-	packs, err := storeStickerPacks(context.Background())
+func (acc *Account) handleGetStickerStore(conn net.Conn) {
+	packs, err := acc.storeStickerPacks(context.Background())
 	if err != nil {
-		sendEvent(conn, "sticker_store", map[string]interface{}{"error": "Couldn't load WhatsApp's sticker packs: " + err.Error()})
+		acc.sendEvent(conn, "sticker_store", map[string]interface{}{"error": "Couldn't load WhatsApp's sticker packs: " + err.Error()})
 		return
 	}
 	out := make([]map[string]interface{}, 0, len(packs))
@@ -749,17 +741,17 @@ func handleGetStickerStore(conn net.Conn) {
 			"animated": p.Animated == 1 || p.Lottie == 1,
 		})
 	}
-	sendEvent(conn, "sticker_store", map[string]interface{}{"packs": out})
+	acc.sendEvent(conn, "sticker_store", map[string]interface{}{"packs": out})
 }
 
-func handleGetStickerPack(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetStickerPack(conn net.Conn, raw json.RawMessage) {
 	var data StickerPackRequest
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
-	pack := storeStickerPack(context.Background(), data.ID)
+	pack := acc.storeStickerPack(context.Background(), data.ID)
 	if pack == nil {
-		sendEvent(conn, "sticker_pack", map[string]interface{}{"id": data.ID, "error": "Couldn't load this sticker pack."})
+		acc.sendEvent(conn, "sticker_pack", map[string]interface{}{"id": data.ID, "error": "Couldn't load this sticker pack."})
 		return
 	}
 	stickers := make([]map[string]string, 0, len(pack.Stickers))
@@ -772,11 +764,11 @@ func handleGetStickerPack(conn net.Conn, raw json.RawMessage) {
 			"label": stickerDescription(storeSticker(pack, item)),
 		})
 	}
-	sendEvent(conn, "sticker_pack", map[string]interface{}{"id": data.ID, "stickers": stickers})
+	acc.sendEvent(conn, "sticker_pack", map[string]interface{}{"id": data.ID, "stickers": stickers})
 }
 
-func storePackSticker(ctx context.Context, packID, hash string) (*waE2E.StickerMessage, error) {
-	pack := storeStickerPack(ctx, packID)
+func (acc *Account) storePackSticker(ctx context.Context, packID, hash string) (*waE2E.StickerMessage, error) {
+	pack := acc.storeStickerPack(ctx, packID)
 	if pack == nil {
 		return nil, fmt.Errorf("couldn't load its sticker pack")
 	}

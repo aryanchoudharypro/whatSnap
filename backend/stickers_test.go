@@ -105,7 +105,7 @@ func TestParseLottieStickerMeta(t *testing.T) {
 		t.Errorf("meta = %+v", meta)
 	}
 	st := &waE2E.StickerMessage{Emojis: proto.String("👋")}
-	labelStickerFromFile(st, buf.Bytes())
+	acc.labelStickerFromFile(st, buf.Bytes())
 	if got := stickerDescription(st); got != "Cuppy waving hello" {
 		t.Errorf("stickerDescription() = %q, want the file's accessibility text", got)
 	}
@@ -126,12 +126,12 @@ func TestLabelStickerFromFileFallsBackToPackName(t *testing.T) {
 	w.Write([]byte(`{"metadata":{"customProps":{"sticker-pack-name":"Party Pack"}}}`))
 	zw.Close()
 	st := &waE2E.StickerMessage{}
-	labelStickerFromFile(st, buf.Bytes())
+	acc.labelStickerFromFile(st, buf.Bytes())
 	if st.GetAccessibilityLabel() != "Party Pack" {
 		t.Errorf("label = %q", st.GetAccessibilityLabel())
 	}
 	st = &waE2E.StickerMessage{AccessibilityLabel: proto.String("Sender's label")}
-	labelStickerFromFile(st, buf.Bytes())
+	acc.labelStickerFromFile(st, buf.Bytes())
 	if st.GetAccessibilityLabel() != "Sender's label" {
 		t.Errorf("label = %q", st.GetAccessibilityLabel())
 	}
@@ -146,7 +146,7 @@ func TestLottieOverriddenMetadataGivesTheLabel(t *testing.T) {
 	w.Write([]byte(`{"sticker-pack-id":"TasteBuds","accessibility-text":"Coffee cup yawns widely as coffee drips spill over.","emojis":["🥱","😴","☕️"],"is-first-party-sticker":1}`))
 	zw.Close()
 	st := &waE2E.StickerMessage{Emojis: proto.String("🥱 😴 ☕️"), IsAnimated: proto.Bool(true)}
-	labelStickerFromFile(st, buf.Bytes())
+	acc.labelStickerFromFile(st, buf.Bytes())
 	if got := stickerDescription(st); got != "Coffee cup yawns widely as coffee drips spill over, animated" {
 		t.Errorf("stickerDescription() = %q", got)
 	}

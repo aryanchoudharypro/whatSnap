@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -28,105 +27,99 @@ const (
 	recentSyncPausedFor  = 20 * time.Minute
 )
 
-var recentSync struct {
-	sync.Mutex
-	active  bool
-	percent int // -1 until the first RECENT chunk is done
-	paused  bool
-	timer   *time.Timer
-}
+// -1 until the first RECENT chunk is done
 
-func broadcastRecentSyncLocked() {
-	broadcastEvent("history_sync_progress", map[string]interface{}{
-		"active":  recentSync.active,
-		"percent": recentSync.percent,
-		"paused":  recentSync.paused,
+func (acc *Account) broadcastRecentSyncLocked() {
+	acc.broadcastEvent("history_sync_progress", map[string]interface{}{
+		"active":  acc.recentSync.active,
+		"percent": acc.recentSync.percent,
+		"paused":  acc.recentSync.paused,
 	})
 }
 
 // noteHistoryChunkProgress is called once a history sync chunk has been
 // written.
-func noteHistoryChunkProgress(syncType waHistorySync.HistorySync_HistorySyncType, chunkOrder uint32, progress uint32) {
-	recentSync.Lock()
-	defer recentSync.Unlock()
+func (acc *Account) noteHistoryChunkProgress(syncType waHistorySync.HistorySync_HistorySyncType, chunkOrder uint32, progress uint32) {
+	acc.recentSync.Lock()
+	defer acc.recentSync.Unlock()
 	switch syncType {
 	case waHistorySync.HistorySync_INITIAL_BOOTSTRAP:
-		if !recentSync.active {
-			recentSync.active = true
-			recentSync.percent = -1
+		if !acc.recentSync.active {
+			acc.recentSync.active = true
+			acc.recentSync.percent = -1
 		}
 	case waHistorySync.HistorySync_RECENT:
-		recentSync.active = true
+		acc.recentSync.active = true
 		pct := int(min(progress, 100))
-		if pct > recentSync.percent {
-			recentSync.percent = pct
+		if pct > acc.recentSync.percent {
+			acc.recentSync.percent = pct
 		}
 	case waHistorySync.HistorySync_FULL:
-		if !recentSync.active {
+		if !acc.recentSync.active {
 			return
 		}
-		recentSync.percent = 100
+		acc.recentSync.percent = 100
 	default:
 		return
 	}
-	log.Printf("Recent history sync progress: type=%s chunk=%d progress=%d shown=%d%%", syncType, chunkOrder, progress, recentSync.percent)
-	recentSync.paused = false
-	if recentSync.timer != nil {
-		recentSync.timer.Stop()
-		recentSync.timer = nil
+	log.Printf("Recent history sync progress: type=%s chunk=%d progress=%d shown=%d%%", syncType, chunkOrder, progress, acc.recentSync.percent)
+	acc.recentSync.paused = false
+	if acc.recentSync.timer != nil {
+		acc.recentSync.timer.Stop()
+		acc.recentSync.timer = nil
 	}
-	if recentSync.percent >= 100 {
-		recentSync.active = false
-		broadcastRecentSyncLocked()
+	if acc.recentSync.percent >= 100 {
+		acc.recentSync.active = false
+		acc.broadcastRecentSyncLocked()
 		return
 	}
-	recentSync.timer = time.AfterFunc(recentSyncPauseAfter, recentSyncStalled)
-	broadcastRecentSyncLocked()
+	acc.recentSync.timer = time.AfterFunc(recentSyncPauseAfter, acc.recentSyncStalled)
+	acc.broadcastRecentSyncLocked()
 }
 
-func recentSyncStalled() {
-	recentSync.Lock()
-	defer recentSync.Unlock()
-	if !recentSync.active {
+func (acc *Account) recentSyncStalled() {
+	acc.recentSync.Lock()
+	defer acc.recentSync.Unlock()
+	if !acc.recentSync.active {
 		return
 	}
-	if !recentSync.paused {
-		log.Printf("Recent history sync paused: no chunk for %s at %d%%", recentSyncPauseAfter, recentSync.percent)
-		recentSync.paused = true
-		recentSync.timer = time.AfterFunc(recentSyncPausedFor, recentSyncStalled)
+	if !acc.recentSync.paused {
+		log.Printf("Recent history sync paused: no chunk for %s at %d%%", recentSyncPauseAfter, acc.recentSync.percent)
+		acc.recentSync.paused = true
+		acc.recentSync.timer = time.AfterFunc(recentSyncPausedFor, acc.recentSyncStalled)
 	} else {
 		log.Printf("Recent history sync paused for %s; no longer showing it", recentSyncPausedFor)
-		recentSync.active = false
-		recentSync.paused = false
-		recentSync.timer = nil
+		acc.recentSync.active = false
+		acc.recentSync.paused = false
+		acc.recentSync.timer = nil
 	}
-	broadcastRecentSyncLocked()
+	acc.broadcastRecentSyncLocked()
 }
 
-func resetRecentSyncProgress() {
-	recentSync.Lock()
-	defer recentSync.Unlock()
-	if recentSync.timer != nil {
-		recentSync.timer.Stop()
-		recentSync.timer = nil
+func (acc *Account) resetRecentSyncProgress() {
+	acc.recentSync.Lock()
+	defer acc.recentSync.Unlock()
+	if acc.recentSync.timer != nil {
+		acc.recentSync.timer.Stop()
+		acc.recentSync.timer = nil
 	}
-	recentSync.active = false
-	recentSync.paused = false
-	recentSync.percent = -1
+	acc.recentSync.active = false
+	acc.recentSync.paused = false
+	acc.recentSync.percent = -1
 }
 
 // The backlog the server kept while whatSnap was closed or offline, shown the
 // way WA Web's loading screen does ("Downloading messages: N%"), from the
 // offline_preview count and the stanzas received since.
-func handleOfflineSyncProgress(evt interface{}) {
+func (acc *Account) handleOfflineSyncProgress(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.OfflineSyncPreview:
 		if v.Total > 0 {
-			broadcastEvent("offline_sync", map[string]interface{}{"active": true, "percent": 0, "total": v.Total})
+			acc.broadcastEvent("offline_sync", map[string]interface{}{"active": true, "percent": 0, "total": v.Total})
 		}
 	case *events.OfflineSyncProgress:
-		broadcastEvent("offline_sync", map[string]interface{}{"active": v.Percent < 100, "percent": v.Percent, "total": v.Total})
+		acc.broadcastEvent("offline_sync", map[string]interface{}{"active": v.Percent < 100, "percent": v.Percent, "total": v.Total})
 	case *events.OfflineSyncCompleted:
-		broadcastEvent("offline_sync", map[string]interface{}{"active": false, "percent": 100})
+		acc.broadcastEvent("offline_sync", map[string]interface{}{"active": false, "percent": 100})
 	}
 }

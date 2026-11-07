@@ -109,18 +109,18 @@ func privacyListChanges(current, wanted []privacyListPerson) []types.PrivacyList
 	return changes
 }
 
-func resolvePrivacyListPerson(ctx context.Context, jid types.JID) (privacyListPerson, error) {
+func (acc *Account) resolvePrivacyListPerson(ctx context.Context, jid types.JID) (privacyListPerson, error) {
 	jid = jid.ToNonAD()
 	person := privacyListPerson{}
 	switch jid.Server {
 	case types.HiddenUserServer:
 		person.LID = jid
-		person.PN = storeTwin(jid).ToNonAD()
+		person.PN = acc.storeTwin(jid).ToNonAD()
 	case types.DefaultUserServer:
 		person.PN = jid
-		person.LID = storeTwin(jid).ToNonAD()
+		person.LID = acc.storeTwin(jid).ToNonAD()
 		if person.LID.IsEmpty() {
-			if info, err := wa().GetUserInfo(ctx, []types.JID{jid}); err == nil {
+			if info, err := acc.wa().GetUserInfo(ctx, []types.JID{jid}); err == nil {
 				person.LID = info[jid].LID.ToNonAD()
 			}
 		}
@@ -128,27 +128,27 @@ func resolvePrivacyListPerson(ctx context.Context, jid types.JID) (privacyListPe
 		return person, fmt.Errorf("%s can't be on a privacy list", jid)
 	}
 	if person.LID.IsEmpty() {
-		return person, fmt.Errorf("couldn't find %s on WhatsApp", resolveDisplayName(jid))
+		return person, fmt.Errorf("couldn't find %s on WhatsApp", acc.resolveDisplayName(jid))
 	}
 	return person, nil
 }
 
-func handleGetPrivacyList(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetPrivacyList(conn net.Conn, raw json.RawMessage) {
 	var data PrivacyListData
 	if err := json.Unmarshal(raw, &data); err != nil || !privacyListCategories[data.Name] {
 		return
 	}
 	go func() {
-		list, err := wa().GetPrivacyDisallowedList(context.Background(), types.PrivacySettingType(data.Name))
+		list, err := acc.wa().GetPrivacyDisallowedList(context.Background(), types.PrivacySettingType(data.Name))
 		if err != nil {
-			sendEvent(conn, "privacy_list", map[string]interface{}{"name": data.Name, "error": err.Error()})
+			acc.sendEvent(conn, "privacy_list", map[string]interface{}{"name": data.Name, "error": err.Error()})
 			return
 		}
-		sendEvent(conn, "privacy_list", privacyListPayload(data.Name, peopleFromList(list, storeTwin), resolveDisplayName))
+		acc.sendEvent(conn, "privacy_list", privacyListPayload(data.Name, peopleFromList(list, acc.storeTwin), acc.resolveDisplayName))
 	}()
 }
 
-func handleSetPrivacyList(raw json.RawMessage) {
+func (acc *Account) handleSetPrivacyList(raw json.RawMessage) {
 	var data PrivacyListData
 	if err := json.Unmarshal(raw, &data); err != nil || !privacyListCategories[data.Name] {
 		return
@@ -157,21 +157,21 @@ func handleSetPrivacyList(raw json.RawMessage) {
 		ctx := context.Background()
 		name := types.PrivacySettingType(data.Name)
 		fail := func(err error) {
-			broadcastEvent("error", map[string]string{"message": "Couldn't save the excluded contacts: " + err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": "Couldn't save the excluded contacts: " + err.Error()})
 		}
-		list, err := wa().GetPrivacyDisallowedList(ctx, name)
+		list, err := acc.wa().GetPrivacyDisallowedList(ctx, name)
 		if err != nil {
 			fail(err)
 			return
 		}
-		current := peopleFromList(list, storeTwin)
+		current := peopleFromList(list, acc.storeTwin)
 		wanted := make([]privacyListPerson, 0, len(data.JIDs))
 		for _, jidStr := range data.JIDs {
 			jid, err := types.ParseJID(jidStr)
 			if err != nil {
 				continue
 			}
-			person, err := resolvePrivacyListPerson(ctx, jid)
+			person, err := acc.resolvePrivacyListPerson(ctx, jid)
 			if err != nil {
 				fail(err)
 				return
@@ -179,15 +179,15 @@ func handleSetPrivacyList(raw json.RawMessage) {
 			wanted = append(wanted, person)
 		}
 		changes := privacyListChanges(current, wanted)
-		if _, err := wa().SetPrivacyDisallowedList(ctx, name, list.DHash, changes); err != nil {
+		if _, err := acc.wa().SetPrivacyDisallowedList(ctx, name, list.DHash, changes); err != nil {
 			fail(err)
 			return
 		}
-		if settings, err := wa().TryFetchPrivacySettings(ctx, false); err == nil {
-			broadcastEvent("privacy_settings", privacySettingsToMap(settings))
+		if settings, err := acc.wa().TryFetchPrivacySettings(ctx, false); err == nil {
+			acc.broadcastEvent("privacy_settings", privacySettingsToMap(settings))
 		}
-		if fresh, err := wa().GetPrivacyDisallowedList(ctx, name); err == nil {
-			broadcastEvent("privacy_list", privacyListPayload(data.Name, peopleFromList(fresh, storeTwin), resolveDisplayName))
+		if fresh, err := acc.wa().GetPrivacyDisallowedList(ctx, name); err == nil {
+			acc.broadcastEvent("privacy_list", privacyListPayload(data.Name, peopleFromList(fresh, acc.storeTwin), acc.resolveDisplayName))
 		}
 	}()
 }

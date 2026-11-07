@@ -17,24 +17,24 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func handleVerifyChatLockCode(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleVerifyChatLockCode(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		Code string `json:"code"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
-		sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "invalid payload"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "invalid payload"})
 		return
 	}
 
-	b, err := getChatLockSecretCode()
+	b, err := acc.getChatLockSecretCode()
 	if err != nil || b == nil {
-		sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "no secret code configured"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "no secret code configured"})
 		return
 	}
 
 	var config waUserPassword.UserPassword
 	if err := proto.Unmarshal(b, &config); err != nil {
-		sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "failed to decode config"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "failed to decode config"})
 		return
 	}
 
@@ -54,20 +54,20 @@ func handleVerifyChatLockCode(conn net.Conn, raw json.RawMessage) {
 	} else if config.GetTransformer() == waUserPassword.UserPassword_PBKDF2_HMAC_SHA384 {
 		hashFunc = sha512.New384
 	} else {
-		sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "unsupported hash algorithm"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "unsupported hash algorithm"})
 		return
 	}
 
 	keyLen := len(config.GetTransformedData())
 	if keyLen == 0 {
-		sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "no hash to compare"})
+		acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{"success": false, "error": "no hash to compare"})
 		return
 	}
 
 	derived := pbkdf2.Key([]byte(data.Code), salt, iterations, keyLen, hashFunc)
 	success := bytes.Equal(derived, config.GetTransformedData())
 
-	sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{
+	acc.sendEvent(conn, "chat_lock_verify_result", map[string]interface{}{
 		"success": success,
 	})
 }
@@ -76,11 +76,11 @@ func handleVerifyChatLockCode(conn net.Conn, raw json.RawMessage) {
 // WAWebLockChatSync.sendLockMutation: version 7, and locking first takes the
 // chat out of the archive and unpins it, in the same patch. chat is the
 // chat's own JID, for the archive's message range.
-func buildLockChat(target types.JID, chat string, lock bool) appstate.PatchInfo {
+func (acc *Account) buildLockChat(target types.JID, chat string, lock bool) appstate.PatchInfo {
 	patch := appstate.PatchInfo{Type: appstate.WAPatchRegularLow}
 	if lock {
-		lastTS, lastKey := getLastMessageKeyForChat(chat)
-		patch.Mutations = append(patch.Mutations, withChatRange(appstate.BuildArchive(target, false, lastTS, lastKey), chat).Mutations...)
+		lastTS, lastKey := acc.getLastMessageKeyForChat(chat)
+		patch.Mutations = append(patch.Mutations, acc.withChatRange(appstate.BuildArchive(target, false, lastTS, lastKey), chat).Mutations...)
 		patch.Mutations = append(patch.Mutations, appstate.BuildPin(target, false).Mutations...)
 	}
 	patch.Mutations = append(patch.Mutations, lockChatMutation(target, lock))
@@ -99,7 +99,7 @@ func lockChatMutation(target types.JID, lock bool) appstate.MutationInfo {
 	}
 }
 
-func handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
 	var data ChatBoolData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -109,29 +109,29 @@ func handleSetChatLocked(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 
-	b, codeErr := getChatLockSecretCode()
+	b, codeErr := acc.getChatLockSecretCode()
 	if codeErr != nil || len(b) == 0 {
-		sendEvent(conn, "error", map[string]interface{}{"message": "You must configure a Secret Code for Chat Lock on your primary phone before you can lock or unlock chats from this device."})
-		broadcastChats()
+		acc.sendEvent(conn, "error", map[string]interface{}{"message": "You must configure a Secret Code for Chat Lock on your primary phone before you can lock or unlock chats from this device."})
+		acc.broadcastChats()
 		return
 	}
 
 	go func() {
-		if err := sendAppStateWithRetry(context.Background(), buildLockChat(syncdChatJID(jid), data.JID, data.Value)); err != nil {
-			broadcastChats()
+		if err := acc.sendAppStateWithRetry(context.Background(), acc.buildLockChat(acc.syncdChatJID(jid), data.JID, data.Value)); err != nil {
+			acc.broadcastChats()
 			return
 		}
 		locked_int := 0
 		if data.Value {
 			locked_int = 1
 		}
-		db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", locked_int, data.JID)
+		acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", locked_int, data.JID)
 		if data.Value {
 			now := time.Now().Unix()
-			noteArchiveAction(data.JID, false, nil, now)
-			db.Exec("UPDATE chats SET archived = 0 WHERE jid = ?", data.JID)
-			applyPinChange(data.JID, false, now)
+			acc.noteArchiveAction(data.JID, false, nil, now)
+			acc.db.Exec("UPDATE chats SET archived = 0 WHERE jid = ?", data.JID)
+			acc.applyPinChange(data.JID, false, now)
 		}
-		broadcastChats()
+		acc.broadcastChats()
 	}()
 }

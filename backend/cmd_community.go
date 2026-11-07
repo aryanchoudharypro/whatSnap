@@ -10,7 +10,6 @@ import (
 	"net"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -18,76 +17,70 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-var (
-	joinedGroupsMu  sync.RWMutex
-	joinedGroups    map[string]bool
-	subgroupParents sync.Map
-)
-
-func setJoinedGroups(joined map[string]bool) {
-	joinedGroupsMu.Lock()
-	joinedGroups = joined
-	joinedGroupsMu.Unlock()
+func (acc *Account) setJoinedGroups(joined map[string]bool) {
+	acc.joinedGroupsMu.Lock()
+	acc.joinedGroups = joined
+	acc.joinedGroupsMu.Unlock()
 }
 
-func markGroupJoined(jid string, joined bool) {
-	joinedGroupsMu.Lock()
-	defer joinedGroupsMu.Unlock()
-	if joinedGroups == nil {
+func (acc *Account) markGroupJoined(jid string, joined bool) {
+	acc.joinedGroupsMu.Lock()
+	defer acc.joinedGroupsMu.Unlock()
+	if acc.joinedGroups == nil {
 		return
 	}
 	if joined {
-		joinedGroups[jid] = true
+		acc.joinedGroups[jid] = true
 	} else {
-		delete(joinedGroups, jid)
+		delete(acc.joinedGroups, jid)
 	}
 }
 
-func knownNotMember(jid string) bool {
-	joinedGroupsMu.RLock()
-	defer joinedGroupsMu.RUnlock()
-	return joinedGroups != nil && !joinedGroups[jid]
+func (acc *Account) knownNotMember(jid string) bool {
+	acc.joinedGroupsMu.RLock()
+	defer acc.joinedGroupsMu.RUnlock()
+	return acc.joinedGroups != nil && !acc.joinedGroups[jid]
 }
 
-func isJoinedGroup(jid string) bool {
-	joinedGroupsMu.RLock()
-	known, loaded := joinedGroups[jid], joinedGroups != nil
-	joinedGroupsMu.RUnlock()
+func (acc *Account) isJoinedGroup(jid string) bool {
+	acc.joinedGroupsMu.RLock()
+	known, loaded := acc.joinedGroups[jid], acc.joinedGroups != nil
+	acc.joinedGroupsMu.RUnlock()
 	if loaded {
 		return known
 	}
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ?`, jid).Scan(&n)
+	acc.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ?`, jid).Scan(&n)
 	return n > 0
 }
 
-func communityParentOf(jid string) string {
+func (acc *Account) communityParentOf(jid string) string {
 	var parent string
-	db.QueryRow(`SELECT COALESCE(parent_jid, '') FROM chats WHERE jid = ?`, jid).Scan(&parent)
+	acc.db.QueryRow(`SELECT COALESCE(parent_jid, '') FROM chats WHERE jid = ?`, jid).Scan(&parent)
 	if parent == "" {
-		if cached, ok := subgroupParents.Load(jid); ok {
+		if cached, ok := acc.subgroupParents.Load(jid); ok {
 			parent = cached.(string)
 		}
 	}
 	return parent
 }
 
-func communityName(jid string) string {
+func (acc *Account) communityName(jid string) string {
 	var name string
-	db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid).Scan(&name)
+	acc.db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid).Scan(&name)
 	return cmp.Or(name, "community")
 }
 
-func recordGroupCommunity(info *types.GroupInfo) {
+func (acc *Account) recordGroupCommunity(info *types.GroupInfo) {
 	parent := ""
 	if !info.LinkedParentJID.IsEmpty() {
 		parent = info.LinkedParentJID.ToNonAD().String()
 	}
-	db.Exec(`UPDATE chats SET is_community = ?, parent_jid = ?, is_announce_group = ? WHERE jid = ?`,
+	acc.db.Exec(`UPDATE chats SET is_community = ?, parent_jid = ?, is_announce_group = ? WHERE jid = ?`,
 		boolToInt(info.IsParent), parent, boolToInt(info.IsDefaultSubGroup), info.JID.ToNonAD().String())
 }
 
-func applyCommunityLinkChange(v *events.GroupInfo, change *types.GroupLinkChange, linked bool) {
+func (acc *Account) applyCommunityLinkChange(v *events.GroupInfo, change *types.GroupLinkChange, linked bool) {
 	var parent, child types.JID
 	switch change.Type {
 	case types.GroupLinkChangeTypeSub:
@@ -99,25 +92,25 @@ func applyCommunityLinkChange(v *events.GroupInfo, change *types.GroupLinkChange
 	}
 	parentStr, childStr := parent.ToNonAD().String(), child.ToNonAD().String()
 	if linked {
-		db.Exec(`UPDATE chats SET parent_jid = ? WHERE jid = ?`, parentStr, childStr)
+		acc.db.Exec(`UPDATE chats SET parent_jid = ? WHERE jid = ?`, parentStr, childStr)
 		if change.Group.IsDefaultSubGroup && change.Type == types.GroupLinkChangeTypeSub {
-			db.Exec(`UPDATE chats SET is_announce_group = 1 WHERE jid = ?`, childStr)
+			acc.db.Exec(`UPDATE chats SET is_announce_group = 1 WHERE jid = ?`, childStr)
 		}
 	} else {
-		db.Exec(`UPDATE chats SET parent_jid = '', is_announce_group = 0 WHERE jid = ? AND parent_jid = ?`, childStr, parentStr)
+		acc.db.Exec(`UPDATE chats SET parent_jid = '', is_announce_group = 0 WHERE jid = ? AND parent_jid = ?`, childStr, parentStr)
 	}
-	broadcastChats()
+	acc.broadcastChats()
 
-	if change.Type != types.GroupLinkChangeTypeParent || !isJoinedGroup(childStr) {
+	if change.Type != types.GroupLinkChangeTypeParent || !acc.isJoinedGroup(childStr) {
 		return
 	}
 	name := change.Group.Name
 	if name == "" {
-		name = communityName(parentStr)
+		name = acc.communityName(parentStr)
 	}
 	actor := ""
 	if v.Sender != nil {
-		actor = nameToken(*v.Sender)
+		actor = acc.nameToken(*v.Sender)
 	}
 	var text string
 	switch {
@@ -136,10 +129,10 @@ func applyCommunityLinkChange(v *events.GroupInfo, change *types.GroupLinkChange
 	if !linked {
 		suffix = "unlink"
 	}
-	insertGroupSystemMessage(childStr, fmt.Sprintf("system_%s_%d_%s", child.User, v.Timestamp.UnixNano(), suffix), text, v.Timestamp)
+	acc.insertGroupSystemMessage(childStr, fmt.Sprintf("system_%s_%d_%s", child.User, v.Timestamp.UnixNano(), suffix), text, v.Timestamp)
 }
 
-func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -150,17 +143,17 @@ func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 	}
 	go func() {
 		community := jid
-		if parent := communityParentOf(jid.String()); parent != "" {
+		if parent := acc.communityParentOf(jid.String()); parent != "" {
 			if parsed, perr := types.ParseJID(parent); perr == nil {
 				community = parsed
 			}
 		}
-		subGroups, err := wa().GetSubGroups(context.Background(), community)
+		subGroups, err := acc.wa().GetSubGroups(context.Background(), community)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't load the community's groups: " + err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't load the community's groups: " + err.Error()})
 			return
 		}
-		counts, countErr := wa().GetSubGroupParticipantCounts(context.Background(), community)
+		counts, countErr := acc.wa().GetSubGroupParticipantCounts(context.Background(), community)
 		if countErr != nil {
 			log.Printf("Couldn't get member counts for %s's groups: %v", community, countErr)
 		}
@@ -173,13 +166,13 @@ func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 		entries := make([]entry, 0, len(subGroups))
 		for _, g := range subGroups {
 			jidStr := g.JID.ToNonAD().String()
-			subgroupParents.Store(jidStr, community.String())
+			acc.subgroupParents.Store(jidStr, community.String())
 			entries = append(entries, entry{
 				jid:           jidStr,
 				name:          g.Name,
 				announcements: g.IsDefaultSubGroup,
 				generalChat:   g.IsGeneralChat,
-				joined:        isJoinedGroup(jidStr),
+				joined:        acc.isJoinedGroup(jidStr),
 				size:          cmp.Or(counts[g.JID.ToNonAD()], g.ParticipantCount),
 			})
 		}
@@ -207,16 +200,16 @@ func handleGetCommunitySubGroups(conn net.Conn, raw json.RawMessage) {
 				"ParticipantCount":  e.size,
 			})
 		}
-		sendEvent(conn, "community_subgroups", map[string]interface{}{
+		acc.sendEvent(conn, "community_subgroups", map[string]interface{}{
 			"jid":           data.JID,
 			"community":     community.String(),
-			"communityName": communityName(community.String()),
+			"communityName": acc.communityName(community.String()),
 			"groups":        groups,
 		})
 	}()
 }
 
-func handleJoinCommunitySubgroup(raw json.RawMessage) {
+func (acc *Account) handleJoinCommunitySubgroup(raw json.RawMessage) {
 	var data struct {
 		JID       string `json:"jid"`
 		Community string `json:"community"`
@@ -228,43 +221,43 @@ func handleJoinCommunitySubgroup(raw json.RawMessage) {
 	if err != nil {
 		return
 	}
-	parent, err := types.ParseJID(cmp.Or(data.Community, communityParentOf(data.JID)))
+	parent, err := types.ParseJID(cmp.Or(data.Community, acc.communityParentOf(data.JID)))
 	if err != nil || parent.IsEmpty() {
-		broadcastEvent("error", map[string]string{"message": "Couldn't join this group: its community isn't known. Open the community's groups list and try again."})
+		acc.broadcastEvent("error", map[string]string{"message": "Couldn't join this group: its community isn't known. Open the community's groups list and try again."})
 		return
 	}
 	go func() {
-		err := wa().JoinLinkedGroup(context.Background(), parent, child)
+		err := acc.wa().JoinLinkedGroup(context.Background(), parent, child)
 		switch {
 		case errors.Is(err, whatsmeow.ErrJoinRequiresApproval):
-			broadcastEvent("error", map[string]string{"message": "This group needs an admin to approve new members. Your request to join was sent."})
+			acc.broadcastEvent("error", map[string]string{"message": "This group needs an admin to approve new members. Your request to join was sent."})
 			return
 		case err != nil:
-			broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": "Couldn't join this group: " + err.Error()})
 			return
 		}
-		markGroupJoined(child.String(), true)
-		invalidateJoinedGroups()
-		populateChatsFromStore()
-		broadcastChats()
-		broadcastEvent("community_subgroup_joined", map[string]interface{}{"jid": data.JID})
+		acc.markGroupJoined(child.String(), true)
+		acc.invalidateJoinedGroups()
+		acc.populateChatsFromStore()
+		acc.broadcastChats()
+		acc.broadcastEvent("community_subgroup_joined", map[string]interface{}{"jid": data.JID})
 	}()
 }
 
-func communityMembers(community types.JID, known []types.GroupParticipant) []types.GroupParticipant {
+func (acc *Account) communityMembers(community types.JID, known []types.GroupParticipant) []types.GroupParticipant {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	all, err := wa().GetLinkedGroupsParticipants(ctx, community)
+	all, err := acc.wa().GetLinkedGroupsParticipants(ctx, community)
 	if err != nil {
 		return nil
 	}
 	seen := make(map[string]bool, len(known))
 	for _, p := range known {
-		seen[preferPN(p.JID).String()] = true
+		seen[acc.preferPN(p.JID).String()] = true
 	}
 	var extra []types.GroupParticipant
 	for _, jid := range all {
-		key := preferPN(jid).String()
+		key := acc.preferPN(jid).String()
 		if seen[key] {
 			continue
 		}

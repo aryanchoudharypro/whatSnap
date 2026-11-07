@@ -14,13 +14,13 @@ import (
 func openCallRecordsDB(t *testing.T) {
 	t.Helper()
 	var err error
-	db, err = sql.Open("sqlite", "file::memory:")
+	acc.db, err = sql.Open("sqlite", "file::memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { db.Close() })
-	if err := migrateDB(); err != nil {
+	acc.db.SetMaxOpenConns(1)
+	t.Cleanup(func() { acc.db.Close() })
+	if err := acc.migrateDB(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -28,16 +28,16 @@ func openCallRecordsDB(t *testing.T) {
 func TestStoreCallRecordPhoneRecordWinsOverLiveRow(t *testing.T) {
 	openCallRecordsDB(t)
 	peer := "5511999990000@s.whatsapp.net"
-	storeCallRecord(callRecord{CallID: "c1", JID: peer, Result: "missed", Timestamp: 100, Text: "Missed voice call"})
-	storeCallRecord(callRecord{CallID: "c1", JID: peer, FromMe: true, IsVideo: true, Result: "connected", Duration: 30,
+	acc.storeCallRecord(callRecord{CallID: "c1", JID: peer, Result: "missed", Timestamp: 100, Text: "Missed voice call"})
+	acc.storeCallRecord(callRecord{CallID: "c1", JID: peer, FromMe: true, IsVideo: true, Result: "connected", Duration: 30,
 		Timestamp: 90, Text: "Outgoing video call, 30 seconds", Authoritative: true})
 	// A live row arriving later must not undo the phone's record.
-	storeCallRecord(callRecord{CallID: "c1", JID: peer, Result: "missed", Timestamp: 100, Text: "Missed voice call"})
+	acc.storeCallRecord(callRecord{CallID: "c1", JID: peer, Result: "missed", Timestamp: 100, Text: "Missed voice call"})
 
 	var result string
 	var video, fromMe int
 	var dur int64
-	if err := db.QueryRow(`SELECT result, is_video, from_me, duration FROM call_records WHERE call_id='c1'`).
+	if err := acc.db.QueryRow(`SELECT result, is_video, from_me, duration FROM call_records WHERE call_id='c1'`).
 		Scan(&result, &video, &fromMe, &dur); err != nil {
 		t.Fatal(err)
 	}
@@ -49,31 +49,31 @@ func TestStoreCallRecordPhoneRecordWinsOverLiveRow(t *testing.T) {
 func TestDeleteNewestCallRecord(t *testing.T) {
 	openCallRecordsDB(t)
 	peer := "5511999990000@s.whatsapp.net"
-	storeCallRecord(callRecord{CallID: "old", JID: peer, Timestamp: 10, Authoritative: true})
-	storeCallRecord(callRecord{CallID: "new", JID: peer, Timestamp: 20, Authoritative: true})
-	storeCallRecord(callRecord{CallID: "out", JID: peer, FromMe: true, Timestamp: 30, Authoritative: true})
-	storeCallRecord(callRecord{CallID: "later", JID: peer, Timestamp: 500, Authoritative: true})
+	acc.storeCallRecord(callRecord{CallID: "old", JID: peer, Timestamp: 10, Authoritative: true})
+	acc.storeCallRecord(callRecord{CallID: "new", JID: peer, Timestamp: 20, Authoritative: true})
+	acc.storeCallRecord(callRecord{CallID: "out", JID: peer, FromMe: true, Timestamp: 30, Authoritative: true})
+	acc.storeCallRecord(callRecord{CallID: "later", JID: peer, Timestamp: 500, Authoritative: true})
 
-	if id, ok := deleteNewestCallRecord(peer, false, 100); !ok || id != "new" {
+	if id, ok := acc.deleteNewestCallRecord(peer, false, 100); !ok || id != "new" {
 		t.Fatalf("got %q %v, want new", id, ok)
 	}
-	if id, ok := deleteNewestCallRecord(peer, false, 100); !ok || id != "old" {
+	if id, ok := acc.deleteNewestCallRecord(peer, false, 100); !ok || id != "old" {
 		t.Fatalf("got %q %v, want old", id, ok)
 	}
-	if _, ok := deleteNewestCallRecord(peer, false, 100); ok {
+	if _, ok := acc.deleteNewestCallRecord(peer, false, 100); ok {
 		t.Fatal("a call after the deletion time, or in the other direction, must be kept")
 	}
 }
 
 func TestMigrationCarriesOverCallMessages(t *testing.T) {
 	openCallRecordsDB(t)
-	db.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, media_type)
+	acc.db.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, media_type)
 		VALUES ('call:x', 'a@s.whatsapp.net', 1, 'Outgoing video call', 5, 'call')`)
-	if err := ensureCallRecords(); err != nil {
+	if err := acc.ensureCallRecords(); err != nil {
 		t.Fatal(err)
 	}
 	var video, fromMe int
-	if err := db.QueryRow(`SELECT is_video, from_me FROM call_records WHERE call_id='x'`).Scan(&video, &fromMe); err != nil {
+	if err := acc.db.QueryRow(`SELECT is_video, from_me FROM call_records WHERE call_id='x'`).Scan(&video, &fromMe); err != nil {
 		t.Fatal(err)
 	}
 	if video != 1 || fromMe != 1 {
@@ -123,7 +123,7 @@ func TestCallLogKeyChatFollowsWAWeb(t *testing.T) {
 func TestCallDeleteMutationIndex(t *testing.T) {
 	index := func(k callDeleteKey) []string {
 		t.Helper()
-		_, m, ok := callDeleteMutation(k)
+		_, m, ok := acc.callDeleteMutation(k)
 		if !ok {
 			return nil
 		}
@@ -147,7 +147,7 @@ func TestCallDeleteMutationIndex(t *testing.T) {
 	if got := index(callDeleteKey{callID: "C4", jid: "123@g.us", isGroup: true}); got != nil {
 		t.Errorf("a group call without a key must stay local, got %v", got)
 	}
-	_, m, _ := callDeleteMutation(callDeleteKey{callID: "C1", jid: "x@lid", keyChat: "77777@lid", ts: 100})
+	_, m, _ := acc.callDeleteMutation(callDeleteKey{callID: "C1", jid: "x@lid", keyChat: "77777@lid", ts: 100})
 	act := m.Value.GetDeleteMessageForMeAction()
 	if act.GetDeleteMedia() || act.GetMessageTimestamp() != 100 {
 		t.Errorf("delete media %v, timestamp %d", act.GetDeleteMedia(), act.GetMessageTimestamp())
@@ -157,18 +157,18 @@ func TestCallDeleteMutationIndex(t *testing.T) {
 func TestDeletedCallStaysDeleted(t *testing.T) {
 	openCallRecordsDB(t)
 	peer := "5511999990000@s.whatsapp.net"
-	storeCallRecord(callRecord{CallID: "c1", JID: peer, Timestamp: 10, Authoritative: true})
-	db.Exec(`INSERT INTO messages (id, jid, text, timestamp, media_type) VALUES ('call:c1', ?, 'Missed voice call', 10, 'call')`, peer)
-	applySyncedCallDelete("c1")
+	acc.storeCallRecord(callRecord{CallID: "c1", JID: peer, Timestamp: 10, Authoritative: true})
+	acc.db.Exec(`INSERT INTO messages (id, jid, text, timestamp, media_type) VALUES ('call:c1', ?, 'Missed voice call', 10, 'call')`, peer)
+	acc.applySyncedCallDelete("c1")
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM call_records WHERE call_id = 'c1'`).Scan(&n)
+	acc.db.QueryRow(`SELECT COUNT(*) FROM call_records WHERE call_id = 'c1'`).Scan(&n)
 	var m int
-	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = 'call:c1'`).Scan(&m)
+	acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = 'call:c1'`).Scan(&m)
 	if n != 0 || m != 0 {
 		t.Fatalf("records=%d messages=%d after delete", n, m)
 	}
-	storeCallRecord(callRecord{CallID: "c1", JID: peer, Timestamp: 10, Authoritative: true})
-	db.QueryRow(`SELECT COUNT(*) FROM call_records WHERE call_id = 'c1'`).Scan(&n)
+	acc.storeCallRecord(callRecord{CallID: "c1", JID: peer, Timestamp: 10, Authoritative: true})
+	acc.db.QueryRow(`SELECT COUNT(*) FROM call_records WHERE call_id = 'c1'`).Scan(&n)
 	if n != 0 {
 		t.Fatal("a deleted call came back from a later sync")
 	}

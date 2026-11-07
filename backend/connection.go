@@ -6,8 +6,6 @@ import (
 	"log"
 	"net"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -28,37 +26,26 @@ type connRequest struct {
 	force bool
 }
 
-var (
-	connRequests = make(chan connRequest, 8)
-	connFailures atomic.Int32
-	connProbing  atomic.Bool
-
-	connStateMu  sync.Mutex
-	connStateCur = map[string]interface{}{"state": connStateConnecting}
-)
-
 func init() {
-	go runConnectionSupervisor()
 	go watchNetworkChanges()
-	go watchSocketLoss()
 }
 
-func requestConnect(delay time.Duration) {
+func (acc *Account) requestConnect(delay time.Duration) {
 	select {
-	case connRequests <- connRequest{delay: delay}:
+	case acc.connRequests <- connRequest{delay: delay}:
 	default:
 	}
 }
 
-func reconnectNow() {
-	connFailures.Store(0)
-	requestConnect(0)
+func (acc *Account) reconnectNow() {
+	acc.connFailures.Store(0)
+	acc.requestConnect(0)
 }
 
-func forceReconnect() {
-	connFailures.Store(0)
+func (acc *Account) forceReconnect() {
+	acc.connFailures.Store(0)
 	select {
-	case connRequests <- connRequest{force: true}:
+	case acc.connRequests <- connRequest{force: true}:
 	default:
 	}
 }
@@ -67,32 +54,32 @@ func isOnline(c *whatsmeow.Client) bool {
 	return c != nil && c.IsConnected() && c.IsLoggedIn()
 }
 
-func handleReconnect() {
-	c := wa()
+func (acc *Account) handleReconnect() {
+	c := acc.wa()
 	if c == nil || c.Store.ID == nil {
 		return
 	}
-	if !isOnline(c) || currentConnState()["state"] != connStateOnline {
-		forceReconnect()
+	if !isOnline(c) || acc.currentConnState()["state"] != connStateOnline {
+		acc.forceReconnect()
 		return
 	}
-	if !connProbing.CompareAndSwap(false, true) {
+	if !acc.connProbing.CompareAndSwap(false, true) {
 		return
 	}
 	go func() {
-		defer connProbing.Store(false)
+		defer acc.connProbing.Store(false)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		ok, _, _ := c.DangerousInternals().SendKeepAlive(ctx)
 		cancel()
-		if c != wa() {
+		if c != acc.wa() {
 			return
 		}
 		if ok && isOnline(c) {
-			setConnState(connStateOnline, "", 0)
+			acc.setConnState(connStateOnline, "", 0)
 			return
 		}
 		log.Println("Reconnect Now: ping got no answer; reconnecting")
-		forceReconnect()
+		acc.forceReconnect()
 	}()
 }
 
@@ -107,7 +94,7 @@ func connBackoff(failures int32) time.Duration {
 	return min(time.Duration(a)*time.Second, connBackoffMax)
 }
 
-func runConnectionSupervisor() {
+func (acc *Account) runConnectionSupervisor() {
 	var timer *time.Timer
 	var timerC <-chan time.Time
 	stopTimer := func() {
@@ -120,7 +107,10 @@ func runConnectionSupervisor() {
 	for {
 		force := false
 		select {
-		case req := <-connRequests:
+		case <-acc.ctx.Done():
+			stopTimer()
+			return
+		case req := <-acc.connRequests:
 			if req.delay > 0 {
 				stopTimer()
 				timer = time.NewTimer(req.delay)
@@ -133,7 +123,7 @@ func runConnectionSupervisor() {
 			timerC = nil
 		}
 
-		c := wa()
+		c := acc.wa()
 		if c == nil || c.Store.ID == nil {
 			continue
 		}
@@ -141,38 +131,38 @@ func runConnectionSupervisor() {
 			continue
 		}
 
-		setConnState(connStateConnecting, "", 0)
+		acc.setConnState(connStateConnecting, "", 0)
 		c.Disconnect()
 		err := c.Connect()
 		if err == nil || errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 			continue
 		}
 		log.Println("Connect error:", err)
-		n := connFailures.Add(1)
+		n := acc.connFailures.Add(1)
 		delay := connBackoff(n)
-		setConnState(connStateOffline, describeConnError(err), delay)
+		acc.setConnState(connStateOffline, describeConnError(err), delay)
 		stopTimer()
 		timer = time.NewTimer(delay)
 		timerC = timer.C
 	}
 }
 
-func scheduleRetryAfterFailure(message string) {
-	delay := connBackoff(connFailures.Add(1))
-	setConnState(connStateOffline, message, delay)
-	requestConnect(delay)
+func (acc *Account) scheduleRetryAfterFailure(message string) {
+	delay := connBackoff(acc.connFailures.Add(1))
+	acc.setConnState(connStateOffline, message, delay)
+	acc.requestConnect(delay)
 }
 
-func autoReconnectHook(c *whatsmeow.Client) func(error) bool {
+func (acc *Account) autoReconnectHook(c *whatsmeow.Client) func(error) bool {
 	return func(err error) bool {
-		if c == wa() && !c.IsConnected() {
-			setConnState(connStateOffline, describeConnError(err), connBackoff(int32(c.AutoReconnectErrors)))
+		if c == acc.wa() && !c.IsConnected() {
+			acc.setConnState(connStateOffline, describeConnError(err), connBackoff(int32(c.AutoReconnectErrors)))
 		}
 		return true
 	}
 }
 
-func setConnState(state, message string, retryIn time.Duration) {
+func (acc *Account) setConnState(state, message string, retryIn time.Duration) {
 	data := map[string]interface{}{"state": state}
 	if message != "" {
 		data["message"] = message
@@ -180,16 +170,16 @@ func setConnState(state, message string, retryIn time.Duration) {
 	if retryIn > 0 {
 		data["retry_in"] = int(retryIn.Round(time.Second).Seconds())
 	}
-	connStateMu.Lock()
-	connStateCur = data
-	connStateMu.Unlock()
-	broadcastEvent("connection_state", data)
+	acc.connStateMu.Lock()
+	acc.connStateCur = data
+	acc.connStateMu.Unlock()
+	acc.broadcastEvent("connection_state", data)
 }
 
-func currentConnState() map[string]interface{} {
-	connStateMu.Lock()
-	defer connStateMu.Unlock()
-	return connStateCur
+func (acc *Account) currentConnState() map[string]interface{} {
+	acc.connStateMu.Lock()
+	defer acc.connStateMu.Unlock()
+	return acc.connStateCur
 }
 
 func describeConnError(err error) string {
@@ -207,6 +197,8 @@ func describeConnError(err error) string {
 	}
 }
 
+// watchNetworkChanges reconnects every account that lost its socket as soon
+// as Windows reports an address change, instead of waiting out its backoff.
 func watchNetworkChanges() {
 	proc := windows.NewLazySystemDLL("iphlpapi.dll").NewProc("NotifyAddrChange")
 	if proc.Find() != nil {
@@ -218,14 +210,16 @@ func watchNetworkChanges() {
 			return
 		}
 		time.Sleep(2 * time.Second)
-		// "stopped" (session replaced, client outdated) must stay manual -
-		// auto-reconnecting after a replace would bounce the other session.
-		if currentConnState()["state"] == connStateStopped {
-			continue
-		}
-		if c := wa(); c != nil && c.Store.ID != nil && !c.IsConnected() {
-			log.Println("Network change detected; reconnecting now")
-			reconnectNow()
+		for _, acc := range openAccounts() {
+			// "stopped" (session replaced, client outdated) must stay manual -
+			// auto-reconnecting after a replace would bounce the other session.
+			if acc.currentConnState()["state"] == connStateStopped {
+				continue
+			}
+			if c := acc.wa(); c != nil && c.Store.ID != nil && !c.IsConnected() {
+				log.Printf("Network change detected; reconnecting account %s now", acc.id)
+				acc.reconnectNow()
+			}
 		}
 	}
 }
@@ -235,15 +229,22 @@ func watchNetworkChanges() {
 // connection. whatsmeow sends no event when its keepalive gives up and
 // reconnects (it treats that disconnect as expected), and neither does a
 // failed reconnect that never got a socket.
-func watchSocketLoss() {
-	for range time.Tick(2 * time.Second) {
-		c := wa()
+func (acc *Account) watchSocketLoss() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-acc.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		c := acc.wa()
 		if c == nil || c.Store.ID == nil || c.IsConnected() {
 			continue
 		}
-		if currentConnState()["state"] == connStateOnline {
+		if acc.currentConnState()["state"] == connStateOnline {
 			log.Println("Socket gone while marked online; showing connection lost")
-			setConnState(connStateConnecting, "Connection lost.", 0)
+			acc.setConnState(connStateConnecting, "Connection lost.", 0)
 		}
 	}
 }

@@ -8,7 +8,7 @@ import (
 )
 
 func TestBuildPollUsesWhatsAppWebsFields(t *testing.T) {
-	multi, err := buildPoll(" Lunch? ", []string{"Pizza", " ", "Pasta"}, true, "")
+	multi, err := acc.buildPoll(" Lunch? ", []string{"Pizza", " ", "Pasta"}, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestBuildPollUsesWhatsAppWebsFields(t *testing.T) {
 		t.Fatal("a poll needs its 32-byte message secret for votes to decrypt")
 	}
 
-	single, err := buildPoll("Lunch?", []string{"Pizza", "Pasta"}, false, "")
+	single, err := acc.buildPoll("Lunch?", []string{"Pizza", "Pasta"}, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestBuildPollRejectsWhatWhatsAppWebWould(t *testing.T) {
 		"long option":       {"Q", []string{"a", strings.Repeat("o", 101)}},
 	}
 	for name, c := range cases {
-		if _, err := buildPoll(c.question, c.options, true, ""); err == nil {
+		if _, err := acc.buildPoll(c.question, c.options, true, ""); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
 	}
@@ -110,7 +110,7 @@ func TestPollResultsText(t *testing.T) {
 }
 
 func TestBuildPollMakesAQuiz(t *testing.T) {
-	msg, err := buildPoll("Capital of France?", []string{"Lyon", "Paris", "Nice"}, true, " Paris ")
+	msg, err := acc.buildPoll("Capital of France?", []string{"Lyon", "Paris", "Nice"}, true, " Paris ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,16 +121,16 @@ func TestBuildPollMakesAQuiz(t *testing.T) {
 	if pc.GetCorrectAnswer().GetOptionName() != "Paris" || pc.GetCorrectAnswer().GetOptionHash() != optionHash("Paris") {
 		t.Fatalf("unexpected correct answer %v", pc.GetCorrectAnswer())
 	}
-	if extractTextRaw(msg) != "[Quiz] Capital of France?" {
-		t.Fatalf("got %q", extractTextRaw(msg))
+	if acc.extractTextRaw(msg) != "[Quiz] Capital of France?" {
+		t.Fatalf("got %q", acc.extractTextRaw(msg))
 	}
-	if _, err := buildPoll("Q", []string{"a", "b"}, false, "c"); err == nil {
+	if _, err := acc.buildPoll("Q", []string{"a", "b"}, false, "c"); err == nil {
 		t.Fatal("a correct answer that isn't an option must be refused")
 	}
 }
 
 func TestQuizAnswerIsRevealedOnceAnswered(t *testing.T) {
-	msg, _ := buildPoll("Q", []string{"Right", "Wrong"}, false, "Right")
+	msg, _ := acc.buildPoll("Q", []string{"Right", "Wrong"}, false, "Right")
 	p, ok := pollFromMessage(msg)
 	if !ok || !p.quiz || p.multiple || p.correct != "Right" {
 		t.Fatalf("unexpected quiz %+v", p)

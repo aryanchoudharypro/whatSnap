@@ -69,18 +69,9 @@ func appDataDir() string {
 	return appDataPath
 }
 
-func defaultDBPath() string {
-	return filepath.Join(appDataDir(), "session.db")
-}
-
-// logsDir is the logs folder of the account this backend runs: beside its
-// database, so each account's backend writes its own logs. The first account's
-// database is in the app data folder, so its logs stay where they always were.
+// logsDir holds the backend's logs, shared by every account.
 func logsDir() string {
 	dir := filepath.Join(appDataDir(), "logs")
-	if *dbPathFlag != "" {
-		dir = filepath.Join(filepath.Dir(*dbPathFlag), "logs")
-	}
 	os.MkdirAll(dir, 0o700)
 	return dir
 }

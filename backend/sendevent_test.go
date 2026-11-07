@@ -16,7 +16,7 @@ func envelopeFor(t *testing.T, evtType string, data interface{}) []byte {
 		n, _ := client.Read(buf)
 		got <- append([]byte(nil), buf[:n]...)
 	}()
-	go sendEvent(server, evtType, data)
+	go acc.sendEvent(server, evtType, data)
 
 	select {
 	case b := <-got:

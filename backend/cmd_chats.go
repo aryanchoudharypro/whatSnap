@@ -9,20 +9,20 @@ import (
 	"math"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"time"
+
+	"net"
 
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
-	"net"
 )
 
-func handleGetChats(conn net.Conn) {
+func (acc *Account) handleGetChats(conn net.Conn) {
 	go func() {
-		sendEvent(conn, "chats", buildChatsList())
+		acc.sendEvent(conn, "chats", acc.buildChatsList())
 	}()
 }
 
@@ -33,21 +33,21 @@ type pageCursor struct {
 	ID        string
 }
 
-func fetchMessagesPage(jid string, limit, offset int) []MessageJSON {
-	return fetchMessagesPageBefore(jid, limit, offset, nil)
+func (acc *Account) fetchMessagesPage(jid string, limit, offset int) []MessageJSON {
+	return acc.fetchMessagesPageBefore(jid, limit, offset, nil)
 }
 
-func fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) []MessageJSON {
-	return fetchMessagesPageAt(jid, limit, offset, before, nil)
+func (acc *Account) fetchMessagesPageBefore(jid string, limit, offset int, before *pageCursor) []MessageJSON {
+	return acc.fetchMessagesPageAt(jid, limit, offset, before, nil)
 }
 
-func fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCursor) []MessageJSON {
-	return fetchMessagesWhere(jid, "", limit, offset, before, after)
+func (acc *Account) fetchMessagesPageAt(jid string, limit, offset int, before, after *pageCursor) []MessageJSON {
+	return acc.fetchMessagesWhere(jid, "", limit, offset, before, after)
 }
 
 // fetchMessagesWhere is fetchMessagesPageAt for only the rows matching filter,
 // a fixed SQL condition (never user input) starting with AND.
-func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pageCursor) []MessageJSON {
+func (acc *Account) fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pageCursor) []MessageJSON {
 	now := time.Now().Unix()
 	var favorites map[string]bool
 	cols := `SELECT id, COALESCE(text, ''), timestamp, from_me, COALESCE(sender_jid, ''),
@@ -62,13 +62,13 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 	var rows *sql.Rows
 	var queryErr error
 	if after != nil {
-		rows, queryErr = db.Query(cols+` AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`,
+		rows, queryErr = acc.db.Query(cols+` AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`,
 			jid, after.Timestamp, after.Timestamp, after.ID, limit)
 	} else if before != nil {
-		rows, queryErr = db.Query(cols+` AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`,
+		rows, queryErr = acc.db.Query(cols+` AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`,
 			jid, before.Timestamp, before.Timestamp, before.ID, limit)
 	} else {
-		rows, queryErr = db.Query(cols+` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
+		rows, queryErr = acc.db.Query(cols+` ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`, jid, limit, offset)
 	}
 
 	msgs := make([]MessageJSON, 0, min(max(limit, 0), 5000))
@@ -81,7 +81,7 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 		}
 		n := jidStr
 		if parsed, err := types.ParseJID(jidStr); err == nil {
-			n = resolveDisplayName(parsed)
+			n = acc.resolveDisplayName(parsed)
 		}
 		names[jidStr] = n
 		return n
@@ -135,13 +135,13 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 					text = "[This message was deleted]"
 				}
 			}
-			text = renderNames(text, nameFor)
+			text = acc.renderNames(text, nameFor)
 
 			if mediaType == "voice" || mediaType == "audio" || strings.HasPrefix(text, "[Voice Message]") || strings.HasPrefix(text, "[Audio]") {
 				if !strings.Contains(text, "(") && len(rawBytes) > 0 {
 					var pbMsg waE2E.Message
 					if err := proto.Unmarshal(rawBytes, &pbMsg); err == nil {
-						extracted := extractText(&pbMsg)
+						extracted := acc.extractText(&pbMsg)
 						if extracted != "" {
 							text = extracted
 						}
@@ -151,7 +151,7 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 
 			if strings.HasPrefix(quotedText, "[Voice Message]") || strings.HasPrefix(quotedText, "[Audio]") {
 				if !strings.Contains(quotedText, "(") && quotedID != "" {
-					if _, _, qPreview, qErr := getMessageForQuote(quotedID); qErr == nil && qPreview != "" {
+					if _, _, qPreview, qErr := acc.getMessageForQuote(quotedID); qErr == nil && qPreview != "" {
 						quotedText = qPreview
 					}
 				}
@@ -167,7 +167,7 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 			stickerFavorite := false
 			if mediaType == "sticker" && len(rawBytes) > 0 {
 				if favorites == nil {
-					favorites = favoriteStickerHashes()
+					favorites = acc.favoriteStickerHashes()
 				}
 				var pbMsg waE2E.Message
 				if proto.Unmarshal(rawBytes, &pbMsg) == nil {
@@ -176,7 +176,7 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 			}
 			pollResults := ""
 			if strings.HasPrefix(text, "[Poll]") || strings.HasPrefix(text, "[Quiz]") || strings.HasPrefix(text, "[Event]") {
-				pollResults = pollResultsForMessage(id)
+				pollResults = acc.pollResultsForMessage(id)
 			}
 			ids = append(ids, id)
 			msgs = append(msgs, MessageJSON{
@@ -221,12 +221,12 @@ func fetchMessagesWhere(jid, filter string, limit, offset int, before, after *pa
 			msgs[i], msgs[j] = msgs[j], msgs[i]
 		}
 	}
-	origins := lookupMessageOrigins(quotedIDs)
+	origins := acc.lookupMessageOrigins(quotedIDs)
 	for i := range msgs {
 		msgs[i].QuotedSender = quotedSenderName(msgs[i].QuotedID, msgs[i].QuotedSender, origins, nameFor)
 	}
 	if len(ids) > 0 {
-		reactions := getReactionsForMessageIDs(ids)
+		reactions := acc.getReactionsForMessageIDs(ids)
 		for i := range msgs {
 			if rs, ok := reactions[msgs[i].ID]; ok {
 				msgs[i].Reactions = rs
@@ -259,7 +259,7 @@ func quotedSenderName(quotedID, quotedSender string, origins map[string]messageO
 	return quotedSender
 }
 
-func handleGetMessages(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetMessages(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID             string `json:"jid"`
 		Limit           int    `json:"limit"`
@@ -280,10 +280,10 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 			if limit == 0 {
 				limit = 50
 			}
-			msgs := fetchMessagesPageAt(data.JID, limit, 0, nil, &pageCursor{Timestamp: math.MinInt64})
-			older, newer := countAround(data.JID, msgs)
+			msgs := acc.fetchMessagesPageAt(data.JID, limit, 0, nil, &pageCursor{Timestamp: math.MinInt64})
+			older, newer := acc.countAround(data.JID, msgs)
 			log.Printf("Got the %d oldest messages for %s", len(msgs), data.JID)
-			sendEvent(conn, "conversation_messages", map[string]interface{}{
+			acc.sendEvent(conn, "conversation_messages", map[string]interface{}{
 				"jid":      data.JID,
 				"messages": msgs,
 				"isLatest": newer == 0,
@@ -297,10 +297,10 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 			if limit == 0 {
 				limit = 50
 			}
-			msgs := fetchMessagesPageAt(data.JID, limit, 0, nil, &pageCursor{Timestamp: data.AfterTimestamp, ID: data.AfterID})
-			older, newer := countAround(data.JID, msgs)
+			msgs := acc.fetchMessagesPageAt(data.JID, limit, 0, nil, &pageCursor{Timestamp: data.AfterTimestamp, ID: data.AfterID})
+			older, newer := acc.countAround(data.JID, msgs)
 			log.Printf("Got %d newer messages for %s", len(msgs), data.JID)
-			sendEvent(conn, "conversation_messages", map[string]interface{}{
+			acc.sendEvent(conn, "conversation_messages", map[string]interface{}{
 				"jid":       data.JID,
 				"messages":  msgs,
 				"loadNewer": true,
@@ -316,8 +316,8 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		}
 		loadMore := data.Offset > 0 || before != nil
 		if !loadMore {
-			db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
-			broadcastChats()
+			acc.db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", data.JID)
+			acc.broadcastChats()
 		}
 
 		limit := data.Limit
@@ -333,12 +333,12 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 
 		log.Printf("Getting messages for %s (Limit: %d, Offset: %d)", data.JID, limit, offset)
 		start := time.Now()
-		msgs := fetchMessagesPageBefore(data.JID, limit, offset, before)
+		msgs := acc.fetchMessagesPageBefore(data.JID, limit, offset, before)
 		log.Printf("Got %d messages for %s in %s", len(msgs), data.JID, time.Since(start).Round(time.Millisecond))
 		if !loadMore && !data.NoServerFetch && isChannelJID(data.JID) {
-			go refreshChannel(data.JID)
+			go acc.refreshChannel(data.JID)
 		}
-		older, newer := countAround(data.JID, msgs)
+		older, newer := acc.countAround(data.JID, msgs)
 		resp := map[string]interface{}{
 			"jid":      data.JID,
 			"messages": msgs,
@@ -349,21 +349,21 @@ func handleGetMessages(conn net.Conn, raw json.RawMessage) {
 		if !loadMore {
 			resp["isLatest"] = newer == 0
 		}
-		sendEvent(conn, "conversation_messages", resp)
+		acc.sendEvent(conn, "conversation_messages", resp)
 		if len(msgs) >= collectAfterMessages {
 			debug.FreeOSMemory()
 		}
 	}()
 }
 
-func countAround(jid string, page []MessageJSON) (older, newer int) {
+func (acc *Account) countAround(jid string, page []MessageJSON) (older, newer int) {
 	if len(page) == 0 {
 		return 0, 0
 	}
 	first, last := page[0], page[len(page)-1]
-	older = rowCount(jid, `(timestamp < ? OR (timestamp = ? AND id < ?))`,
+	older = acc.rowCount(jid, `(timestamp < ? OR (timestamp = ? AND id < ?))`,
 		[]interface{}{first.Timestamp, first.Timestamp, first.ID}, localDay(first.Timestamp))
-	newer = rowCount(jid, `(timestamp > ? OR (timestamp = ? AND id > ?))`,
+	newer = acc.rowCount(jid, `(timestamp > ? OR (timestamp = ? AND id > ?))`,
 		[]interface{}{last.Timestamp, last.Timestamp, last.ID}, localDay(last.Timestamp))
 	return older, newer
 }
@@ -372,8 +372,8 @@ func localDay(ts int64) string {
 	return time.Unix(ts, 0).Local().Format("2006-01-02")
 }
 
-func rowCount(jid, cond string, args []interface{}, skipDay string) int {
-	rows, err := db.Query(`SELECT timestamp, COALESCE(from_me, 0), COALESCE(sender_jid, ''), COALESCE(album_id, ''),
+func (acc *Account) rowCount(jid, cond string, args []interface{}, skipDay string) int {
+	rows, err := acc.db.Query(`SELECT timestamp, COALESCE(from_me, 0), COALESCE(sender_jid, ''), COALESCE(album_id, ''),
 			COALESCE(media_type, ''), substr(COALESCE(text, ''), 1, 7), COALESCE(is_deleted, 0)
 		FROM messages WHERE jid = ? AND `+cond+` ORDER BY timestamp ASC, id ASC`, append([]interface{}{jid}, args...)...)
 	if err != nil {
@@ -426,7 +426,7 @@ const (
 	linkFilter     = ` AND text NOT LIKE '[%' AND (text LIKE '%http://%' OR text LIKE '%https://%' OR text LIKE '%www.%')`
 )
 
-func handleGetChatMedia(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetChatMedia(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID string `json:"jid"`
 	}
@@ -434,18 +434,18 @@ func handleGetChatMedia(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		sendEvent(conn, "chat_media", map[string]interface{}{
+		acc.sendEvent(conn, "chat_media", map[string]interface{}{
 			"jid":       data.JID,
-			"media":     fetchMessagesWhere(data.JID, mediaFilter, -1, 0, nil, nil),
-			"documents": fetchMessagesWhere(data.JID, documentFilter, -1, 0, nil, nil),
-			"links":     fetchMessagesWhere(data.JID, linkFilter, -1, 0, nil, nil),
+			"media":     acc.fetchMessagesWhere(data.JID, mediaFilter, -1, 0, nil, nil),
+			"documents": acc.fetchMessagesWhere(data.JID, documentFilter, -1, 0, nil, nil),
+			"links":     acc.fetchMessagesWhere(data.JID, linkFilter, -1, 0, nil, nil),
 		})
 	}()
 }
 
 const collectAfterMessages = 2000
 
-func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID       string `json:"jid"`
 		MessageID string `json:"messageId"`
@@ -465,10 +465,10 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 		var targetID string
 		var lookupErr error
 		if data.MessageID != "" {
-			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND id = ?`,
+			lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND id = ?`,
 				data.JID, data.MessageID).Scan(&targetTS, &targetID)
 		} else if data.Text != "" {
-			lookupErr = db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND text LIKE ? ESCAPE '\'
+			lookupErr = acc.db.QueryRow(`SELECT timestamp, id FROM messages WHERE jid = ? AND text LIKE ? ESCAPE '\'
 				ORDER BY timestamp DESC LIMIT 1`, data.JID, "%"+escapeLike(data.Text)+"%").Scan(&targetTS, &targetID)
 		} else {
 			lookupErr = sql.ErrNoRows
@@ -478,7 +478,7 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 		limit := context*2 + 1
 		if lookupErr == nil {
 			var position int
-			if err := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND
+			if err := acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ? AND
 					(timestamp > ? OR (timestamp = ? AND id > ?))`,
 				data.JID, targetTS, targetTS, targetID).Scan(&position); err == nil {
 				offset = position - context
@@ -490,10 +490,10 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 			log.Printf("get_messages_around: target not found locally for %s, falling back to latest page", data.JID)
 		}
 
-		msgs := fetchMessagesPage(data.JID, limit, offset)
-		older, newer := countAround(data.JID, msgs)
+		msgs := acc.fetchMessagesPage(data.JID, limit, offset)
+		older, newer := acc.countAround(data.JID, msgs)
 		log.Printf("Got %d messages around target for %s", len(msgs), data.JID)
-		sendEvent(conn, "conversation_messages", map[string]interface{}{
+		acc.sendEvent(conn, "conversation_messages", map[string]interface{}{
 			"jid":      data.JID,
 			"messages": msgs,
 			"loadMore": false,
@@ -511,20 +511,20 @@ func handleGetMessagesAround(conn net.Conn, raw json.RawMessage) {
 // read with their database rows already closed: resolving a name runs its own
 // queries, and doing that while still reading rows held a pooled connection
 // waiting on another.
-func fillSenderNames(results []map[string]interface{}) {
+func (acc *Account) fillSenderNames(results []map[string]interface{}) {
 	names := map[string]string{}
 	for _, r := range results {
 		senderJID, _ := r["senderJid"].(string)
 		name, ok := names[senderJID]
 		if !ok && senderJID != "" {
 			if parsed, err := types.ParseJID(senderJID); err == nil {
-				name = resolveDisplayName(parsed)
+				name = acc.resolveDisplayName(parsed)
 			}
 			names[senderJID] = name
 		}
 		r["senderName"] = name
 		if text, ok := r["text"].(string); ok {
-			r["text"] = renderNames(text, nil)
+			r["text"] = acc.renderNames(text, nil)
 		}
 	}
 }
@@ -533,9 +533,9 @@ func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
-func handleGetStarredMessages(conn net.Conn) {
+func (acc *Account) handleGetStarredMessages(conn net.Conn) {
 	go func() {
-		rows, err := db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
+		rows, err := acc.db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(media_type,''), COALESCE(quoted_text,'')
 			FROM messages WHERE starred = 1 AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp DESC LIMIT 500`)
 		results := []map[string]interface{}{}
@@ -560,17 +560,17 @@ func handleGetStarredMessages(conn net.Conn) {
 				}
 			}
 			rows.Close()
-			fillSenderNames(results)
+			acc.fillSenderNames(results)
 		} else {
 			log.Println("Error querying starred messages:", err)
 		}
-		sendEvent(conn, "starred_messages", map[string]interface{}{
+		acc.sendEvent(conn, "starred_messages", map[string]interface{}{
 			"results": results,
 		})
 	}()
 }
 
-func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 	var data SearchMessagesData
 	if err := json.Unmarshal(raw, &data); err != nil || data.Query == "" {
 		return
@@ -580,13 +580,13 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 		var rows *sql.Rows
 		var err error
 		if data.JID != "" {
-			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
+			rows, err = acc.db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
 				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
 				WHERE jid = ? AND text LIKE ? ESCAPE '\' AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, data.JID, like)
 		} else {
-			rows, err = db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
+			rows, err = acc.db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
 				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
@@ -630,11 +630,11 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 				}
 			}
 			rows.Close()
-			fillSenderNames(results)
+			acc.fillSenderNames(results)
 		} else {
 			log.Println("Error searching messages:", err)
 		}
-		sendEvent(conn, "search_results", map[string]interface{}{
+		acc.sendEvent(conn, "search_results", map[string]interface{}{
 			"jid":     data.JID,
 			"query":   data.Query,
 			"results": results,
@@ -642,12 +642,12 @@ func handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) {
+func (acc *Account) getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) {
 	var msg_id string
 	var msg_ts int64
 	var from_me bool
 	var sender_jid string
-	err := db.QueryRow(
+	err := acc.db.QueryRow(
 		// Real messages only: a synthesized group-event line or call-history
 		// row has an ID WhatsApp never issued, and patches naming one as the
 		// chat's last message don't match what the phone has.
@@ -661,7 +661,7 @@ func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) 
 	}
 	remote := jid_str
 	if parsed, perr := types.ParseJID(jid_str); perr == nil {
-		remote = syncdChatJID(parsed).String()
+		remote = acc.syncdChatJID(parsed).String()
 	}
 	key := &waCommon.MessageKey{
 		RemoteJID: proto.String(remote),
@@ -683,34 +683,33 @@ func getLastMessageKeyForChat(jid_str string) (time.Time, *waCommon.MessageKey) 
 // rows just never disappear, with no error visible to the user. Holding this
 // lock for the whole send-and-retry sequence makes concurrent callers queue
 // up and each apply cleanly against the version the previous one left behind.
-var appStateSendMu sync.Mutex
 
-func sendAppStateWithRetry(ctx context.Context, patch appstate.PatchInfo) error {
-	appStateSendMu.Lock()
-	defer appStateSendMu.Unlock()
+func (acc *Account) sendAppStateWithRetry(ctx context.Context, patch appstate.PatchInfo) error {
+	acc.appStateSendMu.Lock()
+	defer acc.appStateSendMu.Unlock()
 
-	err := wa().SendAppState(ctx, patch)
+	err := acc.wa().SendAppState(ctx, patch)
 	if err == nil {
 		return nil
 	}
 	log.Printf("SendAppState %s failed, attempting resync: %v", patch.Type, err)
 
-	appStateResyncMu.Lock()
-	lastAppStateResync[patch.Type] = time.Now()
-	appStateResyncMu.Unlock()
+	acc.appStateResyncMu.Lock()
+	acc.lastAppStateResync[patch.Type] = time.Now()
+	acc.appStateResyncMu.Unlock()
 
-	if sync_err := wa().FetchAppState(ctx, patch.Type, false, false); sync_err != nil {
+	if sync_err := acc.wa().FetchAppState(ctx, patch.Type, false, false); sync_err != nil {
 		log.Printf("Resync of %s failed: %v", patch.Type, sync_err)
 		return fmt.Errorf("app state sync failed for %s: %w", patch.Type, sync_err)
 	}
-	if retry_err := wa().SendAppState(ctx, patch); retry_err != nil {
+	if retry_err := acc.wa().SendAppState(ctx, patch); retry_err != nil {
 		log.Printf("SendAppState %s retry also failed: %v", patch.Type, retry_err)
 		return fmt.Errorf("app state retry failed for %s: %w", patch.Type, retry_err)
 	}
 	return nil
 }
 
-func handleSetChatPinned(raw json.RawMessage) {
+func (acc *Account) handleSetChatPinned(raw json.RawMessage) {
 	var data ChatBoolData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -722,21 +721,21 @@ func handleSetChatPinned(raw json.RawMessage) {
 	go func() {
 		// WA Web sends an unarchive together with every pin
 		// (PinChatSync.getMutationsForPin), since a chat can't be both.
-		patch := appstate.BuildPin(syncdChatJID(jid), data.Value)
+		patch := appstate.BuildPin(acc.syncdChatJID(jid), data.Value)
 		if data.Value {
-			lastTS, lastKey := getLastMessageKeyForChat(data.JID)
-			patch.Mutations = append(patch.Mutations, appstate.BuildArchive(syncdChatJID(jid), false, lastTS, lastKey).Mutations...)
-			patch = withChatRange(patch, data.JID)
+			lastTS, lastKey := acc.getLastMessageKeyForChat(data.JID)
+			patch.Mutations = append(patch.Mutations, appstate.BuildArchive(acc.syncdChatJID(jid), false, lastTS, lastKey).Mutations...)
+			patch = acc.withChatRange(patch, data.JID)
 		}
-		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
-			broadcastChats()
+		if err := acc.sendAppStateWithRetry(context.Background(), patch); err != nil {
+			acc.broadcastChats()
 			return
 		}
-		applyPinChange(data.JID, data.Value, time.Now().Unix())
+		acc.applyPinChange(data.JID, data.Value, time.Now().Unix())
 	}()
 }
 
-func handleSetChatArchived(raw json.RawMessage) {
+func (acc *Account) handleSetChatArchived(raw json.RawMessage) {
 	var data ChatBoolData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -746,23 +745,23 @@ func handleSetChatArchived(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		patch := withChatRange(appstate.BuildArchive(syncdChatJID(jid), data.Value, last_ts, last_key), data.JID)
-		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
-			broadcastChats()
+		last_ts, last_key := acc.getLastMessageKeyForChat(data.JID)
+		patch := acc.withChatRange(appstate.BuildArchive(acc.syncdChatJID(jid), data.Value, last_ts, last_key), data.JID)
+		if err := acc.sendAppStateWithRetry(context.Background(), patch); err != nil {
+			acc.broadcastChats()
 			return
 		}
-		noteArchiveAction(data.JID, data.Value, patch.Mutations[0].Value.GetArchiveChatAction().GetMessageRange(), time.Now().Unix())
-		db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", boolToInt(data.Value), data.JID)
+		acc.noteArchiveAction(data.JID, data.Value, patch.Mutations[0].Value.GetArchiveChatAction().GetMessageRange(), time.Now().Unix())
+		acc.db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", boolToInt(data.Value), data.JID)
 		if data.Value {
 			// BuildArchive also unpins, as WA Web does.
-			applyPinChange(data.JID, false, time.Now().Unix())
+			acc.applyPinChange(data.JID, false, time.Now().Unix())
 		}
-		broadcastChats()
+		acc.broadcastChats()
 	}()
 }
 
-func handleSetChatMuted(raw json.RawMessage) {
+func (acc *Account) handleSetChatMuted(raw json.RawMessage) {
 	var data SetChatMutedData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -772,25 +771,25 @@ func handleSetChatMuted(raw json.RawMessage) {
 		return
 	}
 	if isChannelJID(data.JID) {
-		go handleChannelMute(data.JID, data.Muted)
+		go acc.handleChannelMute(data.JID, data.Muted)
 		return
 	}
 	go func() {
 		duration := time.Duration(data.DurationSeconds) * time.Second
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildMute(syncdChatJID(jid), data.Muted, duration)); err != nil {
-			broadcastChats()
+		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildMute(acc.syncdChatJID(jid), data.Muted, duration)); err != nil {
+			acc.broadcastChats()
 			return
 		}
 		muted_int := 0
 		if data.Muted {
 			muted_int = 1
 		}
-		db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", muted_int, data.JID)
-		broadcastChats()
+		acc.db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", muted_int, data.JID)
+		acc.broadcastChats()
 	}()
 }
 
-func handleSetChatRead(raw json.RawMessage) {
+func (acc *Account) handleSetChatRead(raw json.RawMessage) {
 	var data ChatBoolData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -809,16 +808,16 @@ func handleSetChatRead(raw json.RawMessage) {
 		// clears a marked-unread flag and leaves the chat unread.
 		// handleMarkRead does both, the same way opening the chat does.
 		payload, _ := json.Marshal(map[string]any{"jid": data.JID})
-		handleMarkRead(payload)
-		db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ?", data.JID)
-		broadcastChats()
+		acc.handleMarkRead(payload)
+		acc.db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ?", data.JID)
+		acc.broadcastChats()
 		return
 	}
-	db.Exec("UPDATE chats SET unread_count = 1, marked_unread = 1 WHERE jid = ?", data.JID)
-	broadcastChats()
+	acc.db.Exec("UPDATE chats SET unread_count = 1, marked_unread = 1 WHERE jid = ?", data.JID)
+	acc.broadcastChats()
 	go func() {
-		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildMarkChatAsRead(syncdChatJID(jid), false, last_ts, last_key), data.JID)); err != nil {
+		last_ts, last_key := acc.getLastMessageKeyForChat(data.JID)
+		if err := acc.sendAppStateWithRetry(context.Background(), acc.withChatRange(appstate.BuildMarkChatAsRead(acc.syncdChatJID(jid), false, last_ts, last_key), data.JID)); err != nil {
 			log.Printf("Marking %s unread on other devices failed: %v", data.JID, err)
 		}
 	}()
@@ -829,7 +828,7 @@ func handleSetChatRead(raw json.RawMessage) {
 // and every other linked device. Sends the same "deleteChat" app-state
 // mutation the phone itself would, same as handleSetChatLocked/
 // handleSetChatRead already do for their own actions.
-func handleDeleteChat(raw json.RawMessage) {
+func (acc *Account) handleDeleteChat(raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -839,18 +838,18 @@ func handleDeleteChat(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildDeleteChat(syncdChatJID(jid), last_ts, last_key, false), data.JID)); err != nil {
-			broadcastEvent("error", map[string]string{"message": "Failed to delete chat: " + err.Error()})
+		last_ts, last_key := acc.getLastMessageKeyForChat(data.JID)
+		if err := acc.sendAppStateWithRetry(context.Background(), acc.withChatRange(appstate.BuildDeleteChat(acc.syncdChatJID(jid), last_ts, last_key, false), data.JID)); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": "Failed to delete chat: " + err.Error()})
 			return
 		}
-		purgeMessages("jid = ?", data.JID)
-		db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
-		broadcastChats()
+		acc.purgeMessages("jid = ?", data.JID)
+		acc.db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
+		acc.broadcastChats()
 	}()
 }
 
-func handleClearChat(raw json.RawMessage) {
+func (acc *Account) handleClearChat(raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -860,19 +859,19 @@ func handleClearChat(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		last_ts, last_key := getLastMessageKeyForChat(data.JID)
-		if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildClearChat(syncdChatJID(jid), last_ts, last_key, false, false), data.JID)); err != nil {
-			broadcastEvent("error", map[string]string{"message": "Failed to clear chat: " + err.Error()})
+		last_ts, last_key := acc.getLastMessageKeyForChat(data.JID)
+		if err := acc.sendAppStateWithRetry(context.Background(), acc.withChatRange(appstate.BuildClearChat(acc.syncdChatJID(jid), last_ts, last_key, false, false), data.JID)); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": "Failed to clear chat: " + err.Error()})
 			return
 		}
-		purgeMessages("jid = ?", data.JID)
-		clearChatPreview(data.JID)
-		broadcastChats()
-		broadcastEvent("chat_cleared", map[string]interface{}{"jid": data.JID})
+		acc.purgeMessages("jid = ?", data.JID)
+		acc.clearChatPreview(data.JID)
+		acc.broadcastChats()
+		acc.broadcastEvent("chat_cleared", map[string]interface{}{"jid": data.JID})
 	}()
 }
 
-func handleRequestMessageResend(raw json.RawMessage) {
+func (acc *Account) handleRequestMessageResend(raw json.RawMessage) {
 	var data struct {
 		JID       string `json:"jid"`
 		MessageID string `json:"message_id"`
@@ -882,11 +881,11 @@ func handleRequestMessageResend(raw json.RawMessage) {
 	}
 
 	var senderJID string
-	db.QueryRow("SELECT COALESCE(sender_jid, '') FROM messages WHERE id = ?", data.MessageID).Scan(&senderJID)
-	requestMessageResend(data.MessageID, data.JID, senderJID)
+	acc.db.QueryRow("SELECT COALESCE(sender_jid, '') FROM messages WHERE id = ?", data.MessageID).Scan(&senderJID)
+	acc.requestMessageResend(data.MessageID, data.JID, senderJID)
 }
 
-func handleRequestHistorySync(raw json.RawMessage) {
+func (acc *Account) handleRequestHistorySync(raw json.RawMessage) {
 	var data struct {
 		JID       string `json:"jid"`
 		MessageID string `json:"message_id"`
@@ -902,13 +901,13 @@ func handleRequestHistorySync(raw json.RawMessage) {
 		return
 	}
 	if chatJID.Server == types.NewsletterServer {
-		go loadOlderChannelPosts(data.JID)
+		go acc.loadOlderChannelPosts(data.JID)
 		return
 	}
-	requestOlderHistory(chatJID, data.JID, data.Count, true)
+	acc.requestOlderHistory(chatJID, data.JID, data.Count, true)
 }
 
-func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry bool) {
+func (acc *Account) requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry bool) {
 	data := struct {
 		JID   string
 		Count int
@@ -921,9 +920,9 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 	// trusting the UI's pick - it used to send its first row, which is
 	// always a date divider with no ID, so the lookup failed and the
 	// request was silently never sent at all.
-	oldest, err := oldestHistoryAnchor(data.JID, nil)
+	oldest, err := acc.oldestHistoryAnchor(data.JID, nil)
 	if err != nil {
-		requestHistoryForEmptyChat(chatJID, data.JID, count)
+		acc.requestHistoryForEmptyChat(chatJID, data.JID, count)
 		return
 	}
 
@@ -933,16 +932,16 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 	// can never turn into a stream of identical requests to the phone.
 	var lastAnchor, lastOldest string
 	var lastAt int64
-	haveLast := db.QueryRow(`SELECT anchor_id, COALESCE(oldest_id, ''), requested_at FROM history_requests WHERE jid = ?`,
+	haveLast := acc.db.QueryRow(`SELECT anchor_id, COALESCE(oldest_id, ''), requested_at FROM history_requests WHERE jid = ?`,
 		data.JID).Scan(&lastAnchor, &lastOldest, &lastAt) == nil
 	if haveLast && lastOldest == oldest.id && time.Since(time.Unix(lastAt, 0)) < historyRequestRepeatAfter {
 		log.Printf("Not re-requesting history for %s: already asked before %s at %s", data.JID, lastAnchor, time.Unix(lastAt, 0).Format(time.RFC3339))
-		broadcastEvent("no_more_history", map[string]string{"jid": data.JID})
+		acc.broadcastEvent("no_more_history", map[string]string{"jid": data.JID})
 		return
 	}
 	anchor := oldest
 	if haveLast && lastOldest == oldest.id {
-		if alt, altErr := oldestHistoryAnchor(data.JID, []string{oldest.id, lastAnchor}); altErr == nil {
+		if alt, altErr := acc.oldestHistoryAnchor(data.JID, []string{oldest.id, lastAnchor}); altErr == nil {
 			log.Printf("History request for %s before %s got nothing; trying %s instead", data.JID, lastAnchor, alt.id)
 			anchor = alt
 		}
@@ -964,7 +963,7 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 		Timestamp: time.Unix(ts, 0),
 	}
 
-	if _, err := db.Exec(`INSERT INTO history_requests (jid, anchor_id, oldest_id, requested_at) VALUES (?, ?, ?, ?)
+	if _, err := acc.db.Exec(`INSERT INTO history_requests (jid, anchor_id, oldest_id, requested_at) VALUES (?, ?, ?, ?)
 		ON CONFLICT(jid) DO UPDATE SET anchor_id = excluded.anchor_id, oldest_id = excluded.oldest_id, requested_at = excluded.requested_at`,
 		data.JID, msgID, oldest.id, time.Now().Unix()); err != nil {
 		log.Printf("history sync request for %s: couldn't record it, not sending: %v", data.JID, err)
@@ -975,18 +974,18 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 		count = 50
 	}
 	log.Printf("Requesting older history for %s before %s (count %d)", data.JID, msgID, count)
-	req := wa().BuildHistorySyncRequest(msgInfo, count)
+	req := acc.wa().BuildHistorySyncRequest(msgInfo, count)
 	go func() {
 		answered := make(chan struct{}, 1)
-		onDemandWaiters.Store(data.JID, answered)
-		defer onDemandWaiters.CompareAndDelete(data.JID, answered)
-		historyRequestMu.Lock()
-		if wait := historyRequestMinGap - time.Since(lastHistoryRequest); wait > 0 {
+		acc.onDemandWaiters.Store(data.JID, answered)
+		defer acc.onDemandWaiters.CompareAndDelete(data.JID, answered)
+		acc.historyRequestMu.Lock()
+		if wait := historyRequestMinGap - time.Since(acc.lastHistoryRequest); wait > 0 {
 			time.Sleep(wait)
 		}
-		lastHistoryRequest = time.Now()
-		_, sendErr := wa().SendPeerMessage(context.Background(), req)
-		historyRequestMu.Unlock()
+		acc.lastHistoryRequest = time.Now()
+		_, sendErr := acc.wa().SendPeerMessage(context.Background(), req)
+		acc.historyRequestMu.Unlock()
 		if sendErr != nil {
 			log.Printf("history sync request for %s failed: %v", data.JID, sendErr)
 			return
@@ -996,34 +995,32 @@ func requestOlderHistory(chatJID types.JID, jid string, count int, autoRetry boo
 			case <-answered:
 			case <-time.After(onDemandRetryAfter):
 				log.Printf("No answer from the phone for %s before %s after %s; retrying with another anchor", data.JID, msgID, onDemandRetryAfter)
-				requestOlderHistory(chatJID, data.JID, count, false)
+				acc.requestOlderHistory(chatJID, data.JID, count, false)
 			}
 			return
 		}
 		select {
 		case <-answered:
-			if now, err := oldestHistoryAnchor(data.JID, nil); err != nil || now.id != oldest.id {
+			if now, err := acc.oldestHistoryAnchor(data.JID, nil); err != nil || now.id != oldest.id {
 				return
 			}
 			log.Printf("The phone's answer for %s held nothing older than %s; this is the start of the chat", data.JID, oldest.id)
 		case <-time.After(onDemandStartAfter):
 			log.Printf("No answer from the phone for %s after a retry either; this is the start of the chat", data.JID)
 		}
-		broadcastEvent("history_start_reached", map[string]string{"jid": data.JID})
+		acc.broadcastEvent("history_start_reached", map[string]string{"jid": data.JID})
 	}()
 }
 
-var emptyChatHistoryAsked sync.Map
-
-func requestHistoryForEmptyChat(chatJID types.JID, jid string, count int) {
-	if _, asked := emptyChatHistoryAsked.LoadOrStore(jid, true); asked {
-		broadcastEvent("history_start_reached", map[string]string{"jid": jid})
+func (acc *Account) requestHistoryForEmptyChat(chatJID types.JID, jid string, count int) {
+	if _, asked := acc.emptyChatHistoryAsked.LoadOrStore(jid, true); asked {
+		acc.broadcastEvent("history_start_reached", map[string]string{"jid": jid})
 		return
 	}
 	if count <= 0 || count > 50 {
 		count = 50
 	}
-	req := wa().BuildHistorySyncRequest(&types.MessageInfo{
+	req := acc.wa().BuildHistorySyncRequest(&types.MessageInfo{
 		MessageSource: types.MessageSource{Chat: chatJID},
 		Timestamp:     time.Now(),
 	}, count)
@@ -1032,34 +1029,32 @@ func requestHistoryForEmptyChat(chatJID types.JID, jid string, count int) {
 	log.Printf("Requesting the latest history for %s, which has no messages yet (count %d)", jid, count)
 	go func() {
 		answered := make(chan struct{}, 1)
-		onDemandWaiters.Store(jid, answered)
-		defer onDemandWaiters.CompareAndDelete(jid, answered)
-		historyRequestMu.Lock()
-		if wait := historyRequestMinGap - time.Since(lastHistoryRequest); wait > 0 {
+		acc.onDemandWaiters.Store(jid, answered)
+		defer acc.onDemandWaiters.CompareAndDelete(jid, answered)
+		acc.historyRequestMu.Lock()
+		if wait := historyRequestMinGap - time.Since(acc.lastHistoryRequest); wait > 0 {
 			time.Sleep(wait)
 		}
-		lastHistoryRequest = time.Now()
-		_, sendErr := wa().SendPeerMessage(context.Background(), req)
-		historyRequestMu.Unlock()
+		acc.lastHistoryRequest = time.Now()
+		_, sendErr := acc.wa().SendPeerMessage(context.Background(), req)
+		acc.historyRequestMu.Unlock()
 		if sendErr != nil {
 			log.Printf("history sync request for %s failed: %v", jid, sendErr)
-			emptyChatHistoryAsked.Delete(jid)
-			broadcastEvent("no_more_history", map[string]string{"jid": jid})
+			acc.emptyChatHistoryAsked.Delete(jid)
+			acc.broadcastEvent("no_more_history", map[string]string{"jid": jid})
 			return
 		}
 		select {
 		case <-answered:
 		case <-time.After(onDemandRetryAfter):
 			log.Printf("No answer from the phone for %s, which has no messages; leaving it empty", jid)
-			broadcastEvent("no_more_history", map[string]string{"jid": jid})
+			acc.broadcastEvent("no_more_history", map[string]string{"jid": jid})
 		}
 	}()
 }
 
-var onDemandWaiters sync.Map
-
-func noteOnDemandAnswer(jid string) {
-	if ch, ok := onDemandWaiters.Load(jid); ok {
+func (acc *Account) noteOnDemandAnswer(jid string) {
+	if ch, ok := acc.onDemandWaiters.Load(jid); ok {
 		select {
 		case ch.(chan struct{}) <- struct{}{}:
 		default:
@@ -1074,21 +1069,16 @@ const (
 	onDemandStartAfter        = 10 * time.Second
 )
 
-var (
-	historyRequestMu   sync.Mutex
-	lastHistoryRequest time.Time
-)
-
 type historyAnchor struct {
 	id, sender string
 	fromMe     bool
 	ts         int64
 }
 
-func oldestHistoryAnchor(jid string, exclude []string) (historyAnchor, error) {
+func (acc *Account) oldestHistoryAnchor(jid string, exclude []string) (historyAnchor, error) {
 	var a historyAnchor
 	if len(exclude) == 0 {
-		err := db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), from_me, timestamp FROM messages
+		err := acc.db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), from_me, timestamp FROM messages
 			WHERE jid = ? AND COALESCE(media_type, '') NOT IN ('system', 'call')
 			ORDER BY timestamp ASC, id ASC LIMIT 1`, jid).Scan(&a.id, &a.sender, &a.fromMe, &a.ts)
 		return a, err
@@ -1098,7 +1088,7 @@ func oldestHistoryAnchor(jid string, exclude []string) (historyAnchor, error) {
 	for _, id := range exclude {
 		args = append(args, id)
 	}
-	err := db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), from_me, timestamp FROM messages
+	err := acc.db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), from_me, timestamp FROM messages
 		WHERE jid = ? AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT IN (`+notIn+`)
 		ORDER BY (COALESCE(is_deleted, 0) = 0 AND COALESCE(media_type, '') = '' AND COALESCE(album_id, '') = '') DESC,
 			timestamp ASC, id ASC LIMIT 1`, args...).Scan(&a.id, &a.sender, &a.fromMe, &a.ts)

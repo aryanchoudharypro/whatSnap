@@ -34,7 +34,7 @@ type preparedPhoto struct {
 	thumbnail     []byte
 }
 
-func preparePhoto(id, path string, hd bool) (*preparedPhoto, error) {
+func (acc *Account) preparePhoto(id, path string, hd bool) (*preparedPhoto, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -52,16 +52,16 @@ func preparePhoto(id, path string, hd bool) (*preparedPhoto, error) {
 		return &preparedPhoto{path: path, width: b.Dx(), height: b.Dy(), thumbnail: thumb}, nil
 	}
 
-	maxEdge := serverFlagInt(abPropImageMaxEdge, defaultImageMaxEdge)
+	maxEdge := acc.serverFlagInt(abPropImageMaxEdge, defaultImageMaxEdge)
 	if hd {
-		maxEdge = serverFlagInt(abPropImageHDEdge, defaultImageHDEdge)
+		maxEdge = acc.serverFlagInt(abPropImageHDEdge, defaultImageHDEdge)
 	}
 	img = fitWithin(img, maxEdge, catmullRom)
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, onWhite(img), &jpeg.Options{Quality: serverFlagInt(abPropJPEGQuality, defaultJPEGQuality)}); err != nil {
+	if err := jpeg.Encode(&buf, onWhite(img), &jpeg.Options{Quality: acc.serverFlagInt(abPropJPEGQuality, defaultJPEGQuality)}); err != nil {
 		return nil, err
 	}
-	out := filepath.Join(mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+preparedPhotoSuffix)
+	out := filepath.Join(acc.mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+preparedPhotoSuffix)
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return nil, err
 	}

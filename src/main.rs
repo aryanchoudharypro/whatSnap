@@ -77,7 +77,7 @@ impl Default for PresenceModel {
 }
 
 struct AppState {
-	/// The linked accounts and their backends. Survives switching accounts.
+	/// The linked accounts and their backend links. Survives switching accounts.
 	accounts: Rc<RefCell<ui_commands::accounts::Accounts>>,
 	settings: crate::settings::Settings,
 	keymap: Rc<crate::keymap::Keymap>,
@@ -387,16 +387,16 @@ fn main() {
 	let verbose_backend_logging = early_settings.verbose_backend_logging;
 	crate::ui::theme::set_theme(early_settings.theme);
 
-	// Every linked account runs its own backend, so all of them stay online.
-	// The active one is started first so its window fills in soonest.
+	// One backend runs every linked account, so all of them stay online.
+	// The active one is opened first so its window fills in soonest.
 	let accounts = ui_commands::accounts::Accounts::load_at_startup();
 	backend::links::set_launcher(backend_exe, backend_dir, verbose_backend_logging);
 	let mut start_order: Vec<String> = vec![accounts.registry.active.clone()];
 	start_order.extend(accounts.registry.live().map(|a| a.id.clone()).filter(|id| *id != accounts.registry.active));
 	let links: Vec<backend::links::Link> = start_order.iter().map(|id| backend::links::start(id)).collect();
-	// Killing a backend outright skips both the WhatsApp disconnect and the
-	// database close, which strands the SQLite -wal/-shm files. Exit asks each
-	// to stop on its own first. (Their kill-on-close job is the backstop if one
+	// Killing the backend outright skips both the WhatsApp disconnects and the
+	// database closes, which strands the SQLite -wal/-shm files. Exit asks it
+	// to stop on its own first. (Its kill-on-close job is the backstop if it
 	// never comes down: the handle closes when this process exits.)
 	platform::quit::on_backend_shutdown(backend::links::shut_down_all);
 

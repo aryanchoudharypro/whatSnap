@@ -41,18 +41,18 @@ type MarkStatusViewedData struct {
 	PosterJID string `json:"poster_jid"`
 }
 
-func handleGetStatuses(conn net.Conn) {
+func (acc *Account) handleGetStatuses(conn net.Conn) {
 	go func() {
-		purgeExpiredStatuses()
+		acc.purgeExpiredStatuses()
 
-		rows, err := db.Query(`SELECT id, COALESCE(sender_jid, ''), from_me, COALESCE(text, ''),
+		rows, err := acc.db.Query(`SELECT id, COALESCE(sender_jid, ''), from_me, COALESCE(text, ''),
 				COALESCE(media_type, ''), COALESCE(media_mimetype, ''), COALESCE(media_filename, ''), COALESCE(media_path, ''),
 				timestamp, COALESCE(viewed, 0),
 				(SELECT COUNT(*) FROM status_viewers v WHERE v.status_id = messages.id AND v.viewer != 'me'),
 				COALESCE((SELECT reaction FROM status_viewers v WHERE v.status_id = messages.id AND v.viewer = 'me'), ''),
 				CASE WHEN COALESCE(media_type, '') = '' THEN raw END
 			FROM messages WHERE jid = 'status@broadcast' AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC`)
-		muted := statusMuted()
+		muted := acc.statusMuted()
 
 		type groupMeta struct {
 			posterJID, posterName string
@@ -101,9 +101,9 @@ func handleGetStatuses(conn net.Conn) {
 			if g.fromMe {
 				continue
 			}
-			g.muted = statusMutedFor(muted, g.posterJID)
+			g.muted = acc.statusMutedFor(muted, g.posterJID)
 			if parsed, perr := types.ParseJID(g.posterJID); perr == nil {
-				g.posterName = resolveDisplayName(parsed)
+				g.posterName = acc.resolveDisplayName(parsed)
 			} else {
 				g.posterName = g.posterJID
 			}
@@ -136,7 +136,7 @@ func handleGetStatuses(conn net.Conn) {
 			return si[len(si)-1]["timestamp"].(int64) > sj[len(sj)-1]["timestamp"].(int64)
 		})
 
-		sendEvent(conn, "statuses", map[string]interface{}{"groups": result})
+		acc.sendEvent(conn, "statuses", map[string]interface{}{"groups": result})
 	}()
 }
 
@@ -152,7 +152,7 @@ func textStatusColors(raw []byte) (background, text uint32) {
 	return ext.GetBackgroundArgb(), ext.GetTextArgb()
 }
 
-func handlePostStatus(raw json.RawMessage) {
+func (acc *Account) handlePostStatus(raw json.RawMessage) {
 	var data PostStatusData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -168,21 +168,21 @@ func handlePostStatus(raw json.RawMessage) {
 				BackgroundArgb: proto.Uint32(whatsappTeal),
 			},
 		}
-		resp, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID(), StatusRecipients: statusRecipients(context.Background())})
+		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: acc.statusRecipients(context.Background())})
 		if err != nil {
-			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
 		}
 		ownJID := ""
-		if wa().Store.ID != nil {
-			ownJID = wa().Store.ID.ToNonAD().String()
+		if acc.wa().Store.ID != nil {
+			ownJID = acc.wa().Store.ID.ToNonAD().String()
 		}
 		rawBytes, _ := proto.Marshal(msg)
-		saveMessage(StoredMessage{
+		acc.saveMessage(StoredMessage{
 			ID: resp.ID, JID: "status@broadcast", SenderJID: ownJID,
 			FromMe: true, Text: text, Timestamp: resp.Timestamp.Unix(), Raw: rawBytes, Status: "sent",
 		})
-		broadcastEvent("status_update", map[string]interface{}{
+		acc.broadcastEvent("status_update", map[string]interface{}{
 			"id": resp.ID, "posterJid": ownJID, "fromMe": true, "text": text,
 			"mediaType": "", "timestamp": resp.Timestamp.Unix(),
 		})
@@ -194,7 +194,7 @@ func handlePostStatus(raw json.RawMessage) {
 // sendUploadedAttachment (minus ContextInfo/quoting, which don't apply to
 // statuses). Sending to types.StatusBroadcastJID is what makes whatsmeow
 // broadcast-encrypt this to the status audience instead of a single chat.
-func handlePostMediaStatus(raw json.RawMessage) {
+func (acc *Account) handlePostMediaStatus(raw json.RawMessage) {
 	var data PostMediaStatusData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -203,18 +203,18 @@ func handlePostMediaStatus(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		id := wa().GenerateMessageID()
+		id := acc.wa().GenerateMessageID()
 
 		srcPath := data.Path
 		if srcPath == "" {
 			fileBytes, err := readLocalFileOrDecode("", data.Data)
 			if err != nil {
-				broadcastEvent("error", map[string]string{"message": err.Error()})
+				acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 				return
 			}
-			tmp, saveErr := saveMediaBytes("outgoing", id+"_src", detectMimeType(data.Filename, "", fileBytes), fileBytes)
+			tmp, saveErr := acc.saveMediaBytes("outgoing", id+"_src", detectMimeType(data.Filename, "", fileBytes), fileBytes)
 			if saveErr != nil {
-				broadcastEvent("error", map[string]string{"message": saveErr.Error()})
+				acc.broadcastEvent("error", map[string]string{"message": saveErr.Error()})
 				return
 			}
 			srcPath = tmp
@@ -222,7 +222,7 @@ func handlePostMediaStatus(raw json.RawMessage) {
 		var photo *preparedPhoto
 		preparedCopy := ""
 		if data.Type == "image" {
-			if p, err := preparePhoto(id+"_status", srcPath, false); err == nil {
+			if p, err := acc.preparePhoto(id+"_status", srcPath, false); err == nil {
 				photo = p
 				if p.path != srcPath {
 					if data.Path == "" {
@@ -235,11 +235,11 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			}
 		}
 		if st, err := os.Stat(srcPath); err == nil {
-			if limit := int64(serverFlagInt(abPropStatusMediaLimitMB, defaultMediaLimitMB)) << 20; st.Size() > limit {
+			if limit := int64(acc.serverFlagInt(abPropStatusMediaLimitMB, defaultMediaLimitMB)) << 20; st.Size() > limit {
 				if data.Path == "" {
 					os.Remove(srcPath)
 				}
-				broadcastEvent("error", map[string]string{"message": attachmentTooLargeText(data.Type, st.Size(), limit)})
+				acc.broadcastEvent("error", map[string]string{"message": attachmentTooLargeText(data.Type, st.Size(), limit)})
 				return
 			}
 		}
@@ -247,10 +247,10 @@ func handlePostMediaStatus(raw json.RawMessage) {
 		if mimetype == "" || mimetype == "application/octet-stream" || mimetype == "application/zip" {
 			mimetype = detectMimeType(data.Filename, srcPath, sniffFileHeader(srcPath))
 		}
-		cachedPath := filepath.Join(mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+extForMime(mimetype))
+		cachedPath := filepath.Join(acc.mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+extForMime(mimetype))
 		if srcPath != cachedPath {
 			if err := copyFileStreaming(srcPath, cachedPath); err != nil {
-				broadcastEvent("error", map[string]string{"message": err.Error()})
+				acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 				return
 			}
 			if data.Path == "" || srcPath == preparedCopy {
@@ -280,13 +280,13 @@ func handlePostMediaStatus(raw json.RawMessage) {
 		}
 		f, err := os.Open(cachedPath)
 		if err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		uploaded, err := wa().UploadReader(context.Background(), f, nil, waMediaType)
+		uploaded, err := acc.wa().UploadReader(context.Background(), f, nil, waMediaType)
 		f.Close()
 		if err != nil {
-			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
 		}
 
@@ -332,44 +332,44 @@ func handlePostMediaStatus(raw json.RawMessage) {
 			msg = &waE2E.Message{VideoMessage: vidMsg}
 		}
 
-		resp, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id, StatusRecipients: statusRecipients(context.Background())})
+		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id, StatusRecipients: acc.statusRecipients(context.Background())})
 		if err != nil {
-			broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
 		}
 
 		ownJID := ""
-		if wa().Store.ID != nil {
-			ownJID = wa().Store.ID.ToNonAD().String()
+		if acc.wa().Store.ID != nil {
+			ownJID = acc.wa().Store.ID.ToNonAD().String()
 		}
 		rawBytes, _ := proto.Marshal(msg)
-		saveMessage(StoredMessage{
+		acc.saveMessage(StoredMessage{
 			ID: resp.ID, JID: "status@broadcast", SenderJID: ownJID,
 			FromMe: true, Text: data.Caption, Timestamp: resp.Timestamp.Unix(), Raw: rawBytes, Status: "sent",
 			MediaType: data.Type, MediaMimetype: mimetype, MediaFilename: data.Filename, MediaPath: cachedPath,
 		})
-		broadcastEvent("status_update", map[string]interface{}{
+		acc.broadcastEvent("status_update", map[string]interface{}{
 			"id": resp.ID, "posterJid": ownJID, "fromMe": true, "text": data.Caption,
 			"mediaType": data.Type, "timestamp": resp.Timestamp.Unix(),
 		})
 	}()
 }
 
-func handleMarkStatusViewed(raw json.RawMessage) {
+func (acc *Account) handleMarkStatusViewed(raw json.RawMessage) {
 	var data MarkStatusViewedData
 	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" || data.PosterJID == "" || data.PosterJID == "me" {
 		return
 	}
-	db.Exec("UPDATE messages SET viewed = 1 WHERE id = ? AND jid = 'status@broadcast'", data.ID)
+	acc.db.Exec("UPDATE messages SET viewed = 1 WHERE id = ? AND jid = 'status@broadcast'", data.ID)
 	go func() {
 		poster, err := types.ParseJID(data.PosterJID)
 		if err != nil || poster.IsEmpty() {
 			return
 		}
-		if wa().Store.ID != nil && poster.User == wa().Store.ID.User {
+		if acc.wa().Store.ID != nil && poster.User == acc.wa().Store.ID.User {
 			return
 		}
-		ensureAvailableForRead()
-		_ = wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), types.StatusBroadcastJID, poster, types.ReceiptTypeRead)
+		acc.ensureAvailableForRead()
+		_ = acc.wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), types.StatusBroadcastJID, poster, types.ReceiptTypeRead)
 	}()
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/types"
@@ -28,42 +27,33 @@ const (
 	followedChannelsEvery = time.Minute
 )
 
-var (
-	groupListMu      sync.Mutex
-	groupListCached  []*types.GroupInfo
-	groupListFetched time.Time
-
-	followedChannelsMu   sync.Mutex
-	followedChannelsLast time.Time
-)
-
-func serverGroupList() ([]*types.GroupInfo, error) {
-	groupListMu.Lock()
-	defer groupListMu.Unlock()
-	if groupListCached != nil && time.Since(groupListFetched) < groupListMaxAge {
-		return groupListCached, nil
+func (acc *Account) serverGroupList() ([]*types.GroupInfo, error) {
+	acc.groupListMu.Lock()
+	defer acc.groupListMu.Unlock()
+	if acc.groupListCached != nil && time.Since(acc.groupListFetched) < groupListMaxAge {
+		return acc.groupListCached, nil
 	}
-	groups, err := wa().GetJoinedGroups(context.Background())
+	groups, err := acc.wa().GetJoinedGroups(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	groupListCached, groupListFetched = groups, time.Now()
+	acc.groupListCached, acc.groupListFetched = groups, time.Now()
 	return groups, nil
 }
 
-func invalidateJoinedGroups() {
-	groupListMu.Lock()
-	groupListCached = nil
-	groupListMu.Unlock()
+func (acc *Account) invalidateJoinedGroups() {
+	acc.groupListMu.Lock()
+	acc.groupListCached = nil
+	acc.groupListMu.Unlock()
 }
 
-func syncFollowedChannelsThrottled() {
-	followedChannelsMu.Lock()
-	if !followedChannelsLast.IsZero() && time.Since(followedChannelsLast) < followedChannelsEvery {
-		followedChannelsMu.Unlock()
+func (acc *Account) syncFollowedChannelsThrottled() {
+	acc.followedChannelsMu.Lock()
+	if !acc.followedChannelsLast.IsZero() && time.Since(acc.followedChannelsLast) < followedChannelsEvery {
+		acc.followedChannelsMu.Unlock()
 		return
 	}
-	followedChannelsLast = time.Now()
-	followedChannelsMu.Unlock()
-	syncFollowedChannels()
+	acc.followedChannelsLast = time.Now()
+	acc.followedChannelsMu.Unlock()
+	acc.syncFollowedChannels()
 }

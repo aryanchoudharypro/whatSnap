@@ -35,8 +35,8 @@ type callRecord struct {
 	KeyChat string
 }
 
-func ensureCallRecords() error {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS call_records (
+func (acc *Account) ensureCallRecords() error {
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS call_records (
 		call_id TEXT PRIMARY KEY,
 		jid TEXT NOT NULL,
 		from_me INTEGER DEFAULT 0,
@@ -50,14 +50,14 @@ func ensureCallRecords() error {
 	)`); err != nil {
 		return err
 	}
-	db.Exec(`ALTER TABLE call_records ADD COLUMN creator TEXT DEFAULT ''`)
-	db.Exec(`ALTER TABLE call_records ADD COLUMN key_chat TEXT DEFAULT ''`)
+	acc.db.Exec(`ALTER TABLE call_records ADD COLUMN creator TEXT DEFAULT ''`)
+	acc.db.Exec(`ALTER TABLE call_records ADD COLUMN key_chat TEXT DEFAULT ''`)
 	// Calls deleted here or on another device, so a call log record or history
 	// chunk naming one later doesn't bring it back.
-	db.Exec(`CREATE TABLE IF NOT EXISTS deleted_calls (call_id TEXT PRIMARY KEY)`)
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_ts ON call_records (timestamp DESC)`)
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_jid ON call_records (jid)`)
-	_, err := db.Exec(`INSERT OR IGNORE INTO call_records (call_id, jid, from_me, is_video, is_group, text, timestamp)
+	acc.db.Exec(`CREATE TABLE IF NOT EXISTS deleted_calls (call_id TEXT PRIMARY KEY)`)
+	acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_ts ON call_records (timestamp DESC)`)
+	acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_call_records_jid ON call_records (jid)`)
+	_, err := acc.db.Exec(`INSERT OR IGNORE INTO call_records (call_id, jid, from_me, is_video, is_group, text, timestamp)
 		SELECT SUBSTR(id, 6), jid, COALESCE(from_me, 0), LOWER(COALESCE(text, '')) LIKE '%video%',
 			jid LIKE '%@g.us', COALESCE(text, ''), COALESCE(timestamp, 0)
 		FROM messages WHERE media_type = 'call' AND id LIKE 'call:%'`)
@@ -88,11 +88,11 @@ func callResultName(r waSyncAction.CallLogRecord_CallResult) string {
 	return ""
 }
 
-func storeCallRecord(r callRecord) {
+func (acc *Account) storeCallRecord(r callRecord) {
 	if r.CallID == "" || r.JID == "" {
 		return
 	}
-	if callDeleted(r.CallID) {
+	if acc.callDeleted(r.CallID) {
 		return
 	}
 	var q string
@@ -110,29 +110,29 @@ func storeCallRecord(r callRecord) {
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
 			ON CONFLICT(call_id) DO NOTHING`
 	}
-	if _, err := db.Exec(q, r.CallID, r.JID, boolToInt(r.FromMe), boolToInt(r.IsVideo), boolToInt(r.IsGroup),
+	if _, err := acc.db.Exec(q, r.CallID, r.JID, boolToInt(r.FromMe), boolToInt(r.IsVideo), boolToInt(r.IsGroup),
 		r.Result, r.Duration, r.Timestamp, r.Text, r.Creator, r.KeyChat); err != nil {
 		log.Printf("call records: storing %s failed: %v", r.CallID, err)
 	}
 }
 
-func callDeleted(callID string) bool {
+func (acc *Account) callDeleted(callID string) bool {
 	var one int
-	return db.QueryRow(`SELECT 1 FROM deleted_calls WHERE call_id = ?`, callID).Scan(&one) == nil
+	return acc.db.QueryRow(`SELECT 1 FROM deleted_calls WHERE call_id = ?`, callID).Scan(&one) == nil
 }
 
-func deleteNewestCallRecord(jid string, fromMe bool, until int64) (string, bool) {
+func (acc *Account) deleteNewestCallRecord(jid string, fromMe bool, until int64) (string, bool) {
 	var id string
-	err := db.QueryRow(`SELECT call_id FROM call_records
+	err := acc.db.QueryRow(`SELECT call_id FROM call_records
 		WHERE jid = ? AND from_me = ? AND is_group = 0 AND timestamp <= ?
 		ORDER BY timestamp DESC LIMIT 1`, jid, boolToInt(fromMe), until).Scan(&id)
 	if err != nil {
 		return "", false
 	}
-	if _, err := db.Exec(`DELETE FROM call_records WHERE call_id = ?`, id); err != nil {
+	if _, err := acc.db.Exec(`DELETE FROM call_records WHERE call_id = ?`, id); err != nil {
 		return "", false
 	}
-	db.Exec(`INSERT OR IGNORE INTO deleted_calls (call_id) VALUES (?)`, id)
+	acc.db.Exec(`INSERT OR IGNORE INTO deleted_calls (call_id) VALUES (?)`, id)
 	return id, true
 }
 
@@ -149,7 +149,7 @@ type CallLogJSON struct {
 	Duration  int64  `json:"duration"`
 }
 
-func nameResolver() func(string) string {
+func (acc *Account) nameResolver() func(string) string {
 	names := map[string]string{}
 	return func(jidStr string) string {
 		if n, ok := names[jidStr]; ok {
@@ -157,30 +157,30 @@ func nameResolver() func(string) string {
 		}
 		n := jidStr
 		if parsed, err := types.ParseJID(jidStr); err == nil {
-			n = resolveDisplayName(parsed)
+			n = acc.resolveDisplayName(parsed)
 		}
 		names[jidStr] = n
 		return n
 	}
 }
 
-func handleGetCallLogs(conn net.Conn) {
+func (acc *Account) handleGetCallLogs(conn net.Conn) {
 	go func() {
 		logs := []CallLogJSON{}
-		if db == nil {
-			sendEvent(conn, "call_logs", logs)
+		if acc.db == nil {
+			acc.sendEvent(conn, "call_logs", logs)
 			return
 		}
-		rows, err := db.Query(`SELECT call_id, jid, from_me, is_video, is_group, COALESCE(result, ''), COALESCE(duration, 0),
+		rows, err := acc.db.Query(`SELECT call_id, jid, from_me, is_video, is_group, COALESCE(result, ''), COALESCE(duration, 0),
 				COALESCE(text, ''), COALESCE(timestamp, 0)
 			FROM call_records ORDER BY timestamp DESC LIMIT 500`)
 		if err != nil {
 			log.Printf("get_call_logs query failed: %v", err)
-			sendEvent(conn, "call_logs", logs)
+			acc.sendEvent(conn, "call_logs", logs)
 			return
 		}
 		defer rows.Close()
-		nameFor := nameResolver()
+		nameFor := acc.nameResolver()
 		for rows.Next() {
 			var l CallLogJSON
 			var fromMe, video, group int
@@ -191,7 +191,7 @@ func handleGetCallLogs(conn net.Conn) {
 			l.PeerName = nameFor(l.JID)
 			logs = append(logs, l)
 		}
-		sendEvent(conn, "call_logs", logs)
+		acc.sendEvent(conn, "call_logs", logs)
 	}()
 }
 
@@ -203,30 +203,30 @@ type CallTargetJSON struct {
 
 const frequentCallTargets = 8
 
-func callableJID(jid string) bool {
+func (acc *Account) callableJID(jid string) bool {
 	if !strings.HasSuffix(jid, "@s.whatsapp.net") && !strings.HasSuffix(jid, "@lid") {
 		return false
 	}
 	p, err := types.ParseJID(jid)
-	return err == nil && !isOwnJID(p)
+	return err == nil && !acc.isOwnJID(p)
 }
 
-func handleGetCallTargets(conn net.Conn) {
+func (acc *Account) handleGetCallTargets(conn net.Conn) {
 	go func() {
 		out := map[string]interface{}{"frequent": []CallTargetJSON{}, "contacts": []CallTargetJSON{}}
-		if db == nil {
-			sendEvent(conn, "call_targets", out)
+		if acc.db == nil {
+			acc.sendEvent(conn, "call_targets", out)
 			return
 		}
-		nameFor := nameResolver()
+		nameFor := acc.nameResolver()
 		phones := map[string]string{}
 		var contacts []CallTargetJSON
-		saved := savedContactJIDs()
-		if rows, err := db.Query(`SELECT jid, COALESCE(name, ''), COALESCE(phone, '') FROM contacts_cache
+		saved := acc.savedContactJIDs()
+		if rows, err := acc.db.Query(`SELECT jid, COALESCE(name, ''), COALESCE(phone, '') FROM contacts_cache
 				WHERE name != '' OR phone != ''`); err == nil {
 			for rows.Next() {
 				var c CallTargetJSON
-				if rows.Scan(&c.JID, &c.Name, &c.Phone) != nil || !callableJID(c.JID) {
+				if rows.Scan(&c.JID, &c.Name, &c.Phone) != nil || !acc.callableJID(c.JID) {
 					continue
 				}
 				phones[c.JID] = c.Phone
@@ -247,13 +247,13 @@ func handleGetCallTargets(conn net.Conn) {
 		frequent := []CallTargetJSON{}
 		seen := map[string]bool{}
 		add := func(jid string) {
-			if len(frequent) >= frequentCallTargets || seen[jid] || !callableJID(jid) {
+			if len(frequent) >= frequentCallTargets || seen[jid] || !acc.callableJID(jid) {
 				return
 			}
 			seen[jid] = true
 			frequent = append(frequent, CallTargetJSON{JID: jid, Name: nameFor(jid), Phone: phones[jid]})
 		}
-		if rows, err := db.Query(`SELECT jid FROM call_records WHERE is_group = 0
+		if rows, err := acc.db.Query(`SELECT jid FROM call_records WHERE is_group = 0
 				GROUP BY jid ORDER BY COUNT(*) DESC, MAX(timestamp) DESC LIMIT 20`); err == nil {
 			for rows.Next() {
 				var jid string
@@ -264,7 +264,7 @@ func handleGetCallTargets(conn net.Conn) {
 			rows.Close()
 		}
 		if len(frequent) < frequentCallTargets {
-			if rows, err := db.Query(`SELECT jid FROM chats WHERE jid LIKE '%@s.whatsapp.net' OR jid LIKE '%@lid'
+			if rows, err := acc.db.Query(`SELECT jid FROM chats WHERE jid LIKE '%@s.whatsapp.net' OR jid LIKE '%@lid'
 					ORDER BY COALESCE(timestamp, 0) DESC LIMIT 20`); err == nil {
 				for rows.Next() {
 					var jid string
@@ -279,6 +279,6 @@ func handleGetCallTargets(conn net.Conn) {
 			contacts = []CallTargetJSON{}
 		}
 		out["frequent"], out["contacts"] = frequent, contacts
-		sendEvent(conn, "call_targets", out)
+		acc.sendEvent(conn, "call_targets", out)
 	}()
 }

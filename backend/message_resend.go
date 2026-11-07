@@ -3,33 +3,27 @@ package main
 import (
 	"context"
 	"log"
-	"sync"
 
 	"go.mau.fi/whatsmeow/types"
 )
 
 type resendTarget struct{ id, chatJID, senderJID string }
 
-var (
-	pendingResendsMu sync.Mutex
-	pendingResends   []resendTarget
-)
-
-func requestMessageResend(id, chatJID, senderJID string) {
+func (acc *Account) requestMessageResend(id, chatJID, senderJID string) {
 	if id == "" || chatJID == "" {
 		return
 	}
 	target := resendTarget{id, chatJID, senderJID}
-	if wa() == nil || !wa().IsConnected() {
-		pendingResendsMu.Lock()
-		pendingResends = append(pendingResends, target)
-		pendingResendsMu.Unlock()
+	if acc.wa() == nil || !acc.wa().IsConnected() {
+		acc.pendingResendsMu.Lock()
+		acc.pendingResends = append(acc.pendingResends, target)
+		acc.pendingResendsMu.Unlock()
 		return
 	}
-	sendResendRequest(target)
+	acc.sendResendRequest(target)
 }
 
-func sendResendRequest(t resendTarget) {
+func (acc *Account) sendResendRequest(t resendTarget) {
 	chat, err := types.ParseJID(t.chatJID)
 	if err != nil {
 		return
@@ -39,21 +33,21 @@ func sendResendRequest(t resendTarget) {
 		sender = chat
 	}
 
-	req := wa().BuildUnavailableMessageRequest(chat, sender, t.id)
-	if _, err := wa().SendPeerMessage(context.Background(), req); err != nil {
+	req := acc.wa().BuildUnavailableMessageRequest(chat, sender, t.id)
+	if _, err := acc.wa().SendPeerMessage(context.Background(), req); err != nil {
 		log.Printf("Resend request for %s in %s failed: %v", t.id, t.chatJID, err)
 		return
 	}
 	log.Printf("Asked the phone to resend message %s in %s", t.id, t.chatJID)
 }
 
-func flushPendingResends() {
-	pendingResendsMu.Lock()
-	queued := pendingResends
-	pendingResends = nil
-	pendingResendsMu.Unlock()
+func (acc *Account) flushPendingResends() {
+	acc.pendingResendsMu.Lock()
+	queued := acc.pendingResends
+	acc.pendingResends = nil
+	acc.pendingResendsMu.Unlock()
 
 	for _, t := range queued {
-		sendResendRequest(t)
+		acc.sendResendRequest(t)
 	}
 }

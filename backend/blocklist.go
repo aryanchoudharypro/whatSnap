@@ -4,9 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
-	"sync"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -20,8 +18,8 @@ import (
 
 type jidTwin func(types.JID) types.JID
 
-func storeTwin(jid types.JID) types.JID {
-	c := wa()
+func (acc *Account) storeTwin(jid types.JID) types.JID {
+	c := acc.wa()
 	if c == nil || c.Store == nil || c.Store.LIDs == nil {
 		return types.EmptyJID
 	}
@@ -105,10 +103,8 @@ func blockedAddressesOf(rows []blockedRow, jid types.JID, twin jidTwin) []types.
 	return out
 }
 
-var blocklistMu sync.Mutex
-
-func loadBlockedRows() []blockedRow {
-	rows, err := db.Query(`SELECT jid, pn FROM blocked_contacts`)
+func (acc *Account) loadBlockedRows() []blockedRow {
+	rows, err := acc.db.Query(`SELECT jid, pn FROM blocked_contacts`)
 	if err != nil {
 		return nil
 	}
@@ -131,8 +127,8 @@ func loadBlockedRows() []blockedRow {
 	return out
 }
 
-func storeBlockedRows(rows []blockedRow) {
-	tx, err := db.Begin()
+func (acc *Account) storeBlockedRows(rows []blockedRow) {
+	tx, err := acc.db.Begin()
 	if err != nil {
 		return
 	}
@@ -147,38 +143,32 @@ func storeBlockedRows(rows []blockedRow) {
 	tx.Commit()
 }
 
-func blocklistPayload() map[string]interface{} {
+func (acc *Account) blocklistPayload() map[string]interface{} {
 	return map[string]interface{}{
-		"entries": buildBlockedEntries(loadBlockedRows(), storeTwin, resolveDisplayName),
+		"entries": buildBlockedEntries(acc.loadBlockedRows(), acc.storeTwin, acc.resolveDisplayName),
 	}
 }
 
-var (
-	blocklistSyncMu    sync.Mutex
-	blocklistSyncedFor *whatsmeow.Client
-	blocklistDHash     string
-)
-
-func refreshBlocklistOnConnect() {
-	blocklistSyncMu.Lock()
-	synced := blocklistSyncedFor != nil && blocklistSyncedFor == wa()
-	blocklistSyncMu.Unlock()
+func (acc *Account) refreshBlocklistOnConnect() {
+	acc.blocklistSyncMu.Lock()
+	synced := acc.blocklistSyncedFor != nil && acc.blocklistSyncedFor == acc.wa()
+	acc.blocklistSyncMu.Unlock()
 	if !synced {
-		refreshBlocklist()
+		acc.refreshBlocklist()
 	}
 }
 
-func refreshBlocklist() {
-	c := wa()
+func (acc *Account) refreshBlocklist() {
+	c := acc.wa()
 	if c == nil || !c.IsLoggedIn() {
 		return
 	}
-	blocklistSyncMu.Lock()
+	acc.blocklistSyncMu.Lock()
 	dhash := ""
-	if blocklistSyncedFor == c {
-		dhash = blocklistDHash
+	if acc.blocklistSyncedFor == c {
+		dhash = acc.blocklistDHash
 	}
-	blocklistSyncMu.Unlock()
+	acc.blocklistSyncMu.Unlock()
 	bl, err := c.GetBlocklist(context.Background(), dhash)
 	if err != nil {
 		return
@@ -186,34 +176,34 @@ func refreshBlocklist() {
 	if bl == nil {
 		return
 	}
-	blocklistSyncMu.Lock()
-	blocklistSyncedFor, blocklistDHash = c, bl.DHash
-	blocklistSyncMu.Unlock()
+	acc.blocklistSyncMu.Lock()
+	acc.blocklistSyncedFor, acc.blocklistDHash = c, bl.DHash
+	acc.blocklistSyncMu.Unlock()
 	rows := make([]blockedRow, 0, len(bl.Entries))
 	for _, entry := range bl.Entries {
 		rows = append(rows, blockedRow{JID: entry.JID, PN: entry.PN})
 	}
-	blocklistMu.Lock()
-	storeBlockedRows(rows)
-	blocklistMu.Unlock()
-	broadcastEvent("blocklist", blocklistPayload())
+	acc.blocklistMu.Lock()
+	acc.storeBlockedRows(rows)
+	acc.blocklistMu.Unlock()
+	acc.broadcastEvent("blocklist", acc.blocklistPayload())
 }
 
-func setBlocked(jid types.JID, block bool) error {
+func (acc *Account) setBlocked(jid types.JID, block bool) error {
 	jid = jid.ToNonAD()
 	targets := []types.JID{jid}
 	action := events.BlocklistChangeActionBlock
 	if !block {
 		action = events.BlocklistChangeActionUnblock
-		if listed := blockedAddressesOf(loadBlockedRows(), jid, storeTwin); len(listed) > 0 {
+		if listed := blockedAddressesOf(acc.loadBlockedRows(), jid, acc.storeTwin); len(listed) > 0 {
 			targets = listed
 		}
 	}
 	for _, target := range targets {
-		if _, err := wa().UpdateBlocklist(context.Background(), target, action); err != nil {
+		if _, err := acc.wa().UpdateBlocklist(context.Background(), target, action); err != nil {
 			return err
 		}
 	}
-	refreshBlocklist()
+	acc.refreshBlocklist()
 	return nil
 }

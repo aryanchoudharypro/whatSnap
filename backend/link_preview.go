@@ -36,13 +36,13 @@ var (
 	linkPreviewOrder []string
 )
 
-func noteDisableLinkPreviews(v *events.DisableLinkPreviews) {
-	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, linkPreviewsOffKey, boolToInt(v.Disabled))
+func (acc *Account) noteDisableLinkPreviews(v *events.DisableLinkPreviews) {
+	acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, linkPreviewsOffKey, boolToInt(v.Disabled))
 }
 
-func linkPreviewsDisabled() bool {
+func (acc *Account) linkPreviewsDisabled() bool {
 	var off int
-	db.QueryRow(`SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = ?`, linkPreviewsOffKey).Scan(&off)
+	acc.db.QueryRow(`SELECT CAST(value AS INTEGER) FROM app_settings WHERE key = ?`, linkPreviewsOffKey).Scan(&off)
 	return off == 1
 }
 
@@ -71,13 +71,13 @@ func firstWebLink(text string) (matched, fetch string) {
 	return "", ""
 }
 
-func withLinkPreview(msg *waE2E.Message) *waE2E.Message {
+func (acc *Account) withLinkPreview(msg *waE2E.Message) *waE2E.Message {
 	text := msg.GetConversation()
 	if text == "" {
 		text = msg.GetExtendedTextMessage().GetText()
 	}
 	matched, fetch := firstWebLink(text)
-	if matched == "" || linkPreviewsDisabled() {
+	if matched == "" || acc.linkPreviewsDisabled() {
 		return msg
 	}
 	preview := fetchLinkPreview(fetch)

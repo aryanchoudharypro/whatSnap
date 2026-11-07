@@ -37,29 +37,29 @@ type callDeleteKey struct {
 	ts      int64
 }
 
-func handleDeleteCallLogs(raw json.RawMessage) {
+func (acc *Account) handleDeleteCallLogs(raw json.RawMessage) {
 	var data DeleteCallLogsData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		keys := loadCallDeleteKeys(data.CallIDs, data.All)
+		keys := acc.loadCallDeleteKeys(data.CallIDs, data.All)
 		if len(keys) == 0 {
-			broadcastEvent("call_logs_changed", map[string]interface{}{})
+			acc.broadcastEvent("call_logs_changed", map[string]interface{}{})
 			return
 		}
-		if wa() != nil {
-			sendCallLogDeletes(keys)
+		if acc.wa() != nil {
+			acc.sendCallLogDeletes(keys)
 		}
 		for _, k := range keys {
-			removeCallLocally(k.callID, k.jid)
+			acc.removeCallLocally(k.callID, k.jid)
 		}
-		broadcastChats()
-		broadcastEvent("call_logs_changed", map[string]interface{}{})
+		acc.broadcastChats()
+		acc.broadcastEvent("call_logs_changed", map[string]interface{}{})
 	}()
 }
 
-func loadCallDeleteKeys(ids []string, all bool) []callDeleteKey {
+func (acc *Account) loadCallDeleteKeys(ids []string, all bool) []callDeleteKey {
 	q := `SELECT call_id, jid, COALESCE(key_chat, ''), COALESCE(creator, ''), from_me, is_group, COALESCE(timestamp, 0) FROM call_records`
 	var args []interface{}
 	if !all {
@@ -71,7 +71,7 @@ func loadCallDeleteKeys(ids []string, all bool) []callDeleteKey {
 			args = append(args, id)
 		}
 	}
-	rows, err := db.Query(q, args...)
+	rows, err := acc.db.Query(q, args...)
 	if err != nil {
 		log.Printf("delete call logs: query failed: %v", err)
 		return nil
@@ -94,7 +94,7 @@ func loadCallDeleteKeys(ids []string, all bool) []callDeleteKey {
 // reports false when the call's key isn't known well enough to name it (rows
 // stored before keys were kept, calls joined later, a group call someone else
 // placed whose creator never reached us). Those are only removed here.
-func callDeleteMutation(k callDeleteKey) (types.JID, appstate.MutationInfo, bool) {
+func (acc *Account) callDeleteMutation(k callDeleteKey) (types.JID, appstate.MutationInfo, bool) {
 	keyChat := k.keyChat
 	if keyChat == "" && !k.isGroup {
 		// A one to one call stored before keys were kept is filed under the
@@ -117,7 +117,7 @@ func callDeleteMutation(k callDeleteKey) (types.JID, appstate.MutationInfo, bool
 			return types.EmptyJID, appstate.MutationInfo{}, false
 		}
 	}
-	chat = callKeyChatWire(chat)
+	chat = acc.callKeyChatWire(chat)
 	ts := time.Now()
 	if k.ts > 0 {
 		ts = time.Unix(k.ts, 0)
@@ -132,24 +132,24 @@ func callDeleteMutation(k callDeleteKey) (types.JID, appstate.MutationInfo, bool
 // callKeyChatWire puts a one to one chat in the addressing WA Web's syncd
 // index uses for it: the LID once the account has migrated, the phone number
 // before that.
-func callKeyChatWire(chat types.JID) types.JID {
+func (acc *Account) callKeyChatWire(chat types.JID) types.JID {
 	chat = chat.ToNonAD()
-	if chat.Server == types.HiddenUserServer && wa() != nil && wa().Store != nil && wa().Store.LIDMigrationTimestamp == 0 {
-		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chat); err == nil && !pn.IsEmpty() {
+	if chat.Server == types.HiddenUserServer && acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.LIDMigrationTimestamp == 0 {
+		if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), chat); err == nil && !pn.IsEmpty() {
 			return pn.ToNonAD()
 		}
 		return chat
 	}
-	return syncdChatJID(chat)
+	return acc.syncdChatJID(chat)
 }
 
 // sendCallLogDeletes sends the mutations a chat at a time, the way WA Web's
 // sendDeleteMsgs does, in batches of deleteForMeBatch.
-func sendCallLogDeletes(keys []callDeleteKey) {
+func (acc *Account) sendCallLogDeletes(keys []callDeleteKey) {
 	byChat := map[types.JID][]appstate.MutationInfo{}
 	var order []types.JID
 	for _, k := range keys {
-		chat, m, ok := callDeleteMutation(k)
+		chat, m, ok := acc.callDeleteMutation(k)
 		if !ok {
 			log.Printf("delete call logs: %s has no known key, removing it here only", k.callID)
 			continue
@@ -164,7 +164,7 @@ func sendCallLogDeletes(keys []callDeleteKey) {
 		for len(muts) > 0 {
 			n := min(len(muts), deleteForMeBatch)
 			patch := appstate.PatchInfo{Type: appstate.WAPatchRegularHigh, Mutations: muts[:n]}
-			if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
+			if err := acc.sendAppStateWithRetry(context.Background(), patch); err != nil {
 				log.Printf("delete call logs: app-state sync for %s failed: %v", chat, err)
 			}
 			muts = muts[n:]
@@ -174,13 +174,13 @@ func sendCallLogDeletes(keys []callDeleteKey) {
 
 // removeCallLocally drops a call from the Calls tab and its chat, and
 // remembers it so a later sync of the same call doesn't bring it back.
-func removeCallLocally(callID, jid string) {
-	db.Exec(`INSERT OR IGNORE INTO deleted_calls (call_id) VALUES (?)`, callID)
-	db.Exec(`DELETE FROM call_records WHERE call_id = ?`, callID)
-	purgeMessages(`id = ?`, "call:"+callID)
+func (acc *Account) removeCallLocally(callID, jid string) {
+	acc.db.Exec(`INSERT OR IGNORE INTO deleted_calls (call_id) VALUES (?)`, callID)
+	acc.db.Exec(`DELETE FROM call_records WHERE call_id = ?`, callID)
+	acc.purgeMessages(`id = ?`, "call:"+callID)
 	if jid != "" {
-		UpdateChatSnippet(jid)
-		broadcastEvent("message_deleted", map[string]interface{}{
+		acc.UpdateChatSnippet(jid)
+		acc.broadcastEvent("message_deleted", map[string]interface{}{
 			"jid": jid, "message_id": "call:" + callID, "by": "me", "for_everyone": false,
 		})
 	}
@@ -190,22 +190,22 @@ func removeCallLocally(callID, jid string) {
 // a call: WA Web's Calls tab sends exactly that. The message id is the bare
 // call id, while whatSnap stores the call as "call:<id>", possibly under the
 // other addressing of the chat, so the ordinary delete never finds it.
-func applySyncedCallDelete(messageID string) {
-	if messageID == "" || db == nil {
+func (acc *Account) applySyncedCallDelete(messageID string) {
+	if messageID == "" || acc.db == nil {
 		return
 	}
 	var jid string
-	if db.QueryRow(`SELECT jid FROM call_records WHERE call_id = ?`, messageID).Scan(&jid) != nil {
+	if acc.db.QueryRow(`SELECT jid FROM call_records WHERE call_id = ?`, messageID).Scan(&jid) != nil {
 		return
 	}
-	removeCallLocally(messageID, jid)
-	broadcastChats()
-	broadcastEvent("call_logs_changed", map[string]interface{}{})
+	acc.removeCallLocally(messageID, jid)
+	acc.broadcastChats()
+	acc.broadcastEvent("call_logs_changed", map[string]interface{}{})
 }
 
-func ownCallCreator() types.JID {
-	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
+func (acc *Account) ownCallCreator() types.JID {
+	if acc.wa() == nil || acc.wa().Store == nil || acc.wa().Store.ID == nil {
 		return types.EmptyJID
 	}
-	return wa().Store.ID.ToNonAD()
+	return acc.wa().Store.ID.ToNonAD()
 }

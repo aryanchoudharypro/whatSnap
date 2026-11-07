@@ -48,7 +48,7 @@ func profilePhotoJPEG(path string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func handleSetOwnPhoto(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetOwnPhoto(conn net.Conn, raw json.RawMessage) {
 	var data SetOwnPhotoData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -58,43 +58,43 @@ func handleSetOwnPhoto(conn net.Conn, raw json.RawMessage) {
 		if !data.Remove {
 			var err error
 			if photo, err = profilePhotoJPEG(data.Path); err != nil {
-				sendEvent(conn, "error", map[string]string{"message": "Couldn't use that photo: " + err.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't use that photo: " + err.Error()})
 				return
 			}
 		}
-		pictureID, err := wa().SetGroupPhoto(context.Background(), types.EmptyJID, photo)
+		pictureID, err := acc.wa().SetGroupPhoto(context.Background(), types.EmptyJID, photo)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't change your profile photo: " + err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't change your profile photo: " + err.Error()})
 			return
 		}
-		own := ownJIDString()
+		own := acc.ownJIDString()
 		if data.Remove {
 			pictureID = ""
 		}
-		updateContactAvatarCache(own, "", pictureID)
-		sendEvent(conn, "own_photo_changed", map[string]interface{}{"removed": data.Remove})
+		acc.updateContactAvatarCache(own, "", pictureID)
+		acc.sendEvent(conn, "own_photo_changed", map[string]interface{}{"removed": data.Remove})
 	}()
 }
 
-func handleGetDefaultTimer(conn net.Conn) {
-	timer, err := wa().GetDefaultDisappearingTimer(context.Background())
+func (acc *Account) handleGetDefaultTimer(conn net.Conn) {
+	timer, err := acc.wa().GetDefaultDisappearingTimer(context.Background())
 	if err != nil {
-		sendEvent(conn, "default_timer", map[string]interface{}{"error": err.Error()})
+		acc.sendEvent(conn, "default_timer", map[string]interface{}{"error": err.Error()})
 		return
 	}
-	sendEvent(conn, "default_timer", map[string]interface{}{"seconds": int(timer.Seconds())})
+	acc.sendEvent(conn, "default_timer", map[string]interface{}{"seconds": int(timer.Seconds())})
 }
 
-func handleSetDefaultTimer(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetDefaultTimer(conn net.Conn, raw json.RawMessage) {
 	var data DefaultTimerData
 	if err := json.Unmarshal(raw, &data); err != nil || data.Seconds < 0 {
 		return
 	}
 	go func() {
-		if err := wa().SetDefaultDisappearingTimer(context.Background(), time.Duration(data.Seconds)*time.Second); err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't change the default message timer: " + err.Error()})
+		if err := acc.wa().SetDefaultDisappearingTimer(context.Background(), time.Duration(data.Seconds)*time.Second); err != nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't change the default message timer: " + err.Error()})
 			return
 		}
-		sendEvent(conn, "default_timer_saved", map[string]interface{}{"seconds": data.Seconds})
+		acc.sendEvent(conn, "default_timer_saved", map[string]interface{}{"seconds": data.Seconds})
 	}()
 }

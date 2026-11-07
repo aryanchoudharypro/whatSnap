@@ -25,12 +25,13 @@ import (
 // If no bootstrap chunk ever arrived for this device, nothing is gated, so
 // a phone that skips it still gets its chats listed.
 type historyChatGate struct {
+	acc    *Account
 	gated  bool
 	joined map[string]bool
 }
 
-func historyBootstrapKey() string {
-	cli := wa()
+func (acc *Account) historyBootstrapKey() string {
+	cli := acc.wa()
 	if cli == nil || cli.Store == nil || cli.Store.ID == nil {
 		return ""
 	}
@@ -38,19 +39,19 @@ func historyBootstrapKey() string {
 	return "history_bootstrap:" + cli.Store.ID.String()
 }
 
-func newHistoryChatGate(syncType waHistorySync.HistorySync_HistorySyncType) *historyChatGate {
-	key := historyBootstrapKey()
+func (acc *Account) newHistoryChatGate(syncType waHistorySync.HistorySync_HistorySyncType) *historyChatGate {
+	key := acc.historyBootstrapKey()
 	if syncType == waHistorySync.HistorySync_INITIAL_BOOTSTRAP {
 		if key != "" {
-			db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, key)
+			acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, key)
 		}
-		return &historyChatGate{}
+		return &historyChatGate{acc: acc}
 	}
 	var seen int
 	if key != "" {
-		db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, key).Scan(&seen)
+		acc.db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, key).Scan(&seen)
 	}
-	return &historyChatGate{gated: seen > 0}
+	return &historyChatGate{acc: acc, gated: seen > 0}
 }
 
 // allows reports whether the conversation for jid (and its LID form,
@@ -60,7 +61,7 @@ func (g *historyChatGate) allows(jid, wireJID string, omitted bool) bool {
 	if !g.gated && !omitted {
 		return true
 	}
-	if historyChatExists(jid, wireJID) {
+	if g.acc.historyChatExists(jid, wireJID) {
 		return true
 	}
 	// A group we're in is listed by populateChatsFromStore anyway; its row
@@ -74,7 +75,7 @@ func (g *historyChatGate) allows(jid, wireJID string, omitted bool) bool {
 func (g *historyChatGate) isJoined(jid string) bool {
 	if g.joined == nil {
 		g.joined = map[string]bool{}
-		groups, err := serverGroupList()
+		groups, err := g.acc.serverGroupList()
 		if err != nil {
 			log.Println("History sync: couldn't fetch joined groups:", err)
 			return false
@@ -86,9 +87,9 @@ func (g *historyChatGate) isJoined(jid string) bool {
 	return g.joined[jid]
 }
 
-func historyChatExists(jid, wireJID string) bool {
+func (acc *Account) historyChatExists(jid, wireJID string) bool {
 	var n int
-	err := db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ? OR (? != '' AND (jid = ? OR wire_jid = ?))`,
+	err := acc.db.QueryRow(`SELECT COUNT(*) FROM chats WHERE jid = ? OR (? != '' AND (jid = ? OR wire_jid = ?))`,
 		jid, wireJID, wireJID, wireJID).Scan(&n)
 	if err != nil && err != sql.ErrNoRows {
 		return false

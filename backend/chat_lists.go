@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/appstate"
@@ -30,10 +29,6 @@ type FavoriteData struct {
 	Favorite bool   `json:"favorite"`
 }
 
-var listsMu sync.Mutex
-
-var favoritesSendMu sync.Mutex
-
 func shownListType(t waSyncAction.LabelEditAction_ListType) bool {
 	switch t {
 	case waSyncAction.LabelEditAction_CUSTOM, waSyncAction.LabelEditAction_NONE, waSyncAction.LabelEditAction_PREDEFINED:
@@ -42,57 +37,57 @@ func shownListType(t waSyncAction.LabelEditAction_ListType) bool {
 	return false
 }
 
-func noteLabelEdit(v *events.LabelEdit) {
+func (acc *Account) noteLabelEdit(v *events.LabelEdit) {
 	if v.Action == nil || v.LabelID == "" {
 		return
 	}
-	listsMu.Lock()
+	acc.listsMu.Lock()
 	if v.Action.GetDeleted() {
-		db.Exec(`DELETE FROM chat_lists WHERE id = ?`, v.LabelID)
-		db.Exec(`DELETE FROM chat_list_members WHERE list_id = ?`, v.LabelID)
+		acc.db.Exec(`DELETE FROM chat_lists WHERE id = ?`, v.LabelID)
+		acc.db.Exec(`DELETE FROM chat_list_members WHERE list_id = ?`, v.LabelID)
 	} else if raw, err := proto.Marshal(v.Action); err == nil {
-		db.Exec(`INSERT OR REPLACE INTO chat_lists (id, action) VALUES (?, ?)`, v.LabelID, raw)
+		acc.db.Exec(`INSERT OR REPLACE INTO chat_lists (id, action) VALUES (?, ?)`, v.LabelID, raw)
 	}
-	listsMu.Unlock()
-	broadcastChatLists()
+	acc.listsMu.Unlock()
+	acc.broadcastChatLists()
 }
 
-func noteLabelChat(v *events.LabelAssociationChat) {
+func (acc *Account) noteLabelChat(v *events.LabelAssociationChat) {
 	if v.Action == nil || v.LabelID == "" || v.JID.IsEmpty() {
 		return
 	}
-	setListMember(v.LabelID, appStateChatJID(v.JID.String()), v.Action.GetLabeled())
-	broadcastChatLists()
+	acc.setListMember(v.LabelID, acc.appStateChatJID(v.JID.String()), v.Action.GetLabeled())
+	acc.broadcastChatLists()
 }
 
-func setListMember(id, jid string, member bool) {
-	listsMu.Lock()
-	defer listsMu.Unlock()
+func (acc *Account) setListMember(id, jid string, member bool) {
+	acc.listsMu.Lock()
+	defer acc.listsMu.Unlock()
 	if member {
-		db.Exec(`INSERT OR IGNORE INTO chat_list_members (list_id, jid) VALUES (?, ?)`, id, jid)
+		acc.db.Exec(`INSERT OR IGNORE INTO chat_list_members (list_id, jid) VALUES (?, ?)`, id, jid)
 	} else {
-		db.Exec(`DELETE FROM chat_list_members WHERE list_id = ? AND jid = ?`, id, jid)
+		acc.db.Exec(`DELETE FROM chat_list_members WHERE list_id = ? AND jid = ?`, id, jid)
 	}
 }
 
-func noteFavorites(v *events.Favorites) {
+func (acc *Account) noteFavorites(v *events.Favorites) {
 	if v.Action == nil {
 		return
 	}
 	var jids []string
 	for _, f := range v.Action.GetFavorites() {
 		if f.GetID() != "" {
-			jids = append(jids, appStateChatJID(f.GetID()))
+			jids = append(jids, acc.appStateChatJID(f.GetID()))
 		}
 	}
-	storeFavorites(jids)
-	broadcastChatLists()
+	acc.storeFavorites(jids)
+	acc.broadcastChatLists()
 }
 
-func storeFavorites(jids []string) {
-	listsMu.Lock()
-	defer listsMu.Unlock()
-	tx, err := db.Begin()
+func (acc *Account) storeFavorites(jids []string) {
+	acc.listsMu.Lock()
+	defer acc.listsMu.Unlock()
+	tx, err := acc.db.Begin()
 	if err != nil {
 		return
 	}
@@ -103,9 +98,9 @@ func storeFavorites(jids []string) {
 	tx.Commit()
 }
 
-func storedFavorites() []string {
+func (acc *Account) storedFavorites() []string {
 	jids := []string{}
-	rows, err := db.Query(`SELECT jid FROM chat_favorites ORDER BY position`)
+	rows, err := acc.db.Query(`SELECT jid FROM chat_favorites ORDER BY position`)
 	if err != nil {
 		return jids
 	}
@@ -124,9 +119,9 @@ type storedList struct {
 	action *waSyncAction.LabelEditAction
 }
 
-func storedLists() []storedList {
+func (acc *Account) storedLists() []storedList {
 	var lists []storedList
-	rows, err := db.Query(`SELECT id, action FROM chat_lists`)
+	rows, err := acc.db.Query(`SELECT id, action FROM chat_lists`)
 	if err != nil {
 		return nil
 	}
@@ -145,8 +140,8 @@ func storedLists() []storedList {
 	return lists
 }
 
-func findList(id string) *waSyncAction.LabelEditAction {
-	for _, l := range storedLists() {
+func (acc *Account) findList(id string) *waSyncAction.LabelEditAction {
+	for _, l := range acc.storedLists() {
 		if l.id == id {
 			return l.action
 		}
@@ -154,9 +149,9 @@ func findList(id string) *waSyncAction.LabelEditAction {
 	return nil
 }
 
-func chatListsPayload() map[string]interface{} {
+func (acc *Account) chatListsPayload() map[string]interface{} {
 	members := map[string][]string{}
-	if rows, err := db.Query(`SELECT list_id, jid FROM chat_list_members`); err == nil {
+	if rows, err := acc.db.Query(`SELECT list_id, jid FROM chat_list_members`); err == nil {
 		for rows.Next() {
 			var id, jid string
 			if rows.Scan(&id, &jid) == nil {
@@ -171,7 +166,7 @@ func chatListsPayload() map[string]interface{} {
 		item  map[string]interface{}
 	}
 	var entries []entry
-	for _, l := range storedLists() {
+	for _, l := range acc.storedLists() {
 		if !shownListType(l.action.GetType()) || strings.TrimSpace(l.action.GetName()) == "" {
 			continue
 		}
@@ -198,31 +193,31 @@ func chatListsPayload() map[string]interface{} {
 	for _, e := range entries {
 		lists = append(lists, e.item)
 	}
-	return map[string]interface{}{"favorites": storedFavorites(), "lists": lists}
+	return map[string]interface{}{"favorites": acc.storedFavorites(), "lists": lists}
 }
 
-func broadcastChatLists() {
-	broadcastEvent("chat_lists", chatListsPayload())
+func (acc *Account) broadcastChatLists() {
+	acc.broadcastEvent("chat_lists", acc.chatListsPayload())
 }
 
-func handleGetChatLists(conn net.Conn) {
-	sendEvent(conn, "chat_lists", chatListsPayload())
+func (acc *Account) handleGetChatLists(conn net.Conn) {
+	acc.sendEvent(conn, "chat_lists", acc.chatListsPayload())
 }
 
-func listError(what string, err error) {
-	broadcastEvent("error", map[string]string{"message": "Couldn't " + what + ": " + err.Error()})
+func (acc *Account) listError(what string, err error) {
+	acc.broadcastEvent("error", map[string]string{"message": "Couldn't " + what + ": " + err.Error()})
 }
 
-func handleSetFavorite(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetFavorite(conn net.Conn, raw json.RawMessage) {
 	var data FavoriteData
 	if err := json.Unmarshal(raw, &data); err != nil || data.JID == "" {
 		return
 	}
 	go func() {
-		favoritesSendMu.Lock()
-		defer favoritesSendMu.Unlock()
+		acc.favoritesSendMu.Lock()
+		defer acc.favoritesSendMu.Unlock()
 		var jids []string
-		for _, jid := range storedFavorites() {
+		for _, jid := range acc.storedFavorites() {
 			if jid != data.JID {
 				jids = append(jids, jid)
 			}
@@ -233,27 +228,27 @@ func handleSetFavorite(conn net.Conn, raw json.RawMessage) {
 		wire := make([]types.JID, 0, len(jids))
 		for _, s := range jids {
 			if jid, err := types.ParseJID(s); err == nil {
-				wire = append(wire, syncdChatJID(jid))
+				wire = append(wire, acc.syncdChatJID(jid))
 			}
 		}
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildFavorites(wire)); err != nil {
-			listError("change your favorites", err)
+		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildFavorites(wire)); err != nil {
+			acc.listError("change your favorites", err)
 			return
 		}
-		storeFavorites(jids)
-		broadcastChatLists()
-		sendEvent(conn, "favorite_saved", map[string]interface{}{"jid": data.JID, "favorite": data.Favorite})
+		acc.storeFavorites(jids)
+		acc.broadcastChatLists()
+		acc.sendEvent(conn, "favorite_saved", map[string]interface{}{"jid": data.JID, "favorite": data.Favorite})
 	}()
 }
 
-func handleCreateList(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleCreateList(conn net.Conn, raw json.RawMessage) {
 	var data ChatListData
 	if err := json.Unmarshal(raw, &data); err != nil || strings.TrimSpace(data.Name) == "" {
 		return
 	}
 	go func() {
 		var maxID, maxOrder int64
-		for _, l := range storedLists() {
+		for _, l := range acc.storedLists() {
 			if n, err := strconv.ParseInt(l.id, 10, 64); err == nil && n > maxID {
 				maxID = n
 			}
@@ -269,62 +264,62 @@ func handleCreateList(conn net.Conn, raw json.RawMessage) {
 			IsActive:   proto.Bool(true),
 			Type:       waSyncAction.LabelEditAction_CUSTOM.Enum(),
 		}
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildLabelEditAction(id, action)); err != nil {
-			listError("create the list", err)
+		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildLabelEditAction(id, action)); err != nil {
+			acc.listError("create the list", err)
 			return
 		}
-		noteLabelEdit(&events.LabelEdit{Timestamp: time.Now(), LabelID: id, Action: action})
+		acc.noteLabelEdit(&events.LabelEdit{Timestamp: time.Now(), LabelID: id, Action: action})
 		for _, jid := range data.JIDs {
-			sendListMember(id, jid, true)
+			acc.sendListMember(id, jid, true)
 		}
-		broadcastChatLists()
-		sendEvent(conn, "list_saved", map[string]interface{}{"id": id, "name": action.GetName(), "created": true})
+		acc.broadcastChatLists()
+		acc.sendEvent(conn, "list_saved", map[string]interface{}{"id": id, "name": action.GetName(), "created": true})
 	}()
 }
 
-func handleRenameList(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleRenameList(conn net.Conn, raw json.RawMessage) {
 	var data ChatListData
 	if err := json.Unmarshal(raw, &data); err != nil || strings.TrimSpace(data.Name) == "" {
 		return
 	}
 	go func() {
-		old := findList(data.ID)
+		old := acc.findList(data.ID)
 		if old == nil {
 			return
 		}
 		action := proto.Clone(old).(*waSyncAction.LabelEditAction)
 		action.Name = proto.String(strings.TrimSpace(data.Name))
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildLabelEditAction(data.ID, action)); err != nil {
-			listError("rename the list", err)
+		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildLabelEditAction(data.ID, action)); err != nil {
+			acc.listError("rename the list", err)
 			return
 		}
-		noteLabelEdit(&events.LabelEdit{Timestamp: time.Now(), LabelID: data.ID, Action: action})
-		sendEvent(conn, "list_saved", map[string]interface{}{"id": data.ID, "name": action.GetName()})
+		acc.noteLabelEdit(&events.LabelEdit{Timestamp: time.Now(), LabelID: data.ID, Action: action})
+		acc.sendEvent(conn, "list_saved", map[string]interface{}{"id": data.ID, "name": action.GetName()})
 	}()
 }
 
-func handleDeleteList(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleDeleteList(conn net.Conn, raw json.RawMessage) {
 	var data ChatListData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		old := findList(data.ID)
+		old := acc.findList(data.ID)
 		if old == nil {
 			return
 		}
 		action := proto.Clone(old).(*waSyncAction.LabelEditAction)
 		action.Deleted = proto.Bool(true)
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildLabelEditAction(data.ID, action)); err != nil {
-			listError("delete the list", err)
+		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildLabelEditAction(data.ID, action)); err != nil {
+			acc.listError("delete the list", err)
 			return
 		}
-		noteLabelEdit(&events.LabelEdit{Timestamp: time.Now(), LabelID: data.ID, Action: action})
-		sendEvent(conn, "list_deleted", map[string]interface{}{"id": data.ID, "name": old.GetName()})
+		acc.noteLabelEdit(&events.LabelEdit{Timestamp: time.Now(), LabelID: data.ID, Action: action})
+		acc.sendEvent(conn, "list_deleted", map[string]interface{}{"id": data.ID, "name": old.GetName()})
 	}()
 }
 
-func handleSetListMember(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetListMember(conn net.Conn, raw json.RawMessage) {
 	var data ChatListData
 	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" {
 		return
@@ -339,38 +334,38 @@ func handleSetListMember(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		var changed []string
 		for _, jid := range jids {
-			if sendListMember(data.ID, jid, data.Member) {
+			if acc.sendListMember(data.ID, jid, data.Member) {
 				changed = append(changed, jid)
 			}
 		}
 		if len(changed) == 0 {
 			return
 		}
-		broadcastChatLists()
+		acc.broadcastChatLists()
 		name := ""
-		if l := findList(data.ID); l != nil {
+		if l := acc.findList(data.ID); l != nil {
 			name = l.GetName()
 		}
-		sendEvent(conn, "list_member_saved", map[string]interface{}{
+		acc.sendEvent(conn, "list_member_saved", map[string]interface{}{
 			"id": data.ID, "name": name, "jid": changed[0], "count": len(changed), "member": data.Member,
 		})
 	}()
 }
 
-func sendListMember(id, chat string, member bool) bool {
+func (acc *Account) sendListMember(id, chat string, member bool) bool {
 	jid, err := types.ParseJID(chat)
 	if err != nil {
 		return false
 	}
-	if err := sendAppStateWithRetry(context.Background(), appstate.BuildLabelChat(syncdChatJID(jid), id, member)); err != nil {
-		listError("change the list", err)
+	if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildLabelChat(acc.syncdChatJID(jid), id, member)); err != nil {
+		acc.listError("change the list", err)
 		return false
 	}
-	setListMember(id, chat, member)
+	acc.setListMember(id, chat, member)
 	return true
 }
 
-func handleGetCommonGroups(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetCommonGroups(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -380,10 +375,10 @@ func handleGetCommonGroups(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	person = person.ToNonAD()
-	twin := storeTwin(person).ToNonAD()
-	groups, err := serverGroupList()
+	twin := acc.storeTwin(person).ToNonAD()
+	groups, err := acc.serverGroupList()
 	if err != nil {
-		sendEvent(conn, "error", map[string]string{"message": "Couldn't load the groups in common: " + err.Error()})
+		acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't load the groups in common: " + err.Error()})
 		return
 	}
 	same := func(j types.JID) bool {
@@ -402,5 +397,5 @@ func handleGetCommonGroups(conn net.Conn, raw json.RawMessage) {
 			}
 		}
 	}
-	sendEvent(conn, "common_groups", map[string]interface{}{"jid": data.JID, "groups": list})
+	acc.sendEvent(conn, "common_groups", map[string]interface{}{"jid": data.JID, "groups": list})
 }

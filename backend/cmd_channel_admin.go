@@ -28,16 +28,16 @@ const channelFollowersLimit = 500
 
 const channelNoticeAcceptedKey = "channel_creation_notice_accepted"
 
-func acceptChannelNotice(ctx context.Context) {
+func (acc *Account) acceptChannelNotice(ctx context.Context) {
 	var done int
-	if db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, channelNoticeAcceptedKey).Scan(&done) == nil && done > 0 {
+	if acc.db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, channelNoticeAcceptedKey).Scan(&done) == nil && done > 0 {
 		return
 	}
-	if err := wa().AcceptTOSNotice(ctx, whatsmeow.NewsletterCreationNoticeID, "5"); err != nil {
+	if err := acc.wa().AcceptTOSNotice(ctx, whatsmeow.NewsletterCreationNoticeID, "5"); err != nil {
 		log.Printf("Couldn't accept the channel creation notice: %v", err)
 		return
 	}
-	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, channelNoticeAcceptedKey)
+	acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, channelNoticeAcceptedKey)
 }
 
 func channelPictureJPEG(path string) ([]byte, error) {
@@ -80,7 +80,7 @@ func channelPictureJPEG(path string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func handleCreateChannel(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleCreateChannel(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -100,28 +100,28 @@ func handleCreateChannel(conn net.Conn, raw json.RawMessage) {
 		if data.Picture != "" {
 			picture, err := channelPictureJPEG(data.Picture)
 			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": "Couldn't use the picture: " + err.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't use the picture: " + err.Error()})
 				return
 			}
 			params.Picture = picture
 		}
-		acceptChannelNotice(ctx)
-		meta, err := wa().CreateNewsletter(ctx, params)
+		acc.acceptChannelNotice(ctx)
+		meta, err := acc.wa().CreateNewsletter(ctx, params)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't create the channel: " + err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't create the channel: " + err.Error()})
 			return
 		}
 		jid := meta.ID.String()
-		db.Exec(`INSERT INTO chats (jid, name, timestamp, is_channel, channel_role) VALUES (?, ?, ?, 1, 'owner')
+		acc.db.Exec(`INSERT INTO chats (jid, name, timestamp, is_channel, channel_role) VALUES (?, ?, ?, 1, 'owner')
 			ON CONFLICT(jid) DO UPDATE SET name = excluded.name, is_channel = 1, channel_role = 'owner'`,
 			jid, name, time.Now().Unix())
-		broadcastChats()
-		sendEvent(conn, "channel_created", map[string]string{"jid": jid, "name": name})
-		go syncFollowedChannels()
+		acc.broadcastChats()
+		acc.sendEvent(conn, "channel_created", map[string]string{"jid": jid, "name": name})
+		go acc.syncFollowedChannels()
 	}()
 }
 
-func handleUpdateChannel(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleUpdateChannel(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID           string  `json:"jid"`
 		Name          *string `json:"name"`
@@ -154,22 +154,22 @@ func handleUpdateChannel(conn net.Conn, raw json.RawMessage) {
 		case data.Picture != "":
 			picture, err := channelPictureJPEG(data.Picture)
 			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": "Couldn't use the picture: " + err.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't use the picture: " + err.Error()})
 				return
 			}
 			update.Picture = &picture
 		}
-		if err := wa().UpdateNewsletter(ctx, jid, update); err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't change the channel: " + err.Error()})
+		if err := acc.wa().UpdateNewsletter(ctx, jid, update); err != nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't change the channel: " + err.Error()})
 			return
 		}
 		if update.Name != nil {
-			db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, *update.Name, data.JID)
-			broadcastChats()
+			acc.db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, *update.Name, data.JID)
+			acc.broadcastChats()
 		}
 		if update.Picture != nil {
-			updateContactAvatarCache(data.JID, "", "")
-			broadcastEvent("avatar_updated", map[string]interface{}{"jid": data.JID, "removed": data.RemovePicture})
+			acc.updateContactAvatarCache(data.JID, "", "")
+			acc.broadcastEvent("avatar_updated", map[string]interface{}{"jid": data.JID, "removed": data.RemovePicture})
 		}
 		what := "Channel updated."
 		switch {
@@ -178,11 +178,11 @@ func handleUpdateChannel(conn net.Conn, raw json.RawMessage) {
 		case data.Picture != "":
 			what = "Channel picture changed."
 		}
-		sendEvent(conn, "channel_updated", map[string]string{"jid": data.JID, "message": what})
+		acc.sendEvent(conn, "channel_updated", map[string]string{"jid": data.JID, "message": what})
 	}()
 }
 
-func handleDeleteChannel(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleDeleteChannel(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -194,18 +194,18 @@ func handleDeleteChannel(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := wa().DeleteNewsletter(ctx, jid); err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't delete the channel: " + err.Error()})
+		if err := acc.wa().DeleteNewsletter(ctx, jid); err != nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't delete the channel: " + err.Error()})
 			return
 		}
-		purgeMessages("jid = ?", data.JID)
-		db.Exec(`DELETE FROM chats WHERE jid = ?`, data.JID)
-		broadcastChats()
-		sendEvent(conn, "channel_deleted", map[string]string{"jid": data.JID})
+		acc.purgeMessages("jid = ?", data.JID)
+		acc.db.Exec(`DELETE FROM chats WHERE jid = ?`, data.JID)
+		acc.broadcastChats()
+		acc.sendEvent(conn, "channel_deleted", map[string]string{"jid": data.JID})
 	}()
 }
 
-func handleGetChannelFollowers(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetChannelFollowers(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -217,29 +217,29 @@ func handleGetChannelFollowers(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		followers, err := wa().GetNewsletterFollowers(ctx, jid, channelFollowersLimit)
+		followers, err := acc.wa().GetNewsletterFollowers(ctx, jid, channelFollowersLimit)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't load the channel's followers: " + err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't load the channel's followers: " + err.Error()})
 			return
 		}
 		list := make([]map[string]interface{}, 0, len(followers))
 		for _, f := range followers {
 			list = append(list, map[string]interface{}{
 				"jid":  f.JID.String(),
-				"name": channelFollowerName(f),
+				"name": acc.channelFollowerName(f),
 				"role": strings.ToLower(string(f.Role)),
 			})
 		}
-		sendEvent(conn, "channel_followers", map[string]interface{}{"jid": data.JID, "followers": list})
+		acc.sendEvent(conn, "channel_followers", map[string]interface{}{"jid": data.JID, "followers": list})
 	}()
 }
 
-func channelFollowerName(f whatsmeow.NewsletterFollower) string {
+func (acc *Account) channelFollowerName(f whatsmeow.NewsletterFollower) string {
 	for _, jid := range []types.JID{f.PhoneJID, f.JID} {
 		if jid.IsEmpty() {
 			continue
 		}
-		if name := resolveDisplayName(jid); name != "" && name != jid.String() && !strings.HasPrefix(name, "+") {
+		if name := acc.resolveDisplayName(jid); name != "" && name != jid.String() && !strings.HasPrefix(name, "+") {
 			return name
 		}
 	}
@@ -254,7 +254,7 @@ func channelFollowerName(f whatsmeow.NewsletterFollower) string {
 	return "Unknown follower"
 }
 
-func handleChannelAdminChange(conn net.Conn, raw json.RawMessage, makeOwner bool) {
+func (acc *Account) handleChannelAdminChange(conn net.Conn, raw json.RawMessage, makeOwner bool) {
 	var data struct {
 		JID  string `json:"jid"`
 		User string `json:"user"`
@@ -275,26 +275,26 @@ func handleChannelAdminChange(conn net.Conn, raw json.RawMessage, makeOwner bool
 		defer cancel()
 		what := "Admin removed."
 		if makeOwner {
-			err = wa().ChangeNewsletterOwner(ctx, jid, user)
+			err = acc.wa().ChangeNewsletterOwner(ctx, jid, user)
 			what = "Ownership handed over. You're now an admin."
 		} else {
-			err = wa().DemoteNewsletterAdmin(ctx, jid, user)
+			err = acc.wa().DemoteNewsletterAdmin(ctx, jid, user)
 		}
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't change the channel's admins: " + err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't change the channel's admins: " + err.Error()})
 			return
 		}
 		if makeOwner {
-			db.Exec(`UPDATE chats SET channel_role = 'admin' WHERE jid = ?`, data.JID)
-			broadcastChats()
+			acc.db.Exec(`UPDATE chats SET channel_role = 'admin' WHERE jid = ?`, data.JID)
+			acc.broadcastChats()
 		}
-		sendEvent(conn, "channel_updated", map[string]string{"jid": data.JID, "message": what})
+		acc.sendEvent(conn, "channel_updated", map[string]string{"jid": data.JID, "message": what})
 	}()
 }
 
 const adminInviteCaption = "I'd like you to be an admin of my WhatsApp channel."
 
-func handleInviteChannelAdmins(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleInviteChannelAdmins(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID     string   `json:"jid"`
 		Users   []string `json:"users"`
@@ -313,43 +313,43 @@ func handleInviteChannelAdmins(conn net.Conn, raw json.RawMessage) {
 	}
 	go func() {
 		var channelName string
-		db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, data.JID).Scan(&channelName)
+		acc.db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, data.JID).Scan(&channelName)
 		sent, failed := 0, []string{}
 		for _, userStr := range data.Users {
 			user, err := types.ParseJID(userStr)
 			if err != nil {
 				continue
 			}
-			if err := sendChannelAdminInvite(channel, channelName, user, caption); err != nil {
+			if err := acc.sendChannelAdminInvite(channel, channelName, user, caption); err != nil {
 				log.Printf("Couldn't invite %s to be an admin of %s: %v", user, data.JID, err)
-				failed = append(failed, resolveDisplayName(user)+" ("+err.Error()+")")
+				failed = append(failed, acc.resolveDisplayName(user)+" ("+err.Error()+")")
 				continue
 			}
 			sent++
 		}
 		if len(failed) > 0 {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't send an admin invite to " + strings.Join(failed, ", ")})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't send an admin invite to " + strings.Join(failed, ", ")})
 		}
 		if sent > 0 {
 			what := "Admin invite sent."
 			if sent > 1 {
 				what = fmt.Sprintf("Admin invites sent to %d people.", sent)
 			}
-			sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": what})
+			acc.sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": what})
 		}
 	}()
 }
 
-func sendChannelAdminInvite(channel types.JID, channelName string, user types.JID, caption string) error {
+func (acc *Account) sendChannelAdminInvite(channel types.JID, channelName string, user types.JID, caption string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	chat := user.ToNonAD()
 	if chat.Server == types.HiddenUserServer {
-		if pn, err := wa().Store.LIDs.GetPNForLID(ctx, chat); err == nil && !pn.IsEmpty() {
+		if pn, err := acc.wa().Store.LIDs.GetPNForLID(ctx, chat); err == nil && !pn.IsEmpty() {
 			chat = pn
 		}
 	}
-	expiration, err := wa().CreateNewsletterAdminInvite(ctx, channel, chat)
+	expiration, err := acc.wa().CreateNewsletterAdminInvite(ctx, channel, chat)
 	if err != nil {
 		return err
 	}
@@ -362,23 +362,23 @@ func sendChannelAdminInvite(channel types.JID, channelName string, user types.JI
 		invite.InviteExpiration = proto.Int64(expiration.Unix())
 	}
 	msg := &waE2E.Message{NewsletterAdminInviteMessage: invite}
-	resp, err := wa().SendMessage(ctx, chat, msg)
+	resp, err := acc.wa().SendMessage(ctx, chat, msg)
 	if err != nil {
 		return err
 	}
-	storeOwnSentMessage(chat.String(), resp.ID, msg, resp.Timestamp.Unix())
+	acc.storeOwnSentMessage(chat.String(), resp.ID, msg, resp.Timestamp.Unix())
 	return nil
 }
 
-func storeOwnSentMessage(chatJID, id string, msg *waE2E.Message, ts int64) {
+func (acc *Account) storeOwnSentMessage(chatJID, id string, msg *waE2E.Message, ts int64) {
 	senderJID := ""
-	if wa().Store.ID != nil {
-		senderJID = wa().Store.ID.ToNonAD().String()
+	if acc.wa().Store.ID != nil {
+		senderJID = acc.wa().Store.ID.ToNonAD().String()
 	}
-	text := extractText(msg)
+	text := acc.extractText(msg)
 	raw, _ := proto.Marshal(msg)
-	saveMessage(StoredMessage{ID: id, JID: chatJID, SenderJID: senderJID, FromMe: true, Text: text, Timestamp: ts, Raw: raw, Status: "sent"})
-	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+	acc.saveMessage(StoredMessage{ID: id, JID: chatJID, SenderJID: senderJID, FromMe: true, Text: text, Timestamp: ts, Raw: raw, Status: "sent"})
+	acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 		ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=excluded.preview_snippet,
@@ -387,15 +387,15 @@ func storeOwnSentMessage(chatJID, id string, msg *waE2E.Message, ts int64) {
 			preview_is_reaction=0,
 			preview_reaction_emoji=''`,
 		chatJID, ts, text, senderJID)
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid": chatJID, "from": "me", "id": id, "text": text, "from_me": true,
 		"timestamp": ts, "has_media": false, "status": "sent", "sentHere": true,
 	})
-	broadcastChats()
+	acc.broadcastChats()
 }
 
-func adminInviteFromMessage(messageID string) (*waE2E.NewsletterAdminInviteMessage, string, bool, error) {
-	raw, chatJID, _, fromMe, err := getMessageRaw(messageID)
+func (acc *Account) adminInviteFromMessage(messageID string) (*waE2E.NewsletterAdminInviteMessage, string, bool, error) {
+	raw, chatJID, _, fromMe, err := acc.getMessageRaw(messageID)
 	if err != nil || len(raw) == 0 {
 		return nil, "", false, fmt.Errorf("message not found")
 	}
@@ -410,23 +410,23 @@ func adminInviteFromMessage(messageID string) (*waE2E.NewsletterAdminInviteMessa
 	return invite, chatJID, fromMe, nil
 }
 
-func handleGetChannelAdminInvite(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetChannelAdminInvite(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		invite, chatJID, fromMe, err := adminInviteFromMessage(data.MessageID)
+		invite, chatJID, fromMe, err := acc.adminInviteFromMessage(data.MessageID)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
 		userName := chatJID
 		if parsed, err := types.ParseJID(chatJID); err == nil {
-			userName = resolveDisplayName(parsed)
+			userName = acc.resolveDisplayName(parsed)
 		}
 		expiry := invite.GetInviteExpiration()
-		sendEvent(conn, "channel_admin_invite", map[string]interface{}{
+		acc.sendEvent(conn, "channel_admin_invite", map[string]interface{}{
 			"messageId": data.MessageID,
 			"jid":       invite.GetNewsletterJID(),
 			"name":      invite.GetNewsletterName(),
@@ -439,7 +439,7 @@ func handleGetChannelAdminInvite(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-func handleChannelAdminInviteAnswer(conn net.Conn, raw json.RawMessage, accept bool) {
+func (acc *Account) handleChannelAdminInviteAnswer(conn net.Conn, raw json.RawMessage, accept bool) {
 	var data struct {
 		JID  string `json:"jid"`
 		User string `json:"user"`
@@ -455,22 +455,22 @@ func handleChannelAdminInviteAnswer(conn net.Conn, raw json.RawMessage, accept b
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if accept {
-			if err := wa().AcceptNewsletterAdminInvite(ctx, channel); err != nil {
-				sendEvent(conn, "error", map[string]string{"message": "Couldn't accept the invite: " + err.Error()})
+			if err := acc.wa().AcceptNewsletterAdminInvite(ctx, channel); err != nil {
+				acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't accept the invite: " + err.Error()})
 				return
 			}
-			syncFollowedChannels()
-			sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": "You're now an admin of this channel."})
+			acc.syncFollowedChannels()
+			acc.sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": "You're now an admin of this channel."})
 			return
 		}
 		user, err := types.ParseJID(data.User)
 		if err != nil {
 			return
 		}
-		if err := wa().RevokeNewsletterAdminInvite(ctx, channel, user); err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't cancel the invite: " + err.Error()})
+		if err := acc.wa().RevokeNewsletterAdminInvite(ctx, channel, user); err != nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't cancel the invite: " + err.Error()})
 			return
 		}
-		sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": "Admin invite cancelled."})
+		acc.sendEvent(conn, "channel_notice", map[string]string{"jid": data.JID, "message": "Admin invite cancelled."})
 	}()
 }

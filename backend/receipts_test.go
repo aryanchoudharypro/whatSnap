@@ -9,13 +9,13 @@ import (
 
 func TestRecordParticipantReceiptKeepsEachStateTime(t *testing.T) {
 	var err error
-	db, err = sql.Open("sqlite", "file::memory:")
+	acc.db, err = sql.Open("sqlite", "file::memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.SetMaxOpenConns(1)
-	defer db.Close()
-	if err := migrateDB(); err != nil {
+	acc.db.SetMaxOpenConns(1)
+	defer acc.db.Close()
+	if err := acc.migrateDB(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -23,14 +23,14 @@ func TestRecordParticipantReceiptKeepsEachStateTime(t *testing.T) {
 		status string
 		ts     int64
 	}{{"read", 200}, {"delivered", 100}, {"read", 300}} {
-		if err := recordParticipantReceipt(db, "m1", "p@s.whatsapp.net", r.status, r.ts); err != nil {
+		if err := recordParticipantReceipt(acc.db, "m1", "p@s.whatsapp.net", r.status, r.ts); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	var status string
 	var ts, delivered, read int64
-	if err := db.QueryRow(`SELECT status, timestamp, delivered_at, read_at FROM message_receipts
+	if err := acc.db.QueryRow(`SELECT status, timestamp, delivered_at, read_at FROM message_receipts
 		WHERE message_id = 'm1' AND participant_jid = 'p@s.whatsapp.net'`).Scan(&status, &ts, &delivered, &read); err != nil {
 		t.Fatal(err)
 	}

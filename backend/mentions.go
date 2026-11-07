@@ -95,9 +95,9 @@ func invokedBot(jids []types.JID) types.JID {
 	return types.EmptyJID
 }
 
-func storedMentionMessage(id string) (string, []types.JID) {
+func (acc *Account) storedMentionMessage(id string) (string, []types.JID) {
 	var raw []byte
-	db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw)
+	acc.db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw)
 	if len(raw) == 0 {
 		return "", nil
 	}
@@ -122,9 +122,9 @@ func mentionsInMessage(msg *waE2E.Message) (string, []types.JID) {
 	return ext.GetText(), jids
 }
 
-func editMentions(messageID string, picked []MentionRef) []MentionRef {
+func (acc *Account) editMentions(messageID string, picked []MentionRef) []MentionRef {
 	var raw []byte
-	db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, messageID).Scan(&raw)
+	acc.db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, messageID).Scan(&raw)
 	msg := &waE2E.Message{}
 	if len(raw) == 0 || proto.Unmarshal(raw, msg) != nil {
 		return picked
@@ -132,62 +132,62 @@ func editMentions(messageID string, picked []MentionRef) []MentionRef {
 	_, jids := mentionsInMessage(msg)
 	out := make([]MentionRef, 0, len(jids)+len(picked))
 	for _, jid := range jids {
-		out = append(out, MentionRef{JID: jid.String(), Name: resolveDisplayName(jid)})
+		out = append(out, MentionRef{JID: jid.String(), Name: acc.resolveDisplayName(jid)})
 	}
 	return append(out, picked...)
 }
 
-func chatLimitSharing(jid string) bool {
+func (acc *Account) chatLimitSharing(jid string) bool {
 	var on int
-	db.QueryRow(`SELECT COALESCE(limit_sharing, 0) FROM chats WHERE jid = ?`, jid).Scan(&on)
+	acc.db.QueryRow(`SELECT COALESCE(limit_sharing, 0) FROM chats WHERE jid = ?`, jid).Scan(&on)
 	return on == 1
 }
 
-func setChatLimitSharing(jid string, enabled bool, ts int64) (changed bool) {
+func (acc *Account) setChatLimitSharing(jid string, enabled bool, ts int64) (changed bool) {
 	var res interface{ RowsAffected() (int64, error) }
 	var err error
 	if ts == 0 {
-		res, err = db.Exec(`UPDATE chats SET limit_sharing = ? WHERE jid = ? AND COALESCE(limit_sharing, 0) != ?`,
+		res, err = acc.db.Exec(`UPDATE chats SET limit_sharing = ? WHERE jid = ? AND COALESCE(limit_sharing, 0) != ?`,
 			boolToInt(enabled), jid, boolToInt(enabled))
 	} else {
-		res, err = db.Exec(`UPDATE chats SET limit_sharing = ?, limit_sharing_ts = ? WHERE jid = ? AND COALESCE(limit_sharing_ts, 0) < ?`,
+		res, err = acc.db.Exec(`UPDATE chats SET limit_sharing = ?, limit_sharing_ts = ? WHERE jid = ? AND COALESCE(limit_sharing_ts, 0) < ?`,
 			boolToInt(enabled), ts, jid, ts)
 	}
 	if err != nil {
 		return false
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		broadcastEvent("chat_limit_sharing", map[string]interface{}{"jid": jid, "enabled": chatSharingLimited(jid)})
+		acc.broadcastEvent("chat_limit_sharing", map[string]interface{}{"jid": jid, "enabled": acc.chatSharingLimited(jid)})
 		return true
 	}
 	return false
 }
 
-func chatRestricted(jid string) bool {
+func (acc *Account) chatRestricted(jid string) bool {
 	var on int
-	db.QueryRow(`SELECT COALESCE(restricted, 0) FROM chats WHERE jid = ?`, jid).Scan(&on)
+	acc.db.QueryRow(`SELECT COALESCE(restricted, 0) FROM chats WHERE jid = ?`, jid).Scan(&on)
 	return on == 1
 }
 
-func chatSharingLimited(jid string) bool {
-	return chatLimitSharing(jid) || chatRestricted(jid)
+func (acc *Account) chatSharingLimited(jid string) bool {
+	return acc.chatLimitSharing(jid) || acc.chatRestricted(jid)
 }
 
-func setChatRestricted(jid string, enabled bool, ts int64) (changed bool) {
-	res, err := db.Exec(`UPDATE chats SET restricted = ?, restricted_ts = ? WHERE jid = ? AND COALESCE(restricted_ts, 0) < ?`,
+func (acc *Account) setChatRestricted(jid string, enabled bool, ts int64) (changed bool) {
+	res, err := acc.db.Exec(`UPDATE chats SET restricted = ?, restricted_ts = ? WHERE jid = ? AND COALESCE(restricted_ts, 0) < ?`,
 		boolToInt(enabled), ts, jid, ts)
 	if err != nil {
 		return false
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		broadcastEvent("chat_limit_sharing", map[string]interface{}{"jid": jid, "enabled": chatSharingLimited(jid)})
+		acc.broadcastEvent("chat_limit_sharing", map[string]interface{}{"jid": jid, "enabled": acc.chatSharingLimited(jid)})
 		return true
 	}
 	return false
 }
 
-func chatPrivacyName(jid string) string {
-	if chatRestricted(jid) {
+func (acc *Account) chatPrivacyName(jid string) string {
+	if acc.chatRestricted(jid) {
 		return "Restricted chat"
 	}
 	return "Advanced chat privacy"
@@ -229,7 +229,7 @@ func limitSharingInMessage(msg *waE2E.Message) (setting *waCommon.LimitSharing, 
 
 // handleGetMentionCandidates answers the composer's first "@" in a chat: the
 // group's members (never us) and whether chat privacy is on.
-func handleGetMentionCandidates(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetMentionCandidates(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -244,21 +244,21 @@ func handleGetMentionCandidates(conn net.Conn, raw json.RawMessage) {
 		// is a member under its own ID, and WA Web mentions that member.
 		metaAI := types.NewMetaAIJID
 		if jid.Server == types.GroupServer {
-			info, err := wa().GetGroupInfo(context.Background(), jid)
+			info, err := acc.wa().GetGroupInfo(context.Background(), jid)
 			if err != nil {
-				sendEvent(conn, "error", map[string]string{"message": "Couldn't load the group's members to mention: " + err.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't load the group's members to mention: " + err.Error()})
 			} else {
-				setChatLimitSharing(jid.String(), info.IsLimitSharingEnabled, 0)
+				acc.setChatLimitSharing(jid.String(), info.IsLimitSharingEnabled, 0)
 				bots := map[types.JID]bool{}
 				for _, p := range info.Participants {
 					if p.JID.IsBot() {
 						bots[p.JID.ToNonAD()] = true
 						continue
 					}
-					if isParticipantMe(p) {
+					if acc.isParticipantMe(p) {
 						continue
 					}
-					name := resolveDisplayName(p.JID)
+					name := acc.resolveDisplayName(p.JID)
 					if name == "" || strings.HasSuffix(name, "@"+types.HiddenUserServer) {
 						name = p.DisplayName
 					}
@@ -272,10 +272,10 @@ func handleGetMentionCandidates(conn net.Conn, raw json.RawMessage) {
 				}
 			}
 		}
-		sendEvent(conn, "mention_candidates", map[string]interface{}{
+		acc.sendEvent(conn, "mention_candidates", map[string]interface{}{
 			"jid":           jid.String(),
 			"members":       members,
-			"limit_sharing": chatSharingLimited(jid.String()),
+			"limit_sharing": acc.chatSharingLimited(jid.String()),
 			"meta_ai":       metaAI.String(),
 		})
 	}()

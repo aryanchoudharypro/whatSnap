@@ -43,9 +43,9 @@ func storeHDMedia(tx sqlExecer, parentID string, msg *waE2E.Message) {
 	tx.Exec(`INSERT OR REPLACE INTO hd_media (parent_id, raw) VALUES (?, ?)`, parentID, raw)
 }
 
-func hdMediaRaw(parentID string) []byte {
+func (acc *Account) hdMediaRaw(parentID string) []byte {
 	var raw []byte
-	if db.QueryRow(`SELECT raw FROM hd_media WHERE parent_id = ?`, parentID).Scan(&raw) != nil {
+	if acc.db.QueryRow(`SELECT raw FROM hd_media WHERE parent_id = ?`, parentID).Scan(&raw) != nil {
 		return nil
 	}
 	return raw
@@ -54,23 +54,23 @@ func hdMediaRaw(parentID string) []byte {
 // noteLiveHDMedia stores an HD copy that just arrived. The standard copy
 // usually came seconds before and may already be downloaded; with HD
 // downloads on, that file is swapped for the HD one.
-func noteLiveHDMedia(parentID string, msg *waE2E.Message) {
-	storeHDMedia(db, parentID, msg)
+func (acc *Account) noteLiveHDMedia(parentID string, msg *waE2E.Message) {
+	storeHDMedia(acc.db, parentID, msg)
 	log.Printf("HD copy arrived for %s", parentID)
-	if !appPref("hd_auto_download") {
+	if !acc.appPref("hd_auto_download") {
 		return
 	}
 	var jid, path string
-	if db.QueryRow(`SELECT COALESCE(jid, ''), COALESCE(media_path, '') FROM messages WHERE id = ?`, parentID).Scan(&jid, &path) != nil || path == "" {
+	if acc.db.QueryRow(`SELECT COALESCE(jid, ''), COALESCE(media_path, '') FROM messages WHERE id = ?`, parentID).Scan(&jid, &path) != nil || path == "" {
 		return
 	}
-	activeDownloadsMu.Lock()
-	_, busy := activeDownloads[parentID]
-	activeDownloadsMu.Unlock()
+	acc.activeDownloadsMu.Lock()
+	_, busy := acc.activeDownloads[parentID]
+	acc.activeDownloadsMu.Unlock()
 	if busy {
 		return
 	}
-	db.Exec(`UPDATE messages SET media_path = '' WHERE id = ?`, parentID)
+	acc.db.Exec(`UPDATE messages SET media_path = '' WHERE id = ?`, parentID)
 	os.Remove(path)
-	go downloadMediaNow(MessageRefData{MessageID: parentID, JID: jid}, true)
+	go acc.downloadMediaNow(MessageRefData{MessageID: parentID, JID: jid}, true)
 }

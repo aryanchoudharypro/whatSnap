@@ -10,7 +10,6 @@ import (
 	"math"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -30,10 +29,10 @@ type poll struct {
 	fromMe   bool
 }
 
-func loadPoll(pollID string) (poll, bool) {
+func (acc *Account) loadPoll(pollID string) (poll, bool) {
 	var raw []byte
 	var fromMe bool
-	if db.QueryRow(`SELECT raw, from_me FROM messages WHERE id = ?`, pollID).Scan(&raw, &fromMe) != nil || len(raw) == 0 {
+	if acc.db.QueryRow(`SELECT raw, from_me FROM messages WHERE id = ?`, pollID).Scan(&raw, &fromMe) != nil || len(raw) == 0 {
 		return poll{}, false
 	}
 	msg := &waE2E.Message{}
@@ -87,15 +86,15 @@ func optionHash(name string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func pollVoterKey(jid types.JID) string {
-	return preferPN(jid.ToNonAD()).String()
+func (acc *Account) pollVoterKey(jid types.JID) string {
+	return acc.preferPN(jid.ToNonAD()).String()
 }
 
-func ownVoterKey() string {
-	if wa() == nil || wa().Store.ID == nil {
+func (acc *Account) ownVoterKey() string {
+	if acc.wa() == nil || acc.wa().Store.ID == nil {
 		return ""
 	}
-	return wa().Store.ID.ToNonAD().String()
+	return acc.wa().Store.ID.ToNonAD().String()
 }
 
 func storePollVote(exec sqlExecer, pollID, voter string, selected [][]byte, ts int64) {
@@ -114,9 +113,9 @@ func storePollVote(exec sqlExecer, pollID, voter string, selected [][]byte, ts i
 	}
 }
 
-func pollVotes(pollID string) map[string][]string {
+func (acc *Account) pollVotes(pollID string) map[string][]string {
 	votes := map[string][]string{}
-	rows, err := db.Query(`SELECT voter, selected FROM poll_votes WHERE poll_id = ?`, pollID)
+	rows, err := acc.db.Query(`SELECT voter, selected FROM poll_votes WHERE poll_id = ?`, pollID)
 	if err != nil {
 		return votes
 	}
@@ -187,20 +186,20 @@ func newPollResults(msg *waE2E.Message) string {
 	return ""
 }
 
-func pollResultsForMessage(pollID string) string {
-	p, ok := loadPoll(pollID)
+func (acc *Account) pollResultsForMessage(pollID string) string {
+	p, ok := acc.loadPoll(pollID)
 	if !ok {
-		return eventResultsForMessage(pollID)
+		return acc.eventResultsForMessage(pollID)
 	}
-	if counts, isChannel := channelPollCounts(pollID); isChannel {
-		return channelPollResultsText(p, counts, pollVotes(pollID)[ownVoterKey()])
+	if counts, isChannel := acc.channelPollCounts(pollID); isChannel {
+		return channelPollResultsText(p, counts, acc.pollVotes(pollID)[acc.ownVoterKey()])
 	}
-	return pollResultsText(p, pollVotes(pollID), ownVoterKey())
+	return pollResultsText(p, acc.pollVotes(pollID), acc.ownVoterKey())
 }
 
-func channelPollCounts(pollID string) (map[string]int, bool) {
+func (acc *Account) channelPollCounts(pollID string) (map[string]int, bool) {
 	var jid, raw string
-	db.QueryRow(`SELECT jid, COALESCE(channel_poll_votes, '') FROM messages WHERE id = ?`, pollID).Scan(&jid, &raw)
+	acc.db.QueryRow(`SELECT jid, COALESCE(channel_poll_votes, '') FROM messages WHERE id = ?`, pollID).Scan(&jid, &raw)
 	if !isChannelJID(jid) {
 		return nil, false
 	}
@@ -251,10 +250,10 @@ func channelPollResultsText(p poll, counts map[string]int, mine []string) string
 	return text + "." + quizAnswerText(p, mine)
 }
 
-func broadcastPollResults(chatJID, pollID string) string {
-	results := pollResultsForMessage(pollID)
+func (acc *Account) broadcastPollResults(chatJID, pollID string) string {
+	results := acc.pollResultsForMessage(pollID)
 	if results != "" {
-		broadcastEvent("poll_updated", map[string]interface{}{
+		acc.broadcastEvent("poll_updated", map[string]interface{}{
 			"jid":         chatJID,
 			"message_id":  pollID,
 			"pollResults": results,
@@ -263,10 +262,10 @@ func broadcastPollResults(chatJID, pollID string) string {
 	return results
 }
 
-func applyPollVote(v *events.Message) {
+func (acc *Account) applyPollVote(v *events.Message) {
 	update := unwrapMessage(v.Message).GetPollUpdateMessage()
 	pollID := update.GetPollCreationMessageKey().GetID()
-	vote, err := decryptPollVote(v)
+	vote, err := acc.decryptPollVote(v)
 	if err != nil {
 		log.Printf("poll vote on %s couldn't be decrypted: %v", pollID, err)
 		return
@@ -275,34 +274,34 @@ func applyPollVote(v *events.Message) {
 	if ms := update.GetSenderTimestampMS(); ms > 0 {
 		ts = ms / 1000
 	}
-	storePollVote(db, pollID, pollVoterKey(v.Info.Sender), vote.GetSelectedOptions(), ts)
-	chat, _ := resolveLIDChat(v)
-	broadcastPollResults(chat.String(), pollID)
+	storePollVote(acc.db, pollID, acc.pollVoterKey(v.Info.Sender), vote.GetSelectedOptions(), ts)
+	chat, _ := acc.resolveLIDChat(v)
+	acc.broadcastPollResults(chat.String(), pollID)
 }
 
-func decryptPollVote(v *events.Message) (*waE2E.PollVoteMessage, error) {
+func (acc *Account) decryptPollVote(v *events.Message) (*waE2E.PollVoteMessage, error) {
 	evt := *v
 	evt.Message = unwrapMessage(v.Message)
-	return wa().DecryptPollVote(context.Background(), &evt)
+	return acc.wa().DecryptPollVote(context.Background(), &evt)
 }
 
-func historyPollVotes(exec sqlExecer, chat types.JID, webMsg *waWeb.WebMessageInfo) {
+func (acc *Account) historyPollVotes(exec sqlExecer, chat types.JID, webMsg *waWeb.WebMessageInfo) {
 	pollID := webMsg.GetKey().GetID()
 	for _, pu := range webMsg.GetPollUpdates() {
 		key := pu.GetPollUpdateMessageKey()
 		var voter string
 		switch {
 		case key.GetFromMe():
-			voter = ownVoterKey()
+			voter = acc.ownVoterKey()
 		case key.GetParticipant() != "":
 			if j, err := types.ParseJID(key.GetParticipant()); err == nil {
-				voter = pollVoterKey(j)
+				voter = acc.pollVoterKey(j)
 			}
 		default:
 			if j, err := types.ParseJID(key.GetRemoteJID()); err == nil {
-				voter = pollVoterKey(j)
+				voter = acc.pollVoterKey(j)
 			} else {
-				voter = pollVoterKey(chat)
+				voter = acc.pollVoterKey(chat)
 			}
 		}
 		storePollVote(exec, pollID, voter, pu.GetVote().GetSelectedOptions(), pu.GetSenderTimestampMS()/1000)
@@ -315,25 +314,25 @@ type PollRefData struct {
 	Options   []string `json:"options"`
 }
 
-func handleGetPoll(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetPoll(conn net.Conn, raw json.RawMessage) {
 	var data PollRefData
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
-	p, ok := loadPoll(data.MessageID)
+	p, ok := acc.loadPoll(data.MessageID)
 	if !ok {
-		sendEvent(conn, "error", map[string]string{"message": "This poll can't be opened here."})
+		acc.sendEvent(conn, "error", map[string]string{"message": "This poll can't be opened here."})
 		return
 	}
 	selected := []string{}
-	for _, h := range pollVotes(data.MessageID)[ownVoterKey()] {
+	for _, h := range acc.pollVotes(data.MessageID)[acc.ownVoterKey()] {
 		for _, name := range p.options {
 			if optionHash(name) == h {
 				selected = append(selected, name)
 			}
 		}
 	}
-	sendEvent(conn, "poll_details", map[string]interface{}{
+	acc.sendEvent(conn, "poll_details", map[string]interface{}{
 		"jid":        data.JID,
 		"message_id": data.MessageID,
 		"question":   p.question,
@@ -344,14 +343,14 @@ func handleGetPoll(conn net.Conn, raw json.RawMessage) {
 	})
 }
 
-func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 	var data PollRefData
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
 	go func() {
-		fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
-		p, ok := loadPoll(data.MessageID)
+		fail := func(msg string) { acc.sendEvent(conn, "error", map[string]string{"message": msg}) }
+		p, ok := acc.loadPoll(data.MessageID)
 		if !ok {
 			fail("This poll can't be voted in here.")
 			return
@@ -370,7 +369,7 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			fail("This poll takes only one answer.")
 			return
 		}
-		if p.quiz && len(pollVotes(data.MessageID)[ownVoterKey()]) > 0 {
+		if p.quiz && len(acc.pollVotes(data.MessageID)[acc.ownVoterKey()]) > 0 {
 			fail("You've already answered this quiz.")
 			return
 		}
@@ -379,7 +378,7 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			return
 		}
 		if isChannelJID(data.JID) {
-			sendChannelPollVote(conn, data, fail)
+			acc.sendChannelPollVote(conn, data, fail)
 			return
 		}
 		chat, err := types.ParseJID(data.JID)
@@ -387,20 +386,20 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 			fail("invalid jid")
 			return
 		}
-		info := secretMessageInfo(chat, data.MessageID)
-		msg, err := wa().BuildPollVote(context.Background(), info, data.Options)
+		info := acc.secretMessageInfo(chat, data.MessageID)
+		msg, err := acc.wa().BuildPollVote(context.Background(), info, data.Options)
 		if err != nil {
 			fail("Couldn't vote: " + err.Error())
 			return
 		}
 		msg.PollUpdateMessage.SenderTimestampMS = proto.Int64(time.Now().UnixMilli())
-		if _, err := wa().SendMessage(context.Background(), chat, msg, whatsmeow.SendRequestExtra{}); err != nil {
+		if _, err := acc.wa().SendMessage(context.Background(), chat, msg, whatsmeow.SendRequestExtra{}); err != nil {
 			fail("Couldn't send the vote: " + err.Error())
 			return
 		}
-		storePollVote(db, data.MessageID, ownVoterKey(), whatsmeow.HashPollOptions(data.Options), time.Now().Unix())
-		results := broadcastPollResults(data.JID, data.MessageID)
-		sendEvent(conn, "poll_voted", map[string]interface{}{
+		storePollVote(acc.db, data.MessageID, acc.ownVoterKey(), whatsmeow.HashPollOptions(data.Options), time.Now().Unix())
+		results := acc.broadcastPollResults(data.JID, data.MessageID)
+		acc.sendEvent(conn, "poll_voted", map[string]interface{}{
 			"message_id":  data.MessageID,
 			"pollResults": results,
 			"retracted":   len(data.Options) == 0,
@@ -408,17 +407,17 @@ func handleSendPollVote(conn net.Conn, raw json.RawMessage) {
 	}()
 }
 
-func secretMessageInfo(chat types.JID, messageID string) *types.MessageInfo {
+func (acc *Account) secretMessageInfo(chat types.JID, messageID string) *types.MessageInfo {
 	var fromMe bool
 	var senderStr string
-	db.QueryRow(`SELECT from_me, COALESCE(sender_jid,'') FROM messages WHERE id = ?`, messageID).Scan(&fromMe, &senderStr)
+	acc.db.QueryRow(`SELECT from_me, COALESCE(sender_jid,'') FROM messages WHERE id = ?`, messageID).Scan(&fromMe, &senderStr)
 	sender := chat
-	if fromMe && wa().Store.ID != nil {
-		sender = wa().Store.ID.ToNonAD()
+	if fromMe && acc.wa().Store.ID != nil {
+		sender = acc.wa().Store.ID.ToNonAD()
 	} else if s, perr := types.ParseJID(senderStr); perr == nil && !s.IsEmpty() {
 		sender = s
 	}
-	if _, realSender, serr := wa().Store.MsgSecrets.GetMessageSecret(context.Background(), chat, sender, messageID); serr == nil && !realSender.IsEmpty() {
+	if _, realSender, serr := acc.wa().Store.MsgSecrets.GetMessageSecret(context.Background(), chat, sender, messageID); serr == nil && !realSender.IsEmpty() {
 		sender = realSender
 	}
 	return &types.MessageInfo{
@@ -427,20 +426,20 @@ func secretMessageInfo(chat types.JID, messageID string) *types.MessageInfo {
 	}
 }
 
-func sendChannelPollVote(conn net.Conn, data PollRefData, fail func(string)) {
+func (acc *Account) sendChannelPollVote(conn net.Conn, data PollRefData, fail func(string)) {
 	var serverID int64
-	db.QueryRow(`SELECT COALESCE(server_id, 0) FROM messages WHERE id = ?`, data.MessageID).Scan(&serverID)
+	acc.db.QueryRow(`SELECT COALESCE(server_id, 0) FROM messages WHERE id = ?`, data.MessageID).Scan(&serverID)
 	chat, err := types.ParseJID(data.JID)
 	if err != nil || serverID == 0 {
 		fail("Can't vote in this poll: it hasn't finished loading from the channel.")
 		return
 	}
-	if err := wa().NewsletterSendPollVote(context.Background(), chat, types.MessageServerID(serverID), data.Options); err != nil {
+	if err := acc.wa().NewsletterSendPollVote(context.Background(), chat, types.MessageServerID(serverID), data.Options); err != nil {
 		fail("Couldn't send the vote: " + err.Error())
 		return
 	}
-	if counts, ok := channelPollCounts(data.MessageID); ok {
-		for _, h := range pollVotes(data.MessageID)[ownVoterKey()] {
+	if counts, ok := acc.channelPollCounts(data.MessageID); ok {
+		for _, h := range acc.pollVotes(data.MessageID)[acc.ownVoterKey()] {
 			if counts[h] > 0 {
 				counts[h]--
 			}
@@ -449,20 +448,20 @@ func sendChannelPollVote(conn net.Conn, data PollRefData, fail func(string)) {
 			counts[optionHash(name)]++
 		}
 		if out, err := json.Marshal(counts); err == nil {
-			db.Exec(`UPDATE messages SET channel_poll_votes = ? WHERE id = ?`, string(out), data.MessageID)
+			acc.db.Exec(`UPDATE messages SET channel_poll_votes = ? WHERE id = ?`, string(out), data.MessageID)
 		}
 	}
-	storePollVote(db, data.MessageID, ownVoterKey(), whatsmeow.HashPollOptions(data.Options), time.Now().Unix())
-	results := broadcastPollResults(data.JID, data.MessageID)
-	sendEvent(conn, "poll_voted", map[string]interface{}{
+	storePollVote(acc.db, data.MessageID, acc.ownVoterKey(), whatsmeow.HashPollOptions(data.Options), time.Now().Unix())
+	results := acc.broadcastPollResults(data.JID, data.MessageID)
+	acc.sendEvent(conn, "poll_voted", map[string]interface{}{
 		"message_id":  data.MessageID,
 		"pollResults": results,
 		"retracted":   len(data.Options) == 0,
 	})
 }
 
-func pollInfoForMessage(pollID string) map[string]interface{} {
-	p, ok := loadPoll(pollID)
+func (acc *Account) pollInfoForMessage(pollID string) map[string]interface{} {
+	p, ok := acc.loadPoll(pollID)
 	if !ok {
 		return nil
 	}
@@ -470,9 +469,9 @@ func pollInfoForMessage(pollID string) map[string]interface{} {
 	for _, name := range p.options {
 		nameOf[optionHash(name)] = name
 	}
-	me := ownVoterKey()
+	me := acc.ownVoterKey()
 	voters := []map[string]interface{}{}
-	rows, err := db.Query(`SELECT voter, selected, timestamp FROM poll_votes WHERE poll_id = ? AND selected != '' ORDER BY timestamp DESC`, pollID)
+	rows, err := acc.db.Query(`SELECT voter, selected, timestamp FROM poll_votes WHERE poll_id = ? AND selected != '' ORDER BY timestamp DESC`, pollID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -501,30 +500,28 @@ func pollInfoForMessage(pollID string) map[string]interface{} {
 		for _, v := range voters {
 			if !v["me"].(bool) {
 				if jid, perr := types.ParseJID(v["name"].(string)); perr == nil {
-					v["name"] = resolveDisplayName(jid)
+					v["name"] = acc.resolveDisplayName(jid)
 				}
 			}
 		}
 	}
-	_, isChannel := channelPollCounts(pollID)
+	_, isChannel := acc.channelPollCounts(pollID)
 	return map[string]interface{}{
 		"question": p.question,
-		"results":  pollResultsForMessage(pollID),
+		"results":  acc.pollResultsForMessage(pollID),
 		"voters":   voters,
 		"channel":  isChannel,
 	}
 }
 
-var convertStoredVotesOnce sync.Once
-
-func convertStoredPollVotes() {
+func (acc *Account) convertStoredPollVotes() {
 	type storedRow struct {
 		id, jid, sender string
 		fromMe          bool
 		ts              int64
 		raw             []byte
 	}
-	rows, err := db.Query(`SELECT id, jid, from_me, COALESCE(sender_jid,''), COALESCE(timestamp,0), raw FROM messages
+	rows, err := acc.db.Query(`SELECT id, jid, from_me, COALESCE(sender_jid,''), COALESCE(timestamp,0), raw FROM messages
 		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
 	if err != nil {
 		return
@@ -550,8 +547,8 @@ func convertStoredPollVotes() {
 			continue
 		}
 		sender := chat
-		if r.fromMe && wa().Store.ID != nil {
-			sender = wa().Store.ID.ToNonAD()
+		if r.fromMe && acc.wa().Store.ID != nil {
+			sender = acc.wa().Store.ID.ToNonAD()
 		} else if s, perr := types.ParseJID(r.sender); perr == nil && !s.IsEmpty() {
 			sender = s
 		}
@@ -560,28 +557,28 @@ func convertStoredPollVotes() {
 			ID:            r.id,
 			Timestamp:     time.Unix(r.ts, 0),
 		}}
-		vote, verr := decryptPollVote(evt)
+		vote, verr := acc.decryptPollVote(evt)
 		if verr != nil && sender.Server == types.DefaultUserServer {
-			if lid, lerr := wa().Store.LIDs.GetLIDForPN(context.Background(), sender); lerr == nil && !lid.IsEmpty() {
+			if lid, lerr := acc.wa().Store.LIDs.GetLIDForPN(context.Background(), sender); lerr == nil && !lid.IsEmpty() {
 				evt.Info.Sender = lid
-				vote, verr = decryptPollVote(evt)
+				vote, verr = acc.decryptPollVote(evt)
 			}
 		}
 		if verr == nil {
 			pollID := unwrapMessage(msg).GetPollUpdateMessage().GetPollCreationMessageKey().GetID()
-			storePollVote(db, pollID, pollVoterKey(sender), vote.GetSelectedOptions(), r.ts)
+			storePollVote(acc.db, pollID, acc.pollVoterKey(sender), vote.GetSelectedOptions(), r.ts)
 			polls[pollID] = r.jid
 		} else {
 			log.Printf("stored poll vote %s couldn't be decrypted, removing it anyway: %v", r.id, verr)
 		}
-		purgeMessages("id = ?", r.id)
+		acc.purgeMessages("id = ?", r.id)
 		converted++
 	}
 	for pollID, chat := range polls {
-		broadcastPollResults(chat, pollID)
+		acc.broadcastPollResults(chat, pollID)
 	}
 	if converted > 0 {
 		log.Printf("Turned %d stored poll votes back into votes", converted)
-		broadcastChats()
+		acc.broadcastChats()
 	}
 }

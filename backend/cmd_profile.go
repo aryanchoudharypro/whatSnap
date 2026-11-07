@@ -9,13 +9,13 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-func handleGetOwnProfile(conn net.Conn) {
+func (acc *Account) handleGetOwnProfile(conn net.Conn) {
 	go func() {
-		if wa().Store.ID == nil {
-			sendEvent(conn, "error", map[string]string{"message": "not logged in"})
+		if acc.wa().Store.ID == nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "not logged in"})
 			return
 		}
-		myJID := wa().Store.ID.ToNonAD()
+		myJID := acc.wa().Store.ID.ToNonAD()
 		about := ""
 		aboutDuration := -1
 		aboutLoaded := false
@@ -24,7 +24,7 @@ func handleGetOwnProfile(conn net.Conn) {
 		// newer mex mutation - GetTextStatus is the read-side counterpart
 		// of that mutation and is the only reliable way to get a fresh
 		// value.
-		if status, err := wa().GetTextStatus(context.Background(), myJID); err == nil {
+		if status, err := acc.wa().GetTextStatus(context.Background(), myJID); err == nil {
 			aboutLoaded = true
 			if status != nil {
 				about = status.Text
@@ -35,66 +35,66 @@ func handleGetOwnProfile(conn net.Conn) {
 		}
 		profile := map[string]interface{}{
 			"jid":      myJID.String(),
-			"pushName": wa().Store.PushName,
+			"pushName": acc.wa().Store.PushName,
 		}
 		if aboutLoaded {
 			profile["about"] = about
 			profile["aboutDuration"] = aboutDuration
 		}
-		sendEvent(conn, "own_profile", profile)
+		acc.sendEvent(conn, "own_profile", profile)
 	}()
 }
 
-func handleSetPushName(raw json.RawMessage) {
+func (acc *Account) handleSetPushName(raw json.RawMessage) {
 	var data SetPushNameData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
 		ctx := context.Background()
-		if err := wa().SendAppState(ctx, appstate.BuildSettingPushName(data.Name)); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+		if err := acc.wa().SendAppState(ctx, appstate.BuildSettingPushName(data.Name)); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		wa().Store.PushName = data.Name
-		if err := wa().Store.Save(ctx); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+		acc.wa().Store.PushName = data.Name
+		if err := acc.wa().Store.Save(ctx); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		broadcastEvent("own_profile", map[string]interface{}{
-			"jid":      wa().Store.ID.ToNonAD().String(),
-			"pushName": wa().Store.PushName,
+		acc.broadcastEvent("own_profile", map[string]interface{}{
+			"jid":      acc.wa().Store.ID.ToNonAD().String(),
+			"pushName": acc.wa().Store.PushName,
 		})
 	}()
 }
 
-func handleGetPrivacySettings(conn net.Conn) {
+func (acc *Account) handleGetPrivacySettings(conn net.Conn) {
 	go func() {
-		settings, err := wa().TryFetchPrivacySettings(context.Background(), true)
+		settings, err := acc.wa().TryFetchPrivacySettings(context.Background(), true)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-		sendEvent(conn, "privacy_settings", privacySettingsToMap(settings))
+		acc.sendEvent(conn, "privacy_settings", privacySettingsToMap(settings))
 	}()
 }
 
-func handleSetPrivacySetting(raw json.RawMessage) {
+func (acc *Account) handleSetPrivacySetting(raw json.RawMessage) {
 	var data SetPrivacySettingData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		settings, err := wa().SetPrivacySetting(
+		settings, err := acc.wa().SetPrivacySetting(
 			context.Background(),
 			types.PrivacySettingType(data.Name),
 			types.PrivacySetting(data.Value),
 		)
 		if err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		broadcastEvent("privacy_settings", privacySettingsToMap(&settings))
+		acc.broadcastEvent("privacy_settings", privacySettingsToMap(&settings))
 	}()
 }
 

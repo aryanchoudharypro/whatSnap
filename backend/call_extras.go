@@ -25,91 +25,91 @@ type CallToggleData struct {
 	JID    string `json:"jid"`
 }
 
-func activeCall(callID string) *meowcaller.Call {
-	activeCallsMutex.Lock()
-	defer activeCallsMutex.Unlock()
-	return activeCalls[callID]
+func (acc *Account) activeCall(callID string) *meowcaller.Call {
+	acc.activeCallsMutex.Lock()
+	defer acc.activeCallsMutex.Unlock()
+	return acc.activeCalls[callID]
 }
 
-func callPersonName(jid, pn types.JID) string {
+func (acc *Account) callPersonName(jid, pn types.JID) string {
 	if !pn.IsEmpty() {
-		return resolveDisplayName(pn)
+		return acc.resolveDisplayName(pn)
 	}
-	return resolveDisplayName(preferPN(jid))
+	return acc.resolveDisplayName(acc.preferPN(jid))
 }
 
-func callJoinerName(jid, pn types.JID, pushName string, guest bool) string {
+func (acc *Account) callJoinerName(jid, pn types.JID, pushName string, guest bool) string {
 	if guest {
 		return cmp.Or(pushName, "Guest") + " (guest)"
 	}
-	return callPersonName(jid, pn)
+	return acc.callPersonName(jid, pn)
 }
 
-func attachCallExtras(call *meowcaller.Call) {
+func (acc *Account) attachCallExtras(call *meowcaller.Call) {
 	call.OnMuteRequested(func(by types.JID) {
 		name := ""
 		if !by.IsEmpty() {
-			name = callPersonName(by, types.EmptyJID)
+			name = acc.callPersonName(by, types.EmptyJID)
 		}
-		broadcastEvent("call_muted_by", map[string]interface{}{"call_id": call.ID(), "name": name})
+		acc.broadcastEvent("call_muted_by", map[string]interface{}{"call_id": call.ID(), "name": name})
 	})
 	call.OnHandRaise(func(h meowcaller.HandRaiseState) {
-		if isOwnJID(h.Participant) {
+		if acc.isOwnJID(h.Participant) {
 			return
 		}
-		broadcastEvent("call_hand", map[string]interface{}{
-			"call_id": call.ID(), "name": callPersonName(h.Participant, types.EmptyJID), "raised": h.Raised,
+		acc.broadcastEvent("call_hand", map[string]interface{}{
+			"call_id": call.ID(), "name": acc.callPersonName(h.Participant, types.EmptyJID), "raised": h.Raised,
 		})
 	})
 	call.OnReaction(func(r meowcaller.CallReaction) {
-		if isOwnJID(r.Sender) || r.Removed || r.Emoji == "" {
+		if acc.isOwnJID(r.Sender) || r.Removed || r.Emoji == "" {
 			return
 		}
-		broadcastEvent("call_reaction", map[string]interface{}{
-			"call_id": call.ID(), "name": callPersonName(r.Sender, types.EmptyJID), "emoji": r.Emoji,
+		acc.broadcastEvent("call_reaction", map[string]interface{}{
+			"call_id": call.ID(), "name": acc.callPersonName(r.Sender, types.EmptyJID), "emoji": r.Emoji,
 		})
 	})
 	call.OnScreenShare(func(s meowcaller.ScreenShareState) {
-		if isOwnJID(s.Participant) || s.Synthetic {
+		if acc.isOwnJID(s.Participant) || s.Synthetic {
 			return
 		}
-		broadcastEvent("call_screen_share", map[string]interface{}{
-			"call_id": call.ID(), "name": callPersonName(s.Participant, types.EmptyJID), "active": s.Active,
+		acc.broadcastEvent("call_screen_share", map[string]interface{}{
+			"call_id": call.ID(), "name": acc.callPersonName(s.Participant, types.EmptyJID), "active": s.Active,
 		})
 	})
 	call.OnWaitingRoomState(func(w meowcaller.WaitingRoomState) {
 		users := []map[string]string{}
 		for _, u := range w.Users {
 			users = append(users, map[string]string{
-				"jid": u.JID.String(), "name": callJoinerName(u.JID, u.PN, u.PushName, u.Guest), "state": u.State,
+				"jid": u.JID.String(), "name": acc.callJoinerName(u.JID, u.PN, u.PushName, u.Guest), "state": u.State,
 			})
 		}
-		broadcastEvent("call_waiting_room", map[string]interface{}{
+		acc.broadcastEvent("call_waiting_room", map[string]interface{}{
 			"call_id": call.ID(), "waiting": w.InWaitingRoom, "is_admin": w.IsAdmin,
 			"enabled": w.Enabled, "users": users,
 		})
 	})
 }
 
-func handleCreateCallLink(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleCreateCallLink(conn net.Conn, raw json.RawMessage) {
 	var data CallLinkData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		if callClient == nil {
-			initCallClient()
+		if acc.callClient == nil {
+			acc.initCallClient()
 		}
-		if callClient == nil {
-			sendEvent(conn, "error", map[string]string{"message": "Calls aren't available yet."})
+		if acc.callClient == nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "Calls aren't available yet."})
 			return
 		}
-		link, err := callClient.CreateCallLink(context.Background(), meowcaller.CallLinkOptions{Video: data.Video})
+		link, err := acc.callClient.CreateCallLink(context.Background(), meowcaller.CallLinkOptions{Video: data.Video})
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't create the call link: " + err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't create the call link: " + err.Error()})
 			return
 		}
-		sendEvent(conn, "call_link_created", map[string]interface{}{"url": link.URL, "video": link.Video})
+		acc.sendEvent(conn, "call_link_created", map[string]interface{}{"url": link.URL, "video": link.Video})
 	}()
 }
 
@@ -121,50 +121,50 @@ func callLinkJoinPushName(name string) (string, error) {
 	return name, nil
 }
 
-func handleJoinCallLink(raw json.RawMessage) {
+func (acc *Account) handleJoinCallLink(raw json.RawMessage) {
 	var data CallLinkData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		if callClient == nil {
-			initCallClient()
+		if acc.callClient == nil {
+			acc.initCallClient()
 		}
 		fail := func(err error) {
-			broadcastEvent("call_failed", map[string]string{"jid": "", "message": "Couldn't join the call: " + err.Error()})
+			acc.broadcastEvent("call_failed", map[string]string{"jid": "", "message": "Couldn't join the call: " + err.Error()})
 		}
-		if callClient == nil {
+		if acc.callClient == nil {
 			fail(errors.New("calls aren't available yet"))
 			return
 		}
 		ctx := context.Background()
 		video := data.Video
-		if preview, err := callClient.PreviewCallLink(ctx, data.Link, meowcaller.CallLinkOptions{Video: data.Video}); err == nil {
+		if preview, err := acc.callClient.PreviewCallLink(ctx, data.Link, meowcaller.CallLinkOptions{Video: data.Video}); err == nil {
 			video = preview.Video
 		}
-		call, err := callClient.JoinCallLink(ctx, data.Link, meowcaller.CallLinkOptions{Video: video})
+		call, err := acc.callClient.JoinCallLink(ctx, data.Link, meowcaller.CallLinkOptions{Video: video})
 		if err != nil {
 			fail(err)
 			return
 		}
-		activeCallsMutex.Lock()
-		activeCalls[call.ID()] = call
-		activeCallsMutex.Unlock()
-		trackLiveCall(call.ID(), call.Peer(), types.EmptyJID, false, video, true)
-		broadcastEvent("call_placed", map[string]interface{}{
+		acc.activeCallsMutex.Lock()
+		acc.activeCalls[call.ID()] = call
+		acc.activeCallsMutex.Unlock()
+		acc.trackLiveCall(call.ID(), call.Peer(), types.EmptyJID, false, video, true)
+		acc.broadcastEvent("call_placed", map[string]interface{}{
 			"call_id": call.ID(), "peer": call.Peer().String(), "link": true, "video": video,
 		})
-		attachCallHandlers(call)
+		acc.attachCallHandlers(call)
 		log.Printf("Joined call link, call ID: %s", call.ID())
 	}()
 }
 
-func handleCallToggle(conn net.Conn, raw json.RawMessage, what string) {
+func (acc *Account) handleCallToggle(conn net.Conn, raw json.RawMessage, what string) {
 	var data CallToggleData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	call := activeCall(data.CallID)
+	call := acc.activeCall(data.CallID)
 	if call == nil {
 		return
 	}
@@ -189,9 +189,9 @@ func handleCallToggle(conn net.Conn, raw json.RawMessage, what string) {
 			}
 		}
 		if err != nil {
-			sendEvent(conn, "call_action_failed", map[string]string{"call_id": data.CallID, "what": what, "message": err.Error()})
+			acc.sendEvent(conn, "call_action_failed", map[string]string{"call_id": data.CallID, "what": what, "message": err.Error()})
 			return
 		}
-		sendEvent(conn, "call_action_done", map[string]interface{}{"call_id": data.CallID, "what": what, "on": data.On})
+		acc.sendEvent(conn, "call_action_done", map[string]interface{}{"call_id": data.CallID, "what": what, "on": data.On})
 	}()
 }

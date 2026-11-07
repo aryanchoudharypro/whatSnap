@@ -204,9 +204,9 @@ type MessageOptionData struct {
 	Index     int    `json:"index"`
 }
 
-func loadMessageProto(id string) (*waE2E.Message, bool) {
+func (acc *Account) loadMessageProto(id string) (*waE2E.Message, bool) {
 	var raw []byte
-	if db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw) != nil || len(raw) == 0 {
+	if acc.db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw) != nil || len(raw) == 0 {
 		return nil, false
 	}
 	msg := &waE2E.Message{}
@@ -216,22 +216,22 @@ func loadMessageProto(id string) (*waE2E.Message, bool) {
 	return msg, true
 }
 
-func handleGetMessageOptions(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetMessageOptions(conn net.Conn, raw json.RawMessage) {
 	var data MessageOptionData
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
-	msg, ok := loadMessageProto(data.MessageID)
+	msg, ok := acc.loadMessageProto(data.MessageID)
 	if !ok {
-		sendEvent(conn, "error", map[string]string{"message": "This message's buttons can't be opened here."})
+		acc.sendEvent(conn, "error", map[string]string{"message": "This message's buttons can't be opened here."})
 		return
 	}
 	heading, options := messageOptions(msg)
 	if len(options) == 0 {
-		sendEvent(conn, "error", map[string]string{"message": "This message has no buttons."})
+		acc.sendEvent(conn, "error", map[string]string{"message": "This message has no buttons."})
 		return
 	}
-	sendEvent(conn, "message_options", map[string]interface{}{
+	acc.sendEvent(conn, "message_options", map[string]interface{}{
 		"jid": data.JID, "message_id": data.MessageID, "heading": heading, "options": options,
 	})
 }
@@ -265,14 +265,14 @@ func buildOptionReply(option messageOption, ctx *waE2E.ContextInfo) *waE2E.Messa
 	}
 }
 
-func handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
 	var data MessageOptionData
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
 	go func() {
-		fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
-		msg, ok := loadMessageProto(data.MessageID)
+		fail := func(msg string) { acc.sendEvent(conn, "error", map[string]string{"message": msg}) }
+		msg, ok := acc.loadMessageProto(data.MessageID)
 		if !ok {
 			fail("This message's buttons can't be used here.")
 			return
@@ -287,7 +287,7 @@ func handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
 		if err != nil {
 			return
 		}
-		quoted, storedSender, preview, err := getMessageForQuote(data.MessageID)
+		quoted, storedSender, preview, err := acc.getMessageForQuote(data.MessageID)
 		if err != nil {
 			fail("This message's buttons can't be used here.")
 			return
@@ -298,13 +298,13 @@ func handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
 		var ctx *waE2E.ContextInfo
 		if option.replyType != "list" {
 			ctx = &waE2E.ContextInfo{StanzaID: proto.String(data.MessageID), QuotedMessage: quoted}
-			if participant := wireParticipantFor(data.MessageID, storedSender); participant != "" && participant != "me" {
+			if participant := acc.wireParticipantFor(data.MessageID, storedSender); participant != "" && participant != "me" {
 				ctx.Participant = proto.String(participant)
 			}
 		}
-		reply := applyDisappearingTimer(chat, buildOptionReply(option, ctx))
-		id := wa().GenerateMessageID()
-		resp, err := wa().SendMessage(context.Background(), chat, reply, whatsmeow.SendRequestExtra{ID: id})
+		reply := acc.applyDisappearingTimer(chat, buildOptionReply(option, ctx))
+		id := acc.wa().GenerateMessageID()
+		resp, err := acc.wa().SendMessage(context.Background(), chat, reply, whatsmeow.SendRequestExtra{ID: id})
 		if err != nil {
 			fail(sendErrorText(err))
 			return
@@ -314,18 +314,18 @@ func handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
 			ts = time.Now().Unix()
 		}
 		senderJID := ""
-		if wa().Store.ID != nil {
-			senderJID = wa().Store.ID.ToNonAD().String()
+		if acc.wa().Store.ID != nil {
+			senderJID = acc.wa().Store.ID.ToNonAD().String()
 		}
 		rawBytes, _ := proto.Marshal(reply)
-		quotedSender := resolveQuotedSenderName(storedSender)
-		saveMessage(StoredMessage{
+		quotedSender := acc.resolveQuotedSenderName(storedSender)
+		acc.saveMessage(StoredMessage{
 			ID: id, JID: chat.String(), SenderJID: senderJID, FromMe: true,
 			Text: option.Label, Timestamp: ts, Status: "sent", Raw: rawBytes,
 			QuotedID: data.MessageID, QuotedText: preview, QuotedSender: quotedSender,
 		})
-		noteMessageExpiry(db, id, ts, reply)
-		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+		noteMessageExpiry(acc.db, id, ts, reply)
+		acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=excluded.preview_snippet,
@@ -334,12 +334,12 @@ func handleSendMessageOption(conn net.Conn, raw json.RawMessage) {
 			preview_is_reaction=0,
 			preview_reaction_emoji=''`,
 			chat.String(), ts, option.Label, senderJID)
-		broadcastEvent("message", map[string]interface{}{
+		acc.broadcastEvent("message", map[string]interface{}{
 			"jid": chat.String(), "from": "me", "id": id, "text": option.Label, "from_me": true,
 			"timestamp": ts, "has_media": false, "status": "sent", "sentHere": true,
 			"quotedId": data.MessageID, "quotedText": preview, "quotedSender": quotedSender,
 		})
-		broadcastChats()
-		sendEvent(conn, "message_option_sent", map[string]interface{}{"label": option.Label})
+		acc.broadcastChats()
+		acc.sendEvent(conn, "message_option_sent", map[string]interface{}{"label": option.Label})
 	}()
 }

@@ -28,17 +28,17 @@ func TestBuildSpamReport(t *testing.T) {
 
 func TestReportableMessages(t *testing.T) {
 	openDisappearingTestDB(t)
-	db.Exec(`INSERT INTO messages (id, jid, sender_jid, from_me, text, timestamp, media_type) VALUES
+	acc.db.Exec(`INSERT INTO messages (id, jid, sender_jid, from_me, text, timestamp, media_type) VALUES
 		('THEIRS', 'c@s.whatsapp.net', 'c@s.whatsapp.net', 0, 'hi', 10, ''),
 		('MINE', 'c@s.whatsapp.net', '', 1, 'hello', 20, ''),
 		('CALL', 'c@s.whatsapp.net', 'c@s.whatsapp.net', 0, 'Missed call', 30, 'call')`)
-	if m, ok := latestReportable("c@s.whatsapp.net"); !ok || m.id != "THEIRS" {
+	if m, ok := acc.latestReportable("c@s.whatsapp.net"); !ok || m.id != "THEIRS" {
 		t.Fatalf("a chat report names their latest real message, got %+v %v", m, ok)
 	}
-	if _, ok := loadReportable("c@s.whatsapp.net", "MINE"); ok {
+	if _, ok := acc.loadReportable("c@s.whatsapp.net", "MINE"); ok {
 		t.Fatal("your own message can't be reported")
 	}
-	if _, ok := latestReportable("empty@s.whatsapp.net"); ok {
+	if _, ok := acc.latestReportable("empty@s.whatsapp.net"); ok {
 		t.Fatal("nothing to report in an empty chat")
 	}
 }

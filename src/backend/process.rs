@@ -22,7 +22,6 @@ const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
 pub struct BackendProcess {
 	exe: PathBuf,
 	dir: PathBuf,
-	db_path: String,
 	pipe_name: String,
 	verbose_logging: bool,
 	job: Option<KillOnCloseJob>,
@@ -34,11 +33,10 @@ pub struct BackendProcess {
 }
 
 impl BackendProcess {
-	pub fn start(exe: PathBuf, dir: PathBuf, db_path: String, pipe_name: String, verbose_logging: bool) -> Self {
+	pub fn start(exe: PathBuf, dir: PathBuf, pipe_name: String, verbose_logging: bool) -> Self {
 		let backend = Self {
 			exe,
 			dir,
-			db_path,
 			pipe_name,
 			verbose_logging,
 			job: KillOnCloseJob::new().ok(),
@@ -70,7 +68,7 @@ impl BackendProcess {
 			.unwrap_or_else(|_| Stdio::null());
 
 		let mut cmd = Command::new(&self.exe);
-		cmd.arg("-db").arg(&self.db_path).arg("-pipe").arg(&self.pipe_name);
+		cmd.arg("-pipe").arg(&self.pipe_name);
 		if self.verbose_logging {
 			cmd.arg("-verbose-logging");
 		}
@@ -182,7 +180,7 @@ mod tests {
 	/// is exactly what a backend crashing on startup looks like.
 	fn crashing_backend() -> BackendProcess {
 		let exe = PathBuf::from(std::env::var("SystemRoot").unwrap()).join("System32").join("where.exe");
-		BackendProcess::start(exe, std::env::temp_dir(), "unused".into(), "unused".into(), false)
+		BackendProcess::start(exe, std::env::temp_dir(), "unused".into(), false)
 	}
 
 	fn wait_for_exit(b: &BackendProcess) {

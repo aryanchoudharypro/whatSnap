@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waCommon"
@@ -25,7 +24,6 @@ const (
 
 // sentGroupHistory remembers "group|member" pairs we sent history to this
 // run, until the server's group_history_sent attribute catches up.
-var sentGroupHistory sync.Map
 
 // groupCanShareHistory is WA Web's isPostJoinHistoryGroupStructurallyEligible:
 // not a community itself, and you're an admin or the group lets every
@@ -39,11 +37,11 @@ func groupCanShareHistory(info *types.GroupInfo, viewerAdmin bool) bool {
 
 // groupHistoryMemberEligible is WA Web's getParticipantPostJoinEligibility:
 // not a bot, joined in the last 30 days and hasn't had history yet.
-func groupHistoryMemberEligible(group types.JID, p types.GroupParticipant) bool {
+func (acc *Account) groupHistoryMemberEligible(group types.JID, p types.GroupParticipant) bool {
 	if p.JID.Server == types.BotServer || p.JoinTime.IsZero() || p.HistorySent == "true" {
 		return false
 	}
-	if _, sent := sentGroupHistory.Load(group.String() + "|" + p.JID.String()); sent {
+	if _, sent := acc.sentGroupHistory.Load(group.String() + "|" + p.JID.String()); sent {
 		return false
 	}
 	return time.Since(p.JoinTime) <= groupHistoryNewMemberWindow
@@ -59,8 +57,8 @@ type groupHistoryRow struct {
 // groupHistoryMessages picks what WA Web's retrieveMessagesForBundle would:
 // sent or received messages of a supported type from the 30 days before the
 // member joined, newest first, at most 100.
-func groupHistoryMessages(group types.JID, joined time.Time) []groupHistoryRow {
-	rows, err := db.Query(`SELECT id, from_me, timestamp, COALESCE(sender_jid, ''), COALESCE(wire_sender, ''), raw
+func (acc *Account) groupHistoryMessages(group types.JID, joined time.Time) []groupHistoryRow {
+	rows, err := acc.db.Query(`SELECT id, from_me, timestamp, COALESCE(sender_jid, ''), COALESCE(wire_sender, ''), raw
 		FROM messages
 		WHERE jid = ? AND timestamp >= ? AND timestamp <= ?
 			AND raw IS NOT NULL AND length(raw) > 0
@@ -112,11 +110,11 @@ func groupHistorySupported(msg *waE2E.Message) bool {
 
 // groupHistoryCount is how many messages a new member would get; 0 hides
 // "Send message history" like WA Web's no_available_messages.
-func groupHistoryCount(group types.JID, p types.GroupParticipant) int {
-	return len(groupHistoryMessages(group, p.JoinTime))
+func (acc *Account) groupHistoryCount(group types.JID, p types.GroupParticipant) int {
+	return len(acc.groupHistoryMessages(group, p.JoinTime))
 }
 
-func handleSendGroupHistory(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendGroupHistory(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID         string `json:"jid"`
 		Participant string `json:"participant"`
@@ -129,11 +127,11 @@ func handleSendGroupHistory(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	fail := func(message string) {
-		sendEvent(conn, "group_history_result", map[string]interface{}{"jid": data.JID, "ok": false, "message": message})
+		acc.sendEvent(conn, "group_history_result", map[string]interface{}{"jid": data.JID, "ok": false, "message": message})
 	}
 	go func() {
 		ctx := context.Background()
-		info, err := wa().GetGroupInfo(ctx, group)
+		info, err := acc.wa().GetGroupInfo(ctx, group)
 		if err != nil {
 			fail("Couldn't load the group: " + err.Error())
 			return
@@ -141,7 +139,7 @@ func handleSendGroupHistory(conn net.Conn, raw json.RawMessage) {
 		viewerAdmin := false
 		var member *types.GroupParticipant
 		for i, p := range info.Participants {
-			if isParticipantMe(p) {
+			if acc.isParticipantMe(p) {
 				viewerAdmin = p.IsAdmin || p.IsSuperAdmin
 			}
 			if p.JID.String() == data.Participant {
@@ -152,18 +150,18 @@ func handleSendGroupHistory(conn net.Conn, raw json.RawMessage) {
 			fail("They aren't in this group anymore.")
 			return
 		}
-		if !groupCanShareHistory(info, viewerAdmin) || !groupHistoryMemberEligible(group, *member) {
+		if !groupCanShareHistory(info, viewerAdmin) || !acc.groupHistoryMemberEligible(group, *member) {
 			fail("Message history can't be sent to them anymore. It's only for people who joined in the last 30 days and haven't had it yet.")
 			return
 		}
-		rows := groupHistoryMessages(group, member.JoinTime)
+		rows := acc.groupHistoryMessages(group, member.JoinTime)
 		if len(rows) == 0 {
 			fail("There are no messages from before they joined to send.")
 			return
 		}
-		me := wa().Store.GetLID().ToNonAD()
+		me := acc.wa().Store.GetLID().ToNonAD()
 		if me.IsEmpty() {
-			me = wa().Store.GetJID().ToNonAD()
+			me = acc.wa().Store.GetJID().ToNonAD()
 		}
 		infos := make([]*waWeb.WebMessageInfo, 0, len(rows))
 		for _, r := range rows {
@@ -193,16 +191,16 @@ func handleSendGroupHistory(conn net.Conn, raw json.RawMessage) {
 		if !member.LID.IsEmpty() {
 			receiver = member.LID
 		}
-		if err := wa().SendGroupHistory(ctx, group, []types.JID{receiver}, nil, infos); err != nil {
+		if err := acc.wa().SendGroupHistory(ctx, group, []types.JID{receiver}, nil, infos); err != nil {
 			fail("Couldn't send the message history: " + err.Error())
 			return
 		}
-		sentGroupHistory.Store(group.String()+"|"+member.JID.String(), true)
-		sendEvent(conn, "group_history_result", map[string]interface{}{"jid": data.JID, "ok": true, "count": len(infos)})
+		acc.sentGroupHistory.Store(group.String()+"|"+member.JID.String(), true)
+		acc.sendEvent(conn, "group_history_result", map[string]interface{}{"jid": data.JID, "ok": true, "count": len(infos)})
 	}()
 }
 
-func handleGetSecurityCode(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetSecurityCode(conn net.Conn, raw json.RawMessage) {
 	var data JIDData
 	if json.Unmarshal(raw, &data) != nil {
 		return
@@ -212,12 +210,12 @@ func handleGetSecurityCode(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	go func() {
-		code, err := wa().GetSecurityCode(context.Background(), jid)
+		code, err := acc.wa().GetSecurityCode(context.Background(), jid)
 		if err != nil {
-			sendEvent(conn, "security_code", map[string]interface{}{"jid": data.JID, "error": err.Error()})
+			acc.sendEvent(conn, "security_code", map[string]interface{}{"jid": data.JID, "error": err.Error()})
 			return
 		}
-		sendEvent(conn, "security_code", map[string]interface{}{
+		acc.sendEvent(conn, "security_code", map[string]interface{}{
 			"jid":    data.JID,
 			"digits": code.Digits,
 			"qr":     hex.EncodeToString(code.QR),

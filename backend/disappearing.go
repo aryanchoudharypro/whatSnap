@@ -26,16 +26,17 @@ import (
 
 const disappearingSweepEvery = time.Minute
 
-func init() {
-	go func() {
-		ticker := time.NewTicker(disappearingSweepEvery)
-		defer ticker.Stop()
-		for range ticker.C {
-			if db != nil {
-				expireDisappearingMessages()
-			}
+func (acc *Account) runDisappearingSweep() {
+	ticker := time.NewTicker(disappearingSweepEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-acc.ctx.Done():
+			return
+		case <-ticker.C:
 		}
-	}()
+		acc.expireDisappearingMessages()
+	}
 }
 
 func disappearingDurationText(seconds uint32) string {
@@ -67,42 +68,42 @@ func disappearingChangeText(who string, on bool, seconds uint32) string {
 		who, disappearingDurationText(seconds))
 }
 
-func setChatDisappearing(jid string, seconds uint32, settingTS int64) bool {
+func (acc *Account) setChatDisappearing(jid string, seconds uint32, settingTS int64) bool {
 	var current uint32
 	var currentTS int64
-	err := db.QueryRow(`SELECT COALESCE(ephemeral_expiration, 0), COALESCE(ephemeral_setting_ts, 0) FROM chats WHERE jid = ?`, jid).
+	err := acc.db.QueryRow(`SELECT COALESCE(ephemeral_expiration, 0), COALESCE(ephemeral_setting_ts, 0) FROM chats WHERE jid = ?`, jid).
 		Scan(&current, &currentTS)
 	if err == nil && settingTS > 0 && currentTS > settingTS {
 		return false
 	}
 	if err == nil && current == seconds {
 		if settingTS > currentTS {
-			db.Exec(`UPDATE chats SET ephemeral_setting_ts = ? WHERE jid = ?`, settingTS, jid)
+			acc.db.Exec(`UPDATE chats SET ephemeral_setting_ts = ? WHERE jid = ?`, settingTS, jid)
 		}
 		return false
 	}
-	if _, execErr := db.Exec(`INSERT INTO chats (jid, timestamp, ephemeral_expiration, ephemeral_setting_ts) VALUES (?, 0, ?, ?)
+	if _, execErr := acc.db.Exec(`INSERT INTO chats (jid, timestamp, ephemeral_expiration, ephemeral_setting_ts) VALUES (?, 0, ?, ?)
 		ON CONFLICT(jid) DO UPDATE SET ephemeral_expiration = excluded.ephemeral_expiration,
 			ephemeral_setting_ts = MAX(COALESCE(chats.ephemeral_setting_ts, 0), excluded.ephemeral_setting_ts)`,
 		jid, seconds, settingTS); execErr != nil {
 		log.Println("Error storing disappearing timer:", execErr)
 		return false
 	}
-	broadcastEvent("chat_disappearing", map[string]interface{}{"jid": jid, "seconds": seconds})
+	acc.broadcastEvent("chat_disappearing", map[string]interface{}{"jid": jid, "seconds": seconds})
 	return true
 }
 
-func chatDisappearing(jid string) (seconds uint32, settingTS int64) {
-	db.QueryRow(`SELECT COALESCE(ephemeral_expiration, 0), COALESCE(ephemeral_setting_ts, 0) FROM chats WHERE jid = ?`, jid).
+func (acc *Account) chatDisappearing(jid string) (seconds uint32, settingTS int64) {
+	acc.db.QueryRow(`SELECT COALESCE(ephemeral_expiration, 0), COALESCE(ephemeral_setting_ts, 0) FROM chats WHERE jid = ?`, jid).
 		Scan(&seconds, &settingTS)
 	return
 }
 
-func applyDisappearingTimer(chat types.JID, msg *waE2E.Message) *waE2E.Message {
+func (acc *Account) applyDisappearingTimer(chat types.JID, msg *waE2E.Message) *waE2E.Message {
 	if msg == nil || (chat.Server != types.DefaultUserServer && chat.Server != types.GroupServer && chat.Server != types.HiddenUserServer) {
 		return msg
 	}
-	seconds, settingTS := chatDisappearing(chat.String())
+	seconds, settingTS := acc.chatDisappearing(chat.String())
 	if seconds == 0 {
 		return msg
 	}
@@ -140,7 +141,7 @@ func noteMessageExpiry(ex sqlExecer, id string, ts int64, msg *waE2E.Message) {
 // device was linked or before whatSnap tracked it. A message stamped with its
 // setting's time is applied if that's newer than ours; one without only fills
 // in a timer we've never known. Groups get theirs from the server instead.
-func adoptChatDisappearing(chat types.JID, msg *waE2E.Message) {
+func (acc *Account) adoptChatDisappearing(chat types.JID, msg *waE2E.Message) {
 	if chat.Server != types.DefaultUserServer {
 		return
 	}
@@ -151,16 +152,16 @@ func adoptChatDisappearing(chat types.JID, msg *waE2E.Message) {
 	}
 	settingTS := ctx.GetEphemeralSettingTimestamp()
 	if settingTS == 0 {
-		if current, currentTS := chatDisappearing(chat.String()); current != 0 || currentTS != 0 {
+		if current, currentTS := acc.chatDisappearing(chat.String()); current != 0 || currentTS != 0 {
 			return
 		}
 	}
-	setChatDisappearing(chat.String(), seconds, settingTS)
+	acc.setChatDisappearing(chat.String(), seconds, settingTS)
 }
 
-func expireDisappearingMessages() {
+func (acc *Account) expireDisappearingMessages() {
 	now := time.Now().Unix()
-	rows, err := db.Query(`SELECT id, jid FROM messages WHERE expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0 AND COALESCE(kept, 0) = 0`, now)
+	rows, err := acc.db.Query(`SELECT id, jid FROM messages WHERE expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0 AND COALESCE(kept, 0) = 0`, now)
 	if err != nil {
 		return
 	}
@@ -176,41 +177,41 @@ func expireDisappearingMessages() {
 	if len(gone) == 0 {
 		return
 	}
-	purgeMessages(`expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0 AND COALESCE(kept, 0) = 0`, now)
+	acc.purgeMessages(`expires_at > 0 AND expires_at <= ? AND COALESCE(starred, 0) = 0 AND COALESCE(kept, 0) = 0`, now)
 	chats := map[string]bool{}
 	for _, e := range gone {
 		chats[e.jid] = true
-		broadcastEvent("message_deleted", map[string]interface{}{
+		acc.broadcastEvent("message_deleted", map[string]interface{}{
 			"jid": e.jid, "message_id": e.id, "by": "", "for_everyone": false,
 		})
 	}
 	for jid := range chats {
-		UpdateChatSnippet(jid)
+		acc.UpdateChatSnippet(jid)
 	}
-	broadcastChats()
+	acc.broadcastChats()
 	log.Printf("Removed %d disappearing messages from %d chats", len(gone), len(chats))
 }
 
-func applyEphemeralSettingMessage(v *events.Message, pm *waE2E.ProtocolMessage) {
-	chat, sender := resolveLIDChat(v)
+func (acc *Account) applyEphemeralSettingMessage(v *events.Message, pm *waE2E.ProtocolMessage) {
+	chat, sender := acc.resolveLIDChat(v)
 	jid := chat.String()
 	settingTS := pm.GetEphemeralSettingTimestamp()
 	if settingTS == 0 {
 		settingTS = v.Info.Timestamp.Unix()
 	}
 	seconds := pm.GetEphemeralExpiration()
-	if !setChatDisappearing(jid, seconds, settingTS) || chat.Server == types.GroupServer {
+	if !acc.setChatDisappearing(jid, seconds, settingTS) || chat.Server == types.GroupServer {
 		return
 	}
 	who := "You"
 	if !v.Info.IsFromMe {
-		who = nameToken(sender)
+		who = acc.nameToken(sender)
 	}
-	insertGroupSystemMessage(jid, fmt.Sprintf("system_%s_%d_ephemeral", chat.User, v.Info.Timestamp.UnixNano()),
+	acc.insertGroupSystemMessage(jid, fmt.Sprintf("system_%s_%d_ephemeral", chat.User, v.Info.Timestamp.UnixNano()),
 		disappearingChangeText(who, seconds > 0, seconds), v.Info.Timestamp)
 }
 
-func handleSetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID     string `json:"jid"`
 		Seconds uint32 `json:"seconds"`
@@ -224,28 +225,28 @@ func handleSetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
 	}
 	go func() {
 		now := time.Now()
-		if err := wa().SetDisappearingTimer(context.Background(), jid, time.Duration(data.Seconds)*time.Second, now); err != nil {
+		if err := acc.wa().SetDisappearingTimer(context.Background(), jid, time.Duration(data.Seconds)*time.Second, now); err != nil {
 			msg := err.Error()
 			if strings.Contains(msg, "not-authorized") || strings.Contains(msg, "403") {
 				msg = "Only group admins can change disappearing messages in this group."
 			}
-			sendEvent(conn, "error", map[string]string{"message": "Couldn't change disappearing messages: " + msg})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't change disappearing messages: " + msg})
 			return
 		}
-		if setChatDisappearing(jid.String(), data.Seconds, now.Unix()) && jid.Server != types.GroupServer {
-			insertGroupSystemMessage(jid.String(), fmt.Sprintf("system_%s_%d_ephemeral", jid.User, now.UnixNano()),
+		if acc.setChatDisappearing(jid.String(), data.Seconds, now.Unix()) && jid.Server != types.GroupServer {
+			acc.insertGroupSystemMessage(jid.String(), fmt.Sprintf("system_%s_%d_ephemeral", jid.User, now.UnixNano()),
 				disappearingChangeText("You", data.Seconds > 0, data.Seconds), now)
 		}
 	}()
 }
 
-func handleGetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetDisappearingTimer(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		JID string `json:"jid"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	seconds, _ := chatDisappearing(data.JID)
-	sendEvent(conn, "chat_disappearing", map[string]interface{}{"jid": data.JID, "seconds": seconds})
+	seconds, _ := acc.chatDisappearing(data.JID)
+	acc.sendEvent(conn, "chat_disappearing", map[string]interface{}{"jid": data.JID, "seconds": seconds})
 }

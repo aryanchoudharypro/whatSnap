@@ -177,11 +177,11 @@ func callLogTimestamp(rec *waSyncAction.CallLogRecord, mutation time.Time) int64
 	return time.Now().Unix()
 }
 
-func handleCallLogSync(v *events.CallLogSync) {
-	storeSyncedCall(v.CallID, v.CallCreatorJID, v.FromMe, callLogTimestamp(v.Record, v.Timestamp), v.Record, v.FromFullSync)
+func (acc *Account) handleCallLogSync(v *events.CallLogSync) {
+	acc.storeSyncedCall(v.CallID, v.CallCreatorJID, v.FromMe, callLogTimestamp(v.Record, v.Timestamp), v.Record, v.FromFullSync)
 }
 
-func handleCallLogHistory(v *events.CallLogHistory) {
+func (acc *Account) handleCallLogHistory(v *events.CallLogHistory) {
 	rec := v.Record
 	if rec == nil {
 		return
@@ -195,20 +195,20 @@ func handleCallLogHistory(v *events.CallLogHistory) {
 	if id == "" {
 		id = fmt.Sprintf("hist-%d-%s-%t", ts, v.CallCreatorJID.User, fromMe)
 	}
-	storeSyncedCall(id, v.CallCreatorJID, fromMe, ts, rec, true)
+	acc.storeSyncedCall(id, v.CallCreatorJID, fromMe, ts, rec, true)
 }
 
-func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, rec *waSyncAction.CallLogRecord, fromFullSync bool) {
-	if rec == nil || callDeleted(callID) {
+func (acc *Account) storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, rec *waSyncAction.CallLogRecord, fromFullSync bool) {
+	if rec == nil || acc.callDeleted(callID) {
 		return
 	}
 	ownPN := types.EmptyJID
 	ownLID := types.EmptyJID
-	if wa() != nil && wa().Store != nil {
-		ownPN = wa().Store.GetJID()
-		ownLID = wa().Store.GetLID()
+	if acc.wa() != nil && acc.wa().Store != nil {
+		ownPN = acc.wa().Store.GetJID()
+		ownLID = acc.wa().Store.GetLID()
 	}
-	jid := callLogChatJID(rec, creator, fromMe, ownPN, ownLID, preferPN)
+	jid := callLogChatJID(rec, creator, fromMe, ownPN, ownLID, acc.preferPN)
 	if jid == "" || isIgnoredChatJID(jid) {
 		return
 	}
@@ -216,7 +216,7 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 	text := callLogText(rec, fromMe, isGroup)
 
 	id := "call:" + callID
-	if err := saveMessage(StoredMessage{
+	if err := acc.saveMessage(StoredMessage{
 		ID: id, JID: jid, Text: text, Timestamp: ts,
 		FromMe: fromMe, Status: "sent", MediaType: "call",
 	}); err != nil {
@@ -227,14 +227,14 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 	if !creator.IsEmpty() {
 		creatorStr = creator.ToNonAD().String()
 	}
-	storeCallRecord(callRecord{
+	acc.storeCallRecord(callRecord{
 		CallID: callID, JID: jid, FromMe: fromMe, IsVideo: rec.GetIsVideo(), IsGroup: isGroup,
 		Result: callResultName(rec.GetCallResult()), Duration: rec.GetDuration(),
 		Timestamp: ts, Text: text, Authoritative: true,
 		Creator: creatorStr, KeyChat: callLogKeyChat(rec, creator, fromMe, ownPN, ownLID),
 	})
 	if fromFullSync {
-		res, err := db.Exec(`UPDATE chats SET
+		res, err := acc.db.Exec(`UPDATE chats SET
 				preview_snippet = CASE WHEN ? >= COALESCE(timestamp, 0) THEN ? ELSE preview_snippet END,
 				preview_sender = CASE WHEN ? >= COALESCE(timestamp, 0) THEN '' ELSE preview_sender END,
 				preview_from_me = CASE WHEN ? >= COALESCE(timestamp, 0) THEN ? ELSE preview_from_me END,
@@ -248,7 +248,7 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 			return
 		}
 	} else {
-		db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
+		acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
 			ON CONFLICT(jid) DO UPDATE SET
 				preview_snippet=CASE WHEN excluded.timestamp >= COALESCE(chats.timestamp, 0) THEN excluded.preview_snippet ELSE chats.preview_snippet END,
 				preview_sender=CASE WHEN excluded.timestamp >= COALESCE(chats.timestamp, 0) THEN '' ELSE chats.preview_sender END,
@@ -258,10 +258,10 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 			jid, ts, text, boolToInt(fromMe))
 	}
 	var chatName string
-	db.QueryRow(`SELECT name FROM chats WHERE jid = ?`, jid).Scan(&chatName)
+	acc.db.QueryRow(`SELECT name FROM chats WHERE jid = ?`, jid).Scan(&chatName)
 
-	broadcastChats()
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastChats()
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid":       jid,
 		"from":      "",
 		"id":        id,
@@ -276,20 +276,20 @@ func storeSyncedCall(callID string, creator types.JID, fromMe bool, ts int64, re
 	})
 }
 
-func handleDeleteIndividualCallLog(v *events.DeleteIndividualCallLog) {
+func (acc *Account) handleDeleteIndividualCallLog(v *events.DeleteIndividualCallLog) {
 	peer := v.PeerJID
 	if peer.IsEmpty() {
 		return
 	}
-	jid := preferPN(peer.ToNonAD()).String()
+	jid := acc.preferPN(peer.ToNonAD()).String()
 	until := v.Timestamp.Unix()
 	if v.Timestamp.IsZero() {
 		until = time.Now().Unix()
 	}
-	if id, ok := deleteNewestCallRecord(jid, !v.IsIncoming, until); ok {
-		db.Exec(`DELETE FROM messages WHERE id = ?`, "call:"+id)
-		broadcastChats()
-		broadcastEvent("call_logs_changed", map[string]interface{}{})
+	if id, ok := acc.deleteNewestCallRecord(jid, !v.IsIncoming, until); ok {
+		acc.db.Exec(`DELETE FROM messages WHERE id = ?`, "call:"+id)
+		acc.broadcastChats()
+		acc.broadcastEvent("call_logs_changed", map[string]interface{}{})
 	}
 }
 
@@ -297,8 +297,8 @@ func handleDeleteIndividualCallLog(v *events.DeleteIndividualCallLog) {
 // call in the phone's synced call history: people only ever called, never
 // written to. Their call lines stay in the messages table, so a chat started
 // with them later still shows its calls.
-func dropCallHistoryOnlyChats() {
-	db.Exec(`DELETE FROM chats
+func (acc *Account) dropCallHistoryOnlyChats() {
+	acc.db.Exec(`DELETE FROM chats
 		WHERE jid NOT LIKE '%@g.us' AND jid NOT LIKE '%@newsletter'
 			AND COALESCE(pinned, 0) = 0 AND COALESCE(archived, 0) = 0 AND COALESCE(muted, 0) = 0 AND COALESCE(is_locked, 0) = 0
 			AND EXISTS (SELECT 1 FROM messages m WHERE m.jid = chats.jid AND m.media_type = 'call')

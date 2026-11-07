@@ -16,12 +16,12 @@ func rsvp(r waE2E.EventResponseMessage_EventResponseType, extra int32, ms int64)
 func TestEventResponsesKeepEachResponderLatestAnswer(t *testing.T) {
 	openDisappearingTestDB(t)
 	const event, alice, bob = "EVT1", "1@s.whatsapp.net", "2@s.whatsapp.net"
-	storeEventResponse(db, event, alice, rsvp(waE2E.EventResponseMessage_GOING, 0, 2000), 0)
-	storeEventResponse(db, event, alice, rsvp(waE2E.EventResponseMessage_NOT_GOING, 0, 1000), 0)
-	storeEventResponse(db, event, bob, rsvp(waE2E.EventResponseMessage_MAYBE, 0, 1000), 0)
-	storeEventResponse(db, event, bob, rsvp(waE2E.EventResponseMessage_GOING, 2, 3000), 0)
+	storeEventResponse(acc.db, event, alice, rsvp(waE2E.EventResponseMessage_GOING, 0, 2000), 0)
+	storeEventResponse(acc.db, event, alice, rsvp(waE2E.EventResponseMessage_NOT_GOING, 0, 1000), 0)
+	storeEventResponse(acc.db, event, bob, rsvp(waE2E.EventResponseMessage_MAYBE, 0, 1000), 0)
+	storeEventResponse(acc.db, event, bob, rsvp(waE2E.EventResponseMessage_GOING, 2, 3000), 0)
 
-	got := eventResponses(event)
+	got := acc.eventResponses(event)
 	if got[alice].response != waE2E.EventResponseMessage_GOING {
 		t.Fatalf("alice: got %v, want going", got[alice].response)
 	}
@@ -51,16 +51,16 @@ func TestEventResultsForStoredEvent(t *testing.T) {
 	openDisappearingTestDB(t)
 	raw, _ := proto.Marshal(&waE2E.Message{EventMessage: &waE2E.EventMessage{Name: proto.String("Picnic")}})
 	cancelled, _ := proto.Marshal(&waE2E.Message{EventMessage: &waE2E.EventMessage{Name: proto.String("Off"), IsCanceled: proto.Bool(true)}})
-	db.Exec(`INSERT INTO messages (id, jid, text, timestamp, raw) VALUES ('E1', 'g@g.us', '[Event] Picnic', 1, ?), ('E2', 'g@g.us', '[Event cancelled] Off', 1, ?)`, raw, cancelled)
-	storeEventResponse(db, "E1", "1@s.whatsapp.net", rsvp(waE2E.EventResponseMessage_GOING, 0, 1000), 0)
-	if got := pollResultsForMessage("E1"); got != "1 going, 0 maybe, 0 can't go." {
+	acc.db.Exec(`INSERT INTO messages (id, jid, text, timestamp, raw) VALUES ('E1', 'g@g.us', '[Event] Picnic', 1, ?), ('E2', 'g@g.us', '[Event cancelled] Off', 1, ?)`, raw, cancelled)
+	storeEventResponse(acc.db, "E1", "1@s.whatsapp.net", rsvp(waE2E.EventResponseMessage_GOING, 0, 1000), 0)
+	if got := acc.pollResultsForMessage("E1"); got != "1 going, 0 maybe, 0 can't go." {
 		t.Fatalf("got %q", got)
 	}
-	if got := pollResultsForMessage("E2"); got != "" {
+	if got := acc.pollResultsForMessage("E2"); got != "" {
 		t.Fatalf("a cancelled event shows no tally, got %q", got)
 	}
-	purgeMessages("id = ?", "E1")
-	if len(eventResponses("E1")) != 0 {
+	acc.purgeMessages("id = ?", "E1")
+	if len(acc.eventResponses("E1")) != 0 {
 		t.Fatal("deleting an event must delete its RSVPs")
 	}
 }

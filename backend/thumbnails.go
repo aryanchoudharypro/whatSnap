@@ -34,9 +34,9 @@ type thumbnailItem struct {
 
 var thumbnailMu sync.Mutex
 
-func thumbsDir() string { return filepath.Join(mediaBaseDir(), "thumbs") }
+func (acc *Account) thumbsDir() string { return filepath.Join(acc.mediaBaseDir(), "thumbs") }
 
-func handleGetThumbnails(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetThumbnails(conn net.Conn, raw json.RawMessage) {
 	var data thumbnailsData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -47,25 +47,25 @@ func handleGetThumbnails(conn net.Conn, raw json.RawMessage) {
 			if id == "" {
 				continue
 			}
-			batch = append(batch, thumbnailItem{ID: id, Path: messageThumbnail(id)})
+			batch = append(batch, thumbnailItem{ID: id, Path: acc.messageThumbnail(id)})
 			if len(batch) == 4 || i == len(data.IDs)-1 {
-				sendEvent(conn, "thumbnails", map[string]interface{}{"items": batch})
+				acc.sendEvent(conn, "thumbnails", map[string]interface{}{"items": batch})
 				batch = nil
 			}
 		}
 		if len(batch) > 0 {
-			sendEvent(conn, "thumbnails", map[string]interface{}{"items": batch})
+			acc.sendEvent(conn, "thumbnails", map[string]interface{}{"items": batch})
 		}
 	}()
 }
 
-func messageThumbnail(id string) string {
+func (acc *Account) messageThumbnail(id string) string {
 	thumbnailMu.Lock()
 	defer thumbnailMu.Unlock()
 	var raw []byte
 	var mediaType, mediaPath string
 	var viewOnce int
-	if db.QueryRow(`SELECT raw, COALESCE(media_type, ''), COALESCE(media_path, ''), COALESCE(view_once, 0) FROM messages WHERE id = ?`, id).
+	if acc.db.QueryRow(`SELECT raw, COALESCE(media_type, ''), COALESCE(media_path, ''), COALESCE(view_once, 0) FROM messages WHERE id = ?`, id).
 		Scan(&raw, &mediaType, &mediaPath, &viewOnce) != nil || viewOnce != 0 {
 		return ""
 	}
@@ -76,10 +76,10 @@ func messageThumbnail(id string) string {
 	if isViewOnceProto(msg) {
 		return ""
 	}
-	if err := os.MkdirAll(thumbsDir(), 0o755); err != nil {
+	if err := os.MkdirAll(acc.thumbsDir(), 0o755); err != nil {
 		return ""
 	}
-	base := filepath.Join(thumbsDir(), sanitizeFilenameComponent(id))
+	base := filepath.Join(acc.thumbsDir(), sanitizeFilenameComponent(id))
 
 	if mediaPath != "" && (mediaType == "image" || mediaType == "sticker") {
 		ext := ".view.jpg"
@@ -152,7 +152,7 @@ type waveformItem struct {
 	Bars []int  `json:"bars"`
 }
 
-func handleGetWaveforms(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetWaveforms(conn net.Conn, raw json.RawMessage) {
 	var data thumbnailsData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -160,15 +160,15 @@ func handleGetWaveforms(conn net.Conn, raw json.RawMessage) {
 	go func() {
 		items := make([]waveformItem, 0, len(data.IDs))
 		for _, id := range data.IDs {
-			items = append(items, waveformItem{ID: id, Bars: messageWaveform(id)})
+			items = append(items, waveformItem{ID: id, Bars: acc.messageWaveform(id)})
 		}
-		sendEvent(conn, "waveforms", map[string]interface{}{"items": items})
+		acc.sendEvent(conn, "waveforms", map[string]interface{}{"items": items})
 	}()
 }
 
-func messageWaveform(id string) []int {
+func (acc *Account) messageWaveform(id string) []int {
 	var raw []byte
-	if db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw) != nil || len(raw) == 0 {
+	if acc.db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&raw) != nil || len(raw) == 0 {
 		return []int{}
 	}
 	msg := &waE2E.Message{}

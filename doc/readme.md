@@ -501,7 +501,7 @@ whatSnap opens `whatsapp://` links, such as the "Share on WhatsApp" buttons on w
 ## Data Folder
 - whatSnap keeps your session, messages, media, and settings in `%LOCALAPPDATA%\whatSnap`.
 - The settings are in `settings.json`. They are the same for every account.
-- Each account you add after the first has its own folder in `accounts`, with its own session, messages, media, and logs. The list of accounts is in `accounts.json`.
+- Each account you add after the first has its own folder in `accounts`, with its own session, messages, and media. All accounts share the `logs` folder. The list of accounts is in `accounts.json`.
 - The logs are in the `logs` folder. whatSnap keeps the logs of this session and of the previous session. If you report a problem, send these logs before you start whatSnap again.
 
 When you uninstall whatSnap, the uninstaller asks if you want to delete your data. It deletes only the files that whatSnap made. Files that you saved to other folders, such as Downloads, stay.

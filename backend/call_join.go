@@ -5,24 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
-	"sync"
 
 	"github.com/purpshell/meowcaller"
 	"go.mau.fi/whatsmeow/types"
 )
 
-var (
-	joinableCallsMu sync.Mutex
-	joinableCalls   []map[string]interface{}
-)
-
-func joinableCallEvent(list []meowcaller.JoinableCall) []map[string]interface{} {
+func (acc *Account) joinableCallEvent(list []meowcaller.JoinableCall) []map[string]interface{} {
 	calls := make([]map[string]interface{}, 0, len(list))
 	for _, c := range list {
 		calls = append(calls, map[string]interface{}{
 			"call_id":      c.CallID,
 			"group_jid":    c.GroupJID.String(),
-			"creator_name": resolveDisplayName(c.Creator),
+			"creator_name": acc.resolveDisplayName(c.Creator),
 			"video":        c.Video,
 			"connected":    c.Connected,
 		})
@@ -30,24 +24,24 @@ func joinableCallEvent(list []meowcaller.JoinableCall) []map[string]interface{} 
 	return calls
 }
 
-func watchJoinableCalls(client *meowcaller.Client) {
+func (acc *Account) watchJoinableCalls(client *meowcaller.Client) {
 	client.OnJoinableCalls(func(list []meowcaller.JoinableCall) {
-		calls := joinableCallEvent(list)
-		joinableCallsMu.Lock()
-		joinableCalls = calls
-		joinableCallsMu.Unlock()
-		broadcastEvent("call_joinable", map[string]interface{}{"calls": calls})
+		calls := acc.joinableCallEvent(list)
+		acc.joinableCallsMu.Lock()
+		acc.joinableCalls = calls
+		acc.joinableCallsMu.Unlock()
+		acc.broadcastEvent("call_joinable", map[string]interface{}{"calls": calls})
 	})
 }
 
-func handleGetJoinableCalls() {
-	joinableCallsMu.Lock()
-	calls := joinableCalls
-	joinableCallsMu.Unlock()
+func (acc *Account) handleGetJoinableCalls() {
+	acc.joinableCallsMu.Lock()
+	calls := acc.joinableCalls
+	acc.joinableCallsMu.Unlock()
 	if calls == nil {
 		calls = []map[string]interface{}{}
 	}
-	broadcastEvent("call_joinable", map[string]interface{}{"calls": calls})
+	acc.broadcastEvent("call_joinable", map[string]interface{}{"calls": calls})
 }
 
 type JoinGroupCallData struct {
@@ -55,42 +49,42 @@ type JoinGroupCallData struct {
 	Video  bool   `json:"video"`
 }
 
-func handleJoinGroupCall(raw json.RawMessage) {
+func (acc *Account) handleJoinGroupCall(raw json.RawMessage) {
 	var data JoinGroupCallData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
 		fail := func(err error) {
-			broadcastEvent("call_failed", map[string]string{"jid": "", "message": "Couldn't join the call: " + err.Error()})
+			acc.broadcastEvent("call_failed", map[string]string{"jid": "", "message": "Couldn't join the call: " + err.Error()})
 		}
-		if callClient == nil {
+		if acc.callClient == nil {
 			fail(errors.New("calls aren't available yet"))
 			return
 		}
 		var groupJID types.JID
-		for _, c := range callClient.JoinableCalls() {
+		for _, c := range acc.callClient.JoinableCalls() {
 			if c.CallID == data.CallID {
 				groupJID = c.GroupJID
 			}
 		}
-		call, err := callClient.JoinOngoingCall(context.Background(), data.CallID, data.Video)
+		call, err := acc.callClient.JoinOngoingCall(context.Background(), data.CallID, data.Video)
 		if err != nil {
 			fail(err)
 			return
 		}
-		activeCallsMutex.Lock()
-		activeCalls[call.ID()] = call
-		activeCallsMutex.Unlock()
+		acc.activeCallsMutex.Lock()
+		acc.activeCalls[call.ID()] = call
+		acc.activeCallsMutex.Unlock()
 		chat := call.Peer()
 		if !groupJID.IsEmpty() {
 			chat = groupJID
 		}
-		trackLiveCall(call.ID(), chat, types.EmptyJID, false, data.Video, true)
-		broadcastEvent("call_placed", map[string]interface{}{
+		acc.trackLiveCall(call.ID(), chat, types.EmptyJID, false, data.Video, true)
+		acc.broadcastEvent("call_placed", map[string]interface{}{
 			"call_id": call.ID(), "peer": chat.String(), "link": true, "video": data.Video,
 		})
-		attachCallHandlers(call)
+		acc.attachCallHandlers(call)
 		log.Printf("Joined ongoing group call, call ID: %s", call.ID())
 	}()
 }

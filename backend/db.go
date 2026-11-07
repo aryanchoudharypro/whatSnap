@@ -16,12 +16,12 @@ import (
 
 // tableColumns returns the set of column names for a table, queried once and
 // cached in the provided map so repeated checks during migration are free.
-func tableColumns(cache map[string]map[string]bool, table string) map[string]bool {
+func (acc *Account) tableColumns(cache map[string]map[string]bool, table string) map[string]bool {
 	if cols, ok := cache[table]; ok {
 		return cols
 	}
 	cols := map[string]bool{}
-	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	rows, err := acc.db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -41,68 +41,68 @@ func tableColumns(cache map[string]map[string]bool, table string) map[string]boo
 // addColumnIfMissing executes ALTER TABLE ADD COLUMN only when the column
 // doesn't already exist, avoiding the exclusive schema lock overhead on every
 // startup.
-func addColumnIfMissing(cache map[string]map[string]bool, table, column, rest string) {
-	cols := tableColumns(cache, table)
+func (acc *Account) addColumnIfMissing(cache map[string]map[string]bool, table, column, rest string) {
+	cols := acc.tableColumns(cache, table)
 	if cols[column] {
 		return
 	}
-	db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, rest))
+	acc.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, rest))
 	cols[column] = true
 }
 
-func migrateDB() error {
+func (acc *Account) migrateDB() error {
 	colCache := map[string]map[string]bool{}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chats (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS chats (
 		jid TEXT PRIMARY KEY,
 		name TEXT,
 		timestamp INTEGER
 	)`); err != nil {
 		return err
 	}
-	addColumnIfMissing(colCache, "chats", "unread_count", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "pinned", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "muted", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "preview_snippet", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "chats", "archived", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "preview_sender", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "chats", "preview_from_me", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "preview_is_reaction", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "preview_reaction_emoji", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "chats", "is_community", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "is_admin", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "is_locked", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "participant_count", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "parent_jid", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "chats", "is_announce_group", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "admins_only", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "is_channel", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "channel_role", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "chats", "limit_sharing", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "limit_sharing_ts", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "restricted", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "restricted_ts", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "ephemeral_expiration", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "ephemeral_setting_ts", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "marked_unread", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "wire_jid", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "chats", "unread_count", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "pinned", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "muted", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "preview_snippet", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "chats", "archived", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "preview_sender", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "chats", "preview_from_me", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "preview_is_reaction", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "preview_reaction_emoji", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "chats", "is_community", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "is_admin", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "is_locked", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "participant_count", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "parent_jid", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "chats", "is_announce_group", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "admins_only", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "is_channel", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "channel_role", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "chats", "limit_sharing", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "limit_sharing_ts", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "restricted", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "restricted_ts", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "ephemeral_expiration", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "ephemeral_setting_ts", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "marked_unread", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "wire_jid", "TEXT DEFAULT ''")
 	// When the chat was pinned (orders the pinned chats, newest pin first,
 	// like WA Web's chat.pin) and when its pin state last changed through
 	// app state, so an older pin/unpin (or a later history chunk) can't
 	// undo a newer one.
-	addColumnIfMissing(colCache, "chats", "pinned_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "chats", "pin_changed_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "pinned_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "chats", "pin_changed_at", "INTEGER DEFAULT 0")
 	// Unread messages that mention me, mention everyone or reply to me (WA
 	// Web's getIsImportantMessage / unreadMentionsOfMe). WA Web drops them
 	// when the chat is read, so this goes to 0 with unread_count.
-	addColumnIfMissing(colCache, "chats", "unread_mentions", "INTEGER DEFAULT 0")
-	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_unread_mentions AFTER UPDATE OF unread_count ON chats
+	acc.addColumnIfMissing(colCache, "chats", "unread_mentions", "INTEGER DEFAULT 0")
+	acc.db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_unread_mentions AFTER UPDATE OF unread_count ON chats
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.unread_mentions, 0) > 0
 		BEGIN UPDATE chats SET unread_mentions = 0 WHERE jid = NEW.jid; END`)
-	db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_marked_unread AFTER UPDATE OF unread_count ON chats
+	acc.db.Exec(`CREATE TRIGGER IF NOT EXISTS chats_clear_marked_unread AFTER UPDATE OF unread_count ON chats
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
 		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS status_viewers (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS status_viewers (
 		status_id TEXT,
 		viewer TEXT,
 		viewed_at INTEGER,
@@ -111,11 +111,11 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS status_mutes (jid TEXT PRIMARY KEY)`); err != nil {
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS status_mutes (jid TEXT PRIMARY KEY)`); err != nil {
 		return err
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS sticker_favorites (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS sticker_favorites (
 		hash TEXT PRIMARY KEY,
 		action BLOB,
 		ts INTEGER
@@ -123,37 +123,37 @@ func migrateDB() error {
 		return err
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chat_lists (id TEXT PRIMARY KEY, action BLOB)`); err != nil {
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS chat_lists (id TEXT PRIMARY KEY, action BLOB)`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chat_list_members (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS chat_list_members (
 		list_id TEXT,
 		jid TEXT,
 		PRIMARY KEY (list_id, jid)
 	)`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS chat_favorites (jid TEXT PRIMARY KEY, position INTEGER)`); err != nil {
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS chat_favorites (jid TEXT PRIMARY KEY, position INTEGER)`); err != nil {
 		return err
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
 		key TEXT PRIMARY KEY,
 		value BLOB
 	)`); err != nil {
 		return err
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS history_requests (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS history_requests (
 		jid TEXT PRIMARY KEY,
 		anchor_id TEXT NOT NULL,
 		requested_at INTEGER NOT NULL
 	)`); err != nil {
 		return err
 	}
-	addColumnIfMissing(colCache, "history_requests", "oldest_id", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "history_requests", "oldest_id", "TEXT DEFAULT ''")
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS messages (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
 		jid TEXT,
 		from_me BOOLEAN,
@@ -163,51 +163,51 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	addColumnIfMissing(colCache, "messages", "sender_jid", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "raw", "BLOB")
-	addColumnIfMissing(colCache, "messages", "voice_waveform", "BLOB")
-	addColumnIfMissing(colCache, "messages", "status", "TEXT DEFAULT 'sent'")
-	addColumnIfMissing(colCache, "messages", "media_type", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "media_mimetype", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "media_filename", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "media_path", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "media_size", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "quoted_id", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "quoted_text", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "quoted_sender", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "is_edited", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "is_deleted", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "sent_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "delivered_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "read_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "played_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "edited_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "starred", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "viewed", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "wire_sender", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "sender_jid", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "raw", "BLOB")
+	acc.addColumnIfMissing(colCache, "messages", "voice_waveform", "BLOB")
+	acc.addColumnIfMissing(colCache, "messages", "status", "TEXT DEFAULT 'sent'")
+	acc.addColumnIfMissing(colCache, "messages", "media_type", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "media_mimetype", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "media_filename", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "media_path", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "media_size", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "quoted_id", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "quoted_text", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "quoted_sender", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "is_edited", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "is_deleted", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "sent_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "delivered_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "read_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "played_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "edited_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "starred", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "viewed", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "wire_sender", "TEXT DEFAULT ''")
 	// The server's store time in microseconds (the incoming message's sts),
 	// which WA Web echoes back as the newest one on its read receipts.
-	addColumnIfMissing(colCache, "messages", "server_sts", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "album_id", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "server_id", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "channel_views", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "channel_reactions", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "channel_poll_votes", "TEXT DEFAULT ''")
-	addColumnIfMissing(colCache, "messages", "channel_pinned", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "server_sts", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "album_id", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "server_id", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "channel_views", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "channel_reactions", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "channel_poll_votes", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "messages", "channel_pinned", "INTEGER DEFAULT 0")
 	// When a disappearing message is due to vanish (unix seconds, 0 = never).
-	addColumnIfMissing(colCache, "messages", "expires_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "view_once", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "pinned_until", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "pinned_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "messages", "kept", "INTEGER DEFAULT 0")
-	db.Exec(`CREATE TABLE IF NOT EXISTS hd_media (parent_id TEXT PRIMARY KEY, raw BLOB)`)
-	db.Exec(`CREATE TABLE IF NOT EXISTS message_edits (
+	acc.addColumnIfMissing(colCache, "messages", "expires_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "view_once", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "pinned_until", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "pinned_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "messages", "kept", "INTEGER DEFAULT 0")
+	acc.db.Exec(`CREATE TABLE IF NOT EXISTS hd_media (parent_id TEXT PRIMARY KEY, raw BLOB)`)
+	acc.db.Exec(`CREATE TABLE IF NOT EXISTS message_edits (
 		edit_id TEXT PRIMARY KEY,
 		target_id TEXT NOT NULL,
 		jid TEXT NOT NULL,
 		timestamp INTEGER DEFAULT 0
 	)`)
-	db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
+	acc.db.Exec("UPDATE messages SET sent_at = timestamp WHERE from_me = 1 AND (sent_at IS NULL OR sent_at = 0)")
 	// Excludes is_deleted=1 rows: those are deliberate "this message was
 	// deleted" tombstones (a revoke stub synced from history, or a live
 	// revoke of a message whose content we never had) - empty text and no
@@ -215,40 +215,40 @@ func migrateDB() error {
 	// keeping the tombstone after a "delete for everyone". Only "delete for
 	// me" removes the row outright, and that already happens immediately via
 	// deleteMessageForMe, not through this startup sweep.
-	db.Exec("DELETE FROM messages WHERE COALESCE(is_deleted, 0) = 0 AND (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
-	runOnce("backfill_template_messages_v1", backfillTemplateMessages)
-	runOnce("backfill_template_messages_v2", backfillTemplateMessages)
-	runOnce("backfill_template_messages_v3", backfillTemplateMessages)
+	acc.db.Exec("DELETE FROM messages WHERE COALESCE(is_deleted, 0) = 0 AND (text = '' OR text IS NULL OR text = '[Unsupported Message]' OR text = '[Protocol Message]') AND (media_type IS NULL OR media_type = '') AND (raw IS NULL OR length(raw) = 0)")
+	acc.runOnce("backfill_template_messages_v1", acc.backfillTemplateMessages)
+	acc.runOnce("backfill_template_messages_v2", acc.backfillTemplateMessages)
+	acc.runOnce("backfill_template_messages_v3", acc.backfillTemplateMessages)
 	// v4: Meta AI replies were all stored as "[Unsupported Message]" because
 	// their rich response JSON was parsed one level too deep.
-	runOnce("backfill_template_messages_v4", backfillTemplateMessages)
-	runOnce("backfill_album_messages_v1", backfillAlbumMessages)
-	runOnce("backfill_media_sizes_v1", backfillMediaSizes)
-	runOnce("remove_key_distribution_stubs_v1", removeKeyDistributionStubs)
-	runOnce("tokenize_system_line_names_v1", tokenizeBakedSystemLines)
-	runOnce("clear_lid_fake_phones_v1", func() {
-		db.Exec(`UPDATE contacts_cache SET phone = '' WHERE jid LIKE '%@lid'`)
+	acc.runOnce("backfill_template_messages_v4", acc.backfillTemplateMessages)
+	acc.runOnce("backfill_album_messages_v1", acc.backfillAlbumMessages)
+	acc.runOnce("backfill_media_sizes_v1", acc.backfillMediaSizes)
+	acc.runOnce("remove_key_distribution_stubs_v1", acc.removeKeyDistributionStubs)
+	acc.runOnce("tokenize_system_line_names_v1", acc.tokenizeBakedSystemLines)
+	acc.runOnce("clear_lid_fake_phones_v1", func() {
+		acc.db.Exec(`UPDATE contacts_cache SET phone = '' WHERE jid LIKE '%@lid'`)
 	})
-	runOnce("drop_call_history_only_chats_v1", dropCallHistoryOnlyChats)
-	initArchiveActions()
+	acc.runOnce("drop_call_history_only_chats_v1", acc.dropCallHistoryOnlyChats)
+	acc.initArchiveActions()
 	// An upload that was still running when the app last quit can never
 	// finish now - and retry only accepts pending/failed rows, so leaving it
 	// as "uploading" stranded it on screen forever with no way to resend.
-	db.Exec(`UPDATE messages SET status = 'failed' WHERE from_me = 1 AND status = 'uploading'`)
+	acc.db.Exec(`UPDATE messages SET status = 'failed' WHERE from_me = 1 AND status = 'uploading'`)
 
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
+	if _, err := acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_jid_timestamp ON messages(jid, timestamp DESC);`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_sender_jid ON messages(sender_jid)`); err != nil {
+	if _, err := acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_sender_jid ON messages(sender_jid)`); err != nil {
 		return err
 	}
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_outgoing_status ON messages(status) WHERE from_me = 1`)
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_incoming_status ON messages(jid, status) WHERE from_me = 0`)
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON messages(expires_at) WHERE expires_at > 0`)
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_message_edits_target ON message_edits(target_id)`)
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(timestamp DESC) WHERE starred = 1`)
+	acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_outgoing_status ON messages(status) WHERE from_me = 1`)
+	acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_incoming_status ON messages(jid, status) WHERE from_me = 0`)
+	acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON messages(expires_at) WHERE expires_at > 0`)
+	acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_message_edits_target ON message_edits(target_id)`)
+	acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(timestamp DESC) WHERE starred = 1`)
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS poll_votes (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS poll_votes (
 		poll_id TEXT NOT NULL,
 		voter TEXT NOT NULL,
 		selected TEXT NOT NULL DEFAULT '',
@@ -257,7 +257,7 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS group_member_labels (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS group_member_labels (
 		group_jid TEXT NOT NULL,
 		member TEXT NOT NULL,
 		label TEXT NOT NULL DEFAULT '',
@@ -266,7 +266,7 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS event_responses (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS event_responses (
 		event_id TEXT NOT NULL,
 		responder TEXT NOT NULL,
 		response INTEGER NOT NULL DEFAULT 0,
@@ -276,7 +276,7 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS reactions (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS reactions (
 		message_id TEXT NOT NULL,
 		chat_jid TEXT NOT NULL,
 		reactor_jid TEXT NOT NULL,
@@ -286,11 +286,11 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_reactions_chat_timestamp ON reactions(chat_jid, timestamp DESC)`); err != nil {
+	if _, err := acc.db.Exec(`CREATE INDEX IF NOT EXISTS idx_reactions_chat_timestamp ON reactions(chat_jid, timestamp DESC)`); err != nil {
 		return err
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS message_receipts (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS message_receipts (
 		message_id TEXT NOT NULL,
 		participant_jid TEXT NOT NULL,
 		status TEXT NOT NULL DEFAULT 'delivered',
@@ -299,11 +299,11 @@ func migrateDB() error {
 	)`); err != nil {
 		return err
 	}
-	addColumnIfMissing(colCache, "message_receipts", "delivered_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "message_receipts", "read_at", "INTEGER DEFAULT 0")
-	addColumnIfMissing(colCache, "message_receipts", "played_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "message_receipts", "delivered_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "message_receipts", "read_at", "INTEGER DEFAULT 0")
+	acc.addColumnIfMissing(colCache, "message_receipts", "played_at", "INTEGER DEFAULT 0")
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS contacts_cache (
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS contacts_cache (
 		jid TEXT PRIMARY KEY,
 		name TEXT DEFAULT '',
 		phone TEXT DEFAULT '',
@@ -317,41 +317,41 @@ func migrateDB() error {
 		return err
 	}
 
-	if err := ensureCallRecords(); err != nil {
+	if err := acc.ensureCallRecords(); err != nil {
 		return err
 	}
-	if err := ensureAvatarPreviews(); err != nil {
+	if err := acc.ensureAvatarPreviews(); err != nil {
 		return err
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY, pn TEXT DEFAULT '')`); err != nil {
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY, pn TEXT DEFAULT '')`); err != nil {
 		return err
 	}
-	addColumnIfMissing(colCache, "blocked_contacts", "pn", "TEXT DEFAULT ''")
+	acc.addColumnIfMissing(colCache, "blocked_contacts", "pn", "TEXT DEFAULT ''")
 
-	purgeExpiredStatuses()
+	acc.purgeExpiredStatuses()
 	cleanupScratchTempDirs(24 * time.Hour)
 	return nil
 }
 
-func runOnce(key string, fn func()) {
+func (acc *Account) runOnce(key string, fn func()) {
 	var done int
-	if db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, "migration:"+key).Scan(&done) == nil && done > 0 {
+	if acc.db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, "migration:"+key).Scan(&done) == nil && done > 0 {
 		return
 	}
 	fn()
-	db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
+	acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
 }
 
 // runOnceIfOK is runOnce for work that can fail: it's only marked done when
 // fn reports success, so a failed try runs again next time.
-func runOnceIfOK(key string, fn func() bool) {
+func (acc *Account) runOnceIfOK(key string, fn func() bool) {
 	var done int
-	if db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, "migration:"+key).Scan(&done) == nil && done > 0 {
+	if acc.db.QueryRow(`SELECT COUNT(*) FROM app_settings WHERE key = ?`, "migration:"+key).Scan(&done) == nil && done > 0 {
 		return
 	}
 	if fn() {
-		db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
+		acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')`, "migration:"+key)
 	}
 }
 
@@ -383,7 +383,7 @@ func statusRank(status string) int {
 // used by history sync, live incoming messages, and everything we send
 // ourselves. Using ON CONFLICT throughout means re-delivery / re-sync never
 // creates duplicate rows.
-func saveMessage(sm StoredMessage) error {
+func (acc *Account) saveMessage(sm StoredMessage) error {
 	if sm.Status == "" {
 		sm.Status = "sent"
 	}
@@ -391,7 +391,7 @@ func saveMessage(sm StoredMessage) error {
 	if sm.FromMe {
 		sentAt = sm.Timestamp
 	}
-	_, err := db.Exec(`INSERT INTO messages
+	_, err := acc.db.Exec(`INSERT INTO messages
 			(id, jid, from_me, text, timestamp, sender_jid, raw, status, media_type, media_mimetype, media_filename, media_path, media_size, quoted_id, quoted_text, quoted_sender, sent_at, album_id, server_id, wire_sender)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -428,7 +428,7 @@ func saveMessage(sm StoredMessage) error {
 	return err
 }
 
-func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64) []string {
+func (acc *Account) updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64) []string {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -444,49 +444,49 @@ func updateMessageStatusIfNewer(ids []string, newStatus string, receiptTS int64)
 	}
 	var updated []string
 	for _, id := range ids {
-		if target := editTargetID(id); target != "" {
+		if target := acc.editTargetID(id); target != "" {
 			id = target
 		}
 		if tsCol != "" && receiptTS > 0 {
-			db.Exec("UPDATE messages SET "+tsCol+" = ? WHERE id = ? AND "+tsCol+" = 0", receiptTS, id)
+			acc.db.Exec("UPDATE messages SET "+tsCol+" = ? WHERE id = ? AND "+tsCol+" = 0", receiptTS, id)
 		}
 		var current string
-		err := db.QueryRow("SELECT status FROM messages WHERE id = ?", id).Scan(&current)
+		err := acc.db.QueryRow("SELECT status FROM messages WHERE id = ?", id).Scan(&current)
 		if err != nil {
 			continue
 		}
 		if statusRank(current) >= newRank {
 			continue
 		}
-		if _, err := db.Exec("UPDATE messages SET status = ? WHERE id = ?", newStatus, id); err == nil {
+		if _, err := acc.db.Exec("UPDATE messages SET status = ? WHERE id = ?", newStatus, id); err == nil {
 			updated = append(updated, id)
 		}
 	}
 	return updated
 }
 
-func updateParticipantReceiptIfNewer(ids []string, participantJID, newStatus string, receiptTS int64) {
+func (acc *Account) updateParticipantReceiptIfNewer(ids []string, participantJID, newStatus string, receiptTS int64) {
 	for _, id := range ids {
-		if target := editTargetID(id); target != "" {
+		if target := acc.editTargetID(id); target != "" {
 			id = target
 		}
-		if err := recordParticipantReceipt(db, id, participantJID, newStatus, receiptTS); err != nil {
+		if err := recordParticipantReceipt(acc.db, id, participantJID, newStatus, receiptTS); err != nil {
 			log.Println("Error recording participant receipt:", err)
 		}
 	}
 }
 
-func updateGroupMessageStatuses(ids []string, groupJID string, receiptTS int64) map[string][]string {
+func (acc *Account) updateGroupMessageStatuses(ids []string, groupJID string, receiptTS int64) map[string][]string {
 	var members int
-	db.QueryRow(`SELECT COALESCE(participant_count, 0) FROM chats WHERE jid = ?`, groupJID).Scan(&members)
+	acc.db.QueryRow(`SELECT COALESCE(participant_count, 0) FROM chats WHERE jid = ?`, groupJID).Scan(&members)
 	others := members - 1
 	changed := map[string][]string{}
 	for _, id := range ids {
-		if target := editTargetID(id); target != "" {
+		if target := acc.editTargetID(id); target != "" {
 			id = target
 		}
 		var delivered, read, played int
-		if db.QueryRow(`SELECT
+		if acc.db.QueryRow(`SELECT
 				COALESCE(SUM(CASE WHEN status IN ('delivered', 'read', 'played') THEN 1 ELSE 0 END), 0),
 				COALESCE(SUM(CASE WHEN status IN ('read', 'played') THEN 1 ELSE 0 END), 0),
 				COALESCE(SUM(CASE WHEN status = 'played' THEN 1 ELSE 0 END), 0)
@@ -511,7 +511,7 @@ func updateGroupMessageStatuses(ids []string, groupJID string, receiptTS int64) 
 		if status == "" {
 			continue
 		}
-		for _, updatedID := range updateMessageStatusIfNewer([]string{id}, status, receiptTS) {
+		for _, updatedID := range acc.updateMessageStatusIfNewer([]string{id}, status, receiptTS) {
 			changed[status] = append(changed[status], updatedID)
 		}
 	}
@@ -527,8 +527,8 @@ type stmtTx struct {
 	stmts map[string]*sql.Stmt
 }
 
-func beginStmtTx() (*stmtTx, error) {
-	tx, err := db.Begin()
+func (acc *Account) beginStmtTx() (*stmtTx, error) {
+	tx, err := acc.db.Begin()
 	if err != nil {
 		return nil, err
 	}
@@ -554,10 +554,10 @@ const batchSize = 500
 // stores, which hold their own in-memory locks while waiting for SQLite's
 // write lock and so deadlock against an open write transaction until the busy
 // timeout.
-func writeBatch(writes []func(tx sqlExecer)) {
+func (acc *Account) writeBatch(writes []func(tx sqlExecer)) {
 	for start := 0; start < len(writes); start += batchSize {
 		end := min(start+batchSize, len(writes))
-		tx, err := beginStmtTx()
+		tx, err := acc.beginStmtTx()
 		if err != nil {
 			log.Println("Error starting batched write transaction:", err)
 			return
@@ -594,20 +594,20 @@ func recordParticipantReceipt(ex sqlExecer, messageID, participantJID, status st
 	return err
 }
 
-func recordEditStanza(editID, targetID, jid string, ts int64) {
+func (acc *Account) recordEditStanza(editID, targetID, jid string, ts int64) {
 	if editID == "" || targetID == "" || editID == targetID {
 		return
 	}
-	db.Exec(`INSERT INTO message_edits (edit_id, target_id, jid, timestamp) VALUES (?, ?, ?, ?)
+	acc.db.Exec(`INSERT INTO message_edits (edit_id, target_id, jid, timestamp) VALUES (?, ?, ?, ?)
 		ON CONFLICT(edit_id) DO UPDATE SET target_id = excluded.target_id`, editID, targetID, jid, ts)
 }
 
-func editTargetID(editID string) string {
+func (acc *Account) editTargetID(editID string) string {
 	seen := 0
 	current := editID
 	for seen < 8 {
 		var target string
-		if db.QueryRow(`SELECT target_id FROM message_edits WHERE edit_id = ?`, current).Scan(&target) != nil {
+		if acc.db.QueryRow(`SELECT target_id FROM message_edits WHERE edit_id = ?`, current).Scan(&target) != nil {
 			break
 		}
 		current = target
@@ -644,9 +644,9 @@ func editPlainText(msg *waE2E.Message) string {
 // again - and a reply's quote. Returns the raw protobuf to keep and the
 // display text for it, or ok=false if there's no usable original to merge
 // into (the edit's own content is then all there is).
-func mergeEdit(id string, newContent *waE2E.Message) (raw []byte, text string, ok bool) {
+func (acc *Account) mergeEdit(id string, newContent *waE2E.Message) (raw []byte, text string, ok bool) {
 	var origRaw []byte
-	if db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&origRaw) != nil || len(origRaw) == 0 {
+	if acc.db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, id).Scan(&origRaw) != nil || len(origRaw) == 0 {
 		return nil, "", false
 	}
 	orig := &waE2E.Message{}
@@ -682,32 +682,32 @@ func mergeEdit(id string, newContent *waE2E.Message) (raw []byte, text string, o
 	if err != nil {
 		return nil, "", false
 	}
-	return merged, extractText(orig), true
+	return merged, acc.extractText(orig), true
 }
 
-func markMessageEdited(id, jid string, newContent *waE2E.Message, fallbackText string, editTime int64) (string, error) {
+func (acc *Account) markMessageEdited(id, jid string, newContent *waE2E.Message, fallbackText string, editTime int64) (string, error) {
 	text := fallbackText
 	var err error
 	if newContent == nil {
-		_, err = db.Exec(`UPDATE messages SET text = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, editTime, id, jid)
-	} else if raw, merged, ok := mergeEdit(id, newContent); ok {
+		_, err = acc.db.Exec(`UPDATE messages SET text = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, editTime, id, jid)
+	} else if raw, merged, ok := acc.mergeEdit(id, newContent); ok {
 		text = merged
-		_, err = db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, raw, editTime, id, jid)
+		_, err = acc.db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, raw, editTime, id, jid)
 	} else {
 		raw, _ := proto.Marshal(newContent)
-		_, err = db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, raw, editTime, id, jid)
+		_, err = acc.db.Exec(`UPDATE messages SET text = ?, raw = ?, is_edited = 1, edited_at = ? WHERE id = ? AND jid = ?`, text, raw, editTime, id, jid)
 	}
-	db.Exec(`UPDATE messages SET quoted_text = ? WHERE quoted_id = ?`, text, id)
-	UpdateChatSnippet(jid)
+	acc.db.Exec(`UPDATE messages SET quoted_text = ? WHERE quoted_id = ?`, text, id)
+	acc.UpdateChatSnippet(jid)
 	return text, err
 }
 
-func markMessageDeleted(id, jid string) error {
-	_, err := db.Exec(`UPDATE messages SET is_deleted = 1, text = '' WHERE id = ? AND jid = ?`, id, jid)
-	UpdateChatSnippet(jid)
+func (acc *Account) markMessageDeleted(id, jid string) error {
+	_, err := acc.db.Exec(`UPDATE messages SET is_deleted = 1, text = '' WHERE id = ? AND jid = ?`, id, jid)
+	acc.UpdateChatSnippet(jid)
 	// The chat list row shows the new preview straight away, not only on
 	// the next list refresh.
-	broadcastChats()
+	acc.broadcastChats()
 	return err
 }
 
@@ -717,30 +717,30 @@ func markMessageDeleted(id, jid string) error {
 // the row just disappears, matching official WhatsApp: a message you (or
 // another of your devices) deleted for yourself was never a "this message
 // was deleted" placeholder, it's simply gone from your view.
-func deleteMessageForMe(id, jid string) error {
-	purgeMessages(`id = ? AND jid = ?`, id, jid)
+func (acc *Account) deleteMessageForMe(id, jid string) error {
+	acc.purgeMessages(`id = ? AND jid = ?`, id, jid)
 	var left int
-	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ?`, jid).Scan(&left)
+	acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE jid = ?`, jid).Scan(&left)
 	if left == 0 {
-		emptyChatPreview(jid)
+		acc.emptyChatPreview(jid)
 	} else {
-		UpdateChatSnippet(jid)
+		acc.UpdateChatSnippet(jid)
 	}
-	broadcastChats()
+	acc.broadcastChats()
 	return nil
 }
 
-func markMessageStarred(id, jid string, starred bool) error {
+func (acc *Account) markMessageStarred(id, jid string, starred bool) error {
 	starredInt := 0
 	if starred {
 		starredInt = 1
 	}
-	_, err := db.Exec(`UPDATE messages SET starred = ? WHERE id = ? AND jid = ?`, starredInt, id, jid)
+	_, err := acc.db.Exec(`UPDATE messages SET starred = ? WHERE id = ? AND jid = ?`, starredInt, id, jid)
 	return err
 }
 
-func backfillMediaSizes() {
-	rows, err := db.Query(`SELECT id, raw FROM messages
+func (acc *Account) backfillMediaSizes() {
+	rows, err := acc.db.Query(`SELECT id, raw FROM messages
 		WHERE media_type != '' AND COALESCE(media_size, 0) = 0 AND raw IS NOT NULL AND length(raw) > 0`)
 	if err != nil {
 		return
@@ -766,12 +766,12 @@ func backfillMediaSizes() {
 	}
 	rows.Close()
 	for _, m := range fixed {
-		db.Exec(`UPDATE messages SET media_size = ? WHERE id = ?`, m.size, m.id)
+		acc.db.Exec(`UPDATE messages SET media_size = ? WHERE id = ?`, m.size, m.id)
 	}
 }
 
-func backfillTemplateMessages() {
-	rows, err := db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), raw FROM messages
+func (acc *Account) backfillTemplateMessages() {
+	rows, err := acc.db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), raw FROM messages
 		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
 	if err != nil {
 		return
@@ -805,7 +805,7 @@ func backfillTemplateMessages() {
 		}
 		if notice := msg.GetMessageHistoryNotice(); notice != nil {
 			senderJID, _ := types.ParseJID(senderStr)
-			text := messageHistoryNoticeText(notice, senderJID)
+			text := acc.messageHistoryNoticeText(notice, senderJID)
 			fixed = append(fixed, recovered{id, jid, text, "system", "", "", 0})
 			continue
 		}
@@ -813,7 +813,7 @@ func backfillTemplateMessages() {
 			bookkeeping = append(bookkeeping, id)
 			continue
 		}
-		text := extractText(msg)
+		text := acc.extractText(msg)
 		if text == "[Protocol Message]" {
 			bookkeeping = append(bookkeeping, id)
 			continue
@@ -827,18 +827,18 @@ func backfillTemplateMessages() {
 
 	chats := make(map[string]struct{}, len(fixed))
 	for _, msg := range fixed {
-		db.Exec(`UPDATE messages SET text = ?, media_type = ?, media_mimetype = ?, media_filename = ?, media_size = ?
+		acc.db.Exec(`UPDATE messages SET text = ?, media_type = ?, media_mimetype = ?, media_filename = ?, media_size = ?
 			WHERE id = ?`, msg.text, msg.mediaType, msg.mimetype, msg.filename, msg.fileSize, msg.id)
 		chats[msg.jid] = struct{}{}
 	}
 	for _, id := range bookkeeping {
 		var jid string
-		db.QueryRow(`SELECT jid FROM messages WHERE id = ?`, id).Scan(&jid)
-		purgeMessages(`id = ?`, id)
+		acc.db.QueryRow(`SELECT jid FROM messages WHERE id = ?`, id).Scan(&jid)
+		acc.purgeMessages(`id = ?`, id)
 		chats[jid] = struct{}{}
 	}
 	for jid := range chats {
-		UpdateChatSnippet(jid)
+		acc.UpdateChatSnippet(jid)
 	}
 }
 
@@ -851,8 +851,8 @@ func backfillTemplateMessages() {
 // bubbles, and one of them could even overwrite the real message it shared an
 // ID with - the content is unrecoverable from what's left, so drop the stub
 // rather than keep showing it.
-func removeKeyDistributionStubs() {
-	rows, err := db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), raw FROM messages
+func (acc *Account) removeKeyDistributionStubs() {
+	rows, err := acc.db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), raw FROM messages
 		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
 	if err != nil {
 		return
@@ -877,17 +877,17 @@ func removeKeyDistributionStubs() {
 
 	chats := make(map[string]struct{}, len(stubs))
 	for _, st := range stubs {
-		requestMessageResend(st.id, st.jid, st.senderJID)
-		db.Exec("DELETE FROM messages WHERE id = ?", st.id)
+		acc.requestMessageResend(st.id, st.jid, st.senderJID)
+		acc.db.Exec("DELETE FROM messages WHERE id = ?", st.id)
 		chats[st.jid] = struct{}{}
 	}
 	for jid := range chats {
-		UpdateChatSnippet(jid)
+		acc.UpdateChatSnippet(jid)
 	}
 }
 
-func backfillAlbumMessages() {
-	rows, err := db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), timestamp, raw FROM messages
+func (acc *Account) backfillAlbumMessages() {
+	rows, err := acc.db.Query(`SELECT id, jid, COALESCE(sender_jid, ''), timestamp, raw FROM messages
 		WHERE text = '[Unsupported Message]' AND raw IS NOT NULL AND length(raw) > 0`)
 	if err != nil {
 		return
@@ -920,27 +920,27 @@ func backfillAlbumMessages() {
 
 	chats := make(map[string]struct{}, len(headers))
 	for _, h := range headers {
-		stampAlbumMembers(h.id, h.jid, h.senderJID, h.timestamp, h.expected)
-		db.Exec("DELETE FROM messages WHERE id = ?", h.id)
+		acc.stampAlbumMembers(h.id, h.jid, h.senderJID, h.timestamp, h.expected)
+		acc.db.Exec("DELETE FROM messages WHERE id = ?", h.id)
 		chats[h.jid] = struct{}{}
 	}
 	for jid := range chats {
-		UpdateChatSnippet(jid)
+		acc.UpdateChatSnippet(jid)
 	}
 }
 
-func UpdateChatSnippet(jid string) {
+func (acc *Account) UpdateChatSnippet(jid string) {
 	var msgText, msgSender string
 	var msgFromMe, msgDeleted int
 	var msgTS int64
-	hasMsg := db.QueryRow(`SELECT COALESCE(text, ''), COALESCE(sender_jid, ''), from_me, is_deleted, timestamp
+	hasMsg := acc.db.QueryRow(`SELECT COALESCE(text, ''), COALESCE(sender_jid, ''), from_me, is_deleted, timestamp
 		FROM messages WHERE jid = ? AND (text != '' OR media_type != '' OR (raw IS NOT NULL AND length(raw) > 0))
 			AND NOT (COALESCE(media_type, '') = 'system' AND id GLOB '*' || ?)
 		ORDER BY timestamp DESC LIMIT 1`, jid, quietSystemSuffix).Scan(&msgText, &msgSender, &msgFromMe, &msgDeleted, &msgTS) == nil
 
 	var reactorJID, emoji, reactedText string
 	var reactionTS int64
-	hasReaction := db.QueryRow(`SELECT r.reactor_jid, r.emoji, r.timestamp, m.text
+	hasReaction := acc.db.QueryRow(`SELECT r.reactor_jid, r.emoji, r.timestamp, m.text
 		FROM reactions r JOIN messages m ON m.id = r.message_id
 		WHERE r.chat_jid = ? AND COALESCE(m.is_deleted, 0) = 0 AND COALESCE(m.text, '') != '' AND r.emoji != ''
 		ORDER BY r.timestamp DESC LIMIT 1`, jid).Scan(&reactorJID, &emoji, &reactionTS, &reactedText) == nil
@@ -950,7 +950,7 @@ func UpdateChatSnippet(jid string) {
 		if reactorJID == "me" {
 			fromMe = 1
 		}
-		db.Exec(`UPDATE chats SET
+		acc.db.Exec(`UPDATE chats SET
 				preview_snippet = ?, preview_sender = ?, preview_from_me = ?,
 				preview_is_reaction = 1, preview_reaction_emoji = ?
 			WHERE jid = ?`, reactedText, reactorJID, fromMe, emoji, jid)
@@ -969,7 +969,7 @@ func UpdateChatSnippet(jid string) {
 			snippet = msgText
 		}
 	}
-	db.Exec(`UPDATE chats SET
+	acc.db.Exec(`UPDATE chats SET
 			preview_snippet = COALESCE(NULLIF(?, ''), preview_snippet),
 			preview_sender = ?,
 			preview_from_me = ?,
@@ -983,22 +983,22 @@ func UpdateChatSnippet(jid string) {
 // (history sync rows can have a preview without stored messages), so a
 // cleared chat kept showing its last message. WA Web keeps the row, its time
 // and its place in the list, with no preview and nothing unread.
-func clearChatPreview(jid string) {
-	emptyChatPreview(jid)
-	db.Exec(`UPDATE chats SET unread_mentions = 0,
+func (acc *Account) clearChatPreview(jid string) {
+	acc.emptyChatPreview(jid)
+	acc.db.Exec(`UPDATE chats SET unread_mentions = 0,
 			unread_count = CASE WHEN COALESCE(marked_unread, 0) = 1 THEN unread_count ELSE 0 END
 		WHERE jid = ?`, jid)
 }
 
-func emptyChatPreview(jid string) {
-	db.Exec(`UPDATE chats SET
+func (acc *Account) emptyChatPreview(jid string) {
+	acc.db.Exec(`UPDATE chats SET
 			preview_snippet = '', preview_sender = '', preview_from_me = 0,
 			preview_is_reaction = 0, preview_reaction_emoji = ''
 		WHERE jid = ?`, jid)
 }
 
-func UpdateAllChatSnippets() {
-	rows, err := db.Query(`SELECT jid FROM chats`)
+func (acc *Account) UpdateAllChatSnippets() {
+	rows, err := acc.db.Query(`SELECT jid FROM chats`)
 	if err != nil {
 		return
 	}
@@ -1011,17 +1011,17 @@ func UpdateAllChatSnippets() {
 	}
 	rows.Close()
 	for _, jid := range jids {
-		UpdateChatSnippet(jid)
+		acc.UpdateChatSnippet(jid)
 	}
 }
 
-func setMessageMediaPath(id, path string) error {
-	_, err := db.Exec(`UPDATE messages SET media_path = ? WHERE id = ?`, path, id)
+func (acc *Account) setMessageMediaPath(id, path string) error {
+	_, err := acc.db.Exec(`UPDATE messages SET media_path = ? WHERE id = ?`, path, id)
 	return err
 }
 
-func getMessageRaw(id string) (raw []byte, jid string, senderJID string, fromMe bool, err error) {
-	err = db.QueryRow(`SELECT raw, jid, COALESCE(sender_jid, ''), from_me FROM messages WHERE id = ?`, id).
+func (acc *Account) getMessageRaw(id string) (raw []byte, jid string, senderJID string, fromMe bool, err error) {
+	err = acc.db.QueryRow(`SELECT raw, jid, COALESCE(sender_jid, ''), from_me FROM messages WHERE id = ?`, id).
 		Scan(&raw, &jid, &senderJID, &fromMe)
 	return
 }
@@ -1033,7 +1033,7 @@ type messageOrigin struct {
 
 // lookupMessageOrigins is lookupMessageOrigin for a batch of messages, keyed
 // by id; ids we don't have are simply absent.
-func lookupMessageOrigins(ids []string) map[string]messageOrigin {
+func (acc *Account) lookupMessageOrigins(ids []string) map[string]messageOrigin {
 	result := map[string]messageOrigin{}
 	const chunk = 900
 	for start := 0; start < len(ids); start += chunk {
@@ -1043,7 +1043,7 @@ func lookupMessageOrigins(ids []string) map[string]messageOrigin {
 			args[i] = id
 		}
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
-		rows, err := db.Query(`SELECT id, from_me, COALESCE(sender_jid, '') FROM messages WHERE id IN (`+placeholders+`)`, args...)
+		rows, err := acc.db.Query(`SELECT id, from_me, COALESCE(sender_jid, '') FROM messages WHERE id IN (`+placeholders+`)`, args...)
 		if err != nil {
 			log.Println("Error looking up quoted messages:", err)
 			continue
@@ -1060,10 +1060,10 @@ func lookupMessageOrigins(ids []string) map[string]messageOrigin {
 	return result
 }
 
-func getMessageForQuote(id string) (msg *waE2E.Message, senderJID string, preview string, err error) {
+func (acc *Account) getMessageForQuote(id string) (msg *waE2E.Message, senderJID string, preview string, err error) {
 	var raw []byte
 	var text string
-	rawErr := db.QueryRow(`SELECT raw, COALESCE(sender_jid, ''), COALESCE(text, '') FROM messages WHERE id = ?`, id).
+	rawErr := acc.db.QueryRow(`SELECT raw, COALESCE(sender_jid, ''), COALESCE(text, '') FROM messages WHERE id = ?`, id).
 		Scan(&raw, &senderJID, &text)
 	if rawErr != nil {
 		err = rawErr
@@ -1073,7 +1073,7 @@ func getMessageForQuote(id string) (msg *waE2E.Message, senderJID string, previe
 	msg = &waE2E.Message{}
 	if len(raw) > 0 {
 		if unmarshalErr := proto.Unmarshal(raw, msg); unmarshalErr == nil {
-			extracted := extractText(msg)
+			extracted := acc.extractText(msg)
 			if extracted != "" {
 				preview = extracted
 			}
@@ -1121,7 +1121,7 @@ func prepareForQuote(msg *waE2E.Message) *waE2E.Message {
 	return msg
 }
 
-func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
+func (acc *Account) getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 	result := map[string][]ReactionInfo{}
 	names := map[string]string{}
 	const chunk = 900
@@ -1132,7 +1132,7 @@ func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 			args[i] = id
 		}
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
-		rows, err := db.Query(`SELECT message_id, reactor_jid, emoji, timestamp FROM reactions WHERE message_id IN (`+placeholders+`) AND emoji != ''`, args...)
+		rows, err := acc.db.Query(`SELECT message_id, reactor_jid, emoji, timestamp FROM reactions WHERE message_id IN (`+placeholders+`) AND emoji != ''`, args...)
 		if err != nil {
 			log.Println("Error loading reactions:", err)
 			continue
@@ -1160,7 +1160,7 @@ func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 				if jid == "me" {
 					name = "You"
 				} else if parsed, perr := types.ParseJID(jid); perr == nil {
-					name = resolveDisplayName(parsed)
+					name = acc.resolveDisplayName(parsed)
 				}
 				names[jid] = name
 			}
@@ -1170,26 +1170,26 @@ func getReactionsForMessageIDs(ids []string) map[string][]ReactionInfo {
 	return result
 }
 
-func upsertReaction(messageID, chatJID, reactorJID, emoji string, ts int64) error {
+func (acc *Account) upsertReaction(messageID, chatJID, reactorJID, emoji string, ts int64) error {
 	if emoji == "" {
-		_, err := db.Exec(`DELETE FROM reactions WHERE message_id = ? AND reactor_jid = ?`, messageID, reactorJID)
+		_, err := acc.db.Exec(`DELETE FROM reactions WHERE message_id = ? AND reactor_jid = ?`, messageID, reactorJID)
 		return err
 	}
-	_, err := db.Exec(`INSERT INTO reactions (message_id, chat_jid, reactor_jid, emoji, timestamp) VALUES (?, ?, ?, ?, ?)
+	_, err := acc.db.Exec(`INSERT INTO reactions (message_id, chat_jid, reactor_jid, emoji, timestamp) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(message_id, reactor_jid) DO UPDATE SET emoji = excluded.emoji, timestamp = excluded.timestamp`,
 		messageID, chatJID, reactorJID, emoji, ts)
 	return err
 }
 
-func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji string, reactorIsFromMe bool) {
+func (acc *Account) updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji string, reactorIsFromMe bool) {
 	if emoji == "" {
-		db.Exec(`UPDATE chats SET preview_is_reaction = 0, preview_reaction_emoji = '' WHERE jid = ?`, chatJID)
-		UpdateChatSnippet(chatJID)
+		acc.db.Exec(`UPDATE chats SET preview_is_reaction = 0, preview_reaction_emoji = '' WHERE jid = ?`, chatJID)
+		acc.UpdateChatSnippet(chatJID)
 		return
 	}
 	var text string
 	var isDeleted int
-	err := db.QueryRow(`SELECT COALESCE(text, ''), is_deleted FROM messages WHERE id = ?`, reactedMessageID).Scan(&text, &isDeleted)
+	err := acc.db.QueryRow(`SELECT COALESCE(text, ''), is_deleted FROM messages WHERE id = ?`, reactedMessageID).Scan(&text, &isDeleted)
 	if err != nil || isDeleted == 1 || text == "" {
 		return
 	}
@@ -1197,7 +1197,7 @@ func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji stri
 	if reactorIsFromMe {
 		fromMe = 1
 	}
-	db.Exec(`UPDATE chats SET
+	acc.db.Exec(`UPDATE chats SET
 			preview_snippet = ?,
 			preview_sender = ?,
 			preview_from_me = ?,
@@ -1212,8 +1212,8 @@ func updateChatReactionPreview(chatJID, reactedMessageID, reactorJID, emoji stri
 // callers use when they don't know the name. Nor is a business ever turned
 // back into a person: most callers (push names, address-book edits) don't
 // know either way and pass false.
-func upsertContactCacheRow(jid, name, phone string, isBusiness bool) error {
-	return upsertContactCacheRowWith(db, jid, name, phone, isBusiness)
+func (acc *Account) upsertContactCacheRow(jid, name, phone string, isBusiness bool) error {
+	return upsertContactCacheRowWith(acc.db, jid, name, phone, isBusiness)
 }
 
 func upsertContactCacheRowWith(ex sqlExecer, jid, name, phone string, isBusiness bool) error {
@@ -1232,35 +1232,35 @@ func upsertContactCacheRowWith(ex sqlExecer, jid, name, phone string, isBusiness
 	return err
 }
 
-func deleteContactCacheRow(jid string) error {
-	_, err := db.Exec(`DELETE FROM contacts_cache WHERE jid = ?`, jid)
+func (acc *Account) deleteContactCacheRow(jid string) error {
+	_, err := acc.db.Exec(`DELETE FROM contacts_cache WHERE jid = ?`, jid)
 	return err
 }
 
-func updateContactAvatarCache(jid, avatarPath, avatarID string) error {
-	_, err := db.Exec(`INSERT INTO contacts_cache (jid, avatar_path, avatar_id, updated_at) VALUES (?, ?, ?, ?)
+func (acc *Account) updateContactAvatarCache(jid, avatarPath, avatarID string) error {
+	_, err := acc.db.Exec(`INSERT INTO contacts_cache (jid, avatar_path, avatar_id, updated_at) VALUES (?, ?, ?, ?)
 		ON CONFLICT(jid) DO UPDATE SET avatar_path=excluded.avatar_path, avatar_id=excluded.avatar_id, updated_at=excluded.updated_at`,
 		jid, avatarPath, avatarID, time.Now().Unix())
 	return err
 }
 
-func updateContactAboutCache(jid, about string) error {
-	_, err := db.Exec(`INSERT INTO contacts_cache (jid, about, updated_at) VALUES (?, ?, ?)
+func (acc *Account) updateContactAboutCache(jid, about string) error {
+	_, err := acc.db.Exec(`INSERT INTO contacts_cache (jid, about, updated_at) VALUES (?, ?, ?)
 		ON CONFLICT(jid) DO UPDATE SET about=excluded.about, updated_at=excluded.updated_at`,
 		jid, about, time.Now().Unix())
 	return err
 }
 
-func getCachedAvatarPath(jid string) string {
+func (acc *Account) getCachedAvatarPath(jid string) string {
 	var path string
-	db.QueryRow(`SELECT COALESCE(avatar_path, '') FROM contacts_cache WHERE jid = ?`, jid).Scan(&path)
+	acc.db.QueryRow(`SELECT COALESCE(avatar_path, '') FROM contacts_cache WHERE jid = ?`, jid).Scan(&path)
 	return path
 }
 
-func resolveDisplayName(jid types.JID) string {
+func (acc *Account) resolveDisplayName(jid types.JID) string {
 	jid = jid.ToNonAD()
-	if wa() != nil && wa().Store != nil && wa().Store.ID != nil {
-		if (jid.Server == types.DefaultUserServer && jid.User == wa().Store.ID.User) || (jid.Server == types.HiddenUserServer && jid.User == wa().Store.GetLID().User) {
+	if acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.ID != nil {
+		if (jid.Server == types.DefaultUserServer && jid.User == acc.wa().Store.ID.User) || (jid.Server == types.HiddenUserServer && jid.User == acc.wa().Store.GetLID().User) {
 			return "You"
 		}
 	}
@@ -1273,34 +1273,34 @@ func resolveDisplayName(jid types.JID) string {
 	}
 	if jid.Server == types.NewsletterServer {
 		var name string
-		if db != nil {
-			db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid.String()).Scan(&name)
+		if acc.db != nil {
+			acc.db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid.String()).Scan(&name)
 		}
 		return cmp.Or(name, "Channel")
 	}
 	contactJID := jid
 	var twin types.JID
 	redactedPhone := ""
-	if wa() != nil && wa().Store != nil && wa().Store.LIDs != nil {
+	if acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.LIDs != nil {
 		switch jid.Server {
 		case types.HiddenUserServer:
-			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
+			if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
 				contactJID = pn
 				twin = jid
 			}
 		case types.DefaultUserServer:
-			if lid, err := wa().Store.LIDs.GetLIDForPN(context.Background(), jid); err == nil && !lid.IsEmpty() {
+			if lid, err := acc.wa().Store.LIDs.GetLIDForPN(context.Background(), jid); err == nil && !lid.IsEmpty() {
 				twin = lid
 			}
 		}
 	}
-	if wa() != nil && wa().Store != nil && wa().Store.Contacts != nil {
+	if acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.Contacts != nil {
 		pushName, businessName := "", ""
 		for _, candidate := range []types.JID{contactJID, twin} {
 			if candidate.IsEmpty() {
 				continue
 			}
-			info, err := wa().Store.Contacts.GetContact(context.Background(), candidate)
+			info, err := acc.wa().Store.Contacts.GetContact(context.Background(), candidate)
 			if err != nil || !info.Found {
 				continue
 			}
@@ -1316,8 +1316,8 @@ func resolveDisplayName(jid types.JID) string {
 		}
 	}
 	var name, phone string
-	if db != nil {
-		_ = db.QueryRow(`SELECT name, phone FROM contacts_cache WHERE (jid = ? OR jid = ?) AND (name != '' OR phone != '') LIMIT 1`, jid.String(), contactJID.String()).Scan(&name, &phone)
+	if acc.db != nil {
+		_ = acc.db.QueryRow(`SELECT name, phone FROM contacts_cache WHERE (jid = ? OR jid = ?) AND (name != '' OR phone != '') LIMIT 1`, jid.String(), contactJID.String()).Scan(&name, &phone)
 		if name != "" {
 			return name
 		}
@@ -1334,8 +1334,8 @@ func resolveDisplayName(jid types.JID) string {
 	return jid.String()
 }
 
-func removeOrphanedDeviceRows() {
-	rows, err := db.Query(`SELECT m.name, f."from"
+func (acc *Account) removeOrphanedDeviceRows() {
+	rows, err := acc.db.Query(`SELECT m.name, f."from"
 		FROM sqlite_master m, pragma_foreign_key_list(m.name) f
 		WHERE m.type = 'table' AND f."table" = 'whatsmeow_device'`)
 	if err != nil {
@@ -1352,7 +1352,7 @@ func removeOrphanedDeviceRows() {
 	}
 	rows.Close()
 	for _, r := range refs {
-		res, err := db.Exec(fmt.Sprintf(`DELETE FROM %q WHERE %q NOT IN (SELECT jid FROM whatsmeow_device)`, r.table, r.column))
+		res, err := acc.db.Exec(fmt.Sprintf(`DELETE FROM %q WHERE %q NOT IN (SELECT jid FROM whatsmeow_device)`, r.table, r.column))
 		if err != nil {
 			log.Printf("Orphan cleanup of %s failed: %v", r.table, err)
 			continue
@@ -1363,14 +1363,14 @@ func removeOrphanedDeviceRows() {
 	}
 }
 
-func saveChatLockSecretCode(b []byte) error {
-	_, err := db.Exec(`INSERT INTO app_settings (key, value) VALUES ('chat_lock_secret_code', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, b)
+func (acc *Account) saveChatLockSecretCode(b []byte) error {
+	_, err := acc.db.Exec(`INSERT INTO app_settings (key, value) VALUES ('chat_lock_secret_code', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, b)
 	return err
 }
 
-func getChatLockSecretCode() ([]byte, error) {
+func (acc *Account) getChatLockSecretCode() ([]byte, error) {
 	var b []byte
-	err := db.QueryRow(`SELECT value FROM app_settings WHERE key = 'chat_lock_secret_code'`).Scan(&b)
+	err := acc.db.QueryRow(`SELECT value FROM app_settings WHERE key = 'chat_lock_secret_code'`).Scan(&b)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

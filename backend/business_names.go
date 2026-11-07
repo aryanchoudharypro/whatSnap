@@ -4,12 +4,9 @@ import (
 	"context"
 	"log"
 	"strings"
-	"sync"
 
 	"go.mau.fi/whatsmeow/types"
 )
-
-var businessNameLookups sync.Map
 
 // lookUpBusinessNames asks WhatsApp for the verified business name of every
 // 1:1 chat still shown as a bare number, such as an offers or shopping bot
@@ -18,12 +15,12 @@ var businessNameLookups sync.Map
 // "business" field, which GetUserInfo asks for. whatsmeow then raises a
 // BusinessName event for each one it learns, and that names the chat.
 // Each number is asked about once per run.
-func lookUpBusinessNames() {
-	cli := wa()
+func (acc *Account) lookUpBusinessNames() {
+	cli := acc.wa()
 	if cli == nil || cli.Store == nil || cli.Store.ID == nil {
 		return
 	}
-	rows, err := db.Query(`SELECT jid FROM chats WHERE jid LIKE '%@s.whatsapp.net' AND (name IS NULL OR name = '' OR name LIKE '+%')`)
+	rows, err := acc.db.Query(`SELECT jid FROM chats WHERE jid LIKE '%@s.whatsapp.net' AND (name IS NULL OR name = '' OR name LIKE '+%')`)
 	if err != nil {
 		return
 	}
@@ -33,7 +30,7 @@ func lookUpBusinessNames() {
 		if rows.Scan(&s) != nil {
 			continue
 		}
-		if _, asked := businessNameLookups.LoadOrStore(s, true); asked {
+		if _, asked := acc.businessNameLookups.LoadOrStore(s, true); asked {
 			continue
 		}
 		j, err := types.ParseJID(s)
@@ -47,7 +44,7 @@ func lookUpBusinessNames() {
 	// its own.
 	unnamed := jids[:0]
 	for _, j := range jids {
-		if name := resolveDisplayName(j); name == "" || strings.HasPrefix(name, "+") || name == j.String() {
+		if name := acc.resolveDisplayName(j); name == "" || strings.HasPrefix(name, "+") || name == j.String() {
 			unnamed = append(unnamed, j)
 		}
 	}
@@ -59,7 +56,7 @@ func lookUpBusinessNames() {
 		if err != nil {
 			log.Printf("Business names: lookup of %d numbers failed: %v", len(batch), err)
 			for _, j := range batch {
-				businessNameLookups.Delete(j.String())
+				acc.businessNameLookups.Delete(j.String())
 			}
 			continue
 		}

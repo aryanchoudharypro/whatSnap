@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,17 +28,17 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
+func (acc *Account) resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 	chatJID = v.Info.Chat.ToNonAD()
 	senderJID = v.Info.Sender.ToNonAD()
 
 	if senderJID.Server == "lid" {
 		if !v.Info.SenderAlt.IsEmpty() {
 			senderJID = v.Info.SenderAlt.ToNonAD()
-		} else if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+		} else if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
 			senderJID = pn.ToNonAD()
-		} else if v.Info.IsFromMe && wa().Store.ID != nil {
-			senderJID = wa().Store.ID.ToNonAD()
+		} else if v.Info.IsFromMe && acc.wa().Store.ID != nil {
+			senderJID = acc.wa().Store.ID.ToNonAD()
 		}
 	}
 
@@ -47,7 +46,7 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 		if v.Info.IsFromMe {
 			if !v.Info.RecipientAlt.IsEmpty() {
 				chatJID = v.Info.RecipientAlt.ToNonAD()
-			} else if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+			} else if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 				chatJID = pn.ToNonAD()
 			}
 		} else {
@@ -60,7 +59,7 @@ func resolveLIDChat(v *events.Message) (chatJID, senderJID types.JID) {
 	return
 }
 
-func resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
+func (acc *Account) resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
 	chatJID = src.Chat.ToNonAD()
 	senderJID = src.Sender.ToNonAD()
 	rawSender := senderJID
@@ -68,7 +67,7 @@ func resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
 		if src.SenderAlt.Server == types.DefaultUserServer {
 			senderJID = src.SenderAlt.ToNonAD()
 		} else {
-			senderJID = preferPN(senderJID)
+			senderJID = acc.preferPN(senderJID)
 		}
 	}
 	if chatJID.Server == types.HiddenUserServer {
@@ -78,7 +77,7 @@ func resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
 		case src.RecipientAlt.Server == types.DefaultUserServer:
 			chatJID = src.RecipientAlt.ToNonAD()
 		default:
-			chatJID = preferPN(chatJID)
+			chatJID = acc.preferPN(chatJID)
 		}
 	}
 	return
@@ -87,18 +86,18 @@ func resolveSourcePN(src types.MessageSource) (chatJID, senderJID types.JID) {
 // applyReaction stores an incoming reaction and updates the chat-list preview.
 // It never creates a standalone chat message - if the reacted-to message isn't
 // in the local DB, updateChatReactionPreview silently leaves the preview alone.
-func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
+func (acc *Account) applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 	if reaction.GetKey().GetRemoteJID() == types.StatusBroadcastJID.String() {
-		noteStatusReaction(v, reaction)
+		acc.noteStatusReaction(v, reaction)
 		return
 	}
 	targetID := reaction.GetKey().GetID()
-	chatJID, senderJID := resolveLIDChat(v)
+	chatJID, senderJID := acc.resolveLIDChat(v)
 	jid := chatJID.ToNonAD().String()
 	emoji := reaction.GetText()
 
 	reactorJID := senderJID.ToNonAD().String()
-	reactorName := resolveDisplayName(senderJID)
+	reactorName := acc.resolveDisplayName(senderJID)
 	if v.Info.IsFromMe {
 		reactorJID = "me"
 		reactorName = "You"
@@ -111,18 +110,18 @@ func applyReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 
 	// Written before returning, in arrival order: a reaction and its removal
 	// moments later must not land the other way round.
-	upsertReaction(targetID, jid, reactorJID, emoji, ts)
-	updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
-	broadcastChats()
+	acc.upsertReaction(targetID, jid, reactorJID, emoji, ts)
+	acc.updateChatReactionPreview(jid, targetID, reactorJID, emoji, v.Info.IsFromMe)
+	acc.broadcastChats()
 
 	var reactedText string
 	var isDeleted int
-	if err := db.QueryRow(`SELECT COALESCE(text, ''), is_deleted FROM messages WHERE id = ?`, targetID).
+	if err := acc.db.QueryRow(`SELECT COALESCE(text, ''), is_deleted FROM messages WHERE id = ?`, targetID).
 		Scan(&reactedText, &isDeleted); err != nil || isDeleted == 1 {
 		reactedText = ""
 	}
 
-	broadcastEvent("message_reaction", map[string]interface{}{
+	acc.broadcastEvent("message_reaction", map[string]interface{}{
 		"jid":          jid,
 		"message_id":   targetID,
 		"reactor":      reactorJID,
@@ -239,11 +238,11 @@ func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
 	return msg
 }
 
-func extractText(msg *waE2E.Message) string {
-	return resolveMentions(extractTextRaw(msg), getContextInfo(msg))
+func (acc *Account) extractText(msg *waE2E.Message) string {
+	return acc.resolveMentions(acc.extractTextRaw(msg), getContextInfo(msg))
 }
 
-func resolveMentions(text string, ctx *waE2E.ContextInfo) string {
+func (acc *Account) resolveMentions(text string, ctx *waE2E.ContextInfo) string {
 	if text == "" || ctx == nil {
 		return text
 	}
@@ -252,7 +251,7 @@ func resolveMentions(text string, ctx *waE2E.ContextInfo) string {
 		if err != nil || jid.User == "" {
 			continue
 		}
-		text = replaceMentionToken(text, "@"+jid.User, "@"+resolveDisplayName(jid))
+		text = replaceMentionToken(text, "@"+jid.User, "@"+acc.resolveDisplayName(jid))
 	}
 	return text
 }
@@ -278,7 +277,7 @@ func replaceMentionToken(text, token, replacement string) string {
 	return b.String()
 }
 
-func extractTextRaw(msg *waE2E.Message) string {
+func (acc *Account) extractTextRaw(msg *waE2E.Message) string {
 	msg = unwrapMessage(msg)
 	if msg == nil {
 		return ""
@@ -400,7 +399,7 @@ func extractTextRaw(msg *waE2E.Message) string {
 		return "[Protocol Message]"
 	}
 	if notice := msg.GetMessageHistoryNotice(); notice != nil {
-		return messageHistoryNoticeText(notice, types.EmptyJID)
+		return acc.messageHistoryNoticeText(notice, types.EmptyJID)
 	}
 	if msg.GetPinInChatMessage() != nil || msg.GetKeepInChatMessage() != nil ||
 		msg.GetEncEventResponseMessage() != nil || msg.GetEncCommentMessage() != nil ||
@@ -705,11 +704,6 @@ type pendingAlbum struct {
 	expires   time.Time
 }
 
-var (
-	pendingAlbumsMu sync.Mutex
-	pendingAlbums   = map[string]*pendingAlbum{}
-)
-
 // albumWindow bounds how long an album header waits for its media. The media
 // normally follows within a couple of seconds; the window only has to outlast
 // a slow upload, and its real job is to stop an album whose media never
@@ -720,14 +714,14 @@ func albumKey(chatJID, senderJID string) string {
 	return chatJID + "|" + senderJID
 }
 
-func registerAlbum(chatJID, senderJID, headerID string, album *waE2E.AlbumMessage) bool {
+func (acc *Account) registerAlbum(chatJID, senderJID, headerID string, album *waE2E.AlbumMessage) bool {
 	expected := int(album.GetExpectedImageCount() + album.GetExpectedVideoCount())
 	if expected <= 0 || headerID == "" {
 		return false
 	}
-	pendingAlbumsMu.Lock()
-	defer pendingAlbumsMu.Unlock()
-	pendingAlbums[albumKey(chatJID, senderJID)] = &pendingAlbum{
+	acc.pendingAlbumsMu.Lock()
+	defer acc.pendingAlbumsMu.Unlock()
+	acc.pendingAlbums[albumKey(chatJID, senderJID)] = &pendingAlbum{
 		id:        headerID,
 		remaining: expected,
 		expires:   time.Now().Add(albumWindow),
@@ -739,30 +733,30 @@ func registerAlbum(chatJID, senderJID, headerID string, album *waE2E.AlbumMessag
 // header that announced it, or "" if no album is open. Must be called in
 // arrival order - i.e. synchronously from the event handler, not from the
 // goroutine that does the storing.
-func claimAlbumID(chatJID, senderJID string) string {
-	pendingAlbumsMu.Lock()
-	defer pendingAlbumsMu.Unlock()
+func (acc *Account) claimAlbumID(chatJID, senderJID string) string {
+	acc.pendingAlbumsMu.Lock()
+	defer acc.pendingAlbumsMu.Unlock()
 	key := albumKey(chatJID, senderJID)
-	album, ok := pendingAlbums[key]
+	album, ok := acc.pendingAlbums[key]
 	if !ok {
 		return ""
 	}
 	if time.Now().After(album.expires) {
-		delete(pendingAlbums, key)
+		delete(acc.pendingAlbums, key)
 		return ""
 	}
 	album.remaining--
 	if album.remaining <= 0 {
-		delete(pendingAlbums, key)
+		delete(acc.pendingAlbums, key)
 	}
 	return album.id
 }
 
-func stampAlbumMembers(headerID, chatJID, senderJID string, headerTS int64, expected int) {
+func (acc *Account) stampAlbumMembers(headerID, chatJID, senderJID string, headerTS int64, expected int) {
 	if headerID == "" || expected <= 0 {
 		return
 	}
-	db.Exec(`UPDATE messages SET album_id = ? WHERE id IN (
+	acc.db.Exec(`UPDATE messages SET album_id = ? WHERE id IN (
 			SELECT id FROM messages
 			WHERE jid = ? AND sender_jid = ? AND media_type IN ('image', 'video')
 				AND timestamp >= ? AND timestamp <= ?
@@ -785,40 +779,35 @@ func mediaCarrier(msg *waE2E.Message) *waE2E.Message {
 	return msg
 }
 
-var (
-	groupSizesMu sync.Mutex
-	groupSizes   = map[types.JID]int{}
-)
-
-func groupSize(jid types.JID) int {
+func (acc *Account) groupSize(jid types.JID) int {
 	if jid.Server != types.GroupServer {
 		return 0
 	}
-	groupSizesMu.Lock()
-	defer groupSizesMu.Unlock()
-	size, known := groupSizes[jid]
+	acc.groupSizesMu.Lock()
+	defer acc.groupSizesMu.Unlock()
+	size, known := acc.groupSizes[jid]
 	if !known {
-		groupSizes[jid] = 0
+		acc.groupSizes[jid] = 0
 		go func() {
-			if info, err := wa().GetGroupInfo(context.Background(), jid); err == nil {
-				groupSizesMu.Lock()
-				groupSizes[jid] = len(info.Participants)
-				groupSizesMu.Unlock()
+			if info, err := acc.wa().GetGroupInfo(context.Background(), jid); err == nil {
+				acc.groupSizesMu.Lock()
+				acc.groupSizes[jid] = len(info.Participants)
+				acc.groupSizesMu.Unlock()
 			}
 		}()
 	}
 	return size
 }
 
-func addressesMe(msg *waE2E.Message) bool {
+func (acc *Account) addressesMe(msg *waE2E.Message) bool {
 	ctx := getContextInfo(msg)
-	if ctx == nil || wa() == nil || wa().Store == nil {
+	if ctx == nil || acc.wa() == nil || acc.wa().Store == nil {
 		return false
 	}
 	if ctx.GetNonJIDMentions()&1 != 0 {
 		return true
 	}
-	own, ownLID := wa().Store.GetJID(), wa().Store.GetLID()
+	own, ownLID := acc.wa().Store.GetJID(), acc.wa().Store.GetLID()
 	isMe := func(raw string) bool {
 		jid, err := types.ParseJID(raw)
 		return err == nil && jid.User != "" && (jid.User == own.User || (!ownLID.IsEmpty() && jid.User == ownLID.User))
@@ -919,29 +908,29 @@ func setContextInfo(msg *waE2E.Message, ctx *waE2E.ContextInfo) bool {
 	return true
 }
 
-func quotedPreview(msg *waE2E.Message) (quotedID, quotedText, quotedSender string) {
+func (acc *Account) quotedPreview(msg *waE2E.Message) (quotedID, quotedText, quotedSender string) {
 	if ctx := getContextInfo(msg); ctx != nil && ctx.GetStanzaID() != "" {
 		quotedID = ctx.GetStanzaID()
 		if participant := ctx.GetParticipant(); participant != "" {
 			if parsed, err := types.ParseJID(participant); err == nil {
-				quotedSender = resolveDisplayName(parsed)
+				quotedSender = acc.resolveDisplayName(parsed)
 			} else {
 				quotedSender = participant
 			}
 		}
 		if qm := ctx.GetQuotedMessage(); qm != nil {
-			quotedText = extractText(qm)
+			quotedText = acc.extractText(qm)
 		}
 	}
 	return
 }
 
-func resolveQuotedSenderName(participant string) string {
+func (acc *Account) resolveQuotedSenderName(participant string) string {
 	if participant == "" || participant == "me" {
 		return participant
 	}
 	if parsed, err := types.ParseJID(participant); err == nil {
-		return resolveDisplayName(parsed)
+		return acc.resolveDisplayName(parsed)
 	}
 	return participant
 }
@@ -982,21 +971,15 @@ func isIgnoredChatJID(jid string) bool {
 	return jid == "status@broadcast" || strings.HasSuffix(jid, "@broadcast") || strings.HasSuffix(jid, "@newsletter")
 }
 
-var (
-	historySyncMutex     sync.Mutex
-	historySyncChatsDone int
-	historySyncMsgsDone  int
-)
-
-func resetHistorySyncProgress() {
-	historySyncMutex.Lock()
-	historySyncChatsDone = 0
-	historySyncMsgsDone = 0
-	historySyncMutex.Unlock()
-	resetRecentSyncProgress()
+func (acc *Account) resetHistorySyncProgress() {
+	acc.historySyncMutex.Lock()
+	acc.historySyncChatsDone = 0
+	acc.historySyncMsgsDone = 0
+	acc.historySyncMutex.Unlock()
+	acc.resetRecentSyncProgress()
 }
 
-func eventHandler(evt interface{}) {
+func (acc *Account) eventHandler(evt interface{}) {
 	// whatsmeow calls this synchronously from its one event-dispatch
 	// goroutine, so an unrecovered panic here doesn't just drop one event -
 	// it's fatal to the whole process (silently, since the runtime's panic
@@ -1017,14 +1000,14 @@ func eventHandler(evt interface{}) {
 
 	switch v := evt.(type) {
 	case *events.MediaRetry:
-		go handleMediaRetryEvent(v)
+		go acc.handleMediaRetryEvent(v)
 	case *events.HistorySyncStatus:
-		handleHistorySyncStatus(v.Notification)
+		acc.handleHistorySyncStatus(v.Notification)
 	case *events.HistorySyncChunkRetryResult:
 		log.Printf("Phone answered history sync chunk retry for %s chunk %d: code %s (sent %v), can recover %v",
 			v.SyncType, v.ChunkOrder, v.Code, v.HasCode, v.CanRecover)
 	case *events.HistorySync:
-		historySyncPending.Add(1)
+		acc.historySyncPending.Add(1)
 		// Run inline, not in a goroutine: whatsmeow sends the chunk's receipt
 		// (AckHistorySyncAfterDispatch) once this returns, and the phone never
 		// sends a chunk again after its receipt. Saving in the background let
@@ -1033,22 +1016,22 @@ func eventHandler(evt interface{}) {
 		// history download loop (the next chunk waits), not other events: the
 		// fork no longer holds its handler lock while a handler runs.
 		func() {
-			historySyncMutex.Lock()
-			defer historySyncMutex.Unlock()
-			defer historySyncPending.Add(-1)
+			acc.historySyncMutex.Lock()
+			defer acc.historySyncMutex.Unlock()
+			defer acc.historySyncPending.Add(-1)
 			chunkStart := time.Now()
 			stallTimer := time.AfterFunc(historySyncStallThreshold, func() {
 				dumpGoroutinesForStall("history sync chunk still writing after " + historySyncStallThreshold.String())
 			})
 			defer stallTimer.Stop()
-			statsAtStart := db.Stats()
+			statsAtStart := acc.db.Stats()
 			chunkMsgs := 0
 
 			if v.Data == nil {
 				return
 			}
 			if statuses := v.Data.GetStatusV3Messages(); len(statuses) > 0 {
-				storeHistoryStatuses(statuses)
+				acc.storeHistoryStatuses(statuses)
 			}
 
 			// With StreamHistorySyncConversations on, the chats arrive still
@@ -1105,13 +1088,13 @@ func eventHandler(evt interface{}) {
 					}
 				}
 			}
-			gate := newHistoryChatGate(v.Data.GetSyncType())
+			gate := acc.newHistoryChatGate(v.Data.GetSyncType())
 			reportProgress := v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND && convCount > 0
 			if reportProgress {
-				broadcastEvent("history_sync", map[string]interface{}{
+				acc.broadcastEvent("history_sync", map[string]interface{}{
 					"status":    "syncing",
-					"chatsDone": historySyncChatsDone,
-					"msgsDone":  historySyncMsgsDone,
+					"chatsDone": acc.historySyncChatsDone,
+					"msgsDone":  acc.historySyncMsgsDone,
 				})
 			}
 
@@ -1130,7 +1113,7 @@ func eventHandler(evt interface{}) {
 				if cls := gs.GetChatLockSettings(); cls != nil {
 					if sc := cls.GetSecretCode(); sc != nil {
 						if b, err := proto.Marshal(sc); err == nil {
-							saveChatLockSecretCode(b)
+							acc.saveChatLockSecretCode(b)
 						}
 					}
 				}
@@ -1145,12 +1128,12 @@ func eventHandler(evt interface{}) {
 				if pn, ok := chunkPNs[j.User]; ok {
 					return pn
 				}
-				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), j); err == nil && !pn.IsEmpty() {
+				if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), j); err == nil && !pn.IsEmpty() {
 					return pn.ToNonAD()
 				}
 				return j
 			}
-			mergeLIDRowsIntoPN(chunkPNs)
+			acc.mergeLIDRowsIntoPN(chunkPNs)
 
 			var pushNameWrites []func(tx sqlExecer)
 			for _, p := range v.Data.GetPushnames() {
@@ -1173,17 +1156,17 @@ func eventHandler(evt interface{}) {
 					tx.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, pushname, targetJID.String())
 				})
 			}
-			writeBatch(pushNameWrites)
+			acc.writeBatch(pushNameWrites)
 			if len(pushNameWrites) > 0 || len(chunkPNs) > 0 {
-				invalidateDisplayNames()
+				acc.invalidateDisplayNames()
 			}
 
 			for convIdx, conv := range conversations {
 				if reportProgress && convIdx > 0 && convIdx%5 == 0 {
-					broadcastEvent("history_sync", map[string]interface{}{
+					acc.broadcastEvent("history_sync", map[string]interface{}{
 						"status":    "syncing",
-						"chatsDone": historySyncChatsDone + convIdx,
-						"msgsDone":  historySyncMsgsDone,
+						"chatsDone": acc.historySyncChatsDone + convIdx,
+						"msgsDone":  acc.historySyncMsgsDone,
 					})
 				}
 				// Everything this chat needs is worked out first - including
@@ -1243,10 +1226,10 @@ func eventHandler(evt interface{}) {
 
 				name := conv.GetName()
 				if name == "" && chatJID.Server == types.GroupServer && listed {
-					requestGroupMetadata(chatJID)
+					acc.requestGroupMetadata(chatJID)
 				}
 				if name == "" && chatJID.Server != types.GroupServer {
-					if contact, err := wa().Store.Contacts.GetContact(context.Background(), chatJID); err == nil && contact.Found {
+					if contact, err := acc.wa().Store.Contacts.GetContact(context.Background(), chatJID); err == nil && contact.Found {
 						if contact.FullName != "" {
 							name = contact.FullName
 						} else if contact.PushName != "" {
@@ -1349,7 +1332,7 @@ func eventHandler(evt interface{}) {
 							stubTS := int64(webMsg.GetMessageTimestamp())
 							stubSender := ""
 							if !stubFromMe {
-								if s := historyStubActor(webMsg); !s.IsEmpty() {
+								if s := acc.historyStubActor(webMsg); !s.IsEmpty() {
 									stubSender = s.String()
 								}
 							}
@@ -1366,7 +1349,7 @@ func eventHandler(evt interface{}) {
 						continue
 					}
 					if webMsg.GetMessageStubType() != 0 && webMsg.GetMessage() == nil {
-						if text := historyStubText(webMsg); text != "" {
+						if text := acc.historyStubText(webMsg); text != "" {
 							stubTS := int64(webMsg.GetMessageTimestamp())
 							stubID := fmt.Sprintf("system_%s_%d_0", chatJID.User, time.Unix(stubTS, 0).UnixNano())
 							writes = append(writes, func(tx sqlExecer) {
@@ -1380,7 +1363,7 @@ func eventHandler(evt interface{}) {
 						}
 						continue
 					}
-					evtMsg, parseEvtErr := wa().ParseWebMessage(chatJID, webMsg)
+					evtMsg, parseEvtErr := acc.wa().ParseWebMessage(chatJID, webMsg)
 					if parseEvtErr != nil || evtMsg == nil {
 						continue
 					}
@@ -1403,7 +1386,7 @@ func eventHandler(evt interface{}) {
 						continue
 					}
 					if evtMsg.Message.GetEncReactionMessage() != nil {
-						if reaction, err := wa().DecryptReaction(context.Background(), evtMsg); err == nil {
+						if reaction, err := acc.wa().DecryptReaction(context.Background(), evtMsg); err == nil {
 							writes = append(writes, func(tx sqlExecer) { storeReactionTx(tx, jid, evtMsg, reaction) })
 						} else {
 							log.Printf("Failed to decrypt announcement-group reaction from HistorySync: %v", err)
@@ -1411,8 +1394,8 @@ func eventHandler(evt interface{}) {
 						continue
 					}
 					if update := unwrapMessage(evtMsg.Message).GetPollUpdateMessage(); update != nil {
-						if vote, err := decryptPollVote(evtMsg); err == nil {
-							pollID, voter := update.GetPollCreationMessageKey().GetID(), pollVoterKey(evtMsg.Info.Sender)
+						if vote, err := acc.decryptPollVote(evtMsg); err == nil {
+							pollID, voter := update.GetPollCreationMessageKey().GetID(), acc.pollVoterKey(evtMsg.Info.Sender)
 							ts := evtMsg.Info.Timestamp.Unix()
 							writes = append(writes, func(tx sqlExecer) { storePollVote(tx, pollID, voter, vote.GetSelectedOptions(), ts) })
 						}
@@ -1420,11 +1403,11 @@ func eventHandler(evt interface{}) {
 					}
 					if len(webMsg.GetPollUpdates()) > 0 {
 						pollMsg := webMsg
-						writes = append(writes, func(tx sqlExecer) { historyPollVotes(tx, chatJID, pollMsg) })
+						writes = append(writes, func(tx sqlExecer) { acc.historyPollVotes(tx, chatJID, pollMsg) })
 					}
 					if enc := unwrapMessage(evtMsg.Message).GetEncEventResponseMessage(); enc != nil {
-						if resp, err := decryptEventResponse(evtMsg); err == nil {
-							eventID, responder := enc.GetEventCreationMessageKey().GetID(), pollVoterKey(evtMsg.Info.Sender)
+						if resp, err := acc.decryptEventResponse(evtMsg); err == nil {
+							eventID, responder := enc.GetEventCreationMessageKey().GetID(), acc.pollVoterKey(evtMsg.Info.Sender)
 							ts := evtMsg.Info.Timestamp.Unix()
 							writes = append(writes, func(tx sqlExecer) { storeEventResponse(tx, eventID, responder, resp, ts) })
 						}
@@ -1432,7 +1415,7 @@ func eventHandler(evt interface{}) {
 					}
 					if len(webMsg.GetEventResponses()) > 0 {
 						eventMsg := webMsg
-						writes = append(writes, func(tx sqlExecer) { historyEventResponses(tx, chatJID, eventMsg) })
+						writes = append(writes, func(tx sqlExecer) { acc.historyEventResponses(tx, chatJID, eventMsg) })
 					}
 
 					if parentID := hdParentID(evtMsg.Message); parentID != "" {
@@ -1455,7 +1438,7 @@ func eventHandler(evt interface{}) {
 						continue
 					}
 
-					msgText := extractText(evtMsg.Message)
+					msgText := acc.extractText(evtMsg.Message)
 					if msgText == "[Protocol Message]" {
 						continue
 					}
@@ -1487,7 +1470,7 @@ func eventHandler(evt interface{}) {
 						msgWireSender := wireSender(chatJID, evtMsg.Info.Sender, senderJID)
 						rawBytes, _ := proto.Marshal(evtMsg.Message)
 						mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(evtMsg.Message)
-						quotedID, quotedText, quotedSender := quotedPreview(evtMsg.Message)
+						quotedID, quotedText, quotedSender := acc.quotedPreview(evtMsg.Message)
 						status := ""
 						var sentAt, deliveredAt, readAt, playedAt int64
 						if msgFromMe {
@@ -1515,7 +1498,7 @@ func eventHandler(evt interface{}) {
 								if err != nil || userJID.User == "" {
 									continue
 								}
-								participant := preferPN(userJID).String()
+								participant := acc.preferPN(userJID).String()
 								for _, r := range []struct {
 									status string
 									ts     int64
@@ -1576,42 +1559,42 @@ func eventHandler(evt interface{}) {
 					}
 				}
 
-				writeBatch(writes)
-				historySyncMsgsDone += len(conv.GetMessages())
-				historySyncChatsDone++
+				acc.writeBatch(writes)
+				acc.historySyncMsgsDone += len(conv.GetMessages())
+				acc.historySyncChatsDone++
 				if reportProgress && len(conv.GetMessages()) >= 200 {
-					broadcastEvent("history_sync", map[string]interface{}{
+					acc.broadcastEvent("history_sync", map[string]interface{}{
 						"status":    "syncing",
-						"chatsDone": historySyncChatsDone,
-						"msgsDone":  historySyncMsgsDone,
+						"chatsDone": acc.historySyncChatsDone,
+						"msgsDone":  acc.historySyncMsgsDone,
 					})
 				}
 			}
 			for _, album := range albumHeaders {
-				stampAlbumMembers(album.id, album.jid, album.senderJID, album.timestamp, album.expected)
+				acc.stampAlbumMembers(album.id, album.jid, album.senderJID, album.timestamp, album.expected)
 			}
 			if len(convLIDPairs) > 0 {
-				wa().StoreObservedLIDMappings(context.Background(), convLIDPairs)
+				acc.wa().StoreObservedLIDMappings(context.Background(), convLIDPairs)
 			}
 			loopTook := time.Since(chunkStart)
 			tailStart := time.Now()
 			for _, j := range syncedJIDs {
-				UpdateChatSnippet(j)
+				acc.UpdateChatSnippet(j)
 			}
 			if v.Data.GetSyncType() != waHistorySync.HistorySync_ON_DEMAND {
-				scheduleHistorySyncRefresh()
+				acc.scheduleHistorySyncRefresh()
 			}
-			broadcastChats()
+			acc.broadcastChats()
 			tailTook := time.Since(tailStart)
 			// Before the chunk's last progress line, so that line already
 			// carries the percent this chunk brought.
-			noteHistoryChunkProgress(v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress())
+			acc.noteHistoryChunkProgress(v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress())
 
 			if reportProgress {
-				broadcastEvent("history_sync", map[string]interface{}{
+				acc.broadcastEvent("history_sync", map[string]interface{}{
 					"status":    "syncing",
-					"chatsDone": historySyncChatsDone,
-					"msgsDone":  historySyncMsgsDone,
+					"chatsDone": acc.historySyncChatsDone,
+					"msgsDone":  acc.historySyncMsgsDone,
 				})
 			}
 			// Sent for every chunk, on-demand ones included: an on-demand
@@ -1625,43 +1608,43 @@ func eventHandler(evt interface{}) {
 			// history, or the UI would un-mark the chat and ask again.
 			if v.Data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND {
 				for _, j := range jidsWithMessages {
-					noteOnDemandAnswer(j)
+					acc.noteOnDemandAnswer(j)
 				}
 			}
 			if len(jidsWithMessages) > 0 {
-				broadcastEvent("history_chats_synced", map[string]interface{}{
+				acc.broadcastEvent("history_chats_synced", map[string]interface{}{
 					"jids":     jidsWithMessages,
 					"onDemand": v.Data.GetSyncType() == waHistorySync.HistorySync_ON_DEMAND,
 				})
 			}
 			if convCount > 0 || v.Data.GetSyncType() == waHistorySync.HistorySync_FULL {
-				stats := db.Stats()
+				stats := acc.db.Stats()
 				log.Printf("History sync chunk written: type=%s chunk=%d progress=%d chats=%d (listed=%d skipped=%d tokenOnly=%d dropped=%d) msgs=%d took=%s (messages %s, snippets %s) queued=%d dbWait=%d/%s inUse=%d",
 					v.Data.GetSyncType(), v.Data.GetChunkOrder(), v.Data.GetProgress(), convCount, chunkListed, chunkSkipped, chunkTokenOnly, chunkDropped, chunkMsgs,
 					time.Since(chunkStart).Round(time.Millisecond), loopTook.Round(time.Millisecond), tailTook.Round(time.Millisecond),
-					historySyncPending.Load()-1,
+					acc.historySyncPending.Load()-1,
 					stats.WaitCount-statsAtStart.WaitCount, (stats.WaitDuration - statsAtStart.WaitDuration).Round(time.Millisecond),
 					stats.InUse)
 			}
 			if v.Data.GetSyncType() == waHistorySync.HistorySync_FULL && v.Data.GetProgress() >= 100 {
-				scheduleHistorySyncCheckpoint()
+				acc.scheduleHistorySyncCheckpoint()
 			}
 		}()
 
 	case *events.Message:
 		unwrappedMsg := unwrapMessage(v.Message)
 		if v.Info.VerifiedName != nil && !v.Info.IsFromMe && !v.Info.IsGroup {
-			go markBusinessContact(v.Info.Chat)
+			go acc.markBusinessContact(v.Info.Chat)
 		}
 		if setting, toggle := limitSharingInMessage(v.Message); setting != nil {
-			chat, _ := resolveLIDChat(v)
+			chat, _ := acc.resolveLIDChat(v)
 			ts := setting.GetLimitSharingSettingTimestamp()
 			if ts == 0 {
 				ts = v.Info.Timestamp.UnixMilli()
 			}
 			go func() {
-				if setChatLimitSharing(chat.String(), setting.GetSharingLimited(), ts) && toggle {
-					noteChatPrivacyChange(chat.String(), v.Info.Sender, setting.GetSharingLimited(), time.UnixMilli(ts))
+				if acc.setChatLimitSharing(chat.String(), setting.GetSharingLimited(), ts) && toggle {
+					acc.noteChatPrivacyChange(chat.String(), v.Info.Sender, setting.GetSharingLimited(), time.UnixMilli(ts))
 				}
 			}()
 			if toggle {
@@ -1669,14 +1652,14 @@ func eventHandler(evt interface{}) {
 			}
 		}
 		if setting, toggle := acp2InMessage(v.Message); setting != nil {
-			chat, _ := resolveLIDChat(v)
+			chat, _ := acc.resolveLIDChat(v)
 			ts := setting.GetSettingTimestamp()
 			if ts == 0 {
 				ts = v.Info.Timestamp.UnixMilli()
 			}
 			go func() {
-				if setChatRestricted(chat.String(), setting.GetEnabled(), ts) && toggle {
-					noteRestrictedChatChange(chat.String(), v.Info.Sender, setting.GetEnabled(), time.UnixMilli(ts))
+				if acc.setChatRestricted(chat.String(), setting.GetEnabled(), ts) && toggle {
+					acc.noteRestrictedChatChange(chat.String(), v.Info.Sender, setting.GetEnabled(), time.UnixMilli(ts))
 				}
 			}()
 			if toggle {
@@ -1687,8 +1670,8 @@ func eventHandler(evt interface{}) {
 			switch v.Info.Edit {
 			case types.EditAttributeAdminRevoke:
 				jid := v.Info.Chat.String()
-				markMessageDeleted(v.Info.ID, jid)
-				broadcastEvent("message_deleted", map[string]interface{}{
+				acc.markMessageDeleted(v.Info.ID, jid)
+				acc.broadcastEvent("message_deleted", map[string]interface{}{
 					"jid": jid, "message_id": v.Info.ID, "by": jid,
 				})
 				return
@@ -1696,8 +1679,8 @@ func eventHandler(evt interface{}) {
 				jid, id := v.Info.Chat.String(), v.Info.ID
 				editTime := v.Info.Timestamp.Unix()
 				func() {
-					shown, _ := markMessageEdited(id, jid, v.Message, extractText(v.Message), editTime)
-					broadcastEvent("message_edited", map[string]interface{}{
+					shown, _ := acc.markMessageEdited(id, jid, v.Message, acc.extractText(v.Message), editTime)
+					acc.broadcastEvent("message_edited", map[string]interface{}{
 						"jid": jid, "message_id": id, "text": shown, "edited_at": editTime,
 					})
 				}()
@@ -1711,7 +1694,7 @@ func eventHandler(evt interface{}) {
 
 			if enc := v.Message.GetSecretEncryptedMessage(); enc != nil && enc.GetSecretEncType() == waE2E.SecretEncryptedMessage_MESSAGE_EDIT {
 				targetID = enc.GetTargetMessageKey().GetID()
-				decrypted, err := wa().DecryptSecretEncryptedMessage(context.Background(), v)
+				decrypted, err := acc.wa().DecryptSecretEncryptedMessage(context.Background(), v)
 				if err != nil {
 					log.Printf("Edit: failed to decrypt secret encrypted edit: %v", err)
 				} else {
@@ -1732,23 +1715,23 @@ func eventHandler(evt interface{}) {
 			if targetID == "" {
 				targetID = v.Info.ID
 			}
-			newText := extractText(newContent)
+			newText := acc.extractText(newContent)
 			if newText == "" || newText == "[Unsupported Message]" || newText == "[Protocol Message]" {
-				newText = extractText(v.Message)
+				newText = acc.extractText(v.Message)
 			}
 			if newText == "[Protocol Message]" || newText == "[Unsupported Message]" {
-				newText = extractText(unwrappedMsg)
+				newText = acc.extractText(unwrappedMsg)
 			}
-			resolvedChat, _ := resolveLIDChat(v)
+			resolvedChat, _ := acc.resolveLIDChat(v)
 			jid := resolvedChat.String()
 			editTime := v.Info.Timestamp.Unix()
 			if targetID != "" {
 				func() {
 					if v.Info.IsFromMe {
-						recordEditStanza(v.Info.ID, targetID, jid, editTime)
+						acc.recordEditStanza(v.Info.ID, targetID, jid, editTime)
 					}
-					shown, _ := markMessageEdited(targetID, jid, newContent, newText, editTime)
-					broadcastEvent("message_edited", map[string]interface{}{
+					shown, _ := acc.markMessageEdited(targetID, jid, newContent, newText, editTime)
+					acc.broadcastEvent("message_edited", map[string]interface{}{
 						"jid":        jid,
 						"message_id": targetID,
 						"text":       shown,
@@ -1759,23 +1742,23 @@ func eventHandler(evt interface{}) {
 			return
 		}
 		if pm := unwrappedMsg.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_EPHEMERAL_SETTING {
-			applyEphemeralSettingMessage(v, pm)
+			acc.applyEphemeralSettingMessage(v, pm)
 			return
 		}
 		if pm := unwrappedMsg.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_GROUP_MEMBER_LABEL_CHANGE {
-			applyMemberLabelChange(v)
+			acc.applyMemberLabelChange(v)
 			return
 		}
 		if unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_REVOKE {
 			targetID := unwrappedMsg.GetProtocolMessage().GetKey().GetID()
 			if v.Info.Chat == types.StatusBroadcastJID {
-				go removeStatus(targetID)
+				go acc.removeStatus(targetID)
 				return
 			}
-			resolvedChat, _ := resolveLIDChat(v)
+			resolvedChat, _ := acc.resolveLIDChat(v)
 			jid := resolvedChat.String()
-			markMessageDeleted(targetID, jid)
-			broadcastEvent("message_deleted", map[string]interface{}{
+			acc.markMessageDeleted(targetID, jid)
+			acc.broadcastEvent("message_deleted", map[string]interface{}{
 				"jid":        jid,
 				"message_id": targetID,
 				"by":         v.Info.Sender.String(),
@@ -1783,46 +1766,46 @@ func eventHandler(evt interface{}) {
 			return
 		}
 		if reaction := unwrappedMsg.GetReactionMessage(); reaction != nil {
-			applyReaction(v, reaction)
+			acc.applyReaction(v, reaction)
 			return
 		}
 		if pin := unwrappedMsg.GetPinInChatMessage(); pin != nil {
-			applyPinInChat(v, pin)
+			acc.applyPinInChat(v, pin)
 			return
 		}
 		if keep := unwrappedMsg.GetKeepInChatMessage(); keep != nil {
-			applyKeepInChat(v, keep)
+			acc.applyKeepInChat(v, keep)
 			return
 		}
 		if unwrappedMsg.GetPollUpdateMessage() != nil {
-			applyPollVote(v)
+			acc.applyPollVote(v)
 			return
 		}
 		if unwrappedMsg.GetEncEventResponseMessage() != nil {
-			applyEventResponse(v)
+			acc.applyEventResponse(v)
 			return
 		}
 		if unwrappedMsg.GetEncReactionMessage() != nil {
-			reaction, err := wa().DecryptReaction(context.Background(), v)
+			reaction, err := acc.wa().DecryptReaction(context.Background(), v)
 			if err != nil {
 				log.Printf("Failed to decrypt announcement-group reaction from %s: %v", v.Info.Sender, err)
 				return
 			}
-			applyReaction(v, reaction)
+			acc.applyReaction(v, reaction)
 			return
 		}
 		if v.Info.Chat.User == "status" && v.Info.Chat.Server == types.BroadcastServer {
-			handleIncomingStatus(v)
+			acc.handleIncomingStatus(v)
 			return
 		}
 		if parentID := hdParentID(v.Message); parentID != "" {
-			noteLiveHDMedia(parentID, v.Message)
+			acc.noteLiveHDMedia(parentID, v.Message)
 			return
 		}
 
 		if album := unwrappedMsg.GetAlbumMessage(); album != nil {
-			albumChat, albumSender := resolveLIDChat(v)
-			if registerAlbum(albumChat.String(), albumSender.String(), v.Info.ID, album) {
+			albumChat, albumSender := acc.resolveLIDChat(v)
+			if acc.registerAlbum(albumChat.String(), albumSender.String(), v.Info.ID, album) {
 				log.Printf("Album header %s from %s: expecting %d media", v.Info.ID, albumSender,
 					album.GetExpectedImageCount()+album.GetExpectedVideoCount())
 			}
@@ -1830,9 +1813,9 @@ func eventHandler(evt interface{}) {
 		}
 
 		if notice := unwrappedMsg.GetMessageHistoryNotice(); notice != nil {
-			chat, _ := resolveLIDChat(v)
-			text := messageHistoryNoticeText(notice, v.Info.Sender)
-			insertGroupSystemMessage(chat.String(), v.Info.ID, text, v.Info.Timestamp)
+			chat, _ := acc.resolveLIDChat(v)
+			text := acc.messageHistoryNoticeText(notice, v.Info.Sender)
+			acc.insertGroupSystemMessage(chat.String(), v.Info.ID, text, v.Info.Timestamp)
 			return
 		}
 
@@ -1844,13 +1827,13 @@ func eventHandler(evt interface{}) {
 			return
 		}
 
-		text := extractText(v.Message)
+		text := acc.extractText(v.Message)
 		if text == "[Protocol Message]" {
 			return
 		}
 		if v.IsViewOnce {
 			// Already opened here: a redelivered copy must not bring it back.
-			if viewOnceState(v.Info.ID) == viewOnceOpened {
+			if acc.viewOnceState(v.Info.ID) == viewOnceOpened {
 				return
 			}
 			text = viewOnceText(text)
@@ -1864,12 +1847,12 @@ func eventHandler(evt interface{}) {
 		}
 		if (v.Info.MsgBotInfo.EditType == types.EditTypeInner || v.Info.MsgBotInfo.EditType == types.EditTypeLast) &&
 			v.Info.MsgBotInfo.EditTargetID != "" {
-			resolvedChat, _ := resolveLIDChat(v)
+			resolvedChat, _ := acc.resolveLIDChat(v)
 			jid := resolvedChat.String()
 			targetID := v.Info.MsgBotInfo.EditTargetID
 			editTime := v.Info.Timestamp.Unix()
-			markMessageEdited(targetID, jid, unwrapMessage(v.Message), text, editTime)
-			broadcastEvent("message_edited", map[string]interface{}{
+			acc.markMessageEdited(targetID, jid, unwrapMessage(v.Message), text, editTime)
+			acc.broadcastEvent("message_edited", map[string]interface{}{
 				"jid":        jid,
 				"message_id": targetID,
 				"text":       text,
@@ -1886,16 +1869,16 @@ func eventHandler(evt interface{}) {
 
 		albumID := ""
 		if mt, _, _, _ := mediaInfoFromMessage(v.Message); mt == "image" || mt == "video" {
-			albumChat, albumSender := resolveLIDChat(v)
-			albumID = claimAlbumID(albumChat.String(), albumSender.String())
+			albumChat, albumSender := acc.resolveLIDChat(v)
+			albumID = acc.claimAlbumID(albumChat.String(), albumSender.String())
 		}
 
 		func() {
-			chatJID, senderJID := resolveLIDChat(v)
+			chatJID, senderJID := acc.resolveLIDChat(v)
 
 			jid := chatJID.String()
 
-			if isIgnoredChatJID(jid) && !isFollowedChannelPost(jid) {
+			if isIgnoredChatJID(jid) && !acc.isFollowedChannelPost(jid) {
 				return
 			}
 			ts := v.Info.Timestamp.Unix()
@@ -1905,7 +1888,7 @@ func eventHandler(evt interface{}) {
 			}
 			if increment > 0 && v.Info.ID != "" {
 				var alreadyExists int
-				_ = db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ?`, v.Info.ID).Scan(&alreadyExists)
+				_ = acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ?`, v.Info.ID).Scan(&alreadyExists)
 				if alreadyExists > 0 {
 					// Redelivered/duplicate event for a message we've already
 					// counted (e.g. reconnect resync) - don't double-count it.
@@ -1913,10 +1896,10 @@ func eventHandler(evt interface{}) {
 				}
 			}
 			mentions := 0
-			if increment > 0 && chatJID.Server == types.GroupServer && addressesMe(v.Message) {
+			if increment > 0 && chatJID.Server == types.GroupServer && acc.addressesMe(v.Message) {
 				mentions = 1
 			}
-			_, err := db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me, wire_jid, unread_mentions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			_, err := acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me, wire_jid, unread_mentions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 					timestamp=MAX(timestamp, excluded.timestamp),
 					unread_count=chats.unread_count + excluded.unread_count,
@@ -1933,20 +1916,20 @@ func eventHandler(evt interface{}) {
 			}
 			if chatJID.Server == types.GroupServer {
 				var name string
-				db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid).Scan(&name)
+				acc.db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, jid).Scan(&name)
 				if name == "" {
-					requestGroupMetadata(chatJID)
+					acc.requestGroupMetadata(chatJID)
 				}
 			}
 			if v.Info.ID != "" {
 				mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(v.Message)
-				quotedID, quotedText, quotedSender := quotedPreview(v.Message)
+				quotedID, quotedText, quotedSender := acc.quotedPreview(v.Message)
 				status := ""
 				if v.Info.IsFromMe {
 					status = "sent"
 				}
 				rawBytes, _ := proto.Marshal(v.Message)
-				err := saveMessage(StoredMessage{
+				err := acc.saveMessage(StoredMessage{
 					ID: v.Info.ID, JID: jid, SenderJID: senderJID.String(), WireSender: wireSender(chatJID, v.Info.Sender, senderJID),
 					FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,
 					MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
@@ -1957,35 +1940,35 @@ func eventHandler(evt interface{}) {
 					fmt.Println("Error inserting message from live event:", err)
 				} else {
 					if v.Info.ServerStoreTime > 0 {
-						db.Exec(`UPDATE messages SET server_sts = ? WHERE id = ?`, v.Info.ServerStoreTime, v.Info.ID)
+						acc.db.Exec(`UPDATE messages SET server_sts = ? WHERE id = ?`, v.Info.ServerStoreTime, v.Info.ID)
 					}
-					noteMessageExpiry(db, v.Info.ID, ts, v.Message)
-					adoptChatDisappearing(chatJID, v.Message)
+					noteMessageExpiry(acc.db, v.Info.ID, ts, v.Message)
+					acc.adoptChatDisappearing(chatJID, v.Message)
 					if v.IsViewOnce {
-						markViewOnce(db, v.Info.ID)
+						markViewOnce(acc.db, v.Info.ID)
 					}
 					if mediaType == "voice" || mediaType == "sticker" {
-						autoDownloadVoiceNote(v.Info.ID, jid)
+						acc.autoDownloadVoiceNote(v.Info.ID, jid)
 					} else if mediaType != "" && !v.IsViewOnce {
-						maybeAutoDownload(v.Message, v.Info, jid, mediaType, mediaSize)
+						acc.maybeAutoDownload(v.Message, v.Info, jid, mediaType, mediaSize)
 					}
 				}
 			}
-			broadcastChats()
+			acc.broadcastChats()
 		}()
 		if text != "" {
-			chatJID, senderJID := resolveLIDChat(v)
-			if isIgnoredChatJID(chatJID.String()) && !isFollowedChannelPost(chatJID.String()) {
+			chatJID, senderJID := acc.resolveLIDChat(v)
+			if isIgnoredChatJID(chatJID.String()) && !acc.isFollowedChannelPost(chatJID.String()) {
 				return
 			}
 			liveMediaType, _, liveMediaFilename, liveMediaSize := mediaInfoFromMessage(v.Message)
 
-			quotedID, quotedText, quotedSender := quotedPreview(v.Message)
+			quotedID, quotedText, quotedSender := acc.quotedPreview(v.Message)
 			senderName := ""
 			if !v.Info.IsFromMe {
-				senderName = resolveDisplayName(senderJID)
+				senderName = acc.resolveDisplayName(senderJID)
 			}
-			broadcastEvent("message", map[string]interface{}{
+			acc.broadcastEvent("message", map[string]interface{}{
 				"jid":           chatJID.String(),
 				"from":          senderJID.String(),
 				"senderName":    senderName,
@@ -2002,43 +1985,43 @@ func eventHandler(evt interface{}) {
 				"quotedText":    quotedText,
 				"quotedSender":  quotedSender,
 				"pollResults":   newPollResults(unwrappedMsg),
-				"addressesMe":   chatJID.Server == types.GroupServer && addressesMe(v.Message),
-				"groupSize":     groupSize(chatJID),
+				"addressesMe":   chatJID.Server == types.GroupServer && acc.addressesMe(v.Message),
+				"groupSize":     acc.groupSize(chatJID),
 			})
 		}
 	case *events.UndecryptableMessage:
-		go storeUndecryptablePlaceholder(v)
+		go acc.storeUndecryptablePlaceholder(v)
 	case *events.IdentityChange:
-		go noteSecurityCodeChange(v)
+		go acc.noteSecurityCodeChange(v)
 	case *events.PushName:
-		invalidateDisplayNames()
+		acc.invalidateDisplayNames()
 		go func() {
 			// whatsmeow has already stored the name. A sender named only by
 			// LID is cached under their phone JID when that's known, and a
 			// LID's digits are never cached as a phone number.
-			target := preferPN(v.JID)
+			target := acc.preferPN(v.JID)
 			if target.Server == types.HiddenUserServer && v.JIDAlt.Server == types.DefaultUserServer {
 				target = v.JIDAlt.ToNonAD()
 			}
 			jidStr := target.String()
 			if v.NewPushName != "" {
-				upsertContactCacheRow(jidStr, v.NewPushName, cachePhone(target), false)
-				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewPushName, jidStr)
-				broadcastChats()
+				acc.upsertContactCacheRow(jidStr, v.NewPushName, cachePhone(target), false)
+				acc.db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewPushName, jidStr)
+				acc.broadcastChats()
 			}
 		}()
 	case *events.Contact:
-		invalidateDisplayNames()
+		acc.invalidateDisplayNames()
 		if v.FromFullSync && !v.Removed {
 			return
 		}
 		go func() {
-			jidStr := preferPN(v.JID).String()
+			jidStr := acc.preferPN(v.JID).String()
 			if v.Removed {
-				deleteContactCacheRow(jidStr)
-				db.Exec(`UPDATE chats SET name = '' WHERE jid = ?`, jidStr)
-				populateChatsFromStore()
-				broadcastChats()
+				acc.deleteContactCacheRow(jidStr)
+				acc.db.Exec(`UPDATE chats SET name = '' WHERE jid = ?`, jidStr)
+				acc.populateChatsFromStore()
+				acc.broadcastChats()
 				return
 			}
 			fullName := ""
@@ -2053,87 +2036,87 @@ func eventHandler(evt interface{}) {
 				if pj, err := types.ParseJID(jidStr); err == nil && pj.Server == types.DefaultUserServer {
 					phone = pj.User
 				}
-				upsertContactCacheRow(jidStr, fullName, phone, false)
-				db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, fullName, jidStr)
-				broadcastChats()
+				acc.upsertContactCacheRow(jidStr, fullName, phone, false)
+				acc.db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, fullName, jidStr)
+				acc.broadcastChats()
 			}
 		}()
 	case *events.BusinessName:
-		invalidateDisplayNames()
+		acc.invalidateDisplayNames()
 		go func() {
-			target := preferPN(v.JID)
+			target := acc.preferPN(v.JID)
 			jidStr := target.String()
 			if v.NewBusinessName != "" {
-				upsertContactCacheRow(jidStr, v.NewBusinessName, cachePhone(target), true)
-				db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewBusinessName, jidStr)
-				broadcastChats()
+				acc.upsertContactCacheRow(jidStr, v.NewBusinessName, cachePhone(target), true)
+				acc.db.Exec(`UPDATE chats SET name = ? WHERE jid = ? AND (name IS NULL OR name = '' OR name LIKE '+%')`, v.NewBusinessName, jidStr)
+				acc.broadcastChats()
 			}
 		}()
 	case *events.OfflineSyncPreview, *events.OfflineSyncProgress:
-		handleOfflineSyncProgress(v)
+		acc.handleOfflineSyncProgress(v)
 	case *events.OfflineSyncCompleted:
 		log.Printf("OfflineSyncCompleted event received. Count: %d", v.Count)
-		handleOfflineSyncProgress(v)
+		acc.handleOfflineSyncProgress(v)
 		go func() {
-			UpdateAllChatSnippets()
-			populateChatsFromStore()
-			broadcastChats()
+			acc.UpdateAllChatSnippets()
+			acc.populateChatsFromStore()
+			acc.broadcastChats()
 		}()
 	case *events.DeleteForMe:
 		// Synced from another of our own linked devices (or replayed on
 		// first link / history resync) - always a local-only hide, never a
 		// tombstone. See deleteMessageForMe's doc comment.
 		jid := v.ChatJID.String()
-		go deleteMessageForMe(v.MessageID, jid)
-		go applySyncedCallDelete(v.MessageID)
-		broadcastEvent("message_deleted", map[string]interface{}{
+		go acc.deleteMessageForMe(v.MessageID, jid)
+		go acc.applySyncedCallDelete(v.MessageID)
+		acc.broadcastEvent("message_deleted", map[string]interface{}{
 			"jid":          jid,
 			"message_id":   v.MessageID,
 			"by":           v.SenderJID.String(),
 			"for_everyone": false,
 		})
 	case *events.Connected:
-		forgetPresenceSubscriptions()
-		forgetChannelRefreshes()
-		convertStoredVotesOnce.Do(func() { go runOnce("convert_stored_poll_votes_v1", convertStoredPollVotes) })
-		recheckChatLIDsOnce.Do(func() { go recheckChatLIDs() })
-		learnKeepArchivedOnce.Do(func() {
+		acc.forgetPresenceSubscriptions()
+		acc.forgetChannelRefreshes()
+		acc.convertStoredVotesOnce.Do(func() { go acc.runOnce("convert_stored_poll_votes_v1", acc.convertStoredPollVotes) })
+		acc.recheckChatLIDsOnce.Do(func() { go acc.recheckChatLIDs() })
+		acc.learnKeepArchivedOnce.Do(func() {
 			go func() {
 				time.Sleep(10 * time.Second)
-				learnKeepChatsArchived()
+				acc.learnKeepChatsArchived()
 			}()
 		})
-		go refreshServerFlags()
-		appStateResyncMu.Lock()
-		for k := range appStateResyncCount {
-			delete(appStateResyncCount, k)
+		go acc.refreshServerFlags()
+		acc.appStateResyncMu.Lock()
+		for k := range acc.appStateResyncCount {
+			delete(acc.appStateResyncCount, k)
 		}
-		for k := range lastAppStateResync {
-			delete(lastAppStateResync, k)
+		for k := range acc.lastAppStateResync {
+			delete(acc.lastAppStateResync, k)
 		}
-		appStateResyncMu.Unlock()
-		connFailures.Store(0)
-		if wa().Store.ID != nil {
-			setConnState(connStateOnline, "", 0)
-			broadcastEvent("connected", map[string]string{"jid": wa().Store.ID.String()})
-			go sendDesiredPresence(true)
-			go retryPendingTextMessages()
-			go flushPendingResends()
-			go refreshBlocklistOnConnect()
+		acc.appStateResyncMu.Unlock()
+		acc.connFailures.Store(0)
+		if acc.wa().Store.ID != nil {
+			acc.setConnState(connStateOnline, "", 0)
+			acc.broadcastEvent("connected", map[string]string{"jid": acc.wa().Store.ID.String()})
+			go acc.sendDesiredPresence(true)
+			go acc.retryPendingTextMessages()
+			go acc.flushPendingResends()
+			go acc.refreshBlocklistOnConnect()
 			go func() {
 				time.Sleep(3 * time.Second)
-				populateChatsFromStore()
-				broadcastChats()
+				acc.populateChatsFromStore()
+				acc.broadcastChats()
 			}()
 		}
 	case *events.PairSuccess:
 		log.Printf("Successfully paired with %s", v.ID.String())
-		broadcastEvent("pair_success", map[string]string{"jid": v.ID.String()})
-		go sendDesiredPresence(true)
+		acc.broadcastEvent("pair_success", map[string]string{"jid": v.ID.String()})
+		go acc.sendDesiredPresence(true)
 		go func() {
 			time.Sleep(5 * time.Second)
-			populateChatsFromStore()
-			broadcastChats()
+			acc.populateChatsFromStore()
+			acc.broadcastChats()
 		}()
 	case *events.LoggedOut:
 		// WhatsApp has already unpaired this device server-side (phone
@@ -2145,56 +2128,56 @@ func eventHandler(evt interface{}) {
 		reason := v.Reason.String()
 		log.Println("Logged out by WhatsApp:", reason)
 		go func() {
-			replaceWithFreshClient()
-			broadcastEvent("needs_login", map[string]string{"reason": reason})
+			acc.replaceWithFreshClient()
+			acc.broadcastEvent("needs_login", map[string]string{"reason": reason})
 		}()
 	case *events.StreamReplaced:
 		log.Println("Session replaced by another connection")
 		msg := "whatSnap was disconnected because this WhatsApp account connected from another session. Use Reconnect Now in the Account menu to take the session back."
-		broadcastEvent("error", map[string]string{"message": msg})
-		setConnState(connStateStopped, "Disconnected: this account connected from another session.", 0)
+		acc.broadcastEvent("error", map[string]string{"message": msg})
+		acc.setConnState(connStateStopped, "Disconnected: this account connected from another session.", 0)
 	case *events.TemporaryBan:
 		log.Println("Temporary ban:", v.String())
-		broadcastEvent("error", map[string]string{"message": v.String()})
+		acc.broadcastEvent("error", map[string]string{"message": v.String()})
 		if v.Expire > 0 {
-			setConnState(connStateOffline, "Temporarily banned by WhatsApp.", v.Expire)
-			requestConnect(v.Expire + 5*time.Second)
+			acc.setConnState(connStateOffline, "Temporarily banned by WhatsApp.", v.Expire)
+			acc.requestConnect(v.Expire + 5*time.Second)
 		} else {
-			scheduleRetryAfterFailure("Temporarily banned by WhatsApp.")
+			acc.scheduleRetryAfterFailure("Temporarily banned by WhatsApp.")
 		}
 	case *events.ClientOutdated:
 		log.Println("WhatsApp rejected this client as outdated")
-		broadcastEvent("error", map[string]string{
+		acc.broadcastEvent("error", map[string]string{
 			"message": "WhatsApp has rejected this version of whatSnap as outdated. Please update whatSnap to reconnect.",
 		})
-		setConnState(connStateStopped, "This version of whatSnap is outdated. Please update it.", 0)
+		acc.setConnState(connStateStopped, "This version of whatSnap is outdated. Please update it.", 0)
 	case *events.CATRefreshError:
 		log.Println("CAT refresh error:", v.Error)
-		scheduleRetryAfterFailure("Couldn't refresh WhatsApp's connection token.")
+		acc.scheduleRetryAfterFailure("Couldn't refresh WhatsApp's connection token.")
 	case *events.ConnectFailure:
 		log.Println("Unhandled connect failure:", v.Reason.String(), v.Message)
-		scheduleRetryAfterFailure("WhatsApp refused the connection (" + v.Reason.String() + ").")
+		acc.scheduleRetryAfterFailure("WhatsApp refused the connection (" + v.Reason.String() + ").")
 	case *events.StreamError:
 		log.Println("Unknown stream error, code:", v.Code)
 	case *events.Disconnected:
-		setConnState(connStateConnecting, "Connection lost.", 0)
+		acc.setConnState(connStateConnecting, "Connection lost.", 0)
 	case *events.KeepAliveTimeout:
 		log.Printf("Keepalive timed out (%d in a row, last answer %s ago)", v.ErrorCount, time.Since(v.LastSuccess).Round(time.Second))
-		if currentConnState()["state"] == connStateOnline {
-			setConnState(connStateConnecting, "Not responding.", 0)
+		if acc.currentConnState()["state"] == connStateOnline {
+			acc.setConnState(connStateConnecting, "Not responding.", 0)
 		}
 	case *events.KeepAliveRestored:
-		if isOnline(wa()) && currentConnState()["state"] == connStateConnecting {
-			setConnState(connStateOnline, "", 0)
+		if isOnline(acc.wa()) && acc.currentConnState()["state"] == connStateConnecting {
+			acc.setConnState(connStateOnline, "", 0)
 		}
 	case *events.ChatPresence:
 		isComposing := v.State == types.ChatPresenceComposing
 		isRecording := isComposing && v.Media == types.ChatPresenceMediaAudio
 		isTyping := isComposing && !isRecording
 
-		chatJID, senderJID := resolveSourcePN(v.MessageSource)
+		chatJID, senderJID := acc.resolveSourcePN(v.MessageSource)
 
-		broadcastEvent("typing", map[string]interface{}{
+		acc.broadcastEvent("typing", map[string]interface{}{
 			"chat_jid":   chatJID.String(),
 			"sender_jid": senderJID.String(),
 			"state":      string(v.State),
@@ -2210,23 +2193,23 @@ func eventHandler(evt interface{}) {
 
 		targetJID := v.From.ToNonAD()
 		if targetJID.Server == "lid" {
-			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), targetJID); err == nil && !pn.IsEmpty() {
+			if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), targetJID); err == nil && !pn.IsEmpty() {
 				targetJID = pn.ToNonAD()
 			}
 		}
 
-		broadcastEvent("presence", map[string]interface{}{
+		acc.broadcastEvent("presence", map[string]interface{}{
 			"jid":         targetJID.String(),
 			"unavailable": v.Unavailable,
 			"last_seen":   lastSeenUnix,
 		})
 	case *events.Receipt:
 		if v.MessageSource.Chat == types.StatusBroadcastJID && !v.MessageSource.IsFromMe {
-			go noteStatusViewers(v)
+			go acc.noteStatusViewers(v)
 		}
-		chatJID, senderJID := resolveSourcePN(v.MessageSource)
+		chatJID, senderJID := acc.resolveSourcePN(v.MessageSource)
 
-		broadcastEvent("receipt", map[string]interface{}{
+		acc.broadcastEvent("receipt", map[string]interface{}{
 			"chat_jid":    chatJID.String(),
 			"sender_jid":  senderJID.String(),
 			"message_ids": v.MessageIDs,
@@ -2255,16 +2238,16 @@ func eventHandler(evt interface{}) {
 			resolvedChatJID := chatJID
 			updatedByStatus := map[string][]string{}
 			if chatJID.Server == "g.us" && !v.MessageSource.IsFromMe && (status == "delivered" || status == "read" || status == "played") {
-				updateParticipantReceiptIfNewer(ids, senderJID.String(), status, receiptTS)
-				updatedByStatus = updateGroupMessageStatuses(ids, chatJID.String(), receiptTS)
-			} else if updated := updateMessageStatusIfNewer(ids, status, receiptTS); len(updated) > 0 {
+				acc.updateParticipantReceiptIfNewer(ids, senderJID.String(), status, receiptTS)
+				updatedByStatus = acc.updateGroupMessageStatuses(ids, chatJID.String(), receiptTS)
+			} else if updated := acc.updateMessageStatusIfNewer(ids, status, receiptTS); len(updated) > 0 {
 				updatedByStatus[status] = updated
 			}
 			if len(updatedByStatus) > 0 {
-				broadcastChats()
+				acc.broadcastChats()
 			}
 			for newStatus, updated := range updatedByStatus {
-				broadcastEvent("message_status", map[string]interface{}{
+				acc.broadcastEvent("message_status", map[string]interface{}{
 					"jid":         resolvedChatJID.String(),
 					"message_ids": updated,
 					"status":      newStatus,
@@ -2273,11 +2256,11 @@ func eventHandler(evt interface{}) {
 			}
 			isReadSelf := v.Type == types.ReceiptTypeReadSelf || v.Type == types.ReceiptTypePlayedSelf || ((v.Type == types.ReceiptTypeRead || v.Type == types.ReceiptTypePlayed) && v.MessageSource.IsFromMe)
 			if isReadSelf {
-				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", resolvedChatJID.String())
+				acc.db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", resolvedChatJID.String())
 				for _, mid := range v.MessageIDs {
-					db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = (SELECT jid FROM messages WHERE id = ?)", string(mid))
+					acc.db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = (SELECT jid FROM messages WHERE id = ?)", string(mid))
 				}
-				broadcastChats()
+				acc.broadcastChats()
 			}
 		}()
 	case *events.AppState:
@@ -2288,19 +2271,19 @@ func eventHandler(evt interface{}) {
 			if cls := v.GetChatLockSettings(); cls != nil {
 				if sc := cls.GetSecretCode(); sc != nil {
 					if b, err := proto.Marshal(sc); err == nil {
-						saveChatLockSecretCode(b)
+						acc.saveChatLockSecretCode(b)
 					}
 				}
 			}
 			if lca := v.GetLockChatAction(); lca != nil {
 				if len(v.Index) > 1 {
-					jid := appStateChatJID(v.Index[1])
+					jid := acc.appStateChatJID(v.Index[1])
 					isLockedInt := 0
 					if lca.GetLocked() {
 						isLockedInt = 1
 					}
-					db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", isLockedInt, jid)
-					broadcastChats()
+					acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", isLockedInt, jid)
+					acc.broadcastChats()
 				}
 			}
 			// Deleting/clearing a chat from the phone or another linked
@@ -2315,27 +2298,27 @@ func eventHandler(evt interface{}) {
 	case *events.AppStateSyncComplete:
 		if len(v.Name) > 0 {
 			go func() {
-				populateChatsFromStore()
-				broadcastChats()
+				acc.populateChatsFromStore()
+				acc.broadcastChats()
 			}()
 		}
 	case *events.AppStateSyncError:
-		handleAppStateSyncError(v)
+		acc.handleAppStateSyncError(v)
 	case *events.CallLogSync:
-		go handleCallLogSync(v)
+		go acc.handleCallLogSync(v)
 	case *events.CallLogHistory:
-		go handleCallLogHistory(v)
+		go acc.handleCallLogHistory(v)
 	case *events.DeleteIndividualCallLog:
-		go handleDeleteIndividualCallLog(v)
+		go acc.handleDeleteIndividualCallLog(v)
 	case *events.Archive:
 		go func() {
 			if v.Action == nil {
 				return
 			}
-			jid := preferPN(v.JID).String()
-			noteArchiveAction(jid, v.Action.GetArchived(), v.Action.GetMessageRange(), v.Timestamp.Unix())
-			db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", boolToInt(v.Action.GetArchived()), jid)
-			broadcastChats()
+			jid := acc.preferPN(v.JID).String()
+			acc.noteArchiveAction(jid, v.Action.GetArchived(), v.Action.GetMessageRange(), v.Timestamp.Unix())
+			acc.db.Exec("UPDATE chats SET archived = ? WHERE jid = ?", boolToInt(v.Action.GetArchived()), jid)
+			acc.broadcastChats()
 		}()
 	case *events.Mute:
 		go func() {
@@ -2346,8 +2329,8 @@ func eventHandler(evt interface{}) {
 			if v.Action.GetMuted() {
 				mutedInt = 1
 			}
-			db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", mutedInt, preferPN(v.JID).String())
-			broadcastChats()
+			acc.db.Exec("UPDATE chats SET muted = ? WHERE jid = ?", mutedInt, acc.preferPN(v.JID).String())
+			acc.broadcastChats()
 		}()
 	case *events.Pin:
 		// Applied right here, in the order whatsmeow hands the mutations over,
@@ -2356,7 +2339,7 @@ func eventHandler(evt interface{}) {
 		// both land on one row. Like WA Web (WAWebPinChatSync) the newest
 		// mutation wins, and pinning takes the chat out of the archive.
 		if v.Action != nil {
-			applyPinChange(preferPN(v.JID).String(), v.Action.GetPinned(), v.Timestamp.Unix())
+			acc.applyPinChange(acc.preferPN(v.JID).String(), v.Action.GetPinned(), v.Timestamp.Unix())
 		}
 	case *events.LockChat:
 		// Previously only whantv's own handleSetChatLocked wrote is_locked -
@@ -2372,8 +2355,8 @@ func eventHandler(evt interface{}) {
 			if v.Action.GetLocked() {
 				lockedInt = 1
 			}
-			db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", lockedInt, preferPN(v.JID).String())
-			broadcastChats()
+			acc.db.Exec("UPDATE chats SET is_locked = ? WHERE jid = ?", lockedInt, acc.preferPN(v.JID).String())
+			acc.broadcastChats()
 		}()
 	case *events.MarkChatAsRead:
 		// Previously only handleSetChatRead's own outbound action updated
@@ -2384,24 +2367,24 @@ func eventHandler(evt interface{}) {
 			if v.Action == nil {
 				return
 			}
-			jidStr := preferPN(v.JID).String()
+			jidStr := acc.preferPN(v.JID).String()
 			// Like WA Web (WAWebMarkChatAsReadSync): when messages have come
 			// in here since the other device marked the chat, a read only
 			// clears a "marked as unread" mark and an unread does nothing.
-			covers := rangeCoversChat(jidStr, v.Action.GetMessageRange())
+			covers := acc.rangeCoversChat(jidStr, v.Action.GetMessageRange())
 			if !covers {
 				if v.Action.GetRead() {
-					db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ? AND COALESCE(marked_unread, 0) = 1", jidStr)
+					acc.db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ? AND COALESCE(marked_unread, 0) = 1", jidStr)
 				}
 			} else if v.Action.GetRead() {
-				db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", jidStr)
+				acc.db.Exec("UPDATE chats SET unread_count = 0 WHERE jid = ?", jidStr)
 			} else {
 				// "Mark as unread" only needs the chat to show as unread - it
 				// must not replace a real count history sync already gave it
 				// (a full app-state sync replays this for every such chat).
-				db.Exec("UPDATE chats SET unread_count = MAX(unread_count, 1), marked_unread = 1 WHERE jid = ?", jidStr)
+				acc.db.Exec("UPDATE chats SET unread_count = MAX(unread_count, 1), marked_unread = 1 WHERE jid = ?", jidStr)
 			}
-			broadcastChats()
+			acc.broadcastChats()
 		}()
 	case *events.Star:
 		go func() {
@@ -2412,21 +2395,21 @@ func eventHandler(evt interface{}) {
 			if v.Action.GetStarred() {
 				starredInt = 1
 			}
-			db.Exec("UPDATE messages SET starred = ? WHERE id = ?", starredInt, v.MessageID)
-			broadcastEvent("message_starred", map[string]interface{}{
-				"jid": preferPN(v.ChatJID).String(), "message_id": v.MessageID, "starred": v.Action.GetStarred(),
+			acc.db.Exec("UPDATE messages SET starred = ? WHERE id = ?", starredInt, v.MessageID)
+			acc.broadcastEvent("message_starred", map[string]interface{}{
+				"jid": acc.preferPN(v.ChatJID).String(), "message_id": v.MessageID, "starred": v.Action.GetStarred(),
 			})
 		}()
 	case *events.ClearChat:
 		go func() {
-			jidStr := preferPN(v.JID).String()
-			if purgeChatRange(jidStr, v.Action.GetMessageRange()) {
-				clearChatPreview(jidStr)
+			jidStr := acc.preferPN(v.JID).String()
+			if acc.purgeChatRange(jidStr, v.Action.GetMessageRange()) {
+				acc.clearChatPreview(jidStr)
 			} else {
-				UpdateChatSnippet(jidStr)
+				acc.UpdateChatSnippet(jidStr)
 			}
-			broadcastChats()
-			broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
+			acc.broadcastChats()
+			acc.broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
 		}()
 	case *events.DeleteChat:
 		// Previously nothing here at all - handleDeleteChat only ever
@@ -2435,64 +2418,64 @@ func eventHandler(evt interface{}) {
 		// actions; it only ever meant the phone or another linked device
 		// deleted the chat.
 		go func() {
-			jidStr := preferPN(v.JID).String()
-			if purgeChatRange(jidStr, v.Action.GetMessageRange()) {
-				db.Exec("DELETE FROM chats WHERE jid = ?", jidStr)
+			jidStr := acc.preferPN(v.JID).String()
+			if acc.purgeChatRange(jidStr, v.Action.GetMessageRange()) {
+				acc.db.Exec("DELETE FROM chats WHERE jid = ?", jidStr)
 			} else {
-				UpdateChatSnippet(jidStr)
-				broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
+				acc.UpdateChatSnippet(jidStr)
+				acc.broadcastEvent("chat_cleared", map[string]interface{}{"jid": jidStr})
 			}
-			broadcastChats()
+			acc.broadcastChats()
 		}()
 	case *events.Picture:
 		go func() {
 			jidStr := v.JID.String()
 			if v.Remove {
-				updateContactAvatarCache(jidStr, "", "")
+				acc.updateContactAvatarCache(jidStr, "", "")
 			}
-			forgetAvatarPreview(jidStr)
-			if pn := preferPN(v.JID).String(); pn != jidStr {
-				forgetAvatarPreview(pn)
-				broadcastEvent("avatar_updated", map[string]interface{}{"jid": pn, "removed": v.Remove})
+			acc.forgetAvatarPreview(jidStr)
+			if pn := acc.preferPN(v.JID).String(); pn != jidStr {
+				acc.forgetAvatarPreview(pn)
+				acc.broadcastEvent("avatar_updated", map[string]interface{}{"jid": pn, "removed": v.Remove})
 			}
 			if v.JID.Server == types.GroupServer && !v.Timestamp.IsZero() {
-				insertGroupSystemMessage(jidStr, fmt.Sprintf("system_%s_%d_picture", v.JID.User, v.Timestamp.UnixNano()),
-					groupPictureChangeText(v.Author, v.Remove), v.Timestamp)
+				acc.insertGroupSystemMessage(jidStr, fmt.Sprintf("system_%s_%d_picture", v.JID.User, v.Timestamp.UnixNano()),
+					acc.groupPictureChangeText(v.Author, v.Remove), v.Timestamp)
 			}
-			broadcastEvent("avatar_updated", map[string]interface{}{
+			acc.broadcastEvent("avatar_updated", map[string]interface{}{
 				"jid":     jidStr,
 				"removed": v.Remove,
 			})
 		}()
 	case *events.UserAbout:
-		go updateContactAboutCache(v.JID.String(), v.Status)
-		broadcastEvent("about_updated", map[string]interface{}{
+		go acc.updateContactAboutCache(v.JID.String(), v.Status)
+		acc.broadcastEvent("about_updated", map[string]interface{}{
 			"jid":    v.JID.String(),
 			"status": v.Status,
 		})
 	case *events.DisableLinkPreviews:
-		go noteDisableLinkPreviews(v)
+		go acc.noteDisableLinkPreviews(v)
 	case *events.UnarchiveChatsSetting:
-		go noteUnarchiveChatsSetting(v)
+		go acc.noteUnarchiveChatsSetting(v)
 	case *events.SettingsSync:
-		go noteSettingsSync(v)
+		go acc.noteSettingsSync(v)
 	case *events.FavoriteSticker:
-		go noteFavoriteSticker(v)
+		go acc.noteFavoriteSticker(v)
 	case *events.UserStatusMute:
-		go noteStatusMute(v)
+		go acc.noteStatusMute(v)
 	case *events.StatusPrivacy:
-		go noteStatusPrivacy(v)
+		go acc.noteStatusPrivacy(v)
 	case *events.DefaultDisappearingTimer:
-		broadcastEvent("default_timer", map[string]interface{}{"seconds": int(v.Timer.Seconds())})
+		acc.broadcastEvent("default_timer", map[string]interface{}{"seconds": int(v.Timer.Seconds())})
 	case *events.LabelEdit:
-		go noteLabelEdit(v)
+		go acc.noteLabelEdit(v)
 	case *events.LabelAssociationChat:
-		go noteLabelChat(v)
+		go acc.noteLabelChat(v)
 	case *events.Favorites:
-		go noteFavorites(v)
+		go acc.noteFavorites(v)
 	case *events.GroupLimitSharingUpdate:
 		go func() {
-			if setChatLimitSharing(v.JID.String(), v.Enabled(), 0) {
+			if acc.setChatLimitSharing(v.JID.String(), v.Enabled(), 0) {
 				by := types.EmptyJID
 				for _, s := range []string{v.UpdatedBy.PN, v.UpdatedBy.ID} {
 					if parsed, err := types.ParseJID(s); err == nil && !parsed.IsEmpty() {
@@ -2504,116 +2487,116 @@ func eventHandler(evt interface{}) {
 				if secs, err := v.UpdateTime.Int64(); err == nil && secs > 0 {
 					ts = time.Unix(secs, 0)
 				}
-				noteChatPrivacyChange(v.JID.String(), by, v.Enabled(), ts)
+				acc.noteChatPrivacyChange(v.JID.String(), by, v.Enabled(), ts)
 			}
 		}()
 	case *events.GroupInfo:
-		invalidateJoinedGroups()
-		if _, deleting := pendingGroupDeletes.Load(v.JID.String()); deleting {
+		acc.invalidateJoinedGroups()
+		if _, deleting := acc.pendingGroupDeletes.Load(v.JID.String()); deleting {
 			return
 		}
 		go func() {
 			if v.Name != nil {
-				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.Name.Name)
+				acc.db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.Name.Name)
 			}
 			if v.Ephemeral != nil {
 				seconds := uint32(0)
 				if v.Ephemeral.IsEphemeral {
 					seconds = v.Ephemeral.DisappearingTimer
 				}
-				setChatDisappearing(v.JID.String(), seconds, v.Timestamp.Unix())
+				acc.setChatDisappearing(v.JID.String(), seconds, v.Timestamp.Unix())
 			}
 
 			sendRightsChanged := false
 			if v.Announce != nil {
-				db.Exec("UPDATE chats SET admins_only = ? WHERE jid = ?", boolToInt(v.Announce.IsAnnounce), v.JID.String())
+				acc.db.Exec("UPDATE chats SET admins_only = ? WHERE jid = ?", boolToInt(v.Announce.IsAnnounce), v.JID.String())
 				sendRightsChanged = true
 			}
 			isAdminChanged := false
 			for _, j := range v.Promote {
-				if isParticipantMe(types.GroupParticipant{JID: j}) {
-					db.Exec("UPDATE chats SET is_admin = 1 WHERE jid = ?", v.JID.String())
+				if acc.isParticipantMe(types.GroupParticipant{JID: j}) {
+					acc.db.Exec("UPDATE chats SET is_admin = 1 WHERE jid = ?", v.JID.String())
 					isAdminChanged = true
 					break
 				}
 			}
 			for _, j := range v.Demote {
-				if isParticipantMe(types.GroupParticipant{JID: j}) {
-					db.Exec("UPDATE chats SET is_admin = 0 WHERE jid = ?", v.JID.String())
+				if acc.isParticipantMe(types.GroupParticipant{JID: j}) {
+					acc.db.Exec("UPDATE chats SET is_admin = 0 WHERE jid = ?", v.JID.String())
 					isAdminChanged = true
 					break
 				}
 			}
 
 			for _, j := range v.Join {
-				if isParticipantMe(types.GroupParticipant{JID: j}) {
-					markGroupJoined(v.JID.String(), true)
+				if acc.isParticipantMe(types.GroupParticipant{JID: j}) {
+					acc.markGroupJoined(v.JID.String(), true)
 					sendRightsChanged = true
-					requestGroupMetadata(v.JID)
+					acc.requestGroupMetadata(v.JID)
 				}
 			}
 			for _, j := range v.Leave {
-				if isParticipantMe(types.GroupParticipant{JID: j}) {
-					markGroupJoined(v.JID.String(), false)
+				if acc.isParticipantMe(types.GroupParticipant{JID: j}) {
+					acc.markGroupJoined(v.JID.String(), false)
 					sendRightsChanged = true
 				}
 			}
 			if v.Link != nil {
-				applyCommunityLinkChange(v, v.Link, true)
+				acc.applyCommunityLinkChange(v, v.Link, true)
 			}
 			if v.Unlink != nil {
-				applyCommunityLinkChange(v, v.Unlink, false)
+				acc.applyCommunityLinkChange(v, v.Unlink, false)
 			}
 
 			if delta := len(v.Join) - len(v.Leave); delta != 0 {
-				db.Exec(`UPDATE chats SET participant_count = MAX(0, participant_count + ?) WHERE jid = ? AND participant_count > 0`, delta, v.JID.String())
+				acc.db.Exec(`UPDATE chats SET participant_count = MAX(0, participant_count + ?) WHERE jid = ? AND participant_count > 0`, delta, v.JID.String())
 			}
 
-			for i, text := range groupChangeMessages(v) {
-				insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d_%d", v.JID.User, v.Timestamp.UnixNano(), i), text, v.Timestamp)
+			for i, text := range acc.groupChangeMessages(v) {
+				acc.insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d_%d", v.JID.User, v.Timestamp.UnixNano(), i), text, v.Timestamp)
 			}
 
 			if isAdminChanged || sendRightsChanged {
-				broadcastChats()
+				acc.broadcastChats()
 			}
 		}()
-		broadcastEvent("group_updated", map[string]interface{}{
+		acc.broadcastEvent("group_updated", map[string]interface{}{
 			"jid": v.JID.String(),
 		})
 	case *events.NewsletterJoin, *events.NewsletterLeave, *events.NewsletterMuteChange, *events.NewsletterLiveUpdate:
-		handleChannelEvent(v)
+		acc.handleChannelEvent(v)
 	case *events.GroupsDirty:
 		log.Printf("Server marked %d groups as out of date; refreshing", len(v.Groups))
 		go func() {
-			invalidateJoinedGroups()
-			populateChatsFromStore()
-			broadcastChats()
+			acc.invalidateJoinedGroups()
+			acc.populateChatsFromStore()
+			acc.broadcastChats()
 		}()
 	case *events.DirtyState:
 		switch v.Type {
 		case whatsmeow.DirtyTypeGroups:
 			log.Printf("Server marked the group list as out of date; refreshing")
 			go func() {
-				invalidateJoinedGroups()
-				populateChatsFromStore()
-				broadcastChats()
+				acc.invalidateJoinedGroups()
+				acc.populateChatsFromStore()
+				acc.broadcastChats()
 			}()
 		case whatsmeow.DirtyTypeAccountSync:
-			go refreshBlocklist()
+			go acc.refreshBlocklist()
 		}
 	case *events.JoinedGroup:
-		invalidateJoinedGroups()
+		acc.invalidateJoinedGroups()
 		go func() {
 			if v.GroupName.Name != "" {
-				db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.GroupName.Name)
+				acc.db.Exec(`INSERT INTO chats (jid, name, timestamp) VALUES (?, ?, 0) ON CONFLICT(jid) DO UPDATE SET name=excluded.name`, v.JID.String(), v.GroupName.Name)
 			} else {
-				requestGroupMetadata(v.JID)
+				acc.requestGroupMetadata(v.JID)
 			}
-			recordGroupCommunity(&v.GroupInfo)
-			markGroupJoined(v.JID.ToNonAD().String(), true)
+			acc.recordGroupCommunity(&v.GroupInfo)
+			acc.markGroupJoined(v.JID.ToNonAD().String(), true)
 			actor := ""
-			if v.Sender != nil && !isParticipantMe(types.GroupParticipant{JID: *v.Sender}) {
-				actor = nameToken(*v.Sender)
+			if v.Sender != nil && !acc.isParticipantMe(types.GroupParticipant{JID: *v.Sender}) {
+				actor = acc.nameToken(*v.Sender)
 			}
 			msg := ""
 			if v.Type == "new" {
@@ -2631,26 +2614,26 @@ func eventHandler(evt interface{}) {
 					msg = "You joined the group"
 				}
 			}
-			insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d", v.JID.User, time.Now().UnixNano()), msg, time.Now())
+			acc.insertGroupSystemMessage(v.JID.String(), fmt.Sprintf("system_%s_%d", v.JID.User, time.Now().UnixNano()), msg, time.Now())
 
-			invalidateJoinedGroups()
-			populateChatsFromStore()
-			broadcastChats()
+			acc.invalidateJoinedGroups()
+			acc.populateChatsFromStore()
+			acc.broadcastChats()
 		}()
-		broadcastEvent("group_updated", map[string]interface{}{
+		acc.broadcastEvent("group_updated", map[string]interface{}{
 			"jid": v.JID.String(),
 		})
 	case *events.Blocklist:
-		go refreshBlocklist()
+		go acc.refreshBlocklist()
 	case *events.ABPropsRefreshed:
-		go refreshServerFlags()
+		go acc.refreshServerFlags()
 	}
 }
 
-func joinedNamesList(jids []types.JID) string {
+func (acc *Account) joinedNamesList(jids []types.JID) string {
 	names := make([]string, 0, len(jids))
 	for _, j := range jids {
-		names = append(names, nameToken(j))
+		names = append(names, acc.nameToken(j))
 	}
 	switch len(names) {
 	case 0:
@@ -2662,11 +2645,11 @@ func joinedNamesList(jids []types.JID) string {
 	}
 }
 
-func groupChangeMessages(v *events.GroupInfo) []string {
+func (acc *Account) groupChangeMessages(v *events.GroupInfo) []string {
 	var lines []string
 	actor := ""
 	if v.Sender != nil {
-		actor = nameToken(*v.Sender)
+		actor = acc.nameToken(*v.Sender)
 	}
 	// "Someone" never reads out a raw JID: settings changes can come with no
 	// sender (the server applying them, or an old notification).
@@ -2725,7 +2708,7 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	}
 
 	if len(v.Join) > 0 {
-		names := joinedNamesList(v.Join)
+		names := acc.joinedNamesList(v.Join)
 		switch {
 		case actor != "" && actor != names:
 			lines = append(lines, fmt.Sprintf("%s added %s", actor, names))
@@ -2737,7 +2720,7 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	}
 
 	if len(v.Leave) > 0 {
-		names := joinedNamesList(v.Leave)
+		names := acc.joinedNamesList(v.Leave)
 		if actor != "" && actor != names {
 			lines = append(lines, fmt.Sprintf("%s removed %s", actor, names))
 		} else {
@@ -2746,7 +2729,7 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	}
 
 	if len(v.Promote) > 0 {
-		names := joinedNamesList(v.Promote)
+		names := acc.joinedNamesList(v.Promote)
 		if actor != "" {
 			lines = append(lines, fmt.Sprintf("%s made %s a group admin", actor, names))
 		} else {
@@ -2755,11 +2738,11 @@ func groupChangeMessages(v *events.GroupInfo) []string {
 	}
 
 	for _, j := range v.Modify {
-		lines = append(lines, fmt.Sprintf("%s changed their phone number", nameToken(j)))
+		lines = append(lines, fmt.Sprintf("%s changed their phone number", acc.nameToken(j)))
 	}
 
 	if len(v.Demote) > 0 {
-		names := joinedNamesList(v.Demote)
+		names := acc.joinedNamesList(v.Demote)
 		if actor != "" {
 			lines = append(lines, fmt.Sprintf("%s removed %s as group admin", actor, names))
 		} else {
@@ -2801,94 +2784,83 @@ func dumpGoroutinesForStall(reason string) {
 	log.Printf("Stall detected (%s); goroutine dump written to %s", reason, path)
 }
 
-var (
-	historySyncRefreshMu    sync.Mutex
-	historySyncRefreshTimer *time.Timer
-)
-
 const historySyncRefreshDelay = 10 * time.Second
 
-func scheduleHistorySyncRefresh() {
-	historySyncRefreshMu.Lock()
-	defer historySyncRefreshMu.Unlock()
-	if historySyncRefreshTimer != nil {
-		historySyncRefreshTimer.Stop()
+func (acc *Account) scheduleHistorySyncRefresh() {
+	acc.historySyncRefreshMu.Lock()
+	defer acc.historySyncRefreshMu.Unlock()
+	if acc.historySyncRefreshTimer != nil {
+		acc.historySyncRefreshTimer.Stop()
 	}
-	historySyncRefreshTimer = time.AfterFunc(historySyncRefreshDelay, func() {
-		if historySyncPending.Load() > 0 {
-			scheduleHistorySyncRefresh()
+	acc.historySyncRefreshTimer = time.AfterFunc(historySyncRefreshDelay, func() {
+		if acc.historySyncPending.Load() > 0 {
+			acc.scheduleHistorySyncRefresh()
 			return
 		}
 		start := time.Now()
-		UpdateAllChatSnippets()
-		populateChatsFromStore()
+		acc.UpdateAllChatSnippets()
+		acc.populateChatsFromStore()
 		log.Printf("History sync refresh (snippets, contacts, groups) took %s", time.Since(start).Round(time.Millisecond))
-		lookUpBusinessNames()
+		acc.lookUpBusinessNames()
 	})
 }
 
-var (
-	historySyncCheckpointMu  sync.Mutex
-	historySyncCheckpointGen int
-	historySyncPending       atomic.Int32
-)
-
 const historySyncCheckpointDelay = 5 * time.Second
 
-func scheduleHistorySyncCheckpoint() {
-	historySyncCheckpointMu.Lock()
-	historySyncCheckpointGen++
-	gen := historySyncCheckpointGen
-	historySyncCheckpointMu.Unlock()
-	runHistorySyncCheckpointAfter(gen, 0)
+func (acc *Account) scheduleHistorySyncCheckpoint() {
+	acc.historySyncCheckpointMu.Lock()
+	acc.historySyncCheckpointGen++
+	gen := acc.historySyncCheckpointGen
+	acc.historySyncCheckpointMu.Unlock()
+	acc.runHistorySyncCheckpointAfter(gen, 0)
 }
 
-func runHistorySyncCheckpointAfter(gen, attempt int) {
+func (acc *Account) runHistorySyncCheckpointAfter(gen, attempt int) {
 	time.AfterFunc(historySyncCheckpointDelay, func() {
-		historySyncCheckpointMu.Lock()
-		stale := gen != historySyncCheckpointGen
-		historySyncCheckpointMu.Unlock()
+		acc.historySyncCheckpointMu.Lock()
+		stale := gen != acc.historySyncCheckpointGen
+		acc.historySyncCheckpointMu.Unlock()
 		if stale {
 			return
 		}
-		if historySyncPending.Load() > 0 {
-			runHistorySyncCheckpointAfter(gen, attempt)
+		if acc.historySyncPending.Load() > 0 {
+			acc.runHistorySyncCheckpointAfter(gen, attempt)
 			return
 		}
-		historySyncMutex.Lock()
-		defer historySyncMutex.Unlock()
+		acc.historySyncMutex.Lock()
+		defer acc.historySyncMutex.Unlock()
 		start := time.Now()
 		var busy, walFrames, checkpointed int
-		if err := db.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &walFrames, &checkpointed); err != nil {
+		if err := acc.db.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &walFrames, &checkpointed); err != nil {
 			log.Println("History sync WAL checkpoint failed:", err)
 			return
 		}
 		log.Printf("History sync WAL checkpoint: busy=%d took=%s", busy, time.Since(start).Round(time.Millisecond))
 		if busy != 0 && attempt < 3 {
-			runHistorySyncCheckpointAfter(gen, attempt+1)
+			acc.runHistorySyncCheckpointAfter(gen, attempt+1)
 		}
 	})
 }
 
-func appStateChatJID(raw string) string {
+func (acc *Account) appStateChatJID(raw string) string {
 	j, err := types.ParseJID(raw)
 	if err != nil {
 		return raw
 	}
-	return preferPN(j).String()
+	return acc.preferPN(j).String()
 }
 
-func preferPN(jid types.JID) types.JID {
+func (acc *Account) preferPN(jid types.JID) types.JID {
 	jid = jid.ToNonAD()
-	if jid.Server == types.HiddenUserServer && wa() != nil {
-		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
+	if jid.Server == types.HiddenUserServer && acc.wa() != nil {
+		if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && !pn.IsEmpty() {
 			return pn.ToNonAD()
 		}
 	}
 	return jid
 }
 
-func historyStubActor(webMsg *waWeb.WebMessageInfo) types.JID {
+func (acc *Account) historyStubActor(webMsg *waWeb.WebMessageInfo) types.JID {
 	raw := webMsg.GetParticipant()
 	if raw == "" {
 		raw = webMsg.GetKey().GetParticipant()
@@ -2900,10 +2872,10 @@ func historyStubActor(webMsg *waWeb.WebMessageInfo) types.JID {
 	if err != nil {
 		return types.EmptyJID
 	}
-	return preferPN(jid)
+	return acc.preferPN(jid)
 }
 
-func historyStubJIDs(params []string) []types.JID {
+func (acc *Account) historyStubJIDs(params []string) []types.JID {
 	var jids []types.JID
 	for _, p := range params {
 		p = strings.TrimSpace(p)
@@ -2920,19 +2892,19 @@ func historyStubJIDs(params []string) []types.JID {
 			}
 		}
 		if jid, err := types.ParseJID(p); err == nil && jid.User != "" {
-			jids = append(jids, preferPN(jid))
+			jids = append(jids, acc.preferPN(jid))
 		}
 	}
 	return jids
 }
 
-func historyStubText(webMsg *waWeb.WebMessageInfo) string {
+func (acc *Account) historyStubText(webMsg *waWeb.WebMessageInfo) string {
 	actor := ""
-	if a := historyStubActor(webMsg); !a.IsEmpty() {
-		actor = nameToken(a)
+	if a := acc.historyStubActor(webMsg); !a.IsEmpty() {
+		actor = acc.nameToken(a)
 	}
 	params := webMsg.GetMessageStubParameters()
-	names := joinedNamesList(historyStubJIDs(params))
+	names := acc.joinedNamesList(acc.historyStubJIDs(params))
 	switch webMsg.GetMessageStubType() {
 	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD,
 		waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD_REQUEST_JOIN,
@@ -3016,7 +2988,7 @@ func historyStubText(webMsg *waWeb.WebMessageInfo) string {
 	return ""
 }
 
-func messageHistoryNoticeText(notice *waE2E.MessageHistoryNotice, sender types.JID) string {
+func (acc *Account) messageHistoryNoticeText(notice *waE2E.MessageHistoryNotice, sender types.JID) string {
 	if notice == nil {
 		return ""
 	}
@@ -3024,14 +2996,14 @@ func messageHistoryNoticeText(notice *waE2E.MessageHistoryNotice, sender types.J
 	if meta := notice.GetMessageHistoryMetadata(); meta != nil {
 		for _, r := range meta.GetHistoryReceivers() {
 			if jid, err := types.ParseJID(r); err == nil && jid.User != "" {
-				receiverJIDs = append(receiverJIDs, preferPN(jid))
+				receiverJIDs = append(receiverJIDs, acc.preferPN(jid))
 			}
 		}
 	}
-	receivers := joinedNamesList(receiverJIDs)
+	receivers := acc.joinedNamesList(receiverJIDs)
 	actor := ""
 	if !sender.IsEmpty() {
-		actor = nameToken(preferPN(sender))
+		actor = acc.nameToken(acc.preferPN(sender))
 	}
 	switch {
 	case actor != "" && receivers != "":
@@ -3045,7 +3017,7 @@ func messageHistoryNoticeText(notice *waE2E.MessageHistoryNotice, sender types.J
 	}
 }
 
-func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
+func (acc *Account) insertGroupSystemMessage(jid, id, text string, ts time.Time) {
 	if text == "" {
 		return
 	}
@@ -3053,14 +3025,14 @@ func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
 		return
 	}
 	tsUnix := ts.Unix()
-	err := saveMessage(StoredMessage{
+	err := acc.saveMessage(StoredMessage{
 		ID: id, JID: jid, Text: text, Timestamp: tsUnix, Status: "sent", MediaType: "system",
 	})
 	if err != nil {
 		fmt.Println("Error inserting group system message:", err)
 		return
 	}
-	db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', 0)
+	acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', 0)
 		ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=excluded.preview_snippet,
@@ -3070,14 +3042,14 @@ func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
 			preview_reaction_emoji=''`,
 		jid, tsUnix, text)
 	var chatName string
-	db.QueryRow(`SELECT name FROM chats WHERE jid = ?`, jid).Scan(&chatName)
+	acc.db.QueryRow(`SELECT name FROM chats WHERE jid = ?`, jid).Scan(&chatName)
 
-	broadcastChats()
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastChats()
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid":       jid,
 		"from":      "",
 		"id":        id,
-		"text":      renderNames(text, nil),
+		"text":      acc.renderNames(text, nil),
 		"from_me":   false,
 		"timestamp": tsUnix,
 		"has_media": false,
@@ -3086,44 +3058,38 @@ func insertGroupSystemMessage(jid, id, text string, ts time.Time) {
 	})
 }
 
-var (
-	populateChatsMu      sync.Mutex
-	populateChatsRunning bool
-	populateChatsPending bool
-)
-
-func populateChatsFromStore() {
-	populateChatsMu.Lock()
-	if populateChatsRunning {
-		populateChatsPending = true
-		populateChatsMu.Unlock()
+func (acc *Account) populateChatsFromStore() {
+	acc.populateChatsMu.Lock()
+	if acc.populateChatsRunning {
+		acc.populateChatsPending = true
+		acc.populateChatsMu.Unlock()
 		return
 	}
-	populateChatsRunning = true
-	populateChatsMu.Unlock()
+	acc.populateChatsRunning = true
+	acc.populateChatsMu.Unlock()
 
 	for {
-		populateChatsFromStoreOnce()
-		broadcastChats()
+		acc.populateChatsFromStoreOnce()
+		acc.broadcastChats()
 
-		populateChatsMu.Lock()
-		if populateChatsPending {
-			populateChatsPending = false
-			populateChatsMu.Unlock()
+		acc.populateChatsMu.Lock()
+		if acc.populateChatsPending {
+			acc.populateChatsPending = false
+			acc.populateChatsMu.Unlock()
 			continue
 		}
-		populateChatsRunning = false
-		populateChatsMu.Unlock()
+		acc.populateChatsRunning = false
+		acc.populateChatsMu.Unlock()
 		break
 	}
 }
 
-func populateChatsFromStoreOnce() {
-	if wa() == nil || wa().Store == nil || wa().Store.Contacts == nil {
+func (acc *Account) populateChatsFromStoreOnce() {
+	if acc.wa() == nil || acc.wa().Store == nil || acc.wa().Store.Contacts == nil {
 		return
 	}
 
-	allContacts, err := wa().Store.Contacts.GetAllContacts(context.Background())
+	allContacts, err := acc.wa().Store.Contacts.GetAllContacts(context.Background())
 	if err != nil {
 		fmt.Println("Error getting contacts from store:", err)
 		return
@@ -3141,7 +3107,7 @@ func populateChatsFromStoreOnce() {
 	for jid, contact := range allContacts {
 		targetJID := jid.ToNonAD()
 		if targetJID.Server == "lid" {
-			if pn, pnErr := wa().Store.LIDs.GetPNForLID(context.Background(), targetJID); pnErr == nil && !pn.IsEmpty() {
+			if pn, pnErr := acc.wa().Store.LIDs.GetPNForLID(context.Background(), targetJID); pnErr == nil && !pn.IsEmpty() {
 				resolvedLIDJIDs = append(resolvedLIDJIDs, targetJID.String())
 				targetJID = pn.ToNonAD()
 			}
@@ -3219,11 +3185,11 @@ func populateChatsFromStoreOnce() {
 			tx.Exec(`DELETE FROM contacts_cache WHERE jid = ?`, lidJIDStr)
 		})
 	}
-	writeBatch(contactWrites)
-	invalidateDisplayNames()
-	healStaleUnreadCounts()
+	acc.writeBatch(contactWrites)
+	acc.invalidateDisplayNames()
+	acc.healStaleUnreadCounts()
 
-	groups, err := serverGroupList()
+	groups, err := acc.serverGroupList()
 	var joinedGroupsSnapshot map[string]bool
 	if err == nil {
 		var groupWrites []func(tx sqlExecer)
@@ -3231,13 +3197,13 @@ func populateChatsFromStoreOnce() {
 		joinedGroupsSnapshot = joined
 		for _, g := range groups {
 			joined[g.JID.ToNonAD().String()] = true
-			groupWrites = append(groupWrites, groupInfoWrite(g))
+			groupWrites = append(groupWrites, acc.groupInfoWrite(g))
 		}
-		writeBatch(groupWrites)
-		setJoinedGroups(joined)
+		acc.writeBatch(groupWrites)
+		acc.setJoinedGroups(joined)
 	}
 
-	rows, err := db.Query(`SELECT jid FROM chats WHERE name IS NULL OR name = '' OR name LIKE '+%' OR jid LIKE '%@lid'`)
+	rows, err := acc.db.Query(`SELECT jid FROM chats WHERE name IS NULL OR name = '' OR name LIKE '+%' OR jid LIKE '%@lid'`)
 	if err == nil {
 		var jidsToResolve []string
 		for rows.Next() {
@@ -3255,18 +3221,18 @@ func populateChatsFromStoreOnce() {
 			}
 			if pj.Server == types.GroupServer {
 				if joinedGroupsSnapshot == nil {
-					requestGroupMetadata(pj)
+					acc.requestGroupMetadata(pj)
 				}
 				continue
 			}
-			resName := resolveDisplayName(pj)
+			resName := acc.resolveDisplayName(pj)
 			if resName != "" && resName != jStr && !strings.HasPrefix(resName, "+") {
-				db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, resName, jStr)
+				acc.db.Exec(`UPDATE chats SET name = ? WHERE jid = ?`, resName, jStr)
 			}
 		}
 	}
 
-	rowsBroad, errBroad := db.Query(`SELECT DISTINCT sender_jid FROM messages
+	rowsBroad, errBroad := acc.db.Query(`SELECT DISTINCT sender_jid FROM messages
 		WHERE jid LIKE '%@broadcast' AND jid != 'status@broadcast' AND from_me = 0 AND sender_jid != ''`)
 	if errBroad == nil {
 		var senders []string
@@ -3284,7 +3250,7 @@ func populateChatsFromStoreOnce() {
 			}
 			target := parsed.ToNonAD()
 			if target.Server == "lid" {
-				pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), target)
+				pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), target)
 				if err != nil || pn.IsEmpty() {
 					continue
 				}
@@ -3293,15 +3259,15 @@ func populateChatsFromStoreOnce() {
 			if target.Server != types.DefaultUserServer {
 				continue
 			}
-			db.Exec(`INSERT INTO chats (jid, timestamp)
+			acc.db.Exec(`INSERT INTO chats (jid, timestamp)
 				SELECT ?, MAX(timestamp) FROM messages
 				WHERE jid LIKE '%@broadcast' AND from_me = 0 AND sender_jid = ?
 				ON CONFLICT(jid) DO UPDATE SET timestamp = MAX(chats.timestamp, excluded.timestamp)`,
 				target.String(), s)
-			db.Exec(`UPDATE messages SET jid = ?, sender_jid = ?
+			acc.db.Exec(`UPDATE messages SET jid = ?, sender_jid = ?
 				WHERE jid LIKE '%@broadcast' AND from_me = 0 AND sender_jid = ?`,
 				target.String(), target.String(), s)
-			UpdateChatSnippet(target.String())
+			acc.UpdateChatSnippet(target.String())
 		}
 	}
 	// Community parent groups are exempt: they legitimately never carry
@@ -3318,9 +3284,9 @@ func populateChatsFromStoreOnce() {
 	// by). The same can't be done for people: the phone also sends an empty
 	// entry for contacts who were never chatted with, and those must go.
 	const emptyChat = `timestamp = 0 AND COALESCE(is_community, 0) = 0 AND COALESCE(is_channel, 0) = 0 AND jid NOT IN (SELECT DISTINCT jid FROM messages) AND jid NOT IN (SELECT DISTINCT jid FROM chats WHERE pinned = 1 OR muted = 1 OR archived = 1)`
-	db.Exec("DELETE FROM chats WHERE jid NOT LIKE '%@g.us' AND " + emptyChat)
+	acc.db.Exec("DELETE FROM chats WHERE jid NOT LIKE '%@g.us' AND " + emptyChat)
 	if joinedGroupsSnapshot != nil {
-		if emptyGroups, qErr := db.Query("SELECT jid FROM chats WHERE jid LIKE '%@g.us' AND " + emptyChat); qErr == nil {
+		if emptyGroups, qErr := acc.db.Query("SELECT jid FROM chats WHERE jid LIKE '%@g.us' AND " + emptyChat); qErr == nil {
 			var left []string
 			for emptyGroups.Next() {
 				var j string
@@ -3330,16 +3296,16 @@ func populateChatsFromStoreOnce() {
 			}
 			emptyGroups.Close()
 			for _, j := range left {
-				db.Exec("DELETE FROM chats WHERE jid = ?", j)
+				acc.db.Exec("DELETE FROM chats WHERE jid = ?", j)
 			}
 		}
 	}
-	db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR (jid LIKE '%@newsletter' AND COALESCE(is_channel, 0) = 0) OR jid LIKE '%@broadcast'")
-	go syncFollowedChannelsThrottled()
+	acc.db.Exec("DELETE FROM chats WHERE jid = 'status@broadcast' OR (jid LIKE '%@newsletter' AND COALESCE(is_channel, 0) = 0) OR jid LIKE '%@broadcast'")
+	go acc.syncFollowedChannelsThrottled()
 }
 
-func handleIncomingStatus(v *events.Message) {
-	text := extractText(v.Message)
+func (acc *Account) handleIncomingStatus(v *events.Message) {
+	text := acc.extractText(v.Message)
 	if text == "[Protocol Message]" || text == "[Unsupported Message]" {
 		text = ""
 	}
@@ -3354,7 +3320,7 @@ func handleIncomingStatus(v *events.Message) {
 		status = "sent"
 	}
 	rawBytes, _ := proto.Marshal(v.Message)
-	if err := saveMessage(StoredMessage{
+	if err := acc.saveMessage(StoredMessage{
 		ID: v.Info.ID, JID: "status@broadcast", SenderJID: senderJID.String(),
 		FromMe: v.Info.IsFromMe, Text: text, Timestamp: ts, Raw: rawBytes, Status: status,
 		MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
@@ -3362,38 +3328,31 @@ func handleIncomingStatus(v *events.Message) {
 		log.Println("Error saving status update:", err)
 		return
 	}
-	go purgeExpiredStatuses()
+	go acc.purgeExpiredStatuses()
 	background, textColor := textStatusColors(rawBytes)
-	broadcastEvent("status_update", map[string]interface{}{
+	acc.broadcastEvent("status_update", map[string]interface{}{
 		"id": v.Info.ID, "posterJid": senderJID.String(), "fromMe": v.Info.IsFromMe,
 		"text": text, "mediaType": mediaType, "timestamp": ts,
 		"background": background, "textColor": textColor,
 	})
 }
 
-var (
-	appStateResyncMu         sync.Mutex
-	lastAppStateResync       = make(map[appstate.WAPatchName]time.Time)
-	appStateResyncCount      = make(map[appstate.WAPatchName]int)
-	lastFatalRecoveryRequest = make(map[appstate.WAPatchName]time.Time)
-)
-
-func requestAppStateFatalRecovery(name appstate.WAPatchName) {
-	appStateResyncMu.Lock()
-	if wait := 5*time.Minute - time.Since(lastFatalRecoveryRequest[name]); wait > 0 {
-		appStateResyncMu.Unlock()
+func (acc *Account) requestAppStateFatalRecovery(name appstate.WAPatchName) {
+	acc.appStateResyncMu.Lock()
+	if wait := 5*time.Minute - time.Since(acc.lastFatalRecoveryRequest[name]); wait > 0 {
+		acc.appStateResyncMu.Unlock()
 		log.Printf("Fatal recovery for %s: skipping, still within 5m of the last request (%s left)", name, wait.Round(time.Second))
 		return
 	}
-	lastFatalRecoveryRequest[name] = time.Now()
-	appStateResyncMu.Unlock()
+	acc.lastFatalRecoveryRequest[name] = time.Now()
+	acc.appStateResyncMu.Unlock()
 
-	if wa() == nil {
+	if acc.wa() == nil {
 		return
 	}
 	log.Printf("Requesting fatal recovery snapshot for %s from our primary device.", name)
 	req := whatsmeow.BuildAppStateRecoveryRequest(name)
-	if _, err := wa().SendPeerMessage(context.Background(), req); err != nil {
+	if _, err := acc.wa().SendPeerMessage(context.Background(), req); err != nil {
 		log.Printf("Fatal recovery request for %s failed to send: %v", name, err)
 	}
 }
@@ -3406,7 +3365,7 @@ func isDatabaseLocked(err error) bool {
 	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "SQLITE_BUSY")
 }
 
-func retryAppStateAfterLock(name appstate.WAPatchName, attempt int) {
+func (acc *Account) retryAppStateAfterLock(name appstate.WAPatchName, attempt int) {
 	if attempt >= 5 {
 		log.Printf("App state %s: still hitting database locks after %d retries, giving up until next connection", name, attempt)
 		return
@@ -3414,47 +3373,47 @@ func retryAppStateAfterLock(name appstate.WAPatchName, attempt int) {
 	delay := time.Duration(15*(attempt+1)) * time.Second
 	log.Printf("App state %s hit a database lock; retrying in %s", name, delay)
 	time.AfterFunc(delay, func() {
-		if wa() == nil {
+		if acc.wa() == nil {
 			return
 		}
-		err := wa().FetchAppState(context.Background(), name, false, false)
+		err := acc.wa().FetchAppState(context.Background(), name, false, false)
 		switch {
 		case err == nil:
 			log.Printf("App state %s resync succeeded after database lock", name)
-			appStateResyncMu.Lock()
-			appStateResyncCount[name] = 0
-			appStateResyncMu.Unlock()
-			populateChatsFromStore()
-			broadcastChats()
+			acc.appStateResyncMu.Lock()
+			acc.appStateResyncCount[name] = 0
+			acc.appStateResyncMu.Unlock()
+			acc.populateChatsFromStore()
+			acc.broadcastChats()
 		case isDatabaseLocked(err):
-			retryAppStateAfterLock(name, attempt+1)
+			acc.retryAppStateAfterLock(name, attempt+1)
 		default:
 			log.Printf("App state %s retry after database lock failed: %v", name, err)
 		}
 	})
 }
 
-func handleAppStateSyncError(v *events.AppStateSyncError) {
-	appStateResyncMu.Lock()
-	count := appStateResyncCount[v.Name]
+func (acc *Account) handleAppStateSyncError(v *events.AppStateSyncError) {
+	acc.appStateResyncMu.Lock()
+	count := acc.appStateResyncCount[v.Name]
 	if count >= 3 {
-		appStateResyncMu.Unlock()
+		acc.appStateResyncMu.Unlock()
 		log.Printf("AppStateSyncError for %s: giving up after %d failed attempts. Will retry on next connection.", v.Name, count)
 		return
 	}
-	lastTime := lastAppStateResync[v.Name]
+	lastTime := acc.lastAppStateResync[v.Name]
 	if wait := 60*time.Second - time.Since(lastTime); wait > 0 {
-		appStateResyncMu.Unlock()
+		acc.appStateResyncMu.Unlock()
 		log.Printf("AppStateSyncError for %s: skipping resync, still within 60s of the last attempt (%s left): %v", v.Name, wait.Round(time.Second), v.Error)
 		return
 	}
-	appStateResyncCount[v.Name] = count + 1
-	lastAppStateResync[v.Name] = time.Now()
-	appStateResyncMu.Unlock()
+	acc.appStateResyncCount[v.Name] = count + 1
+	acc.lastAppStateResync[v.Name] = time.Now()
+	acc.appStateResyncMu.Unlock()
 
 	go func() {
 		log.Printf("AppStateSyncError for %s (attempt %d/3): %v.", v.Name, count+1, v.Error)
-		if wa() == nil {
+		if acc.wa() == nil {
 			return
 		}
 		if v.Error != nil {
@@ -3478,7 +3437,7 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 				// index->valueMAC mapping from scratch, which is what a
 				// later patch actually needs.
 				log.Printf("Mismatching LTHash for %s - forcing a full resync (fresh snapshot).", v.Name)
-				if resyncErr := wa().FetchAppState(context.Background(), v.Name, true, false); resyncErr != nil {
+				if resyncErr := acc.wa().FetchAppState(context.Background(), v.Name, true, false); resyncErr != nil {
 					log.Printf("Full resync for %s failed: %v", v.Name, resyncErr)
 					resyncErrMsg := resyncErr.Error()
 					if strings.Contains(resyncErrMsg, "mismatching LTHash") || strings.Contains(resyncErrMsg, "failed to verify snapshot") {
@@ -3492,33 +3451,33 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 						// message; whatsmeow already parses the response in
 						// handleAppStateRecovery (wired from message.go), it
 						// just never had anything triggering the request.
-						requestAppStateFatalRecovery(v.Name)
+						acc.requestAppStateFatalRecovery(v.Name)
 					}
 				} else {
 					log.Printf("Full resync for %s succeeded", v.Name)
-					appStateResyncMu.Lock()
-					appStateResyncCount[v.Name] = 0
-					appStateResyncMu.Unlock()
+					acc.appStateResyncMu.Lock()
+					acc.appStateResyncCount[v.Name] = 0
+					acc.appStateResyncMu.Unlock()
 				}
 				return
 			}
 		}
-		err := wa().FetchAppState(context.Background(), v.Name, false, false)
+		err := acc.wa().FetchAppState(context.Background(), v.Name, false, false)
 		if err != nil {
 			if errors.Is(err, whatsmeow.ErrIQRateOverLimit) || strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate-overlimit") {
 				log.Printf("Rate limit 429 during resync of %s. Scheduling retry in 90s...", v.Name)
 				time.AfterFunc(90*time.Second, func() {
-					appStateResyncMu.Lock()
-					lastAppStateResync[v.Name] = time.Now()
-					appStateResyncMu.Unlock()
-					if wa() != nil {
-						if retryErr := wa().FetchAppState(context.Background(), v.Name, false, false); retryErr != nil {
+					acc.appStateResyncMu.Lock()
+					acc.lastAppStateResync[v.Name] = time.Now()
+					acc.appStateResyncMu.Unlock()
+					if acc.wa() != nil {
+						if retryErr := acc.wa().FetchAppState(context.Background(), v.Name, false, false); retryErr != nil {
 							log.Printf("Delayed retry for %s failed: %v", v.Name, retryErr)
 						} else {
 							log.Printf("Delayed resync for %s succeeded", v.Name)
-							appStateResyncMu.Lock()
-							appStateResyncCount[v.Name] = 0
-							appStateResyncMu.Unlock()
+							acc.appStateResyncMu.Lock()
+							acc.appStateResyncCount[v.Name] = 0
+							acc.appStateResyncMu.Unlock()
 						}
 					}
 				})
@@ -3528,24 +3487,24 @@ func handleAppStateSyncError(v *events.AppStateSyncError) {
 				// race again; wait for things to calm down instead.
 				// critical_unblock_low carries saved contact names, so giving
 				// up here leaves every chat showing push names instead.
-				retryAppStateAfterLock(v.Name, 0)
+				acc.retryAppStateAfterLock(v.Name, 0)
 			} else {
 				log.Printf("Failed to resync app state %s: %v", v.Name, err)
 			}
 		} else {
 			log.Printf("App state %s resync succeeded", v.Name)
-			appStateResyncMu.Lock()
-			appStateResyncCount[v.Name] = 0
-			appStateResyncMu.Unlock()
+			acc.appStateResyncMu.Lock()
+			acc.appStateResyncCount[v.Name] = 0
+			acc.appStateResyncMu.Unlock()
 		}
 	}()
 }
-func isParticipantMe(p types.GroupParticipant) bool {
-	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
+func (acc *Account) isParticipantMe(p types.GroupParticipant) bool {
+	if acc.wa() == nil || acc.wa().Store == nil || acc.wa().Store.ID == nil {
 		return false
 	}
-	myJID := wa().Store.ID.ToNonAD()
-	myLID := wa().Store.GetLID().ToNonAD()
+	myJID := acc.wa().Store.ID.ToNonAD()
+	myLID := acc.wa().Store.GetLID().ToNonAD()
 	isMe := func(j types.JID) bool {
 		switch j.Server {
 		case types.DefaultUserServer:
@@ -3559,19 +3518,19 @@ func isParticipantMe(p types.GroupParticipant) bool {
 		return true
 	}
 	if p.JID.Server == types.HiddenUserServer {
-		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), p.JID); err == nil && !pn.IsEmpty() {
+		if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), p.JID); err == nil && !pn.IsEmpty() {
 			return isMe(pn)
 		}
 	}
 	return false
 }
 
-func isViewerAdmin(info *types.GroupInfo) bool {
+func (acc *Account) isViewerAdmin(info *types.GroupInfo) bool {
 	if info == nil {
 		return false
 	}
 	for _, p := range info.Participants {
-		if isParticipantMe(p) && (p.IsAdmin || p.IsSuperAdmin) {
+		if acc.isParticipantMe(p) && (p.IsAdmin || p.IsSuperAdmin) {
 			return true
 		}
 	}
@@ -3599,17 +3558,17 @@ func videoText(video *waE2E.VideoMessage) string {
 // applyPinChange stores a pin or unpin made at changedAt (unix seconds) unless
 // a newer one is already stored. The pin time is what orders the pinned chats,
 // newest pin first, as WA Web orders them by chat.pin.
-func applyPinChange(jid string, pinned bool, changedAt int64) {
+func (acc *Account) applyPinChange(jid string, pinned bool, changedAt int64) {
 	pinnedAt := int64(0)
 	if pinned {
 		pinnedAt = max(changedAt, 1)
 	}
-	db.Exec(`UPDATE chats SET pinned = ?, pinned_at = ?, pin_changed_at = ?,
+	acc.db.Exec(`UPDATE chats SET pinned = ?, pinned_at = ?, pin_changed_at = ?,
 			archived = CASE WHEN ? = 1 THEN 0 ELSE archived END
 		WHERE jid = ? AND COALESCE(pin_changed_at, 0) <= ?`,
 		boolToInt(pinned), pinnedAt, changedAt, boolToInt(pinned), jid, changedAt)
 	if pinned {
-		db.Exec(`UPDATE archive_actions SET archived = 0, changed_at = MAX(changed_at, ?) WHERE jid = ?`, changedAt, jid)
+		acc.db.Exec(`UPDATE archive_actions SET archived = 0, changed_at = MAX(changed_at, ?) WHERE jid = ?`, changedAt, jid)
 	}
-	broadcastChats()
+	acc.broadcastChats()
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/types"
@@ -33,22 +32,17 @@ type liveCall struct {
 	rejectedByOwn bool
 }
 
-var (
-	liveCallsMu sync.Mutex
-	liveCalls   = map[string]*liveCall{}
-)
-
 // trackLiveCall starts tracking a call this device rings for or places.
 // creator is whoever placed it; leave it empty when that isn't known, and a
 // delete of the call then stays on this device.
-func trackLiveCall(callID string, chatJID, creator types.JID, incoming, video, group bool) {
+func (acc *Account) trackLiveCall(callID string, chatJID, creator types.JID, incoming, video, group bool) {
 	if callID == "" || chatJID.IsEmpty() {
 		return
 	}
 	creatorStr, keyChat := liveCallKey(chatJID, creator)
-	liveCallsMu.Lock()
-	liveCalls[callID] = &liveCall{
-		chatJID:  preferPN(chatJID).String(),
+	acc.liveCallsMu.Lock()
+	acc.liveCalls[callID] = &liveCall{
+		chatJID:  acc.preferPN(chatJID).String(),
 		creator:  creatorStr,
 		keyChat:  keyChat,
 		incoming: incoming,
@@ -56,7 +50,7 @@ func trackLiveCall(callID string, chatJID, creator types.JID, incoming, video, g
 		group:    group,
 		started:  time.Now(),
 	}
-	liveCallsMu.Unlock()
+	acc.liveCallsMu.Unlock()
 }
 
 // liveCallKey is the creator and key chat of a call log message for a call
@@ -69,27 +63,27 @@ func liveCallKey(chatJID, creator types.JID) (string, string) {
 	return creator.ToNonAD().String(), chatJID.ToNonAD().String()
 }
 
-func updateLiveCall(callID string, fn func(*liveCall)) {
-	liveCallsMu.Lock()
-	if c := liveCalls[callID]; c != nil {
+func (acc *Account) updateLiveCall(callID string, fn func(*liveCall)) {
+	acc.liveCallsMu.Lock()
+	if c := acc.liveCalls[callID]; c != nil {
 		fn(c)
 	}
-	liveCallsMu.Unlock()
+	acc.liveCallsMu.Unlock()
 }
 
-func noteOwnDeviceReject(evt interface{}) {
+func (acc *Account) noteOwnDeviceReject(evt interface{}) {
 	rej, ok := evt.(*events.CallReject)
-	if !ok || !isOwnJID(rej.From) {
+	if !ok || !acc.isOwnJID(rej.From) {
 		return
 	}
-	updateLiveCall(rej.CallID, func(c *liveCall) {
+	acc.updateLiveCall(rej.CallID, func(c *liveCall) {
 		if c.incoming {
 			c.rejectedByOwn = true
 		}
 	})
 }
 
-func noteOfflineMissedCall(evt interface{}) {
+func (acc *Account) noteOfflineMissedCall(evt interface{}) {
 	offer, ok := evt.(*events.CallOffer)
 	if !ok || !offer.Offline || offer.CallID == "" {
 		return
@@ -112,7 +106,7 @@ func noteOfflineMissedCall(evt interface{}) {
 	}
 	creatorStr, keyChat := liveCallKey(chatJID, offer.CallCreator)
 	c := &liveCall{
-		chatJID:  preferPN(chatJID).String(),
+		chatJID:  acc.preferPN(chatJID).String(),
 		creator:  creatorStr,
 		keyChat:  keyChat,
 		incoming: true,
@@ -122,20 +116,20 @@ func noteOfflineMissedCall(evt interface{}) {
 	}
 	text := liveCallText(c, "", started)
 	log.Printf("Call %s rang while offline; logging it as missed", offer.CallID)
-	storeLiveCallRow(offer.CallID, c, text, liveCallResult(c, ""), 0)
+	acc.storeLiveCallRow(offer.CallID, c, text, liveCallResult(c, ""), 0)
 }
 
-func finishLiveCall(callID, reason string) string {
-	liveCallsMu.Lock()
-	c := liveCalls[callID]
-	delete(liveCalls, callID)
-	liveCallsMu.Unlock()
+func (acc *Account) finishLiveCall(callID, reason string) string {
+	acc.liveCallsMu.Lock()
+	c := acc.liveCalls[callID]
+	delete(acc.liveCalls, callID)
+	acc.liveCallsMu.Unlock()
 	if c == nil {
 		return ""
 	}
 	now := time.Now()
 	text := liveCallText(c, reason, now)
-	storeLiveCallRow(callID, c, text, liveCallResult(c, reason), liveCallDuration(c, now))
+	acc.storeLiveCallRow(callID, c, text, liveCallResult(c, reason), liveCallDuration(c, now))
 	return text
 }
 
@@ -214,14 +208,14 @@ func liveCallDuration(c *liveCall, now time.Time) int64 {
 	return int64(now.Sub(c.connected).Seconds())
 }
 
-func storeLiveCallRow(callID string, c *liveCall, text, result string, duration int64) {
-	if callDeleted(callID) {
+func (acc *Account) storeLiveCallRow(callID string, c *liveCall, text, result string, duration int64) {
+	if acc.callDeleted(callID) {
 		return
 	}
 	id := "call:" + callID
 	ts := c.started.Unix()
 	fromMe := !c.incoming
-	res, err := db.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, sender_jid, status, media_type)
+	res, err := acc.db.Exec(`INSERT INTO messages (id, jid, from_me, text, timestamp, sender_jid, status, media_type)
 		VALUES (?, ?, ?, ?, ?, '', 'sent', 'call') ON CONFLICT(id) DO NOTHING`,
 		id, c.chatJID, fromMe, text, ts)
 	if err != nil {
@@ -231,12 +225,12 @@ func storeLiveCallRow(callID string, c *liveCall, text, result string, duration 
 	if n, _ := res.RowsAffected(); n == 0 {
 		return
 	}
-	storeCallRecord(callRecord{
+	acc.storeCallRecord(callRecord{
 		CallID: callID, JID: c.chatJID, FromMe: fromMe, IsVideo: c.video, IsGroup: c.group,
 		Result: result, Duration: duration, Timestamp: ts, Text: text,
 		Creator: c.creator, KeyChat: c.keyChat,
 	})
-	db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
+	acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, 0, ?, '', ?)
 		ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=excluded.preview_snippet,
@@ -246,9 +240,9 @@ func storeLiveCallRow(callID string, c *liveCall, text, result string, duration 
 			preview_reaction_emoji=''`,
 		c.chatJID, ts, text, boolToInt(fromMe))
 	var chatName string
-	db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, c.chatJID).Scan(&chatName)
-	broadcastChats()
-	broadcastEvent("message", map[string]interface{}{
+	acc.db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, c.chatJID).Scan(&chatName)
+	acc.broadcastChats()
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid":       c.chatJID,
 		"from":      "",
 		"id":        id,

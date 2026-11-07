@@ -37,9 +37,9 @@ func eventResponseName(r waE2E.EventResponseMessage_EventResponseType) string {
 	return ""
 }
 
-func loadEvent(eventID string) (*waE2E.EventMessage, bool) {
+func (acc *Account) loadEvent(eventID string) (*waE2E.EventMessage, bool) {
 	var raw []byte
-	if db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, eventID).Scan(&raw) != nil || len(raw) == 0 {
+	if acc.db.QueryRow(`SELECT raw FROM messages WHERE id = ?`, eventID).Scan(&raw) != nil || len(raw) == 0 {
 		return nil, false
 	}
 	msg := &waE2E.Message{}
@@ -65,9 +65,9 @@ func storeEventResponse(ex sqlExecer, eventID, responder string, resp *waE2E.Eve
 	}
 }
 
-func eventResponses(eventID string) map[string]eventRSVP {
+func (acc *Account) eventResponses(eventID string) map[string]eventRSVP {
 	responses := map[string]eventRSVP{}
-	rows, err := db.Query(`SELECT responder, response, extra_guests FROM event_responses WHERE event_id = ?`, eventID)
+	rows, err := acc.db.Query(`SELECT responder, response, extra_guests FROM event_responses WHERE event_id = ?`, eventID)
 	if err != nil {
 		return responses
 	}
@@ -118,49 +118,49 @@ func eventResponsesText(responses map[string]eventRSVP, me string) string {
 	return text
 }
 
-func eventResultsForMessage(id string) string {
-	event, ok := loadEvent(id)
+func (acc *Account) eventResultsForMessage(id string) string {
+	event, ok := acc.loadEvent(id)
 	if !ok || event.GetIsCanceled() {
 		return ""
 	}
-	return eventResponsesText(eventResponses(id), ownVoterKey())
+	return eventResponsesText(acc.eventResponses(id), acc.ownVoterKey())
 }
 
-func decryptEventResponse(v *events.Message) (*waE2E.EventResponseMessage, error) {
+func (acc *Account) decryptEventResponse(v *events.Message) (*waE2E.EventResponseMessage, error) {
 	evt := *v
 	evt.Message = unwrapMessage(v.Message)
-	return wa().DecryptEventResponse(context.Background(), &evt)
+	return acc.wa().DecryptEventResponse(context.Background(), &evt)
 }
 
-func applyEventResponse(v *events.Message) {
+func (acc *Account) applyEventResponse(v *events.Message) {
 	eventID := unwrapMessage(v.Message).GetEncEventResponseMessage().GetEventCreationMessageKey().GetID()
-	resp, err := decryptEventResponse(v)
+	resp, err := acc.decryptEventResponse(v)
 	if err != nil {
 		log.Printf("RSVP to event %s couldn't be decrypted: %v", eventID, err)
 		return
 	}
-	storeEventResponse(db, eventID, pollVoterKey(v.Info.Sender), resp, v.Info.Timestamp.Unix())
-	chat, _ := resolveLIDChat(v)
-	broadcastPollResults(chat.String(), eventID)
+	storeEventResponse(acc.db, eventID, acc.pollVoterKey(v.Info.Sender), resp, v.Info.Timestamp.Unix())
+	chat, _ := acc.resolveLIDChat(v)
+	acc.broadcastPollResults(chat.String(), eventID)
 }
 
-func historyEventResponses(exec sqlExecer, chat types.JID, webMsg *waWeb.WebMessageInfo) {
+func (acc *Account) historyEventResponses(exec sqlExecer, chat types.JID, webMsg *waWeb.WebMessageInfo) {
 	eventID := webMsg.GetKey().GetID()
 	for _, er := range webMsg.GetEventResponses() {
 		key := er.GetEventResponseMessageKey()
 		var responder string
 		switch {
 		case key.GetFromMe():
-			responder = ownVoterKey()
+			responder = acc.ownVoterKey()
 		case key.GetParticipant() != "":
 			if j, err := types.ParseJID(key.GetParticipant()); err == nil {
-				responder = pollVoterKey(j)
+				responder = acc.pollVoterKey(j)
 			}
 		default:
 			if j, err := types.ParseJID(key.GetRemoteJID()); err == nil {
-				responder = pollVoterKey(j)
+				responder = acc.pollVoterKey(j)
 			} else {
-				responder = pollVoterKey(chat)
+				responder = acc.pollVoterKey(chat)
 			}
 		}
 		storeEventResponse(exec, eventID, responder, er.GetEventResponseMessage(), er.GetTimestampMS()/1000)
@@ -174,26 +174,26 @@ type EventRefData struct {
 	ExtraGuests int    `json:"extra_guests"`
 }
 
-func handleGetEvent(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetEvent(conn net.Conn, raw json.RawMessage) {
 	var data EventRefData
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
-	event, ok := loadEvent(data.MessageID)
+	event, ok := acc.loadEvent(data.MessageID)
 	if !ok {
-		sendEvent(conn, "error", map[string]string{"message": "This event can't be opened here."})
+		acc.sendEvent(conn, "error", map[string]string{"message": "This event can't be opened here."})
 		return
 	}
 	if event.GetIsCanceled() {
-		sendEvent(conn, "error", map[string]string{"message": "This event was cancelled."})
+		acc.sendEvent(conn, "error", map[string]string{"message": "This event was cancelled."})
 		return
 	}
-	mine := eventResponses(data.MessageID)[ownVoterKey()]
+	mine := acc.eventResponses(data.MessageID)[acc.ownVoterKey()]
 	when := ""
 	if start := event.GetStartTime(); start > 0 {
 		when = time.Unix(start, 0).Format("Monday 2 January 2006, 15:04")
 	}
-	sendEvent(conn, "event_details", map[string]interface{}{
+	acc.sendEvent(conn, "event_details", map[string]interface{}{
 		"jid":                  data.JID,
 		"message_id":           data.MessageID,
 		"name":                 strings.TrimSpace(event.GetName()),
@@ -202,23 +202,23 @@ func handleGetEvent(conn net.Conn, raw json.RawMessage) {
 		"response":             eventResponseName(mine.response),
 		"extra_guests":         mine.extraGuests,
 		"extra_guests_allowed": event.GetExtraGuestsAllowed(),
-		"results":              eventResultsForMessage(data.MessageID),
+		"results":              acc.eventResultsForMessage(data.MessageID),
 	})
 }
 
-func handleSendEventResponse(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendEventResponse(conn net.Conn, raw json.RawMessage) {
 	var data EventRefData
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
 	go func() {
-		fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
+		fail := func(msg string) { acc.sendEvent(conn, "error", map[string]string{"message": msg}) }
 		response, known := eventResponseNames[data.Response]
 		if !known {
 			fail("Choose going, maybe or not going.")
 			return
 		}
-		event, ok := loadEvent(data.MessageID)
+		event, ok := acc.loadEvent(data.MessageID)
 		if !ok {
 			fail("This event can't be answered here.")
 			return
@@ -236,22 +236,22 @@ func handleSendEventResponse(conn net.Conn, raw json.RawMessage) {
 			fail("invalid jid")
 			return
 		}
-		msg, err := wa().BuildEventResponse(context.Background(), secretMessageInfo(chat, data.MessageID), response, extra)
+		msg, err := acc.wa().BuildEventResponse(context.Background(), acc.secretMessageInfo(chat, data.MessageID), response, extra)
 		if err != nil {
 			fail("Couldn't answer the event: " + err.Error())
 			return
 		}
-		if _, err := wa().SendMessage(context.Background(), chat, msg, whatsmeow.SendRequestExtra{}); err != nil {
+		if _, err := acc.wa().SendMessage(context.Background(), chat, msg, whatsmeow.SendRequestExtra{}); err != nil {
 			fail("Couldn't send your answer: " + err.Error())
 			return
 		}
-		storeEventResponse(db, data.MessageID, ownVoterKey(), &waE2E.EventResponseMessage{
+		storeEventResponse(acc.db, data.MessageID, acc.ownVoterKey(), &waE2E.EventResponseMessage{
 			Response:        response.Enum(),
 			TimestampMS:     proto.Int64(time.Now().UnixMilli()),
 			ExtraGuestCount: proto.Int32(int32(extra)),
 		}, time.Now().Unix())
-		results := broadcastPollResults(data.JID, data.MessageID)
-		sendEvent(conn, "event_answered", map[string]interface{}{
+		results := acc.broadcastPollResults(data.JID, data.MessageID)
+		acc.sendEvent(conn, "event_answered", map[string]interface{}{
 			"message_id":  data.MessageID,
 			"response":    data.Response,
 			"pollResults": results,
@@ -304,12 +304,12 @@ func parseEventStart(date, clock string, loc *time.Location) (time.Time, error) 
 	return time.Date(day.Year(), day.Month(), day.Day(), at.Hour(), at.Minute(), 0, 0, loc), nil
 }
 
-func handleSendEvent(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendEvent(conn net.Conn, raw json.RawMessage) {
 	var data SendEventData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
+	fail := func(msg string) { acc.sendEvent(conn, "error", map[string]string{"message": msg}) }
 	jid, err := types.ParseJID(data.JID)
 	if err != nil {
 		fail("invalid jid")
@@ -333,17 +333,17 @@ func handleSendEvent(conn net.Conn, raw json.RawMessage) {
 	if place := strings.TrimSpace(data.Location); place != "" {
 		creation.Location = &waE2E.LocationMessage{Name: proto.String(place)}
 	}
-	msg, err := wa().BuildEventCreation(creation)
+	msg, err := acc.wa().BuildEventCreation(creation)
 	if err != nil {
 		fail("The event needs a name.")
 		return
 	}
 	go func() {
-		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
+		ctxInfo, quotedID, quotedText, quotedSender := acc.buildAttachmentContext(data.ReplyToID, data.ReplySender)
 		msg.EventMessage.ContextInfo = ctxInfo
-		displayText := extractTextRaw(msg)
-		id := wa().GenerateMessageID()
-		startSendingBuiltMessage(id, jid, msg, displayText, quotedID, quotedText, quotedSender)
-		finishSendingBuiltMessage(conn, id, jid, msg, displayText)
+		displayText := acc.extractTextRaw(msg)
+		id := acc.wa().GenerateMessageID()
+		acc.startSendingBuiltMessage(id, jid, msg, displayText, quotedID, quotedText, quotedSender)
+		acc.finishSendingBuiltMessage(conn, id, jid, msg, displayText)
 	}()
 }

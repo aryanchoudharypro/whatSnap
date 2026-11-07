@@ -22,7 +22,7 @@ const (
 	pollMaxOptions     = 12
 )
 
-func buildPoll(question string, options []string, multipleAnswers bool, correctAnswer string) (*waE2E.Message, error) {
+func (acc *Account) buildPoll(question string, options []string, multipleAnswers bool, correctAnswer string) (*waE2E.Message, error) {
 	question = strings.TrimSpace(question)
 	if question == "" {
 		return nil, errors.New("the poll needs a question")
@@ -55,7 +55,7 @@ func buildPoll(question string, options []string, multipleAnswers bool, correctA
 	if correctAnswer = strings.TrimSpace(correctAnswer); correctAnswer != "" {
 		for i, opt := range cleaned {
 			if opt == correctAnswer {
-				return wa().BuildQuizPollCreation(question, cleaned, i)
+				return acc.wa().BuildQuizPollCreation(question, cleaned, i)
 			}
 		}
 		return nil, errors.New("the quiz's correct answer isn't one of its options")
@@ -64,7 +64,7 @@ func buildPoll(question string, options []string, multipleAnswers bool, correctA
 	if !multipleAnswers {
 		selectable = 1
 	}
-	msg := wa().BuildPollCreation(question, cleaned, selectable)
+	msg := acc.wa().BuildPollCreation(question, cleaned, selectable)
 	if !multipleAnswers {
 		msg.PollCreationMessageV3 = msg.PollCreationMessage
 		msg.PollCreationMessage = nil
@@ -72,44 +72,44 @@ func buildPoll(question string, options []string, multipleAnswers bool, correctA
 	return msg, nil
 }
 
-func handleSendPoll(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendPoll(conn net.Conn, raw json.RawMessage) {
 	var data SendPollData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	jid, err := types.ParseJID(data.JID)
 	if err != nil {
-		sendEvent(conn, "error", map[string]string{"message": "invalid jid"})
+		acc.sendEvent(conn, "error", map[string]string{"message": "invalid jid"})
 		return
 	}
-	msg, err := buildPoll(data.Question, data.Options, data.MultipleAnswers, data.CorrectAnswer)
+	msg, err := acc.buildPoll(data.Question, data.Options, data.MultipleAnswers, data.CorrectAnswer)
 	if err != nil {
-		sendEvent(conn, "error", map[string]string{"message": err.Error()})
+		acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 		return
 	}
 	go func() {
-		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
+		ctxInfo, quotedID, quotedText, quotedSender := acc.buildAttachmentContext(data.ReplyToID, data.ReplySender)
 		pollCreation(msg).ContextInfo = ctxInfo
-		displayText := extractTextRaw(msg)
-		id := wa().GenerateMessageID()
-		startSendingBuiltMessage(id, jid, msg, displayText, quotedID, quotedText, quotedSender)
-		finishSendingBuiltMessage(conn, id, jid, msg, displayText)
+		displayText := acc.extractTextRaw(msg)
+		id := acc.wa().GenerateMessageID()
+		acc.startSendingBuiltMessage(id, jid, msg, displayText, quotedID, quotedText, quotedSender)
+		acc.finishSendingBuiltMessage(conn, id, jid, msg, displayText)
 	}()
 }
 
-func startSendingBuiltMessage(id string, jid types.JID, msg *waE2E.Message, displayText, quotedID, quotedText, quotedSender string) {
+func (acc *Account) startSendingBuiltMessage(id string, jid types.JID, msg *waE2E.Message, displayText, quotedID, quotedText, quotedSender string) {
 	senderJID := ""
-	if wa().Store.ID != nil {
-		senderJID = wa().Store.ID.ToNonAD().String()
+	if acc.wa().Store.ID != nil {
+		senderJID = acc.wa().Store.ID.ToNonAD().String()
 	}
 	ts := time.Now().Unix()
 	rawBytes, _ := proto.Marshal(msg)
-	saveMessage(StoredMessage{
+	acc.saveMessage(StoredMessage{
 		ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
 		Text: displayText, Timestamp: ts, Status: "pending", Raw: rawBytes,
 		QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 	})
-	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+	acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 		ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=excluded.preview_snippet,
@@ -117,7 +117,7 @@ func startSendingBuiltMessage(id string, jid types.JID, msg *waE2E.Message, disp
 			preview_from_me=1,
 			preview_is_reaction=0,
 			preview_reaction_emoji=''`, jid.String(), ts, displayText, senderJID)
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 		"from_me":      true,
 		"timestamp":    ts,
@@ -128,39 +128,39 @@ func startSendingBuiltMessage(id string, jid types.JID, msg *waE2E.Message, disp
 		"quotedSender": quotedSender,
 		"pollResults":  newPollResults(msg),
 	})
-	broadcastChats()
+	acc.broadcastChats()
 }
 
-func finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE2E.Message, displayText string) {
+func (acc *Account) finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE2E.Message, displayText string) {
 	// The same in-flight claim the text path uses, so a manual retry and the
 	// background sweep can never send this twice at once.
-	if !beginSendAttempt(id) {
+	if !acc.beginSendAttempt(id) {
 		return
 	}
-	defer endSendAttempt(id)
+	defer acc.endSendAttempt(id)
 	var quotedID, quotedText, quotedSender string
-	db.QueryRow(`SELECT COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,'') FROM messages WHERE id = ?`, id).
+	acc.db.QueryRow(`SELECT COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,'') FROM messages WHERE id = ?`, id).
 		Scan(&quotedID, &quotedText, &quotedSender)
-	msg = applyDisappearingTimer(jid, msg)
-	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, CheckPermissions: true})
+	msg = acc.applyDisappearingTimer(jid, msg)
+	resp, err := acc.wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, CheckPermissions: true})
 	if err != nil {
-		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+		acc.db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
 		if conn != nil {
-			sendEvent(conn, "error", map[string]string{"message": sendErrorText(err)})
+			acc.sendEvent(conn, "error", map[string]string{"message": sendErrorText(err)})
 		}
-		broadcastEvent("message", map[string]interface{}{
+		acc.broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 			"from_me": true, "timestamp": time.Now().Unix(), "has_media": false, "status": "failed",
 			"quotedId": quotedID, "quotedText": quotedText, "quotedSender": quotedSender,
-			"pollResults": pollResultsForMessage(id),
+			"pollResults": acc.pollResultsForMessage(id),
 		})
 		return
 	}
 	sentTs := resp.Timestamp.Unix()
-	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=? WHERE id=?`, sentTs, sentTs, id)
-	noteMessageExpiry(db, id, sentTs, msg)
-	noteChannelPostSent(jid, id, resp)
-	broadcastEvent("message", map[string]interface{}{
+	acc.db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=? WHERE id=?`, sentTs, sentTs, id)
+	noteMessageExpiry(acc.db, id, sentTs, msg)
+	acc.noteChannelPostSent(jid, id, resp)
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 		"from_me":      true,
 		"timestamp":    sentTs,
@@ -170,7 +170,7 @@ func finishSendingBuiltMessage(conn net.Conn, id string, jid types.JID, msg *waE
 		"quotedId":     quotedID,
 		"quotedText":   quotedText,
 		"quotedSender": quotedSender,
-		"pollResults":  pollResultsForMessage(id),
+		"pollResults":  acc.pollResultsForMessage(id),
 	})
-	broadcastChats()
+	acc.broadcastChats()
 }

@@ -10,11 +10,11 @@ const (
 	abPropWinHybridPlusIncomingPopout = 35379
 )
 
-func logHybridServerFlags() {
-	if wa() == nil {
+func (acc *Account) logHybridServerFlags() {
+	if acc.wa() == nil {
 		return
 	}
-	props := wa().CachedABProps()
+	props := acc.wa().CachedABProps()
 	value := func(code int) string {
 		if v, ok := props[code]; ok {
 			return v

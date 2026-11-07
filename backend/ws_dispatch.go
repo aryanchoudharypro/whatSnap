@@ -15,6 +15,9 @@ import (
 
 const maxCommandBytes = 1024 * 1024
 
+// handleConnection reads the app's commands. Each one names the account it
+// is for; "open_account", "close_account" and "shutdown" are for the backend
+// as a whole.
 func handleConnection(conn net.Conn) {
 	fmt.Println("New IPC connection!")
 	defer conn.Close()
@@ -29,20 +32,35 @@ func handleConnection(conn net.Conn) {
 		wsMutex.Unlock()
 	}()
 
-	sendGreeting(conn)
-
 	scanner := bufio.NewScanner(conn)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, maxCommandBytes)
 
 	for scanner.Scan() {
-		msg := scanner.Bytes()
-
 		var cmd Command
-		if err := json.Unmarshal(msg, &cmd); err != nil {
+		if err := json.Unmarshal(scanner.Bytes(), &cmd); err != nil {
 			continue
 		}
-		dispatchCommand(conn, cmd)
+		switch cmd.Action {
+		case "open_account":
+			handleOpenAccount(conn, cmd.Account, cmd.Data)
+			continue
+		case "close_account":
+			handleCloseAccount(conn, cmd.Account)
+			continue
+		case "shutdown":
+			shutdownBackend()
+			continue
+		}
+		acc := lookupAccount(cmd.Account)
+		if acc == nil {
+			log.Printf("Dropping %q for account %q, which isn't open", cmd.Action, cmd.Account)
+			continue
+		}
+		select {
+		case acc.commands <- queuedCommand{conn: conn, cmd: cmd}:
+		case <-acc.ctx.Done():
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -59,16 +77,16 @@ func handleConnection(conn net.Conn) {
 // sendGreeting tells a newly connected app where this backend stands: linked
 // (with the state the app needs first) or waiting to be linked. The app asks
 // for it again with "hello" when it switches to this backend's account.
-func sendGreeting(conn net.Conn) {
-	if wa().Store.ID != nil {
+func (acc *Account) sendGreeting(conn net.Conn) {
+	if acc.wa().Store.ID != nil {
 		log.Println("Sending initial connected event to WS")
-		sendEvent(conn, "connected", map[string]string{"jid": wa().Store.ID.String()})
-		sendEvent(conn, "connection_state", currentConnState())
-		sendEvent(conn, "server_flags", serverFlagsPayload())
-		sendEvent(conn, "blocklist", blocklistPayload())
+		acc.sendEvent(conn, "connected", map[string]string{"jid": acc.wa().Store.ID.String()})
+		acc.sendEvent(conn, "connection_state", acc.currentConnState())
+		acc.sendEvent(conn, "server_flags", acc.serverFlagsPayload())
+		acc.sendEvent(conn, "blocklist", acc.blocklistPayload())
 		go func() {
-			populateChatsFromStore()
-			broadcastChats()
+			acc.populateChatsFromStore()
+			acc.broadcastChats()
 		}()
 	} else {
 		// Not logged in: tell the client so up front. Without this the UI has
@@ -78,13 +96,13 @@ func sendGreeting(conn net.Conn) {
 		// connect anyway. Sending it per-connection here is what makes the
 		// login screen appear on a fresh, unpaired launch (and on reconnect).
 		log.Println("Not logged in; sending needs_login to WS")
-		sendEvent(conn, "needs_login", nil)
+		acc.sendEvent(conn, "needs_login", nil)
 	}
 }
 
 const commandStallThreshold = 10 * time.Second
 
-func dispatchCommand(conn net.Conn, cmd Command) {
+func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 	stalled := time.AfterFunc(commandStallThreshold, func() {
 		log.Printf("Command %q still running after %s; later commands are waiting on it", cmd.Action, commandStallThreshold)
 		dumpGoroutinesForStall(fmt.Sprintf("command %q still running after %s", cmd.Action, commandStallThreshold))
@@ -103,394 +121,392 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 	}()
 	switch cmd.Action {
 	case "send", "send_attachment", "send_sticker", "send_contacts", "send_poll", "send_event", "send_voice_message":
-		markReadOnSend(cmd.Data)
+		acc.markReadOnSend(cmd.Data)
 	}
 	switch cmd.Action {
 	case "hello":
-		sendGreeting(conn)
+		acc.sendGreeting(conn)
 	case "get_qr":
-		handleGetQR(conn)
+		acc.handleGetQR(conn)
 	case "cancel_qr", "cancel_pairing":
-		handleCancelPairing()
+		acc.handleCancelPairing()
 	case "pair":
-		handlePair(cmd.Data)
-	case "shutdown":
-		handleShutdown()
+		acc.handlePair(cmd.Data)
 	case "logout":
-		handleLogout()
+		acc.handleLogout()
 	case "reconnect":
-		handleReconnect()
+		acc.handleReconnect()
 
 	case "send":
-		go handleSend(conn, cmd.Data)
+		go acc.handleSend(conn, cmd.Data)
 	case "forward_message":
-		handleForwardMessage(conn, cmd.Data)
+		acc.handleForwardMessage(conn, cmd.Data)
 	case "react_message":
-		handleReactMessage(cmd.Data)
+		acc.handleReactMessage(cmd.Data)
 	case "get_mention_candidates":
-		handleGetMentionCandidates(conn, cmd.Data)
+		acc.handleGetMentionCandidates(conn, cmd.Data)
 	case "edit_message":
-		handleEditMessage(cmd.Data)
+		acc.handleEditMessage(cmd.Data)
 	case "delete_message":
-		handleDeleteMessage(cmd.Data)
+		acc.handleDeleteMessage(cmd.Data)
 	case "star_message":
-		handleStarMessage(cmd.Data)
+		acc.handleStarMessage(cmd.Data)
 	case "pin_message":
-		handlePinMessage(cmd.Data)
+		acc.handlePinMessage(cmd.Data)
 	case "get_pinned_messages":
-		go handleGetPinnedMessages(conn, cmd.Data)
+		go acc.handleGetPinnedMessages(conn, cmd.Data)
 	case "keep_message":
-		handleKeepMessage(cmd.Data)
+		acc.handleKeepMessage(cmd.Data)
 	case "get_stickers":
-		go handleGetStickers(conn)
+		go acc.handleGetStickers(conn)
 	case "get_sticker_store":
-		go handleGetStickerStore(conn)
+		go acc.handleGetStickerStore(conn)
 	case "get_sticker_pack":
-		go handleGetStickerPack(conn, cmd.Data)
+		go acc.handleGetStickerPack(conn, cmd.Data)
 	case "send_sticker":
-		handleSendSticker(conn, cmd.Data)
+		acc.handleSendSticker(conn, cmd.Data)
 	case "set_sticker_favorite":
-		handleSetStickerFavorite(conn, cmd.Data)
+		acc.handleSetStickerFavorite(conn, cmd.Data)
 	case "get_chat_privacy":
-		handleGetChatPrivacy(conn, cmd.Data)
+		acc.handleGetChatPrivacy(conn, cmd.Data)
 	case "set_chat_privacy":
-		handleSetChatPrivacy(cmd.Data)
+		acc.handleSetChatPrivacy(cmd.Data)
 	case "retry_message":
-		handleRetryMessage(conn, cmd.Data)
+		acc.handleRetryMessage(conn, cmd.Data)
 	case "send_typing":
-		handleSendTyping(cmd.Data)
+		acc.handleSendTyping(cmd.Data)
 	case "subscribe_presence":
-		go handleSubscribePresence(cmd.Data)
+		go acc.handleSubscribePresence(cmd.Data)
 	case "set_presence":
-		handleSetPresence(cmd.Data)
+		acc.handleSetPresence(cmd.Data)
 	case "mark_read":
-		handleMarkRead(cmd.Data)
+		acc.handleMarkRead(cmd.Data)
 
 	case "new_contact":
-		handleNewContact(conn, cmd.Data)
+		acc.handleNewContact(conn, cmd.Data)
 	case "get_contacts":
-		handleGetContacts(conn)
+		acc.handleGetContacts(conn)
 	case "get_avatar":
-		handleGetAvatar(conn, cmd.Data)
+		acc.handleGetAvatar(conn, cmd.Data)
 	case "get_avatar_previews":
-		handleGetAvatarPreviews(conn, cmd.Data)
+		acc.handleGetAvatarPreviews(conn, cmd.Data)
 	case "get_thumbnails":
-		handleGetThumbnails(conn, cmd.Data)
+		acc.handleGetThumbnails(conn, cmd.Data)
 	case "get_waveforms":
-		handleGetWaveforms(conn, cmd.Data)
+		acc.handleGetWaveforms(conn, cmd.Data)
 	case "check_contacts":
-		handleCheckContacts(conn, cmd.Data)
+		acc.handleCheckContacts(conn, cmd.Data)
 	case "delete_contact":
-		handleDeleteContact(conn, cmd.Data)
+		acc.handleDeleteContact(conn, cmd.Data)
 	case "get_user_info":
-		handleGetUserInfo(conn, cmd.Data)
+		acc.handleGetUserInfo(conn, cmd.Data)
 	case "get_business_profile":
-		handleGetBusinessProfile(conn, cmd.Data)
+		acc.handleGetBusinessProfile(conn, cmd.Data)
 	case "get_blocklist":
-		handleGetBlocklist(conn)
+		acc.handleGetBlocklist(conn)
 	case "report":
-		handleReport(conn, cmd.Data)
+		acc.handleReport(conn, cmd.Data)
 	case "block_contact":
-		handleSetBlocked(cmd.Data, true)
+		acc.handleSetBlocked(cmd.Data, true)
 	case "unblock_contact":
-		handleSetBlocked(cmd.Data, false)
+		acc.handleSetBlocked(cmd.Data, false)
 	case "set_about":
-		handleSetAbout(cmd.Data)
+		acc.handleSetAbout(cmd.Data)
 	case "set_own_photo":
-		handleSetOwnPhoto(conn, cmd.Data)
+		acc.handleSetOwnPhoto(conn, cmd.Data)
 	case "get_default_timer":
-		go handleGetDefaultTimer(conn)
+		go acc.handleGetDefaultTimer(conn)
 	case "set_default_timer":
-		handleSetDefaultTimer(conn, cmd.Data)
+		acc.handleSetDefaultTimer(conn, cmd.Data)
 	case "get_own_profile":
-		handleGetOwnProfile(conn)
+		acc.handleGetOwnProfile(conn)
 	case "set_push_name":
-		handleSetPushName(cmd.Data)
+		acc.handleSetPushName(cmd.Data)
 	case "get_app_prefs":
-		handleGetAppPrefs(conn)
+		acc.handleGetAppPrefs(conn)
 	case "set_app_prefs":
-		handleSetAppPrefs(cmd.Data)
+		acc.handleSetAppPrefs(cmd.Data)
 	case "sync_settings":
-		handleSyncSettings(cmd.Data)
+		acc.handleSyncSettings(cmd.Data)
 	case "sync_chat_tone":
-		handleSyncChatTone(cmd.Data)
+		acc.handleSyncChatTone(cmd.Data)
 	case "get_privacy_settings":
-		handleGetPrivacySettings(conn)
+		acc.handleGetPrivacySettings(conn)
 	case "set_privacy_setting":
-		handleSetPrivacySetting(cmd.Data)
+		acc.handleSetPrivacySetting(cmd.Data)
 	case "get_privacy_list":
-		handleGetPrivacyList(conn, cmd.Data)
+		acc.handleGetPrivacyList(conn, cmd.Data)
 	case "set_privacy_list":
-		handleSetPrivacyList(cmd.Data)
+		acc.handleSetPrivacyList(cmd.Data)
 
 	case "create_group":
-		handleCreateGroup(conn, cmd.Data)
+		acc.handleCreateGroup(conn, cmd.Data)
 	case "get_group_info":
-		handleGetGroupInfo(conn, cmd.Data)
+		acc.handleGetGroupInfo(conn, cmd.Data)
 	case "send_group_history":
-		handleSendGroupHistory(conn, cmd.Data)
+		acc.handleSendGroupHistory(conn, cmd.Data)
 	case "get_security_code":
-		handleGetSecurityCode(conn, cmd.Data)
+		acc.handleGetSecurityCode(conn, cmd.Data)
 	case "get_community_subgroups":
-		handleGetCommunitySubGroups(conn, cmd.Data)
+		acc.handleGetCommunitySubGroups(conn, cmd.Data)
 	case "get_join_requests":
-		go handleGetJoinRequests(conn, cmd.Data)
+		go acc.handleGetJoinRequests(conn, cmd.Data)
 	case "answer_join_requests":
-		handleAnswerJoinRequests(conn, cmd.Data)
+		acc.handleAnswerJoinRequests(conn, cmd.Data)
 	case "create_community":
-		handleCreateCommunity(conn, cmd.Data)
+		acc.handleCreateCommunity(conn, cmd.Data)
 	case "get_linkable_groups":
-		go handleGetLinkableGroups(conn, cmd.Data)
+		go acc.handleGetLinkableGroups(conn, cmd.Data)
 	case "link_community_group":
-		handleLinkCommunityGroup(conn, cmd.Data, true)
+		acc.handleLinkCommunityGroup(conn, cmd.Data, true)
 	case "unlink_community_group":
-		handleLinkCommunityGroup(conn, cmd.Data, false)
+		acc.handleLinkCommunityGroup(conn, cmd.Data, false)
 	case "deactivate_community":
-		handleDeactivateCommunity(conn, cmd.Data)
+		acc.handleDeactivateCommunity(conn, cmd.Data)
 	case "join_community_subgroup":
-		handleJoinCommunitySubgroup(cmd.Data)
+		acc.handleJoinCommunitySubgroup(cmd.Data)
 	case "leave_group":
-		handleLeaveGroup(cmd.Data)
+		acc.handleLeaveGroup(cmd.Data)
 	case "get_group_invite_link":
-		handleGetGroupInviteLink(conn, cmd.Data)
+		acc.handleGetGroupInviteLink(conn, cmd.Data)
 	case "update_group_participants":
-		handleUpdateGroupParticipants(cmd.Data)
+		acc.handleUpdateGroupParticipants(cmd.Data)
 	case "get_group_invite_info":
-		handleGetGroupInviteInfo(conn, cmd.Data)
+		acc.handleGetGroupInviteInfo(conn, cmd.Data)
 	case "join_group_invite":
-		handleJoinGroupInvite(cmd.Data)
+		acc.handleJoinGroupInvite(cmd.Data)
 	case "channel_directory":
-		handleChannelDirectory(conn, cmd.Data)
+		acc.handleChannelDirectory(conn, cmd.Data)
 	case "get_channel_info":
-		handleGetChannelInfo(conn, cmd.Data)
+		acc.handleGetChannelInfo(conn, cmd.Data)
 	case "follow_channel":
-		handleFollowChannel(cmd.Data, true)
+		acc.handleFollowChannel(cmd.Data, true)
 	case "unfollow_channel":
-		handleFollowChannel(cmd.Data, false)
+		acc.handleFollowChannel(cmd.Data, false)
 	case "create_channel":
-		handleCreateChannel(conn, cmd.Data)
+		acc.handleCreateChannel(conn, cmd.Data)
 	case "update_channel":
-		handleUpdateChannel(conn, cmd.Data)
+		acc.handleUpdateChannel(conn, cmd.Data)
 	case "delete_channel":
-		handleDeleteChannel(conn, cmd.Data)
+		acc.handleDeleteChannel(conn, cmd.Data)
 	case "get_channel_followers":
-		handleGetChannelFollowers(conn, cmd.Data)
+		acc.handleGetChannelFollowers(conn, cmd.Data)
 	case "change_channel_owner":
-		handleChannelAdminChange(conn, cmd.Data, true)
+		acc.handleChannelAdminChange(conn, cmd.Data, true)
 	case "demote_channel_admin":
-		handleChannelAdminChange(conn, cmd.Data, false)
+		acc.handleChannelAdminChange(conn, cmd.Data, false)
 	case "invite_channel_admins":
-		handleInviteChannelAdmins(conn, cmd.Data)
+		acc.handleInviteChannelAdmins(conn, cmd.Data)
 	case "get_channel_admin_invite":
-		handleGetChannelAdminInvite(conn, cmd.Data)
+		acc.handleGetChannelAdminInvite(conn, cmd.Data)
 	case "accept_channel_admin_invite":
-		handleChannelAdminInviteAnswer(conn, cmd.Data, true)
+		acc.handleChannelAdminInviteAnswer(conn, cmd.Data, true)
 	case "revoke_channel_admin_invite":
-		handleChannelAdminInviteAnswer(conn, cmd.Data, false)
+		acc.handleChannelAdminInviteAnswer(conn, cmd.Data, false)
 	case "pin_channel_post":
-		handlePinChannelPost(conn, cmd.Data)
+		acc.handlePinChannelPost(conn, cmd.Data)
 	case "get_channel_reactions":
-		handleGetChannelReactions(conn, cmd.Data)
+		acc.handleGetChannelReactions(conn, cmd.Data)
 	case "get_channel_poll_voters":
-		handleGetChannelPollVoters(conn, cmd.Data)
+		acc.handleGetChannelPollVoters(conn, cmd.Data)
 	case "get_channel_pending_invites":
-		handleGetChannelPendingInvites(conn, cmd.Data)
+		acc.handleGetChannelPendingInvites(conn, cmd.Data)
 	case "get_similar_channels":
-		handleGetSimilarChannels(conn, cmd.Data)
+		acc.handleGetSimilarChannels(conn, cmd.Data)
 	case "get_group_link_info":
-		handleGetGroupLinkInfo(conn, cmd.Data)
+		acc.handleGetGroupLinkInfo(conn, cmd.Data)
 	case "join_group_link":
-		handleJoinGroupLink(cmd.Data)
+		acc.handleJoinGroupLink(cmd.Data)
 	case "set_group_name":
-		handleSetGroupName(cmd.Data)
+		acc.handleSetGroupName(cmd.Data)
 	case "set_group_topic":
-		handleSetGroupTopic(cmd.Data)
+		acc.handleSetGroupTopic(cmd.Data)
 	case "set_group_photo":
-		handleSetGroupPhoto(cmd.Data)
+		acc.handleSetGroupPhoto(cmd.Data)
 	case "set_group_announce":
-		handleSetGroupAnnounce(cmd.Data)
+		acc.handleSetGroupAnnounce(cmd.Data)
 	case "set_group_locked":
-		handleSetGroupLocked(cmd.Data)
+		acc.handleSetGroupLocked(cmd.Data)
 	case "set_member_label":
-		handleSetMemberLabel(conn, cmd.Data)
+		acc.handleSetMemberLabel(conn, cmd.Data)
 	case "set_group_moderation":
-		handleSetGroupModeration(cmd.Data)
+		acc.handleSetGroupModeration(cmd.Data)
 	case "report_to_admins":
-		handleReportToAdmins(conn, cmd.Data)
+		acc.handleReportToAdmins(conn, cmd.Data)
 	case "get_reported_messages":
-		handleGetReportedMessages(conn, cmd.Data)
+		acc.handleGetReportedMessages(conn, cmd.Data)
 
 	case "verify_chat_lock_code":
 		// PBKDF2 with the server's iteration count can take a moment -
 		// never on the goroutine that reads every other command.
-		go handleVerifyChatLockCode(conn, cmd.Data)
+		go acc.handleVerifyChatLockCode(conn, cmd.Data)
 	case "set_chat_locked":
-		handleSetChatLocked(conn, cmd.Data)
+		acc.handleSetChatLocked(conn, cmd.Data)
 	case "get_chats":
-		handleGetChats(conn)
+		acc.handleGetChats(conn)
 	case "get_messages":
-		handleGetMessages(conn, cmd.Data)
+		acc.handleGetMessages(conn, cmd.Data)
 	case "get_chat_media":
-		handleGetChatMedia(conn, cmd.Data)
+		acc.handleGetChatMedia(conn, cmd.Data)
 	case "get_messages_around":
-		handleGetMessagesAround(conn, cmd.Data)
+		acc.handleGetMessagesAround(conn, cmd.Data)
 	case "get_message_info":
-		handleGetMessageInfo(conn, cmd.Data)
+		acc.handleGetMessageInfo(conn, cmd.Data)
 	case "search_messages":
-		handleSearchMessages(conn, cmd.Data)
+		acc.handleSearchMessages(conn, cmd.Data)
 	case "get_starred_messages":
-		handleGetStarredMessages(conn)
+		acc.handleGetStarredMessages(conn)
 	case "export_chat":
-		handleExportChat(conn, cmd.Data)
+		acc.handleExportChat(conn, cmd.Data)
 	case "export_chat_text":
-		handleExportChatText(conn, cmd.Data)
+		acc.handleExportChatText(conn, cmd.Data)
 	case "get_statuses":
-		handleGetStatuses(conn)
+		acc.handleGetStatuses(conn)
 	case "post_status":
-		handlePostStatus(cmd.Data)
+		acc.handlePostStatus(cmd.Data)
 	case "post_media_status":
-		handlePostMediaStatus(cmd.Data)
+		acc.handlePostMediaStatus(cmd.Data)
 	case "get_status_viewers":
-		go handleGetStatusViewers(conn, cmd.Data)
+		go acc.handleGetStatusViewers(conn, cmd.Data)
 	case "react_status":
-		handleReactStatus(cmd.Data)
+		acc.handleReactStatus(cmd.Data)
 	case "delete_status":
-		handleDeleteStatus(cmd.Data)
+		acc.handleDeleteStatus(cmd.Data)
 	case "set_status_mute":
-		handleSetStatusMute(cmd.Data)
+		acc.handleSetStatusMute(cmd.Data)
 	case "get_chat_lists":
-		go handleGetChatLists(conn)
+		go acc.handleGetChatLists(conn)
 	case "set_favorite":
-		handleSetFavorite(conn, cmd.Data)
+		acc.handleSetFavorite(conn, cmd.Data)
 	case "create_list":
-		handleCreateList(conn, cmd.Data)
+		acc.handleCreateList(conn, cmd.Data)
 	case "rename_list":
-		handleRenameList(conn, cmd.Data)
+		acc.handleRenameList(conn, cmd.Data)
 	case "delete_list":
-		handleDeleteList(conn, cmd.Data)
+		acc.handleDeleteList(conn, cmd.Data)
 	case "set_list_member":
-		handleSetListMember(conn, cmd.Data)
+		acc.handleSetListMember(conn, cmd.Data)
 	case "get_common_groups":
-		go handleGetCommonGroups(conn, cmd.Data)
+		go acc.handleGetCommonGroups(conn, cmd.Data)
 	case "get_status_privacy":
-		go handleGetStatusPrivacy(conn)
+		go acc.handleGetStatusPrivacy(conn)
 	case "set_status_privacy":
-		handleSetStatusPrivacy(conn, cmd.Data)
+		acc.handleSetStatusPrivacy(conn, cmd.Data)
 	case "mark_status_viewed":
-		handleMarkStatusViewed(cmd.Data)
+		acc.handleMarkStatusViewed(cmd.Data)
 	case "set_chat_pinned":
-		handleSetChatPinned(cmd.Data)
+		acc.handleSetChatPinned(cmd.Data)
 	case "set_chat_archived":
-		handleSetChatArchived(cmd.Data)
+		acc.handleSetChatArchived(cmd.Data)
 	case "set_disappearing_timer":
-		handleSetDisappearingTimer(conn, cmd.Data)
+		acc.handleSetDisappearingTimer(conn, cmd.Data)
 	case "get_disappearing_timer":
-		handleGetDisappearingTimer(conn, cmd.Data)
+		acc.handleGetDisappearingTimer(conn, cmd.Data)
 	case "set_chat_muted":
-		handleSetChatMuted(cmd.Data)
+		acc.handleSetChatMuted(cmd.Data)
 	case "set_chat_read":
-		handleSetChatRead(cmd.Data)
+		acc.handleSetChatRead(cmd.Data)
 	case "delete_chat":
-		handleDeleteChat(cmd.Data)
+		acc.handleDeleteChat(cmd.Data)
 	case "clear_chat":
-		handleClearChat(cmd.Data)
+		acc.handleClearChat(cmd.Data)
 	case "leave_and_delete_group":
-		handleLeaveAndDeleteGroup(cmd.Data)
+		acc.handleLeaveAndDeleteGroup(cmd.Data)
 	case "request_history_sync":
-		handleRequestHistorySync(cmd.Data)
+		acc.handleRequestHistorySync(cmd.Data)
 	case "request_message_resend":
-		handleRequestMessageResend(cmd.Data)
+		acc.handleRequestMessageResend(cmd.Data)
 	case "create_call_link":
-		handleCreateCallLink(conn, cmd.Data)
+		acc.handleCreateCallLink(conn, cmd.Data)
 	case "join_call_link":
-		handleJoinCallLink(cmd.Data)
+		acc.handleJoinCallLink(cmd.Data)
 	case "join_group_call":
-		handleJoinGroupCall(cmd.Data)
+		acc.handleJoinGroupCall(cmd.Data)
 	case "get_joinable_calls":
-		handleGetJoinableCalls()
+		acc.handleGetJoinableCalls()
 	case "raise_hand":
-		handleCallToggle(conn, cmd.Data, "hand")
+		acc.handleCallToggle(conn, cmd.Data, "hand")
 	case "call_reaction":
-		handleCallToggle(conn, cmd.Data, "reaction")
+		acc.handleCallToggle(conn, cmd.Data, "reaction")
 	case "admit_call_participant":
-		handleCallToggle(conn, cmd.Data, "admit")
+		acc.handleCallToggle(conn, cmd.Data, "admit")
 	case "mute_call_participant":
-		handleCallToggle(conn, cmd.Data, "mute_person")
+		acc.handleCallToggle(conn, cmd.Data, "mute_person")
 	case "remove_call_participant":
-		handleCallToggle(conn, cmd.Data, "remove_person")
+		acc.handleCallToggle(conn, cmd.Data, "remove_person")
 	case "set_call_approval":
-		handleCallToggle(conn, cmd.Data, "approval")
+		acc.handleCallToggle(conn, cmd.Data, "approval")
 	case "place_call":
-		handlePlaceCall(cmd.Data)
+		acc.handlePlaceCall(cmd.Data)
 	case "get_call_logs":
-		handleGetCallLogs(conn)
+		acc.handleGetCallLogs(conn)
 	case "delete_call_logs":
-		handleDeleteCallLogs(cmd.Data)
+		acc.handleDeleteCallLogs(cmd.Data)
 	case "get_call_targets":
-		handleGetCallTargets(conn)
+		acc.handleGetCallTargets(conn)
 	case "answer_call":
-		handleAnswerCall(cmd.Data)
+		acc.handleAnswerCall(cmd.Data)
 	case "reject_call":
-		handleRejectCall(cmd.Data)
+		acc.handleRejectCall(cmd.Data)
 	case "mute_call":
-		handleMuteCall(cmd.Data)
+		acc.handleMuteCall(cmd.Data)
 	case "leave_call":
-		handleLeaveCall(cmd.Data)
+		acc.handleLeaveCall(cmd.Data)
 	case "add_participant":
-		handleAddParticipant(cmd.Data)
+		acc.handleAddParticipant(cmd.Data)
 	case "set_video":
-		handleSetVideo(cmd.Data)
+		acc.handleSetVideo(cmd.Data)
 	case "set_screen_share":
-		handleSetScreenShare(cmd.Data)
+		acc.handleSetScreenShare(cmd.Data)
 	case "set_call_options":
-		handleSetCallOptions(cmd.Data)
+		acc.handleSetCallOptions(cmd.Data)
 
 	case "update_settings":
 		fmt.Println("Received update_settings command:", string(cmd.Data))
-		sendEvent(conn, "settings_updated", map[string]interface{}{"status": "success"})
+		acc.sendEvent(conn, "settings_updated", map[string]interface{}{"status": "success"})
 
 	case "send_attachment":
-		handleSendAttachment(conn, cmd.Data)
+		acc.handleSendAttachment(conn, cmd.Data)
 	case "send_contacts":
-		handleSendContacts(conn, cmd.Data)
+		acc.handleSendContacts(conn, cmd.Data)
 	case "send_poll":
-		handleSendPoll(conn, cmd.Data)
+		acc.handleSendPoll(conn, cmd.Data)
 	case "get_poll":
-		handleGetPoll(conn, cmd.Data)
+		acc.handleGetPoll(conn, cmd.Data)
 	case "send_poll_vote":
-		handleSendPollVote(conn, cmd.Data)
+		acc.handleSendPollVote(conn, cmd.Data)
 	case "send_event":
-		handleSendEvent(conn, cmd.Data)
+		acc.handleSendEvent(conn, cmd.Data)
 	case "get_event":
-		handleGetEvent(conn, cmd.Data)
+		acc.handleGetEvent(conn, cmd.Data)
 	case "get_message_options":
-		handleGetMessageOptions(conn, cmd.Data)
+		acc.handleGetMessageOptions(conn, cmd.Data)
 	case "send_message_option":
-		handleSendMessageOption(conn, cmd.Data)
+		acc.handleSendMessageOption(conn, cmd.Data)
 	case "get_catalog":
-		handleGetCatalog(conn, cmd.Data)
+		acc.handleGetCatalog(conn, cmd.Data)
 	case "get_order":
-		handleGetOrder(conn, cmd.Data)
+		acc.handleGetOrder(conn, cmd.Data)
 	case "send_event_response":
-		handleSendEventResponse(conn, cmd.Data)
+		acc.handleSendEventResponse(conn, cmd.Data)
 	case "send_voice_message":
-		handleSendVoiceMessage(conn, cmd.Data)
+		acc.handleSendVoiceMessage(conn, cmd.Data)
 	case "download_media":
-		handleDownloadMedia(conn, cmd.Data)
+		acc.handleDownloadMedia(conn, cmd.Data)
 	case "cancel_download":
-		handleCancelDownload(conn, cmd.Data)
+		acc.handleCancelDownload(conn, cmd.Data)
 	case "cancel_upload":
-		handleCancelUpload(cmd.Data)
+		acc.handleCancelUpload(cmd.Data)
 	case "open_media":
-		handleOpenMedia(conn, cmd.Data)
+		acc.handleOpenMedia(conn, cmd.Data)
 	case "prepare_media":
-		handlePrepareMedia(conn, cmd.Data)
+		acc.handlePrepareMedia(conn, cmd.Data)
 	case "save_media_as":
-		handleSaveMediaAs(conn, cmd.Data)
+		acc.handleSaveMediaAs(conn, cmd.Data)
 	case "copy_album_to_clipboard":
-		handleCopyAlbumToClipboard(conn, cmd.Data)
+		acc.handleCopyAlbumToClipboard(conn, cmd.Data)
 	case "play_voice_message":
-		handlePlayVoiceMessage(conn, cmd.Data)
+		acc.handlePlayVoiceMessage(conn, cmd.Data)
 	// Recording itself happens client-side (mic capture); these are kept
 	// as accepted no-ops so older frontend builds that still call them
 	// don't error out.
@@ -499,14 +515,14 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 
 	case "force_sync":
 		go func() {
-			appStateResyncMu.Lock()
-			for k := range appStateResyncCount {
-				delete(appStateResyncCount, k)
+			acc.appStateResyncMu.Lock()
+			for k := range acc.appStateResyncCount {
+				delete(acc.appStateResyncCount, k)
 			}
-			for k := range lastAppStateResync {
-				delete(lastAppStateResync, k)
+			for k := range acc.lastAppStateResync {
+				delete(acc.lastAppStateResync, k)
 			}
-			appStateResyncMu.Unlock()
+			acc.appStateResyncMu.Unlock()
 			for _, name := range []appstate.WAPatchName{
 				appstate.WAPatchRegular,
 				appstate.WAPatchRegularLow,
@@ -514,13 +530,13 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 				appstate.WAPatchCriticalBlock,
 				appstate.WAPatchCriticalUnblockLow,
 			} {
-				if err := wa().FetchAppState(context.Background(), name, false, false); err != nil {
+				if err := acc.wa().FetchAppState(context.Background(), name, false, false); err != nil {
 					fmt.Println("Error syncing AppState (", name, "):", err)
 				}
 			}
-			populateChatsFromStore()
-			broadcastChats()
-			handleGetContacts(conn)
+			acc.populateChatsFromStore()
+			acc.broadcastChats()
+			acc.handleGetContacts(conn)
 		}()
 	}
 }

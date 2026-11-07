@@ -17,10 +17,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waMmsRetry"
+
+	"net"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -28,7 +29,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"golang.org/x/sys/windows"
 	"google.golang.org/protobuf/proto"
-	"net"
 )
 
 func friendlyMediaError(err error) string {
@@ -45,26 +45,26 @@ func friendlyMediaError(err error) string {
 	}
 }
 
-func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename string, err error) {
-	if viewOnceState(messageID) == viewOnceOpened {
+func (acc *Account) ensureMediaCached(messageID string) (path, mediaType, mimetype, filename string, err error) {
+	if acc.viewOnceState(messageID) == viewOnceOpened {
 		err = fmt.Errorf("this view once message has already been opened")
 		return
 	}
 	var cached string
-	db.QueryRow("SELECT COALESCE(media_path, '') FROM messages WHERE id = ?", messageID).Scan(&cached)
+	acc.db.QueryRow("SELECT COALESCE(media_path, '') FROM messages WHERE id = ?", messageID).Scan(&cached)
 	if cached != "" {
 		if _, statErr := os.Stat(cached); statErr == nil {
-			db.QueryRow("SELECT COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,'') FROM messages WHERE id = ?", messageID).
+			acc.db.QueryRow("SELECT COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,'') FROM messages WHERE id = ?", messageID).
 				Scan(&mediaType, &mimetype, &filename)
 			filename = sanitizeFilename(filename)
 			return cached, mediaType, mimetype, filename, nil
 		}
 	}
-	path, mt, mime, fn, dErr := downloadMessageMediaToFile(context.Background(), messageID, nil)
+	path, mt, mime, fn, dErr := acc.downloadMessageMediaToFile(context.Background(), messageID, nil)
 	if dErr != nil {
 		if strings.Contains(dErr.Error(), "403") || strings.Contains(dErr.Error(), "404") || strings.Contains(dErr.Error(), "410") {
 			fmt.Printf("Requesting media retry (sync) for %s...\n", messageID)
-			retryErr := requestMediaRetry(messageID)
+			retryErr := acc.requestMediaRetry(messageID)
 			if retryErr != nil {
 				return "", "", "", "", fmt.Errorf("URL expired and retry request failed: %v", retryErr)
 			}
@@ -75,21 +75,10 @@ func ensureMediaCached(messageID string) (path, mediaType, mimetype, filename st
 	return path, mt, mime, fn, nil
 }
 
-var (
-	activeDownloadsMu sync.Mutex
-	activeDownloads   = map[string]context.CancelFunc{}
-	// autoDownloadFailed caches auto_download_failed, the messages whose
-	// automatic download failed (guarded by activeDownloadsMu). It's kept in
-	// the database too, so the startup sticker pass doesn't try the same
-	// broken files on every launch.
-	autoDownloadFailed     = map[string]bool{}
-	autoDownloadFailedOnce sync.Once
-	activeUploadsMu        sync.Mutex
-	activeUploads          = map[string]context.CancelFunc{}
-	retryWaitersMu         sync.Mutex
-	retryWaiters           = map[string]chan bool{}
-	pendingAutoOpens       sync.Map
-)
+// autoDownloadFailed caches auto_download_failed, the messages whose
+// automatic download failed (guarded by activeDownloadsMu). It's kept in
+// the database too, so the startup sticker pass doesn't try the same
+// broken files on every launch.
 
 type progressFile struct {
 	*os.File
@@ -115,23 +104,23 @@ func (pf *progressFile) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func downloadMessageMediaToFile(ctx context.Context, messageID string, onProgress func(int)) (path, mediaType, mimetype, filename string, err error) {
-	rawBytes, _, _, _, dbErr := getMessageRaw(messageID)
+func (acc *Account) downloadMessageMediaToFile(ctx context.Context, messageID string, onProgress func(int)) (path, mediaType, mimetype, filename string, err error) {
+	rawBytes, _, _, _, dbErr := acc.getMessageRaw(messageID)
 	if dbErr != nil {
 		err = dbErr
 		return
 	}
-	if hd := hdMediaRaw(messageID); hd != nil && appPref("hd_auto_download") {
-		path, mediaType, mimetype, filename, err = downloadRawMediaToFile(ctx, messageID, hd, onProgress)
+	if hd := acc.hdMediaRaw(messageID); hd != nil && acc.appPref("hd_auto_download") {
+		path, mediaType, mimetype, filename, err = acc.downloadRawMediaToFile(ctx, messageID, hd, onProgress)
 		if err == nil || errors.Is(err, context.Canceled) {
 			return
 		}
 		log.Printf("HD copy of %s didn't download (%v); getting the standard one", messageID, err)
 	}
-	return downloadRawMediaToFile(ctx, messageID, rawBytes, onProgress)
+	return acc.downloadRawMediaToFile(ctx, messageID, rawBytes, onProgress)
 }
 
-func downloadRawMediaToFile(ctx context.Context, messageID string, rawBytes []byte, onProgress func(int)) (path, mediaType, mimetype, filename string, err error) {
+func (acc *Account) downloadRawMediaToFile(ctx context.Context, messageID string, rawBytes []byte, onProgress func(int)) (path, mediaType, mimetype, filename string, err error) {
 	msg := &waE2E.Message{}
 	if perr := proto.Unmarshal(rawBytes, msg); perr != nil {
 		err = perr
@@ -170,14 +159,14 @@ func downloadRawMediaToFile(ctx context.Context, messageID string, rawBytes []by
 		err = fmt.Errorf("message has no downloadable media")
 		return
 	}
-	finalPath := filepath.Join(mediaDir(), sanitizeFilenameComponent(messageID)+extForMime(mimetype))
+	finalPath := filepath.Join(acc.mediaDir(), sanitizeFilenameComponent(messageID)+extForMime(mimetype))
 	f, ferr := os.CreateTemp(filepath.Dir(finalPath), filepath.Base(finalPath)+".*.part")
 	if ferr != nil {
 		err = ferr
 		return
 	}
 	partPath := f.Name()
-	dlErr := wa().DownloadToFile(ctx, dl, &progressFile{File: f, total: total, onProgress: onProgress})
+	dlErr := acc.wa().DownloadToFile(ctx, dl, &progressFile{File: f, total: total, onProgress: onProgress})
 	f.Close()
 	if dlErr != nil {
 		os.Remove(partPath)
@@ -191,54 +180,54 @@ func downloadRawMediaToFile(ctx context.Context, messageID string, rawBytes []by
 			return
 		}
 	}
-	setMessageMediaPath(messageID, finalPath)
+	acc.setMessageMediaPath(messageID, finalPath)
 	if sticker != nil && sticker.GetAccessibilityLabel() == "" {
 		labelled := proto.Clone(sticker).(*waE2E.StickerMessage)
-		labelStickerFromCache(labelled, finalPath)
+		acc.labelStickerFromCache(labelled, finalPath)
 		if newText := stickerText(labelled); newText != stickerText(sticker) {
-			db.Exec("UPDATE messages SET text = ? WHERE id = ?", newText, messageID)
+			acc.db.Exec("UPDATE messages SET text = ? WHERE id = ?", newText, messageID)
 			var jid string
-			db.QueryRow(`SELECT COALESCE(jid, '') FROM messages WHERE id = ?`, messageID).Scan(&jid)
-			broadcastEvent("message_updated", map[string]interface{}{"jid": jid, "message_id": messageID, "text": newText})
+			acc.db.QueryRow(`SELECT COALESCE(jid, '') FROM messages WHERE id = ?`, messageID).Scan(&jid)
+			acc.broadcastEvent("message_updated", map[string]interface{}{"jid": jid, "message_id": messageID, "text": newText})
 		}
 	}
 	if filename != "" {
-		db.Exec("UPDATE messages SET media_filename = ? WHERE id = ?", filename, messageID)
+		acc.db.Exec("UPDATE messages SET media_filename = ? WHERE id = ?", filename, messageID)
 	}
 	if mediaType != "" {
-		db.Exec("UPDATE messages SET media_type = COALESCE(NULLIF(media_type,''), ?), media_mimetype = COALESCE(NULLIF(media_mimetype,''), ?) WHERE id = ?", mediaType, mimetype, messageID)
+		acc.db.Exec("UPDATE messages SET media_type = COALESCE(NULLIF(media_type,''), ?), media_mimetype = COALESCE(NULLIF(media_mimetype,''), ?) WHERE id = ?", mediaType, mimetype, messageID)
 	}
 	path = finalPath
 	return
 }
 
-func handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleDownloadMedia(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	startMediaDownload(data, false)
+	acc.startMediaDownload(data, false)
 }
 
-func autoDownloadVoiceNote(messageID, jid string) {
-	startMediaDownload(MessageRefData{MessageID: messageID, JID: jid}, true)
+func (acc *Account) autoDownloadVoiceNote(messageID, jid string) {
+	acc.startMediaDownload(MessageRefData{MessageID: messageID, JID: jid}, true)
 }
 
-func startMediaDownload(data MessageRefData, auto bool) {
-	downloadMedia(data, auto, false)
+func (acc *Account) startMediaDownload(data MessageRefData, auto bool) {
+	acc.downloadMedia(data, auto, false)
 }
 
-func downloadMediaNow(data MessageRefData, auto bool) {
-	downloadMedia(data, auto, true)
+func (acc *Account) downloadMediaNow(data MessageRefData, auto bool) {
+	acc.downloadMedia(data, auto, true)
 }
 
-func downloadMedia(data MessageRefData, auto, wait bool) {
+func (acc *Account) downloadMedia(data MessageRefData, auto, wait bool) {
 	var cached, mt, mm, fn string
-	db.QueryRow("SELECT COALESCE(media_path,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,'') FROM messages WHERE id = ?", data.MessageID).
+	acc.db.QueryRow("SELECT COALESCE(media_path,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,'') FROM messages WHERE id = ?", data.MessageID).
 		Scan(&cached, &mt, &mm, &fn)
 	if cached != "" {
 		if _, statErr := os.Stat(cached); statErr == nil {
-			broadcastEvent("media_downloaded", map[string]interface{}{
+			acc.broadcastEvent("media_downloaded", map[string]interface{}{
 				"message_id": data.MessageID,
 				"jid":        data.JID,
 				"auto":       auto,
@@ -250,36 +239,36 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 			return
 		}
 	}
-	activeDownloadsMu.Lock()
-	if _, exists := activeDownloads[data.MessageID]; exists {
-		activeDownloadsMu.Unlock()
+	acc.activeDownloadsMu.Lock()
+	if _, exists := acc.activeDownloads[data.MessageID]; exists {
+		acc.activeDownloadsMu.Unlock()
 		return
 	}
 	// Like WA Web, an automatic download that failed isn't tried again on its
 	// own; the message waits for the user to download it (WA Web's "tap to
 	// download", DownloadStage.NEED_POKE). Without this, the sticker panel
 	// and the startup sticker pass kept retrying the same files.
-	autoDownloadFailedOnce.Do(loadAutoDownloadFailed)
-	if auto && autoDownloadFailed[data.MessageID] {
-		activeDownloadsMu.Unlock()
+	acc.autoDownloadFailedOnce.Do(acc.loadAutoDownloadFailed)
+	if auto && acc.autoDownloadFailed[data.MessageID] {
+		acc.activeDownloadsMu.Unlock()
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	activeDownloads[data.MessageID] = cancel
-	activeDownloadsMu.Unlock()
+	acc.activeDownloads[data.MessageID] = cancel
+	acc.activeDownloadsMu.Unlock()
 	failed := false
 	run := func() {
 		defer func() {
-			activeDownloadsMu.Lock()
-			delete(activeDownloads, data.MessageID)
+			acc.activeDownloadsMu.Lock()
+			delete(acc.activeDownloads, data.MessageID)
 			if auto && failed {
-				autoDownloadFailed[data.MessageID] = true
-				db.Exec(`INSERT OR IGNORE INTO auto_download_failed (id, failed_at) VALUES (?, ?)`, data.MessageID, time.Now().Unix())
+				acc.autoDownloadFailed[data.MessageID] = true
+				acc.db.Exec(`INSERT OR IGNORE INTO auto_download_failed (id, failed_at) VALUES (?, ?)`, data.MessageID, time.Now().Unix())
 			} else if !auto && !failed {
-				delete(autoDownloadFailed, data.MessageID)
-				db.Exec(`DELETE FROM auto_download_failed WHERE id = ?`, data.MessageID)
+				delete(acc.autoDownloadFailed, data.MessageID)
+				acc.db.Exec(`DELETE FROM auto_download_failed WHERE id = ?`, data.MessageID)
 			}
-			activeDownloadsMu.Unlock()
+			acc.activeDownloadsMu.Unlock()
 			cancel()
 		}()
 		// Automatic downloads share WA Web's limit of 5 at a time
@@ -287,14 +276,14 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 		// slot when it waits for the download itself.
 		if auto && !wait {
 			select {
-			case autoDownloadSlots <- struct{}{}:
-				defer func() { <-autoDownloadSlots }()
+			case acc.autoDownloadSlots <- struct{}{}:
+				defer func() { <-acc.autoDownloadSlots }()
 			case <-ctx.Done():
 				return
 			}
 		}
 		onProgress := func(percent int) {
-			broadcastEvent("media_download_progress", map[string]interface{}{
+			acc.broadcastEvent("media_download_progress", map[string]interface{}{
 				"message_id": data.MessageID,
 				"jid":        data.JID,
 				"auto":       auto,
@@ -304,12 +293,12 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 		started := time.Now()
 		log.Printf("Media download started for message %s (auto %v)", data.MessageID, auto)
 		for attempt := 0; attempt < 2; attempt++ {
-			path, mediaType, mimetype, filename, err := downloadMessageMediaToFile(ctx, data.MessageID, onProgress)
+			path, mediaType, mimetype, filename, err := acc.downloadMessageMediaToFile(ctx, data.MessageID, onProgress)
 			if err == nil {
 				log.Printf("Media download finished for message %s in %s", data.MessageID, time.Since(started).Round(time.Millisecond))
 			}
 			if err == nil {
-				broadcastEvent("media_downloaded", map[string]interface{}{
+				acc.broadcastEvent("media_downloaded", map[string]interface{}{
 					"message_id": data.MessageID,
 					"jid":        data.JID,
 					"auto":       auto,
@@ -323,7 +312,7 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 			fmt.Printf("Media download failed for message %s (attempt %d): %v\n", data.MessageID, attempt+1, err)
 
 			if errors.Is(err, context.Canceled) {
-				broadcastEvent("media_download_cancelled", map[string]interface{}{
+				acc.broadcastEvent("media_download_cancelled", map[string]interface{}{
 					"message_id": data.MessageID,
 					"jid":        data.JID,
 					"auto":       auto,
@@ -342,10 +331,10 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 			if !auto && attempt == 0 && (hashMismatch || strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "410")) {
 				failed = false
 				fmt.Printf("Requesting media retry for %s...\n", data.MessageID)
-				retryErr := requestMediaRetry(data.MessageID)
+				retryErr := acc.requestMediaRetry(data.MessageID)
 				if retryErr != nil {
 					fmt.Printf("Retry request failed: %v\n", retryErr)
-					broadcastEvent("media_download_failed", map[string]interface{}{
+					acc.broadcastEvent("media_download_failed", map[string]interface{}{
 						"message_id": data.MessageID,
 						"jid":        data.JID,
 						"auto":       auto,
@@ -355,14 +344,14 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 				}
 
 				ch := make(chan bool, 1)
-				retryWaitersMu.Lock()
-				retryWaiters[data.MessageID] = ch
-				retryWaitersMu.Unlock()
+				acc.retryWaitersMu.Lock()
+				acc.retryWaiters[data.MessageID] = ch
+				acc.retryWaitersMu.Unlock()
 
 				select {
 				case success := <-ch:
 					if !success {
-						broadcastEvent("media_download_failed", map[string]interface{}{
+						acc.broadcastEvent("media_download_failed", map[string]interface{}{
 							"message_id": data.MessageID,
 							"jid":        data.JID,
 							"auto":       auto,
@@ -372,30 +361,30 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 					}
 					continue
 				case <-time.After(45 * time.Second):
-					broadcastEvent("media_download_failed", map[string]interface{}{
+					acc.broadcastEvent("media_download_failed", map[string]interface{}{
 						"message_id": data.MessageID,
 						"jid":        data.JID,
 						"auto":       auto,
 						"message":    "Timeout waiting for phone to re-upload media",
 					})
-					retryWaitersMu.Lock()
-					delete(retryWaiters, data.MessageID)
-					retryWaitersMu.Unlock()
+					acc.retryWaitersMu.Lock()
+					delete(acc.retryWaiters, data.MessageID)
+					acc.retryWaitersMu.Unlock()
 					return
 				case <-ctx.Done():
-					broadcastEvent("media_download_cancelled", map[string]interface{}{
+					acc.broadcastEvent("media_download_cancelled", map[string]interface{}{
 						"message_id": data.MessageID,
 						"jid":        data.JID,
 						"auto":       auto,
 					})
-					retryWaitersMu.Lock()
-					delete(retryWaiters, data.MessageID)
-					retryWaitersMu.Unlock()
+					acc.retryWaitersMu.Lock()
+					delete(acc.retryWaiters, data.MessageID)
+					acc.retryWaitersMu.Unlock()
 					return
 				}
 			}
 
-			broadcastEvent("media_download_failed", map[string]interface{}{
+			acc.broadcastEvent("media_download_failed", map[string]interface{}{
 				"message_id": data.MessageID,
 				"jid":        data.JID,
 				"auto":       auto,
@@ -411,31 +400,31 @@ func downloadMedia(data MessageRefData, auto, wait bool) {
 	}
 }
 
-func handleCancelUpload(raw json.RawMessage) {
+func (acc *Account) handleCancelUpload(raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	activeUploadsMu.Lock()
-	cancel := activeUploads[data.MessageID]
-	activeUploadsMu.Unlock()
+	acc.activeUploadsMu.Lock()
+	cancel := acc.activeUploads[data.MessageID]
+	acc.activeUploadsMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 }
 
-func handleCancelDownload(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleCancelDownload(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	activeDownloadsMu.Lock()
-	cancel := activeDownloads[data.MessageID]
-	activeDownloadsMu.Unlock()
+	acc.activeDownloadsMu.Lock()
+	cancel := acc.activeDownloads[data.MessageID]
+	acc.activeDownloadsMu.Unlock()
 	if cancel != nil {
 		cancel()
 	} else {
-		broadcastEvent("media_download_cancelled", map[string]interface{}{
+		acc.broadcastEvent("media_download_cancelled", map[string]interface{}{
 			"message_id": data.MessageID,
 			"jid":        data.JID,
 		})
@@ -472,89 +461,89 @@ func copyFileStreaming(src, dst string) error {
 	return out.Close()
 }
 
-func handleOpenMedia(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleOpenMedia(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		path, mediaType, mimetype, filename, err := ensureMediaCached(data.MessageID)
+		path, mediaType, mimetype, filename, err := acc.ensureMediaCached(data.MessageID)
 		if err != nil {
 			if strings.Contains(err.Error(), "URL expired") {
-				pendingAutoOpens.Store(data.MessageID, map[string]interface{}{
+				acc.pendingAutoOpens.Store(data.MessageID, map[string]interface{}{
 					"conn":   conn,
 					"action": "open_media",
 				})
 				return
 			}
-			sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
+			acc.sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
 			return
 		}
-		openMediaFileWithRealName(conn, data.MessageID, path, mediaType, mimetype, filename)
+		acc.openMediaFileWithRealName(conn, data.MessageID, path, mediaType, mimetype, filename)
 	}()
 }
 
-func handlePrepareMedia(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handlePrepareMedia(conn net.Conn, raw json.RawMessage) {
 	var data MessageRefData
 	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" {
 		return
 	}
-	if viewOnceState(data.MessageID) != 0 {
-		sendEvent(conn, "media_failed", map[string]string{"message_id": data.MessageID, "message": "View once media opens outside the viewer."})
+	if acc.viewOnceState(data.MessageID) != 0 {
+		acc.sendEvent(conn, "media_failed", map[string]string{"message_id": data.MessageID, "message": "View once media opens outside the viewer."})
 		return
 	}
 	go func() {
-		path, mediaType, mimetype, filename, err := ensureMediaCached(data.MessageID)
+		path, mediaType, mimetype, filename, err := acc.ensureMediaCached(data.MessageID)
 		if err != nil {
 			if strings.Contains(err.Error(), "URL expired") && !strings.Contains(err.Error(), "retry request failed") {
-				pendingAutoOpens.Store(data.MessageID, map[string]interface{}{"conn": conn, "action": "prepare_media"})
-				sendEvent(conn, "media_pending", map[string]string{"message_id": data.MessageID})
+				acc.pendingAutoOpens.Store(data.MessageID, map[string]interface{}{"conn": conn, "action": "prepare_media"})
+				acc.sendEvent(conn, "media_pending", map[string]string{"message_id": data.MessageID})
 				return
 			}
-			sendEvent(conn, "media_failed", map[string]string{"message_id": data.MessageID, "message": friendlyMediaError(err)})
+			acc.sendEvent(conn, "media_failed", map[string]string{"message_id": data.MessageID, "message": friendlyMediaError(err)})
 			return
 		}
-		sendMediaReady(conn, data.MessageID, path, mediaType, mimetype, filename)
+		acc.sendMediaReady(conn, data.MessageID, path, mediaType, mimetype, filename)
 	}()
 }
 
-func sendMediaReady(conn net.Conn, messageID, path, mediaType, mimetype, filename string) {
+func (acc *Account) sendMediaReady(conn net.Conn, messageID, path, mediaType, mimetype, filename string) {
 	if absPath, err := filepath.Abs(path); err == nil {
 		path = absPath
 	}
-	sendEvent(conn, "media_ready", map[string]string{
+	acc.sendEvent(conn, "media_ready", map[string]string{
 		"message_id": messageID, "path": path, "mediaType": mediaType, "mimetype": mimetype, "filename": filename,
 	})
 }
 
-func handleSaveMediaAs(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSaveMediaAs(conn net.Conn, raw json.RawMessage) {
 	var data SaveMediaAsData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	if msg := viewOnceBlocked(data.MessageID); msg != "" {
-		sendEvent(conn, "error", map[string]string{"message": msg})
+	if msg := acc.viewOnceBlocked(data.MessageID); msg != "" {
+		acc.sendEvent(conn, "error", map[string]string{"message": msg})
 		return
 	}
 	go func() {
-		path, _, _, _, err := ensureMediaCached(data.MessageID)
+		path, _, _, _, err := acc.ensureMediaCached(data.MessageID)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
+			acc.sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
 			return
 		}
 		if err := copyFileStreaming(path, data.DestPath); err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-		sendEvent(conn, "media_saved", map[string]interface{}{"message_id": data.MessageID, "path": data.DestPath})
+		acc.sendEvent(conn, "media_saved", map[string]interface{}{"message_id": data.MessageID, "path": data.DestPath})
 	}()
 }
 
-func buildAttachmentContext(replyToID, replySender string) (ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+func (acc *Account) buildAttachmentContext(replyToID, replySender string) (ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
 	if replyToID == "" {
 		return nil, "", "", ""
 	}
-	quotedMsg, storedSenderJID, preview, err := getMessageForQuote(replyToID)
+	quotedMsg, storedSenderJID, preview, err := acc.getMessageForQuote(replyToID)
 	if err != nil {
 		return nil, "", "", ""
 	}
@@ -568,19 +557,19 @@ func buildAttachmentContext(replyToID, replySender string) (ctxInfo *waE2E.Conte
 	// but ContextInfo.Participant goes out on the wire and has to be a real
 	// JID, or the quote never renders as a reply for the recipient.
 	if participant == "me" {
-		if wa().Store.ID != nil {
-			participant = wa().Store.ID.ToNonAD().String()
+		if acc.wa().Store.ID != nil {
+			participant = acc.wa().Store.ID.ToNonAD().String()
 		} else {
 			participant = ""
 		}
 	}
-	participant = wireParticipantFor(replyToID, participant)
+	participant = acc.wireParticipantFor(replyToID, participant)
 	ctxInfo = &waE2E.ContextInfo{StanzaID: proto.String(replyToID), QuotedMessage: quotedMsg}
-	quoteStatus(ctxInfo, replyToID)
+	acc.quoteStatus(ctxInfo, replyToID)
 	if participant != "" {
 		ctxInfo.Participant = proto.String(participant)
 	}
-	return ctxInfo, replyToID, preview, resolveQuotedSenderName(displayParticipant)
+	return ctxInfo, replyToID, preview, acc.resolveQuotedSenderName(displayParticipant)
 }
 
 type ProgressReader struct {
@@ -694,7 +683,7 @@ const (
 	maxDocumentBytes         = 2000 << 20
 )
 
-func attachmentSizeLimit(mediaType string) int64 {
+func (acc *Account) attachmentSizeLimit(mediaType string) int64 {
 	code := 0
 	switch mediaType {
 	case "image", "sticker":
@@ -706,7 +695,7 @@ func attachmentSizeLimit(mediaType string) int64 {
 	default:
 		return maxDocumentBytes
 	}
-	return int64(serverFlagInt(code, defaultMediaLimitMB)) << 20
+	return int64(acc.serverFlagInt(code, defaultMediaLimitMB)) << 20
 }
 
 func attachmentTooLargeText(mediaType string, size, limit int64) string {
@@ -855,17 +844,17 @@ func uniqueFileForDir(dir, filename string) string {
 	}
 }
 
-func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimetype, filename string) {
-	viewOnce := viewOnceState(messageID)
+func (acc *Account) openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimetype, filename string) {
+	viewOnce := acc.viewOnceState(messageID)
 	if viewOnce == viewOnceOpened {
 		if conn != nil {
-			sendEvent(conn, "error", map[string]string{"message": "You've already opened this view once message."})
+			acc.sendEvent(conn, "error", map[string]string{"message": "You've already opened this view once message."})
 		}
 		return
 	}
 	if filename == "" {
 		var ts int64
-		db.QueryRow("SELECT COALESCE(timestamp, 0) FROM messages WHERE id = ?", messageID).Scan(&ts)
+		acc.db.QueryRow("SELECT COALESCE(timestamp, 0) FROM messages WHERE id = ?", messageID).Scan(&ts)
 		filename = synthesizeMediaFilename(mediaType, mimetype, ts, messageID)
 	}
 
@@ -882,7 +871,7 @@ func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimety
 	}
 
 	if err := openFileInOS(openPath); err != nil && conn != nil {
-		sendEvent(conn, "error", map[string]string{"message": err.Error()})
+		acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 		return
 	}
 	if viewOnce == viewOnceUnopened {
@@ -890,7 +879,7 @@ func openMediaFileWithRealName(conn net.Conn, messageID, path, mediaType, mimety
 		if openPath != path {
 			scratch = openPath
 		}
-		consumeViewOnce(messageID, path, scratch)
+		acc.consumeViewOnce(messageID, path, scratch)
 	}
 }
 
@@ -929,18 +918,18 @@ func attachmentDisplayText(mediaType, filename, caption string, seconds int) str
 	return tag
 }
 
-func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 	var data SendAttachmentData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	jid, err := types.ParseJID(data.JID)
 	if err != nil {
-		sendEvent(conn, "error", map[string]string{"message": "invalid jid"})
+		acc.sendEvent(conn, "error", map[string]string{"message": "invalid jid"})
 		return
 	}
 	go func() {
-		id := wa().GenerateMessageID()
+		id := acc.wa().GenerateMessageID()
 
 		// Resolve to a real local file up front, including decoding+caching
 		// base64 (e.g. clipboard-pasted) payloads immediately. That way the
@@ -950,33 +939,33 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		if localPath == "" {
 			fileBytes, decErr := readLocalFileOrDecode("", data.Data)
 			if decErr != nil {
-				sendEvent(conn, "error", map[string]string{"message": decErr.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": decErr.Error()})
 				return
 			}
 			mimeGuess := data.Mimetype
 			if mimeGuess == "" || mimeGuess == "application/octet-stream" || mimeGuess == "application/zip" {
 				mimeGuess = detectMimeType(data.Filename, "", fileBytes)
 			}
-			cached, saveErr := saveMediaBytes("outgoing", id, mimeGuess, fileBytes)
+			cached, saveErr := acc.saveMediaBytes("outgoing", id, mimeGuess, fileBytes)
 			if saveErr != nil {
-				sendEvent(conn, "error", map[string]string{"message": saveErr.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": saveErr.Error()})
 				return
 			}
 			localPath = cached
 		}
 		if data.GifPlayback && isInTempDir(localPath) {
-			cached := filepath.Join(mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+".mp4")
+			cached := filepath.Join(acc.mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+".mp4")
 			if copyFileStreaming(localPath, cached) == nil {
 				os.Remove(localPath)
 				localPath = cached
 			}
 		}
 
-		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
+		ctxInfo, quotedID, quotedText, quotedSender := acc.buildAttachmentContext(data.ReplyToID, data.ReplySender)
 
 		senderJID := ""
-		if wa().Store.ID != nil {
-			senderJID = wa().Store.ID.ToNonAD().String()
+		if acc.wa().Store.ID != nil {
+			senderJID = acc.wa().Store.ID.ToNonAD().String()
 		}
 		ts := time.Now().Unix()
 
@@ -984,7 +973,7 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		displayText := attachmentDisplayText(data.Type, data.Filename, data.Caption, data.Duration)
 		if data.Type == "sticker" && data.Path != "" {
 			st := &waE2E.StickerMessage{}
-			labelStickerFromCache(st, data.Path)
+			acc.labelStickerFromCache(st, data.Path)
 			if text := stickerText(st); text != "[Sticker]" {
 				displayText = text
 			}
@@ -992,16 +981,16 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 		if viewOnce {
 			displayText = viewOnceText(displayText)
 		}
-		saveMessage(StoredMessage{
+		acc.saveMessage(StoredMessage{
 			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
 			Text: displayText, Timestamp: ts, Status: "uploading",
 			MediaType: data.Type, MediaMimetype: data.Mimetype, MediaFilename: data.Filename, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
 		if viewOnce {
-			markViewOnce(db, id)
+			markViewOnce(acc.db, id)
 		}
-		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+		acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
 				preview_snippet=excluded.preview_snippet,
@@ -1009,7 +998,7 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 				preview_from_me=1,
 				preview_is_reaction=0,
 				preview_reaction_emoji=''`, jid.String(), ts, displayText, senderJID)
-		broadcastEvent("message", map[string]interface{}{
+		acc.broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 			"from_me":       true,
 			"timestamp":     ts,
@@ -1023,50 +1012,50 @@ func handleSendAttachment(conn net.Conn, raw json.RawMessage) {
 			"quotedSender":  quotedSender,
 		})
 		if waveform := voiceWaveformBytes(data.Waveform); data.Type == "audio" && waveform != nil {
-			db.Exec(`UPDATE messages SET voice_waveform = ? WHERE id = ?`, waveform, id)
+			acc.db.Exec(`UPDATE messages SET voice_waveform = ? WHERE id = ?`, waveform, id)
 		}
-		broadcastChats()
+		acc.broadcastChats()
 
 		thumbPNG, _ := base64.StdEncoding.DecodeString(data.Thumbnail)
-		sendUploadedAttachment(conn, id, jid, data.Type, localPath, data.Mimetype, data.Filename, data.Caption, data.Duration, thumbPNG, data.GifPlayback, ctxInfo, quotedID, quotedText, quotedSender)
+		acc.sendUploadedAttachment(conn, id, jid, data.Type, localPath, data.Mimetype, data.Filename, data.Caption, data.Duration, thumbPNG, data.GifPlayback, ctxInfo, quotedID, quotedText, quotedSender)
 	}()
 }
 
-func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, seconds int, thumbPNG []byte, gifPlayback bool, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+func (acc *Account) sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, path, mimetypeHint, filename, caption string, seconds int, thumbPNG []byte, gifPlayback bool, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
 	displayText := attachmentDisplayText(mediaType, filename, caption, seconds)
-	viewOnce := (mediaType == "image" || mediaType == "video") && viewOnceState(id) == viewOnceUnopened
+	viewOnce := (mediaType == "image" || mediaType == "video") && acc.viewOnceState(id) == viewOnceUnopened
 	if viewOnce {
 		displayText = viewOnceText(displayText)
 	}
 	uploadCtx, cancelUpload := context.WithCancel(context.Background())
-	activeUploadsMu.Lock()
-	activeUploads[id] = cancelUpload
-	activeUploadsMu.Unlock()
+	acc.activeUploadsMu.Lock()
+	acc.activeUploads[id] = cancelUpload
+	acc.activeUploadsMu.Unlock()
 	defer func() {
-		activeUploadsMu.Lock()
-		delete(activeUploads, id)
-		activeUploadsMu.Unlock()
+		acc.activeUploadsMu.Lock()
+		delete(acc.activeUploads, id)
+		acc.activeUploadsMu.Unlock()
 		cancelUpload()
 	}()
 	fail := func(errMsg string) {
 		if uploadCtx.Err() != nil {
 			// The user cancelled: the message goes away rather than sitting
 			// in the list as a failed send.
-			deleteMessageForMe(id, jid.String())
+			acc.deleteMessageForMe(id, jid.String())
 			if conn != nil {
-				sendEvent(conn, "attachment_upload_ended", map[string]interface{}{"jid": jid.String(), "filename": filename, "id": id})
+				acc.sendEvent(conn, "attachment_upload_ended", map[string]interface{}{"jid": jid.String(), "filename": filename, "id": id})
 			}
-			broadcastEvent("message_deleted", map[string]interface{}{
+			acc.broadcastEvent("message_deleted", map[string]interface{}{
 				"jid": jid.String(), "message_id": id, "by": "me", "for_everyone": false, "upload_cancelled": true,
 			})
 			return
 		}
-		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+		acc.db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
 		if conn != nil {
-			sendEvent(conn, "attachment_upload_ended", map[string]interface{}{"jid": jid.String(), "filename": filename, "id": id})
-			sendEvent(conn, "error", map[string]string{"message": errMsg})
+			acc.sendEvent(conn, "attachment_upload_ended", map[string]interface{}{"jid": jid.String(), "filename": filename, "id": id})
+			acc.sendEvent(conn, "error", map[string]string{"message": errMsg})
 		}
-		broadcastEvent("message", map[string]interface{}{
+		acc.broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 			"from_me": true, "timestamp": time.Now().Unix(), "has_media": true,
 			"mediaType": mediaType, "mediaFilename": filename, "mediaPath": path, "status": "failed",
@@ -1088,7 +1077,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 
 	var photo *preparedPhoto
 	if mediaType == "image" {
-		if p, err := preparePhoto(id, path, appPref("hd_media")); err == nil {
+		if p, err := acc.preparePhoto(id, path, acc.appPref("hd_media")); err == nil {
 			photo = p
 			if p.path != path {
 				path, mimetypeHint = p.path, "image/jpeg"
@@ -1107,7 +1096,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		if info, err := readVideoInfo(path); err == nil {
 			video = info
 			if info.brand == "qt  " && (info.codec == "avc1" || info.codec == "avc3") {
-				copyPath := filepath.Join(mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+".mp4")
+				copyPath := filepath.Join(acc.mediaBaseDir(), "outgoing", sanitizeFilenameComponent(id)+".mp4")
 				if copyFileStreaming(path, copyPath) == nil && mp4Brand(copyPath) == nil {
 					path, mimetypeHint = copyPath, "video/mp4"
 				}
@@ -1133,7 +1122,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		totalSize = stat.Size()
 	}
 
-	if limit := attachmentSizeLimit(mediaType); totalSize > limit {
+	if limit := acc.attachmentSizeLimit(mediaType); totalSize > limit {
 		fail(attachmentTooLargeText(mediaType, totalSize, limit))
 		return
 	}
@@ -1151,12 +1140,12 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		if !phonePlayableAudio(mimetype) {
 			mediaType, waMediaType = "document", whatsmeow.MediaDocument
 			displayText = attachmentDisplayText(mediaType, filename, caption, seconds)
-			db.Exec(`UPDATE messages SET media_type = ? WHERE id = ?`, mediaType, id)
+			acc.db.Exec(`UPDATE messages SET media_type = ? WHERE id = ?`, mediaType, id)
 		}
 	}
 
 	if conn != nil {
-		sendEvent(conn, "attachment_uploading", map[string]interface{}{"id": id, "jid": jid.String(), "filename": filename, "status": "uploading", "percent": 0})
+		acc.sendEvent(conn, "attachment_uploading", map[string]interface{}{"id": id, "jid": jid.String(), "filename": filename, "status": "uploading", "percent": 0})
 	}
 
 	isChannel := jid.Server == types.NewsletterServer
@@ -1188,7 +1177,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 				if pct != lastPct {
 					lastPct = pct
 					if conn != nil {
-						sendEvent(conn, "attachment_uploading", map[string]interface{}{
+						acc.sendEvent(conn, "attachment_uploading", map[string]interface{}{
 							"id":       id,
 							"jid":      jid.String(),
 							"filename": filename,
@@ -1213,9 +1202,9 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		if !ok {
 			seeker = f
 		}
-		uploaded, err = wa().UploadNewsletterReader(uploadCtx, seeker, waMediaType)
+		uploaded, err = acc.wa().UploadNewsletterReader(uploadCtx, seeker, waMediaType)
 	} else {
-		uploaded, err = wa().UploadReader(uploadCtx, f, uploadFile, waMediaType)
+		uploaded, err = acc.wa().UploadReader(uploadCtx, f, uploadFile, waMediaType)
 	}
 	uploadTook := time.Since(uploadStarted)
 	if err != nil {
@@ -1274,7 +1263,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		msg = &waE2E.Message{VideoMessage: vidMsg}
 	case "audio":
 		var waveform []byte
-		db.QueryRow(`SELECT voice_waveform FROM messages WHERE id = ?`, id).Scan(&waveform)
+		acc.db.QueryRow(`SELECT voice_waveform FROM messages WHERE id = ?`, id).Scan(&waveform)
 		msg = &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
 			Waveform: waveform,
 			Mimetype: proto.String(mimetype), PTT: proto.Bool(false),
@@ -1296,7 +1285,7 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 				st.Width, st.Height = proto.Uint32(uint32(width)), proto.Uint32(uint32(height))
 			}
 			st.IsAnimated = proto.Bool(animated)
-			labelStickerFromFile(st, fileBytes)
+			acc.labelStickerFromFile(st, fileBytes)
 		}
 		if text := stickerText(st); text != "[Sticker]" {
 			displayText = text
@@ -1316,11 +1305,11 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 	}
 	stampUploadedMedia(msg, uploaded)
 
-	msg = applyDisappearingTimer(jid, msg)
+	msg = acc.applyDisappearingTimer(jid, msg)
 	if viewOnce {
 		msg = &waE2E.Message{ViewOnceMessage: &waE2E.FutureProofMessage{Message: msg}}
 	}
-	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
+	resp, err := acc.wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
 	if err != nil {
 		fail(sendErrorText(err))
 		return
@@ -1328,12 +1317,12 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 
 	rawBytes, _ := proto.Marshal(msg)
 	ts := resp.Timestamp.Unix()
-	db.Exec(`UPDATE messages SET status='sent', text=?, timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
+	acc.db.Exec(`UPDATE messages SET status='sent', text=?, timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
 		displayText, ts, ts, rawBytes, path, mimetype, id)
-	noteMessageExpiry(db, id, ts, msg)
-	noteChannelPostSent(jid, id, resp)
+	noteMessageExpiry(acc.db, id, ts, msg)
+	acc.noteChannelPostSent(jid, id, resp)
 
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid": jid.String(), "from": "me", "id": id, "text": displayText,
 		"from_me":       true,
 		"timestamp":     ts,
@@ -1346,28 +1335,28 @@ func sendUploadedAttachment(conn net.Conn, id string, jid types.JID, mediaType, 
 		"quotedText":    quotedText,
 		"quotedSender":  quotedSender,
 	})
-	broadcastChats()
+	acc.broadcastChats()
 	if conn != nil {
-		sendEvent(conn, "attachment_sent", map[string]interface{}{"id": id, "jid": jid.String(), "filename": filename, "status": "sent"})
+		acc.sendEvent(conn, "attachment_sent", map[string]interface{}{"id": id, "jid": jid.String(), "filename": filename, "status": "sent"})
 	}
 }
 
-func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 	var data SendVoiceMessageData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	jid, err := types.ParseJID(data.JID)
 	if err != nil {
-		sendEvent(conn, "error", map[string]string{"message": "invalid jid"})
+		acc.sendEvent(conn, "error", map[string]string{"message": "invalid jid"})
 		return
 	}
 	go func() {
-		id := wa().GenerateMessageID()
+		id := acc.wa().GenerateMessageID()
 
 		fileBytes, err := readLocalFileOrDecode(data.Path, data.Data)
 		if err != nil {
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
 		mimetype := data.Mimetype
@@ -1375,18 +1364,18 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 			mimetype = "audio/ogg; codecs=opus"
 		}
 		localPath := data.Path
-		if cachedPath, cacheErr := saveMediaBytes("outgoing", id, mimetype, fileBytes); cacheErr == nil {
+		if cachedPath, cacheErr := acc.saveMediaBytes("outgoing", id, mimetype, fileBytes); cacheErr == nil {
 			localPath = cachedPath
 			if data.Path != "" && isInTempDir(data.Path) {
 				os.Remove(data.Path)
 			}
 		}
 
-		ctxInfo, quotedID, quotedText, quotedSender := buildAttachmentContext(data.ReplyToID, data.ReplySender)
+		ctxInfo, quotedID, quotedText, quotedSender := acc.buildAttachmentContext(data.ReplyToID, data.ReplySender)
 
 		senderJID := ""
-		if wa().Store.ID != nil {
-			senderJID = wa().Store.ID.ToNonAD().String()
+		if acc.wa().Store.ID != nil {
+			senderJID = acc.wa().Store.ID.ToNonAD().String()
 		}
 		voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", data.Duration/60, data.Duration%60)
 		viewOnce := data.ViewOnce && jid.Server != types.NewsletterServer
@@ -1395,16 +1384,16 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		}
 		ts := time.Now().Unix()
 
-		saveMessage(StoredMessage{
+		acc.saveMessage(StoredMessage{
 			ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
 			Text: voiceText, Timestamp: ts, Status: "uploading",
 			MediaType: "voice", MediaMimetype: mimetype, MediaPath: localPath,
 			QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 		})
 		if viewOnce {
-			markViewOnce(db, id)
+			markViewOnce(acc.db, id)
 		}
-		db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+		acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
 				preview_snippet=excluded.preview_snippet,
@@ -1412,7 +1401,7 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 				preview_from_me=1,
 				preview_is_reaction=0,
 				preview_reaction_emoji=''`, jid.String(), ts, voiceText, senderJID)
-		broadcastEvent("message", map[string]interface{}{
+		acc.broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": id, "text": voiceText,
 			"from_me":      true,
 			"timestamp":    ts,
@@ -1425,11 +1414,11 @@ func handleSendVoiceMessage(conn net.Conn, raw json.RawMessage) {
 		})
 		waveform := voiceWaveformBytes(data.Waveform)
 		if waveform != nil {
-			db.Exec(`UPDATE messages SET voice_waveform = ? WHERE id = ?`, waveform, id)
+			acc.db.Exec(`UPDATE messages SET voice_waveform = ? WHERE id = ?`, waveform, id)
 		}
-		broadcastChats()
+		acc.broadcastChats()
 
-		sendUploadedVoiceMessage(conn, id, jid, localPath, mimetype, data.Duration, waveform, ctxInfo, quotedID, quotedText, quotedSender)
+		acc.sendUploadedVoiceMessage(conn, id, jid, localPath, mimetype, data.Duration, waveform, ctxInfo, quotedID, quotedText, quotedSender)
 	}()
 }
 
@@ -1449,19 +1438,19 @@ func voiceWaveformBytes(bars []int) []byte {
 	return out
 }
 
-func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mimetypeHint string, duration int, waveform []byte, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
+func (acc *Account) sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mimetypeHint string, duration int, waveform []byte, ctxInfo *waE2E.ContextInfo, quotedID, quotedText, quotedSender string) {
 	voiceText := fmt.Sprintf("[Voice Message] (%d:%02d)", duration/60, duration%60)
-	viewOnce := viewOnceState(id) == viewOnceUnopened
+	viewOnce := acc.viewOnceState(id) == viewOnceUnopened
 	if viewOnce {
 		voiceText = viewOnceText(voiceText)
 	}
 
 	fail := func(errMsg string) {
-		db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
+		acc.db.Exec(`UPDATE messages SET status = 'failed' WHERE id = ?`, id)
 		if conn != nil {
-			sendEvent(conn, "error", map[string]string{"message": errMsg})
+			acc.sendEvent(conn, "error", map[string]string{"message": errMsg})
 		}
-		broadcastEvent("message", map[string]interface{}{
+		acc.broadcastEvent("message", map[string]interface{}{
 			"jid": jid.String(), "from": "me", "id": id, "text": voiceText,
 			"from_me": true, "timestamp": time.Now().Unix(), "has_media": true,
 			"mediaType": "voice", "status": "failed",
@@ -1482,9 +1471,9 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 
 	var uploaded whatsmeow.UploadResponse
 	if jid.Server == types.NewsletterServer {
-		uploaded, err = wa().UploadNewsletterReader(context.Background(), f, whatsmeow.MediaAudio)
+		uploaded, err = acc.wa().UploadNewsletterReader(context.Background(), f, whatsmeow.MediaAudio)
 	} else {
-		uploaded, err = wa().UploadReader(context.Background(), f, nil, whatsmeow.MediaAudio)
+		uploaded, err = acc.wa().UploadReader(context.Background(), f, nil, whatsmeow.MediaAudio)
 	}
 	if err != nil {
 		fail(err.Error())
@@ -1505,11 +1494,11 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 	}
 	stampUploadedMedia(msg, uploaded)
 
-	msg = applyDisappearingTimer(jid, msg)
+	msg = acc.applyDisappearingTimer(jid, msg)
 	if viewOnce {
 		msg = &waE2E.Message{ViewOnceMessageV2Extension: &waE2E.FutureProofMessage{Message: msg}}
 	}
-	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
+	resp, err := acc.wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, MediaHandle: uploaded.Handle, CheckPermissions: true})
 	if err != nil {
 		fail(sendErrorText(err))
 		return
@@ -1517,12 +1506,12 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 
 	rawBytes, _ := proto.Marshal(msg)
 	ts := resp.Timestamp.Unix()
-	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
+	acc.db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=?, media_path=?, media_mimetype=? WHERE id=?`,
 		ts, ts, rawBytes, path, mimetype, id)
-	noteMessageExpiry(db, id, ts, msg)
-	noteChannelPostSent(jid, id, resp)
+	noteMessageExpiry(acc.db, id, ts, msg)
+	acc.noteChannelPostSent(jid, id, resp)
 
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid": jid.String(), "from": "me", "id": id, "text": voiceText,
 		"from_me":      true,
 		"timestamp":    ts,
@@ -1534,22 +1523,22 @@ func sendUploadedVoiceMessage(conn net.Conn, id string, jid types.JID, path, mim
 		"quotedText":   quotedText,
 		"quotedSender": quotedSender,
 	})
-	broadcastChats()
+	acc.broadcastChats()
 }
 
-func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	if viewOnceState(data.ID) == viewOnceOpened {
-		sendEvent(conn, "error", map[string]string{"message": "You've already played this view once voice message."})
+	if acc.viewOnceState(data.ID) == viewOnceOpened {
+		acc.sendEvent(conn, "error", map[string]string{"message": "You've already played this view once voice message."})
 		return
 	}
 	go func() {
-		_, jidStr, senderJidStr, fromMe, dbErr := getMessageRaw(data.ID)
+		_, jidStr, senderJidStr, fromMe, dbErr := acc.getMessageRaw(data.ID)
 		// Playing back our own voice note mustn't tell the other side we
 		// "played" it: that receipt is for the recipient's copy, and sending
 		// it for a message we sent claims a play that never happened.
@@ -1560,47 +1549,47 @@ func handlePlayVoiceMessage(conn net.Conn, raw json.RawMessage) {
 				senderJID = chatJID
 			}
 			if chatJID.Server == "lid" {
-				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+				if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 					chatJID = pn
 				}
 			}
 			if senderJID.Server == "lid" {
-				if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+				if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
 					senderJID = pn
 				}
 			}
 
 			now := time.Now()
-			if res, err := db.Exec(`UPDATE messages SET played_at = ? WHERE id = ? AND COALESCE(played_at, 0) = 0`, now.Unix(), data.ID); err == nil {
+			if res, err := acc.db.Exec(`UPDATE messages SET played_at = ? WHERE id = ? AND COALESCE(played_at, 0) = 0`, now.Unix(), data.ID); err == nil {
 				if n, _ := res.RowsAffected(); n == 1 {
 					go func() {
-						ensureAvailableForRead()
-						err := wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, now, chatJID, senderJID, types.ReceiptTypePlayed)
+						acc.ensureAvailableForRead()
+						err := acc.wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, now, chatJID, senderJID, types.ReceiptTypePlayed)
 						if err != nil {
 							log.Printf("MarkRead played error for message %s: %v", data.ID, err)
-							db.Exec(`UPDATE messages SET played_at = 0 WHERE id = ? AND played_at = ?`, data.ID, now.Unix())
+							acc.db.Exec(`UPDATE messages SET played_at = 0 WHERE id = ? AND played_at = ?`, data.ID, now.Unix())
 						}
 					}()
 				}
 			}
 		}
 
-		path, _, _, _, err := ensureMediaCached(data.ID)
+		path, _, _, _, err := acc.ensureMediaCached(data.ID)
 		if err != nil {
 			if strings.Contains(err.Error(), "URL expired") {
-				pendingAutoOpens.Store(data.ID, map[string]interface{}{
+				acc.pendingAutoOpens.Store(data.ID, map[string]interface{}{
 					"conn":   conn,
 					"action": "play_audio",
 				})
 				return
 			}
 			fmt.Println("Error downloading audio:", err)
-			sendEvent(conn, "error", map[string]string{"message": err.Error()})
+			acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			return
 		}
-		sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": data.ID})
-		if viewOnceState(data.ID) == viewOnceUnopened {
-			consumeViewOnce(data.ID, "", path)
+		acc.sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": data.ID})
+		if acc.viewOnceState(data.ID) == viewOnceUnopened {
+			acc.consumeViewOnce(data.ID, "", path)
 		}
 	}()
 }
@@ -1609,7 +1598,7 @@ type CopyAlbumToClipboardData struct {
 	MessageIDs []string `json:"message_ids"`
 }
 
-func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 	var data CopyAlbumToClipboardData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -1620,11 +1609,11 @@ func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 
 		var paths []string
 		for _, msgID := range data.MessageIDs {
-			if msg := viewOnceBlocked(msgID); msg != "" {
-				sendEvent(conn, "error", map[string]string{"message": msg})
+			if msg := acc.viewOnceBlocked(msgID); msg != "" {
+				acc.sendEvent(conn, "error", map[string]string{"message": msg})
 				continue
 			}
-			path, mediaType, mimetype, filename, err := ensureMediaCached(msgID)
+			path, mediaType, mimetype, filename, err := acc.ensureMediaCached(msgID)
 			if err != nil {
 				continue
 			}
@@ -1632,7 +1621,7 @@ func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 			destFilename := filename
 			if destFilename == "" {
 				var ts int64
-				db.QueryRow("SELECT COALESCE(timestamp, 0) FROM messages WHERE id = ?", msgID).Scan(&ts)
+				acc.db.QueryRow("SELECT COALESCE(timestamp, 0) FROM messages WHERE id = ?", msgID).Scan(&ts)
 				destFilename = synthesizeMediaFilename(mediaType, mimetype, ts, msgID)
 			}
 
@@ -1652,19 +1641,19 @@ func handleCopyAlbumToClipboard(conn net.Conn, raw json.RawMessage) {
 
 			cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
 			if err := cmd.Run(); err == nil {
-				sendEvent(conn, "copied_album_to_clipboard", map[string]interface{}{
+				acc.sendEvent(conn, "copied_album_to_clipboard", map[string]interface{}{
 					"message_ids": data.MessageIDs,
 					"count":       len(paths),
 				})
 			} else {
-				sendEvent(conn, "error", map[string]string{"message": err.Error()})
+				acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 			}
 		}
 	}()
 }
 
-func requestMediaRetry(messageID string) error {
-	rawBytes, jidStr, senderJidStr, fromMe, dbErr := getMessageRaw(messageID)
+func (acc *Account) requestMediaRetry(messageID string) error {
+	rawBytes, jidStr, senderJidStr, fromMe, dbErr := acc.getMessageRaw(messageID)
 	if dbErr != nil {
 		return dbErr
 	}
@@ -1679,12 +1668,12 @@ func requestMediaRetry(messageID string) error {
 	}
 
 	if chatJID.Server == "lid" {
-		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
+		if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), chatJID); err == nil && !pn.IsEmpty() {
 			chatJID = pn
 		}
 	}
 	if senderJID.Server == "lid" {
-		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
+		if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
 			senderJID = pn
 		}
 	}
@@ -1715,11 +1704,11 @@ func requestMediaRetry(messageID string) error {
 	if mediaKey == nil {
 		return fmt.Errorf("no media key found")
 	}
-	return wa().SendMediaRetryReceipt(context.Background(), msgInfo, mediaKey)
+	return acc.wa().SendMediaRetryReceipt(context.Background(), msgInfo, mediaKey)
 }
 
-func handleMediaRetryEvent(evt *events.MediaRetry) {
-	rawBytes, jidStr, _, _, dbErr := getMessageRaw(string(evt.MessageID))
+func (acc *Account) handleMediaRetryEvent(evt *events.MediaRetry) {
+	rawBytes, jidStr, _, _, dbErr := acc.getMessageRaw(string(evt.MessageID))
 	if dbErr != nil {
 		return
 	}
@@ -1745,18 +1734,18 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 	retryData, err := whatsmeow.DecryptMediaRetryNotification(evt, mediaKey)
 	if err != nil || retryData.GetResult() != waMmsRetry.MediaRetryNotification_SUCCESS {
 		fmt.Printf("Failed to decrypt media retry or result not success for %s: %v\n", evt.MessageID, err)
-		retryWaitersMu.Lock()
-		if ch, ok := retryWaiters[string(evt.MessageID)]; ok {
+		acc.retryWaitersMu.Lock()
+		if ch, ok := acc.retryWaiters[string(evt.MessageID)]; ok {
 			ch <- false
-			delete(retryWaiters, string(evt.MessageID))
+			delete(acc.retryWaiters, string(evt.MessageID))
 		} else {
-			broadcastEvent("media_download_failed", map[string]interface{}{
+			acc.broadcastEvent("media_download_failed", map[string]interface{}{
 				"message_id": string(evt.MessageID),
 				"jid":        jidStr,
 				"message":    "Phone could not re-upload the expired media",
 			})
 		}
-		retryWaitersMu.Unlock()
+		acc.retryWaitersMu.Unlock()
 		return
 	}
 
@@ -1778,74 +1767,74 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 	}
 
 	newRawBytes, _ := proto.Marshal(msg)
-	db.Exec("UPDATE messages SET raw = ? WHERE id = ?", newRawBytes, string(evt.MessageID))
+	acc.db.Exec("UPDATE messages SET raw = ? WHERE id = ?", newRawBytes, string(evt.MessageID))
 
-	retryWaitersMu.Lock()
-	if ch, ok := retryWaiters[string(evt.MessageID)]; ok {
+	acc.retryWaitersMu.Lock()
+	if ch, ok := acc.retryWaiters[string(evt.MessageID)]; ok {
 		ch <- true
-		delete(retryWaiters, string(evt.MessageID))
-		retryWaitersMu.Unlock()
+		delete(acc.retryWaiters, string(evt.MessageID))
+		acc.retryWaitersMu.Unlock()
 		return
 	}
-	retryWaitersMu.Unlock()
+	acc.retryWaitersMu.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	activeDownloadsMu.Lock()
-	activeDownloads[string(evt.MessageID)] = cancel
-	activeDownloadsMu.Unlock()
+	acc.activeDownloadsMu.Lock()
+	acc.activeDownloads[string(evt.MessageID)] = cancel
+	acc.activeDownloadsMu.Unlock()
 	go func() {
 		defer func() {
-			activeDownloadsMu.Lock()
-			delete(activeDownloads, string(evt.MessageID))
-			activeDownloadsMu.Unlock()
+			acc.activeDownloadsMu.Lock()
+			delete(acc.activeDownloads, string(evt.MessageID))
+			acc.activeDownloadsMu.Unlock()
 			cancel()
 		}()
 		onProgress := func(percent int) {
-			broadcastEvent("media_download_progress", map[string]interface{}{
+			acc.broadcastEvent("media_download_progress", map[string]interface{}{
 				"message_id": string(evt.MessageID),
 				"jid":        jidStr,
 				"percent":    percent,
 			})
 		}
-		path, mediaType, mimetype, filename, err := downloadMessageMediaToFile(ctx, string(evt.MessageID), onProgress)
+		path, mediaType, mimetype, filename, err := acc.downloadMessageMediaToFile(ctx, string(evt.MessageID), onProgress)
 		if err != nil {
-			broadcastEvent("media_download_failed", map[string]interface{}{
+			acc.broadcastEvent("media_download_failed", map[string]interface{}{
 				"message_id": string(evt.MessageID),
 				"jid":        jidStr,
 				"message":    friendlyMediaError(err),
 			})
-			if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
+			if c, ok := acc.pendingAutoOpens.Load(string(evt.MessageID)); ok {
 				if data, ok := c.(map[string]interface{}); ok {
 					if conn, ok := data["conn"].(net.Conn); ok {
 						if data["action"] == "prepare_media" {
-							sendEvent(conn, "media_failed", map[string]string{"message_id": string(evt.MessageID), "message": friendlyMediaError(err)})
+							acc.sendEvent(conn, "media_failed", map[string]string{"message_id": string(evt.MessageID), "message": friendlyMediaError(err)})
 						} else {
-							sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
+							acc.sendEvent(conn, "error", map[string]string{"message": friendlyMediaError(err)})
 						}
 					}
 				}
-				pendingAutoOpens.Delete(string(evt.MessageID))
+				acc.pendingAutoOpens.Delete(string(evt.MessageID))
 			}
 			return
 		}
 
-		if c, ok := pendingAutoOpens.Load(string(evt.MessageID)); ok {
+		if c, ok := acc.pendingAutoOpens.Load(string(evt.MessageID)); ok {
 			data, dataOk := c.(map[string]interface{})
 			conn, connOk := data["conn"].(net.Conn)
 			action, _ := data["action"].(string)
 			if dataOk {
 				if action == "open_media" {
-					openMediaFileWithRealName(conn, string(evt.MessageID), path, mediaType, mimetype, filename)
+					acc.openMediaFileWithRealName(conn, string(evt.MessageID), path, mediaType, mimetype, filename)
 				} else if action == "prepare_media" && connOk {
-					sendMediaReady(conn, string(evt.MessageID), path, mediaType, mimetype, filename)
+					acc.sendMediaReady(conn, string(evt.MessageID), path, mediaType, mimetype, filename)
 				} else if action == "play_audio" && connOk {
-					sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": string(evt.MessageID)})
+					acc.sendEvent(conn, "play_audio", map[string]interface{}{"path": path, "message_id": string(evt.MessageID)})
 				}
 			}
-			pendingAutoOpens.Delete(string(evt.MessageID))
+			acc.pendingAutoOpens.Delete(string(evt.MessageID))
 		}
 
-		broadcastEvent("media_downloaded", map[string]interface{}{
+		acc.broadcastEvent("media_downloaded", map[string]interface{}{
 			"message_id": string(evt.MessageID),
 			"jid":        jidStr,
 			"path":       path,
@@ -1858,9 +1847,9 @@ func handleMediaRetryEvent(evt *events.MediaRetry) {
 
 // loadAutoDownloadFailed fills autoDownloadFailed from the database (called
 // once, under activeDownloadsMu).
-func loadAutoDownloadFailed() {
-	db.Exec(`CREATE TABLE IF NOT EXISTS auto_download_failed (id TEXT PRIMARY KEY, failed_at INTEGER NOT NULL DEFAULT 0)`)
-	rows, err := db.Query(`SELECT id FROM auto_download_failed`)
+func (acc *Account) loadAutoDownloadFailed() {
+	acc.db.Exec(`CREATE TABLE IF NOT EXISTS auto_download_failed (id TEXT PRIMARY KEY, failed_at INTEGER NOT NULL DEFAULT 0)`)
+	rows, err := acc.db.Query(`SELECT id FROM auto_download_failed`)
 	if err != nil {
 		return
 	}
@@ -1868,7 +1857,7 @@ func loadAutoDownloadFailed() {
 	for rows.Next() {
 		var id string
 		if rows.Scan(&id) == nil {
-			autoDownloadFailed[id] = true
+			acc.autoDownloadFailed[id] = true
 		}
 	}
 }

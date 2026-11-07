@@ -8,8 +8,9 @@ type Event struct {
 }
 
 type Command struct {
-	Action string          `json:"action"`
-	Data   json.RawMessage `json:"data,omitempty"`
+	Action  string          `json:"action"`
+	Account string          `json:"account,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 type PairCommandData struct {

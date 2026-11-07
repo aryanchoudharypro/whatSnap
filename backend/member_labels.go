@@ -13,15 +13,15 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func memberLabelKey(jid types.JID) string {
-	return preferPN(jid.ToNonAD()).String()
+func (acc *Account) memberLabelKey(jid types.JID) string {
+	return acc.preferPN(jid.ToNonAD()).String()
 }
 
-func storeMemberLabel(group, member, label string, setAt int64) {
+func (acc *Account) storeMemberLabel(group, member, label string, setAt int64) {
 	if group == "" || member == "" {
 		return
 	}
-	if _, err := db.Exec(`INSERT INTO group_member_labels (group_jid, member, label, set_at) VALUES (?, ?, ?, ?)
+	if _, err := acc.db.Exec(`INSERT INTO group_member_labels (group_jid, member, label, set_at) VALUES (?, ?, ?, ?)
 		ON CONFLICT(group_jid, member) DO UPDATE SET label=excluded.label, set_at=excluded.set_at
 		WHERE excluded.set_at >= group_member_labels.set_at`,
 		group, member, strings.TrimSpace(label), setAt); err != nil {
@@ -29,9 +29,9 @@ func storeMemberLabel(group, member, label string, setAt int64) {
 	}
 }
 
-func memberLabels(group string) map[string]string {
+func (acc *Account) memberLabels(group string) map[string]string {
 	labels := map[string]string{}
-	rows, err := db.Query(`SELECT member, label FROM group_member_labels WHERE group_jid = ? AND label != ''`, group)
+	rows, err := acc.db.Query(`SELECT member, label FROM group_member_labels WHERE group_jid = ? AND label != ''`, group)
 	if err != nil {
 		return labels
 	}
@@ -45,18 +45,18 @@ func memberLabels(group string) map[string]string {
 	return labels
 }
 
-func noteParticipantLabels(group types.JID, participants []types.GroupParticipant) {
+func (acc *Account) noteParticipantLabels(group types.JID, participants []types.GroupParticipant) {
 	for _, p := range participants {
 		if p.LabelSetAt.IsZero() && p.Label == "" {
 			continue
 		}
-		storeMemberLabel(group.String(), memberLabelKey(p.JID), p.Label, p.LabelSetAt.Unix())
+		acc.storeMemberLabel(group.String(), acc.memberLabelKey(p.JID), p.Label, p.LabelSetAt.Unix())
 	}
 }
 
-func applyMemberLabelChange(v *events.Message) {
+func (acc *Account) applyMemberLabelChange(v *events.Message) {
 	label := unwrapMessage(v.Message).GetProtocolMessage().GetMemberLabel()
-	chat, sender := resolveLIDChat(v)
+	chat, sender := acc.resolveLIDChat(v)
 	if chat.Server != types.GroupServer {
 		return
 	}
@@ -64,10 +64,10 @@ func applyMemberLabelChange(v *events.Message) {
 	if setAt == 0 {
 		setAt = v.Info.Timestamp.Unix()
 	}
-	member := memberLabelKey(sender)
-	storeMemberLabel(chat.String(), member, label.GetLabel(), setAt)
-	broadcastEvent("member_label", map[string]interface{}{
-		"jid": chat.String(), "member": member, "label": memberLabels(chat.String())[member],
+	member := acc.memberLabelKey(sender)
+	acc.storeMemberLabel(chat.String(), member, label.GetLabel(), setAt)
+	acc.broadcastEvent("member_label", map[string]interface{}{
+		"jid": chat.String(), "member": member, "label": acc.memberLabels(chat.String())[member],
 	})
 }
 
@@ -76,26 +76,26 @@ type SetMemberLabelData struct {
 	Label string `json:"label"`
 }
 
-func handleSetMemberLabel(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetMemberLabel(conn net.Conn, raw json.RawMessage) {
 	var data SetMemberLabelData
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
 	go func() {
-		fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
+		fail := func(msg string) { acc.sendEvent(conn, "error", map[string]string{"message": msg}) }
 		group, err := types.ParseJID(data.JID)
 		if err != nil || group.Server != types.GroupServer {
 			fail("Member tags are only for groups.")
 			return
 		}
 		label := strings.TrimSpace(data.Label)
-		if _, err := wa().SendMessage(context.Background(), group, wa().BuildGroupMemberLabel(label), whatsmeow.SendRequestExtra{}); err != nil {
+		if _, err := acc.wa().SendMessage(context.Background(), group, acc.wa().BuildGroupMemberLabel(label), whatsmeow.SendRequestExtra{}); err != nil {
 			fail("Couldn't change your tag: " + err.Error())
 			return
 		}
-		if me := ownVoterKey(); me != "" {
-			storeMemberLabel(data.JID, me, label, time.Now().Unix())
-			broadcastEvent("member_label", map[string]interface{}{"jid": data.JID, "member": me, "label": label, "mine": true})
+		if me := acc.ownVoterKey(); me != "" {
+			acc.storeMemberLabel(data.JID, me, label, time.Now().Unix())
+			acc.broadcastEvent("member_label", map[string]interface{}{"jid": data.JID, "member": me, "label": label, "mine": true})
 		}
 	}()
 }

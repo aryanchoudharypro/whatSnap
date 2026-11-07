@@ -1,14 +1,15 @@
 //! Several WhatsApp accounts in one window.
 //!
-//! Every linked account runs its own backend all the time, so each one stays
-//! online and its messages and calls still alert. The window shows one of them,
-//! the active account. Its backend's events go through the normal handlers;
+//! The backend keeps every linked account open all the time, each with its own
+//! WhatsApp client and database, so each one stays online and its messages and
+//! calls still alert. The window shows one of them, the active account. Its
+//! events go through the normal handlers;
 //! the others' go to [`background_event`], which only alerts (named by account)
 //! and keeps what alerting needs (muted, archived and locked chats).
 //!
 //! Switching starts the window from a fresh `AppState`, so nothing of the
-//! previous account can be left over, and asks the new account's backend to
-//! greet the window again ("hello"), which fills it in like a fresh start.
+//! previous account can be left over, and asks the backend to have the new
+//! account greet the window again ("hello"), which fills it in like a fresh start.
 
 use std::{
 	cell::RefCell,
@@ -106,8 +107,8 @@ impl Accounts {
 		self
 	}
 
-	/// The account's backend link, starting its backend if it isn't running.
-	/// The bool is true when it was already running.
+	/// The account's link, opening it in the backend if it isn't open.
+	/// The bool is true when it was already open.
 	fn link(&mut self, id: &str) -> (Link, bool) {
 		if let Some(link) = self.links.get(id) {
 			return (link.clone(), true);
@@ -157,7 +158,7 @@ pub(crate) fn refresh_title(state: &Rc<RefCell<AppState>>, parts: &WindowParts) 
 	parts.frame.set_title(&title);
 }
 
-/// Every line from every backend comes through here.
+/// Every event from every account comes through here.
 pub(crate) fn backend_event(
 	account: Arc<str>,
 	payload: String,
@@ -184,7 +185,7 @@ fn has_type(payload: &str, ty: &str) -> bool {
 	payload.strip_prefix(r#"{"type":""#).is_some_and(|rest| rest.starts_with(ty) && rest[ty.len()..].starts_with('"'))
 }
 
-/// Learns who an account is from its own backend: its number when it
+/// Learns who an account is from its own events: its number when it
 /// connects, its WhatsApp name from its profile.
 fn note_identity(account: &str, payload: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let connected = has_type(payload, "connected");
@@ -628,7 +629,7 @@ pub(crate) fn leave_login(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	}
 }
 
-/// Marks an account removed and stops its backend; its files go once the
+/// Marks an account removed and closes it in the backend; its files go once the
 /// backend is down. A linked account logs out of WhatsApp first, so it also
 /// leaves the phone's linked devices.
 fn start_removal(state: &Rc<RefCell<AppState>>, id: &str, log_out: bool) {
@@ -658,7 +659,7 @@ fn start_removal(state: &Rc<RefCell<AppState>>, id: &str, log_out: bool) {
 	});
 }
 
-/// The removed account has logged out (or ran out of time): stop its backend.
+/// The removed account has logged out (or ran out of time): close it.
 pub(crate) fn finish_removal(state: &Rc<RefCell<AppState>>, id: &str) {
 	let accounts = accounts(state);
 	if !accounts.borrow_mut().removing.remove(id) {

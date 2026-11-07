@@ -18,7 +18,7 @@ func TestPlaceholderMessageIsExplained(t *testing.T) {
 	if msg.GetPlaceholderMessage().GetType() != waE2E.PlaceholderMessage_MASK_LINKED_DEVICES {
 		t.Fatalf("fixture isn't a masked placeholder: %v", msg)
 	}
-	if text := extractTextRaw(msg); !strings.Contains(text, "only be seen on your phone") {
+	if text := acc.extractTextRaw(msg); !strings.Contains(text, "only be seen on your phone") {
 		t.Fatalf("got %q", text)
 	}
 }

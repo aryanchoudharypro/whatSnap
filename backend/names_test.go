@@ -11,7 +11,7 @@ func TestRenderNamesFillsInEachPerson(t *testing.T) {
 		"stray " + nameMarker + "end": "stray " + nameMarker + "end",
 	}
 	for in, want := range cases {
-		if got := renderNames(in, nameFor); got != want {
+		if got := acc.renderNames(in, nameFor); got != want {
 			t.Errorf("renderNames(%q) = %q, want %q", in, got, want)
 		}
 	}

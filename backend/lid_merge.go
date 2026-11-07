@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -14,23 +13,24 @@ import (
 
 type lidHookStore struct {
 	store.LIDStore
+	acc *Account
 }
 
-func hookLIDStore(dev *store.Device) {
+func (acc *Account) hookLIDStore(dev *store.Device) {
 	if dev == nil || dev.LIDs == nil {
 		return
 	}
 	if _, ok := dev.LIDs.(*lidHookStore); ok {
 		return
 	}
-	dev.LIDs = &lidHookStore{LIDStore: dev.LIDs}
+	dev.LIDs = &lidHookStore{LIDStore: dev.LIDs, acc: acc}
 }
 
 func (s *lidHookStore) PutLIDMapping(ctx context.Context, lid, pn types.JID) error {
 	isNew := s.isNew(ctx, lid, pn)
 	err := s.LIDStore.PutLIDMapping(ctx, lid, pn)
 	if err == nil && isNew {
-		queueLIDMerge(lid, pn)
+		s.acc.queueLIDMerge(lid, pn)
 	}
 	return err
 }
@@ -45,7 +45,7 @@ func (s *lidHookStore) PutManyLIDMappings(ctx context.Context, mappings []store.
 	err := s.LIDStore.PutManyLIDMappings(ctx, mappings)
 	if err == nil {
 		for _, m := range fresh {
-			queueLIDMerge(m.LID, m.PN)
+			s.acc.queueLIDMerge(m.LID, m.PN)
 		}
 	}
 	return err
@@ -64,15 +64,8 @@ const (
 	lidMergeMaxWait  = 10 * time.Second
 )
 
-var lidMergeQueue struct {
-	sync.Mutex
-	pending map[string]types.JID
-	timer   *time.Timer
-	since   time.Time
-}
-
-func queueLIDMerge(lid, pn types.JID) {
-	q := &lidMergeQueue
+func (acc *Account) queueLIDMerge(lid, pn types.JID) {
+	q := &acc.lidMergeQueue
 	q.Lock()
 	defer q.Unlock()
 	if q.pending == nil {
@@ -87,11 +80,11 @@ func queueLIDMerge(lid, pn types.JID) {
 	if q.timer != nil {
 		q.timer.Stop()
 	}
-	q.timer = time.AfterFunc(delay, flushLIDMerges)
+	q.timer = time.AfterFunc(delay, acc.flushLIDMerges)
 }
 
-func flushLIDMerges() {
-	q := &lidMergeQueue
+func (acc *Account) flushLIDMerges() {
+	q := &acc.lidMergeQueue
 	q.Lock()
 	pending := q.pending
 	q.pending = nil
@@ -99,17 +92,17 @@ func flushLIDMerges() {
 	if len(pending) == 0 {
 		return
 	}
-	if mergeLIDRowsIntoPN(pending) {
-		invalidateDisplayNames()
-		broadcastChats()
+	if acc.mergeLIDRowsIntoPN(pending) {
+		acc.invalidateDisplayNames()
+		acc.broadcastChats()
 	}
 }
 
-func mergeAllKnownLIDRows() {
-	if wa() == nil || wa().Store == nil || wa().Store.ID == nil {
+func (acc *Account) mergeAllKnownLIDRows() {
+	if acc.wa() == nil || acc.wa().Store == nil || acc.wa().Store.ID == nil {
 		return
 	}
-	rows, err := db.Query(`SELECT jid FROM chats WHERE jid LIKE '%@lid'
+	rows, err := acc.db.Query(`SELECT jid FROM chats WHERE jid LIKE '%@lid'
 		UNION SELECT sender_jid FROM messages WHERE sender_jid LIKE '%@lid'
 		UNION SELECT jid FROM contacts_cache WHERE jid LIKE '%@lid'
 		UNION SELECT reactor_jid FROM reactions WHERE reactor_jid LIKE '%@lid'
@@ -129,13 +122,13 @@ func mergeAllKnownLIDRows() {
 	rows.Close()
 	pns := make(map[string]types.JID)
 	for _, lid := range lids {
-		if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), lid); err == nil && !pn.IsEmpty() {
+		if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), lid); err == nil && !pn.IsEmpty() {
 			pns[lid.User] = pn.ToNonAD()
 		}
 	}
-	if mergeLIDRowsIntoPN(pns) {
-		invalidateDisplayNames()
-		broadcastChats()
+	if acc.mergeLIDRowsIntoPN(pns) {
+		acc.invalidateDisplayNames()
+		acc.broadcastChats()
 	}
 }
 
@@ -170,15 +163,13 @@ var keyedLIDTables = []struct{ table, key, person, ts string }{
 	{"group_member_labels", "group_jid", "member", "set_at"},
 }
 
-var lidMergeMu sync.Mutex
-
-func mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
+func (acc *Account) mergeLIDRowsIntoPN(pns map[string]types.JID) bool {
 	if len(pns) == 0 {
 		return false
 	}
-	lidMergeMu.Lock()
-	defer lidMergeMu.Unlock()
-	tx, err := db.Begin()
+	acc.lidMergeMu.Lock()
+	defer acc.lidMergeMu.Unlock()
+	tx, err := acc.db.Begin()
 	if err != nil {
 		log.Println("Error starting LID merge transaction:", err)
 		return false

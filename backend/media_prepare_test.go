@@ -21,10 +21,10 @@ func withEXIFOrientation(jpg []byte, o uint16) []byte {
 
 func TestPreparePhoto(t *testing.T) {
 	dir := t.TempDir()
-	mediaDirOnce.Do(func() {})
-	oldBase := mediaDirBase
-	mediaDirBase = dir
-	t.Cleanup(func() { mediaDirBase = oldBase })
+	acc.mediaDirOnce.Do(func() {})
+	oldBase := acc.mediaDirBase
+	acc.mediaDirBase = dir
+	t.Cleanup(func() { acc.mediaDirBase = oldBase })
 
 	big := image.NewNRGBA(image.Rect(0, 0, 4000, 1000))
 	big.Set(10, 10, color.NRGBA{255, 0, 0, 255})
@@ -32,7 +32,7 @@ func TestPreparePhoto(t *testing.T) {
 	png.Encode(&pngBuf, big)
 	src := filepath.Join(dir, "big.png")
 	os.WriteFile(src, pngBuf.Bytes(), 0o644)
-	p, err := preparePhoto("big", src, false)
+	p, err := acc.preparePhoto("big", src, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestPreparePhoto(t *testing.T) {
 	jpeg.Encode(&jb, side, nil)
 	src = filepath.Join(dir, "side.jpg")
 	os.WriteFile(src, withEXIFOrientation(jb.Bytes(), 6), 0o644)
-	p, err = preparePhoto("side", src, false)
+	p, err = acc.preparePhoto("side", src, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestPreparePhoto(t *testing.T) {
 		t.Fatalf("rotated size %dx%d, want 200x300", p.width, p.height)
 	}
 
-	again, err := preparePhoto("side", p.path, false)
+	again, err := acc.preparePhoto("side", p.path, false)
 	if err != nil || again.path != p.path || again.width != 200 {
 		t.Fatalf("re-preparing changed it: %+v %v", again, err)
 	}

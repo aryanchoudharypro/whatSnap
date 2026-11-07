@@ -10,15 +10,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"net"
+
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
-	"net"
 )
 
-func handleSend(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSend(conn net.Conn, raw json.RawMessage) {
 	var data SendCommandData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -29,16 +30,16 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	if err != nil {
 		return
 	}
-	if jid.Server == types.NewsletterServer && !canPostInChannel(jid.String()) {
-		broadcastEvent("error", map[string]string{"message": "Only this channel's admins can post in it."})
+	if jid.Server == types.NewsletterServer && !acc.canPostInChannel(jid.String()) {
+		acc.broadcastEvent("error", map[string]string{"message": "Only this channel's admins can post in it."})
 		return
 	}
 
-	id := wa().GenerateMessageID()
+	id := acc.wa().GenerateMessageID()
 
 	quotedID, quotedText, quotedSender := "", "", ""
 	if data.ReplyToID != "" {
-		if _, storedSenderJID, preview, qErr := getMessageForQuote(data.ReplyToID); qErr == nil {
+		if _, storedSenderJID, preview, qErr := acc.getMessageForQuote(data.ReplyToID); qErr == nil {
 			quotedID = data.ReplyToID
 			quotedText = preview
 			quotedSender = data.ReplySender
@@ -50,8 +51,8 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 
 	var pendingRaw []byte
 	if wireText, mentionJIDs := applyMentions(data.Text, data.Mentions); len(mentionJIDs) > 0 {
-		if !invokedBot(mentionJIDs).IsEmpty() && chatSharingLimited(jid.String()) {
-			broadcastEvent("error", map[string]string{"message": chatPrivacyName(jid.String()) + " is on in this chat, so Meta AI can't be mentioned here."})
+		if !invokedBot(mentionJIDs).IsEmpty() && acc.chatSharingLimited(jid.String()) {
+			acc.broadcastEvent("error", map[string]string{"message": acc.chatPrivacyName(jid.String()) + " is on in this chat, so Meta AI can't be mentioned here."})
 			return
 		}
 		pendingRaw, _ = proto.Marshal(&waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
@@ -61,13 +62,13 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 	}
 
 	senderJID := ""
-	if wa().Store.ID != nil {
-		senderJID = wa().Store.ID.ToNonAD().String()
+	if acc.wa().Store.ID != nil {
+		senderJID = acc.wa().Store.ID.ToNonAD().String()
 	}
 	ts := time.Now().Unix()
-	quotedSenderDisplay := resolveQuotedSenderName(quotedSender)
+	quotedSenderDisplay := acc.resolveQuotedSenderName(quotedSender)
 
-	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+	acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
@@ -76,12 +77,12 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 			preview_is_reaction=0,
 			preview_reaction_emoji=''`,
 		jid.String(), ts, data.Text, senderJID)
-	saveMessage(StoredMessage{
+	acc.saveMessage(StoredMessage{
 		ID: id, JID: jid.String(), SenderJID: senderJID, FromMe: true,
 		Text: data.Text, Timestamp: ts, Status: "pending", Raw: pendingRaw,
 		QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSenderDisplay,
 	})
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid":          jid.String(),
 		"from":         "me",
 		"id":           id,
@@ -94,23 +95,23 @@ func handleSend(conn net.Conn, raw json.RawMessage) {
 		"quotedText":   quotedText,
 		"quotedSender": quotedSenderDisplay,
 	})
-	broadcastChats()
+	acc.broadcastChats()
 
-	sendPendingTextMessage(conn, id, jid.String(), data.Text, quotedID, quotedSender)
+	acc.sendPendingTextMessage(conn, id, jid.String(), data.Text, quotedID, quotedSender)
 }
 
-func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSender string) {
-	if !beginSendAttempt(id) {
+func (acc *Account) sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSender string) {
+	if !acc.beginSendAttempt(id) {
 		return
 	}
-	defer endSendAttempt(id)
+	defer acc.endSendAttempt(id)
 
 	jid, err := types.ParseJID(jidStr)
 	if err != nil {
 		return
 	}
 
-	wireText, mentionJIDs := storedMentionMessage(id)
+	wireText, mentionJIDs := acc.storedMentionMessage(id)
 	if wireText == "" {
 		wireText = text
 	}
@@ -118,7 +119,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	var msg *waE2E.Message
 	finalQuotedID, quotedText, finalQuotedSender := "", "", ""
 	if quotedID != "" {
-		quotedMsg, storedSenderJID, preview, qErr := getMessageForQuote(quotedID)
+		quotedMsg, storedSenderJID, preview, qErr := acc.getMessageForQuote(quotedID)
 		participant := quotedSender
 		if participant == "" {
 			participant = storedSenderJID
@@ -131,17 +132,17 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		// malformed quoted-message context, which is why replying to your own
 		// message never rendered as a reply on the recipient's end.
 		if participant == "me" {
-			if wa().Store.ID != nil {
-				participant = wa().Store.ID.ToNonAD().String()
+			if acc.wa().Store.ID != nil {
+				participant = acc.wa().Store.ID.ToNonAD().String()
 			} else {
 				participant = ""
 			}
 		}
-		participant = wireParticipantFor(quotedID, participant)
+		participant = acc.wireParticipantFor(quotedID, participant)
 		if qErr == nil {
-			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, resolveQuotedSenderName(displayParticipant)
+			finalQuotedID, quotedText, finalQuotedSender = quotedID, preview, acc.resolveQuotedSenderName(displayParticipant)
 			ctxInfo := &waE2E.ContextInfo{StanzaID: proto.String(quotedID), QuotedMessage: quotedMsg}
-			quoteStatus(ctxInfo, quotedID)
+			acc.quoteStatus(ctxInfo, quotedID)
 			if participant != "" {
 				ctxInfo.Participant = proto.String(participant)
 			}
@@ -162,35 +163,35 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 	}
 
 	if !jid.IsBot() {
-		msg = withLinkPreview(msg)
+		msg = acc.withLinkPreview(msg)
 	}
-	msg = applyDisappearingTimer(jid, msg)
-	resp, err := wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs), CheckPermissions: true})
+	msg = acc.applyDisappearingTimer(jid, msg)
+	resp, err := acc.wa().SendMessage(context.Background(), jid, msg, whatsmeow.SendRequestExtra{ID: id, InlineBotJID: invokedBot(mentionJIDs), CheckPermissions: true})
 	if err != nil {
 		log.Printf("Error sending message %s: %v", id, err)
 		if conn != nil {
-			sendEvent(conn, "error", map[string]string{"message": sendErrorText(err)})
+			acc.sendEvent(conn, "error", map[string]string{"message": sendErrorText(err)})
 		}
 		if sendRefusedForGood(err) {
-			markSendFailed(id, jidStr, text, quotedID, quotedSender)
+			acc.markSendFailed(id, jidStr, text, quotedID, quotedSender)
 			return
 		}
-		recordSendFailure(id, jidStr, text, quotedID, quotedSender, err)
+		acc.recordSendFailure(id, jidStr, text, quotedID, quotedSender, err)
 		return
 	}
 	log.Printf("Message %s sent successfully", id)
-	clearRetryState(id)
+	acc.clearRetryState(id)
 	ts := resp.Timestamp.Unix()
 	rawBytes, _ := proto.Marshal(msg)
 
-	db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=? WHERE id=?`, ts, ts, rawBytes, id)
-	noteMessageExpiry(db, id, ts, msg)
-	noteChannelPostSent(jid, id, resp)
+	acc.db.Exec(`UPDATE messages SET status='sent', timestamp=?, sent_at=?, raw=? WHERE id=?`, ts, ts, rawBytes, id)
+	noteMessageExpiry(acc.db, id, ts, msg)
+	acc.noteChannelPostSent(jid, id, resp)
 	senderJID := ""
-	if wa().Store.ID != nil {
-		senderJID = wa().Store.ID.ToNonAD().String()
+	if acc.wa().Store.ID != nil {
+		senderJID = acc.wa().Store.ID.ToNonAD().String()
 	}
-	db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+	acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 			ON CONFLICT(jid) DO UPDATE SET
 			timestamp=MAX(timestamp, excluded.timestamp),
 			preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
@@ -200,7 +201,7 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 			preview_reaction_emoji=''`,
 		jid.String(), ts, text, senderJID)
 
-	broadcastEvent("message", map[string]interface{}{
+	acc.broadcastEvent("message", map[string]interface{}{
 		"jid":          jid.String(),
 		"from":         "me",
 		"id":           id,
@@ -213,10 +214,10 @@ func sendPendingTextMessage(conn net.Conn, id, jidStr, text, quotedID, quotedSen
 		"quotedText":   quotedText,
 		"quotedSender": finalQuotedSender,
 	})
-	broadcastChats()
+	acc.broadcastChats()
 }
 
-func handleReactMessage(raw json.RawMessage) {
+func (acc *Account) handleReactMessage(raw json.RawMessage) {
 	var data ReactMessageData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -236,31 +237,31 @@ func handleReactMessage(raw json.RawMessage) {
 		}
 	}
 	if isChannelJID(data.JID) {
-		go handleChannelReaction(data)
+		go acc.handleChannelReaction(data)
 		return
 	}
 	go func() {
 		if chatJID.Server == types.GroupServer && !senderJID.IsEmpty() {
-			if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
+			if wire, perr := types.ParseJID(acc.wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
 				senderJID = wire
 			}
 		}
-		msg := wa().BuildReaction(chatJID, senderJID, data.MessageID, data.Emoji)
-		resp, err := wa().SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID()})
+		msg := acc.wa().BuildReaction(chatJID, senderJID, data.MessageID, data.Emoji)
+		resp, err := acc.wa().SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID()})
 		if err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		upsertReaction(data.MessageID, data.JID, "me", data.Emoji, resp.Timestamp.Unix())
-		updateChatReactionPreview(data.JID, data.MessageID, "me", data.Emoji, true)
-		broadcastChats()
-		broadcastEvent("message_reaction", map[string]interface{}{
+		acc.upsertReaction(data.MessageID, data.JID, "me", data.Emoji, resp.Timestamp.Unix())
+		acc.updateChatReactionPreview(data.JID, data.MessageID, "me", data.Emoji, true)
+		acc.broadcastChats()
+		acc.broadcastEvent("message_reaction", map[string]interface{}{
 			"jid": data.JID, "message_id": data.MessageID, "reactor": "me", "reactor_name": "You", "emoji": data.Emoji,
 		})
 	}()
 }
 
-func handleEditMessage(raw json.RawMessage) {
+func (acc *Account) handleEditMessage(raw json.RawMessage) {
 	var data EditMessageData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -271,7 +272,7 @@ func handleEditMessage(raw json.RawMessage) {
 	}
 	go func() {
 		var mentions []MentionRef
-		for _, m := range editMentions(data.MessageID, data.Mentions) {
+		for _, m := range acc.editMentions(data.MessageID, data.Mentions) {
 			if jid, err := types.ParseJID(m.JID); err == nil && !jid.IsBot() {
 				mentions = append(mentions, m)
 			}
@@ -283,27 +284,27 @@ func handleEditMessage(raw json.RawMessage) {
 				ContextInfo: &waE2E.ContextInfo{MentionedJID: jidStrings(mentionJIDs)},
 			}}
 		}
-		msg := wa().BuildEdit(chatJID, data.MessageID, newContent)
+		msg := acc.wa().BuildEdit(chatJID, data.MessageID, newContent)
 
-		editStanzaID := wa().GenerateMessageID()
+		editStanzaID := acc.wa().GenerateMessageID()
 		if chatJID.Server != types.NewsletterServer {
-			recordEditStanza(editStanzaID, data.MessageID, data.JID, time.Now().Unix())
+			acc.recordEditStanza(editStanzaID, data.MessageID, data.JID, time.Now().Unix())
 		}
 
-		_, err := wa().SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: editStanzaID})
+		_, err := acc.wa().SendMessage(context.Background(), chatJID, msg, whatsmeow.SendRequestExtra{ID: editStanzaID})
 		if err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+			acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
 		editTime := time.Now().Unix()
-		shown, _ := markMessageEdited(data.MessageID, data.JID, newContent, data.NewText, editTime)
-		broadcastEvent("message_edited", map[string]interface{}{
+		shown, _ := acc.markMessageEdited(data.MessageID, data.JID, newContent, data.NewText, editTime)
+		acc.broadcastEvent("message_edited", map[string]interface{}{
 			"jid": data.JID, "message_id": data.MessageID, "text": shown, "edited_at": editTime,
 		})
 	}()
 }
 
-func handleDeleteMessage(raw json.RawMessage) {
+func (acc *Account) handleDeleteMessage(raw json.RawMessage) {
 	var data DeleteMessageData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -317,7 +318,7 @@ func handleDeleteMessage(raw json.RawMessage) {
 		var storedJIDStr, storedSenderStr string
 		var storedFromMe bool
 		var storedTimestamp int64
-		if dbErr := db.QueryRow("SELECT jid, COALESCE(sender_jid, ''), from_me, timestamp FROM messages WHERE id = ?", data.MessageID).
+		if dbErr := acc.db.QueryRow("SELECT jid, COALESCE(sender_jid, ''), from_me, timestamp FROM messages WHERE id = ?", data.MessageID).
 			Scan(&storedJIDStr, &storedSenderStr, &storedFromMe, &storedTimestamp); dbErr == nil {
 			if parsed, perr := types.ParseJID(storedJIDStr); perr == nil && !parsed.IsEmpty() {
 				targetChatJID = parsed
@@ -337,28 +338,28 @@ func handleDeleteMessage(raw json.RawMessage) {
 						senderJID = parsed
 					}
 				}
-				if senderJID.IsEmpty() && wa().Store.ID != nil {
-					senderJID = wa().Store.ID.ToNonAD()
+				if senderJID.IsEmpty() && acc.wa().Store.ID != nil {
+					senderJID = acc.wa().Store.ID.ToNonAD()
 				}
-				if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
+				if wire, perr := types.ParseJID(acc.wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
 					senderJID = wire
 				}
 			}
 
-			msg := wa().BuildRevoke(targetChatJID, senderJID, data.MessageID)
-			if _, err := wa().SendMessage(context.Background(), targetChatJID, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID()}); err != nil {
+			msg := acc.wa().BuildRevoke(targetChatJID, senderJID, data.MessageID)
+			if _, err := acc.wa().SendMessage(context.Background(), targetChatJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID()}); err != nil {
 				errMsg := err.Error()
 				if strings.Contains(errMsg, "479") {
 					errMsg = "WhatsApp error 479: Failed to delete for everyone. The message key mismatch or the revoke time limit expired."
 				}
-				broadcastEvent("error", map[string]string{"message": errMsg})
+				acc.broadcastEvent("error", map[string]string{"message": errMsg})
 				return
 			}
 		} else if targetChatJID.Server != types.NewsletterServer {
 			originalSender := types.EmptyJID
 			if storedFromMe {
-				if wa().Store.ID != nil {
-					originalSender = wa().Store.ID.ToNonAD()
+				if acc.wa().Store.ID != nil {
+					originalSender = acc.wa().Store.ID.ToNonAD()
 				}
 			} else if storedSenderStr != "" {
 				if parsed, perr := types.ParseJID(storedSenderStr); perr == nil {
@@ -370,27 +371,27 @@ func handleDeleteMessage(raw json.RawMessage) {
 				msgTimestamp = time.Unix(storedTimestamp, 0)
 			}
 			if !storedFromMe && targetChatJID.Server == types.GroupServer && !originalSender.IsEmpty() {
-				if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, originalSender.String())); perr == nil && !wire.IsEmpty() {
+				if wire, perr := types.ParseJID(acc.wireParticipantFor(data.MessageID, originalSender.String())); perr == nil && !wire.IsEmpty() {
 					originalSender = wire
 				}
 			}
-			patch := appstate.BuildDeleteMessageForMe(syncdChatJID(targetChatJID), originalSender, data.MessageID, storedFromMe, true, msgTimestamp)
-			if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
+			patch := appstate.BuildDeleteMessageForMe(acc.syncdChatJID(targetChatJID), originalSender, data.MessageID, storedFromMe, true, msgTimestamp)
+			if err := acc.sendAppStateWithRetry(context.Background(), patch); err != nil {
 				log.Printf("Delete-for-me app-state sync failed for %s: %v", data.MessageID, err)
 			}
 		}
 		if data.ForEveryone {
-			markMessageDeleted(data.MessageID, data.JID)
+			acc.markMessageDeleted(data.MessageID, data.JID)
 		} else {
-			deleteMessageForMe(data.MessageID, data.JID)
+			acc.deleteMessageForMe(data.MessageID, data.JID)
 		}
-		broadcastEvent("message_deleted", map[string]interface{}{
+		acc.broadcastEvent("message_deleted", map[string]interface{}{
 			"jid": data.JID, "message_id": data.MessageID, "by": "me", "for_everyone": data.ForEveryone,
 		})
 	}()
 }
 
-func handleStarMessage(raw json.RawMessage) {
+func (acc *Account) handleStarMessage(raw json.RawMessage) {
 	var data StarMessageData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -407,23 +408,23 @@ func handleStarMessage(raw json.RawMessage) {
 	}
 	go func() {
 		if chatJID.Server == types.GroupServer && !data.FromMe && !senderJID.IsEmpty() {
-			if wire, perr := types.ParseJID(wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
+			if wire, perr := types.ParseJID(acc.wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
 				senderJID = wire
 			}
 		}
-		patch := appstate.BuildStar(syncdChatJID(chatJID), senderJID, types.MessageID(data.MessageID), data.FromMe, data.Starred)
-		if err := sendAppStateWithRetry(context.Background(), patch); err != nil {
-			broadcastEvent("error", map[string]string{"message": err.Error()})
+		patch := appstate.BuildStar(acc.syncdChatJID(chatJID), senderJID, types.MessageID(data.MessageID), data.FromMe, data.Starred)
+		if err := acc.sendAppStateWithRetry(context.Background(), patch); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": err.Error()})
 			return
 		}
-		markMessageStarred(data.MessageID, data.JID, data.Starred)
-		broadcastEvent("message_starred", map[string]interface{}{
+		acc.markMessageStarred(data.MessageID, data.JID, data.Starred)
+		acc.broadcastEvent("message_starred", map[string]interface{}{
 			"jid": data.JID, "message_id": data.MessageID, "starred": data.Starred,
 		})
 	}()
 }
 
-func handleSendTyping(raw json.RawMessage) {
+func (acc *Account) handleSendTyping(raw json.RawMessage) {
 	var data struct {
 		JID   string `json:"jid"`
 		State string `json:"state"`
@@ -440,16 +441,10 @@ func handleSendTyping(raw json.RawMessage) {
 	if data.State == "paused" {
 		pState = types.ChatPresencePaused
 	}
-	go wa().SendChatPresence(context.Background(), jid, pState, types.ChatPresenceMedia(data.Media))
+	go acc.wa().SendChatPresence(context.Background(), jid, pState, types.ChatPresenceMedia(data.Media))
 }
 
-var (
-	desiredPresenceMu sync.Mutex
-	desiredPresence   = types.PresenceUnavailable
-	sentPresence      types.Presence
-)
-
-func handleSetPresence(raw json.RawMessage) {
+func (acc *Account) handleSetPresence(raw json.RawMessage) {
 	var data struct {
 		Available bool `json:"available"`
 	}
@@ -461,33 +456,33 @@ func handleSetPresence(raw json.RawMessage) {
 	if data.Available {
 		state = types.PresenceAvailable
 	}
-	desiredPresenceMu.Lock()
-	desiredPresence = state
-	desiredPresenceMu.Unlock()
-	go sendDesiredPresence(false)
+	acc.desiredPresenceMu.Lock()
+	acc.desiredPresence = state
+	acc.desiredPresenceMu.Unlock()
+	go acc.sendDesiredPresence(false)
 }
 
-func sendDesiredPresence(force bool) {
-	c := wa()
+func (acc *Account) sendDesiredPresence(force bool) {
+	c := acc.wa()
 	if c == nil || !c.IsLoggedIn() {
 		return
 	}
-	desiredPresenceMu.Lock()
-	state := desiredPresence
-	if !force && state == sentPresence {
-		desiredPresenceMu.Unlock()
+	acc.desiredPresenceMu.Lock()
+	state := acc.desiredPresence
+	if !force && state == acc.sentPresence {
+		acc.desiredPresenceMu.Unlock()
 		return
 	}
-	sentPresence = state
-	desiredPresenceMu.Unlock()
+	acc.sentPresence = state
+	acc.desiredPresenceMu.Unlock()
 	if state == types.PresenceUnavailable {
-		forgetPresenceSubscriptions()
+		acc.forgetPresenceSubscriptions()
 	}
 	if err := c.SendPresence(context.Background(), state); err != nil {
 		log.Printf("SendPresence(%s) failed: %v", state, err)
-		desiredPresenceMu.Lock()
-		sentPresence = ""
-		desiredPresenceMu.Unlock()
+		acc.desiredPresenceMu.Lock()
+		acc.sentPresence = ""
+		acc.desiredPresenceMu.Unlock()
 	}
 }
 
@@ -500,35 +495,33 @@ func sendDesiredPresence(force bool) {
 // reads are out.
 const readPresenceHold = 10 * time.Second
 
-var readPresenceTimer *time.Timer
-
-func ensureAvailableForRead() {
-	c := wa()
+func (acc *Account) ensureAvailableForRead() {
+	c := acc.wa()
 	if c == nil || !c.IsLoggedIn() {
 		return
 	}
-	desiredPresenceMu.Lock()
-	if readPresenceTimer != nil {
-		readPresenceTimer.Stop()
+	acc.desiredPresenceMu.Lock()
+	if acc.readPresenceTimer != nil {
+		acc.readPresenceTimer.Stop()
 	}
-	readPresenceTimer = time.AfterFunc(readPresenceHold, func() { sendDesiredPresence(false) })
-	if sentPresence == types.PresenceAvailable {
-		desiredPresenceMu.Unlock()
+	acc.readPresenceTimer = time.AfterFunc(readPresenceHold, func() { acc.sendDesiredPresence(false) })
+	if acc.sentPresence == types.PresenceAvailable {
+		acc.desiredPresenceMu.Unlock()
 		return
 	}
-	sentPresence = types.PresenceAvailable
-	desiredPresenceMu.Unlock()
+	acc.sentPresence = types.PresenceAvailable
+	acc.desiredPresenceMu.Unlock()
 	if err := c.SendPresence(context.Background(), types.PresenceAvailable); err != nil {
 		log.Printf("SendPresence(available) before a read receipt failed: %v", err)
-		desiredPresenceMu.Lock()
-		sentPresence = ""
-		desiredPresenceMu.Unlock()
+		acc.desiredPresenceMu.Lock()
+		acc.sentPresence = ""
+		acc.desiredPresenceMu.Unlock()
 	}
 }
 
 // WA Web marks the chat read whenever you send something in it (sendSeen in
 // WAWebSendMsgRecordAction), so replying from here clears it on the phone too.
-func markReadOnSend(raw json.RawMessage) {
+func (acc *Account) markReadOnSend(raw json.RawMessage) {
 	var data struct {
 		JID string `json:"jid"`
 		To  string `json:"to"`
@@ -543,28 +536,26 @@ func markReadOnSend(raw json.RawMessage) {
 	if jid == "" {
 		return
 	}
-	if !hasUnacknowledgedMessages(jid) {
+	if !acc.hasUnacknowledgedMessages(jid) {
 		return
 	}
 	payload, _ := json.Marshal(map[string]interface{}{"jid": jid, "message_ids": []string{}})
-	handleMarkRead(payload)
+	acc.handleMarkRead(payload)
 }
 
 // hasUnacknowledgedMessages reports whether the chat has an incoming message
 // we haven't sent a read receipt for.
-func hasUnacknowledgedMessages(jid string) bool {
+func (acc *Account) hasUnacknowledgedMessages(jid string) bool {
 	var found int
-	err := db.QueryRow(`SELECT 1 FROM messages WHERE jid = ? AND `+unacknowledgedIncoming+` LIMIT 1`, jid).Scan(&found)
+	err := acc.db.QueryRow(`SELECT 1 FROM messages WHERE jid = ? AND `+unacknowledgedIncoming+` LIMIT 1`, jid).Scan(&found)
 	return err == nil
 }
 
-var presenceSubscribed sync.Map
-
-func forgetPresenceSubscriptions() {
-	presenceSubscribed.Clear()
+func (acc *Account) forgetPresenceSubscriptions() {
+	acc.presenceSubscribed.Clear()
 }
 
-func handleSubscribePresence(raw json.RawMessage) {
+func (acc *Account) handleSubscribePresence(raw json.RawMessage) {
 	var data struct {
 		JID string `json:"jid"`
 	}
@@ -581,15 +572,15 @@ func handleSubscribePresence(raw json.RawMessage) {
 		return
 	}
 	jid = jid.ToNonAD()
-	if own := wa().Store.ID; own != nil && jid.User == own.User || jid.User == wa().Store.GetLID().User {
+	if own := acc.wa().Store.ID; own != nil && jid.User == own.User || jid.User == acc.wa().Store.GetLID().User {
 		return
 	}
-	if _, already := presenceSubscribed.LoadOrStore(jid, struct{}{}); already {
+	if _, already := acc.presenceSubscribed.LoadOrStore(jid, struct{}{}); already {
 		return
 	}
-	err = wa().SubscribePresence(context.Background(), jid)
+	err = acc.wa().SubscribePresence(context.Background(), jid)
 	if err != nil {
-		presenceSubscribed.Delete(jid)
+		acc.presenceSubscribed.Delete(jid)
 		log.Printf("Error subscribing to presence: %v", err)
 	} else {
 		debugf("Subscribed to presence for %s", jid.String())
@@ -610,7 +601,7 @@ const receivedMessage = `from_me = 0
 	AND COALESCE(media_type, '') NOT IN ('system', 'call') AND id NOT LIKE 'system\_%' ESCAPE '\'
 	AND NOT (COALESCE(length(raw), 0) = 0 AND text IN ('` + undecryptableText + `', '` + viewOnceReceived + `', '` + viewOnceSentElsewhere + `', '` + viewOnceOnPhoneOld + `'))`
 
-func handleMarkRead(raw json.RawMessage) {
+func (acc *Account) handleMarkRead(raw json.RawMessage) {
 	var data struct {
 		JID        string   `json:"jid"`
 		MessageIDs []string `json:"message_ids"`
@@ -634,8 +625,8 @@ func handleMarkRead(raw json.RawMessage) {
 	// sender as their message did - in a group that hides numbers, by LID.
 	// Swapping in the phone JID (as this used to) addressed a receipt to
 	// someone the message never named.
-	syncJID := syncdChatJID(chatJID)
-	chatJID = receiptChatJID(chatJID)
+	syncJID := acc.syncdChatJID(chatJID)
+	chatJID = acc.receiptChatJID(chatJID)
 
 	type msgSender struct {
 		id        types.MessageID
@@ -648,7 +639,7 @@ func handleMarkRead(raw json.RawMessage) {
 		for _, id := range data.MessageIDs {
 			var senderStr, mediaType string
 			var sts int64
-			_ = db.QueryRow("SELECT COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(media_type, ''), COALESCE(server_sts, 0) FROM messages WHERE id = ?", id).Scan(&senderStr, &mediaType, &sts)
+			_ = acc.db.QueryRow("SELECT COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(media_type, ''), COALESCE(server_sts, 0) FROM messages WHERE id = ?", id).Scan(&senderStr, &mediaType, &sts)
 			if mediaType == "system" || mediaType == "call" {
 				continue
 			}
@@ -665,14 +656,14 @@ func handleMarkRead(raw json.RawMessage) {
 	}
 	var markedUnread bool
 	if len(data.MessageIDs) == 0 {
-		_ = db.QueryRow("SELECT COALESCE(marked_unread, 0) = 1 FROM chats WHERE jid = ?", data.JID).Scan(&markedUnread)
+		_ = acc.db.QueryRow("SELECT COALESCE(marked_unread, 0) = 1 FROM chats WHERE jid = ?", data.JID).Scan(&markedUnread)
 
 		// The chat's unread count can't decide this: opening a chat loads its
 		// messages first, and that already sets the count to 0, so this saw
 		// nothing to acknowledge and the phone was never told. Like WA Web's
 		// pending-read-receipt rows, acknowledge every incoming message we
 		// haven't sent a read for yet (newest first), however many there are.
-		rows, err := db.Query(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(server_sts, 0) FROM messages
+		rows, err := acc.db.Query(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(server_sts, 0) FROM messages
 			WHERE jid = ? AND `+unacknowledgedIncoming+` ORDER BY timestamp DESC`, data.JID)
 		if err == nil {
 			for rows.Next() {
@@ -700,7 +691,7 @@ func handleMarkRead(raw json.RawMessage) {
 			if chatJID.Server == types.GroupServer {
 				senderKnown = ` AND COALESCE(NULLIF(wire_sender, ''), sender_jid, '') != ''`
 			}
-			err := db.QueryRow(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(server_sts, 0) FROM messages
+			err := acc.db.QueryRow(`SELECT id, COALESCE(NULLIF(wire_sender, ''), sender_jid, ''), COALESCE(server_sts, 0) FROM messages
 				WHERE jid = ? AND `+receivedMessage+senderKnown+` ORDER BY timestamp DESC LIMIT 1`, data.JID).Scan(&id, &senderStr, &sts)
 			if err != nil {
 				log.Printf("Mark as read %s: no received message to name in a read receipt: %v", data.JID, err)
@@ -734,7 +725,7 @@ func handleMarkRead(raw json.RawMessage) {
 	// failed, so it doesn't show the chat read when the server never heard.
 	go func() {
 		if len(bySender) > 0 {
-			ensureAvailableForRead()
+			acc.ensureAvailableForRead()
 		}
 		now := time.Now()
 		var wg sync.WaitGroup
@@ -744,13 +735,13 @@ func handleMarkRead(raw json.RawMessage) {
 			for start := 0; start < len(ids); start += readReceiptChunk {
 				chunk := ids[start:min(start+readReceiptChunk, len(ids))]
 				wg.Go(func() {
-					if err := markReadAndWaitForAck(chunk, now, chatJID, sender, sts); err != nil {
+					if err := acc.markReadAndWaitForAck(chunk, now, chatJID, sender, sts); err != nil {
 						log.Printf("MarkRead error for chat %s sender %s: %v", chatJID, sender, err)
 						failed.Store(true)
 						return
 					}
 					for _, id := range chunk {
-						db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(id))
+						acc.db.Exec(`UPDATE messages SET read_at = ? WHERE id = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), string(id))
 					}
 				})
 			}
@@ -758,20 +749,20 @@ func handleMarkRead(raw json.RawMessage) {
 		wg.Wait()
 		ok := !failed.Load()
 		if !ok {
-			broadcastEvent("mark_read_failed", map[string]interface{}{"jid": data.JID})
+			acc.broadcastEvent("mark_read_failed", map[string]interface{}{"jid": data.JID})
 			return
 		}
 		if markedUnread {
-			lastTS, lastKey := getLastMessageKeyForChat(data.JID)
-			if err := sendAppStateWithRetry(context.Background(), withChatRange(appstate.BuildMarkChatAsRead(syncJID, true, lastTS, lastKey), data.JID)); err != nil {
+			lastTS, lastKey := acc.getLastMessageKeyForChat(data.JID)
+			if err := acc.sendAppStateWithRetry(context.Background(), acc.withChatRange(appstate.BuildMarkChatAsRead(syncJID, true, lastTS, lastKey), data.JID)); err != nil {
 				log.Printf("Clearing the unread mark of %s on other devices failed: %v", data.JID, err)
 			}
 		}
 		if len(data.MessageIDs) == 0 {
-			db.Exec(`UPDATE messages SET read_at = ? WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), data.JID)
+			acc.db.Exec(`UPDATE messages SET read_at = ? WHERE jid = ? AND from_me = 0 AND COALESCE(read_at, 0) = 0`, now.Unix(), data.JID)
 		}
-		db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ?", data.JID)
-		broadcastEvent("chat_updated", map[string]interface{}{
+		acc.db.Exec("UPDATE chats SET unread_count = 0, marked_unread = 0 WHERE jid = ?", data.JID)
+		acc.broadcastEvent("chat_updated", map[string]interface{}{
 			"jid":          data.JID,
 			"unread_count": 0,
 		})
@@ -780,7 +771,7 @@ func handleMarkRead(raw json.RawMessage) {
 
 const readReceiptAckTimeout = 15 * time.Second
 
-func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender types.JID, maxSTS int64) error {
+func (acc *Account) markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender types.JID, maxSTS int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -788,9 +779,9 @@ func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender ty
 	// cancelled: CancelResponse closes the channel, which would panic if the
 	// ack arrived at that moment. A waiter left behind holds one buffered
 	// channel and is cleared on disconnect.
-	ackCh := wa().DangerousInternals().WaitResponse(string(ids[0]))
+	ackCh := acc.wa().DangerousInternals().WaitResponse(string(ids[0]))
 	receipt := whatsmeow.ReadReceipt{IDs: ids, Timestamp: now, Chat: chat, Sender: sender, MaxServerStoreTime: maxSTS}
-	if err := wa().SendReadReceipt(context.Background(), receipt); err != nil {
+	if err := acc.wa().SendReadReceipt(context.Background(), receipt); err != nil {
 		return err
 	}
 	select {
@@ -808,7 +799,7 @@ func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender ty
 		// takes its setting from there, so a change on the phone applies to
 		// the next receipt without waiting for a privacy fetch.
 		if setting, ok := ack.Attrs["readreceipts"].(string); ok && (setting == "all" || setting == "none") {
-			wa().SetReadReceiptsPrivacy(types.PrivacySetting(setting))
+			acc.wa().SetReadReceiptsPrivacy(types.PrivacySetting(setting))
 		}
 		return nil
 	case <-time.After(readReceiptAckTimeout):
@@ -816,7 +807,7 @@ func markReadAndWaitForAck(ids []types.MessageID, now time.Time, chat, sender ty
 	}
 }
 
-func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 	var data struct {
 		ID string `json:"id"`
 	}
@@ -826,7 +817,7 @@ func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 	var sentAt, deliveredAt, readAt, playedAt, editedAt, msgTS int64
 	var mediaType, jid string
 	var fromMe bool
-	err := db.QueryRow(
+	err := acc.db.QueryRow(
 		`SELECT COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(media_type,''), COALESCE(timestamp,0), COALESCE(jid,''), COALESCE(from_me,0) FROM messages WHERE id = ?`,
 		data.ID,
 	).Scan(&sentAt, &deliveredAt, &readAt, &playedAt, &editedAt, &mediaType, &msgTS, &jid, &fromMe)
@@ -848,30 +839,30 @@ func handleGetMessageInfo(conn net.Conn, raw json.RawMessage) {
 	}
 
 	if fromMe && strings.HasSuffix(jid, "@g.us") {
-		if participants := groupMessageReceiptParticipants(data.ID, jid); len(participants) > 0 {
+		if participants := acc.groupMessageReceiptParticipants(data.ID, jid); len(participants) > 0 {
 			result["participants"] = participants
 		}
 	}
 
-	if poll := pollInfoForMessage(data.ID); poll != nil {
+	if poll := acc.pollInfoForMessage(data.ID); poll != nil {
 		result["poll"] = poll
 	}
 
-	sendEvent(conn, "message_info", result)
+	acc.sendEvent(conn, "message_info", result)
 }
 
-func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]interface{} {
+func (acc *Account) groupMessageReceiptParticipants(messageID, groupJID string) []map[string]interface{} {
 	jid, err := types.ParseJID(groupJID)
 	if err != nil {
 		return nil
 	}
-	info, err := wa().GetGroupInfo(context.Background(), jid)
+	info, err := acc.wa().GetGroupInfo(context.Background(), jid)
 	if err != nil {
 		return nil
 	}
-	myJID := wa().Store.ID.ToNonAD()
+	myJID := acc.wa().Store.ID.ToNonAD()
 
-	rows, err := db.Query(`SELECT participant_jid, status, timestamp,
+	rows, err := acc.db.Query(`SELECT participant_jid, status, timestamp,
 			COALESCE(delivered_at, 0), COALESCE(read_at, 0), COALESCE(played_at, 0)
 		FROM message_receipts WHERE message_id = ?`, messageID)
 	if err != nil {
@@ -905,7 +896,7 @@ func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]in
 		if !p.PhoneNumber.IsEmpty() {
 			displayJID = p.PhoneNumber
 		} else if displayJID.Server == "lid" {
-			if pn, err := wa().Store.LIDs.GetPNForLID(context.Background(), displayJID); err == nil && !pn.IsEmpty() {
+			if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), displayJID); err == nil && !pn.IsEmpty() {
 				displayJID = pn
 			}
 		}
@@ -917,7 +908,7 @@ func groupMessageReceiptParticipants(messageID, groupJID string) []map[string]in
 			r.status = "sent"
 		}
 		participants = append(participants, map[string]interface{}{
-			"name":         resolveDisplayName(displayJID),
+			"name":         acc.resolveDisplayName(displayJID),
 			"status":       r.status,
 			"timestamp":    r.ts,
 			"delivered_at": r.delivered,
@@ -938,25 +929,25 @@ const (
 	frequentlyForwardedScore = 5
 )
 
-func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 	var data ForwardMessageData
 	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" || len(data.ToJIDs) == 0 {
 		return
 	}
 	go func() {
-		rawBytes, sourceJID, _, _, err := getMessageRaw(data.MessageID)
+		rawBytes, sourceJID, _, _, err := acc.getMessageRaw(data.MessageID)
 		if err != nil || len(rawBytes) == 0 {
-			sendEvent(conn, "error", map[string]string{"message": "Message not found for forwarding"})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Message not found for forwarding"})
 			return
 		}
 		var origMsg waE2E.Message
 		if unmarshalErr := proto.Unmarshal(rawBytes, &origMsg); unmarshalErr != nil {
-			sendEvent(conn, "error", map[string]string{"message": "Failed to parse message protobuf for forwarding"})
+			acc.sendEvent(conn, "error", map[string]string{"message": "Failed to parse message protobuf for forwarding"})
 			return
 		}
 
-		if viewOnceState(data.MessageID) != 0 || origMsg.GetViewOnceMessage() != nil || origMsg.GetViewOnceMessageV2() != nil || origMsg.GetViewOnceMessageV2Extension() != nil {
-			sendEvent(conn, "error", map[string]string{"message": "View once messages can't be forwarded."})
+		if acc.viewOnceState(data.MessageID) != 0 || origMsg.GetViewOnceMessage() != nil || origMsg.GetViewOnceMessageV2() != nil || origMsg.GetViewOnceMessageV2Extension() != nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "View once messages can't be forwarded."})
 			return
 		}
 		content := proto.Clone(unwrapMessage(&origMsg)).(*waE2E.Message)
@@ -975,10 +966,10 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 		}
 		fromChannel := isChannelJID(sourceJID)
 		if fromChannel {
-			forwardCtx.ForwardedNewsletterMessageInfo = forwardedChannelInfo(sourceJID, data.MessageID)
+			forwardCtx.ForwardedNewsletterMessageInfo = acc.forwardedChannelInfo(sourceJID, data.MessageID)
 		}
 		if !setContextInfo(content, forwardCtx) {
-			sendEvent(conn, "error", map[string]string{"message": "This kind of message can't be forwarded."})
+			acc.sendEvent(conn, "error", map[string]string{"message": "This kind of message can't be forwarded."})
 			return
 		}
 		limit := maxForwardTargets
@@ -986,7 +977,7 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 			limit = 1
 		}
 		if len(data.ToJIDs) > limit {
-			sendEvent(conn, "error", map[string]string{"message": fmt.Sprintf("This message can only be forwarded to %d chat(s) at a time.", limit)})
+			acc.sendEvent(conn, "error", map[string]string{"message": fmt.Sprintf("This message can only be forwarded to %d chat(s) at a time.", limit)})
 			return
 		}
 		for _, toJIDStr := range data.ToJIDs {
@@ -995,38 +986,38 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				continue
 			}
 			toChannel := targetJID.Server == types.NewsletterServer
-			if toChannel && !canPostInChannel(targetJID.String()) {
-				sendEvent(conn, "error", map[string]string{"message": "You can only forward to channels you run."})
+			if toChannel && !acc.canPostInChannel(targetJID.String()) {
+				acc.sendEvent(conn, "error", map[string]string{"message": "You can only forward to channels you run."})
 				continue
 			}
 			outgoing := content
 			var extra whatsmeow.SendRequestExtra
 			if toChannel != fromChannel && mediaPart(content) != nil {
 				outgoing = proto.Clone(content).(*waE2E.Message)
-				handle, reErr := reuploadMedia(context.Background(), outgoing, toChannel)
+				handle, reErr := acc.reuploadMedia(context.Background(), outgoing, toChannel)
 				if reErr != nil {
 					log.Printf("Couldn't re-upload forwarded media for %s: %v", toJIDStr, reErr)
-					sendEvent(conn, "error", map[string]string{"message": "Couldn't forward the media: " + reErr.Error()})
+					acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't forward the media: " + reErr.Error()})
 					continue
 				}
 				extra.MediaHandle = handle
 			}
 			if !toChannel {
-				outgoing = applyDisappearingTimer(targetJID, proto.Clone(outgoing).(*waE2E.Message))
+				outgoing = acc.applyDisappearingTimer(targetJID, proto.Clone(outgoing).(*waE2E.Message))
 			}
-			resp, sendErr := wa().SendMessage(context.Background(), targetJID, outgoing, extra)
+			resp, sendErr := acc.wa().SendMessage(context.Background(), targetJID, outgoing, extra)
 			if sendErr != nil {
 				log.Printf("Error forwarding message to %s: %v", toJIDStr, sendErr)
 				continue
 			}
 			ts := resp.Timestamp.Unix()
-			text := extractText(content)
-			senderJID := wa().Store.ID.ToNonAD().String()
+			text := acc.extractText(content)
+			senderJID := acc.wa().Store.ID.ToNonAD().String()
 			fwdRawBytes, _ := proto.Marshal(outgoing)
 			mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(outgoing)
-			quotedID, quotedText, quotedSender := quotedPreview(outgoing)
+			quotedID, quotedText, quotedSender := acc.quotedPreview(outgoing)
 
-			db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
+			acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 				ON CONFLICT(jid) DO UPDATE SET
 				timestamp=MAX(timestamp, excluded.timestamp),
 				preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
@@ -1036,16 +1027,16 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				preview_reaction_emoji=''`,
 				targetJID.String(), ts, text, senderJID)
 
-			saveMessage(StoredMessage{
+			acc.saveMessage(StoredMessage{
 				ID: resp.ID, JID: targetJID.String(), SenderJID: senderJID, FromMe: true,
 				Text: text, Timestamp: ts, Raw: fwdRawBytes, Status: "sent",
 				MediaType: mediaType, MediaMimetype: mimetype, MediaFilename: filename, MediaSize: mediaSize,
 				QuotedID: quotedID, QuotedText: quotedText, QuotedSender: quotedSender,
 				ServerID: int64(resp.ServerID),
 			})
-			noteMessageExpiry(db, resp.ID, ts, outgoing)
+			noteMessageExpiry(acc.db, resp.ID, ts, outgoing)
 
-			broadcastEvent("message", map[string]interface{}{
+			acc.broadcastEvent("message", map[string]interface{}{
 				"jid":           targetJID.String(),
 				"from":          "me",
 				"id":            resp.ID,
@@ -1061,6 +1052,6 @@ func handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				"quotedSender":  quotedSender,
 			})
 		}
-		broadcastChats()
+		acc.broadcastChats()
 	}()
 }

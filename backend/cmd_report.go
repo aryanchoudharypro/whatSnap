@@ -22,18 +22,18 @@ type reportableMessage struct {
 	raw                   []byte
 }
 
-func latestReportable(chat string) (reportableMessage, bool) {
+func (acc *Account) latestReportable(chat string) (reportableMessage, bool) {
 	var m reportableMessage
-	err := db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), COALESCE(media_type, ''), COALESCE(timestamp, 0), raw FROM messages
+	err := acc.db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), COALESCE(media_type, ''), COALESCE(timestamp, 0), raw FROM messages
 		WHERE jid = ? AND from_me = 0 AND COALESCE(is_deleted, 0) = 0 AND COALESCE(media_type, '') NOT IN ('system', 'call')
 		ORDER BY timestamp DESC LIMIT 1`, chat).Scan(&m.id, &m.sender, &m.mediaType, &m.ts, &m.raw)
 	return m, err == nil
 }
 
-func loadReportable(chat, messageID string) (reportableMessage, bool) {
+func (acc *Account) loadReportable(chat, messageID string) (reportableMessage, bool) {
 	var m reportableMessage
 	var fromMe bool
-	err := db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), COALESCE(media_type, ''), COALESCE(timestamp, 0), raw, from_me FROM messages
+	err := acc.db.QueryRow(`SELECT id, COALESCE(sender_jid, ''), COALESCE(media_type, ''), COALESCE(timestamp, 0), raw, from_me FROM messages
 		WHERE id = ? AND jid = ?`, messageID, chat).Scan(&m.id, &m.sender, &m.mediaType, &m.ts, &m.raw, &fromMe)
 	return m, err == nil && !fromMe
 }
@@ -66,13 +66,13 @@ func buildSpamReport(chat types.JID, m reportableMessage, wholeChat bool, groupN
 	return report
 }
 
-func handleReport(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleReport(conn net.Conn, raw json.RawMessage) {
 	var data ReportData
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
 	go func() {
-		fail := func(msg string) { sendEvent(conn, "error", map[string]string{"message": msg}) }
+		fail := func(msg string) { acc.sendEvent(conn, "error", map[string]string{"message": msg}) }
 		chat, err := types.ParseJID(data.JID)
 		if err != nil {
 			fail("invalid jid")
@@ -85,42 +85,42 @@ func handleReport(conn net.Conn, raw json.RawMessage) {
 		var m reportableMessage
 		var ok bool
 		if data.MessageID != "" {
-			m, ok = loadReportable(data.JID, data.MessageID)
+			m, ok = acc.loadReportable(data.JID, data.MessageID)
 			if !ok {
 				fail("Only messages other people sent can be reported.")
 				return
 			}
-		} else if m, ok = latestReportable(data.JID); !ok {
+		} else if m, ok = acc.latestReportable(data.JID); !ok {
 			fail("There's no message from them here to report.")
 			return
 		}
 		groupName := ""
 		if chat.Server == types.GroupServer {
-			db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, data.JID).Scan(&groupName)
+			acc.db.QueryRow(`SELECT COALESCE(name, '') FROM chats WHERE jid = ?`, data.JID).Scan(&groupName)
 		}
 		report := buildSpamReport(chat, m, data.MessageID == "", groupName)
-		if _, err := wa().SendSpamReport(context.Background(), report); err != nil {
+		if _, err := acc.wa().SendSpamReport(context.Background(), report); err != nil {
 			fail("Couldn't send the report: " + err.Error())
 			return
 		}
 		result := map[string]interface{}{"jid": data.JID, "message_id": data.MessageID}
 		if data.Block && chat.Server != types.GroupServer {
-			if err := setBlocked(chat, true); err != nil {
+			if err := acc.setBlocked(chat, true); err != nil {
 				fail("Reported, but couldn't block them: " + err.Error())
 			} else {
 				result["blocked"] = true
 			}
 		}
 		if data.Leave && chat.Server == types.GroupServer {
-			if err := wa().LeaveGroup(context.Background(), chat); err != nil {
+			if err := acc.wa().LeaveGroup(context.Background(), chat); err != nil {
 				fail("Reported, but couldn't exit the group: " + err.Error())
 			} else {
-				invalidateJoinedGroups()
-				db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
-				broadcastChats()
+				acc.invalidateJoinedGroups()
+				acc.db.Exec("DELETE FROM chats WHERE jid = ?", data.JID)
+				acc.broadcastChats()
 				result["left"] = true
 			}
 		}
-		sendEvent(conn, "reported", result)
+		acc.sendEvent(conn, "reported", result)
 	}()
 }

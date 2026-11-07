@@ -36,30 +36,30 @@ type StatusPrivacyData struct {
 	JIDs []string `json:"jids"`
 }
 
-func noteStatusViewers(v *events.Receipt) {
+func (acc *Account) noteStatusViewers(v *events.Receipt) {
 	if v.Type != types.ReceiptTypeRead && v.Type != types.ReceiptTypePlayed {
 		return
 	}
 	viewer := v.Sender.ToNonAD()
-	if pn := storeTwin(viewer); viewer.Server == types.HiddenUserServer && !pn.IsEmpty() {
+	if pn := acc.storeTwin(viewer); viewer.Server == types.HiddenUserServer && !pn.IsEmpty() {
 		viewer = pn.ToNonAD()
 	}
-	if viewer.IsEmpty() || isOwnJID(viewer) {
+	if viewer.IsEmpty() || acc.isOwnJID(viewer) {
 		return
 	}
 	for _, id := range v.MessageIDs {
-		res, err := db.Exec(`INSERT INTO status_viewers (status_id, viewer, viewed_at) VALUES (?, ?, ?)
+		res, err := acc.db.Exec(`INSERT INTO status_viewers (status_id, viewer, viewed_at) VALUES (?, ?, ?)
 			ON CONFLICT(status_id, viewer) DO NOTHING`, string(id), viewer.String(), v.Timestamp.Unix())
 		if err != nil {
 			continue
 		}
 		if n, _ := res.RowsAffected(); n > 0 {
-			broadcastEvent("status_viewed", map[string]interface{}{"id": string(id), "viewer": resolveDisplayName(viewer)})
+			acc.broadcastEvent("status_viewed", map[string]interface{}{"id": string(id), "viewer": acc.resolveDisplayName(viewer)})
 		}
 	}
 }
 
-func noteStatusReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
+func (acc *Account) noteStatusReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 	statusID := reaction.GetKey().GetID()
 	if statusID == "" {
 		return
@@ -67,23 +67,23 @@ func noteStatusReaction(v *events.Message, reaction *waE2E.ReactionMessage) {
 	viewer := "me"
 	name := "You"
 	if !v.Info.IsFromMe {
-		_, sender := resolveLIDChat(v)
-		viewer, name = sender.ToNonAD().String(), resolveDisplayName(sender)
+		_, sender := acc.resolveLIDChat(v)
+		viewer, name = sender.ToNonAD().String(), acc.resolveDisplayName(sender)
 	}
 	ts := v.Info.Timestamp.Unix()
-	db.Exec(`INSERT INTO status_viewers (status_id, viewer, viewed_at, reaction) VALUES (?, ?, ?, ?)
+	acc.db.Exec(`INSERT INTO status_viewers (status_id, viewer, viewed_at, reaction) VALUES (?, ?, ?, ?)
 		ON CONFLICT(status_id, viewer) DO UPDATE SET reaction = excluded.reaction`, statusID, viewer, ts, reaction.GetText())
 	if !v.Info.IsFromMe && reaction.GetText() != "" {
-		broadcastEvent("status_reaction", map[string]interface{}{"id": statusID, "reactor": name, "emoji": reaction.GetText()})
+		acc.broadcastEvent("status_reaction", map[string]interface{}{"id": statusID, "reactor": name, "emoji": reaction.GetText()})
 	}
 }
 
-func handleGetStatusViewers(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleGetStatusViewers(conn net.Conn, raw json.RawMessage) {
 	var data StatusTargetData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	rows, err := db.Query(`SELECT viewer, viewed_at, COALESCE(reaction, '') FROM status_viewers
+	rows, err := acc.db.Query(`SELECT viewer, viewed_at, COALESCE(reaction, '') FROM status_viewers
 		WHERE status_id = ? AND viewer != 'me' ORDER BY viewed_at DESC`, data.ID)
 	if err != nil {
 		return
@@ -102,16 +102,16 @@ func handleGetStatusViewers(conn net.Conn, raw json.RawMessage) {
 	// Names are looked up with the rows closed, as that runs queries of its own.
 	for _, v := range viewers {
 		if jid, err := types.ParseJID(v["name"].(string)); err == nil {
-			v["name"] = resolveDisplayName(jid)
+			v["name"] = acc.resolveDisplayName(jid)
 		}
 	}
-	sendEvent(conn, "status_viewers", map[string]interface{}{"id": data.ID, "viewers": viewers})
+	acc.sendEvent(conn, "status_viewers", map[string]interface{}{"id": data.ID, "viewers": viewers})
 }
 
-func statusPoster(id string) (types.JID, bool) {
+func (acc *Account) statusPoster(id string) (types.JID, bool) {
 	var sender string
 	var fromMe bool
-	if db.QueryRow(`SELECT COALESCE(sender_jid, ''), from_me FROM messages WHERE id = ? AND jid = 'status@broadcast'`, id).
+	if acc.db.QueryRow(`SELECT COALESCE(sender_jid, ''), from_me FROM messages WHERE id = ? AND jid = 'status@broadcast'`, id).
 		Scan(&sender, &fromMe) != nil {
 		return types.EmptyJID, false
 	}
@@ -119,15 +119,15 @@ func statusPoster(id string) (types.JID, bool) {
 	return jid, err == nil && !fromMe
 }
 
-func handleReactStatus(raw json.RawMessage) {
+func (acc *Account) handleReactStatus(raw json.RawMessage) {
 	var data StatusTargetData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
 	go func() {
-		poster, ok := statusPoster(data.ID)
+		poster, ok := acc.statusPoster(data.ID)
 		if !ok {
-			broadcastEvent("error", map[string]string{"message": "That status update isn't here any more."})
+			acc.broadcastEvent("error", map[string]string{"message": "That status update isn't here any more."})
 			return
 		}
 		now := time.Now()
@@ -141,57 +141,57 @@ func handleReactStatus(raw json.RawMessage) {
 			Text:              proto.String(data.Emoji),
 			SenderTimestampMS: proto.Int64(now.UnixMilli()),
 		}}
-		if _, err := wa().SendMessage(context.Background(), poster, msg, whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID()}); err != nil {
-			broadcastEvent("error", map[string]string{"message": "Couldn't react to the status: " + sendErrorText(err)})
+		if _, err := acc.wa().SendMessage(context.Background(), poster, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID()}); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": "Couldn't react to the status: " + sendErrorText(err)})
 			return
 		}
-		db.Exec(`INSERT INTO status_viewers (status_id, viewer, viewed_at, reaction) VALUES (?, 'me', ?, ?)
+		acc.db.Exec(`INSERT INTO status_viewers (status_id, viewer, viewed_at, reaction) VALUES (?, 'me', ?, ?)
 			ON CONFLICT(status_id, viewer) DO UPDATE SET reaction = excluded.reaction`, data.ID, now.Unix(), data.Emoji)
-		broadcastEvent("status_reacted", map[string]interface{}{"id": data.ID, "emoji": data.Emoji})
+		acc.broadcastEvent("status_reacted", map[string]interface{}{"id": data.ID, "emoji": data.Emoji})
 	}()
 }
 
-func handleDeleteStatus(raw json.RawMessage) {
+func (acc *Account) handleDeleteStatus(raw json.RawMessage) {
 	var data StatusTargetData
 	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" {
 		return
 	}
 	go func() {
-		msg := wa().BuildRevoke(types.StatusBroadcastJID, types.EmptyJID, types.MessageID(data.ID))
-		extra := whatsmeow.SendRequestExtra{ID: wa().GenerateMessageID(), StatusRecipients: statusRecipients(context.Background())}
-		if _, err := wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, extra); err != nil {
-			broadcastEvent("error", map[string]string{"message": "Couldn't delete the status: " + sendErrorText(err)})
+		msg := acc.wa().BuildRevoke(types.StatusBroadcastJID, types.EmptyJID, types.MessageID(data.ID))
+		extra := whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: acc.statusRecipients(context.Background())}
+		if _, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, extra); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": "Couldn't delete the status: " + sendErrorText(err)})
 			return
 		}
-		removeStatus(data.ID)
+		acc.removeStatus(data.ID)
 	}()
 }
 
-func removeStatus(id string) {
-	purgeMessages(`id = ? AND jid = 'status@broadcast'`, id)
-	db.Exec(`DELETE FROM status_viewers WHERE status_id = ?`, id)
-	broadcastEvent("status_deleted", map[string]interface{}{"id": id})
+func (acc *Account) removeStatus(id string) {
+	acc.purgeMessages(`id = ? AND jid = 'status@broadcast'`, id)
+	acc.db.Exec(`DELETE FROM status_viewers WHERE status_id = ?`, id)
+	acc.broadcastEvent("status_deleted", map[string]interface{}{"id": id})
 }
 
-func noteStatusMute(v *events.UserStatusMute) {
-	setStatusMuted(v.JID, v.Action.GetMuted())
+func (acc *Account) noteStatusMute(v *events.UserStatusMute) {
+	acc.setStatusMuted(v.JID, v.Action.GetMuted())
 }
 
-func setStatusMuted(jid types.JID, muted bool) {
-	if pn := storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
+func (acc *Account) setStatusMuted(jid types.JID, muted bool) {
+	if pn := acc.storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
 		jid = pn
 	}
 	if muted {
-		db.Exec(`INSERT OR IGNORE INTO status_mutes (jid) VALUES (?)`, jid.ToNonAD().String())
+		acc.db.Exec(`INSERT OR IGNORE INTO status_mutes (jid) VALUES (?)`, jid.ToNonAD().String())
 	} else {
-		db.Exec(`DELETE FROM status_mutes WHERE jid = ?`, jid.ToNonAD().String())
+		acc.db.Exec(`DELETE FROM status_mutes WHERE jid = ?`, jid.ToNonAD().String())
 	}
-	broadcastEvent("status_muted", map[string]interface{}{"jid": jid.ToNonAD().String(), "muted": muted})
+	acc.broadcastEvent("status_muted", map[string]interface{}{"jid": jid.ToNonAD().String(), "muted": muted})
 }
 
-func statusMuted() map[string]bool {
+func (acc *Account) statusMuted() map[string]bool {
 	muted := map[string]bool{}
-	rows, err := db.Query(`SELECT jid FROM status_mutes`)
+	rows, err := acc.db.Query(`SELECT jid FROM status_mutes`)
 	if err != nil {
 		return muted
 	}
@@ -205,7 +205,7 @@ func statusMuted() map[string]bool {
 	return muted
 }
 
-func statusMutedFor(muted map[string]bool, sender string) bool {
+func (acc *Account) statusMutedFor(muted map[string]bool, sender string) bool {
 	if muted[sender] {
 		return true
 	}
@@ -213,19 +213,19 @@ func statusMutedFor(muted map[string]bool, sender string) bool {
 	if err != nil {
 		return false
 	}
-	twin := storeTwin(jid)
+	twin := acc.storeTwin(jid)
 	return !twin.IsEmpty() && muted[twin.ToNonAD().String()]
 }
 
-func quoteStatus(ctxInfo *waE2E.ContextInfo, quotedID string) {
+func (acc *Account) quoteStatus(ctxInfo *waE2E.ContextInfo, quotedID string) {
 	var n int
-	db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ? AND jid = 'status@broadcast'`, quotedID).Scan(&n)
+	acc.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ? AND jid = 'status@broadcast'`, quotedID).Scan(&n)
 	if n > 0 {
 		ctxInfo.RemoteJID = proto.String(types.StatusBroadcastJID.String())
 	}
 }
 
-func handleSetStatusMute(raw json.RawMessage) {
+func (acc *Account) handleSetStatusMute(raw json.RawMessage) {
 	var data StatusMuteData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -235,26 +235,26 @@ func handleSetStatusMute(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildUserStatusMute(jid.ToNonAD(), data.Muted)); err != nil {
-			broadcastEvent("error", map[string]string{"message": "Couldn't change muted status updates: " + err.Error()})
+		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildUserStatusMute(jid.ToNonAD(), data.Muted)); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": "Couldn't change muted status updates: " + err.Error()})
 			return
 		}
-		setStatusMuted(jid, data.Muted)
+		acc.setStatusMuted(jid, data.Muted)
 	}()
 }
 
-func noteStatusPrivacy(v *events.StatusPrivacy) {
+func (acc *Account) noteStatusPrivacy(v *events.StatusPrivacy) {
 	if v.Action == nil {
 		return
 	}
 	if raw, err := proto.Marshal(v.Action); err == nil {
-		db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, statusPrivacyKey, raw)
+		acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, statusPrivacyKey, raw)
 	}
 }
 
-func storedStatusPrivacy() *waSyncAction.StatusPrivacyAction {
+func (acc *Account) storedStatusPrivacy() *waSyncAction.StatusPrivacyAction {
 	var raw []byte
-	if db.QueryRow(`SELECT value FROM app_settings WHERE key = ?`, statusPrivacyKey).Scan(&raw) != nil || len(raw) == 0 {
+	if acc.db.QueryRow(`SELECT value FROM app_settings WHERE key = ?`, statusPrivacyKey).Scan(&raw) != nil || len(raw) == 0 {
 		return nil
 	}
 	var action waSyncAction.StatusPrivacyAction
@@ -264,8 +264,8 @@ func storedStatusPrivacy() *waSyncAction.StatusPrivacyAction {
 	return &action
 }
 
-func statusAudience(ctx context.Context) (mode string, list []types.JID) {
-	if action := storedStatusPrivacy(); action != nil {
+func (acc *Account) statusAudience(ctx context.Context) (mode string, list []types.JID) {
+	if action := acc.storedStatusPrivacy(); action != nil {
 		for _, s := range action.GetUserJID() {
 			if jid, err := types.ParseJID(s); err == nil {
 				list = append(list, jid)
@@ -279,7 +279,7 @@ func statusAudience(ctx context.Context) (mode string, list []types.JID) {
 		}
 		return "contacts", nil
 	}
-	if settings, err := wa().GetStatusPrivacy(ctx); err == nil && len(settings) > 0 {
+	if settings, err := acc.wa().GetStatusPrivacy(ctx); err == nil && len(settings) > 0 {
 		switch settings[0].Type {
 		case types.StatusPrivacyTypeWhitelist:
 			return "only", settings[0].List
@@ -290,14 +290,14 @@ func statusAudience(ctx context.Context) (mode string, list []types.JID) {
 	return "contacts", nil
 }
 
-func statusRecipients(ctx context.Context) []types.JID {
-	action := storedStatusPrivacy()
+func (acc *Account) statusRecipients(ctx context.Context) []types.JID {
+	action := acc.storedStatusPrivacy()
 	if action == nil {
 		return nil
 	}
 	user := func(jid types.JID) types.JID {
 		jid = jid.ToNonAD()
-		if pn := storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
+		if pn := acc.storeTwin(jid); jid.Server == types.HiddenUserServer && !pn.IsEmpty() {
 			return pn.ToNonAD()
 		}
 		return jid
@@ -315,7 +315,7 @@ func statusRecipients(ctx context.Context) []types.JID {
 		}
 		return out
 	}
-	contacts, err := wa().Store.Contacts.GetAllContacts(ctx)
+	contacts, err := acc.wa().Store.Contacts.GetAllContacts(ctx)
 	if err != nil {
 		return nil
 	}
@@ -329,16 +329,16 @@ func statusRecipients(ctx context.Context) []types.JID {
 	return out
 }
 
-func handleGetStatusPrivacy(conn net.Conn) {
-	mode, list := statusAudience(context.Background())
+func (acc *Account) handleGetStatusPrivacy(conn net.Conn) {
+	mode, list := acc.statusAudience(context.Background())
 	people := []map[string]string{}
 	for _, jid := range list {
-		people = append(people, map[string]string{"jid": jid.String(), "name": resolveDisplayName(jid)})
+		people = append(people, map[string]string{"jid": jid.String(), "name": acc.resolveDisplayName(jid)})
 	}
-	sendEvent(conn, "status_privacy", map[string]interface{}{"mode": mode, "people": people})
+	acc.sendEvent(conn, "status_privacy", map[string]interface{}{"mode": mode, "people": people})
 }
 
-func handleSetStatusPrivacy(conn net.Conn, raw json.RawMessage) {
+func (acc *Account) handleSetStatusPrivacy(conn net.Conn, raw json.RawMessage) {
 	var data StatusPrivacyData
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
@@ -359,12 +359,12 @@ func handleSetStatusPrivacy(conn net.Conn, raw json.RawMessage) {
 				}
 			}
 		}
-		if err := sendAppStateWithRetry(context.Background(), appstate.BuildStatusPrivacy(action)); err != nil {
-			broadcastEvent("error", map[string]string{"message": "Couldn't change who sees your status: " + err.Error()})
+		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildStatusPrivacy(action)); err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": "Couldn't change who sees your status: " + err.Error()})
 			return
 		}
-		noteStatusPrivacy(&events.StatusPrivacy{Timestamp: time.Now(), Action: action})
-		sendEvent(conn, "status_privacy_saved", map[string]interface{}{"mode": data.Mode})
+		acc.noteStatusPrivacy(&events.StatusPrivacy{Timestamp: time.Now(), Action: action})
+		acc.sendEvent(conn, "status_privacy_saved", map[string]interface{}{"mode": data.Mode})
 	}()
 }
 
@@ -372,11 +372,11 @@ func handleSetStatusPrivacy(conn net.Conn, raw json.RawMessage) {
 // (the INITIAL_STATUS_V3 history sync chunk: statuses still up from the last
 // 24 hours), which WA Web shows in its Updates tab right away. Before this
 // they were dropped, so only statuses posted after linking showed.
-func storeHistoryStatuses(statuses []*waWeb.WebMessageInfo) {
+func (acc *Account) storeHistoryStatuses(statuses []*waWeb.WebMessageInfo) {
 	cutoff := time.Now().Add(-24 * time.Hour)
 	stored := 0
 	for _, wmi := range statuses {
-		evt, err := wa().ParseWebMessage(types.StatusBroadcastJID, wmi)
+		evt, err := acc.wa().ParseWebMessage(types.StatusBroadcastJID, wmi)
 		if err != nil {
 			log.Printf("Skipping history status %s: %v", wmi.GetKey().GetID(), err)
 			continue
@@ -387,7 +387,7 @@ func storeHistoryStatuses(statuses []*waWeb.WebMessageInfo) {
 		if evt.Info.Sender.IsEmpty() {
 			continue
 		}
-		handleIncomingStatus(evt)
+		acc.handleIncomingStatus(evt)
 		stored++
 	}
 	log.Printf("History sync: %d of %d status updates stored", stored, len(statuses))

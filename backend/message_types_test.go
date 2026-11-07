@@ -13,7 +13,7 @@ import (
 
 func TestVideoNoteIsAVideo(t *testing.T) {
 	msg := &waE2E.Message{PtvMessage: &waE2E.VideoMessage{Seconds: proto.Uint32(75), Mimetype: proto.String("video/mp4")}}
-	if got := extractTextRaw(msg); got != "[Video Note] (1:15)" {
+	if got := acc.extractTextRaw(msg); got != "[Video Note] (1:15)" {
 		t.Fatalf("text = %q", got)
 	}
 	if mediaType, _, _, _ := mediaInfoFromMessage(msg); mediaType != "video" {
@@ -34,7 +34,7 @@ func TestBookkeepingMessagesAreNotShown(t *testing.T) {
 		"comment":        {EncCommentMessage: &waE2E.EncCommentMessage{}},
 		"history bundle": {MessageHistoryBundle: &waE2E.MessageHistoryBundle{}},
 	} {
-		if got := extractTextRaw(msg); got != "[Protocol Message]" {
+		if got := acc.extractTextRaw(msg); got != "[Protocol Message]" {
 			t.Errorf("%s: got %q", name, got)
 		}
 	}
@@ -47,14 +47,14 @@ func TestLessCommonMessagesAreDescribed(t *testing.T) {
 		"[Sticker Pack] Cats":      {StickerPackMessage: &waE2E.StickerPackMessage{Name: proto.String("Cats")}},
 		"[Poll results] Lunch?":    {PollResultSnapshotMessage: &waE2E.PollResultSnapshotMessage{Name: proto.String("Lunch?")}},
 	} {
-		if got := extractTextRaw(msg); got != want {
+		if got := acc.extractTextRaw(msg); got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	}
 	wrapped := &waE2E.Message{AssociatedChildMessage: &waE2E.FutureProofMessage{
 		Message: &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String("hi")}},
 	}}
-	if got := extractTextRaw(wrapped); got != "[Image] hi" {
+	if got := acc.extractTextRaw(wrapped); got != "[Image] hi" {
 		t.Errorf("associated child: got %q", got)
 	}
 }
@@ -76,7 +76,7 @@ func TestDisappearingTexts(t *testing.T) {
 
 func TestGroupSettingLines(t *testing.T) {
 	sender := types.NewJID("111", types.DefaultUserServer)
-	lines := groupChangeMessages(&events.GroupInfo{
+	lines := acc.groupChangeMessages(&events.GroupInfo{
 		Sender:    &sender,
 		Timestamp: time.Unix(1700000000, 0),
 		Name:      &types.GroupName{Name: "Trip"},
@@ -94,7 +94,7 @@ func TestGroupSettingLines(t *testing.T) {
 	if !strings.Contains(lines[1], "only admins to send messages") || !strings.Contains(lines[2], "24 hours") {
 		t.Errorf("lines = %q", lines)
 	}
-	if lines := groupChangeMessages(&events.GroupInfo{Topic: &types.GroupTopic{TopicDeleted: true}}); len(lines) != 1 ||
+	if lines := acc.groupChangeMessages(&events.GroupInfo{Topic: &types.GroupTopic{TopicDeleted: true}}); len(lines) != 1 ||
 		lines[0] != "Someone deleted the group description" {
 		t.Errorf("senderless topic delete = %q", lines)
 	}
@@ -107,7 +107,7 @@ func TestMessageHistoryNotice(t *testing.T) {
 		},
 	}
 	sender, _ := types.ParseJID("919800000006@s.whatsapp.net")
-	got := messageHistoryNoticeText(notice, sender)
+	got := acc.messageHistoryNoticeText(notice, sender)
 	if !strings.Contains(got, "shared recent message history with") || !strings.Contains(got, "919800000005") {
 		t.Fatalf("notice text = %q", got)
 	}
