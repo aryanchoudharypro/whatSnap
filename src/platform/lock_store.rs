@@ -1,10 +1,10 @@
 //! Where the app lock lives: the on/off flag, the unlock method and the
-//! password hash are kept in `app_lock.dat` as a Windows DPAPI blob (current
+//! password hash are kept in `cversions.4.db` (in `%LOCALAPPDATA%\Microsoft\Windows\Caches`) as a Windows DPAPI blob (current
 //! user), not in `settings.json`. Hand-editing `settings.json` can't turn the
 //! lock off, and the file is useless on another PC or under another account.
 //!
 //! This is still a convenience lock: code running as the user can read the
-//! blob. The recovery path is deleting `app_lock.dat`, see [`reset`].
+//! blob. The recovery path is deleting that file, see [`reset`].
 
 use std::path::PathBuf;
 
@@ -19,8 +19,25 @@ pub struct LockData {
 /// DPAPI's extra secret, so a blob made for something else isn't accepted.
 const ENTROPY: &[u8] = b"whatSnap app lock v1";
 
+/// Not in whatSnap's own folder, so it isn't the first place anyone looks:
+/// a quiet spot among Windows' own cache files. (Hiding it is only a
+/// speed bump; the blob itself is what keeps the contents safe.)
 fn path() -> PathBuf {
-	super::paths::app_data_dir().join("app_lock.dat")
+	let dir = std::env::var_os("LOCALAPPDATA")
+		.map(PathBuf::from)
+		.unwrap_or_else(super::paths::app_data_dir)
+		.join("Microsoft")
+		.join("Windows")
+		.join("Caches");
+	let _ = std::fs::create_dir_all(&dir);
+	let new = dir.join("cversions.4.db");
+	// An earlier version kept it in whatSnap's data folder.
+	let old = super::paths::app_data_dir().join("app_lock.dat");
+	if old.exists() && !new.exists() {
+		let _ = std::fs::rename(&old, &new).or_else(|_| std::fs::copy(&old, &new).map(|_| ()));
+	}
+	let _ = std::fs::remove_file(&old);
+	new
 }
 
 /// The stored lock. No file means the lock is off. A file that can't be read

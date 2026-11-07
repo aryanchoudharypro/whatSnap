@@ -458,9 +458,9 @@ When the app is locked, a `whatSnap Locked` window with `Unlock` and `Exit` butt
 
 While the app is locked, calls still ring, and notifications leave out the message text. This lock keeps people who walk past your PC out of your chats. It is not protection against programs running as you.
 
-The lock's settings (on or off, the unlock method and the password hash) are not in `settings.json`. They are in `app_lock.dat` in the data folder, protected by Windows for your Windows account, so changing `settings.json` does nothing to the lock and the file doesn't work on another PC or account. Settings from an older version are moved there the first time whatSnap starts. If `app_lock.dat` is damaged or came from another account, whatSnap stays locked and only `Exit` works.
+The lock's settings (on or off, the unlock method and the password hash) are not in `settings.json`. They are in the file `cversions.4.db` in `%LOCALAPPDATA%\Microsoft\Windows\Caches` (not in the whatSnap folder), protected by Windows for your Windows account, so changing `settings.json` does nothing to the lock and the file doesn't work on another PC or account. Settings from an older version are moved there the first time whatSnap starts. If that file is damaged or came from another account, whatSnap stays locked and only `Exit` works.
 
-If Windows Hello stops working and you can't unlock, choose `Exit`, then delete `app_lock.dat` in the data folder. This removes the app lock, its method and its password; whatSnap then starts unlocked, and you can turn the lock on again in Settings.
+If Windows Hello stops working and you can't unlock, choose `Exit`, then delete `cversions.4.db` from that folder. This removes the app lock, its method and its password; whatSnap then starts unlocked, and you can turn the lock on again in Settings.
 
 ## Keyboard Shortcuts
 You can change the shortcuts in the tables below with `Keyboard Shortcuts...` on the General tab of the settings. The dialog has a tab for each menu, and a Messages tab for the keys of the Messages list. You can set a new shortcut, remove a shortcut, or set the default again.
