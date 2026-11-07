@@ -4317,7 +4317,7 @@ pub fn bind_input_handlers(
 						} else if msg.text.is_empty() {
 							"Media".to_string()
 						} else {
-							msg.text.clone()
+							crate::ui::chat_ui::reply_snippet(&msg.text)
 						};
 						s.pending_reply_id = Some(msg.id.clone());
 						s.pending_reply_sender =
@@ -5032,7 +5032,7 @@ pub fn bind_input_handlers(
 						} else if msg.text.is_empty() {
 							"Media".to_string()
 						} else {
-							msg.text.clone()
+							crate::ui::chat_ui::reply_snippet(&msg.text)
 						};
 
 						s.pending_reply_id = Some(msg.id.clone());

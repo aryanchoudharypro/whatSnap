@@ -270,6 +270,25 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 	}
 }
 
+/// What "Replying to Name: ..." says about the quoted message: its first line,
+/// cut at a word near 100 characters, like the short quote WhatsApp Web shows.
+/// A long message or link isn't read out in full.
+pub(crate) fn reply_snippet(text: &str) -> String {
+	const MAX: usize = 100;
+	let friendly = whatsnap::friendly_preview_text(text);
+	let first = friendly.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+	let more_lines = friendly.trim().lines().count() > 1;
+	if first.chars().count() <= MAX {
+		return if more_lines { format!("{first}…") } else { first.to_string() };
+	}
+	let cut: String = first.chars().take(MAX).collect();
+	let cut = match cut.rfind(' ') {
+		Some(i) if i > MAX / 2 => &cut[..i],
+		_ => cut.as_str(),
+	};
+	format!("{}…", cut.trim_end())
+}
+
 pub(crate) fn clear_pending_reply(s: &mut AppState, parts: &WindowParts) {
 	s.pending_reply_id = None;
 	s.pending_reply_sender = None;
