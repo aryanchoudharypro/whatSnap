@@ -29,26 +29,7 @@ func handleConnection(conn net.Conn) {
 		wsMutex.Unlock()
 	}()
 
-	if wa().Store.ID != nil {
-		log.Println("Sending initial connected event to WS")
-		sendEvent(conn, "connected", map[string]string{"jid": wa().Store.ID.String()})
-		sendEvent(conn, "connection_state", currentConnState())
-		sendEvent(conn, "server_flags", serverFlagsPayload())
-		sendEvent(conn, "blocklist", blocklistPayload())
-		go func() {
-			populateChatsFromStore()
-			broadcastChats()
-		}()
-	} else {
-		// Not logged in: tell the client so up front. Without this the UI has
-		// no way to know it should show the login screen at startup - main.go's
-		// startup goroutine only ever broadcasts "connected" (and only when
-		// already paired), and a broadcast would race the frontend's pipe
-		// connect anyway. Sending it per-connection here is what makes the
-		// login screen appear on a fresh, unpaired launch (and on reconnect).
-		log.Println("Not logged in; sending needs_login to WS")
-		sendEvent(conn, "needs_login", nil)
-	}
+	sendGreeting(conn)
 
 	scanner := bufio.NewScanner(conn)
 	buf := make([]byte, 0, 64*1024)
@@ -72,6 +53,32 @@ func handleConnection(conn net.Conn) {
 		}
 	} else {
 		log.Println("IPC connection closed by client")
+	}
+}
+
+// sendGreeting tells a newly connected app where this backend stands: linked
+// (with the state the app needs first) or waiting to be linked. The app asks
+// for it again with "hello" when it switches to this backend's account.
+func sendGreeting(conn net.Conn) {
+	if wa().Store.ID != nil {
+		log.Println("Sending initial connected event to WS")
+		sendEvent(conn, "connected", map[string]string{"jid": wa().Store.ID.String()})
+		sendEvent(conn, "connection_state", currentConnState())
+		sendEvent(conn, "server_flags", serverFlagsPayload())
+		sendEvent(conn, "blocklist", blocklistPayload())
+		go func() {
+			populateChatsFromStore()
+			broadcastChats()
+		}()
+	} else {
+		// Not logged in: tell the client so up front. Without this the UI has
+		// no way to know it should show the login screen at startup - main.go's
+		// startup goroutine only ever broadcasts "connected" (and only when
+		// already paired), and a broadcast would race the frontend's pipe
+		// connect anyway. Sending it per-connection here is what makes the
+		// login screen appear on a fresh, unpaired launch (and on reconnect).
+		log.Println("Not logged in; sending needs_login to WS")
+		sendEvent(conn, "needs_login", nil)
 	}
 }
 
@@ -99,6 +106,8 @@ func dispatchCommand(conn net.Conn, cmd Command) {
 		markReadOnSend(cmd.Data)
 	}
 	switch cmd.Action {
+	case "hello":
+		sendGreeting(conn)
 	case "get_qr":
 		handleGetQR(conn)
 	case "cancel_qr", "cancel_pairing":

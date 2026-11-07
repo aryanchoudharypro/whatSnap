@@ -37,8 +37,7 @@ func pruneOldFiles(dir string, maxAge time.Duration, match func(name string) boo
 }
 
 func housekeepLogs() {
-	logs := filepath.Join(appDataDir(), "logs")
-	os.MkdirAll(logs, 0o700)
+	logs := logsDir()
 	for _, name := range []string{"backend.log", "call.log", "backend_stderr.log"} {
 		rotateLog(filepath.Join(logs, name))
 	}
@@ -74,8 +73,18 @@ func defaultDBPath() string {
 	return filepath.Join(appDataDir(), "session.db")
 }
 
-func logFilePath() string {
+// logsDir is the logs folder of the account this backend runs: beside its
+// database, so each account's backend writes its own logs. The first account's
+// database is in the app data folder, so its logs stay where they always were.
+func logsDir() string {
 	dir := filepath.Join(appDataDir(), "logs")
+	if *dbPathFlag != "" {
+		dir = filepath.Join(filepath.Dir(*dbPathFlag), "logs")
+	}
 	os.MkdirAll(dir, 0o700)
-	return filepath.Join(dir, "backend.log")
+	return dir
+}
+
+func logFilePath() string {
+	return filepath.Join(logsDir(), "backend.log")
 }

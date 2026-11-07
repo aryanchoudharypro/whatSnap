@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod add_members;
 pub mod attach_contact;
 pub mod attachment_dialog;

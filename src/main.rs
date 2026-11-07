@@ -15,14 +15,8 @@ mod util;
 
 use std::{
 	cell::RefCell,
-	io::{BufRead, BufReader, Write},
 	rc::Rc,
-	sync::{
-		Arc, Mutex,
-		atomic::{AtomicBool, Ordering},
-		mpsc,
-	},
-	thread,
+	sync::{Arc, Mutex, atomic::AtomicBool, mpsc},
 	time::Duration,
 };
 
@@ -31,7 +25,7 @@ use backend::events::process_websocket_message;
 pub use platform::clipboard::{copy_files_to_clipboard, copy_text};
 use rodio::Player;
 pub use types::*;
-use ui::{chat_ui::request_backend_shutdown, message_display::update_action_buttons};
+use ui::message_display::update_action_buttons;
 use wxdragon::prelude::*;
 
 use crate::ui::{
@@ -83,6 +77,8 @@ impl Default for PresenceModel {
 }
 
 struct AppState {
+	/// The linked accounts and their backends. Survives switching accounts.
+	accounts: Rc<RefCell<ui_commands::accounts::Accounts>>,
 	settings: crate::settings::Settings,
 	keymap: Rc<crate::keymap::Keymap>,
 	ws_tx: mpsc::Sender<String>,
@@ -387,32 +383,22 @@ fn main() {
 		.and_then(|p| p.parent().map(|d| d.to_path_buf()))
 		.unwrap_or_else(|| std::path::PathBuf::from("backend"));
 
-	let db_path_str = platform::paths::db_path().to_string_lossy().into_owned();
-
-	let pipe_id = format!("whantv-{}", util::random_hex());
-	let go_pipe_name = format!(r"\\.\pipe\{}", pipe_id);
-
 	let early_settings = crate::settings::Settings::load();
 	let verbose_backend_logging = early_settings.verbose_backend_logging;
 	crate::ui::theme::set_theme(early_settings.theme);
-	let backend = backend_exe.map(|exe| {
-		Arc::new(backend::process::BackendProcess::start(
-			exe,
-			backend_dir,
-			db_path_str,
-			go_pipe_name,
-			verbose_backend_logging,
-		))
-	});
-	let pipe_backend = backend.clone();
-	if let Some(backend) = backend {
-		// Killing the backend outright skips both the WhatsApp disconnect and
-		// the database close, which strands the SQLite -wal/-shm files. Ask it
-		// to exit on its own first. (Its kill-on-close job is the backstop if
-		// it never comes down: the handle closes when this process exits.)
-		let shutdown_pipe_id = pipe_id.clone();
-		platform::quit::on_backend_shutdown(move || backend.shutdown(|| request_backend_shutdown(&shutdown_pipe_id)));
-	}
+
+	// Every linked account runs its own backend, so all of them stay online.
+	// The active one is started first so its window fills in soonest.
+	let accounts = ui_commands::accounts::Accounts::load_at_startup();
+	backend::links::set_launcher(backend_exe, backend_dir, verbose_backend_logging);
+	let mut start_order: Vec<String> = vec![accounts.registry.active.clone()];
+	start_order.extend(accounts.registry.live().map(|a| a.id.clone()).filter(|id| *id != accounts.registry.active));
+	let links: Vec<backend::links::Link> = start_order.iter().map(|id| backend::links::start(id)).collect();
+	// Killing a backend outright skips both the WhatsApp disconnect and the
+	// database close, which strands the SQLite -wal/-shm files. Exit asks each
+	// to stop on its own first. (Their kill-on-close job is the backstop if one
+	// never comes down: the handle closes when this process exits.)
+	platform::quit::on_backend_shutdown(backend::links::shut_down_all);
 
 	let res = wxdragon::main(move |_| {
 		crate::ui::theme::apply_to_windows();
@@ -466,321 +452,20 @@ fn main() {
 			let _ = ui_tx.send(launch_command(request));
 		}
 
-		let (ws_out_tx, ws_out_rx) = mpsc::channel::<String>();
-		let ui_tx_clone = ui_tx.clone();
-		let ui_alive_clone = ui_alive.clone();
-
-		let ws_out_rx = Arc::new(Mutex::new(ws_out_rx));
-		let resend_tx_outer = ws_out_tx.clone();
-
-		thread::spawn(move || {
-			loop {
-				if !ui_alive_clone.load(Ordering::SeqCst) {
-					break;
-				}
-
-				if pipe_backend.as_ref().is_some_and(|b| b.restart_if_dead()) {
-					let notice = serde_json::json!({
-						"type": "connection_state",
-						"data": {
-							"state": "offline",
-							"message": "whatSnap's background service stopped unexpectedly and has been restarted."
-						}
-					});
-					let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(notice.to_string()));
-				}
-
-				if let Ok(socket) = backend::pipe::PipeStream::connect(&pipe_id) {
-					let expected_pid = pipe_backend.as_ref().map(|b| b.pid());
-					let peer_ok = match (expected_pid, socket.server_pid()) {
-						(Some(Some(expected)), Some(actual)) => actual == expected,
-						(None, _) => true,
-						_ => false,
-					};
-
-					if !peer_ok {
-						drop(socket);
-						thread::sleep(Duration::from_secs(2));
-						continue;
-					}
-
-					let mut socket_writer = socket.try_clone().expect("Failed to clone pipe");
-					let mut buf_reader = BufReader::new(socket);
-					let mut line = String::new();
-
-					let ui_alive_write = ui_alive_clone.clone();
-					let rx_clone = ws_out_rx.clone();
-					let resend_tx = resend_tx_outer.clone();
-
-					thread::spawn(move || {
-						while ui_alive_write.load(Ordering::SeqCst) {
-							let msg_opt = {
-								let rx = rx_clone.lock().unwrap();
-								rx.recv_timeout(Duration::from_millis(500)).ok()
-							};
-
-							if let Some(out_msg) = msg_opt {
-								let msg = format!("{}\n", out_msg);
-								if let Err(e) = socket_writer.write_all(msg.as_bytes()) {
-									crate::backend::events::ui_timing_log(&format!(
-										"Backend pipe: sending a command failed ({e}); resending on the next connection"
-									));
-									let _ = resend_tx.send(out_msg);
-									break;
-								}
-							}
-						}
-					});
-
-					loop {
-						if !ui_alive_clone.load(Ordering::SeqCst) {
-							break;
-						}
-
-						match buf_reader.read_line(&mut line) {
-							Ok(0) => {
-								crate::backend::events::ui_timing_log(
-									"Backend pipe: closed by the backend; reconnecting",
-								);
-								break;
-							}
-							Ok(_) => {
-								line.truncate(line.trim_end().len());
-								let leading = line.len() - line.trim_start().len();
-								if leading > 0 {
-									line.drain(..leading);
-								}
-								let payload = std::mem::take(&mut line);
-								let _ = ui_tx_clone.send(UiCommand::ProcessWebSocketMessage(payload));
-							}
-							Err(e) => {
-								crate::backend::events::ui_timing_log(&format!(
-									"Backend pipe: reading failed ({e}); reconnecting"
-								));
-								break;
-							}
-						}
-					}
-				}
-
-				thread::sleep(Duration::from_secs(2));
-			}
-		});
+		backend::links::attach_ui(ui_tx.clone(), ui_alive.clone());
+		let ws_out_tx = links[0].ws_tx.clone();
+		let accounts = Rc::new(RefCell::new(accounts.with_links(links)));
 
 		let loaded_settings = crate::settings::Settings::load();
 		let saved_audio_speed = loaded_settings.audio_speed();
-		let state = Rc::new(RefCell::new(AppState {
-			settings: loaded_settings,
-			keymap: Rc::default(),
-			ws_tx: ws_out_tx,
-			ui_tx: ui_tx.clone(),
-			audio_out: audio::OutputSlot::new("alert"),
-			call_audio_out: audio::OutputSlot::new("call"),
-			audio_sink: None,
-			playing_msg_id: None,
-			voice_autoplay_id: None,
-			is_audio_paused: false,
-			audio_path: None,
-			audio_total_secs: 0.0,
-			audio_elapsed_secs: 0.0,
-			audio_speed: saved_audio_speed,
-			audio_start_instant: None,
-			chats: Vec::new(),
-			filtered_chats: Vec::new(),
-			archived_jids: std::collections::HashSet::new(),
-			locked_jids: std::collections::HashSet::new(),
-			chats_unlocked: false,
-			community_jids: std::collections::HashSet::new(),
-			chat_parents: std::collections::HashMap::new(),
-			announcement_jids: std::collections::HashSet::new(),
-			channel_jids: std::collections::HashSet::new(),
-			channel_roles: std::collections::HashMap::new(),
-			channel_pinning: false,
-			channel_directory: None,
-			emoji_panel: None,
-			pinned_jids: std::collections::HashSet::new(),
-			muted_jids: std::collections::HashSet::new(),
-			group_quiet_until: std::collections::HashMap::new(),
-			blocked_jids: std::collections::HashSet::new(),
-			blocked_entries: Vec::new(),
-			blocked_contacts: None,
-			unread_counts: std::collections::HashMap::new(),
-			unread_divider_jid: None,
-			unread_divider_count: 0,
-			window_focused: true,
-			presence: PresenceModel::default(),
-			contact_online: std::collections::HashMap::new(),
-			presence_sent: None,
-			composing: None,
-			background_unread_message_ids: Vec::new(),
-			focus_read_at: None,
-			notification_reads: std::collections::HashSet::new(),
-			display_names: std::collections::HashMap::new(),
-			contacts: std::collections::HashMap::from([(types::META_AI_JID.to_string(), "Meta AI".to_string())]),
-			all_contacts: Vec::new(),
-			contact_picker_mode: ContactPickerMode::OpenChat,
-			contact_picker_current_jids: Vec::new(),
-			presence_labels: std::collections::HashMap::new(),
-			typing_timestamps: std::collections::HashMap::new(),
-			typing_announce_state: std::collections::HashMap::new(),
-			active_call_audio: None,
-			active_call_video_send: None,
-			call_video_port: None,
-			active_call_id: None,
-			call_placing: false,
-			call_pending_cancel: false,
-			joinable_calls: Vec::new(),
-			call_answer_deadline: None,
-			call_ringing_sink: None,
-			call_reconnect_sink: None,
-			call_hotkeys: None,
-			incoming_call_caller: None,
-			call_start_muted: false,
-			call_connected_segment_start: None,
-			call_connected_duration: std::time::Duration::ZERO,
-			call_is_reconnecting: false,
-			call_is_incoming: false,
-			call_peer_name: String::new(),
-			call_participants: Vec::new(),
-			call_video: CallVideo::default(),
-			group_data_members: Vec::new(),
-			group_data_member_jids: Vec::new(),
-			group_data_member_info: Vec::new(),
-			group_data_visible_member_jids: Vec::new(),
-			group_data_media: Vec::new(),
-			group_data_documents: Vec::new(),
-			group_data_links: Vec::new(),
-			group_data_subgroup_jids: Vec::new(),
-			group_data_subgroup_joined: Vec::new(),
-			group_data_community: None,
-			conversation_data_media: Vec::new(),
-			conversation_data_documents: Vec::new(),
-			conversation_data_links: Vec::new(),
-			conversation_data_contact: None,
-			info_chat: None,
-			own_push_name: String::new(),
-			own_about: String::new(),
-			own_about_duration: -1,
-			own_about_loaded: false,
-			default_timer: None,
-			chat_filter: 0,
-			favorite_jids: Vec::new(),
-			chat_lists: Vec::new(),
-			list_manager: None,
-			common_group_jids: Vec::new(),
-			privacy_settings: std::collections::HashMap::new(),
-			privacy_settings_loaded: false,
-			app_prefs: None,
-			privacy_lists: std::collections::HashMap::new(),
-			privacy_list_edits: std::collections::HashMap::new(),
-			group_state: crate::ui::dialogs::new_group::NewGroupState {
-				all_contact_labels: Vec::new(),
-				all_contact_jids: Vec::new(),
-				checked_jids: std::collections::HashSet::new(),
-				current_jids: Vec::new(),
-			},
-			add_members_state: crate::ui::dialogs::add_members::AddMembersState {
-				group_jid: None,
-				all_contact_labels: Vec::new(),
-				all_contact_jids: Vec::new(),
-				checked_jids: std::collections::HashSet::new(),
-				current_jids: Vec::new(),
-			},
-			attach_contact_state: crate::ui::dialogs::attach_contact::AttachContactState {
-				all_contact_labels: Vec::new(),
-				all_contact_jids: Vec::new(),
-				checked_jids: std::collections::HashSet::new(),
-				current_jids: Vec::new(),
-			},
-			selected_chat: None,
-			admin_group_jids: std::collections::HashSet::new(),
-			admins_only_jids: std::collections::HashSet::new(),
-			not_member_jids: std::collections::HashSet::new(),
-			business_jids: std::collections::HashSet::new(),
-			initial_presence_received: false,
-			messages: Vec::new(),
-			messages_at_latest: true,
-			loading_messages: false,
-			no_more_messages: false,
-			older_unloaded: 0,
-			newer_unloaded: 0,
-			land_on_first: false,
-			history_loading: false,
-			newer_loading: false,
-			phone_history_pending_jid: None,
-			phone_history_deadline: None,
-			history_sync_last_update: None,
-			history_sync_armed_until: None,
-			db_size_last_seen: 0,
-			db_growth_last_seen: None,
-			db_growth_status_shown: false,
-			recent_sync_active: false,
-			recent_sync_percent: -1,
-			recent_sync_paused: false,
-			offline_sync_percent: None,
-			history_start_chats: std::collections::HashSet::new(),
-			empty_chat_history_asked: std::collections::HashSet::new(),
-			quiet_reload_jid: None,
-			prev_msg_count: 0,
-			active_tab: 0,
-			starred_entries: Vec::new(),
-			filtered_starred_message_ids: Vec::new(),
-			status_groups: Vec::new(),
-			filtered_status_message_ids: Vec::new(),
-			filtered_call_ids: Vec::new(),
-			call_logs: Vec::new(),
-			call_frequent: Vec::new(),
-			call_contacts: Vec::new(),
-			search_query: String::new(),
-			displayed_chat_labels: Vec::new(),
-			chat_row_art: std::collections::HashMap::new(),
-			main_ui_shown: false,
-			pending_whatsapp_link: None,
-			pending_shared_files: Vec::new(),
-			conn_online: false,
-			conn_status_text: "Status: Connecting...".to_string(),
-			conn_outage_announced: false,
-			conn_manual_reconnect: false,
-			pending_attachments: Vec::new(),
-			pending_attachment_kind: whatsnap::AttachKind::default(),
-			pending_reply_id: None,
-			pending_reply_sender: None,
-			pending_reply_preview: None,
-			editing_message_id: None,
-			editing_message_original_text: None,
-			draft_messages: std::collections::HashMap::new(),
-			draft_mentions: std::collections::HashMap::new(),
-			composer_mentions: Vec::new(),
-			mention_candidates: None,
-			mention_request_pending: None,
-			mention_popup: None,
-			mention_dismissed_at: None,
-			pending_receipts: std::collections::HashMap::new(),
-			downloads_in_progress: std::collections::HashMap::new(),
-			uploads_in_progress: std::collections::HashMap::new(),
-			pending_copy_announcements: std::collections::HashSet::new(),
-			search_target_id: None,
-			search_target_text: None,
-			catch_up_alerts: whatsnap::CatchUpAlerts::default(),
-			catch_up_last_at: None,
-			is_voice_recording: false,
-			is_voice_paused: false,
-			voice_recording_path: None,
-			voice_recording_session: None,
-			voice_recording_segments: Vec::new(),
-			voice_recording_start: None,
-			voice_paused_duration: std::time::Duration::ZERO,
-			voice_pause_instant: None,
-			voice_recording_generation: 0,
-			voice_recording_opening: false,
-			voice_recording_pending: Arc::new(Mutex::new(None)),
-			is_pairing_active: false,
-			display_items: Vec::new(),
-			selection_mode: false,
-			selected_message_ids: std::collections::HashSet::new(),
-			selection_rows: Vec::new(),
-			bulk_delete_pending: std::collections::HashSet::new(),
-		}));
+		let state = Rc::new(RefCell::new(new_app_state(
+			loaded_settings,
+			ws_out_tx,
+			ui_tx.clone(),
+			audio::OutputSlot::new("alert"),
+			audio::OutputSlot::new("call"),
+			accounts,
+		)));
 
 		let state_clone = state.clone();
 		let parts_clone = Rc::new(parts);
@@ -800,6 +485,7 @@ fn main() {
 		}
 
 		bind_input_handlers(&parts_clone, ui_tx, &state);
+		ui_commands::accounts::refresh_title(&state, &parts_clone);
 		parts_clone.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", saved_audio_speed));
 
 		let audio_timer = Timer::new(&frame);
@@ -1015,7 +701,8 @@ fn main() {
 			};
 
 			let now = std::time::Instant::now();
-			let db_size = platform::paths::db_and_wal_size();
+			let active_db = platform::accounts::db_path(&s.accounts.borrow().registry.active);
+			let db_size = platform::paths::db_and_wal_size(&active_db);
 			if db_size > s.db_size_last_seen {
 				s.db_growth_last_seen = Some(now);
 			}
@@ -1090,6 +777,232 @@ fn main() {
 
 /// The status bar text while online and nothing more detailed is showing:
 /// "Connected", plus the sync still going on the way WA Web reports it.
+/// A fresh AppState: at startup, and on switching accounts, where starting
+/// from scratch is what makes sure nothing of the previous account is left.
+pub(crate) fn new_app_state(
+	settings: crate::settings::Settings,
+	ws_tx: mpsc::Sender<String>,
+	ui_tx: UiCommandSender,
+	audio_out: audio::OutputSlot,
+	call_audio_out: audio::OutputSlot,
+	accounts: Rc<RefCell<ui_commands::accounts::Accounts>>,
+) -> AppState {
+	let audio_speed = settings.audio_speed();
+	AppState {
+		accounts,
+		settings,
+		keymap: Rc::default(),
+		ws_tx,
+		ui_tx,
+		audio_out,
+		call_audio_out,
+		audio_sink: None,
+		playing_msg_id: None,
+		voice_autoplay_id: None,
+		is_audio_paused: false,
+		audio_path: None,
+		audio_total_secs: 0.0,
+		audio_elapsed_secs: 0.0,
+		audio_speed,
+		audio_start_instant: None,
+		chats: Vec::new(),
+		filtered_chats: Vec::new(),
+		archived_jids: std::collections::HashSet::new(),
+		locked_jids: std::collections::HashSet::new(),
+		chats_unlocked: false,
+		community_jids: std::collections::HashSet::new(),
+		chat_parents: std::collections::HashMap::new(),
+		announcement_jids: std::collections::HashSet::new(),
+		channel_jids: std::collections::HashSet::new(),
+		channel_roles: std::collections::HashMap::new(),
+		channel_pinning: false,
+		channel_directory: None,
+		emoji_panel: None,
+		pinned_jids: std::collections::HashSet::new(),
+		muted_jids: std::collections::HashSet::new(),
+		group_quiet_until: std::collections::HashMap::new(),
+		blocked_jids: std::collections::HashSet::new(),
+		blocked_entries: Vec::new(),
+		blocked_contacts: None,
+		unread_counts: std::collections::HashMap::new(),
+		unread_divider_jid: None,
+		unread_divider_count: 0,
+		window_focused: true,
+		presence: PresenceModel::default(),
+		contact_online: std::collections::HashMap::new(),
+		presence_sent: None,
+		composing: None,
+		background_unread_message_ids: Vec::new(),
+		focus_read_at: None,
+		notification_reads: std::collections::HashSet::new(),
+		display_names: std::collections::HashMap::new(),
+		contacts: std::collections::HashMap::from([(types::META_AI_JID.to_string(), "Meta AI".to_string())]),
+		all_contacts: Vec::new(),
+		contact_picker_mode: ContactPickerMode::OpenChat,
+		contact_picker_current_jids: Vec::new(),
+		presence_labels: std::collections::HashMap::new(),
+		typing_timestamps: std::collections::HashMap::new(),
+		typing_announce_state: std::collections::HashMap::new(),
+		active_call_audio: None,
+		active_call_video_send: None,
+		call_video_port: None,
+		active_call_id: None,
+		call_placing: false,
+		call_pending_cancel: false,
+		joinable_calls: Vec::new(),
+		call_answer_deadline: None,
+		call_ringing_sink: None,
+		call_reconnect_sink: None,
+		call_hotkeys: None,
+		incoming_call_caller: None,
+		call_start_muted: false,
+		call_connected_segment_start: None,
+		call_connected_duration: std::time::Duration::ZERO,
+		call_is_reconnecting: false,
+		call_is_incoming: false,
+		call_peer_name: String::new(),
+		call_participants: Vec::new(),
+		call_video: CallVideo::default(),
+		group_data_members: Vec::new(),
+		group_data_member_jids: Vec::new(),
+		group_data_member_info: Vec::new(),
+		group_data_visible_member_jids: Vec::new(),
+		group_data_media: Vec::new(),
+		group_data_documents: Vec::new(),
+		group_data_links: Vec::new(),
+		group_data_subgroup_jids: Vec::new(),
+		group_data_subgroup_joined: Vec::new(),
+		group_data_community: None,
+		conversation_data_media: Vec::new(),
+		conversation_data_documents: Vec::new(),
+		conversation_data_links: Vec::new(),
+		conversation_data_contact: None,
+		info_chat: None,
+		own_push_name: String::new(),
+		own_about: String::new(),
+		own_about_duration: -1,
+		own_about_loaded: false,
+		default_timer: None,
+		chat_filter: 0,
+		favorite_jids: Vec::new(),
+		chat_lists: Vec::new(),
+		list_manager: None,
+		common_group_jids: Vec::new(),
+		privacy_settings: std::collections::HashMap::new(),
+		privacy_settings_loaded: false,
+		app_prefs: None,
+		privacy_lists: std::collections::HashMap::new(),
+		privacy_list_edits: std::collections::HashMap::new(),
+		group_state: crate::ui::dialogs::new_group::NewGroupState {
+			all_contact_labels: Vec::new(),
+			all_contact_jids: Vec::new(),
+			checked_jids: std::collections::HashSet::new(),
+			current_jids: Vec::new(),
+		},
+		add_members_state: crate::ui::dialogs::add_members::AddMembersState {
+			group_jid: None,
+			all_contact_labels: Vec::new(),
+			all_contact_jids: Vec::new(),
+			checked_jids: std::collections::HashSet::new(),
+			current_jids: Vec::new(),
+		},
+		attach_contact_state: crate::ui::dialogs::attach_contact::AttachContactState {
+			all_contact_labels: Vec::new(),
+			all_contact_jids: Vec::new(),
+			checked_jids: std::collections::HashSet::new(),
+			current_jids: Vec::new(),
+		},
+		selected_chat: None,
+		admin_group_jids: std::collections::HashSet::new(),
+		admins_only_jids: std::collections::HashSet::new(),
+		not_member_jids: std::collections::HashSet::new(),
+		business_jids: std::collections::HashSet::new(),
+		initial_presence_received: false,
+		messages: Vec::new(),
+		messages_at_latest: true,
+		loading_messages: false,
+		no_more_messages: false,
+		older_unloaded: 0,
+		newer_unloaded: 0,
+		land_on_first: false,
+		history_loading: false,
+		newer_loading: false,
+		phone_history_pending_jid: None,
+		phone_history_deadline: None,
+		history_sync_last_update: None,
+		history_sync_armed_until: None,
+		db_size_last_seen: 0,
+		db_growth_last_seen: None,
+		db_growth_status_shown: false,
+		recent_sync_active: false,
+		recent_sync_percent: -1,
+		recent_sync_paused: false,
+		offline_sync_percent: None,
+		history_start_chats: std::collections::HashSet::new(),
+		empty_chat_history_asked: std::collections::HashSet::new(),
+		quiet_reload_jid: None,
+		prev_msg_count: 0,
+		active_tab: 0,
+		starred_entries: Vec::new(),
+		filtered_starred_message_ids: Vec::new(),
+		status_groups: Vec::new(),
+		filtered_status_message_ids: Vec::new(),
+		filtered_call_ids: Vec::new(),
+		call_logs: Vec::new(),
+		call_frequent: Vec::new(),
+		call_contacts: Vec::new(),
+		search_query: String::new(),
+		displayed_chat_labels: Vec::new(),
+		chat_row_art: std::collections::HashMap::new(),
+		main_ui_shown: false,
+		pending_whatsapp_link: None,
+		pending_shared_files: Vec::new(),
+		conn_online: false,
+		conn_status_text: "Status: Connecting...".to_string(),
+		conn_outage_announced: false,
+		conn_manual_reconnect: false,
+		pending_attachments: Vec::new(),
+		pending_attachment_kind: whatsnap::AttachKind::default(),
+		pending_reply_id: None,
+		pending_reply_sender: None,
+		pending_reply_preview: None,
+		editing_message_id: None,
+		editing_message_original_text: None,
+		draft_messages: std::collections::HashMap::new(),
+		draft_mentions: std::collections::HashMap::new(),
+		composer_mentions: Vec::new(),
+		mention_candidates: None,
+		mention_request_pending: None,
+		mention_popup: None,
+		mention_dismissed_at: None,
+		pending_receipts: std::collections::HashMap::new(),
+		downloads_in_progress: std::collections::HashMap::new(),
+		uploads_in_progress: std::collections::HashMap::new(),
+		pending_copy_announcements: std::collections::HashSet::new(),
+		search_target_id: None,
+		search_target_text: None,
+		catch_up_alerts: whatsnap::CatchUpAlerts::default(),
+		catch_up_last_at: None,
+		is_voice_recording: false,
+		is_voice_paused: false,
+		voice_recording_path: None,
+		voice_recording_session: None,
+		voice_recording_segments: Vec::new(),
+		voice_recording_start: None,
+		voice_paused_duration: std::time::Duration::ZERO,
+		voice_pause_instant: None,
+		voice_recording_generation: 0,
+		voice_recording_opening: false,
+		voice_recording_pending: Arc::new(Mutex::new(None)),
+		is_pairing_active: false,
+		display_items: Vec::new(),
+		selection_mode: false,
+		selected_message_ids: std::collections::HashSet::new(),
+		selection_rows: Vec::new(),
+		bulk_delete_pending: std::collections::HashSet::new(),
+	}
+}
+
 pub(crate) fn connected_status_text(s: &AppState) -> String {
 	if let Some(pct) = s.offline_sync_percent {
 		format!("Status: Connected (Downloading messages: {pct}%)")
@@ -1126,6 +1039,13 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::SendMessage(text) => ui_commands::messaging::send_message(state, parts, text),
 		UiCommand::ConversationSelectionChanged(_idx) => {}
 		UiCommand::ProcessWebSocketMessage(raw) => process_websocket_message(raw, state, parts),
+		UiCommand::BackendEvent { account, payload } => {
+			ui_commands::accounts::backend_event(account, payload, state, parts)
+		}
+		UiCommand::OpenAccounts(focus) => ui_commands::accounts::open_accounts(state, parts, focus),
+		UiCommand::LeaveLogin => ui_commands::accounts::leave_login(state, parts),
+		UiCommand::AccountStopped(id) => ui_commands::accounts::account_stopped(state, parts, &id),
+		UiCommand::FinishAccountRemoval(id) => ui_commands::accounts::finish_removal(state, &id),
 		UiCommand::ExitApp => ui_commands::misc::exit_app(state, parts),
 		UiCommand::NavSelected(idx) => ui_commands::chat_list::nav_selected(state, parts, idx),
 		UiCommand::FilterConversations(query) => ui_commands::chat_list::filter_conversations(state, parts, query),

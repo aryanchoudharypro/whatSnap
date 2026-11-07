@@ -2780,7 +2780,7 @@ func dumpGoroutinesForStall(reason string) {
 		return
 	}
 	lastStallDump.Store(now.UnixNano())
-	path := filepath.Join(appDataDir(), "logs", "stall-"+now.Format("20060102-150405")+".txt")
+	path := filepath.Join(logsDir(), "stall-"+now.Format("20060102-150405")+".txt")
 	f, err := os.Create(path)
 	if err != nil {
 		log.Println("Failed to write stall dump:", err)

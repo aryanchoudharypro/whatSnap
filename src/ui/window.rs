@@ -357,6 +357,7 @@ pub struct WindowParts {
 pub const MENU_ID_SETTINGS: i32 = 6001;
 pub const MENU_ID_LOGOUT: i32 = 6002;
 pub const MENU_ID_LOCK_APP: i32 = 6062;
+pub const MENU_ID_ACCOUNTS: i32 = 6063;
 pub const MENU_ID_CHECK_UPDATES: i32 = 6061;
 pub const MENU_ID_RECONNECT: i32 = 6003;
 pub const MENU_ID_NAV_CONVERSATIONS: i32 = 6010;
@@ -708,6 +709,11 @@ pub fn build_main_window() -> WindowParts {
 
 	let account_menu = Menu::builder()
 		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), "Open settings")
+		.append_item(
+			MENU_ID_ACCOUNTS,
+			&default_menu_label(MENU_ID_ACCOUNTS),
+			"Switch between, add and remove WhatsApp accounts",
+		)
 		.append_item(
 			MENU_ID_RECONNECT,
 			&default_menu_label(MENU_ID_RECONNECT),
@@ -1566,8 +1572,16 @@ pub fn bind_input_handlers(
 
 	let tray_icon_login_close = tray_icon.clone();
 	let login_panel_close = parts.login_panel;
+	let state_login_close = state.clone();
+	let tx_login_close = ui_tx.clone();
 	parts.login_panel.on_close(move |event| {
 		if let WindowEventData::General(_) = event {
+			// With another account linked, closing the login window goes back
+			// to it instead of quitting.
+			if crate::ui_commands::accounts::has_other_account(&state_login_close) {
+				let _ = tx_login_close.send(UiCommand::LeaveLogin);
+				return;
+			}
 			login_panel_close.show(false);
 			crate::platform::tray::quit_app(&tray_icon_login_close, &[frame_login_close, call_frame_login_close]);
 		}
@@ -1743,6 +1757,13 @@ pub fn bind_input_handlers(
 	parts.frame.on_menu_selected(move |evt| {
 		if evt.get_id() == MENU_ID_LOCK_APP {
 			let _ = tx_lock_app.send(UiCommand::LockApp);
+		}
+	});
+
+	let tx_accounts = ui_tx.clone();
+	parts.frame.on_menu_selected(move |evt| {
+		if evt.get_id() == MENU_ID_ACCOUNTS {
+			let _ = tx_accounts.send(UiCommand::OpenAccounts(None));
 		}
 	});
 

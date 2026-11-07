@@ -1,17 +1,29 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppLink {
-	Open { jid: String },
-	MarkRead { jid: String },
+	/// `account` names the linked account the chat belongs to, for a
+	/// notification from an account that isn't the one on screen.
+	Open {
+		jid: String,
+		account: Option<String>,
+	},
+	MarkRead {
+		jid: String,
+		account: Option<String>,
+	},
 }
 
 const SCHEME: &str = "whatsnap://";
 
-pub fn open_link(jid: &str) -> String {
-	format!("{SCHEME}open?jid={}", encode(jid))
+pub fn open_link(jid: &str, account: Option<&str>) -> String {
+	format!("{SCHEME}open?jid={}{}", encode(jid), account_param(account))
 }
 
-pub fn mark_read_link(jid: &str) -> String {
-	format!("{SCHEME}markread?jid={}", encode(jid))
+pub fn mark_read_link(jid: &str, account: Option<&str>) -> String {
+	format!("{SCHEME}markread?jid={}{}", encode(jid), account_param(account))
+}
+
+fn account_param(account: Option<&str>) -> String {
+	account.map(|a| format!("&account={}", encode(a))).unwrap_or_default()
 }
 
 pub fn parse(link: &str) -> Option<AppLink> {
@@ -19,9 +31,14 @@ pub fn parse(link: &str) -> Option<AppLink> {
 	let rest = link.get(..SCHEME.len()).filter(|s| s.eq_ignore_ascii_case(SCHEME)).map(|_| &link[SCHEME.len()..])?;
 	let (action, query) = rest.split_once('?').unwrap_or((rest, ""));
 	let jid = query.split('&').find_map(|pair| pair.strip_prefix("jid=")).map(decode).filter(|jid| !jid.is_empty())?;
+	let account = query
+		.split('&')
+		.find_map(|pair| pair.strip_prefix("account="))
+		.map(decode)
+		.filter(|a| crate::platform::accounts::is_valid_id(a));
 	match action.trim_end_matches('/').to_ascii_lowercase().as_str() {
-		"open" => Some(AppLink::Open { jid }),
-		"markread" => Some(AppLink::MarkRead { jid }),
+		"open" => Some(AppLink::Open { jid, account }),
+		"markread" => Some(AppLink::MarkRead { jid, account }),
 		_ => None,
 	}
 }
@@ -65,14 +82,32 @@ mod tests {
 	#[test]
 	fn round_trips_a_jid_through_both_links() {
 		let jid = "919810012345@s.whatsapp.net";
-		assert_eq!(parse(&mark_read_link(jid)), Some(AppLink::MarkRead { jid: jid.to_string() }));
-		assert_eq!(parse(&open_link(jid)), Some(AppLink::Open { jid: jid.to_string() }));
+		assert_eq!(parse(&mark_read_link(jid, None)), Some(AppLink::MarkRead { jid: jid.to_string(), account: None }));
+		assert_eq!(parse(&open_link(jid, None)), Some(AppLink::Open { jid: jid.to_string(), account: None }));
+	}
+
+	#[test]
+	fn carries_the_account_and_drops_a_bad_one() {
+		let jid = "1@g.us";
+		let id = "0123456789abcdef0123456789abcdef";
+		assert_eq!(parse(&open_link(jid, Some(id))), Some(AppLink::Open { jid: jid.into(), account: Some(id.into()) }));
+		assert_eq!(
+			parse(&mark_read_link(jid, Some("default"))),
+			Some(AppLink::MarkRead { jid: jid.into(), account: Some("default".into()) })
+		);
+		assert_eq!(
+			parse("whatsnap://open?jid=1%40g.us&account=..%2F..%2Fx"),
+			Some(AppLink::Open { jid: jid.into(), account: None })
+		);
 	}
 
 	#[test]
 	fn accepts_quoted_and_case_varied_links() {
-		assert_eq!(parse("\"whatsnap://markread?jid=1%40g.us\""), Some(AppLink::MarkRead { jid: "1@g.us".into() }));
-		assert_eq!(parse("WHATSNAP://OPEN/?jid=1%40g.us"), Some(AppLink::Open { jid: "1@g.us".into() }));
+		assert_eq!(
+			parse("\"whatsnap://markread?jid=1%40g.us\""),
+			Some(AppLink::MarkRead { jid: "1@g.us".into(), account: None })
+		);
+		assert_eq!(parse("WHATSNAP://OPEN/?jid=1%40g.us"), Some(AppLink::Open { jid: "1@g.us".into(), account: None }));
 	}
 
 	#[test]

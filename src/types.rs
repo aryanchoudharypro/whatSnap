@@ -54,6 +54,19 @@ pub enum UiCommand {
 	SendMessage(String),
 	ConversationSelectionChanged(usize),
 	ProcessWebSocketMessage(String),
+	/// A line from the backend of a linked account.
+	BackendEvent {
+		account: std::sync::Arc<str>,
+		payload: String,
+	},
+	/// Account, Accounts... (with the account to put the focus on).
+	OpenAccounts(Option<String>),
+	/// The login window was closed while another account is linked.
+	LeaveLogin,
+	/// A removed account's backend has stopped, so its files can go.
+	AccountStopped(String),
+	/// A removed account's logout took too long: stop it anyway.
+	FinishAccountRemoval(String),
 	ExitApp,
 	NewContact {
 		name: String,

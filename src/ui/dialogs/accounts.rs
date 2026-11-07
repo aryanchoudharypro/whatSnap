@@ -1,0 +1,113 @@
+//! Account, Accounts...: the linked WhatsApp accounts, to switch between,
+//! add, rename and remove.
+
+use std::{cell::Cell, rc::Rc};
+
+use wxdragon::prelude::*;
+
+use crate::ui::theme;
+
+/// One row of the list.
+pub struct AccountRow {
+	pub id: String,
+	pub label: String,
+}
+
+/// What the user chose. The dialog closes for each, and the caller acts on it.
+pub enum AccountsAction {
+	Switch(String),
+	Add,
+	Rename(String),
+	Remove(String),
+}
+
+pub fn show(parent: &impl WxWidget, rows: &[AccountRow], active: &str, focus: Option<&str>) -> Option<AccountsAction> {
+	let dialog = Dialog::builder(parent, "Accounts")
+		.with_size(460, 400)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	theme::style_content(&dialog);
+	let panel = Panel::builder(&dialog).build();
+	theme::style_content(&panel);
+	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	// The label goes right before the list, so the list is named by it.
+	let list_label = StaticText::builder(&panel).with_label("Linked accounts").build();
+	theme::style_muted_label(&list_label);
+	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
+	let list = ListBox::builder(&panel).build();
+	list.set_font(&theme::Fonts::body());
+	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+	let switch_btn = Button::builder(&panel).with_id(ID_OK).with_label("&Switch").build();
+	theme::style_primary_button(&switch_btn);
+	let add_btn = Button::builder(&panel).with_label("&Add Account...").build();
+	let rename_btn = Button::builder(&panel).with_label("Re&name...").build();
+	let remove_btn = Button::builder(&panel).with_label("&Remove...").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	for btn in [&switch_btn, &add_btn, &rename_btn, &remove_btn] {
+		btn_sizer.add(btn, 0, SizerFlag::Right, 8);
+	}
+	btn_sizer.add_stretch_spacer(1);
+	btn_sizer.add(&close_btn, 0, SizerFlag::empty(), 0);
+	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	panel.set_sizer(sizer, true);
+	let outer = BoxSizer::builder(Orientation::Vertical).build();
+	outer.add(&panel, 1, SizerFlag::Expand, 0);
+	dialog.set_sizer(outer, true);
+	dialog.center();
+
+	for row in rows {
+		list.append(&row.label);
+	}
+	let start = focus
+		.and_then(|id| rows.iter().position(|r| r.id == id))
+		.or_else(|| rows.iter().position(|r| r.id == active))
+		.unwrap_or(0);
+	if !rows.is_empty() {
+		list.set_selection(start as u32, true);
+	}
+
+	let ids: Rc<Vec<String>> = Rc::new(rows.iter().map(|r| r.id.clone()).collect());
+	// 0 none, 1 switch, 2 add, 3 rename, 4 remove
+	let choice = Rc::new(Cell::new(0u8));
+	let chosen_index = Rc::new(Cell::new(None::<usize>));
+
+	let pick = {
+		let choice = choice.clone();
+		let chosen_index = chosen_index.clone();
+		move |what: u8| {
+			chosen_index.set(list.get_selection().map(|i| i as usize));
+			choice.set(what);
+			dialog.end_modal(ID_OK);
+		}
+	};
+	let p = pick.clone();
+	switch_btn.on_click(move |_| p(1));
+	let p = pick.clone();
+	add_btn.on_click(move |_| p(2));
+	let p = pick.clone();
+	rename_btn.on_click(move |_| p(3));
+	let p = pick.clone();
+	remove_btn.on_click(move |_| p(4));
+	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
+	let p = pick.clone();
+	crate::ui::keys::on_enter(&list, Rc::default(), move || p(1));
+	crate::ui::keys::escape_cancels_anywhere(dialog);
+
+	list.set_focus();
+	let result = dialog.show_modal();
+	dialog.destroy();
+	if result != ID_OK {
+		return None;
+	}
+	let id = chosen_index.get().and_then(|i| ids.get(i).cloned());
+	match (choice.get(), id) {
+		(2, _) => Some(AccountsAction::Add),
+		(1, Some(id)) if id != active => Some(AccountsAction::Switch(id)),
+		(3, Some(id)) => Some(AccountsAction::Rename(id)),
+		(4, Some(id)) => Some(AccountsAction::Remove(id)),
+		_ => None,
+	}
+}

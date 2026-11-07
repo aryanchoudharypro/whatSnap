@@ -1,5 +1,7 @@
 use super::*;
 
+static FIRST_CONNECT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
 	match t {
 		"connected" => {
@@ -22,6 +24,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			}
 
 			let first_show = !state.borrow().main_ui_shown;
+			// Switching accounts shows the window again, but maximizing, the
+			// app lock and the update check only belong to the app's start.
+			let app_start = first_show && !FIRST_CONNECT_DONE.swap(true, std::sync::atomic::Ordering::SeqCst);
 			if first_show {
 				parts.pairing_dialog.show(false);
 				parts.qrcode_dialog.show(false);
@@ -29,12 +34,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				parts.nav_panel.show(true);
 				parts.content_panel.show(true);
 				parts.main_panel.layout();
-				if state.borrow().settings.start_maximized {
+				if app_start && state.borrow().settings.start_maximized {
 					parts.frame.maximize(true);
 				}
 				// With the app lock on, the window opens empty and the lock
 				// screen is asked for below, so nothing shows before it.
-				let locked_at_start = state.borrow().settings.app_lock;
+				let locked_at_start = app_start && state.borrow().settings.app_lock;
 				if locked_at_start {
 					parts.main_panel.show(false);
 				}
@@ -49,7 +54,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let s = state.borrow();
 					(s.settings.check_for_updates_on_startup, s.settings.update_channel.clone(), s.ui_tx.clone())
 				};
-				if check_updates {
+				if check_updates && app_start {
 					crate::platform::update_check::run(&parts.frame, &ui_tx, &channel, true);
 				}
 

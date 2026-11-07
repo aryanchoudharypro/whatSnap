@@ -108,21 +108,17 @@ pub fn remove_legacy_data_if_running(running: bool) {
 	}
 }
 
-pub fn db_path() -> PathBuf {
-	app_data_dir().join("session.db")
-}
-
 pub fn log_dir() -> PathBuf {
 	let dir = app_data_dir().join("logs");
 	let _ = std::fs::create_dir_all(&dir);
 	dir
 }
 
-pub fn db_and_wal_size() -> u64 {
-	let db = db_path();
-	let mut wal = db.clone().into_os_string();
+/// The size of an account's database with its write-ahead log.
+pub fn db_and_wal_size(db: &std::path::Path) -> u64 {
+	let mut wal = db.as_os_str().to_os_string();
 	wal.push("-wal");
-	std::fs::metadata(&db).map(|m| m.len()).unwrap_or(0)
+	std::fs::metadata(db).map(|m| m.len()).unwrap_or(0)
 		+ std::fs::metadata(PathBuf::from(wal)).map(|m| m.len()).unwrap_or(0)
 }
 

@@ -1,3 +1,4 @@
+pub(crate) mod accounts;
 pub(crate) mod app_lock;
 pub(crate) mod attachments;
 pub(crate) mod blocking;

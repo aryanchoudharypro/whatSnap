@@ -32,6 +32,7 @@ You use whatSnap at your own risk. If you can't afford to lose your WhatsApp acc
   - Call links. Create a link, or join a call from a link.
   - Join a group call that is already in progress.
   - whatSnap connects again by itself if your network drops during a call.
+- Several WhatsApp accounts in one window. Every account stays connected and alerts you, and you switch between them with `Ctrl+Shift+A`.
 - An app lock. Unlock whatSnap with Windows Hello or a password, and lock it at any time with `Ctrl+Shift+L`.
 - A status viewer and a video player in the app.
 - Emoji and stickers, including the WhatsApp sticker store and your favorite stickers.
@@ -72,6 +73,18 @@ After you link, whatSnap gets your recent chats from your phone. This can take a
 While it does, the status bar says `Syncing older messages` and how much is done, like `45% complete`, the same as WhatsApp Web. Keep WhatsApp open on your phone until it finishes. If your phone stops sending for two minutes, the status bar says `Syncing paused. Open WhatsApp on your phone to continue syncing.` When whatSnap starts after being closed for a while, the status bar shows `Downloading messages` with how much of what you missed has come in.
 
 To unlink this computer, use `Account -> Log Out`. Log Out has no shortcut, so you can't log out by mistake.
+
+## Several Accounts
+You can link more than one WhatsApp account, for example a personal and a work number. Use `Account -> Accounts...` (`Ctrl+Shift+A`). The `Linked accounts` list shows each account by its name and number, which one is on screen, and how many unread chats the others have.
+
+- To show another account, select it and press `Enter`, or press `Switch`. The window empties and fills in again with that account's chats. Drafts you haven't sent stay with their account.
+- To add an account, press `Add Account...`. whatSnap shows the login window, and you link the new phone the same way as the first one. If you close the login window instead, whatSnap goes back to the account you were using.
+- To give an account your own name, like Work, press `Rename...`. Leave the name empty to use the account's WhatsApp name.
+- To remove an account, press `Remove...`. whatSnap logs it out of WhatsApp, so it also leaves your phone's linked devices, and deletes its messages and media from this computer. Your phone keeps its chats. You can't remove the only account; use `Account -> Log Out` for that.
+
+Every account stays connected while whatSnap runs, not just the one on screen. A message to another account plays its sound and shows a notification with the account's name in brackets after the chat name, using the same notification settings. Selecting the notification switches to that account and opens the chat. `Mark as read` on the notification marks the chat read without switching. When another account gets a call, whatSnap switches to it and rings, so you can answer as usual. During a call or while you record a voice message, whatSnap doesn't switch: a notification says who is calling which account.
+
+With more than one account, the window title starts with the name of the account on screen.
 
 ## Main Window Layout
 The main window has three parts:
@@ -430,6 +443,7 @@ You can't change these keys:
 | Action | Menu | Default |
 |---|---|---|
 | Settings... | Account | `Ctrl+,` |
+| Accounts... | Account | `Ctrl+Shift+A` |
 | Lock App | Account | `Ctrl+Shift+L` |
 | Reconnect Now | Account | `F5` |
 | Chats | Go | `Alt+1` |
@@ -486,7 +500,8 @@ whatSnap opens `whatsapp://` links, such as the "Share on WhatsApp" buttons on w
 
 ## Data Folder
 - whatSnap keeps your session, messages, media, and settings in `%LOCALAPPDATA%\whatSnap`.
-- The settings are in `settings.json`.
+- The settings are in `settings.json`. They are the same for every account.
+- Each account you add after the first has its own folder in `accounts`, with its own session, messages, media, and logs. The list of accounts is in `accounts.json`.
 - The logs are in the `logs` folder. whatSnap keeps the logs of this session and of the previous session. If you report a problem, send these logs before you start whatSnap again.
 
 When you uninstall whatSnap, the uninstaller asks if you want to delete your data. It deletes only the files that whatSnap made. Files that you saved to other folders, such as Downloads, stay.
@@ -497,5 +512,6 @@ These features are built, but nobody has tested them with a real WhatsApp accoun
 - The automatic download settings, `Download Quality for Photos and Videos Sent in HD`, and `Media Upload Quality`.
 - `Turn off link previews`.
 - Buttons and menus in messages from businesses, and `Business Catalogue...`.
+- Several accounts: adding, switching, removing, and the notifications and calls of the accounts that aren't on screen.
 
 If you test one of these, please tell us if it works.

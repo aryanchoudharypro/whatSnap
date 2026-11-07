@@ -44,6 +44,13 @@ pub const TABS: [&str; 7] = ["Account", "Go", "Chats", "Conversation", "Voice", 
 
 pub const ACTIONS: &[ActionDef] = &[
 	ActionDef { id: "settings", menu_id: Some(MENU_ID_SETTINGS), tab: 0, label: "&Settings...", default: "Ctrl+," },
+	ActionDef {
+		id: "accounts",
+		menu_id: Some(MENU_ID_ACCOUNTS),
+		tab: 0,
+		label: "A&ccounts...",
+		default: "Ctrl+Shift+A",
+	},
 	ActionDef { id: "lock_app", menu_id: Some(MENU_ID_LOCK_APP), tab: 0, label: "Loc&k App", default: "Ctrl+Shift+L" },
 	ActionDef { id: "reconnect", menu_id: Some(MENU_ID_RECONNECT), tab: 0, label: "&Reconnect Now", default: "F5" },
 	ActionDef {

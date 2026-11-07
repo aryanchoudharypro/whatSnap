@@ -23,7 +23,7 @@ whatSnap has two programs:
 - `whatSnap.exe` is the user interface. It is written in Rust with [wxDragon](https://github.com/AllenDang/wxDragon), so all controls are native Windows controls. The message list is a custom control that uses [AccessKit](https://accesskit.dev).
 - `backend.exe` connects to WhatsApp. It is written in Go, with a fork of [whatsmeow](https://github.com/aryanchoudharypro/whatsmeow) for the protocol and a fork of meowcaller for calls. It keeps the session and the message history in a SQLite database.
 
-`whatSnap.exe` starts `backend.exe` and talks to it through named pipes, with one JSON message per line. During a call, the microphone and speaker audio goes between the two programs over a local UDP socket instead. A third, small program, `whatSnapShare.exe` in `share-target/`, adds whatSnap to the Windows Share menu.
+`whatSnap.exe` starts one `backend.exe` for each linked account, each with its own database folder and its own named pipe, and talks to them with one JSON message per line. The window shows one account; the others' backends keep running so their messages and calls still alert. During a call, the microphone and speaker audio goes between the two programs over a local UDP socket instead. A third, small program, `whatSnapShare.exe` in `share-target/`, adds whatSnap to the Windows Share menu.
 
 Some internal names still say `whantv`, the app's old name: the pipe names, the single instance mutex, registry values, and the Go module name. They stay that way so that an old and a new build can't run at the same time, and no registry data has to move.
 

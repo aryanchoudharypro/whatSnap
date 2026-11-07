@@ -79,7 +79,12 @@ pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 }
 
 pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str) {
-	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body) {
+	show_chat_notification_for(jid, title, body, None);
+}
+
+/// A chat notification for a linked account that isn't the one on screen.
+pub(crate) fn show_chat_notification_for(jid: &str, title: &str, body: &str, account: Option<&str>) {
+	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body, account) {
 		eprintln!("[NOTIFY] Chat toast failed, showing a plain notification: {err:?}");
 		show_toast_notification(title, body);
 	}

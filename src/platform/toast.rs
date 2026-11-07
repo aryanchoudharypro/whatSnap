@@ -57,9 +57,9 @@ fn escape_xml(text: &str) -> String {
 	out
 }
 
-fn toast_xml(title: &str, body: &str, jid: &str) -> String {
-	let open = escape_xml(&app_link::open_link(jid));
-	let mark_read = escape_xml(&app_link::mark_read_link(jid));
+fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>) -> String {
+	let open = escape_xml(&app_link::open_link(jid, account));
+	let mark_read = escape_xml(&app_link::mark_read_link(jid, account));
 	format!(
 		concat!(
 			r#"<toast launch="{open}" activationType="protocol">"#,
@@ -76,11 +76,13 @@ fn toast_xml(title: &str, body: &str, jid: &str) -> String {
 	)
 }
 
-/// Shows a message toast for `jid`, filed in that chat's group. Must run on the
-/// UI thread, like the rest of the WinRT toast code in this app.
-pub fn show_chat_toast(jid: &str, title: &str, body: &str) -> windows::core::Result<()> {
+/// Shows a message toast for `jid`, filed in that chat's group. `account` is
+/// set for a chat of a linked account that isn't the one on screen, so a click
+/// switches to it. Must run on the UI thread, like the rest of the WinRT toast
+/// code in this app.
+pub fn show_chat_toast(jid: &str, title: &str, body: &str, account: Option<&str>) -> windows::core::Result<()> {
 	let document = XmlDocument::new()?;
-	document.LoadXml(&HSTRING::from(toast_xml(title, body, jid)))?;
+	document.LoadXml(&HSTRING::from(toast_xml(title, body, jid, account)))?;
 	let toast = ToastNotification::CreateToastNotification(&document)?;
 	toast.SetTag(&next_tag())?;
 	toast.SetGroup(&group_for(jid))?;
@@ -100,7 +102,7 @@ mod tests {
 
 	#[test]
 	fn xml_escapes_user_text_and_links() {
-		let xml = toast_xml("A & <B>", "say \"hi\"", "1@g.us");
+		let xml = toast_xml("A & <B>", "say \"hi\"", "1@g.us", None);
 		assert!(xml.contains("<text>A &amp; &lt;B&gt;</text>"));
 		assert!(xml.contains("<text>say &quot;hi&quot;</text>"));
 		assert!(xml.contains("arguments=\"whatsnap://markread?jid=1%40g.us\""));

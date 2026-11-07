@@ -15,8 +15,8 @@ use crate::{
 
 fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: crate::platform::app_link::AppLink) {
 	match link {
-		crate::platform::app_link::AppLink::Open { jid } => open_chat_for_jid(&jid, state, parts),
-		crate::platform::app_link::AppLink::MarkRead { jid } => {
+		crate::platform::app_link::AppLink::Open { jid, .. } => open_chat_for_jid(&jid, state, parts),
+		crate::platform::app_link::AppLink::MarkRead { jid, .. } => {
 			crate::ui::chat_ui::clear_chat_notifications(&jid);
 			state.borrow_mut().notification_reads.insert(jid.clone());
 			crate::handle_ui_command(crate::UiCommand::MarkRead { jid, message_ids: Vec::new() }, state, parts);
@@ -29,6 +29,25 @@ pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	let parsed = if app_link.is_some() { None } else { whatsnap::parse_whatsapp_link(&link) };
 	if app_link.is_none() && parsed.is_none() {
 		return;
+	}
+	// A notification from a linked account that isn't on screen: mark read
+	// goes straight to that account; open switches to it first.
+	if let Some(link_account) = app_link.as_ref().and_then(|l| match l {
+		crate::platform::app_link::AppLink::Open { account, .. }
+		| crate::platform::app_link::AppLink::MarkRead { account, .. } => account.clone(),
+	}) && !crate::ui_commands::accounts::is_active(state, &link_account)
+	{
+		match &app_link {
+			Some(crate::platform::app_link::AppLink::MarkRead { jid, .. }) => {
+				crate::ui_commands::accounts::mark_read_in_background(state, &link_account, jid);
+				return;
+			}
+			_ => {
+				if !crate::ui_commands::accounts::switch_to(state, parts, &link_account) {
+					return;
+				}
+			}
+		}
 	}
 	{
 		let mut s = state.borrow_mut();

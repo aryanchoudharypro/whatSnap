@@ -40,14 +40,14 @@ var activeAudioBridgesMutex sync.Mutex
 func newCallDiagnosticsOptions() []meowcaller.Option {
 	var opts []meowcaller.Option
 
-	diagDir := filepath.Join(appDataDir(), "logs", "call-diag")
+	diagDir := filepath.Join(logsDir(), "call-diag")
 	if rec, err := diag.NewRecorder(diagDir); err == nil {
 		opts = append(opts, meowcaller.WithDiagnostics(rec))
 	} else {
 		log.Println("Failed to create call diagnostics recorder:", err)
 	}
 
-	logPath := filepath.Join(appDataDir(), "logs", "call.log")
+	logPath := filepath.Join(logsDir(), "call.log")
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		opts = append(opts, meowcaller.WithLogger(zerolog.New(f).With().Timestamp().Logger()))
 	} else {

@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod announce;
 pub mod app_link;
 pub mod autostart;
