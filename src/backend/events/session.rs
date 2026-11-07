@@ -24,8 +24,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			}
 
 			let first_show = !state.borrow().main_ui_shown;
-			// Switching accounts shows the window again, but maximizing, the
-			// app lock and the update check only belong to the app's start.
+			// Switching accounts shows the window again, but maximizing and the
+			// update check only belong to the app's start.
 			let app_start = first_show && !FIRST_CONNECT_DONE.swap(true, std::sync::atomic::Ordering::SeqCst);
 			if first_show {
 				parts.pairing_dialog.show(false);

@@ -489,7 +489,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		visibility_combo(&storage_panel, &storage_sizer, "Media Upload Quality", UPLOAD_QUALITY_CHOICES);
 	storage_panel.set_sizer(storage_sizer, true);
 
-	// 9. Audio & Calls Panel
+	// 9. Input & Output Panel
 	let audio_panel = Panel::builder(&notebook).build();
 	theme::style_content(&audio_panel);
 	let audio_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -562,7 +562,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	notebook.add_page(&profile_panel, "Profile", false, None);
 	notebook.add_page(&privacy_panel, "Privacy", false, None);
 	notebook.add_page(&storage_panel, "Storage & Media", false, None);
-	notebook.add_page(&audio_panel, "Audio & Calls", false, None);
+	notebook.add_page(&audio_panel, "Input & Output", false, None);
 	notebook.add_page(&lock_panel, "Chat Lock", false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);

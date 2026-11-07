@@ -360,7 +360,7 @@ whatSnap tells you when it loses the connection to WhatsApp, and when it connect
 ## Settings
 To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings sync with WhatsApp on your phone and your other linked devices. You can't change these settings until whatSnap gets them from WhatsApp.
 
-Settings has ten tabs: General, Account, Chats, Notifications, Personalization, Profile, Privacy, Storage & Media, Audio & Calls, and App Lock. Each tab groups its settings under short headings.
+Settings has ten tabs: General, Account, Chats, Notifications, Personalization, Profile, Privacy, Storage & Media, Input & Output, and Chat Lock. Each tab groups its settings under short headings.
 
 ### General Tab
 - `Start whatSnap when Windows starts`
@@ -441,7 +441,7 @@ The choices for the "Who can" settings are Everyone, My Contacts, My Contacts Ex
 - `Download Quality for Photos and Videos Sent in HD`: Standard Quality or HD Quality. People can send a photo or video in HD; with HD Quality, whatSnap downloads the HD copy instead of the standard one.
 - `Media Upload Quality`: Standard Quality or HD Quality.
 
-### Audio & Calls Tab
+### Input & Output Tab
 - `Microphone (calls and voice notes)`
 - `Clean up voice messages`: remove background noise and make the volume even, as WhatsApp Web does.
 - `Speaker for alerts and voice messages`: used for notification sounds, message tones, and voice messages.
