@@ -182,18 +182,23 @@ pub(crate) fn call_ended_info_text(
 	duration_secs: u64,
 	reason: &str,
 ) -> String {
-	let status = match reason {
-		"busy" => "Busy, on another call",
-		"declined" | "rejected" => "Call declined",
-		"connection_lost" => "Call ended. Connection lost.",
-		"cancelled" => "Call cancelled",
-		"timeout" | "no_answer" => "No answer",
-		_ => "Call ended",
-	};
 	if duration_secs > 0 {
 		let clock = format_call_duration(duration_secs);
+		let status = if reason == "connection_lost" {
+			"Call ended. Connection lost"
+		} else {
+			"Call ended"
+		};
 		format!("{status} with {peer_name}\r\nDuration: {clock}")
 	} else {
+		let status = match reason {
+			"busy" => "Busy, on another call",
+			"declined" | "rejected" => "Call declined",
+			"connection_lost" => "Call ended. Connection lost",
+			"cancelled" => "Call cancelled",
+			"timeout" | "no_answer" => "No answer",
+			_ => "Call ended",
+		};
 		format!("{status} with {peer_name}")
 	}
 }
@@ -392,6 +397,26 @@ mod caller_info_tests {
 		);
 		assert_eq!(name, "+1 415-555-2671");
 		assert_eq!(phone.as_deref(), Some("14155552671"));
+	}
+
+	#[test]
+	fn formats_call_ended_info_text() {
+		assert_eq!(
+			call_ended_info_text("Asha", 65, "busy"),
+			"Call ended with Asha\r\nDuration: 1:05"
+		);
+		assert_eq!(
+			call_ended_info_text("Asha", 0, "busy"),
+			"Busy, on another call with Asha"
+		);
+		assert_eq!(
+			call_ended_info_text("Asha", 0, "declined"),
+			"Call declined with Asha"
+		);
+		assert_eq!(
+			call_ended_info_text("Asha", 120, "connection_lost"),
+			"Call ended. Connection lost with Asha\r\nDuration: 2:00"
+		);
 	}
 }
 

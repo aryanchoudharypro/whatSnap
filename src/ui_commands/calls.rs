@@ -143,7 +143,7 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	let group_name = s.contacts.get(&call.group_jid).cloned().unwrap_or_else(|| call.group_jid.clone());
 	s.call_is_incoming = false;
 	s.call_peer_name = group_name.clone();
-	s.call_start_muted = false;
+	s.call_start_muted = s.settings.call_start_muted;
 	s.call_connected_segment_start = None;
 	s.call_connected_duration = std::time::Duration::ZERO;
 	s.call_is_reconnecting = false;
@@ -167,6 +167,7 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	c.dismiss_btn.show(false);
 	c.callback_btn.show(false);
 	c.close_btn.show(false);
+	c.mute_btn.set_label(if s.call_start_muted { "Unmute microphone" } else { "Mute microphone" });
 	c.mute_btn.show(true);
 	c.camera_btn.set_label("Turn camera on");
 	c.camera_btn.show(false);
@@ -259,7 +260,7 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	};
 	s.call_is_incoming = false;
 	s.call_peer_name = name.clone();
-	s.call_start_muted = false;
+	s.call_start_muted = s.settings.call_start_muted;
 	s.call_connected_segment_start = None;
 	s.call_connected_duration = std::time::Duration::ZERO;
 	s.call_is_reconnecting = false;
@@ -306,6 +307,7 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	parts.call_parts.dismiss_btn.show(false);
 	parts.call_parts.callback_btn.show(false);
 	parts.call_parts.close_btn.show(false);
+	parts.call_parts.mute_btn.set_label(if s.call_start_muted { "Unmute microphone" } else { "Mute microphone" });
 	parts.call_parts.mute_btn.show(true);
 	parts.call_parts.camera_btn.set_label("Turn camera on");
 	parts.call_parts.camera_btn.show(false);
@@ -394,6 +396,7 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		stop_call_ringing_sound(&mut s);
 		s.call_answer_deadline = Some(std::time::Instant::now());
 		parts.conversations_parts.incoming_call_banner.show(false);
+		parts.conversations_parts.panel.layout();
 		parts.frame.layout();
 		let is_group = s.call_video.peer_name.is_none();
 		let win_title = crate::calls::helpers::format_call_window_title(
@@ -445,6 +448,7 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		});
 		let _ = s.ws_tx.send(msg.to_string());
 		parts.conversations_parts.incoming_call_banner.show(false);
+		parts.conversations_parts.panel.layout();
 		parts.frame.layout();
 		parts.call_parts.frame.show(false);
 		parts.call_parts.dismiss_btn.show(false);
@@ -472,6 +476,7 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		});
 		let _ = s.ws_tx.send(msg.to_string());
 		parts.conversations_parts.incoming_call_banner.show(false);
+		parts.conversations_parts.panel.layout();
 		parts.frame.layout();
 		parts.call_parts.frame.show(false);
 		s.active_call_id = None;
@@ -486,6 +491,7 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 	} else if s.call_placing {
 		s.call_pending_cancel = true;
 		parts.conversations_parts.incoming_call_banner.show(false);
+		parts.conversations_parts.panel.layout();
 		parts.frame.layout();
 		parts.call_parts.frame.show(false);
 		stop_call_ringing_sound(&mut s);
@@ -493,21 +499,25 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 }
 
 pub(crate) fn dismiss_incoming_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let s = state.borrow();
+	let mut s = state.borrow_mut();
 	if !s.call_is_incoming || s.active_call_id.is_none() || s.active_call_audio.is_some() {
 		return;
 	}
 	let caller = s.call_peer_name.clone();
+	stop_call_ringing_sound(&mut s);
 	drop(s);
 	parts.call_parts.frame.show(false);
 	parts.conversations_parts.incoming_call_banner_label.set_label(&format!("Incoming call from {}", caller));
 	parts.conversations_parts.incoming_call_banner.show(true);
+	parts.conversations_parts.panel.layout();
 	parts.frame.layout();
-	announce_call(parts, "Incoming call minimized. Call is still ringing.");
+	parts.conversations_parts.incoming_call_restore_btn.set_focus();
+	announce_call(parts, "Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen.");
 }
 
 pub(crate) fn restore_incoming_call(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	parts.conversations_parts.incoming_call_banner.show(false);
+	parts.conversations_parts.panel.layout();
 	parts.frame.layout();
 	parts.call_parts.frame.show(true);
 	parts.call_parts.frame.raise();

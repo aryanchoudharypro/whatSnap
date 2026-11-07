@@ -590,34 +590,41 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	top_btns_panel.set_sizer(top_btns_sizer, true);
 	conv_sizer.add(&top_btns_panel, 0, SizerFlag::Expand, 0);
 
-	let incoming_call_banner = Panel::builder(&conversation_panel).build();
+	let incoming_call_banner = Panel::builder(&panel).build();
 	if theme::use_custom_colours() {
-		incoming_call_banner.set_background_color(Colour::rgb(0x1B, 0x2A, 0x32));
+		incoming_call_banner.set_background_color(if theme::is_dark() {
+			Colour::rgb(0x1B, 0x2A, 0x32)
+		} else {
+			Colour::rgb(0xE7, 0xF5, 0xF0)
+		});
 	}
 	let icb_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let incoming_call_banner_label = StaticText::builder(&incoming_call_banner).with_label("Incoming call...").build();
 	incoming_call_banner_label.set_font(&theme::Fonts::body());
 	if theme::use_custom_colours() {
-		incoming_call_banner_label.set_foreground_color(Colour::rgb(0xE9, 0xED, 0xEE));
+		incoming_call_banner_label.set_foreground_color(if theme::is_dark() {
+			Colour::rgb(0xE9, 0xED, 0xEE)
+		} else {
+			Colour::rgb(0x11, 0x1B, 0x21)
+		});
 	}
-	icb_sizer.add(&incoming_call_banner_label, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 10);
+	icb_sizer.add(&incoming_call_banner_label, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 12);
 
 	let incoming_call_restore_btn = Button::builder(&incoming_call_banner).with_label("Open call window").build();
 	incoming_call_restore_btn.set_font(&theme::Fonts::body());
-	icb_sizer.add(&incoming_call_restore_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+	icb_sizer.add(&incoming_call_restore_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
 
 	let incoming_call_answer_btn = Button::builder(&incoming_call_banner).with_label("Answer").build();
 	incoming_call_answer_btn.set_font(&theme::Fonts::body());
 	theme::style_primary_button(&incoming_call_answer_btn);
-	icb_sizer.add(&incoming_call_answer_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
+	icb_sizer.add(&incoming_call_answer_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
 
 	let incoming_call_decline_btn = Button::builder(&incoming_call_banner).with_label("Decline").build();
 	incoming_call_decline_btn.set_font(&theme::Fonts::body());
-	icb_sizer.add(&incoming_call_decline_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 10);
+	icb_sizer.add(&incoming_call_decline_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
 
 	incoming_call_banner.set_sizer(icb_sizer, true);
 	incoming_call_banner.show(false);
-	conv_sizer.add(&incoming_call_banner, 0, SizerFlag::Expand | SizerFlag::All, 4);
 
 	let search_panel = Panel::builder(&conversation_panel).build();
 	theme::style_content(&search_panel);
@@ -883,7 +890,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	outer_sizer.add_sizer(&left_sizer, 0, SizerFlag::Expand, 0);
 	outer_sizer.add(&calls_btn_panel, 1, SizerFlag::Expand, 0);
 	outer_sizer.add(&conversation_panel, 1, SizerFlag::Expand, 0);
-	panel.set_sizer(outer_sizer, true);
+
+	let root_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	root_sizer.add(&incoming_call_banner, 0, SizerFlag::Expand | SizerFlag::All, 0);
+	root_sizer.add_sizer(&outer_sizer, 1, SizerFlag::Expand, 0);
+	panel.set_sizer(root_sizer, true);
 	fit_columns(&panel, &search_field, &conversations_list, &conversation_panel, &calls_btn_panel);
 
 	ConversationsPanelParts {

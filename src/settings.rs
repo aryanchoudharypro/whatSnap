@@ -78,6 +78,8 @@ pub struct Settings {
 	/// `call_ringtone`. Only this computer has these.
 	pub call_ringtone_sound: String,
 	pub group_call_ringtone_sound: String,
+	/// Start calls with microphone muted by default.
+	pub call_start_muted: bool,
 	pub chat_notifications: std::collections::HashMap<String, whatsnap::ChatNotify>,
 	/// Unlock locked chats with Windows Hello (fingerprint, face or PIN)
 	/// instead of asking for the secret code each time. Only this computer
@@ -162,6 +164,7 @@ impl Default for Settings {
 			call_ringtone: true,
 			call_ringtone_sound: String::new(),
 			group_call_ringtone_sound: String::new(),
+			call_start_muted: false,
 			chat_notifications: std::collections::HashMap::new(),
 			chat_lock_hello: false,
 			chat_lock_hello_offered: false,

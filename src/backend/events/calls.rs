@@ -79,6 +79,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.call_parts.callback_btn.show(false);
 						parts.call_parts.close_btn.show(false);
 						parts.conversations_parts.incoming_call_banner.show(false);
+						parts.conversations_parts.panel.layout();
 						parts.frame.layout();
 						parts.call_parts.mute_btn.show(true);
 						parts.call_parts.camera_btn.show(true);
@@ -383,6 +384,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				s.active_call_video_send = None;
 				s.call_video_port = None;
 				parts.conversations_parts.incoming_call_banner.show(false);
+				parts.conversations_parts.panel.layout();
 				parts.frame.layout();
 				parts.call_parts.frame.show(false);
 				stop_call_ringing_sound(&mut s);
@@ -410,7 +412,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let peer_name_saved = s.call_peer_name.clone();
 					let was_incoming_ringing = s.incoming_call_caller.is_some() && s.active_call_audio.is_none();
 					let was_frame_shown = parts.call_parts.frame.is_shown();
+					let was_connected = total_duration > std::time::Duration::ZERO || s.active_call_audio.is_some();
 					parts.conversations_parts.incoming_call_banner.show(false);
+					parts.conversations_parts.panel.layout();
 					parts.frame.layout();
 
 					crate::audio::stop_call_reconnect_tone(&mut s);
@@ -429,7 +433,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.call_self_phone.clear();
 					stop_call_ringing_sound(&mut s);
 					let reason = data.get("reason").and_then(|r| r.as_str()).unwrap_or("");
-					if reason == "busy" && s.incoming_call_caller.is_none() {
+					if !was_connected && reason == "busy" && s.incoming_call_caller.is_none() {
 						crate::audio::play_busy_tone(&mut s);
 					} else {
 						play_call_fail_sound(&mut s);
@@ -439,13 +443,21 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					if !had_caller {
 						announce_call(
 							parts,
-							match reason {
-								"busy" => "Busy, on another call.",
-								"declined" | "rejected" => "Call declined.",
-								"cancelled" => "Call cancelled.",
-								"timeout" | "no_answer" => "No answer.",
-								"connection_lost" => "Call ended. Connection lost.",
-								_ => "Call ended.",
+							if was_connected {
+								if reason == "connection_lost" {
+									"Call ended. Connection lost."
+								} else {
+									"Call ended."
+								}
+							} else {
+								match reason {
+									"busy" => "Busy, on another call.",
+									"declined" | "rejected" => "Call declined.",
+									"cancelled" => "Call cancelled.",
+									"timeout" | "no_answer" => "No answer.",
+									"connection_lost" => "Call ended. Connection lost.",
+									_ => "Call ended.",
+								}
 							},
 						);
 					} else if summary.contains("on another device") {
@@ -508,6 +520,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.call_answer_deadline = None;
 					s.incoming_call_caller = None;
 					parts.conversations_parts.incoming_call_banner.show(false);
+					parts.conversations_parts.panel.layout();
 					parts.frame.layout();
 					parts.call_parts.frame.show(false);
 					stop_call_ringing_sound(&mut s);
@@ -543,7 +556,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.incoming_call_caller = Some(name.clone());
 					s.call_is_incoming = true;
 					s.call_peer_name = name.clone();
-					s.call_start_muted = false;
+					s.call_start_muted = s.settings.call_start_muted;
+					parts.call_parts.mute_btn.set_label(if s.call_start_muted { "Unmute microphone" } else { "Mute microphone" });
 					s.call_connected_segment_start = None;
 					s.call_connected_duration = std::time::Duration::ZERO;
 					s.call_is_reconnecting = false;
