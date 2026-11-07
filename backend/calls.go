@@ -295,6 +295,17 @@ func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 			}
 		}
 	}()
+	// The peer's phone took the audio for a call of its own, or gave it back,
+	// and the peer's battery ran low.
+	call.OnPeerInterruption(func(interrupted bool) {
+		acc.broadcastEvent("call_peer_interrupted", map[string]interface{}{
+			"call_id":     call.ID(),
+			"interrupted": interrupted,
+		})
+	})
+	call.OnPeerBatteryLow(func() {
+		acc.broadcastEvent("call_peer_battery_low", map[string]string{"call_id": call.ID()})
+	})
 	call.OnVideoKeyframeRequest(func() {
 		acc.broadcastEvent("call_video_keyframe_request", map[string]string{
 			"call_id": call.ID(),

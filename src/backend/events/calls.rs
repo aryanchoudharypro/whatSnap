@@ -175,6 +175,24 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				announce_call(parts, message);
 			}
 		}
+		"call_peer_interrupted" | "call_peer_battery_low" => {
+			if let Some(data) = val.get("data") {
+				let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
+				let s = state.borrow();
+				if s.active_call_id.as_deref() == Some(call_id) {
+					let name = if s.call_peer_name.is_empty() { "The other person".to_string() } else { s.call_peer_name.clone() };
+					let message = if t == "call_peer_battery_low" {
+						format!("{name}'s battery is low.")
+					} else if data.get("interrupted").and_then(|i| i.as_bool()).unwrap_or(true) {
+						format!("{name} is on a phone call and can't hear you right now.")
+					} else {
+						format!("{name} is back on the call.")
+					};
+					drop(s);
+					announce_call(parts, &message);
+				}
+			}
+		}
 		"call_loss" => {
 			if let Some(data) = val.get("data") {
 				let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
