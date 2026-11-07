@@ -248,6 +248,7 @@ pub enum UiCommand {
 	DownloadAttachment(String),
 	ChangeAudioSpeed,
 	SeekAudio(f32),
+	StopVoiceMessage,
 	PlaceCall,
 	PlaceVideoCall,
 	CallContact {
@@ -391,9 +392,11 @@ pub enum UiCommand {
 	OpenChatByPhone(String),
 	OpenChatByJid(String),
 	ToggleSelectionMode,
-	DeleteSelectedMessages {
-		for_everyone: bool,
-	},
+	/// One of the select bar's buttons.
+	SelectionAction(crate::ui_commands::selection::BarAction),
+	/// Delete these messages of the open chat, asking how first (the
+	/// Delete key or menu item on one row).
+	AskDeleteMessages(Vec<String>),
 	VoiceRecordingReady,
 }
 

@@ -179,6 +179,7 @@ The newest message is at the bottom. When you go up, whatSnap loads older messag
 | `End` | Go to the newest message. |
 | `Enter` | Play a voice message. On a call, call back or join the call. |
 | `Space` | Play or pause a voice message. |
+| `Shift+Space` | Stop the voice message that plays or is paused. |
 | `Shift+Enter` | Show the full text of the message in a dialog. |
 | `Left Arrow` | On a reply, read the message that it replies to. |
 | `Left Arrow` two times | On a reply, go to the message that it replies to. |
@@ -195,7 +196,9 @@ The newest message is at the bottom. When you go up, whatSnap loads older messag
 
 If `Typing a letter in the message list starts a message` is on in the settings, typing a letter, a digit, or a punctuation mark in the list moves you to the message box with that character. The letter keys of the list then need `Alt`: `Alt+R` replies, `Alt+F` forwards, `Alt+S` stars, `Alt+V` votes, and `Alt+J` goes back 5 seconds. `Alt+E` and `Alt+L` stay `Jump to Message Field` and `Read New Messages Aloud`, so to edit or go forward 5 seconds from the list, give those actions other keys in `Keyboard Shortcuts...`.
 
-While a voice message plays, `Left Arrow` and `J` go back 5 seconds, and `Right Arrow` and `L` go forward 5 seconds. To change the speed, use the speed button. Its name is the current speed, for example `1.0x`.
+While a voice message plays, `Left Arrow` and `J` go back 5 seconds, and `Right Arrow` and `L` go forward 5 seconds. When it is paused, these keys do nothing to it, so it stays paused. To change the speed, use the speed button. Its name is the current speed, for example `1.0x`.
+
+To stop a voice message, press `Shift+Space`. The next time you play it, it starts from the beginning. When you close the chat or open another chat, the voice message stops too.
 
 The actions menu of a message has these items, when they apply to the message: `Copy`, `Reply`, `Forward...`, `Edit`, `Delete`, `React...`, `Star` or `Unstar`, `Retry send`, `Request again`, `Save voice message...`, `Message Info`, `Copy all photos`, `Copy Number`, `Message Number`, and `Report...`. In a group, a submenu for the sender lets you message or call them. In a channel, a submenu lets you pin a post, or see who reacted or voted.
 
@@ -509,6 +512,7 @@ You can't change these keys:
 | Delete | Messages | `Delete` |
 | Voice message: back 5 seconds | Messages | `J` |
 | Voice message: forward 5 seconds | Messages | `L` |
+| Voice message: stop | Messages | `Shift+Space` |
 | Selection mode on or off | Messages | `Ctrl+Space` |
 | View Message Text | Messages | `Shift+Enter` |
 

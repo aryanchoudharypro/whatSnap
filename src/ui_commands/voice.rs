@@ -20,7 +20,8 @@ pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 		let elapsed = if was_paused {
 			s.audio_elapsed_secs
 		} else {
-			s.audio_elapsed_secs + s.audio_start_instant.map(|i| i.elapsed().as_secs_f32()).unwrap_or(0.0)
+			s.audio_elapsed_secs
+				+ s.audio_start_instant.map(|i| i.elapsed().as_secs_f32() * s.audio_speed).unwrap_or(0.0)
 		};
 		if let Some(ref sink) = s.audio_sink {
 			sink.stop();
@@ -515,16 +516,52 @@ pub(crate) fn play_voice_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<Wind
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
+/// True only while a voice message is audibly playing: not paused, not
+/// still loading and not finished. Arrow keys in the message list seek only
+/// then, so a stray Left/Right can never wake up a paused note.
+pub(crate) fn is_voice_playing(s: &AppState) -> bool {
+	s.playing_msg_id.is_some() && !s.is_audio_paused && s.audio_sink.as_ref().is_some_and(|sink| !sink.empty())
+}
+
+/// Stops the voice message (playing, paused or still loading) and forgets
+/// its position, so nothing can resume it later. Returns whether there was
+/// one to stop.
+pub(crate) fn stop_voice_message(s: &mut AppState, parts: &WindowParts) -> bool {
+	if s.playing_msg_id.is_none() && s.audio_sink.is_none() {
+		return false;
+	}
+	if let Some(sink) = s.audio_sink.take() {
+		sink.stop();
+	}
+	s.playing_msg_id = None;
+	s.voice_autoplay_id = None;
+	s.audio_path = None;
+	s.audio_elapsed_secs = 0.0;
+	s.audio_start_instant = None;
+	s.is_audio_paused = false;
+	let cp = &parts.conversations_parts;
+	cp.play_voice_btn.set_label("Play voice message");
+	cp.audio_slider.set_value(0);
+	cp.audio_slider.show(false);
+	cp.audio_speed_btn.show(false);
+	cp.audio_progress_label.show(false);
+	cp.conversation_panel.layout();
+	true
+}
+
 pub(crate) fn seek_audio(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, delta: f32) {
 	let mut s = state.borrow_mut();
 	if s.playing_msg_id.is_some() {
 		let elapsed = if s.is_audio_paused {
 			s.audio_elapsed_secs
 		} else {
-			s.audio_elapsed_secs + s.audio_start_instant.map(|i| i.elapsed().as_secs_f32()).unwrap_or(0.0)
+			s.audio_elapsed_secs
+				+ s.audio_start_instant.map(|i| i.elapsed().as_secs_f32() * s.audio_speed).unwrap_or(0.0)
 		};
 		let total = s.audio_total_secs;
 		let target = if total > 0.0 { (elapsed + delta).max(0.0).min(total) } else { (elapsed + delta).max(0.0) };
+		// Seeking a paused note moves its position and leaves it paused.
+		let was_paused = s.is_audio_paused;
 		if let Some(ref sink) = s.audio_sink {
 			sink.stop();
 		}
@@ -532,12 +569,19 @@ pub(crate) fn seek_audio(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 		let path = s.audio_path.clone().unwrap_or_default();
 		if let Some(ref stream_handle) = s.audio_out.stream {
 			let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
+			if was_paused && let Some(ref sink) = new_sink {
+				sink.pause();
+			}
 			s.audio_sink = new_sink;
 		}
 		s.audio_elapsed_secs = target;
-		s.audio_start_instant = Some(std::time::Instant::now());
-		s.is_audio_paused = false;
-		parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
+		s.is_audio_paused = was_paused;
+		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
+			"Play voice message"
+		} else {
+			"Pause voice message"
+		});
 		let max_sec = (total as i32).max(1);
 		let pos = (target as i32).max(0).min(max_sec);
 		parts.conversations_parts.audio_slider.set_range(0, max_sec);
@@ -550,6 +594,8 @@ pub(crate) fn seek_audio_absolute(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	if s.playing_msg_id.is_some() {
 		let total = s.audio_total_secs;
 		let target = (slider_val as f32).max(0.0).min(total);
+		// Seeking a paused note moves its position and leaves it paused.
+		let was_paused = s.is_audio_paused;
 		if let Some(ref sink) = s.audio_sink {
 			sink.stop();
 		}
@@ -557,12 +603,19 @@ pub(crate) fn seek_audio_absolute(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		let path = s.audio_path.clone().unwrap_or_default();
 		if let Some(ref stream_handle) = s.audio_out.stream {
 			let new_sink = do_seek(stream_handle, &path, target, s.audio_speed);
+			if was_paused && let Some(ref sink) = new_sink {
+				sink.pause();
+			}
 			s.audio_sink = new_sink;
 		}
 		s.audio_elapsed_secs = target;
-		s.audio_start_instant = Some(std::time::Instant::now());
-		s.is_audio_paused = false;
-		parts.conversations_parts.play_voice_btn.set_label("Pause voice message");
+		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
+		s.is_audio_paused = was_paused;
+		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
+			"Play voice message"
+		} else {
+			"Pause voice message"
+		});
 		let max_sec = (total as i32).max(1);
 		let pos = (target as i32).max(0).min(max_sec);
 		parts.conversations_parts.audio_slider.set_range(0, max_sec);

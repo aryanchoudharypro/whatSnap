@@ -309,86 +309,140 @@ func (acc *Account) handleDeleteMessage(raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	chatJID, err := types.ParseJID(data.JID)
+	go acc.deleteMessages(data.JID, []DeleteMessageItem{{MessageID: data.MessageID, SenderJID: data.SenderJID}}, data.ForEveryone)
+}
+
+// handleDeleteMessages deletes several messages of one chat at once, as
+// WhatsApp Web's select bar does (WAWebChatSendDeleteMsgsBridge,
+// WAWebRevokeMsgAction).
+func (acc *Account) handleDeleteMessages(raw json.RawMessage) {
+	var data DeleteMessagesData
+	if err := json.Unmarshal(raw, &data); err != nil || len(data.Messages) == 0 {
+		return
+	}
+	go acc.deleteMessages(data.JID, data.Messages, data.ForEveryone)
+}
+
+type storedDeleteTarget struct {
+	chat      types.JID
+	sender    string
+	fromMe    bool
+	timestamp int64
+}
+
+func (acc *Account) storedDeleteTarget(chatJID types.JID, messageID string) storedDeleteTarget {
+	target := storedDeleteTarget{chat: chatJID}
+	var storedJIDStr string
+	if dbErr := acc.db.QueryRow("SELECT jid, COALESCE(sender_jid, ''), from_me, timestamp FROM messages WHERE id = ?", messageID).
+		Scan(&storedJIDStr, &target.sender, &target.fromMe, &target.timestamp); dbErr == nil {
+		if parsed, perr := types.ParseJID(storedJIDStr); perr == nil && !parsed.IsEmpty() {
+			target.chat = parsed
+		}
+	}
+	return target
+}
+
+// deleteMessages deletes the messages for everyone, one revoke message each
+// (sender or admin revoke, by whose message it is), or for this account only.
+// Deleting for me puts every message into a single app-state patch, one
+// deleteMessageForMe mutation per message under one timestamp - what WA
+// Web's getDeleteForMeMutations + lockForSync send - instead of one patch
+// per message racing each other for the collection's next version.
+func (acc *Account) deleteMessages(jid string, items []DeleteMessageItem, forEveryone bool) {
+	chatJID, err := types.ParseJID(jid)
 	if err != nil {
 		return
 	}
-	go func() {
-		targetChatJID := chatJID
-		var storedJIDStr, storedSenderStr string
-		var storedFromMe bool
-		var storedTimestamp int64
-		if dbErr := acc.db.QueryRow("SELECT jid, COALESCE(sender_jid, ''), from_me, timestamp FROM messages WHERE id = ?", data.MessageID).
-			Scan(&storedJIDStr, &storedSenderStr, &storedFromMe, &storedTimestamp); dbErr == nil {
-			if parsed, perr := types.ParseJID(storedJIDStr); perr == nil && !parsed.IsEmpty() {
-				targetChatJID = parsed
-			}
+	var forMe appstate.PatchInfo
+	done := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.MessageID == "" {
+			continue
 		}
-
-		if data.ForEveryone {
-			senderJID := types.EmptyJID
-			if targetChatJID.Server == types.GroupServer {
-				if storedSenderStr != "" {
-					if parsed, perr := types.ParseJID(storedSenderStr); perr == nil {
-						senderJID = parsed
-					}
-				}
-				if senderJID.IsEmpty() && data.SenderJID != "" && data.SenderJID != "me" {
-					if parsed, perr := types.ParseJID(data.SenderJID); perr == nil {
-						senderJID = parsed
-					}
-				}
-				if senderJID.IsEmpty() && acc.wa().Store.ID != nil {
-					senderJID = acc.wa().Store.ID.ToNonAD()
-				}
-				if wire, perr := types.ParseJID(acc.wireParticipantFor(data.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
-					senderJID = wire
-				}
-			}
-
-			msg := acc.wa().BuildRevoke(targetChatJID, senderJID, data.MessageID)
-			if _, err := acc.wa().SendMessage(context.Background(), targetChatJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID()}); err != nil {
-				errMsg := err.Error()
-				if strings.Contains(errMsg, "479") {
-					errMsg = "WhatsApp error 479: Failed to delete for everyone. The message key mismatch or the revoke time limit expired."
-				}
+		target := acc.storedDeleteTarget(chatJID, item.MessageID)
+		if forEveryone {
+			if errMsg := acc.revokeMessage(target, item); errMsg != "" {
 				acc.broadcastEvent("error", map[string]string{"message": errMsg})
-				return
+				continue
 			}
-		} else if targetChatJID.Server != types.NewsletterServer {
-			originalSender := types.EmptyJID
-			if storedFromMe {
-				if acc.wa().Store.ID != nil {
-					originalSender = acc.wa().Store.ID.ToNonAD()
-				}
-			} else if storedSenderStr != "" {
-				if parsed, perr := types.ParseJID(storedSenderStr); perr == nil {
-					originalSender = parsed
-				}
-			}
-			msgTimestamp := time.Now()
-			if storedTimestamp > 0 {
-				msgTimestamp = time.Unix(storedTimestamp, 0)
-			}
-			if !storedFromMe && targetChatJID.Server == types.GroupServer && !originalSender.IsEmpty() {
-				if wire, perr := types.ParseJID(acc.wireParticipantFor(data.MessageID, originalSender.String())); perr == nil && !wire.IsEmpty() {
-					originalSender = wire
-				}
-			}
-			patch := appstate.BuildDeleteMessageForMe(acc.syncdChatJID(targetChatJID), originalSender, data.MessageID, storedFromMe, true, msgTimestamp)
-			if err := acc.sendAppStateWithRetry(context.Background(), patch); err != nil {
-				log.Printf("Delete-for-me app-state sync failed for %s: %v", data.MessageID, err)
-			}
+		} else if target.chat.Server != types.NewsletterServer {
+			patch := acc.deleteForMePatch(target, item.MessageID)
+			forMe.Type = patch.Type
+			forMe.Mutations = append(forMe.Mutations, patch.Mutations...)
 		}
-		if data.ForEveryone {
-			acc.markMessageDeleted(data.MessageID, data.JID)
+		done = append(done, item.MessageID)
+	}
+	if len(forMe.Mutations) > 0 {
+		if err := acc.sendAppStateWithRetry(context.Background(), forMe); err != nil {
+			log.Printf("Delete-for-me app-state sync failed for %d message(s): %v", len(forMe.Mutations), err)
+		}
+	}
+	for _, messageID := range done {
+		if forEveryone {
+			acc.markMessageDeleted(messageID, jid)
 		} else {
-			acc.deleteMessageForMe(data.MessageID, data.JID)
+			acc.deleteMessageForMe(messageID, jid)
 		}
 		acc.broadcastEvent("message_deleted", map[string]interface{}{
-			"jid": data.JID, "message_id": data.MessageID, "by": "me", "for_everyone": data.ForEveryone,
+			"jid": jid, "message_id": messageID, "by": "me", "for_everyone": forEveryone,
 		})
-	}()
+	}
+}
+
+// revokeMessage sends the revoke for one message; it returns an error to
+// show, or "" once sent.
+func (acc *Account) revokeMessage(target storedDeleteTarget, item DeleteMessageItem) string {
+	senderJID := types.EmptyJID
+	if target.chat.Server == types.GroupServer {
+		if target.sender != "" {
+			if parsed, perr := types.ParseJID(target.sender); perr == nil {
+				senderJID = parsed
+			}
+		}
+		if senderJID.IsEmpty() && item.SenderJID != "" && item.SenderJID != "me" {
+			if parsed, perr := types.ParseJID(item.SenderJID); perr == nil {
+				senderJID = parsed
+			}
+		}
+		if senderJID.IsEmpty() && acc.wa().Store.ID != nil {
+			senderJID = acc.wa().Store.ID.ToNonAD()
+		}
+		if wire, perr := types.ParseJID(acc.wireParticipantFor(item.MessageID, senderJID.String())); perr == nil && !wire.IsEmpty() {
+			senderJID = wire
+		}
+	}
+	msg := acc.wa().BuildRevoke(target.chat, senderJID, item.MessageID)
+	if _, err := acc.wa().SendMessage(context.Background(), target.chat, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID()}); err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "479") {
+			errMsg = "WhatsApp error 479: Failed to delete for everyone. The message key mismatch or the revoke time limit expired."
+		}
+		return errMsg
+	}
+	return ""
+}
+
+func (acc *Account) deleteForMePatch(target storedDeleteTarget, messageID string) appstate.PatchInfo {
+	originalSender := types.EmptyJID
+	if target.fromMe {
+		if acc.wa().Store.ID != nil {
+			originalSender = acc.wa().Store.ID.ToNonAD()
+		}
+	} else if target.sender != "" {
+		if parsed, perr := types.ParseJID(target.sender); perr == nil {
+			originalSender = parsed
+		}
+	}
+	msgTimestamp := time.Now()
+	if target.timestamp > 0 {
+		msgTimestamp = time.Unix(target.timestamp, 0)
+	}
+	if !target.fromMe && target.chat.Server == types.GroupServer && !originalSender.IsEmpty() {
+		if wire, perr := types.ParseJID(acc.wireParticipantFor(messageID, originalSender.String())); perr == nil && !wire.IsEmpty() {
+			originalSender = wire
+		}
+	}
+	return appstate.BuildDeleteMessageForMe(acc.syncdChatJID(target.chat), originalSender, messageID, target.fromMe, true, msgTimestamp)
 }
 
 func (acc *Account) handleStarMessage(raw json.RawMessage) {
@@ -920,8 +974,9 @@ func (acc *Account) groupMessageReceiptParticipants(messageID, groupJID string) 
 }
 
 type ForwardMessageData struct {
-	MessageID string   `json:"message_id"`
-	ToJIDs    []string `json:"to_jids"`
+	MessageID  string   `json:"message_id"`
+	MessageIDs []string `json:"message_ids"`
+	ToJIDs     []string `json:"to_jids"`
 }
 
 const (
@@ -929,12 +984,33 @@ const (
 	frequentlyForwardedScore = 5
 )
 
+// handleForwardMessage forwards one message (message_id) or several
+// (message_ids, oldest first) to every chat in to_jids. Several are sent one
+// after another on a single goroutine so they arrive in the order they were
+// written, as WhatsApp Web does when forwarding a selection.
 func (acc *Account) handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 	var data ForwardMessageData
-	if err := json.Unmarshal(raw, &data); err != nil || data.MessageID == "" || len(data.ToJIDs) == 0 {
+	if err := json.Unmarshal(raw, &data); err != nil || len(data.ToJIDs) == 0 {
+		return
+	}
+	ids := data.MessageIDs
+	if data.MessageID != "" {
+		ids = append([]string{data.MessageID}, ids...)
+	}
+	if len(ids) == 0 {
 		return
 	}
 	go func() {
+		for _, id := range ids {
+			acc.forwardOneMessage(conn, id, data.ToJIDs)
+		}
+		acc.broadcastChats()
+	}()
+}
+
+func (acc *Account) forwardOneMessage(conn net.Conn, messageID string, toJIDs []string) {
+	data := ForwardMessageData{MessageID: messageID, ToJIDs: toJIDs}
+	{
 		rawBytes, sourceJID, _, _, err := acc.getMessageRaw(data.MessageID)
 		if err != nil || len(rawBytes) == 0 {
 			acc.sendEvent(conn, "error", map[string]string{"message": "Message not found for forwarding"})
@@ -1052,6 +1128,5 @@ func (acc *Account) handleForwardMessage(conn net.Conn, raw json.RawMessage) {
 				"quotedSender":  quotedSender,
 			})
 		}
-		acc.broadcastChats()
-	}()
+	}
 }

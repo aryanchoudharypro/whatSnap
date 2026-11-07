@@ -149,6 +149,8 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 		acc.handleEditMessage(cmd.Data)
 	case "delete_message":
 		acc.handleDeleteMessage(cmd.Data)
+	case "delete_messages":
+		acc.handleDeleteMessages(cmd.Data)
 	case "star_message":
 		acc.handleStarMessage(cmd.Data)
 	case "pin_message":
