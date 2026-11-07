@@ -55,6 +55,7 @@ pub struct GroupDataDialogParts {
 	pub deactivate_btn: Button,
 	pub save_settings_btn: Button,
 	pub reported_btn: Button,
+	pub member_changes_btn: Button,
 
 	pub overview: crate::ui::chat_overview::ChatOverviewParts,
 }
@@ -77,6 +78,10 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	if theme::use_custom_colours() {
 		notebook.set_background_color(theme::Palette::CONTENT_BG());
 	}
+	let overview = crate::ui::chat_overview::build(&notebook, true);
+	let fields = overview.group.expect("the group overview has the name fields");
+	let (name_label, group_name_field, desc_label, group_desc_field) =
+		(fields.name_label, fields.name, fields.desc_label, fields.desc);
 
 	let members_panel = Panel::builder(&notebook).build();
 	theme::style_content(&members_panel);
@@ -114,6 +119,10 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	let join_requests_btn = Button::builder(&members_panel).with_label("Join requests...").build();
 	crate::ui::owner_draw::install_tile(&join_requests_btn, members_panel.get_background_color());
 	mem_btn_sizer.add(&join_requests_btn, 0, SizerFlag::Right, 6);
+
+	let member_changes_btn = Button::builder(&members_panel).with_label("See member changes").build();
+	crate::ui::owner_draw::install_tile(&member_changes_btn, members_panel.get_background_color());
+	mem_btn_sizer.add(&member_changes_btn, 0, SizerFlag::Right, 6);
 
 	members_sizer.add_sizer(&mem_btn_sizer, 0, SizerFlag::All, 6);
 
@@ -197,32 +206,6 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 	theme::style_content(&settings_panel);
 	let settings_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let name_label = StaticText::builder(&settings_panel).with_label("Group Name").build();
-	theme::style_heading(&name_label);
-	settings_sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 6);
-
-	let group_name_field = TextCtrl::builder(&settings_panel).build();
-	group_name_field.set_font(&theme::Fonts::body());
-	settings_sizer.add(
-		&group_name_field,
-		0,
-		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
-		6,
-	);
-
-	let desc_label = StaticText::builder(&settings_panel).with_label("Group Description").build();
-	theme::style_heading(&desc_label);
-	settings_sizer.add(&desc_label, 0, SizerFlag::Left | SizerFlag::Top, 6);
-
-	let group_desc_field = TextCtrl::builder(&settings_panel).with_style(TextCtrlStyle::MultiLine).build();
-	group_desc_field.set_font(&theme::Fonts::body());
-	settings_sizer.add(
-		&group_desc_field,
-		1,
-		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
-		6,
-	);
-
 	let announce_chk = CheckBox::builder(&settings_panel).with_label("Only admins can send messages").build();
 	dialog_look::switch(&announce_chk, theme::Palette::CONTENT_BG());
 	settings_sizer.add(&announce_chk, 0, SizerFlag::Expand | SizerFlag::All, 4);
@@ -267,13 +250,12 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 
 	settings_panel.set_sizer(settings_sizer, true);
 
-	notebook.add_page(&members_panel, "Members", true, None);
+	notebook.add_page(&members_panel, "Members", false, None);
 	notebook.add_page(&media_panel, "Media", false, None);
 	notebook.add_page(&documents_panel, "Documents", false, None);
 	notebook.add_page(&links_panel, "Links", false, None);
 	notebook.add_page(&groups_panel, "Groups", false, None);
 	notebook.add_page(&settings_panel, "Settings", false, None);
-	let overview = crate::ui::chat_overview::build(&notebook);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 6);
 
@@ -332,5 +314,6 @@ pub fn build_group_data_dialog(parent: &impl WxWidget) -> GroupDataDialogParts {
 		deactivate_btn,
 		save_settings_btn,
 		reported_btn,
+		member_changes_btn,
 	}
 }

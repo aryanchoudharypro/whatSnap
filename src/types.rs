@@ -374,6 +374,7 @@ pub enum UiCommand {
 		jid: String,
 	},
 	FilterGroupMembers(String),
+	ShowMemberChanges,
 	GroupMemberAction {
 		jid: String,
 		action: MemberAction,

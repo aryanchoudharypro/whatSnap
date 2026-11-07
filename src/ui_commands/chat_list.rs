@@ -147,7 +147,7 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	}
 }
 
-const GROUPS_TAB: usize = 4;
+const GROUPS_TAB: usize = 5;
 
 pub(crate) fn open_chat_by_phone(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, digits: String) {
 	let jid = format!("{}@s.whatsapp.net", digits);
@@ -590,9 +590,7 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			parts.group_data_dialog.groups_list.clear();
 			parts.group_data_dialog.groups_label.set_label("Groups in this community");
 			parts.group_data_dialog.join_group_btn.set_label("Join group");
-			if s.community_jids.contains(jid) {
-				parts.group_data_dialog.notebook.set_selection(GROUPS_TAB);
-			}
+			parts.group_data_dialog.notebook.set_selection(if s.community_jids.contains(jid) { GROUPS_TAB } else { 0 });
 
 			parts.group_data_dialog.photo.show(false);
 			let payload = serde_json::json!({ "action": "get_avatar", "data": { "jid": jid } });
@@ -683,7 +681,8 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	s_mut.conversation_data_links = links;
 	drop(s_mut);
 
-	parts.conversation_data_dialog.info_field.set_focus();
+	parts.conversation_data_dialog.notebook.set_selection(0);
+	parts.conversation_data_dialog.overview.summary.set_focus();
 	let overview_jid = state.borrow().info_chat.clone();
 	if let Some(jid) = overview_jid {
 		crate::ui::chat_overview::refresh(state, &parts.conversation_data_dialog.overview, &jid);

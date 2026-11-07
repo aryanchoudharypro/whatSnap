@@ -159,6 +159,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if let Some(topic) = info.get("Topic").and_then(|t| t.as_str()) {
 					parts.group_data_dialog.group_desc_field.set_value(topic);
 				}
+				let can_edit_info = viewer_is_admin || !info.get("IsLocked").and_then(|t| t.as_bool()).unwrap_or(false);
+				if let Some(g) = parts.group_data_dialog.overview.group {
+					g.name.set_editable(can_edit_info);
+					g.desc.set_editable(can_edit_info);
+					g.save_btn.show(can_edit_info);
+					parts.group_data_dialog.overview.panel.layout();
+				}
 				if let Some(is_announce) = info.get("IsAnnounce").and_then(|t| t.as_bool()) {
 					parts.group_data_dialog.announce_chk.set_value(is_announce);
 				}

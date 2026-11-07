@@ -1152,6 +1152,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::ScreenShareFailed(reason) => ui_commands::calls::screen_share_failed(state, parts, reason),
 		UiCommand::ScreenShareBlack(black) => ui_commands::calls::screen_share_black(state, parts, black),
 		UiCommand::SystemAudioFailed(reason) => ui_commands::calls::system_audio_failed(state, parts, reason),
+		UiCommand::ShowMemberChanges => ui_commands::member_extras::request_member_changes(state),
 		UiCommand::FilterGroupMembers(query) => ui_commands::contacts_groups::filter_group_members(state, parts, query),
 		UiCommand::DownloadMediaMessage(message_id) => {
 			ui_commands::attachments::download_media_message(state, parts, message_id)

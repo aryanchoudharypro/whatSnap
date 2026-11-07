@@ -136,3 +136,56 @@ pub(crate) fn group_history_result(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		tell(parts, message, "Send Message History", true);
 	}
 }
+
+pub(crate) fn request_member_changes(state: &Rc<RefCell<AppState>>) {
+	let s = state.borrow();
+	let Some(jid) = s.selected_chat.clone().filter(|j| j.ends_with("@g.us")) else { return };
+	let payload = serde_json::json!({ "action": "get_member_changes", "data": { "jid": jid } });
+	let _ = s.ws_tx.send(payload.to_string());
+}
+
+pub(crate) fn show_member_changes(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
+	let changes = data.get("changes").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+	let owner = &parts.group_data_dialog.dialog;
+	if changes.is_empty() {
+		MessageDialog::builder(owner, "No one has joined, left or been added or removed.", "Member changes")
+			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+			.build()
+			.show_modal();
+		return;
+	}
+	let lines: Vec<String> = changes
+		.iter()
+		.map(|c| {
+			let text = c.get("text").and_then(|t| t.as_str()).unwrap_or("");
+			let when = c
+				.get("timestamp")
+				.and_then(|t| t.as_i64())
+				.and_then(whatsnap::local_time::LocalTime::from_unix)
+				.map(|t| t.format("%Y-%m-%d %H:%M"))
+				.unwrap_or_default();
+			format!("{when}: {text}")
+		})
+		.collect();
+	let dialog = Dialog::builder(owner, "Member changes")
+		.with_size(520, 400)
+		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+		.build();
+	let panel = Panel::builder(&dialog).build();
+	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let label = StaticText::builder(&panel).with_label("Member changes, newest first").build();
+	sizer.add(&label, 0, SizerFlag::All, 8);
+	let list = ListBox::builder(&panel).with_choices(lines).build();
+	list.set_selection(0_u32, true);
+	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	sizer.add(&close_btn, 0, SizerFlag::All, 8);
+	panel.set_sizer(sizer, true);
+	let outer = BoxSizer::builder(Orientation::Vertical).build();
+	outer.add(&panel, 1, SizerFlag::Expand, 0);
+	dialog.set_sizer(outer, true);
+	dialog.center();
+	list.set_focus();
+	dialog.show_modal();
+	dialog.destroy();
+}

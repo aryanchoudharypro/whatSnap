@@ -35,6 +35,7 @@ pub struct ConversationDataDialogParts {
 	pub common_groups_list: ListBox,
 
 	pub overview: crate::ui::chat_overview::ChatOverviewParts,
+	pub details_dialog: Dialog,
 }
 
 pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDataDialogParts {
@@ -54,7 +55,11 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 		notebook.set_background_color(theme::Palette::CONTENT_BG());
 	}
 
-	let info_panel = Panel::builder(&notebook).build();
+	let overview = crate::ui::chat_overview::build(&notebook, false);
+
+	let details_dialog = Dialog::builder(&dialog, "Contact Details").with_size(560, 420).build();
+	theme::style_content(&details_dialog);
+	let info_panel = Panel::builder(&details_dialog).build();
 	theme::style_content(&info_panel);
 	let info_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let photo_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -83,6 +88,8 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	crate::ui::owner_draw::install_tile(&chat_privacy_btn, theme::Palette::PANEL_BG());
 	actions_sizer.add(&chat_privacy_btn, 0, SizerFlag::Right, 6);
 	info_sizer.add_sizer(&actions_sizer, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::All, 8);
+	let close_btn = Button::builder(&info_panel).with_id(ID_CANCEL).with_label("Close").build();
+	info_sizer.add(&close_btn, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Bottom, 8);
 	// Made after everything else, so it's never what names the info box
 	// (Windows names a box from the control just before it) and is never
 	// in the way of Tab.
@@ -93,6 +100,9 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	photo.show(false);
 
 	info_panel.set_sizer(info_sizer, true);
+	let details_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	details_sizer.add(&info_panel, 1, SizerFlag::Expand, 0);
+	details_dialog.set_sizer(details_sizer, true);
 
 	let media_panel = Panel::builder(&notebook).build();
 	theme::style_content(&media_panel);
@@ -140,12 +150,10 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	common_groups_sizer.add(&common_groups_list, 1, SizerFlag::Expand | SizerFlag::All, 6);
 	common_groups_panel.set_sizer(common_groups_sizer, true);
 
-	notebook.add_page(&info_panel, "Info", true, None);
 	notebook.add_page(&media_panel, "Media", false, None);
 	notebook.add_page(&documents_panel, "Documents", false, None);
 	notebook.add_page(&links_panel, "Links", false, None);
 	notebook.add_page(&common_groups_panel, "Groups in Common", false, None);
-	let overview = crate::ui::chat_overview::build(&notebook);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 6);
 
@@ -153,8 +161,10 @@ pub fn build_conversation_data_dialog(parent: &impl WxWidget) -> ConversationDat
 	dialog.center();
 
 	crate::ui::keys::escape_cancels_anywhere(dialog);
+	crate::ui::keys::escape_cancels_anywhere(details_dialog);
 
 	ConversationDataDialogParts {
+		details_dialog,
 		overview,
 		dialog,
 		back_btn,

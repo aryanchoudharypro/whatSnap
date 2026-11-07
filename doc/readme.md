@@ -262,8 +262,9 @@ The Conversation menu has more actions for the open chat. It shows only the ones
 - `Star Message` (`Alt+8`)
 
 ### Overview Tab
-Contact Info (`Alt+I` in a one-to-one chat) and Group Info both end with an `Overview` tab, like the info page of WhatsApp Web. It shows a short summary of the chat, then only the items that fit this chat:
+Contact Info (`Alt+I` in a one-to-one chat) and Group Info both open on an `Overview` tab, the first tab, like the info page of WhatsApp Web. In a group it starts with the `Group name` and `Group description` fields and a `Save name and description` button. If only admins can edit the group info and you are not an admin, the two fields are read only and the button is hidden. Then comes a short summary of the chat and only the items that fit this chat:
 
+- `Contact details...` (one person only): opens a window with their name, phone number, about text and the `Voice call`, `Video call`, `Edit contact` and `Delete contact` buttons.
 - `Lock this chat`: a switch for locking the chat.
 - `Restricted chat (changed on your phone)`: shown only when the chat is restricted. Like in WhatsApp Web it is always dimmed, because only your phone can change it.
 - `Notification settings...`, `Disappearing messages...` (not in channels) and `Advanced chat privacy...` (not in channels or broadcast lists).
@@ -273,7 +274,7 @@ Contact Info (`Alt+I` in a one-to-one chat) and Group Info both end with an `Ove
 Chat themes are not in whatSnap yet.
 
 ### Group Info
-Press `Alt+I` in a group to open its information. The Members tab has a search box, the list of members, and the `Add member`, `Invite link...` and `Join requests...` buttons when you are an admin. Press `Enter`, the Applications key or `Shift+F10` on a member to open their menu. Like in WhatsApp Web, the menu shows only the items that fit that member:
+Press `Alt+I` in a group to open its information. The Members tab has a search box, the list of members, and the `Add member`, `Invite link...` and `Join requests...` buttons when you are an admin, then `See member changes` for everyone. That one lists, newest first, who joined, left, was added or was removed. Press `Enter`, the Applications key or `Shift+F10` on a member to open their menu. Like in WhatsApp Web, the menu shows only the items that fit that member:
 
 - `Message` and the name of the member, to open your chat with them.
 - `Contact info`, to see their info, call them, or save them.

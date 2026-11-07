@@ -909,6 +909,7 @@ pub fn build_main_window() -> WindowParts {
 	set_dialog_owner(&attach_contact_dialog.dialog, &frame);
 	set_dialog_owner(&attachment_dialog.dialog, &frame);
 	set_dialog_owner(&conversation_data_dialog.dialog, &frame);
+	set_dialog_owner(&conversation_data_dialog.details_dialog, &conversation_data_dialog.dialog);
 	set_dialog_owner(&group_data_dialog.dialog, &frame);
 	set_dialog_owner(&settings_dialog.dialog, &frame);
 
@@ -1431,8 +1432,10 @@ pub fn bind_input_handlers(
 		let tx_call = ui_tx.clone();
 		let state_call = state.clone();
 		let info_dialog = parts.conversation_data_dialog.dialog;
+		let details_dialog = parts.conversation_data_dialog.details_dialog;
 		button.on_click(move |_| {
 			let Some(jid) = state_call.borrow().info_chat.clone() else { return };
+			details_dialog.end_modal(wxdragon::id::ID_CANCEL);
 			info_dialog.end_modal(wxdragon::id::ID_CANCEL);
 			let _ = tx_call.send(UiCommand::CallContact { jid, video });
 		});
@@ -2443,6 +2446,11 @@ pub fn bind_input_handlers(
 	});
 
 	wire_group_member_menu(parts, &ui_tx, state);
+
+	let tx_member_changes = ui_tx.clone();
+	parts.group_data_dialog.member_changes_btn.on_click(move |_| {
+		let _ = tx_member_changes.send(UiCommand::ShowMemberChanges);
+	});
 
 	let tx_invite_link = ui_tx.clone();
 	parts.group_data_dialog.invite_link_btn.on_click(move |_| {

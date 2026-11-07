@@ -5,7 +5,18 @@ use wxdragon::prelude::*;
 use crate::{AppState, UiCommand, ui::window::WindowParts};
 
 #[derive(Clone, Copy)]
+pub struct GroupFields {
+	pub name_label: StaticText,
+	pub name: TextCtrl,
+	pub desc_label: StaticText,
+	pub desc: TextCtrl,
+	pub save_btn: Button,
+}
+
+#[derive(Clone, Copy)]
 pub struct ChatOverviewParts {
+	pub group: Option<GroupFields>,
+	pub details_btn: Option<Button>,
 	pub panel: Panel,
 	pub summary: TextCtrl,
 	pub lock_chk: CheckBox,
@@ -21,9 +32,23 @@ pub struct ChatOverviewParts {
 	pub delete_btn: Button,
 }
 
-pub fn build(notebook: &Notebook) -> ChatOverviewParts {
+pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 	let panel = Panel::builder(notebook).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	let group = is_group.then(|| {
+		let name_label = StaticText::builder(&panel).with_label("Group name").build();
+		sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+		let name = TextCtrl::builder(&panel).build();
+		sizer.add(&name, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+		let desc_label = StaticText::builder(&panel).with_label("Group description").build();
+		sizer.add(&desc_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+		let desc = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
+		sizer.add(&desc, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+		let save_btn = Button::builder(&panel).with_label("Save name and description").build();
+		sizer.add(&save_btn, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
+		GroupFields { name_label, name, desc_label, desc, save_btn }
+	});
 
 	let label = StaticText::builder(&panel).with_label("Chat overview").build();
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
@@ -44,6 +69,7 @@ pub fn build(notebook: &Notebook) -> ChatOverviewParts {
 		rows.add(&btn, 0, SizerFlag::Right | SizerFlag::Top, 6);
 		btn
 	};
+	let details_btn = (!is_group).then(|| button("Contact details..."));
 	let notify_btn = button("Notification settings...");
 	let disappearing_btn = button("Disappearing messages...");
 	let privacy_btn = button("Advanced chat privacy...");
@@ -55,9 +81,11 @@ pub fn build(notebook: &Notebook) -> ChatOverviewParts {
 	let delete_btn = button("Delete chat...");
 	sizer.add_sizer(&rows, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 	panel.set_sizer(sizer, true);
-	notebook.add_page(&panel, "Overview", false, None);
+	notebook.add_page(&panel, "Overview", true, None);
 
 	ChatOverviewParts {
+		group,
+		details_btn,
 		panel,
 		summary,
 		lock_chk,
@@ -147,6 +175,26 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 		(parts.group_data_dialog.overview, parts.group_data_dialog.dialog),
 	];
 	for (o, dialog) in dialogs {
+		if let Some(g) = o.group {
+			let tx = ui_tx.clone();
+			let (announce_chk, locked_chk) = (parts.group_data_dialog.announce_chk, parts.group_data_dialog.locked_chk);
+			g.save_btn.on_click(move |_| {
+				let _ = tx.send(UiCommand::UpdateGroupSettings {
+					name: g.name.get_value(),
+					topic: g.desc.get_value(),
+					announce: announce_chk.is_checked(),
+					locked: locked_chk.is_checked(),
+				});
+			});
+		}
+		if let Some(details) = o.details_btn {
+			let details_dialog = parts.conversation_data_dialog.details_dialog;
+			let info_field = parts.conversation_data_dialog.info_field;
+			details.on_click(move |_| {
+				info_field.set_focus();
+				crate::ui::show_modal_again(&details_dialog);
+			});
+		}
 		let (st, tx) = (state.clone(), ui_tx.clone());
 		o.lock_chk.on_toggled(move |event| {
 			if let Some(jid) = target(&st) {

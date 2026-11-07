@@ -200,6 +200,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				crate::ui_commands::member_extras::group_history_result(state, parts, data);
 			}
 		}
+		"member_changes" => {
+			if let Some(data) = val.get("data") {
+				crate::ui_commands::member_extras::show_member_changes(state, parts, data);
+			}
+		}
 		"reported_messages" => {
 			if let Some(data) = val.get("data") {
 				crate::ui_commands::report::show_reported_messages(state, parts, data);

@@ -455,7 +455,7 @@ pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	let Some(card) = state.borrow().conversation_data_contact.clone() else { return };
 	if card.phone.is_empty() {
 		MessageDialog::builder(
-			&parts.conversation_data_dialog.dialog,
+			&parts.conversation_data_dialog.details_dialog,
 			"WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact.",
 			"Add Contact",
 		)
@@ -474,7 +474,7 @@ pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	let Some(card) = state.borrow().conversation_data_contact.clone().filter(|c| c.saved) else { return };
 	let name = if card.full_name.is_empty() { &card.first_name } else { &card.full_name };
 	let confirm = MessageDialog::builder(
-		&parts.conversation_data_dialog.dialog,
+		&parts.conversation_data_dialog.details_dialog,
 		&format!("Delete {} from your contacts? They'll be removed from your phone's contacts too.", name),
 		"Delete Contact",
 	)

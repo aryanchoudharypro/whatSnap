@@ -333,6 +333,8 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 		acc.handleSetGroupModeration(cmd.Data)
 	case "report_to_admins":
 		acc.handleReportToAdmins(conn, cmd.Data)
+	case "get_member_changes":
+		acc.handleGetMemberChanges(conn, cmd.Data)
 	case "get_reported_messages":
 		acc.handleGetReportedMessages(conn, cmd.Data)
 

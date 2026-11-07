@@ -164,3 +164,30 @@ func (acc *Account) handleGetReportedMessages(conn net.Conn, raw json.RawMessage
 		acc.sendEvent(conn, "reported_messages", map[string]interface{}{"jid": data.JID, "reports": entries})
 	}()
 }
+
+func (acc *Account) handleGetMemberChanges(conn net.Conn, raw json.RawMessage) {
+	var data JIDData
+	if json.Unmarshal(raw, &data) != nil {
+		return
+	}
+	go func() {
+		rows, err := acc.db.Query(`SELECT COALESCE(text, ''), timestamp FROM messages
+			WHERE jid = ? AND media_type = 'system' AND (text LIKE '% added %' OR text LIKE '% removed %'
+				OR text LIKE '% left' OR text LIKE '% joined%' OR text LIKE '%added you')
+			ORDER BY timestamp DESC, id DESC LIMIT 500`, data.JID)
+		if err != nil {
+			acc.sendEvent(conn, "error", map[string]string{"message": "Couldn't load member changes: " + err.Error()})
+			return
+		}
+		changes := []map[string]interface{}{}
+		for rows.Next() {
+			var text string
+			var ts int64
+			if rows.Scan(&text, &ts) == nil {
+				changes = append(changes, map[string]interface{}{"text": acc.renderNames(text, nil), "timestamp": ts})
+			}
+		}
+		rows.Close()
+		acc.sendEvent(conn, "member_changes", map[string]interface{}{"jid": data.JID, "changes": changes})
+	}()
+}
