@@ -211,6 +211,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	}
 	if s.selected_chat.as_deref() != Some(jid) {
 		clear_pending_reply(&mut s, parts);
+		crate::ui_commands::voice::stop_voice_message(&mut s, parts);
 	}
 	s.selected_chat = Some(jid.to_string());
 	crate::ui::window::refresh_menu_bar(&s, &parts.frame);

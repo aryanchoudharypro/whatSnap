@@ -722,6 +722,9 @@ pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		parts.conversations_parts.message_field.set_value("");
 	}
 	save_composer_draft(&mut s, parts);
+	// A voice message left paused (or playing) must not carry on, or wake
+	// up on a later arrow key, once its chat is closed.
+	crate::ui_commands::voice::stop_voice_message(&mut s, parts);
 	s.selected_chat = None;
 	crate::ui::window::refresh_menu_bar(&s, &parts.frame);
 	clear_pending_reply(&mut s, parts);

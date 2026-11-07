@@ -247,6 +247,7 @@ pub enum UiCommand {
 	DownloadAttachment(String),
 	ChangeAudioSpeed,
 	SeekAudio(f32),
+	StopVoiceMessage,
 	PlaceCall,
 	PlaceVideoCall,
 	CallContact {

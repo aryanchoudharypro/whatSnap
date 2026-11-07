@@ -1816,7 +1816,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if let Some(ref id) = msg_id
 					&& !id.is_empty()
 				{
-					s.playing_msg_id = Some(id.clone());
+					// Arrived after the note was stopped, or after its chat
+					// was closed or another note was picked: don't play it.
+					if s.playing_msg_id.as_deref() != Some(id.as_str()) {
+						return true;
+					}
 				}
 				let start_paused = s.is_audio_paused;
 				s.audio_elapsed_secs = 0.0;

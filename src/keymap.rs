@@ -9,6 +9,7 @@ use crate::ui::window::*;
 pub mod message_list {
 	pub const SEEK_BACK: &str = "message_seek_back";
 	pub const SEEK_FORWARD: &str = "message_seek_forward";
+	pub const STOP_AUDIO: &str = "message_stop_audio";
 	pub const REPLY: &str = "message_reply";
 	pub const EDIT: &str = "message_edit";
 	pub const STAR: &str = "message_star";
@@ -224,6 +225,13 @@ pub const ACTIONS: &[ActionDef] = &[
 		tab: 6,
 		label: "Voice message: forward 5 seconds",
 		default: "L",
+	},
+	ActionDef {
+		id: message_list::STOP_AUDIO,
+		menu_id: None,
+		tab: 6,
+		label: "Voice message: stop",
+		default: "Shift+Space",
 	},
 	ActionDef {
 		id: message_list::SELECTION_MODE,

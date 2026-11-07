@@ -4688,7 +4688,7 @@ pub fn bind_input_handlers(
 					event.skip(false);
 				} else {
 					last_left_arrow.set(now);
-					if state_play.borrow().playing_msg_id.is_some() {
+					if crate::ui_commands::voice::is_voice_playing(&state_play.borrow()) {
 						let _ = tx_close_list.send(UiCommand::SeekAudio(-5.0));
 					} else if let Some(idx) = msgs_list_play.get_selection() {
 						let said = state_play.borrow().display_items.get(idx as usize).and_then(|item| match item {
@@ -4704,26 +4704,32 @@ pub fn bind_input_handlers(
 					event.skip(false);
 				}
 			} else if keys::is_right(code) {
-				if state_play.borrow().playing_msg_id.is_some() {
+				if crate::ui_commands::voice::is_voice_playing(&state_play.borrow()) {
 					let _ = tx_close_list.send(UiCommand::SeekAudio(5.0));
 					event.skip(false);
 				} else {
 					event.skip(true);
 				}
 			} else if pressed(message_list::SEEK_BACK) {
-				if state_play.borrow().playing_msg_id.is_some() {
+				if crate::ui_commands::voice::is_voice_playing(&state_play.borrow()) {
 					let _ = tx_close_list.send(UiCommand::SeekAudio(-5.0));
 					event.skip(false);
 				} else {
 					event.skip(true);
 				}
 			} else if pressed(message_list::SEEK_FORWARD) {
-				if state_play.borrow().playing_msg_id.is_some() {
+				if crate::ui_commands::voice::is_voice_playing(&state_play.borrow()) {
 					let _ = tx_close_list.send(UiCommand::SeekAudio(5.0));
 					event.skip(false);
 				} else {
 					event.skip(true);
 				}
+			} else if pressed(message_list::STOP_AUDIO) {
+				let stopping = state_play.borrow().playing_msg_id.is_some();
+				if stopping {
+					let _ = tx_close_list.send(UiCommand::StopVoiceMessage);
+				}
+				event.skip(!stopping);
 			} else if keys::is_escape(key_event.get_key_code()) {
 				let _ = tx_close_list.send(UiCommand::CloseConversation);
 				event.skip(false);
@@ -4804,7 +4810,7 @@ pub fn bind_input_handlers(
 									play_voice_btn_space.set_label("Pause voice message");
 								} else {
 									if let Some(inst) = s.audio_start_instant.take() {
-										s.audio_elapsed_secs += inst.elapsed().as_secs_f32();
+										s.audio_elapsed_secs += inst.elapsed().as_secs_f32() * s.audio_speed;
 									}
 									if let Some(ref sink) = s.audio_sink {
 										sink.pause();
@@ -4856,7 +4862,7 @@ pub fn bind_input_handlers(
 								play_voice_btn_space.set_label("Pause voice message");
 							} else {
 								if let Some(inst) = s.audio_start_instant.take() {
-									s.audio_elapsed_secs += inst.elapsed().as_secs_f32();
+									s.audio_elapsed_secs += inst.elapsed().as_secs_f32() * s.audio_speed;
 								}
 								if let Some(ref sink) = s.audio_sink {
 									sink.pause();

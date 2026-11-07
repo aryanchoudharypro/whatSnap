@@ -1231,6 +1231,11 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			ui_commands::attachments::copy_album_to_clipboard(state, parts, message_ids)
 		}
 		UiCommand::SeekAudio(delta) => ui_commands::voice::seek_audio(state, parts, delta),
+		UiCommand::StopVoiceMessage => {
+			if ui_commands::voice::stop_voice_message(&mut state.borrow_mut(), parts) {
+				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Stopped");
+			}
+		}
 		UiCommand::RefreshMessages => {}
 		UiCommand::DownloadAttachment(_) => {}
 		UiCommand::ChangeAudioSpeed => {}
