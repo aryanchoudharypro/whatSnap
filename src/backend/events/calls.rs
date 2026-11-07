@@ -154,6 +154,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					if let Some(self_phone) = data.get("self_phone").and_then(|p| p.as_str()) {
 						s.call_self_phone = self_phone.to_string();
 					}
+					// The ringback plays from the moment the call is placed, as it
+					// always did: the peer's "ringing" notice is not guaranteed to
+					// reach us, and a silent outgoing call is worse than an early tone.
+					if data.get("link").and_then(|l| l.as_bool()) != Some(true) && s.call_ringing_sink.is_none() {
+						let self_phone = s.call_self_phone.clone();
+						start_call_ringback(&mut s, &self_phone);
+					}
 				}
 			}
 		}
