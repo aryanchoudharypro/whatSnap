@@ -141,6 +141,8 @@ pub struct SettingsDialogParts {
 	pub output_device_combo: ComboBox,
 	pub call_output_device_combo: ComboBox,
 	pub voice_message_noise_suppression_check: CheckBox,
+	pub call_start_muted_check: CheckBox,
+	pub show_frequent_calls_check: CheckBox,
 	pub dual_stream_screen_share_check: CheckBox,
 
 	pub lock_panel: Panel,
@@ -532,6 +534,29 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	audio_sizer.add(&call_output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
 
 	audio_sizer.add_spacer(10);
+	section_header(&audio_panel, &audio_sizer, "Calls");
+	let call_start_muted_check = setting_switch(
+		&audio_panel,
+		&audio_sizer,
+		"Mute microphone by default when placing or joining calls",
+	);
+	setting_note(
+		&audio_panel,
+		&audio_sizer,
+		"When enabled, calls begin with your microphone muted. You can unmute at any time during the call.",
+	);
+	let show_frequent_calls_check = setting_switch(
+		&audio_panel,
+		&audio_sizer,
+		"Show frequent contacts in the Calls tab",
+	);
+	setting_note(
+		&audio_panel,
+		&audio_sizer,
+		"When enabled, frequently called contacts are displayed at the top of the Calls tab.",
+	);
+
+	audio_sizer.add_spacer(10);
 	section_header(&audio_panel, &audio_sizer, "Screen Sharing");
 	let dual_stream_screen_share_check = setting_switch(
 		&audio_panel,
@@ -667,6 +692,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		output_device_combo,
 		call_output_device_combo,
 		voice_message_noise_suppression_check,
+		call_start_muted_check,
+		show_frequent_calls_check,
 		dual_stream_screen_share_check,
 		lock_panel,
 		chat_lock_hello_check,
@@ -825,6 +852,8 @@ impl SettingsDialogParts {
 		self.outgoing_sounds_check.set_value(settings.outgoing_sounds);
 		self.call_notifications_check.set_value(settings.call_notifications);
 		self.call_ringtone_check.set_value(settings.call_ringtone);
+		self.call_start_muted_check.set_value(settings.call_start_muted);
+		self.show_frequent_calls_check.set_value(settings.show_frequent_calls);
 		self.enter_is_send_check.set_value(settings.enter_is_send);
 		self.type_to_compose_check.set_value(settings.type_to_compose);
 		self.keep_list_position_check.set_value(settings.keep_list_position);
@@ -857,6 +886,8 @@ impl SettingsDialogParts {
 		settings.outgoing_sounds = self.outgoing_sounds_check.is_checked();
 		settings.call_notifications = self.call_notifications_check.is_checked();
 		settings.call_ringtone = self.call_ringtone_check.is_checked();
+		settings.call_start_muted = self.call_start_muted_check.is_checked();
+		settings.show_frequent_calls = self.show_frequent_calls_check.is_checked();
 		settings.enter_is_send = self.enter_is_send_check.is_checked();
 		settings.type_to_compose = self.type_to_compose_check.is_checked();
 		settings.keep_list_position = self.keep_list_position_check.is_checked();

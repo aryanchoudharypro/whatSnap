@@ -93,6 +93,8 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.chat_filter_combo.show(false);
 			parts.conversations_parts.conversation_panel.show(false);
 			parts.conversations_parts.conversations_label.set_label("Recent Calls");
+			parts.conversations_parts.calls_call_btn.set_label("Call");
+			parts.conversations_parts.calls_video_btn.set_label("Video call");
 			request_call_tab_data(&state.borrow());
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
@@ -127,8 +129,21 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				crate::ui_commands::calls::join_group_call(state, parts, Some(call_id.to_string()));
 				return;
 			}
+			let is_video = {
+				let s = state.borrow();
+				s.filtered_call_ids
+					.get(idx)
+					.filter(|id| !id.is_empty())
+					.and_then(|id| s.call_logs.iter().find(|entry| entry.id.as_str() == id.as_str()))
+					.map(|entry| entry.is_video)
+					.unwrap_or(false)
+			};
 			state.borrow_mut().selected_chat = Some(jid);
-			crate::ui_commands::calls::place_call(state, parts);
+			if is_video {
+				crate::ui_commands::calls::place_video_call(state, parts);
+			} else {
+				crate::ui_commands::calls::place_call(state, parts);
+			}
 		}
 		return;
 	}
@@ -143,6 +158,31 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		open_chat_for_jid(jid, state, parts);
 		if state.borrow().community_jids.contains(jid) {
 			show_conversation_data(state, parts);
+		}
+	}
+}
+
+pub(crate) fn conversation_selection_changed(
+	idx: usize,
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+) {
+	let active_tab = state.borrow().active_tab;
+	if active_tab == 6 {
+		let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();
+		if let Some(jid) = jid {
+			if !jid.starts_with(crate::ui_commands::calls::JOIN_ROW_PREFIX) {
+				state.borrow_mut().selected_chat = Some(jid.clone());
+				let s = state.borrow();
+				let peer_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| {
+					let raw_phone = jid.split('@').next().unwrap_or(&jid);
+					whatsnap::phone::format_international(raw_phone).unwrap_or_else(|| format!("+{raw_phone}"))
+				});
+				drop(s);
+				parts.conversations_parts.calls_call_btn.set_label(&format!("Call {}", peer_name));
+				parts.conversations_parts.calls_video_btn.set_label(&format!("Video call {}", peer_name));
+				parts.conversations_parts.calls_btn_panel.layout();
+			}
 		}
 	}
 }

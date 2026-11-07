@@ -283,6 +283,8 @@ struct AppState {
 	call_is_reconnecting: bool,
 	call_is_incoming: bool,
 	call_peer_name: String,
+	call_peer_is_saved: bool,
+	call_self_phone: String,
 	call_participants: Vec<CallParticipant>,
 	call_video: CallVideo,
 	group_data_members: Vec<String>,
@@ -889,6 +891,8 @@ pub(crate) fn new_app_state(
 		call_is_reconnecting: false,
 		call_is_incoming: false,
 		call_peer_name: String::new(),
+		call_peer_is_saved: false,
+		call_self_phone: String::new(),
 		call_participants: Vec::new(),
 		call_video: CallVideo::default(),
 		group_data_members: Vec::new(),
@@ -1070,7 +1074,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::CancelPairing => ui_commands::misc::cancel_pairing(state, parts),
 		UiCommand::RequestPairing(phone) => ui_commands::misc::request_pairing(state, parts, phone),
 		UiCommand::SendMessage(text) => ui_commands::messaging::send_message(state, parts, text),
-		UiCommand::ConversationSelectionChanged(_idx) => {}
+		UiCommand::ConversationSelectionChanged(idx) => {
+			ui_commands::chat_list::conversation_selection_changed(idx, state, parts);
+		}
 		UiCommand::ProcessWebSocketMessage(raw) => process_websocket_message(raw, state, parts),
 		UiCommand::BackendEvent { account, payload } => {
 			ui_commands::accounts::backend_event(account, payload, state, parts)
@@ -1133,6 +1139,10 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::RemoveCallPerson => ui_commands::call_extras::act_on_person(state, parts, true),
 		UiCommand::CallPersonSelected => ui_commands::call_extras::person_buttons(&state.borrow(), parts),
 		UiCommand::SetCallApproval(on) => ui_commands::call_extras::set_approval(state, parts, on),
+		UiCommand::DismissIncomingCall => ui_commands::calls::dismiss_incoming_call(state, parts),
+		UiCommand::RestoreIncomingCall => ui_commands::calls::restore_incoming_call(state, parts),
+		UiCommand::RedialCall => ui_commands::calls::redial_call(state, parts),
+		UiCommand::CloseCallWindow => ui_commands::calls::close_call_window(parts),
 		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
 		UiCommand::OpenMessageOptions(id) => ui_commands::business::open_message_options(state, parts, id),
@@ -1177,6 +1187,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::CallHotkey(hotkey) => ui_commands::calls::call_hotkey(state, parts, hotkey),
 		UiCommand::LeaveCall => ui_commands::calls::leave_call(state, parts),
 		UiCommand::ToggleCamera => ui_commands::calls::toggle_camera(state, parts),
+		UiCommand::ToggleCallDeviceSettings => ui_commands::calls::toggle_call_device_settings(state, parts),
 		UiCommand::CameraFailed(reason) => ui_commands::calls::camera_failed(state, parts, reason),
 		UiCommand::ToggleScreenShare => ui_commands::calls::toggle_screen_share(state, parts),
 		UiCommand::ScreenShareFailed(reason) => ui_commands::calls::screen_share_failed(state, parts, reason),

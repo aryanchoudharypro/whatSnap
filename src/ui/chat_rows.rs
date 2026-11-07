@@ -142,7 +142,7 @@ impl RowArt {
 			return art;
 		};
 		let missed = kind.starts_with("Missed");
-		let outgoing = kind.starts_with("Outgoing");
+		let outgoing = kind.starts_with("Outgoing") || desc.contains(" to ");
 		let video = kind.to_lowercase().contains("video");
 		let mut preview = kind.trim_start_matches("Outgoing ").to_string();
 		if let Some(first) = preview.get(..1) {
