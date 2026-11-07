@@ -296,20 +296,19 @@ To call, open a chat and use `Call` or `Video call`. You can also call from the 
 
 When you call someone, the call window shows the name of the person you call and their phone number, if whatSnap knows it. Below that it shows how the call is going, like WhatsApp does: `Calling...` until their phone gets the call, then `Ringing...`, and `Connecting...` when they answer.
 
-When a call comes in, the call window opens and whatSnap plays the ringtone. Press `Alt+Shift+Y` to answer, or `Alt+Shift+N` to decline. These two shortcuts work from all programs, but only while a call rings. If another program uses one of them, whatSnap tells you. `Dismiss` (or `Escape`) closes the call window and silences the ringtone, but the call keeps ringing: a bar at the top of the main window then offers `Open call window`, `Answer` and `Decline`. When a call ends, the call window stays with `Call back` and `Close`.
+When a call comes in, the call window opens and whatSnap plays the ringtone. Press `Alt+Shift+Y` to answer, or `Alt+Shift+N` to reject. These two shortcuts work from all programs, but only while a call rings. If another program uses one of them, whatSnap tells you.
 
 The call window has these buttons:
 
 - `Mute microphone`
 - `Turn camera on`
 - `Share screen`
-- `Device settings`
 - `Add participant`
 - `Raise hand`
 - `React...`
-- `End call`
+- `Leave call`
 
-In the call window, `Ctrl+Shift+V` turns the camera on or off, `Ctrl+Shift+S` starts or stops sharing your screen, `Ctrl+Shift+M` mutes or unmutes your microphone, and `Ctrl+Shift+D` opens or closes the device settings. In Settings, Input & Output, `Mute microphone by default when placing or joining calls` starts every call muted, and `Show frequent contacts in the Calls tab` hides or shows that list. In the main window, `Ctrl+M` mutes or unmutes your microphone, and `Ctrl+W` ends the call.
+In the call window, `Ctrl+Shift+V` turns the camera on or off, and `Ctrl+Shift+S` starts or stops sharing your screen. In the main window, `Ctrl+M` mutes or unmutes your microphone, and `Ctrl+W` ends the call.
 
 In a group call, the People list shows who is in the call. Use `Mute` to ask the selected person to mute. When you can remove people from the call, a `Remove` button also shows. In a call from a call link that you made, `Approve new participants` makes people wait until you let them in. Use `Let in` and `Don't let in` for each one. You can also select your microphone, speaker, and camera in the call window.
 

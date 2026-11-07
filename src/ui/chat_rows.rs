@@ -124,8 +124,7 @@ impl RowArt {
 			Some((d, dur)) => (d, Some(dur)),
 			None => (desc, None),
 		};
-		let from_split = desc.split_once(" from ");
-		let Some((kind, name)) = from_split.or_else(|| desc.split_once(" to ")) else {
+		let Some((kind, name)) = desc.split_once(" from ").or_else(|| desc.split_once(" to ")) else {
 			let mut art = Self::from_text(jid, text);
 			if let Some((name, phone)) = text.split_once(", ")
 				&& !ongoing
@@ -143,7 +142,7 @@ impl RowArt {
 			return art;
 		};
 		let missed = kind.starts_with("Missed");
-		let outgoing = kind.starts_with("Outgoing") || from_split.is_none();
+		let outgoing = kind.starts_with("Outgoing");
 		let video = kind.to_lowercase().contains("video");
 		let mut preview = kind.trim_start_matches("Outgoing ").to_string();
 		if let Some(first) = preview.get(..1) {

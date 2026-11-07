@@ -1424,31 +1424,6 @@ pub fn bind_input_handlers(
 	parts.call_parts.reject_btn.on_click(move |_| {
 		let _ = tx_reject.send(UiCommand::RejectCall);
 	});
-	let tx_dismiss = ui_tx.clone();
-	parts.call_parts.dismiss_btn.on_click(move |_| {
-		let _ = tx_dismiss.send(UiCommand::DismissIncomingCall);
-	});
-	let tx_callback = ui_tx.clone();
-	parts.call_parts.callback_btn.on_click(move |_| {
-		let _ = tx_callback.send(UiCommand::RedialCall);
-	});
-	let tx_close_call = ui_tx.clone();
-	parts.call_parts.close_btn.on_click(move |_| {
-		let _ = tx_close_call.send(UiCommand::CloseCallWindow);
-	});
-
-	let tx_banner_restore = ui_tx.clone();
-	parts.conversations_parts.incoming_call_restore_btn.on_click(move |_| {
-		let _ = tx_banner_restore.send(UiCommand::RestoreIncomingCall);
-	});
-	let tx_banner_answer = ui_tx.clone();
-	parts.conversations_parts.incoming_call_answer_btn.on_click(move |_| {
-		let _ = tx_banner_answer.send(UiCommand::AnswerCall);
-	});
-	let tx_banner_decline = ui_tx.clone();
-	parts.conversations_parts.incoming_call_decline_btn.on_click(move |_| {
-		let _ = tx_banner_decline.send(UiCommand::RejectCall);
-	});
 	let tx_mute = ui_tx.clone();
 	parts.call_parts.mute_btn.on_click(move |_| {
 		let _ = tx_mute.send(UiCommand::MuteCall);
@@ -1464,14 +1439,6 @@ pub fn bind_input_handlers(
 	let tx_screen = ui_tx.clone();
 	parts.call_parts.screen_btn.on_click(move |_| {
 		let _ = tx_screen.send(UiCommand::ToggleScreenShare);
-	});
-	let tx_device_settings = ui_tx.clone();
-	parts.call_parts.device_settings_btn.on_click(move |_| {
-		let _ = tx_device_settings.send(UiCommand::ToggleCallDeviceSettings);
-	});
-	let tx_close_devices = ui_tx.clone();
-	parts.call_parts.close_devices_btn.on_click(move |_| {
-		let _ = tx_close_devices.send(UiCommand::ToggleCallDeviceSettings);
 	});
 	let tx_call_input = ui_tx.clone();
 	let call_input_combo = parts.call_parts.input_device_combo;
@@ -1547,107 +1514,30 @@ pub fn bind_input_handlers(
 			let in_call = s.active_call_id.is_some() || s.call_placing;
 			drop(s);
 			if ringing_in {
-				let _ = tx_call_close.send(UiCommand::DismissIncomingCall);
+				let _ = tx_call_close.send(UiCommand::RejectCall);
 			} else if in_call {
 				let _ = tx_call_close.send(UiCommand::LeaveCall);
 			}
 		}
 	});
 
-	let call_duration_timer = Box::leak(Box::new(Timer::new(&parts.call_parts.frame)));
-	let state_timer = state.clone();
-	let call_status_label = parts.call_parts.status_label;
-	let call_caller_info = parts.call_parts.caller_info;
-	let call_frame_timer = parts.call_parts.frame;
-	call_duration_timer.on_tick(move |_| {
-		let s = state_timer.borrow();
-		if s.active_call_id.is_some() && s.active_call_audio.is_some() {
-			let elapsed = s.call_connected_duration
-				+ s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
-			let secs = elapsed.as_secs();
-			let clock = crate::calls::helpers::format_call_duration(secs);
-			let is_saved = s.call_peer_is_saved;
-			let is_reconnecting = s.call_is_reconnecting;
-			let peer_name = s.call_peer_name.clone();
-			let is_incoming = s.call_is_incoming;
-			let is_video = s.call_video.video_call || s.call_video.is_video || s.call_video.local_camera_on;
-			let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
-			drop(s);
-
-			let status = if is_reconnecting {
-				format!("Reconnecting... ({clock})")
-			} else if is_group {
-				format!("In group call · {clock}")
-			} else {
-				format!("Connected · {clock}")
-			};
-			call_status_label.set_label(&status);
-
-			let running_info = crate::calls::helpers::call_running_info_text(
-				is_incoming,
-				is_video,
-				&peer_name,
-				secs,
-				is_reconnecting,
-			);
-			// Rewriting the read-only box every second would reset a screen
-			// reader's caret while the user reads it, so refresh it only every
-			// 30 seconds and keep the caret where it was.
-			if secs % 30 == 0 && call_caller_info.get_value() != running_info {
-				let caret = call_caller_info.get_insertion_point();
-				call_caller_info.set_value(&running_info);
-				call_caller_info.set_insertion_point(caret);
-			}
-
-			let win_title = crate::calls::helpers::format_call_window_title(
-				is_incoming,
-				is_group,
-				is_video,
-				&peer_name,
-				is_saved,
-				Some(&clock),
-			);
-			call_frame_timer.set_title(&win_title);
-		}
-	});
-	call_duration_timer.start(1000, false);
-
 	let tx_camera_key = ui_tx.clone();
-	let state_call_key = state.clone();
 	parts.call_parts.frame.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key_event) = event {
-			let key_code = key_event.get_key_code();
-			if key_event.control_down() && key_event.shift_down() {
-				let command = if keys::is_letter(key_code, 'V') {
-					Some(UiCommand::ToggleCamera)
-				} else if keys::is_letter(key_code, 'S') {
-					Some(UiCommand::ToggleScreenShare)
-				} else if keys::is_letter(key_code, 'M') {
-					Some(UiCommand::MuteCall)
-				} else if keys::is_letter(key_code, 'D') {
-					Some(UiCommand::ToggleCallDeviceSettings)
-				} else {
-					None
-				};
-				if let Some(command) = command {
-					let _ = tx_camera_key.send(command);
-					event.skip(false);
-					return;
-				}
-			} else if key_code == Some(27) {
-				let s = state_call_key.borrow();
-				let ringing_in = s.incoming_call_caller.is_some() && s.active_call_audio.is_none();
-				let call_active = s.active_call_id.is_some() || s.call_placing;
-				drop(s);
-				if ringing_in {
-					let _ = tx_camera_key.send(UiCommand::DismissIncomingCall);
-					event.skip(false);
-					return;
-				} else if !call_active {
-					let _ = tx_camera_key.send(UiCommand::CloseCallWindow);
-					event.skip(false);
-					return;
-				}
+		if let WindowEventData::Keyboard(ref key_event) = event
+			&& key_event.control_down()
+			&& key_event.shift_down()
+		{
+			let command = if keys::is_letter(key_event.get_key_code(), 'V') {
+				Some(UiCommand::ToggleCamera)
+			} else if keys::is_letter(key_event.get_key_code(), 'S') {
+				Some(UiCommand::ToggleScreenShare)
+			} else {
+				None
+			};
+			if let Some(command) = command {
+				let _ = tx_camera_key.send(command);
+				event.skip(false);
+				return;
 			}
 		}
 		event.skip(true);

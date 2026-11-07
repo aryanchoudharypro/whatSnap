@@ -356,8 +356,6 @@ fn new_call_opus_encoder() -> Option<opus::Encoder> {
 	let mut encoder = opus::Encoder::new(NETWORK_SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip).ok()?;
 	encoder.set_bitrate(opus::Bitrate::Bits(OPUS_BITRATE)).ok()?;
 	encoder.set_complexity(OPUS_COMPLEXITY).ok()?;
-	let _ = encoder.set_inband_fec(true);
-	let _ = encoder.set_packet_loss_perc(10);
 	Some(encoder)
 }
 

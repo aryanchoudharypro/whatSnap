@@ -299,33 +299,22 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			.collect();
 		push_section("Going on now", ongoing);
 
-		if s.settings.show_frequent_calls {
-			let frequent: Vec<(String, String, String)> = s
-				.call_frequent
-				.iter()
-				.filter(|t| matches_target(t))
-				.map(|t| (target_label(t), t.jid.clone(), String::new()))
-				.collect();
-			push_section("Frequent contacts", frequent);
-		}
+		let frequent: Vec<(String, String, String)> = s
+			.call_frequent
+			.iter()
+			.filter(|t| matches_target(t))
+			.map(|t| (target_label(t), t.jid.clone(), String::new()))
+			.collect();
+		push_section("Frequent contacts", frequent);
 
 		let mut recent = Vec::new();
 		for entry in &s.call_logs {
-			let formatted_name;
 			let name = if !entry.peer_name.is_empty() {
 				&entry.peer_name
 			} else if let Some(n) = s.contacts.get(&entry.jid) {
 				n
 			} else {
-				let raw_user = entry.jid.split('@').next().unwrap_or(&entry.jid);
-				let digits = raw_user.split(':').next().unwrap_or(raw_user);
-				if digits.chars().all(|c| c.is_ascii_digit()) && !digits.is_empty() {
-					formatted_name = whatsnap::phone::format_international(digits)
-						.unwrap_or_else(|| format!("+{digits}"));
-					&formatted_name
-				} else {
-					&entry.jid
-				}
+				&entry.jid
 			};
 
 			let mut label = format_call_log_label(name, &entry.text, entry.from_me, entry.timestamp);
