@@ -60,7 +60,7 @@ func TestSendEventMatchesMarshalledEnvelope(t *testing.T) {
 				}
 				raw = b
 			}
-			want, err := json.Marshal(Event{Type: tc.evtType, Data: raw})
+			want, err := json.Marshal(Event{Type: tc.evtType, Account: acc.id, Data: raw})
 			if err != nil {
 				t.Fatalf("marshal event: %v", err)
 			}

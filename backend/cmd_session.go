@@ -52,10 +52,17 @@ func (acc *Account) handleGetQR(conn net.Conn) {
 				acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 				return
 			}
+			timedOut := false
 			for qr := range qrChan {
 				if qr.Event == "code" {
 					acc.sendEvent(conn, "qr", map[string]string{"code": qr.Code})
+				} else if qr.Event == whatsmeow.QRChannelTimeout.Event {
+					timedOut = true
+					acc.sendEvent(conn, "qr_timeout", nil)
 				}
+			}
+			if !timedOut && (acc.wa() == nil || acc.wa().Store.ID == nil) {
+				acc.sendEvent(conn, "qr_timeout", nil)
 			}
 		}
 	}()

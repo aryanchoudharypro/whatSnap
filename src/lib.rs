@@ -1,8 +1,10 @@
 pub mod countries;
 pub mod local_time;
+pub mod markdown;
 pub mod phone;
 mod phone_data;
 pub use local_time::{Date, LocalTime};
+pub use markdown::{coalesce_spans, parse_markdown_spans, strip_markdown_for_speech, StyledSpan, TextStyle};
 
 fn is_placeholder_name(name: &str) -> bool {
 	name.is_empty() || name == "[]"
@@ -608,7 +610,7 @@ impl ChatMessage {
 			other => other,
 		};
 
-		let body = self.body_text();
+		let body = strip_markdown_for_speech(&self.body_text());
 
 		let reply_suffix = match self.reply_parts() {
 			Some((q_sender, q_body)) if q_sender == "quoted message" => {
@@ -1680,6 +1682,17 @@ mod tests {
 		};
 		assert_eq!(msg_named.format_display(true), "Alice: Hi");
 		assert_eq!(msg_named.format_display(false), "Alice: Hi");
+
+		let msg_markdown = ChatMessage {
+			id: "2m".into(),
+			text: "Hello *world* and _everyone_".into(),
+			timestamp: 0,
+			from_me: false,
+			sender_jid: "123@s.whatsapp.net".into(),
+			sender_name: "Alice".into(),
+			..Default::default()
+		};
+		assert_eq!(msg_markdown.format_display(false), "Alice: Hello world and everyone");
 
 		let voice_received = ChatMessage {
 			id: "3".into(),

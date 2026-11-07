@@ -176,6 +176,7 @@ func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 			acc.activeVideoBridgesMutex.Lock()
 			acc.activeVideoBridges[call.ID()] = videoBridge
 			acc.activeVideoBridgesMutex.Unlock()
+			call.ReceiveVideo(videoBridge)
 			go videoBridge.Run()
 		}
 		screenPort := 0
@@ -253,6 +254,12 @@ func (acc *Account) attachCallHandlers(call *meowcaller.Call) {
 		event := peerVideoEvent(vs.Raw)
 		if event == "" {
 			return
+		}
+		if vs.Raw == signaling.VideoStateUpgradeRequest || vs.Raw == signaling.VideoStateUpgradeRequestV2 {
+			log.Println("Peer requested video upgrade, accepting video...")
+			if err := call.AcceptVideo(); err != nil {
+				log.Println("Failed to accept video upgrade:", err)
+			}
 		}
 		acc.broadcastEvent("call_video_state", map[string]string{
 			"call_id":    call.ID(),

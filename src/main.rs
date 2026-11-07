@@ -107,6 +107,9 @@ struct AppState {
 	voice_recording_start: Option<std::time::Instant>,
 	voice_paused_duration: std::time::Duration,
 	voice_pause_instant: Option<std::time::Instant>,
+	voice_preview_sink: Option<Player>,
+	voice_preview_merged_path: Option<String>,
+	is_voice_preview_playing: bool,
 	voice_recording_generation: u64,
 	/// True while a `RecordingSession::start_async` call kicked off by the
 	/// current `voice_recording_generation` hasn't reported back yet - guards
@@ -519,6 +522,18 @@ fn main() {
 					parts_timer.call_parts.caller_info.set_value(&info);
 				}
 			}
+			if s.is_voice_preview_playing {
+				let preview_finished = s.voice_preview_sink.as_ref().map(|sk| sk.empty()).unwrap_or(false);
+				if preview_finished {
+					s.voice_preview_sink = None;
+					s.is_voice_preview_playing = false;
+					parts_timer.conversations_parts.preview_voice_btn.set_label("Play preview");
+					crate::platform::announce::announce(
+						parts_timer.conversations_parts.messages_announcer,
+						"Voice preview finished.",
+					);
+				}
+			}
 			if s.playing_msg_id.is_none() {
 				return;
 			}
@@ -571,6 +586,7 @@ fn main() {
 				parts_timer.conversations_parts.audio_slider.set_value(0);
 				parts_timer.conversations_parts.audio_slider.show(false);
 				parts_timer.conversations_parts.audio_speed_btn.show(false);
+				parts_timer.conversations_parts.audio_progress_label.set_label("0:00 / 0:00");
 				parts_timer.conversations_parts.audio_progress_label.show(false);
 				return;
 			}
@@ -584,6 +600,13 @@ fn main() {
 				if parts_timer.conversations_parts.audio_slider.is_shown() {
 					parts_timer.conversations_parts.audio_slider.set_range(0, max_sec);
 					parts_timer.conversations_parts.audio_slider.set_value(pos);
+				}
+				if parts_timer.conversations_parts.audio_progress_label.is_shown() {
+					let fmt_dur = |secs: i32| format!("{}:{:02}", secs / 60, secs % 60);
+					let progress = format!("{} / {}", fmt_dur(pos), fmt_dur(max_sec));
+					if parts_timer.conversations_parts.audio_progress_label.get_label() != progress {
+						parts_timer.conversations_parts.audio_progress_label.set_label(&progress);
+					}
 				}
 			}
 		});
@@ -994,6 +1017,9 @@ pub(crate) fn new_app_state(
 		voice_recording_start: None,
 		voice_paused_duration: std::time::Duration::ZERO,
 		voice_pause_instant: None,
+		voice_preview_sink: None,
+		voice_preview_merged_path: None,
+		is_voice_preview_playing: false,
 		voice_recording_generation: 0,
 		voice_recording_opening: false,
 		voice_recording_pending: Arc::new(Mutex::new(None)),
@@ -1075,6 +1101,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::StartRecording => ui_commands::voice::start_recording(state, parts),
 		UiCommand::StopRecording => ui_commands::voice::stop_recording(state, parts),
 		UiCommand::TogglePauseRecording => ui_commands::voice::toggle_pause_recording(state, parts),
+		UiCommand::ToggleVoicePreview => ui_commands::voice::toggle_voice_preview(state, parts),
 		UiCommand::VoiceRecordingReady => ui_commands::voice::voice_recording_ready(state, parts),
 		UiCommand::ForceSync => ui_commands::misc::force_sync(state, parts),
 		UiCommand::SendVoiceMessage => ui_commands::voice::send_voice_message(state, parts),

@@ -14,6 +14,8 @@ type VideoBridge struct {
 	send     func(accessUnit []byte, duration time.Duration) error
 	closed   bool
 	closedMu sync.Mutex
+	conns    map[net.Conn]struct{}
+	connsMu  sync.Mutex
 }
 
 func NewVideoBridge(send func(accessUnit []byte, duration time.Duration) error) (*VideoBridge, int, error) {
@@ -22,7 +24,11 @@ func NewVideoBridge(send func(accessUnit []byte, duration time.Duration) error) 
 		return nil, 0, err
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	return &VideoBridge{listener: listener, send: send}, port, nil
+	return &VideoBridge{
+		listener: listener,
+		send:     send,
+		conns:    make(map[net.Conn]struct{}),
+	}, port, nil
 }
 
 func (vb *VideoBridge) Run() {
@@ -39,7 +45,17 @@ func (vb *VideoBridge) Run() {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		go vb.readFrames(conn)
+		vb.connsMu.Lock()
+		vb.conns[conn] = struct{}{}
+		vb.connsMu.Unlock()
+		go func(c net.Conn) {
+			defer func() {
+				vb.connsMu.Lock()
+				delete(vb.conns, c)
+				vb.connsMu.Unlock()
+			}()
+			vb.readFrames(c)
+		}(conn)
 	}
 }
 
@@ -71,9 +87,35 @@ func (vb *VideoBridge) readFrames(conn net.Conn) {
 	}
 }
 
+func (vb *VideoBridge) WriteVideo(accessUnit []byte) error {
+	vb.connsMu.Lock()
+	defer vb.connsMu.Unlock()
+	if vb.closed || len(vb.conns) == 0 || len(accessUnit) == 0 {
+		return nil
+	}
+	header := make([]byte, 8)
+	binary.BigEndian.PutUint32(header[0:4], uint32(len(accessUnit)))
+	binary.BigEndian.PutUint32(header[4:8], 0)
+	for conn := range vb.conns {
+		if _, err := conn.Write(header); err != nil {
+			continue
+		}
+		if _, err := conn.Write(accessUnit); err != nil {
+			continue
+		}
+	}
+	return nil
+}
+
 func (vb *VideoBridge) Close() error {
 	vb.closedMu.Lock()
 	vb.closed = true
 	vb.closedMu.Unlock()
+	vb.connsMu.Lock()
+	for conn := range vb.conns {
+		conn.Close()
+	}
+	vb.conns = make(map[net.Conn]struct{})
+	vb.connsMu.Unlock()
 	return vb.listener.Close()
 }

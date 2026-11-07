@@ -22,6 +22,8 @@ pub mod message_list {
 pub mod voice {
 	pub const START_RECORDING: &str = "start_recording";
 	pub const PAUSE_RECORDING: &str = "pause_recording";
+	pub const TOGGLE_PREVIEW: &str = "toggle_voice_preview";
+	pub const DISCARD: &str = "discard_voice_recording";
 	pub const SEND: &str = "send_voice_message";
 }
 
@@ -132,6 +134,8 @@ pub const ACTIONS: &[ActionDef] = &[
 	},
 	ActionDef { id: voice::START_RECORDING, menu_id: None, tab: 4, label: "Start Recording", default: "Ctrl+Shift+R" },
 	ActionDef { id: voice::PAUSE_RECORDING, menu_id: None, tab: 4, label: "Pause Recording", default: "Alt+P" },
+	ActionDef { id: voice::TOGGLE_PREVIEW, menu_id: None, tab: 4, label: "Play/Pause Voice Preview", default: "Alt+Shift+P" },
+	ActionDef { id: voice::DISCARD, menu_id: None, tab: 4, label: "Discard Voice Recording", default: "Alt+D" },
 	ActionDef { id: voice::SEND, menu_id: None, tab: 4, label: "Send Voice Message", default: "Ctrl+Enter" },
 	ActionDef { id: "call_mute", menu_id: Some(MENU_ID_CALL_MUTE), tab: 5, label: "Toggle &Mute", default: "Ctrl+M" },
 	ActionDef { id: "call_end", menu_id: Some(MENU_ID_CALL_END), tab: 5, label: "&End Call", default: "Ctrl+W" },

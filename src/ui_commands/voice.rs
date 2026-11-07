@@ -47,6 +47,85 @@ pub(crate) fn handle_audio_device_changed(state: &Rc<RefCell<AppState>>) {
 	if let Some(audio) = &s.active_call_audio {
 		audio.force_device_refresh();
 	}
+
+	if let Some(sink) = s.voice_preview_sink.take() {
+		sink.stop();
+		s.is_voice_preview_playing = false;
+	}
+}
+
+pub(crate) fn stop_voice_preview(s: &mut AppState, parts: &Rc<WindowParts>) {
+	if let Some(sink) = s.voice_preview_sink.take() {
+		sink.stop();
+	}
+	s.is_voice_preview_playing = false;
+	if let Some(merged) = s.voice_preview_merged_path.take() {
+		let _ = std::fs::remove_file(merged);
+	}
+	parts.conversations_parts.preview_voice_btn.set_label("Play preview");
+	parts.conversations_parts.preview_voice_btn.show(false);
+}
+
+pub(crate) fn toggle_voice_preview(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	if !s.is_voice_recording || !s.is_voice_paused {
+		return;
+	}
+
+	if let Some(ref sink) = s.voice_preview_sink {
+		if s.is_voice_preview_playing {
+			sink.pause();
+			s.is_voice_preview_playing = false;
+			parts.conversations_parts.preview_voice_btn.set_label("Play preview");
+			crate::platform::announce::announce(
+				parts.conversations_parts.messages_announcer,
+				"Voice preview paused.",
+			);
+			return;
+		} else {
+			sink.play();
+			s.is_voice_preview_playing = true;
+			parts.conversations_parts.preview_voice_btn.set_label("Pause preview");
+			crate::platform::announce::announce(
+				parts.conversations_parts.messages_announcer,
+				"Playing voice preview.",
+			);
+			return;
+		}
+	}
+
+	if s.voice_recording_segments.is_empty() {
+		return;
+	}
+
+	let preview_path = if s.voice_recording_segments.len() == 1 {
+		s.voice_recording_segments[0].clone()
+	} else if let Some(ref merged) = s.voice_preview_merged_path {
+		merged.clone()
+	} else {
+		let temp_dir = std::env::temp_dir();
+		let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+		let merged = temp_dir.join(format!("voice_rec_preview_{}.wav", ts)).to_string_lossy().to_string();
+		if let Err(e) = concat_wav_segments(&s.voice_recording_segments, &merged) {
+			eprintln!("[LOG UI] Failed to merge voice recording segments for preview: {:?}", e);
+			return;
+		}
+		s.voice_preview_merged_path = Some(merged.clone());
+		merged
+	};
+
+	ensure_audio_stream(&mut s);
+	if let Some(ref stream_handle) = s.audio_out.stream {
+		if let Some(sink) = do_seek(stream_handle, &preview_path, 0.0, 1.0) {
+			s.voice_preview_sink = Some(sink);
+			s.is_voice_preview_playing = true;
+			parts.conversations_parts.preview_voice_btn.set_label("Pause preview");
+			crate::platform::announce::announce(
+				parts.conversations_parts.messages_announcer,
+				"Playing voice preview.",
+			);
+		}
+	}
 }
 
 pub(crate) fn start_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -93,6 +172,8 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	let mut s = state.borrow_mut();
 	if s.is_voice_recording && !s.voice_recording_opening {
 		if s.is_voice_paused {
+			stop_voice_preview(&mut s, parts);
+			parts.conversations_parts.conversation_panel.layout();
 			let temp_dir = std::env::temp_dir();
 			let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
 			let seg_idx = s.voice_recording_segments.len();
@@ -140,9 +221,12 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 				crate::ui_commands::messaging::mark_paused(&mut s, &jid);
 			}
 			parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
+			parts.conversations_parts.preview_voice_btn.set_label("Play preview");
+			parts.conversations_parts.preview_voice_btn.show(true);
+			parts.conversations_parts.conversation_panel.layout();
 			crate::platform::announce::announce(
 				parts.conversations_parts.messages_announcer,
-				"Voice recording paused.",
+				"Voice recording paused. Preview available.",
 			);
 		}
 	}
@@ -182,7 +266,9 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				if let Some(jid) = s.selected_chat.clone() {
 					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
 				}
+				parts.conversations_parts.preview_voice_btn.show(false);
 				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+				parts.conversations_parts.conversation_panel.layout();
 				crate::platform::announce::announce(
 					parts.conversations_parts.messages_announcer,
 					"Voice recording resumed.",
@@ -221,6 +307,7 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				parts.conversations_parts.record_voice_btn.show(false);
 				parts.conversations_parts.discard_voice_btn.show(true);
 				parts.conversations_parts.pause_resume_btn.show(true);
+				parts.conversations_parts.preview_voice_btn.show(false);
 				let in_channel = s.selected_chat.as_deref().is_some_and(|j| j.ends_with("@newsletter"));
 				parts.conversations_parts.view_once_voice_check.set_value(false);
 				parts.conversations_parts.view_once_voice_check.show(!in_channel);
@@ -259,6 +346,13 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		reply_sender,
 	) = {
 		let mut s = state.borrow_mut();
+		if let Some(sink) = s.voice_preview_sink.take() {
+			sink.stop();
+		}
+		s.is_voice_preview_playing = false;
+		if let Some(merged) = s.voice_preview_merged_path.take() {
+			let _ = std::fs::remove_file(merged);
+		}
 		s.is_voice_recording = false;
 		crate::ui::conversations::set_recording_clock(None);
 		s.voice_recording_generation += 1;
@@ -359,29 +453,28 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, sent);
 	}
 
-	parts.conversations_parts.message_field.show(true);
-	parts.conversations_parts.add_attachment_btn.show(true);
-	parts.conversations_parts.emoji_btn.show(true);
-	parts.conversations_parts.record_voice_btn.show(true);
-	parts.conversations_parts.record_voice_btn.enable(true);
-	parts.conversations_parts.pause_resume_btn.enable(true);
-	parts
-		.conversations_parts
-		.send_message_btn
-		.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
-	parts.conversations_parts.message_field.set_focus();
-
 	parts.conversations_parts.discard_voice_btn.show(false);
 	parts.conversations_parts.pause_resume_btn.show(false);
+	parts.conversations_parts.preview_voice_btn.show(false);
 	parts.conversations_parts.view_once_voice_check.show(false);
 	parts.conversations_parts.send_voice_btn.show(false);
-
+	parts.conversations_parts.record_voice_btn.enable(true);
+	parts.conversations_parts.pause_resume_btn.enable(true);
+	crate::ui::chat_ui::update_composer_buttons(&state.borrow(), &parts.conversations_parts);
+	parts.conversations_parts.message_field.set_focus();
 	parts.conversations_parts.conversation_panel.layout();
 }
 
 pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	{
 		let mut s = state.borrow_mut();
+		if let Some(sink) = s.voice_preview_sink.take() {
+			sink.stop();
+		}
+		s.is_voice_preview_playing = false;
+		if let Some(merged) = s.voice_preview_merged_path.take() {
+			let _ = std::fs::remove_file(merged);
+		}
 		s.is_voice_recording = false;
 		crate::ui::conversations::set_recording_clock(None);
 		s.is_voice_paused = false;
@@ -401,23 +494,15 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		}
 	}
 
-	parts.conversations_parts.message_field.show(true);
-	parts.conversations_parts.add_attachment_btn.show(true);
-	parts.conversations_parts.emoji_btn.show(true);
-	parts.conversations_parts.record_voice_btn.show(true);
-	parts.conversations_parts.record_voice_btn.enable(true);
-	parts.conversations_parts.pause_resume_btn.enable(true);
-	parts
-		.conversations_parts
-		.send_message_btn
-		.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
-	parts.conversations_parts.message_field.set_focus();
-
 	parts.conversations_parts.discard_voice_btn.show(false);
 	parts.conversations_parts.pause_resume_btn.show(false);
+	parts.conversations_parts.preview_voice_btn.show(false);
 	parts.conversations_parts.view_once_voice_check.show(false);
 	parts.conversations_parts.send_voice_btn.show(false);
-
+	parts.conversations_parts.record_voice_btn.enable(true);
+	parts.conversations_parts.pause_resume_btn.enable(true);
+	crate::ui::chat_ui::update_composer_buttons(&state.borrow(), &parts.conversations_parts);
+	parts.conversations_parts.message_field.set_focus();
 	parts.conversations_parts.conversation_panel.layout();
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording discarded.");
 }

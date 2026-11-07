@@ -194,14 +194,7 @@ pub(crate) fn toggle_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		parts.conversations_parts.messages_select_list.show(false);
 		parts.conversations_parts.selection_bar_panel.show(false);
 		parts.conversations_parts.messages_list.show(true);
-		parts.conversations_parts.message_field.show(true);
-		parts.conversations_parts.add_attachment_btn.show(true);
-		parts.conversations_parts.emoji_btn.show(true);
-		parts
-			.conversations_parts
-			.send_message_btn
-			.show(!parts.conversations_parts.message_field.get_value().trim().is_empty());
-		parts.conversations_parts.record_voice_btn.show(true);
+		crate::ui::chat_ui::update_composer_buttons(&s, &parts.conversations_parts);
 		parts.conversations_parts.messages_list.set_focus();
 		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Selection mode off.");
 	}
@@ -732,6 +725,30 @@ pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 }
 
 pub(crate) fn release_conversation_buffers(s: &mut AppState, parts: &Rc<WindowParts>) {
+	if s.is_voice_recording {
+		crate::ui_commands::voice::stop_voice_preview(s, parts);
+		s.is_voice_recording = false;
+		crate::ui::conversations::set_recording_clock(None);
+		s.is_voice_paused = false;
+		s.voice_recording_generation += 1;
+		s.voice_recording_opening = false;
+		if let Some(session) = s.voice_recording_session.take() {
+			session.finish();
+		}
+		if let Some(path) = s.voice_recording_path.take() {
+			let _ = std::fs::remove_file(path);
+		}
+		for seg in s.voice_recording_segments.drain(..) {
+			let _ = std::fs::remove_file(seg);
+		}
+		parts.conversations_parts.discard_voice_btn.show(false);
+		parts.conversations_parts.pause_resume_btn.show(false);
+		parts.conversations_parts.preview_voice_btn.show(false);
+		parts.conversations_parts.view_once_voice_check.show(false);
+		parts.conversations_parts.send_voice_btn.show(false);
+		parts.conversations_parts.record_voice_btn.enable(true);
+		parts.conversations_parts.pause_resume_btn.enable(true);
+	}
 	s.messages = Vec::new();
 	s.display_items = Vec::new();
 	s.selection_rows = Vec::new();

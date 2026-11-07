@@ -5,11 +5,12 @@ import (
 	"strings"
 )
 
-// Meta AI writes its replies in markdown. The message list shows text as it
-// is, so the markup would be read out by a screen reader ("number sign",
-// "star star") and links would hide their address. aiMarkdownToPlain keeps
-// the words, line breaks and "- " list items (which WhatsApp itself uses) and
-// drops the rest of the markup.
+// Meta AI writes its replies in CommonMark/Markdown.
+// aiMarkdownToPlain transforms rich Markdown into WhatsApp-compatible formatting:
+// headings (# Heading) become bold (*Heading*), **bold** becomes *bold*,
+// code blocks and inline code are preserved, and list items are normalized to "- ".
+// This allows sighted users to see rich formatting in message bubbles, while
+// the frontend accessibility layer strips formatting markers for screen readers.
 
 var (
 	mdImage      = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)[^)]*\)`)
@@ -32,8 +33,10 @@ func aiMarkdownToPlain(text string) string {
 	out := make([]string, 0, len(lines))
 	inCode := false
 	for _, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
 			inCode = !inCode
+			out = append(out, "```")
 			continue
 		}
 		if inCode {
@@ -43,15 +46,17 @@ func aiMarkdownToPlain(text string) string {
 		if mdRule.MatchString(line) || mdTableSep.MatchString(line) {
 			continue
 		}
-		line = mdHeading.ReplaceAllString(line, "")
-		line = mdQuote.ReplaceAllString(line, "")
+		if mdHeading.MatchString(line) {
+			heading := strings.TrimSpace(mdHeading.ReplaceAllString(line, ""))
+			line = "*" + heading + "*"
+		}
 		line = mdBullet.ReplaceAllString(line, "$1- ")
-		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") && len(trimmed) > 1 {
+		if strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") && len(trimmed) > 1 {
 			cells := strings.Split(trimmed[1:len(trimmed)-1], "|")
 			for i := range cells {
 				cells[i] = strings.TrimSpace(cells[i])
 			}
-			line = strings.Join(cells, ", ")
+			line = strings.Join(cells, " | ")
 		}
 		out = append(out, mdInline(line))
 	}
@@ -67,8 +72,9 @@ func mdInline(line string) string {
 		parts := mdLink.FindStringSubmatch(m)
 		return labeledLink(parts[1], parts[2])
 	})
-	line = mdBold.ReplaceAllString(line, "$1")
-	line = mdInlineCode.ReplaceAllString(line, "$1")
+	// Convert Markdown **bold** to WhatsApp *bold*
+	line = mdBold.ReplaceAllString(line, "*$1*")
+	// Inline code `code` is preserved for WhatsApp monospace
 	return mdEscape.ReplaceAllString(line, "$1")
 }
 

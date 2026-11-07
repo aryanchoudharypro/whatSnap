@@ -112,6 +112,7 @@ pub enum UiCommand {
 	},
 	StartRecording,
 	TogglePauseRecording,
+	ToggleVoicePreview,
 	StopRecording,
 	DiscardRecording,
 	ForceSync,

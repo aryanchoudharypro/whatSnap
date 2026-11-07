@@ -3,8 +3,9 @@ package main
 import "encoding/json"
 
 type Event struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data,omitempty"`
+	Type    string          `json:"type"`
+	Account string          `json:"account,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 type Command struct {

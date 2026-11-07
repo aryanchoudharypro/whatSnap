@@ -154,11 +154,67 @@ pub(crate) fn save_composer_draft(s: &mut AppState, parts: &WindowParts) {
 	}
 }
 
+pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversations::ConversationsPanelParts) {
+	let Some(jid) = s.selected_chat.as_deref() else { return };
+	let can_write = !jid.ends_with("@newsletter") || crate::ui_commands::links::can_post_in_channel(s, jid);
+	if !can_write {
+		let mut changed = false;
+		if cp.message_field.is_shown() { cp.message_field.show(false); changed = true; }
+		if cp.add_attachment_btn.is_shown() { cp.add_attachment_btn.show(false); changed = true; }
+		if cp.emoji_btn.is_shown() { cp.emoji_btn.show(false); changed = true; }
+		if cp.send_message_btn.is_shown() { cp.send_message_btn.show(false); changed = true; }
+		if cp.record_voice_btn.is_shown() { cp.record_voice_btn.show(false); changed = true; }
+		if cp.cancel_edit_btn.is_shown() { cp.cancel_edit_btn.show(false); changed = true; }
+		if cp.remove_quote_btn.is_shown() { cp.remove_quote_btn.show(false); changed = true; }
+		if changed {
+			cp.conversation_panel.layout();
+		}
+		return;
+	}
+
+	let is_editing = s.editing_message_id.is_some();
+	let has_text = !cp.message_field.get_value().trim().is_empty();
+	let mut changed = false;
+
+	if !cp.message_field.is_shown() { cp.message_field.show(true); changed = true; }
+	if !cp.emoji_btn.is_shown() { cp.emoji_btn.show(true); changed = true; }
+
+	if is_editing {
+		if cp.add_attachment_btn.is_shown() { cp.add_attachment_btn.show(false); changed = true; }
+		if !cp.cancel_edit_btn.is_shown() { cp.cancel_edit_btn.show(true); changed = true; }
+		if cp.remove_quote_btn.is_shown() { cp.remove_quote_btn.show(false); changed = true; }
+		if cp.record_voice_btn.is_shown() { cp.record_voice_btn.show(false); changed = true; }
+		if cp.send_message_btn.is_shown() != has_text { cp.send_message_btn.show(has_text); changed = true; }
+		if cp.message_label.get_label() != "Edit message" {
+			cp.message_label.set_label("Edit message");
+		}
+	} else {
+		if !cp.add_attachment_btn.is_shown() { cp.add_attachment_btn.show(true); changed = true; }
+		if cp.cancel_edit_btn.is_shown() { cp.cancel_edit_btn.show(false); changed = true; }
+		let show_quote = s.pending_reply_id.is_some();
+		if cp.remove_quote_btn.is_shown() != show_quote { cp.remove_quote_btn.show(show_quote); changed = true; }
+		if cp.send_message_btn.is_shown() != has_text { cp.send_message_btn.show(has_text); changed = true; }
+		let show_voice = !has_text;
+		if cp.record_voice_btn.is_shown() != show_voice { cp.record_voice_btn.show(show_voice); changed = true; }
+		let target_label = if let Some(ref preview) = s.pending_reply_preview {
+			preview.as_str()
+		} else {
+			group_send_block_reason(s, jid).unwrap_or("Type a message")
+		};
+		if cp.message_label.get_label() != target_label {
+			cp.message_label.set_label(target_label);
+		}
+	}
+	if changed {
+		cp.conversation_panel.layout();
+	}
+}
+
 pub(crate) fn clear_pending_reply(s: &mut AppState, parts: &WindowParts) {
 	s.pending_reply_id = None;
 	s.pending_reply_sender = None;
 	s.pending_reply_preview = None;
-	parts.conversations_parts.remove_quote_btn.show(false);
+	update_composer_buttons(s, &parts.conversations_parts);
 }
 
 pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
@@ -240,10 +296,6 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		parts.conversations_parts.messages_select_list.show(false);
 		parts.conversations_parts.selection_bar_panel.show(false);
 		parts.conversations_parts.messages_list.show(true);
-		parts.conversations_parts.message_field.show(true);
-		parts.conversations_parts.add_attachment_btn.show(true);
-		parts.conversations_parts.emoji_btn.show(true);
-		parts.conversations_parts.record_voice_btn.show(true);
 	}
 	parts.conversations_parts.conversation_panel.show(true);
 	parts.conversations_parts.play_voice_btn.show(false);
@@ -256,19 +308,13 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	// The message list was already emptied by release_conversation_buffers
 	// above; clearing it a second time is dead work on a control a screen
 	// reader is watching.
-	// A channel is read-only unless we're one of its admins: no composer.
-	let can_write = !jid.ends_with("@newsletter") || crate::ui_commands::links::can_post_in_channel(&s, jid);
-	parts.conversations_parts.message_field.show(can_write);
-	parts.conversations_parts.add_attachment_btn.show(can_write);
-	parts.conversations_parts.emoji_btn.show(can_write);
-	parts.conversations_parts.record_voice_btn.show(can_write);
 	crate::ui_commands::calls::apply_call_buttons(&s, parts, jid);
 	apply_composer_access(&s, parts, jid);
 	parts.conversations_parts.top_btns_panel.layout();
 	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();
 	s.composer_mentions = s.draft_mentions.get(jid).cloned().unwrap_or_default();
 	parts.conversations_parts.message_field.set_value(&draft);
-	parts.conversations_parts.send_message_btn.show(!draft.trim().is_empty());
+	update_composer_buttons(&s, &parts.conversations_parts);
 	parts.conversations_parts.panel.layout();
 	let payload = match s.search_target_id.clone() {
 		Some(target) => crate::ui_commands::chat_list::around_request(jid, &target, ""),
@@ -311,7 +357,7 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	cp.add_attachment_btn.enable(enabled);
 	cp.emoji_btn.enable(enabled);
 	cp.record_voice_btn.enable(enabled);
-	if s.editing_message_id.is_none() {
+	if s.editing_message_id.is_none() && s.pending_reply_preview.is_none() {
 		let label = reason.unwrap_or("Type a message");
 		if cp.message_label.get_label() != label {
 			cp.message_label.set_label(label);

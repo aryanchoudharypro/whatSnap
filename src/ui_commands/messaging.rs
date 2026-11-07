@@ -48,9 +48,7 @@ pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		s.composer_mentions.clear();
 		crate::ui_commands::mentions::close(&mut s, &parts.conversations_parts);
 		parts.conversations_parts.message_field.set_value("");
-		parts.conversations_parts.send_message_btn.show(false);
-		parts.conversations_parts.remove_quote_btn.show(false);
-		parts.conversations_parts.conversation_panel.layout();
+		crate::ui::chat_ui::update_composer_buttons(&s, &parts.conversations_parts);
 	}
 }
 
@@ -59,6 +57,7 @@ pub(crate) fn cancel_edit(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	let was_editing = s.editing_message_id.take().is_some();
 	s.editing_message_original_text = None;
 	s.composer_mentions.clear();
+	crate::ui::chat_ui::update_composer_buttons(&s, &parts.conversations_parts);
 	drop(s);
 	end_edit_mode(parts);
 	if was_editing {
@@ -79,15 +78,12 @@ pub(crate) fn begin_edit_message(
 	s.editing_message_id = Some(message_id);
 	s.editing_message_original_text = Some(text.clone());
 	s.composer_mentions.clear();
-	drop(s);
 	let field = &parts.conversations_parts.message_field;
 	field.set_value(&text);
 	let end = text.chars().count() as i64;
 	field.set_selection(end, end);
-	parts.conversations_parts.message_label.set_label("Edit message");
-	parts.conversations_parts.add_attachment_btn.show(false);
-	parts.conversations_parts.cancel_edit_btn.show(true);
-	parts.conversations_parts.conversation_panel.layout();
+	crate::ui::chat_ui::update_composer_buttons(&s, &parts.conversations_parts);
+	drop(s);
 	field.set_focus();
 	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
@@ -97,10 +93,6 @@ pub(crate) fn begin_edit_message(
 
 fn end_edit_mode(parts: &Rc<WindowParts>) {
 	parts.conversations_parts.message_field.set_value("");
-	parts.conversations_parts.cancel_edit_btn.show(false);
-	parts.conversations_parts.add_attachment_btn.show(true);
-	parts.conversations_parts.message_label.set_label("Type a message");
-	parts.conversations_parts.conversation_panel.layout();
 	parts.conversations_parts.message_field.set_focus();
 }
 
@@ -118,7 +110,6 @@ fn stop_edit_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 
 pub(crate) fn remove_quote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	clear_pending_reply(&mut state.borrow_mut(), parts);
-	parts.conversations_parts.conversation_panel.layout();
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Quoted message removed.");
 	parts.conversations_parts.message_field.set_focus();
 }

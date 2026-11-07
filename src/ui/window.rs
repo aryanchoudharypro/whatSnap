@@ -320,6 +320,24 @@ fn member_menu_position(list: &ListBox, idx: u32) -> Option<Point> {
 	None
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LoginView {
+	Phone,
+	Qr,
+	Pairing,
+}
+
+#[derive(Clone, Copy)]
+pub struct LoginControls {
+	pub login_panel: Dialog,
+	pub phone_panel: Panel,
+	pub qr_panel: Panel,
+	pub pairing_panel: Panel,
+	pub phone_field: TextCtrl,
+	pub qrcode_cancel_btn: Button,
+	pub pairing_code_display: TextCtrl,
+}
+
 #[allow(dead_code)]
 pub struct WindowParts {
 	pub frame: Frame,
@@ -329,9 +347,12 @@ pub struct WindowParts {
 	pub main_panel: Panel,
 	pub nav_panel: Panel,
 	pub qrcode_dialog: Dialog,
+	pub qrcode_instructions: StaticText,
 	pub qrcode_display: StaticBitmap,
 	pub qrcode_announcer: StaticText,
+	pub qrcode_reload_btn: Button,
 	pub qrcode_cancel_btn: Button,
+	pub qr_panel: Panel,
 	pub phone_panel: Panel,
 	pub country_combo: ComboBox,
 	pub phone_field: TextCtrl,
@@ -341,6 +362,7 @@ pub struct WindowParts {
 	pub pairing_code_display: TextCtrl,
 	pub pairing_announcer: StaticText,
 	pub pairing_cancel_btn: Button,
+	pub pairing_panel: Panel,
 	pub new_conv_dialog: crate::ui::dialogs::new_conversation::NewConversationDialogParts,
 	pub new_contact_dialog: crate::ui::dialogs::new_contact::NewContactDialogParts,
 	pub poll_dialog: crate::ui::dialogs::poll_dialog::PollDialogParts,
@@ -357,6 +379,58 @@ pub struct WindowParts {
 	pub conversations_parts: crate::ui::conversations::ConversationsPanelParts,
 	pub settings_dialog: crate::ui::dialogs::settings_dialog::SettingsDialogParts,
 	pub tray_icon: Rc<TaskBarIcon>,
+}
+
+impl LoginControls {
+	pub fn from_parts(parts: &WindowParts) -> Self {
+		Self {
+			login_panel: parts.login_panel,
+			phone_panel: parts.phone_panel,
+			qr_panel: parts.qr_panel,
+			pairing_panel: parts.pairing_panel,
+			phone_field: parts.phone_field,
+			qrcode_cancel_btn: parts.qrcode_cancel_btn,
+			pairing_code_display: parts.pairing_code_display,
+		}
+	}
+
+	pub fn switch_view(&self, view: LoginView) {
+		match view {
+			LoginView::Phone => {
+				self.qr_panel.show(false);
+				self.pairing_panel.show(false);
+				self.phone_panel.show(true);
+				self.login_panel.set_label("WhatsApp Login");
+				self.login_panel.set_size(Size::new(500, 360));
+				self.login_panel.layout();
+				self.phone_field.set_focus();
+			}
+			LoginView::Qr => {
+				self.phone_panel.show(false);
+				self.pairing_panel.show(false);
+				self.qr_panel.show(true);
+				self.login_panel.set_label("WhatsApp Login - QR Code");
+				self.login_panel.set_size(Size::new(550, 560));
+				self.login_panel.layout();
+				self.qrcode_cancel_btn.set_focus();
+			}
+			LoginView::Pairing => {
+				self.phone_panel.show(false);
+				self.qr_panel.show(false);
+				self.pairing_panel.show(true);
+				self.login_panel.set_label("WhatsApp Login - Pairing Code");
+				self.login_panel.set_size(Size::new(480, 240));
+				self.login_panel.layout();
+				self.pairing_code_display.select_all();
+				self.pairing_code_display.set_focus();
+			}
+		}
+		self.login_panel.centre();
+	}
+}
+
+pub fn switch_login_view(parts: &WindowParts, view: LoginView) {
+	LoginControls::from_parts(parts).switch_view(view);
 }
 
 pub const MENU_ID_SETTINGS: i32 = 6001;
@@ -770,35 +844,44 @@ pub fn build_main_window() -> WindowParts {
 	theme::style_content(&content_panel);
 	let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let login_panel = Dialog::builder(&frame, "Login").with_size(500, 320).build();
+	let login_panel = Dialog::builder(&frame, "WhatsApp Login").with_size(500, 360).build();
 	theme::style_content(&login_panel);
 	let login_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let qrcode_dialog = Dialog::builder(&frame, "QR Code").with_size(550, 550).build();
-	theme::style_content(&qrcode_dialog);
+	// QR Code Panel (embedded inside login_panel)
+	let qr_panel = Panel::builder(&login_panel).build();
+	theme::style_content(&qr_panel);
 	let qr_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let qrcode_instructions =
-		StaticText::builder(&qrcode_dialog).with_label("Scan this QR Code with WhatsApp:").build();
+		StaticText::builder(&qr_panel).with_label("Scan this QR Code with WhatsApp:").build();
 	theme::style_heading(&qrcode_instructions);
 	let empty_bitmap = wxdragon::bitmap::Bitmap::from_rgba(&[255, 255, 255, 255], 1, 1).unwrap();
-	let qrcode_display = StaticBitmap::builder(&qrcode_dialog)
+	let qrcode_display = StaticBitmap::builder(&qr_panel)
 		.with_bitmap(Some(empty_bitmap))
 		.with_scale_mode(Some(ScaleMode::AspectFit))
 		.build();
 
-	let qrcode_announcer = StaticText::builder(&qrcode_dialog).with_label("").build();
+	let qrcode_announcer = StaticText::builder(&qr_panel).with_label("").build();
 	live_region::set_live_region(&qrcode_announcer);
 	theme::style_muted_label(&qrcode_announcer);
 
+	let qrcode_reload_btn =
+		Button::builder(&qr_panel).with_label("Reload QR Code").build();
+	theme::style_primary_button(&qrcode_reload_btn);
+	qrcode_reload_btn.show(false);
+
 	let qrcode_cancel_btn =
-		Button::builder(&qrcode_dialog).with_id(wxdragon::id::ID_CANCEL).with_label("Cancel QR Code").build();
+		Button::builder(&qr_panel).with_id(wxdragon::id::ID_CANCEL).with_label("Back to Phone Number Login").build();
 	qrcode_cancel_btn.set_font(&theme::Fonts::body());
 	qr_sizer.add(&qrcode_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	qr_sizer.add(&qrcode_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	qr_sizer.add(&qrcode_reload_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 6);
 	qr_sizer.add(&qrcode_announcer, 0, SizerFlag::Left, 0);
 	qr_sizer.add(&qrcode_cancel_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
-	qrcode_dialog.set_sizer(qr_sizer, true);
+	qr_panel.set_sizer(qr_sizer, true);
+	qr_panel.show(false);
 
+	// Phone Number Login Panel (embedded inside login_panel)
 	let phone_panel = Panel::builder(&login_panel).build();
 	theme::style_content(&phone_panel);
 	let phone_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -832,36 +915,40 @@ pub fn build_main_window() -> WindowParts {
 	phone_sizer.add(&pair_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	phone_sizer.add(&switch_to_qr_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	phone_panel.set_sizer(phone_sizer, true);
-
-	login_sizer.add(&phone_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
 	phone_panel.show(true);
-	login_panel.set_sizer(login_sizer, true);
 
-	let pairing_dialog = Dialog::builder(&frame, "Pairing Code").with_size(320, 170).build();
-	theme::style_content(&pairing_dialog);
+	// Pairing Code Panel (embedded inside login_panel)
+	let pairing_panel = Panel::builder(&login_panel).build();
+	theme::style_content(&pairing_panel);
 	let p_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let pairing_instructions =
-		StaticText::builder(&pairing_dialog).with_label("Enter this pairing code in WhatsApp on your phone:").build();
+		StaticText::builder(&pairing_panel).with_label("Enter this pairing code in WhatsApp on your phone:").build();
 	theme::style_heading(&pairing_instructions);
 	let pairing_code_display =
-		TextCtrl::builder(&pairing_dialog).with_style(TextCtrlStyle::ReadOnly | TextCtrlStyle::Centre).build();
+		TextCtrl::builder(&pairing_panel).with_style(TextCtrlStyle::ReadOnly | TextCtrlStyle::Centre).build();
 	pairing_code_display.set_font(&theme::Fonts::heading());
 
-	let pairing_announcer = StaticText::builder(&pairing_dialog).with_label("").build();
+	let pairing_announcer = StaticText::builder(&pairing_panel).with_label("").build();
 	live_region::set_live_region(&pairing_announcer);
 
 	let pairing_cancel_btn =
-		Button::builder(&pairing_dialog).with_id(wxdragon::id::ID_CANCEL).with_label("Cancel").build();
+		Button::builder(&pairing_panel).with_id(wxdragon::id::ID_CANCEL).with_label("Back to Phone Number Login").build();
 	pairing_cancel_btn.set_font(&theme::Fonts::body());
 	p_sizer.add(&pairing_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	p_sizer.add(&pairing_code_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	p_sizer.add(&pairing_announcer, 0, SizerFlag::Left, 0);
 	pairing_announcer.show(false);
 	p_sizer.add(&pairing_cancel_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
-	pairing_dialog.set_sizer(p_sizer, true);
+	pairing_panel.set_sizer(p_sizer, true);
+	pairing_panel.show(false);
 
-	let pairing_dlg_esc = pairing_dialog;
-	pairing_code_display.on_key_down(keys::escape_cancels(pairing_dlg_esc));
+	login_sizer.add(&phone_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	login_sizer.add(&qr_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	login_sizer.add(&pairing_panel, 1, SizerFlag::Expand | SizerFlag::All, 5);
+	login_panel.set_sizer(login_sizer, true);
+
+	let qrcode_dialog = login_panel;
+	let pairing_dialog = login_panel;
 
 	let new_conv_dialog = crate::ui::dialogs::new_conversation::build_new_conversation_dialog(&frame);
 	let new_contact_dialog = crate::ui::dialogs::new_contact::build_new_contact_dialog(&frame);
@@ -899,8 +986,6 @@ pub fn build_main_window() -> WindowParts {
 	frame.set_sizer(frame_sizer, true);
 
 	set_dialog_owner(&login_panel, &frame);
-	set_dialog_owner(&qrcode_dialog, &frame);
-	set_dialog_owner(&pairing_dialog, &frame);
 	set_dialog_owner(&new_conv_dialog.dialog, &frame);
 	set_dialog_owner(&new_contact_dialog.dialog, &frame);
 	set_dialog_owner(&poll_dialog.dialog, &frame);
@@ -921,9 +1006,12 @@ pub fn build_main_window() -> WindowParts {
 		main_panel,
 		nav_panel,
 		qrcode_dialog,
+		qrcode_instructions,
 		qrcode_display,
 		qrcode_announcer,
+		qrcode_reload_btn,
 		qrcode_cancel_btn,
+		qr_panel,
 		phone_panel,
 		country_combo,
 		phone_field,
@@ -933,6 +1021,7 @@ pub fn build_main_window() -> WindowParts {
 		pairing_code_display,
 		pairing_announcer,
 		pairing_cancel_btn,
+		pairing_panel,
 		new_conv_dialog,
 		new_contact_dialog,
 		poll_dialog,
@@ -976,29 +1065,60 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	let login_ctl = LoginControls::from_parts(parts);
+
 	let tx_qr = ui_tx.clone();
+	let login_ctl_qr = login_ctl;
+	let qr_instructions_switch = parts.qrcode_instructions;
+	let qr_reload_switch = parts.qrcode_reload_btn;
 	parts.switch_to_qr_btn.on_click(move |_| {
+		qr_instructions_switch.set_label("Loading QR Code...");
+		qr_reload_switch.show(false);
+		login_ctl_qr.switch_view(LoginView::Qr);
 		let _ = tx_qr.send(UiCommand::RequestQr);
 	});
 
-	let qr_dialog = parts.qrcode_dialog;
-	let login_from_qr = parts.login_panel;
+	let login_ctl_cancel_qr = login_ctl;
 	let tx_cancel_qr = ui_tx.clone();
+	let qr_instructions_cancel = parts.qrcode_instructions;
+	let qr_reload_cancel = parts.qrcode_reload_btn;
 	parts.qrcode_cancel_btn.on_click(move |_| {
-		qr_dialog.show(false);
-		login_from_qr.show(true);
-		login_from_qr.set_focus();
+		qr_instructions_cancel.set_label("Scan this QR Code with WhatsApp:");
+		qr_reload_cancel.show(false);
+		login_ctl_cancel_qr.switch_view(LoginView::Phone);
 		let _ = tx_cancel_qr.send(UiCommand::CancelQr);
 	});
 
-	let pairing_dialog = parts.pairing_dialog;
-	let login_from_pairing = parts.login_panel;
+	let tx_reload_qr = ui_tx.clone();
+	let qr_instructions_reload = parts.qrcode_instructions;
+	let qr_reload_self = parts.qrcode_reload_btn;
+	let login_p_reload = parts.login_panel;
+	parts.qrcode_reload_btn.on_click(move |_| {
+		qr_instructions_reload.set_label("Loading new QR Code...");
+		qr_reload_self.show(false);
+		login_p_reload.layout();
+		let _ = tx_reload_qr.send(UiCommand::RequestQr);
+	});
+
+	let login_ctl_cancel_p = login_ctl;
 	let tx_cancel_pairing = ui_tx.clone();
 	parts.pairing_cancel_btn.on_click(move |_| {
-		pairing_dialog.show(false);
-		login_from_pairing.show(true);
-		login_from_pairing.set_focus();
+		login_ctl_cancel_p.switch_view(LoginView::Phone);
 		let _ = tx_cancel_pairing.send(UiCommand::CancelPairing);
+	});
+
+	let login_ctl_esc_p = login_ctl;
+	let tx_esc_pairing = ui_tx.clone();
+	parts.pairing_code_display.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key) = event
+			&& keys::is_escape(key.get_key_code())
+		{
+			login_ctl_esc_p.switch_view(LoginView::Phone);
+			let _ = tx_esc_pairing.send(UiCommand::CancelPairing);
+			event.skip(false);
+			return;
+		}
+		event.skip(true);
 	});
 
 	let tx_send = ui_tx.clone();
@@ -1034,6 +1154,9 @@ pub fn bind_input_handlers(
 			announce_spelling.then_some(conv_parts_typing.messages_announcer),
 		);
 		crate::ui_commands::mentions::refresh(&state_typing, &conv_parts_typing);
+		if let Ok(s) = state_typing.try_borrow() {
+			crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_typing);
+		}
 		let text = msg_ctrl_typing.get_value();
 		// set_value() fires this too - restoring a chat's saved draft on open,
 		// or entering edit mode, is not the user typing, and mustn't tell the
@@ -2060,6 +2183,10 @@ pub fn bind_input_handlers(
 				Some(UiCommand::StartRecording)
 			} else if keymap.is_pressed(voice::PAUSE_RECORDING, key_event) {
 				Some(UiCommand::TogglePauseRecording)
+			} else if keymap.is_pressed(voice::TOGGLE_PREVIEW, key_event) {
+				Some(UiCommand::ToggleVoicePreview)
+			} else if keymap.is_pressed(voice::DISCARD, key_event) {
+				Some(UiCommand::DiscardVoiceMessage)
 			} else if keymap.is_pressed(voice::SEND, key_event) {
 				Some(UiCommand::SendVoiceMessage)
 			} else {
@@ -3320,7 +3447,9 @@ pub fn bind_input_handlers(
 				// which is why the composer's own on_key_down Escape
 				// handling for editing never actually ran before: this
 				// unconditional CloseConversation always won the race.
-				if state_hook.borrow().editing_message_id.is_some() {
+				if state_hook.borrow().is_voice_recording {
+					let _ = tx_escape_hook.send(UiCommand::DiscardRecording);
+				} else if state_hook.borrow().editing_message_id.is_some() {
 					let _ = tx_escape_hook.send(UiCommand::CancelEdit);
 				} else {
 					let _ = tx_escape_hook.send(UiCommand::CloseConversation);
@@ -3793,8 +3922,7 @@ pub fn bind_input_handlers(
 	let msgs_announcer = parts.conversations_parts.messages_announcer;
 	let msg_input_field = parts.conversations_parts.message_field;
 	let search_panel_key = parts.conversations_parts.search_panel;
-	let remove_quote_btn_play = parts.conversations_parts.remove_quote_btn;
-	let conv_panel_play = parts.conversations_parts.conversation_panel;
+	let conv_parts_play = parts.conversations_parts;
 	let _conv_panel_key = parts.conversations_parts.conversation_panel;
 	let last_left_arrow =
 		std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
@@ -3804,8 +3932,7 @@ pub fn bind_input_handlers(
 	let msgs_announcer_ctx = parts.conversations_parts.messages_announcer;
 	let msg_input_field_ctx = parts.conversations_parts.message_field;
 	let tx_play_media_ctx = ui_tx.clone();
-	let remove_quote_btn_ctx = parts.conversations_parts.remove_quote_btn;
-	let conv_panel_ctx = parts.conversations_parts.conversation_panel;
+	let conv_parts_ctx = parts.conversations_parts;
 
 	let state_copy = state.clone();
 	let tx_copy = ui_tx.clone();
@@ -3910,6 +4037,27 @@ pub fn bind_input_handlers(
 			let is_channel_chat = s.selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
 			drop(s);
 
+			let is_divider = match display_item.as_ref() {
+				Some(whatsnap::DisplayItem::Single(m)) => m.is_date_divider || m.is_unread_divider,
+				_ => false,
+			};
+			if is_divider || display_item.is_none() {
+				return;
+			}
+
+			let is_deleted = display_item.as_ref().map(|d| d.is_deleted()).unwrap_or(false);
+			let now = std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.unwrap_or_default()
+				.as_secs() as i64;
+			let can_edit = display_item
+				.as_ref()
+				.map(|item| match item {
+					whatsnap::DisplayItem::Single(m) => m.is_editable(now),
+					whatsnap::DisplayItem::Album { .. } => false,
+				})
+				.unwrap_or(false);
+
 			let reportable_id = display_item
 				.as_ref()
 				.and_then(|item| match item {
@@ -3926,7 +4074,7 @@ pub fn bind_input_handlers(
 			let is_starred = display_item
 				.as_ref()
 				.map(|item| match item {
-					whatsnap::DisplayItem::Single(m) => m.starred && !m.is_date_divider,
+					whatsnap::DisplayItem::Single(m) => m.starred && !m.is_date_divider && !m.is_deleted,
 					whatsnap::DisplayItem::Album { .. } => false,
 				})
 				.unwrap_or(false);
@@ -4019,45 +4167,52 @@ pub fn bind_input_handlers(
 
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder
-				.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard")
-				.append_item(reply_id, "&Reply", "Reply to message")
-				.append_item(forward_id, "&Forward...", "Forward message to another contact")
-				.append_item(edit_id, "&Edit", "Edit message")
-				.append_item(delete_id, "&Delete", "Delete message")
-				.append_item(react_dialog_id, "&React...", "React to message");
+				.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard");
+			if !is_deleted {
+				menu_builder = menu_builder
+					.append_item(reply_id, "&Reply", "Reply to message")
+					.append_item(forward_id, "&Forward...", "Forward message to another contact");
+				if can_edit {
+					menu_builder = menu_builder.append_item(edit_id, "&Edit", "Edit message");
+				}
+			}
+			menu_builder = menu_builder.append_item(delete_id, "&Delete", "Delete message");
+			if !is_deleted {
+				menu_builder = menu_builder.append_item(react_dialog_id, "&React...", "React to message");
+			}
 			let is_single_message =
-				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if !m.is_date_divider);
+				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if !m.is_date_divider && !m.is_deleted);
 			if is_single_message {
 				let star_label = if is_starred { "&Unstar" } else { "&Star" };
 				menu_builder = menu_builder.append_item(star_id, star_label, "Star or unstar this message");
 			}
-			if can_retry {
+			if can_retry && !is_deleted {
 				menu_builder = menu_builder.append_item(retry_id, "Retry &send", "Retry sending this message");
 			}
-			if is_unreadable {
+			if is_unreadable && !is_deleted {
 				menu_builder =
 					menu_builder.append_item(resend_id, "Re&quest again", "Ask your phone to send this message again");
 			}
-			if is_voice_msg {
+			if is_voice_msg && !is_deleted {
 				menu_builder =
 					menu_builder.append_item(save_voice_id, "&Save voice message...", "Save voice message to device");
 			}
 			let is_poll_msg =
 				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if m.is_poll() && !m.is_deleted);
-			if is_from_me || is_poll_msg {
+			if (is_from_me || is_poll_msg) && !is_deleted {
 				menu_builder =
 					menu_builder.append_item(info_id, "Message &Info", "View delivery info, or a poll's votes");
 			}
-			if is_photo_album {
+			if is_photo_album && !is_deleted {
 				menu_builder =
 					menu_builder.append_item(copy_all_id, "Copy all p&hotos", "Copy all photos to clipboard");
 			}
-			if phone_match.is_some() {
+			if phone_match.is_some() && !is_deleted {
 				menu_builder = menu_builder
 					.append_item(copy_number_id, "Copy Nu&mber", "Copy phone number to clipboard")
 					.append_item(message_number_id, "Message Num&ber", "Start a chat with this phone number");
 			}
-			if reportable_id.is_some() {
+			if reportable_id.is_some() && !is_deleted {
 				menu_builder = menu_builder.append_item(report_id, "Re&port...", "Report this message to WhatsApp");
 				if is_group_chat {
 					menu_builder = menu_builder.append_item(
@@ -4180,9 +4335,8 @@ pub fn bind_input_handlers(
 						let status_msg =
 							format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
 						crate::platform::announce::announce(msgs_announcer_clone, &status_msg);
+						crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_ctx);
 						msg_input_field_clone.set_focus();
-						remove_quote_btn_ctx.show(true);
-						conv_panel_ctx.layout();
 					}
 				} else if id == forward_id {
 					let s = state_clone.borrow();
@@ -4923,9 +5077,8 @@ pub fn bind_input_handlers(
 						let status_msg =
 							format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
 						crate::platform::announce::announce(msgs_announcer, &status_msg);
+						crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_play);
 						msg_input_field.set_focus();
-						remove_quote_btn_play.show(true);
-						conv_panel_play.layout();
 					}
 				}
 				event.skip(false);
@@ -5712,6 +5865,11 @@ pub fn bind_input_handlers(
 	let tx_pause = ui_tx.clone();
 	parts.conversations_parts.pause_resume_btn.on_click(move |_| {
 		let _ = tx_pause.send(UiCommand::TogglePauseRecording);
+	});
+
+	let tx_preview = ui_tx.clone();
+	parts.conversations_parts.preview_voice_btn.on_click(move |_| {
+		let _ = tx_preview.send(UiCommand::ToggleVoicePreview);
 	});
 
 	let tx_send_voice = ui_tx.clone();

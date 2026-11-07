@@ -89,8 +89,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			// focused field in one step - instead of landing on an empty frame
 			// behind it and needing focus force-shifted into the dialog.
 			parts.frame.show(false);
-			parts.pairing_dialog.show(false);
-			parts.qrcode_dialog.show(false);
+			crate::ui::window::switch_login_view(parts, crate::ui::window::LoginView::Phone);
 			parts.login_panel.show(true);
 			parts.login_panel.set_focus();
 			state.borrow_mut().main_ui_shown = false;
@@ -111,11 +110,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
 				parts.pairing_code_display.set_value(code);
 				println!("{{'data': {{'qrcode': {{'pairingCode': '{}'}}}}}}", code);
-				parts.login_panel.show(false);
-				parts.pairing_dialog.show(true);
-				parts.qrcode_dialog.show(false);
-				parts.pairing_code_display.select_all();
-				parts.pairing_code_display.set_focus();
+				crate::ui::window::switch_login_view(parts, crate::ui::window::LoginView::Pairing);
 				unsafe {
 					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 						windows::Win32::UI::WindowsAndMessaging::MB_OK,
@@ -131,6 +126,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if state.borrow().is_pairing_active {
 				return true;
 			}
+			parts.qrcode_instructions.set_label("Scan this QR Code with WhatsApp:");
+			parts.qrcode_reload_btn.show(false);
 			if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
 				if let Ok(qr) = qrcode::QrCode::new(code) {
 					let (width, height, data) = qr_rgba(&qr);
@@ -142,14 +139,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					if let Some(bitmap) = wxdragon::bitmap::Bitmap::from_rgba(&data, width, height) {
 						parts.qrcode_display.set_min_size(Size::new(width as i32, height as i32));
 						parts.qrcode_display.set_bitmap(&bitmap);
-						parts.qrcode_dialog.fit();
-						parts.qrcode_dialog.layout();
 					}
 				}
-				parts.login_panel.show(false);
-				parts.pairing_dialog.show(false);
-				parts.qrcode_dialog.show(true);
-				parts.qrcode_cancel_btn.set_focus();
+				crate::ui::window::switch_login_view(parts, crate::ui::window::LoginView::Qr);
 				unsafe {
 					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 						windows::Win32::UI::WindowsAndMessaging::MB_OK,
@@ -157,6 +149,16 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 				crate::platform::announce::announce(parts.qrcode_announcer, "QR code updated");
 			}
+		}
+		"qr_timeout" => {
+			parts.qrcode_instructions.set_label("QR Code expired. Click Reload to get a new code:");
+			parts.qrcode_reload_btn.show(true);
+			parts.qrcode_reload_btn.set_focus();
+			parts.login_panel.layout();
+			crate::platform::announce::announce(
+				parts.qrcode_announcer,
+				"QR code expired. Click Reload QR Code to try again.",
+			);
 		}
 		"error" => {
 			if let Some(msg) = val.get("data").and_then(|d| d.get("message")).and_then(|m| m.as_str()) {

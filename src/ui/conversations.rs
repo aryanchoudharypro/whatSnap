@@ -62,6 +62,7 @@ pub struct ConversationsPanelParts {
 
 	pub discard_voice_btn: Button,
 	pub pause_resume_btn: Button,
+	pub preview_voice_btn: Button,
 	pub view_once_voice_check: CheckBox,
 	pub send_voice_btn: Button,
 
@@ -134,6 +135,7 @@ pub fn set_recording_clock(clock: Option<RecordingClock>) {
 struct ComposerParts {
 	field: TextCtrl,
 	pause: Button,
+	preview: Button,
 	view_once: CheckBox,
 	send_voice: Button,
 }
@@ -148,7 +150,7 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 		return;
 	}
 	let panel_c = *conversation;
-	let ComposerParts { field: field_c, pause, view_once, send_voice } = parts;
+	let ComposerParts { field: field_c, pause, preview, view_once, send_voice } = parts;
 	let timer = Timer::new(&panel_c);
 	timer.on_tick(move |_| panel_c.refresh(false, None));
 	RECORDING_TICK.with(|t| *t.borrow_mut() = Some(timer));
@@ -169,12 +171,24 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 			dc.set_pen(bar, 1, PenStyle::Solid);
 			dc.draw_rectangle(0, top, size.width, height);
 			let Some(clock) = RECORDING.with(|r| r.get()) else { return };
-			let (left, mid) = (p.x + ps.width + 12, p.y + ps.height / 2);
+			let (sp, sps) = if preview.is_shown() {
+				(preview.get_position(), preview.get_size())
+			} else {
+				(p, ps)
+			};
+			let (left, mid) = (sp.x + sps.width + 12, p.y + ps.height / 2);
 			let paused = clock.paused_at.is_some();
+			let previewing = preview.is_shown() && preview.get_label().starts_with("Pause");
 			let secs = clock.elapsed().as_secs();
 			let blink = clock.elapsed().as_millis() / 500 % 2 == 0;
-			let dot = if paused { theme::Palette::TEXT_MUTED() } else { Colour::rgb(0xEA, 0x00, 0x38) };
-			if paused || blink {
+			let dot = if previewing {
+				theme::Palette::ACCENT()
+			} else if paused {
+				theme::Palette::TEXT_MUTED()
+			} else {
+				Colour::rgb(0xEA, 0x00, 0x38)
+			};
+			if paused || previewing || blink {
 				dc.set_brush(dot, BrushStyle::Solid);
 				dc.set_pen(dot, 1, PenStyle::Solid);
 				dc.draw_circle(left + 6, mid, 6);
@@ -182,7 +196,14 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 			dc.set_font(&theme::Fonts::body());
 			dc.set_text_foreground(theme::Palette::TEXT_PRIMARY());
 			dc.set_background_mode(BackgroundMode::Transparent);
-			let text = format!("{}:{:02}{}", secs / 60, secs % 60, if paused { "  Paused" } else { "" });
+			let status = if previewing {
+				"  Playing preview"
+			} else if paused {
+				"  Paused"
+			} else {
+				""
+			};
+			let text = format!("{}:{:02}{}", secs / 60, secs % 60, status);
 			let (tw, th) = dc.get_text_extent(&text);
 			dc.draw_text(&text, left + 20, mid - th / 2);
 			let grey = theme::Palette::WAVE();
@@ -774,6 +795,13 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	crate::ui::owner_draw::install_icon_button(&pause_resume_btn, composer_bg);
 	voice_toolbar_sizer.add(&pause_resume_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	pause_resume_btn.show(false);
+
+	let preview_voice_btn = Button::builder(&conversation_panel).with_label("Play preview").build();
+	preview_voice_btn.set_font(&theme::Fonts::body());
+	crate::ui::owner_draw::install_icon_button(&preview_voice_btn, composer_bg);
+	voice_toolbar_sizer.add(&preview_voice_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
+	preview_voice_btn.show(false);
+
 	voice_toolbar_sizer.add_stretch_spacer(1);
 
 	let view_once_voice_check = CheckBox::builder(&conversation_panel).with_label("View once").build();
@@ -796,6 +824,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		ComposerParts {
 			field: message_field,
 			pause: pause_resume_btn,
+			preview: preview_voice_btn,
 			view_once: view_once_voice_check,
 			send_voice: send_voice_btn,
 		},
@@ -858,6 +887,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 
 		discard_voice_btn,
 		pause_resume_btn,
+		preview_voice_btn,
 		view_once_voice_check,
 		send_voice_btn,
 		attachment_panel,

@@ -220,17 +220,59 @@ fn reaction_summary(msg: &whatsnap::ChatMessage) -> String {
 	}
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Face {
 	Body,
 	Bold,
+	Italic,
+	BoldItalic,
+	Mono,
+	MonoBold,
+	Strike,
+	StrikeBold,
+	StrikeItalic,
+	StrikeBoldItalic,
+	StrikeMono,
 	Small,
+}
+
+impl Face {
+	fn from_style(style: whatsnap::TextStyle) -> Self {
+		match (style.mono, style.bold, style.italic, style.strike) {
+			(true, true, _, _) => Face::MonoBold,
+			(true, false, _, true) => Face::StrikeMono,
+			(true, false, _, false) => Face::Mono,
+			(false, true, true, true) => Face::StrikeBoldItalic,
+			(false, true, true, false) => Face::BoldItalic,
+			(false, true, false, true) => Face::StrikeBold,
+			(false, true, false, false) => Face::Bold,
+			(false, false, true, true) => Face::StrikeItalic,
+			(false, false, true, false) => Face::Italic,
+			(false, false, false, true) => Face::Strike,
+			(false, false, false, false) => Face::Body,
+		}
+	}
+}
+
+#[derive(Clone, Debug, Default)]
+struct FormattedLine {
+	spans: Vec<whatsnap::StyledSpan>,
+	width: i32,
 }
 
 struct Fonts {
 	base: (i32, String),
 	body: Font,
 	bold: Font,
+	italic: Font,
+	bold_italic: Font,
+	mono: Font,
+	mono_bold: Font,
+	strike: Font,
+	strike_bold: Font,
+	strike_italic: Font,
+	strike_bold_italic: Font,
+	strike_mono: Font,
 	small: Font,
 	icons: Option<Font>,
 	icons_small: Option<Font>,
@@ -244,6 +286,15 @@ impl Fonts {
 		match face {
 			Face::Body => &self.body,
 			Face::Bold => &self.bold,
+			Face::Italic => &self.italic,
+			Face::BoldItalic => &self.bold_italic,
+			Face::Mono => &self.mono,
+			Face::MonoBold => &self.mono_bold,
+			Face::Strike => &self.strike,
+			Face::StrikeBold => &self.strike_bold,
+			Face::StrikeItalic => &self.strike_italic,
+			Face::StrikeBoldItalic => &self.strike_bold_italic,
+			Face::StrikeMono => &self.strike_mono,
 			Face::Small => &self.small,
 		}
 	}
@@ -282,54 +333,150 @@ impl Fonts {
 		if out.is_empty() { out } else { out + "…" }
 	}
 
-	fn wrap(&self, dc: &impl DeviceContext, face: Face, text: &str, first_max: i32, max: i32) -> Vec<String> {
-		let mut lines: Vec<String> = Vec::new();
-		for paragraph in text.split('\n') {
-			let paragraph = paragraph.trim_end_matches('\r');
-			let mut line = String::new();
-			let mut line_w = 0;
-			let room = |lines: &Vec<String>| if lines.is_empty() { first_max } else { max };
-			for word in paragraph.split_inclusive(' ') {
-				let word_w = self.width(dc, face, word);
-				let trimmed_w = word_w - if word.ends_with(' ') { self.char_width(dc, face, ' ') } else { 0 };
-				if line_w + trimmed_w <= room(&lines) {
-					line.push_str(word);
-					line_w += word_w;
+	fn wrap_formatted(&self, dc: &impl DeviceContext, text: &str, first_max: i32, max: i32) -> Vec<FormattedLine> {
+		let mut lines: Vec<FormattedLine> = Vec::new();
+		let mut in_code_fence = false;
+
+		for raw_line in text.split('\n') {
+			let raw_line = raw_line.trim_end_matches('\r');
+			let trimmed = raw_line.trim();
+
+			if trimmed.starts_with("```") {
+				if trimmed.len() >= 6 && trimmed.ends_with("```") {
+					let code_text = trimmed[3..trimmed.len() - 3].trim();
+					let spans = vec![whatsnap::StyledSpan {
+						text: code_text.to_string(),
+						style: whatsnap::TextStyle::mono(),
+					}];
+					self.wrap_spans_into_lines(dc, spans, &mut lines, first_max, max);
 					continue;
 				}
-				if !line.is_empty() {
-					lines.push(std::mem::take(&mut line).trim_end().to_string());
-					line_w = 0;
-				}
-				if trimmed_w <= room(&lines) {
-					line.push_str(word);
-					line_w = word_w;
-					continue;
-				}
-				// A word longer than a line breaks where it must.
-				for c in word.chars() {
-					let w = self.char_width(dc, face, c);
-					if line_w + w > room(&lines) && !line.is_empty() {
-						lines.push(std::mem::take(&mut line));
-						line_w = 0;
-					}
-					line.push(c);
-					line_w += w;
-				}
+				in_code_fence = !in_code_fence;
+				continue;
 			}
-			lines.push(line.trim_end().to_string());
+
+			let spans = if in_code_fence {
+				vec![whatsnap::StyledSpan {
+					text: raw_line.to_string(),
+					style: whatsnap::TextStyle::mono(),
+				}]
+			} else {
+				whatsnap::parse_markdown_spans(raw_line)
+			};
+
+			self.wrap_spans_into_lines(dc, spans, &mut lines, first_max, max);
 			if lines.len() > MAX_LINES {
 				break;
 			}
 		}
+
 		if lines.len() > MAX_LINES {
 			lines.truncate(MAX_LINES);
 			if let Some(last) = lines.last_mut() {
-				let cut = self.fit(dc, face, &(last.clone() + " …………"), max);
-				*last = cut;
+				if let Some(last_span) = last.spans.last_mut() {
+					last_span.text.push_str(" …");
+				} else {
+					last.spans.push(whatsnap::StyledSpan {
+						text: "…".to_string(),
+						style: whatsnap::TextStyle::default(),
+					});
+				}
+				last.width = last.spans.iter().map(|s| self.width(dc, Face::from_style(s.style), &s.text)).sum();
 			}
 		}
+
 		lines
+	}
+
+	fn wrap_spans_into_lines(
+		&self,
+		dc: &impl DeviceContext,
+		spans: Vec<whatsnap::StyledSpan>,
+		lines: &mut Vec<FormattedLine>,
+		first_max: i32,
+		max: i32,
+	) {
+		let room = |lines: &Vec<FormattedLine>| if lines.is_empty() { first_max } else { max };
+		let mut current_spans: Vec<whatsnap::StyledSpan> = Vec::new();
+		let mut current_w = 0;
+
+		let push_span_text = |spans: &mut Vec<whatsnap::StyledSpan>, text: &str, style: whatsnap::TextStyle| {
+			if text.is_empty() {
+				return;
+			}
+			if let Some(last) = spans.last_mut()
+				&& last.style == style
+			{
+				last.text.push_str(text);
+			} else {
+				spans.push(whatsnap::StyledSpan { text: text.to_string(), style });
+			}
+		};
+
+		let trim_end_spans = |spans: &mut Vec<whatsnap::StyledSpan>| {
+			if let Some(last) = spans.last_mut() {
+				let trimmed = last.text.trim_end();
+				if trimmed.len() < last.text.len() {
+					last.text = trimmed.to_string();
+				}
+				if last.text.is_empty() {
+					spans.pop();
+				}
+			}
+		};
+
+		for span in spans {
+			let face = Face::from_style(span.style);
+			for word in span.text.split_inclusive(' ') {
+				let word_w = self.width(dc, face, word);
+				let trimmed_w = word_w - if word.ends_with(' ') { self.char_width(dc, face, ' ') } else { 0 };
+
+				if current_w + trimmed_w <= room(lines) {
+					push_span_text(&mut current_spans, word, span.style);
+					current_w += word_w;
+					continue;
+				}
+
+				if !current_spans.is_empty() {
+					trim_end_spans(&mut current_spans);
+					let w = current_spans.iter().map(|s| self.width(dc, Face::from_style(s.style), &s.text)).sum();
+					lines.push(FormattedLine { spans: std::mem::take(&mut current_spans), width: w });
+					current_w = 0;
+				}
+
+				if trimmed_w <= room(lines) {
+					push_span_text(&mut current_spans, word, span.style);
+					current_w = word_w;
+					continue;
+				}
+
+				// Word longer than a line breaks where it must
+				for c in word.chars() {
+					let w = self.char_width(dc, face, c);
+					if current_w + w > room(lines) && !current_spans.is_empty() {
+						trim_end_spans(&mut current_spans);
+						let line_w = current_spans.iter().map(|s| self.width(dc, Face::from_style(s.style), &s.text)).sum();
+						lines.push(FormattedLine { spans: std::mem::take(&mut current_spans), width: line_w });
+						current_w = 0;
+					}
+					push_span_text(&mut current_spans, &c.to_string(), span.style);
+					current_w += w;
+				}
+			}
+		}
+
+		trim_end_spans(&mut current_spans);
+		let final_w = current_spans.iter().map(|s| self.width(dc, Face::from_style(s.style), &s.text)).sum();
+		lines.push(FormattedLine { spans: current_spans, width: final_w });
+	}
+
+	#[allow(dead_code)]
+	fn wrap(&self, dc: &impl DeviceContext, _face: Face, text: &str, first_max: i32, max: i32) -> Vec<String> {
+		let formatted = self.wrap_formatted(dc, text, first_max, max);
+		formatted
+			.into_iter()
+			.map(|fl| fl.spans.into_iter().map(|s| s.text).collect())
+			.collect()
 	}
 }
 
@@ -343,8 +490,24 @@ pub(crate) fn icon_face() -> Option<&'static str> {
 fn make_fonts(dc: &impl DeviceContext, base: &Font) -> Fonts {
 	let size = base.get_point_size().max(6);
 	let face = base.get_face_name();
-	let with = |points: i32, weight: FontWeight| {
-		Font::builder().with_point_size(points.max(5)).with_weight(weight).with_face_name(&face).build()
+	let with_style = |points: i32, weight: FontWeight, style: wxdragon::font::FontStyle, strike: bool, custom_face: Option<&str>| {
+		let builder = Font::builder()
+			.with_point_size(points.max(5))
+			.with_weight(weight)
+			.with_style(style)
+			.with_strikethrough(strike);
+		if let Some(cf) = custom_face {
+			builder.with_face_name(cf).build()
+		} else {
+			builder.with_face_name(&face).build()
+		}
+	};
+	let mono_face = if super::gdi::face_installed("Consolas") {
+		Some("Consolas")
+	} else if super::gdi::face_installed("Courier New") {
+		Some("Courier New")
+	} else {
+		None
 	};
 	let icon = |points: i32| {
 		icon_face().and_then(|f| Font::builder().with_point_size(points.max(5)).with_face_name(f).build())
@@ -353,8 +516,28 @@ fn make_fonts(dc: &impl DeviceContext, base: &Font) -> Fonts {
 	Fonts {
 		base: (size, face.clone()),
 		body: base.clone(),
-		bold: with(size, FontWeight::SemiBold).unwrap_or_else(|| base.clone()),
-		small: with(size - 2, FontWeight::Normal).unwrap_or_else(|| base.clone()),
+		bold: with_style(size, FontWeight::SemiBold, wxdragon::font::FontStyle::Normal, false, None)
+			.unwrap_or_else(|| base.clone()),
+		italic: with_style(size, FontWeight::Normal, wxdragon::font::FontStyle::Italic, false, None)
+			.unwrap_or_else(|| base.clone()),
+		bold_italic: with_style(size, FontWeight::SemiBold, wxdragon::font::FontStyle::Italic, false, None)
+			.unwrap_or_else(|| base.clone()),
+		mono: with_style(size - 1, FontWeight::Normal, wxdragon::font::FontStyle::Normal, false, mono_face)
+			.unwrap_or_else(|| base.clone()),
+		mono_bold: with_style(size - 1, FontWeight::SemiBold, wxdragon::font::FontStyle::Normal, false, mono_face)
+			.unwrap_or_else(|| base.clone()),
+		strike: with_style(size, FontWeight::Normal, wxdragon::font::FontStyle::Normal, true, None)
+			.unwrap_or_else(|| base.clone()),
+		strike_bold: with_style(size, FontWeight::SemiBold, wxdragon::font::FontStyle::Normal, true, None)
+			.unwrap_or_else(|| base.clone()),
+		strike_italic: with_style(size, FontWeight::Normal, wxdragon::font::FontStyle::Italic, true, None)
+			.unwrap_or_else(|| base.clone()),
+		strike_bold_italic: with_style(size, FontWeight::SemiBold, wxdragon::font::FontStyle::Italic, true, None)
+			.unwrap_or_else(|| base.clone()),
+		strike_mono: with_style(size - 1, FontWeight::Normal, wxdragon::font::FontStyle::Normal, true, mono_face)
+			.unwrap_or_else(|| base.clone()),
+		small: with_style(size - 2, FontWeight::Normal, wxdragon::font::FontStyle::Normal, false, None)
+			.unwrap_or_else(|| base.clone()),
 		icons: icon(size),
 		icons_small: icon(size - 2),
 		icons_big: icon(size * 2),
@@ -401,7 +584,7 @@ struct Layout {
 	thumb_w: i32,
 	thumb_h: i32,
 	voice_h: i32,
-	lines: Vec<String>,
+	lines: Vec<FormattedLine>,
 	icon_w: i32,
 	meta: String,
 	meta_w: i32,
@@ -453,9 +636,9 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 	let lines = if b.voice.is_some() || b.body.is_empty() {
 		Vec::new()
 	} else {
-		fonts.wrap(dc, Face::Body, &b.body, text_max - icon_w, text_max)
+		fonts.wrap_formatted(dc, &b.body, text_max - icon_w, text_max)
 	};
-	let line_widths: Vec<i32> = lines.iter().map(|l| fonts.width(dc, Face::Body, l)).collect();
+	let line_widths: Vec<i32> = lines.iter().map(|l| l.width).collect();
 	let widest = line_widths.iter().enumerate().map(|(i, w)| if i == 0 { w + icon_w } else { *w }).max().unwrap_or(0);
 	let last_w = match line_widths.len() {
 		0 => 0,
@@ -864,7 +1047,7 @@ fn draw_bubble(
 	}
 
 	let text_x = if l.thumb_h > 0 { x + 4 + 4 } else { inner_x };
-	for (i, text) in l.lines.iter().enumerate() {
+	for (i, formatted_line) in l.lines.iter().enumerate() {
 		let mut lx = text_x;
 		if i == 0
 			&& let (Some(g), Some(font)) = (b.icon, &fonts.icons)
@@ -877,9 +1060,14 @@ fn draw_bubble(
 			dc.draw_text(&g, lx, y + (line - gh) / 2);
 			lx += l.icon_w;
 		}
-		dc.set_font(&fonts.body);
-		dc.set_text_foreground(c.text);
-		dc.draw_text(text, lx, y);
+		for span in &formatted_line.spans {
+			let face = Face::from_style(span.style);
+			let font = fonts.font(face);
+			dc.set_font(font);
+			dc.set_text_foreground(c.text);
+			dc.draw_text(&span.text, lx, y);
+			lx += fonts.width(dc, face, &span.text);
+		}
 		y += line;
 	}
 
@@ -1125,5 +1313,11 @@ mod tests {
 	#[test]
 	fn a_person_keeps_their_name_colour() {
 		assert_eq!(name_colour("1@s.whatsapp.net"), name_colour("1@s.whatsapp.net"));
+	}
+
+	#[test]
+	fn a_markdown_message_keeps_its_body_for_art() {
+		let Look::Bubble(b) = look_for(&msg("Hello *world* and `code`", "", false), false) else { panic!() };
+		assert_eq!(b.body, "Hello *world* and `code`");
 	}
 }
