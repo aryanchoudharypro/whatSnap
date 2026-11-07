@@ -76,7 +76,7 @@ To unlink this computer, use `Account -> Log Out`. Log Out has no shortcut, so y
 ## Several Accounts
 You can link more than one WhatsApp account, for example a personal and a work number. Use `Account -> Accounts...` (`Ctrl+Shift+A`). The `Linked accounts` list shows each account by its name and number, which one is on screen, and how many unread chats the others have.
 
-- To show another account, select it and press `Enter`, or press `Switch`. The window empties and fills in again with that account's chats. Drafts you haven't sent stay with their account.
+- To show another account, select it and press `Enter`, or press `Switch`. The `Switch` button is only there when the selected account isn't the one on screen. The window empties and fills in again with that account's chats. Drafts you haven't sent stay with their account.
 - To add an account, press `Add Account...`. whatSnap shows the login window, and you link the new phone the same way as the first one. If you close the login window instead, whatSnap goes back to the account you were using.
 - To give an account your own name, like Work, press `Rename...`. Leave the name empty to use the account's WhatsApp name.
 - To choose how an account alerts you while another one is on screen, press `Notifications...`. For messages, choose notification and sound, notification only, sound only, or off. For calls, choose to switch to the account and ring, a notification only, or off. Each chat's own notification settings still count, and the account on screen always uses the normal settings.

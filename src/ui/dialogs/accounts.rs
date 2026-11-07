@@ -75,6 +75,21 @@ pub fn show(parent: &impl WxWidget, rows: &[AccountRow], active: &str, focus: Op
 	}
 
 	let ids: Rc<Vec<String>> = Rc::new(rows.iter().map(|r| r.id.clone()).collect());
+	// Switch is only there for an account that isn't on screen, so Tab never
+	// stops on a button that would do nothing.
+	let update_switch = {
+		let ids = ids.clone();
+		let active = active.to_string();
+		move || {
+			let other = list.get_selection().and_then(|i| ids.get(i as usize)).is_some_and(|id| *id != active);
+			if switch_btn.is_shown() != other {
+				switch_btn.show(other);
+				panel.layout();
+			}
+		}
+	};
+	update_switch();
+	list.on_selection_changed(move |_| update_switch());
 	// 0 none, 1 switch, 2 add, 3 rename, 4 remove, 5 notifications
 	let choice = Rc::new(Cell::new(0u8));
 	let chosen_index = Rc::new(Cell::new(None::<usize>));
