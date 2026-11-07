@@ -597,6 +597,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							s.display_names.get(group_jid).or_else(|| s.contacts.get(group_jid)).cloned()
 						});
 					let is_video = data.get("is_video").and_then(|v| v.as_bool()).unwrap_or(false);
+					s.call_last_target = Some((chat_jid.unwrap_or(caller).to_string(), is_video));
 					let description = incoming_call_description(is_group, is_video, &name, group_name.as_deref());
 					s.call_video = CallVideo {
 						is_video,

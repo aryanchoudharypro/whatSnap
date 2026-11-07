@@ -1590,7 +1590,14 @@ pub fn bind_input_handlers(
 				secs,
 				is_reconnecting,
 			);
-			call_caller_info.set_value(&running_info);
+			// Rewriting the read-only box every second would reset a screen
+			// reader's caret while the user reads it, so refresh it only every
+			// 30 seconds and keep the caret where it was.
+			if secs % 30 == 0 && call_caller_info.get_value() != running_info {
+				let caret = call_caller_info.get_insertion_point();
+				call_caller_info.set_value(&running_info);
+				call_caller_info.set_insertion_point(caret);
+			}
 
 			let win_title = crate::calls::helpers::format_call_window_title(
 				is_incoming,

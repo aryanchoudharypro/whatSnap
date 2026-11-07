@@ -284,6 +284,9 @@ struct AppState {
 	call_is_incoming: bool,
 	call_peer_name: String,
 	call_peer_is_saved: bool,
+	/// Who the last call we placed went to and whether it was video, for
+	/// "Call back" after the call has ended and its state was reset.
+	call_last_target: Option<(String, bool)>,
 	call_self_phone: String,
 	call_participants: Vec<CallParticipant>,
 	call_video: CallVideo,
@@ -892,6 +895,7 @@ pub(crate) fn new_app_state(
 		call_is_incoming: false,
 		call_peer_name: String::new(),
 		call_peer_is_saved: false,
+		call_last_target: None,
 		call_self_phone: String::new(),
 		call_participants: Vec::new(),
 		call_video: CallVideo::default(),

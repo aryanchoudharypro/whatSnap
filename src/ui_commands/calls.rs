@@ -270,6 +270,7 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 		)
 	};
 	s.call_is_incoming = false;
+	s.call_last_target = Some((jid.clone(), video));
 	s.call_peer_name = name.clone();
 	s.call_start_muted = s.settings.call_start_muted;
 	s.call_connected_segment_start = None;
@@ -551,19 +552,10 @@ pub(crate) fn restore_incoming_call(_state: &Rc<RefCell<AppState>>, parts: &Rc<W
 }
 
 pub(crate) fn redial_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let s = state.borrow();
-	let jid = s.selected_chat.clone().or_else(|| {
-		if !s.call_peer_name.is_empty() {
-			s.contacts.iter().find(|(_, name)| **name == s.call_peer_name).map(|(j, _)| j.clone())
-		} else {
-			None
-		}
-	});
-	let is_video = s.call_video.video_call;
-	drop(s);
+	let target = state.borrow().call_last_target.clone();
 	parts.call_parts.callback_btn.show(false);
 	parts.call_parts.close_btn.show(false);
-	if let Some(jid) = jid {
+	if let Some((jid, is_video)) = target {
 		dial(state, parts, jid, is_video);
 	}
 }
