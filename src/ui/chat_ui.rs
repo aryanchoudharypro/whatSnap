@@ -253,8 +253,11 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 			cp.record_voice_btn.show(show_voice);
 			changed = true;
 		}
+		// The box is named "Replying to Name" only: the quoted text was
+		// already announced, and a long message or link as the field's name
+		// is read out every time it gets focus.
 		let target_label = if let Some(ref preview) = s.pending_reply_preview {
-			preview.as_str()
+			preview.split_once(": ").map_or(preview.as_str(), |(who, _)| who)
 		} else {
 			group_send_block_reason(s, jid).unwrap_or("Type a message")
 		};
