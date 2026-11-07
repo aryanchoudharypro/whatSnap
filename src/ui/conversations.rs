@@ -176,11 +176,7 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 			dc.set_pen(bar, 1, PenStyle::Solid);
 			dc.draw_rectangle(0, top, size.width, height);
 			let Some(clock) = RECORDING.with(|r| r.get()) else { return };
-			let (sp, sps) = if preview.is_shown() {
-				(preview.get_position(), preview.get_size())
-			} else {
-				(p, ps)
-			};
+			let (sp, sps) = if preview.is_shown() { (preview.get_position(), preview.get_size()) } else { (p, ps) };
 			let (left, mid) = (sp.x + sps.width + 12, p.y + ps.height / 2);
 			let paused = clock.paused_at.is_some();
 			let previewing = preview.is_shown() && preview.get_label().starts_with("Pause");

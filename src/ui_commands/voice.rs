@@ -78,19 +78,13 @@ pub(crate) fn toggle_voice_preview(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 			sink.pause();
 			s.is_voice_preview_playing = false;
 			parts.conversations_parts.preview_voice_btn.set_label("Play preview");
-			crate::platform::announce::announce(
-				parts.conversations_parts.messages_announcer,
-				"Voice preview paused.",
-			);
+			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Voice preview paused.");
 			return;
 		} else {
 			sink.play();
 			s.is_voice_preview_playing = true;
 			parts.conversations_parts.preview_voice_btn.set_label("Pause preview");
-			crate::platform::announce::announce(
-				parts.conversations_parts.messages_announcer,
-				"Playing voice preview.",
-			);
+			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Playing voice preview.");
 			return;
 		}
 	}
@@ -121,10 +115,7 @@ pub(crate) fn toggle_voice_preview(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 			s.voice_preview_sink = Some(sink);
 			s.is_voice_preview_playing = true;
 			parts.conversations_parts.preview_voice_btn.set_label("Pause preview");
-			crate::platform::announce::announce(
-				parts.conversations_parts.messages_announcer,
-				"Playing voice preview.",
-			);
+			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Playing voice preview.");
 		}
 	}
 }

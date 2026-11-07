@@ -4,7 +4,7 @@ pub mod markdown;
 pub mod phone;
 mod phone_data;
 pub use local_time::{Date, LocalTime};
-pub use markdown::{coalesce_spans, parse_markdown_spans, strip_markdown_for_speech, StyledSpan, TextStyle};
+pub use markdown::{StyledSpan, TextStyle, coalesce_spans, parse_markdown_spans, strip_markdown_for_speech};
 
 fn is_placeholder_name(name: &str) -> bool {
 	name.is_empty() || name == "[]"
@@ -202,7 +202,9 @@ pub fn friendly_preview_text(text: &str) -> String {
 		"[Location]" => "Location".to_string(),
 		"[Message deleted]" => "This message was deleted".to_string(),
 		"[Unsupported Message]" => "Message".to_string(),
-		_ => text.to_string(),
+		// Shown without *bold* / _italic_ markers, like WhatsApp Web's
+		// previews and notifications.
+		_ => strip_markdown_for_speech(text),
 	}
 }
 

@@ -830,8 +830,7 @@ pub fn build_main_window() -> WindowParts {
 	let qr_panel = Panel::builder(&login_panel).build();
 	theme::style_content(&qr_panel);
 	let qr_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let qrcode_instructions =
-		StaticText::builder(&qr_panel).with_label("Scan this QR Code with WhatsApp:").build();
+	let qrcode_instructions = StaticText::builder(&qr_panel).with_label("Scan this QR Code with WhatsApp:").build();
 	theme::style_heading(&qrcode_instructions);
 	let empty_bitmap = wxdragon::bitmap::Bitmap::from_rgba(&[255, 255, 255, 255], 1, 1).unwrap();
 	let qrcode_display = StaticBitmap::builder(&qr_panel)
@@ -843,8 +842,7 @@ pub fn build_main_window() -> WindowParts {
 	live_region::set_live_region(&qrcode_announcer);
 	theme::style_muted_label(&qrcode_announcer);
 
-	let qrcode_reload_btn =
-		Button::builder(&qr_panel).with_label("Reload QR Code").build();
+	let qrcode_reload_btn = Button::builder(&qr_panel).with_label("Reload QR Code").build();
 	theme::style_primary_button(&qrcode_reload_btn);
 	qrcode_reload_btn.show(false);
 
@@ -909,8 +907,10 @@ pub fn build_main_window() -> WindowParts {
 	let pairing_announcer = StaticText::builder(&pairing_panel).with_label("").build();
 	live_region::set_live_region(&pairing_announcer);
 
-	let pairing_cancel_btn =
-		Button::builder(&pairing_panel).with_id(wxdragon::id::ID_CANCEL).with_label("Back to Phone Number Login").build();
+	let pairing_cancel_btn = Button::builder(&pairing_panel)
+		.with_id(wxdragon::id::ID_CANCEL)
+		.with_label("Back to Phone Number Login")
+		.build();
 	pairing_cancel_btn.set_font(&theme::Fonts::body());
 	p_sizer.add(&pairing_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	p_sizer.add(&pairing_code_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
@@ -1071,10 +1071,12 @@ pub fn bind_input_handlers(
 	let qr_instructions_reload = parts.qrcode_instructions;
 	let qr_reload_self = parts.qrcode_reload_btn;
 	let login_p_reload = parts.login_panel;
+	let qr_cancel_reload = parts.qrcode_cancel_btn;
 	parts.qrcode_reload_btn.on_click(move |_| {
 		qr_instructions_reload.set_label("Loading new QR Code...");
 		qr_reload_self.show(false);
 		login_p_reload.layout();
+		qr_cancel_reload.set_focus();
 		let _ = tx_reload_qr.send(UiCommand::RequestQr);
 	});
 
@@ -1085,18 +1087,34 @@ pub fn bind_input_handlers(
 		let _ = tx_cancel_pairing.send(UiCommand::CancelPairing);
 	});
 
-	let login_ctl_esc_p = login_ctl;
-	let tx_esc_pairing = ui_tx.clone();
-	parts.pairing_code_display.on_key_down(move |event| {
-		if let WindowEventData::Keyboard(ref key) = event
+	// One login window holds the phone, QR and pairing views, so Escape goes
+	// back to the phone number view from the other two (and cancels that
+	// attempt) instead of closing the window.
+	let login_ctl_esc = login_ctl;
+	let tx_esc_login = ui_tx.clone();
+	let qr_instructions_esc = parts.qrcode_instructions;
+	let qr_reload_esc = parts.qrcode_reload_btn;
+	parts.login_panel.bind_internal(EventType::CHAR_HOOK, move |event| {
+		let data = WindowEventData::new(event);
+		if let WindowEventData::Keyboard(ref key) = data
 			&& keys::is_escape(key.get_key_code())
 		{
-			login_ctl_esc_p.switch_view(LoginView::Phone);
-			let _ = tx_esc_pairing.send(UiCommand::CancelPairing);
-			event.skip(false);
-			return;
+			if login_ctl_esc.qr_panel.is_shown() {
+				qr_instructions_esc.set_label("Scan this QR Code with WhatsApp:");
+				qr_reload_esc.show(false);
+				login_ctl_esc.switch_view(LoginView::Phone);
+				let _ = tx_esc_login.send(UiCommand::CancelQr);
+				data.skip(false);
+				return;
+			}
+			if login_ctl_esc.pairing_panel.is_shown() {
+				login_ctl_esc.switch_view(LoginView::Phone);
+				let _ = tx_esc_login.send(UiCommand::CancelPairing);
+				data.skip(false);
+				return;
+			}
 		}
-		event.skip(true);
+		data.skip(true);
 	});
 
 	let tx_send = ui_tx.clone();
@@ -4024,10 +4042,8 @@ pub fn bind_input_handlers(
 			}
 
 			let is_deleted = display_item.as_ref().map(|d| d.is_deleted()).unwrap_or(false);
-			let now = std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH)
-				.unwrap_or_default()
-				.as_secs() as i64;
+			let now =
+				std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 			let can_edit = display_item
 				.as_ref()
 				.map(|item| match item {
@@ -4144,12 +4160,13 @@ pub fn bind_input_handlers(
 			});
 
 			let mut menu_builder = Menu::builder();
-			menu_builder = menu_builder
-				.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard");
+			menu_builder = menu_builder.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard");
 			if !is_deleted {
-				menu_builder = menu_builder
-					.append_item(reply_id, "&Reply", "Reply to message")
-					.append_item(forward_id, "&Forward...", "Forward message to another contact");
+				menu_builder = menu_builder.append_item(reply_id, "&Reply", "Reply to message").append_item(
+					forward_id,
+					"&Forward...",
+					"Forward message to another contact",
+				);
 				if can_edit {
 					menu_builder = menu_builder.append_item(edit_id, "&Edit", "Edit message");
 				}
@@ -4158,8 +4175,7 @@ pub fn bind_input_handlers(
 			if !is_deleted {
 				menu_builder = menu_builder.append_item(react_dialog_id, "&React...", "React to message");
 			}
-			let is_single_message =
-				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if !m.is_date_divider && !m.is_deleted);
+			let is_single_message = matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if !m.is_date_divider && !m.is_deleted);
 			if is_single_message {
 				let star_label = if is_starred { "&Unstar" } else { "&Star" };
 				menu_builder = menu_builder.append_item(star_id, star_label, "Star or unstar this message");

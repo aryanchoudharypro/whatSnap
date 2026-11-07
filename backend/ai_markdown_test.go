@@ -8,7 +8,7 @@ func TestAIMarkdownToPlain(t *testing.T) {
 		"- Went to [Accessible Diabetes Tracker](https://www.jjhof.com/adt)": "- Went to Accessible Diabetes Tracker (https://www.jjhof.com/adt)",
 		"[https://x.com](https://x.com)":                                     "https://x.com",
 		"* **bold** and `code`":                                              "- *bold* and `code`",
-		"| a | b |\n|---|---|\n| 1 | 2 |":                                    "a | b\n1 | 2",
+		"| a | b |\n|---|---|\n| 1 | 2 |":                                    "a, b\n1, 2",
 		"```go\nx := 1\n```":                                                 "```\nx := 1\n```",
 		"a\n---\nb \\*c\\*":                                                  "a\nb *c*",
 	}

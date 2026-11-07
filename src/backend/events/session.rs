@@ -141,7 +141,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.qrcode_display.set_bitmap(&bitmap);
 					}
 				}
-				crate::ui::window::switch_login_view(parts, crate::ui::window::LoginView::Qr);
+				// Each new code only swaps the picture: switching views again
+				// would re-centre the window and pull focus every 20 seconds.
+				if !parts.qr_panel.is_shown() {
+					crate::ui::window::switch_login_view(parts, crate::ui::window::LoginView::Qr);
+				} else {
+					parts.login_panel.layout();
+				}
 				unsafe {
 					let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 						windows::Win32::UI::WindowsAndMessaging::MB_OK,
@@ -151,6 +157,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			}
 		}
 		"qr_timeout" => {
+			if state.borrow().is_pairing_active || !parts.qr_panel.is_shown() {
+				return true;
+			}
 			parts.qrcode_instructions.set_label("QR Code expired. Click Reload to get a new code:");
 			parts.qrcode_reload_btn.show(true);
 			parts.qrcode_reload_btn.set_focus();

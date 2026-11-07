@@ -344,10 +344,8 @@ impl Fonts {
 			if trimmed.starts_with("```") {
 				if trimmed.len() >= 6 && trimmed.ends_with("```") {
 					let code_text = trimmed[3..trimmed.len() - 3].trim();
-					let spans = vec![whatsnap::StyledSpan {
-						text: code_text.to_string(),
-						style: whatsnap::TextStyle::mono(),
-					}];
+					let spans =
+						vec![whatsnap::StyledSpan { text: code_text.to_string(), style: whatsnap::TextStyle::mono() }];
 					self.wrap_spans_into_lines(dc, spans, &mut lines, first_max, max);
 					continue;
 				}
@@ -356,10 +354,7 @@ impl Fonts {
 			}
 
 			let spans = if in_code_fence {
-				vec![whatsnap::StyledSpan {
-					text: raw_line.to_string(),
-					style: whatsnap::TextStyle::mono(),
-				}]
+				vec![whatsnap::StyledSpan { text: raw_line.to_string(), style: whatsnap::TextStyle::mono() }]
 			} else {
 				whatsnap::parse_markdown_spans(raw_line)
 			};
@@ -376,10 +371,8 @@ impl Fonts {
 				if let Some(last_span) = last.spans.last_mut() {
 					last_span.text.push_str(" …");
 				} else {
-					last.spans.push(whatsnap::StyledSpan {
-						text: "…".to_string(),
-						style: whatsnap::TextStyle::default(),
-					});
+					last.spans
+						.push(whatsnap::StyledSpan { text: "…".to_string(), style: whatsnap::TextStyle::default() });
 				}
 				last.width = last.spans.iter().map(|s| self.width(dc, Face::from_style(s.style), &s.text)).sum();
 			}
@@ -455,7 +448,8 @@ impl Fonts {
 					let w = self.char_width(dc, face, c);
 					if current_w + w > room(lines) && !current_spans.is_empty() {
 						trim_end_spans(&mut current_spans);
-						let line_w = current_spans.iter().map(|s| self.width(dc, Face::from_style(s.style), &s.text)).sum();
+						let line_w =
+							current_spans.iter().map(|s| self.width(dc, Face::from_style(s.style), &s.text)).sum();
 						lines.push(FormattedLine { spans: std::mem::take(&mut current_spans), width: line_w });
 						current_w = 0;
 					}
@@ -473,10 +467,7 @@ impl Fonts {
 	#[allow(dead_code)]
 	fn wrap(&self, dc: &impl DeviceContext, _face: Face, text: &str, first_max: i32, max: i32) -> Vec<String> {
 		let formatted = self.wrap_formatted(dc, text, first_max, max);
-		formatted
-			.into_iter()
-			.map(|fl| fl.spans.into_iter().map(|s| s.text).collect())
-			.collect()
+		formatted.into_iter().map(|fl| fl.spans.into_iter().map(|s| s.text).collect()).collect()
 	}
 }
 
@@ -490,18 +481,19 @@ pub(crate) fn icon_face() -> Option<&'static str> {
 fn make_fonts(dc: &impl DeviceContext, base: &Font) -> Fonts {
 	let size = base.get_point_size().max(6);
 	let face = base.get_face_name();
-	let with_style = |points: i32, weight: FontWeight, style: wxdragon::font::FontStyle, strike: bool, custom_face: Option<&str>| {
-		let builder = Font::builder()
-			.with_point_size(points.max(5))
-			.with_weight(weight)
-			.with_style(style)
-			.with_strikethrough(strike);
-		if let Some(cf) = custom_face {
-			builder.with_face_name(cf).build()
-		} else {
-			builder.with_face_name(&face).build()
-		}
-	};
+	let with_style =
+		|points: i32, weight: FontWeight, style: wxdragon::font::FontStyle, strike: bool, custom_face: Option<&str>| {
+			let builder = Font::builder()
+				.with_point_size(points.max(5))
+				.with_weight(weight)
+				.with_style(style)
+				.with_strikethrough(strike);
+			if let Some(cf) = custom_face {
+				builder.with_face_name(cf).build()
+			} else {
+				builder.with_face_name(&face).build()
+			}
+		};
 	let mono_face = if super::gdi::face_installed("Consolas") {
 		Some("Consolas")
 	} else if super::gdi::face_installed("Courier New") {

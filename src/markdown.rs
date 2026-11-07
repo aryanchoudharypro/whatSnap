@@ -59,6 +59,15 @@ fn parse_chars(chars: &[char], current_style: TextStyle) -> Vec<StyledSpan> {
 	while i < chars.len() {
 		let c = chars[i];
 
+		// A link or address is never formatted: underscores and stars in it
+		// are part of it, and a screen reader must read it as it is.
+		if (i == 0 || chars[i - 1].is_whitespace()) && starts_link(&chars[i..]) {
+			while i < chars.len() && !chars[i].is_whitespace() {
+				i += 1;
+			}
+			continue;
+		}
+
 		// 1. Triple backtick code block or inline ```...```
 		if c == '`' && i + 2 < chars.len() && chars[i + 1] == '`' && chars[i + 2] == '`' {
 			let mut close_idx = None;
@@ -72,15 +81,9 @@ fn parse_chars(chars: &[char], current_style: TextStyle) -> Vec<StyledSpan> {
 			}
 			if let Some(j) = close_idx {
 				if i > scan_start {
-					spans.push(StyledSpan {
-						text: chars[scan_start..i].iter().collect(),
-						style: current_style,
-					});
+					spans.push(StyledSpan { text: chars[scan_start..i].iter().collect(), style: current_style });
 				}
-				spans.push(StyledSpan {
-					text: chars[i + 3..j].iter().collect(),
-					style: current_style.with_mono(),
-				});
+				spans.push(StyledSpan { text: chars[i + 3..j].iter().collect(), style: current_style.with_mono() });
 				i = j + 3;
 				scan_start = i;
 				continue;
@@ -105,15 +108,9 @@ fn parse_chars(chars: &[char], current_style: TextStyle) -> Vec<StyledSpan> {
 			}
 			if let Some(j) = close_idx {
 				if i > scan_start {
-					spans.push(StyledSpan {
-						text: chars[scan_start..i].iter().collect(),
-						style: current_style,
-					});
+					spans.push(StyledSpan { text: chars[scan_start..i].iter().collect(), style: current_style });
 				}
-				spans.push(StyledSpan {
-					text: chars[i + 1..j].iter().collect(),
-					style: current_style.with_mono(),
-				});
+				spans.push(StyledSpan { text: chars[i + 1..j].iter().collect(), style: current_style.with_mono() });
 				i = j + 1;
 				scan_start = i;
 				continue;
@@ -124,12 +121,7 @@ fn parse_chars(chars: &[char], current_style: TextStyle) -> Vec<StyledSpan> {
 		if c == '*' || c == '_' || c == '~' {
 			let delim = c;
 			let next_ok = i + 1 < chars.len() && !chars[i + 1].is_whitespace() && chars[i + 1] != delim;
-			let prev_ok = if i == 0 {
-				true
-			} else {
-				let p = chars[i - 1];
-				!p.is_alphanumeric()
-			};
+			let prev_ok = i == 0 || opens_after(chars[i - 1]);
 
 			if next_ok && prev_ok {
 				let mut close_idx = None;
@@ -137,12 +129,7 @@ fn parse_chars(chars: &[char], current_style: TextStyle) -> Vec<StyledSpan> {
 				while j < chars.len() {
 					if chars[j] == delim {
 						let prev_j_ok = !chars[j - 1].is_whitespace();
-						let next_j_ok = if j + 1 >= chars.len() {
-							true
-						} else {
-							let n = chars[j + 1];
-							!n.is_alphanumeric()
-						};
+						let next_j_ok = j + 1 >= chars.len() || closes_before(chars[j + 1]);
 						if prev_j_ok && next_j_ok && j > i + 1 {
 							close_idx = Some(j);
 							break;
@@ -156,10 +143,7 @@ fn parse_chars(chars: &[char], current_style: TextStyle) -> Vec<StyledSpan> {
 
 				if let Some(j) = close_idx {
 					if i > scan_start {
-						spans.push(StyledSpan {
-							text: chars[scan_start..i].iter().collect(),
-							style: current_style,
-						});
+						spans.push(StyledSpan { text: chars[scan_start..i].iter().collect(), style: current_style });
 					}
 					let inner = &chars[i + 1..j];
 					let inner_style = match delim {
@@ -181,13 +165,44 @@ fn parse_chars(chars: &[char], current_style: TextStyle) -> Vec<StyledSpan> {
 	}
 
 	if scan_start < chars.len() {
-		spans.push(StyledSpan {
-			text: chars[scan_start..].iter().collect(),
-			style: current_style,
-		});
+		spans.push(StyledSpan { text: chars[scan_start..].iter().collect(), style: current_style });
 	}
 
 	spans
+}
+
+/// A marker opens only at the start of a word, like WhatsApp: after a space
+/// or opening punctuation, never inside a path like `a/_b_/c`.
+fn opens_after(p: char) -> bool {
+	p.is_whitespace() || matches!(p, '(' | '[' | '{' | '"' | '\'' | '*' | '_' | '~' | '\u{201C}' | '\u{2018}')
+}
+
+/// A marker closes only at the end of a word.
+fn closes_before(n: char) -> bool {
+	n.is_whitespace()
+		|| matches!(
+			n,
+			'.' | ','
+				| '!'
+				| '?'
+				| ';'
+				| ':'
+				| ')'
+				| ']'
+				| '}'
+				| '"'
+				| '\''
+				| '*'
+				| '_'
+				| '~'
+				| '\u{201D}'
+				| '\u{2019}'
+		)
+}
+
+fn starts_link(rest: &[char]) -> bool {
+	let lower: String = rest.iter().take(8).flat_map(|c| c.to_lowercase()).collect();
+	lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("www.")
 }
 
 pub fn coalesce_spans(spans: Vec<StyledSpan>) -> Vec<StyledSpan> {
@@ -315,6 +330,20 @@ mod tests {
 		assert_eq!(spans.len(), 1);
 		assert_eq!(spans[0].text, "*unclosed bold");
 		assert_eq!(spans[0].style, TextStyle::default());
+	}
+
+	#[test]
+	fn test_links_and_paths_preserved() {
+		for text in [
+			"see https://example.com/_secret_/page",
+			"www.x.com/*a*",
+			"C:\\Users\\_x_\\a",
+			"a/_b_/c",
+			"x_y_z and 2*3*4",
+		] {
+			assert_eq!(strip_markdown_for_speech(text), text);
+		}
+		assert_eq!(strip_markdown_for_speech("(*bold*), _it_."), "(bold), it.");
 	}
 
 	#[test]

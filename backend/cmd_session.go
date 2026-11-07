@@ -38,11 +38,13 @@ func shutdownBackend() {
 func (acc *Account) handleGetQR(conn net.Conn) {
 	go func() {
 		if acc.wa().Store.ID == nil {
-			acc.endPairingAttempt()
+			// Cancelling (Back to phone number login) ends this attempt, so
+			// the channel closing then isn't reported as an expired code.
+			ctx := acc.beginPairingAttempt()
 			if acc.wa() != nil && acc.wa().IsConnected() {
 				acc.wa().Disconnect()
 			}
-			qrChan, err := acc.wa().GetQRChannel(context.Background())
+			qrChan, err := acc.wa().GetQRChannel(ctx)
 			if err != nil {
 				acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 				return
@@ -52,16 +54,15 @@ func (acc *Account) handleGetQR(conn net.Conn) {
 				acc.sendEvent(conn, "error", map[string]string{"message": err.Error()})
 				return
 			}
-			timedOut := false
+			// whatsmeow shows a new code by itself as each one expires (60 s,
+			// then 20 s each). Once they run out, WhatsApp Web shows a reload
+			// button instead of asking for codes forever; so do we.
 			for qr := range qrChan {
 				if qr.Event == "code" {
 					acc.sendEvent(conn, "qr", map[string]string{"code": qr.Code})
-				} else if qr.Event == whatsmeow.QRChannelTimeout.Event {
-					timedOut = true
-					acc.sendEvent(conn, "qr_timeout", nil)
 				}
 			}
-			if !timedOut && (acc.wa() == nil || acc.wa().Store.ID == nil) {
+			if ctx.Err() == nil && (acc.wa() == nil || acc.wa().Store.ID == nil) {
 				acc.sendEvent(conn, "qr_timeout", nil)
 			}
 		}

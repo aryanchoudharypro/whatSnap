@@ -391,14 +391,17 @@ pub(crate) fn call_window_title(is_group: bool, is_video: bool) -> &'static str 
 /// repeated state isn't announced twice.
 ///
 /// "upgrade_requested" means the PEER wants to add video so THEY can send
-/// us their camera - the backend accepts the upgrade request automatically.
+/// us their camera - unrelated to whether we're sending ours. Receiving and
+/// rendering incoming video is a separate, later piece of work (see
+/// [[video_calls_work_status]]), so this app never calls `AcceptVideo()` and
+/// just says so.
 pub(crate) fn peer_video_announcement(event: &str, was_on: Option<bool>, peer: Option<&str>) -> Option<String> {
 	let who = peer.unwrap_or("Someone");
 	match event {
 		"on" if was_on != Some(true) => Some(format!("{} turned their camera on.", who)),
 		"off" if was_on != Some(false) => Some(format!("{} turned their camera off.", who)),
 		"upgrade_requested" => {
-			Some(format!("{} switched to video.", who))
+			Some(format!("{} wants to switch to video, but this app can't show incoming video yet.", who))
 		}
 		_ => None,
 	}
@@ -522,7 +525,7 @@ mod call_participant_tests {
 		assert_eq!(peer_video_announcement("off", Some(false), Some("Asha")), None);
 		assert_eq!(
 			peer_video_announcement("upgrade_requested", Some(false), Some("Asha")).as_deref(),
-			Some("Asha switched to video.")
+			Some("Asha wants to switch to video, but this app can't show incoming video yet.")
 		);
 		assert_eq!(peer_video_announcement("bogus", None, Some("Asha")), None);
 	}

@@ -9,8 +9,9 @@ import (
 // aiMarkdownToPlain transforms rich Markdown into WhatsApp-compatible formatting:
 // headings (# Heading) become bold (*Heading*), **bold** becomes *bold*,
 // code blocks and inline code are preserved, and list items are normalized to "- ".
-// This allows sighted users to see rich formatting in message bubbles, while
-// the frontend accessibility layer strips formatting markers for screen readers.
+// Quote markers are dropped and table cells joined with commas, which read well.
+// Sighted users see the formatting in message bubbles; the frontend strips the
+// markers from what a screen reader hears and from previews and notifications.
 
 var (
 	mdImage      = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)[^)]*\)`)
@@ -50,13 +51,14 @@ func aiMarkdownToPlain(text string) string {
 			heading := strings.TrimSpace(mdHeading.ReplaceAllString(line, ""))
 			line = "*" + heading + "*"
 		}
+		line = mdQuote.ReplaceAllString(line, "")
 		line = mdBullet.ReplaceAllString(line, "$1- ")
 		if strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") && len(trimmed) > 1 {
 			cells := strings.Split(trimmed[1:len(trimmed)-1], "|")
 			for i := range cells {
 				cells[i] = strings.TrimSpace(cells[i])
 			}
-			line = strings.Join(cells, " | ")
+			line = strings.Join(cells, ", ")
 		}
 		out = append(out, mdInline(line))
 	}

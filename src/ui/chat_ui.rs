@@ -159,13 +159,34 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 	let can_write = !jid.ends_with("@newsletter") || crate::ui_commands::links::can_post_in_channel(s, jid);
 	if !can_write {
 		let mut changed = false;
-		if cp.message_field.is_shown() { cp.message_field.show(false); changed = true; }
-		if cp.add_attachment_btn.is_shown() { cp.add_attachment_btn.show(false); changed = true; }
-		if cp.emoji_btn.is_shown() { cp.emoji_btn.show(false); changed = true; }
-		if cp.send_message_btn.is_shown() { cp.send_message_btn.show(false); changed = true; }
-		if cp.record_voice_btn.is_shown() { cp.record_voice_btn.show(false); changed = true; }
-		if cp.cancel_edit_btn.is_shown() { cp.cancel_edit_btn.show(false); changed = true; }
-		if cp.remove_quote_btn.is_shown() { cp.remove_quote_btn.show(false); changed = true; }
+		if cp.message_field.is_shown() {
+			cp.message_field.show(false);
+			changed = true;
+		}
+		if cp.add_attachment_btn.is_shown() {
+			cp.add_attachment_btn.show(false);
+			changed = true;
+		}
+		if cp.emoji_btn.is_shown() {
+			cp.emoji_btn.show(false);
+			changed = true;
+		}
+		if cp.send_message_btn.is_shown() {
+			cp.send_message_btn.show(false);
+			changed = true;
+		}
+		if cp.record_voice_btn.is_shown() {
+			cp.record_voice_btn.show(false);
+			changed = true;
+		}
+		if cp.cancel_edit_btn.is_shown() {
+			cp.cancel_edit_btn.show(false);
+			changed = true;
+		}
+		if cp.remove_quote_btn.is_shown() {
+			cp.remove_quote_btn.show(false);
+			changed = true;
+		}
 		if changed {
 			cp.conversation_panel.layout();
 		}
@@ -176,26 +197,62 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 	let has_text = !cp.message_field.get_value().trim().is_empty();
 	let mut changed = false;
 
-	if !cp.message_field.is_shown() { cp.message_field.show(true); changed = true; }
-	if !cp.emoji_btn.is_shown() { cp.emoji_btn.show(true); changed = true; }
+	if !cp.message_field.is_shown() {
+		cp.message_field.show(true);
+		changed = true;
+	}
+	if !cp.emoji_btn.is_shown() {
+		cp.emoji_btn.show(true);
+		changed = true;
+	}
 
 	if is_editing {
-		if cp.add_attachment_btn.is_shown() { cp.add_attachment_btn.show(false); changed = true; }
-		if !cp.cancel_edit_btn.is_shown() { cp.cancel_edit_btn.show(true); changed = true; }
-		if cp.remove_quote_btn.is_shown() { cp.remove_quote_btn.show(false); changed = true; }
-		if cp.record_voice_btn.is_shown() { cp.record_voice_btn.show(false); changed = true; }
-		if cp.send_message_btn.is_shown() != has_text { cp.send_message_btn.show(has_text); changed = true; }
+		if cp.add_attachment_btn.is_shown() {
+			cp.add_attachment_btn.show(false);
+			changed = true;
+		}
+		if !cp.cancel_edit_btn.is_shown() {
+			cp.cancel_edit_btn.show(true);
+			changed = true;
+		}
+		if cp.remove_quote_btn.is_shown() {
+			cp.remove_quote_btn.show(false);
+			changed = true;
+		}
+		if cp.record_voice_btn.is_shown() {
+			cp.record_voice_btn.show(false);
+			changed = true;
+		}
+		if cp.send_message_btn.is_shown() != has_text {
+			cp.send_message_btn.show(has_text);
+			changed = true;
+		}
 		if cp.message_label.get_label() != "Edit message" {
 			cp.message_label.set_label("Edit message");
 		}
 	} else {
-		if !cp.add_attachment_btn.is_shown() { cp.add_attachment_btn.show(true); changed = true; }
-		if cp.cancel_edit_btn.is_shown() { cp.cancel_edit_btn.show(false); changed = true; }
+		if !cp.add_attachment_btn.is_shown() {
+			cp.add_attachment_btn.show(true);
+			changed = true;
+		}
+		if cp.cancel_edit_btn.is_shown() {
+			cp.cancel_edit_btn.show(false);
+			changed = true;
+		}
 		let show_quote = s.pending_reply_id.is_some();
-		if cp.remove_quote_btn.is_shown() != show_quote { cp.remove_quote_btn.show(show_quote); changed = true; }
-		if cp.send_message_btn.is_shown() != has_text { cp.send_message_btn.show(has_text); changed = true; }
+		if cp.remove_quote_btn.is_shown() != show_quote {
+			cp.remove_quote_btn.show(show_quote);
+			changed = true;
+		}
+		if cp.send_message_btn.is_shown() != has_text {
+			cp.send_message_btn.show(has_text);
+			changed = true;
+		}
 		let show_voice = !has_text;
-		if cp.record_voice_btn.is_shown() != show_voice { cp.record_voice_btn.show(show_voice); changed = true; }
+		if cp.record_voice_btn.is_shown() != show_voice {
+			cp.record_voice_btn.show(show_voice);
+			changed = true;
+		}
 		let target_label = if let Some(ref preview) = s.pending_reply_preview {
 			preview.as_str()
 		} else {

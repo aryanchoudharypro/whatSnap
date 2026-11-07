@@ -65,7 +65,7 @@ whatSnap installs an update only when its signature is correct. A portable copy 
 The first time you start whatSnap, it asks you to link your phone. There are two ways:
 
 - With a phone number. Select your country (it starts on the country Windows is set to), type your phone number, and press `Continue`. whatSnap shows a pairing code. On your phone, open WhatsApp, go to `Linked devices`, select `Link a device`, then select `Link with phone number instead` and type the code.
-- With a QR code. Press `Connect with QR Code`. On your phone, open WhatsApp, go to `Linked devices`, select `Link a device`, and scan the code.
+- With a QR code. Press `Connect with QR Code`. On your phone, open WhatsApp, go to `Linked devices`, select `Link a device`, and scan the code. The code changes by itself every so often. After a few minutes it stops, and a `Reload QR Code` button gets you a new one. `Escape` goes back to the phone number.
 
 After you link, whatSnap gets your recent chats from your phone. This can take a few minutes.
 
@@ -242,9 +242,11 @@ You can also paste files with `Ctrl+V` in the message box or the Messages list.
 |---|---|
 | `Ctrl+Shift+R` | Start recording. |
 | `Alt+P` | Pause or continue the recording. |
+| `Alt+Shift+P` | While the recording is paused, play or pause what you have recorded so far. |
+| `Alt+D` or `Escape` | Discard the recording. |
 | `Ctrl+Enter` | Send the voice message. |
 
-You can also use the `Record voice message`, `Pause recording`, `Send voice message`, and `Discard voice message` buttons. Select `View once` before you send, to send it as a view once voice message.
+You can also use the `Record voice message`, `Pause recording`, `Play preview`, `Send voice message`, and `Discard voice message` buttons. If you open another chat while you record, the recording is discarded. Select `View once` before you send, to send it as a view once voice message.
 
 ### Other Chat Actions
 The Conversation menu has more actions for the open chat. It shows only the ones that fit that chat. When the chat list has the focus, the shortcuts for `Mute Chat`, `Archive Chat`, `Pin Chat`, `Lock Chat` and `Mark as Unread` work on the chat you are on in the list, like in WhatsApp Web:
@@ -499,6 +501,8 @@ You can't change these keys:
 | Star Message | Conversation | `Alt+8` |
 | Start Recording | None | `Ctrl+Shift+R` |
 | Pause Recording | None | `Alt+P` |
+| Play/Pause Voice Preview | None | `Alt+Shift+P` |
+| Discard Voice Recording | None | `Alt+D` |
 | Send Voice Message | None | `Ctrl+Enter` |
 | Toggle Mute | Calls | `Ctrl+M` |
 | End Call | Calls | `Ctrl+W` |

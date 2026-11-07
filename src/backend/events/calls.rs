@@ -246,7 +246,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let announcement =
 					peer_video_announcement(event, s.call_video.peer_camera_on, s.call_video.peer_name.as_deref());
 				match event {
-					"on" | "upgrade_requested" => {
+					"on" => {
 						s.call_video.peer_camera_on = Some(true);
 						if !s.call_video.video_call {
 							s.call_video.video_call = true;
