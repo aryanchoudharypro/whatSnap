@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -176,6 +177,9 @@ func (acc *Account) runPairingCode(ctx context.Context, phone string) (expired b
 	if ctx.Err() != nil {
 		return false
 	}
+	// whatsmeow gives "ABCD-EFGH"; the phone takes the 8 characters alone,
+	// and a screen reader would otherwise read the dash out.
+	code = strings.ReplaceAll(code, "-", "")
 	acc.pairingCode = code
 	acc.broadcastEvent("pairing_code", map[string]string{"code": code})
 	for {
