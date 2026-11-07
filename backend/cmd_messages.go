@@ -1095,7 +1095,7 @@ func (acc *Account) forwardOneMessage(conn net.Conn, messageID string, toJIDs []
 
 			acc.db.Exec(`INSERT INTO chats (jid, timestamp, preview_snippet, preview_sender, preview_from_me) VALUES (?, ?, ?, ?, 1)
 				ON CONFLICT(jid) DO UPDATE SET
-				timestamp=MAX(timestamp, excluded.timestamp),
+				timestamp=`+chatTimeAfter(sentMessageMovesChat(outgoing))+`,
 				preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),
 				preview_sender=excluded.preview_sender,
 				preview_from_me=1,

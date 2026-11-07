@@ -167,6 +167,24 @@ func isKeyDistributionOnly(msg *waE2E.Message) bool {
 	return !contentful
 }
 
+// sentMessageMovesChat says whether a message we sent takes its chat to the
+// top. WA Web (WAWebMsgDataUtils eventTypeFromMsgType) gives a group invite we
+// sent EventType.IGNORE: the chat gets the message and its preview but keeps
+// its place in the list.
+func sentMessageMovesChat(msg *waE2E.Message) bool {
+	return unwrapMessage(msg).GetGroupInviteMessage() == nil
+}
+
+// chatTimeAfter is the SQL for a chat row's new timestamp on an upsert:
+// raised to the message's time, or left alone when the message doesn't move
+// the chat.
+func chatTimeAfter(movesChat bool) string {
+	if movesChat {
+		return "MAX(timestamp, excluded.timestamp)"
+	}
+	return "timestamp"
+}
+
 func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
 	if msg == nil {
 		return nil
@@ -1899,9 +1917,10 @@ func (acc *Account) eventHandler(evt interface{}) {
 			if increment > 0 && chatJID.Server == types.GroupServer && acc.addressesMe(v.Message) {
 				mentions = 1
 			}
+			movesChat := !v.Info.IsFromMe || sentMessageMovesChat(v.Message)
 			_, err := acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me, wire_jid, unread_mentions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
-					timestamp=MAX(timestamp, excluded.timestamp),
+					timestamp=`+chatTimeAfter(movesChat)+`,
 					unread_count=chats.unread_count + excluded.unread_count,
 					unread_mentions=COALESCE(chats.unread_mentions, 0) + excluded.unread_mentions,
 					preview_snippet=COALESCE(NULLIF(excluded.preview_snippet, ''), chats.preview_snippet),

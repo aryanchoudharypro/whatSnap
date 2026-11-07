@@ -112,3 +112,17 @@ func TestMessageHistoryNotice(t *testing.T) {
 		t.Fatalf("notice text = %q", got)
 	}
 }
+
+func TestSentGroupInviteKeepsChatPlace(t *testing.T) {
+	invite := &waE2E.Message{GroupInviteMessage: &waE2E.GroupInviteMessage{GroupJID: proto.String("1@g.us")}}
+	if sentMessageMovesChat(invite) {
+		t.Error("a group invite we sent moved the chat")
+	}
+	wrapped := &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: invite}}
+	if sentMessageMovesChat(wrapped) {
+		t.Error("a group invite in a disappearing chat moved the chat")
+	}
+	if !sentMessageMovesChat(&waE2E.Message{Conversation: proto.String("hi")}) {
+		t.Error("a text message didn't move the chat")
+	}
+}
