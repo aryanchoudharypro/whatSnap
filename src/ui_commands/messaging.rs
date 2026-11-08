@@ -340,46 +340,33 @@ pub(crate) fn post_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Posting status update...");
 }
 
-pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let file_dialog = FileDialog::builder(&parts.frame)
-		.with_message("Choose a photo or video to post as a status")
-		.with_wildcard(&whatsnap::AttachKind::Media.file_filter())
-		.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
-		.build();
-	if file_dialog.show_modal() == wxdragon::id::ID_OK
-		&& let Some(path) = file_dialog.get_path()
-	{
-		// The same photos and videos the attach menu sends; AVI, MKV and
-		// WebM don't play on phones, and a BMP isn't a photo to WhatsApp.
-		let media_type = match whatsnap::AttachKind::Media.send_type(&path) {
-			"video" => "video",
-			_ => "image",
-		};
-		let filename = std::path::Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();
-
-		let dlg =
-			wxdragon::TextEntryDialog::builder(&parts.frame, "Add a caption (optional):", "Post Photo/Video Status")
-				.build();
-		let caption =
-			if dlg.show_modal() == wxdragon::id::ID_OK { dlg.get_value().unwrap_or_default() } else { String::new() };
-
-		let mut payload = serde_json::json!({
-			"action": "post_media_status",
-			"data": { "type": media_type, "path": path, "filename": filename, "caption": caption }
-		});
-		let ws_tx = state.borrow().ws_tx.clone();
-		if media_type == "video" {
-			std::thread::spawn(move || {
-				if let Some(png) = crate::media::video_thumbnail::first_frame_png(&path) {
-					payload["data"]["thumbnail"] = serde_json::json!(crate::util::base64(&png));
-				}
-				let _ = ws_tx.send(payload.to_string());
-			});
-		} else {
-			let _ = ws_tx.send(payload.to_string());
+pub(crate) fn post_custom_status(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	text: String,
+	background: u32,
+	text_color: u32,
+	font: i32,
+) {
+	let payload = serde_json::json!({
+		"action": "post_status",
+		"data": {
+			"text": text,
+			"background_argb": background,
+			"text_argb": text_color,
+			"font": font,
 		}
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Posting status update...");
-	}
+	});
+	let _ = state.borrow().ws_tx.send(payload.to_string());
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Posting status update...");
+}
+
+pub(crate) fn open_status_composer(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	crate::ui::dialogs::status_composer::show_text_status_composer(&parts.frame, state, parts);
+}
+
+pub(crate) fn post_media_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	crate::ui::dialogs::status_composer::show_media_status_composer(&parts.frame, state, parts);
 }
 
 pub(crate) fn get_message_info(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, message_id: String) {

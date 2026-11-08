@@ -7,12 +7,15 @@ use crate::{
 	ui::{message_display::apply_chat_filter, window::WindowParts},
 };
 
+const VIEW: i32 = 4300;
 const REPLY: i32 = 4301;
 const REACT: i32 = 4302;
 const MUTE: i32 = 4303;
 const VIEWERS: i32 = 4304;
 const DELETE: i32 = 4305;
 const PRIVACY: i32 = 4306;
+const POST_TEXT: i32 = 4307;
+const POST_MEDIA: i32 = 4308;
 
 pub(crate) const STATUS_REACTIONS: [&str; 8] = ["😍", "😂", "😮", "😢", "👏", "🎉", "💯", "🙏"];
 
@@ -40,9 +43,9 @@ impl Section {
 	pub(crate) fn heading(self) -> Option<&'static str> {
 		match self {
 			Section::Mine => None,
-			Section::Recent => Some("Recent"),
-			Section::Viewed => Some("Viewed"),
-			Section::Muted => Some("Muted"),
+			Section::Recent => Some("Recent updates"),
+			Section::Viewed => Some("Viewed updates"),
+			Section::Muted => Some("Muted updates"),
 		}
 	}
 }
@@ -90,6 +93,16 @@ struct Row {
 
 fn row_at(s: &AppState, idx: usize) -> Option<Row> {
 	let poster_jid = s.filtered_chats.get(idx).filter(|j| !j.is_empty())?;
+	if poster_jid == "me" {
+		let group = s.status_groups.iter().find(|g| g.from_me);
+		return Some(Row {
+			poster_jid: "me".to_string(),
+			poster_name: "You".to_string(),
+			from_me: true,
+			muted: false,
+			items: group.map(|g| g.items.clone()).unwrap_or_default(),
+		});
+	}
 	s.filtered_status_message_ids.get(idx).filter(|id| !id.is_empty())?;
 	let group = s.status_groups.iter().find(|g| &g.poster_jid == poster_jid)?;
 	Some(Row {
@@ -105,9 +118,30 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	let Some(row) = row_at(&state.borrow(), idx) else { return };
 	let mut builder = Menu::builder();
 	if row.from_me {
-		builder = builder
-			.append_item(VIEWERS, "&Viewed by...", "See who has seen one of your status updates, and their reactions")
-			.append_item(DELETE, "&Delete...", "Delete one of your status updates for everyone");
+		if row.items.is_empty() {
+			builder = builder
+				.append_item(POST_TEXT, "Post &text status update...", "Compose a new text status update")
+				.append_item(
+					POST_MEDIA,
+					"Post &photo/video status update...",
+					"Choose a photo or video to post as status",
+				);
+		} else {
+			builder = builder
+				.append_item(VIEW, "&View status", "View your status updates")
+				.append_item(POST_TEXT, "Add &text status update...", "Compose a new text status update")
+				.append_item(
+					POST_MEDIA,
+					"Add &photo/video status update...",
+					"Choose a photo or video to post as status",
+				)
+				.append_item(
+					VIEWERS,
+					"&Viewed by...",
+					"See who has seen one of your status updates, and their reactions",
+				)
+				.append_item(DELETE, "&Delete...", "Delete one of your status updates for everyone");
+		}
 	} else {
 		let mute = if row.muted {
 			format!("Un&mute {}'s status updates", row.poster_name)
@@ -115,6 +149,7 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 			format!("&Mute {}'s status updates", row.poster_name)
 		};
 		builder = builder
+			.append_item(VIEW, "&View status", "View their status updates")
 			.append_item(REPLY, "&Reply...", "Reply to their latest status update in a chat with them")
 			.append_item(REACT, "Rea&ct...", "React to their latest status update")
 			.append_item(MUTE, &mute, "Muted status updates are listed last");
@@ -131,6 +166,24 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 
 fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32, row: &Row) {
 	match id {
+		VIEW => {
+			let start = row.items.iter().find(|it| !it.viewed && !row.from_me).or_else(|| row.items.first());
+			if let Some(item) = start {
+				let outcome = crate::ui::status_viewer::show(state, parts, &item.id);
+				crate::platform::tray::enter_release_guard().set(true);
+				apply_chat_filter(&mut state.borrow_mut(), parts);
+				if let crate::ui::status_viewer::ViewerOutcome::OpenChat(jid) = outcome {
+					crate::ui_commands::chat_list::nav_selected(state, parts, 0);
+					crate::ui::chat_ui::open_chat_for_jid(&jid, state, parts);
+				}
+			}
+		}
+		POST_TEXT => {
+			crate::ui::dialogs::status_composer::show_text_status_composer(&parts.frame, state, parts);
+		}
+		POST_MEDIA => {
+			crate::ui::dialogs::status_composer::show_media_status_composer(&parts.frame, state, parts);
+		}
 		REPLY => {
 			if let Some(item) = row.items.last() {
 				reply(state, parts, row, item);
@@ -262,7 +315,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		return;
 	}
 	match t {
-		"status_viewers" => show_viewers(parts, data),
+		"status_viewers" => show_viewers(state, parts, data),
 		"status_privacy" => choose_privacy(state, parts, data),
 		"status_privacy_saved" => announce(parts, "Status privacy saved."),
 		"status_deleted" => {
@@ -304,7 +357,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 	}
 }
 
-fn show_viewers(parts: &Rc<WindowParts>, data: &serde_json::Value) {
+fn show_viewers(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let viewers = data.get("viewers").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 	if viewers.is_empty() {
 		MessageDialog::builder(&parts.frame, "No one has seen this status update yet.", "Viewed By")
@@ -313,27 +366,42 @@ fn show_viewers(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 			.show_modal();
 		return;
 	}
-	let labels: Vec<String> = viewers
-		.iter()
-		.map(|v| {
-			let time = v
-				.get("timestamp")
-				.and_then(|t| t.as_i64())
-				.and_then(whatsnap::LocalTime::from_unix)
-				.map(whatsnap::time_or_day)
-				.unwrap_or_default();
-			let reaction = text(v, "reaction");
-			let mut label = format!("{}, {}", text(v, "name"), time);
-			if !reaction.is_empty() {
-				label.push_str(&format!(", reacted {}", reaction));
-			}
-			label
-		})
-		.collect();
+	let mut items = Vec::new();
+	let mut labels: Vec<String> = Vec::new();
+	for v in &viewers {
+		let jid = text(v, "jid");
+		let name = text(v, "name");
+		let time = v
+			.get("timestamp")
+			.and_then(|t| t.as_i64())
+			.and_then(whatsnap::LocalTime::from_unix)
+			.map(whatsnap::time_or_day)
+			.unwrap_or_default();
+		let reaction = text(v, "reaction");
+		let mut label = format!("{name}, {time}");
+		if !reaction.is_empty() {
+			label.push_str(&format!(", reacted {reaction}"));
+		}
+		items.push((jid, name));
+		labels.push(label);
+	}
 	let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 	let count = labels.len();
 	let title = format!("Viewed by {} {}", count, if count == 1 { "person" } else { "people" });
-	SingleChoiceDialog::builder(&parts.frame, &title, "Viewed By", &refs).build().show_modal();
+	let dialog = SingleChoiceDialog::builder(&parts.frame, &title, "Viewed By", &refs).build();
+	if dialog.show_modal() == wxdragon::id::ID_OK
+		&& let Ok(choice) = usize::try_from(dialog.get_selection())
+		&& let Some((jid, name)) = items.get(choice)
+		&& !jid.is_empty()
+	{
+		let confirm = MessageDialog::builder(&parts.frame, &format!("Open chat with {name}?"), "Open Chat")
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build();
+		if confirm.show_modal() == ID_YES {
+			crate::ui_commands::chat_list::nav_selected(state, parts, 0);
+			crate::ui::chat_ui::open_chat_for_jid(jid, state, parts);
+		}
+	}
 }
 
 fn choose_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
@@ -361,7 +429,15 @@ fn choose_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: 
 	let Some(&(mode, _)) = usize::try_from(dialog.get_selection()).ok().and_then(|i| MODES.get(i)) else { return };
 	let mut jids: Vec<String> = Vec::new();
 	if mode != "contacts" {
-		let contacts = state.borrow().all_contacts.clone();
+		let mut contacts = state.borrow().all_contacts.clone();
+		if contacts.is_empty() {
+			for (jid, name) in &state.borrow().contacts {
+				if !jid.ends_with("@g.us") && !jid.ends_with("@broadcast") && !jid.ends_with("@newsletter") {
+					contacts.push(Contact { jid: jid.clone(), name: name.clone(), phone: String::new() });
+				}
+			}
+			contacts.sort_by(|a, b| a.name.cmp(&b.name));
+		}
 		let preset: &[Contact] = if mode == current { &listed } else { &[] };
 		let (title, hint) = if mode == "except" {
 			("Status: My Contacts Except...", "Checked contacts won't see your status updates")

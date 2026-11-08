@@ -101,7 +101,7 @@ impl RowArt {
 			jid: jid.to_string(),
 			title: name.to_string(),
 			preview: preview.trim_start_matches(": ").to_string(),
-			ring: Some(tag.starts_with("New")),
+			ring: if jid == "me" && segments.0 == 0 { None } else { Some(tag.starts_with("New")) },
 			segments,
 			..Default::default()
 		}

@@ -201,7 +201,15 @@ pub enum UiCommand {
 	PostStatus {
 		text: String,
 	},
+	PostCustomStatus {
+		text: String,
+		background: u32,
+		text_color: u32,
+		font: i32,
+	},
 	PostMediaStatus,
+	OpenStatusPrivacy,
+	OpenStatusComposer,
 	GetMessageInfo {
 		message_id: String,
 	},
@@ -492,6 +500,7 @@ pub(crate) struct StatusItem {
 	pub(crate) my_reaction: String,
 	pub(crate) background: u32,
 	pub(crate) text_color: u32,
+	pub(crate) font: i32,
 }
 
 #[derive(Clone)]

@@ -235,16 +235,33 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		.cloned();
 
 	if s.active_tab == 1 {
-		// One row per person, like WA Web, under its Recent / Viewed / Muted
-		// headings. A row opens the viewer at that person's first unseen
-		// update (its message id is the row's).
+		// 1. My Status always at the very top (matching WA Web)
+		let my_group = s.status_groups.iter().find(|g| g.from_me && !g.items.is_empty());
+		let (my_label, my_start_id) = if let Some(g) = my_group {
+			let start = crate::ui_commands::status_extras::start_item(g).map(|it| it.id.clone()).unwrap_or_default();
+			(status_row_label(g), start)
+		} else {
+			("My status: No updates. Click or press Enter to add".to_string(), String::new())
+		};
+		if lower_query.is_empty() || my_label.to_lowercase().contains(&lower_query) {
+			labels.push(my_label);
+			filtered.push("me".to_string());
+			filtered_status_ids.push(my_start_id);
+		}
+
+		// 2. Contact status updates by section (Recent, Viewed, Muted)
+		let mut contacts_count = 0;
 		let mut section = None;
 		for (sec, group) in crate::ui_commands::status_extras::sorted_groups(&s.status_groups) {
+			if group.from_me {
+				continue;
+			}
 			let Some(start) = crate::ui_commands::status_extras::start_item(group) else { continue };
 			let label = status_row_label(group);
 			if !lower_query.is_empty() && !label.to_lowercase().contains(&lower_query) {
 				continue;
 			}
+			contacts_count += 1;
 			if section != Some(sec) {
 				section = Some(sec);
 				if let Some(heading) = sec.heading() {
@@ -256,6 +273,16 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			labels.push(label);
 			filtered.push(group.poster_jid.clone());
 			filtered_status_ids.push(start.id.clone());
+		}
+
+		if contacts_count == 0 && lower_query.is_empty() {
+			labels.push("Recent updates".to_string());
+			filtered.push(String::new());
+			filtered_status_ids.push(String::new());
+
+			labels.push("No recent updates from contacts".to_string());
+			filtered.push(String::new());
+			filtered_status_ids.push(String::new());
 		}
 	} else if s.active_tab == 2 {
 		for entry in &s.starred_entries {
@@ -324,8 +351,8 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				let raw_user = entry.jid.split('@').next().unwrap_or(&entry.jid);
 				let digits = raw_user.split(':').next().unwrap_or(raw_user);
 				if digits.chars().all(|c| c.is_ascii_digit()) && !digits.is_empty() {
-					formatted_name = whatsnap::phone::format_international(digits)
-						.unwrap_or_else(|| format!("+{digits}"));
+					formatted_name =
+						whatsnap::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}"));
 					&formatted_name
 				} else {
 					&entry.jid

@@ -83,6 +83,7 @@ pub struct SettingsDialogParts {
 	pub spell_check_check: CheckBox,
 	pub spell_announce_check: CheckBox,
 	pub spell_language_combo: ComboBox,
+	pub status_auto_advance_check: CheckBox,
 
 	pub notifications_panel: Panel,
 	pub sounds_check: CheckBox,
@@ -127,6 +128,7 @@ pub struct SettingsDialogParts {
 	pub online_combo: ComboBox,
 	pub link_previews_off_check: CheckBox,
 	pub blocked_contacts_btn: Button,
+	pub status_privacy_btn: Button,
 
 	pub storage_panel: Panel,
 	pub auto_download_photos_check: CheckBox,
@@ -327,6 +329,10 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		setting_switch(&chats_panel, &chats_sizer, "Check spelling in the message box (F7 goes to the next mistake)");
 	let spell_announce_check = setting_switch(&chats_panel, &chats_sizer, "Say when a word you type is misspelled");
 	let spell_language_combo = spelling_language_combo(&chats_panel, &chats_sizer);
+
+	chats_sizer.add_spacer(10);
+	section_header(&chats_panel, &chats_sizer, "Status Updates");
+	let status_auto_advance_check = setting_switch(&chats_panel, &chats_sizer, "Play next status update automatically");
 	chats_panel.set_sizer(chats_sizer, true);
 
 	// 4. Notifications Panel
@@ -446,6 +452,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	read_receipts_check.enable(false);
 
 	privacy_sizer.add_spacer(8);
+	section_header(&privacy_panel, &privacy_sizer, "Status Privacy");
+	let status_privacy_btn = setting_button(&privacy_panel, "Choose Who Can See My Status Updates...");
+	privacy_sizer.add(&status_privacy_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 10);
+
+	privacy_sizer.add_spacer(8);
 	section_header(&privacy_panel, &privacy_sizer, "Groups & Calls");
 	let groups_combo = visibility_combo(&privacy_panel, &privacy_sizer, "Who Can Add Me to Groups", VISIBILITY_CHOICES);
 	let groups_except_btn = except_button(&privacy_panel, &privacy_sizer, "Groups");
@@ -535,21 +546,15 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	audio_sizer.add_spacer(10);
 	section_header(&audio_panel, &audio_sizer, "Calls");
-	let call_start_muted_check = setting_switch(
-		&audio_panel,
-		&audio_sizer,
-		"Mute microphone by default when placing or joining calls",
-	);
+	let call_start_muted_check =
+		setting_switch(&audio_panel, &audio_sizer, "Mute microphone by default when placing or joining calls");
 	setting_note(
 		&audio_panel,
 		&audio_sizer,
 		"When enabled, calls begin with your microphone muted. You can unmute at any time during the call.",
 	);
-	let show_frequent_calls_check = setting_switch(
-		&audio_panel,
-		&audio_sizer,
-		"Show frequent contacts in the Calls tab",
-	);
+	let show_frequent_calls_check =
+		setting_switch(&audio_panel, &audio_sizer, "Show frequent contacts in the Calls tab");
 	setting_note(
 		&audio_panel,
 		&audio_sizer,
@@ -629,6 +634,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		spell_check_check,
 		spell_announce_check,
 		spell_language_combo,
+		status_auto_advance_check,
 		notifications_panel,
 		sounds_check,
 		notifications_check,
@@ -680,6 +686,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		online_combo,
 		link_previews_off_check,
 		blocked_contacts_btn,
+		status_privacy_btn,
 		storage_panel,
 		auto_download_photos_check,
 		auto_download_audio_check,
@@ -865,6 +872,7 @@ impl SettingsDialogParts {
 		self.announce_incoming_check.set_value(settings.announce_incoming);
 		self.announce_outgoing_check.set_value(settings.announce_outgoing);
 		self.replace_emoji_check.set_value(settings.replace_text_with_emoji);
+		self.status_auto_advance_check.set_value(settings.status_auto_advance);
 		self.spell_check_check.set_value(settings.spell_check);
 		self.spell_announce_check.set_value(settings.spell_check_announce);
 		let languages = crate::ui::spell_check::languages();
@@ -894,6 +902,7 @@ impl SettingsDialogParts {
 		settings.chat_lock_hello = self.chat_lock_hello_check.is_checked();
 		settings.announce_incoming = self.announce_incoming_check.is_checked();
 		settings.announce_outgoing = self.announce_outgoing_check.is_checked();
+		settings.status_auto_advance = self.status_auto_advance_check.is_checked();
 		settings.replace_text_with_emoji = self.replace_emoji_check.is_checked();
 		settings.spell_check = self.spell_check_check.is_checked();
 		settings.spell_check_announce = self.spell_announce_check.is_checked();

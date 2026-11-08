@@ -31,6 +31,7 @@ struct Entry {
 	my_reaction: String,
 	background: u32,
 	text_color: u32,
+	font: i32,
 }
 
 pub(crate) enum ViewerOutcome {
@@ -75,6 +76,7 @@ struct Viewer {
 	paused: Cell<bool>,
 	media_path: RefCell<Option<String>>,
 	outcome: RefCell<Option<ViewerOutcome>>,
+	viewers_data: RefCell<Vec<(String, String)>>,
 }
 
 thread_local! {
@@ -121,6 +123,7 @@ fn entries(s: &AppState, start_id: &str) -> Vec<Entry> {
 				my_reaction: it.my_reaction.clone(),
 				background: it.background,
 				text_color: it.text_color,
+				font: it.font,
 			})
 		})
 		.collect()
@@ -130,6 +133,7 @@ fn kind(entry: &Entry) -> &'static str {
 	match entry.media_type.as_str() {
 		"image" => "Photo",
 		"video" => "Video",
+		"audio" => "Voice note",
 		"" => "Text",
 		_ => "Media",
 	}
@@ -411,6 +415,7 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 		paused: Cell::new(false),
 		media_path: RefCell::new(None),
 		outcome: RefCell::new(None),
+		viewers_data: RefCell::new(Vec::new()),
 	});
 	bind(&viewer, close_btn);
 	paint_stage(&viewer);
@@ -584,6 +589,7 @@ fn bind(viewer: &Rc<Viewer>, close_btn: Button) {
 	viewer.mute_btn.on_click(handler(&weak, Viewer::toggle_mute));
 	viewer.delete_btn.on_click(handler(&weak, Viewer::delete));
 	viewer.save_btn.on_click(handler(&weak, Viewer::save_as));
+	viewer.viewers_list.on_item_double_clicked(handler(&weak, Viewer::open_viewer_chat));
 	let dialog = viewer.dialog;
 	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
 	for (i, btn) in viewer.reaction_btns.iter().enumerate() {
@@ -619,8 +625,13 @@ fn bind(viewer: &Rc<Viewer>, close_btn: Button) {
 			return;
 		}
 		let focus = crate::ui::media_player::focused_window();
-		let in_text = focus == v.reply_field.get_handle() || focus == v.content.get_handle();
-		if in_text {
+		let in_reply = focus == v.reply_field.get_handle();
+		if in_reply {
+			data.skip(true);
+			return;
+		}
+		let in_content = focus == v.content.get_handle();
+		if in_content && (keys::is_left(code) || keys::is_right(code) || keys::is_up(code) || keys::is_down(code)) {
 			data.skip(true);
 			return;
 		}
@@ -630,21 +641,65 @@ fn bind(viewer: &Rc<Viewer>, close_btn: Button) {
 		}
 		let plain = !key.control_down() && !key.alt_down() && !key.shift_down();
 		let on_list = focus == v.viewers_list.get_handle();
+		if on_list && keys::is_enter(code) {
+			v.open_viewer_chat();
+			data.skip(false);
+			return;
+		}
 		let handled = plain
-			&& if keys::is_left(code) && !on_list {
+			&& if (keys::is_left(code) || keys::is_letter(code, 'P')) && !on_list {
 				v.previous();
 				true
-			} else if keys::is_right(code) && !on_list {
+			} else if (keys::is_right(code) || keys::is_letter(code, 'N')) && !on_list {
 				v.next();
 				true
 			} else if keys::is_space(code) && !is_button_or_check(&v, focus) {
 				v.toggle_pause();
 				true
+			} else if keys::is_letter(code, 'C') && !in_content {
+				v.content.set_focus();
+				true
+			} else if keys::is_letter(code, 'R') && v.reply_panel.is_shown() {
+				v.reply_field.set_focus();
+				true
+			} else if keys::is_letter(code, 'M') && v.mute_btn.is_shown() {
+				v.toggle_mute();
+				true
+			} else if (keys::is_letter(code, 'D') || keys::is_delete(code)) && v.delete_btn.is_shown() {
+				v.delete();
+				true
+			} else if keys::is_letter(code, 'V') && v.viewers_panel.is_shown() {
+				v.viewers_list.set_focus();
+				true
+			} else if keys::is_letter(code, 'S') && v.save_btn.is_shown() && v.save_btn.is_enabled() {
+				v.save_as();
+				true
+			} else if (keys::is_letter(code, 'I') || keys::is_letter(code, 'T')) && !on_list {
+				v.speak_info();
+				true
+			} else if let Some(digit) = reaction_digit(code) {
+				if v.reactions_panel.is_shown() && digit < STATUS_REACTIONS.len() {
+					v.react(STATUS_REACTIONS[digit]);
+					true
+				} else {
+					false
+				}
 			} else {
 				false
 			};
 		data.skip(!handled);
 	});
+}
+
+fn reaction_digit(code: Option<i32>) -> Option<usize> {
+	let c = code?;
+	if ('1' as i32..='8' as i32).contains(&c) {
+		Some((c - '1' as i32) as usize)
+	} else if (WXK_NUMPAD1..=WXK_NUMPAD8).contains(&c) {
+		Some((c - WXK_NUMPAD1) as usize)
+	} else {
+		None
+	}
 }
 
 fn handler<E>(weak: &std::rc::Weak<Viewer>, f: fn(&Viewer)) -> impl FnMut(E) + 'static {
@@ -708,6 +763,8 @@ impl Viewer {
 
 		let body = match entry.media_type.as_str() {
 			"" => entry.text.clone(),
+			"audio" if entry.text.is_empty() => "Voice note status.".to_string(),
+			"audio" => format!("Voice note: {}", entry.text),
 			_ if entry.text.is_empty() => format!("{}.", kind(&entry)),
 			_ => format!("{}. {}", kind(&entry), entry.text),
 		};
@@ -721,7 +778,16 @@ impl Viewer {
 				self.content.set_background_color(argb(background));
 				self.content.set_foreground_color(argb(text_color));
 			}
-			self.content.set_font(&theme::Fonts::heading());
+			let face = match entry.font {
+				1 => "Georgia",
+				2 => "Segoe Script",
+				3 => "Comic Sans MS",
+				4 => "Impact",
+				_ => "Segoe UI",
+			};
+			let font =
+				Font::builder().with_point_size(15).with_face_name(face).build().unwrap_or_else(theme::Fonts::heading);
+			self.content.set_font(&font);
 			self.content.set_min_size(Size::new(-1, 220));
 		} else {
 			// The caption under the media, light on the dark stage.
@@ -975,13 +1041,49 @@ impl Viewer {
 			}),
 		);
 		self.reply_field.set_value("");
+		self.next_btn.set_focus();
 		crate::platform::announce::announce(self.announcer, &format!("Reply sent to {}.", entry.poster_name));
+	}
+
+	fn open_viewer_chat(&self) {
+		let Some(sel) = self.viewers_list.get_selection() else { return };
+		let viewers = self.viewers_data.borrow();
+		if let Some((jid, _name)) = viewers.get(sel as usize) {
+			if !jid.is_empty() {
+				*self.outcome.borrow_mut() = Some(ViewerOutcome::OpenChat(jid.clone()));
+				self.dialog.end_modal(ID_OK);
+			}
+		}
 	}
 
 	fn react(&self, emoji: &str) {
 		let Some(entry) = self.current() else { return };
 		let emoji = if entry.my_reaction == emoji { "" } else { emoji };
 		send(&self.state, "react_status", serde_json::json!({ "id": entry.id, "emoji": emoji }));
+		if emoji.is_empty() {
+			crate::platform::announce::announce(self.announcer, "Reaction removed.");
+		} else {
+			crate::platform::announce::announce(self.announcer, &format!("Reacted {emoji}."));
+		}
+	}
+
+	fn speak_info(&self) {
+		let Some(entry) = self.current() else { return };
+		let (position, count) = self.position_in_group(&entry);
+		let time = whatsnap::LocalTime::from_unix(entry.timestamp).map(whatsnap::time_or_day).unwrap_or_default();
+		let who = if entry.from_me { "My status".to_string() } else { entry.poster_name.clone() };
+		let body = match entry.media_type.as_str() {
+			"" => entry.text.clone(),
+			"audio" if entry.text.is_empty() => "Voice note status.".to_string(),
+			"audio" => format!("Voice note: {}", entry.text),
+			_ if entry.text.is_empty() => format!("{}.", kind(&entry)),
+			_ => format!("{}. {}", kind(&entry), entry.text),
+		};
+		let mut msg = format!("{who}, status {position} of {count}, posted {time}. {body}");
+		if !entry.my_reaction.is_empty() {
+			msg.push_str(&format!(" You reacted {}.", entry.my_reaction));
+		}
+		crate::platform::announce::announce(self.announcer, &msg);
 	}
 
 	fn show_reaction(&self, mine: &str) {
@@ -1048,7 +1150,7 @@ impl Viewer {
 		let Some(entry) = self.current() else { return };
 		*self.media_path.borrow_mut() = Some(path.clone());
 		self.save_btn.enable(true);
-		if entry.media_type == "video" {
+		if entry.media_type == "video" || entry.media_type == "audio" {
 			self.player.panel.show(true);
 			self.dialog.layout();
 			self.player.load(&path, !self.paused.get());
@@ -1081,6 +1183,7 @@ impl Viewer {
 		let viewers = data.get("viewers").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 		let count = viewers.len();
 		self.viewers_list.clear();
+		let mut items = Vec::new();
 		if count == 0 {
 			self.viewers_label.set_label("&Viewed by: no one yet");
 			self.viewers_list.append("No one has seen this status update yet.");
@@ -1088,6 +1191,9 @@ impl Viewer {
 			let noun = if count == 1 { "person" } else { "people" };
 			self.viewers_label.set_label(&format!("&Viewed by {count} {noun}"));
 			for v in &viewers {
+				let jid = text(v, "jid");
+				let name = text(v, "name");
+				items.push((jid, name));
 				let time = v
 					.get("timestamp")
 					.and_then(|t| t.as_i64())
@@ -1102,6 +1208,7 @@ impl Viewer {
 				self.viewers_list.append(&row);
 			}
 		}
+		*self.viewers_data.borrow_mut() = items;
 		self.viewers_list.set_selection(0, true);
 		self.dialog.layout();
 	}

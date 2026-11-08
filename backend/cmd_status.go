@@ -23,7 +23,10 @@ import (
 const whatsappTeal = 0xFF075E54
 
 type PostStatusData struct {
-	Text string `json:"text"`
+	Text           string `json:"text"`
+	BackgroundArgb uint32 `json:"background_argb"`
+	TextArgb       uint32 `json:"text_argb"`
+	Font           int32  `json:"font"`
 }
 
 type PostMediaStatusData struct {
@@ -74,7 +77,7 @@ func (acc *Account) handleGetStatuses(conn net.Conn) {
 				if scanErr := rows.Scan(&id, &senderJID, &fromMe, &text, &mediaType, &mediaMimetype, &mediaFilename, &mediaPath, &ts, &viewed, &viewers, &myReaction, &raw); scanErr != nil {
 					continue
 				}
-				background, textColor := textStatusColors(raw)
+				background, textColor, font := textStatusColors(raw)
 				key := senderJID
 				if fromMe {
 					key = "me"
@@ -93,6 +96,7 @@ func (acc *Account) handleGetStatuses(conn net.Conn) {
 					"id": id, "text": text, "mediaType": mediaType, "mediaMimetype": mediaMimetype,
 					"mediaFilename": mediaFilename, "mediaPath": mediaPath, "timestamp": ts, "viewed": viewed == 1 || fromMe,
 					"viewers": viewers, "myReaction": myReaction, "background": background, "textColor": textColor,
+					"font": font,
 				})
 			}
 			rows.Close()
@@ -140,16 +144,20 @@ func (acc *Account) handleGetStatuses(conn net.Conn) {
 	}()
 }
 
-func textStatusColors(raw []byte) (background, text uint32) {
+func textStatusColors(raw []byte) (background, text uint32, font int32) {
 	if len(raw) == 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
 	msg := &waE2E.Message{}
 	if proto.Unmarshal(raw, msg) != nil {
-		return 0, 0
+		return 0, 0, 0
 	}
 	ext := msg.GetExtendedTextMessage()
-	return ext.GetBackgroundArgb(), ext.GetTextArgb()
+	fontVal := int32(0)
+	if ext.Font != nil {
+		fontVal = int32(*ext.Font)
+	}
+	return ext.GetBackgroundArgb(), ext.GetTextArgb(), fontVal
 }
 
 func (acc *Account) handlePostStatus(raw json.RawMessage) {
@@ -161,12 +169,27 @@ func (acc *Account) handlePostStatus(raw json.RawMessage) {
 	if text == "" {
 		return
 	}
+	bg := uint32(whatsappTeal)
+	if data.BackgroundArgb != 0 {
+		bg = data.BackgroundArgb
+	}
+	textColor := uint32(0xFFFFFFFF)
+	if data.TextArgb != 0 {
+		textColor = data.TextArgb
+	}
+	font := data.Font
 	go func() {
+		ext := &waE2E.ExtendedTextMessage{
+			Text:           proto.String(text),
+			BackgroundArgb: proto.Uint32(bg),
+			TextArgb:       proto.Uint32(textColor),
+		}
+		if font > 0 {
+			f := waE2E.ExtendedTextMessage_FontType(font)
+			ext.Font = &f
+		}
 		msg := &waE2E.Message{
-			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text:           proto.String(text),
-				BackgroundArgb: proto.Uint32(whatsappTeal),
-			},
+			ExtendedTextMessage: ext,
 		}
 		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: acc.statusRecipients(context.Background())})
 		if err != nil {
@@ -185,6 +208,7 @@ func (acc *Account) handlePostStatus(raw json.RawMessage) {
 		acc.broadcastEvent("status_update", map[string]interface{}{
 			"id": resp.ID, "posterJid": ownJID, "fromMe": true, "text": text,
 			"mediaType": "", "timestamp": resp.Timestamp.Unix(),
+			"background": bg, "textColor": textColor, "font": font,
 		})
 	}()
 }
