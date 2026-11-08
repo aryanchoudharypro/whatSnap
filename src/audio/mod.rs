@@ -268,6 +268,7 @@ pub(crate) fn play_call_fail_sound(state: &mut AppState) {
 				sink.append(decoded);
 				sink.play();
 				state.call_ringing_sink = Some(sink);
+				state.call_ringback_on = false;
 			}
 			None => eprintln!("[AUDIO] Error decoding fail sound"),
 		}
@@ -333,6 +334,7 @@ pub(crate) fn start_call_ringback(state: &mut AppState, self_phone: &str) {
 	sink.append(crate::audio::ringback::ringback_cycle(self_phone).repeat_infinite());
 	sink.play();
 	state.call_ringing_sink = Some(sink);
+	state.call_ringback_on = true;
 }
 
 pub(crate) fn play_busy_tone(state: &mut AppState) {
@@ -345,6 +347,7 @@ pub(crate) fn play_busy_tone(state: &mut AppState) {
 	sink.append(crate::audio::ringback::busy_tone());
 	sink.play();
 	state.call_ringing_sink = Some(sink);
+	state.call_ringback_on = false;
 }
 
 pub(crate) fn start_call_reconnect_tone(state: &mut AppState) {
@@ -373,6 +376,7 @@ pub(crate) fn stop_call_ringing_sound(state: &mut AppState) {
 	if let Some(sink) = state.call_ringing_sink.take() {
 		sink.pause();
 	}
+	state.call_ringback_on = false;
 	state.call_hotkeys = None;
 }
 

@@ -274,6 +274,9 @@ struct AppState {
 	/// case where the backend never hears back at all rather than erroring.
 	call_answer_deadline: Option<std::time::Instant>,
 	call_ringing_sink: Option<Player>,
+	/// True only while the outgoing ringback itself is playing: the sink above
+	/// also holds the hangup sound and ringtones, which stay set once finished.
+	call_ringback_on: bool,
 	call_reconnect_sink: Option<Player>,
 	call_hotkeys: Option<wx_utils::global_hotkeys::GlobalHotkeys>,
 	incoming_call_caller: Option<String>,
@@ -885,6 +888,7 @@ pub(crate) fn new_app_state(
 		joinable_calls: Vec::new(),
 		call_answer_deadline: None,
 		call_ringing_sink: None,
+		call_ringback_on: false,
 		call_reconnect_sink: None,
 		call_hotkeys: None,
 		incoming_call_caller: None,

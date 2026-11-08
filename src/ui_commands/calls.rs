@@ -373,7 +373,7 @@ pub(crate) fn on_call_progress(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		show_outgoing_call_status(&s, parts, status);
 		announce_call(parts, status);
 		if progress == "ringing" {
-			let needs_ringback = s.call_ringing_sink.is_none();
+			let needs_ringback = !s.call_ringback_on;
 			let self_phone = s.call_self_phone.clone();
 			drop(s);
 			if needs_ringback {
