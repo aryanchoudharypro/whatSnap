@@ -125,7 +125,12 @@ fn show_attachment_dialog(
 		d.send_btn.set_focus();
 	}
 	if !d.dialog.is_shown() {
-		crate::ui::show_modal_again(&d.dialog);
+		let res = crate::ui::show_modal_again(&d.dialog);
+		if res != wxdragon::id::ID_OK {
+			state.borrow_mut().pending_attachments.clear();
+			d.attachment_info_label.set_label("");
+			d.caption_field.set_value("");
+		}
 	}
 }
 
@@ -333,7 +338,7 @@ pub(crate) fn send_files(
 				"type": file_type,
 				"path": path,
 				"filename": filename,
-				"caption": caption,
+				"caption": if idx == 0 { caption } else { "" },
 				"reply_to_id": if idx == 0 { reply_id } else { "" },
 				"reply_to_sender": if idx == 0 { reply_sender } else { "" },
 				"view_once": view_once && matches!(file_type, "image" | "video")

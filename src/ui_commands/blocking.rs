@@ -105,9 +105,28 @@ pub(crate) fn blocklist_received(state: &Rc<RefCell<AppState>>, data: &serde_jso
 }
 
 pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
+	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 	let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("Contact");
 	let blocked = data.get("blocked").and_then(|b| b.as_bool()).unwrap_or(false);
 	let Some(error) = data.get("error").and_then(|e| e.as_str()).filter(|e| !e.is_empty()) else {
+		if !jid.is_empty() {
+			let mut s = state.borrow_mut();
+			if blocked {
+				s.blocked_jids.insert(jid.to_string());
+				if !s.blocked_entries.iter().any(|e| e.jid == jid) {
+					s.blocked_entries.push(BlockedEntry { jid: jid.to_string(), name: name.to_string(), phone: String::new() });
+				}
+			} else {
+				s.blocked_jids.remove(jid);
+				s.blocked_entries.retain(|e| e.jid != jid);
+			}
+		}
+		{
+			let s = state.borrow();
+			if s.selected_chat.as_deref() == Some(jid) {
+				crate::ui_commands::calls::apply_call_buttons(&s, parts, jid);
+			}
+		}
 		announce(state, parts, &format!("{name} {}.", if blocked { "blocked" } else { "unblocked" }));
 		return;
 	};

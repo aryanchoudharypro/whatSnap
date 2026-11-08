@@ -17,6 +17,9 @@ fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link:
 	match link {
 		crate::platform::app_link::AppLink::Open { jid, .. } => open_chat_for_jid(&jid, state, parts),
 		crate::platform::app_link::AppLink::MarkRead { jid, .. } => {
+			if state.borrow().locked_jids.contains(&jid) && !state.borrow().chats_unlocked {
+				return;
+			}
 			crate::ui::chat_ui::clear_chat_notifications(&jid);
 			state.borrow_mut().notification_reads.insert(jid.clone());
 			crate::handle_ui_command(crate::UiCommand::MarkRead { jid, message_ids: Vec::new() }, state, parts);

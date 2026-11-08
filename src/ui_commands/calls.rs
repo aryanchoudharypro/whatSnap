@@ -16,7 +16,10 @@ use crate::{
 };
 
 pub(crate) fn can_call(s: &AppState, jid: &str) -> bool {
-	!jid.ends_with("@newsletter") && !jid.ends_with("@broadcast") && !s.community_jids.contains(jid)
+	!s.blocked_jids.contains(jid)
+		&& !jid.ends_with("@newsletter")
+		&& !jid.ends_with("@broadcast")
+		&& !s.community_jids.contains(jid)
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
