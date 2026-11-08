@@ -4803,6 +4803,11 @@ pub fn bind_input_handlers(
 
 			msgs_list_ctx.popup_menu(&mut popup_menu, None);
 			popup_menu.destroy_menu();
+			// An item picked with Enter leaves its release for the message
+			// list, which would open the message's link.
+			if enter_key_held() {
+				crate::platform::tray::enter_release_guard().set(true);
+			}
 		}
 	});
 
