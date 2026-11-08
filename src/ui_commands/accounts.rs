@@ -452,6 +452,7 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 			&format!("WhatsApp ({account_name})"),
 			"New message",
 			Some(account),
+			true,
 		);
 		return;
 	}
@@ -462,7 +463,7 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 		(true, true, Some(sender)) => format!("{sender}: {preview}"),
 		(true, _, _) => preview,
 	};
-	crate::ui::chat_ui::show_chat_notification_for(jid, &title, &body, Some(account));
+	crate::ui::chat_ui::show_chat_notification_for(jid, &title, &body, Some(account), false);
 }
 
 /// A call to an account that isn't on screen. With nothing else going on, the

@@ -93,10 +93,10 @@ pub enum UiCommand {
 	FilterConversations(String),
 	OpenConversation(usize),
 	PromptLockedChats,
-	/// The Windows Hello prompt for locked chats finished: `verified` is
-	/// whether the user passed it.
+	/// The Windows Hello prompt for locked chats finished: `outcome` is
+	/// the verification outcome.
 	ChatLockHello {
-		verified: bool,
+		outcome: crate::platform::windows_hello::VerifyOutcome,
 	},
 	CloseLockedChats,
 	SearchInConversation(String),

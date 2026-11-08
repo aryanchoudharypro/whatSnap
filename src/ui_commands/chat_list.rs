@@ -20,6 +20,9 @@ pub(crate) fn request_call_tab_data(s: &AppState) {
 }
 
 pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
+	if idx != 0 && state.borrow().chats_unlocked {
+		close_locked_chats(state, parts);
+	}
 	parts.conversations_parts.calls_btn_panel.show(idx == 6);
 	parts.conversations_parts.search_label.set_label(if idx == 6 {
 		"Search or enter phone number to place call"
@@ -442,8 +445,8 @@ pub(crate) fn prompt_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		(s.settings.chat_lock_hello, s.ui_tx.clone())
 	};
 	if use_hello && windows_hello::availability() == windows_hello::Availability::Ready {
-		let started = windows_hello::verify("Unlock your locked chats in whatSnap".to_string(), move |verified| {
-			let _ = ui_tx.send(UiCommand::ChatLockHello { verified });
+		let started = windows_hello::verify("Unlock your locked chats in whatSnap".to_string(), move |outcome| {
+			let _ = ui_tx.send(UiCommand::ChatLockHello { outcome });
 		});
 		if started {
 			return;
@@ -452,30 +455,47 @@ pub(crate) fn prompt_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	ask_secret_code(state, parts);
 }
 
-/// The Windows Hello prompt finished. A pass shows the chats; a cancel or
-/// failure falls back to the secret code, so the chats are never out of reach.
-pub(crate) fn finish_chat_lock_hello(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, verified: bool) {
+/// The Windows Hello prompt finished. A pass shows the chats; an explicit cancel
+/// leaves chats locked; failure falls back to the secret code.
+pub(crate) fn finish_chat_lock_hello(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	outcome: windows_hello::VerifyOutcome,
+) {
 	// The Hello prompt has closed. Give whatSnap the keyboard back and put
 	// focus on the button that opened it, so a screen reader user isn't left
 	// with nothing focused.
 	let frame = windows::Win32::Foundation::HWND(parts.frame.get_handle());
 	crate::platform::focus::bring_to_front(frame);
 	parts.conversations_parts.locked_chats_btn.set_focus();
-	if verified {
-		show_locked_chats(state, parts);
-	} else {
-		ask_secret_code(state, parts);
+	match outcome {
+		windows_hello::VerifyOutcome::Verified => {
+			show_locked_chats(state, parts);
+		}
+		windows_hello::VerifyOutcome::Canceled => {
+			state.borrow_mut().pending_locked_chat = None;
+		}
+		windows_hello::VerifyOutcome::Failed => {
+			ask_secret_code(state, parts);
+		}
 	}
 }
 
 /// Shows the locked chats. Called once the user has proved they may see them.
 pub(crate) fn show_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let mut s = state.borrow_mut();
-	s.chats_unlocked = true;
-	s.search_query.clear();
-	parts.conversations_parts.search_field.set_value("");
-	apply_chat_filter(&mut s, parts);
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats shown.");
+	let pending_chat = {
+		let mut s = state.borrow_mut();
+		s.chats_unlocked = true;
+		s.search_query.clear();
+		parts.conversations_parts.search_field.set_value("");
+		apply_chat_filter(&mut s, parts);
+		parts.conversations_parts.locked_chats_btn.set_label("Hide Locked Chats");
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats shown.");
+		s.pending_locked_chat.take()
+	};
+	if let Some(jid) = pending_chat {
+		open_chat_for_jid(&jid, state, parts);
+	}
 }
 
 /// After the secret code works for the first time, offer Windows Hello for
@@ -506,7 +526,13 @@ pub(crate) fn offer_chat_lock_hello(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 }
 
 fn ask_secret_code(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let dlg = TextEntryDialog::builder(&parts.frame, "Enter Secret Code:", "Locked Chats").password().build();
+	let dlg = TextEntryDialog::builder(
+		&parts.frame,
+		"Enter your WhatsApp Secret Code configured on your phone:",
+		"Unlock Locked Chats",
+	)
+	.password()
+	.build();
 	if dlg.show_modal() == wxdragon::id::ID_OK
 		&& let Some(val) = dlg.get_value()
 	{
@@ -517,16 +543,28 @@ fn ask_secret_code(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 				"data": { "code": text }
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
+			return;
 		}
 	}
+	state.borrow_mut().pending_locked_chat = None;
 }
 
 pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let mut s = state.borrow_mut();
-	if s.chats_unlocked {
-		s.chats_unlocked = false;
-		apply_chat_filter(&mut s, parts);
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats hidden.");
+	let should_close_conv = {
+		let mut s = state.borrow_mut();
+		if s.chats_unlocked {
+			s.chats_unlocked = false;
+			s.pending_locked_chat = None;
+			parts.conversations_parts.locked_chats_btn.set_label("Locked Chats");
+			apply_chat_filter(&mut s, parts);
+			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats hidden.");
+			s.selected_chat.as_ref().is_some_and(|j| s.locked_jids.contains(j))
+		} else {
+			false
+		}
+	};
+	if should_close_conv {
+		close_conversation(state, parts);
 	}
 }
 
@@ -813,7 +851,7 @@ pub(crate) fn choose_disappearing_timer(state: &Rc<RefCell<AppState>>, parts: &R
 }
 
 pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, lock: bool) {
-	let chat_name = {
+	let (chat_name, should_close_conv) = {
 		let mut s = state.borrow_mut();
 		if lock {
 			s.locked_jids.insert(jid.clone());
@@ -821,8 +859,13 @@ pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 			s.locked_jids.remove(&jid);
 		}
 		apply_chat_filter(&mut s, parts);
-		s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
+		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+		let close = lock && s.selected_chat.as_deref() == Some(&jid) && !s.chats_unlocked;
+		(name, close)
 	};
+	if should_close_conv {
+		close_conversation(state, parts);
+	}
 	let payload = serde_json::json!({
 		"action": "set_chat_locked",
 		"data": {

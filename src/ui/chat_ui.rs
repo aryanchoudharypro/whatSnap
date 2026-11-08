@@ -78,13 +78,19 @@ pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 	}
 }
 
-pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str) {
-	show_chat_notification_for(jid, title, body, None);
+pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str, is_locked: bool) {
+	show_chat_notification_for(jid, title, body, None, is_locked);
 }
 
 /// A chat notification for a linked account that isn't the one on screen.
-pub(crate) fn show_chat_notification_for(jid: &str, title: &str, body: &str, account: Option<&str>) {
-	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body, account) {
+pub(crate) fn show_chat_notification_for(
+	jid: &str,
+	title: &str,
+	body: &str,
+	account: Option<&str>,
+	is_locked: bool,
+) {
+	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body, account, is_locked) {
 		eprintln!("[NOTIFY] Chat toast failed, showing a plain notification: {err:?}");
 		show_toast_notification(title, body);
 	}
@@ -156,9 +162,45 @@ pub(crate) fn save_composer_draft(s: &mut AppState, parts: &WindowParts) {
 
 pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversations::ConversationsPanelParts) {
 	let Some(jid) = s.selected_chat.as_deref() else { return };
-	let can_write = !jid.ends_with("@newsletter") || crate::ui_commands::links::can_post_in_channel(s, jid);
+	let is_blocked = crate::ui_commands::blocking::is_blocked(s, jid);
+	let is_channel_readonly = jid.ends_with("@newsletter") && !crate::ui_commands::links::can_post_in_channel(s, jid);
+	let is_group_not_member = jid.ends_with("@g.us") && s.not_member_jids.contains(jid);
+	let is_group_admins_only = jid.ends_with("@g.us") && s.admins_only_jids.contains(jid) && !s.admin_group_jids.contains(jid);
+
+	let can_write = !is_blocked && !is_channel_readonly && !is_group_not_member && !is_group_admins_only;
 	if !can_write {
 		let mut changed = false;
+		if is_blocked {
+			if !cp.blocked_banner_btn.is_shown() {
+				cp.blocked_banner_btn.show(true);
+				changed = true;
+			}
+			if cp.message_label.is_shown() {
+				cp.message_label.show(false);
+				changed = true;
+			}
+		} else {
+			if cp.blocked_banner_btn.is_shown() {
+				cp.blocked_banner_btn.show(false);
+				changed = true;
+			}
+			if !cp.message_label.is_shown() {
+				cp.message_label.show(true);
+				changed = true;
+			}
+			let label = if is_channel_readonly {
+				"Channels are read-only. Only admins can post."
+			} else if is_group_not_member {
+				"You can't send messages to this group because you're no longer a member."
+			} else if is_group_admins_only {
+				"Only admins can send messages to this group."
+			} else {
+				"You cannot send messages to this chat."
+			};
+			if cp.message_label.get_label() != label {
+				cp.message_label.set_label(label);
+			}
+		}
 		if cp.message_field.is_shown() {
 			cp.message_field.show(false);
 			changed = true;
@@ -197,6 +239,14 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 	let has_text = !cp.message_field.get_value().trim().is_empty();
 	let mut changed = false;
 
+	if cp.blocked_banner_btn.is_shown() {
+		cp.blocked_banner_btn.show(false);
+		changed = true;
+	}
+	if !cp.message_label.is_shown() {
+		cp.message_label.show(true);
+		changed = true;
+	}
 	if !cp.message_field.is_shown() {
 		cp.message_field.show(true);
 		changed = true;
@@ -320,6 +370,15 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 }
 
 pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	{
+		let mut s = state.borrow_mut();
+		if s.locked_jids.contains(jid) && !s.chats_unlocked {
+			s.pending_locked_chat = Some(jid.to_string());
+			drop(s);
+			crate::ui_commands::chat_list::prompt_locked_chats(state, parts);
+			return;
+		}
+	}
 	let mut s = state.borrow_mut();
 	// An in-progress edit is tied to the message (and chat) it was started
 	// from - switching away must drop that link rather than leaving
@@ -429,7 +488,12 @@ pub(crate) fn group_send_block_reason(s: &AppState, jid: &str) -> Option<&'stati
 /// reason as the message field's label so a screen reader says why, and
 /// enables it again everywhere else.
 pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str) {
-	let reason = group_send_block_reason(s, jid);
+	let is_blocked = crate::ui_commands::blocking::is_blocked(s, jid);
+	let reason = if is_blocked {
+		Some("You blocked this contact. Click to unblock.")
+	} else {
+		group_send_block_reason(s, jid)
+	};
 	let enabled = reason.is_none();
 	let cp = &parts.conversations_parts;
 	cp.message_field.enable(enabled);
@@ -437,10 +501,21 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	cp.add_attachment_btn.enable(enabled);
 	cp.emoji_btn.enable(enabled);
 	cp.record_voice_btn.enable(enabled);
-	if s.editing_message_id.is_none() && s.pending_reply_preview.is_none() {
-		let label = reason.unwrap_or("Type a message");
-		if cp.message_label.get_label() != label {
-			cp.message_label.set_label(label);
+	if is_blocked {
+		cp.blocked_banner_btn.show(true);
+		cp.message_field.show(false);
+		cp.message_label.show(false);
+		cp.add_attachment_btn.show(false);
+		cp.emoji_btn.show(false);
+		cp.send_message_btn.show(false);
+		cp.record_voice_btn.show(false);
+	} else {
+		cp.blocked_banner_btn.show(false);
+		if s.editing_message_id.is_none() && s.pending_reply_preview.is_none() {
+			let label = reason.unwrap_or("Type a message");
+			if cp.message_label.get_label() != label {
+				cp.message_label.set_label(label);
+			}
 		}
 	}
 }

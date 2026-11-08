@@ -1393,6 +1393,13 @@ pub fn bind_input_handlers(
 		let _ = tx_conv_data.send(UiCommand::ShowConversationData);
 	});
 
+	let tx_unblock_banner = ui_tx.clone();
+	let state_unblock_banner = state.clone();
+	parts.conversations_parts.blocked_banner_btn.on_click(move |_| {
+		let Some(jid) = state_unblock_banner.borrow().selected_chat.clone() else { return };
+		let _ = tx_unblock_banner.send(UiCommand::ToggleBlockChat { jid });
+	});
+
 	let tx_enter_call = ui_tx.clone();
 	let tx_place_call = ui_tx.clone();
 	parts.conversations_parts.place_call_btn.on_click(move |_| {
@@ -4139,6 +4146,11 @@ pub fn bind_input_handlers(
 			let display_item = s.display_items.get(idx as usize).cloned();
 			let is_group_chat = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 			let is_channel_chat = s.selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
+			let can_post_in_channel = is_channel_chat
+				&& s.selected_chat
+					.as_ref()
+					.map(|jid| crate::ui_commands::links::can_post_in_channel(&s, jid))
+					.unwrap_or(false);
 			drop(s);
 
 			let is_divider = match display_item.as_ref() {
@@ -4269,8 +4281,12 @@ pub fn bind_input_handlers(
 
 			let mut menu_builder = Menu::builder();
 			menu_builder = menu_builder.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard");
+			let can_reply = !is_deleted && (!is_channel_chat || can_post_in_channel);
+			if can_reply {
+				menu_builder = menu_builder.append_item(reply_id, "&Reply", "Reply to message");
+			}
 			if !is_deleted {
-				menu_builder = menu_builder.append_item(reply_id, "&Reply", "Reply to message").append_item(
+				menu_builder = menu_builder.append_item(
 					forward_id,
 					"&Forward...",
 					"Forward message to another contact",
@@ -4279,7 +4295,10 @@ pub fn bind_input_handlers(
 					menu_builder = menu_builder.append_item(edit_id, "&Edit", "Edit message");
 				}
 			}
-			menu_builder = menu_builder.append_item(delete_id, "&Delete", "Delete message");
+			let can_delete = !is_channel_chat || can_post_in_channel || is_from_me;
+			if can_delete {
+				menu_builder = menu_builder.append_item(delete_id, "&Delete", "Delete message");
+			}
 			if !is_deleted {
 				menu_builder = menu_builder.append_item(react_dialog_id, "&React...", "React to message");
 			}
@@ -4407,6 +4426,16 @@ pub fn bind_input_handlers(
 				}
 				if id == reply_id {
 					let mut s = state_clone.borrow_mut();
+					let is_channel = s.selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
+					if is_channel
+						&& !s
+							.selected_chat
+							.as_ref()
+							.map(|j| crate::ui_commands::links::can_post_in_channel(&s, j))
+							.unwrap_or(false)
+					{
+						return;
+					}
 					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
 						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
 						whatsnap::DisplayItem::Album { messages, .. } => messages.first().cloned(),

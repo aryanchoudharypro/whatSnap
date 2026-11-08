@@ -57,20 +57,25 @@ fn escape_xml(text: &str) -> String {
 	out
 }
 
-fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>) -> String {
+fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>, is_locked: bool) -> String {
 	let open = escape_xml(&app_link::open_link(jid, account));
-	let mark_read = escape_xml(&app_link::mark_read_link(jid, account));
+	let actions = if is_locked {
+		String::new()
+	} else {
+		let mark_read = escape_xml(&app_link::mark_read_link(jid, account));
+		format!(r#"<actions><action content="Mark as read" arguments="{mark_read}" activationType="protocol"/></actions>"#)
+	};
 	format!(
 		concat!(
 			r#"<toast launch="{open}" activationType="protocol">"#,
 			r#"<visual><binding template="ToastGeneric">"#,
 			r#"<text>{title}</text><text>{body}</text>"#,
 			r#"</binding></visual>"#,
-			r#"<actions><action content="Mark as read" arguments="{mark_read}" activationType="protocol"/></actions>"#,
+			"{actions}",
 			r#"</toast>"#,
 		),
 		open = open,
-		mark_read = mark_read,
+		actions = actions,
 		title = escape_xml(title),
 		body = escape_xml(body),
 	)
@@ -78,11 +83,18 @@ fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>) -> Strin
 
 /// Shows a message toast for `jid`, filed in that chat's group. `account` is
 /// set for a chat of a linked account that isn't the one on screen, so a click
-/// switches to it. Must run on the UI thread, like the rest of the WinRT toast
+/// switches to it. When `is_locked` is true, the toast omits unauthenticated actions
+/// such as "Mark as read". Must run on the UI thread, like the rest of the WinRT toast
 /// code in this app.
-pub fn show_chat_toast(jid: &str, title: &str, body: &str, account: Option<&str>) -> windows::core::Result<()> {
+pub fn show_chat_toast(
+	jid: &str,
+	title: &str,
+	body: &str,
+	account: Option<&str>,
+	is_locked: bool,
+) -> windows::core::Result<()> {
 	let document = XmlDocument::new()?;
-	document.LoadXml(&HSTRING::from(toast_xml(title, body, jid, account)))?;
+	document.LoadXml(&HSTRING::from(toast_xml(title, body, jid, account, is_locked)))?;
 	let toast = ToastNotification::CreateToastNotification(&document)?;
 	toast.SetTag(&next_tag())?;
 	toast.SetGroup(&group_for(jid))?;
@@ -102,10 +114,14 @@ mod tests {
 
 	#[test]
 	fn xml_escapes_user_text_and_links() {
-		let xml = toast_xml("A & <B>", "say \"hi\"", "1@g.us", None);
+		let xml = toast_xml("A & <B>", "say \"hi\"", "1@g.us", None, false);
 		assert!(xml.contains("<text>A &amp; &lt;B&gt;</text>"));
 		assert!(xml.contains("<text>say &quot;hi&quot;</text>"));
 		assert!(xml.contains("arguments=\"whatsnap://markread?jid=1%40g.us\""));
+
+		let locked_xml = toast_xml("WhatsApp", "1 new message", "1@g.us", None, true);
+		assert!(!locked_xml.contains("arguments=\"whatsnap://markread"));
+		assert!(!locked_xml.contains("Mark as read"));
 	}
 
 	#[test]
