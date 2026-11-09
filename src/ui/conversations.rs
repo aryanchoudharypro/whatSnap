@@ -14,6 +14,7 @@ pub struct ConversationsPanelParts {
 	pub new_conv_btn: Button,
 	pub locked_chats_btn: Button,
 	pub post_media_status_btn: Button,
+	pub status_privacy_btn: Button,
 
 	pub conversations_label: StaticText,
 	pub conversations_list: ListBox,
@@ -510,6 +511,15 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	);
 	post_media_status_btn.show(false);
 
+	let status_privacy_btn = Button::builder(&panel).with_label("Status Privacy...").build();
+	left_sizer.add(
+		&status_privacy_btn,
+		0,
+		SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+		10,
+	);
+	status_privacy_btn.show(false);
+
 	let list_divider = StaticLine::builder(&panel).build();
 	theme::style_divider(&list_divider);
 	left_sizer.add(&list_divider, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
@@ -781,9 +791,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	message_field.set_font(&theme::Fonts::body());
 	message_field.set_min_size(Size::new(-1, message_field.get_char_height() * 2 + 6));
 	message_row.add(&message_field, 1, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
-	let blocked_banner_btn = Button::builder(&conversation_panel)
-		.with_label("You blocked this contact. Click to unblock.")
-		.build();
+	let blocked_banner_btn =
+		Button::builder(&conversation_panel).with_label("You blocked this contact. Click to unblock.").build();
 	blocked_banner_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_tile(&blocked_banner_btn, composer_bg);
 	message_row.add(&blocked_banner_btn, 1, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
@@ -914,6 +923,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		new_conv_btn,
 		locked_chats_btn,
 		post_media_status_btn,
+		status_privacy_btn,
 		conversations_label,
 		conversations_list,
 		calls_btn_panel,

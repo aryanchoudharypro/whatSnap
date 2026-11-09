@@ -1226,7 +1226,7 @@ pub fn bind_input_handlers(
 				let segments = s
 					.status_groups
 					.iter()
-					.find(|g| !jid.is_empty() && g.poster_jid == jid)
+					.find(|g| !jid.is_empty() && (g.poster_jid == jid || (jid == "me" && g.from_me)))
 					.map(|g| {
 						let unseen = if g.from_me { 0 } else { g.items.iter().filter(|it| !it.viewed).count() };
 						(g.items.len().min(u16::MAX as usize) as u16, unseen.min(u16::MAX as usize) as u16)
@@ -1286,20 +1286,11 @@ pub fn bind_input_handlers(
 	let tx_post_status = ui_tx.clone();
 	let tx_new_conv = ui_tx.clone();
 	let state_new_conv = state.clone();
-	let frame_new_conv = parts.frame;
 	parts.conversations_parts.new_conv_btn.on_click(move |_| {
 		if state_new_conv.borrow().active_tab == 5 {
 			let _ = tx_new_conv.send(UiCommand::FindChannels);
 		} else if state_new_conv.borrow().active_tab == 1 {
-			let dlg = TextEntryDialog::builder(&frame_new_conv, "What's on your mind?", "Post Status Update").build();
-			if dlg.show_modal() == wxdragon::id::ID_OK
-				&& let Some(val) = dlg.get_value()
-			{
-				let text = val.trim().to_string();
-				if !text.is_empty() {
-					let _ = tx_post_status.send(UiCommand::PostStatus { text });
-				}
-			}
+			let _ = tx_post_status.send(UiCommand::OpenStatusComposer);
 		} else {
 			let _ = tx_new_conv.send(UiCommand::PrepareContactPicker(crate::ContactPickerMode::OpenChat));
 		}
@@ -1313,6 +1304,11 @@ pub fn bind_input_handlers(
 		} else {
 			let _ = tx_post_media_status.send(UiCommand::PostMediaStatus);
 		}
+	});
+
+	let tx_status_privacy = ui_tx.clone();
+	parts.conversations_parts.status_privacy_btn.on_click(move |_| {
+		let _ = tx_status_privacy.send(UiCommand::OpenStatusPrivacy);
 	});
 
 	let tx_locked_chats = ui_tx.clone();
@@ -2412,6 +2408,11 @@ pub fn bind_input_handlers(
 	let tx_blocked = ui_tx.clone();
 	parts.settings_dialog.blocked_contacts_btn.on_click(move |_| {
 		let _ = tx_blocked.send(UiCommand::ShowBlockedContacts);
+	});
+
+	let tx_status_privacy_settings = ui_tx.clone();
+	parts.settings_dialog.status_privacy_btn.on_click(move |_| {
+		let _ = tx_status_privacy_settings.send(UiCommand::OpenStatusPrivacy);
 	});
 
 	let settings_dialog_ok = parts.settings_dialog.dialog;
@@ -4281,11 +4282,8 @@ pub fn bind_input_handlers(
 				menu_builder = menu_builder.append_item(reply_id, "&Reply", "Reply to message");
 			}
 			if !is_deleted {
-				menu_builder = menu_builder.append_item(
-					forward_id,
-					"&Forward...",
-					"Forward message to another contact",
-				);
+				menu_builder =
+					menu_builder.append_item(forward_id, "&Forward...", "Forward message to another contact");
 				if can_edit {
 					menu_builder = menu_builder.append_item(edit_id, "&Edit", "Edit message");
 				}

@@ -3382,11 +3382,11 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 		return
 	}
 	go acc.purgeExpiredStatuses()
-	background, textColor := textStatusColors(rawBytes)
+	background, textColor, font := textStatusColors(rawBytes)
 	acc.broadcastEvent("status_update", map[string]interface{}{
 		"id": v.Info.ID, "posterJid": senderJID.String(), "fromMe": v.Info.IsFromMe,
 		"text": text, "mediaType": mediaType, "timestamp": ts,
-		"background": background, "textColor": textColor,
+		"background": background, "textColor": textColor, "font": font,
 	})
 }
 

@@ -1270,7 +1270,17 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			ui_commands::messaging::export_chat_text(state, parts, jid, dest_path)
 		}
 		UiCommand::PostStatus { text } => ui_commands::messaging::post_status(state, parts, text),
+		UiCommand::PostCustomStatus { text, background, text_color, font } => {
+			ui_commands::messaging::post_custom_status(state, parts, text, background, text_color, font);
+		}
 		UiCommand::PostMediaStatus => ui_commands::messaging::post_media_status(state, parts),
+		UiCommand::OpenStatusPrivacy => {
+			let payload = serde_json::json!({ "action": "get_status_privacy", "data": {} });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::OpenStatusComposer => {
+			ui_commands::messaging::open_status_composer(state, parts);
+		}
 		UiCommand::GetMessageInfo { message_id } => ui_commands::messaging::get_message_info(state, parts, message_id),
 		UiCommand::RetryMessage { message_id } => ui_commands::messaging::retry_message(state, parts, message_id),
 		UiCommand::RetrySelectedMessage => ui_commands::messaging::retry_selected_message(state, parts),

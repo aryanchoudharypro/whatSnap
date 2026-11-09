@@ -38,6 +38,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			state.borrow_mut().active_tab = 0;
 			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
+			parts.conversations_parts.status_privacy_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Chats");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
@@ -47,6 +48,11 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.new_conv_btn.set_label("Post Status Update...");
 			parts.conversations_parts.post_media_status_btn.set_label("Post Photo/Video Status...");
 			parts.conversations_parts.post_media_status_btn.show(true);
+			parts.conversations_parts.status_privacy_btn.show(true);
+			parts.conversations_parts.locked_chats_btn.show(false);
+			parts.conversations_parts.chat_filter_label.show(false);
+			parts.conversations_parts.chat_filter_combo.show(false);
+			parts.conversations_parts.conversation_panel.show(false);
 			parts.conversations_parts.conversations_label.set_label("Status Updates");
 			let payload = serde_json::json!({ "action": "get_statuses" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
@@ -57,6 +63,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			state.borrow_mut().active_tab = 2;
 			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
+			parts.conversations_parts.status_privacy_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Starred Messages");
 			let payload = serde_json::json!({ "action": "get_starred_messages" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
@@ -67,6 +74,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			state.borrow_mut().active_tab = 3;
 			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
+			parts.conversations_parts.status_privacy_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Archived Chats");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
@@ -75,6 +83,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			state.borrow_mut().active_tab = 4;
 			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
+			parts.conversations_parts.status_privacy_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Communities");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
@@ -84,6 +93,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.new_conv_btn.set_label("Find channels...");
 			parts.conversations_parts.post_media_status_btn.set_label("Create channel...");
 			parts.conversations_parts.post_media_status_btn.show(true);
+			parts.conversations_parts.status_privacy_btn.show(false);
 			parts.conversations_parts.conversations_label.set_label("Channels");
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
@@ -91,6 +101,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 6;
 			parts.conversations_parts.post_media_status_btn.show(false);
+			parts.conversations_parts.status_privacy_btn.show(false);
 			parts.conversations_parts.locked_chats_btn.show(false);
 			parts.conversations_parts.chat_filter_label.show(false);
 			parts.conversations_parts.chat_filter_combo.show(false);
@@ -120,7 +131,13 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			crate::platform::tray::enter_release_guard().set(true);
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 			if let crate::ui::status_viewer::ViewerOutcome::OpenChat(jid) = outcome {
+				nav_selected(state, parts, 0);
 				open_chat_for_jid(&jid, state, parts);
+			}
+		} else {
+			let is_me = state.borrow().filtered_chats.get(idx).is_some_and(|j| j == "me");
+			if is_me {
+				crate::ui::dialogs::status_composer::show_status_composer_choice(&parts.frame, state, parts);
 			}
 		}
 		return;
