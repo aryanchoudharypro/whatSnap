@@ -102,6 +102,13 @@ func (acc *Account) migrateDB() error {
 		WHEN NEW.unread_count = 0 AND COALESCE(OLD.marked_unread, 0) = 1
 		BEGIN UPDATE chats SET marked_unread = 0 WHERE jid = NEW.jid; END`)
 
+	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS status_recipients (
+		status_id TEXT,
+		jid TEXT,
+		PRIMARY KEY (status_id, jid)
+	)`); err != nil {
+		return err
+	}
 	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS status_viewers (
 		status_id TEXT,
 		viewer TEXT,

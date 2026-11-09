@@ -36,7 +36,10 @@ type StatusPrivacyData struct {
 }
 
 func (acc *Account) noteStatusViewers(v *events.Receipt) {
-	if v.Type != types.ReceiptTypeRead && v.Type != types.ReceiptTypePlayed {
+	if v.Type != types.ReceiptTypeRead {
+		return
+	}
+	if acc.wa().GetPrivacySettings(context.Background()).ReadReceipts == types.PrivacySettingNone {
 		return
 	}
 	viewer := v.Sender.ToNonAD()
@@ -166,7 +169,11 @@ func (acc *Account) handleDeleteStatus(raw json.RawMessage) {
 	}
 	go func() {
 		msg := acc.wa().BuildRevoke(types.StatusBroadcastJID, types.EmptyJID, types.MessageID(data.ID))
-		extra := whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: acc.statusRecipients(context.Background())}
+		recipients := acc.storedStatusRecipients(data.ID)
+		if len(recipients) == 0 {
+			recipients = acc.statusRecipients(context.Background())
+		}
+		extra := whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: recipients}
 		if _, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, extra); err != nil {
 			acc.broadcastEvent("error", map[string]string{"message": "Couldn't delete the status: " + sendErrorText(err)})
 			return
@@ -175,7 +182,35 @@ func (acc *Account) handleDeleteStatus(raw json.RawMessage) {
 	}()
 }
 
+// rememberStatusRecipients keeps who a status update was sent to, so a later
+// delete is revoked for exactly those people, as WA Web does.
+func (acc *Account) rememberStatusRecipients(id string, recipients []types.JID) {
+	for _, jid := range recipients {
+		acc.db.Exec(`INSERT OR IGNORE INTO status_recipients (status_id, jid) VALUES (?, ?)`, id, jid.ToNonAD().String())
+	}
+}
+
+func (acc *Account) storedStatusRecipients(id string) []types.JID {
+	rows, err := acc.db.Query(`SELECT jid FROM status_recipients WHERE status_id = ?`, id)
+	if err != nil {
+		return nil
+	}
+	var out []types.JID
+	for rows.Next() {
+		var s string
+		if rows.Scan(&s) != nil {
+			continue
+		}
+		if jid, err := types.ParseJID(s); err == nil {
+			out = append(out, jid)
+		}
+	}
+	rows.Close()
+	return out
+}
+
 func (acc *Account) removeStatus(id string) {
+	acc.db.Exec(`DELETE FROM status_recipients WHERE status_id = ?`, id)
 	acc.purgeMessages(`id = ? AND jid = 'status@broadcast'`, id)
 	acc.db.Exec(`DELETE FROM status_viewers WHERE status_id = ?`, id)
 	acc.broadcastEvent("status_deleted", map[string]interface{}{"id": id})
@@ -261,6 +296,12 @@ func (acc *Account) noteStatusPrivacy(v *events.StatusPrivacy) {
 	if v.Action == nil {
 		return
 	}
+	// WA Web ignores Close Friends and custom list modes from the phone and
+	// keeps the last contacts/except/only setting it knew.
+	switch v.Action.GetMode() {
+	case waSyncAction.StatusPrivacyAction_CLOSE_FRIENDS, waSyncAction.StatusPrivacyAction_CUSTOM_LIST:
+		return
+	}
 	if raw, err := proto.Marshal(v.Action); err == nil {
 		acc.db.Exec(`INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`, statusPrivacyKey, raw)
 	}
@@ -290,10 +331,6 @@ func (acc *Account) statusAudience(ctx context.Context) (mode string, list []typ
 			return "only", list
 		case waSyncAction.StatusPrivacyAction_DENY_LIST:
 			return "except", list
-		case waSyncAction.StatusPrivacyAction_CLOSE_FRIENDS:
-			return "close_friends", nil
-		case waSyncAction.StatusPrivacyAction_CUSTOM_LIST:
-			return "custom_list", nil
 		}
 		return "contacts", nil
 	}
@@ -309,17 +346,14 @@ func (acc *Account) statusAudience(ctx context.Context) (mode string, list []typ
 }
 
 // statusPostBlocker returns why a status update can't be posted right now, or
-// an empty string. Close Friends and custom lists are WhatsApp audiences this
-// client can't deliver to, and an empty audience is refused the way WA Web's
-// privacy popup warns about it.
+// an empty string: an empty audience is refused the way WA Web's privacy popup
+// warns about it.
 func (acc *Account) statusPostBlocker(ctx context.Context) string {
 	action := acc.storedStatusPrivacy()
 	if action == nil {
 		return ""
 	}
 	switch action.GetMode() {
-	case waSyncAction.StatusPrivacyAction_CLOSE_FRIENDS, waSyncAction.StatusPrivacyAction_CUSTOM_LIST:
-		return "Your status privacy is set to Close Friends or a custom list on your phone, which whatSnap can't use yet. Change it to My contacts, My contacts except or Only share with."
 	case waSyncAction.StatusPrivacyAction_ALLOW_LIST, waSyncAction.StatusPrivacyAction_DENY_LIST:
 		if recipients := acc.statusRecipients(ctx); recipients != nil && len(recipients) == 0 {
 			return "This status update would be sent to 0 contacts. Check your status privacy."

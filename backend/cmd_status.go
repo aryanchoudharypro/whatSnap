@@ -195,11 +195,13 @@ func (acc *Account) handlePostStatus(raw json.RawMessage) {
 		msg := &waE2E.Message{
 			ExtendedTextMessage: ext,
 		}
-		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: acc.statusRecipients(context.Background())})
+		recipients := acc.statusRecipients(context.Background())
+		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: recipients})
 		if err != nil {
 			acc.broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
 		}
+		acc.rememberStatusRecipients(resp.ID, recipients)
 		ownJID := ""
 		if acc.wa().Store.ID != nil {
 			ownJID = acc.wa().Store.ID.ToNonAD().String()
@@ -364,11 +366,13 @@ func (acc *Account) handlePostMediaStatus(raw json.RawMessage) {
 			msg = &waE2E.Message{VideoMessage: vidMsg}
 		}
 
-		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id, StatusRecipients: acc.statusRecipients(context.Background())})
+		recipients := acc.statusRecipients(context.Background())
+		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id, StatusRecipients: recipients})
 		if err != nil {
 			acc.broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
 		}
+		acc.rememberStatusRecipients(resp.ID, recipients)
 
 		ownJID := ""
 		if acc.wa().Store.ID != nil {
@@ -402,6 +406,10 @@ func (acc *Account) handleMarkStatusViewed(raw json.RawMessage) {
 			return
 		}
 		acc.ensureAvailableForRead()
-		_ = acc.wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), types.StatusBroadcastJID, poster, types.ReceiptTypeRead)
+		receiptType := types.ReceiptTypeRead
+		if poster.User == "0" {
+			receiptType = types.ReceiptTypeReadSelf
+		}
+		_ = acc.wa().MarkRead(context.Background(), []types.MessageID{types.MessageID(data.ID)}, time.Now(), types.StatusBroadcastJID, poster, receiptType)
 	}()
 }
