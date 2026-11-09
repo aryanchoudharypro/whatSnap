@@ -8,7 +8,7 @@ use wxdragon::prelude::*;
 use crate::{
 	AppState,
 	ui::{keys, media_player::MediaPlayer, theme, window::WindowParts},
-	ui_commands::status_extras::STATUS_REACTIONS,
+	ui_commands::status_extras::{STATUS_LIKE, STATUS_REACTIONS},
 };
 
 const PHOTO_EDGE: u32 = 1280;
@@ -61,6 +61,7 @@ struct Viewer {
 	reply_label: StaticText,
 	reply_field: TextCtrl,
 	reply_send_btn: Button,
+	like_btn: Button,
 	mute_btn: Button,
 	viewers_panel: Panel,
 	viewers_label: StaticText,
@@ -337,6 +338,10 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 	let reply_send_btn = Button::builder(&reply_panel).with_label("Send reply").build();
 	crate::ui::owner_draw::install_icon_button(&reply_send_btn, STAGE_BG);
 	reply_row.add(&reply_send_btn, 0, SizerFlag::AlignCenterVertical, 0);
+	// WA Web's like button sits after the reply box (WAWebStatusComposeBox:
+	// "Like" or "Unlike").
+	let like_btn = Button::builder(&reply_panel).with_label("&Like").build();
+	reply_row.add(&like_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
 	reply_panel.set_sizer(reply_row, true);
 	paint_reply_box(&reply_panel, reply_field);
 	sizer.add(&reply_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
@@ -400,6 +405,7 @@ fn build(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, list: Vec<Entry
 		reply_label,
 		reply_field,
 		reply_send_btn,
+		like_btn,
 		mute_btn,
 		viewers_panel,
 		viewers_label,
@@ -586,6 +592,7 @@ fn bind(viewer: &Rc<Viewer>, close_btn: Button) {
 	viewer.open_chat_btn.on_click(handler(&weak, Viewer::open_chat));
 	viewer.reply_send_btn.on_click(handler(&weak, Viewer::send_reply));
 	viewer.reply_field.on_text_enter(handler(&weak, Viewer::send_reply));
+	viewer.like_btn.on_click(handler(&weak, Viewer::toggle_like));
 	viewer.mute_btn.on_click(handler(&weak, Viewer::toggle_mute));
 	viewer.delete_btn.on_click(handler(&weak, Viewer::delete));
 	viewer.save_btn.on_click(handler(&weak, Viewer::save_as));
@@ -662,6 +669,9 @@ fn bind(viewer: &Rc<Viewer>, close_btn: Button) {
 			} else if keys::is_letter(code, 'R') && v.reply_panel.is_shown() {
 				v.reply_field.set_focus();
 				true
+			} else if keys::is_letter(code, 'H') && v.reply_panel.is_shown() {
+				v.toggle_like();
+				true
 			} else if keys::is_letter(code, 'M') && v.mute_btn.is_shown() {
 				v.toggle_mute();
 				true
@@ -689,6 +699,16 @@ fn bind(viewer: &Rc<Viewer>, close_btn: Button) {
 			};
 		data.skip(!handled);
 	});
+}
+
+/// What the viewer says about your reaction to an update: a like, an emoji,
+/// or nothing.
+fn reaction_note(mine: &str) -> String {
+	match mine {
+		"" => String::new(),
+		STATUS_LIKE => " You liked this.".to_string(),
+		emoji => format!(" You reacted {emoji}."),
+	}
 }
 
 fn reaction_digit(code: Option<i32>) -> Option<usize> {
@@ -719,6 +739,7 @@ fn is_button_or_check(v: &Viewer, hwnd: *mut std::ffi::c_void) -> bool {
 		v.auto_check.get_handle(),
 		v.open_chat_btn.get_handle(),
 		v.reply_send_btn.get_handle(),
+		v.like_btn.get_handle(),
 		v.mute_btn.get_handle(),
 		v.delete_btn.get_handle(),
 		v.save_btn.get_handle(),
@@ -829,8 +850,8 @@ impl Viewer {
 		self.keep_focus();
 
 		let mut spoken = format!("{header}. {body}");
-		if !entry.from_me && !entry.my_reaction.is_empty() {
-			spoken.push_str(&format!(" You reacted {}.", entry.my_reaction));
+		if !entry.from_me {
+			spoken.push_str(&reaction_note(&entry.my_reaction));
 		}
 		if !entry.media_type.is_empty() {
 			send(
@@ -1083,9 +1104,7 @@ impl Viewer {
 			_ => format!("{}. {}", kind(&entry), entry.text),
 		};
 		let mut msg = format!("{who}, status {position} of {count}, posted {time}. {body}");
-		if !entry.my_reaction.is_empty() {
-			msg.push_str(&format!(" You reacted {}.", entry.my_reaction));
-		}
+		msg.push_str(&reaction_note(&entry.my_reaction));
 		crate::platform::announce::announce(self.announcer, &msg);
 	}
 
@@ -1096,6 +1115,22 @@ impl Viewer {
 				btn.set_label(&label);
 			}
 		}
+		let like = if mine == STATUS_LIKE { "Un&like" } else { "&Like" };
+		if self.like_btn.get_label() != like {
+			self.like_btn.set_label(like);
+		}
+	}
+
+	/// Likes the update or takes the like back, like WA Web's like button:
+	/// a green heart reaction, or an empty one to unlike.
+	fn toggle_like(&self) {
+		let Some(entry) = self.current() else { return };
+		if entry.from_me {
+			return;
+		}
+		let liked = entry.my_reaction != STATUS_LIKE;
+		send(&self.state, "like_status", serde_json::json!({ "id": entry.id, "liked": liked }));
+		crate::platform::announce::announce(self.announcer, if liked { "Liked." } else { "Like removed." });
 	}
 
 	fn toggle_mute(&self) {
@@ -1289,8 +1324,13 @@ pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 			}
 			if is_current("id") {
 				viewer.show_reaction(&emoji);
-				let spoken =
-					if emoji.is_empty() { "Reaction removed.".to_string() } else { format!("You reacted {emoji}.") };
+				let spoken = if data.get("like").and_then(|v| v.as_bool()).unwrap_or(false) {
+					if emoji.is_empty() { "Like removed.".to_string() } else { "Liked.".to_string() }
+				} else if emoji.is_empty() {
+					"Reaction removed.".to_string()
+				} else {
+					format!("You reacted {emoji}.")
+				};
 				crate::platform::announce::announce(viewer.announcer, &spoken);
 			}
 		}

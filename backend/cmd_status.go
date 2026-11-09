@@ -196,7 +196,7 @@ func (acc *Account) handlePostStatus(raw json.RawMessage) {
 			ExtendedTextMessage: ext,
 		}
 		recipients := acc.statusRecipients(context.Background())
-		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: recipients})
+		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID(), StatusRecipients: recipients, StatusSetting: acc.statusSetting(context.Background())})
 		if err != nil {
 			acc.broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return
@@ -367,7 +367,7 @@ func (acc *Account) handlePostMediaStatus(raw json.RawMessage) {
 		}
 
 		recipients := acc.statusRecipients(context.Background())
-		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id, StatusRecipients: recipients})
+		resp, err := acc.wa().SendMessage(context.Background(), types.StatusBroadcastJID, msg, whatsmeow.SendRequestExtra{ID: id, StatusRecipients: recipients, StatusSetting: acc.statusSetting(context.Background())})
 		if err != nil {
 			acc.broadcastEvent("error", map[string]string{"message": "Failed to post status: " + err.Error()})
 			return

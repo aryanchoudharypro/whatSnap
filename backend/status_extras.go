@@ -23,6 +23,7 @@ type StatusTargetData struct {
 	ID        string `json:"id"`
 	PosterJID string `json:"poster_jid"`
 	Emoji     string `json:"emoji"`
+	Liked     bool   `json:"liked"`
 }
 
 type StatusMuteData struct {
@@ -134,6 +135,16 @@ func (acc *Account) handleReactStatus(raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
+	// The like is a real reaction, sent to the poster alone (WA Web's
+	// sendStatusReaction); the other emoji are quick replies in their chat.
+	if data.Emoji == whatsmeow.StatusLikeEmoji {
+		acc.likeStatus(data.ID, true)
+		return
+	}
+	if data.Emoji == "" && acc.myStatusReaction(data.ID) == whatsmeow.StatusLikeEmoji {
+		acc.likeStatus(data.ID, false)
+		return
+	}
 	go func() {
 		poster, ok := acc.statusPoster(data.ID)
 		if !ok {
@@ -160,6 +171,62 @@ func (acc *Account) handleReactStatus(raw json.RawMessage) {
 			ON CONFLICT(status_id, viewer) DO UPDATE SET reaction = excluded.reaction`, data.ID, now.Unix(), data.Emoji)
 		acc.broadcastEvent("status_reacted", map[string]interface{}{"id": data.ID, "emoji": data.Emoji})
 	}()
+}
+
+func (acc *Account) handleLikeStatus(raw json.RawMessage) {
+	var data StatusTargetData
+	if err := json.Unmarshal(raw, &data); err != nil || data.ID == "" {
+		return
+	}
+	acc.likeStatus(data.ID, data.Liked)
+}
+
+// likeStatus likes a status update or takes the like back, as WA Web's like
+// button does: a green heart reaction, or an empty one to unlike, sent only
+// to the poster's devices and our own.
+func (acc *Account) likeStatus(id string, liked bool) {
+	go func() {
+		poster, ok := acc.statusPoster(id)
+		if !ok {
+			acc.broadcastEvent("error", map[string]string{"message": "That status update isn't here any more."})
+			return
+		}
+		emoji := ""
+		if liked {
+			emoji = whatsmeow.StatusLikeEmoji
+		}
+		resp, err := acc.wa().SendStatusReaction(context.Background(), poster, types.MessageID(id), emoji)
+		if err != nil {
+			acc.broadcastEvent("error", map[string]string{"message": "Couldn't like the status: " + sendErrorText(err)})
+			return
+		}
+		ts := resp.Timestamp
+		if ts.IsZero() {
+			ts = time.Now()
+		}
+		acc.db.Exec(`INSERT INTO status_viewers (status_id, viewer, viewed_at, reaction) VALUES (?, 'me', ?, ?)
+			ON CONFLICT(status_id, viewer) DO UPDATE SET reaction = excluded.reaction`, id, ts.Unix(), emoji)
+		acc.broadcastEvent("status_reacted", map[string]interface{}{"id": id, "emoji": emoji, "like": true})
+	}()
+}
+
+func (acc *Account) myStatusReaction(id string) string {
+	var reaction string
+	acc.db.QueryRow(`SELECT COALESCE(reaction, '') FROM status_viewers WHERE status_id = ? AND viewer = 'me'`, id).Scan(&reaction)
+	return reaction
+}
+
+// statusSetting names the status privacy for the <meta status_setting> of a
+// status update, as WA Web's toStatusSettingMetaAttribute does.
+func (acc *Account) statusSetting(ctx context.Context) string {
+	mode, _ := acc.statusAudience(ctx)
+	switch mode {
+	case "only":
+		return whatsmeow.StatusSettingAllowList
+	case "except":
+		return whatsmeow.StatusSettingDenyList
+	}
+	return whatsmeow.StatusSettingContacts
 }
 
 func (acc *Account) handleDeleteStatus(raw json.RawMessage) {

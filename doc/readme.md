@@ -330,9 +330,10 @@ Press `Enter` on a row to open the status viewer. The viewer starts at the first
 | `Left Arrow` | Go to the previous update. |
 | `Right Arrow` | Go to the next update. |
 | `Space` | Pause or continue. |
+| `H` | Like the update with a heart, or remove your like. `Alt+L` does the same. |
 | `Escape` | Close the viewer. |
 
-In the viewer, you can reply, react, open the chat, and mute the person. For your own updates, you can see who viewed them and delete them. The context menu of a row has the same actions. On `My status`, if you have more than one update, `Viewed by...` and `Delete...` ask which update you mean.
+In the viewer, you can like, reply, react, open the chat, and mute the person. `Like` sends a green heart that only the person who posted the update sees, the same as the like button of WhatsApp Web. The other emoji send a reply to the person's chat. For your own updates, you can see who viewed them and delete them. The context menu of a row has the same actions. On `My status`, if you have more than one update, `Viewed by...` and `Delete...` ask which update you mean.
 
 To post a status, use `Post Status Update...` for text, or `Post Photo/Video Status...`.
 

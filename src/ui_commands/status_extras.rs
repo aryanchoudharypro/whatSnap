@@ -18,6 +18,9 @@ const POST_TEXT: i32 = 4307;
 const POST_MEDIA: i32 = 4308;
 
 pub(crate) const STATUS_REACTIONS: [&str; 8] = ["😍", "😂", "😮", "😢", "🙏", "👏", "🎉", "💯"];
+/// WA Web's status like (WAWebStatusLikeEmojis.STATUS_LIKE_EMOJI): a real
+/// reaction, sent only to the poster, unlike the quick replies above.
+pub(crate) const STATUS_LIKE: &str = "💚";
 
 fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 	let payload = serde_json::json!({ "action": action, "data": data });
@@ -348,8 +351,13 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		}
 		"status_reacted" => {
 			let emoji = text(data, "emoji");
-			let spoken =
-				if emoji.is_empty() { "Reaction removed.".to_string() } else { format!("You reacted {}.", emoji) };
+			let spoken = if data.get("like").and_then(|v| v.as_bool()).unwrap_or(false) {
+				if emoji.is_empty() { "Like removed.".to_string() } else { "Liked.".to_string() }
+			} else if emoji.is_empty() {
+				"Reaction removed.".to_string()
+			} else {
+				format!("You reacted {}.", emoji)
+			};
 			update_item(state, parts, &text(data, "id"), |it| it.my_reaction = emoji);
 			announce(parts, &spoken);
 		}

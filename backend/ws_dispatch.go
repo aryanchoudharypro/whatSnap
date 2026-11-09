@@ -374,6 +374,8 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 		go acc.handleGetStatusViewers(conn, cmd.Data)
 	case "react_status":
 		acc.handleReactStatus(cmd.Data)
+	case "like_status":
+		acc.handleLikeStatus(cmd.Data)
 	case "delete_status":
 		acc.handleDeleteStatus(cmd.Data)
 	case "set_status_mute":
