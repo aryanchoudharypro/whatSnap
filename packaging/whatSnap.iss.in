@@ -34,6 +34,8 @@ OutputBaseFilename={#AppName}_setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile={#Root}\assets\icon.ico
+WizardSmallImageFile={#Root}\assets\wizard-small.bmp
 
 LicenseFile={#Root}\LICENSE
 UninstallDisplayName={#AppName}

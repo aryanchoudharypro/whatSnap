@@ -14,6 +14,7 @@ fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-changed=backend");
 	println!("cargo:rerun-if-changed=doc");
+	println!("cargo:rerun-if-changed=assets/icon.ico");
 	let commit = embed_commit_info("WHATSNAP");
 
 	let target_dir = profile_dir().or_else(target_profile_dir).unwrap_or_else(|| {
@@ -40,6 +41,7 @@ fn main() {
 		copyright: "Copyright © 2026 Aryan Choudhary",
 		original_filename: "whatSnap.exe",
 		product_version: commit.is_dev.then_some(dev_version.as_str()),
+		icon: Some("assets/icon.ico"),
 		..VersionInfo::default()
 	};
 	if let Err(e) = version_info.embed() {

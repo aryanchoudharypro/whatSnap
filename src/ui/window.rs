@@ -749,6 +749,7 @@ pub fn build_main_window() -> WindowParts {
 	crate::ui::dialog_look::round_window_corners();
 	let frame = Frame::builder().with_title("whatSnap").with_size(Size::new(1180, 760)).build();
 	frame.set_min_size(Size::new(900, 600));
+	frame.set_icon(&theme::build_app_icon(32));
 	wxdragon::app::set_top_window(&frame);
 	frame.create_status_bar(1, 0, wxdragon::id::ID_ANY as i32, "status_bar");
 	frame.set_status_text("Status: Initializing...", 0);

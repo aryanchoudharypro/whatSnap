@@ -1,5 +1,7 @@
 # whatSnap
 
+<img src="assets/logo.png" alt="whatSnap logo: a duck in a chat bubble on a green circle" width="128">
+
 whatSnap is a lightweight, fast, and accessible WhatsApp client for Windows. It is designed to be completely usable with screen readers and the keyboard. It does not use a browser or WhatsApp Web in the background. It links to your phone as a WhatsApp companion device, the same way WhatsApp Web and WhatsApp for Windows do.
 
 whatSnap is in development. Stable releases are on the Releases page, and each change to `master` also builds a new Development Build.

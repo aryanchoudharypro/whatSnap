@@ -386,21 +386,22 @@ pub fn style_sidebar_heading(label: &StaticText) {
 	label.set_foreground_color(Palette::SIDEBAR_TEXT());
 }
 
+const APP_ICON_32: &[u8] = include_bytes!("../../assets/icon-32.rgba");
+const APP_ICON_96: &[u8] = include_bytes!("../../assets/icon-96.rgba");
+
 pub fn build_app_icon(size: u32) -> wxdragon::bitmap::Bitmap {
+	let (data, side) = if size <= 48 { (APP_ICON_32, 32u32) } else { (APP_ICON_96, 96u32) };
+	if size == side {
+		return wxdragon::bitmap::Bitmap::from_rgba(data, side, side).expect("failed to build app icon bitmap");
+	}
 	let mut rgba = vec![0u8; (size * size * 4) as usize];
-	let center = (size as f32 - 1.0) / 2.0;
-	let radius = size as f32 / 2.0 - 1.0;
 	for y in 0..size {
+		let sy = (y * side / size) as usize;
 		for x in 0..size {
-			let dx = x as f32 - center;
-			let dy = y as f32 - center;
-			let dist = (dx * dx + dy * dy).sqrt();
-			let coverage = (radius + 1.0 - dist).clamp(0.0, 1.0);
-			let idx = ((y * size + x) * 4) as usize;
-			rgba[idx] = Palette::ACCENT().r;
-			rgba[idx + 1] = Palette::ACCENT().g;
-			rgba[idx + 2] = Palette::ACCENT().b;
-			rgba[idx + 3] = (coverage * 255.0) as u8;
+			let sx = (x * side / size) as usize;
+			let from = (sy * side as usize + sx) * 4;
+			let to = ((y * size + x) * 4) as usize;
+			rgba[to..to + 4].copy_from_slice(&data[from..from + 4]);
 		}
 	}
 	wxdragon::bitmap::Bitmap::from_rgba(&rgba, size, size).expect("failed to build app icon bitmap")
