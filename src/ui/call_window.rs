@@ -84,7 +84,8 @@ pub fn empty_avatar_bitmap(side: u32) -> wxdragon::bitmap::Bitmap {
 			}
 		}
 	}
-	wxdragon::bitmap::Bitmap::from_rgba(&rgba, side, side).unwrap_or_else(|| wxdragon::bitmap::Bitmap::new(1, 1).unwrap())
+	wxdragon::bitmap::Bitmap::from_rgba(&rgba, side, side)
+		.unwrap_or_else(|| wxdragon::bitmap::Bitmap::new(1, 1).unwrap())
 }
 
 pub fn build_call_window() -> CallWindowParts {
@@ -105,7 +106,12 @@ pub fn build_call_window() -> CallWindowParts {
 	if theme::use_custom_colours() {
 		status_label.set_foreground_color(CALL_MUTED_TEXT);
 	}
-	sizer.add(&status_label, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
+	sizer.add(
+		&status_label,
+		0,
+		SizerFlag::AlignCenterHorizontal | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+		8,
+	);
 
 	let caller_info = TextCtrl::builder(&panel)
 		.with_style(

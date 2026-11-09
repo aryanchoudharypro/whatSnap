@@ -1569,8 +1569,8 @@ pub fn bind_input_handlers(
 	call_duration_timer.on_tick(move |_| {
 		let s = state_timer.borrow();
 		if s.active_call_id.is_some() && s.active_call_audio.is_some() {
-			let elapsed = s.call_connected_duration
-				+ s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
+			let elapsed =
+				s.call_connected_duration + s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
 			let secs = elapsed.as_secs();
 			let clock = crate::calls::helpers::format_call_duration(secs);
 			let is_saved = s.call_peer_is_saved;
@@ -1590,13 +1590,8 @@ pub fn bind_input_handlers(
 			};
 			call_status_label.set_label(&status);
 
-			let running_info = crate::calls::helpers::call_running_info_text(
-				is_incoming,
-				is_video,
-				&peer_name,
-				secs,
-				is_reconnecting,
-			);
+			let running_info =
+				crate::calls::helpers::call_running_info_text(is_incoming, is_video, &peer_name, secs, is_reconnecting);
 			// Rewriting the read-only box every second would reset a screen
 			// reader's caret while the user reads it, so refresh it only every
 			// 30 seconds and keep the caret where it was.
@@ -4988,6 +4983,20 @@ pub fn bind_input_handlers(
 					let _ = tx_close_list.send(UiCommand::StopVoiceMessage);
 				}
 				event.skip(!stopping);
+			} else if pressed(message_list::SPEED_DOWN) {
+				if crate::ui_commands::voice::is_voice_playing(&state_play.borrow()) {
+					let _ = tx_close_list.send(UiCommand::DecreaseAudioSpeed);
+					event.skip(false);
+				} else {
+					event.skip(true);
+				}
+			} else if pressed(message_list::SPEED_UP) {
+				if crate::ui_commands::voice::is_voice_playing(&state_play.borrow()) {
+					let _ = tx_close_list.send(UiCommand::IncreaseAudioSpeed);
+					event.skip(false);
+				} else {
+					event.skip(true);
+				}
 			} else if keys::is_escape(key_event.get_key_code()) {
 				let _ = tx_close_list.send(UiCommand::CloseConversation);
 				event.skip(false);

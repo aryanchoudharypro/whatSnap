@@ -177,18 +177,10 @@ pub(crate) fn call_outgoing_info_text(
 	text
 }
 
-pub(crate) fn call_ended_info_text(
-	peer_name: &str,
-	duration_secs: u64,
-	reason: &str,
-) -> String {
+pub(crate) fn call_ended_info_text(peer_name: &str, duration_secs: u64, reason: &str) -> String {
 	if duration_secs > 0 {
 		let clock = format_call_duration(duration_secs);
-		let status = if reason == "connection_lost" {
-			"Call ended. Connection lost"
-		} else {
-			"Call ended"
-		};
+		let status = if reason == "connection_lost" { "Call ended. Connection lost" } else { "Call ended" };
 		format!("{status} with {peer_name}\r\nDuration: {clock}")
 	} else {
 		let status = match reason {
@@ -401,18 +393,9 @@ mod caller_info_tests {
 
 	#[test]
 	fn formats_call_ended_info_text() {
-		assert_eq!(
-			call_ended_info_text("Asha", 65, "busy"),
-			"Call ended with Asha\r\nDuration: 1:05"
-		);
-		assert_eq!(
-			call_ended_info_text("Asha", 0, "busy"),
-			"Busy, on another call with Asha"
-		);
-		assert_eq!(
-			call_ended_info_text("Asha", 0, "declined"),
-			"Call declined with Asha"
-		);
+		assert_eq!(call_ended_info_text("Asha", 65, "busy"), "Call ended with Asha\r\nDuration: 1:05");
+		assert_eq!(call_ended_info_text("Asha", 0, "busy"), "Busy, on another call with Asha");
+		assert_eq!(call_ended_info_text("Asha", 0, "declined"), "Call declined with Asha");
 		assert_eq!(
 			call_ended_info_text("Asha", 120, "connection_lost"),
 			"Call ended. Connection lost with Asha\r\nDuration: 2:00"
@@ -453,7 +436,9 @@ pub(crate) fn clean_call_title_peer_name(raw_name: &str, is_saved: bool) -> Stri
 	let trimmed = raw_name.trim();
 	let is_number = trimmed.is_empty()
 		|| trimmed.starts_with('+')
-		|| trimmed.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || c == '-' || c == '+' || c == '(' || c == ')')
+		|| trimmed
+			.chars()
+			.all(|c| c.is_ascii_digit() || c.is_whitespace() || c == '-' || c == '+' || c == '(' || c == ')')
 		|| trimmed.contains('@');
 
 	if is_saved && !is_number {

@@ -253,6 +253,8 @@ pub enum UiCommand {
 	ChangeAudioSpeed,
 	SeekAudio(f32),
 	StopVoiceMessage,
+	IncreaseAudioSpeed,
+	DecreaseAudioSpeed,
 	PlaceCall,
 	PlaceVideoCall,
 	CallContact {

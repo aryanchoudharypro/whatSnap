@@ -1316,6 +1316,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			ui_commands::messaging::react_to_message(state, parts, message_id, sender_jid, emoji)
 		}
 		UiCommand::ToggleAudioSpeed => ui_commands::voice::toggle_audio_speed(state, parts),
+		UiCommand::IncreaseAudioSpeed => ui_commands::voice::increase_audio_speed(state, parts),
+		UiCommand::DecreaseAudioSpeed => ui_commands::voice::decrease_audio_speed(state, parts),
 		UiCommand::ToggleLockChat { jid, lock } => ui_commands::chat_list::toggle_lock_chat(state, parts, jid, lock),
 		UiCommand::ChooseDisappearingTimer { jid } => {
 			ui_commands::chat_list::choose_disappearing_timer(state, parts, jid)

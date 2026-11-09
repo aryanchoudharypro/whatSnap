@@ -7,8 +7,7 @@ use crate::{
 	audio::{play_call_fail_sound, stop_call_ringing_sound},
 	calls::{
 		helpers::{
-			SYSTEM_AUDIO_ANNOUNCEMENT, announce_call, local_camera_announcement,
-			local_screen_share_announcement,
+			SYSTEM_AUDIO_ANNOUNCEMENT, announce_call, local_camera_announcement, local_screen_share_announcement,
 		},
 		video_send::{self, VideoSource},
 	},
@@ -292,16 +291,10 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 		video_call: video,
 		..Default::default()
 	};
-	let is_saved = !is_group && (s.contacts.contains_key(&jid) || s.all_contacts.iter().any(|c| c.jid == jid && !c.name.is_empty()));
+	let is_saved = !is_group
+		&& (s.contacts.contains_key(&jid) || s.all_contacts.iter().any(|c| c.jid == jid && !c.name.is_empty()));
 	s.call_peer_is_saved = is_saved;
-	let win_title = crate::calls::helpers::format_call_window_title(
-		false,
-		is_group,
-		video,
-		&name,
-		is_saved,
-		None,
-	);
+	let win_title = crate::calls::helpers::format_call_window_title(false, is_group, video, &name, is_saved, None);
 	parts.call_parts.frame.set_title(&win_title);
 	if is_group {
 		parts.call_parts.status_label.set_label(&format!("Starting group call in {}", name));
@@ -542,7 +535,10 @@ pub(crate) fn dismiss_incoming_call(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	parts.conversations_parts.panel.layout();
 	parts.frame.layout();
 	parts.conversations_parts.incoming_call_restore_btn.set_focus();
-	announce_call(parts, "Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen.");
+	announce_call(
+		parts,
+		"Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen.",
+	);
 }
 
 pub(crate) fn restore_incoming_call(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -713,9 +709,11 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let elapsed = s.call_connected_duration + s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
 	let secs = elapsed.as_secs();
 	let clock = if secs > 0 { Some(crate::calls::helpers::format_call_duration(secs)) } else { None };
-	let win_title = crate::calls::helpers::format_call_window_title(is_incoming, is_group, true, &name, is_saved, clock.as_deref());
+	let win_title =
+		crate::calls::helpers::format_call_window_title(is_incoming, is_group, true, &name, is_saved, clock.as_deref());
 	parts.call_parts.frame.set_title(&win_title);
-	let running_info = crate::calls::helpers::call_running_info_text(is_incoming, true, &name, secs, s.call_is_reconnecting);
+	let running_info =
+		crate::calls::helpers::call_running_info_text(is_incoming, true, &name, secs, s.call_is_reconnecting);
 	parts.call_parts.caller_info.set_value(&running_info);
 	crate::calls::helpers::show_call_device_combos(&s, parts);
 	drop(s);

@@ -138,7 +138,14 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.active_call_video_send = None;
 					s.call_video_port = None;
 					if let Some(pn) = data.get("peer_name").and_then(|p| p.as_str()) {
-						if !pn.is_empty() && !pn.starts_with('+') && (s.call_peer_name.is_empty() || s.call_peer_name.starts_with('+') || s.call_peer_name.chars().all(|c| c.is_ascii_digit() || c.is_whitespace() || c == '-')) {
+						if !pn.is_empty()
+							&& !pn.starts_with('+')
+							&& (s.call_peer_name.is_empty()
+								|| s.call_peer_name.starts_with('+')
+								|| s.call_peer_name
+									.chars()
+									.all(|c| c.is_ascii_digit() || c.is_whitespace() || c == '-'))
+						{
 							s.call_peer_name = pn.to_string();
 							let win_title = crate::calls::helpers::format_call_window_title(
 								false,
@@ -187,7 +194,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let call_id = data.get("call_id").and_then(|c| c.as_str()).unwrap_or("");
 				let s = state.borrow();
 				if s.active_call_id.as_deref() == Some(call_id) {
-					let name = if s.call_peer_name.is_empty() { "The other person".to_string() } else { s.call_peer_name.clone() };
+					let name = if s.call_peer_name.is_empty() {
+						"The other person".to_string()
+					} else {
+						s.call_peer_name.clone()
+					};
 					let message = if t == "call_peer_battery_low" {
 						format!("{name}'s battery is low.")
 					} else if data.get("interrupted").and_then(|i| i.as_bool()).unwrap_or(true) {
@@ -322,12 +333,27 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						let name = s.call_peer_name.clone();
 						let is_saved = s.call_peer_is_saved;
 						let is_incoming = s.call_is_incoming;
-						let elapsed = s.call_connected_duration + s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
+						let elapsed = s.call_connected_duration
+							+ s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
 						let secs = elapsed.as_secs();
-						let clock = if secs > 0 { Some(crate::calls::helpers::format_call_duration(secs)) } else { None };
-						let win_title = crate::calls::helpers::format_call_window_title(is_incoming, is_group, true, &name, is_saved, clock.as_deref());
+						let clock =
+							if secs > 0 { Some(crate::calls::helpers::format_call_duration(secs)) } else { None };
+						let win_title = crate::calls::helpers::format_call_window_title(
+							is_incoming,
+							is_group,
+							true,
+							&name,
+							is_saved,
+							clock.as_deref(),
+						);
 						parts.call_parts.frame.set_title(&win_title);
-						let running_info = crate::calls::helpers::call_running_info_text(is_incoming, true, &name, secs, s.call_is_reconnecting);
+						let running_info = crate::calls::helpers::call_running_info_text(
+							is_incoming,
+							true,
+							&name,
+							secs,
+							s.call_is_reconnecting,
+						);
 						parts.call_parts.caller_info.set_value(&running_info);
 						crate::calls::helpers::show_call_device_combos(&s, parts);
 					}
@@ -492,11 +518,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						announce_call(
 							parts,
 							if was_connected {
-								if reason == "connection_lost" {
-									"Call ended. Connection lost."
-								} else {
-									"Call ended."
-								}
+								if reason == "connection_lost" { "Call ended. Connection lost." } else { "Call ended." }
 							} else {
 								match reason {
 									"busy" => "Busy, on another call.",
@@ -519,9 +541,14 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							let clock = crate::calls::helpers::format_call_duration(total_duration.as_secs());
 							format!("Call ended with {}\r\nDuration: {}", peer_name_saved, clock)
 						} else {
-							crate::calls::helpers::call_ended_info_text(&peer_name_saved, total_duration.as_secs(), reason)
+							crate::calls::helpers::call_ended_info_text(
+								&peer_name_saved,
+								total_duration.as_secs(),
+								reason,
+							)
 						};
-						let title_name = crate::calls::helpers::clean_call_title_peer_name(&peer_name_saved, s.call_peer_is_saved);
+						let title_name =
+							crate::calls::helpers::clean_call_title_peer_name(&peer_name_saved, s.call_peer_is_saved);
 						parts.call_parts.frame.set_title(&format!("Call ended with {}", title_name));
 						parts.call_parts.status_label.set_label("Call ended");
 						parts.call_parts.caller_info.set_value(&end_text);
@@ -606,13 +633,19 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					);
 					let is_saved = s.contacts.contains_key(caller)
 						|| chat_jid.map(|j| s.contacts.contains_key(j)).unwrap_or(false)
-						|| s.all_contacts.iter().any(|c| (c.jid == caller || chat_jid == Some(&c.jid)) && !c.name.is_empty());
+						|| s.all_contacts
+							.iter()
+							.any(|c| (c.jid == caller || chat_jid == Some(&c.jid)) && !c.name.is_empty());
 					s.call_peer_is_saved = is_saved;
 					s.incoming_call_caller = Some(name.clone());
 					s.call_is_incoming = true;
 					s.call_peer_name = name.clone();
 					s.call_start_muted = s.settings.call_start_muted;
-					parts.call_parts.mute_btn.set_label(if s.call_start_muted { "Unmute microphone" } else { "Mute microphone" });
+					parts.call_parts.mute_btn.set_label(if s.call_start_muted {
+						"Unmute microphone"
+					} else {
+						"Mute microphone"
+					});
 					s.call_connected_segment_start = None;
 					s.call_connected_duration = std::time::Duration::ZERO;
 					s.call_is_reconnecting = false;

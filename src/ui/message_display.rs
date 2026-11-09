@@ -324,8 +324,8 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				let raw_user = entry.jid.split('@').next().unwrap_or(&entry.jid);
 				let digits = raw_user.split(':').next().unwrap_or(raw_user);
 				if digits.chars().all(|c| c.is_ascii_digit()) && !digits.is_empty() {
-					formatted_name = whatsnap::phone::format_international(digits)
-						.unwrap_or_else(|| format!("+{digits}"));
+					formatted_name =
+						whatsnap::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}"));
 					&formatted_name
 				} else {
 					&entry.jid

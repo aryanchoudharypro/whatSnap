@@ -535,21 +535,15 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	audio_sizer.add_spacer(10);
 	section_header(&audio_panel, &audio_sizer, "Calls");
-	let call_start_muted_check = setting_switch(
-		&audio_panel,
-		&audio_sizer,
-		"Mute microphone by default when placing or joining calls",
-	);
+	let call_start_muted_check =
+		setting_switch(&audio_panel, &audio_sizer, "Mute microphone by default when placing or joining calls");
 	setting_note(
 		&audio_panel,
 		&audio_sizer,
 		"When enabled, calls begin with your microphone muted. You can unmute at any time during the call.",
 	);
-	let show_frequent_calls_check = setting_switch(
-		&audio_panel,
-		&audio_sizer,
-		"Show frequent contacts in the Calls tab",
-	);
+	let show_frequent_calls_check =
+		setting_switch(&audio_panel, &audio_sizer, "Show frequent contacts in the Calls tab");
 	setting_note(
 		&audio_panel,
 		&audio_sizer,

@@ -165,11 +165,7 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	}
 }
 
-pub(crate) fn conversation_selection_changed(
-	idx: usize,
-	state: &Rc<RefCell<AppState>>,
-	parts: &Rc<WindowParts>,
-) {
+pub(crate) fn conversation_selection_changed(idx: usize, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let active_tab = state.borrow().active_tab;
 	if active_tab == 6 {
 		let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();

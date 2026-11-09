@@ -657,6 +657,90 @@ pub(crate) fn toggle_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 }
 
+/// Increases the voice message playback speed (1.0 -> 1.5 -> 2.0).
+/// Does nothing if already at max speed (2.0).
+pub(crate) fn increase_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	if s.audio_speed >= 2.0 {
+		return;
+	}
+	let old_speed = s.audio_speed;
+	let new_speed = if s.audio_speed >= 1.5 { 2.0 } else { 1.5 };
+	s.audio_speed = new_speed;
+	s.settings.audio_speed = new_speed;
+	s.settings.save();
+	parts.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", new_speed));
+
+	if s.playing_msg_id.is_some() && s.audio_sink.is_some() {
+		let was_paused = s.is_audio_paused;
+		let elapsed =
+			s.audio_elapsed_secs + s.audio_start_instant.map(|i| i.elapsed().as_secs_f32() * old_speed).unwrap_or(0.0);
+		let target = elapsed.max(0.0).min(s.audio_total_secs);
+		if let Some(ref sink) = s.audio_sink {
+			sink.stop();
+		}
+		s.audio_sink = None;
+		let path = s.audio_path.clone().unwrap_or_default();
+		if let Some(ref stream_handle) = s.audio_out.stream {
+			let new_sink = do_seek(stream_handle, &path, target, new_speed);
+			if was_paused && let Some(ref sink) = new_sink {
+				sink.pause();
+			}
+			s.audio_sink = new_sink;
+		}
+		s.audio_elapsed_secs = target;
+		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
+		s.is_audio_paused = was_paused;
+		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
+			"Play voice message"
+		} else {
+			"Pause voice message"
+		});
+	}
+}
+
+/// Decreases the voice message playback speed (2.0 -> 1.5 -> 1.0).
+/// Does nothing if already at min speed (1.0).
+pub(crate) fn decrease_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	let mut s = state.borrow_mut();
+	if s.audio_speed <= 1.0 {
+		return;
+	}
+	let old_speed = s.audio_speed;
+	let new_speed = if s.audio_speed > 1.5 { 1.5 } else { 1.0 };
+	s.audio_speed = new_speed;
+	s.settings.audio_speed = new_speed;
+	s.settings.save();
+	parts.conversations_parts.audio_speed_btn.set_label(&format!("{:.1}x", new_speed));
+
+	if s.playing_msg_id.is_some() && s.audio_sink.is_some() {
+		let was_paused = s.is_audio_paused;
+		let elapsed =
+			s.audio_elapsed_secs + s.audio_start_instant.map(|i| i.elapsed().as_secs_f32() * old_speed).unwrap_or(0.0);
+		let target = elapsed.max(0.0).min(s.audio_total_secs);
+		if let Some(ref sink) = s.audio_sink {
+			sink.stop();
+		}
+		s.audio_sink = None;
+		let path = s.audio_path.clone().unwrap_or_default();
+		if let Some(ref stream_handle) = s.audio_out.stream {
+			let new_sink = do_seek(stream_handle, &path, target, new_speed);
+			if was_paused && let Some(ref sink) = new_sink {
+				sink.pause();
+			}
+			s.audio_sink = new_sink;
+		}
+		s.audio_elapsed_secs = target;
+		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
+		s.is_audio_paused = was_paused;
+		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
+			"Play voice message"
+		} else {
+			"Pause voice message"
+		});
+	}
+}
+
 fn sync_recording_clock(s: &AppState) {
 	let clock = s.voice_recording_start.filter(|_| s.is_voice_recording).map(|start| {
 		crate::ui::conversations::RecordingClock {

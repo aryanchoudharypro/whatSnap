@@ -18,6 +18,8 @@ pub mod message_list {
 	pub const DELETE: &str = "message_delete";
 	pub const SELECTION_MODE: &str = "message_selection_mode";
 	pub const VIEW_TEXT: &str = "message_view_text";
+	pub const SPEED_DOWN: &str = "message_speed_down";
+	pub const SPEED_UP: &str = "message_speed_up";
 }
 
 pub mod voice {
@@ -243,6 +245,8 @@ pub const ACTIONS: &[ActionDef] = &[
 		label: "Voice message: stop",
 		default: "Shift+Space",
 	},
+	ActionDef { id: message_list::SPEED_DOWN, menu_id: None, tab: 6, label: "Voice message: slower", default: "[" },
+	ActionDef { id: message_list::SPEED_UP, menu_id: None, tab: 6, label: "Voice message: faster", default: "]" },
 	ActionDef {
 		id: message_list::SELECTION_MODE,
 		menu_id: None,
@@ -439,6 +443,8 @@ mod tests {
 			(message_list::DELETE, "Delete"),
 			(message_list::SELECTION_MODE, "Ctrl+Space"),
 			(message_list::VIEW_TEXT, "Shift+Enter"),
+			(message_list::SPEED_DOWN, "["),
+			(message_list::SPEED_UP, "]"),
 		] {
 			assert_eq!(keymap.chord_for(index_of(id)).unwrap().to_shortcut_string(), key);
 		}
