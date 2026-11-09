@@ -1472,10 +1472,6 @@ pub fn bind_input_handlers(
 	parts.call_parts.device_settings_btn.on_click(move |_| {
 		let _ = tx_device_settings.send(UiCommand::ToggleCallDeviceSettings);
 	});
-	let tx_close_devices = ui_tx.clone();
-	parts.call_parts.close_devices_btn.on_click(move |_| {
-		let _ = tx_close_devices.send(UiCommand::ToggleCallDeviceSettings);
-	});
 	let tx_call_input = ui_tx.clone();
 	let call_input_combo = parts.call_parts.input_device_combo;
 	parts.call_parts.input_device_combo.on_selection_changed(move |_| {
@@ -1572,7 +1568,7 @@ pub fn bind_input_handlers(
 			let is_saved = s.call_peer_is_saved;
 			let is_reconnecting = s.call_is_reconnecting;
 			let peer_name = s.call_peer_name.clone();
-			let is_incoming = s.call_is_incoming;
+			let is_incoming = s.call_shows_incoming();
 			let is_video = s.call_video.video_call || s.call_video.is_video || s.call_video.local_camera_on;
 			let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 			drop(s);

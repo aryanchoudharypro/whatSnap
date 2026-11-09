@@ -1,3 +1,5 @@
+use live_region::Priority;
+
 use super::*;
 
 pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) -> bool {
@@ -45,7 +47,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						} else {
 							"Call connected."
 						};
-						announce_call(parts, connected_msg);
+						announce_call(parts, connected_msg, Priority::High);
 
 						if s.call_participants.is_empty() {
 							parts.call_parts.status_label.set_label(connected_msg);
@@ -53,7 +55,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							parts.call_parts.status_label.set_label(&group_call_status_text(&s.call_participants));
 						}
 						let running_info = crate::calls::helpers::call_running_info_text(
-							s.call_is_incoming,
+							s.call_shows_incoming(),
 							s.call_video.is_video,
 							&s.call_peer_name,
 							0,
@@ -62,7 +64,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.call_parts.caller_info.set_value(&running_info);
 						parts.call_parts.caller_info.show(true);
 						let title = crate::calls::helpers::format_call_window_title(
-							s.call_is_incoming,
+							s.call_shows_incoming(),
 							s.call_participants.len() > 1 || s.call_video.peer_name.is_none(),
 							s.call_video.is_video,
 							&s.call_peer_name,
@@ -103,7 +105,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							crate::ui_commands::calls::toggle_camera(state, parts);
 						}
 					} else {
-						announce_call(parts, "Failed to start audio stream.");
+						announce_call(parts, "Failed to start audio stream.", Priority::High);
 					}
 				}
 			}
@@ -186,7 +188,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				} else {
 					"Sound from the call isn't getting through."
 				};
-				announce_call(parts, message);
+				announce_call(parts, message, Priority::High);
 			}
 		}
 		"call_peer_interrupted" | "call_peer_battery_low" => {
@@ -207,7 +209,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						format!("{name} is back on the call.")
 					};
 					drop(s);
-					announce_call(parts, &message);
+					announce_call(parts, &message, Priority::High);
 				}
 			}
 		}
@@ -235,7 +237,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.call_is_reconnecting = true;
 					let secs = s.call_connected_duration.as_secs();
 					let info = crate::calls::helpers::call_running_info_text(
-						s.call_is_incoming,
+						s.call_shows_incoming(),
 						s.call_video.is_video,
 						&s.call_peer_name,
 						secs,
@@ -245,13 +247,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.caller_info.show(true);
 					parts.call_parts.status_label.set_label("Reconnecting...");
 					crate::audio::start_call_reconnect_tone(&mut s);
-					announce_call(parts, "Reconnecting...");
+					announce_call(parts, "Reconnecting...", Priority::High);
 				} else {
 					s.call_is_reconnecting = false;
 					s.call_connected_segment_start = Some(std::time::Instant::now());
 					let secs = s.call_connected_duration.as_secs();
 					let info = crate::calls::helpers::call_running_info_text(
-						s.call_is_incoming,
+						s.call_shows_incoming(),
 						s.call_video.is_video,
 						&s.call_peer_name,
 						secs,
@@ -261,7 +263,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.caller_info.show(true);
 					parts.call_parts.status_label.set_label("Connected");
 					crate::audio::stop_call_reconnect_tone(&mut s);
-					announce_call(parts, "Reconnected.");
+					announce_call(parts, "Reconnected.", Priority::High);
 				}
 			}
 		}
@@ -280,7 +282,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						.unwrap_or("Couldn't add that person to the call.")
 						.to_string()
 				};
-				announce_call(parts, &message);
+				announce_call(parts, &message, Priority::High);
 			}
 		}
 		"call_participants" => {
@@ -305,7 +307,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 				drop(s);
 				if !changes.is_empty() {
-					announce_call(parts, &changes.join(" "));
+					announce_call(parts, &changes.join(" "), Priority::High);
 				}
 			}
 		}
@@ -332,7 +334,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 						let name = s.call_peer_name.clone();
 						let is_saved = s.call_peer_is_saved;
-						let is_incoming = s.call_is_incoming;
+						let is_incoming = s.call_shows_incoming();
 						let elapsed = s.call_connected_duration
 							+ s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
 						let secs = elapsed.as_secs();
@@ -362,7 +364,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 				drop(s);
 				if let Some(text) = announcement {
-					announce_call(parts, &text);
+					announce_call(parts, &text, Priority::High);
 				}
 			}
 		}
@@ -429,6 +431,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					} else {
 						"Couldn't turn the camera on for this call."
 					},
+					Priority::High,
 				);
 			}
 		}
@@ -440,7 +443,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if state.borrow().active_call_id.as_deref() != Some(call_id) {
 					return true;
 				}
-				announce_call(parts, &crate::calls::helpers::peer_screen_share_announcement(name, active));
+				announce_call(
+					parts,
+					&crate::calls::helpers::peer_screen_share_announcement(name, active),
+					Priority::High,
+				);
 			}
 		}
 		"call_failed" => {
@@ -468,7 +475,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					.and_then(|d| d.get("message"))
 					.and_then(|m| m.as_str())
 					.unwrap_or("Failed to place call.");
-				announce_call(parts, message);
+				announce_call(parts, message, Priority::High);
 			}
 		}
 		"call_ended" => {
@@ -529,14 +536,21 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									_ => "Call ended.",
 								}
 							},
+							Priority::High,
 						);
 					} else if summary.contains("on another device") {
-						announce_call(parts, &format!("{}.", summary));
+						announce_call(parts, &format!("{}.", summary), Priority::High);
 					} else if was_incoming_ringing && !was_frame_shown {
-						announce_call(parts, &format!("Missed call from {}.", peer_name_saved));
+						announce_call(parts, &format!("Missed call from {}.", peer_name_saved), Priority::High);
 					}
 
-					if was_frame_shown {
+					// Only a missed call (it rang and was never answered) keeps the
+					// ended screen with a Call back button. Declined, connected and
+					// outgoing calls close the window as before.
+					let was_missed = was_incoming_ringing
+						&& !was_connected
+						&& matches!(reason, "timeout" | "no_answer" | "cancelled");
+					if was_frame_shown && was_missed {
 						let end_text = if was_connected {
 							let clock = crate::calls::helpers::format_call_duration(total_duration.as_secs());
 							format!("Call ended with {}\r\nDuration: {}", peer_name_saved, clock)
@@ -566,7 +580,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.call_parts.raise_hand_btn.show(false);
 						parts.call_parts.react_btn.show(false);
 						parts.call_parts.people_panel.show(false);
-						parts.call_parts.devices_panel.show(false);
+						parts.call_parts.input_device_combo.show(false);
+						parts.call_parts.output_device_combo.show(false);
+						parts.call_parts.camera_device_combo.show(false);
 						parts.call_parts.callback_btn.show(true);
 						parts.call_parts.close_btn.show(true);
 						parts.call_parts.close_btn.set_focus();
@@ -608,7 +624,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					stop_call_ringing_sound(&mut s);
 					play_call_fail_sound(&mut s);
 					let message = data.get("message").and_then(|m| m.as_str()).unwrap_or("Failed to answer call.");
-					announce_call(parts, message);
+					announce_call(parts, message, Priority::High);
 				}
 			}
 		}
@@ -708,7 +724,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.camera_btn.show(true);
 					parts.call_parts.device_settings_btn.set_label("Device settings");
 					parts.call_parts.device_settings_btn.show(true);
-					parts.call_parts.devices_panel.show(false);
+					parts.call_parts.input_device_combo.show(false);
+					parts.call_parts.output_device_combo.show(false);
+					parts.call_parts.camera_device_combo.show(false);
 					crate::ui_commands::calls::hide_screen_share_controls(parts);
 					parts.call_parts.leave_btn.show(false);
 					parts.call_parts.add_participant_btn.show(false);
@@ -728,6 +746,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						announce_call(
 							parts,
 							&format!("Could not register the call key {chord}; another program is using it"),
+							Priority::High,
 						);
 					}
 					if s.settings.notifications_enabled && s.settings.call_notifications {
@@ -735,7 +754,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						toast_body[..1].make_ascii_uppercase();
 						show_toast_notification("Incoming call", &toast_body);
 					}
-					announce_call(parts, &win_title);
+					announce_call(parts, &win_title, Priority::High);
 					call_log(parts, &s, "incoming shown", call_id);
 				}
 			}

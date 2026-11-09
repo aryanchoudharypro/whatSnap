@@ -1,5 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
+use live_region::Priority;
 use wxdragon::prelude::*;
 
 use crate::{
@@ -124,12 +125,12 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	};
 	let Some(call) = call else {
 		drop(s);
-		announce_call(parts, "That call has ended.");
+		announce_call(parts, "That call has ended.", Priority::High);
 		return;
 	};
 	if s.active_call_id.is_some() || s.call_placing {
 		drop(s);
-		announce_call(parts, "You're already in a call.");
+		announce_call(parts, "You're already in a call.", Priority::High);
 		return;
 	}
 	let msg = serde_json::json!({
@@ -173,7 +174,9 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	c.mute_btn.show(true);
 	c.device_settings_btn.set_label("Device settings");
 	c.device_settings_btn.show(true);
-	c.devices_panel.show(false);
+	c.input_device_combo.show(false);
+	c.output_device_combo.show(false);
+	c.camera_device_combo.show(false);
 	c.camera_btn.set_label("Turn camera on");
 	c.camera_btn.show(false);
 	c.add_participant_btn.show(false);
@@ -183,7 +186,7 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	crate::calls::helpers::show_call_device_combos(&s, parts);
 	c.frame.show(true);
 	drop(s);
-	announce_call(parts, "Joining call...");
+	announce_call(parts, "Joining call...", Priority::High);
 }
 
 fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video: bool) {
@@ -211,7 +214,7 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 					}
 				} else {
 					drop(s);
-					announce_call(parts, "Select a contact or call from the list first.");
+					announce_call(parts, "Select a contact or call from the list first.", Priority::High);
 					return;
 				}
 			}
@@ -245,7 +248,11 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 		let s = state.borrow();
 		if s.active_call_id.is_some() || s.call_placing {
 			drop(s);
-			announce_call(parts, "You are already on a call. End the current call before placing a new one.");
+			announce_call(
+				parts,
+				"You are already on a call. End the current call before placing a new one.",
+				Priority::High,
+			);
 			return;
 		}
 	}
@@ -319,7 +326,9 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	parts.call_parts.mute_btn.show(true);
 	parts.call_parts.device_settings_btn.set_label("Device settings");
 	parts.call_parts.device_settings_btn.show(true);
-	parts.call_parts.devices_panel.show(false);
+	parts.call_parts.input_device_combo.show(false);
+	parts.call_parts.output_device_combo.show(false);
+	parts.call_parts.camera_device_combo.show(false);
 	parts.call_parts.camera_btn.set_label("Turn camera on");
 	parts.call_parts.camera_btn.show(false);
 	hide_screen_share_controls(parts);
@@ -336,7 +345,7 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 		(false, true) => "Placing video call...",
 		(false, false) => "Placing call...",
 	};
-	announce_call(parts, placing_msg);
+	announce_call(parts, placing_msg, Priority::High);
 }
 
 /// Shows where a 1:1 call we placed has got to, the way WhatsApp's call
@@ -367,7 +376,7 @@ pub(crate) fn on_call_progress(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		&& s.active_call_audio.is_none();
 	if let Some(status) = crate::calls::helpers::outgoing_call_status(progress).filter(|_| waiting) {
 		show_outgoing_call_status(&s, parts, status);
-		announce_call(parts, status);
+		announce_call(parts, status, Priority::High);
 		if progress == "ringing" {
 			let needs_ringback = !s.call_ringback_on;
 			let self_phone = s.call_self_phone.clone();
@@ -427,10 +436,12 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		parts.call_parts.dismiss_btn.show(false);
 		parts.call_parts.callback_btn.show(false);
 		parts.call_parts.close_btn.show(false);
-		parts.call_parts.devices_panel.show(false);
+		parts.call_parts.input_device_combo.show(false);
+		parts.call_parts.output_device_combo.show(false);
+		parts.call_parts.camera_device_combo.show(false);
 		parts.call_parts.device_settings_btn.set_label("Device settings");
 		parts.call_parts.leave_btn.set_focus();
-		announce_call(parts, "Connecting...");
+		announce_call(parts, "Connecting...", Priority::High);
 	}
 }
 
@@ -466,7 +477,9 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		parts.frame.layout();
 		parts.call_parts.frame.show(false);
 		parts.call_parts.device_settings_btn.show(false);
-		parts.call_parts.devices_panel.show(false);
+		parts.call_parts.input_device_combo.show(false);
+		parts.call_parts.output_device_combo.show(false);
+		parts.call_parts.camera_device_combo.show(false);
 		parts.call_parts.device_settings_btn.set_label("Device settings");
 		parts.call_parts.dismiss_btn.show(false);
 		parts.call_parts.callback_btn.show(false);
@@ -497,7 +510,9 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		parts.frame.layout();
 		parts.call_parts.frame.show(false);
 		parts.call_parts.device_settings_btn.show(false);
-		parts.call_parts.devices_panel.show(false);
+		parts.call_parts.input_device_combo.show(false);
+		parts.call_parts.output_device_combo.show(false);
+		parts.call_parts.camera_device_combo.show(false);
 		parts.call_parts.device_settings_btn.set_label("Device settings");
 		s.active_call_id = None;
 		s.active_call_audio = None;
@@ -515,7 +530,9 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		parts.frame.layout();
 		parts.call_parts.frame.show(false);
 		parts.call_parts.device_settings_btn.show(false);
-		parts.call_parts.devices_panel.show(false);
+		parts.call_parts.input_device_combo.show(false);
+		parts.call_parts.output_device_combo.show(false);
+		parts.call_parts.camera_device_combo.show(false);
 		parts.call_parts.device_settings_btn.set_label("Device settings");
 		stop_call_ringing_sound(&mut s);
 	}
@@ -538,6 +555,7 @@ pub(crate) fn dismiss_incoming_call(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	announce_call(
 		parts,
 		"Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen.",
+		live_region::Priority::High,
 	);
 }
 
@@ -571,7 +589,7 @@ pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 		let status = if !current { "Microphone muted." } else { "Microphone unmuted." };
 		parts.call_parts.mute_btn.set_label(if !current { "Unmute microphone" } else { "Mute microphone" });
 		drop(s);
-		announce_call(parts, status);
+		announce_call(parts, status, Priority::High);
 		let s = state.borrow();
 		if let Some(call_id) = &s.active_call_id {
 			let payload = serde_json::json!({
@@ -586,26 +604,32 @@ pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 		parts.call_parts.mute_btn.set_label(if muted { "Unmute microphone" } else { "Mute microphone" });
 		let status = if muted { "Microphone muted." } else { "Microphone unmuted." };
 		drop(s);
-		announce_call(parts, status);
+		announce_call(parts, status, Priority::High);
 	}
 }
 
 pub(crate) fn toggle_call_device_settings(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	if parts.call_parts.devices_panel.is_shown() {
-		parts.call_parts.devices_panel.show(false);
-		parts.call_parts.device_settings_btn.set_label("Device settings");
-		parts.call_parts.frame.layout();
-		parts.call_parts.device_settings_btn.set_focus();
-		announce_call(parts, "Audio and video settings closed.");
+	let c = &parts.call_parts;
+	let is_shown = c.input_device_combo.is_shown();
+	if is_shown {
+		c.input_device_combo.show(false);
+		c.output_device_combo.show(false);
+		c.camera_device_combo.show(false);
+		c.device_settings_btn.set_label("Device settings");
+		c.frame.layout();
+		c.device_settings_btn.set_focus();
+		announce_call(parts, "Audio and video settings closed.", live_region::Priority::Medium);
 	} else {
 		let s = state.borrow();
 		crate::calls::helpers::show_call_device_combos(&s, parts);
 		drop(s);
-		parts.call_parts.devices_panel.show(true);
-		parts.call_parts.device_settings_btn.set_label("Hide device settings");
-		parts.call_parts.frame.layout();
-		parts.call_parts.input_device_combo.set_focus();
-		announce_call(parts, "Audio and video settings opened.");
+		c.input_device_combo.show(true);
+		c.output_device_combo.show(true);
+		// camera combo visibility is handled by show_call_device_combos based on is_video
+		c.device_settings_btn.set_label("Hide device settings");
+		c.frame.layout();
+		// Keep focus on device settings button, don't steal it
+		announce_call(parts, "Audio and video settings opened.", Priority::Medium);
 	}
 }
 
@@ -616,7 +640,7 @@ pub(crate) fn set_call_input_device(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	}
 	s.settings.input_device_name = name;
 	s.settings.save();
-	announce_call(parts, "Microphone changed.");
+	announce_call(parts, "Microphone changed.", Priority::High);
 }
 
 pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, name: Option<String>) {
@@ -629,7 +653,7 @@ pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		s.call_audio_out.stream = None;
 	}
 	s.settings.save();
-	announce_call(parts, "Speaker changed.");
+	announce_call(parts, "Speaker changed.", Priority::High);
 }
 
 pub(crate) fn set_call_camera_device(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, name: Option<String>) {
@@ -639,7 +663,7 @@ pub(crate) fn set_call_camera_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 	s.settings.camera_device_name = name;
 	s.settings.save();
-	announce_call(parts, "Camera changed.");
+	announce_call(parts, "Camera changed.", Priority::High);
 }
 
 pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -668,7 +692,7 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		} else {
 			local_camera_announcement(false).to_string()
 		};
-		announce_call(parts, &message);
+		announce_call(parts, &message, Priority::High);
 		return;
 	}
 
@@ -678,11 +702,11 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 			let on = s.call_video.autostart_camera;
 			parts.call_parts.camera_btn.set_label(if on { "Turn camera off" } else { "Turn camera on" });
 			drop(s);
-			announce_call(parts, local_camera_announcement(on));
+			announce_call(parts, local_camera_announcement(on), Priority::High);
 			return;
 		}
 		drop(s);
-		announce_call(parts, "The camera isn't ready yet - wait for the call to connect.");
+		announce_call(parts, "The camera isn't ready yet - wait for the call to connect.", Priority::High);
 		return;
 	};
 	let was_sharing = s.call_video.local_screen_on && s.call_video.screen_send.is_none();
@@ -705,7 +729,7 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 	let name = s.call_peer_name.clone();
 	let is_saved = s.call_peer_is_saved;
-	let is_incoming = s.call_is_incoming;
+	let is_incoming = s.call_shows_incoming();
 	let elapsed = s.call_connected_duration + s.call_connected_segment_start.map(|t| t.elapsed()).unwrap_or_default();
 	let secs = elapsed.as_secs();
 	let clock = if secs > 0 { Some(crate::calls::helpers::format_call_duration(secs)) } else { None };
@@ -722,7 +746,7 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	} else {
 		local_camera_announcement(true).to_string()
 	};
-	announce_call(parts, &message);
+	announce_call(parts, &message, Priority::High);
 }
 
 pub(crate) fn send_call_options(s: &AppState) {
@@ -753,12 +777,16 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	let Some(call_id) = s.active_call_id.clone() else { return };
 	if !s.call_video.local_screen_on && !s.call_video.local_camera_on {
 		drop(s);
-		announce_call(parts, "Camera must be turned on to share your screen. Turn your camera on first.");
+		announce_call(
+			parts,
+			"Camera must be turned on to share your screen. Turn your camera on first.",
+			Priority::High,
+		);
 		return;
 	}
 	let Some(port) = s.call_video_port else {
 		drop(s);
-		announce_call(parts, "Screen sharing isn't ready yet - wait for the call to connect.");
+		announce_call(parts, "Screen sharing isn't ready yet - wait for the call to connect.", Priority::High);
 		return;
 	};
 
@@ -769,7 +797,7 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		send_call_toggle(&s, "set_screen_share", &call_id, false);
 		parts.call_parts.screen_btn.set_label("Share screen");
 		drop(s);
-		announce_call(parts, &local_screen_share_announcement(false, None, false));
+		announce_call(parts, &local_screen_share_announcement(false, None, false), Priority::High);
 		return;
 	}
 	if s.call_video.local_screen_on {
@@ -787,7 +815,7 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 		parts.call_parts.screen_btn.set_label("Share screen");
 		drop(s);
-		announce_call(parts, &local_screen_share_announcement(false, None, camera_returns));
+		announce_call(parts, &local_screen_share_announcement(false, None, camera_returns), Priority::High);
 		return;
 	}
 	drop(s);
@@ -818,9 +846,9 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		drop(s);
 		let shared = local_screen_share_announcement(true, choice.window_title.as_deref(), false);
 		if with_sound {
-			announce_call(parts, &format!("{shared} {}", SYSTEM_AUDIO_ANNOUNCEMENT));
+			announce_call(parts, &format!("{shared} {}", SYSTEM_AUDIO_ANNOUNCEMENT), Priority::High);
 		} else {
-			announce_call(parts, &shared);
+			announce_call(parts, &shared, Priority::High);
 		}
 		return;
 	}
@@ -840,9 +868,9 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	drop(s);
 	let shared = local_screen_share_announcement(true, choice.window_title.as_deref(), camera_was_on);
 	if with_sound {
-		announce_call(parts, &format!("{shared} {}", SYSTEM_AUDIO_ANNOUNCEMENT));
+		announce_call(parts, &format!("{shared} {}", SYSTEM_AUDIO_ANNOUNCEMENT), Priority::High);
 	} else {
-		announce_call(parts, &shared);
+		announce_call(parts, &shared, Priority::High);
 	}
 }
 
@@ -896,7 +924,7 @@ pub(crate) fn system_audio_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	}
 	set_system_audio(&mut s, false);
 	drop(s);
-	announce_call(parts, &format!("Couldn't share your computer's sound: {reason}"));
+	announce_call(parts, &format!("Couldn't share your computer's sound: {reason}"), Priority::High);
 }
 
 /// The capture thread couldn't read the screen at all, so the share never
@@ -914,7 +942,7 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 		parts.call_parts.screen_btn.set_label("Share screen");
 		drop(s);
-		announce_call(parts, &format!("Couldn't share the screen: {reason}"));
+		announce_call(parts, &format!("Couldn't share the screen: {reason}"), Priority::High);
 		return;
 	}
 	s.active_call_video_send = None;
@@ -927,7 +955,7 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	}
 	parts.call_parts.screen_btn.set_label("Share screen");
 	drop(s);
-	announce_call(parts, &format!("Couldn't share the screen: {reason}"));
+	announce_call(parts, &format!("Couldn't share the screen: {reason}"), Priority::High);
 }
 
 /// The screen being shared is reaching the others as a black picture, or has
@@ -944,6 +972,7 @@ pub(crate) fn screen_share_black(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		} else {
 			"Your screen is visible to the others now."
 		},
+		live_region::Priority::High,
 	);
 }
 
@@ -959,7 +988,7 @@ pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	}
 	parts.call_parts.camera_btn.set_label("Turn camera on");
 	drop(s);
-	announce_call(parts, &format!("Couldn't start the camera: {reason}"));
+	announce_call(parts, &format!("Couldn't start the camera: {reason}"), Priority::High);
 }
 
 const MENU_CALL: i32 = 4501;

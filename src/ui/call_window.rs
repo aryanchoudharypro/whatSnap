@@ -22,6 +22,10 @@ pub struct CallWindowParts {
 	pub camera_btn: Button,
 	pub screen_btn: Button,
 	pub device_settings_btn: Button,
+	/// Device selector combos shown inline when device settings is expanded
+	pub input_device_combo: ComboBox,
+	pub output_device_combo: ComboBox,
+	pub camera_device_combo: ComboBox,
 	pub add_participant_btn: Button,
 	pub raise_hand_btn: Button,
 	pub react_btn: Button,
@@ -35,12 +39,6 @@ pub struct CallWindowParts {
 	pub let_in_btn: Button,
 	pub keep_out_btn: Button,
 	pub approval_check: CheckBox,
-	pub devices_panel: Panel,
-	pub close_devices_btn: Button,
-	pub input_device_combo: ComboBox,
-	pub output_device_combo: ComboBox,
-	pub camera_device_label: StaticText,
-	pub camera_device_combo: ComboBox,
 }
 
 /// WhatsApp's call screen colours: the call screen is dark in either theme.
@@ -177,6 +175,19 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_sizer.add(&device_settings_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	device_settings_btn.show(false);
 
+	// Device selector combos shown inline when device settings is expanded
+	let input_device_combo = ComboBox::builder(&btn_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	btn_sizer.add(&input_device_combo, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	input_device_combo.show(false);
+
+	let output_device_combo = ComboBox::builder(&btn_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	btn_sizer.add(&output_device_combo, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	output_device_combo.show(false);
+
+	let camera_device_combo = ComboBox::builder(&btn_panel).with_style(ComboBoxStyle::ReadOnly).build();
+	btn_sizer.add(&camera_device_combo, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	camera_device_combo.show(false);
+
 	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
 	crate::ui::owner_draw::install_tile(&add_participant_btn, CALL_BG);
 	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
@@ -245,56 +256,6 @@ pub fn build_call_window() -> CallWindowParts {
 	sizer.add(&people_panel, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
 	people_panel.show(false);
 
-	let devices_panel = Panel::builder(&panel).build();
-	if theme::use_custom_colours() {
-		devices_panel.set_background_color(Colour::rgb(0x18, 0x24, 0x2C));
-	}
-	let devices_sizer = BoxSizer::builder(Orientation::Vertical).build();
-
-	let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let devices_title = StaticText::builder(&devices_panel).with_label("Audio & Video Devices").build();
-	devices_title.set_font(&theme::Fonts::body_strong());
-	if theme::use_custom_colours() {
-		devices_title.set_foreground_color(CALL_TEXT);
-	}
-	header_sizer.add(&devices_title, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
-
-	let close_devices_btn = Button::builder(&devices_panel).with_label("Done").build();
-	close_devices_btn.set_font(&theme::Fonts::body());
-	header_sizer.add(&close_devices_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
-	devices_sizer.add_sizer(&header_sizer, 0, SizerFlag::Expand | SizerFlag::Top | SizerFlag::Bottom, 6);
-
-	let input_device_label = StaticText::builder(&devices_panel).with_label("Microphone").build();
-	input_device_label.set_font(&theme::Fonts::label());
-	if theme::use_custom_colours() {
-		input_device_label.set_foreground_color(CALL_MUTED_TEXT);
-	}
-	devices_sizer.add(&input_device_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
-	let input_device_combo = ComboBox::builder(&devices_panel).with_style(ComboBoxStyle::ReadOnly).build();
-	devices_sizer.add(&input_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
-
-	let output_device_label = StaticText::builder(&devices_panel).with_label("Speaker").build();
-	output_device_label.set_font(&theme::Fonts::label());
-	if theme::use_custom_colours() {
-		output_device_label.set_foreground_color(CALL_MUTED_TEXT);
-	}
-	devices_sizer.add(&output_device_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
-	let output_device_combo = ComboBox::builder(&devices_panel).with_style(ComboBoxStyle::ReadOnly).build();
-	devices_sizer.add(&output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
-
-	let camera_device_label = StaticText::builder(&devices_panel).with_label("Camera").build();
-	camera_device_label.set_font(&theme::Fonts::label());
-	if theme::use_custom_colours() {
-		camera_device_label.set_foreground_color(CALL_MUTED_TEXT);
-	}
-	devices_sizer.add(&camera_device_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
-	let camera_device_combo = ComboBox::builder(&devices_panel).with_style(ComboBoxStyle::ReadOnly).build();
-	devices_sizer.add(&camera_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
-
-	devices_panel.set_sizer(devices_sizer, true);
-	sizer.add(&devices_panel, 0, SizerFlag::Expand | SizerFlag::All, 10);
-	devices_panel.show(false);
-
 	panel.set_sizer(sizer, true);
 
 	CallWindowParts {
@@ -310,6 +271,9 @@ pub fn build_call_window() -> CallWindowParts {
 		camera_btn,
 		screen_btn,
 		device_settings_btn,
+		input_device_combo,
+		output_device_combo,
+		camera_device_combo,
 		add_participant_btn,
 		raise_hand_btn,
 		react_btn,
@@ -323,11 +287,5 @@ pub fn build_call_window() -> CallWindowParts {
 		let_in_btn,
 		keep_out_btn,
 		approval_check,
-		devices_panel,
-		close_devices_btn,
-		input_device_combo,
-		output_device_combo,
-		camera_device_label,
-		camera_device_combo,
 	}
 }

@@ -31,11 +31,8 @@ pub const STATUS_PALETTE: [(&str, u32); 21] = [
 	("Colour 21", 0xFF82_94CA),
 ];
 
-pub const STATUS_FONTS: [(&str, i32, &str); 3] = [
-	("Sans-Serif (Default)", 0, "Segoe UI"),
-	("Serif", 1, "Georgia"),
-	("Script", 2, "Segoe Script"),
-];
+pub const STATUS_FONTS: [(&str, i32, &str); 3] =
+	[("Sans-Serif (Default)", 0, "Segoe UI"), ("Serif", 1, "Georgia"), ("Script", 2, "Segoe Script")];
 
 pub const STATUS_TEXT_MAX_CHARS: usize = 700;
 pub const STATUS_TEXT_MAX_LINES: usize = 10;
@@ -326,10 +323,7 @@ pub fn show_text_status_composer(
 		text_field.on_text_changed(move |_| {
 			crate::ui::emoji_replace::text_changed(&field, true);
 			if clamp_field(&field, STATUS_TEXT_MAX_CHARS, STATUS_TEXT_MAX_LINES) {
-				crate::platform::announce::announce(
-					ann,
-					"Your status update can't exceed 700 characters or 10 lines.",
-				);
+				crate::platform::announce::announce(ann, "Your status update can't exceed 700 characters or 10 lines.");
 			}
 			let len = field.get_value().chars().count();
 			count.set_label(&format!("{len} / 700 characters"));
@@ -491,9 +485,7 @@ fn build_media_status_dialog(
 	theme::style_muted_label(&file_label);
 	sizer.add(&file_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 12);
 
-	let file_field = TextCtrl::builder(&panel)
-		.with_style(dialog_look::field_style(TextCtrlStyle::ReadOnly))
-		.build();
+	let file_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::ReadOnly)).build();
 	file_field.set_font(&theme::Fonts::body());
 	file_field.set_value(&file_info);
 	sizer.add(&file_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 4);

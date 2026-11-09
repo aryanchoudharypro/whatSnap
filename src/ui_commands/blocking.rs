@@ -114,7 +114,11 @@ pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			if blocked {
 				s.blocked_jids.insert(jid.to_string());
 				if !s.blocked_entries.iter().any(|e| e.jid == jid) {
-					s.blocked_entries.push(BlockedEntry { jid: jid.to_string(), name: name.to_string(), phone: String::new() });
+					s.blocked_entries.push(BlockedEntry {
+						jid: jid.to_string(),
+						name: name.to_string(),
+						phone: String::new(),
+					});
 				}
 			} else {
 				s.blocked_jids.remove(jid);

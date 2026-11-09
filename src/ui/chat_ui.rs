@@ -83,13 +83,7 @@ pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str, is_lock
 }
 
 /// A chat notification for a linked account that isn't the one on screen.
-pub(crate) fn show_chat_notification_for(
-	jid: &str,
-	title: &str,
-	body: &str,
-	account: Option<&str>,
-	is_locked: bool,
-) {
+pub(crate) fn show_chat_notification_for(jid: &str, title: &str, body: &str, account: Option<&str>, is_locked: bool) {
 	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body, account, is_locked) {
 		eprintln!("[NOTIFY] Chat toast failed, showing a plain notification: {err:?}");
 		show_toast_notification(title, body);
@@ -165,7 +159,8 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 	let is_blocked = crate::ui_commands::blocking::is_blocked(s, jid);
 	let is_channel_readonly = jid.ends_with("@newsletter") && !crate::ui_commands::links::can_post_in_channel(s, jid);
 	let is_group_not_member = jid.ends_with("@g.us") && s.not_member_jids.contains(jid);
-	let is_group_admins_only = jid.ends_with("@g.us") && s.admins_only_jids.contains(jid) && !s.admin_group_jids.contains(jid);
+	let is_group_admins_only =
+		jid.ends_with("@g.us") && s.admins_only_jids.contains(jid) && !s.admin_group_jids.contains(jid);
 
 	let can_write = !is_blocked && !is_channel_readonly && !is_group_not_member && !is_group_admins_only;
 	if !can_write {
@@ -309,7 +304,11 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 		let target_label = if let Some(ref preview) = s.pending_reply_preview {
 			preview.split_once(": ").map_or(preview.as_str(), |(who, _)| who)
 		} else {
-			group_send_block_reason(s, jid).unwrap_or(if jid.ends_with("@newsletter") { "Type an update" } else { "Type a message" })
+			group_send_block_reason(s, jid).unwrap_or(if jid.ends_with("@newsletter") {
+				"Type an update"
+			} else {
+				"Type a message"
+			})
 		};
 		if cp.message_label.get_label() != target_label {
 			cp.message_label.set_label(target_label);
@@ -515,7 +514,8 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	} else {
 		cp.blocked_banner_btn.show(false);
 		if s.editing_message_id.is_none() && s.pending_reply_preview.is_none() {
-			let label = reason.unwrap_or(if jid.ends_with("@newsletter") { "Type an update" } else { "Type a message" });
+			let label =
+				reason.unwrap_or(if jid.ends_with("@newsletter") { "Type an update" } else { "Type a message" });
 			if cp.message_label.get_label() != label {
 				cp.message_label.set_label(label);
 			}
