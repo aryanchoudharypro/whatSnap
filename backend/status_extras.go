@@ -9,7 +9,6 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
-	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -56,6 +55,14 @@ func (acc *Account) noteStatusViewers(v *events.Receipt) {
 		if n, _ := res.RowsAffected(); n > 0 {
 			acc.broadcastEvent("status_viewed", map[string]interface{}{"id": string(id), "viewer": acc.resolveDisplayName(viewer)})
 		}
+	}
+}
+
+// noteStatusSeenElsewhere marks statuses as seen when another of our own
+// devices (the phone, WA Web) viewed them, as WA Web does for peer receipts.
+func (acc *Account) noteStatusSeenElsewhere(v *events.Receipt) {
+	for _, id := range v.MessageIDs {
+		acc.db.Exec(`UPDATE messages SET viewed = 1 WHERE id = ? AND jid = 'status@broadcast'`, string(id))
 	}
 }
 
@@ -131,16 +138,17 @@ func (acc *Account) handleReactStatus(raw json.RawMessage) {
 			return
 		}
 		now := time.Now()
-		msg := &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
-			Key: &waCommon.MessageKey{
-				RemoteJID:   proto.String(types.StatusBroadcastJID.String()),
-				FromMe:      proto.Bool(false),
-				ID:          proto.String(data.ID),
-				Participant: proto.String(poster.String()),
-			},
-			Text:              proto.String(data.Emoji),
-			SenderTimestampMS: proto.Int64(now.UnixMilli()),
-		}}
+		quoted, _, _, qErr := acc.getMessageForQuote(data.ID)
+		if qErr != nil {
+			quoted = nil
+		}
+		ctxInfo := &waE2E.ContextInfo{
+			StanzaID:      proto.String(data.ID),
+			Participant:   proto.String(poster.String()),
+			RemoteJID:     proto.String(types.StatusBroadcastJID.String()),
+			QuotedMessage: quoted,
+		}
+		msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(data.Emoji), ContextInfo: ctxInfo}}
 		if _, err := acc.wa().SendMessage(context.Background(), poster, msg, whatsmeow.SendRequestExtra{ID: acc.wa().GenerateMessageID()}); err != nil {
 			acc.broadcastEvent("error", map[string]string{"message": "Couldn't react to the status: " + sendErrorText(err)})
 			return
@@ -235,9 +243,15 @@ func (acc *Account) handleSetStatusMute(raw json.RawMessage) {
 		return
 	}
 	go func() {
-		if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildUserStatusMute(jid.ToNonAD(), data.Muted)); err != nil {
-			acc.broadcastEvent("error", map[string]string{"message": "Couldn't change muted status updates: " + err.Error()})
-			return
+		targets := []types.JID{jid.ToNonAD()}
+		if twin := acc.storeTwin(jid.ToNonAD()); !twin.IsEmpty() && twin.ToNonAD() != jid.ToNonAD() {
+			targets = append(targets, twin.ToNonAD())
+		}
+		for _, target := range targets {
+			if err := acc.sendAppStateWithRetry(context.Background(), appstate.BuildUserStatusMute(target, data.Muted)); err != nil {
+				acc.broadcastEvent("error", map[string]string{"message": "Couldn't change muted status updates: " + err.Error()})
+				return
+			}
 		}
 		acc.setStatusMuted(jid, data.Muted)
 	}()
@@ -276,6 +290,10 @@ func (acc *Account) statusAudience(ctx context.Context) (mode string, list []typ
 			return "only", list
 		case waSyncAction.StatusPrivacyAction_DENY_LIST:
 			return "except", list
+		case waSyncAction.StatusPrivacyAction_CLOSE_FRIENDS:
+			return "close_friends", nil
+		case waSyncAction.StatusPrivacyAction_CUSTOM_LIST:
+			return "custom_list", nil
 		}
 		return "contacts", nil
 	}
@@ -288,6 +306,26 @@ func (acc *Account) statusAudience(ctx context.Context) (mode string, list []typ
 		}
 	}
 	return "contacts", nil
+}
+
+// statusPostBlocker returns why a status update can't be posted right now, or
+// an empty string. Close Friends and custom lists are WhatsApp audiences this
+// client can't deliver to, and an empty audience is refused the way WA Web's
+// privacy popup warns about it.
+func (acc *Account) statusPostBlocker(ctx context.Context) string {
+	action := acc.storedStatusPrivacy()
+	if action == nil {
+		return ""
+	}
+	switch action.GetMode() {
+	case waSyncAction.StatusPrivacyAction_CLOSE_FRIENDS, waSyncAction.StatusPrivacyAction_CUSTOM_LIST:
+		return "Your status privacy is set to Close Friends or a custom list on your phone, which whatSnap can't use yet. Change it to My contacts, My contacts except or Only share with."
+	case waSyncAction.StatusPrivacyAction_ALLOW_LIST, waSyncAction.StatusPrivacyAction_DENY_LIST:
+		if recipients := acc.statusRecipients(ctx); recipients != nil && len(recipients) == 0 {
+			return "This status update would be sent to 0 contacts. Check your status privacy."
+		}
+	}
+	return ""
 }
 
 func (acc *Account) statusRecipients(ctx context.Context) []types.JID {
@@ -352,6 +390,10 @@ func (acc *Account) handleSetStatusPrivacy(conn net.Conn, raw json.RawMessage) {
 			mode = waSyncAction.StatusPrivacyAction_DENY_LIST
 		}
 		action := &waSyncAction.StatusPrivacyAction{Mode: mode.Enum()}
+		if current := acc.storedStatusPrivacy(); current != nil {
+			action.ShareToFb = current.ShareToFb
+			action.ShareToIg = current.ShareToIg
+		}
 		if mode != waSyncAction.StatusPrivacyAction_CONTACTS {
 			for _, s := range data.JIDs {
 				if jid, err := types.ParseJID(s); err == nil {

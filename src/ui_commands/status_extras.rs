@@ -17,7 +17,7 @@ const PRIVACY: i32 = 4306;
 const POST_TEXT: i32 = 4307;
 const POST_MEDIA: i32 = 4308;
 
-pub(crate) const STATUS_REACTIONS: [&str; 8] = ["😍", "😂", "😮", "😢", "👏", "🎉", "💯", "🙏"];
+pub(crate) const STATUS_REACTIONS: [&str; 8] = ["😍", "😂", "😮", "😢", "🙏", "👏", "🎉", "💯"];
 
 fn send(state: &Rc<RefCell<AppState>>, action: &str, data: serde_json::Value) {
 	let payload = serde_json::json!({ "action": action, "data": data });

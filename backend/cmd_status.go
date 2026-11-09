@@ -179,6 +179,10 @@ func (acc *Account) handlePostStatus(raw json.RawMessage) {
 	}
 	font := data.Font
 	go func() {
+		if reason := acc.statusPostBlocker(context.Background()); reason != "" {
+			acc.broadcastEvent("error", map[string]string{"message": reason})
+			return
+		}
 		ext := &waE2E.ExtendedTextMessage{
 			Text:           proto.String(text),
 			BackgroundArgb: proto.Uint32(bg),
@@ -227,6 +231,10 @@ func (acc *Account) handlePostMediaStatus(raw json.RawMessage) {
 		return
 	}
 	go func() {
+		if reason := acc.statusPostBlocker(context.Background()); reason != "" {
+			acc.broadcastEvent("error", map[string]string{"message": reason})
+			return
+		}
 		id := acc.wa().GenerateMessageID()
 
 		srcPath := data.Path

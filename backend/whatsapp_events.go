@@ -2226,6 +2226,9 @@ func (acc *Account) eventHandler(evt interface{}) {
 		if v.MessageSource.Chat == types.StatusBroadcastJID && !v.MessageSource.IsFromMe {
 			go acc.noteStatusViewers(v)
 		}
+		if v.MessageSource.Chat == types.StatusBroadcastJID && v.MessageSource.IsFromMe && (v.Type == types.ReceiptTypeRead || v.Type == types.ReceiptTypeReadSelf) {
+			go acc.noteStatusSeenElsewhere(v)
+		}
 		chatJID, senderJID := acc.resolveSourcePN(v.MessageSource)
 
 		acc.broadcastEvent("receipt", map[string]interface{}{
