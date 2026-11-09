@@ -510,6 +510,22 @@ func plainScheduleError(err error) error {
 	}
 }
 
+// earliestScheduleTime is the first whole minute that is at least the
+// minimum window after the real current time. WA Web measures the window from
+// the start of the current minute, but the server counts from now, so a time
+// that is a few seconds short of the minimum would pass here and be refused.
+func earliestScheduleTime(now time.Time, cfg whatsmeow.ScheduledMessagesConfig) time.Time {
+	t := now.Add(cfg.MinWindow)
+	if t.Truncate(time.Minute) != t {
+		t = t.Truncate(time.Minute).Add(time.Minute)
+	}
+	return t
+}
+
+func scheduledTimeOK(at, now time.Time, cfg whatsmeow.ScheduledMessagesConfig) bool {
+	return !at.Before(earliestScheduleTime(now, cfg)) && at.Sub(now) <= cfg.MaxWindow
+}
+
 func scheduleWindowError(cfg whatsmeow.ScheduledMessagesConfig) error {
 	minutes := int(cfg.MinWindow / time.Minute)
 	days := int(cfg.MaxWindow / (24 * time.Hour))
@@ -526,12 +542,10 @@ func (acc *Account) handleGetScheduleOptions(conn net.Conn, raw json.RawMessage)
 	}
 	cfg := acc.scheduledConfig()
 	now := time.Now()
-	def := whatsmeow.DefaultScheduledMessageTime(now, cfg.MinWindow, cfg.MaxWindow, cfg.SmartDefaults).Local()
-	minuteStart := now.Truncate(time.Minute)
-	earliest := minuteStart.Add(cfg.MinWindow)
-	if earliest.Truncate(time.Minute) != earliest {
-		earliest = earliest.Truncate(time.Minute).Add(time.Minute)
-	}
+	earliest := earliestScheduleTime(now, cfg)
+	// Two minutes of slack so the suggestion is still valid by the time the
+	// user presses Schedule.
+	def := earliest.Add(2 * time.Minute)
 	latest := now.Add(cfg.MaxWindow).Truncate(time.Minute)
 	type day struct {
 		Value string `json:"value"`
@@ -597,8 +611,8 @@ func (acc *Account) handleScheduleMessage(conn net.Conn, raw json.RawMessage) {
 		return
 	}
 	cfg := acc.scheduledConfig()
-	if !whatsmeow.IsScheduledTimeValid(at, time.Now(), cfg.MinWindow, cfg.MaxWindow) {
-		fail(scheduleWindowError(cfg))
+	if !scheduledTimeOK(at, time.Now(), cfg) {
+		fail(fmt.Errorf("%v The earliest time now is %s.", scheduleWindowError(cfg), earliestScheduleTime(time.Now(), cfg).Format("15:04 on 2 January")))
 		return
 	}
 	if acc.pendingScheduledCount(data.JID) >= whatsmeow.ScheduledMessageMaxPerChat {
