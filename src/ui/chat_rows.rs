@@ -4,9 +4,9 @@ use windows::Win32::{
 	Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
 	Graphics::Gdi::{
 		BitBlt, COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT,
-		CreateCompatibleBitmap, CreateCompatibleDC, DT_CENTER, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, GetDC, GetObjectW,
-		GetSysColor, GetTextMetricsW, HDC, HFONT, HGDIOBJ, InvalidateRect, LOGFONTW, ReleaseDC, SRCCOPY, SelectObject,
-		SetBkMode, TEXTMETRICW, TRANSPARENT,
+		CreateCompatibleBitmap, CreateCompatibleDC, DT_CENTER, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DeleteDC,
+		DeleteObject, GetDC, GetObjectW, GetSysColor, GetTextMetricsW, HDC, HFONT, HGDIOBJ, InvalidateRect, LOGFONTW,
+		ReleaseDC, SRCCOPY, SelectObject, SetBkMode, TEXTMETRICW, TRANSPARENT,
 	},
 	UI::{
 		Controls::DRAWITEMSTRUCT,

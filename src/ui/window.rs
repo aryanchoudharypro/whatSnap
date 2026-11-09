@@ -1209,11 +1209,7 @@ pub fn bind_input_handlers(
 		let in_step = s.displayed_chat_labels.get(index).is_some_and(|l| l == text);
 		let jid = s.filtered_chats.get(index).filter(|_| in_step).map_or("", String::as_str);
 		if jid == "no_chats_found_placeholder" {
-			return Some(crate::ui::chat_rows::RowArt {
-				title: text.to_string(),
-				heading: true,
-				..Default::default()
-			});
+			return Some(crate::ui::chat_rows::RowArt { title: text.to_string(), heading: true, ..Default::default() });
 		}
 		let chat_row = in_step && !matches!(s.active_tab, 1 | 2 | 6);
 		match s.chat_row_art.get(jid) {
@@ -1588,12 +1584,14 @@ pub fn bind_input_handlers(
 			let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 			drop(s);
 
+			// The heading never carries the clock: the duration lives in the
+			// call info box, so the heading reads the same for the whole call.
 			let status = if is_reconnecting {
-				format!("Reconnecting... ({clock})")
+				"Reconnecting...".to_string()
 			} else if is_group {
-				format!("In group call · {clock}")
+				"In group call".to_string()
 			} else {
-				format!("Connected · {clock}")
+				"Connected".to_string()
 			};
 			call_status_label.set_label(&status);
 

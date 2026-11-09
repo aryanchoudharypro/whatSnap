@@ -538,7 +538,7 @@ pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 		s.settings.call_output_device_name.as_deref(),
 	);
 	let is_video = s.call_video.video_call || s.call_video.is_video || s.call_video.local_camera_on;
-	parts.call_parts.camera_device_combo.show(is_video);
+	parts.call_parts.camera_device_group.show(is_video);
 	if is_video {
 		set_device_combo(
 			&parts.call_parts.camera_device_combo,

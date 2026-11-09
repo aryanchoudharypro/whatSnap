@@ -424,16 +424,10 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 					.get(jid)
 					.map(|art| art.preview.to_lowercase().contains(&lower_query))
 					.unwrap_or(false);
-				let matches_draft = s
-					.draft_messages
-					.get(jid)
-					.map(|d| d.to_lowercase().contains(&lower_query))
-					.unwrap_or(false);
-				let matches_display = s
-					.display_names
-					.get(jid)
-					.map(|d| d.to_lowercase().contains(&lower_query))
-					.unwrap_or(false);
+				let matches_draft =
+					s.draft_messages.get(jid).map(|d| d.to_lowercase().contains(&lower_query)).unwrap_or(false);
+				let matches_display =
+					s.display_names.get(jid).map(|d| d.to_lowercase().contains(&lower_query)).unwrap_or(false);
 
 				matches_name || matches_jid || matches_phone || matches_preview || matches_draft || matches_display
 			};

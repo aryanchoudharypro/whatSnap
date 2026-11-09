@@ -580,9 +580,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.call_parts.raise_hand_btn.show(false);
 						parts.call_parts.react_btn.show(false);
 						parts.call_parts.people_panel.show(false);
-						parts.call_parts.input_device_combo.show(false);
-						parts.call_parts.output_device_combo.show(false);
-						parts.call_parts.camera_device_combo.show(false);
+						parts.call_parts.input_device_group.show(false);
+						parts.call_parts.output_device_group.show(false);
+						parts.call_parts.camera_device_group.show(false);
 						parts.call_parts.callback_btn.show(true);
 						parts.call_parts.close_btn.show(true);
 						parts.call_parts.close_btn.set_focus();
@@ -724,9 +724,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.camera_btn.show(true);
 					parts.call_parts.device_settings_btn.set_label("Device settings");
 					parts.call_parts.device_settings_btn.show(true);
-					parts.call_parts.input_device_combo.show(false);
-					parts.call_parts.output_device_combo.show(false);
-					parts.call_parts.camera_device_combo.show(false);
+					parts.call_parts.input_device_group.show(false);
+					parts.call_parts.output_device_group.show(false);
+					parts.call_parts.camera_device_group.show(false);
 					crate::ui_commands::calls::hide_screen_share_controls(parts);
 					parts.call_parts.leave_btn.show(false);
 					parts.call_parts.add_participant_btn.show(false);

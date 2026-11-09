@@ -167,7 +167,12 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		}
 		return;
 	}
-	let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty() && j.as_str() != "no_chats_found_placeholder").cloned();
+	let jid = state
+		.borrow()
+		.filtered_chats
+		.get(idx)
+		.filter(|j| !j.is_empty() && j.as_str() != "no_chats_found_placeholder")
+		.cloned();
 	if let Some(ref jid) = jid {
 		if state.borrow().active_tab == 2 {
 			let msg_id = state.borrow().filtered_starred_message_ids.get(idx).cloned();
