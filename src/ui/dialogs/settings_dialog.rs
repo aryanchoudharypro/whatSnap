@@ -150,6 +150,10 @@ pub struct SettingsDialogParts {
 	pub lock_panel: Panel,
 	pub chat_lock_hello_check: CheckBox,
 
+	pub backup_panel: Panel,
+	pub backup_btn: Button,
+	pub restore_btn: Button,
+
 	pub ok_btn: Button,
 	pub cancel_btn: Button,
 }
@@ -584,6 +588,32 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	);
 	lock_panel.set_sizer(lock_sizer, true);
 
+	// 11. Backup and Restore Panel
+	let backup_panel = Panel::builder(&notebook).build();
+	theme::style_content(&backup_panel);
+	let backup_sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+	section_header(&backup_panel, &backup_sizer, "Backup Settings");
+	setting_note(
+		&backup_panel,
+		&backup_sizer,
+		"Export your whatSnap preferences (shortcuts, notifications, audio settings, theme, and chat options) to a JSON file. Your chats, contacts, media, and account sessions are not included.",
+	);
+	let backup_btn = setting_button(&backup_panel, "Backup Settings...");
+	backup_sizer.add(&backup_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
+
+	backup_sizer.add_spacer(16);
+	section_header(&backup_panel, &backup_sizer, "Restore Settings");
+	setting_note(
+		&backup_panel,
+		&backup_sizer,
+		"Restore your whatSnap preferences from a previously saved JSON backup file. This will update your current settings.",
+	);
+	let restore_btn = setting_button(&backup_panel, "Restore Settings...");
+	backup_sizer.add(&restore_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
+
+	backup_panel.set_sizer(backup_sizer, true);
+
 	notebook.add_page(&general_panel, "General", true, None);
 	notebook.add_page(&account_panel, "Account", false, None);
 	notebook.add_page(&chats_panel, "Chats", false, None);
@@ -594,6 +624,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	notebook.add_page(&storage_panel, "Storage & Media", false, None);
 	notebook.add_page(&audio_panel, "Input & Output", false, None);
 	notebook.add_page(&lock_panel, "Chat Lock", false, None);
+	notebook.add_page(&backup_panel, "Backup and Restore", false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
@@ -704,6 +735,9 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		dual_stream_screen_share_check,
 		lock_panel,
 		chat_lock_hello_check,
+		backup_panel,
+		backup_btn,
+		restore_btn,
 		security_notifications_check,
 		ok_btn,
 		cancel_btn,
@@ -839,12 +873,65 @@ impl SettingsDialogParts {
 			&self.storage_panel,
 			&self.audio_panel,
 			&self.lock_panel,
+			&self.backup_panel,
 		] {
 			theme::style_content(panel);
 		}
 		theme::style_content(&self.notebook);
 		theme::style_content(&self.dialog);
 		theme::match_theme(&self.dialog);
+	}
+
+	pub fn populate_from_settings(&self, settings: &crate::settings::Settings) {
+		self.sounds_check.set_value(settings.sounds_enabled);
+		self.notifications_check.set_value(settings.notifications_enabled);
+		self.follow_dnd_check.set_value(settings.follow_windows_do_not_disturb);
+		self.announce_typing_check.set_value(settings.announce_typing);
+		self.announce_recording_check.set_value(settings.announce_recording);
+		self.tray_icon_check.set_value(settings.show_tray_icon);
+		self.meta_ai_enabled_check.set_value(settings.meta_ai_enabled);
+		self.verbose_backend_logging_check.set_value(settings.verbose_backend_logging);
+		self.start_maximized_check.set_value(settings.start_maximized);
+		self.check_updates_check.set_value(settings.check_for_updates_on_startup);
+		set_combo_from_value(&self.update_channel_combo, UPDATE_CHANNEL_CHOICES, &settings.update_channel);
+		self.voice_message_noise_suppression_check.set_value(settings.voice_message_noise_suppression);
+		self.dual_stream_screen_share_check.set_value(settings.dual_stream_screen_share);
+		self.show_chat_settings(settings);
+		set_device_combo(
+			&self.input_device_combo,
+			&crate::audio::devices::input_device_names(),
+			settings.input_device_name.as_deref(),
+		);
+		set_device_combo(
+			&self.output_device_combo,
+			&crate::audio::devices::output_device_names(),
+			settings.output_device_name.as_deref(),
+		);
+		set_device_combo(
+			&self.call_output_device_combo,
+			&crate::audio::devices::output_device_names(),
+			settings.call_output_device_name.as_deref(),
+		);
+	}
+
+	pub fn read_all_settings(&self, settings: &mut crate::settings::Settings) {
+		settings.sounds_enabled = self.sounds_check.is_checked();
+		settings.notifications_enabled = self.notifications_check.is_checked();
+		settings.follow_windows_do_not_disturb = self.follow_dnd_check.is_checked();
+		settings.announce_typing = self.announce_typing_check.is_checked();
+		settings.announce_recording = self.announce_recording_check.is_checked();
+		settings.show_tray_icon = self.tray_icon_check.is_checked();
+		settings.meta_ai_enabled = self.meta_ai_enabled_check.is_checked();
+		settings.verbose_backend_logging = self.verbose_backend_logging_check.is_checked();
+		settings.start_maximized = self.start_maximized_check.is_checked();
+		settings.check_for_updates_on_startup = self.check_updates_check.is_checked();
+		settings.update_channel = combo_value(&self.update_channel_combo, UPDATE_CHANNEL_CHOICES);
+		settings.voice_message_noise_suppression = self.voice_message_noise_suppression_check.is_checked();
+		settings.dual_stream_screen_share = self.dual_stream_screen_share_check.is_checked();
+		settings.input_device_name = device_combo_value(&self.input_device_combo);
+		settings.output_device_name = device_combo_value(&self.output_device_combo);
+		settings.call_output_device_name = device_combo_value(&self.call_output_device_combo);
+		self.read_chat_settings(settings);
 	}
 
 	pub fn show_chat_settings(&self, settings: &crate::settings::Settings) {

@@ -2369,6 +2369,163 @@ pub fn bind_input_handlers(
 		settings_dialog_cancel.end_modal(wxdragon::id::ID_CANCEL);
 	});
 
+	let settings_dialog_backup = parts.settings_dialog.dialog;
+	let settings_parts_backup = parts.settings_dialog;
+	let state_backup = state.clone();
+	let pending_shortcuts_backup = pending_shortcuts.clone();
+	parts.settings_dialog.backup_btn.on_click(move |_| {
+		let chooser = FileDialog::builder(&settings_dialog_backup)
+			.with_message("Backup Settings")
+			.with_default_file("whatsnap-settings.json")
+			.with_wildcard("JSON files (*.json)|*.json|All files (*.*)|*.*")
+			.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+			.build();
+		if chooser.show_modal() != wxdragon::id::ID_OK {
+			return;
+		}
+		let Some(path) = chooser.get_path() else { return };
+
+		let s = state_backup.borrow();
+		let mut current = s.settings.clone();
+		drop(s);
+
+		settings_parts_backup.read_all_settings(&mut current);
+		if let Some(keymap) = pending_shortcuts_backup.borrow().as_ref() {
+			current.shortcuts = keymap.saved();
+		}
+
+		match current.export_json() {
+			Ok(json_data) => {
+				if let Err(e) = std::fs::write(&path, json_data) {
+					MessageDialog::builder(
+						&settings_dialog_backup,
+						&format!("Failed to write backup file:\n{}", e),
+						"Backup Failed",
+					)
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
+				} else {
+					MessageDialog::builder(
+						&settings_dialog_backup,
+						"Your whatSnap settings were successfully backed up.",
+						"Backup Complete",
+					)
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+					.build()
+					.show_modal();
+				}
+			}
+			Err(e) => {
+				MessageDialog::builder(
+					&settings_dialog_backup,
+					&format!("Failed to format settings:\n{}", e),
+					"Backup Failed",
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal();
+			}
+		}
+	});
+
+	let settings_dialog_restore = parts.settings_dialog.dialog;
+	let settings_parts_restore = parts.settings_dialog;
+	let state_restore = state.clone();
+	let pending_shortcuts_restore = pending_shortcuts.clone();
+	let frame_restore = parts.frame;
+	parts.settings_dialog.restore_btn.on_click(move |_| {
+		let chooser = FileDialog::builder(&settings_dialog_restore)
+			.with_message("Restore Settings")
+			.with_wildcard("JSON files (*.json)|*.json|All files (*.*)|*.*")
+			.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
+			.build();
+		if chooser.show_modal() != wxdragon::id::ID_OK {
+			return;
+		}
+		let Some(path) = chooser.get_path() else { return };
+
+		let raw = match std::fs::read_to_string(&path) {
+			Ok(content) => content,
+			Err(e) => {
+				MessageDialog::builder(
+					&settings_dialog_restore,
+					&format!("Failed to read backup file:\n{}", e),
+					"Restore Failed",
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal();
+				return;
+			}
+		};
+
+		let restored = match crate::settings::Settings::import_json(&raw) {
+			Ok(settings) => settings,
+			Err(err) => {
+				MessageDialog::builder(
+					&settings_dialog_restore,
+					&format!("The selected file could not be restored:\n{}", err),
+					"Invalid Settings File",
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal();
+				return;
+			}
+		};
+
+		let confirm = MessageDialog::builder(
+			&settings_dialog_restore,
+			"Restoring settings will overwrite your current settings. Do you want to continue?",
+			"Restore Settings",
+		)
+		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+		.build();
+		if confirm.show_modal() != wxdragon::id::ID_YES {
+			return;
+		}
+
+		restored.save();
+
+		let mut s = state_restore.borrow_mut();
+		s.settings = restored.clone();
+		settings_parts_restore.populate_from_settings(&s.settings);
+
+		let keymap = crate::keymap::Keymap::from_saved(&s.settings.shortcuts);
+		keymap.apply(&frame_restore);
+		s.keymap = std::rc::Rc::new(keymap);
+		pending_shortcuts_restore.borrow_mut().take();
+
+		let theme = s.settings.theme;
+		wxdragon::call_after(Box::new(move || crate::ui::theme::change_theme(theme)));
+
+		crate::ui::spell_check::configure(s.settings.spell_check, &s.settings.spell_language);
+
+		s.audio_out.stream = None;
+		s.call_audio_out.stream = None;
+		crate::ui_commands::calls::send_call_options(&s);
+
+		let synced = s.settings.synced();
+		let mut map = serde_json::Map::new();
+		for (k, v) in synced {
+			map.insert(k.to_string(), v);
+		}
+		if !map.is_empty() {
+			let _ = s.ws_tx.send(serde_json::json!({"action": "sync_settings", "data": map}).to_string());
+		}
+		drop(s);
+
+		MessageDialog::builder(
+			&settings_dialog_restore,
+			"Your whatSnap settings were successfully restored.",
+			"Restore Complete",
+		)
+		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+		.build()
+		.show_modal();
+	});
+
 	for control in parts.settings_dialog.privacy_controls() {
 		let Some(except_btn) = control.except_btn else { continue };
 		let settings_parts = parts.settings_dialog;

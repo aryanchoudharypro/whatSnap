@@ -202,6 +202,39 @@ impl Settings {
 		serde_json::from_value(value).unwrap_or_default()
 	}
 
+	/// Exports the settings to a pretty-printed JSON string.
+	/// Contains only user configuration and preferences (no chats, credentials, or session IDs).
+	pub fn export_json(&self) -> Result<String, serde_json::Error> {
+		serde_json::to_string_pretty(self)
+	}
+
+	/// Imports settings from a JSON backup string, verifying that it contains whatSnap settings.
+	pub fn import_json(raw: &str) -> Result<Self, String> {
+		let mut value = serde_json::from_str::<serde_json::Value>(raw).map_err(|e| format!("Invalid JSON: {e}"))?;
+		let obj = value.as_object_mut().ok_or_else(|| "Settings backup must be a JSON object".to_string())?;
+
+		let recognized = [
+			"sounds_enabled",
+			"notifications_enabled",
+			"shortcuts",
+			"tab_order",
+			"enter_is_send",
+			"announce_typing",
+			"theme",
+			"message_tone",
+			"start_maximized",
+		];
+		if !recognized.iter().any(|k| obj.contains_key(*k)) {
+			return Err("The file does not appear to contain whatSnap settings".to_string());
+		}
+
+		if !obj.contains_key("call_output_device_name") {
+			let inherited = obj.get("output_device_name").cloned().unwrap_or(serde_json::Value::Null);
+			obj.insert("call_output_device_name".to_string(), inherited);
+		}
+		serde_json::from_value(value).map_err(|e| format!("Failed to parse settings: {e}"))
+	}
+
 	/// Alert level for `jid` as an archived chat. Chats that aren't archived
 	/// never consult this - see [`whatsnap::incoming_alert`].
 	pub fn archived_alert(&self, jid: &str) -> whatsnap::ArchivedAlert {
@@ -529,5 +562,33 @@ mod tests {
 		assert_eq!(move_tab(&mut order, 0, -1), None);
 		assert_eq!(move_tab(&mut order, 2, -1), Some(1));
 		assert_eq!(order, vec![0, 6, 1]);
+	}
+
+	#[test]
+	fn export_and_import_settings_json() {
+		let mut original = Settings::default();
+		original.sounds_enabled = false;
+		original.enter_is_send = false;
+		original.theme = crate::ui::theme::ThemeChoice::Dark;
+		original.audio_speed = 1.5;
+
+		let json = original.export_json().expect("export should succeed");
+		assert!(json.contains("\"sounds_enabled\": false"));
+		assert!(json.contains("\"enter_is_send\": false"));
+
+		let imported = Settings::import_json(&json).expect("import should succeed");
+		assert_eq!(imported.sounds_enabled, false);
+		assert_eq!(imported.enter_is_send, false);
+		assert_eq!(imported.theme, crate::ui::theme::ThemeChoice::Dark);
+		assert_eq!(imported.audio_speed, 1.5);
+	}
+
+	#[test]
+	fn import_settings_rejects_unrelated_json() {
+		let bad_json = r#"{"name": "test-package", "version": "1.0.0"}"#;
+		assert!(Settings::import_json(bad_json).is_err());
+
+		let not_object = r#"[1, 2, 3]"#;
+		assert!(Settings::import_json(not_object).is_err());
 	}
 }
