@@ -215,6 +215,21 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				crate::ui_commands::report::reported(parts, data);
 			}
 		}
+		"schedule_options" => {
+			if let Some(data) = val.get("data") {
+				crate::ui_commands::scheduled::schedule_options_received(state, parts, data);
+			}
+		}
+		"scheduled_messages" => {
+			if let Some(data) = val.get("data") {
+				crate::ui_commands::scheduled::scheduled_messages_received(state, data);
+			}
+		}
+		"scheduled_result" => {
+			if let Some(data) = val.get("data") {
+				crate::ui_commands::scheduled::scheduled_result(state, parts, data);
+			}
+		}
 		"blocklist" => {
 			if let Some(data) = val.get("data") {
 				crate::ui_commands::blocking::blocklist_received(state, data);

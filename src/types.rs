@@ -160,6 +160,8 @@ pub enum UiCommand {
 	RedialCall,
 	CloseCallWindow,
 	OpenEventDialog,
+	OpenScheduleDialog,
+	ShowScheduledMessages,
 	OpenPollVote(String),
 	OpenMessageOptions(String),
 	OpenOrderDetails(String),

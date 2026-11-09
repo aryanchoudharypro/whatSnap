@@ -17,6 +17,7 @@ pub(crate) mod messaging;
 pub(crate) mod misc;
 pub(crate) mod polls;
 pub(crate) mod report;
+pub(crate) mod scheduled;
 pub(crate) mod selection;
 pub(crate) mod starred;
 pub(crate) mod status_extras;

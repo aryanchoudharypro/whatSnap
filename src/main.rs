@@ -150,6 +150,13 @@ struct AppState {
 	blocked_jids: std::collections::HashSet<String>,
 	blocked_entries: Vec<crate::ui::dialogs::blocked_contacts::BlockedEntry>,
 	blocked_contacts: Option<Rc<crate::ui::dialogs::blocked_contacts::BlockedContacts>>,
+	/// Whether to offer scheduling messages: WA Web's
+	/// scheduled_messages_sender_enabled, on until the server says it's off.
+	scheduled_messages_enabled: bool,
+	/// The chat and text the schedule dialog is waiting on the backend's
+	/// options for.
+	pending_schedule: Option<(String, String)>,
+	scheduled_list: Option<Rc<crate::ui::dialogs::scheduled_messages::ScheduledList>>,
 	unread_counts: std::collections::HashMap<String, u64>,
 	unread_divider_jid: Option<String>,
 	unread_divider_count: u64,
@@ -884,6 +891,9 @@ pub(crate) fn new_app_state(
 		blocked_jids: std::collections::HashSet::new(),
 		blocked_entries: Vec::new(),
 		blocked_contacts: None,
+		scheduled_messages_enabled: true,
+		pending_schedule: None,
+		scheduled_list: None,
 		unread_counts: std::collections::HashMap::new(),
 		unread_divider_jid: None,
 		unread_divider_count: 0,
@@ -1185,6 +1195,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::RedialCall => ui_commands::calls::redial_call(state, parts),
 		UiCommand::CloseCallWindow => ui_commands::calls::close_call_window(parts),
 		UiCommand::OpenEventDialog => ui_commands::polls::open_event_dialog(state, parts),
+		UiCommand::OpenScheduleDialog => ui_commands::scheduled::open_schedule_dialog(state, parts),
+		UiCommand::ShowScheduledMessages => ui_commands::scheduled::show_scheduled_messages(state, parts),
 		UiCommand::OpenPollVote(id) => ui_commands::polls::open_poll_vote(state, parts, id),
 		UiCommand::OpenMessageOptions(id) => ui_commands::business::open_message_options(state, parts, id),
 		UiCommand::OpenOrderDetails(id) => ui_commands::business::open_order_details(state, id),

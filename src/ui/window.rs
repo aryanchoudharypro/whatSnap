@@ -455,11 +455,15 @@ pub const MENU_ID_TOGGLE_ANNOUNCE: i32 = 6052;
 pub const MENU_ID_CHAT_PRIVACY: i32 = 6041;
 pub const MENU_ID_BUSINESS_CATALOG: i32 = 6060;
 pub const MENU_ID_GO_TO_DATE: i32 = 6062;
+pub const MENU_ID_SCHEDULE_MESSAGE: i32 = 6064;
+pub const MENU_ID_SCHEDULED_MESSAGES: i32 = 6065;
 
-const CONVERSATION_MENU_IDS: [i32; 22] = [
+const CONVERSATION_MENU_IDS: [i32; 24] = [
 	MENU_ID_CHAT_INFO,
 	MENU_ID_GO_TO_DATE,
 	MENU_ID_BUSINESS_CATALOG,
+	MENU_ID_SCHEDULE_MESSAGE,
+	MENU_ID_SCHEDULED_MESSAGES,
 	MENU_ID_SEARCH_CHAT,
 	MENU_ID_PINNED_MESSAGES,
 	MENU_ID_MUTE_CHAT,
@@ -603,7 +607,7 @@ enum ConversationEntry {
 
 use ConversationEntry::{Item, Separator};
 
-const CONVERSATION_MENU: [ConversationEntry; 26] = [
+const CONVERSATION_MENU: [ConversationEntry; 29] = [
 	Item(MENU_ID_CHAT_INFO, None, "Open info for the open chat"),
 	Item(MENU_ID_FOCUS_MESSAGE_FIELD, None, "Move focus to the message box, or back to where you were"),
 	Item(MENU_ID_FOCUS_MESSAGES_LIST, None, "Move focus to the messages list"),
@@ -620,6 +624,9 @@ const CONVERSATION_MENU: [ConversationEntry; 26] = [
 		Some("Business Catalo&gue..."),
 		"Browse the products of the business you're chatting with",
 	),
+	Separator,
+	Item(MENU_ID_SCHEDULE_MESSAGE, None, "Pick a date and time for the message in the message box to be sent"),
+	Item(MENU_ID_SCHEDULED_MESSAGES, None, "See, send now or delete the open chat's scheduled messages"),
 	Separator,
 	Item(MENU_ID_MUTE_CHAT, None, "Mute the open chat"),
 	Item(MENU_ID_ARCHIVE_CHAT, None, "Archive the open chat"),
@@ -648,7 +655,14 @@ fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
 	let is_person = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
 	let is_channel = jid.ends_with("@newsletter");
 	let is_broadcast = jid.ends_with("@broadcast");
+	let is_group = jid.ends_with("@g.us");
 	match id {
+		// WA Web's isScheduledMessagesAvailableFor: people and groups, not
+		// bots, channels or broadcasts, when the server lets this account
+		// schedule.
+		MENU_ID_SCHEDULE_MESSAGE | MENU_ID_SCHEDULED_MESSAGES => {
+			(is_person || is_group) && !jid.ends_with("@bot") && s.scheduled_messages_enabled
+		}
 		MENU_ID_BUSINESS_CATALOG => is_person && s.business_jids.contains(jid),
 		MENU_ID_BLOCK_CHAT => is_person,
 		MENU_ID_PINNED_MESSAGES => !is_broadcast,
@@ -2277,6 +2291,10 @@ pub fn bind_input_handlers(
 			}
 		} else if id == MENU_ID_GO_TO_DATE {
 			let _ = tx_chat_menu.send(UiCommand::GoToDate);
+		} else if id == MENU_ID_SCHEDULE_MESSAGE {
+			let _ = tx_chat_menu.send(UiCommand::OpenScheduleDialog);
+		} else if id == MENU_ID_SCHEDULED_MESSAGES {
+			let _ = tx_chat_menu.send(UiCommand::ShowScheduledMessages);
 		} else if id == MENU_ID_REPORT_CHAT {
 			let jid = state_chat_menu.borrow().selected_chat.clone();
 			if let Some(jid) = jid {

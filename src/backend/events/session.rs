@@ -368,8 +368,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		}
 		"server_flags" => {
 			if let Some(data) = val.get("data") {
-				state.borrow_mut().channel_pinning =
-					data.get("channelPinning").and_then(|v| v.as_bool()).unwrap_or(false);
+				let mut s = state.borrow_mut();
+				s.channel_pinning = data.get("channelPinning").and_then(|v| v.as_bool()).unwrap_or(false);
+				s.scheduled_messages_enabled = data.get("scheduledMessages").and_then(|v| v.as_bool()).unwrap_or(true);
+				crate::ui::window::refresh_menu_bar(&s, &parts.frame);
 			}
 		}
 		"synced_setting" => {

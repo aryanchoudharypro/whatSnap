@@ -12,6 +12,8 @@ pub mod new_conversation;
 pub mod new_group;
 pub mod poll_dialog;
 pub mod privacy_list_picker;
+pub mod schedule_message;
+pub mod scheduled_messages;
 pub mod screen_picker;
 pub mod send_to;
 pub mod settings_dialog;
