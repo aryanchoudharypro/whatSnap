@@ -147,7 +147,7 @@ pub const ACTIONS: &[ActionDef] = &[
 		menu_id: Some(MENU_ID_SCHEDULED_MESSAGES),
 		tab: 3,
 		label: "Scheduled Messa&ges...",
-		default: "Ctrl+Shift+L",
+		default: "Ctrl+Shift+K",
 	},
 	ActionDef { id: voice::START_RECORDING, menu_id: None, tab: 4, label: "Start Recording", default: "Ctrl+Shift+R" },
 	ActionDef { id: voice::PAUSE_RECORDING, menu_id: None, tab: 4, label: "Pause Recording", default: "Alt+P" },

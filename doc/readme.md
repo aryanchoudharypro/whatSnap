@@ -262,7 +262,7 @@ The Conversation menu has more actions for the open chat. It shows only the ones
 - `Go to Date...`: asks for a date as year-month-day, like `2026-03-27`, and goes to the first message on or after that day. A date after the last message goes to the latest one.
 - `Pinned Messages...`, not in broadcast lists.
 - `Business Catalogue...`, only in a chat with a business.
-- `Schedule Message...` (`Ctrl+Shift+T`) and `Scheduled Messages...` (`Ctrl+Shift+L`), in a chat with one person or a group. See Scheduled Messages below.
+- `Schedule Message...` (`Ctrl+Shift+T`) and `Scheduled Messages...` (`Ctrl+Shift+K`), in a chat with one person or a group. See Scheduled Messages below.
 - `Mute Chat` (`Ctrl+Shift+M`)
 - `Archive Chat` (`Ctrl+Shift+E`)
 - `Pin Chat` (`Ctrl+Shift+P`)
@@ -278,7 +278,7 @@ The Conversation menu has more actions for the open chat. It shows only the ones
 Like in WhatsApp Web, you can write a message now and have WhatsApp send it later. WhatsApp's servers send it at the chosen time, even when whatSnap or your computer is off. This works in chats with one person and in groups.
 
 - `Conversation -> Schedule Message...` (`Ctrl+Shift+T`) opens the `Schedule message` dialog. The `Message` field starts with what you typed in the message box. Pick the `Date`, `Hour` and `Minute`. The time it starts on is the one WhatsApp Web suggests. The time has to be at least 10 minutes from now and at most 14 days away, unless WhatsApp sets other limits for your account. Press `Schedule message`. The message box is cleared, like after sending, and the chat shows "You scheduled a message".
-- `Conversation -> Scheduled Messages...` (`Ctrl+Shift+L`) lists the chat's scheduled messages, with when each one will be sent. Select one and use `Send now`, `Delete` (or the `Delete` key) to unschedule it, or `Copy text`. A message that failed to send says `Did not send`.
+- `Conversation -> Scheduled Messages...` (`Ctrl+Shift+K`) lists the chat's scheduled messages, with when each one will be sent. Select one and use `Send now`, `Delete` (or the `Delete` key) to unschedule it, or `Copy text`. A message that failed to send says `Did not send`.
 - A chat can have up to 30 scheduled messages waiting. In groups, people who join after you schedule a message will not get it.
 - Messages that other people schedule show up in the chat when WhatsApp sends them.
 - whatSnap schedules text messages only. If WhatsApp hasn't turned scheduling on for your account, whatSnap says so, and hides the menu items when WhatsApp says the feature is off.
@@ -513,7 +513,7 @@ You can't change these keys:
 | Next Spelling Error | Conversation | `F7` |
 | Search in Chat | Conversation | `Ctrl+Shift+F` |
 | Schedule Message... | Conversation | `Ctrl+Shift+T` |
-| Scheduled Messages... | Conversation | `Ctrl+Shift+L` |
+| Scheduled Messages... | Conversation | `Ctrl+Shift+K` |
 | Mute Chat | Conversation | `Ctrl+Shift+M` |
 | Archive Chat | Conversation | `Ctrl+Shift+E` |
 | Pin Chat | Conversation | `Ctrl+Shift+P` |
