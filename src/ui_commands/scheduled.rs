@@ -22,7 +22,7 @@ fn announce(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message: &st
 	}
 }
 
-fn schedulable(s: &AppState, jid: &str) -> bool {
+pub(crate) fn schedulable(s: &AppState, jid: &str) -> bool {
 	let person_or_group = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid") || jid.ends_with("@g.us");
 	person_or_group && s.scheduled_messages_enabled
 }

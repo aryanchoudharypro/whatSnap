@@ -1146,6 +1146,36 @@ pub fn bind_input_handlers(
 		}
 	});
 
+	// Context menu key / Shift+F10 on the Send button offers "Schedule
+	// message...", where WA Web puts its schedule button.
+	{
+		let send_btn_ctx = parts.conversations_parts.send_message_btn;
+		let tx_sched = ui_tx.clone();
+		let state_sched = state.clone();
+		send_btn_ctx.bind_internal(EventType::CONTEXT_MENU, move |_event| {
+			let offer = {
+				let s = state_sched.borrow();
+				s.editing_message_id.is_none()
+					&& s.selected_chat.as_deref().is_some_and(|jid| crate::ui_commands::scheduled::schedulable(&s, jid))
+			};
+			if !offer {
+				return;
+			}
+			let schedule_id = 4110;
+			let mut menu = Menu::builder()
+				.append_item(schedule_id, "&Schedule message...", "Pick a date and time for this message to be sent")
+				.build();
+			let tx_pick = tx_sched.clone();
+			menu.on_selected(move |evt| {
+				if evt.get_id() == schedule_id {
+					let _ = tx_pick.send(UiCommand::OpenScheduleDialog);
+				}
+			});
+			send_btn_ctx.popup_menu(&mut menu, None);
+			menu.destroy_menu();
+		});
+	}
+
 	{
 		let field = parts.conversations_parts.message_field;
 		{
