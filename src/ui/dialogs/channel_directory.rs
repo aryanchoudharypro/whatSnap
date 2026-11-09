@@ -202,7 +202,7 @@ impl ChannelDirectory {
 
 	fn selection_changed(&self) {
 		let following = self.selected().is_some_and(|e| e.following);
-		self.follow_btn.set_label(if following { "Unfollow" } else { "Follow" });
+		self.follow_btn.set_label(if following { "&Unfollow" } else { "&Follow" });
 	}
 }
 
@@ -221,7 +221,7 @@ pub fn show_channel_directory(
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label("Search channels, then press Enter").build();
+	let search_label = StaticText::builder(&panel).with_label("&Search channels, then press Enter").build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let search_field =
@@ -229,12 +229,12 @@ pub fn show_channel_directory(
 	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
 	let filters = BoxSizer::builder(Orientation::Horizontal).build();
-	let country_label = StaticText::builder(&panel).with_label("Country:").build();
+	let country_label = StaticText::builder(&panel).with_label("C&ountry:").build();
 	let country_names: Vec<&str> = COUNTRIES.iter().map(|(_, name)| *name).collect();
 	let country_combo =
 		ComboBox::builder(&panel).with_string_choices(&country_names).with_style(ComboBoxStyle::ReadOnly).build();
 	country_combo.set_font(&theme::Fonts::body());
-	let category_label = StaticText::builder(&panel).with_label("Category:").build();
+	let category_label = StaticText::builder(&panel).with_label("Cate&gory:").build();
 	let mut category_names = vec!["All (recommended)"];
 	category_names.extend(CATEGORIES.iter().map(|(_, name)| *name));
 	let category_combo =
@@ -247,7 +247,7 @@ pub fn show_channel_directory(
 	filters.add(&category_combo, 1, SizerFlag::empty(), 0);
 	sizer.add_sizer(&filters, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let list_label = StaticText::builder(&panel).with_label("Channels").build();
+	let list_label = StaticText::builder(&panel).with_label("Cha&nnels").build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let list = ListBox::builder(&panel).build();
@@ -260,10 +260,10 @@ pub fn show_channel_directory(
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let view_btn = Button::builder(&panel).with_label("View channel...").build();
-	let follow_btn = Button::builder(&panel).with_label("Follow").build();
-	let more_btn = Button::builder(&panel).with_label("More channels").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let view_btn = Button::builder(&panel).with_label("&View channel...").build();
+	let follow_btn = Button::builder(&panel).with_label("&Follow").build();
+	let more_btn = Button::builder(&panel).with_label("&More channels").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("&Close").build();
 	for (i, button) in [&view_btn, &follow_btn, &more_btn].into_iter().enumerate() {
 		dialog_look::pill_button(button, i == 1, theme::Palette::CONTENT_BG());
 		buttons.add(button, 0, SizerFlag::Right, 6);
@@ -377,6 +377,7 @@ pub fn show_channel_directory(
 	});
 	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));
 
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 	let escape_closes = crate::ui::keys::escape_cancels(dialog);
 	search_field.on_key_down(escape_closes);
 	list.on_key_down(escape_closes);

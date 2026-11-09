@@ -21,6 +21,7 @@ pub fn ask_channel_details(
 		.with_size(480, if creating { 460 } else { 400 })
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
@@ -37,14 +38,14 @@ pub fn ask_channel_details(
 		sizer.add(&intro, 0, SizerFlag::All, 10);
 	}
 
-	let name_label = StaticText::builder(&panel).with_label("Channel name").build();
+	let name_label = StaticText::builder(&panel).with_label("&Channel name").build();
 	theme::style_muted_label(&name_label);
 	sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let name_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
 	name_field.set_value(name);
 	dialog_look::add_field(&sizer, &name_field, Field::Line, 0);
 
-	let description_label = StaticText::builder(&panel).with_label("Description (optional)").build();
+	let description_label = StaticText::builder(&panel).with_label("&Description (optional)").build();
 	theme::style_muted_label(&description_label);
 	sizer.add(&description_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let description_field =
@@ -53,7 +54,7 @@ pub fn ask_channel_details(
 	dialog_look::add_field(&sizer, &description_field, Field::Box, 1);
 
 	let picture = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
-	let picture_btn = Button::builder(&panel).with_label("Choose picture (optional)...").build();
+	let picture_btn = Button::builder(&panel).with_label("Choose &picture (optional)...").build();
 	dialog_look::pill_button(&picture_btn, false, theme::Palette::CONTENT_BG());
 	sizer.add(&picture_btn, 0, SizerFlag::Left | SizerFlag::Top, 12);
 	picture_btn.show(creating);
@@ -64,9 +65,9 @@ pub fn ask_channel_details(
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let ok_btn =
-		Button::builder(&panel).with_id(ID_OK).with_label(if creating { "Create channel" } else { "Save" }).build();
+		Button::builder(&panel).with_id(ID_OK).with_label(if creating { "&Create channel" } else { "&Save" }).build();
 	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("&Cancel").build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&ok_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
@@ -159,6 +160,7 @@ pub fn show_channel_followers(
 		.with_size(460, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
@@ -191,10 +193,10 @@ pub fn show_channel_followers(
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let invite_btn = Button::builder(&panel).with_label("Make admin...").build();
-	let remove_btn = Button::builder(&panel).with_label("Remove as admin").build();
-	let owner_btn = Button::builder(&panel).with_label("Make owner...").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let invite_btn = Button::builder(&panel).with_label("Make &admin...").build();
+	let remove_btn = Button::builder(&panel).with_label("&Remove as admin").build();
+	let owner_btn = Button::builder(&panel).with_label("Make &owner...").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("&Close").build();
 	for button in [&invite_btn, &remove_btn, &owner_btn, &close_btn] {
 		dialog_look::pill_button(button, false, theme::Palette::CONTENT_BG());
 	}
@@ -305,6 +307,7 @@ pub fn show_channel_people(parent: &dyn WxWidget, title: &str, summary: &str, gr
 		.with_size(420, 460)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
@@ -320,7 +323,7 @@ pub fn show_channel_people(parent: &dyn WxWidget, title: &str, summary: &str, gr
 		list.set_selection(0, true);
 	}
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::All, 10);
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("&Close").build();
 	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 12);
 	panel.set_sizer(sizer, true);
@@ -343,6 +346,7 @@ pub fn show_pending_admin_invites(
 		.with_size(420, 420)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
@@ -364,8 +368,8 @@ pub fn show_pending_admin_invites(
 	}
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let cancel_invite_btn = Button::builder(&panel).with_label("Cancel invite...").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let cancel_invite_btn = Button::builder(&panel).with_label("&Cancel invite...").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("&Close").build();
 	dialog_look::pill_button(&cancel_invite_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	buttons.add(&cancel_invite_btn, 0, SizerFlag::Right, 6);

@@ -131,6 +131,8 @@ struct AppState {
 	announcement_jids: std::collections::HashSet<String>,
 	channel_jids: std::collections::HashSet<String>,
 	channel_roles: std::collections::HashMap<String, String>,
+	channel_links: std::collections::HashMap<String, String>,
+	copy_channel_link_target: Option<String>,
 	channel_pinning: bool,
 	channel_directory: Option<Rc<crate::ui::dialogs::channel_directory::ChannelDirectory>>,
 	emoji_panel: Option<Rc<crate::ui::emoji_panel::EmojiPanel>>,
@@ -853,6 +855,8 @@ pub(crate) fn new_app_state(
 		announcement_jids: std::collections::HashSet::new(),
 		channel_jids: std::collections::HashSet::new(),
 		channel_roles: std::collections::HashMap::new(),
+		channel_links: std::collections::HashMap::new(),
+		copy_channel_link_target: None,
 		channel_pinning: false,
 		channel_directory: None,
 		emoji_panel: None,
@@ -1247,6 +1251,35 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 			ui_commands::links::show_channel_directory(state, parts, Some((jid, name)))
 		}
 		UiCommand::CreateChannel => ui_commands::channel_admin::create_channel(state, parts),
+		UiCommand::GetChannelInfo(jid) => {
+			let payload = serde_json::json!({ "action": "get_channel_info", "data": { "jid": jid } });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::UnfollowChannel(jid) => {
+			if state.borrow().selected_chat.as_deref() == Some(&jid) {
+				ui_commands::chat_list::close_conversation(state, parts);
+			}
+			let payload = serde_json::json!({ "action": "unfollow_channel", "data": { "jid": jid } });
+			let _ = state.borrow().ws_tx.send(payload.to_string());
+		}
+		UiCommand::CopyChannelLink(jid) => {
+			let link = state.borrow().channel_links.get(&jid).cloned();
+			if let Some(link) = link.filter(|l| !l.is_empty()) {
+				let copied = crate::copy_text(&link);
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					if copied { "Channel link copied to clipboard." } else { "Couldn't copy channel link." },
+				);
+			} else {
+				state.borrow_mut().copy_channel_link_target = Some(jid.clone());
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					"Fetching channel link...",
+				);
+				let payload = serde_json::json!({ "action": "get_channel_info", "data": { "jid": jid } });
+				let _ = state.borrow().ws_tx.send(payload.to_string());
+			}
+		}
 		UiCommand::JoinGroupLink(code) => {
 			let payload = serde_json::json!({ "action": "join_group_link", "data": { "code": code } });
 			let _ = state.borrow().ws_tx.send(payload.to_string());

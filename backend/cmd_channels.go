@@ -37,15 +37,18 @@ func (acc *Account) syncFollowedChannels() {
 		if ch == nil {
 			continue
 		}
-		jid := ch.ID.String()
-		followed = append(followed, jid)
-		name := ch.ThreadMeta.Name.Text
 		role := ""
 		muted := false
 		if ch.ViewerMeta != nil {
-			role = string(ch.ViewerMeta.Role)
+			role = strings.ToLower(string(ch.ViewerMeta.Role))
 			muted = ch.ViewerMeta.IsMuted()
 		}
+		if role != "subscriber" && role != "admin" && role != "owner" {
+			continue
+		}
+		jid := ch.ID.String()
+		followed = append(followed, jid)
+		name := ch.ThreadMeta.Name.Text
 		writes = append(writes, func(tx sqlExecer) {
 			tx.Exec(`INSERT INTO chats (jid, name, timestamp, is_channel, channel_role, muted) VALUES (?, ?, 0, 1, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
@@ -66,7 +69,7 @@ func (acc *Account) markChannelsFollowed(followed []string) {
 	for _, jid := range followed {
 		keep[jid] = true
 	}
-	rows, err := acc.db.Query(`SELECT jid FROM chats WHERE COALESCE(is_channel, 0) = 1`)
+	rows, err := acc.db.Query(`SELECT jid FROM chats WHERE COALESCE(is_channel, 0) = 1 OR jid LIKE '%@newsletter'`)
 	if err != nil {
 		return
 	}
@@ -560,6 +563,10 @@ func (acc *Account) handleFollowChannel(raw json.RawMessage, follow bool) {
 			}
 			acc.broadcastEvent("error", map[string]string{"message": fmt.Sprintf("Couldn't %s this channel: %v", verb, err)})
 			return
+		}
+		if !follow {
+			acc.purgeMessages("jid = ?", data.JID)
+			acc.db.Exec(`DELETE FROM chats WHERE jid = ?`, data.JID)
 		}
 		acc.syncFollowedChannels()
 		acc.broadcastEvent("channel_follow_changed", map[string]interface{}{"jid": data.JID, "following": follow})

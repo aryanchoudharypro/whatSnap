@@ -491,6 +491,9 @@ func (acc *Account) handleSendTyping(raw json.RawMessage) {
 	if err != nil {
 		return
 	}
+	if jid.Server == types.NewsletterServer {
+		return
+	}
 	pState := types.ChatPresenceComposing
 	if data.State == "paused" {
 		pState = types.ChatPresencePaused

@@ -369,10 +369,14 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		Some(directory) => &directory.dialog,
 		None => &parts.frame,
 	};
+	if !link.is_empty() {
+		state.borrow_mut().channel_links.insert(jid.clone(), link.clone());
+	}
 	let dialog = Dialog::builder(parent, "Channel info")
-		.with_size(480, 380)
+		.with_size(520, 440)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
+	crate::ui::keys::escape_cancels_anywhere(dialog);
 	crate::ui::theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	crate::ui::theme::style_content(&panel);
@@ -385,20 +389,30 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	details_field.set_value(&details.join("\n"));
 	sizer.add(&details_field, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
-	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let follow_btn = Button::builder(&panel).with_label(if following { "Unfollow" } else { "Follow" }).build();
-	let mute_btn = Button::builder(&panel).with_label(if muted { "Unmute" } else { "Mute" }).build();
-	let open_btn = Button::builder(&panel).with_label("Open channel").build();
-	let copy_btn = Button::builder(&panel).with_label("Copy link").build();
-	let similar_btn = Button::builder(&panel).with_label("Similar channels...").build();
-	let manage_btn = Button::builder(&panel).with_label("Manage channel...").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
-	for button in [&manage_btn, &follow_btn, &mute_btn, &open_btn, &copy_btn, &similar_btn] {
-		buttons.add(button, 0, SizerFlag::Right, 8);
+	let row1 = BoxSizer::builder(Orientation::Horizontal).build();
+	let follow_btn = Button::builder(&panel).with_label(if following { "&Unfollow" } else { "&Follow" }).build();
+	let mute_btn = Button::builder(&panel).with_label(if muted { "&Unmute" } else { "&Mute" }).build();
+	let copy_btn = Button::builder(&panel).with_label("Copy &link").build();
+	let open_btn = Button::builder(&panel).with_label("&Open channel").build();
+	for btn in [&follow_btn, &mute_btn, &copy_btn, &open_btn] {
+		crate::ui::dialog_look::pill_button(btn, false, crate::ui::theme::Palette::CONTENT_BG());
+		row1.add(btn, 0, SizerFlag::Right, 8);
 	}
-	buttons.add_stretch_spacer(1);
-	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
-	sizer.add_sizer(&buttons, 0, SizerFlag::Expand | SizerFlag::All, 10);
+	sizer.add_sizer(&row1, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
+
+	let row2 = BoxSizer::builder(Orientation::Horizontal).build();
+	let manage_btn = Button::builder(&panel).with_label("&Manage channel...").build();
+	let similar_btn = Button::builder(&panel).with_label("&Similar channels...").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("&Close").build();
+	for btn in [&manage_btn, &similar_btn] {
+		crate::ui::dialog_look::pill_button(btn, false, crate::ui::theme::Palette::CONTENT_BG());
+		row2.add(btn, 0, SizerFlag::Right, 8);
+	}
+	row2.add_stretch_spacer(1);
+	crate::ui::dialog_look::pill_button(&close_btn, false, crate::ui::theme::Palette::CONTENT_BG());
+	row2.add(&close_btn, 0, SizerFlag::empty(), 0);
+	sizer.add_sizer(&row2, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
+
 	mute_btn.show(following);
 	follow_btn.show(!is_owner);
 	manage_btn.show(can_manage);

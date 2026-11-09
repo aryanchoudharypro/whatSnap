@@ -120,8 +120,8 @@ pub(crate) fn chat_visible_in_tab(
 		return false;
 	}
 	match tab {
-		0 => !archived.contains(jid) && !communities.contains(jid) && !channels.contains(jid),
-		3 => archived.contains(jid),
+		0 => !jid.ends_with("@newsletter") && !archived.contains(jid) && !communities.contains(jid) && !channels.contains(jid),
+		3 => !jid.ends_with("@newsletter") && archived.contains(jid),
 		4 => communities.contains(jid) || parents.get(jid).is_some_and(|p| communities.contains(p)),
 		5 => channels.contains(jid),
 		_ => true,
@@ -373,6 +373,15 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
 				labels.push(s.display_names.get(jid).unwrap_or(name).clone());
 				filtered.push(jid.clone());
+			}
+		}
+		if s.active_tab == 5 && filtered.is_empty() {
+			if lower_query.is_empty() {
+				labels.push("No channels followed yet. Click or press Enter to find channels".to_string());
+				filtered.push("find_channels_placeholder".to_string());
+			} else {
+				labels.push("No channels match your search".to_string());
+				filtered.push("empty_channels_search_placeholder".to_string());
 			}
 		}
 	}

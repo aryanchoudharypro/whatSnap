@@ -442,6 +442,8 @@ pub const MENU_ID_BLOCK_CHAT: i32 = 6038;
 pub const MENU_ID_BLOCKED_CONTACTS: i32 = 6039;
 pub const MENU_ID_PINNED_MESSAGES: i32 = 6040;
 pub const MENU_ID_NEW_COMMUNITY: i32 = 6042;
+pub const MENU_ID_FIND_CHANNELS: i32 = 6064;
+pub const MENU_ID_CREATE_CHANNEL: i32 = 6065;
 pub const MENU_ID_MANAGE_LISTS: i32 = 6043;
 pub const MENU_ID_CREATE_CALL_LINK: i32 = 6044;
 pub const MENU_ID_JOIN_CALL_LINK: i32 = 6045;
@@ -649,6 +651,7 @@ fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
 		MENU_ID_BLOCK_CHAT => is_person,
 		MENU_ID_PINNED_MESSAGES => !is_broadcast,
 		MENU_ID_DISAPPEARING => !is_channel,
+		MENU_ID_PIN_CHAT | MENU_ID_ARCHIVE_CHAT | MENU_ID_LOCK_CHAT => !is_channel,
 		MENU_ID_REPORT_CHAT | MENU_ID_CHAT_PRIVACY => !is_channel && !is_broadcast,
 		_ => true,
 	}
@@ -792,6 +795,8 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), "Start a new chat")
 		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), "Start a new group")
 		.append_item(MENU_ID_NEW_COMMUNITY, "New C&ommunity...", "Start a community to bring groups together")
+		.append_item(MENU_ID_FIND_CHANNELS, "Find &Channels...", "Search and follow WhatsApp channels")
+		.append_item(MENU_ID_CREATE_CHANNEL, "Create C&hannel...", "Create a new WhatsApp channel")
 		.append_separator()
 		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), "Search chats")
 		.append_item(MENU_ID_MANAGE_LISTS, "Manage &Lists...", "Make, rename or delete your chat lists")
@@ -2107,6 +2112,10 @@ pub fn bind_input_handlers(
 			let _ = tx_chat_menu.send(UiCommand::PrepareNewGroup);
 		} else if id == MENU_ID_NEW_COMMUNITY {
 			let _ = tx_chat_menu.send(UiCommand::NewCommunity);
+		} else if id == MENU_ID_FIND_CHANNELS {
+			let _ = tx_chat_menu.send(UiCommand::FindChannels);
+		} else if id == MENU_ID_CREATE_CHANNEL {
+			let _ = tx_chat_menu.send(UiCommand::CreateChannel);
 		} else if id == MENU_ID_MANAGE_LISTS {
 			let _ = tx_chat_menu.send(UiCommand::ManageChatLists);
 		} else if id == MENU_ID_SEARCH_GLOBAL {
@@ -3663,6 +3672,98 @@ pub fn bind_input_handlers(
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
 			if let Some(jid) = jid_opt {
+				if jid == "find_channels_placeholder" {
+					drop(s);
+					let mut menu_builder = Menu::builder();
+					menu_builder = menu_builder.append_item(4050, "&Find channels...", "Browse and search the channels directory");
+					let mut popup = menu_builder.build();
+					let ui_tx = ui_tx_chat_ctx.clone();
+					popup.on_selected(move |evt| {
+						if evt.get_id() == 4050 {
+							let _ = ui_tx.send(UiCommand::FindChannels);
+						}
+					});
+					convs_list_ctx.popup_menu(&mut popup, None);
+					popup.destroy_menu();
+					return;
+				}
+				if jid == "empty_channels_search_placeholder" {
+					return;
+				}
+				if jid.ends_with("@newsletter") {
+					let info_id = 4051;
+					let mute_id = 4052;
+					let read_id = 4054;
+					let copy_link_id = 4055;
+					let manage_id = 4056;
+					let unfollow_id = 4057;
+
+					let is_muted = s.muted_jids.contains(&jid);
+					let unread_count = s.unread_counts.get(&jid).copied().unwrap_or(0);
+					let is_unread = unread_count > 0;
+					let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+					let role = s.channel_roles.get(&jid).map(String::as_str).unwrap_or("");
+					let is_owner = role.eq_ignore_ascii_case("owner");
+					let can_manage = is_owner || role.eq_ignore_ascii_case("admin");
+					drop(s);
+
+					let mut menu_builder = Menu::builder();
+					menu_builder = menu_builder
+						.append_item(info_id, "&Channel info", "View channel details, followers, and description");
+
+					let mute_label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
+					menu_builder = menu_builder.append_item(mute_id, mute_label, "Turn channel notifications on or off");
+
+					let read_label = if is_unread { "Mark as &read" } else { "Mark as &unread" };
+					menu_builder = menu_builder.append_item(read_id, read_label, "Mark channel updates as read or unread");
+					menu_builder = menu_builder.append_item(copy_link_id, "Copy channel &link", "Copy the channel's public link to clipboard");
+
+					if can_manage {
+						menu_builder = menu_builder.append_item(manage_id, "&Manage channel...", "Edit details, view followers, or invite admins");
+					}
+
+					if !is_owner {
+						menu_builder = menu_builder.append_item(unfollow_id, "&Unfollow channel...", "Stop following this channel");
+					}
+
+					let mut popup_menu = menu_builder.build();
+					let ui_tx_clone = ui_tx_chat_ctx.clone();
+					let jid_clone = jid.clone();
+					let parent_clone = parent_frame_chat_ctx;
+
+					popup_menu.on_selected(move |menu_evt| {
+						let id = menu_evt.get_id();
+						if id == info_id || id == manage_id {
+							let _ = ui_tx_clone.send(UiCommand::GetChannelInfo(jid_clone.clone()));
+						} else if id == mute_id {
+							let _ = ui_tx_clone.send(UiCommand::ToggleMuteChat {
+								jid: jid_clone.clone(),
+								mute: !is_muted,
+								seconds: 0,
+							});
+						} else if id == read_id {
+							let _ = ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: is_unread });
+						} else if id == copy_link_id {
+							let _ = ui_tx_clone.send(UiCommand::CopyChannelLink(jid_clone.clone()));
+						} else if id == unfollow_id {
+							let dialog = MessageDialog::builder(
+								&parent_clone,
+								&format!("Unfollow {}? Its posts will no longer appear in whatSnap.", chat_name),
+								"Unfollow channel",
+							)
+							.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+							.build();
+							if dialog.show_modal() == wxdragon::id::ID_YES {
+								let _ = ui_tx_clone.send(UiCommand::UnfollowChannel(jid_clone.clone()));
+							}
+						}
+					});
+
+					convs_list_ctx.popup_menu(&mut popup_menu, None);
+					popup_menu.destroy_menu();
+					return;
+				}
+
 				let is_pinned = s.pinned_jids.contains(&jid);
 				let is_archived = s.archived_jids.contains(&jid);
 				let is_locked = s.locked_jids.contains(&jid);

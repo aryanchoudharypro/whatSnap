@@ -238,6 +238,9 @@ pub enum UiCommand {
 		name: String,
 	},
 	CreateChannel,
+	GetChannelInfo(String),
+	UnfollowChannel(String),
+	CopyChannelLink(String),
 	JoinGroupLink(String),
 	MarkRead {
 		jid: String,

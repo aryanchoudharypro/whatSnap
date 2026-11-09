@@ -432,6 +432,29 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		}
 		"channel_info" => {
 			if let Some(data) = val.get("data") {
+				let jid = data.get("jid").and_then(|v| v.as_str()).unwrap_or("");
+				let link = data.get("link").and_then(|v| v.as_str()).unwrap_or("");
+				if !jid.is_empty() && !link.is_empty() {
+					state.borrow_mut().channel_links.insert(jid.to_string(), link.to_string());
+				}
+				let copy_target = state.borrow_mut().copy_channel_link_target.take();
+				if let Some(target) = copy_target {
+					if target == jid {
+						if !link.is_empty() {
+							let copied = crate::copy_text(link);
+							crate::platform::announce::announce(
+								parts.conversations_parts.messages_announcer,
+								if copied { "Channel link copied to clipboard." } else { "Couldn't copy channel link." },
+							);
+						} else {
+							crate::platform::announce::announce(
+								parts.conversations_parts.messages_announcer,
+								"This channel does not have a public link.",
+							);
+						}
+						return true;
+					}
+				}
 				crate::ui_commands::links::show_channel_info(state, parts, data);
 			}
 		}

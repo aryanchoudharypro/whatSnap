@@ -28,6 +28,8 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		"Search or enter phone number to place call"
 	} else if idx == 1 {
 		"Search status updates"
+	} else if idx == 5 {
+		"Search followed channels"
 	} else {
 		"Search chats"
 	});
@@ -81,10 +83,15 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		5 => {
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 5;
-			parts.conversations_parts.new_conv_btn.set_label("Find channels...");
-			parts.conversations_parts.post_media_status_btn.set_label("Create channel...");
+			parts.conversations_parts.new_conv_btn.set_label("&Find channels...");
+			parts.conversations_parts.post_media_status_btn.set_label("&Create channel...");
 			parts.conversations_parts.post_media_status_btn.show(true);
 			parts.conversations_parts.conversations_label.set_label("Channels");
+			if let Some(ref jid) = state.borrow().selected_chat {
+				if !jid.ends_with("@newsletter") {
+					parts.conversations_parts.conversation_panel.show(false);
+				}
+			}
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		6 => {
@@ -124,6 +131,17 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			}
 		}
 		return;
+	}
+	if state.borrow().active_tab == 5 {
+		if let Some(jid) = state.borrow().filtered_chats.get(idx).cloned() {
+			if jid == "find_channels_placeholder" {
+				crate::ui_commands::links::show_channel_directory(state, parts, None);
+				return;
+			}
+			if jid == "empty_channels_search_placeholder" {
+				return;
+			}
+		}
 	}
 	if state.borrow().active_tab == 6 {
 		let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();

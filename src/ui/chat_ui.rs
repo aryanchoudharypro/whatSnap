@@ -298,7 +298,8 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 			cp.send_message_btn.show(has_text);
 			changed = true;
 		}
-		let show_voice = !has_text;
+		let is_channel = jid.ends_with("@newsletter");
+		let show_voice = !has_text && !is_channel;
 		if cp.record_voice_btn.is_shown() != show_voice {
 			cp.record_voice_btn.show(show_voice);
 			changed = true;
@@ -306,10 +307,11 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 		// The box is named "Replying to Name" only: the quoted text was
 		// already announced, and a long message or link as the field's name
 		// is read out every time it gets focus.
+		let default_label = if is_channel { "Type an update" } else { "Type a message" };
 		let target_label = if let Some(ref preview) = s.pending_reply_preview {
 			preview.split_once(": ").map_or(preview.as_str(), |(who, _)| who)
 		} else {
-			group_send_block_reason(s, jid).unwrap_or("Type a message")
+			group_send_block_reason(s, jid).unwrap_or(default_label)
 		};
 		if cp.message_label.get_label() != target_label {
 			cp.message_label.set_label(target_label);
@@ -355,6 +357,13 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 	};
 	let name =
 		s.contacts.get(jid).or_else(|| s.contacts.get(&norm_jid)).cloned().unwrap_or_else(|| display_name_for_jid(jid));
+	if jid.ends_with("@newsletter") {
+		return match s.channel_roles.get(jid).map(String::as_str) {
+			Some("owner") => format!("{} (Channel, You're the owner)", name),
+			Some("admin") => format!("{} (Channel, You're an admin)", name),
+			_ => format!("{} (Public channel)", name),
+		};
+	}
 	let presence_label = s.presence_labels.get(jid).or_else(|| s.presence_labels.get(&norm_jid)).map(|s| s.as_str());
 	let is_typing_active = s
 		.typing_timestamps
@@ -489,8 +498,11 @@ pub(crate) fn group_send_block_reason(s: &AppState, jid: &str) -> Option<&'stati
 /// enables it again everywhere else.
 pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str) {
 	let is_blocked = crate::ui_commands::blocking::is_blocked(s, jid);
+	let is_channel_readonly = jid.ends_with("@newsletter") && !crate::ui_commands::links::can_post_in_channel(s, jid);
 	let reason = if is_blocked {
 		Some("You blocked this contact. Click to unblock.")
+	} else if is_channel_readonly {
+		Some("Channels are read-only. Only admins can post updates.")
 	} else {
 		group_send_block_reason(s, jid)
 	};
@@ -500,7 +512,7 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	cp.send_message_btn.enable(enabled);
 	cp.add_attachment_btn.enable(enabled);
 	cp.emoji_btn.enable(enabled);
-	cp.record_voice_btn.enable(enabled);
+	cp.record_voice_btn.enable(enabled && !jid.ends_with("@newsletter"));
 	if is_blocked {
 		cp.blocked_banner_btn.show(true);
 		cp.message_field.show(false);
@@ -512,7 +524,8 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	} else {
 		cp.blocked_banner_btn.show(false);
 		if s.editing_message_id.is_none() && s.pending_reply_preview.is_none() {
-			let label = reason.unwrap_or("Type a message");
+			let default_label = if jid.ends_with("@newsletter") { "Type an update" } else { "Type a message" };
+			let label = reason.unwrap_or(default_label);
 			if cp.message_label.get_label() != label {
 				cp.message_label.set_label(label);
 			}

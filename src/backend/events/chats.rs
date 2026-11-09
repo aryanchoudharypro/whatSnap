@@ -144,10 +144,18 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 				community_jids.insert(jid.to_string());
 			}
 			if chat.is_channel {
-				tags.push("Channel".into());
-				channel_jids.insert(jid.to_string());
 				let role = &*chat.channel_role;
-				channel_roles.insert(jid.to_string(), role.to_string());
+				let is_following = matches!(role.to_ascii_lowercase().as_str(), "subscriber" | "admin" | "owner");
+				if is_following {
+					tags.push("Channel".into());
+					channel_jids.insert(jid.to_string());
+					channel_roles.insert(jid.to_string(), role.to_string());
+					if role.eq_ignore_ascii_case("owner") {
+						tags.push("Owner".into());
+					} else if role.eq_ignore_ascii_case("admin") {
+						tags.push("Admin".into());
+					}
+				}
 			}
 			let parent = &*chat.parent_jid;
 			if !parent.is_empty() {
