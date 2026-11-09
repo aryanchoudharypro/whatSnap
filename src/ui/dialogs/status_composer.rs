@@ -19,12 +19,14 @@ pub const STATUS_PALETTE: [(&str, u32); 9] = [
 	("Charcoal Slate", 0xFF40_4B52),
 ];
 
-pub const STATUS_FONTS: [(&str, i32, &str); 5] = [
+pub const STATUS_FONTS: [(&str, i32, &str); 7] = [
 	("Sans-Serif (Default)", 0, "Segoe UI"),
-	("Classic Serif", 1, "Georgia"),
-	("Script (Cursive)", 2, "Segoe Script"),
-	("Casual (Comic)", 3, "Comic Sans MS"),
-	("Bold Headline", 4, "Impact"),
+	("Script", 2, "Segoe Script"),
+	("Bold", 6, "Segoe UI Black"),
+	("Casual", 7, "Comic Sans MS"),
+	("Classic Serif Bold", 8, "Georgia"),
+	("Bold Headline", 9, "Impact"),
+	("Typewriter", 10, "Courier New"),
 ];
 
 const POPULAR_EMOJIS: &[(&str, &str)] = &[

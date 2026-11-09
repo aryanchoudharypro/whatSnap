@@ -779,10 +779,12 @@ impl Viewer {
 				self.content.set_foreground_color(argb(text_color));
 			}
 			let face = match entry.font {
-				1 => "Georgia",
 				2 => "Segoe Script",
-				3 => "Comic Sans MS",
-				4 => "Impact",
+				6 => "Segoe UI Black",
+				7 => "Comic Sans MS",
+				8 => "Georgia",
+				9 => "Impact",
+				10 => "Courier New",
 				_ => "Segoe UI",
 			};
 			let font =
