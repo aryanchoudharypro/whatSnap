@@ -559,11 +559,25 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		}
 	} else if s.active_tab == 2 {
 		for entry in &s.starred_entries {
-			if lower_query.is_empty() || entry.label.to_lowercase().contains(&lower_query) {
+			if lower_query.is_empty()
+				|| entry.chat_name.to_lowercase().contains(&lower_query)
+				|| entry.sender_name.to_lowercase().contains(&lower_query)
+				|| entry.text.to_lowercase().contains(&lower_query)
+			{
 				labels.push(entry.label.clone());
 				filtered.push(entry.jid.clone());
 				filtered_starred_ids.push(entry.message_id.clone());
 			}
+		}
+		if filtered_starred_ids.is_empty() {
+			let empty_msg = if lower_query.is_empty() {
+				"No starred messages".to_string()
+			} else {
+				"No results found".to_string()
+			};
+			labels.push(empty_msg);
+			filtered.push(String::new());
+			filtered_starred_ids.push(String::new());
 		}
 	} else if s.active_tab == 6 {
 		let matches_target = |t: &CallTarget| {

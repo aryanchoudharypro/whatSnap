@@ -30,10 +30,12 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		"Search status updates"
 	} else if idx == 0 {
 		"Search or start a new chat"
+	} else if idx == 2 {
+		"Search starred messages"
 	} else {
 		"Search chats"
 	});
-	parts.conversations_parts.new_conv_btn.show(idx != 6);
+	parts.conversations_parts.new_conv_btn.show(idx != 6 && idx != 2);
 	match idx {
 		0 => {
 			parts.conversations_parts.panel.show(true);
@@ -63,9 +65,11 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		2 => {
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 2;
-			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.status_privacy_btn.show(false);
+			parts.conversations_parts.locked_chats_btn.show(false);
+			parts.conversations_parts.chat_filter_label.show(false);
+			parts.conversations_parts.chat_filter_combo.show(false);
 			parts.conversations_parts.conversations_label.set_label("Starred Messages");
 			let payload = serde_json::json!({ "action": "get_starred_messages" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());

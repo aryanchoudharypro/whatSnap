@@ -98,7 +98,19 @@ pub(crate) fn message_hit(s: &AppState, item: &serde_json::Value) -> Option<crat
 	} else if !quoted_text.is_empty() {
 		whatsnap::friendly_preview_text(quoted_text)
 	} else if !media_type.is_empty() {
-		"Media".to_string()
+		match media_type {
+			"image" => "Photo",
+			"video" => "Video",
+			"ptt" => "Voice message",
+			"audio" => "Audio",
+			"document" => "Document",
+			"sticker" => "Sticker",
+			"contact" => "Contact",
+			"location" | "live_location" => "Location",
+			"poll" | "quiz" => "Poll",
+			_ => "Media",
+		}
+		.to_string()
 	} else {
 		"Message".to_string()
 	};

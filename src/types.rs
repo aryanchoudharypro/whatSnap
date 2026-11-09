@@ -133,6 +133,8 @@ pub enum UiCommand {
 	},
 	ShowStatusMenu(usize),
 	ShowStarredMenu(usize),
+	UnstarStarredMessage(usize),
+	CopyStarredMessage(usize),
 	ShowCallsMenu(usize),
 	DeleteCall(usize),
 	SetChatFilter(usize),
@@ -465,12 +467,17 @@ impl NotificationSound {
 	}
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct StarredEntry {
 	pub(crate) jid: String,
 	pub(crate) message_id: String,
 	pub(crate) sender_jid: String,
 	pub(crate) from_me: bool,
+	pub(crate) chat_name: String,
+	pub(crate) sender_name: String,
+	pub(crate) text: String,
+	pub(crate) media_type: String,
+	pub(crate) timestamp: i64,
 	pub(crate) label: String,
 }
 

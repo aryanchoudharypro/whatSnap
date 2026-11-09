@@ -1028,7 +1028,21 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					} else {
 						format!("{} ({}): {}, {}", hit.chat_name, hit.sender, hit.body, hit.date)
 					};
-					entries.push(StarredEntry { jid: hit.jid, message_id: hit.message_id, sender_jid, from_me, label });
+					let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
+					let media_type = item.get("mediaType").and_then(|t| t.as_str()).unwrap_or("");
+					let timestamp = item.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
+					entries.push(StarredEntry {
+						jid: hit.jid,
+						message_id: hit.message_id,
+						sender_jid,
+						from_me,
+						chat_name: hit.chat_name,
+						sender_name: hit.sender,
+						text: if text.is_empty() { hit.body } else { text.to_string() },
+						media_type: media_type.to_string(),
+						timestamp,
+						label,
+					});
 				}
 				s.starred_entries = entries;
 				if s.active_tab == 2 {
@@ -1479,6 +1493,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					false
 				};
 				let quiet = s.bulk_quiet_pending.remove(target_id);
+
+				if !starred {
+					s.starred_entries.retain(|e| e.message_id != target_id);
+				}
 
 				if is_match {
 					let is_group = chat_jid.ends_with("@g.us");

@@ -652,7 +652,7 @@ fn conversation_item_applies(s: &crate::AppState, jid: &str, id: i32) -> bool {
 		MENU_ID_BUSINESS_CATALOG => is_person && s.business_jids.contains(jid),
 		MENU_ID_BLOCK_CHAT => is_person,
 		MENU_ID_PINNED_MESSAGES => !is_broadcast,
-		MENU_ID_DISAPPEARING => !is_channel,
+		MENU_ID_DISAPPEARING | MENU_ID_STAR_MESSAGE => !is_channel,
 		MENU_ID_REPORT_CHAT | MENU_ID_CHAT_PRIVACY => !is_channel && !is_broadcast,
 		_ => true,
 	}
@@ -1264,6 +1264,52 @@ pub fn bind_input_handlers(
 					})
 					.unwrap_or((0, 0));
 				Some(crate::ui::chat_rows::RowArt::for_status(jid, text, segments))
+			}
+			_ if in_step && s.active_tab == 2 => {
+				if jid.is_empty() {
+					Some(crate::ui::chat_rows::RowArt {
+						title: text.to_string(),
+						heading: true,
+						..Default::default()
+					})
+				} else if let Some(msg_id) = s.filtered_starred_message_ids.get(index)
+					&& let Some(entry) = s.starred_entries.iter().find(|e| &e.message_id == msg_id)
+				{
+					let time_str = if entry.timestamp > 0 {
+						if let Some(local_dt) = whatsnap::LocalTime::from_unix(entry.timestamp) {
+							let now_dt = whatsnap::LocalTime::now();
+							let msg_date = local_dt.date();
+							let today = now_dt.date();
+							let yesterday = today.add_days(-1);
+							let num_days_ago = today.days_since(msg_date);
+							if msg_date == today {
+								local_dt.format("%I:%M %p")
+							} else if msg_date == yesterday {
+								"Yesterday".to_string()
+							} else if num_days_ago > 1 && num_days_ago < 7 {
+								local_dt.format("%A")
+							} else {
+								local_dt.format("%d/%m/%Y")
+							}
+						} else {
+							String::new()
+						}
+					} else {
+						String::new()
+					};
+					let (icon, body) = crate::ui::chat_rows::starred_media_preview(&entry.media_type, &entry.text);
+					Some(crate::ui::chat_rows::RowArt::for_starred(
+						jid,
+						&entry.chat_name,
+						&entry.sender_name,
+						entry.from_me,
+						&body,
+						&time_str,
+						icon,
+					))
+				} else {
+					Some(crate::ui::chat_rows::RowArt::from_text(jid, text))
+				}
 			}
 			_ if in_step && s.active_tab == 6 => Some(crate::ui::chat_rows::RowArt::for_call(jid, text)),
 			_ => Some(crate::ui::chat_rows::RowArt::from_text(jid, text)),
@@ -2286,21 +2332,38 @@ pub fn bind_input_handlers(
 			&& let Some(idx) = messages_list_for_menu.get_selection()
 		{
 			let s = state_chat_menu.borrow();
-			let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-				whatsnap::DisplayItem::Single(m) => Some(m.clone()),
-				whatsnap::DisplayItem::Album { .. } => None,
-			});
+			let jid = s.selected_chat.clone().unwrap_or_default();
+			let item_opt = s.display_items.get(idx as usize).cloned();
 			drop(s);
-			if let Some(msg) = msg_opt
-				&& !msg.is_date_divider
-			{
-				let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-				let _ = tx_chat_menu.send(UiCommand::StarMessage {
-					message_id: msg.id.clone(),
-					sender_jid,
-					from_me: msg.from_me,
-					starred: !msg.starred,
-				});
+			if let Some(item) = item_opt {
+				match item {
+					whatsnap::DisplayItem::Single(msg) => {
+						if !msg.is_date_divider && crate::ui_commands::selection::can_star(&jid, &msg) {
+							let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+							let _ = tx_chat_menu.send(UiCommand::StarMessage {
+								message_id: msg.id.clone(),
+								sender_jid,
+								from_me: msg.from_me,
+								starred: !msg.starred,
+							});
+						}
+					}
+					whatsnap::DisplayItem::Album { messages, .. } => {
+						let all_starred = !messages.is_empty() && messages.iter().all(|m| m.starred);
+						let target_starred = !all_starred;
+						for m in messages.iter().filter(|m| {
+							m.starred != target_starred && crate::ui_commands::selection::can_star(&jid, m)
+						}) {
+							let sender_jid = if m.from_me { "me".to_string() } else { m.sender_jid.clone() };
+							let _ = tx_chat_menu.send(UiCommand::StarMessage {
+								message_id: m.id.clone(),
+								sender_jid,
+								from_me: m.from_me,
+								starred: target_starred,
+							});
+						}
+					}
+				}
 			}
 		}
 	});
@@ -4281,10 +4344,30 @@ pub fn bind_input_handlers(
 				&& !key_event.control_down()
 				&& !key_event.shift_down()
 				&& !key_event.alt_down()
-				&& state_conv_delete.borrow().active_tab == 6
+			{
+				if state_conv_delete.borrow().active_tab == 6
+					&& let Some(idx) = conv_list_key_delete.get_selection()
+				{
+					let _ = tx_delete_call.send(UiCommand::DeleteCall(idx as usize));
+					event.skip(false);
+					return;
+				}
+				if state_conv_delete.borrow().active_tab == 2
+					&& let Some(idx) = conv_list_key_delete.get_selection()
+				{
+					let _ = tx_delete_call.send(UiCommand::UnstarStarredMessage(idx as usize));
+					event.skip(false);
+					return;
+				}
+			}
+			if key_event.control_down()
+				&& !key_event.shift_down()
+				&& !key_event.alt_down()
+				&& keys::is_letter(key_event.get_key_code(), 'C')
+				&& state_conv_delete.borrow().active_tab == 2
 				&& let Some(idx) = conv_list_key_delete.get_selection()
 			{
-				let _ = tx_delete_call.send(UiCommand::DeleteCall(idx as usize));
+				let _ = tx_delete_call.send(UiCommand::CopyStarredMessage(idx as usize));
 				event.skip(false);
 				return;
 			}
@@ -4416,6 +4499,7 @@ pub fn bind_input_handlers(
 			let report_admins_id = 3017;
 
 			let s = state_ctx.borrow();
+			let chat_jid = s.selected_chat.clone().unwrap_or_default();
 			let display_item = s.display_items.get(idx as usize).cloned();
 			let is_group_chat = s.selected_chat.as_ref().map(|j| j.ends_with("@g.us")).unwrap_or(false);
 			let is_channel_chat = s.selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
@@ -4462,7 +4546,9 @@ pub fn bind_input_handlers(
 				.as_ref()
 				.map(|item| match item {
 					whatsnap::DisplayItem::Single(m) => m.starred && !m.is_date_divider && !m.is_deleted,
-					whatsnap::DisplayItem::Album { .. } => false,
+					whatsnap::DisplayItem::Album { messages, .. } => {
+						!messages.is_empty() && messages.iter().all(|m| m.starred)
+					}
 				})
 				.unwrap_or(false);
 
@@ -4572,9 +4658,21 @@ pub fn bind_input_handlers(
 			if !is_deleted {
 				menu_builder = menu_builder.append_item(react_dialog_id, "&React...", "React to message");
 			}
-			let is_single_message = matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if !m.is_date_divider && !m.is_deleted);
-			if is_single_message {
-				let star_label = if is_starred { "&Unstar" } else { "&Star" };
+			let can_star_msg = match display_item {
+				Some(whatsnap::DisplayItem::Single(ref m)) => crate::ui_commands::selection::can_star(&chat_jid, m),
+				Some(whatsnap::DisplayItem::Album { ref messages, .. }) => {
+					!messages.is_empty() && messages.iter().all(|m| crate::ui_commands::selection::can_star(&chat_jid, m))
+				}
+				_ => false,
+			};
+			if can_star_msg {
+				let is_album = matches!(display_item, Some(whatsnap::DisplayItem::Album { .. }));
+				let star_label = match (is_album, is_starred) {
+					(true, true) => "&Unstar all",
+					(true, false) => "&Star all",
+					(false, true) => "&Unstar",
+					(false, false) => "&Star",
+				};
 				menu_builder = menu_builder.append_item(star_id, star_label, "Star or unstar this message");
 			}
 			if can_retry && !is_deleted {
@@ -4911,21 +5009,39 @@ pub fn bind_input_handlers(
 					}
 				} else if id == star_id {
 					let s = state_clone.borrow();
-					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
-						whatsnap::DisplayItem::Album { .. } => None,
-					});
+					let chat_jid = s.selected_chat.clone().unwrap_or_default();
+					let item_opt = s.display_items.get(idx as usize).cloned();
 					drop(s);
-					if let Some(msg) = msg_opt
-						&& !msg.is_date_divider
-					{
-						let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-						let _ = tx_play_media_clone.send(UiCommand::StarMessage {
-							message_id: msg.id.clone(),
-							sender_jid,
-							from_me: msg.from_me,
-							starred: !msg.starred,
-						});
+					if let Some(item) = item_opt {
+						match item {
+							whatsnap::DisplayItem::Single(msg) => {
+								if !msg.is_date_divider && crate::ui_commands::selection::can_star(&chat_jid, &msg) {
+									let sender_jid =
+										if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+									let _ = tx_play_media_clone.send(UiCommand::StarMessage {
+										message_id: msg.id.clone(),
+										sender_jid,
+										from_me: msg.from_me,
+										starred: !msg.starred,
+									});
+								}
+							}
+							whatsnap::DisplayItem::Album { messages, .. } => {
+								let all_starred = !messages.is_empty() && messages.iter().all(|m| m.starred);
+								let target_starred = !all_starred;
+								for m in messages.iter().filter(|m| {
+									m.starred != target_starred && crate::ui_commands::selection::can_star(&chat_jid, m)
+								}) {
+									let sender_jid = if m.from_me { "me".to_string() } else { m.sender_jid.clone() };
+									let _ = tx_play_media_clone.send(UiCommand::StarMessage {
+										message_id: m.id.clone(),
+										sender_jid,
+										from_me: m.from_me,
+										starred: target_starred,
+									});
+								}
+							}
+						}
 					}
 				} else if id == report_id || id == report_admins_id {
 					if let Some(message_id) = reportable_id.clone() {
@@ -5516,21 +5632,49 @@ pub fn bind_input_handlers(
 			} else if pressed(message_list::STAR) {
 				if let Some(idx) = msgs_list_play.get_selection() {
 					let s = state_play.borrow();
-					let msg_opt = s.display_items.get(idx as usize).and_then(|item| match item {
-						whatsnap::DisplayItem::Single(m) => Some(m.clone()),
-						whatsnap::DisplayItem::Album { .. } => None,
-					});
+					let jid = s.selected_chat.clone().unwrap_or_default();
+					let item_opt = s.display_items.get(idx as usize).cloned();
 					drop(s);
-					if let Some(msg) = msg_opt
-						&& !msg.is_date_divider
-					{
-						let sender_jid = if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
-						let _ = tx_play_media.send(UiCommand::StarMessage {
-							message_id: msg.id.clone(),
-							sender_jid,
-							from_me: msg.from_me,
-							starred: !msg.starred,
-						});
+					if let Some(item) = item_opt {
+						match item {
+							whatsnap::DisplayItem::Single(msg) => {
+								if !msg.is_date_divider {
+									if crate::ui_commands::selection::can_star(&jid, &msg) {
+										let sender_jid =
+											if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() };
+										let _ = tx_play_media.send(UiCommand::StarMessage {
+											message_id: msg.id.clone(),
+											sender_jid,
+											from_me: msg.from_me,
+											starred: !msg.starred,
+										});
+									} else {
+										crate::platform::announce::announce(msgs_announcer, "Message can't be starred.");
+									}
+								}
+							}
+							whatsnap::DisplayItem::Album { messages, .. } => {
+								let can_any = messages.iter().any(|m| crate::ui_commands::selection::can_star(&jid, m));
+								if can_any {
+									let all_starred = !messages.is_empty() && messages.iter().all(|m| m.starred);
+									let target_starred = !all_starred;
+									for m in messages.iter().filter(|m| {
+										m.starred != target_starred && crate::ui_commands::selection::can_star(&jid, m)
+									}) {
+										let sender_jid =
+											if m.from_me { "me".to_string() } else { m.sender_jid.clone() };
+										let _ = tx_play_media.send(UiCommand::StarMessage {
+											message_id: m.id.clone(),
+											sender_jid,
+											from_me: m.from_me,
+											starred: target_starred,
+										});
+									}
+								} else {
+									crate::platform::announce::announce(msgs_announcer, "Message can't be starred.");
+								}
+							}
+						}
 					}
 				}
 				event.skip(false);
