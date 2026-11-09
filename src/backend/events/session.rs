@@ -46,7 +46,18 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					(s.settings.check_for_updates_on_startup, s.settings.update_channel.clone(), s.ui_tx.clone())
 				};
 				if check_updates && app_start {
-					crate::platform::update_check::run(&parts.frame, &ui_tx, &channel, true);
+					let frame = crate::platform::update_check::ParentWindow::new(&parts.frame);
+					let ui_tx = ui_tx.clone();
+					let channel = channel.clone();
+					std::thread::spawn(move || {
+						// Defer startup update check by 12 seconds so WhatsApp chats, contacts,
+						// and websocket initialization complete without network or UI contention.
+						std::thread::sleep(std::time::Duration::from_secs(12));
+						wxdragon::call_after(Box::new(move || {
+							crate::platform::update_check::run(&frame, &ui_tx, &channel, true, None);
+						}));
+						wxdragon::wake_up_idle();
+					});
 				}
 
 				// Now that we're logged in, install the tray icon if the

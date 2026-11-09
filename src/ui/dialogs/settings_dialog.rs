@@ -64,6 +64,7 @@ pub struct SettingsDialogParts {
 	pub start_maximized_check: CheckBox,
 	pub check_updates_check: CheckBox,
 	pub update_channel_combo: ComboBox,
+	pub check_updates_now_btn: Button,
 	pub meta_ai_enabled_check: CheckBox,
 	pub verbose_backend_logging_check: CheckBox,
 	pub shortcuts_btn: Button,
@@ -258,6 +259,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	section_header(&general_panel, &general_sizer, "Updates & Troubleshooting");
 	let check_updates_check = setting_switch(&general_panel, &general_sizer, "Check for updates when whatSnap starts");
 	let update_channel_combo = visibility_combo(&general_panel, &general_sizer, "Updates", UPDATE_CHANNEL_CHOICES);
+	let check_updates_now_btn = setting_button(&general_panel, "Check for &Updates Now...");
+	general_sizer.add(&check_updates_now_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 12);
 	let verbose_backend_logging_check = setting_switch(
 		&general_panel,
 		&general_sizer,
@@ -690,6 +693,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		start_maximized_check,
 		check_updates_check,
 		update_channel_combo,
+		check_updates_now_btn,
 		meta_ai_enabled_check,
 		verbose_backend_logging_check,
 		shortcuts_btn,

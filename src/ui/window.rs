@@ -1965,12 +1965,19 @@ pub fn bind_input_handlers(
 	let frame_updates = parts.frame;
 	let state_updates = state.clone();
 	let tx_updates = ui_tx.clone();
+	let announcer_updates = parts.conversations_parts.messages_announcer;
 	parts.frame.on_menu_selected(move |evt| {
 		if evt.get_id() != MENU_ID_CHECK_UPDATES {
 			return;
 		}
 		let channel = state_updates.borrow().settings.update_channel.clone();
-		crate::platform::update_check::run(&frame_updates, &tx_updates, &channel, false);
+		crate::platform::update_check::run(
+			&frame_updates,
+			&tx_updates,
+			&channel,
+			false,
+			Some(announcer_updates),
+		);
 	});
 
 	let tx_accounts = ui_tx.clone();
@@ -2358,6 +2365,24 @@ pub fn bind_input_handlers(
 			running.store(false, std::sync::atomic::Ordering::SeqCst);
 			let _ = tx.send(UiCommand::ShareMenuResult { ok, text });
 		});
+	});
+
+	let frame_settings_updates = parts.frame;
+	let tx_settings_updates = ui_tx.clone();
+	let combo_updates = parts.settings_dialog.update_channel_combo;
+	let announcer_settings_updates = parts.conversations_parts.messages_announcer;
+	parts.settings_dialog.check_updates_now_btn.on_click(move |_| {
+		let channel = crate::ui::dialogs::settings_dialog::combo_value(
+			&combo_updates,
+			crate::ui::dialogs::settings_dialog::UPDATE_CHANNEL_CHOICES,
+		);
+		crate::platform::update_check::run(
+			&frame_settings_updates,
+			&tx_settings_updates,
+			&channel,
+			false,
+			Some(announcer_settings_updates),
+		);
 	});
 
 	let settings_dialog_cancel = parts.settings_dialog.dialog;
