@@ -171,6 +171,10 @@ pub fn friendly_preview_text(text: &str) -> String {
 			return if rest.is_empty() { "Photo".to_string() } else { format!("Photo: {}", rest) };
 		}
 	}
+	if let Some(rest) = text.strip_prefix("[Video] GIF") {
+		let rest = rest.trim_start_matches([':', '.', ' ']);
+		return if rest.is_empty() { "GIF".to_string() } else { format!("GIF: {}", rest) };
+	}
 	if let Some(rest) = text.strip_prefix("[Video]") {
 		let rest = rest.trim();
 		return if rest.is_empty() { "Video".to_string() } else { format!("Video: {}", rest) };
