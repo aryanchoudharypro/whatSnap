@@ -45,6 +45,7 @@ pub(crate) mod icon {
 	pub const MUTED: char = '\u{E74F}';
 	pub const LOCK: char = '\u{E72E}';
 	pub const PHONE: char = '\u{E717}';
+	pub const STAR: char = '\u{E735}';
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -69,6 +70,7 @@ pub(crate) struct RowArt {
 	pub pinned: bool,
 	pub muted: bool,
 	pub locked: bool,
+	pub starred: bool,
 }
 
 impl RowArt {
@@ -165,6 +167,73 @@ impl RowArt {
 			preview,
 			alert: missed,
 			..Default::default()
+		}
+	}
+
+	pub(crate) fn for_starred(
+		jid: &str,
+		chat_name: &str,
+		sender_name: &str,
+		from_me: bool,
+		body: &str,
+		time: &str,
+		media_icon: Option<char>,
+	) -> Self {
+		if jid.is_empty() {
+			return Self { title: chat_name.to_string(), heading: true, ..Default::default() };
+		}
+		let is_group = jid.ends_with("@g.us");
+		let preview_prefix = if from_me {
+			"You: ".to_string()
+		} else if is_group && !sender_name.is_empty() && sender_name != chat_name {
+			format!("{}: ", sender_name)
+		} else {
+			String::new()
+		};
+		Self {
+			jid: jid.to_string(),
+			title: chat_name.to_string(),
+			time: time.to_string(),
+			preview_prefix,
+			icon: media_icon,
+			preview: body.to_string(),
+			starred: true,
+			..Default::default()
+		}
+	}
+}
+
+pub(crate) fn starred_media_preview(media_type: &str, text: &str) -> (Option<char>, String) {
+	if !text.is_empty() {
+		let (icon, clean) = preview_icon(text);
+		if icon.is_some() {
+			return (icon, clean);
+		}
+		let type_icon = match media_type {
+			"image" => Some(icon::CAMERA),
+			"video" => Some(icon::VIDEO),
+			"ptt" | "audio" => Some(icon::MICROPHONE),
+			"document" => Some(icon::DOCUMENT),
+			"sticker" => Some(icon::STICKER),
+			"poll" | "quiz" => Some(icon::POLL),
+			"contact" => Some(icon::CONTACT),
+			"location" | "live_location" => Some(icon::LOCATION),
+			_ => None,
+		};
+		(type_icon, text.to_string())
+	} else {
+		match media_type {
+			"image" => (Some(icon::CAMERA), "Photo".to_string()),
+			"video" => (Some(icon::VIDEO), "Video".to_string()),
+			"ptt" => (Some(icon::MICROPHONE), "Voice message".to_string()),
+			"audio" => (Some(icon::AUDIO), "Audio".to_string()),
+			"document" => (Some(icon::DOCUMENT), "Document".to_string()),
+			"sticker" => (Some(icon::STICKER), "Sticker".to_string()),
+			"poll" | "quiz" => (Some(icon::POLL), "Poll".to_string()),
+			"contact" => (Some(icon::CONTACT), "Contact".to_string()),
+			"location" | "live_location" => (Some(icon::LOCATION), "Location".to_string()),
+			other if !other.is_empty() => (None, other.to_string()),
+			_ => (None, "Message".to_string()),
 		}
 	}
 }
@@ -587,7 +656,12 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		line_right -= w + gap;
 	}
 	if let Some(font) = fonts.icons {
-		for (on, glyph) in [(art.pinned, icon::PIN), (art.muted, icon::MUTED), (art.locked, icon::LOCK)] {
+		for (on, glyph) in [
+			(art.pinned, icon::PIN),
+			(art.muted, icon::MUTED),
+			(art.locked, icon::LOCK),
+			(art.starred, icon::STAR),
+		] {
 			if !on {
 				continue;
 			}
@@ -670,7 +744,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 
 #[cfg(test)]
 mod tests {
-	use super::{RowArt, icon, preview_icon};
+	use super::{RowArt, icon, preview_icon, starred_media_preview};
 
 	#[test]
 	fn a_missed_call_is_red_with_its_kind_and_time() {
@@ -721,5 +795,80 @@ mod tests {
 		let art = RowArt::from_text("x", "Mum | 10:02 AM | Photo");
 		assert_eq!(art.title, "Mum");
 		assert_eq!(art.preview, "10:02 AM · Photo");
+	}
+
+	#[test]
+	fn a_starred_message_row_has_title_preview_and_star() {
+		let direct = RowArt::for_starred(
+			"123@s.whatsapp.net",
+			"Alice",
+			"Alice",
+			false,
+			"Hello there",
+			"10:30 AM",
+			None,
+		);
+		assert_eq!(direct.title, "Alice");
+		assert_eq!(direct.preview_prefix, "");
+		assert_eq!(direct.preview, "Hello there");
+		assert_eq!(direct.time, "10:30 AM");
+		assert!(direct.starred);
+
+		let group_me = RowArt::for_starred(
+			"123@g.us",
+			"Family",
+			"You",
+			true,
+			"I will arrive soon",
+			"Yesterday",
+			None,
+		);
+		assert_eq!(group_me.title, "Family");
+		assert_eq!(group_me.preview_prefix, "You: ");
+		assert_eq!(group_me.preview, "I will arrive soon");
+		assert_eq!(group_me.time, "Yesterday");
+		assert!(group_me.starred);
+
+		let group_other = RowArt::for_starred(
+			"123@g.us",
+			"Family",
+			"Bob",
+			false,
+			"Cake is ready",
+			"Nov 9, 2026",
+			Some(icon::CAMERA),
+		);
+		assert_eq!(group_other.title, "Family");
+		assert_eq!(group_other.preview_prefix, "Bob: ");
+		assert_eq!(group_other.preview, "Cake is ready");
+		assert_eq!(group_other.icon, Some(icon::CAMERA));
+		assert!(group_other.starred);
+
+		let empty = RowArt::for_starred("", "No starred messages", "", false, "", "", None);
+		assert!(empty.heading);
+		assert_eq!(empty.title, "No starred messages");
+	}
+
+	#[test]
+	fn starred_media_preview_resolves_icons_and_captions() {
+		let (ic, text) = starred_media_preview("image", "Sunset photo");
+		assert_eq!(ic, Some(icon::CAMERA));
+		assert_eq!(text, "Sunset photo");
+
+		let (ic, text) = starred_media_preview("image", "");
+		assert_eq!(ic, Some(icon::CAMERA));
+		assert_eq!(text, "Photo");
+
+		let (ic, text) = starred_media_preview("video", "");
+		assert_eq!(ic, Some(icon::VIDEO));
+		assert_eq!(text, "Video");
+
+		let (ic, text) = starred_media_preview("ptt", "");
+		assert_eq!(ic, Some(icon::MICROPHONE));
+		assert_eq!(text, "Voice message");
+
+		let (ic, text) = starred_media_preview("", "Hello world");
+		assert_eq!(ic, None);
+		assert_eq!(text, "Hello world");
 	}
 }

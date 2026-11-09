@@ -95,7 +95,7 @@ fn can_copy(msgs: &[whatsnap::Msg]) -> bool {
 }
 
 /// `canStarMsg`.
-fn can_star(chat: &str, m: &whatsnap::ChatMessage) -> bool {
+pub(crate) fn can_star(chat: &str, m: &whatsnap::ChatMessage) -> bool {
 	!is_channel(chat)
 		&& is_user_message(m)
 		&& !m.is_deleted

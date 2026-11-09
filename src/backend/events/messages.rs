@@ -1034,6 +1034,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let timestamp = item.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
 
 					let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+					let is_group = jid.ends_with("@g.us");
 					let sender = if from_me {
 						"You".to_string()
 					} else if !sender_name.is_empty() {
@@ -1042,13 +1043,44 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						chat_name.clone()
 					};
 					let body = if !text.is_empty() {
-						whatsnap::friendly_preview_text(text)
+						let friendly = whatsnap::friendly_preview_text(text);
+						if !media_type.is_empty() && !text.starts_with('[') {
+							let kind = match media_type {
+								"image" => "Photo",
+								"video" => "Video",
+								"ptt" => "Voice message",
+								"audio" => "Audio",
+								"document" => "Document",
+								"sticker" => "Sticker",
+								"contact" => "Contact",
+								"location" | "live_location" => "Location",
+								"poll" | "quiz" => "Poll",
+								_ => "",
+							};
+							if !kind.is_empty() {
+								format!("{}, {}", kind, friendly)
+							} else {
+								friendly
+							}
+						} else {
+							friendly
+						}
 					} else if !quoted_text.is_empty() {
 						whatsnap::friendly_preview_text(quoted_text)
-					} else if !media_type.is_empty() {
-						"Media".to_string()
 					} else {
-						"Message".to_string()
+						match media_type {
+							"image" => "Photo".to_string(),
+							"video" => "Video".to_string(),
+							"ptt" => "Voice message".to_string(),
+							"audio" => "Audio".to_string(),
+							"document" => "Document".to_string(),
+							"sticker" => "Sticker".to_string(),
+							"contact" => "Contact".to_string(),
+							"location" | "live_location" => "Location".to_string(),
+							"poll" | "quiz" => "Poll".to_string(),
+							other if !other.is_empty() => other.to_string(),
+							_ => "Message".to_string(),
+						}
 					};
 					let date_str = if timestamp > 0 {
 						whatsnap::LocalTime::from_unix(timestamp)
@@ -1057,13 +1089,48 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					} else {
 						String::new()
 					};
-					let label = if date_str.is_empty() {
-						format!("{} ({}): {}", chat_name, sender, body)
+					let label = if is_group {
+						if from_me {
+							if date_str.is_empty() {
+								format!("{}, You: {}, Starred", chat_name, body)
+							} else {
+								format!("{}, You: {}, {}, Starred", chat_name, body, date_str)
+							}
+						} else if sender != chat_name {
+							if date_str.is_empty() {
+								format!("{}, {}: {}, Starred", chat_name, sender, body)
+							} else {
+								format!("{}, {}: {}, {}, Starred", chat_name, sender, body, date_str)
+							}
+						} else if date_str.is_empty() {
+							format!("{}: {}, Starred", chat_name, body)
+						} else {
+							format!("{}: {}, {}, Starred", chat_name, body, date_str)
+						}
+					} else if from_me {
+						if date_str.is_empty() {
+							format!("{}, You: {}, Starred", chat_name, body)
+						} else {
+							format!("{}, You: {}, {}, Starred", chat_name, body, date_str)
+						}
+					} else if date_str.is_empty() {
+						format!("{}: {}, Starred", chat_name, body)
 					} else {
-						format!("{} ({}): {}, {}", chat_name, sender, body, date_str)
+						format!("{}: {}, {}, Starred", chat_name, body, date_str)
 					};
 
-					entries.push(StarredEntry { jid, message_id, sender_jid, from_me, label });
+					entries.push(StarredEntry {
+						jid,
+						message_id,
+						sender_jid,
+						from_me,
+						chat_name,
+						sender_name: sender,
+						text: if !text.is_empty() { text.to_string() } else { body.clone() },
+						media_type: media_type.to_string(),
+						timestamp,
+						label,
+					});
 				}
 				s.starred_entries = entries;
 				if s.active_tab == 2 {
@@ -1509,6 +1576,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					false
 				};
 				let quiet = s.bulk_quiet_pending.remove(target_id);
+
+				if !starred {
+					s.starred_entries.retain(|e| e.message_id != target_id);
+				}
 
 				if is_match {
 					let is_group = chat_jid.ends_with("@g.us");

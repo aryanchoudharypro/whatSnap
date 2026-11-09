@@ -28,10 +28,12 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		"Search or enter phone number to place call"
 	} else if idx == 1 {
 		"Search status updates"
+	} else if idx == 2 {
+		"Search starred messages"
 	} else {
 		"Search chats"
 	});
-	parts.conversations_parts.new_conv_btn.show(idx != 6);
+	parts.conversations_parts.new_conv_btn.show(idx != 6 && idx != 2);
 	match idx {
 		0 => {
 			parts.conversations_parts.panel.show(true);
@@ -61,9 +63,11 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		2 => {
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 2;
-			parts.conversations_parts.new_conv_btn.set_label("New Chat");
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.status_privacy_btn.show(false);
+			parts.conversations_parts.locked_chats_btn.show(false);
+			parts.conversations_parts.chat_filter_label.show(false);
+			parts.conversations_parts.chat_filter_combo.show(false);
 			parts.conversations_parts.conversations_label.set_label("Starred Messages");
 			let payload = serde_json::json!({ "action": "get_starred_messages" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
@@ -167,12 +171,14 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		}
 		return;
 	}
-	let jid = state.borrow().filtered_chats.get(idx).cloned();
+	let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();
 	if let Some(ref jid) = jid {
 		if state.borrow().active_tab == 2 {
-			let msg_id = state.borrow().filtered_starred_message_ids.get(idx).cloned();
+			let msg_id = state.borrow().filtered_starred_message_ids.get(idx).filter(|id| !id.is_empty()).cloned();
 			if let Some(msg_id) = msg_id {
 				state.borrow_mut().search_target_id = Some(msg_id);
+			} else {
+				return;
 			}
 		}
 		open_chat_for_jid(jid, state, parts);

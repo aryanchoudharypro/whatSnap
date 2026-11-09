@@ -1133,6 +1133,8 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::OpenEmojiPanel { stickers } => ui_commands::stickers::open_emoji_panel(state, parts, stickers),
 		UiCommand::ShowStatusMenu(idx) => ui_commands::status_extras::show_status_menu(state, parts, idx),
 		UiCommand::ShowStarredMenu(idx) => ui_commands::starred::show_starred_menu(state, parts, idx),
+		UiCommand::UnstarStarredMessage(idx) => ui_commands::starred::unstar_message_at(state, parts, idx),
+		UiCommand::CopyStarredMessage(idx) => ui_commands::starred::copy_message_at(state, parts, idx),
 		UiCommand::ShowCallsMenu(idx) => ui_commands::calls::show_calls_menu(state, parts, idx),
 		UiCommand::DeleteCall(idx) => ui_commands::calls::delete_call_at(state, parts, idx),
 		UiCommand::SetChatFilter(idx) => ui_commands::chat_lists::set_filter(state, parts, idx),

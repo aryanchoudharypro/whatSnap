@@ -107,6 +107,7 @@ struct Applies {
 	privacy: bool,
 	block: bool,
 	report: bool,
+	starred: bool,
 }
 
 fn applies(jid: &str) -> Applies {
@@ -118,6 +119,7 @@ fn applies(jid: &str) -> Applies {
 		privacy: !is_channel && !is_broadcast,
 		block: is_person,
 		report: !is_channel && !is_broadcast,
+		starred: !is_channel,
 	}
 }
 
@@ -143,6 +145,15 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid:
 	o.block_btn.show(a.block);
 	o.block_btn.set_label(if blocked { "Unblock contact" } else { "Block contact..." });
 	o.report_btn.show(a.report);
+	o.starred_btn.show(a.starred);
+	if a.starred {
+		let count = s.starred_entries.iter().filter(|e| e.jid == jid).count();
+		if count > 0 {
+			o.starred_btn.set_label(&format!("Starred messages ({})", count));
+		} else {
+			o.starred_btn.set_label("Starred messages");
+		}
+	}
 	if a.privacy {
 		s.overview_probe = true;
 		let payload = serde_json::json!({ "action": "get_chat_privacy", "data": { "jid": jid } });
@@ -217,11 +228,18 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 		o.privacy_btn.on_click(move |_| {
 			let _ = tx.send(UiCommand::ShowChatPrivacy);
 		});
-		let (tx, nav, st) = (ui_tx.clone(), parts.nav_list, state.clone());
+		let (tx, nav, st, sf) =
+			(ui_tx.clone(), parts.nav_list, state.clone(), parts.conversations_parts.search_field);
 		o.starred_btn.on_click(move |_| {
+			let chat_name = target(&st).and_then(|jid| st.borrow().contacts.get(&jid).cloned());
 			dialog.end_modal(ID_CANCEL);
 			let idx = st.borrow().settings.tab_order().iter().position(|&t| t == 2).unwrap_or(2) as u32;
 			nav.set_selection(idx, true);
+			if let Some(ref name) = chat_name {
+				sf.set_value(name);
+			} else {
+				sf.set_value("");
+			}
 			let _ = tx.send(UiCommand::NavSelected(2));
 		});
 		let (st, tx) = (state.clone(), ui_tx.clone());
