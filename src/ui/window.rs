@@ -1604,12 +1604,14 @@ pub fn bind_input_handlers(
 			let is_group = s.call_participants.len() > 1 || s.call_video.peer_name.is_none();
 			drop(s);
 
+			// The heading never carries the clock: the duration lives in the
+			// call info box, so the heading reads the same for the whole call.
 			let status = if is_reconnecting {
-				format!("Reconnecting... ({clock})")
+				"Reconnecting...".to_string()
 			} else if is_group {
-				format!("In group call · {clock}")
+				"In group call".to_string()
 			} else {
-				format!("Connected · {clock}")
+				"Connected".to_string()
 			};
 			call_status_label.set_label(&status);
 

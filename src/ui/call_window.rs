@@ -22,9 +22,13 @@ pub struct CallWindowParts {
 	pub camera_btn: Button,
 	pub screen_btn: Button,
 	pub device_settings_btn: Button,
-	/// Device selector combos shown inline when device settings is expanded
+	/// Device selectors shown inline when device settings is expanded. Each
+	/// group is a visible label above its combo; show/hide the group, not the combo.
+	pub input_device_group: Panel,
 	pub input_device_combo: ComboBox,
+	pub output_device_group: Panel,
 	pub output_device_combo: ComboBox,
+	pub camera_device_group: Panel,
 	pub camera_device_combo: ComboBox,
 	pub add_participant_btn: Button,
 	pub raise_hand_btn: Button,
@@ -39,6 +43,28 @@ pub struct CallWindowParts {
 	pub let_in_btn: Button,
 	pub keep_out_btn: Button,
 	pub approval_check: CheckBox,
+}
+
+/// One device selector for the call window: a visible label above a read-only
+/// combo, in its own panel so both show and hide together. Starts hidden.
+fn device_selector(parent: &Panel, sizer: &BoxSizer, label: &str) -> (Panel, ComboBox) {
+	let group = Panel::builder(parent).build();
+	if theme::use_custom_colours() {
+		group.set_background_color(CALL_BG);
+	}
+	let group_sizer = BoxSizer::builder(Orientation::Vertical).build();
+	let text = StaticText::builder(&group).with_label(label).build();
+	text.set_font(&theme::Fonts::label());
+	if theme::use_custom_colours() {
+		text.set_foreground_color(CALL_MUTED_TEXT);
+	}
+	group_sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Top, 2);
+	let combo = ComboBox::builder(&group).with_style(ComboBoxStyle::ReadOnly).build();
+	group_sizer.add(&combo, 0, SizerFlag::Expand, 0);
+	group.set_sizer(group_sizer, true);
+	sizer.add(&group, 1, SizerFlag::Expand | SizerFlag::Right, 5);
+	group.show(false);
+	(group, combo)
 }
 
 /// WhatsApp's call screen colours: the call screen is dark in either theme.
@@ -126,6 +152,14 @@ pub fn build_call_window() -> CallWindowParts {
 		caller_info.set_foreground_color(CALL_TEXT);
 	}
 	caller_info.show(true);
+	// Screen readers name the box from the text just above it, so this label
+	// is what the box is announced as ("Call info"), not the status heading.
+	let caller_info_label = StaticText::builder(&panel).with_label("Call info").build();
+	caller_info_label.set_font(&theme::Fonts::label());
+	if theme::use_custom_colours() {
+		caller_info_label.set_foreground_color(CALL_MUTED_TEXT);
+	}
+	sizer.add(&caller_info_label, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Bottom, 4);
 	sizer.add(&caller_info, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 
 	let announcer = StaticText::builder(&panel).with_label("").build();
@@ -175,18 +209,12 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_sizer.add(&device_settings_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	device_settings_btn.show(false);
 
-	// Device selector combos shown inline when device settings is expanded
-	let input_device_combo = ComboBox::builder(&btn_panel).with_style(ComboBoxStyle::ReadOnly).build();
-	btn_sizer.add(&input_device_combo, 1, SizerFlag::Expand | SizerFlag::Right, 5);
-	input_device_combo.show(false);
-
-	let output_device_combo = ComboBox::builder(&btn_panel).with_style(ComboBoxStyle::ReadOnly).build();
-	btn_sizer.add(&output_device_combo, 1, SizerFlag::Expand | SizerFlag::Right, 5);
-	output_device_combo.show(false);
-
-	let camera_device_combo = ComboBox::builder(&btn_panel).with_style(ComboBoxStyle::ReadOnly).build();
-	btn_sizer.add(&camera_device_combo, 1, SizerFlag::Expand | SizerFlag::Right, 5);
-	camera_device_combo.show(false);
+	// Device selectors shown inline when device settings is expanded. Screen
+	// readers name a combo from the static text just before it, so each one
+	// sits under a visible label, the way the old devices panel did.
+	let (input_device_group, input_device_combo) = device_selector(&btn_panel, &btn_sizer, "Microphone");
+	let (output_device_group, output_device_combo) = device_selector(&btn_panel, &btn_sizer, "Speaker");
+	let (camera_device_group, camera_device_combo) = device_selector(&btn_panel, &btn_sizer, "Camera");
 
 	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
 	crate::ui::owner_draw::install_tile(&add_participant_btn, CALL_BG);
@@ -271,8 +299,11 @@ pub fn build_call_window() -> CallWindowParts {
 		camera_btn,
 		screen_btn,
 		device_settings_btn,
+		input_device_group,
 		input_device_combo,
+		output_device_group,
 		output_device_combo,
+		camera_device_group,
 		camera_device_combo,
 		add_participant_btn,
 		raise_hand_btn,
