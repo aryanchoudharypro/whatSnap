@@ -8,7 +8,7 @@ use windows::{
 	Management::Deployment::{AddPackageOptions, PackageManager, RemovalOptions},
 	Win32::{
 		Foundation::{CloseHandle, WAIT_OBJECT_0},
-		System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject},
+		System::Threading::{GetExitCodeProcess, WaitForSingleObject},
 		UI::{
 			Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW},
 			WindowsAndMessaging::{
@@ -104,7 +104,7 @@ fn run_sign_as_admin() -> Result<(), SignFailure> {
 			return Err(SignFailure::Failed("Windows didn't start the administrator step".into()));
 		}
 		let mut code = 1u32;
-		let done = WaitForSingleObject(info.hProcess, INFINITE) == WAIT_OBJECT_0
+		let done = WaitForSingleObject(info.hProcess, 30_000) == WAIT_OBJECT_0
 			&& GetExitCodeProcess(info.hProcess, &mut code).is_ok();
 		let _ = CloseHandle(info.hProcess);
 		log(&format!("Administrator step finished with exit code {code:#x}"));

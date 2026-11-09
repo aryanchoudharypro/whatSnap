@@ -298,7 +298,7 @@ fn install_and_restart(
 			let installer_path = downloaded_path.display().to_string();
 			let current_exe_str = current_exe.display().to_string();
 			format!(
-				"Start-Sleep -Seconds 1; Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; Start-Process -FilePath {inst} -ArgumentList '/SILENT','/CLOSEAPPLICATIONS' -Wait; $env:SHIP_SHAPE_RELAUNCHED='1'; Start-Process -FilePath {exe}",
+				"Start-Sleep -Seconds 1; Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; Start-Process -FilePath {inst} -ArgumentList '/SILENT','/CLOSEAPPLICATIONS','/SUPPRESSMSGBOXES','/NORESTARTAPPLICATIONS' -Wait; $env:SHIP_SHAPE_RELAUNCHED='1'; Start-Process -FilePath {exe}",
 				inst = ps_quote(&installer_path),
 				exe = ps_quote(&current_exe_str)
 			)
@@ -506,7 +506,12 @@ pub fn run(
 	)
 	.with_commit(env!("WHATSNAP_COMMIT_HASH"))
 	.with_install_kind(install_kind);
-	config.installer_args = vec!["/SILENT".into(), "/CLOSEAPPLICATIONS".into()];
+	config.installer_args = vec![
+		"/SILENT".into(),
+		"/CLOSEAPPLICATIONS".into(),
+		"/SUPPRESSMSGBOXES".into(),
+		"/NORESTARTAPPLICATIONS".into(),
+	];
 	let config = Arc::new(config);
 
 	let tx = ui_tx.clone();

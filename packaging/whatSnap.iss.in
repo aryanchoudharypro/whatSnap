@@ -86,8 +86,9 @@ Name: "{usersendto}\{#AppName}"; Filename: "{app}\{#AppExe}"
 ; Start menu and desktop launches, which then silently do nothing.
 ; The Share menu: turned on when ticked (see CurStepChanged, which says how it
 ; went), and otherwise kept up to date if an earlier install turned it on (a
-; no-op if it didn't).
-Filename: "{app}\whatSnapShare.exe"; Parameters: "--refresh"; Check: ShouldRefreshShareMenu; Flags: waituntilterminated runasoriginaluser
+; no-op if it didn't). Run asynchronously with nowait so refreshing doesn't block
+; finishing the installation.
+Filename: "{app}\whatSnapShare.exe"; Parameters: "--refresh"; Check: ShouldRefreshShareMenu; Flags: nowait runhidden runasoriginaluser
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
@@ -101,9 +102,10 @@ Type: files; Name: "{app}\share\enable-result.txt"
 
 [Code]
 // EnableShareMenu handles the ticked case in an interactive install.
+// Only refresh if the user previously had the share package configured.
 function ShouldRefreshShareMenu: Boolean;
 begin
-  Result := WizardSilent or not WizardIsTaskSelected('sharemenu');
+  Result := FileExists(ExpandConstant('{app}\share\local\whatSnapShare.msix')) and (WizardSilent or not WizardIsTaskSelected('sharemenu'));
 end;
 
 // Turns the Share menu on when its task is ticked. whatSnapShare.exe asks for
