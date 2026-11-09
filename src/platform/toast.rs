@@ -63,7 +63,9 @@ fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>, is_locke
 		String::new()
 	} else {
 		let mark_read = escape_xml(&app_link::mark_read_link(jid, account));
-		format!(r#"<actions><action content="Mark as read" arguments="{mark_read}" activationType="protocol"/></actions>"#)
+		format!(
+			r#"<actions><action content="Mark as read" arguments="{mark_read}" activationType="protocol"/></actions>"#
+		)
 	};
 	format!(
 		concat!(

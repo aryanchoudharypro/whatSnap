@@ -7,27 +7,65 @@ use crate::{
 	ui::{dialog_look, keys, theme, window::WindowParts},
 };
 
-pub const STATUS_PALETTE: [(&str, u32); 9] = [
-	("Classic Teal", 0xFF07_5E54),
-	("Emerald Teal", 0xFF00_5C4B),
-	("Royal Purple", 0xFF5E_246C),
-	("Deep Violet", 0xFF46_3773),
-	("Warm Orange", 0xFFA6_4724),
-	("Berry Pink", 0xFF94_1857),
-	("Ocean Blue", 0xFF18_587A),
-	("Wine Red", 0xFF79_1B33),
-	("Charcoal Slate", 0xFF40_4B52),
+pub const STATUS_PALETTE: [(&str, u32); 21] = [
+	("Colour 1", 0xFFA6_2C71),
+	("Colour 2", 0xFF90_A841),
+	("Colour 3", 0xFFC1_A03F),
+	("Colour 4", 0xFF79_2138),
+	("Colour 5", 0xFFAE_8774),
+	("Colour 6", 0xFFF0_B330),
+	("Colour 7", 0xFFB6_B327),
+	("Colour 8", 0xFFC6_9FCC),
+	("Colour 9", 0xFF8B_6990),
+	("Colour 10", 0xFFFF_8A8C),
+	("Colour 11", 0xFF54_C265),
+	("Colour 12", 0xFFFF_7B6B),
+	("Colour 13", 0xFF26_C4DC),
+	("Colour 14", 0xFF57_C9FF),
+	("Colour 15", 0xFF74_676A),
+	("Colour 16", 0xFF7E_90A3),
+	("Colour 17", 0xFF56_96FF),
+	("Colour 18", 0xFF6E_257E),
+	("Colour 19", 0xFF7A_CBA5),
+	("Colour 20", 0xFF24_3640),
+	("Colour 21", 0xFF82_94CA),
 ];
 
-pub const STATUS_FONTS: [(&str, i32, &str); 7] = [
-	("Sans-Serif (Default)", 0, "Segoe UI"),
-	("Script", 2, "Segoe Script"),
-	("Bold", 6, "Segoe UI Black"),
-	("Casual", 7, "Comic Sans MS"),
-	("Classic Serif Bold", 8, "Georgia"),
-	("Bold Headline", 9, "Impact"),
-	("Typewriter", 10, "Courier New"),
-];
+pub const STATUS_FONTS: [(&str, i32, &str); 3] =
+	[("Sans-Serif (Default)", 0, "Segoe UI"), ("Serif", 1, "Georgia"), ("Script", 2, "Segoe Script")];
+
+pub const STATUS_TEXT_MAX_CHARS: usize = 700;
+pub const STATUS_TEXT_MAX_LINES: usize = 10;
+pub const STATUS_CAPTION_MAX_CHARS: usize = 1024;
+
+/// Cuts the field back to the limits WhatsApp Web enforces; true when something was cut.
+fn clamp_field(field: &TextCtrl, max_chars: usize, max_lines: usize) -> bool {
+	let value = field.get_value();
+	let mut kept = String::new();
+	let mut lines = 1usize;
+	let mut count = 0usize;
+	let mut cut = false;
+	for ch in value.chars() {
+		if ch == '\n' {
+			if lines >= max_lines {
+				cut = true;
+				break;
+			}
+			lines += 1;
+		}
+		if count >= max_chars {
+			cut = true;
+			break;
+		}
+		kept.push(ch);
+		count += 1;
+	}
+	if cut {
+		field.set_value(&kept);
+		field.set_insertion_point_end();
+	}
+	cut
+}
 
 const POPULAR_EMOJIS: &[(&str, &str)] = &[
 	("❤️", "Red Heart"),
@@ -281,8 +319,12 @@ pub fn show_text_status_composer(
 		let count = count_label;
 		let field = text_field;
 		let preview_fn = update_preview.clone();
+		let ann = announcer;
 		text_field.on_text_changed(move |_| {
 			crate::ui::emoji_replace::text_changed(&field, true);
+			if clamp_field(&field, STATUS_TEXT_MAX_CHARS, STATUS_TEXT_MAX_LINES) {
+				crate::platform::announce::announce(ann, "Your status update can't exceed 700 characters or 10 lines.");
+			}
 			let len = field.get_value().chars().count();
 			count.set_label(&format!("{len} / 700 characters"));
 			preview_fn();
@@ -347,8 +389,7 @@ pub fn show_text_status_composer(
 			"data": {
 				"text": text,
 				"background_argb": bg,
-				"text_argb": 0xFFFF_FFFFu32,
-				"font": font_id,
+								"font": font_id,
 			}
 		});
 		let _ = state_send.borrow().ws_tx.send(payload.to_string());
@@ -444,9 +485,7 @@ fn build_media_status_dialog(
 	theme::style_muted_label(&file_label);
 	sizer.add(&file_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 12);
 
-	let file_field = TextCtrl::builder(&panel)
-		.with_style(dialog_look::field_style(TextCtrlStyle::ReadOnly))
-		.build();
+	let file_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::ReadOnly)).build();
 	file_field.set_font(&theme::Fonts::body());
 	file_field.set_value(&file_info);
 	sizer.add(&file_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 4);
@@ -458,6 +497,12 @@ fn build_media_status_dialog(
 	let caption_field =
 		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::MultiLine)).build();
 	caption_field.set_font(&theme::Fonts::body());
+	{
+		let field = caption_field;
+		caption_field.on_text_changed(move |_| {
+			clamp_field(&field, STATUS_CAPTION_MAX_CHARS, usize::MAX);
+		});
+	}
 	caption_field.set_min_size(Size::new(-1, 80));
 	sizer.add(&caption_field, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 

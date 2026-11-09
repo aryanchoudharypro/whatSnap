@@ -120,8 +120,13 @@ pub(crate) fn chat_visible_in_tab(
 		return false;
 	}
 	match tab {
-		0 => !archived.contains(jid) && !communities.contains(jid) && !channels.contains(jid),
-		3 => archived.contains(jid),
+		0 => {
+			!jid.ends_with("@newsletter")
+				&& !archived.contains(jid)
+				&& !communities.contains(jid)
+				&& !channels.contains(jid)
+		}
+		3 => !jid.ends_with("@newsletter") && archived.contains(jid),
 		4 => communities.contains(jid) || parents.get(jid).is_some_and(|p| communities.contains(p)),
 		5 => channels.contains(jid),
 		_ => true,

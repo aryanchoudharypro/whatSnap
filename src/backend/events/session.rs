@@ -357,10 +357,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							"No Secret Code configured.\n\nTo lock or unlock chats on linked devices, you must first create a Secret Code in WhatsApp on your primary phone:\n\n1. Open WhatsApp on your phone\n2. Go to Settings > Privacy > Chat Lock\n3. Tap 'Secret Code' and set a code.\n\nOnce set, it will sync to this device automatically.",
 						)
 					} else {
-						(
-							"Unlock Failed",
-							"Incorrect Secret Code.\n\nPlease check your secret code and try again.",
-						)
+						("Unlock Failed", "Incorrect Secret Code.\n\nPlease check your secret code and try again.")
 					};
 					let alert = MessageDialog::builder(&parts.frame, message, title)
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)

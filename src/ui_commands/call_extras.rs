@@ -1,5 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
+use live_region::Priority;
 use wxdragon::prelude::*;
 
 use crate::{
@@ -148,7 +149,7 @@ pub(crate) fn act_on_person(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let Some(call_id) = s.active_call_id.clone() else { return };
 	let Some(person) = selected_person(&s, parts) else {
 		drop(s);
-		announce_call(parts, "Select someone in the call first.");
+		announce_call(parts, "Select someone in the call first.", Priority::High);
 		return;
 	};
 	let action = if remove { "remove_call_participant" } else { "mute_call_participant" };
@@ -156,7 +157,7 @@ pub(crate) fn act_on_person(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	drop(s);
 	let what = if remove { "Removing" } else { "Asking" };
 	let tail = if remove { "from the call." } else { "to mute." };
-	announce_call(parts, &format!("{} {} {}", what, person.name, tail));
+	announce_call(parts, &format!("{} {} {}", what, person.name, tail), Priority::High);
 }
 
 fn muted_by(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
@@ -168,9 +169,9 @@ fn muted_by(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde
 	drop(s);
 	let name = text(data, "name");
 	if name.is_empty() {
-		announce_call(parts, "Someone in the call muted you.");
+		announce_call(parts, "Someone in the call muted you.", Priority::High);
 	} else {
-		announce_call(parts, &format!("{} muted you.", name));
+		announce_call(parts, &format!("{} muted you.", name), Priority::High);
 	}
 }
 
@@ -193,7 +194,7 @@ pub(crate) fn admit_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 		});
 	let Some(row) = chosen else {
 		drop(s);
-		announce_call(parts, "Select someone who wants to join first.");
+		announce_call(parts, "Select someone who wants to join first.", Priority::High);
 		return;
 	};
 	send(&s, "admit_call_participant", serde_json::json!({ "call_id": call_id, "jid": row.jid, "on": admit }));
@@ -236,7 +237,7 @@ pub(crate) fn join_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	let mut s = state.borrow_mut();
 	if s.active_call_id.is_some() || s.call_placing {
 		drop(s);
-		announce_call(parts, "You're already in a call.");
+		announce_call(parts, "You're already in a call.", Priority::High);
 		return;
 	}
 	send(&s, "join_call_link", serde_json::json!({ "link": token, "video": video }));
@@ -256,7 +257,7 @@ pub(crate) fn join_call_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	c.leave_btn.show(true);
 	c.frame.show(true);
 	drop(s);
-	announce_call(parts, "Joining call...");
+	announce_call(parts, "Joining call...", Priority::High);
 }
 
 pub(crate) fn toggle_hand(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>) {
@@ -273,7 +274,7 @@ pub(crate) fn react(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	}
 	let Some(emoji) = usize::try_from(choice.get_selection()).ok().and_then(|i| CALL_REACTIONS.get(i)) else { return };
 	send(&state.borrow(), "call_reaction", serde_json::json!({ "call_id": call_id, "emoji": emoji }));
-	announce_call(parts, &format!("You reacted {}.", emoji));
+	announce_call(parts, &format!("You reacted {}.", emoji), Priority::High);
 }
 
 pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t: &str, data: &serde_json::Value) {
@@ -289,9 +290,11 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"call_hand" => {
 			let raised = data.get("raised").and_then(|v| v.as_bool()).unwrap_or(false);
 			let verb = if raised { "raised" } else { "lowered" };
-			announce_call(parts, &format!("{} {} their hand.", text(data, "name"), verb));
+			announce_call(parts, &format!("{} {} their hand.", text(data, "name"), verb), Priority::High);
 		}
-		"call_reaction" => announce_call(parts, &format!("{} reacted {}.", text(data, "name"), text(data, "emoji"))),
+		"call_reaction" => {
+			announce_call(parts, &format!("{} reacted {}.", text(data, "name"), text(data, "emoji")), Priority::High)
+		}
 		"call_waiting_room" => waiting_room(state, parts, data),
 		"call_muted_by" => muted_by(state, parts, data),
 		"call_action_done" => match text(data, "what").as_str() {
@@ -300,7 +303,11 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 				s.call_video.hand_raised = on;
 				show_call_buttons(&s, parts);
 				drop(s);
-				announce_call(parts, if on { "Your hand is raised." } else { "You lowered your hand." });
+				announce_call(
+					parts,
+					if on { "Your hand is raised." } else { "You lowered your hand." },
+					Priority::High,
+				);
 			}
 			"approval" => {
 				let mut s = state.borrow_mut();
@@ -314,9 +321,12 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 					} else {
 						"Anyone with the link can now join straight away."
 					},
+					Priority::High,
 				);
 			}
-			"admit" => announce_call(parts, if on { "They're being let in." } else { "They won't be let in." }),
+			"admit" => {
+				announce_call(parts, if on { "They're being let in." } else { "They won't be let in." }, Priority::High)
+			}
 			_ => {}
 		},
 		"call_action_failed" => {
@@ -324,7 +334,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 				let s = state.borrow();
 				parts.call_parts.approval_check.set_value(s.call_video.approval_required);
 			}
-			announce_call(parts, &text(data, "message"));
+			announce_call(parts, &text(data, "message"), Priority::High);
 		}
 		_ => {}
 	}
@@ -333,7 +343,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 fn waiting_room(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	if data.get("waiting").and_then(|v| v.as_bool()).unwrap_or(false) {
 		parts.call_parts.status_label.set_label("Waiting for someone in the call to let you in...");
-		announce_call(parts, "Waiting for someone in the call to let you in.");
+		announce_call(parts, "Waiting for someone in the call to let you in.", Priority::High);
 		return;
 	}
 	let mut s = state.borrow_mut();
@@ -364,6 +374,7 @@ fn waiting_room(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 				crate::calls::helpers::join_names(&names),
 				verb
 			),
+			Priority::High,
 		);
 	}
 }

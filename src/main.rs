@@ -22,6 +22,7 @@ use std::{
 
 use audio::*;
 use backend::events::process_websocket_message;
+use live_region::Priority;
 pub use platform::clipboard::{copy_files_to_clipboard, copy_text};
 use rodio::Player;
 pub use types::*;
@@ -73,6 +74,15 @@ impl Default for PresenceModel {
 			next_idle_check: std::time::Instant::now() + PRESENCE_IDLE_CHECK_EVERY,
 			idle_armed_at_input: None,
 		}
+	}
+}
+
+impl AppState {
+	/// Whether the call window should say "Incoming". That wording only
+	/// applies while the call is still ringing; once it is answered and
+	/// connected the window shows "call with" the person.
+	fn call_shows_incoming(&self) -> bool {
+		self.call_is_incoming && self.active_call_audio.is_none()
 	}
 }
 
@@ -524,7 +534,7 @@ fn main() {
 				}
 				let secs = total.as_secs();
 				let info = calls::helpers::call_running_info_text(
-					s.call_is_incoming,
+					s.call_shows_incoming(),
 					s.call_video.is_video,
 					&s.call_peer_name,
 					secs,
@@ -709,7 +719,11 @@ fn main() {
 				s.call_video = CallVideo::default();
 				parts_typing_timer.call_parts.frame.show(false);
 				play_call_fail_sound(&mut s);
-				calls::helpers::announce_call(&parts_typing_timer, "No response - the call could not be answered.");
+				calls::helpers::announce_call(
+					&parts_typing_timer,
+					"No response - the call could not be answered.",
+					Priority::High,
+				);
 			}
 		});
 		typing_timer.start(5000, false);

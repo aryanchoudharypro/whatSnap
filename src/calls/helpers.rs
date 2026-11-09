@@ -93,7 +93,7 @@ pub(crate) fn call_participant_changes(old: &[CallParticipant], new: &[CallParti
 /// main window's message announcer reaches nobody - which is why camera
 /// toggles and "Call connected." were silent. Fall back to the main announcer
 /// once the call window is gone, so late teardown messages still land.
-pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
+pub(crate) fn announce_call(parts: &WindowParts, message: &str, priority: live_region::Priority) {
 	// Calls interrupt whatever the screen reader is saying; everything else
 	// waits its turn (see platform/announce.rs).
 	let label = if parts.call_parts.frame.is_shown() {
@@ -101,7 +101,7 @@ pub(crate) fn announce_call(parts: &WindowParts, message: &str) {
 	} else {
 		parts.conversations_parts.messages_announcer
 	};
-	live_region::announce_with_priority(label, message, live_region::Priority::High);
+	live_region::announce_with_priority(label, message, priority);
 }
 
 pub(crate) fn format_call_duration(seconds: u64) -> String {
@@ -123,8 +123,7 @@ pub(crate) fn call_running_info_text(
 	let kind = if is_video { " video call " } else { " call " };
 	let prep = if is_incoming { "from" } else { "to" };
 	let clock = format_call_duration(duration_secs);
-	let line2 =
-		if is_reconnecting { format!("Reconnecting... (Duration: {clock})") } else { format!("Duration: {clock}") };
+	let line2 = if is_reconnecting { format!("Reconnecting... ({clock})") } else { clock };
 	format!("{direction}{kind}{prep} {peer_name}\r\n{line2}")
 }
 
@@ -300,15 +299,12 @@ mod caller_info_tests {
 
 	#[test]
 	fn running_call_shows_direction_peer_and_formatted_duration() {
-		assert_eq!(call_running_info_text(true, false, "Asha", 0, false), "Incoming call from Asha\r\nDuration: 0:00");
-		assert_eq!(
-			call_running_info_text(true, true, "Asha", 42, false),
-			"Incoming video call from Asha\r\nDuration: 0:42"
-		);
-		assert_eq!(call_running_info_text(false, false, "Asha", 125, false), "Outgoing call to Asha\r\nDuration: 2:05");
+		assert_eq!(call_running_info_text(true, false, "Asha", 0, false), "Incoming call from Asha\r\n0:00");
+		assert_eq!(call_running_info_text(true, true, "Asha", 42, false), "Incoming video call from Asha\r\n0:42");
+		assert_eq!(call_running_info_text(false, false, "Asha", 125, false), "Outgoing call to Asha\r\n2:05");
 		assert_eq!(
 			call_running_info_text(false, true, "Asha", 65, true),
-			"Outgoing video call to Asha\r\nReconnecting... (Duration: 1:05)"
+			"Outgoing video call to Asha\r\nReconnecting... (1:05)"
 		);
 	}
 
@@ -451,22 +447,18 @@ pub(crate) fn clean_call_title_peer_name(raw_name: &str, is_saved: bool) -> Stri
 }
 
 /// Formats the title bar for call windows according to WhatsApp standards.
-/// NEVER includes raw phone digits.
+/// NEVER includes raw phone digits or duration (caller_info already shows duration).
 pub(crate) fn format_call_window_title(
 	is_incoming: bool,
 	is_group: bool,
 	is_video: bool,
 	peer_name: &str,
 	is_saved: bool,
-	duration_clock: Option<&str>,
+	_duration_clock: Option<&str>,
 ) -> String {
 	if is_group {
 		let kind = if is_video { "Group video call" } else { "Group voice call" };
-		if let Some(clock) = duration_clock {
-			format!("{kind} in {peer_name} ({clock})")
-		} else {
-			format!("{kind} in {peer_name}")
-		}
+		format!("{kind} in {peer_name}")
 	} else {
 		let title_name = clean_call_title_peer_name(peer_name, is_saved);
 		if is_incoming {
@@ -474,11 +466,7 @@ pub(crate) fn format_call_window_title(
 			format!("{kind} from {title_name}")
 		} else {
 			let kind = if is_video { "Video call" } else { "Voice call" };
-			if let Some(clock) = duration_clock {
-				format!("{kind} with {title_name} ({clock})")
-			} else {
-				format!("{kind} with {title_name}")
-			}
+			format!("{kind} with {title_name}")
 		}
 	}
 }
@@ -550,7 +538,6 @@ pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 		s.settings.call_output_device_name.as_deref(),
 	);
 	let is_video = s.call_video.video_call || s.call_video.is_video || s.call_video.local_camera_on;
-	parts.call_parts.camera_device_label.show(is_video);
 	parts.call_parts.camera_device_combo.show(is_video);
 	if is_video {
 		set_device_combo(
@@ -559,7 +546,7 @@ pub(crate) fn show_call_device_combos(s: &AppState, parts: &WindowParts) {
 			s.settings.camera_device_name.as_deref(),
 		);
 	}
-	parts.call_parts.devices_panel.layout();
+	parts.call_parts.frame.layout();
 }
 
 #[cfg(test)]
@@ -656,7 +643,7 @@ mod call_participant_tests {
 		);
 		assert_eq!(
 			format_call_window_title(false, false, false, "Shubham Sharma", true, Some("01:25")),
-			"Voice call with Shubham Sharma (01:25)"
+			"Voice call with Shubham Sharma"
 		);
 		assert_eq!(
 			format_call_window_title(false, false, true, "Aarav", false, None),
@@ -676,7 +663,7 @@ mod call_participant_tests {
 		);
 		assert_eq!(
 			format_call_window_title(false, true, false, "Dev Group", true, Some("04:12")),
-			"Group voice call in Dev Group (04:12)"
+			"Group voice call in Dev Group"
 		);
 	}
 }

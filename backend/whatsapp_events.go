@@ -1918,7 +1918,11 @@ func (acc *Account) eventHandler(evt interface{}) {
 				mentions = 1
 			}
 			movesChat := !v.Info.IsFromMe || sentMessageMovesChat(v.Message)
-			_, err := acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me, wire_jid, unread_mentions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			isChannelVal := 0
+			if chatJID.Server == types.NewsletterServer {
+				isChannelVal = 1
+			}
+			_, err := acc.db.Exec(`INSERT INTO chats (jid, timestamp, unread_count, preview_snippet, preview_sender, preview_from_me, wire_jid, unread_mentions, is_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(jid) DO UPDATE SET
 					timestamp=`+chatTimeAfter(movesChat)+`,
 					unread_count=chats.unread_count + excluded.unread_count,
@@ -1928,8 +1932,9 @@ func (acc *Account) eventHandler(evt interface{}) {
 					preview_from_me=excluded.preview_from_me,
 					preview_is_reaction=0,
 					preview_reaction_emoji='',
-					wire_jid=COALESCE(NULLIF(excluded.wire_jid, ''), chats.wire_jid)`,
-				jid, ts, increment, text, senderJID.String(), v.Info.IsFromMe, wireChat(v.Info.Chat, chatJID), mentions)
+					wire_jid=COALESCE(NULLIF(excluded.wire_jid, ''), chats.wire_jid),
+					is_channel=MAX(COALESCE(chats.is_channel, 0), excluded.is_channel)`,
+				jid, ts, increment, text, senderJID.String(), v.Info.IsFromMe, wireChat(v.Info.Chat, chatJID), mentions, isChannelVal)
 			if err != nil {
 				fmt.Println("Error updating chat timestamp:", err)
 			}
@@ -2225,6 +2230,9 @@ func (acc *Account) eventHandler(evt interface{}) {
 	case *events.Receipt:
 		if v.MessageSource.Chat == types.StatusBroadcastJID && !v.MessageSource.IsFromMe {
 			go acc.noteStatusViewers(v)
+		}
+		if v.MessageSource.Chat == types.StatusBroadcastJID && v.MessageSource.IsFromMe && (v.Type == types.ReceiptTypeRead || v.Type == types.ReceiptTypeReadSelf) {
+			go acc.noteStatusSeenElsewhere(v)
 		}
 		chatJID, senderJID := acc.resolveSourcePN(v.MessageSource)
 
