@@ -1385,6 +1385,9 @@ func (acc *Account) eventHandler(evt interface{}) {
 					if parseEvtErr != nil || evtMsg == nil {
 						continue
 					}
+					if acc.parkHistoryScheduled(chatJID, webMsg, evtMsg) {
+						continue
+					}
 					if pm := evtMsg.Message.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_REVOKE {
 						if targetID := pm.GetKey().GetID(); targetID != "" {
 							fromMe, revokeTS := evtMsg.Info.IsFromMe, evtMsg.Info.Timestamp.Unix()
@@ -1704,6 +1707,13 @@ func (acc *Account) eventHandler(evt interface{}) {
 				}()
 				return
 			}
+		}
+		if crm := unwrappedMsg.GetConditionalRevealMessage(); crm != nil && acc.receiveConditionalReveal(v, crm) {
+			return
+		}
+		if pm := unwrappedMsg.GetProtocolMessage(); pm != nil && pm.GetType() == waE2E.ProtocolMessage_MESSAGE_UNSCHEDULE {
+			acc.handleUnscheduleMessage(v, pm)
+			return
 		}
 		isEdit := v.IsEdit || v.Info.Edit == types.EditAttributeMessageEdit || (unwrappedMsg != nil && unwrappedMsg.GetProtocolMessage() != nil && unwrappedMsg.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT)
 		if isEdit {
@@ -2654,6 +2664,10 @@ func (acc *Account) eventHandler(evt interface{}) {
 		go acc.refreshBlocklist()
 	case *events.ABPropsRefreshed:
 		go acc.refreshServerFlags()
+	case *events.ScheduledMessageReveal:
+		acc.handleScheduledReveal(v)
+	case *events.ScheduledMessagePost:
+		acc.handleScheduledPost(v)
 	}
 }
 

@@ -360,6 +360,16 @@ func (acc *Account) dispatchCommand(conn net.Conn, cmd Command) {
 		acc.handleSearchMessages(conn, cmd.Data)
 	case "get_starred_messages":
 		acc.handleGetStarredMessages(conn)
+	case "get_schedule_options":
+		acc.handleGetScheduleOptions(conn, cmd.Data)
+	case "schedule_message":
+		go acc.handleScheduleMessage(conn, cmd.Data)
+	case "unschedule_message":
+		go acc.handleUnscheduleAction(conn, cmd.Data)
+	case "send_scheduled_now":
+		go acc.handleSendScheduledNow(conn, cmd.Data)
+	case "get_scheduled_messages":
+		acc.handleGetScheduledMessages(conn, cmd.Data)
 	case "export_chat":
 		acc.handleExportChat(conn, cmd.Data)
 	case "export_chat_text":

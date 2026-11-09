@@ -330,6 +330,9 @@ func (acc *Account) migrateDB() error {
 	if err := acc.ensureAvatarPreviews(); err != nil {
 		return err
 	}
+	if err := acc.ensureScheduledMessages(); err != nil {
+		return err
+	}
 
 	if _, err := acc.db.Exec(`CREATE TABLE IF NOT EXISTS blocked_contacts (jid TEXT PRIMARY KEY, pn TEXT DEFAULT '')`); err != nil {
 		return err

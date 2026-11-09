@@ -82,7 +82,10 @@ func (acc *Account) serverFlagInt(code, def int) int {
 }
 
 func (acc *Account) serverFlagsPayload() map[string]interface{} {
-	return map[string]interface{}{"channelPinning": acc.channelPinningEnabled()}
+	return map[string]interface{}{
+		"channelPinning":    acc.channelPinningEnabled(),
+		"scheduledMessages": acc.scheduledMessagesEnabled(),
+	}
 }
 
 func (acc *Account) handlePinChannelPost(conn net.Conn, raw json.RawMessage) {
