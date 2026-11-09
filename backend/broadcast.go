@@ -141,6 +141,10 @@ type ChatListEntry struct {
 	AdminsOnly           bool
 	NotMember            bool
 	IsBusiness           bool
+	// What else the chat list's search finds a person's chat by: push and
+	// business names, and their phone number's digits (also for a LID chat).
+	SearchNames []string `json:",omitempty"`
+	Phone       string   `json:",omitempty"`
 }
 
 func (acc *Account) buildChatsList() []ChatListEntry {
@@ -260,6 +264,11 @@ func (acc *Account) buildChatsList() []ChatListEntry {
 			}
 		}
 
+		var searchKeys chatSearchKeys
+		if errJid == nil {
+			searchKeys = acc.cachedSearchKeys(parsedJID)
+		}
+
 		chats = append(chats, ChatListEntry{
 			JID:                  jid,
 			FullName:             n,
@@ -286,6 +295,8 @@ func (acc *Account) buildChatsList() []ChatListEntry {
 			AdminsOnly:           adminsOnly == 1,
 			NotMember:            strings.HasSuffix(jid, "@g.us") && isCommunity == 0 && acc.knownNotMember(jid),
 			IsBusiness:           errJid == nil && acc.isBusinessChat(parsedJID, businessJIDs),
+			SearchNames:          searchKeys.names,
+			Phone:                searchKeys.phone,
 		})
 	}
 	// Pinned chats stay on top whatever comes in, as on the phone. The query

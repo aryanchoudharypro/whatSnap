@@ -52,6 +52,10 @@ pub(super) struct ChatRow<'a> {
 	pub(super) not_member: bool,
 	#[serde(rename = "IsBusiness", default)]
 	pub(super) is_business: bool,
+	#[serde(rename = "SearchNames", default)]
+	pub(super) search_names: Vec<String>,
+	#[serde(rename = "Phone", borrow, default)]
+	pub(super) phone: Cow<'a, str>,
 }
 
 #[derive(Deserialize)]
@@ -79,6 +83,8 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 	let mut display_names = std::collections::HashMap::new();
 	let mut contacts_map = std::collections::HashMap::new();
 	let mut row_art = std::collections::HashMap::new();
+	let mut search_keys = std::collections::HashMap::new();
+	let mut preview_lines = std::collections::HashMap::new();
 	for chat in &chats {
 		let jid: &str = &chat.jid;
 		if !jid.is_empty() {
@@ -269,6 +275,13 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			}
 			let display_name = parts_vec.join(" | ");
 			display_names.insert(jid.to_string(), display_name);
+			preview_lines.insert(jid.to_string(), preview_line);
+			if !chat.search_names.is_empty() || !chat.phone.is_empty() {
+				search_keys.insert(
+					jid.to_string(),
+					crate::ChatSearchKeys { names: chat.search_names.clone(), phone: chat.phone.to_string() },
+				);
+			}
 			contacts_map.insert(jid.to_string(), name);
 		}
 	}
@@ -301,74 +314,18 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 	}
 	s.unread_counts = unread_counts;
 	s.display_names = display_names;
+	s.chat_preview_lines = preview_lines;
+	s.chat_search_keys = search_keys;
 	if s.chat_row_art != row_art {
 		crate::ui::chat_rows::refresh();
 	}
 	s.chat_row_art = row_art;
 	refresh_tray_tooltip(&s, parts);
 
-	let lower_query = s.search_query.to_lowercase();
-	let mut new_filtered = Vec::new();
-	let mut new_display = Vec::new();
-	if s.active_tab != 1 && s.active_tab != 2 {
-		for jid in chats_in_tab_order(&s) {
-			if !chat_visible_in_tab(
-				s.active_tab,
-				jid,
-				&s.archived_jids,
-				&s.community_jids,
-				&s.chat_parents,
-				&s.channel_jids,
-				&s.locked_jids,
-				s.chats_unlocked,
-			) || !crate::ui::message_display::chat_passes_filter(&s, jid)
-			{
-				continue;
-			}
-			let name = s.contacts.get(jid).unwrap_or(jid);
-			if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
-				new_filtered.push(jid.clone());
-				new_display.push(s.display_names.get(jid).unwrap_or(name).clone());
-			}
-		}
-	}
-
-	let structure_changed = s.active_tab != 1
-		&& s.active_tab != 2
-		&& (new_filtered.len() != s.filtered_chats.len()
-			|| new_filtered.iter().zip(s.filtered_chats.iter()).any(|(a, b)| a != b));
-
-	// The Status and Starred tabs keep their own rows (and
-	// their own filtered_chats) - a chats refresh must leave
-	// them alone, or Enter on a row stops doing anything.
-	let own_rows_tab = s.active_tab == 1 || s.active_tab == 2 || s.active_tab == 6;
-	if !own_rows_tab && structure_changed {
-		drop(s);
-		apply_chat_filter(&mut state.borrow_mut(), parts);
-	} else if !own_rows_tab {
-		// Same rows in the same order: rewrite only the ones
-		// whose text actually changed. A chats broadcast lands
-		// every ~200ms during a sync, and rewriting every row
-		// each time was pure churn (and a screen reader can
-		// re-read a row whose text is set, even to itself).
-		let changed: Vec<usize> = new_display
-			.iter()
-			.enumerate()
-			.filter(|(i, dn)| s.displayed_chat_labels.get(*i) != Some(*dn))
-			.map(|(i, _)| i)
-			.collect();
-		if !changed.is_empty() {
-			parts.conversations_parts.conversations_list.freeze();
-			for &i in &changed {
-				parts.conversations_parts.conversations_list.set_string(i as u32, &new_display[i]);
-			}
-			parts.conversations_parts.conversations_list.thaw();
-		}
-		s.filtered_chats = new_filtered;
-		s.displayed_chat_labels = new_display;
-		drop(s);
-	} else {
-		drop(s);
-	}
+	// The Status, Starred and Calls tabs keep their own rows (and their own
+	// filtered_chats) - a chats refresh must leave them alone, or Enter on a
+	// row stops doing anything.
+	crate::ui::message_display::refresh_chat_rows(&mut s, parts);
+	drop(s);
 	crate::ui_commands::links::open_pending_whatsapp_link(state);
 }

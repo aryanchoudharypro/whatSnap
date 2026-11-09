@@ -15,10 +15,7 @@ func (acc *Account) cachedDisplayName(jid types.JID) string {
 	key := jid.String()
 	now := time.Now()
 	acc.displayNames.Lock()
-	if acc.displayNames.names == nil || now.After(acc.displayNames.expires) {
-		acc.displayNames.names = make(map[string]string)
-		acc.displayNames.expires = now.Add(displayNameTTL)
-	}
+	acc.resetExpiredDisplayNames(now)
 	name, ok := acc.displayNames.names[key]
 	acc.displayNames.Unlock()
 	if ok {
@@ -33,10 +30,85 @@ func (acc *Account) cachedDisplayName(jid types.JID) string {
 	return name
 }
 
+// resetExpiredDisplayNames starts both name caches afresh once they're stale.
+// The caller holds acc.displayNames.
+func (acc *Account) resetExpiredDisplayNames(now time.Time) {
+	if acc.displayNames.names == nil || now.After(acc.displayNames.expires) {
+		acc.displayNames.names = make(map[string]string)
+		acc.displayNames.search = make(map[string]chatSearchKeys)
+		acc.displayNames.expires = now.Add(displayNameTTL)
+	}
+}
+
 func (acc *Account) invalidateDisplayNames() {
 	acc.displayNames.Lock()
 	acc.displayNames.names = nil
+	acc.displayNames.search = nil
 	acc.displayNames.Unlock()
+}
+
+// chatSearchKeys is what else a person's chat can be found by in the chat
+// list's search, besides the name it shows: WA Web's contact search also
+// matches the push name, the verified business name, "Me" for yourself and
+// the phone number, including the one behind a LID chat.
+type chatSearchKeys struct {
+	names []string
+	phone string
+}
+
+func (acc *Account) cachedSearchKeys(jid types.JID) chatSearchKeys {
+	key := jid.String()
+	acc.displayNames.Lock()
+	acc.resetExpiredDisplayNames(time.Now())
+	keys, ok := acc.displayNames.search[key]
+	acc.displayNames.Unlock()
+	if ok {
+		return keys
+	}
+	keys = acc.resolveSearchKeys(jid)
+	acc.displayNames.Lock()
+	if acc.displayNames.search != nil {
+		acc.displayNames.search[key] = keys
+	}
+	acc.displayNames.Unlock()
+	return keys
+}
+
+func (acc *Account) resolveSearchKeys(jid types.JID) chatSearchKeys {
+	var keys chatSearchKeys
+	jid = jid.ToNonAD()
+	if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+		return keys
+	}
+	cli := acc.wa()
+	if cli == nil || cli.Store == nil || cli.Store.LIDs == nil || cli.Store.Contacts == nil {
+		return keys
+	}
+	pn, lid := acc.contactForms(jid)
+	// A phone-number chat's number is in its JID already; a LID chat's is not.
+	if !pn.IsEmpty() && jid.Server == types.HiddenUserServer {
+		keys.phone = pn.User
+	}
+	if cli.Store.ID != nil && pn.User == cli.Store.ID.User {
+		keys.names = append(keys.names, "Me")
+	}
+	seen := map[string]bool{}
+	for _, form := range []types.JID{pn, lid} {
+		if form.IsEmpty() {
+			continue
+		}
+		info, err := cli.Store.Contacts.GetContact(context.Background(), form)
+		if err != nil || !info.Found {
+			continue
+		}
+		for _, name := range []string{info.PushName, info.BusinessName} {
+			if name != "" && !seen[name] {
+				seen[name] = true
+				keys.names = append(keys.names, name)
+			}
+		}
+	}
+	return keys
 }
 
 type chatSettingsRow struct {

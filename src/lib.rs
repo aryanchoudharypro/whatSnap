@@ -3,6 +3,7 @@ pub mod local_time;
 pub mod markdown;
 pub mod phone;
 mod phone_data;
+pub mod search;
 pub use local_time::{Date, LocalTime};
 pub use markdown::{StyledSpan, TextStyle, coalesce_spans, parse_markdown_spans, strip_markdown_for_speech};
 

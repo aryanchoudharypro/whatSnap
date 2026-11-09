@@ -562,7 +562,11 @@ fn chat_list_focus_chat(s: &crate::AppState, list: &ListBox) -> Option<String> {
 	if matches!(s.active_tab, 1 | 2 | 6) || !list.has_focus() {
 		return None;
 	}
-	list.get_selection().and_then(|idx| s.filtered_chats.get(idx as usize).cloned())
+	let idx = list.get_selection()? as usize;
+	if s.filtered_message_ids.get(idx).is_some_and(|id| !id.is_empty()) {
+		return None;
+	}
+	s.filtered_chats.get(idx).filter(|jid| s.chats.contains(*jid)).cloned()
 }
 
 pub(crate) fn conversation_menu_chat(s: &crate::AppState) -> Option<&str> {
@@ -1208,9 +1212,23 @@ pub fn bind_input_handlers(
 		// never lands on someone else's row.
 		let in_step = s.displayed_chat_labels.get(index).is_some_and(|l| l == text);
 		let jid = s.filtered_chats.get(index).filter(|_| in_step).map_or("", String::as_str);
-		let chat_row = in_step && !matches!(s.active_tab, 1 | 2 | 6);
+		let chat_tab = in_step && !matches!(s.active_tab, 1 | 2 | 6);
+		// A message the chat list's search found, under its Messages heading.
+		if let Some(id) = s.filtered_message_ids.get(index).filter(|id| chat_tab && !id.is_empty()) {
+			return Some(match s.message_search.hits.iter().find(|h| h.message_id == *id) {
+				Some(hit) => crate::ui::chat_rows::RowArt {
+					jid: hit.jid.clone(),
+					title: hit.chat_name.clone(),
+					time: hit.date.clone(),
+					preview_prefix: format!("{}: ", hit.sender),
+					preview: hit.body.clone(),
+					..Default::default()
+				},
+				None => crate::ui::chat_rows::RowArt::from_text(jid, text),
+			});
+		}
 		match s.chat_row_art.get(jid) {
-			Some(art) if chat_row => {
+			Some(art) if chat_tab => {
 				let mut art = art.clone();
 				// Someone typing, as WhatsApp shows it in place of the last
 				// message (a typing that never got its "stopped" fades out).
@@ -1220,7 +1238,20 @@ pub fn bind_input_handlers(
 					Some(_) if fresh => Some("typing…"),
 					_ => None,
 				};
+				// An unsent draft, in place of the last message; typing wins.
+				if art.typing.is_none()
+					&& let Some(draft) = crate::ui::message_display::shown_draft(&s, jid)
+				{
+					art.preview_prefix = "Draft: ".to_string();
+					art.preview = draft;
+					art.icon = None;
+					art.ticks = None;
+					art.draft = true;
+				}
 				Some(art)
+			}
+			_ if chat_tab && jid.is_empty() => {
+				Some(crate::ui::chat_rows::RowArt { title: text.to_string(), heading: true, ..Default::default() })
 			}
 			_ if in_step && s.active_tab == 1 => {
 				let segments = s
@@ -3638,6 +3669,8 @@ pub fn bind_input_handlers(
 			} else if keys::is_escape(code) {
 				if is_editing {
 					let _ = tx_send_field.send(UiCommand::CancelEdit);
+				} else if state_field.borrow().pending_reply_id.is_some() {
+					let _ = tx_send_field.send(UiCommand::RemoveQuote);
 				} else {
 					let _ = tx_send_field.send(UiCommand::CloseConversation);
 				}
@@ -3686,6 +3719,8 @@ pub fn bind_input_handlers(
 	let search_panel_hook = parts.conversations_parts.search_panel;
 	let state_hook = state.clone();
 	let composer_hook = parts.conversations_parts.message_field;
+	let chat_search_hook = parts.conversations_parts.search_field;
+	let chat_list_hook = parts.conversations_parts.conversations_list;
 	parts.frame.bind_internal(wxdragon::event::EventType::CHAR_HOOK, move |event| {
 		let data = WindowEventData::new(event);
 		if let WindowEventData::Keyboard(ref key_event) = data
@@ -3695,8 +3730,25 @@ pub fn bind_input_handlers(
 				data.skip(true);
 				return;
 			}
+			// Escape in the chat list's search box clears the search, keeps
+			// the filter and takes the focus off the box, as in WA Web -
+			// before anything below closes the open chat instead.
+			if chat_search_hook.has_focus() {
+				if !chat_search_hook.get_value().is_empty() {
+					chat_search_hook.set_value("");
+				}
+				chat_list_hook.set_focus();
+				data.skip(false);
+				return;
+			}
 			if state_hook.borrow().chats_unlocked {
 				let _ = tx_escape_hook.send(UiCommand::CloseLockedChats);
+				data.skip(false);
+				return;
+			}
+			// The search in the open chat closes first, back to its messages.
+			if conv_panel_hook.is_shown() && search_panel_hook.is_shown() && !state_hook.borrow().selection_mode {
+				let _ = tx_escape_hook.send(UiCommand::CloseSearch);
 				data.skip(false);
 				return;
 			}
@@ -3711,6 +3763,8 @@ pub fn bind_input_handlers(
 					let _ = tx_escape_hook.send(UiCommand::DiscardRecording);
 				} else if state_hook.borrow().editing_message_id.is_some() {
 					let _ = tx_escape_hook.send(UiCommand::CancelEdit);
+				} else if state_hook.borrow().pending_reply_id.is_some() {
+					let _ = tx_escape_hook.send(UiCommand::RemoveQuote);
 				} else {
 					let _ = tx_escape_hook.send(UiCommand::CloseConversation);
 				}
@@ -3721,22 +3775,57 @@ pub fn bind_input_handlers(
 		data.skip(true);
 	});
 
+	// Chats and contacts are matched as each key is typed; message text is
+	// searched once typing pauses, as WA Web debounces it (300 ms).
+	let message_search_timer = Rc::new(Timer::new(&parts.frame));
+	let tx_message_search = ui_tx.clone();
+	message_search_timer.on_tick(move |_| {
+		let _ = tx_message_search.send(UiCommand::SearchAllMessages);
+	});
 	let tx_filter = ui_tx.clone();
 	let conv_search = parts.conversations_parts.search_field;
+	let message_search_typing = message_search_timer.clone();
 	conv_search.on_text_changed(move |_| {
 		let query = conv_search.get_value();
 		let _ = tx_filter.send(UiCommand::FilterConversations(query));
+		message_search_typing.stop();
+		message_search_typing.start(300, true);
 	});
 
+	// WA Web's search box keys: Enter opens the first result; Down (from the
+	// end of the text) goes to the first result, skipping headings.
 	let state_conv_search = state.clone();
 	let tx_search_enter = ui_tx.clone();
+	let conv_list_search = parts.conversations_parts.conversations_list;
 	conv_search.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			if keys::is_enter(code) && state_conv_search.borrow().active_tab == 6 {
+			let plain = !key_event.control_down() && !key_event.shift_down() && !key_event.alt_down();
+			let (active_tab, first_result) = {
+				let s = state_conv_search.borrow();
+				(s.active_tab, s.filtered_chats.iter().position(|jid| !jid.is_empty()))
+			};
+			if keys::is_enter(code) && active_tab == 6 {
 				let _ = tx_search_enter.send(UiCommand::PlaceCall);
 				event.skip(false);
 				return;
+			}
+			let chat_tab = !matches!(active_tab, 1 | 2 | 6);
+			if let Some(first) = first_result.filter(|_| chat_tab && plain) {
+				if keys::is_enter(code) && !conv_search.get_value().trim().is_empty() {
+					let _ = tx_search_enter.send(UiCommand::OpenConversation(first));
+					event.skip(false);
+					return;
+				}
+				if keys::is_down(code)
+					&& conv_search.get_insertion_point() >= conv_search.get_last_position()
+					&& (first as u32) < conv_list_search.get_count()
+				{
+					conv_list_search.set_focus();
+					conv_list_search.set_selection(first as u32, true);
+					event.skip(false);
+					return;
+				}
 			}
 		}
 		event.skip(true);
@@ -3808,9 +3897,13 @@ pub fn bind_input_handlers(
 			let lists_id = 4017;
 			let contact_info_id = 4040;
 			let notify_settings_id = 4041;
+			let channel_info_id = 4042;
 
 			let s = state_chat_ctx.borrow();
-			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
+			// Headings, contacts and messages found by a search aren't chats,
+			// so they have no chat menu.
+			let is_message = s.filtered_message_ids.get(idx as usize).is_some_and(|id| !id.is_empty());
+			let jid_opt = s.filtered_chats.get(idx as usize).filter(|j| !is_message && s.chats.contains(*j)).cloned();
 			if let Some(jid) = jid_opt {
 				let is_pinned = s.pinned_jids.contains(&jid);
 				let is_archived = s.archived_jids.contains(&jid);
@@ -3827,11 +3920,18 @@ pub fn bind_input_handlers(
 
 				let mut menu_builder = Menu::builder();
 				let is_person = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
+				let is_channel = jid.ends_with("@newsletter");
 				if is_person {
 					menu_builder = menu_builder.append_item(
 						contact_info_id,
 						"&Contact info",
 						"See this contact's info, call them, or edit or delete the contact",
+					);
+				} else if is_channel {
+					menu_builder = menu_builder.append_item(
+						channel_info_id,
+						"C&hannel info",
+						"See this channel's details without opening it",
 					);
 				}
 
@@ -3840,8 +3940,12 @@ pub fn bind_input_handlers(
 				let lock_label = if is_locked { "Un&lock chat" } else { "&Lock chat" };
 				let read_label = if is_unread { "Mark as &read" } else { "Mark as &unread" };
 
+				// WA Web has no Pin for an archived chat: unarchive it first.
+				let show_pin = !is_archived || is_pinned;
+				if show_pin {
+					menu_builder = menu_builder.append_item(pin_id, pin_label, "Pin or unpin chat");
+				}
 				menu_builder = menu_builder
-					.append_item(pin_id, pin_label, "Pin or unpin chat")
 					.append_item(archive_id, archive_label, "Archive or unarchive chat")
 					.append_item(lock_id, lock_label, "Lock or unlock chat")
 					.append_item(read_id, read_label, "Mark chat as read or unread");
@@ -3890,7 +3994,7 @@ pub fn bind_input_handlers(
 
 				let mut popup_menu = menu_builder.build();
 
-				let mute_pos = if is_person { 4 } else { 3 };
+				let mute_pos = usize::from(is_person || is_channel) + usize::from(show_pin) + 3;
 				if is_muted || !crate::ui_commands::chat_list::has_mute_durations(&jid) {
 					let label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
 					popup_menu.insert(mute_pos, mute_id, label, "Mute or unmute notifications", ItemKind::Normal);
@@ -3979,6 +4083,8 @@ pub fn bind_input_handlers(
 					let id = menu_evt.get_id();
 					if id == contact_info_id {
 						let _ = ui_tx_clone.send(UiCommand::ShowContactInfo(jid_clone.clone()));
+					} else if id == channel_info_id {
+						let _ = ui_tx_clone.send(UiCommand::ShowChannelInfo(jid_clone.clone()));
 					} else if id == notify_settings_id {
 						let _ = ui_tx_clone.send(UiCommand::ShowChatNotify { jid: jid_clone.clone() });
 					} else if id == pin_id {
@@ -4124,6 +4230,7 @@ pub fn bind_input_handlers(
 	let state_conv_delete = state.clone();
 	let tx_delete_call = ui_tx.clone();
 	let frame_chat_list_keys = parts.frame;
+	let chat_search_key = parts.conversations_parts.search_field;
 	parts.conversations_parts.conversations_list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			// The menu bar's shortcut handles these, unless the open chat's
@@ -4152,6 +4259,21 @@ pub fn bind_input_handlers(
 				open_chat_menu_key.as_ref()();
 				event.skip(false);
 				return;
+			}
+			// Up from the first search result goes back to the search box.
+			if keys::is_up(key_event.get_key_code()) {
+				let s = state_conv_delete.borrow();
+				let first = s.filtered_chats.iter().position(|jid| !jid.is_empty());
+				if !matches!(s.active_tab, 1 | 2 | 6)
+					&& !s.search_query.trim().is_empty()
+					&& first.is_some_and(|first| conv_list_key_delete.get_selection() == Some(first as u32))
+				{
+					drop(s);
+					chat_search_key.set_focus();
+					chat_search_key.set_insertion_point_end();
+					event.skip(false);
+					return;
+				}
 			}
 			if keys::is_delete(key_event.get_key_code())
 				&& !key_event.control_down()

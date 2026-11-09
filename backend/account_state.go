@@ -63,6 +63,7 @@ type Account struct {
 	displayNames               struct {
 		sync.Mutex
 		names   map[string]string
+		search  map[string]chatSearchKeys
 		expires time.Time
 	}
 	knownBusinesses        sync.Map

@@ -105,6 +105,18 @@ pub fn valid_digits(digits: &str) -> Option<String> {
 	is_valid_national(n.country, n.national).then(|| format!("{}{}", n.country.code, n.national))
 }
 
+/// A number typed the local way, put in the user's own country: their calling
+/// code in front, the trunk prefix taken off ("07700 900123" in the UK is
+/// "447700900123"), as WA Web's search does with trimTrunkPrefix.
+pub fn with_own_country(own_digits: &str, local: &str) -> Option<String> {
+	let own = parse(own_digits)?;
+	let national = match local.strip_prefix(own.country.national_prefix) {
+		Some(rest) if !own.country.national_prefix.is_empty() => rest,
+		_ => local,
+	};
+	Some(format!("{}{}", own.country.code, national))
+}
+
 fn is_valid_national(country: &Country, national: &str) -> bool {
 	let regions = country.regions;
 	let region = if regions.len() == 1 {
@@ -253,6 +265,13 @@ impl Node {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_local_number_takes_the_own_country_code() {
+		assert_eq!(with_own_country("447911123456", "07700900123").as_deref(), Some("447700900123"));
+		assert_eq!(with_own_country("919876543210", "98765").as_deref(), Some("9198765"));
+		assert_eq!(with_own_country("", "123"), None);
+	}
 
 	#[test]
 	fn formats_like_libphonenumber() {

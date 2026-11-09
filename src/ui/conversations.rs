@@ -470,7 +470,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let outer_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let left_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label("Search chats").build();
+	let search_label = StaticText::builder(&panel).with_label("Search or start a new chat").build();
 	theme::style_muted_label(&search_label);
 	left_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 

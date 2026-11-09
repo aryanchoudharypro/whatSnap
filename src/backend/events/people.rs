@@ -52,6 +52,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				});
 				let mut s = state.borrow_mut();
 				s.all_contacts = contacts;
+				// A search under way lists matching contacts too.
+				if !s.search_query.trim().is_empty() {
+					crate::ui::message_display::refresh_chat_rows(&mut s, parts);
+				}
 				let new_conv_shown = parts.new_conv_dialog.dialog.is_shown();
 				let new_group_shown = parts.new_group_dialog.dialog.is_shown();
 				let add_members_shown = parts.add_members_dialog.dialog.is_shown();

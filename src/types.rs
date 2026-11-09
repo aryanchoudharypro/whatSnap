@@ -91,6 +91,12 @@ pub enum UiCommand {
 	CancelPairing,
 	NavSelected(usize),
 	FilterConversations(String),
+	/// The chat list's search box settled: search message text too.
+	SearchAllMessages,
+	/// The chat list reached its last message result: ask for the next page.
+	MoreMessageResults,
+	/// A channel's details from the chat list, without opening the channel.
+	ShowChannelInfo(String),
 	OpenConversation(usize),
 	PromptLockedChats,
 	/// The Windows Hello prompt for locked chats finished: `outcome` is
@@ -466,6 +472,49 @@ pub(crate) struct StarredEntry {
 	pub(crate) sender_jid: String,
 	pub(crate) from_me: bool,
 	pub(crate) label: String,
+}
+
+/// What else the chat list's search finds a chat by, besides its name: push
+/// and business names, and its phone number's digits (see `whatsnap::search`).
+#[derive(Clone, Default)]
+pub(crate) struct ChatSearchKeys {
+	pub(crate) names: Vec<String>,
+	pub(crate) phone: String,
+}
+
+/// One message found by the chat list's search, under its Messages heading.
+#[derive(Clone)]
+pub(crate) struct MessageHit {
+	pub(crate) jid: String,
+	pub(crate) message_id: String,
+	pub(crate) chat_name: String,
+	pub(crate) sender: String,
+	pub(crate) body: String,
+	pub(crate) date: String,
+}
+
+impl MessageHit {
+	/// The row's text, which is also what a screen reader says for it.
+	pub(crate) fn label(&self) -> String {
+		let mut label = format!("{} | {}: {}", self.chat_name, self.sender, self.body);
+		if !self.date.is_empty() {
+			label.push_str(" | ");
+			label.push_str(&self.date);
+		}
+		label
+	}
+}
+
+/// The chat list search's message results: WA Web searches message text too,
+/// once the query is long enough, newest first and 30 at a time.
+#[derive(Default)]
+pub(crate) struct MessageSearch {
+	/// The query the results are for, as typed.
+	pub(crate) query: String,
+	pub(crate) hits: Vec<MessageHit>,
+	/// A page was asked for and hasn't come back yet.
+	pub(crate) pending: bool,
+	pub(crate) has_more: bool,
 }
 
 #[allow(dead_code)]

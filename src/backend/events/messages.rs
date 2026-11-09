@@ -1020,50 +1020,15 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let mut s = state.borrow_mut();
 				let mut entries = Vec::new();
 				for item in results {
-					let jid = item.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
-					let message_id = item.get("id").and_then(|m| m.as_str()).unwrap_or("").to_string();
-					if jid.is_empty() || message_id.is_empty() {
-						continue;
-					}
-					let from_me = item.get("fromMe").and_then(|f| f.as_bool()).unwrap_or(false);
-					let sender_name = item.get("senderName").and_then(|n| n.as_str()).unwrap_or("");
+					let Some(hit) = message_hit(&s, item) else { continue };
 					let sender_jid = item.get("senderJid").and_then(|n| n.as_str()).unwrap_or("").to_string();
-					let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
-					let quoted_text = item.get("quotedText").and_then(|t| t.as_str()).unwrap_or("");
-					let media_type = item.get("mediaType").and_then(|t| t.as_str()).unwrap_or("");
-					let timestamp = item.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
-
-					let chat_name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-					let sender = if from_me {
-						"You".to_string()
-					} else if !sender_name.is_empty() {
-						sender_name.to_string()
+					let from_me = item.get("fromMe").and_then(|f| f.as_bool()).unwrap_or(false);
+					let label = if hit.date.is_empty() {
+						format!("{} ({}): {}", hit.chat_name, hit.sender, hit.body)
 					} else {
-						chat_name.clone()
+						format!("{} ({}): {}, {}", hit.chat_name, hit.sender, hit.body, hit.date)
 					};
-					let body = if !text.is_empty() {
-						whatsnap::friendly_preview_text(text)
-					} else if !quoted_text.is_empty() {
-						whatsnap::friendly_preview_text(quoted_text)
-					} else if !media_type.is_empty() {
-						"Media".to_string()
-					} else {
-						"Message".to_string()
-					};
-					let date_str = if timestamp > 0 {
-						whatsnap::LocalTime::from_unix(timestamp)
-							.map(|local_dt| whatsnap::day_name(local_dt, "%b %e, %Y"))
-							.unwrap_or_default()
-					} else {
-						String::new()
-					};
-					let label = if date_str.is_empty() {
-						format!("{} ({}): {}", chat_name, sender, body)
-					} else {
-						format!("{} ({}): {}, {}", chat_name, sender, body, date_str)
-					};
-
-					entries.push(StarredEntry { jid, message_id, sender_jid, from_me, label });
+					entries.push(StarredEntry { jid: hit.jid, message_id: hit.message_id, sender_jid, from_me, label });
 				}
 				s.starred_entries = entries;
 				if s.active_tab == 2 {
@@ -1074,6 +1039,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"search_results" => {
 			if let Some(data) = val.get("data") {
 				let response_jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
+				// No chat: the chat list's search of every chat's messages.
+				if response_jid.is_empty() {
+					crate::ui_commands::chat_list::apply_message_search_results(state, parts, data);
+					return true;
+				}
 				if state.borrow().selected_chat.as_deref() != Some(response_jid) {
 					return true;
 				}

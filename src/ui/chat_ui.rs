@@ -408,6 +408,8 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	}
 	s.selected_chat = Some(jid.to_string());
 	crate::ui::window::refresh_menu_bar(&s, &parts.frame);
+	// The chat left behind may now show its draft, and this one no longer.
+	crate::ui::message_display::refresh_chat_rows(&mut s, parts);
 	clear_chat_notifications(jid);
 	let unread = s.unread_counts.get(jid).copied().unwrap_or(0);
 	s.unread_divider_jid = if unread > 0 { Some(jid.to_string()) } else { None };

@@ -586,11 +586,16 @@ func (acc *Account) handleGetStarredMessages(conn net.Conn) {
 	}()
 }
 
+// globalSearchPageSize is how many messages a search of every chat sends at
+// once, as WA Web's message search pages them.
+const globalSearchPageSize = 30
+
 func (acc *Account) handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 	var data SearchMessagesData
-	if err := json.Unmarshal(raw, &data); err != nil || data.Query == "" {
+	if err := json.Unmarshal(raw, &data); err != nil || data.Query == "" || (data.JID == "" && strings.TrimSpace(data.Query) == "") {
 		return
 	}
+	offset := max(data.Offset, 0)
 	go func() {
 		like := "%" + escapeLike(data.Query) + "%"
 		var rows *sql.Rows
@@ -602,13 +607,25 @@ func (acc *Account) handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
 				WHERE jid = ? AND text LIKE ? ESCAPE '\' AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, data.JID, like)
 		} else {
+			// Every word, in any order, as WA Web's message search matches.
+			words := strings.Fields(data.Query)
+			conds := make([]string, len(words))
+			wordArgs := make([]interface{}, len(words))
+			for i, word := range words {
+				conds[i] = `text LIKE ? ESCAPE '\'`
+				wordArgs[i] = "%" + escapeLike(word) + "%"
+			}
+			wordsLike := strings.Join(conds, " AND ")
 			rows, err = acc.db.Query(`SELECT id, jid, COALESCE(text,''), timestamp, from_me, COALESCE(sender_jid,''),
 				COALESCE(status,''), COALESCE(media_type,''), COALESCE(media_mimetype,''), COALESCE(media_filename,''), COALESCE(media_path,''),
 				COALESCE(quoted_id,''), COALESCE(quoted_text,''), COALESCE(quoted_sender,''), COALESCE(is_edited,0), COALESCE(is_deleted,0),
 				COALESCE(sent_at,0), COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(played_at,0), COALESCE(edited_at,0), COALESCE(starred,0) FROM messages
-				WHERE text LIKE ? ESCAPE '\' AND COALESCE(is_deleted, 0) = 0 ORDER BY timestamp ASC LIMIT 200`, like)
+				WHERE `+wordsLike+` AND COALESCE(is_deleted, 0) = 0 AND COALESCE(media_type, '') NOT IN ('system', 'call')
+				AND jid NOT IN (SELECT jid FROM chats WHERE COALESCE(is_locked, 0) = 1)
+				ORDER BY timestamp DESC LIMIT ? OFFSET ?`, append(wordArgs, globalSearchPageSize+1, offset)...)
 		}
 		results := []map[string]interface{}{}
+		hasMore := false
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -646,6 +663,12 @@ func (acc *Account) handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 				}
 			}
 			rows.Close()
+			// A search of every chat comes newest first, a page at a time, as
+			// in WA Web's chat list; one row past the page says more follow.
+			if data.JID == "" && len(results) > globalSearchPageSize {
+				results = results[:globalSearchPageSize]
+				hasMore = true
+			}
 			acc.fillSenderNames(results)
 		} else {
 			log.Println("Error searching messages:", err)
@@ -653,6 +676,8 @@ func (acc *Account) handleSearchMessages(conn net.Conn, raw json.RawMessage) {
 		acc.sendEvent(conn, "search_results", map[string]interface{}{
 			"jid":     data.JID,
 			"query":   data.Query,
+			"offset":  offset,
+			"hasMore": hasMore,
 			"results": results,
 		})
 	}()

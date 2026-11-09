@@ -28,6 +28,8 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		"Search or enter phone number to place call"
 	} else if idx == 1 {
 		"Search status updates"
+	} else if idx == 0 {
+		"Search or start a new chat"
 	} else {
 		"Search chats"
 	});
@@ -115,12 +117,91 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		_ => {}
 	}
 	parts.content_panel.layout();
+	if idx == 0 {
+		search_all_messages(state);
+	}
 }
 
 pub(crate) fn filter_conversations(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, query: String) {
 	let mut s = state.borrow_mut();
+	// A new search finds contacts too, so fetch the address book afresh.
+	if s.search_query.trim().is_empty() && !query.trim().is_empty() && s.active_tab == 0 {
+		let _ = s.ws_tx.send(serde_json::json!({ "action": "get_contacts" }).to_string());
+	}
 	s.search_query = query;
 	apply_chat_filter(&mut s, parts);
+}
+
+/// Whether the chat list's search also looks through message text: on the
+/// Chats tab with no filter, as in WA Web, once the query is long enough.
+fn searches_all_messages(s: &AppState) -> bool {
+	s.active_tab == 0
+		&& s.chat_filter == 0
+		&& !s.chats_unlocked
+		&& crate::ui::message_display::chat_search_query(s).searches_messages()
+}
+
+/// Searches every chat's messages for what's in the chat list's search box,
+/// once typing has paused, for the search results' Messages section.
+pub(crate) fn search_all_messages(state: &Rc<RefCell<AppState>>) {
+	let mut s = state.borrow_mut();
+	if !searches_all_messages(&s) {
+		s.message_search = crate::MessageSearch::default();
+		return;
+	}
+	if s.message_search.query == s.search_query {
+		return;
+	}
+	s.message_search = crate::MessageSearch { query: s.search_query.clone(), pending: true, ..Default::default() };
+	let payload = serde_json::json!({
+		"action": "search_messages",
+		"data": { "query": s.search_query.trim(), "offset": 0 }
+	});
+	let _ = s.ws_tx.send(payload.to_string());
+}
+
+/// The next page of message results, once the last one shown is reached.
+pub(crate) fn more_message_results(state: &Rc<RefCell<AppState>>) {
+	let mut s = state.borrow_mut();
+	let search = &s.message_search;
+	if search.pending || !search.has_more || search.query != s.search_query || !searches_all_messages(&s) {
+		return;
+	}
+	let payload = serde_json::json!({
+		"action": "search_messages",
+		"data": { "query": search.query.trim(), "offset": search.hits.len() }
+	});
+	s.message_search.pending = true;
+	let _ = s.ws_tx.send(payload.to_string());
+}
+
+/// A page of message results for the chat list's search came back.
+pub(crate) fn apply_message_search_results(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	data: &serde_json::Value,
+) {
+	let query = data.get("query").and_then(|q| q.as_str()).unwrap_or("");
+	let offset = data.get("offset").and_then(|o| o.as_u64()).unwrap_or(0) as usize;
+	let mut s = state.borrow_mut();
+	// An answer for an earlier query, or a page already had, is stale.
+	if !s.message_search.pending || s.message_search.query.trim() != query || offset != s.message_search.hits.len() {
+		return;
+	}
+	let results = data.get("results").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+	let hits: Vec<crate::MessageHit> =
+		results.iter().filter_map(|item| crate::backend::events::message_hit(&s, item)).collect();
+	s.message_search.hits.extend(hits);
+	s.message_search.has_more = data.get("hasMore").and_then(|m| m.as_bool()).unwrap_or(false);
+	s.message_search.pending = false;
+	apply_chat_filter(&mut s, parts);
+}
+
+/// A channel's details, asked for from the chat list without opening the
+/// channel, so it isn't marked read.
+pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, jid: String) {
+	let payload = serde_json::json!({ "action": "get_channel_info", "data": { "jid": jid } });
+	let _ = state.borrow().ws_tx.send(payload.to_string());
 }
 
 pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
@@ -167,13 +248,18 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		}
 		return;
 	}
-	let jid = state.borrow().filtered_chats.get(idx).cloned();
+	// Headings and notices have no chat behind them.
+	let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();
 	if let Some(ref jid) = jid {
-		if state.borrow().active_tab == 2 {
-			let msg_id = state.borrow().filtered_starred_message_ids.get(idx).cloned();
-			if let Some(msg_id) = msg_id {
-				state.borrow_mut().search_target_id = Some(msg_id);
+		let msg_id = {
+			let s = state.borrow();
+			match s.active_tab {
+				2 => s.filtered_starred_message_ids.get(idx).cloned(),
+				_ => s.filtered_message_ids.get(idx).filter(|id| !id.is_empty()).cloned(),
 			}
+		};
+		if let Some(msg_id) = msg_id {
+			state.borrow_mut().search_target_id = Some(msg_id);
 		}
 		open_chat_for_jid(jid, state, parts);
 		if state.borrow().community_jids.contains(jid) {
@@ -184,6 +270,14 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 
 pub(crate) fn conversation_selection_changed(idx: usize, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let active_tab = state.borrow().active_tab;
+	// Reaching the last message a search found loads the next page of them.
+	let last_message = {
+		let s = state.borrow();
+		idx + 1 == s.filtered_chats.len() && s.filtered_message_ids.get(idx).is_some_and(|id| !id.is_empty())
+	};
+	if last_message {
+		more_message_results(state);
+	}
 	if active_tab == 6 {
 		let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty()).cloned();
 		if let Some(jid) = jid {
@@ -592,6 +686,8 @@ pub(crate) fn close_search(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		let _ = state.borrow().ws_tx.send(payload.to_string());
 	}
 	parts.conversations_parts.conversation_panel.layout();
+	// Back to the chat's messages, rather than wherever the hidden box leaves it.
+	parts.conversations_parts.messages_list.set_focus();
 }
 
 pub(crate) fn jump_to_search_result(
@@ -770,6 +866,8 @@ pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	crate::ui_commands::voice::stop_voice_message(&mut s, parts);
 	s.selected_chat = None;
 	crate::ui::window::refresh_menu_bar(&s, &parts.frame);
+	// Its unsent text now shows in the chat list as a draft.
+	crate::ui::message_display::refresh_chat_rows(&mut s, parts);
 	clear_pending_reply(&mut s, parts);
 	parts.conversations_parts.conversation_panel.show(false);
 	release_conversation_buffers(&mut s, parts);
@@ -899,10 +997,15 @@ pub(crate) fn toggle_pin_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		let mut s = state.borrow_mut();
 		if pin {
 			s.pinned_jids.insert(jid.clone());
+			// Pinning unarchives too, as the backend sends it (a chat is
+			// never both), so the list shows it at once.
+			s.archived_jids.remove(&jid);
 		} else {
 			s.pinned_jids.remove(&jid);
 		}
-		s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
+		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+		apply_chat_filter(&mut s, parts);
+		name
 	};
 	let payload = serde_json::json!({
 		"action": "set_chat_pinned",
@@ -923,6 +1026,8 @@ pub(crate) fn toggle_archive_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		let mut s = state.borrow_mut();
 		if archive {
 			s.archived_jids.insert(jid.clone());
+			// Archiving unpins, as the backend does.
+			s.pinned_jids.remove(&jid);
 		} else {
 			s.archived_jids.remove(&jid);
 		}

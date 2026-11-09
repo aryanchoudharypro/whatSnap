@@ -69,6 +69,9 @@ pub(crate) struct RowArt {
 	pub pinned: bool,
 	pub muted: bool,
 	pub locked: bool,
+	/// The preview is the chat's unsent draft: its "Draft: " is in the accent
+	/// colour, as in WA Web.
+	pub draft: bool,
 }
 
 impl RowArt {
@@ -645,7 +648,7 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		gdi::text(
 			dc,
 			fonts.body,
-			c.muted,
+			if art.draft { c.accent } else { c.muted },
 			&art.preview_prefix,
 			rect(x, line2.0, line_right, line2.1),
 			Default::default(),

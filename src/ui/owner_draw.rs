@@ -519,6 +519,11 @@ fn paint_media(
 	gdi::text(dc, fonts.body, text_colour, text, rect(left, 0, width - pad, height), Default::default());
 }
 
+/// The signed-in account's own JID, without its device part.
+pub(crate) fn own_jid() -> String {
+	REGISTRY.with(|r| r.borrow().own_jid.clone())
+}
+
 pub(crate) fn set_own_jid(jid: &str) {
 	let bare = match jid.split_once('@') {
 		Some((user, server)) => format!("{}@{}", user.split(':').next().unwrap_or(user), server),

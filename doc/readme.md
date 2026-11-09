@@ -90,7 +90,7 @@ With more than one account, the window title starts with the name of the account
 The main window has three parts:
 
 - The Main Navigation list shows the sections of whatSnap: Chats, Status, Starred Messages, Archived Chats, Communities, Channels, and Calls.
-- The list of the current section, for example your chats. Above it are the `Search chats` field, the `Filters` box, and the `New Chat` button.
+- The list of the current section, for example your chats. Above it are the search field (`Search or start a new chat` in Chats), the `Filters` box, and the `New Chat` button.
 - The open chat. It has the Messages list and the message box.
 
 Use `Tab` and `Shift+Tab` to move between the controls. Use `Alt+1` through `Alt+7` to go to a section from anywhere. You can see these shortcuts in the Go menu.
@@ -114,10 +114,10 @@ An archived chat comes out of the archive when a new message comes in, unless `K
 ## Chats
 
 ### The Chat List
-Each chat in the list shows its name, the number of unread messages, and the last message. A group also says how many of its unread messages mention you, mention everyone or reply to you, for example "3 unread messages, 1 mention". Press `Enter` to open a chat. Press the Applications key or `Shift+F10` to open the actions menu of a chat. The menu has these items, when they apply to the chat:
+Each chat in the list shows its name, the number of unread messages, and the last message. A group also says how many of its unread messages mention you, mention everyone or reply to you, for example "3 unread messages, 1 mention". When you leave a chat with text you haven't sent, the chat shows "Draft:" and that text in place of the last message, like in WhatsApp Web, until you send it, delete it, or new messages come in. Press `Enter` to open a chat. Press the Applications key or `Shift+F10` to open the actions menu of a chat. The menu has these items, when they apply to the chat:
 
-- `Contact info`
-- `Pin chat` or `Unpin chat`
+- `Contact info`, or `Channel info` for a channel. `Channel info` shows the channel's details without opening it, so it isn't marked as read.
+- `Pin chat` or `Unpin chat`. An archived chat has no `Pin chat`; pinning a chat takes it out of the archive, and archiving a chat unpins it, like in WhatsApp Web.
 - `Archive chat` or `Unarchive chat`
 - `Lock chat` or `Unlock chat`
 - `Mark as read` or `Mark as unread`
@@ -133,7 +133,14 @@ Each chat in the list shows its name, the number of unread messages, and the las
 - `Notification settings...`
 
 ### Search and Filters
-Type in the `Search chats` field to find chats and messages. Press `Ctrl+/` to go to the field from anywhere.
+Type in the `Search or start a new chat` field to find chats, contacts and messages. Press `Ctrl+/` to go to the field from anywhere. Like in WhatsApp Web:
+
+- A chat is found by its name or group name, the person's WhatsApp name or business name, their phone number, or "Me" for your own chat. Capitals and accents don't matter, and when you type more than one word, each word must be in the same name, in any order. The text of the messages, the last message and drafts don't find a chat.
+- With the `All chats` filter, the results have up to three parts, each with a heading: `Chats`, including archived chats, then `Contacts` who have no chat yet, then `Messages` that contain what you typed, newest first. Messages are searched once you stop typing, when you type at least two letters, or one emoji. When you reach the last message found, whatSnap loads more. Press `Enter` on a message to open its chat at that message.
+- With another filter, only the chats of that filter are searched, and the field is named after it, for example `Search unread chats`.
+- In the field, `Enter` opens the first result, and `Down Arrow` at the end of the text goes to the first result. `Up Arrow` on the first result goes back to the field. `Escape` clears the search, keeps the filter, and moves to the chat list.
+
+When nothing is found, the list says "No chats, contacts or messages found". When a filter has no chats, the list says so, for example "No unread chats".
 
 The `Filters` box shows only some chats: All chats, Unread, Favorites, Groups, and your own chat lists. To make, rename, or delete chat lists, use `Chats -> Manage Lists...`. Your chat lists sync with your phone.
 
@@ -210,7 +217,7 @@ Type your message in the message box. If `Enter is send` is on in the settings, 
 
 New messages in the open chat are read aloud. To stop this for all chats, turn off `Read new messages aloud in the open chat` on the Notifications tab of the settings. To change it for one chat, use the notification settings of that chat, or press `Alt+L` in it. Messages you send yourself are not read, unless you turn on `Also read your own sent messages aloud`; they are then read once the message is sent.
 
-- To reply, press `R` on a message. The reply shows above the message box. To remove it, use `Remove quote`.
+- To reply, press `R` on a message. The reply shows above the message box. To remove it, use `Remove quote`, or press `Escape`.
 - To edit, press `E` on your message. To stop editing, press `Escape`, or use `Cancel edit`.
 - To mention someone in a group, type `@` and the first letters of their name.
 - `Alt+Shift+E` opens the emoji panel. `Alt+Shift+S` opens the stickers.
@@ -251,7 +258,7 @@ You can also use the `Record voice message`, `Pause recording`, `Play preview`, 
 ### Other Chat Actions
 The Conversation menu has more actions for the open chat. It shows only the ones that fit that chat. When the chat list has the focus, the shortcuts for `Mute Chat`, `Archive Chat`, `Pin Chat`, `Lock Chat` and `Mark as Unread` work on the chat you are on in the list, like in WhatsApp Web:
 
-- `Search in Chat` (`Ctrl+Shift+F`)
+- `Search in Chat` (`Ctrl+Shift+F`). `Escape` closes the search and goes back to the Messages list.
 - `Go to Date...`: asks for a date as year-month-day, like `2026-03-27`, and goes to the first message on or after that day. A date after the last message goes to the latest one.
 - `Pinned Messages...`, not in broadcast lists.
 - `Business Catalogue...`, only in a chat with a business.
@@ -464,7 +471,7 @@ You can't change these keys:
 - `Tab` and `Shift+Tab`: move between the controls.
 - `Up Arrow`, `Down Arrow`, `Page Up`, `Page Down`, `Home`, and `End`: move in a list.
 - `Enter`: open the selected item.
-- `Escape`: close the chat, or close a dialog.
+- `Escape`: in the search field of the chat list, clear the search. In the search of the open chat, close the search. While you reply to a message, remove the quote. Otherwise, close the chat, or close a dialog.
 - `Ctrl+C` and `Ctrl+V`: copy and paste.
 - `Shift+F10` or the Applications key: open the actions menu.
 - `Ctrl+Shift+Left Arrow` and `Ctrl+Shift+Right Arrow`: move a section in the Main Navigation list.

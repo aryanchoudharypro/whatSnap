@@ -36,8 +36,8 @@ use crate::{
 			sync_attach_contact_labels, sync_new_group_contact_labels,
 		},
 		message_display::{
-			InfoMediaLists, apply_chat_filter, chat_visible_in_tab, chats_in_tab_order, fill_info_media,
-			refresh_voice_action_button, update_action_buttons, update_loaded_message, update_loaded_messages,
+			InfoMediaLists, apply_chat_filter, fill_info_media, refresh_voice_action_button, update_action_buttons,
+			update_loaded_message, update_loaded_messages,
 		},
 		window::WindowParts,
 	},
@@ -67,6 +67,49 @@ pub(crate) fn format_conv_data_label(
 	} else {
 		presence_label.filter(|l| !l.is_empty()).map(|l| l.to_string()).unwrap_or_else(|| chat_name.to_string())
 	}
+}
+
+/// A message from a "starred_messages" or "search_results" event, as the
+/// Starred tab and the chat list's search results show it: which chat, who
+/// sent it, what it says and when.
+pub(crate) fn message_hit(s: &AppState, item: &serde_json::Value) -> Option<crate::MessageHit> {
+	fn text_of<'a>(item: &'a serde_json::Value, key: &str) -> &'a str {
+		item.get(key).and_then(|v| v.as_str()).unwrap_or("")
+	}
+	let (jid, message_id) = (text_of(item, "jid"), text_of(item, "id"));
+	if jid.is_empty() || message_id.is_empty() {
+		return None;
+	}
+	let from_me = item.get("fromMe").and_then(|f| f.as_bool()).unwrap_or(false);
+	let (sender_name, text, quoted_text, media_type) =
+		(text_of(item, "senderName"), text_of(item, "text"), text_of(item, "quotedText"), text_of(item, "mediaType"));
+	let timestamp = item.get("timestamp").and_then(|t| t.as_i64()).unwrap_or(0);
+
+	let chat_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
+	let sender = if from_me {
+		"You".to_string()
+	} else if !sender_name.is_empty() {
+		sender_name.to_string()
+	} else {
+		chat_name.clone()
+	};
+	let body = if !text.is_empty() {
+		whatsnap::friendly_preview_text(text)
+	} else if !quoted_text.is_empty() {
+		whatsnap::friendly_preview_text(quoted_text)
+	} else if !media_type.is_empty() {
+		"Media".to_string()
+	} else {
+		"Message".to_string()
+	};
+	let date = if timestamp > 0 {
+		whatsnap::LocalTime::from_unix(timestamp)
+			.map(|local_dt| whatsnap::day_name(local_dt, "%b %e, %Y"))
+			.unwrap_or_default()
+	} else {
+		String::new()
+	};
+	Some(crate::MessageHit { jid: jid.to_string(), message_id: message_id.to_string(), chat_name, sender, body, date })
 }
 
 pub(crate) fn call_log(parts: &WindowParts, state: &AppState, event: &str, call_id: &str) {

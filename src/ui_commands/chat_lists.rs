@@ -55,8 +55,15 @@ pub(crate) fn set_filter(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 	let mut s = state.borrow_mut();
 	s.chat_filter = idx;
 	apply_chat_filter(&mut s, parts);
-	let count = s.filtered_chats.len();
+	// Only the chats: not headings, contacts or messages a search found.
+	let count = s
+		.filtered_chats
+		.iter()
+		.zip(&s.filtered_message_ids)
+		.filter(|(jid, message_id)| message_id.is_empty() && s.chats.contains(*jid))
+		.count();
 	drop(s);
+	crate::ui_commands::chat_list::search_all_messages(state);
 	announce(state, parts, &count_chats(count));
 }
 

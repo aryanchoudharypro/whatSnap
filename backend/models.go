@@ -76,6 +76,8 @@ type StarMessageData struct {
 type SearchMessagesData struct {
 	Query string `json:"query"`
 	JID   string `json:"jid"`
+	// Offset pages through a search of every chat (no JID), 30 at a time.
+	Offset int `json:"offset"`
 }
 
 type MessageRefData struct {

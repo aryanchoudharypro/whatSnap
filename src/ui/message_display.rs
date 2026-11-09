@@ -203,6 +203,261 @@ pub(crate) fn chat_passes_filter(s: &AppState, jid: &str) -> bool {
 	}
 }
 
+/// A chat tab's rows: chats, and while searching the Chats tab, WA Web's
+/// Chats, Contacts and Messages sections. Headings and notices have an empty
+/// jid; `message_ids` holds the message behind a message result's row.
+#[derive(Default)]
+pub(crate) struct ChatTabRows {
+	pub(crate) jids: Vec<String>,
+	pub(crate) labels: Vec<String>,
+	pub(crate) message_ids: Vec<String>,
+}
+
+impl ChatTabRows {
+	fn push(&mut self, jid: &str, label: String, message_id: &str) {
+		self.jids.push(jid.to_string());
+		self.labels.push(label);
+		self.message_ids.push(message_id.to_string());
+	}
+
+	fn notice(&mut self, text: &str) {
+		self.push("", text.to_string(), "");
+	}
+}
+
+/// What the chat list's search box is called, as WA Web's placeholder says
+/// it for each filter.
+fn chat_search_label(s: &AppState) -> &'static str {
+	if s.active_tab != 0 || s.chats_unlocked {
+		return "Search chats";
+	}
+	match s.chat_filter {
+		1 => "Search unread chats",
+		2 => "Search favourite chats",
+		3 => "Search group chats",
+		_ => "Search or start a new chat",
+	}
+}
+
+/// The chat list's search query, ready to match chats against.
+pub(crate) fn chat_search_query(s: &AppState) -> whatsnap::search::Query {
+	let own = crate::ui::owner_draw::own_jid();
+	whatsnap::search::Query::new(&s.search_query, own.strip_suffix("@s.whatsapp.net"))
+}
+
+/// The digits of a chat's phone number: the one the backend found for it
+/// (also behind a LID), or the number in a phone-number JID.
+fn chat_phone<'a>(s: &'a AppState, jid: &'a str) -> Option<&'a str> {
+	s.chat_search_keys
+		.get(jid)
+		.map(|k| k.phone.as_str())
+		.filter(|p| !p.is_empty())
+		.or_else(|| jid.strip_suffix("@s.whatsapp.net"))
+}
+
+/// WA Web's chat search: the chat's name or group subject, push and business
+/// names, and phone number - never its messages, preview or draft.
+fn chat_matches(s: &AppState, jid: &str, query: &whatsnap::search::Query) -> bool {
+	let mut names: Vec<&str> = s.contacts.get(jid).map(String::as_str).into_iter().collect();
+	if let Some(keys) = s.chat_search_keys.get(jid) {
+		names.extend(keys.names.iter().map(String::as_str));
+	}
+	query.matches(&whatsnap::search::Searchable { names: &names, phone: chat_phone(s, jid) })
+}
+
+/// The unsent text WA Web shows as "Draft: ..." in place of a chat's last
+/// message: not for the open chat, nor one with unread messages.
+pub(crate) fn shown_draft(s: &AppState, jid: &str) -> Option<String> {
+	if s.selected_chat.as_deref() == Some(jid) || s.unread_counts.get(jid).is_some_and(|&n| n > 0) {
+		return None;
+	}
+	let draft = s.draft_messages.get(jid)?.split_whitespace().collect::<Vec<_>>().join(" ");
+	(!draft.is_empty()).then_some(draft)
+}
+
+/// A chat's row text, which is what a screen reader says for it: name, unread
+/// count, time and last message, or the draft in the last message's place.
+pub(crate) fn chat_row_label(s: &AppState, jid: &str) -> String {
+	let label = s.display_names.get(jid).or_else(|| s.contacts.get(jid)).map_or(jid, String::as_str);
+	let Some(draft) = shown_draft(s, jid) else { return label.to_string() };
+	let head = match s.chat_preview_lines.get(jid).filter(|p| !p.is_empty()) {
+		Some(preview) => label.strip_suffix(preview.as_str()).and_then(|h| h.strip_suffix(" | ")).unwrap_or(label),
+		None => label,
+	};
+	format!("{head} | Draft: {draft}")
+}
+
+fn contact_label(contact: &crate::Contact) -> String {
+	if !contact.name.is_empty() {
+		return contact.name.clone();
+	}
+	whatsnap::phone::format_international(&contact.phone).unwrap_or_else(|| format!("+{}", contact.phone))
+}
+
+/// The rows of the Chats, Archived, Communities and Channels tabs.
+pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
+	let query = chat_search_query(s);
+	let searching = !query.is_empty();
+	// WA Web searches every chat, archived ones too, unless a filter is on.
+	let full_search = searching && s.active_tab == 0 && s.chat_filter == 0 && !s.chats_unlocked;
+	let visible = |tab: usize, jid: &str| {
+		chat_visible_in_tab(
+			tab,
+			jid,
+			&s.archived_jids,
+			&s.community_jids,
+			&s.chat_parents,
+			&s.channel_jids,
+			&s.locked_jids,
+			s.chats_unlocked,
+		)
+	};
+	let chats: Vec<&String> = chats_in_tab_order(s)
+		.into_iter()
+		.filter(|jid| visible(s.active_tab, jid) || (full_search && visible(3, jid)))
+		.filter(|jid| chat_passes_filter(s, jid))
+		.filter(|jid| !searching || chat_matches(s, jid, &query))
+		.collect();
+
+	let mut rows = ChatTabRows::default();
+	if !searching {
+		for jid in &chats {
+			rows.push(jid, chat_row_label(s, jid), "");
+		}
+		if rows.jids.is_empty() {
+			push_empty_state(s, &mut rows);
+		}
+		return rows;
+	}
+	if !full_search {
+		for jid in &chats {
+			rows.push(jid, chat_row_label(s, jid), "");
+		}
+		if rows.jids.is_empty() && s.chats_unlocked {
+			rows.notice("No locked chats found");
+		} else if rows.jids.is_empty() {
+			push_empty_state(s, &mut rows);
+			if rows.jids.is_empty() {
+				rows.notice("No results");
+			}
+		}
+		return rows;
+	}
+
+	// Contacts with no chat in the list at all, so a chat that's there (or
+	// locked away) never shows up a second time as a contact.
+	let chat_jids: std::collections::HashSet<&str> = s.chats.iter().map(String::as_str).collect();
+	let chat_phones: std::collections::HashSet<&str> = s.chats.iter().filter_map(|jid| chat_phone(s, jid)).collect();
+	let contacts: Vec<&crate::Contact> = s
+		.all_contacts
+		.iter()
+		.filter(|c| !chat_jids.contains(c.jid.as_str()) && !s.locked_jids.contains(&c.jid))
+		.filter(|c| c.phone.is_empty() || !chat_phones.contains(c.phone.as_str()))
+		.filter(|c| {
+			let names = [c.name.as_str()];
+			let phone = Some(c.phone.as_str()).filter(|p| !p.is_empty());
+			query.matches(&whatsnap::search::Searchable { names: &names, phone })
+		})
+		.collect();
+	let current = s.message_search.query == s.search_query;
+	let hits: Vec<&crate::MessageHit> = if current {
+		s.message_search.hits.iter().filter(|h| !s.locked_jids.contains(&h.jid)).collect()
+	} else {
+		Vec::new()
+	};
+
+	if !chats.is_empty() {
+		rows.notice("Chats");
+		for jid in &chats {
+			rows.push(jid, chat_row_label(s, jid), "");
+		}
+	}
+	if !contacts.is_empty() {
+		rows.notice("Contacts");
+		for contact in &contacts {
+			rows.push(&contact.jid, contact_label(contact), "");
+		}
+	}
+	if !hits.is_empty() {
+		rows.notice("Messages");
+		for hit in &hits {
+			rows.push(&hit.jid, hit.label(), &hit.message_id);
+		}
+	}
+	if rows.jids.is_empty() {
+		let looking = query.searches_messages() && (!current || s.message_search.pending);
+		rows.notice(if looking {
+			"Looking for chats, contacts or messages\u{2026}"
+		} else {
+			"No chats, contacts or messages found"
+		});
+	}
+	rows
+}
+
+/// What WA Web's chat list says when a filter or tab has no chats.
+fn push_empty_state(s: &AppState, rows: &mut ChatTabRows) {
+	if s.chats_unlocked {
+		rows.notice("You have no locked chats");
+		return;
+	}
+	match s.active_tab {
+		0 => match s.chat_filter {
+			0 => {}
+			1 => {
+				rows.notice("No unread chats");
+				rows.notice("You're all caught up.");
+			}
+			2 => rows.notice("No favourite chats"),
+			3 => rows.notice("No groups found"),
+			n => {
+				if let Some(list) = s.chat_lists.get(n - BUILT_IN_CHAT_FILTERS.len()) {
+					rows.notice(&format!("No {} chats", list.name));
+				}
+			}
+		},
+		3 => rows.notice("No archived chats"),
+		5 => rows.notice("No channels"),
+		_ => {}
+	}
+}
+
+/// Brings the chat list's rows up to date after chats' names, previews or
+/// drafts changed: a changed row's text is rewritten in place, and only a
+/// change in which rows there are refills the list.
+pub(crate) fn refresh_chat_rows(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
+	if matches!(s.active_tab, 1 | 2 | 6) {
+		return;
+	}
+	let rows = chat_tab_rows(s);
+	if rows.jids != s.filtered_chats
+		|| rows.message_ids != s.filtered_message_ids
+		|| rows.labels.len() != s.displayed_chat_labels.len()
+	{
+		apply_chat_filter(s, parts);
+		return;
+	}
+	// A chats broadcast lands every ~200ms during a sync, and rewriting every
+	// row each time was pure churn (and a screen reader can re-read a row
+	// whose text is set, even to itself).
+	let list = &parts.conversations_parts.conversations_list;
+	let changed: Vec<usize> = rows
+		.labels
+		.iter()
+		.enumerate()
+		.filter(|(i, l)| s.displayed_chat_labels.get(*i) != Some(*l))
+		.map(|(i, _)| i)
+		.collect();
+	if !changed.is_empty() {
+		list.freeze();
+		for &i in &changed {
+			list.set_string(i as u32, &rows.labels[i]);
+		}
+		list.thaw();
+	}
+	s.displayed_chat_labels = rows.labels;
+}
+
 pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::WindowParts) {
 	crate::ui::window::refresh_menu_bar(s, &parts.frame);
 	crate::platform::tray::refresh_nav_unread_labels(s, parts);
@@ -212,6 +467,12 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	let btn_label = if s.chats_unlocked { "Hide Locked Chats" } else { "Locked Chats" };
 	if conv.locked_chats_btn.get_label() != btn_label {
 		conv.locked_chats_btn.set_label(btn_label);
+	}
+	if matches!(s.active_tab, 0 | 3 | 4 | 5) {
+		let search_label = chat_search_label(s);
+		if conv.search_label.get_label() != search_label {
+			conv.search_label.set_label(search_label);
+		}
 	}
 	if conv.locked_chats_btn.is_shown() != show_locked_btn || conv.chat_filter_combo.is_shown() != show_filter {
 		conv.locked_chats_btn.show(show_locked_btn);
@@ -226,12 +487,19 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		.conversations_list
 		.get_selection()
 		.and_then(|i| s.filtered_chats.get(i as usize).cloned());
+	let list_selected_message = parts
+		.conversations_parts
+		.conversations_list
+		.get_selection()
+		.and_then(|i| s.filtered_message_ids.get(i as usize).cloned())
+		.filter(|id| !id.is_empty());
 
 	let mut filtered = Vec::new();
 	let mut labels = Vec::new();
 	let mut filtered_starred_ids = Vec::new();
 	let mut filtered_status_ids = Vec::new();
 	let mut filtered_call_ids: Vec<String> = Vec::new();
+	let mut filtered_message_ids: Vec<String> = Vec::new();
 	let selected_index = list_selected_index(parts);
 	let selected_call_id = selected_index
 		.filter(|_| s.active_tab == 6)
@@ -386,30 +654,14 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			.collect();
 		push_section("All contacts", all);
 	} else {
-		for jid in chats_in_tab_order(s) {
-			if !chat_visible_in_tab(
-				s.active_tab,
-				jid,
-				&s.archived_jids,
-				&s.community_jids,
-				&s.chat_parents,
-				&s.channel_jids,
-				&s.locked_jids,
-				s.chats_unlocked,
-			) || !chat_passes_filter(s, jid)
-			{
-				continue;
-			}
-
-			let name = s.contacts.get(jid).unwrap_or(jid);
-			if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
-				labels.push(s.display_names.get(jid).unwrap_or(name).clone());
-				filtered.push(jid.clone());
-			}
-		}
+		let rows = chat_tab_rows(s);
+		filtered = rows.jids;
+		labels = rows.labels;
+		filtered_message_ids = rows.message_ids;
 	}
 
 	s.filtered_chats = filtered;
+	s.filtered_message_ids = filtered_message_ids;
 	s.filtered_starred_message_ids = filtered_starred_ids;
 	s.filtered_status_message_ids = filtered_status_ids;
 	s.filtered_call_ids = filtered_call_ids;
@@ -436,6 +688,11 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		// One row gone, like a deleted call: take just that row out, so the
 		// list isn't refilled and read out again from the top.
 		list.delete(idx as u32);
+	} else if !s.displayed_chat_labels.is_empty() && labels.starts_with(&s.displayed_chat_labels) {
+		// More rows at the end, like the next page of search results.
+		for label in &labels[s.displayed_chat_labels.len()..] {
+			list.append(label);
+		}
 	} else {
 		list.set_items(&labels.iter().map(String::as_str).collect::<Vec<_>>());
 	}
@@ -450,8 +707,10 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			(from..len).chain((0..from).rev()).find(|&i| !s.filtered_call_ids.get(i).is_none_or(|c| c.is_empty()))
 		})
 	});
+	let message_target = list_selected_message.and_then(|id| s.filtered_message_ids.iter().position(|m| *m == id));
 	let target = call_target
 		.flatten()
+		.or(message_target)
 		.or_else(|| list_selected_jid.as_ref().and_then(|jid| s.filtered_chats.iter().position(|j| j == jid)))
 		.or_else(|| s.selected_chat.as_ref().and_then(|sel| s.filtered_chats.iter().position(|j| j == sel)));
 	if let Some(idx) = target {
@@ -462,7 +721,12 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	}
 
 	if (had_focus || list.has_focus()) && list.get_selection().is_none() && list.get_count() > 0 {
-		list.set_selection(0_u32, true);
+		let first = if matches!(s.active_tab, 1 | 2 | 6) {
+			0
+		} else {
+			s.filtered_chats.iter().position(|j| !j.is_empty()).unwrap_or(0)
+		};
+		list.set_selection(first.min(list.get_count() as usize - 1) as u32, true);
 	}
 
 	if had_focus {
