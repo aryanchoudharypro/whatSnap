@@ -309,7 +309,7 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 		let target_label = if let Some(ref preview) = s.pending_reply_preview {
 			preview.split_once(": ").map_or(preview.as_str(), |(who, _)| who)
 		} else {
-			group_send_block_reason(s, jid).unwrap_or("Type a message")
+			group_send_block_reason(s, jid).unwrap_or(if jid.ends_with("@newsletter") { "Type an update" } else { "Type a message" })
 		};
 		if cp.message_label.get_label() != target_label {
 			cp.message_label.set_label(target_label);
@@ -489,8 +489,11 @@ pub(crate) fn group_send_block_reason(s: &AppState, jid: &str) -> Option<&'stati
 /// enables it again everywhere else.
 pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str) {
 	let is_blocked = crate::ui_commands::blocking::is_blocked(s, jid);
+	let is_channel_readonly = jid.ends_with("@newsletter") && !crate::ui_commands::links::can_post_in_channel(s, jid);
 	let reason = if is_blocked {
 		Some("You blocked this contact. Click to unblock.")
+	} else if is_channel_readonly {
+		Some("Channels are read-only. Only admins can post updates.")
 	} else {
 		group_send_block_reason(s, jid)
 	};
@@ -512,7 +515,7 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	} else {
 		cp.blocked_banner_btn.show(false);
 		if s.editing_message_id.is_none() && s.pending_reply_preview.is_none() {
-			let label = reason.unwrap_or("Type a message");
+			let label = reason.unwrap_or(if jid.ends_with("@newsletter") { "Type an update" } else { "Type a message" });
 			if cp.message_label.get_label() != label {
 				cp.message_label.set_label(label);
 			}

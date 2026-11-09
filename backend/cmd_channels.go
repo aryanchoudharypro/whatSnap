@@ -561,6 +561,10 @@ func (acc *Account) handleFollowChannel(raw json.RawMessage, follow bool) {
 			acc.broadcastEvent("error", map[string]string{"message": fmt.Sprintf("Couldn't %s this channel: %v", verb, err)})
 			return
 		}
+		if !follow {
+			acc.purgeMessages("jid = ?", data.JID)
+			acc.db.Exec(`DELETE FROM chats WHERE jid = ?`, data.JID)
+		}
 		acc.syncFollowedChannels()
 		acc.broadcastEvent("channel_follow_changed", map[string]interface{}{"jid": data.JID, "following": follow})
 	}()
