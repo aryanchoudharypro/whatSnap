@@ -55,7 +55,7 @@ pub(crate) fn set_filter(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 	let mut s = state.borrow_mut();
 	s.chat_filter = idx;
 	apply_chat_filter(&mut s, parts);
-	let count = s.filtered_chats.len();
+	let count = s.filtered_chats.iter().filter(|j| !j.is_empty() && j.as_str() != "no_chats_found_placeholder").count();
 	drop(s);
 	announce(state, parts, &count_chats(count));
 }

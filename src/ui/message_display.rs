@@ -397,10 +397,70 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			}
 
 			let name = s.contacts.get(jid).unwrap_or(jid);
-			if lower_query.is_empty() || name.to_lowercase().contains(&lower_query) {
+			let matches = if lower_query.is_empty() {
+				true
+			} else {
+				let matches_name = name.to_lowercase().contains(&lower_query);
+				let matches_jid = jid.to_lowercase().contains(&lower_query);
+				let matches_phone = {
+					let raw_user = jid.split('@').next().unwrap_or(jid);
+					let digits = raw_user.split(':').next().unwrap_or(raw_user);
+					if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
+						digits.contains(&lower_query)
+							|| whatsnap::phone::format_international(digits)
+								.map(|p| p.to_lowercase().contains(&lower_query))
+								.unwrap_or(false)
+					} else {
+						false
+					}
+				};
+				let matches_preview = s
+					.chat_row_art
+					.get(jid)
+					.map(|art| art.preview.to_lowercase().contains(&lower_query))
+					.unwrap_or(false);
+				let matches_draft = s
+					.draft_messages
+					.get(jid)
+					.map(|d| d.to_lowercase().contains(&lower_query))
+					.unwrap_or(false);
+				let matches_display = s
+					.display_names
+					.get(jid)
+					.map(|d| d.to_lowercase().contains(&lower_query))
+					.unwrap_or(false);
+
+				matches_name || matches_jid || matches_phone || matches_preview || matches_draft || matches_display
+			};
+			if matches {
 				labels.push(s.display_names.get(jid).unwrap_or(name).clone());
 				filtered.push(jid.clone());
 			}
+		}
+		if filtered.is_empty() {
+			let empty_msg = if !lower_query.is_empty() {
+				"No chats found"
+			} else if s.chats_unlocked {
+				"No locked chats"
+			} else if s.active_tab == 3 {
+				"No archived chats"
+			} else if s.active_tab == 4 {
+				"No communities"
+			} else if s.active_tab == 5 {
+				"No channels"
+			} else if s.active_tab == 0 {
+				match s.chat_filter {
+					1 => "No unread chats",
+					2 => "No favorites yet",
+					3 => "No groups found",
+					n if n >= BUILT_IN_CHAT_FILTERS.len() => "No chats in this list",
+					_ => "No chats",
+				}
+			} else {
+				"No chats found"
+			};
+			labels.push(empty_msg.to_string());
+			filtered.push("no_chats_found_placeholder".to_string());
 		}
 	}
 

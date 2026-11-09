@@ -49,6 +49,8 @@ pub(crate) fn send_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		crate::ui_commands::mentions::close(&mut s, &parts.conversations_parts);
 		parts.conversations_parts.message_field.set_value("");
 		crate::ui::chat_ui::update_composer_buttons(&s, &parts.conversations_parts);
+		crate::ui::chat_ui::refresh_chat_display_name(&mut s, jid);
+		crate::ui::message_display::apply_chat_filter(&mut s, parts);
 	}
 }
 

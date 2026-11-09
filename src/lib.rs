@@ -198,6 +198,10 @@ pub fn friendly_preview_text(text: &str) -> String {
 		let rest = rest.trim();
 		return if rest.is_empty() { "Quiz".to_string() } else { format!("Quiz: {}", rest) };
 	}
+	if let Some(rest) = text.strip_prefix("[GIF]") {
+		let rest = rest.trim();
+		return if rest.is_empty() { "GIF".to_string() } else { format!("GIF: {}", rest) };
+	}
 	match text {
 		"[Location]" => "Location".to_string(),
 		"[Message deleted]" => "This message was deleted".to_string(),

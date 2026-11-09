@@ -167,7 +167,7 @@ pub(crate) fn open_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		}
 		return;
 	}
-	let jid = state.borrow().filtered_chats.get(idx).cloned();
+	let jid = state.borrow().filtered_chats.get(idx).filter(|j| !j.is_empty() && j.as_str() != "no_chats_found_placeholder").cloned();
 	if let Some(ref jid) = jid {
 		if state.borrow().active_tab == 2 {
 			let msg_id = state.borrow().filtered_starred_message_ids.get(idx).cloned();
@@ -899,10 +899,13 @@ pub(crate) fn toggle_pin_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		let mut s = state.borrow_mut();
 		if pin {
 			s.pinned_jids.insert(jid.clone());
+			s.archived_jids.remove(&jid);
 		} else {
 			s.pinned_jids.remove(&jid);
 		}
-		s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone())
+		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
+		apply_chat_filter(&mut s, parts);
+		name
 	};
 	let payload = serde_json::json!({
 		"action": "set_chat_pinned",
@@ -923,6 +926,7 @@ pub(crate) fn toggle_archive_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		let mut s = state.borrow_mut();
 		if archive {
 			s.archived_jids.insert(jid.clone());
+			s.pinned_jids.remove(&jid);
 		} else {
 			s.archived_jids.remove(&jid);
 		}

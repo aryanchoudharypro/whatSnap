@@ -4,7 +4,7 @@ use windows::Win32::{
 	Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
 	Graphics::Gdi::{
 		BitBlt, COLOR_GRAYTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT,
-		CreateCompatibleBitmap, CreateCompatibleDC, DT_CENTER, DT_RIGHT, DeleteDC, DeleteObject, GetDC, GetObjectW,
+		CreateCompatibleBitmap, CreateCompatibleDC, DT_CENTER, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, GetDC, GetObjectW,
 		GetSysColor, GetTextMetricsW, HDC, HFONT, HGDIOBJ, InvalidateRect, LOGFONTW, ReleaseDC, SRCCOPY, SelectObject,
 		SetBkMode, TEXTMETRICW, TRANSPARENT,
 	},
@@ -184,6 +184,7 @@ pub(crate) fn preview_icon(raw: &str) -> (Option<char>, String) {
 		("[Poll]", icon::POLL),
 		("[Quiz]", icon::POLL),
 		("[Sticker]", icon::STICKER),
+		("[GIF]", icon::VIDEO),
 		("[Message deleted]", icon::DELETED),
 	]
 	.iter()
@@ -475,8 +476,26 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 	}
 
 	if art.heading {
-		let colour = if theme::use_custom_colours() { c.accent } else { c.text };
-		gdi::text(dc, fonts.small_bold, colour, &art.title, rect(pad, 0, width - pad, height), Default::default());
+		if art.title.starts_with("No ") {
+			gdi::text(
+				dc,
+				fonts.body,
+				c.muted,
+				&art.title,
+				rect(pad, 0, width - pad, height),
+				DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+			);
+		} else {
+			let colour = if theme::use_custom_colours() { c.accent } else { c.text };
+			gdi::text(
+				dc,
+				fonts.small_bold,
+				colour,
+				&art.title,
+				rect(pad, 0, width - pad, height),
+				DT_VCENTER | DT_SINGLELINE,
+			);
+		}
 		return;
 	}
 
@@ -642,10 +661,11 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		}
 	}
 	if !art.preview_prefix.is_empty() {
+		let prefix_colour = if art.preview_prefix.starts_with("Draft:") { c.accent } else { c.muted };
 		gdi::text(
 			dc,
 			fonts.body,
-			c.muted,
+			prefix_colour,
 			&art.preview_prefix,
 			rect(x, line2.0, line_right, line2.1),
 			Default::default(),

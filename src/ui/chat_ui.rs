@@ -141,6 +141,28 @@ pub(crate) fn clear_unread_divider_for_open_chat(s: &mut AppState, parts: &Windo
 	refresh_selection_list(s, parts);
 }
 
+pub(crate) fn refresh_chat_display_name(s: &mut AppState, jid: &str) {
+	if let Some(name) = s.contacts.get(jid).cloned() {
+		let unread = s.unread_counts.get(jid).copied().unwrap_or(0);
+		let mut parts_vec = Vec::new();
+		parts_vec.push(name);
+		if unread > 0 {
+			parts_vec.push(format!("{} unread", unread));
+		}
+		if let Some(draft) = s.draft_messages.get(jid).filter(|d| !d.trim().is_empty()) {
+			parts_vec.push(format!("Draft: {}", draft.replace('\n', " ").trim()));
+		} else if let Some(art) = s.chat_row_art.get(jid) {
+			if !art.time.is_empty() {
+				parts_vec.push(art.time.clone());
+			}
+			if !art.preview.is_empty() {
+				parts_vec.push(art.preview.clone());
+			}
+		}
+		s.display_names.insert(jid.to_string(), parts_vec.join(" | "));
+	}
+}
+
 /// Saves whatever is currently sitting in the composer into `draft_messages`
 /// under the chat that's about to be left, if any - so switching away (to
 /// another chat, or closing the conversation entirely) never silently
@@ -151,12 +173,16 @@ pub(crate) fn save_composer_draft(s: &mut AppState, parts: &WindowParts) {
 	let text = parts.conversations_parts.message_field.get_value();
 	let mentions = std::mem::take(&mut s.composer_mentions);
 	crate::ui_commands::mentions::close(s, &parts.conversations_parts);
-	if text.trim().is_empty() {
-		s.draft_messages.remove(&prev_jid);
-		s.draft_mentions.remove(&prev_jid);
+	let changed = if text.trim().is_empty() {
+		s.draft_messages.remove(&prev_jid).is_some()
 	} else {
-		s.draft_messages.insert(prev_jid.clone(), text);
-		s.draft_mentions.insert(prev_jid, mentions);
+		let old = s.draft_messages.insert(prev_jid.clone(), text.clone());
+		s.draft_mentions.insert(prev_jid.clone(), mentions);
+		old.as_deref() != Some(&text)
+	};
+	if changed {
+		refresh_chat_display_name(s, &prev_jid);
+		crate::ui::message_display::apply_chat_filter(s, parts);
 	}
 }
 
@@ -370,6 +396,9 @@ pub(crate) fn chat_status_label(s: &AppState, jid: &str) -> String {
 }
 
 pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if jid.is_empty() || jid == "no_chats_found_placeholder" {
+		return;
+	}
 	{
 		let mut s = state.borrow_mut();
 		if s.locked_jids.contains(jid) && !s.chats_unlocked {

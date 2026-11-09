@@ -79,6 +79,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 	let mut display_names = std::collections::HashMap::new();
 	let mut contacts_map = std::collections::HashMap::new();
 	let mut row_art = std::collections::HashMap::new();
+	let drafts = state.borrow().draft_messages.clone();
 	for chat in &chats {
 		let jid: &str = &chat.jid;
 		if !jid.is_empty() {
@@ -210,7 +211,15 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			} else if !preview.is_empty() {
 				let body = whatsnap::friendly_preview_text(preview);
 				if preview_from_me {
-					format!("You: {}", body)
+					let status_desc = match &*chat.preview_status {
+						"read" | "played" => "Read, ",
+						"delivered" => "Delivered, ",
+						"sent" => "Sent, ",
+						"pending" | "uploading" => "Sending, ",
+						"failed" => "Failed, ",
+						_ => "",
+					};
+					format!("{}You: {}", status_desc, body)
 				} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
 					format!("{}: {}", preview_sender, body)
 				} else {
@@ -220,7 +229,10 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 				String::new()
 			};
 
-			let (preview_prefix, icon, preview_text) = if preview.is_empty() {
+			let draft = drafts.get(jid).filter(|d| !d.trim().is_empty());
+			let (preview_prefix, icon, preview_text) = if let Some(d) = draft {
+				("Draft: ".to_string(), None, d.replace('\n', " ").trim().to_string())
+			} else if preview.is_empty() {
 				(String::new(), None, String::new())
 			} else if preview_is_reaction && !preview_reaction_emoji.is_empty() {
 				(String::new(), None, preview_line.clone())
@@ -235,6 +247,13 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			};
 			let extra: Vec<&str> =
 				tags.iter().map(|t| t.as_ref()).filter(|t| !matches!(*t, "Pinned" | "Muted" | "Locked")).collect();
+			let ticks = if draft.is_some() {
+				None
+			} else if preview_from_me && !preview_is_reaction && !preview.is_empty() {
+				Some(crate::ui::message_art::ticks_for(&chat.preview_status))
+			} else {
+				None
+			};
 			row_art.insert(
 				jid.to_string(),
 				crate::ui::chat_rows::RowArt {
@@ -245,8 +264,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 					preview_prefix,
 					icon,
 					preview: preview_text,
-					ticks: (preview_from_me && !preview_is_reaction && !preview.is_empty())
-						.then(|| crate::ui::message_art::ticks_for(&chat.preview_status)),
+					ticks,
 					unread: unread.min(u32::MAX as u64) as u32,
 					mention: mentions > 0,
 					pinned,
@@ -264,7 +282,11 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			if !time_str.is_empty() {
 				parts_vec.push(&time_str);
 			}
-			if !preview_line.is_empty() {
+			let draft_line;
+			if let Some(d) = draft {
+				draft_line = format!("Draft: {}", d.replace('\n', " ").trim());
+				parts_vec.push(&draft_line);
+			} else if !preview_line.is_empty() {
 				parts_vec.push(&preview_line);
 			}
 			let display_name = parts_vec.join(" | ");

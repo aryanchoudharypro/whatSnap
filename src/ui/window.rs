@@ -1208,6 +1208,13 @@ pub fn bind_input_handlers(
 		// never lands on someone else's row.
 		let in_step = s.displayed_chat_labels.get(index).is_some_and(|l| l == text);
 		let jid = s.filtered_chats.get(index).filter(|_| in_step).map_or("", String::as_str);
+		if jid == "no_chats_found_placeholder" {
+			return Some(crate::ui::chat_rows::RowArt {
+				title: text.to_string(),
+				heading: true,
+				..Default::default()
+			});
+		}
 		let chat_row = in_step && !matches!(s.active_tab, 1 | 2 | 6);
 		match s.chat_row_art.get(jid) {
 			Some(art) if chat_row => {
@@ -1220,6 +1227,14 @@ pub fn bind_input_handlers(
 					Some(_) if fresh => Some("typing…"),
 					_ => None,
 				};
+				if art.typing.is_none() {
+					if let Some(draft) = s.draft_messages.get(jid).filter(|d| !d.trim().is_empty()) {
+						art.preview_prefix = "Draft: ".to_string();
+						art.preview = draft.replace('\n', " ").trim().to_string();
+						art.icon = None;
+						art.ticks = None;
+					}
+				}
 				Some(art)
 			}
 			_ if in_step && s.active_tab == 1 => {
@@ -3485,6 +3500,8 @@ pub fn bind_input_handlers(
 			} else if keys::is_escape(code) {
 				if is_editing {
 					let _ = tx_send_field.send(UiCommand::CancelEdit);
+				} else if state_field.borrow().pending_reply_id.is_some() {
+					let _ = tx_send_field.send(UiCommand::RemoveQuote);
 				} else {
 					let _ = tx_send_field.send(UiCommand::CloseConversation);
 				}
@@ -3558,6 +3575,8 @@ pub fn bind_input_handlers(
 					let _ = tx_escape_hook.send(UiCommand::DiscardRecording);
 				} else if state_hook.borrow().editing_message_id.is_some() {
 					let _ = tx_escape_hook.send(UiCommand::CancelEdit);
+				} else if state_hook.borrow().pending_reply_id.is_some() {
+					let _ = tx_escape_hook.send(UiCommand::RemoveQuote);
 				} else {
 					let _ = tx_escape_hook.send(UiCommand::CloseConversation);
 				}
@@ -3577,11 +3596,36 @@ pub fn bind_input_handlers(
 
 	let state_conv_search = state.clone();
 	let tx_search_enter = ui_tx.clone();
+	let conv_list_for_search = parts.conversations_parts.conversations_list;
 	conv_search.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key_event) = event {
 			let code = key_event.get_key_code();
-			if keys::is_enter(code) && state_conv_search.borrow().active_tab == 6 {
-				let _ = tx_search_enter.send(UiCommand::PlaceCall);
+			if keys::is_enter(code) {
+				if state_conv_search.borrow().active_tab == 6 {
+					let _ = tx_search_enter.send(UiCommand::PlaceCall);
+					event.skip(false);
+					return;
+				} else if conv_list_for_search.get_count() > 0 {
+					conv_list_for_search.set_focus();
+					if conv_list_for_search.get_selection().is_none() {
+						conv_list_for_search.set_selection(0, true);
+					}
+					event.skip(false);
+					return;
+				}
+			} else if keys::is_down(code) && conv_list_for_search.get_count() > 0 {
+				conv_list_for_search.set_focus();
+				if conv_list_for_search.get_selection().is_none() {
+					conv_list_for_search.set_selection(0, true);
+				}
+				event.skip(false);
+				return;
+			} else if keys::is_escape(code) {
+				if !conv_search.get_value().is_empty() {
+					conv_search.set_value("");
+					let _ = tx_search_enter.send(UiCommand::FilterConversations(String::new()));
+				}
+				conv_list_for_search.set_focus();
 				event.skip(false);
 				return;
 			}
@@ -3659,6 +3703,9 @@ pub fn bind_input_handlers(
 			let s = state_chat_ctx.borrow();
 			let jid_opt = s.filtered_chats.get(idx as usize).cloned();
 			if let Some(jid) = jid_opt {
+				if jid.is_empty() || jid == "no_chats_found_placeholder" {
+					return;
+				}
 				let is_pinned = s.pinned_jids.contains(&jid);
 				let is_archived = s.archived_jids.contains(&jid);
 				let is_locked = s.locked_jids.contains(&jid);
@@ -3674,11 +3721,24 @@ pub fn bind_input_handlers(
 
 				let mut menu_builder = Menu::builder();
 				let is_person = jid.ends_with("@s.whatsapp.net") || jid.ends_with("@lid");
+				let is_channel = jid.ends_with("@newsletter");
 				if is_person {
 					menu_builder = menu_builder.append_item(
 						contact_info_id,
 						"&Contact info",
 						"See this contact's info, call them, or edit or delete the contact",
+					);
+				} else if is_group {
+					menu_builder = menu_builder.append_item(
+						contact_info_id,
+						"&Group info",
+						"See this group's info, members, description, and media",
+					);
+				} else if is_channel {
+					menu_builder = menu_builder.append_item(
+						contact_info_id,
+						"&Channel info",
+						"See this channel's info and description",
 					);
 				}
 
@@ -3825,7 +3885,12 @@ pub fn bind_input_handlers(
 				popup_menu.on_selected(move |menu_evt| {
 					let id = menu_evt.get_id();
 					if id == contact_info_id {
-						let _ = ui_tx_clone.send(UiCommand::ShowContactInfo(jid_clone.clone()));
+						if is_person {
+							let _ = ui_tx_clone.send(UiCommand::ShowContactInfo(jid_clone.clone()));
+						} else {
+							let _ = ui_tx_clone.send(UiCommand::OpenChatByJid(jid_clone.clone()));
+							let _ = ui_tx_clone.send(UiCommand::ShowConversationData);
+						}
 					} else if id == notify_settings_id {
 						let _ = ui_tx_clone.send(UiCommand::ShowChatNotify { jid: jid_clone.clone() });
 					} else if id == pin_id {
@@ -5923,6 +5988,20 @@ pub fn bind_input_handlers(
 			}
 			msgs_list_search_focus.set_selection(selected_idx, true);
 		}
+	});
+
+	let tx_search_esc = ui_tx.clone();
+	let msgs_list_esc = parts.conversations_parts.messages_list;
+	search_field_ref.on_key_down(move |event| {
+		if let WindowEventData::Keyboard(ref key_event) = event {
+			if keys::is_escape(key_event.get_key_code()) {
+				let _ = tx_search_esc.send(UiCommand::CloseSearch);
+				msgs_list_esc.set_focus();
+				event.skip(false);
+				return;
+			}
+		}
+		event.skip(true);
 	});
 
 	let tx_record = ui_tx.clone();
