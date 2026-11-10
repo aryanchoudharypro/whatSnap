@@ -363,6 +363,11 @@ func (acc *Account) sameChat(notified types.JID, rec *scheduledRecord) bool {
 				return true
 			}
 		}
+		if notified.Server == types.DefaultUserServer && jid.Server == types.HiddenUserServer {
+			if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), jid); err == nil && pn.User == notified.User {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -450,7 +455,7 @@ func historyScheduledInner(msg *waE2E.Message) *waE2E.Message {
 		return &waE2E.Message{VideoMessage: msg.GetVideoMessage()}
 	}
 	text, _ := whatsmeow.ExtractScheduledMessageText(msg)
-	if ctx := msg.GetExtendedTextMessage().GetContextInfo(); ctx.GetExpiration() > 0 || ctx.EphemeralSettingTimestamp != nil {
+	if ctx := msg.GetExtendedTextMessage().GetContextInfo(); ctx != nil && (ctx.GetExpiration() > 0 || ctx.GetEphemeralSettingTimestamp() != 0) {
 		return &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
 			Text: proto.String(text),
 			ContextInfo: &waE2E.ContextInfo{
@@ -487,11 +492,18 @@ type scheduledChatData struct {
 }
 
 func (acc *Account) scheduledResult(conn net.Conn, chat, action string, err error, done string) {
+	acc.scheduledResultWithText(conn, chat, action, err, done, "")
+}
+
+func (acc *Account) scheduledResultWithText(conn net.Conn, chat, action string, err error, done, text string) {
 	payload := map[string]interface{}{"jid": chat, "action": action, "ok": err == nil}
 	if err != nil {
 		payload["message"] = err.Error()
 	} else {
 		payload["message"] = done
+	}
+	if text != "" {
+		payload["text"] = text
 	}
 	acc.sendEvent(conn, "scheduled_result", payload)
 }
@@ -595,7 +607,11 @@ func (acc *Account) handleScheduleMessage(conn net.Conn, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	fail := func(err error) { acc.scheduledResult(conn, data.JID, "schedule", err, "") }
+	fail := func(err error) { acc.scheduledResultWithText(conn, data.JID, "schedule", err, "", data.Text) }
+	if !acc.scheduledMessagesEnabled() {
+		fail(errors.New("WhatsApp hasn't turned on scheduling messages for your account yet."))
+		return
+	}
 	jid, err := types.ParseJID(data.JID)
 	if err != nil || !schedulableChat(jid) {
 		fail(errors.New("Messages can't be scheduled in this chat."))

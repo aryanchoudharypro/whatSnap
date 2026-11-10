@@ -5953,6 +5953,11 @@ pub fn bind_input_handlers(
 						});
 						drop(s);
 						if let Some(msg) = msg_opt {
+							if msg.id.starts_with("system_scheduled_") || msg.text == "You scheduled a message" {
+								let _ = tx_invite_enter.send(UiCommand::ShowScheduledMessages);
+								event.skip(false);
+								return;
+							}
 							if msg.text.starts_with("[Group Invite]") {
 								let _ = tx_invite_enter.send(UiCommand::OpenGroupInvite(msg.id.clone()));
 								event.skip(false);
