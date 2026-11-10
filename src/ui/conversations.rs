@@ -36,6 +36,7 @@ pub struct ConversationsPanelParts {
 	pub place_call_btn: Button,
 	pub place_video_call_btn: Button,
 	pub join_call_btn: Button,
+	pub scheduled_btn: Button,
 	pub top_btns_panel: Panel,
 
 	pub search_panel: Panel,
@@ -598,6 +599,12 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	top_btns_sizer.add(&join_call_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	join_call_btn.show(false);
 
+	let scheduled_btn = Button::builder(&top_btns_panel).with_label("Scheduled").build();
+	scheduled_btn.set_font(&theme::Fonts::body());
+	crate::ui::dialog_look::pill_button(&scheduled_btn, false, header_bg);
+	top_btns_sizer.add(&scheduled_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 4);
+	scheduled_btn.show(false);
+
 	top_btns_panel.set_sizer(top_btns_sizer, true);
 	conv_sizer.add(&top_btns_panel, 0, SizerFlag::Expand, 0);
 
@@ -942,6 +949,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		place_call_btn,
 		place_video_call_btn,
 		join_call_btn,
+		scheduled_btn,
 		top_btns_panel,
 		search_panel,
 		search_close_btn,

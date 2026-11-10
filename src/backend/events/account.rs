@@ -222,7 +222,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		}
 		"scheduled_messages" => {
 			if let Some(data) = val.get("data") {
-				crate::ui_commands::scheduled::scheduled_messages_received(state, data);
+				crate::ui_commands::scheduled::scheduled_messages_received(state, parts, data);
 			}
 		}
 		"scheduled_result" => {

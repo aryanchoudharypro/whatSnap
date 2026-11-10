@@ -449,6 +449,14 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	// above; clearing it a second time is dead work on a control a screen
 	// reader is watching.
 	crate::ui_commands::calls::apply_call_buttons(&s, parts, jid);
+	crate::ui_commands::scheduled::update_scheduled_button(&s, parts, jid);
+	if crate::ui_commands::scheduled::schedulable(&s, jid) {
+		let req = serde_json::json!({
+			"action": "get_scheduled_messages",
+			"data": { "jid": jid }
+		});
+		let _ = s.ws_tx.send(req.to_string());
+	}
 	apply_composer_access(&s, parts, jid);
 	parts.conversations_parts.top_btns_panel.layout();
 	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();

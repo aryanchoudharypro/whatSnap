@@ -166,9 +166,38 @@ pub(crate) fn show_scheduled_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	scheduled_messages::show_scheduled_messages(&parts.frame, &name, &jid, ws_tx, store);
 }
 
-pub(crate) fn scheduled_messages_received(state: &Rc<RefCell<AppState>>, data: &serde_json::Value) {
+pub(crate) fn update_scheduled_button(s: &AppState, parts: &WindowParts, jid: &str) {
+	let count = s.scheduled_counts.get(jid).copied().unwrap_or(0);
+	let c = &parts.conversations_parts;
+	if count > 0 && s.scheduled_messages_enabled {
+		let label = if count == 1 { "1 scheduled".to_string() } else { format!("{count} scheduled") };
+		c.scheduled_btn.set_label(&label);
+		c.scheduled_btn.set_tooltip(&format!("{label} messages"));
+		let text_ext = c.scheduled_btn.get_text_extent(&label);
+		let line = c.scheduled_btn.get_char_height();
+		c.scheduled_btn.set_min_size(Size::new((text_ext.width + line * 2 + 8).max(line * 5), line * 2 + 8));
+		c.scheduled_btn.show(true);
+	} else {
+		c.scheduled_btn.show(false);
+	}
+	c.top_btns_panel.layout();
+}
+
+pub(crate) fn scheduled_messages_received(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	data: &serde_json::Value,
+) {
+	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
+	let pending = data.get("pending").and_then(|v| v.as_u64()).unwrap_or(0);
+	if !jid.is_empty() {
+		state.borrow_mut().scheduled_counts.insert(jid.clone(), pending);
+		if state.borrow().selected_chat.as_deref() == Some(&jid) {
+			update_scheduled_button(&state.borrow(), parts, &jid);
+		}
+	}
 	let Some(list) = state.borrow().scheduled_list.clone() else { return };
-	if data.get("jid").and_then(|j| j.as_str()) != Some(list.jid.as_str()) {
+	if list.jid != jid {
 		return;
 	}
 	let entries: Vec<scheduled_messages::ScheduledEntry> = data
@@ -178,7 +207,6 @@ pub(crate) fn scheduled_messages_received(state: &Rc<RefCell<AppState>>, data: &
 		.flatten()
 		.filter_map(scheduled_messages::ScheduledEntry::from_json)
 		.collect();
-	let pending = data.get("pending").and_then(|v| v.as_u64()).unwrap_or(0);
 	let limit = data.get("limit").and_then(|v| v.as_u64()).unwrap_or(30);
 	list.apply(&entries, pending, limit);
 }

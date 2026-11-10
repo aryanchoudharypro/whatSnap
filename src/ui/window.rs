@@ -1531,6 +1531,10 @@ pub fn bind_input_handlers(
 	parts.conversations_parts.join_call_btn.on_click(move |_| {
 		let _ = tx_join_call.send(UiCommand::JoinGroupCall(None));
 	});
+	let tx_scheduled = ui_tx.clone();
+	parts.conversations_parts.scheduled_btn.on_click(move |_| {
+		let _ = tx_scheduled.send(UiCommand::ShowScheduledMessages);
+	});
 
 	let tx_calls_call = ui_tx.clone();
 	parts.conversations_parts.calls_call_btn.on_click(move |_| {
@@ -5939,6 +5943,11 @@ pub fn bind_input_handlers(
 						});
 						drop(s);
 						if let Some(msg) = msg_opt {
+							if msg.id.starts_with("system_scheduled_") || msg.text == "You scheduled a message" {
+								let _ = tx_invite_enter.send(UiCommand::ShowScheduledMessages);
+								event.skip(false);
+								return;
+							}
 							if msg.text.starts_with("[Group Invite]") {
 								let _ = tx_invite_enter.send(UiCommand::OpenGroupInvite(msg.id.clone()));
 								event.skip(false);
