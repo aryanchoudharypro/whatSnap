@@ -599,12 +599,6 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	top_btns_sizer.add(&join_call_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	join_call_btn.show(false);
 
-	let scheduled_btn = Button::builder(&top_btns_panel).with_label("Scheduled").build();
-	scheduled_btn.set_font(&theme::Fonts::body());
-	crate::ui::dialog_look::pill_button(&scheduled_btn, false, header_bg);
-	top_btns_sizer.add(&scheduled_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 4);
-	scheduled_btn.show(false);
-
 	top_btns_panel.set_sizer(top_btns_sizer, true);
 	conv_sizer.add(&top_btns_panel, 0, SizerFlag::Expand, 0);
 
@@ -814,6 +808,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	add_attachment_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&add_attachment_btn, composer_bg);
 	message_row.add(&add_attachment_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
+	let scheduled_btn = Button::builder(&conversation_panel).with_label("Scheduled").build();
+	scheduled_btn.set_font(&theme::Fonts::body());
+	crate::ui::dialog_look::pill_button(&scheduled_btn, false, composer_bg);
+	message_row.add(&scheduled_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 4);
+	scheduled_btn.show(false);
 	let cancel_edit_btn = Button::builder(&conversation_panel).with_label("Cancel edit").build();
 	cancel_edit_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&cancel_edit_btn, composer_bg);

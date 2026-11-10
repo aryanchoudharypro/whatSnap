@@ -166,21 +166,8 @@ pub(crate) fn show_scheduled_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	scheduled_messages::show_scheduled_messages(&parts.frame, &name, &jid, ws_tx, store);
 }
 
-pub(crate) fn update_scheduled_button(s: &AppState, parts: &WindowParts, jid: &str) {
-	let count = s.scheduled_counts.get(jid).copied().unwrap_or(0);
-	let c = &parts.conversations_parts;
-	if count > 0 && s.scheduled_messages_enabled {
-		let label = if count == 1 { "1 scheduled".to_string() } else { format!("{count} scheduled") };
-		c.scheduled_btn.set_label(&label);
-		c.scheduled_btn.set_tooltip(&format!("{label} messages"));
-		let text_ext = c.scheduled_btn.get_text_extent(&label);
-		let line = c.scheduled_btn.get_char_height();
-		c.scheduled_btn.set_min_size(Size::new((text_ext.width + line * 2 + 8).max(line * 5), line * 2 + 8));
-		c.scheduled_btn.show(true);
-	} else {
-		c.scheduled_btn.show(false);
-	}
-	c.top_btns_panel.layout();
+pub(crate) fn update_scheduled_button(s: &AppState, parts: &WindowParts, _jid: &str) {
+	crate::ui::chat_ui::update_composer_buttons(s, &parts.conversations_parts);
 }
 
 pub(crate) fn scheduled_messages_received(
