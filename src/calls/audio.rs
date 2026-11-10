@@ -15,9 +15,10 @@ use windows::{
 		Media::{
 			Audio::{
 				AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-				AUDCLNT_STREAMOPTIONS_NONE, AudioCategory_Communications, AudioClientProperties,
-				Endpoints::IAudioEndpointVolume, IAudioCaptureClient, IAudioClient2, IAudioRenderClient, IMMDevice,
-				IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEXTENSIBLE, eCapture, eCommunications, eRender,
+				AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMOPTIONS_NONE, AudioCategory_Communications,
+				AudioClientProperties, Endpoints::IAudioEndpointVolume, IAudioCaptureClient, IAudioClient2,
+				IAudioRenderClient, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEXTENSIBLE, eCapture,
+				eCommunications, eRender,
 			},
 			KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
 			Multimedia::{KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, WAVE_FORMAT_IEEE_FLOAT},
@@ -32,7 +33,7 @@ use windows::{
 
 use crate::{
 	audio::{
-		denoise::Denoiser,
+		call_voice::{AGC_TARGET_DBFS, CallVoice, EchoReference, GATE_DEPTH_DB, VoiceAgc},
 		limiter::Limiter,
 		system_audio::{SystemAudioCapture, SystemMix},
 	},
@@ -121,6 +122,7 @@ pub struct CallAudioState {
 	/// the signal the other loop still needs to see.
 	force_reopen_input: Arc<AtomicBool>,
 	force_reopen_output: Arc<AtomicBool>,
+	force_reopen_echo: Arc<AtomicBool>,
 	system_mix: Arc<Mutex<SystemMix>>,
 	system_audio: Option<SystemAudioCapture>,
 }
@@ -137,6 +139,7 @@ impl CallAudioState {
 	pub fn force_device_refresh(&self) {
 		self.force_reopen_input.store(true, Ordering::Relaxed);
 		self.force_reopen_output.store(true, Ordering::Relaxed);
+		self.force_reopen_echo.store(true, Ordering::Relaxed);
 	}
 
 	pub fn share_system_audio(&mut self, on: bool, ui_tx: &UiCommandSender) {
@@ -177,6 +180,10 @@ impl Drop for CallAudioState {
 // speakerphone/laptop mic+speaker setups got raw, unprocessed audio (echo, room noise)
 // end to end. Calls always pass `apply_effects: true`; voice-message recording passes
 // false and does its own clean-up instead (audio/voice_dsp.rs).
+//
+// With `loopback` set (and `dataflow` eRender) the stream instead records what
+// that output device is playing, from every app: the echo canceller's
+// reference (see run_echo_reference).
 pub(crate) struct WasapiOpen {
 	pub(crate) device: IMMDevice,
 	pub(crate) client: IAudioClient2,
@@ -193,6 +200,7 @@ pub(crate) unsafe fn open_communications_stream(
 	tag: &str,
 	preferred_device_name: Option<&str>,
 	apply_effects: bool,
+	loopback: bool,
 ) -> crate::error::Result<WasapiOpen> {
 	unsafe {
 		let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
@@ -234,7 +242,11 @@ pub(crate) unsafe fn open_communications_stream(
 
 		let init_result = client.Initialize(
 			AUDCLNT_SHAREMODE_SHARED,
-			AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+			if loopback {
+				AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_LOOPBACK
+			} else {
+				AUDCLNT_STREAMFLAGS_EVENTCALLBACK
+			},
 			200_000,
 			0,
 			mix_format_ptr,
@@ -339,8 +351,10 @@ impl Downsampler {
 struct CaptureDsp {
 	downsampler: Downsampler,
 	resampled: Vec<f32>,
-	denoiser: Denoiser,
-	denoised: Vec<f32>,
+	echo_reference: Arc<Mutex<EchoReference>>,
+	played: Vec<f32>,
+	voice: CallVoice,
+	cleaned: Vec<f32>,
 	limiter: Limiter<1>,
 	sample_accum: Vec<f32>,
 	system: Arc<Mutex<SystemMix>>,
@@ -349,9 +363,8 @@ struct CaptureDsp {
 	opus: Option<opus::Encoder>,
 	/// The packet-loss percentage last given to `opus`.
 	applied_loss_percent: i32,
-	agc: VoiceAgc,
-	gate: PauseGate,
 	slices_since_mic_check: u32,
+	logged_echo_delay: Option<u32>,
 }
 
 /// How much of our audio the peer says never arrived, in percent, as the
@@ -378,157 +391,6 @@ fn new_call_opus_encoder() -> Option<opus::Encoder> {
 	Some(encoder)
 }
 
-// Auto gain for the outgoing call audio, modelled on WebRTC's AGC2 adaptive
-// digital controller, which is what WhatsApp for Windows' native engine runs
-// (WhatsAppNative.Voip.dll ships webrtc/latest agc2 and the server sends it
-// agc {"enable_uwp_agc2":"true"}); WA Web gets the same from the browser's
-// getUserMedia autoGainControl. Windows' communications effects barely level
-// the mic: live calls measured voiced speech around -40 dBFS, and phones
-// that receive standard Opus play it as sent.
-//
-// Like AGC2 it works on 10 ms slices: a simple energy VAD over a tracked
-// noise floor, a slow speech-level estimate fed only by speech, a gain that
-// moves at most AGC_MAX_GAIN_CHANGE_DB_PER_S towards bringing that speech
-// level to AGC_TARGET_DBFS, capped so the noise floor isn't lifted above
-// AGC_MAX_NOISE_DBFS. The gain falls faster than it rises, so a loud start
-// or a raised mic level isn't left too hot for seconds. Peaks are handled
-// after the system audio mix by a lookahead limiter (audio/limiter.rs).
-const AGC_SLICE: usize = 160; // 10 ms at 16 kHz, one noise suppressor hop
-const AGC_TARGET_DBFS: f32 = -20.0;
-const AGC_MAX_GAIN_DB: f32 = 40.0;
-const AGC_INITIAL_GAIN_DB: f32 = 15.0;
-const AGC_MAX_GAIN_CHANGE_DB_PER_S: f32 = 6.0;
-const AGC_MAX_GAIN_DROP_DB_PER_S: f32 = 30.0;
-// As AGC2: the background left between words is never lifted above this.
-// The noise suppressor in front lowers it first, so speech still reaches the
-// target (live calls had a -52..-65 dBFS floor before suppression).
-const AGC_MAX_NOISE_DBFS: f32 = -50.0;
-const AGC_SPEECH_ABOVE_NOISE_DB: f32 = 10.0;
-const AGC_MIN_SPEECH_DBFS: f32 = -65.0;
-
-struct VoiceAgc {
-	gain_db: f32,
-	noise_db: f32,
-	speech_db: Option<f32>,
-	// Since the mic level controller last looked: speech slices, speech
-	// slices that needed more than MIC_RAISE_ABOVE_GAIN_DB of gain, and
-	// slices whose raw input came close to clipping.
-	speech_slices: u32,
-	quiet_speech_slices: u32,
-	clipped_slices: u32,
-}
-
-impl VoiceAgc {
-	fn new() -> Self {
-		Self {
-			gain_db: AGC_INITIAL_GAIN_DB,
-			noise_db: -70.0,
-			speech_db: None,
-			speech_slices: 0,
-			quiet_speech_slices: 0,
-			clipped_slices: 0,
-		}
-	}
-
-	#[cfg(test)]
-	fn process(&mut self, frame: &mut [f32]) {
-		for slice in frame.chunks_mut(AGC_SLICE) {
-			self.process_slice(slice);
-		}
-	}
-
-	fn process_slice(&mut self, slice: &mut [f32]) {
-		if slice.is_empty() {
-			return;
-		}
-		let rms = (slice.iter().map(|s| s * s).sum::<f32>() / slice.len() as f32).sqrt();
-		let level_db = 20.0 * rms.max(1e-6).log10();
-		let old_gain_db = self.gain_db;
-		if slice.iter().any(|s| s.abs() > MIC_CLIP_LEVEL) {
-			self.clipped_slices += 1;
-		}
-		if rms > 0.0 {
-			// Noise floor: follows quiet slices at once, creeps up 1 dB/s.
-			self.noise_db = if level_db < self.noise_db { level_db } else { self.noise_db + 0.01 };
-			if level_db > AGC_MIN_SPEECH_DBFS && level_db > self.noise_db + AGC_SPEECH_ABOVE_NOISE_DB {
-				// About half a second of speech to settle.
-				self.speech_db = Some(match self.speech_db {
-					Some(prev) => prev + 0.02 * (level_db - prev),
-					None => level_db,
-				});
-				self.speech_slices += 1;
-				if AGC_TARGET_DBFS - level_db > MIC_RAISE_ABOVE_GAIN_DB {
-					self.quiet_speech_slices += 1;
-				}
-			}
-			if let Some(speech_db) = self.speech_db {
-				let want =
-					(AGC_TARGET_DBFS - speech_db).min(AGC_MAX_NOISE_DBFS - self.noise_db).clamp(0.0, AGC_MAX_GAIN_DB);
-				let secs = slice.len() as f32 / NETWORK_SAMPLE_RATE as f32;
-				self.gain_db += (want - self.gain_db)
-					.clamp(-AGC_MAX_GAIN_DROP_DB_PER_S * secs, AGC_MAX_GAIN_CHANGE_DB_PER_S * secs);
-			}
-		}
-		let from = 10f32.powf(old_gain_db / 20.0);
-		let to = 10f32.powf(self.gain_db / 20.0);
-		let n = slice.len() as f32;
-		for (i, sample) in slice.iter_mut().enumerate() {
-			let g = from + (to - from) * (i + 1) as f32 / n;
-			*sample *= g;
-		}
-	}
-}
-
-// Turns the background down a further GATE_DEPTH_DB between words, so the
-// noise left by the suppressor isn't heard on its own once you stop talking.
-// Opens within a few ms when the noise suppressor hears speech (its verdict
-// is one hop ahead of its output, so word starts aren't cut), stays open
-// GATE_HOLD_SLICES after, then fades down slowly.
-const GATE_DEPTH_DB: f32 = 12.0;
-const GATE_OPEN_SPEECH: f32 = 0.4;
-const GATE_HOLD_SLICES: u32 = 25; // 250 ms
-const GATE_ATTACK_SECS: f32 = 0.005;
-const GATE_RELEASE_SECS: f32 = 0.15;
-
-struct PauseGate {
-	gain: f32,
-	hold: u32,
-	floor: f32,
-	attack: f32,
-	release: f32,
-}
-
-impl PauseGate {
-	fn new() -> Self {
-		let coeff = |secs: f32| 1.0 - (-1.0 / (secs * NETWORK_SAMPLE_RATE as f32)).exp();
-		Self {
-			gain: 1.0,
-			hold: GATE_HOLD_SLICES,
-			floor: 10f32.powf(-GATE_DEPTH_DB / 20.0),
-			attack: coeff(GATE_ATTACK_SECS),
-			release: coeff(GATE_RELEASE_SECS),
-		}
-	}
-
-	fn process_slice(&mut self, slice: &mut [f32], speech: f32) {
-		if speech >= GATE_OPEN_SPEECH {
-			self.hold = GATE_HOLD_SLICES;
-		} else {
-			self.hold = self.hold.saturating_sub(1);
-		}
-		let (target, rate) = if self.hold > 0 { (1.0, self.attack) } else { (self.floor, self.release) };
-		for sample in slice.iter_mut() {
-			self.gain += (target - self.gain) * rate;
-			*sample *= self.gain;
-		}
-	}
-}
-
-// Noise suppression before the auto gain, like WhatsApp for Windows' engine
-// and WebRTC. WhatsApp's server asks its engine for denoiser_intensity 0.55,
-// but on our scale that left too much background in a live call, so calls
-// use the same strength as voice messages (about 20 dB).
-const CALL_DENOISE_INTENSITY: f32 = 0.8;
 // The limiter after the mix: 2 ms lookahead, a little under full scale.
 const CALL_LIMIT_LOOKAHEAD: usize = 32;
 const CALL_LIMIT_CEILING: f32 = 0.9;
@@ -540,8 +402,6 @@ const CALL_LIMIT_RELEASE_SECS: f32 = 0.08;
 // once a second from the capture thread. The level the user had is put back
 // when the capture session ends, unless they moved the slider themselves
 // during the call, in which case we stop touching it.
-const MIC_CLIP_LEVEL: f32 = 0.95;
-const MIC_RAISE_ABOVE_GAIN_DB: f32 = 20.0;
 const MIC_STEP: f32 = 0.04;
 const MIC_CHECK_SLICES: u32 = 100; // 1 s
 
@@ -616,12 +476,19 @@ fn pack_call_frame(frame: &[f32], opus: Option<&mut opus::Encoder>, out: &mut Ve
 }
 
 impl CaptureDsp {
-	fn new(sample_rate: u32, channels: u16, system: Arc<Mutex<SystemMix>>) -> Self {
+	fn new(
+		sample_rate: u32,
+		channels: u16,
+		system: Arc<Mutex<SystemMix>>,
+		echo_reference: Arc<Mutex<EchoReference>>,
+	) -> Self {
 		Self {
 			downsampler: Downsampler::new(sample_rate, channels),
 			resampled: Vec::new(),
-			denoiser: Denoiser::new(NETWORK_SAMPLE_RATE, CALL_DENOISE_INTENSITY),
-			denoised: vec![0.0; AGC_SLICE],
+			echo_reference,
+			played: Vec::new(),
+			voice: CallVoice::new(),
+			cleaned: Vec::new(),
 			limiter: Limiter::new(
 				NETWORK_SAMPLE_RATE as f32,
 				CALL_LIMIT_LOOKAHEAD,
@@ -634,9 +501,8 @@ impl CaptureDsp {
 			send_buf: Vec::with_capacity(FRAME_SAMPLES * 4 + OPUS_MAX_PACKET),
 			opus: new_call_opus_encoder(),
 			applied_loss_percent: 0,
-			agc: VoiceAgc::new(),
-			gate: PauseGate::new(),
 			slices_since_mic_check: 0,
+			logged_echo_delay: None,
 		}
 	}
 
@@ -648,26 +514,21 @@ impl CaptureDsp {
 		target_addr: &str,
 		mic: Option<&mut MicLevelController>,
 	) {
-		// mic -> noise suppressor -> auto gain -> + system audio -> limiter.
+		// mic -> echo canceller -> noise suppressor -> auto gain -> pause gate
+		// (all in CallVoice) -> + system audio -> limiter.
 		self.downsampler.process(data, &mut self.resampled);
+		let ready = self.echo_reference.lock().unwrap().take(self.resampled.len(), &mut self.played);
+		self.cleaned.clear();
+		self.slices_since_mic_check +=
+			self.voice.process(&self.resampled[..ready], &self.played[..ready], muted, &mut self.cleaned);
+		self.resampled.drain(..ready);
 		let mut system = self.system.lock().unwrap();
-		let mut used = 0;
-		while self.resampled.len() - used >= AGC_SLICE {
-			let speech = self.denoiser.process_hop(&self.resampled[used..used + AGC_SLICE], &mut self.denoised);
-			used += AGC_SLICE;
-			if !muted {
-				self.agc.process_slice(&mut self.denoised);
-				self.gate.process_slice(&mut self.denoised, speech);
-				self.slices_since_mic_check += 1;
-			}
-			for &sample in &self.denoised {
-				let mixed = system.mix(sample);
-				let [limited] = self.limiter.process([if muted { 0.0 } else { mixed }]);
-				self.sample_accum.push(limited);
-			}
+		for &sample in &self.cleaned {
+			let mixed = system.mix(sample);
+			let [limited] = self.limiter.process([if muted { 0.0 } else { mixed }]);
+			self.sample_accum.push(limited);
 		}
 		drop(system);
-		self.resampled.drain(..used);
 
 		while self.sample_accum.len() >= FRAME_SAMPLES {
 			self.frame.clear();
@@ -685,7 +546,12 @@ impl CaptureDsp {
 		if self.slices_since_mic_check >= MIC_CHECK_SLICES {
 			self.slices_since_mic_check = 0;
 			if let Some(mic) = mic {
-				mic.adjust(&mut self.agc);
+				mic.adjust(&mut self.voice.agc);
+			}
+			let delay = self.voice.echo_delay_ms();
+			if delay != self.logged_echo_delay {
+				self.logged_echo_delay = delay;
+				log_line(&format!("echo canceller: played sound comes back after about {:?} ms", delay));
 			}
 		}
 	}
@@ -805,11 +671,19 @@ fn run_capture(
 	preferred_device: &Mutex<Option<String>>,
 	force_reopen: &AtomicBool,
 	system: &Arc<Mutex<SystemMix>>,
+	echo_reference: &Arc<Mutex<EchoReference>>,
 ) {
 	while !stop.load(Ordering::Relaxed) {
-		if let Err(e) =
-			run_capture_session(stop, is_muted, socket_out, target_addr, preferred_device, force_reopen, system)
-		{
+		if let Err(e) = run_capture_session(
+			stop,
+			is_muted,
+			socket_out,
+			target_addr,
+			preferred_device,
+			force_reopen,
+			system,
+			echo_reference,
+		) {
 			log_line(&format!("capture session ended with error, reopening: {:?}", e));
 			if stop.load(Ordering::Relaxed) {
 				break;
@@ -828,6 +702,7 @@ fn run_capture_session(
 	preferred_device: &Mutex<Option<String>>,
 	force_reopen: &AtomicBool,
 	system: &Arc<Mutex<SystemMix>>,
+	echo_reference: &Arc<Mutex<EchoReference>>,
 ) -> crate::error::Result<()> {
 	unsafe {
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
@@ -835,13 +710,14 @@ fn run_capture_session(
 
 		let session_device = preferred_device.lock().unwrap().clone();
 		force_reopen.store(false, Ordering::Relaxed);
-		let wasapi = open_communications_stream(eCapture, "capture", session_device.as_deref(), true)?;
+		let wasapi = open_communications_stream(eCapture, "capture", session_device.as_deref(), true, false)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let capture_client: IAudioCaptureClient = wasapi.client.GetService()?;
 
-		let mut dsp = CaptureDsp::new(wasapi.sample_rate, wasapi.channels, Arc::clone(system));
+		let mut dsp =
+			CaptureDsp::new(wasapi.sample_rate, wasapi.channels, Arc::clone(system), Arc::clone(echo_reference));
 		log_line(&format!(
-			"capture dsp: noise suppressor {CALL_DENOISE_INTENSITY}, auto gain to {AGC_TARGET_DBFS} dBFS, pause gate -{GATE_DEPTH_DB} dB, limiter {CALL_LIMIT_CEILING}"
+			"capture dsp: echo canceller, noise suppressor, auto gain to {AGC_TARGET_DBFS} dBFS, pause gate -{GATE_DEPTH_DB} dB, limiter {CALL_LIMIT_CEILING}"
 		));
 		let mut mic_level = MicLevelController::new(&wasapi.device);
 		let mut scratch: Vec<f32> = Vec::new();
@@ -936,7 +812,7 @@ fn run_render_session(
 
 		let session_device = preferred_device.lock().unwrap().clone();
 		force_reopen.store(false, Ordering::Relaxed);
-		let wasapi = open_communications_stream(eRender, "render", session_device.as_deref(), true)?;
+		let wasapi = open_communications_stream(eRender, "render", session_device.as_deref(), true, false)?;
 		let _event_guard = EventGuard(wasapi.event);
 		let render_client: IAudioRenderClient = wasapi.client.GetService()?;
 
@@ -996,6 +872,97 @@ fn run_render_session(
 
 		wasapi.client.Stop()?;
 		log_line("render session exiting (stop set)");
+	}
+	Ok(())
+}
+
+// Records what the call's output device is playing (WASAPI loopback: every
+// app's sound, so the other person's voice but also a screen reader or a
+// video) and hands it to the mic thread as the echo canceller's reference.
+// Windows only delivers loopback sound while something is playing; during a
+// call our own render stream always is.
+fn run_echo_reference(
+	stop: &AtomicBool,
+	preferred_device: &Mutex<Option<String>>,
+	force_reopen: &AtomicBool,
+	echo_reference: &Mutex<EchoReference>,
+) {
+	while !stop.load(Ordering::Relaxed) {
+		if let Err(e) = run_echo_reference_session(stop, preferred_device, force_reopen, echo_reference) {
+			log_line(&format!("echo reference session ended with error, reopening: {:?}", e));
+			if stop.load(Ordering::Relaxed) {
+				break;
+			}
+			std::thread::sleep(Duration::from_millis(500));
+		}
+	}
+	log_line("echo reference thread exiting (stop set)");
+}
+
+fn run_echo_reference_session(
+	stop: &AtomicBool,
+	preferred_device: &Mutex<Option<String>>,
+	force_reopen: &AtomicBool,
+	echo_reference: &Mutex<EchoReference>,
+) -> crate::error::Result<()> {
+	unsafe {
+		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
+		let _com_guard = ComGuard;
+
+		let session_device = preferred_device.lock().unwrap().clone();
+		force_reopen.store(false, Ordering::Relaxed);
+		let wasapi = open_communications_stream(eRender, "echo reference", session_device.as_deref(), false, true)?;
+		let _event_guard = EventGuard(wasapi.event);
+		let capture_client: IAudioCaptureClient = wasapi.client.GetService()?;
+		let mut downsampler = Downsampler::new(wasapi.sample_rate, wasapi.channels);
+		let mut scratch: Vec<f32> = Vec::new();
+		let mut resampled: Vec<f32> = Vec::new();
+
+		wasapi.client.Start()?;
+		log_line("echo reference stream started (loopback of the output device)");
+
+		while !stop.load(Ordering::Relaxed) {
+			if preferred_device.lock().unwrap().as_ref() != session_device.as_ref() {
+				log_line("echo reference: device switch requested, reopening");
+				break;
+			}
+			if force_reopen.swap(false, Ordering::Relaxed) {
+				log_line("echo reference: default device changed, reopening");
+				break;
+			}
+			// Looked at every 20 ms even without the event: not every driver
+			// signals it for loopback streams.
+			let _ = WaitForSingleObject(wasapi.event, 20);
+			loop {
+				if capture_client.GetNextPacketSize()? == 0 {
+					break;
+				}
+				let mut data_ptr: *mut u8 = std::ptr::null_mut();
+				let mut num_frames: u32 = 0;
+				let mut flags: u32 = 0;
+				capture_client.GetBuffer(&mut data_ptr, &mut num_frames, &mut flags, None, None)?;
+				let total_samples = num_frames as usize * wasapi.channels as usize;
+				scratch.clear();
+				if data_ptr.is_null() || (flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32) != 0 {
+					scratch.resize(total_samples, 0.0);
+				} else if wasapi.is_float {
+					scratch.extend_from_slice(std::slice::from_raw_parts(data_ptr as *const f32, total_samples));
+				} else if wasapi.bits_per_sample == 16 {
+					let src = std::slice::from_raw_parts(data_ptr as *const i16, total_samples);
+					scratch.extend(src.iter().map(|&s| s as f32 / 32768.0));
+				} else {
+					scratch.resize(total_samples, 0.0);
+				}
+				capture_client.ReleaseBuffer(num_frames)?;
+
+				resampled.clear();
+				downsampler.process(&scratch, &mut resampled);
+				echo_reference.lock().unwrap().push(&resampled);
+			}
+		}
+
+		wasapi.client.Stop()?;
+		log_line("echo reference session exiting");
 	}
 	Ok(())
 }
@@ -1096,7 +1063,19 @@ pub fn start_audio_streams(
 	let preferred_output = Arc::new(Mutex::new(preferred_output_device));
 	let force_reopen_input = Arc::new(AtomicBool::new(false));
 	let force_reopen_output = Arc::new(AtomicBool::new(false));
+	let force_reopen_echo = Arc::new(AtomicBool::new(false));
 	let system_mix = Arc::new(Mutex::new(SystemMix::default()));
+	let echo_reference = Arc::new(Mutex::new(EchoReference::default()));
+
+	{
+		let stop = Arc::clone(&stop);
+		let preferred_output = Arc::clone(&preferred_output);
+		let force_reopen_echo = Arc::clone(&force_reopen_echo);
+		let echo_reference = Arc::clone(&echo_reference);
+		std::thread::spawn(move || {
+			run_echo_reference(&stop, &preferred_output, &force_reopen_echo, &echo_reference);
+		});
+	}
 
 	{
 		let stop = Arc::clone(&stop);
@@ -1114,6 +1093,7 @@ pub fn start_audio_streams(
 				&preferred_input,
 				&force_reopen_input,
 				&system_mix,
+				&echo_reference,
 			);
 		});
 	}
@@ -1142,6 +1122,7 @@ pub fn start_audio_streams(
 		preferred_output,
 		force_reopen_input,
 		force_reopen_output,
+		force_reopen_echo,
 		system_mix,
 		system_audio: None,
 	})
@@ -1149,67 +1130,6 @@ pub fn start_audio_streams(
 
 #[cfg(test)]
 mod tests {
-
-	fn speechy(amp: f32, frames: usize) -> Vec<Vec<f32>> {
-		// 300 ms talk, 200 ms pause, repeated, over a faint noise floor.
-		(0..frames)
-			.map(|f| {
-				(0..FRAME_SAMPLES)
-					.map(|i| {
-						let t = f * FRAME_SAMPLES + i;
-						let talking = (t / 1600) % 5 < 3;
-						let noise = 0.0003 * (((t * 7919) % 1000) as f32 / 500.0 - 1.0);
-						noise + if talking { amp * 1.414 * ((t as f32) * 0.3).sin() } else { 0.0 }
-					})
-					.collect()
-			})
-			.collect()
-	}
-
-	fn speech_rms_db(frames: &[Vec<f32>]) -> f32 {
-		let loud: Vec<f32> = frames
-			.iter()
-			.flatten()
-			.copied()
-			.collect::<Vec<_>>()
-			.chunks(160)
-			.map(|c| (c.iter().map(|s| s * s).sum::<f32>() / c.len() as f32).sqrt())
-			.filter(|r| *r > 0.003)
-			.collect();
-		let mean = loud.iter().sum::<f32>() / loud.len() as f32;
-		20.0 * mean.log10()
-	}
-
-	#[test]
-	fn agc_brings_quiet_speech_up_to_target() {
-		let mut agc = VoiceAgc::new();
-		let mut frames = speechy(0.01, 200); // -40 dBFS speech, 12 s
-		for f in frames.iter_mut() {
-			agc.process(f);
-		}
-		let level = speech_rms_db(&frames[150..]);
-		assert!((level - AGC_TARGET_DBFS).abs() < 3.0, "settled speech level {level} dBFS");
-	}
-
-	#[test]
-	fn agc_brings_loud_speech_down_to_unity_within_a_second() {
-		let mut agc = VoiceAgc::new();
-		let mut frames = speechy(0.2, 20); // -14 dBFS speech
-		for f in frames.iter_mut() {
-			agc.process(f);
-		}
-		assert!(agc.gain_db < 0.5, "gain {} dB", agc.gain_db);
-	}
-
-	#[test]
-	fn agc_holds_gain_through_silence() {
-		let mut agc = VoiceAgc::new();
-		agc.gain_db = 12.0;
-		let mut silence = vec![0.0f32; FRAME_SAMPLES];
-		agc.process(&mut silence);
-		assert_eq!(agc.gain_db, 12.0);
-		assert!(silence.iter().all(|s| *s == 0.0));
-	}
 
 	fn tone_at(rate: u32, hz: f32, secs: f32) -> Vec<f32> {
 		(0..(rate as f32 * secs) as usize)
@@ -1219,25 +1139,6 @@ mod tests {
 
 	fn level_db(x: &[f32]) -> f32 {
 		10.0 * (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32 + 1e-20).log10()
-	}
-
-	#[test]
-	fn pause_gate_opens_fast_holds_then_fades_the_background() {
-		let mut gate = PauseGate::new();
-		let mut slice = vec![1.0f32; AGC_SLICE];
-		gate.process_slice(&mut slice, 1.0);
-		assert!(slice[80] > 0.99, "open within 5 ms");
-		for _ in 0..GATE_HOLD_SLICES - 1 {
-			slice.fill(1.0);
-			gate.process_slice(&mut slice, 0.0);
-			assert!(slice.iter().all(|&s| s > 0.99), "held open after speech");
-		}
-		for _ in 0..100 {
-			slice.fill(1.0);
-			gate.process_slice(&mut slice, 0.0);
-		}
-		let db = 20.0 * slice[AGC_SLICE - 1].log10();
-		assert!((db + GATE_DEPTH_DB).abs() < 0.5, "settled at {db} dB");
 	}
 
 	#[test]

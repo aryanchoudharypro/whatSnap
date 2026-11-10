@@ -27,14 +27,79 @@ const LIMIT_CEILING: f32 = 0.9;
 const LIMIT_RELEASE_SECS: f32 = 0.08;
 const LOOKAHEAD: usize = 48;
 
+/// One channel of noise suppression, shared by voice messages and calls:
+/// the RNNoise network, then a little of the untouched sound mixed back in
+/// while someone is clearly talking over a quiet background, which undoes the
+/// dulling the network adds to a voice. 48 kHz, 10 ms frames, and what comes
+/// out is one frame behind what went in.
+pub(crate) struct SpeechDenoiser {
+	state: Box<DenoiseState<'static>>,
+	input: [f32; FRAME],
+	wet: [f32; FRAME],
+	dry: [f32; FRAME],
+	dry_noise_db: Option<f32>,
+}
+
+impl SpeechDenoiser {
+	pub(crate) const FRAME: usize = FRAME;
+
+	pub(crate) fn new() -> Self {
+		Self {
+			state: DenoiseState::new(),
+			input: [0.0; FRAME],
+			wet: [0.0; FRAME],
+			dry: [0.0; FRAME],
+			dry_noise_db: None,
+		}
+	}
+
+	/// Runs the network on one frame and returns how likely it is speech.
+	fn suppress(&mut self, input: &[f32]) -> f32 {
+		for (d, s) in self.input.iter_mut().zip(input) {
+			*d = s * 32768.0;
+		}
+		self.state.process_frame(&mut self.wet, &self.input)
+	}
+
+	/// How much of the untouched sound to mix back into the pending frame.
+	fn blend(&mut self, speech: f32) -> f32 {
+		let energy = self.dry.iter().map(|s| s * s).sum::<f32>() / FRAME as f32 / (32768.0 * 32768.0);
+		let level_db = 10.0 * (energy + 1e-12).log10();
+		if level_db < SILENCE_DBFS {
+			return 0.0;
+		}
+		let noise_db = match self.dry_noise_db {
+			Some(n) if level_db >= n => n + NOISE_RISE_DB_PER_FRAME,
+			_ => level_db,
+		};
+		self.dry_noise_db = Some(noise_db);
+		let above = (level_db - noise_db - BLEND_MIN_SNR_DB) / (BLEND_FULL_SNR_DB - BLEND_MIN_SNR_DB);
+		BLEND_MAX * above.clamp(0.0, 1.0) * speech * speech
+	}
+
+	/// Writes the pending frame with `blend` of the untouched sound mixed in.
+	fn finish(&mut self, blend: f32, out: &mut [f32]) {
+		for ((o, s), d) in out.iter_mut().zip(&self.wet).zip(&self.dry) {
+			*o = (s + blend * (d - s)) / 32768.0;
+		}
+		self.dry = self.input;
+	}
+
+	/// One frame in, one frame out; returns how likely the frame is speech.
+	pub(crate) fn process_frame(&mut self, input: &[f32], out: &mut [f32]) -> f32 {
+		let speech = self.suppress(input);
+		let blend = self.blend(speech);
+		self.finish(blend, out);
+		speech
+	}
+}
+
 pub(crate) struct VoiceCleanup {
 	hpf: [HighPass; 2],
-	denoise: [Box<DenoiseState<'static>>; 2],
+	denoise: [SpeechDenoiser; 2],
 	agc: Agc,
 	pending: [Vec<f32>; 2],
 	frame_out: [Vec<f32>; 2],
-	dry: [[f32; FRAME]; 2],
-	dry_noise_db: [Option<f32>; 2],
 	skip: usize,
 	samples_in: usize,
 	samples_out: usize,
@@ -43,13 +108,11 @@ pub(crate) struct VoiceCleanup {
 impl VoiceCleanup {
 	pub(crate) fn new() -> Self {
 		Self {
-			hpf: [HighPass::new(80.0), HighPass::new(80.0)],
-			denoise: [DenoiseState::new(), DenoiseState::new()],
+			hpf: [HighPass::new(80.0, SAMPLE_RATE), HighPass::new(80.0, SAMPLE_RATE)],
+			denoise: [SpeechDenoiser::new(), SpeechDenoiser::new()],
 			agc: Agc::new(),
 			pending: [Vec::with_capacity(FRAME * 2), Vec::with_capacity(FRAME * 2)],
 			frame_out: [vec![0.0; FRAME], vec![0.0; FRAME]],
-			dry: [[0.0; FRAME]; 2],
-			dry_noise_db: [None; 2],
 			skip: FRAME + LOOKAHEAD - 1,
 			samples_in: 0,
 			samples_out: 0,
@@ -85,23 +148,17 @@ impl VoiceCleanup {
 	}
 
 	fn drain_frames(&mut self, out: &mut Vec<[f32; 2]>) {
-		let mut frame_in = [[0.0f32; FRAME]; 2];
 		while self.pending[0].len() >= FRAME {
 			let mut speech = [0.0f32; 2];
 			for c in 0..2 {
-				for (d, s) in frame_in[c].iter_mut().zip(self.pending[c].drain(..FRAME)) {
-					*d = s * 32768.0;
-				}
-				speech[c] = self.denoise[c].process_frame(&mut self.frame_out[c], &frame_in[c]);
+				speech[c] = self.denoise[c].suppress(&self.pending[c][..FRAME]);
+				self.pending[c].drain(..FRAME);
 			}
 			let vad = speech[0].max(speech[1]);
-			let blend = self.blend(0, speech[0]).min(self.blend(1, speech[1]));
+			let blend = self.denoise[0].blend(speech[0]).min(self.denoise[1].blend(speech[1]));
 			for c in 0..2 {
-				for (s, d) in self.frame_out[c].iter_mut().zip(&self.dry[c]) {
-					*s = (*s + blend * (d - *s)) / 32768.0;
-				}
+				self.denoise[c].finish(blend, &mut self.frame_out[c]);
 			}
-			self.dry = frame_in;
 			let [left, right] = &mut self.frame_out;
 			self.agc.process(left, right, vad);
 			let start = self.skip.min(FRAME);
@@ -110,24 +167,10 @@ impl VoiceCleanup {
 			self.samples_out += FRAME - start;
 		}
 	}
-
-	fn blend(&mut self, c: usize, speech: f32) -> f32 {
-		let energy = self.dry[c].iter().map(|s| s * s).sum::<f32>() / FRAME as f32 / (32768.0 * 32768.0);
-		let level_db = 10.0 * (energy + 1e-12).log10();
-		if level_db < SILENCE_DBFS {
-			return 0.0;
-		}
-		let noise_db = match self.dry_noise_db[c] {
-			Some(n) if level_db >= n => n + NOISE_RISE_DB_PER_FRAME,
-			_ => level_db,
-		};
-		self.dry_noise_db[c] = Some(noise_db);
-		let above = (level_db - noise_db - BLEND_MIN_SNR_DB) / (BLEND_FULL_SNR_DB - BLEND_MIN_SNR_DB);
-		BLEND_MAX * above.clamp(0.0, 1.0) * speech * speech
-	}
 }
 
-struct HighPass {
+/// A second-order high-pass, for the rumble under a voice.
+pub(crate) struct HighPass {
 	b0: f32,
 	b1: f32,
 	b2: f32,
@@ -140,8 +183,8 @@ struct HighPass {
 }
 
 impl HighPass {
-	fn new(cutoff_hz: f32) -> Self {
-		let w0 = 2.0 * std::f32::consts::PI * cutoff_hz / SAMPLE_RATE;
+	pub(crate) fn new(cutoff_hz: f32, sample_rate: f32) -> Self {
+		let w0 = 2.0 * std::f32::consts::PI * cutoff_hz / sample_rate;
 		let alpha = w0.sin() / (2.0 * std::f32::consts::FRAC_1_SQRT_2);
 		let cos = w0.cos();
 		let a0 = 1.0 + alpha;
@@ -158,7 +201,7 @@ impl HighPass {
 		}
 	}
 
-	fn process(&mut self, x: f32) -> f32 {
+	pub(crate) fn process(&mut self, x: f32) -> f32 {
 		let y = self.b0 * x + self.b1 * self.x1 + self.b2 * self.x2 - self.a1 * self.y1 - self.a2 * self.y2;
 		self.x2 = self.x1;
 		self.x1 = x;
@@ -269,9 +312,9 @@ mod tests {
 
 	#[test]
 	fn high_pass_removes_rumble_keeps_voice() {
-		let mut hpf = HighPass::new(80.0);
+		let mut hpf = HighPass::new(80.0, SAMPLE_RATE);
 		let rumble: Vec<f32> = tone(0.5, 20.0, 48_000).into_iter().map(|s| hpf.process(s)).collect();
-		let mut hpf = HighPass::new(80.0);
+		let mut hpf = HighPass::new(80.0, SAMPLE_RATE);
 		let voice: Vec<f32> = tone(0.5, 1000.0, 48_000).into_iter().map(|s| hpf.process(s)).collect();
 		assert!(rms_db(&rumble[24_000..]) < rms_db(&tone(0.5, 20.0, 24_000)) - 20.0);
 		assert!((rms_db(&voice[24_000..]) - rms_db(&tone(0.5, 1000.0, 24_000))).abs() < 0.5);
@@ -339,17 +382,17 @@ mod tests {
 
 	#[test]
 	fn blend_only_while_talking_over_the_background() {
-		let mut c = VoiceCleanup::new();
+		let mut d = SpeechDenoiser::new();
 		for _ in 0..50 {
-			c.dry[0] = [0.001 * 32768.0; FRAME];
-			c.blend(0, 0.0);
+			d.dry = [0.001 * 32768.0; FRAME];
+			d.blend(0.0);
 		}
-		c.dry[0] = [0.001 * 32768.0; FRAME];
-		assert_eq!(c.blend(0, 1.0), 0.0, "background alone, however speech-like");
-		c.dry[0] = [0.1 * 32768.0; FRAME];
-		assert_eq!(c.blend(0, 0.0), 0.0, "loud but not speech");
-		assert_eq!(c.blend(0, 1.0), BLEND_MAX, "speech 40 dB over the background");
-		c.dry[0] = [0.0; FRAME];
-		assert_eq!(c.blend(0, 1.0), 0.0, "digital silence");
+		d.dry = [0.001 * 32768.0; FRAME];
+		assert_eq!(d.blend(1.0), 0.0, "background alone, however speech-like");
+		d.dry = [0.1 * 32768.0; FRAME];
+		assert_eq!(d.blend(0.0), 0.0, "loud but not speech");
+		assert_eq!(d.blend(1.0), BLEND_MAX, "speech 40 dB over the background");
+		d.dry = [0.0; FRAME];
+		assert_eq!(d.blend(1.0), 0.0, "digital silence");
 	}
 }

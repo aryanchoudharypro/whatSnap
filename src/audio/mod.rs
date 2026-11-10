@@ -1,7 +1,9 @@
+pub mod aec;
 pub mod alert_tones;
-pub mod denoise;
+pub mod call_voice;
 pub mod device_watch;
 pub mod devices;
+pub mod fft;
 pub mod file;
 pub mod limiter;
 pub mod ogg;

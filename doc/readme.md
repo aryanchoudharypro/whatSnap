@@ -28,6 +28,7 @@ You use whatSnap at your own risk. If you can't afford to lose your WhatsApp acc
 - Voice and video calls, in one to one chats and in groups:
   - Answer or reject a call from any program, with a global shortcut.
   - Screen sharing. You can also keep your camera on while you share your screen.
+  - Echo cancellation and noise suppression. Sound from your speakers or leaking from your headphones, such as the other person's voice or your screen reader, is removed from what your microphone sends, along with background noise.
   - Raise your hand, send reactions, add people, and mute or remove people in group calls.
   - Call links. Create a link, or join a call from a link.
   - Join a group call that is already in progress.

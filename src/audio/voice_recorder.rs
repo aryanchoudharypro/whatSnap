@@ -116,7 +116,8 @@ fn run_recording_session_inner(
 		CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
 		let _com_guard = ComGuard;
 
-		let wasapi = match open_communications_stream(eCapture, "voice-recording", preferred_device_name, false) {
+		let wasapi = match open_communications_stream(eCapture, "voice-recording", preferred_device_name, false, false)
+		{
 			Ok(w) => w,
 			Err(e) => {
 				let _ = ready_tx.send(Err(e));
