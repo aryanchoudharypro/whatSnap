@@ -27,6 +27,9 @@ use crate::{AppState, ui::window::WindowParts};
 /// WhatsApp's revoke window (`WAWebRevokeMsgConstants.REVOKE_WINDOW`).
 const REVOKE_WINDOW_SECS: i64 = 60 * 60 * 60;
 
+/// How long a channel post can be deleted (`WAWebRevokeMsgConstants.NEWSLETTER_REVOKE_WINDOW`).
+const CHANNEL_REVOKE_WINDOW_SECS: i64 = 30 * 24 * 60 * 60;
+
 fn now() -> i64 {
 	std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64
 }
@@ -149,7 +152,9 @@ fn revoker(s: &AppState, chat: &str, m: &whatsnap::ChatMessage, now: i64) -> Opt
 		return None;
 	}
 	if is_channel(chat) {
-		return crate::ui_commands::links::can_post_in_channel(s, chat).then_some(Revoker::Sender);
+		return (now - m.timestamp <= CHANNEL_REVOKE_WINDOW_SECS
+			&& crate::ui_commands::links::can_post_in_channel(s, chat))
+		.then_some(Revoker::Sender);
 	}
 	if s.not_member_jids.contains(chat) || now - m.timestamp > REVOKE_WINDOW_SECS {
 		return None;

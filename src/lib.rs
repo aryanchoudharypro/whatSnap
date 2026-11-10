@@ -252,22 +252,22 @@ impl ChatMessage {
 		self.is_audio || self.text.starts_with("[Voice Message]") || self.text.starts_with("[Audio]")
 	}
 
-	/// How long after sending WhatsApp lets a message be edited. Sourced from
-	/// whatsmeow's own `EditWindow = 20 * time.Minute` (send.go) - the value
-	/// it documents as the real server-side policy. whatsmeow's own
-	/// `BuildEdit`/`SendMessage` don't enforce it, so an edit past this point
-	/// still sends and syncs to your own other devices without error, which
-	/// first looked like the window wasn't real - but other recipients don't
-	/// actually see it update, confirming the server does enforce it, just
-	/// silently. This is a client-side-only guard on top of that.
-	pub const EDIT_WINDOW_SECS: i64 = 20 * 60;
+	/// How long after sending WhatsApp's own apps let you start an edit
+	/// (`message_edit_client_entry_point_limit_seconds`, default 900). Others
+	/// still accept an edit for 20 minutes
+	/// (`message_edit_window_duration_seconds`), which whatsmeow's own
+	/// `EditWindow` documents, so starting at the 15 minute mark always
+	/// leaves room for a slow send. Channel posts get 30 days.
+	pub const EDIT_WINDOW_SECS: i64 = 15 * 60;
+	pub const CHANNEL_EDIT_WINDOW_SECS: i64 = 30 * 24 * 60 * 60;
 
 	/// Whether this message can still be edited: ours, not deleted, not a
 	/// voice message (WhatsApp never allows editing those), and sent less
-	/// than `EDIT_WINDOW_SECS` ago. `now` is the caller's own unix-seconds
+	/// than the edit window ago. `now` is the caller's own unix-seconds
 	/// clock reading, so every call site in one pass agrees on "now" instead
 	/// of each computing it separately.
-	pub fn is_editable(&self, now: i64) -> bool {
+	pub fn is_editable(&self, now: i64, in_channel: bool) -> bool {
+		let window = if in_channel { Self::CHANNEL_EDIT_WINDOW_SECS } else { Self::EDIT_WINDOW_SECS };
 		self.from_me
 			&& !self.is_deleted
 			&& !self.is_voice()
@@ -275,7 +275,7 @@ impl ChatMessage {
 			&& !self.is_call()
 			&& self.media_type.is_empty()
 			&& !self.text.starts_with('[')
-			&& (now - self.timestamp) < Self::EDIT_WINDOW_SECS
+			&& (now - self.timestamp) < window
 	}
 
 	pub const DELETE_FOR_EVERYONE_WINDOW_SECS: i64 = 60 * 60 * 60;
@@ -1619,6 +1619,16 @@ mod tests {
 
 	fn row_ids(messages: &[Msg]) -> Vec<String> {
 		messages.iter().map(|m| if m.is_date_divider { "-".to_string() } else { m.id.clone() }).collect()
+	}
+
+	#[test]
+	fn edits_start_within_fifteen_minutes_or_thirty_days_in_channels() {
+		let mine =
+			ChatMessage { id: "m".into(), text: "hi".into(), from_me: true, timestamp: 1000, ..Default::default() };
+		assert!(mine.is_editable(1000 + 14 * 60, false));
+		assert!(!mine.is_editable(1000 + 15 * 60, false));
+		assert!(mine.is_editable(1000 + 29 * 24 * 3600, true));
+		assert!(!mine.is_editable(1000 + 31 * 24 * 3600, true));
 	}
 
 	#[test]

@@ -4573,7 +4573,7 @@ pub fn bind_input_handlers(
 			let can_edit = display_item
 				.as_ref()
 				.map(|item| match item {
-					whatsnap::DisplayItem::Single(m) => m.is_editable(now),
+					whatsnap::DisplayItem::Single(m) => m.is_editable(now, is_channel_chat),
 					whatsnap::DisplayItem::Album { .. } => false,
 				})
 				.unwrap_or(false);
@@ -5031,7 +5031,9 @@ pub fn bind_input_handlers(
 							.duration_since(std::time::UNIX_EPOCH)
 							.unwrap_or_default()
 							.as_secs() as i64;
-						if !msg.is_editable(now) {
+						let in_channel =
+							state_clone.borrow().selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
+						if !msg.is_editable(now, in_channel) {
 							unsafe {
 								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 									windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
@@ -5039,7 +5041,11 @@ pub fn bind_input_handlers(
 							}
 							let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
 							let reason = if still_eligible_otherwise {
-								"This message can no longer be edited - the 20 minute edit window has passed."
+								if in_channel {
+									"This message can no longer be edited - the 30 day edit window has passed."
+								} else {
+									"This message can no longer be edited - the 15 minute edit window has passed."
+								}
 							} else {
 								"Message can't be edited."
 							};
@@ -5656,7 +5662,9 @@ pub fn bind_input_handlers(
 							.duration_since(std::time::UNIX_EPOCH)
 							.unwrap_or_default()
 							.as_secs() as i64;
-						if !msg.is_editable(now) {
+						let in_channel =
+							state_play.borrow().selected_chat.as_ref().is_some_and(|j| j.ends_with("@newsletter"));
+						if !msg.is_editable(now, in_channel) {
 							unsafe {
 								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
 									windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
@@ -5664,7 +5672,11 @@ pub fn bind_input_handlers(
 							}
 							let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
 							let reason = if still_eligible_otherwise {
-								"This message can no longer be edited - the 20 minute edit window has passed."
+								if in_channel {
+									"This message can no longer be edited - the 30 day edit window has passed."
+								} else {
+									"This message can no longer be edited - the 15 minute edit window has passed."
+								}
 							} else {
 								"Message can't be edited."
 							};
