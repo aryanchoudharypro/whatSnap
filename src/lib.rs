@@ -273,9 +273,26 @@ impl ChatMessage {
 			&& !self.is_voice()
 			&& !self.is_system()
 			&& !self.is_call()
-			&& self.media_type.is_empty()
-			&& !self.text.starts_with('[')
+			&& self.edit_text().is_some()
 			&& (now - self.timestamp) < window
+	}
+
+	/// The text an edit starts from: a plain message's text, or the caption
+	/// of a photo, video or document. WhatsApp Web only edits captions that
+	/// aren't empty, so media without one has nothing to edit.
+	pub fn edit_text(&self) -> Option<&str> {
+		if self.media_type.is_empty() {
+			return (!self.text.starts_with('[')).then_some(self.text.as_str());
+		}
+		let caption = match self.media_type.as_str() {
+			"image" => ["[Image] ", "[Photo] "].iter().find_map(|tag| self.text.strip_prefix(tag))?,
+			"video" if !self.text.starts_with("[Video] GIF") => self.text.strip_prefix("[Video] ")?,
+			"document" if !self.media_filename.is_empty() => {
+				self.text.strip_prefix("[Document] ")?.strip_prefix(self.media_filename.as_str())?.strip_prefix(": ")?
+			}
+			_ => return None,
+		};
+		(!caption.is_empty()).then_some(caption)
 	}
 
 	pub const DELETE_FOR_EVERYONE_WINDOW_SECS: i64 = 60 * 60 * 60;
@@ -1629,6 +1646,30 @@ mod tests {
 		assert!(!mine.is_editable(1000 + 15 * 60, false));
 		assert!(mine.is_editable(1000 + 29 * 24 * 3600, true));
 		assert!(!mine.is_editable(1000 + 31 * 24 * 3600, true));
+	}
+
+	#[test]
+	fn edits_start_from_the_caption_of_photos_videos_and_documents() {
+		let sent = |media_type: &str, filename: &str, text: &str| ChatMessage {
+			id: "m".into(),
+			text: text.into(),
+			media_type: media_type.into(),
+			media_filename: filename.into(),
+			from_me: true,
+			timestamp: 1000,
+			..Default::default()
+		};
+		assert_eq!(sent("", "", "hi").edit_text(), Some("hi"));
+		assert_eq!(sent("image", "", "[Image] beach day").edit_text(), Some("beach day"));
+		assert_eq!(sent("video", "", "[Video] clip: part 2").edit_text(), Some("clip: part 2"));
+		assert_eq!(sent("document", "a.pdf", "[Document] a.pdf: see page 2").edit_text(), Some("see page 2"));
+		assert_eq!(sent("image", "", "[Image]").edit_text(), None);
+		assert_eq!(sent("document", "a.pdf", "[Document] a.pdf").edit_text(), None);
+		assert_eq!(sent("document", "", "[Document] see page 2").edit_text(), None);
+		assert_eq!(sent("video", "", "[Video] GIF. fun").edit_text(), None);
+		assert_eq!(sent("audio", "", "[Audio] (0:03)").edit_text(), None);
+		assert!(sent("image", "", "[Image] beach day").is_editable(1000 + 60, false));
+		assert!(!sent("image", "", "[Image]").is_editable(1000 + 60, false));
 	}
 
 	#[test]

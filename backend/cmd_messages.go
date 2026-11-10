@@ -277,13 +277,10 @@ func (acc *Account) handleEditMessage(raw json.RawMessage) {
 				mentions = append(mentions, m)
 			}
 		}
-		newContent := &waE2E.Message{Conversation: proto.String(data.NewText)}
-		if wireText, mentionJIDs := applyMentions(data.NewText, mentions); len(mentionJIDs) > 0 {
-			newContent = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text:        proto.String(wireText),
-				ContextInfo: &waE2E.ContextInfo{MentionedJID: jidStrings(mentionJIDs)},
-			}}
-		}
+		var mediaType string
+		acc.db.QueryRow(`SELECT COALESCE(media_type, '') FROM messages WHERE id = ? AND jid = ?`, data.MessageID, data.JID).Scan(&mediaType)
+		wireText, mentionJIDs := applyMentions(data.NewText, mentions)
+		newContent := editContent(mediaType, wireText, jidStrings(mentionJIDs))
 		msg := acc.wa().BuildEdit(chatJID, data.MessageID, newContent)
 
 		editStanzaID := acc.wa().GenerateMessageID()

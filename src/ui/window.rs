@@ -5039,7 +5039,8 @@ pub fn bind_input_handlers(
 									windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
 								);
 							}
-							let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
+							let still_eligible_otherwise =
+								msg.from_me && !msg.is_deleted && !msg.is_voice() && msg.edit_text().is_some();
 							let reason = if still_eligible_otherwise {
 								if in_channel {
 									"This message can no longer be edited - the 30 day edit window has passed."
@@ -5053,7 +5054,7 @@ pub fn bind_input_handlers(
 						} else {
 							let _ = tx_play_media_clone.send(UiCommand::BeginEditMessage {
 								message_id: msg.id.clone(),
-								text: msg.text.clone(),
+								text: msg.edit_text().unwrap_or_default().to_string(),
 							});
 						}
 					}
@@ -5670,7 +5671,8 @@ pub fn bind_input_handlers(
 									windows::Win32::UI::WindowsAndMessaging::MB_ICONHAND,
 								);
 							}
-							let still_eligible_otherwise = msg.from_me && !msg.is_deleted && !msg.is_voice();
+							let still_eligible_otherwise =
+								msg.from_me && !msg.is_deleted && !msg.is_voice() && msg.edit_text().is_some();
 							let reason = if still_eligible_otherwise {
 								if in_channel {
 									"This message can no longer be edited - the 30 day edit window has passed."
@@ -5684,7 +5686,7 @@ pub fn bind_input_handlers(
 						} else {
 							let _ = tx_play_media.send(UiCommand::BeginEditMessage {
 								message_id: msg.id.clone(),
-								text: msg.text.clone(),
+								text: msg.edit_text().unwrap_or_default().to_string(),
 							});
 						}
 					}
