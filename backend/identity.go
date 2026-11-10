@@ -8,6 +8,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/proto/waWa6"
 	"go.mau.fi/whatsmeow/store"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"google.golang.org/protobuf/proto"
 )
@@ -31,6 +32,15 @@ func applyClientIdentity() {
 		agent.Mnc = proto.String(build[3:])
 	}
 
+	if languages, err := windows.GetUserPreferredUILanguages(windows.MUI_LANGUAGE_NAME); err == nil && len(languages) > 0 {
+		if language, country := parseLocale(languages[0]); language != "" {
+			agent.LocaleLanguageIso6391 = proto.String(language)
+			if country != "" {
+				agent.LocaleCountryIso31661Alpha2 = proto.String(country)
+			}
+		}
+	}
+
 	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_UWP.Enum()
 	store.DeviceProps.Os = proto.String("Windows")
 	store.DeviceProps.Version = &waCompanionReg.DeviceProps_AppVersion{Primary: proto.Uint32(10)}
@@ -39,6 +49,47 @@ func applyClientIdentity() {
 	// on every connect, so it needs no new link. Calls with it get native
 	// relay blocks, which meowcaller dials over plain UDP like the real app.
 	store.BaseClientPayload.WebInfo.WebSubPlatform = waWa6.ClientPayload_WebInfo_WIN_HYBRID.Enum()
+}
+
+// parseLocale splits a name like "en-GB" or "sr-Latn-RS" the way WhatsApp
+// Web does for the language and country it sends at login.
+func parseLocale(name string) (language, country string) {
+	parts := strings.Split(name, "-")
+	if !isLetters(parts[0], 2, 3) {
+		return "", ""
+	}
+	next := 1
+	if next < len(parts) && isLetters(parts[next], 4, 4) {
+		next++
+	}
+	if next < len(parts) && (isLetters(parts[next], 2, 2) || isDigits(parts[next], 3)) {
+		country = parts[next]
+	}
+	return parts[0], country
+}
+
+func isLetters(text string, shortest, longest int) bool {
+	if len(text) < shortest || len(text) > longest {
+		return false
+	}
+	for _, char := range text {
+		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+func isDigits(text string, length int) bool {
+	if len(text) != length {
+		return false
+	}
+	for _, char := range text {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func webViewUserAgent() string {

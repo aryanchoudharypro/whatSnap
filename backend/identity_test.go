@@ -23,6 +23,22 @@ func TestParseWebViewMajor(t *testing.T) {
 	}
 }
 
+func TestParseLocale(t *testing.T) {
+	for name, want := range map[string][2]string{
+		"en-GB":      {"en", "GB"},
+		"sr-Latn-RS": {"sr", "RS"},
+		"es-419":     {"es", "419"},
+		"fil-PH":     {"fil", "PH"},
+		"hi":         {"hi", ""},
+		"":           {"", ""},
+		"x-custom":   {"", ""},
+	} {
+		if language, country := parseLocale(name); language != want[0] || country != want[1] {
+			t.Errorf("parseLocale(%q) = %q, %q, want %q, %q", name, language, country, want[0], want[1])
+		}
+	}
+}
+
 func TestWebViewUserAgentIsAnEdgeWebView(t *testing.T) {
 	ua := webViewUserAgent()
 	if !strings.HasPrefix(ua, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)") || !strings.Contains(ua, " Edg/") {
