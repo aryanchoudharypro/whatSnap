@@ -20,6 +20,18 @@ pub fn note_launch_args(mut args: impl Iterator<Item = String>) -> bool {
 	background
 }
 
+/// Starts this run in the tray, as if Windows had started it: for a copy
+/// started by a notification's button, which shouldn't open the window.
+pub fn start_hidden() {
+	BACKGROUND_START.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The user asked for the window (clicked a notification) before it first
+/// showed: it shows after all.
+pub fn show_on_start() {
+	BACKGROUND_START.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Whether this run was started by Windows at sign-in, not by the user.
 pub fn started_in_background() -> bool {
 	BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst)

@@ -244,6 +244,8 @@ struct AppState {
 	/// starting with Windows, so no update window opens on its own.
 	pending_update_check: bool,
 	pending_whatsapp_link: Option<String>,
+	/// Replies typed into notifications before the chats were loaded.
+	pending_notification_replies: Vec<(String, String)>,
 	pending_shared_files: Vec<String>,
 	conn_online: bool,
 	conn_status_text: String,
@@ -381,6 +383,21 @@ fn launch_command(request: platform::single_instance::LaunchRequest) -> UiComman
 	match request {
 		platform::single_instance::LaunchRequest::Link(link) => UiCommand::OpenWhatsAppLink(link),
 		platform::single_instance::LaunchRequest::Files(paths) => UiCommand::ShareFiles(paths),
+		platform::single_instance::LaunchRequest::Reply { jid, account, text } => {
+			UiCommand::NotificationReply { jid, account, text }
+		}
+	}
+}
+
+/// Whether a request is a notification button that works without the window
+/// (Mark as read, a reply), so it must not bring whatSnap to the front.
+fn works_in_background(request: &Option<platform::single_instance::LaunchRequest>) -> bool {
+	match request {
+		Some(platform::single_instance::LaunchRequest::Reply { .. }) => true,
+		Some(platform::single_instance::LaunchRequest::Link(link)) => {
+			matches!(platform::app_link::parse(link), Some(platform::app_link::AppLink::MarkRead { .. }))
+		}
+		_ => false,
 	}
 }
 
@@ -389,9 +406,19 @@ fn main() {
 
 	let background_start = platform::autostart::note_launch_args(std::env::args().skip(1));
 	let launch_request = launch_request_from_args(std::env::args().skip(1));
+	// Started by Windows for a notification: what was pressed arrives through
+	// the toast activator, not the command line. The window stays hidden
+	// unless that turns out to be a click that asks for it.
+	#[cfg(target_os = "windows")]
+	let toast_start = platform::toast_activator::launched_for_toast(std::env::args().skip(1));
+	#[cfg(not(target_os = "windows"))]
+	let toast_start = false;
 	// A start with Windows never pulls a copy that's already running to the front.
-	if background_start && platform::single_instance::is_running() {
+	if (background_start || toast_start) && platform::single_instance::is_running() {
 		return;
+	}
+	if toast_start {
+		platform::autostart::start_hidden();
 	}
 	let _instance_lock = match platform::single_instance::acquire_or_activate_existing(launch_request.as_ref()) {
 		Some(lock) => lock,
@@ -401,6 +428,8 @@ fn main() {
 		std::thread::spawn(platform::autostart::refresh);
 	}
 	platform::single_instance::listen_for_activation();
+	#[cfg(target_os = "windows")]
+	platform::toast_activator::start();
 	platform::paths::migrate_legacy_data();
 	#[cfg(target_os = "windows")]
 	std::thread::spawn(platform::link_handler::register);
@@ -455,19 +484,6 @@ fn main() {
 
 	let res = wxdragon::main(move |_| {
 		crate::ui::theme::apply_to_windows();
-		// Registers (or repairs) a Start Menu shortcut carrying our Application
-		// User Model ID. Windows silently drops toasts from any AUMID that
-		// isn't backed by such a shortcut, which is why notifications never
-		// showed up in Action Center even though sounds played fine - the app
-		// wasn't a Windows-recognized notification sender at all. This is the
-		// modern WinRT toast path (wx/msw/rt/notifmsgrt.cpp), not the legacy
-		// taskbar-balloon fallback that wxdragon's builder avoids by default.
-		#[cfg(target_os = "windows")]
-		wxdragon::prelude::NotificationMessage::msw_use_toasts(
-			&platform::toast::start_menu_shortcut_path(),
-			platform::toast::APP_ID,
-		);
-
 		let parts = build_main_window();
 		let frame = parts.frame;
 
@@ -489,12 +505,8 @@ fn main() {
 
 		let ui_tx_activate = ui_tx.clone();
 		platform::single_instance::on_activation(move |request| {
-			let mark_read = matches!(
-				&request,
-				Some(platform::single_instance::LaunchRequest::Link(link))
-					if matches!(platform::app_link::parse(link), Some(platform::app_link::AppLink::MarkRead { .. }))
-			);
-			if !mark_read {
+			if !works_in_background(&request) {
+				platform::autostart::show_on_start();
 				let _ = ui_tx_activate.send(UiCommand::ActivateWindow);
 			}
 			if let Some(request) = request {
@@ -1047,6 +1059,7 @@ pub(crate) fn new_app_state(
 		main_ui_shown: false,
 		pending_update_check: false,
 		pending_whatsapp_link: None,
+		pending_notification_replies: Vec::new(),
 		pending_shared_files: Vec::new(),
 		conn_online: false,
 		conn_status_text: "Status: Connecting...".to_string(),
@@ -1286,6 +1299,9 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::SubscribePresence(jid) => ui_commands::misc::subscribe_presence(state, parts, jid),
 		UiCommand::ActivateWindow => ui_commands::misc::activate_window(state, parts),
 		UiCommand::OpenWhatsAppLink(link) => ui_commands::links::open_whatsapp_link(state, parts, link),
+		UiCommand::NotificationReply { jid, account, text } => {
+			ui_commands::links::notification_reply(state, parts, jid, account, text)
+		}
 		UiCommand::ShareFiles(paths) => ui_commands::links::share_files(state, parts, paths),
 		UiCommand::ShareMenuResult { ok, text } => {
 			let parent: &dyn wxdragon::prelude::WxWidget =

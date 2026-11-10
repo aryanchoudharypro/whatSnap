@@ -15,7 +15,9 @@ use crate::{
 
 fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: crate::platform::app_link::AppLink) {
 	match link {
-		crate::platform::app_link::AppLink::Open { jid, .. } => open_chat_for_jid(&jid, state, parts),
+		crate::platform::app_link::AppLink::Open { jid, .. } | crate::platform::app_link::AppLink::Reply { jid, .. } => {
+			open_chat_for_jid(&jid, state, parts)
+		}
 		crate::platform::app_link::AppLink::MarkRead { jid, .. } => {
 			if state.borrow().locked_jids.contains(&jid) && !state.borrow().chats_unlocked {
 				return;
@@ -37,7 +39,8 @@ pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	// goes straight to that account; open switches to it first.
 	if let Some(link_account) = app_link.as_ref().and_then(|l| match l {
 		crate::platform::app_link::AppLink::Open { account, .. }
-		| crate::platform::app_link::AppLink::MarkRead { account, .. } => account.clone(),
+		| crate::platform::app_link::AppLink::MarkRead { account, .. }
+		| crate::platform::app_link::AppLink::Reply { account, .. } => account.clone(),
 	}) && !crate::ui_commands::accounts::is_active(state, &link_account)
 	{
 		match &app_link {
@@ -99,10 +102,59 @@ pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 }
 
+/// Sends what was typed into a notification's reply box, then marks the chat
+/// read, as replying from a notification does on the phone. Nothing opens or
+/// takes focus. When it can't be sent, a notification says why.
+pub(crate) fn notification_reply(
+	state: &Rc<RefCell<AppState>>,
+	parts: &Rc<WindowParts>,
+	jid: String,
+	account: Option<String>,
+	text: String,
+) {
+	if let Some(account) = account.filter(|a| !crate::ui_commands::accounts::is_active(state, a)) {
+		crate::ui_commands::accounts::reply_in_background(state, &account, &jid, &text);
+		return;
+	}
+	let refusal = {
+		let mut s = state.borrow_mut();
+		if !s.main_ui_shown || s.chats.is_empty() {
+			s.pending_notification_replies.push((jid, text));
+			return;
+		}
+		if s.locked_jids.contains(&jid) && !s.chats_unlocked {
+			return;
+		}
+		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(&jid));
+		if crate::ui_commands::blocking::is_blocked(&s, &jid) {
+			Some(format!("Your reply to {name} wasn't sent because you blocked them."))
+		} else {
+			crate::ui::chat_ui::group_send_block_reason(&s, &jid)
+				.map(|reason| format!("Your reply to {name} wasn't sent. {reason}."))
+		}
+	};
+	if let Some(refusal) = refusal {
+		crate::ui::chat_ui::show_toast_notification(whatsnap::TRAY_APP_NAME, &refusal);
+		return;
+	}
+	{
+		let s = state.borrow();
+		let payload = serde_json::json!({
+			"action": "send",
+			"data": { "to": jid, "text": text, "reply_to_id": "", "reply_to_sender": "" }
+		});
+		let _ = s.ws_tx.send(payload.to_string());
+	}
+	handle_app_link(state, parts, crate::platform::app_link::AppLink::MarkRead { jid, account: None });
+}
+
 pub(crate) fn open_pending_whatsapp_link(state: &Rc<RefCell<AppState>>) {
 	let mut s = state.borrow_mut();
 	if !s.main_ui_shown || s.chats.is_empty() {
 		return;
+	}
+	for (jid, text) in std::mem::take(&mut s.pending_notification_replies) {
+		let _ = s.ui_tx.send(crate::UiCommand::NotificationReply { jid, account: None, text });
 	}
 	if let Some(link) = s.pending_whatsapp_link.take() {
 		let _ = s.ui_tx.send(crate::UiCommand::OpenWhatsAppLink(link));

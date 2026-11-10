@@ -15,6 +15,8 @@ pub mod paths;
 pub mod quit;
 pub mod single_instance;
 pub mod toast;
+#[cfg(target_os = "windows")]
+pub mod toast_activator;
 pub mod tray;
 pub mod update_check;
 #[cfg(target_os = "windows")]

@@ -10,6 +10,15 @@ pub enum AppLink {
 		jid: String,
 		account: Option<String>,
 	},
+	/// The Send button of a notification's reply box. The typed text never
+	/// travels in the link: only the toast activator (see
+	/// `platform::toast_activator`) can pair it with what was typed, so a link
+	/// from a web page can't make whatSnap send anything. Opened on its own,
+	/// it just opens the chat.
+	Reply {
+		jid: String,
+		account: Option<String>,
+	},
 }
 
 const SCHEME: &str = "whatsnap://";
@@ -20,6 +29,15 @@ pub fn open_link(jid: &str, account: Option<&str>) -> String {
 
 pub fn mark_read_link(jid: &str, account: Option<&str>) -> String {
 	format!("{SCHEME}markread?jid={}{}", encode(jid), account_param(account))
+}
+
+/// Brings whatSnap to the front without opening anything.
+pub fn activate_link() -> String {
+	format!("{SCHEME}activate")
+}
+
+pub fn reply_link(jid: &str, account: Option<&str>) -> String {
+	format!("{SCHEME}reply?jid={}{}", encode(jid), account_param(account))
 }
 
 fn account_param(account: Option<&str>) -> String {
@@ -39,6 +57,7 @@ pub fn parse(link: &str) -> Option<AppLink> {
 	match action.trim_end_matches('/').to_ascii_lowercase().as_str() {
 		"open" => Some(AppLink::Open { jid, account }),
 		"markread" => Some(AppLink::MarkRead { jid, account }),
+		"reply" => Some(AppLink::Reply { jid, account }),
 		_ => None,
 	}
 }
@@ -84,6 +103,7 @@ mod tests {
 		let jid = "919810012345@s.whatsapp.net";
 		assert_eq!(parse(&mark_read_link(jid, None)), Some(AppLink::MarkRead { jid: jid.to_string(), account: None }));
 		assert_eq!(parse(&open_link(jid, None)), Some(AppLink::Open { jid: jid.to_string(), account: None }));
+		assert_eq!(parse(&reply_link(jid, None)), Some(AppLink::Reply { jid: jid.to_string(), account: None }));
 	}
 
 	#[test]

@@ -71,6 +71,11 @@ pub(crate) fn activate_window(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		return;
 	}
 	crate::platform::tray::restore_main_window(&parts.frame);
+	// wx's raise only reorders windows; taking the keyboard from another app
+	// needs the foreground, which the notification click or the launch that
+	// handed off to us allowed.
+	#[cfg(target_os = "windows")]
+	crate::platform::focus::bring_to_front(windows::Win32::Foundation::HWND(parts.frame.get_handle().cast()));
 	handle_ui_command(UiCommand::SetPresence(true), state, parts);
 }
 

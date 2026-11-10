@@ -312,6 +312,9 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			crate::ui::chat_ui::clear_chat_notifications(jid);
 		}
 	}
+	// Also a chat whose count never reached this list before it was read (on
+	// the phone or another device).
+	crate::platform::toast::clear_read_chat_toasts(|jid| unread_counts.get(jid) == Some(&0));
 	s.unread_counts = unread_counts;
 	s.display_names = display_names;
 	s.chat_preview_lines = preview_lines;

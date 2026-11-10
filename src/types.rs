@@ -244,6 +244,12 @@ pub enum UiCommand {
 	WindowHidden,
 	ActivateWindow,
 	OpenWhatsAppLink(String),
+	/// Text typed into a message notification's reply box.
+	NotificationReply {
+		jid: String,
+		account: Option<String>,
+		text: String,
+	},
 	ShareFiles(Vec<String>),
 	ShareMenuResult {
 		ok: bool,

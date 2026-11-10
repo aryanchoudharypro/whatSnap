@@ -35,6 +35,13 @@ impl Drop for InstanceLock {
 pub enum LaunchRequest {
 	Link(String),
 	Files(Vec<String>),
+	/// Text typed into a notification's reply box. Only the toast activator
+	/// makes one; a hand-off from another launch never decodes to it.
+	Reply {
+		jid: String,
+		account: Option<String>,
+		text: String,
+	},
 }
 
 const FILES_HEADER: &str = "files\n";
@@ -44,6 +51,7 @@ impl LaunchRequest {
 		match self {
 			LaunchRequest::Link(link) => link.clone(),
 			LaunchRequest::Files(paths) => format!("{FILES_HEADER}{}", paths.join("\n")),
+			LaunchRequest::Reply { jid, account, .. } => crate::platform::app_link::open_link(jid, account.as_deref()),
 		}
 	}
 
@@ -147,7 +155,8 @@ struct Activations {
 
 static ACTIVATIONS: Mutex<Activations> = Mutex::new(Activations { handler: None, waiting: Vec::new() });
 
-fn deliver(request: Option<LaunchRequest>) {
+/// Hands a request to the running window, or keeps it until there is one.
+pub(crate) fn deliver(request: Option<LaunchRequest>) {
 	let mut activations = ACTIVATIONS.lock().unwrap_or_else(|e| e.into_inner());
 	match &activations.handler {
 		Some(handler) => handler(request),

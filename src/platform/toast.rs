@@ -1,7 +1,11 @@
 use std::{
-	collections::hash_map::DefaultHasher,
+	collections::{HashMap, hash_map::DefaultHasher},
 	hash::{Hash, Hasher},
-	sync::atomic::{AtomicU64, Ordering},
+	sync::{
+		Mutex, MutexGuard, OnceLock,
+		atomic::{AtomicU64, Ordering},
+	},
+	time::Instant,
 };
 
 use windows::{
@@ -57,19 +61,46 @@ fn escape_xml(text: &str) -> String {
 	out
 }
 
+/// How a click reaches the app: the registered activator when it's up (see
+/// [`crate::platform::toast_activator`]), else a `whatsnap://` link that
+/// starts a second copy which hands it on.
+fn activation(foreground: bool) -> &'static str {
+	match (crate::platform::toast_activator::is_ready(), foreground) {
+		(false, _) => "protocol",
+		(true, true) => "foreground",
+		(true, false) => "background",
+	}
+}
+
 fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>, is_locked: bool) -> String {
 	let open = escape_xml(&app_link::open_link(jid, account));
 	let actions = if is_locked {
 		String::new()
 	} else {
 		let mark_read = escape_xml(&app_link::mark_read_link(jid, account));
+		// Typed text only reaches the app through the activator, so without
+		// it there is no reply box.
+		let reply = if crate::platform::toast_activator::is_ready() {
+			let reply = escape_xml(&app_link::reply_link(jid, account));
+			format!(
+				concat!(
+					r#"<input id="{input}" type="text" placeHolderContent="Type a reply"/>"#,
+					r#"<action content="Send" arguments="{reply}" activationType="background" hint-inputId="{input}"/>"#,
+				),
+				input = REPLY_INPUT,
+				reply = reply,
+			)
+		} else {
+			String::new()
+		};
 		format!(
-			r#"<actions><action content="Mark as read" arguments="{mark_read}" activationType="protocol"/></actions>"#
+			r#"<actions>{reply}<action content="Mark as read" arguments="{mark_read}" activationType="{background}"/></actions>"#,
+			background = activation(false),
 		)
 	};
 	format!(
 		concat!(
-			r#"<toast launch="{open}" activationType="protocol">"#,
+			r#"<toast launch="{open}" activationType="{foreground}">"#,
 			r#"<visual><binding template="ToastGeneric">"#,
 			r#"<text>{title}</text><text>{body}</text>"#,
 			r#"</binding></visual>"#,
@@ -77,16 +108,51 @@ fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>, is_locke
 			r#"</toast>"#,
 		),
 		open = open,
+		foreground = activation(true),
 		actions = actions,
 		title = escape_xml(title),
 		body = escape_xml(body),
 	)
 }
 
+/// A toast with no chat behind it (the catch-up summary, an incoming call, a
+/// problem to report). A click brings whatSnap to the front.
+fn plain_toast_xml(title: &str, body: &str) -> String {
+	let launch = escape_xml(&app_link::activate_link());
+	format!(
+		concat!(
+			r#"<toast launch="{launch}" activationType="{foreground}">"#,
+			r#"<visual><binding template="ToastGeneric">"#,
+			r#"<text>{title}</text><text>{body}</text>"#,
+			r#"</binding></visual>"#,
+			r#"</toast>"#,
+		),
+		launch = launch,
+		foreground = activation(true),
+		title = escape_xml(title),
+		body = escape_xml(body),
+	)
+}
+
+/// The id of the reply box, which the activator gets the typed text under.
+pub const REPLY_INPUT: &str = "reply";
+
+fn show(xml: &str, group: Option<&HSTRING>) -> windows::core::Result<()> {
+	let document = XmlDocument::new()?;
+	document.LoadXml(&HSTRING::from(xml))?;
+	let toast = ToastNotification::CreateToastNotification(&document)?;
+	toast.SetTag(&next_tag())?;
+	if let Some(group) = group {
+		toast.SetGroup(group)?;
+	}
+	let notifier = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?;
+	notifier.Show(&toast)
+}
+
 /// Shows a message toast for `jid`, filed in that chat's group. `account` is
 /// set for a chat of a linked account that isn't the one on screen, so a click
-/// switches to it. When `is_locked` is true, the toast omits unauthenticated actions
-/// such as "Mark as read". Must run on the UI thread, like the rest of the WinRT toast
+/// switches to it. When `is_locked` is true, the toast has no reply box or
+/// "Mark as read". Must run on the UI thread, like the rest of the WinRT toast
 /// code in this app.
 pub fn show_chat_toast(
 	jid: &str,
@@ -95,18 +161,41 @@ pub fn show_chat_toast(
 	account: Option<&str>,
 	is_locked: bool,
 ) -> windows::core::Result<()> {
-	let document = XmlDocument::new()?;
-	document.LoadXml(&HSTRING::from(toast_xml(title, body, jid, account, is_locked)))?;
-	let toast = ToastNotification::CreateToastNotification(&document)?;
-	toast.SetTag(&next_tag())?;
-	toast.SetGroup(&group_for(jid))?;
-	let notifier = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?;
-	notifier.Show(&toast)
+	show(&toast_xml(title, body, jid, account, is_locked), Some(&group_for(jid)))?;
+	shown_chats().insert(jid.to_string(), Instant::now());
+	Ok(())
+}
+
+/// Shows a toast that isn't about one chat. Must run on the UI thread.
+pub fn show_plain_toast(title: &str, body: &str) -> windows::core::Result<()> {
+	show(&plain_toast_xml(title, body), None)
+}
+
+/// The chats that have toasts up, and when the last one was shown.
+fn shown_chats() -> MutexGuard<'static, HashMap<String, Instant>> {
+	static SHOWN: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+	SHOWN.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn clear_chat_toasts(jid: &str) {
+	shown_chats().remove(jid);
 	if let Ok(history) = ToastNotificationManager::History() {
 		let _ = history.RemoveGroupWithId(&group_for(jid), &HSTRING::from(APP_ID));
+	}
+}
+
+/// A chat list just came in: takes down the toasts of chats it shows as read
+/// (on the phone, on another device, or here). A toast younger than a few
+/// seconds is left alone, since the list may predate its message.
+pub fn clear_read_chat_toasts(is_read: impl Fn(&str) -> bool) {
+	const SETTLE: std::time::Duration = std::time::Duration::from_secs(5);
+	let read: Vec<String> = shown_chats()
+		.iter()
+		.filter(|(jid, at)| at.elapsed() >= SETTLE && is_read(jid))
+		.map(|(jid, _)| jid.clone())
+		.collect();
+	for jid in read {
+		clear_chat_toasts(&jid);
 	}
 }
 

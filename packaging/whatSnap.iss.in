@@ -82,6 +82,14 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 ; send them to.
 Name: "{usersendto}\{#AppName}"; Filename: "{app}\{#AppExe}"
 
+[Registry]
+; The notification activator (src/platform/toast_activator.rs): Windows starts
+; whatSnap through it when a notification is clicked or replied to. The app
+; rewrites it at every start; it's written here too so it's there before the
+; first one, and removed on uninstall.
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{6F1C8F2E-3A5D-4B71-9C0E-5D2A7B4E91C3}"; ValueType: string; ValueName: ""; ValueData: "whatSnap notifications"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\CLSID\{{6F1C8F2E-3A5D-4B71-9C0E-5D2A7B4E91C3}\LocalServer32"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" -ToastActivated"
+
 [Run]
 ; runasoriginaluser: start the app as the user who ran the installer, even if the
 ; installer was elevated. An elevated instance can't be reached by the normal

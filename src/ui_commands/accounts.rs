@@ -309,10 +309,10 @@ fn background_event(account: &str, payload: &str, state: &Rc<RefCell<AppState>>,
 			let accounts = accounts(state);
 			let mut a = accounts.borrow_mut();
 			let bg = a.background.entry(account.to_string()).or_default();
+			let was_unread = std::mem::take(&mut bg.unread);
 			bg.muted.clear();
 			bg.archived.clear();
 			bg.locked.clear();
-			bg.unread.clear();
 			for chat in chats {
 				if chat.muted {
 					bg.muted.insert(chat.jid.clone());
@@ -329,6 +329,10 @@ fn background_event(account: &str, payload: &str, state: &Rc<RefCell<AppState>>,
 				if let Some(name) = chat.full_name.filter(|n| !n.is_empty()) {
 					bg.names.insert(chat.jid, name);
 				}
+			}
+			// Read on the phone or another device: its toasts come down.
+			for jid in was_unread.difference(&bg.unread) {
+				crate::ui::chat_ui::clear_chat_notifications(jid);
 			}
 		}
 		return;
@@ -511,6 +515,26 @@ pub(crate) fn mark_read_in_background(state: &Rc<RefCell<AppState>>, account: &s
 	if let Some(bg) = a.background.get_mut(account) {
 		bg.unread.remove(jid);
 	}
+}
+
+/// A reply typed into a notification from an account that isn't on screen:
+/// sent from that account, which then marks the chat read.
+pub(crate) fn reply_in_background(state: &Rc<RefCell<AppState>>, account: &str, jid: &str, text: &str) {
+	{
+		let accounts = accounts(state);
+		let a = accounts.borrow();
+		if a.background.get(account).is_some_and(|bg| bg.locked.contains(jid)) {
+			return;
+		}
+		a.send_to(
+			account,
+			serde_json::json!({
+				"action": "send",
+				"data": { "to": jid, "text": text, "reply_to_id": "", "reply_to_sender": "" }
+			}),
+		);
+	}
+	mark_read_in_background(state, account, jid);
 }
 
 /// Shows another account in the window. False when it can't right now (a

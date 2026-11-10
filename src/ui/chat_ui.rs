@@ -15,30 +15,22 @@ use crate::{
 	},
 };
 
-/// Shows a plain desktop notification (the catch-up summary and incoming
-/// calls, which have no chat to file under). Must be called on the wx
-/// main/GUI thread - wx (and the underlying WinRT toast COM calls) aren't
-/// thread-safe. Message toasts go through [`show_chat_notification`].
+/// Shows a plain desktop notification (the catch-up summary, incoming calls
+/// and problems to report, which have no chat to file under). A click brings
+/// whatSnap to the front. Must be called on the UI thread, like all the WinRT
+/// toast code. Message toasts go through [`show_chat_notification`].
 pub(crate) fn show_toast_notification(title: &str, body: &str) {
 	static LAST_TOAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-	let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+	let now = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map(|d| d.as_millis() as u64)
+		.unwrap_or(0);
 	let last = LAST_TOAST.swap(now, std::sync::atomic::Ordering::Relaxed);
-	if now - last < 1000 {
+	if now.saturating_sub(last) < 1000 {
 		return;
 	}
-
-	match wxdragon::prelude::NotificationMessage::builder()
-		.with_title(title)
-		.with_message(body)
-		.with_generic(false)
-		.build()
-	{
-		Ok(notification) => {
-			notification.show(wxdragon::prelude::TIMEOUT_AUTO);
-		}
-		Err(err) => {
-			eprintln!("[NOTIFY] Failed to build notification: {:?}", err);
-		}
+	if let Err(err) = crate::platform::toast::show_plain_toast(title, body) {
+		eprintln!("[NOTIFY] Toast failed: {err:?}");
 	}
 }
 
@@ -85,8 +77,7 @@ pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str, is_lock
 /// A chat notification for a linked account that isn't the one on screen.
 pub(crate) fn show_chat_notification_for(jid: &str, title: &str, body: &str, account: Option<&str>, is_locked: bool) {
 	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body, account, is_locked) {
-		eprintln!("[NOTIFY] Chat toast failed, showing a plain notification: {err:?}");
-		show_toast_notification(title, body);
+		eprintln!("[NOTIFY] Chat toast failed: {err:?}");
 	}
 }
 
