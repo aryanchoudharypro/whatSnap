@@ -130,31 +130,8 @@ pub(crate) fn show_scheduled_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	let (jid, name, ws_tx) = {
 		let s = state.borrow();
 		let Some(jid) = s.selected_chat.clone() else { return };
-		if !s.scheduled_messages_enabled {
-			drop(s);
-			let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
-			MessageDialog::builder(
-				&parts.frame,
-				"WhatsApp hasn't turned on scheduling messages for your account yet.",
-				"Scheduled messages",
-			)
-			.with_style(style)
-			.build()
-			.show_modal();
-			announce(state, parts, "WhatsApp hasn't turned on scheduling messages for your account.");
-			return;
-		}
 		if !schedulable(&s, &jid) {
 			drop(s);
-			let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
-			MessageDialog::builder(
-				&parts.frame,
-				"Messages can only be scheduled in one-on-one chats and groups.",
-				"Scheduled messages",
-			)
-			.with_style(style)
-			.build()
-			.show_modal();
 			announce(state, parts, "This chat has no scheduled messages.");
 			return;
 		}
@@ -201,10 +178,13 @@ pub(crate) fn scheduled_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	if action == "schedule" && !text.is_empty() && !jid.is_empty() {
 		let mut s = state.borrow_mut();
 		if s.selected_chat.as_deref() == Some(jid.as_str()) {
-			parts.conversations_parts.message_field.set_value(&text);
-			let end = text.chars().count() as i64;
-			parts.conversations_parts.message_field.set_selection(end, end);
-			crate::ui::chat_ui::update_composer_buttons(&s, &parts.conversations_parts);
+			// Only into an empty box: don't overwrite what was typed since.
+			if parts.conversations_parts.message_field.get_value().is_empty() {
+				parts.conversations_parts.message_field.set_value(&text);
+				let end = text.chars().count() as i64;
+				parts.conversations_parts.message_field.set_selection(end, end);
+				crate::ui::chat_ui::update_composer_buttons(&s, &parts.conversations_parts);
+			}
 		} else {
 			s.draft_messages.insert(jid, text);
 		}
