@@ -35,9 +35,32 @@ pub(crate) fn open_schedule_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	}
 	let mut s = state.borrow_mut();
 	let Some(jid) = s.selected_chat.clone() else { return };
+	if !s.scheduled_messages_enabled {
+		drop(s);
+		let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
+		MessageDialog::builder(
+			&parts.frame,
+			"WhatsApp hasn't turned on scheduling messages for your account yet.",
+			"Schedule message",
+		)
+		.with_style(style)
+		.build()
+		.show_modal();
+		announce(state, parts, "WhatsApp hasn't turned on scheduling messages for your account.");
+		return;
+	}
 	if !schedulable(&s, &jid) {
 		drop(s);
-		announce(state, parts, "Messages can't be scheduled in this chat.");
+		let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
+		MessageDialog::builder(
+			&parts.frame,
+			"Messages can only be scheduled in one-on-one chats and groups.",
+			"Schedule message",
+		)
+		.with_style(style)
+		.build()
+		.show_modal();
+		announce(state, parts, "Messages can only be scheduled in one-on-one chats and groups.");
 		return;
 	}
 	let text = parts.conversations_parts.message_field.get_value();
@@ -60,6 +83,15 @@ pub(crate) fn schedule_options_received(
 		}
 	};
 	if !data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true) {
+		let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
+		MessageDialog::builder(
+			&parts.frame,
+			"WhatsApp hasn't turned on scheduling messages for your account yet.",
+			"Schedule message",
+		)
+		.with_style(style)
+		.build()
+		.show_modal();
 		announce(state, parts, "WhatsApp hasn't turned on scheduling messages for your account.");
 		return;
 	}
@@ -98,8 +130,31 @@ pub(crate) fn show_scheduled_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	let (jid, name, ws_tx) = {
 		let s = state.borrow();
 		let Some(jid) = s.selected_chat.clone() else { return };
+		if !s.scheduled_messages_enabled {
+			drop(s);
+			let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
+			MessageDialog::builder(
+				&parts.frame,
+				"WhatsApp hasn't turned on scheduling messages for your account yet.",
+				"Scheduled messages",
+			)
+			.with_style(style)
+			.build()
+			.show_modal();
+			announce(state, parts, "WhatsApp hasn't turned on scheduling messages for your account.");
+			return;
+		}
 		if !schedulable(&s, &jid) {
 			drop(s);
+			let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
+			MessageDialog::builder(
+				&parts.frame,
+				"Messages can only be scheduled in one-on-one chats and groups.",
+				"Scheduled messages",
+			)
+			.with_style(style)
+			.build()
+			.show_modal();
 			announce(state, parts, "This chat has no scheduled messages.");
 			return;
 		}
@@ -133,11 +188,26 @@ pub(crate) fn scheduled_messages_received(state: &Rc<RefCell<AppState>>, data: &
 pub(crate) fn scheduled_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let ok = data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
 	let message = data.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string();
+	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
+	let action = data.get("action").and_then(|a| a.as_str()).unwrap_or("");
+	let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
 	if ok {
 		if !message.is_empty() {
 			announce(state, parts, &message);
 		}
 		return;
+	}
+	// Restore typed draft if scheduling failed so user text is never lost
+	if action == "schedule" && !text.is_empty() && !jid.is_empty() {
+		let mut s = state.borrow_mut();
+		if s.selected_chat.as_deref() == Some(jid.as_str()) {
+			parts.conversations_parts.message_field.set_value(&text);
+			let end = text.chars().count() as i64;
+			parts.conversations_parts.message_field.set_selection(end, end);
+			crate::ui::chat_ui::update_composer_buttons(&s, &parts.conversations_parts);
+		} else {
+			s.draft_messages.insert(jid, text);
+		}
 	}
 	let message = if message.is_empty() { "Something went wrong.".to_string() } else { message };
 	let list = state.borrow().scheduled_list.clone();
