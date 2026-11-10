@@ -45,6 +45,7 @@ const AGC_MAX_GAIN_DROP_DB_PER_S: f32 = 30.0;
 const AGC_MAX_NOISE_DBFS: f32 = -50.0;
 const AGC_SPEECH_ABOVE_NOISE_DB: f32 = 10.0;
 const AGC_MIN_SPEECH_DBFS: f32 = -65.0;
+const AGC_SPEECH_VERDICT: f32 = 0.5;
 
 pub(crate) struct VoiceAgc {
 	gain_db: f32,
@@ -73,13 +74,16 @@ impl VoiceAgc {
 	#[cfg(test)]
 	fn process(&mut self, frame: &mut [f32]) {
 		for slice in frame.chunks_mut(AGC_SLICE) {
-			self.process_slice(slice, true);
+			self.process_slice(slice, true, 1.0);
 		}
 	}
 
 	/// Applies the gain to one slice. With `learn` off (the slice is mostly
 	/// echo of the far end, not our voice) the levels and the gain stay put.
-	fn process_slice(&mut self, slice: &mut [f32], learn: bool) {
+	/// `speech` is the noise suppressor's verdict on the slice, 0..1: only
+	/// what it takes for a voice counts towards the speech level, so clicks
+	/// and quiet in-between sounds don't pull the gain about.
+	fn process_slice(&mut self, slice: &mut [f32], learn: bool, speech: f32) {
 		if slice.is_empty() {
 			return;
 		}
@@ -92,7 +96,10 @@ impl VoiceAgc {
 		if rms > 0.0 && learn {
 			// Noise floor: follows quiet slices at once, creeps up 1 dB/s.
 			self.noise_db = if level_db < self.noise_db { level_db } else { self.noise_db + 0.01 };
-			if level_db > AGC_MIN_SPEECH_DBFS && level_db > self.noise_db + AGC_SPEECH_ABOVE_NOISE_DB {
+			if speech >= AGC_SPEECH_VERDICT
+				&& level_db > AGC_MIN_SPEECH_DBFS
+				&& level_db > self.noise_db + AGC_SPEECH_ABOVE_NOISE_DB
+			{
 				// About half a second of speech to settle.
 				self.speech_db = Some(match self.speech_db {
 					Some(prev) => prev + 0.02 * (level_db - prev),
@@ -127,7 +134,7 @@ impl VoiceAgc {
 // is one hop ahead of its output, so word starts aren't cut), stays open
 // GATE_HOLD_SLICES after, then fades down slowly.
 pub(crate) const GATE_DEPTH_DB: f32 = 12.0;
-const GATE_OPEN_SPEECH: f32 = 0.4;
+const GATE_OPEN_SPEECH: f32 = 0.6;
 const GATE_HOLD_SLICES: u32 = 25; // 250 ms
 const GATE_ATTACK_SECS: f32 = 0.005;
 const GATE_RELEASE_SECS: f32 = 0.15;
@@ -398,7 +405,7 @@ impl CallVoice {
 				// The noise suppressor's output is a hop behind the echo
 				// suppressor's verdicts, so look at the last few.
 				let echo = self.echo.iter().copied().fold(0.0, f32::max);
-				self.agc.process_slice(&mut self.slice, echo < SOME_ECHO);
+				self.agc.process_slice(&mut self.slice, echo < SOME_ECHO, speech);
 				self.gate.process_slice(&mut self.slice, if echo < MOSTLY_ECHO { speech } else { 0.0 });
 				slices += 1;
 			}

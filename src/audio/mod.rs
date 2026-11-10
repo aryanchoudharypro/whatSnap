@@ -1,6 +1,7 @@
 pub mod aec;
 pub mod alert_tones;
 pub mod call_voice;
+pub mod denoise;
 pub mod device_watch;
 pub mod devices;
 pub mod fft;

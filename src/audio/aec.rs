@@ -91,8 +91,14 @@ impl DelayFinder {
 		bits
 	}
 
-	/// Takes the spectra of one block of played and recorded sound, returns
-	/// the delay in blocks once one is known.
+	/// Stands in for `update` on a block with nothing played.
+	fn skip(&mut self) {
+		self.head = (self.head + DELAY_HISTORY - 1) % DELAY_HISTORY;
+		self.far_bits[self.head] = 0;
+	}
+
+	/// Takes the spectra of one block of played and recorded sound and
+	/// updates `found`, the delay in blocks.
 	fn update(&mut self, far_re: &[f32], far_im: &[f32], mic_re: &[f32], mic_im: &[f32], far_active: bool) {
 		self.head = (self.head + DELAY_HISTORY - 1) % DELAY_HISTORY;
 		self.far_bits[self.head] = Self::bits(far_re, far_im, &mut self.far_mean);
@@ -175,6 +181,9 @@ pub(crate) struct EchoCanceller {
 	sum_adapt: f32,
 	adapted: bool,
 	worse_blocks: u32,
+	blocks: usize,
+	/// Blocks in a row with nothing played.
+	silent_blocks: usize,
 	leak: f32,
 	/// Smoothed power of the mic and of the output while sound is played.
 	mic_power: f32,
@@ -216,6 +225,8 @@ impl EchoCanceller {
 			sum_adapt: 0.0,
 			adapted: false,
 			worse_blocks: 0,
+			blocks: 0,
+			silent_blocks: 0,
 			leak: 1.0,
 			mic_power: 0.0,
 			out_power: 0.0,
@@ -323,6 +334,26 @@ impl EchoCanceller {
 		out: &mut Vec<f32>,
 		residual: &mut Vec<f32>,
 	) {
+		// With nothing played for longer than the filter reaches back there
+		// is no echo to predict: pass the mic through and skip the work.
+		if raw_far.iter().all(|s| s.abs() < 1.0) {
+			self.silent_blocks = self.silent_blocks.saturating_add(1);
+		} else {
+			self.silent_blocks = 0;
+		}
+		if self.silent_blocks > self.shift / BLOCK + PARTS + 1 {
+			self.delay.skip();
+			self.raw_far_prev = *raw_far;
+			self.mic_prev = *mic;
+			self.far_line.extend_from_slice(raw_far);
+			let keep = DELAY_HISTORY * BLOCK;
+			if self.far_line.len() > keep * 2 {
+				self.far_line.drain(..self.far_line.len() - keep);
+			}
+			out.extend(mic.iter().map(|s| s / SCALE));
+			residual.extend(std::iter::repeat_n(0.0, BLOCK));
+			return;
+		}
 		self.find_delay(mic, raw_far);
 		self.mic_prev = *mic;
 
@@ -462,7 +493,10 @@ impl EchoCanceller {
 		}
 		let largest = share.iter().copied().fold(0.0, f32::max);
 		let total: f32 = share.iter().map(|s| s + 0.1 * largest).sum();
-		let (err_re, err_im) = (self.a_re[..BINS].to_vec(), self.a_im[..BINS].to_vec());
+		let (mut err_re, mut err_im) = ([0.0f32; BINS], [0.0f32; BINS]);
+		err_re.copy_from_slice(&self.a_re[..BINS]);
+		err_im.copy_from_slice(&self.a_im[..BINS]);
+		self.blocks = self.blocks.wrapping_add(1);
 		for m in 0..PARTS {
 			let x = ((self.x_head + m) % PARTS) * FRAME;
 			let w = m * BINS;
@@ -473,14 +507,19 @@ impl EchoCanceller {
 				self.b_re[k] = self.bg_re[w + k] + mu * (xr * err_re[k] + xi * err_im[k]);
 				self.b_im[k] = self.bg_im[w + k] + mu * (xr * err_im[k] - xi * err_re[k]);
 			}
-			for k in 1..FRAME / 2 {
-				self.b_re[FRAME - k] = self.b_re[k];
-				self.b_im[FRAME - k] = -self.b_im[k];
+			// Trimming a partition back to its own block costs two FFTs, so
+			// only the first (where most of the echo sits) and one other in
+			// turn are trimmed each block, as Speex does.
+			if m == 0 || m == 1 + self.blocks % (PARTS - 1) {
+				for k in 1..FRAME / 2 {
+					self.b_re[FRAME - k] = self.b_re[k];
+					self.b_im[FRAME - k] = -self.b_im[k];
+				}
+				self.fft.transform(&mut self.b_re, &mut self.b_im, true);
+				self.b_re[BLOCK..].fill(0.0);
+				self.b_im.fill(0.0);
+				self.fft.transform(&mut self.b_re, &mut self.b_im, false);
 			}
-			self.fft.transform(&mut self.b_re, &mut self.b_im, true);
-			self.b_re[BLOCK..].fill(0.0);
-			self.b_im.fill(0.0);
-			self.fft.transform(&mut self.b_re, &mut self.b_im, false);
 			self.bg_re[w..w + BINS].copy_from_slice(&self.b_re[..BINS]);
 			self.bg_im[w..w + BINS].copy_from_slice(&self.b_im[..BINS]);
 		}

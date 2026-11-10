@@ -55,6 +55,11 @@ lto = true
 panic = "abort"
 codegen-units = 1
 
+# The noise suppressor runs on every call and voice message recording; built
+# for speed it takes a third of the CPU time for about 30 KB.
+[profile.release.package.nnnoiseless]
+opt-level = 3
+
 [build-dependencies]
 # The manifest, version resource, commit hash, readme.html and installer
 # script (see build.rs).
