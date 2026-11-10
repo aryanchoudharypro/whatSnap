@@ -492,10 +492,10 @@ type scheduledChatData struct {
 }
 
 func (acc *Account) scheduledResult(conn net.Conn, chat, action string, err error, done string) {
-	acc.scheduledResultWithText(conn, chat, action, err, done, "")
+	acc.scheduledResultWithText(conn, chat, action, err, done, "", nil)
 }
 
-func (acc *Account) scheduledResultWithText(conn net.Conn, chat, action string, err error, done, text string) {
+func (acc *Account) scheduledResultWithText(conn net.Conn, chat, action string, err error, done, text string, mentions []MentionRef) {
 	payload := map[string]interface{}{"jid": chat, "action": action, "ok": err == nil}
 	if err != nil {
 		payload["message"] = err.Error()
@@ -504,6 +504,7 @@ func (acc *Account) scheduledResultWithText(conn net.Conn, chat, action string, 
 	}
 	if text != "" {
 		payload["text"] = text
+		payload["mentions"] = mentions
 	}
 	acc.sendEvent(conn, "scheduled_result", payload)
 }
@@ -607,7 +608,7 @@ func (acc *Account) handleScheduleMessage(conn net.Conn, raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return
 	}
-	fail := func(err error) { acc.scheduledResultWithText(conn, data.JID, "schedule", err, "", data.Text) }
+	fail := func(err error) { acc.scheduledResultWithText(conn, data.JID, "schedule", err, "", data.Text, data.Mentions) }
 	if !acc.scheduledMessagesEnabled() {
 		fail(errors.New("WhatsApp hasn't turned on scheduling messages for your account yet."))
 		return

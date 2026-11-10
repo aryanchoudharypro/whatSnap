@@ -180,6 +180,17 @@ pub(crate) fn scheduled_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		if s.selected_chat.as_deref() == Some(jid.as_str()) {
 			// Only into an empty box: don't overwrite what was typed since.
 			if parts.conversations_parts.message_field.get_value().is_empty() {
+				s.composer_mentions = data
+					.get("mentions")
+					.and_then(|m| m.as_array())
+					.into_iter()
+					.flatten()
+					.filter_map(|m| {
+						let jid = m.get("jid")?.as_str()?.to_string();
+						let name = m.get("name")?.as_str()?.to_string();
+						Some(crate::ui_commands::mentions::MentionEntry { jid, name })
+					})
+					.collect();
 				parts.conversations_parts.message_field.set_value(&text);
 				let end = text.chars().count() as i64;
 				parts.conversations_parts.message_field.set_selection(end, end);
