@@ -243,6 +243,9 @@ impl INotificationActivationCallback_Impl for Activator_Impl {
 			.find(|input| unsafe { input.Key.to_string() }.is_ok_and(|key| key == toast::REPLY_INPUT))
 			.and_then(|input| unsafe { input.Value.to_string() }.ok());
 		if let Some(request) = request_for(&arguments, reply) {
+			if crate::platform::single_instance::works_in_background(&request) {
+				crate::platform::focus::restore_previous_after_toast();
+			}
 			crate::platform::single_instance::deliver(request);
 		}
 		Ok(())

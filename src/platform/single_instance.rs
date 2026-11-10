@@ -155,6 +155,18 @@ struct Activations {
 
 static ACTIVATIONS: Mutex<Activations> = Mutex::new(Activations { handler: None, waiting: Vec::new() });
 
+/// Whether a request is a notification button that works without the window
+/// (Mark as read, a reply), so it must not bring whatSnap to the front.
+pub fn works_in_background(request: &Option<LaunchRequest>) -> bool {
+	match request {
+		Some(LaunchRequest::Reply { .. }) => true,
+		Some(LaunchRequest::Link(link)) => {
+			matches!(crate::platform::app_link::parse(link), Some(crate::platform::app_link::AppLink::MarkRead { .. }))
+		}
+		_ => false,
+	}
+}
+
 /// Hands a request to the running window, or keeps it until there is one.
 pub(crate) fn deliver(request: Option<LaunchRequest>) {
 	let mut activations = ACTIVATIONS.lock().unwrap_or_else(|e| e.into_inner());

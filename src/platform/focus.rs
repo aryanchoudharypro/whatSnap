@@ -75,3 +75,104 @@ pub fn bring_to_front(hwnd: HWND) {
 		}
 	}
 }
+
+/// The window the user was last in that belongs to another program, kept so a
+/// notification button can hand the keyboard back to it. Pressing a button in
+/// a notification moves the foreground to the notification, and when it
+/// closes Windows leaves nothing focused (a screen reader says "unknown").
+static PREVIOUS: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+fn is_notification_host(hwnd: HWND) -> bool {
+	let mut name = [0u16; 64];
+	let len = unsafe { windows::Win32::UI::WindowsAndMessaging::GetClassNameW(hwnd, &mut name) } as usize;
+	String::from_utf16_lossy(&name[..len.min(name.len())]) == "Windows.UI.Core.CoreWindow"
+}
+
+unsafe extern "system" fn on_foreground(
+	_hook: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
+	_event: u32,
+	hwnd: HWND,
+	_object: i32,
+	_child: i32,
+	_thread: u32,
+	_time: u32,
+) {
+	if hwnd.is_invalid() || is_notification_host(hwnd) {
+		return;
+	}
+	let mut pid = 0u32;
+	unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+	if pid != std::process::id() {
+		PREVIOUS.store(hwnd.0 as isize, std::sync::atomic::Ordering::SeqCst);
+	}
+}
+
+/// Starts remembering which other program's window was in front.
+pub fn track_foreground() {
+	use windows::Win32::UI::{
+		Accessibility::SetWinEventHook,
+		WindowsAndMessaging::{
+			DispatchMessageW, EVENT_SYSTEM_FOREGROUND, GetMessageW, MSG, TranslateMessage, WINEVENT_OUTOFCONTEXT,
+		},
+	};
+	std::thread::spawn(|| unsafe {
+		let hook = SetWinEventHook(
+			EVENT_SYSTEM_FOREGROUND,
+			EVENT_SYSTEM_FOREGROUND,
+			None,
+			Some(on_foreground),
+			0,
+			0,
+			WINEVENT_OUTOFCONTEXT,
+		);
+		if hook.is_invalid() {
+			return;
+		}
+		let mut msg = MSG::default();
+		while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+			let _ = TranslateMessage(&msg);
+			DispatchMessageW(&msg);
+		}
+	});
+}
+
+/// After a notification button that works without whatSnap's window: waits for
+/// the notification to close and, if that left no window focused, puts the
+/// user back in the window they were in. Does nothing if they already moved on.
+pub fn restore_previous_after_toast() {
+	let raw = PREVIOUS.load(std::sync::atomic::Ordering::SeqCst);
+	if raw == 0 {
+		return;
+	}
+	std::thread::spawn(move || {
+		let target = HWND(raw as *mut _);
+		for _ in 0..12 {
+			std::thread::sleep(std::time::Duration::from_millis(100));
+			unsafe {
+				use windows::Win32::UI::WindowsAndMessaging::IsIconic;
+				if !IsWindow(Some(target)).as_bool() || !IsWindowVisible(target).as_bool() || IsIconic(target).as_bool() {
+					return;
+				}
+				let current = GetForegroundWindow();
+				if current == target {
+					return;
+				}
+				if !current.is_invalid() && !is_notification_host(current) {
+					return;
+				}
+				if SetForegroundWindow(target).as_bool() {
+					return;
+				}
+				let foreground_thread = GetWindowThreadProcessId(current, None);
+				let me = GetCurrentThreadId();
+				let attached = foreground_thread != 0
+					&& foreground_thread != me
+					&& AttachThreadInput(me, foreground_thread, true).as_bool();
+				let _ = SetForegroundWindow(target);
+				if attached {
+					let _ = AttachThreadInput(me, foreground_thread, false);
+				}
+			}
+		}
+	});
+}

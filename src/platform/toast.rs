@@ -72,7 +72,7 @@ fn activation(foreground: bool) -> &'static str {
 	}
 }
 
-fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>, is_locked: bool) -> String {
+fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>, is_locked: bool, can_reply: bool) -> String {
 	let open = escape_xml(&app_link::open_link(jid, account));
 	let actions = if is_locked {
 		String::new()
@@ -80,7 +80,7 @@ fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>, is_locke
 		let mark_read = escape_xml(&app_link::mark_read_link(jid, account));
 		// Typed text only reaches the app through the activator, so without
 		// it there is no reply box.
-		let reply = if crate::platform::toast_activator::is_ready() {
+		let reply = if can_reply && crate::platform::toast_activator::is_ready() {
 			let reply = escape_xml(&app_link::reply_link(jid, account));
 			format!(
 				concat!(
@@ -160,8 +160,9 @@ pub fn show_chat_toast(
 	body: &str,
 	account: Option<&str>,
 	is_locked: bool,
+	can_reply: bool,
 ) -> windows::core::Result<()> {
-	show(&toast_xml(title, body, jid, account, is_locked), Some(&group_for(jid)))?;
+	show(&toast_xml(title, body, jid, account, is_locked, can_reply), Some(&group_for(jid)))?;
 	shown_chats().insert(jid.to_string(), Instant::now());
 	Ok(())
 }
@@ -205,12 +206,12 @@ mod tests {
 
 	#[test]
 	fn xml_escapes_user_text_and_links() {
-		let xml = toast_xml("A & <B>", "say \"hi\"", "1@g.us", None, false);
+		let xml = toast_xml("A & <B>", "say \"hi\"", "1@g.us", None, false, true);
 		assert!(xml.contains("<text>A &amp; &lt;B&gt;</text>"));
 		assert!(xml.contains("<text>say &quot;hi&quot;</text>"));
 		assert!(xml.contains("arguments=\"whatsnap://markread?jid=1%40g.us\""));
 
-		let locked_xml = toast_xml("WhatsApp", "1 new message", "1@g.us", None, true);
+		let locked_xml = toast_xml("WhatsApp", "1 new message", "1@g.us", None, true, false);
 		assert!(!locked_xml.contains("arguments=\"whatsnap://markread"));
 		assert!(!locked_xml.contains("Mark as read"));
 	}

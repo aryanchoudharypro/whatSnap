@@ -389,18 +389,6 @@ fn launch_command(request: platform::single_instance::LaunchRequest) -> UiComman
 	}
 }
 
-/// Whether a request is a notification button that works without the window
-/// (Mark as read, a reply), so it must not bring whatSnap to the front.
-fn works_in_background(request: &Option<platform::single_instance::LaunchRequest>) -> bool {
-	match request {
-		Some(platform::single_instance::LaunchRequest::Reply { .. }) => true,
-		Some(platform::single_instance::LaunchRequest::Link(link)) => {
-			matches!(platform::app_link::parse(link), Some(platform::app_link::AppLink::MarkRead { .. }))
-		}
-		_ => false,
-	}
-}
-
 fn main() {
 	platform::crash_log::install();
 
@@ -429,7 +417,10 @@ fn main() {
 	}
 	platform::single_instance::listen_for_activation();
 	#[cfg(target_os = "windows")]
-	platform::toast_activator::start();
+	{
+		platform::toast_activator::start();
+		platform::focus::track_foreground();
+	}
 	platform::paths::migrate_legacy_data();
 	#[cfg(target_os = "windows")]
 	std::thread::spawn(platform::link_handler::register);
@@ -505,7 +496,7 @@ fn main() {
 
 		let ui_tx_activate = ui_tx.clone();
 		platform::single_instance::on_activation(move |request| {
-			if !works_in_background(&request) {
+			if !platform::single_instance::works_in_background(&request) {
 				platform::autostart::show_on_start();
 				let _ = ui_tx_activate.send(UiCommand::ActivateWindow);
 			}

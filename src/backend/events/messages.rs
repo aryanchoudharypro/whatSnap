@@ -497,7 +497,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								} else {
 									format!("{unread} new messages")
 								};
-								crate::ui::chat_ui::show_chat_notification(jid, "WhatsApp", &body, true);
+								crate::ui::chat_ui::show_chat_notification(&s, jid, "WhatsApp", &body, true);
 							} else if alert.toast {
 								let previews =
 									s.settings.notification_previews && !s.settings.chat_notify(jid).hide_content;
@@ -534,7 +534,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 										(true, true) => body.to_string(),
 										(true, false) => format!("{}: {}", sender_name, body),
 									};
-									crate::ui::chat_ui::show_chat_notification(jid, &chat_name, &toast_body, false);
+									crate::ui::chat_ui::show_chat_notification(&s, jid, &chat_name, &toast_body, false);
 								} else {
 									// Call log lines have no sender: name the chat.
 									let fallback_jid = if from.is_empty() { jid } else { clean_from.as_str() };
@@ -545,7 +545,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 										.or_else(|| s.contacts.get(jid).cloned())
 										.unwrap_or_else(|| display_name_for_jid(fallback_jid));
 									let body = if previews { body.to_string() } else { "New message".to_string() };
-									crate::ui::chat_ui::show_chat_notification(jid, &sender_name, &body, false);
+									crate::ui::chat_ui::show_chat_notification(&s, jid, &sender_name, &body, false);
 								}
 							}
 						}
@@ -1644,7 +1644,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								);
 							}
 							if alert.toast && s.locked_jids.contains(chat_jid) {
-								crate::ui::chat_ui::show_chat_notification(chat_jid, "WhatsApp", "New reaction", true);
+								crate::ui::chat_ui::show_chat_notification(&s, chat_jid, "WhatsApp", "New reaction", true);
 							} else if alert.toast {
 								let previews =
 									s.settings.notification_previews && !s.settings.chat_notify(chat_jid).hide_content;
@@ -1653,7 +1653,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								} else {
 									format!("Reacted {}", emoji)
 								};
-								crate::ui::chat_ui::show_chat_notification(chat_jid, &resolved_name, &body, false);
+								crate::ui::chat_ui::show_chat_notification(&s, chat_jid, &resolved_name, &body, false);
 							}
 						}
 					}

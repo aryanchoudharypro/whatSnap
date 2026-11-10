@@ -70,13 +70,28 @@ pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 	}
 }
 
-pub(crate) fn show_chat_notification(jid: &str, title: &str, body: &str, is_locked: bool) {
-	show_chat_notification_for(jid, title, body, None, is_locked);
+pub(crate) fn show_chat_notification(s: &AppState, jid: &str, title: &str, body: &str, is_locked: bool) {
+	let can_reply = !is_locked && can_reply_from_notification(jid) && !crate::ui_commands::blocking::is_blocked(s, jid)
+		&& group_send_block_reason(s, jid).is_none();
+	show_chat_notification_for(jid, title, body, None, is_locked, can_reply);
+}
+
+/// Whether a notification for this chat gets a reply box: only chats you can
+/// send to, which leaves out channels and status updates.
+pub(crate) fn can_reply_from_notification(jid: &str) -> bool {
+	!jid.ends_with("@newsletter") && !jid.starts_with("status@") && !jid.ends_with("@broadcast")
 }
 
 /// A chat notification for a linked account that isn't the one on screen.
-pub(crate) fn show_chat_notification_for(jid: &str, title: &str, body: &str, account: Option<&str>, is_locked: bool) {
-	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body, account, is_locked) {
+pub(crate) fn show_chat_notification_for(
+	jid: &str,
+	title: &str,
+	body: &str,
+	account: Option<&str>,
+	is_locked: bool,
+	can_reply: bool,
+) {
+	if let Err(err) = crate::platform::toast::show_chat_toast(jid, title, body, account, is_locked, can_reply) {
 		eprintln!("[NOTIFY] Chat toast failed: {err:?}");
 	}
 }
