@@ -122,6 +122,16 @@ fn mark_unavailable_within(s: &mut AppState, within: std::time::Duration) {
 
 pub(crate) fn window_hidden(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	set_presence(state, parts, false);
+	// Sent to the tray, the open chat is closed as Escape would: otherwise
+	// its new messages are treated as seen and never notify. A voice message
+	// being recorded is kept.
+	let close_chat = {
+		let s = state.borrow();
+		s.selected_chat.is_some() && !s.is_voice_recording
+	};
+	if close_chat {
+		crate::ui_commands::chat_list::close_conversation(state, parts);
+	}
 	let mut s = state.borrow_mut();
 	s.presence.hidden = true;
 	apply_presence(&mut s);
