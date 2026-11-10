@@ -1,0 +1,47 @@
+name: Update WhatsApp versions
+on:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+concurrency:
+  group: wa-versions
+permissions:
+  contents: write
+  actions: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        ref: master
+    - name: Check the latest versions
+      id: check
+      run: |
+        python3 tools/update_wa_versions.py | tee changes.txt
+        echo "summary=$(paste -sd, changes.txt | sed 's/,/, /g')" >> "$GITHUB_OUTPUT"
+        rm changes.txt
+    - name: Install Go
+      if: steps.check.outputs.summary != ''
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: backend/go.mod
+        cache-dependency-path: backend/go.sum
+    - name: Check the backend still builds
+      if: steps.check.outputs.summary != ''
+      working-directory: backend
+      run: GOOS=windows go vet .
+    # A push made with the workflow token doesn't start other workflows, so
+    # the development build is started by hand.
+    - name: Commit and start a build
+      if: steps.check.outputs.summary != ''
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SUMMARY: ${{ steps.check.outputs.summary }}
+      run: |
+        git config user.name "$(git log -1 --format=%an)"
+        git config user.email "$(git log -1 --format=%ae)"
+        git commit -am "Update WhatsApp versions ($SUMMARY)"
+        git push origin master
+        gh workflow run build.yml --ref master

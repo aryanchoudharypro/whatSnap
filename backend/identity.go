@@ -12,13 +12,17 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const windowsAppBuild = 263900
+// tools/update_wa_versions.py rewrites these two numbers.
+const webClientRevision = 1053804353
+
+const windowsAppBuild = 264101
 
 const webViewFallbackMajor = 155
 
 const webView2ClientKey = `Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`
 
 func applyClientIdentity() {
+	store.SetWAVersion(store.WAVersionContainer{2, 3000, webClientRevision})
 	build := strconv.Itoa(windowsAppBuild)
 	agent := store.BaseClientPayload.UserAgent
 	agent.AppVersion.Quaternary = proto.Uint32(windowsAppBuild)
