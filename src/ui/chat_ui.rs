@@ -204,10 +204,6 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 			cp.add_attachment_btn.show(false);
 			changed = true;
 		}
-		if cp.scheduled_btn.is_shown() {
-			cp.scheduled_btn.show(false);
-			changed = true;
-		}
 		if cp.emoji_btn.is_shown() {
 			cp.emoji_btn.show(false);
 			changed = true;
@@ -260,10 +256,6 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 			cp.add_attachment_btn.show(false);
 			changed = true;
 		}
-		if cp.scheduled_btn.is_shown() {
-			cp.scheduled_btn.show(false);
-			changed = true;
-		}
 		if !cp.cancel_edit_btn.is_shown() {
 			cp.cancel_edit_btn.show(true);
 			changed = true;
@@ -286,22 +278,6 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 	} else {
 		if !cp.add_attachment_btn.is_shown() {
 			cp.add_attachment_btn.show(true);
-			changed = true;
-		}
-		let scheduled_count = s.scheduled_counts.get(jid).copied().unwrap_or(0);
-		let show_scheduled = scheduled_count > 0 && s.scheduled_messages_enabled;
-		if show_scheduled {
-			let label = if scheduled_count == 1 { "1 scheduled".to_string() } else { format!("{scheduled_count} scheduled") };
-			if cp.scheduled_btn.get_label() != label {
-				cp.scheduled_btn.set_label(&label);
-				cp.scheduled_btn.set_tooltip(&format!("{label} messages"));
-				let text_ext = cp.scheduled_btn.get_text_extent(&label);
-				let line = cp.scheduled_btn.get_char_height();
-				cp.scheduled_btn.set_min_size(Size::new((text_ext.width + line * 2 + 8).max(line * 5), line * 2 + 8));
-			}
-		}
-		if cp.scheduled_btn.is_shown() != show_scheduled {
-			cp.scheduled_btn.show(show_scheduled);
 			changed = true;
 		}
 		if cp.cancel_edit_btn.is_shown() {
@@ -473,14 +449,6 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 	// above; clearing it a second time is dead work on a control a screen
 	// reader is watching.
 	crate::ui_commands::calls::apply_call_buttons(&s, parts, jid);
-	crate::ui_commands::scheduled::update_scheduled_button(&s, parts, jid);
-	if crate::ui_commands::scheduled::schedulable(&s, jid) {
-		let req = serde_json::json!({
-			"action": "get_scheduled_messages",
-			"data": { "jid": jid }
-		});
-		let _ = s.ws_tx.send(req.to_string());
-	}
 	apply_composer_access(&s, parts, jid);
 	parts.conversations_parts.top_btns_panel.layout();
 	let draft = s.draft_messages.get(jid).cloned().unwrap_or_default();

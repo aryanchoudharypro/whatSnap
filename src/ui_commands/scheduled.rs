@@ -166,25 +166,9 @@ pub(crate) fn show_scheduled_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	scheduled_messages::show_scheduled_messages(&parts.frame, &name, &jid, ws_tx, store);
 }
 
-pub(crate) fn update_scheduled_button(s: &AppState, parts: &WindowParts, _jid: &str) {
-	crate::ui::chat_ui::update_composer_buttons(s, &parts.conversations_parts);
-}
-
-pub(crate) fn scheduled_messages_received(
-	state: &Rc<RefCell<AppState>>,
-	parts: &Rc<WindowParts>,
-	data: &serde_json::Value,
-) {
-	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
-	let pending = data.get("pending").and_then(|v| v.as_u64()).unwrap_or(0);
-	if !jid.is_empty() {
-		state.borrow_mut().scheduled_counts.insert(jid.clone(), pending);
-		if state.borrow().selected_chat.as_deref() == Some(&jid) {
-			update_scheduled_button(&state.borrow(), parts, &jid);
-		}
-	}
+pub(crate) fn scheduled_messages_received(state: &Rc<RefCell<AppState>>, data: &serde_json::Value) {
 	let Some(list) = state.borrow().scheduled_list.clone() else { return };
-	if list.jid != jid {
+	if data.get("jid").and_then(|j| j.as_str()) != Some(list.jid.as_str()) {
 		return;
 	}
 	let entries: Vec<scheduled_messages::ScheduledEntry> = data
@@ -194,6 +178,7 @@ pub(crate) fn scheduled_messages_received(
 		.flatten()
 		.filter_map(scheduled_messages::ScheduledEntry::from_json)
 		.collect();
+	let pending = data.get("pending").and_then(|v| v.as_u64()).unwrap_or(0);
 	let limit = data.get("limit").and_then(|v| v.as_u64()).unwrap_or(30);
 	list.apply(&entries, pending, limit);
 }

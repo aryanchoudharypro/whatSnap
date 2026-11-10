@@ -157,7 +157,6 @@ struct AppState {
 	/// options for.
 	pending_schedule: Option<(String, String)>,
 	scheduled_list: Option<Rc<crate::ui::dialogs::scheduled_messages::ScheduledList>>,
-	scheduled_counts: std::collections::HashMap<String, u64>,
 	unread_counts: std::collections::HashMap<String, u64>,
 	unread_divider_jid: Option<String>,
 	unread_divider_count: u64,
@@ -895,7 +894,6 @@ pub(crate) fn new_app_state(
 		scheduled_messages_enabled: true,
 		pending_schedule: None,
 		scheduled_list: None,
-		scheduled_counts: std::collections::HashMap::new(),
 		unread_counts: std::collections::HashMap::new(),
 		unread_divider_jid: None,
 		unread_divider_count: 0,
