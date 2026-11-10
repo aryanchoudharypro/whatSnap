@@ -74,7 +74,7 @@ func (acc *Account) storeUndecryptablePlaceholder(v *events.UndecryptableMessage
 
 	senderName := ""
 	if !v.Info.IsFromMe {
-		senderName = acc.resolveDisplayName(senderJID)
+		senderName = acc.hidePhoneInGroup(jid, acc.resolveDisplayName(senderJID))
 	}
 	acc.broadcastChats()
 	acc.broadcastEvent("message", map[string]interface{}{

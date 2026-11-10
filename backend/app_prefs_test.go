@@ -25,3 +25,20 @@ func TestAutoDownloadFollowsWhatsAppWebLimits(t *testing.T) {
 		}
 	}
 }
+
+func TestLooksLikePhoneLabel(t *testing.T) {
+	cases := map[string]bool{
+		"+60123318658":     true,
+		"+60 12-331 8658":  true,
+		"12345@lid":        true,
+		"迪豐 Whatsapp Only": false,
+		"Amir":             false,
+		"Room 101":         false,
+		"":                 false,
+	}
+	for in, want := range cases {
+		if got := looksLikePhoneLabel(in); got != want {
+			t.Errorf("looksLikePhoneLabel(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

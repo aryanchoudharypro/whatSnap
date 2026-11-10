@@ -36,6 +36,38 @@ func (acc *Account) renderNames(text string, nameFor func(string) string) string
 	return b.String()
 }
 
+const unknownMemberName = "Unknown member"
+
+// looksLikePhoneLabel reports whether a display name is only a phone number or
+// raw address, which is what resolveDisplayName falls back to when it knows no
+// name at all.
+func looksLikePhoneLabel(name string) bool {
+	if name == "" || strings.Contains(name, "@") {
+		return name != ""
+	}
+	digits := 0
+	for _, r := range strings.TrimPrefix(name, "+") {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r == ' ' || r == '-' || r == '(' || r == ')' || r == '\u2011' || r == '\u00a0':
+		default:
+			return false
+		}
+	}
+	return digits >= 5
+}
+
+// hidePhoneInGroup swaps a bare phone number for a spoken-friendly label when
+// the "hide phone numbers" preference is on and the name comes from a group
+// chat. Saved names and profile names pass through unchanged.
+func (acc *Account) hidePhoneInGroup(chatJID, name string) string {
+	if !strings.HasSuffix(chatJID, "@"+types.GroupServer) || !looksLikePhoneLabel(name) || !acc.appPref("hide_phone_numbers") {
+		return name
+	}
+	return unknownMemberName
+}
+
 func (acc *Account) displayNameForJIDString(jidStr string) string {
 	parsed, err := types.ParseJID(jidStr)
 	if err != nil {

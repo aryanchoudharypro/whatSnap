@@ -409,6 +409,7 @@ Both buttons close the settings without saving them.
 
 ### Chats Tab
 - `Enter is send`
+- `Hide phone numbers in groups`: when someone in a group has no saved name and no WhatsApp profile name, whatSnap says `Unknown member` instead of reading their phone number. Messages, replies, the chat list and notifications all follow it. It is off by default. People with a profile name always show that name.
 - `Typing a letter in the message list starts a message`: the letter keys of the Messages list then need `Alt`.
 - `Keep my place in the message list instead of jumping to the newest message`: when you send or delete a message, the list stays where you were.
 - `Replace text with emoji as you type`, and `Replace Text With Emoji: See Help...` for the full list.
@@ -564,6 +565,7 @@ These features are built, but nobody has tested them with a real WhatsApp accoun
 
 - The automatic download settings, `Download Quality for Photos and Videos Sent in HD`, and `Media Upload Quality`.
 - `Turn off link previews`.
+- `Hide phone numbers in groups`.
 - Buttons and menus in messages from businesses, and `Business Catalogue...`.
 - Several accounts: adding, switching, removing, and the notifications and calls of the accounts that aren't on screen.
 

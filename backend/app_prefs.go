@@ -19,6 +19,7 @@ var appPrefDefaults = map[string]bool{
 	"hd_media":                false,
 	"hd_auto_download":        false,
 	"security_notifications":  true,
+	"hide_phone_numbers":      false,
 }
 
 func (acc *Account) appPref(name string) bool {

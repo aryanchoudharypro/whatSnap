@@ -76,6 +76,7 @@ pub struct SettingsDialogParts {
 
 	pub chats_panel: Panel,
 	pub enter_is_send_check: CheckBox,
+	pub hide_phone_numbers_check: CheckBox,
 	pub type_to_compose_check: CheckBox,
 	pub keep_list_position_check: CheckBox,
 	pub replace_emoji_check: CheckBox,
@@ -312,6 +313,11 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	section_header(&chats_panel, &chats_sizer, "Messaging & Navigation");
 	let enter_is_send_check =
 		setting_switch(&chats_panel, &chats_sizer, "Enter is send: the Enter key sends your message");
+	let hide_phone_numbers_check = setting_switch(
+		&chats_panel,
+		&chats_sizer,
+		"Hide phone numbers in groups: show Unknown member for people with no saved name or profile name",
+	);
 	let type_to_compose_check = setting_switch(
 		&chats_panel,
 		&chats_sizer,
@@ -658,6 +664,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		accounts_btn,
 		chats_panel,
 		enter_is_send_check,
+		hide_phone_numbers_check,
 		type_to_compose_check,
 		keep_list_position_check,
 		replace_emoji_check,
@@ -819,7 +826,7 @@ impl SettingsDialogParts {
 		(on != was_on).then_some(if on { "all" } else { "none" })
 	}
 
-	fn app_pref_checks(&self) -> [(&'static str, CheckBox); 6] {
+	fn app_pref_checks(&self) -> [(&'static str, CheckBox); 7] {
 		[
 			("auto_download_photos", self.auto_download_photos_check),
 			("auto_download_audio", self.auto_download_audio_check),
@@ -827,6 +834,7 @@ impl SettingsDialogParts {
 			("auto_download_documents", self.auto_download_documents_check),
 			("link_previews_disabled", self.link_previews_off_check),
 			("security_notifications", self.security_notifications_check),
+			("hide_phone_numbers", self.hide_phone_numbers_check),
 		]
 	}
 

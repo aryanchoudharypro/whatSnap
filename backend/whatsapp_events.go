@@ -2000,7 +2000,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 			quotedID, quotedText, quotedSender := acc.quotedPreview(v.Message)
 			senderName := ""
 			if !v.Info.IsFromMe {
-				senderName = acc.resolveDisplayName(senderJID)
+				senderName = acc.hidePhoneInGroup(chatJID.String(), acc.resolveDisplayName(senderJID))
 			}
 			acc.broadcastEvent("message", map[string]interface{}{
 				"jid":           chatJID.String(),

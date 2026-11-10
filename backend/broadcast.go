@@ -257,7 +257,7 @@ func (acc *Account) buildChatsList() []ChatListEntry {
 			if cached, ok := senderNames[previewSender.String]; ok {
 				ps = cached
 			} else if parsedSender, sErr := types.ParseJID(previewSender.String); sErr == nil {
-				ps = acc.cachedDisplayName(parsedSender)
+				ps = acc.hidePhoneInGroup(jid, acc.cachedDisplayName(parsedSender))
 				senderNames[previewSender.String] = ps
 			} else {
 				ps = previewSender.String

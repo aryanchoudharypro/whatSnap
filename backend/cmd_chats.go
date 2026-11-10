@@ -81,7 +81,7 @@ func (acc *Account) fetchMessagesWhere(jid, filter string, limit, offset int, be
 		}
 		n := jidStr
 		if parsed, err := types.ParseJID(jidStr); err == nil {
-			n = acc.resolveDisplayName(parsed)
+			n = acc.hidePhoneInGroup(jid, acc.resolveDisplayName(parsed))
 		}
 		names[jidStr] = n
 		return n
