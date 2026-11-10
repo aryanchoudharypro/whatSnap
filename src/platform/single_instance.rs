@@ -56,6 +56,18 @@ impl LaunchRequest {
 	}
 }
 
+/// Whether another copy already holds the single-instance mutex.
+pub fn is_running() -> bool {
+	let Ok(handle) = (unsafe { CreateMutexW(None, false, MUTEX_NAME) }) else {
+		return false;
+	};
+	let exists = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+	unsafe {
+		let _ = CloseHandle(handle);
+	}
+	exists
+}
+
 pub fn acquire_or_activate_existing(request: Option<&LaunchRequest>) -> Option<InstanceLock> {
 	let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
 	loop {

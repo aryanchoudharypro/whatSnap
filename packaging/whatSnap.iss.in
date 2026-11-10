@@ -144,7 +144,7 @@ begin
     EnableShareMenu;
   RunPath := 'Software\Microsoft\Windows\CurrentVersion\Run';
   if (CurStep = ssPostInstall) and RegQueryStringValue(HKCU, RunPath, 'whaNTV', RunValue) then
-    RegWriteStringValue(HKCU, RunPath, 'whaNTV', '"' + ExpandConstant('{app}\{#AppExe}') + '"');
+    RegWriteStringValue(HKCU, RunPath, 'whaNTV', '"' + ExpandConstant('{app}\{#AppExe}') + '" --background');
 end;
 
 // Own names: Inno already defines the FILE_ATTRIBUTE_* constants, and

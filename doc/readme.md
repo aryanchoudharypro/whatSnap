@@ -388,7 +388,7 @@ To open the settings, press `Ctrl+,` (`Account -> Settings...`). Some settings s
 Settings has ten tabs: General, Account, Chats, Notifications, Personalization, Profile, Privacy, Storage & Media, Input & Output, and Chat Lock. Each tab groups its settings under short headings.
 
 ### General Tab
-- `Start whatSnap when Windows starts`
+- `Start whatSnap when Windows starts`: whatSnap then starts in the background without opening its window. It connects, syncs and notifies as usual; open it from the notification area icon or by starting whatSnap again.
 - `Show an icon in the notification area; closing the window minimizes to it`
 - `Start maximized`
 - `Announce when someone is typing`

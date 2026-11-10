@@ -74,7 +74,15 @@ pub(crate) fn activate_window(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	handle_ui_command(UiCommand::SetPresence(true), state, parts);
 }
 
-pub(crate) fn set_presence(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, available: bool) {
+pub(crate) fn set_presence(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, available: bool) {
+	if available && state.borrow().pending_update_check {
+		let (channel, ui_tx) = {
+			let mut s = state.borrow_mut();
+			s.pending_update_check = false;
+			(s.settings.update_channel.clone(), s.ui_tx.clone())
+		};
+		crate::platform::update_check::run(&parts.frame, &ui_tx, &channel, true);
+	}
 	let mut s = state.borrow_mut();
 	let regained_focus = available && !s.window_focused;
 	s.window_focused = available;

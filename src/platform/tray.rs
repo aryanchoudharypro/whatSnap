@@ -53,6 +53,9 @@ pub(crate) fn restore_main_window(frame: &wxdragon::prelude::Frame) {
 	HIDDEN_TO_TRAY.set(false);
 	frame.show(true);
 	frame.iconize(false);
+	if MAXIMIZE_ON_RESTORE.replace(false) {
+		frame.maximize(true);
+	}
 	frame.raise();
 }
 
@@ -86,6 +89,16 @@ pub(crate) fn quit_app(tray_icon: &wxdragon::prelude::TaskBarIcon, windows: &[wx
 
 thread_local! {
 	static HIDDEN_TO_TRAY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+thread_local! {
+	static MAXIMIZE_ON_RESTORE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// After a start straight into the tray, the "Start maximized" setting is
+/// applied the first time the window is brought out.
+pub(crate) fn maximize_on_restore() {
+	MAXIMIZE_ON_RESTORE.set(true);
 }
 
 pub(crate) fn is_hidden_to_tray() -> bool {

@@ -240,6 +240,9 @@ struct AppState {
 	displayed_chat_labels: Vec<String>,
 	chat_row_art: std::collections::HashMap<String, crate::ui::chat_rows::RowArt>,
 	main_ui_shown: bool,
+	/// The startup update check, held back while the app sits in the tray after
+	/// starting with Windows, so no update window opens on its own.
+	pending_update_check: bool,
 	pending_whatsapp_link: Option<String>,
 	pending_shared_files: Vec<String>,
 	conn_online: bool,
@@ -384,11 +387,19 @@ fn launch_command(request: platform::single_instance::LaunchRequest) -> UiComman
 fn main() {
 	platform::crash_log::install();
 
+	let background_start = platform::autostart::note_launch_args(std::env::args().skip(1));
 	let launch_request = launch_request_from_args(std::env::args().skip(1));
+	// A start with Windows never pulls a copy that's already running to the front.
+	if background_start && platform::single_instance::is_running() {
+		return;
+	}
 	let _instance_lock = match platform::single_instance::acquire_or_activate_existing(launch_request.as_ref()) {
 		Some(lock) => lock,
 		None => return,
 	};
+	if !background_start {
+		std::thread::spawn(platform::autostart::refresh);
+	}
 	platform::single_instance::listen_for_activation();
 	platform::paths::migrate_legacy_data();
 	#[cfg(target_os = "windows")]
@@ -1034,6 +1045,7 @@ pub(crate) fn new_app_state(
 		displayed_chat_labels: Vec::new(),
 		chat_row_art: std::collections::HashMap::new(),
 		main_ui_shown: false,
+		pending_update_check: false,
 		pending_whatsapp_link: None,
 		pending_shared_files: Vec::new(),
 		conn_online: false,

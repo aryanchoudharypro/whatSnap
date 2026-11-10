@@ -8,6 +8,30 @@ use windows::{
 
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const VALUE_NAME: &str = "whaNTV";
+/// Carried by the Run entry so a start with Windows stays in the tray.
+const BACKGROUND_FLAG: &str = "--background";
+
+static BACKGROUND_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Reads the command line once at startup. Returns whether Windows started us.
+pub fn note_launch_args(mut args: impl Iterator<Item = String>) -> bool {
+	let background = args.any(|arg| arg == BACKGROUND_FLAG);
+	BACKGROUND_START.store(background, std::sync::atomic::Ordering::SeqCst);
+	background
+}
+
+/// Whether this run was started by Windows at sign-in, not by the user.
+pub fn started_in_background() -> bool {
+	BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Rewrites an existing Run entry, so one written by an older version (or by
+/// the installer) gains the background flag and the current path.
+pub fn refresh() {
+	if is_enabled() {
+		set_enabled(true);
+	}
+}
 
 fn wide(s: &str) -> Vec<u16> {
 	s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -52,7 +76,7 @@ pub fn set_enabled(enabled: bool) -> bool {
 				let _ = RegCloseKey(hkey);
 				return false;
 			};
-			let quoted = format!("\"{}\"", exe.display());
+			let quoted = format!("\"{}\" {BACKGROUND_FLAG}", exe.display());
 			let data = wide(&quoted);
 			let bytes = std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), data.len() * 2);
 			RegSetValueExW(hkey, PCWSTR(value_name.as_ptr()), None, REG_SZ, Some(bytes)).is_ok()

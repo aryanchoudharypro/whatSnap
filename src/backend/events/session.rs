@@ -34,19 +34,42 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				parts.nav_panel.show(true);
 				parts.content_panel.show(true);
 				parts.main_panel.layout();
+				// Started by Windows at sign-in: stay out of the way. Nothing is
+				// shown or focused; the tray icon (or, without one, a minimized
+				// taskbar button) is the way in.
+				let background = app_start && crate::platform::autostart::started_in_background();
+				let in_tray = background && state.borrow().settings.show_tray_icon;
 				if app_start && state.borrow().settings.start_maximized {
-					parts.frame.maximize(true);
+					if in_tray {
+						crate::platform::tray::maximize_on_restore();
+					} else {
+						parts.frame.maximize(true);
+					}
 				}
-				parts.frame.show(true);
-				ship_shape::ui::bring_to_front_after_update(&parts.frame);
-				parts.conversations_parts.search_field.set_focus();
 				state.borrow_mut().main_ui_shown = true;
+				if background {
+					if in_tray {
+						crate::platform::tray::hide_main_window(&parts.frame);
+					} else {
+						parts.frame.iconize(true);
+						parts.frame.show(true);
+					}
+					crate::ui_commands::misc::window_hidden(state, parts);
+				} else {
+					parts.frame.show(true);
+					ship_shape::ui::bring_to_front_after_update(&parts.frame);
+					parts.conversations_parts.search_field.set_focus();
+				}
 				let (check_updates, channel, ui_tx) = {
 					let s = state.borrow();
 					(s.settings.check_for_updates_on_startup, s.settings.update_channel.clone(), s.ui_tx.clone())
 				};
 				if check_updates && app_start {
-					crate::platform::update_check::run(&parts.frame, &ui_tx, &channel, true);
+					if background {
+						state.borrow_mut().pending_update_check = true;
+					} else {
+						crate::platform::update_check::run(&parts.frame, &ui_tx, &channel, true);
+					}
 				}
 
 				// Now that we're logged in, install the tray icon if the
