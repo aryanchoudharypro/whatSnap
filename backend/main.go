@@ -126,10 +126,11 @@ func main() {
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.OnDemandReady = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.CompleteOnDemandReady = proto.Bool(true)
-	// Ten years of full history (aryan, 2026-11-02: it pulls in a lot). The
-	// Windows app (WA Web's debug_1_year_history_sync branch) sends no size
-	// limit and no storage quota, so neither do we. The phone has the final say.
-	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(3650)
+	// Three years of full history, which is what the old Windows (UWP) app
+	// asked for and about what phones send anyway. The Windows app sends no
+	// size limit and no storage quota, so neither do we. The phone has the
+	// final say.
+	store.DeviceProps.HistorySyncConfig.FullSyncDaysLimit = proto.Uint32(1095)
 	store.DeviceProps.HistorySyncConfig.FullSyncSizeMbLimit = nil
 	store.DeviceProps.HistorySyncConfig.StorageQuotaMb = nil
 	// One year and 50k messages per chat of recent history (2026-11-01).
