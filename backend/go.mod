@@ -47,7 +47,7 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20261110102555-00f0775cb4cd
+replace go.mau.fi/whatsmeow => github.com/aryanchoudharypro/whatsmeow v0.0.0-20261110153649-77f9a84ed780
 
 replace github.com/purpshell/meowcaller => github.com/aryanchoudharypro/meowcaller v0.0.0-20261107173757-b33b813e4b2e
 

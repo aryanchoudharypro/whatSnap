@@ -6634,9 +6634,9 @@ fn choose_excluded_contacts(
 			match loaded {
 				Some(Ok(list)) => Ok(list.clone()),
 				Some(Err(_)) if !is_except => Ok(Vec::new()),
-				Some(Err(_)) => Err(format!(
-					"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later.",
-					control.label
+				Some(Err(reason)) => Err(format!(
+					"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later. ({})",
+					control.label, reason
 				)),
 				None => Err(format!("Still loading who's excluded from {}. Try again in a moment.", control.label)),
 			}
