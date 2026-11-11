@@ -16,48 +16,22 @@ fn confirm_and_report(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 	let name = chat_name(&state.borrow(), &jid);
 	let question = match (&message_id, is_group) {
 		(Some(_), false) => {
-			if crate::i18n::is_indonesian() {
-				format!(
-					"Laporkan pesan ini ke WhatsApp? WhatsApp akan menerima pesan ini. {name} tidak akan diberi tahu."
-				)
-			} else {
-				format!("Report this message to WhatsApp? WhatsApp receives this message. {name} won't be notified.")
-			}
+			crate::i18n::tr_fmt("Report this message to WhatsApp? WhatsApp receives this message. {} won't be notified.", &[&name])
 		}
 		(Some(_), true) => crate::i18n::tr(
 			"Report this message to WhatsApp? WhatsApp receives this message. The sender and the group won't be notified.",
 		)
 		.to_string(),
 		(None, false) => {
-			if crate::i18n::is_indonesian() {
-				format!(
-					"Laporkan {name} ke WhatsApp? WhatsApp akan menerima pesan terakhir yang dikirimnya kepada Anda. Ia tidak akan diberi tahu."
-				)
-			} else {
-				format!(
-					"Report {name} to WhatsApp? WhatsApp receives the last message they sent you. They won't be notified."
-				)
-			}
+			crate::i18n::tr_fmt("Report {} to WhatsApp? WhatsApp receives the last message they sent you. They won't be notified.", &[&name])
 		}
 		(None, true) => {
-			if crate::i18n::is_indonesian() {
-				format!(
-					"Laporkan {name} ke WhatsApp? WhatsApp akan menerima pesan terbaru yang dikirim orang lain di sini. Grup tidak akan diberi tahu."
-				)
-			} else {
-				format!(
-					"Report {name} to WhatsApp? WhatsApp receives the most recent message someone else sent here. The group won't be notified."
-				)
-			}
+			crate::i18n::tr_fmt("Report {} to WhatsApp? WhatsApp receives the most recent message someone else sent here. The group won't be notified.", &[&name])
 		}
 	};
 	let also = if is_group {
 		crate::i18n::tr("Report and exit group").to_string()
-	} else if crate::i18n::is_indonesian() {
-		format!("Laporkan dan blokir {name}")
-	} else {
-		format!("Report and block {name}")
-	};
+	} else { crate::i18n::tr_fmt("Report and block {}", &[&name]) };
 	let report_label = crate::i18n::tr("Report");
 	let choices: Vec<&str> = vec![report_label, also.as_str()];
 	let dialog = SingleChoiceDialog::builder(&parts.frame, &question, report_label, &choices).build();
@@ -200,11 +174,7 @@ pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		let sender = str_of(r, "sender_name");
 		let from = if sender.is_empty() { String::new() } else { format!("{sender}: ") };
 		let reporters_joined = reporters.join(", ");
-		let row = if crate::i18n::is_indonesian() {
-			format!("{from}{text}. Dilaporkan oleh {reporters_joined}")
-		} else {
-			format!("{from}{text}. Reported by {reporters_joined}")
-		};
+		let row = crate::i18n::tr_fmt("{}{}. Reported by {}", &[&from, &text, &reporters_joined]);
 		lines.push(row);
 		ids.push(stored.then(|| str_of(r, "message_id")));
 	}

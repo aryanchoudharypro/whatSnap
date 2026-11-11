@@ -30,11 +30,7 @@ pub fn ask(
 	default_ringtone: String,
 	output_device: Option<String>,
 ) -> Option<whatsnap::ChatNotify> {
-	let title = if crate::i18n::is_indonesian() {
-		format!("Setelan notifikasi untuk {chat}")
-	} else {
-		format!("Notification settings for {chat}")
-	};
+	let title = crate::i18n::tr_fmt("Notification settings for {}", &[&chat]);
 	let dialog = Dialog::builder(parent, &title)
 		.with_size(460, 540)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)

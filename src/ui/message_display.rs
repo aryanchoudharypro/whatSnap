@@ -285,7 +285,7 @@ pub(crate) fn chat_row_label(s: &AppState, jid: &str) -> String {
 		Some(preview) => label.strip_suffix(preview.as_str()).and_then(|h| h.strip_suffix(" | ")).unwrap_or(label),
 		None => label,
 	};
-	if crate::i18n::is_indonesian() { format!("{head} | Draf: {draft}") } else { format!("{head} | Draft: {draft}") }
+	crate::i18n::tr_fmt("{} | Draft: {}", &[&head, &draft])
 }
 
 fn contact_label(contact: &crate::Contact) -> String {
@@ -413,11 +413,7 @@ fn push_empty_state(s: &AppState, rows: &mut ChatTabRows) {
 			3 => rows.notice(crate::i18n::tr("No groups found")),
 			n => {
 				if let Some(list) = s.chat_lists.get(n - BUILT_IN_CHAT_FILTERS.len()) {
-					let empty_list = if crate::i18n::is_indonesian() {
-						format!("Tidak ada chat di {}", list.name)
-					} else {
-						format!("No {} chats", list.name)
-					};
+					let empty_list = crate::i18n::tr_fmt("No {} chats", &[&list.name]);
 					rows.notice(&empty_list);
 				}
 			}
@@ -835,11 +831,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 							need_layout = true;
 						}
 						let label = if let Some(pct) = s.downloads_in_progress.get(&msg.id) {
-							if crate::i18n::is_indonesian() {
-								format!("Batalkan unduhan ({pct}%)")
-							} else {
-								format!("Cancel download ({pct}%)")
-							}
+							crate::i18n::tr_fmt("Cancel download ({}%)", &[&pct])
 						} else if let Some(size) = whatsnap::format_file_size(msg.media_size) {
 							let size =
 								if crate::i18n::is_indonesian() { size.replace(" bytes", " byte") } else { size };
@@ -921,11 +913,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 						let is_dl_in_progress =
 							valid_messages.iter().any(|m| s.downloads_in_progress.contains_key(&m.id));
 						let dl_label = if is_dl_in_progress {
-							if crate::i18n::is_indonesian() {
-								format!("Mengunduh album ({} item tersisa)", uncollected.len())
-							} else {
-								format!("Downloading album ({} items remaining)", uncollected.len())
-							}
+							crate::i18n::tr_fmt("Downloading album ({} items remaining)", &[&uncollected.len()])
 						} else {
 							let total_size: i64 = uncollected.iter().map(|m| m.media_size).sum();
 							match whatsnap::format_file_size(total_size) {
@@ -935,18 +923,10 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 									} else {
 										size
 									};
-									if crate::i18n::is_indonesian() {
-										format!("Unduh album ({} item tersisa, {size})", uncollected.len())
-									} else {
-										format!("Download album ({} items remaining, {size})", uncollected.len())
-									}
+									crate::i18n::tr_fmt("Download album ({} items remaining, {})", &[&uncollected.len(), &size])
 								}
 								None => {
-									if crate::i18n::is_indonesian() {
-										format!("Unduh album ({} item tersisa)", uncollected.len())
-									} else {
-										format!("Download album ({} items remaining)", uncollected.len())
-									}
+									crate::i18n::tr_fmt("Download album ({} items remaining)", &[&uncollected.len()])
 								}
 							}
 						};
@@ -985,11 +965,7 @@ fn set_shown(btn: &Button, show: bool) -> bool {
 
 fn upload_cancel_label(s: &AppState, msg_id: &str) -> String {
 	let pct = s.uploads_in_progress.get(msg_id).copied().unwrap_or(0);
-	if crate::i18n::is_indonesian() {
-		format!("Batalkan unggahan, {pct}% selesai")
-	} else {
-		format!("Cancel upload, {pct}% complete")
-	}
+	crate::i18n::tr_fmt("Cancel upload, {}% complete", &[&pct])
 }
 
 fn show_send_state_buttons(

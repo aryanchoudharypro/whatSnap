@@ -266,11 +266,7 @@ fn linked_new_account(account: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	refresh_title(state, parts);
 	// The same number linked twice would be two copies of one account.
 	if let Some((existing, name)) = duplicate {
-		let msg = if crate::i18n::is_indonesian() {
-			format!("Nomor telepon ini sudah ditautkan di whatSnap sebagai {name}, sehingga tautan baru ini dihapus.")
-		} else {
-			format!("This phone number is already linked in whatSnap as {name}, so the new link is being removed.")
-		};
+		let msg = crate::i18n::tr_fmt("This phone number is already linked in whatSnap as {}, so the new link is being removed.", &[&name]);
 		MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Account Already Linked"))
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 			.build()
@@ -368,11 +364,7 @@ fn background_event(account: &str, payload: &str, state: &Rc<RefCell<AppState>>,
 			{
 				let name = accounts(state).borrow().registry.display_name(account);
 				let reason_text = crate::i18n::translate_backend_message(reason);
-				let toast_body = if crate::i18n::is_indonesian() {
-					format!("{name} keluar dari WhatsApp: {reason_text}")
-				} else {
-					format!("{name} was logged out of WhatsApp: {reason_text}")
-				};
+				let toast_body = crate::i18n::tr_fmt("{} was logged out of WhatsApp: {}", &[&name, &reason_text]);
 				crate::ui::chat_ui::show_toast_notification(whatsnap::TRAY_APP_NAME, &toast_body);
 			}
 		}
@@ -508,11 +500,7 @@ fn background_call(
 		.filter(|n| !n.is_empty())
 		.unwrap_or_else(|| crate::i18n::tr("Someone"));
 	let name = accounts(state).borrow().registry.display_name(account);
-	let msg = if crate::i18n::is_indonesian() {
-		format!("{caller} menelepon {name}.")
-	} else {
-		format!("{caller} is calling {name}.")
-	};
+	let msg = crate::i18n::tr_fmt("{} is calling {}.", &[&caller, &name]);
 	crate::ui::chat_ui::show_toast_notification(whatsnap::TRAY_APP_NAME, &msg);
 }
 
@@ -666,7 +654,7 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 	}
 	let name = accounts.borrow().registry.display_name(target);
 	let switched_msg =
-		if crate::i18n::is_indonesian() { format!("Beralih ke {name}.") } else { format!("Switched to {name}.") };
+		crate::i18n::tr_fmt("Switched to {}.", &[&name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &switched_msg);
 	parts.conversations_parts.conversations_list.set_focus();
 	true
@@ -699,11 +687,7 @@ fn add_account(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 					id
 				}
 				Err(err) => {
-					let msg = if crate::i18n::is_indonesian() {
-						format!("Tidak dapat menambahkan akun: {err}")
-					} else {
-						format!("Couldn't add an account: {err}")
-					};
+					let msg = crate::i18n::tr_fmt("Couldn't add an account: {}", &[&err]);
 					MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Add Account"))
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 						.build()
@@ -927,20 +911,8 @@ fn remove(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
 		return;
 	}
 	let question = if linked {
-		if crate::i18n::is_indonesian() {
-			format!(
-				"Hapus {name} dari whatSnap?\n\nTindakan ini akan mengeluarkan akun dari WhatsApp di komputer ini serta menghapus pesan dan media yang tersimpan di sini. Chat di ponsel Anda tetap aman."
-			)
-		} else {
-			format!(
-				"Remove {name} from whatSnap?\n\nThis logs it out of WhatsApp on this computer and deletes its messages and media saved here. Your phone keeps its chats."
-			)
-		}
-	} else if crate::i18n::is_indonesian() {
-		format!("Hapus {name} dari whatSnap?")
-	} else {
-		format!("Remove {name} from whatSnap?")
-	};
+		crate::i18n::tr_fmt("Remove {} from whatSnap?\n\nThis logs it out of WhatsApp on this computer and deletes its messages and media saved here. Your phone keeps its chats.", &[&name])
+	} else { crate::i18n::tr_fmt("Remove {} from whatSnap?", &[&name]) };
 	let answer = MessageDialog::builder(&parts.frame, &question, crate::i18n::tr("Remove Account"))
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
 		.build()
@@ -966,7 +938,7 @@ fn remove(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
 		start_removal(state, id, linked);
 	}
 	let removed_msg =
-		if crate::i18n::is_indonesian() { format!("Akun {name} dihapus.") } else { format!("Removed {name}.") };
+		crate::i18n::tr_fmt("Removed {}.", &[&name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &removed_msg);
 	refresh_title(state, parts);
 }

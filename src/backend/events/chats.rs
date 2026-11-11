@@ -200,11 +200,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 					tags.push(crate::i18n::tr("Announcements").into());
 				}
 				if !community_name.is_empty() && community_name != name {
-					let in_comm = if crate::i18n::is_indonesian() {
-						format!("Di {community_name}")
-					} else {
-						format!("In {community_name}")
-					};
+					let in_comm = crate::i18n::tr_fmt("In {}", &[&community_name]);
 					tags.push(in_comm.into());
 				}
 			}
@@ -227,11 +223,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			let mut unread_line = if unread == 1 {
 				crate::i18n::tr("1 unread message").to_string()
 			} else if unread > 1 {
-				if crate::i18n::is_indonesian() {
-					format!("{unread} pesan belum dibaca")
-				} else {
-					format!("{unread} unread messages")
-				}
+				crate::i18n::tr_fmt("{} unread messages", &[&unread])
 			} else {
 				String::new()
 			};
@@ -261,11 +253,7 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 				} else {
 					crate::i18n::tr("Someone").to_string()
 				};
-				if crate::i18n::is_indonesian() {
-					format!("{who} bereaksi {preview_reaction_emoji} ke: {body_raw}")
-				} else {
-					format!("{who} reacted with {preview_reaction_emoji} to: {body_raw}")
-				}
+				crate::i18n::tr_fmt("{} reacted with {} to: {}", &[&who, &preview_reaction_emoji, &body_raw])
 			} else if !preview.is_empty() {
 				if preview_from_me {
 					format!("{}{}", crate::i18n::tr("You: "), body_raw)

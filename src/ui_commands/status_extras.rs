@@ -159,16 +159,8 @@ pub(crate) fn show_status_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	} else {
 		let mute = if row.muted {
-			if crate::i18n::is_indonesian() {
-				format!("&Bunyikan pembaruan status {}", row.poster_name)
-			} else {
-				format!("Un&mute {}'s status updates", row.poster_name)
-			}
-		} else if crate::i18n::is_indonesian() {
-			format!("&Bisukan pembaruan status {}", row.poster_name)
-		} else {
-			format!("&Mute {}'s status updates", row.poster_name)
-		};
+			crate::i18n::tr_fmt("Un&mute {}'s status updates", &[&row.poster_name])
+		} else { crate::i18n::tr_fmt("&Mute {}'s status updates", &[&row.poster_name]) };
 		builder = builder
 			.append_item(VIEW, crate::i18n::tr("&View status"), crate::i18n::tr("View their status updates"))
 			.append_item(
@@ -222,11 +214,7 @@ fn on_menu_item(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: i32,
 			let Some(item) = row.items.last() else { return };
 			let mut labels: Vec<String> = STATUS_REACTIONS.iter().map(|e| e.to_string()).collect();
 			if !item.my_reaction.is_empty() {
-				let label = if crate::i18n::is_indonesian() {
-					format!("Hapus reaksi saya ({})", item.my_reaction)
-				} else {
-					format!("Remove my reaction ({})", item.my_reaction)
-				};
+				let label = crate::i18n::tr_fmt("Remove my reaction ({})", &[&item.my_reaction]);
 				labels.push(label);
 			}
 			let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
@@ -332,11 +320,7 @@ fn reply(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, row: &Row, item
 	} else {
 		crate::i18n::tr("Photo").to_string()
 	};
-	let preview = if crate::i18n::is_indonesian() {
-		format!("Membalas status {}: {what}", row.poster_name)
-	} else {
-		format!("Replying to {}'s status: {what}", row.poster_name)
-	};
+	let preview = crate::i18n::tr_fmt("Replying to {}'s status: {}", &[&row.poster_name, &what]);
 	{
 		let mut s = state.borrow_mut();
 		s.pending_reply_id = Some(item.id.clone());
@@ -347,11 +331,7 @@ fn reply(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, row: &Row, item
 	c.remove_quote_btn.show(true);
 	c.conversation_panel.layout();
 	c.message_field.set_focus();
-	let spoken = if crate::i18n::is_indonesian() {
-		format!("{preview}. Ketik balasan Anda lalu tekan Enter.")
-	} else {
-		format!("{preview}. Type your reply and press Enter.")
-	};
+	let spoken = crate::i18n::tr_fmt("{}. Type your reply and press Enter.", &[&preview]);
 	announce(parts, &spoken);
 }
 
@@ -419,11 +399,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"status_reaction" => {
 			let reactor = text(data, "reactor");
 			let emoji = text(data, "emoji");
-			let spoken = if crate::i18n::is_indonesian() {
-				format!("{reactor} memberi reaksi {emoji} pada status Anda.")
-			} else {
-				format!("{reactor} reacted {emoji} to your status.")
-			};
+			let spoken = crate::i18n::tr_fmt("{} reacted {} to your status.", &[&reactor, &emoji]);
 			announce(parts, &spoken);
 		}
 		"status_reacted" => {
@@ -497,11 +473,7 @@ fn show_viewers(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 		&& let Some((jid, name)) = items.get(choice)
 		&& !jid.is_empty()
 	{
-		let question = if crate::i18n::is_indonesian() {
-			format!("Buka chat dengan {name}?")
-		} else {
-			format!("Open chat with {name}?")
-		};
+		let question = crate::i18n::tr_fmt("Open chat with {}?", &[&name]);
 		let confirm = MessageDialog::builder(&parts.frame, &question, crate::i18n::tr("Open Chat"))
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build();

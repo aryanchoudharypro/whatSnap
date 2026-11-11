@@ -45,11 +45,7 @@ pub(crate) fn show_security_code(_state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	let Some((_, name)) = PENDING_CODE.with(|p| p.borrow_mut().take_if(|(asked, _)| asked == jid)) else { return };
 	if let Some(error) = data.get("error").and_then(|e| e.as_str()) {
 		let err_tr = crate::i18n::translate_backend_message(error);
-		let msg = if crate::i18n::is_indonesian() {
-			format!("Tidak dapat mengambil kode keamanan dengan {name}. {err_tr}")
-		} else {
-			format!("Couldn't get the security code with {name}. {err_tr}")
-		};
+		let msg = crate::i18n::tr_fmt("Couldn't get the security code with {}. {}", &[&name, &err_tr]);
 		tell(parts, &msg, crate::i18n::tr("Verify Security Code"), true);
 		return;
 	}
@@ -61,11 +57,7 @@ pub(crate) fn show_security_code(_state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let qr_row = BoxSizer::builder(Orientation::Horizontal).build();
 	sizer.add_sizer(&qr_row, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top, 8);
-	let label_text = if crate::i18n::is_indonesian() {
-		format!("Kode keamanan dengan {name}")
-	} else {
-		format!("Security code with {name}")
-	};
+	let label_text = crate::i18n::tr_fmt("Security code with {}", &[&name]);
 	let label = StaticText::builder(&panel).with_label(&label_text).build();
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 	let code_field = TextCtrl::builder(&panel)
@@ -74,19 +66,9 @@ pub(crate) fn show_security_code(_state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		.with_size(Size::new(300, 80))
 		.build();
 	sizer.add(&code_field, 0, SizerFlag::Expand | SizerFlag::All, 8);
-	let about_text = if crate::i18n::is_indonesian() {
-		format!(
-			"Untuk memastikan pesan dan panggilan Anda dengan {name} terenkripsi ujung-ke-ujung, \
-			 bandingkan 60 angka ini dengan yang ada di ponselnya, atau minta ia memindai kode QR \
-			 dengan ponselnya. Kode ini sama di semua perangkat Anda."
-		)
-	} else {
-		format!(
-			"To check that your messages and calls with {name} are end-to-end encrypted, compare these 60 \
+	let about_text = crate::i18n::tr_fmt("To check that your messages and calls with {} are end-to-end encrypted, compare these 60 \
 			 numbers with the ones on their phone, or let them scan the QR code with their phone. The code is \
-			 the same on all your devices."
-		)
-	};
+			 the same on all your devices.", &[&name]);
 	let about = StaticText::builder(&panel).with_label(&about_text).build();
 	about.wrap(320);
 	sizer.add(&about, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);

@@ -112,6 +112,24 @@ pub fn tr_str(text: &str) -> String {
 	text.to_string()
 }
 
+/// Translates `template` (English text with `{}` placeholders) and fills the placeholders in order.
+pub fn tr_fmt(template: &'static str, args: &[&dyn std::fmt::Display]) -> String {
+	use std::fmt::Write;
+	let text = tr(template);
+	let mut out = String::with_capacity(text.len() + 16);
+	let mut rest = text;
+	let mut args = args.iter();
+	while let Some(at) = rest.find("{}") {
+		out.push_str(&rest[..at]);
+		if let Some(arg) = args.next() {
+			let _ = write!(out, "{arg}");
+		}
+		rest = &rest[at + 2..];
+	}
+	out.push_str(rest);
+	out
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -125,6 +143,11 @@ mod tests {
 		assert_eq!(LanguageChoice::System.as_str(), "system");
 		assert_eq!(LanguageChoice::En.as_str(), "en");
 		assert_eq!(LanguageChoice::Id.as_str(), "id");
+	}
+
+	#[test]
+	fn tr_fmt_fills_placeholders_in_order() {
+		assert_eq!(tr_fmt("{} of {}", &[&1, &"two"]), "1 of two");
 	}
 
 	#[test]

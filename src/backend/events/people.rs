@@ -253,11 +253,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 							let tagged = if tag.is_empty() {
 								local_name.clone()
-							} else if crate::i18n::is_indonesian() {
-								format!("{}, label: {}", local_name, tag)
-							} else {
-								format!("{}, tag: {}", local_name, tag)
-							};
+							} else { crate::i18n::tr_fmt("{}, tag: {}", &[&local_name, &tag]) };
 							let display = if phone.is_empty() || local_name == phone {
 								format!("{}{}", tagged, role)
 							} else {
@@ -315,11 +311,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let community_name = data.get("communityName").and_then(|n| n.as_str()).unwrap_or("");
 					parts.group_data_dialog.groups_label.set_label(&if community_name.is_empty() {
 						crate::i18n::tr("Groups in this community").to_string()
-					} else if crate::i18n::is_indonesian() {
-						format!("Grup di {}", community_name)
-					} else {
-						format!("Groups in {}", community_name)
-					});
+					} else { crate::i18n::tr_fmt("Groups in {}", &[&community_name]) });
 					let mut subgroup_jids = Vec::new();
 					let mut subgroup_joined = Vec::new();
 					let mut labels = Vec::new();
@@ -384,11 +376,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let label = data.get("label").and_then(|l| l.as_str()).unwrap_or("");
 					let text = if label.is_empty() {
 						crate::i18n::tr("Your tag was removed.").to_string()
-					} else if crate::i18n::is_indonesian() {
-						format!("Label Anda sekarang {label}.")
-					} else {
-						format!("Your tag is now {}.", label)
-					};
+					} else { crate::i18n::tr_fmt("Your tag is now {}.", &[&label]) };
 					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
 				}
 				if s.selected_chat.as_deref() == Some(jid) && parts.group_data_dialog.dialog.is_shown() {
@@ -428,11 +416,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					}
 				}
 				let name = state.borrow().contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Bergabung ke {name}.")
-				} else {
-					format!("Joined {name}.")
-				};
+				let msg = crate::i18n::tr_fmt("Joined {}.", &[&name]);
 				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 			}
 		}
@@ -444,11 +428,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let topic = data.get("topic").and_then(|v| v.as_str()).unwrap_or("");
 				let size = data.get("size").and_then(|v| v.as_i64()).unwrap_or(0);
 				let display_name = if name.is_empty() { crate::i18n::tr("This group").to_string() } else { name };
-				let mut body = if crate::i18n::is_indonesian() {
-					format!("{display_name}\n{size} anggota")
-				} else {
-					format!("{display_name}\n{size} member(s)")
-				};
+				let mut body = crate::i18n::tr_fmt("{}\n{} member(s)", &[&display_name, &size]);
 				if !topic.is_empty() {
 					body.push_str(&format!("\n\n{topic}"));
 				}
@@ -540,16 +520,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					.cloned()
 					.unwrap_or_else(|| crate::i18n::tr("the channel").to_string());
 				let message = if following {
-					if crate::i18n::is_indonesian() {
-						format!("Mengikuti {name}. Saluran ini ada di tab Saluran, Alt+6.")
-					} else {
-						format!("Following {name}. It's in the Channels tab, Alt+6.")
-					}
-				} else if crate::i18n::is_indonesian() {
-					format!("Berhenti mengikuti {name}.")
-				} else {
-					format!("Unfollowed {name}.")
-				};
+					crate::i18n::tr_fmt("Following {}. It's in the Channels tab, Alt+6.", &[&name])
+				} else { crate::i18n::tr_fmt("Unfollowed {}.", &[&name]) };
 				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 			}
 		}
@@ -570,7 +542,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				.and_then(|jid| state.borrow().contacts.get(jid).cloned())
 				.unwrap_or_else(|| crate::i18n::tr("the group").to_string());
 			let msg =
-				if crate::i18n::is_indonesian() { format!("Bergabung ke {name}.") } else { format!("Joined {name}.") };
+				crate::i18n::tr_fmt("Joined {}.", &[&name]);
 			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		}
 		"avatar_previews" => {
@@ -642,11 +614,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						phone = formatted;
 					}
 
-					let mut text = if crate::i18n::is_indonesian() {
-						format!("Nama: {}\nTelepon: {}\n", local_name, phone)
-					} else {
-						format!("Name: {}\nPhone: {}\n", local_name, phone)
-					};
+					let mut text = crate::i18n::tr_fmt("Name: {}\nPhone: {}\n", &[&local_name, &phone]);
 					let blocked_line = crate::ui_commands::blocking::info_line(&s, jid);
 					if crate::i18n::is_indonesian() && blocked_line == "Blocked: Yes\n" {
 						text.push_str("Diblokir: Ya\n");
@@ -680,11 +648,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let card = crate::ui_commands::contacts_groups::ContactCard::from_user_info(data);
 					crate::ui_commands::contacts_groups::show_contact_card(parts, Some(&card));
 					state.borrow_mut().conversation_data_contact = Some(card);
-					let msg = if crate::i18n::is_indonesian() {
-						format!("Data percakapan dimuat untuk {}", local_name)
-					} else {
-						format!("Conversation data loaded for {}", local_name)
-					};
+					let msg = crate::i18n::tr_fmt("Conversation data loaded for {}", &[&local_name]);
 					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 				}
 			}

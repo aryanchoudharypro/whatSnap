@@ -395,11 +395,7 @@ pub(super) fn parse_conversation_messages(raw: &str) -> Option<MessagesPage> {
 				msg
 			}
 			Err(e) => ChatMessage {
-				text: if crate::i18n::is_indonesian() {
-					format!("Kesalahan penguraian: {} untuk json: {}", e, raw_msg.get())
-				} else {
-					format!("Parse error: {} for json: {}", e, raw_msg.get())
-				},
+				text: crate::i18n::tr_fmt("Parse error: {} for json: {}", &[&e, &raw_msg.get()]),
 				..Default::default()
 			},
 		})

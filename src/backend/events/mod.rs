@@ -90,16 +90,8 @@ pub(crate) fn format_conv_data_label(
 		let is_group = chat_jid.ends_with("@g.us");
 		if is_group {
 			let status = if is_recording {
-				if crate::i18n::is_indonesian() {
-					format!("{sender_name} sedang merekam audio...")
-				} else {
-					format!("{sender_name} is recording audio...")
-				}
-			} else if crate::i18n::is_indonesian() {
-				format!("{sender_name} sedang mengetik...")
-			} else {
-				format!("{sender_name} is typing...")
-			};
+				crate::i18n::tr_fmt("{} is recording audio...", &[&sender_name])
+			} else { crate::i18n::tr_fmt("{} is typing...", &[&sender_name]) };
 			format!("{chat_name}, {status}")
 		} else {
 			let status =
@@ -165,7 +157,7 @@ pub(crate) fn message_hit(s: &AppState, item: &serde_json::Value) -> Option<crat
 	let date = if timestamp > 0 {
 		whatsnap::LocalTime::from_unix(timestamp)
 			.map(|local_dt| {
-				let fmt = if crate::i18n::is_indonesian() { "%e %b %Y" } else { "%b %e, %Y" };
+				let fmt = crate::i18n::tr("%b %e, %Y");
 				whatsnap::day_name(local_dt, fmt)
 			})
 			.unwrap_or_default()

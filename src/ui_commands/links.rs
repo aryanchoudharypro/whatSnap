@@ -127,18 +127,10 @@ pub(crate) fn notification_reply(
 		let name =
 			s.contacts.get(&jid).cloned().unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(&jid));
 		if crate::ui_commands::blocking::is_blocked(&s, &jid) {
-			Some(if crate::i18n::is_indonesian() {
-				format!("Balasan Anda kepada {name} tidak terkirim karena Anda memblokirnya.")
-			} else {
-				format!("Your reply to {name} wasn't sent because you blocked them.")
-			})
+			Some(crate::i18n::tr_fmt("Your reply to {} wasn't sent because you blocked them.", &[&name]))
 		} else {
 			crate::ui::chat_ui::group_send_block_reason(&s, &jid).map(|reason| {
-				if crate::i18n::is_indonesian() {
-					format!("Balasan Anda kepada {name} tidak terkirim. {reason}.")
-				} else {
-					format!("Your reply to {name} wasn't sent. {reason}.")
-				}
+				crate::i18n::tr_fmt("Your reply to {} wasn't sent. {}.", &[&name, &reason])
 			})
 		}
 	};
@@ -192,14 +184,10 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	let title = match paths.as_slice() {
 		[one] => {
 			let fname = std::path::Path::new(one).file_name().unwrap_or_default().to_string_lossy();
-			if crate::i18n::is_indonesian() { format!("Kirim {fname}") } else { format!("Send {fname}") }
+			crate::i18n::tr_fmt("Send {}", &[&fname])
 		}
 		many => {
-			if crate::i18n::is_indonesian() {
-				format!("Kirim {} file", many.len())
-			} else {
-				format!("Send {} files", many.len())
-			}
+			crate::i18n::tr_fmt("Send {} files", &[&many.len()])
 		}
 	};
 	let targets = send_targets(&state.borrow());
@@ -213,11 +201,7 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
 	drop(s);
 	let names_joined = names.join(", ");
-	let mut message = if crate::i18n::is_indonesian() {
-		format!("Mengirim ke {names_joined}.")
-	} else {
-		format!("Sending to {names_joined}.")
-	};
+	let mut message = crate::i18n::tr_fmt("Sending to {}.", &[&names_joined]);
 	if left_out > 0 {
 		if crate::i18n::is_indonesian() {
 			message.push_str(&format!(
@@ -275,11 +259,7 @@ pub(crate) fn send_text_to_chosen_chats(
 		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
 	drop(s);
 	let names_joined = names.join(", ");
-	let spoken = if crate::i18n::is_indonesian() {
-		format!("Terkirim ke {names_joined}.")
-	} else {
-		format!("Sent to {names_joined}.")
-	};
+	let spoken = crate::i18n::tr_fmt("Sent to {}.", &[&names_joined]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
@@ -302,11 +282,7 @@ pub(crate) fn show_group_invite_link(
 	crate::ui::theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let intro_text = if crate::i18n::is_indonesian() {
-		format!("Siapa saja yang memiliki tautan ini dapat bergabung ke {group_name}.")
-	} else {
-		format!("Anyone with this link can join {group_name}.")
-	};
+	let intro_text = crate::i18n::tr_fmt("Anyone with this link can join {}.", &[&group_name]);
 	let intro = StaticText::builder(&panel).with_label(&intro_text).build();
 	sizer.add(&intro, 0, SizerFlag::All, 10);
 	let link_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Invite link")).build();
@@ -381,11 +357,7 @@ pub(crate) fn show_group_invite_link(
 	let next = *next.borrow();
 	match next {
 		Next::Send => {
-			let text = if crate::i18n::is_indonesian() {
-				format!("Ikuti tautan ini untuk bergabung ke grup WhatsApp saya: {link}")
-			} else {
-				format!("Follow this link to join my WhatsApp group: {link}")
-			};
+			let text = crate::i18n::tr_fmt("Follow this link to join my WhatsApp group: {}", &[&link]);
 			send_text_to_chosen_chats(state, parts, crate::i18n::tr("Send invite link"), &text);
 		}
 		Next::Reset => {
@@ -438,11 +410,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	details.push(match followers {
 		1 => crate::i18n::tr("1 follower").to_string(),
 		n => {
-			if crate::i18n::is_indonesian() {
-				format!("{n} pengikut")
-			} else {
-				format!("{n} followers")
-			}
+			crate::i18n::tr_fmt("{} followers", &[&n])
 		}
 	});
 	match text("role").as_str() {

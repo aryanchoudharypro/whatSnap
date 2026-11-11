@@ -147,18 +147,10 @@ pub(crate) fn save_copy(parent: &impl WxWidget, source: &str, name: &str, announ
 	let Some(dest) = dialog.get_path() else { return };
 	let text = match std::fs::copy(source, &dest) {
 		Ok(_) => {
-			if crate::i18n::is_indonesian() {
-				format!("File disimpan ke {dest}")
-			} else {
-				format!("File saved to {dest}")
-			}
+			crate::i18n::tr_fmt("File saved to {}", &[&dest])
 		}
 		Err(err) => {
-			if crate::i18n::is_indonesian() {
-				format!("Tidak dapat menyimpan file: {err}")
-			} else {
-				format!("Couldn't save the file: {err}")
-			}
+			crate::i18n::tr_fmt("Couldn't save the file: {}", &[&err])
 		}
 	};
 	crate::platform::announce::announce(announcer, &text);

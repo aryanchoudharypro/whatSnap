@@ -129,18 +129,10 @@ impl EmojiPanel {
 			self.announce(&match labels.len() {
 				0 => crate::i18n::tr("No emoji found.").to_string(),
 				1 => {
-					if crate::i18n::is_indonesian() {
-						format!("1 emoji: {}", labels[0])
-					} else {
-						format!("1 emoji: {}", labels[0])
-					}
+					crate::i18n::tr_fmt("1 emoji: {}", &[&labels[0]])
 				}
 				n => {
-					if crate::i18n::is_indonesian() {
-						format!("{n} emoji.")
-					} else {
-						format!("{n} emoji.")
-					}
+					crate::i18n::tr_fmt("{} emoji.", &[&n])
 				}
 			});
 		}
@@ -207,11 +199,7 @@ impl EmojiPanel {
 						let mut label = text(p, "name");
 						let publisher = text(p, "publisher");
 						if !publisher.is_empty() {
-							label = if crate::i18n::is_indonesian() {
-								format!("{label}, oleh {publisher}")
-							} else {
-								format!("{label}, by {publisher}")
-							};
+							label = crate::i18n::tr_fmt("{}, by {}", &[&label, &publisher]);
 						}
 						if p.get("animated").and_then(|a| a.as_bool()).unwrap_or(false) {
 							label.push_str(crate::i18n::tr(", animated"));
@@ -279,11 +267,7 @@ impl EmojiPanel {
 						drop(s);
 						self.sticker_list.clear();
 						self.send("get_sticker_pack", serde_json::json!({ "id": id }));
-						let msg = if crate::i18n::is_indonesian() {
-							format!("Memuat {label}...")
-						} else {
-							format!("Loading {label}...")
-						};
+						let msg = crate::i18n::tr_fmt("Loading {}...", &[&label]);
 						self.announce(&msg);
 						return;
 					}
@@ -306,11 +290,7 @@ impl EmojiPanel {
 				0 => empty.to_string(),
 				1 => crate::i18n::tr("1 sticker.").to_string(),
 				n => {
-					if crate::i18n::is_indonesian() {
-						format!("{n} stiker.")
-					} else {
-						format!("{n} stickers.")
-					}
+					crate::i18n::tr_fmt("{} stickers.", &[&n])
 				}
 			});
 		}

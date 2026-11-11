@@ -29,7 +29,7 @@ impl Entry {
 			1 => crate::i18n::tr("1 follower").to_string(),
 			n => {
 				let num = whantv_group_thousands(n);
-				if crate::i18n::is_indonesian() { format!("{num} pengikut") } else { format!("{num} followers") }
+				crate::i18n::tr_fmt("{} followers", &[&num])
 			}
 		});
 		if self.following {
@@ -99,7 +99,7 @@ impl ChannelDirectory {
 			.find(|(code, _)| *code == country)
 			.map(|(_, name)| {
 				let localized = crate::i18n::translate_country_name(name);
-				if crate::i18n::is_indonesian() { format!(" di {localized}") } else { format!(" in {localized}") }
+				crate::i18n::tr_fmt(" in {}", &[&localized])
 			})
 			.unwrap_or_default();
 		let loading = if !query.is_empty() {
@@ -110,11 +110,7 @@ impl ChannelDirectory {
 			} else {
 				format!("Loading {name} channels{place}...")
 			}
-		} else if crate::i18n::is_indonesian() {
-			format!("Memuat saluran rekomendasi{place}...")
-		} else {
-			format!("Loading recommended channels{place}...")
-		};
+		} else { crate::i18n::tr_fmt("Loading recommended channels{}...", &[&place]) };
 		crate::platform::announce::announce(self.announcer, &loading);
 	}
 
@@ -194,27 +190,15 @@ impl ChannelDirectory {
 			}
 			(0, false) if s.query.is_empty() => crate::i18n::tr("No recommended channels.").to_string(),
 			(0, false) => {
-				if crate::i18n::is_indonesian() {
-					format!("Tidak ada saluran untuk {}.", s.query)
-				} else {
-					format!("No channels found for {}.", s.query)
-				}
+				crate::i18n::tr_fmt("No channels found for {}.", &[&s.query])
 			}
 			(0, true) => crate::i18n::tr("No more channels.").to_string(),
 			(1, _) => crate::i18n::tr("1 channel.").to_string(),
 			(n, true) => {
-				if crate::i18n::is_indonesian() {
-					format!("{n} saluran tambahan.")
-				} else {
-					format!("{n} more channels.")
-				}
+				crate::i18n::tr_fmt("{} more channels.", &[&n])
 			}
 			(n, false) => {
-				if crate::i18n::is_indonesian() {
-					format!("{n} saluran.")
-				} else {
-					format!("{n} channels.")
-				}
+				crate::i18n::tr_fmt("{} channels.", &[&n])
 			}
 		};
 		drop(s);

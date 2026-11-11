@@ -59,7 +59,7 @@ impl MediaPlayer {
 		let position_label = StaticText::builder(&panel).with_label(crate::i18n::tr("&Position")).build();
 		theme::style_muted_label(&position_label);
 		let position = Slider::builder(&panel).with_min_value(0).with_max_value(1).build();
-		let initial_time = if crate::i18n::is_indonesian() { "0:00 dari 0:00" } else { "0:00 of 0:00" };
+		let initial_time = crate::i18n::tr("0:00 of 0:00");
 		let time_text = StaticText::builder(&panel).with_label(initial_time).build();
 		time_text.set_font(&theme::Fonts::body());
 
@@ -201,7 +201,7 @@ impl MediaPlayer {
 		self.length.set(0);
 		self.position.set_range(0, 1);
 		self.position.set_value(0);
-		self.time_text.set_label(if crate::i18n::is_indonesian() { "0:00 dari 0:00" } else { "0:00 of 0:00" });
+		self.time_text.set_label(crate::i18n::tr("0:00 of 0:00"));
 		self.play_btn.set_label(crate::i18n::tr("Play"));
 	}
 
@@ -268,11 +268,7 @@ impl MediaPlayer {
 	fn next_speed(&self) {
 		let next = (self.speed.get() + 1) % SPEEDS.len();
 		self.speed.set(next);
-		let label = if crate::i18n::is_indonesian() {
-			format!("Kecepatan {}x", SPEEDS[next])
-		} else {
-			format!("Speed {}x", SPEEDS[next])
-		};
+		let label = crate::i18n::tr_fmt("Speed {}x", &[&SPEEDS[next]]);
 		self.speed_btn.set_label(&label);
 		if let Some(engine) = self.engine.borrow().as_ref() {
 			engine.set_rate(SPEEDS[next]);
@@ -420,11 +416,7 @@ impl MediaPlayer {
 
 	fn time_label(&self) -> String {
 		let at = self.engine.borrow().as_ref().map(|e| e.position()).unwrap_or(0.0);
-		if crate::i18n::is_indonesian() {
-			format!("{} dari {}", clock(at as i32), clock(self.length.get()))
-		} else {
-			format!("{} of {}", clock(at as i32), clock(self.length.get()))
-		}
+		crate::i18n::tr_fmt("{} of {}", &[&clock(at as i32), &clock(self.length.get())])
 	}
 
 	fn show_time(&self) {

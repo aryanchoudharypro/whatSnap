@@ -395,11 +395,7 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 	let admin_name = admin_msg.as_ref().filter(|_| revokable).map(|m| sender_name(state, m));
 	let title = match &admin_name {
 		Some(name) => {
-			if crate::i18n::is_indonesian() {
-				format!("Hapus pesan dari {name}?")
-			} else {
-				format!("Delete message from {name}?")
-			}
+			crate::i18n::tr_fmt("Delete message from {}?", &[&name])
 		}
 		None if msgs.len() == 1 => crate::i18n::tr("Delete message?").to_string(),
 		None => crate::i18n::tr("Delete messages?").to_string(),
@@ -417,15 +413,7 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 		match dialog.show_modal() {
 			id if id == wxdragon::id::ID_YES => {
 				if let Some(name) = &admin_name {
-					let confirm_text = if crate::i18n::is_indonesian() {
-						format!(
-							"Sebagai admin, Anda menghapus pesan {name} untuk semua orang di chat ini. Mereka akan melihat bahwa Anda menghapus pesan ini."
-						)
-					} else {
-						format!(
-							"As an admin, you are deleting {name}'s message for everyone in this chat. They will see that you deleted the message."
-						)
-					};
+					let confirm_text = crate::i18n::tr_fmt("As an admin, you are deleting {}'s message for everyone in this chat. They will see that you deleted the message.", &[&name]);
 					let confirm =
 						MessageDialog::builder(&parts.frame, &confirm_text, crate::i18n::tr("Delete for everyone"))
 							.with_style(

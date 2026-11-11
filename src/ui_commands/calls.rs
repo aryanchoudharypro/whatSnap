@@ -322,11 +322,7 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	let win_title = crate::calls::helpers::format_call_window_title(false, is_group, video, &name, is_saved, None);
 	parts.call_parts.frame.set_title(&win_title);
 	if is_group {
-		let status_lbl = if crate::i18n::is_indonesian() {
-			format!("Memulai panggilan grup di {}", name)
-		} else {
-			format!("Starting group call in {}", name)
-		};
+		let status_lbl = crate::i18n::tr_fmt("Starting group call in {}", &[&name]);
 		parts.call_parts.status_label.set_label(&status_lbl);
 		parts.call_parts.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(
 			&name,
@@ -574,11 +570,7 @@ pub(crate) fn dismiss_incoming_call(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	stop_call_ringing_sound(&mut s);
 	drop(s);
 	parts.call_parts.frame.show(false);
-	let banner_lbl = if crate::i18n::is_indonesian() {
-		format!("Panggilan masuk dari {caller}")
-	} else {
-		format!("Incoming call from {caller}")
-	};
+	let banner_lbl = crate::i18n::tr_fmt("Incoming call from {}", &[&caller]);
 	parts.conversations_parts.incoming_call_banner_label.set_label(&banner_lbl);
 	parts.conversations_parts.incoming_call_banner.show(true);
 	parts.conversations_parts.panel.layout();
@@ -985,11 +977,7 @@ pub(crate) fn system_audio_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	set_system_audio(&mut s, false);
 	drop(s);
 	let reason_text = crate::i18n::translate_backend_message(&reason);
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Tidak dapat membagikan suara komputer Anda: {reason_text}")
-	} else {
-		format!("Couldn't share your computer's sound: {reason_text}")
-	};
+	let msg = crate::i18n::tr_fmt("Couldn't share your computer's sound: {}", &[&reason_text]);
 	announce_call(parts, &msg, Priority::High);
 }
 
@@ -1009,11 +997,7 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 		drop(s);
 		let reason_text = crate::i18n::translate_backend_message(&reason);
-		let msg = if crate::i18n::is_indonesian() {
-			format!("Tidak dapat membagikan layar: {reason_text}")
-		} else {
-			format!("Couldn't share the screen: {reason_text}")
-		};
+		let msg = crate::i18n::tr_fmt("Couldn't share the screen: {}", &[&reason_text]);
 		announce_call(parts, &msg, Priority::High);
 		return;
 	}
@@ -1028,11 +1012,7 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 	drop(s);
 	let reason_text = crate::i18n::translate_backend_message(&reason);
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Tidak dapat membagikan layar: {reason_text}")
-	} else {
-		format!("Couldn't share the screen: {reason_text}")
-	};
+	let msg = crate::i18n::tr_fmt("Couldn't share the screen: {}", &[&reason_text]);
 	announce_call(parts, &msg, Priority::High);
 }
 
@@ -1067,11 +1047,7 @@ pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera on"));
 	drop(s);
 	let reason_text = crate::i18n::translate_backend_message(&reason);
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Tidak dapat menyalakan kamera: {reason_text}")
-	} else {
-		format!("Couldn't start the camera: {reason_text}")
-	};
+	let msg = crate::i18n::tr_fmt("Couldn't start the camera: {}", &[&reason_text]);
 	announce_call(parts, &msg, Priority::High);
 }
 
@@ -1221,11 +1197,7 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 				let s = state_menu.borrow();
 				s.call_contacts.iter().find(|c| c.jid == jid).map(|c| c.name.clone()).unwrap_or_else(|| jid.clone())
 			};
-			let msg = if crate::i18n::is_indonesian() {
-				format!("Hapus {name} dari kontak Anda? Kontak ini juga akan dihapus dari kontak ponsel Anda.")
-			} else {
-				format!("Delete {} from your contacts? They'll be removed from your phone's contacts too.", name)
-			};
+			let msg = crate::i18n::tr_fmt("Delete {} from your contacts? They'll be removed from your phone's contacts too.", &[&name]);
 			let confirm = MessageDialog::builder(&parts_menu.frame, &msg, crate::i18n::tr("Delete Contact"))
 				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 				.build();

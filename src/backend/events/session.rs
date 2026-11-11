@@ -120,11 +120,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 
 			if let Some(reason) = val.get("data").and_then(|d| d.get("reason")).and_then(|r| r.as_str()) {
 				let reason_text = crate::i18n::translate_backend_message(reason);
-				let msg = if crate::i18n::is_indonesian() {
-					format!("whatSnap dikeluarkan dari WhatsApp: {reason_text}")
-				} else {
-					format!("whatSnap was logged out of WhatsApp: {reason_text}")
-				};
+				let msg = crate::i18n::tr_fmt("whatSnap was logged out of WhatsApp: {}", &[&reason_text]);
 				MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Logged Out"))
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
 					.build()
@@ -141,11 +137,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						windows::Win32::UI::WindowsAndMessaging::MB_OK,
 					);
 				}
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Kode penautan diperbarui: {code}")
-				} else {
-					format!("Pairing code updated: {code}")
-				};
+				let msg = crate::i18n::tr_fmt("Pairing code updated: {}", &[&code]);
 				crate::platform::announce::announce(parts.pairing_announcer, &msg);
 			}
 		}
@@ -243,11 +235,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						crate::i18n::tr("Status: Connecting...").to_string()
 					} else {
 						let msg_tr = crate::i18n::translate_backend_message(message);
-						if crate::i18n::is_indonesian() {
-							format!("Status: {msg_tr} Menghubungkan ulang...")
-						} else {
-							format!("Status: {msg_tr} Reconnecting...")
-						}
+						crate::i18n::tr_fmt("Status: {} Reconnecting...", &[&msg_tr])
 					};
 					parts.frame.set_status_text(&label, 0);
 					s.conn_status_text = label;
@@ -261,34 +249,18 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					};
 					let label = match retry_in {
 						Some(secs @ 1..=119) => {
-							if crate::i18n::is_indonesian() {
-								format!("Status: Offline. {reason} Mencoba lagi dalam {secs} detik.")
-							} else {
-								format!("Status: Offline. {reason} Retrying in {secs} seconds.")
-							}
+							crate::i18n::tr_fmt("Status: Offline. {} Retrying in {} seconds.", &[&reason, &secs])
 						}
 						Some(secs @ 120..=7199) => {
 							let mins = secs.div_ceil(60);
-							if crate::i18n::is_indonesian() {
-								format!("Status: Offline. {reason} Mencoba lagi dalam {mins} menit.")
-							} else {
-								format!("Status: Offline. {reason} Retrying in {mins} minutes.")
-							}
+							crate::i18n::tr_fmt("Status: Offline. {} Retrying in {} minutes.", &[&reason, &mins])
 						}
 						Some(secs @ 7200..) => {
 							let hours = secs.div_ceil(3600);
-							if crate::i18n::is_indonesian() {
-								format!("Status: Offline. {reason} Mencoba lagi dalam {hours} jam.")
-							} else {
-								format!("Status: Offline. {reason} Retrying in {hours} hours.")
-							}
+							crate::i18n::tr_fmt("Status: Offline. {} Retrying in {} hours.", &[&reason, &hours])
 						}
 						_ => {
-							if crate::i18n::is_indonesian() {
-								format!("Status: Offline. {reason} Mencoba lagi secara otomatis.")
-							} else {
-								format!("Status: Offline. {reason} Retrying automatically.")
-							}
+							crate::i18n::tr_fmt("Status: Offline. {} Retrying automatically.", &[&reason])
 						}
 					};
 					parts.frame.set_status_text(&label, 0);
@@ -297,11 +269,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.conn_outage_announced = true;
 					s.conn_manual_reconnect = false;
 					speak.then(|| {
-						if crate::i18n::is_indonesian() {
-							format!("{reason} whatSnap akan terus mencoba menghubungkan kembali.")
-						} else {
-							format!("{reason} whatSnap will keep trying to reconnect.")
-						}
+						crate::i18n::tr_fmt("{} whatSnap will keep trying to reconnect.", &[&reason])
 					})
 				}
 				"stopped" => {
@@ -328,24 +296,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let mut s = state.borrow_mut();
 					let label = if s.recent_sync_active && s.recent_sync_percent >= 0 {
 						let pct = s.recent_sync_percent;
-						if crate::i18n::is_indonesian() {
-							format!(
-								"Status: Terhubung (Menyinkronkan pesan lama, {pct}% selesai: {msgs_done} pesan, {chats_done} chat sejauh ini)"
-							)
-						} else {
-							format!(
-								"Status: Connected (Syncing older messages, {pct}% complete: {msgs_done} messages, {chats_done} chats so far)"
-							)
-						}
-					} else if crate::i18n::is_indonesian() {
-						format!(
-							"Status: Terhubung (Menyinkronkan riwayat... {msgs_done} pesan, {chats_done} chat sejauh ini)"
-						)
-					} else {
-						format!(
-							"Status: Connected (Syncing history... {msgs_done} messages, {chats_done} chats so far)"
-						)
-					};
+						crate::i18n::tr_fmt("Status: Connected (Syncing older messages, {}% complete: {} messages, {} chats so far)", &[&pct, &msgs_done, &chats_done])
+					} else { crate::i18n::tr_fmt("Status: Connected (Syncing history... {} messages, {} chats so far)", &[&msgs_done, &chats_done]) };
 					// Batches already received keep being saved after the
 					// connection drops; don't paint "Connected" over that.
 					if s.conn_online {

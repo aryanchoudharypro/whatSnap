@@ -213,11 +213,7 @@ fn wire_group_member_menu(
 		let is_bot = member.jid.ends_with("@bot");
 		let mut items: Vec<(i32, String, &str, Option<MemberAction>)> = Vec::new();
 		if !member.me {
-			let msg_label = if crate::i18n::is_indonesian() {
-				format!("&Kirim pesan ke {}", member.name)
-			} else {
-				format!("&Message {}", member.name)
-			};
+			let msg_label = crate::i18n::tr_fmt("&Message {}", &[&member.name]);
 			items.push((
 				4201,
 				msg_label,
@@ -2646,11 +2642,7 @@ pub fn bind_input_handlers(
 		match current.export_json() {
 			Ok(json_data) => {
 				if let Err(e) = std::fs::write(&path, json_data) {
-					let msg = if crate::i18n::is_indonesian() {
-						format!("Gagal menulis file cadangan:\n{e}")
-					} else {
-						format!("Failed to write backup file:\n{e}")
-					};
+					let msg = crate::i18n::tr_fmt("Failed to write backup file:\n{}", &[&e]);
 					MessageDialog::builder(&settings_dialog_backup, &msg, crate::i18n::tr("Backup Failed"))
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 						.build()
@@ -2667,11 +2659,7 @@ pub fn bind_input_handlers(
 				}
 			}
 			Err(e) => {
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Gagal memformat setelan:\n{e}")
-				} else {
-					format!("Failed to format settings:\n{e}")
-				};
+				let msg = crate::i18n::tr_fmt("Failed to format settings:\n{}", &[&e]);
 				MessageDialog::builder(&settings_dialog_backup, &msg, crate::i18n::tr("Backup Failed"))
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 					.build()
@@ -2700,11 +2688,7 @@ pub fn bind_input_handlers(
 		let raw = match std::fs::read_to_string(&path) {
 			Ok(content) => content,
 			Err(e) => {
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Gagal membaca file cadangan:\n{e}")
-				} else {
-					format!("Failed to read backup file:\n{e}")
-				};
+				let msg = crate::i18n::tr_fmt("Failed to read backup file:\n{}", &[&e]);
 				MessageDialog::builder(&settings_dialog_restore, &msg, crate::i18n::tr("Restore Failed"))
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 					.build()
@@ -2716,11 +2700,7 @@ pub fn bind_input_handlers(
 		let restored = match crate::settings::Settings::import_json(&raw) {
 			Ok(settings) => settings,
 			Err(err) => {
-				let msg = if crate::i18n::is_indonesian() {
-					format!("File yang dipilih tidak dapat dipulihkan:\n{err}")
-				} else {
-					format!("The selected file could not be restored:\n{err}")
-				};
+				let msg = crate::i18n::tr_fmt("The selected file could not be restored:\n{}", &[&err]);
 				MessageDialog::builder(&settings_dialog_restore, &msg, crate::i18n::tr("Invalid Settings File"))
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 					.build()
@@ -2878,13 +2858,7 @@ pub fn bind_input_handlers(
 				if control.is_except() && !already_except && !s.privacy_list_edits.contains_key(control.name) {
 					drop(s);
 					let label = crate::i18n::tr(control.label);
-					let msg = if crate::i18n::is_indonesian() {
-						format!(
-							"Pilih terlebih dahulu kontak yang dikecualikan dari {label}, dengan tombol di bawahnya."
-						)
-					} else {
-						format!("Choose the contacts excluded from {label} first, with the button under it.")
-					};
+					let msg = crate::i18n::tr_fmt("Choose the contacts excluded from {} first, with the button under it.", &[&label]);
 					MessageDialog::builder(&settings_dialog_ok, &msg, crate::i18n::tr("Settings"))
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 						.build()
@@ -4429,11 +4403,7 @@ pub fn bind_input_handlers(
 								crate::i18n::tr("Delete chat only"),
 								crate::i18n::tr("Delete chat and exit group"),
 							];
-							let prompt = if crate::i18n::is_indonesian() {
-								format!("Hapus chat dengan {chat_name}?")
-							} else {
-								format!("Delete chat with {chat_name}?")
-							};
+							let prompt = crate::i18n::tr_fmt("Delete chat with {}?", &[&chat_name]);
 							let dialog = SingleChoiceDialog::builder(
 								&parent_clone,
 								&prompt,
@@ -4472,15 +4442,7 @@ pub fn bind_input_handlers(
 							}
 						}
 					} else if id == clear_id {
-						let prompt = if crate::i18n::is_indonesian() {
-							format!(
-								"Hapus semua pesan di chat dengan {chat_name}? Chat ini akan tetap ada di daftar Anda."
-							)
-						} else {
-							format!(
-								"Delete all messages in the chat with {chat_name}? The chat itself will stay in your list."
-							)
-						};
+						let prompt = crate::i18n::tr_fmt("Delete all messages in the chat with {}? The chat itself will stay in your list.", &[&chat_name]);
 						let dialog =
 							MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Confirm Clear Chat"))
 								.with_style(
@@ -4493,11 +4455,7 @@ pub fn bind_input_handlers(
 							let _ = ui_tx_clone.send(UiCommand::ClearChat { jid: jid_clone.clone() });
 						}
 					} else if id == leave_group_id {
-						let prompt = if crate::i18n::is_indonesian() {
-							format!("Anda yakin ingin keluar dari {chat_name}?")
-						} else {
-							format!("Are you sure you want to leave {chat_name}?")
-						};
+						let prompt = crate::i18n::tr_fmt("Are you sure you want to leave {}?", &[&chat_name]);
 						let dialog = MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Leave Group"))
 							.with_style(
 								MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
@@ -5064,21 +5022,9 @@ pub fn bind_input_handlers(
 				let message_sender_id = 3101;
 				let call_sender_id = 3102;
 
-				let msg_label = if crate::i18n::is_indonesian() {
-					format!("&Kirim pesan ke {sender_name}")
-				} else {
-					format!("&Message {sender_name}")
-				};
-				let call_label = if crate::i18n::is_indonesian() {
-					format!("&Telepon {sender_name}")
-				} else {
-					format!("&Call {sender_name}")
-				};
-				let user_actions_label = if crate::i18n::is_indonesian() {
-					format!("Tindakan &pengguna untuk {sender_name}")
-				} else {
-					format!("&User actions for {sender_name}")
-				};
+				let msg_label = crate::i18n::tr_fmt("&Message {}", &[&sender_name]);
+				let call_label = crate::i18n::tr_fmt("&Call {}", &[&sender_name]);
+				let user_actions_label = crate::i18n::tr_fmt("&User actions for {}", &[&sender_name]);
 
 				let sender_menu = Menu::builder()
 					.append_item(
@@ -5168,17 +5114,9 @@ pub fn bind_input_handlers(
 						s.pending_reply_id = Some(msg.id.clone());
 						s.pending_reply_sender =
 							Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
-						s.pending_reply_preview = Some(if crate::i18n::is_indonesian() {
-							format!("Membalas {sender}: {preview}")
-						} else {
-							format!("Replying to {sender}: {preview}")
-						});
+						s.pending_reply_preview = Some(crate::i18n::tr_fmt("Replying to {}: {}", &[&sender, &preview]));
 
-						let status_msg = if crate::i18n::is_indonesian() {
-							format!("Membalas {sender}: {preview}. Ketik balasan Anda lalu tekan Enter.")
-						} else {
-							format!("Replying to {sender}: {preview}. Type your reply and press Enter.")
-						};
+						let status_msg = crate::i18n::tr_fmt("Replying to {}: {}. Type your reply and press Enter.", &[&sender, &preview]);
 						crate::platform::announce::announce(msgs_announcer_clone, &status_msg);
 						crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_ctx);
 						msg_input_field_clone.set_focus();
@@ -5995,17 +5933,9 @@ pub fn bind_input_handlers(
 						s.pending_reply_id = Some(msg.id.clone());
 						s.pending_reply_sender =
 							Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
-						s.pending_reply_preview = Some(if crate::i18n::is_indonesian() {
-							format!("Membalas {sender}: {preview}")
-						} else {
-							format!("Replying to {sender}: {preview}")
-						});
+						s.pending_reply_preview = Some(crate::i18n::tr_fmt("Replying to {}: {}", &[&sender, &preview]));
 
-						let status_msg = if crate::i18n::is_indonesian() {
-							format!("Membalas {sender}: {preview}. Ketik balasan Anda lalu tekan Enter.")
-						} else {
-							format!("Replying to {sender}: {preview}. Type your reply and press Enter.")
-						};
+						let status_msg = crate::i18n::tr_fmt("Replying to {}: {}. Type your reply and press Enter.", &[&sender, &preview]);
 						crate::platform::announce::announce(msgs_announcer, &status_msg);
 						crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_play);
 						msg_input_field.set_focus();
@@ -7096,15 +7026,7 @@ fn confirm_logout(parent: &impl WxWidget, state: &Rc<std::cell::RefCell<crate::A
 	};
 	let question = match name {
 		Some(name) => {
-			if crate::i18n::is_indonesian() {
-				format!(
-					"Keluarkan {name} dari WhatsApp di komputer ini? Anda harus memindai kode QR atau memasukkan nomor teleponnya untuk menggunakannya di whatSnap lagi."
-				)
-			} else {
-				format!(
-					"Log {name} out of WhatsApp on this computer? You'll need to scan a QR code or enter its phone number to use it in whatSnap again."
-				)
-			}
+			crate::i18n::tr_fmt("Log {} out of WhatsApp on this computer? You'll need to scan a QR code or enter its phone number to use it in whatSnap again.", &[&name])
 		}
 		None => {
 			crate::i18n::tr("Log out of WhatsApp on this computer? You'll need to scan a QR code or re-enter your phone number to use whatSnap again.").to_string()

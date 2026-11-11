@@ -157,11 +157,7 @@ pub fn ask_notifications(
 	messages: MessageAlerts,
 	calls: CallAlerts,
 ) -> Option<(MessageAlerts, CallAlerts)> {
-	let title = if crate::i18n::is_indonesian() {
-		format!("Setelan notifikasi untuk {account}")
-	} else {
-		format!("Notifications for {account}")
-	};
+	let title = crate::i18n::tr_fmt("Notifications for {}", &[&account]);
 	let dialog = Dialog::builder(parent, &title)
 		.with_size(440, 330)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)

@@ -695,16 +695,8 @@ impl ChatMessage {
 					i18n::tr("Contact")
 				};
 				if !formatted_time.is_empty() {
-					if i18n::is_indonesian() {
-						format!("{name}: menghapus pesan ini, diterima pukul {formatted_time}")
-					} else {
-						format!("{name}: deleted this message, received at {formatted_time}")
-					}
-				} else if i18n::is_indonesian() {
-					format!("{name}: menghapus pesan ini")
-				} else {
-					format!("{name}: deleted this message")
-				}
+					crate::i18n::tr_fmt("{}: deleted this message, received at {}", &[&name, &formatted_time])
+				} else { crate::i18n::tr_fmt("{}: deleted this message", &[&name]) }
 			};
 		}
 
@@ -723,25 +715,17 @@ impl ChatMessage {
 
 		let reply_suffix = match self.reply_parts() {
 			Some((q_sender, q_body)) if q_sender == i18n::tr("quoted message") => {
-				if i18n::is_indonesian() {
-					format!(", membalas pesan yang dikutip: \"{q_body}\"")
-				} else {
-					format!(", replied to quoted message: \"{q_body}\"")
-				}
+				crate::i18n::tr_fmt(", replied to quoted message: \"{}\"", &[&q_body])
 			}
 			Some((q_sender, q_body)) => {
-				if i18n::is_indonesian() {
-					format!(", membalas pesan yang dikutip dari {q_sender}: \"{q_body}\"")
-				} else {
-					format!(", replied to quoted message from {q_sender}: \"{q_body}\"")
-				}
+				crate::i18n::tr_fmt(", replied to quoted message from {}: \"{}\"", &[&q_sender, &q_body])
 			}
 			None => String::new(),
 		};
 
 		let reactions_suffix = self.reactions_text(&self.reactions);
 
-		let edit_suffix = if self.is_edited { if i18n::is_indonesian() { ", diedit" } else { ", edited" } } else { "" };
+		let edit_suffix = if self.is_edited { crate::i18n::tr(", edited") } else { "" };
 		let star_suffix = format!(
 			"{}{}{}",
 			if self.starred { i18n::tr(", starred") } else { "" },
@@ -781,15 +765,7 @@ impl ChatMessage {
 			};
 
 			if !formatted_time.is_empty() {
-				if i18n::is_indonesian() {
-					format!(
-						"{name}: {body}{reply_suffix}{sep} diterima pukul {formatted_time}{reactions_suffix}{edit_suffix}{star_suffix}"
-					)
-				} else {
-					format!(
-						"{name}: {body}{reply_suffix}{sep} received at {formatted_time}{reactions_suffix}{edit_suffix}{star_suffix}"
-					)
-				}
+				crate::i18n::tr_fmt("{}: {}{}{} received at {}{}{}{}", &[&name, &body, &reply_suffix, &sep, &formatted_time, &reactions_suffix, &edit_suffix, &star_suffix])
 			} else {
 				format!("{name}: {body}{reply_suffix}{reactions_suffix}{edit_suffix}{star_suffix}")
 			}
@@ -886,22 +862,10 @@ impl DisplayItem {
 					messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
 				let total = messages.len();
 				if photo_count > 0 && video_count == 0 {
-					if i18n::is_indonesian() {
-						format!("Album: {photo_count} foto")
-					} else {
-						format!("Album: {photo_count} photos")
-					}
+					crate::i18n::tr_fmt("Album: {} photos", &[&photo_count])
 				} else if video_count > 0 && photo_count == 0 {
-					if i18n::is_indonesian() {
-						format!("Album: {video_count} video")
-					} else {
-						format!("Album: {video_count} videos")
-					}
-				} else if i18n::is_indonesian() {
-					format!("Album: {total} media")
-				} else {
-					format!("Album: {total} media items")
-				}
+					crate::i18n::tr_fmt("Album: {} videos", &[&video_count])
+				} else { crate::i18n::tr_fmt("Album: {} media items", &[&total]) }
 			}
 		}
 	}
@@ -935,14 +899,10 @@ impl DisplayItem {
 				let total = messages.len();
 
 				let desc = if photo_count > 0 && video_count == 0 {
-					if i18n::is_indonesian() { format!("{photo_count} foto") } else { format!("{photo_count} photos") }
+					crate::i18n::tr_fmt("{} photos", &[&photo_count])
 				} else if video_count > 0 && photo_count == 0 {
-					if i18n::is_indonesian() { format!("{video_count} video") } else { format!("{video_count} videos") }
-				} else if i18n::is_indonesian() {
-					format!("{total} media")
-				} else {
-					format!("{total} media items")
-				};
+					crate::i18n::tr_fmt("{} videos", &[&video_count])
+				} else { crate::i18n::tr_fmt("{} media items", &[&total]) };
 
 				let all_reactions: Vec<ChatReaction> =
 					messages.iter().flat_map(|m| m.reactions.iter().cloned()).collect();
@@ -972,16 +932,8 @@ impl DisplayItem {
 						i18n::tr("Contact")
 					};
 					if !formatted_time.is_empty() {
-						if i18n::is_indonesian() {
-							format!("{name}: [Album: {desc}], diterima pukul {formatted_time}{reactions}")
-						} else {
-							format!("{name}: [Album: {desc}], received at {formatted_time}{reactions}")
-						}
-					} else if i18n::is_indonesian() {
-						format!("{name}: [Album: {desc}]{reactions}")
-					} else {
-						format!("{name}: [Album: {desc}]{reactions}")
-					}
+						crate::i18n::tr_fmt("{}: [Album: {}], received at {}{}", &[&name, &desc, &formatted_time, &reactions])
+					} else { crate::i18n::tr_fmt("{}: [Album: {}]{}", &[&name, &desc, &reactions]) }
 				}
 			}
 		}

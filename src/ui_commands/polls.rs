@@ -51,11 +51,7 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	}
 	if quiz && !selected.is_empty() {
 		let joined = selected.join(", ");
-		let msg = if crate::i18n::is_indonesian() {
-			format!("Anda sudah menjawab kuis ini: {joined}.")
-		} else {
-			format!("You've already answered this quiz: {joined}.")
-		};
+		let msg = crate::i18n::tr_fmt("You've already answered this quiz: {}.", &[&joined]);
 		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		return;
 	}

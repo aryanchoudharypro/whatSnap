@@ -39,15 +39,7 @@ pub(crate) fn group_action(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 				let name = s.contacts.get(&group).cloned().unwrap_or_else(|| crate::i18n::tr("this group").to_string());
 				(s.group_data_community.clone().unwrap_or(jid), group, name)
 			};
-			let question = if crate::i18n::is_indonesian() {
-				format!(
-					"Keluarkan {name} dari komunitas? Grup ini tetap ada sebagai grup mandiri, dan anggotanya keluar dari komunitas."
-				)
-			} else {
-				format!(
-					"Remove {name} from the community? It stays a group of its own, and its members leave the community."
-				)
-			};
+			let question = crate::i18n::tr_fmt("Remove {} from the community? It stays a group of its own, and its members leave the community.", &[&name]);
 			if confirm(dialog, &question, crate::i18n::tr("Remove Group"), crate::i18n::tr("Remove")) {
 				send(state, "unlink_community_group", serde_json::json!({ "community": community, "group": group }));
 			}
@@ -162,11 +154,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		}
 		"community_created" => {
 			let name = text(data, "name");
-			let msg = if crate::i18n::is_indonesian() {
-				format!("Komunitas {name} dibuat.")
-			} else {
-				format!("Community {name} created.")
-			};
+			let msg = crate::i18n::tr_fmt("Community {} created.", &[&name]);
 			announce(parts, &msg);
 		}
 		"community_deactivated" => {
@@ -203,11 +191,7 @@ fn answer_join_requests(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 			.and_then(whatsnap::LocalTime::from_unix)
 			.map(whatsnap::day_and_time)
 			.unwrap_or_default();
-		let entry = if crate::i18n::is_indonesian() {
-			format!("{}, meminta pada {}", text(r, "name"), when)
-		} else {
-			format!("{}, asked {}", text(r, "name"), when)
-		};
+		let entry = crate::i18n::tr_fmt("{}, asked {}", &[&text(r, "name"), &when]);
 		labels.push(entry);
 	}
 	let refs: Vec<&str> = labels.iter().map(String::as_str).collect();

@@ -429,11 +429,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									s.unread_divider_jid = Some(jid.to_string());
 									s.unread_divider_count = 1;
 									let divider = whatsnap::Msg::new(ChatMessage {
-										text: if crate::i18n::is_indonesian() {
-											"1 pesan belum dibaca".to_string()
-										} else {
-											"1 unread message".to_string()
-										},
+										text: crate::i18n::tr("1 unread message").to_string(),
 										is_unread_divider: true,
 										..Default::default()
 									});
@@ -569,11 +565,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									let toast_body = match (previews, sender_name.is_empty()) {
 										(false, true) => crate::i18n::tr("New message").to_string(),
 										(false, false) => {
-											if crate::i18n::is_indonesian() {
-												format!("Pesan dari {sender_name}")
-											} else {
-												format!("Message from {sender_name}")
-											}
+											crate::i18n::tr_fmt("Message from {}", &[&sender_name])
 										}
 										(true, true) => body.to_string(),
 										(true, false) => format!("{}: {}", sender_name, body),
@@ -784,11 +776,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if from_notification {
 				let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
 				drop(s);
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Tidak dapat menandai {name} sebagai sudah dibaca. Periksa koneksi Anda lalu coba lagi.")
-				} else {
-					format!("Couldn't mark {} as read. Check your connection and try again.", name)
-				};
+				let msg = crate::i18n::tr_fmt("Couldn't mark {} as read. Check your connection and try again.", &[&name]);
 				crate::ui::chat_ui::show_toast_notification(whatsnap::TRAY_APP_NAME, &msg);
 			}
 		}
@@ -1054,11 +1042,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if let Some(data) = val.get("data") {
 				let current = data.get("current").and_then(|c| c.as_i64()).unwrap_or(0);
 				let total = data.get("total").and_then(|t| t.as_i64()).unwrap_or(0);
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Status: Mengekspor chat... {current}/{total}")
-				} else {
-					format!("Status: Exporting chat... {}/{}", current, total)
-				};
+				let msg = crate::i18n::tr_fmt("Status: Exporting chat... {}/{}", &[&current, &total]);
 				parts.frame.set_status_text(&msg, 0);
 			}
 		}
@@ -1069,32 +1053,15 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				parts.frame.set_status_text(&conn_status, 0);
 				if data.get("text_only").and_then(|t| t.as_bool()).unwrap_or(false) {
 					let count = data.get("message_count").and_then(|m| m.as_i64()).unwrap_or(0);
-					let msg = if crate::i18n::is_indonesian() {
-						format!("Teks chat diekspor ke {path}. {count} pesan.")
-					} else {
-						format!("Chat text exported to {}. {} messages.", path, count)
-					};
+					let msg = crate::i18n::tr_fmt("Chat text exported to {}. {} messages.", &[&path, &count]);
 					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 					return true;
 				}
 				let media_exported = data.get("media_exported").and_then(|m| m.as_i64()).unwrap_or(0);
 				let media_skipped = data.get("media_skipped").and_then(|m| m.as_i64()).unwrap_or(0);
 				let msg = if media_skipped > 0 {
-					if crate::i18n::is_indonesian() {
-						format!(
-							"Chat diekspor ke {path}. {media_exported} file media disertakan, {media_skipped} tidak dapat diunduh dan dilewati."
-						)
-					} else {
-						format!(
-							"Chat exported to {}. {} media files included, {} could not be downloaded and were skipped.",
-							path, media_exported, media_skipped
-						)
-					}
-				} else if crate::i18n::is_indonesian() {
-					format!("Chat diekspor ke {path}. {media_exported} file media disertakan.")
-				} else {
-					format!("Chat exported to {}. {} media files included.", path, media_exported)
-				};
+					crate::i18n::tr_fmt("Chat exported to {}. {} media files included, {} could not be downloaded and were skipped.", &[&path, &media_exported, &media_skipped])
+				} else { crate::i18n::tr_fmt("Chat exported to {}. {} media files included.", &[&path, &media_exported]) };
 				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 			}
 		}
@@ -1244,17 +1211,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						s.contacts.get(sender_jid).cloned().unwrap_or_else(|| display_name_for_jid(sender_jid));
 					if !sender_name.is_empty() {
 						let announcement = if is_recording && s.settings.announce_recording {
-							Some(if crate::i18n::is_indonesian() {
-								format!("{sender_name} sedang merekam audio...")
-							} else {
-								format!("{sender_name} is recording audio...")
-							})
+							Some(crate::i18n::tr_fmt("{} is recording audio...", &[&sender_name]))
 						} else if is_typing && s.settings.announce_typing {
-							Some(if crate::i18n::is_indonesian() {
-								format!("{sender_name} sedang mengetik...")
-							} else {
-								format!("{sender_name} is typing...")
-							})
+							Some(crate::i18n::tr_fmt("{} is typing...", &[&sender_name]))
 						} else {
 							None
 						};
@@ -1320,11 +1279,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					if last_seen > 0 {
 						if let Some(local_dt) = whatsnap::LocalTime::from_unix(last_seen) {
 							let date_str = whatsnap::day_and_time(local_dt);
-							if crate::i18n::is_indonesian() {
-								format!("{name} (terakhir dilihat {date_str})")
-							} else {
-								format!("{} (last seen {})", name, date_str)
-							}
+							crate::i18n::tr_fmt("{} (last seen {})", &[&name, &date_str])
 						} else {
 							name.clone()
 						}
@@ -1367,22 +1322,14 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						if last_seen > 0 {
 							if let Some(local_dt) = whatsnap::LocalTime::from_unix(last_seen) {
 								let date_str = whatsnap::day_and_time(local_dt);
-								if crate::i18n::is_indonesian() {
-									format!("{name}, terakhir dilihat {date_str}")
-								} else {
-									format!("{}, last seen {}", name, date_str)
-								}
+								crate::i18n::tr_fmt("{}, last seen {}", &[&name, &date_str])
 							} else {
 								format!("{}, offline", name)
 							}
 						} else {
 							format!("{}, offline", name)
 						}
-					} else if crate::i18n::is_indonesian() {
-						format!("{name} sekarang online")
-					} else {
-						format!("{} is now online", name)
-					};
+					} else { crate::i18n::tr_fmt("{} is now online", &[&name]) };
 					if should_announce {
 						crate::platform::announce::announce(
 							parts.conversations_parts.messages_announcer,
@@ -1471,7 +1418,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"message_option_sent" => {
 			let label = val.pointer("/data/label").and_then(|l| l.as_str()).unwrap_or("");
 			let msg =
-				if crate::i18n::is_indonesian() { format!("Terkirim: {label}") } else { format!("Sent: {label}") };
+				crate::i18n::tr_fmt("Sent: {}", &[&label]);
 			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		}
 		"event_details" => {
@@ -1562,11 +1509,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							let updated_display = item.format_display(is_group);
 							parts.conversations_parts.messages_list.set_string(di as u32, &updated_display);
 							if is_final_edit && !not_an_edit && !relabelled {
-								let msg = if crate::i18n::is_indonesian() {
-									format!("Pesan diedit: {}", updated_display)
-								} else {
-									format!("Message edited: {}", updated_display)
-								};
+								let msg = crate::i18n::tr_fmt("Message edited: {}", &[&updated_display]);
 								crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 							}
 						}
@@ -1716,16 +1659,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					{
 						parts.conversations_parts.messages_list.set_string(di as u32, &item.format_display(is_group));
 						let announce_msg = if emoji.is_empty() {
-							if crate::i18n::is_indonesian() {
-								format!("Reaksi dihapus oleh {}", resolved_name)
-							} else {
-								format!("Reaction removed by {}", resolved_name)
-							}
-						} else if crate::i18n::is_indonesian() {
-							format!("{} bereaksi dengan {}", resolved_name, emoji)
-						} else {
-							format!("{} reacted with {}", resolved_name, emoji)
-						};
+							crate::i18n::tr_fmt("Reaction removed by {}", &[&resolved_name])
+						} else { crate::i18n::tr_fmt("{} reacted with {}", &[&resolved_name, &emoji]) };
 						crate::platform::announce::announce(
 							parts.conversations_parts.messages_announcer,
 							&announce_msg,
@@ -1777,16 +1712,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 									s.settings.notification_previews && !s.settings.chat_notify(chat_jid).hide_content;
 								let body = if previews {
 									let preview = whatsnap::friendly_preview_text(text);
-									if crate::i18n::is_indonesian() {
-										format!("Bereaksi {} ke \"{}\"", emoji, preview)
-									} else {
-										format!("Reacted {} to \"{}\"", emoji, preview)
-									}
-								} else if crate::i18n::is_indonesian() {
-									format!("Bereaksi {}", emoji)
-								} else {
-									format!("Reacted {}", emoji)
-								};
+									crate::i18n::tr_fmt("Reacted {} to \"{}\"", &[&emoji, &preview])
+								} else { crate::i18n::tr_fmt("Reacted {}", &[&emoji]) };
 								crate::ui::chat_ui::show_chat_notification(&s, chat_jid, &resolved_name, &body, false);
 							}
 						}
@@ -1820,11 +1747,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					crate::i18n::tr("Copied voice message to clipboard.").to_string()
 				} else if msg_ids.len() <= 1 {
 					crate::i18n::tr("Copied file to clipboard.").to_string()
-				} else if crate::i18n::is_indonesian() {
-					format!("Menyalin {} file ke papan klip.", msg_ids.len())
-				} else {
-					format!("Copied {} files to clipboard.", msg_ids.len())
-				}
+				} else { crate::i18n::tr_fmt("Copied {} files to clipboard.", &[&msg_ids.len()]) }
 			} else {
 				crate::i18n::tr("Copied file to clipboard.").to_string()
 			};
@@ -1870,11 +1793,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if media_type != "voice" && !auto && !is_copy_pending {
 					let announce_name =
 						if filename.is_empty() { crate::i18n::tr("File").to_string() } else { filename };
-					let msg = if crate::i18n::is_indonesian() {
-						format!("{announce_name} diunduh")
-					} else {
-						format!("{} downloaded", announce_name)
-					};
+					let msg = crate::i18n::tr_fmt("{} downloaded", &[&announce_name]);
 					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 				}
 			}
@@ -1893,11 +1812,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				parts.conversations_parts.conversation_panel.thaw();
 				for milestone in [25, 50, 75] {
 					if !auto && prev.unwrap_or(0) < milestone && percent >= milestone {
-						let msg = if crate::i18n::is_indonesian() {
-							format!("Mengunduh {percent}%")
-						} else {
-							format!("Download {}%", percent)
-						};
+						let msg = crate::i18n::tr_fmt("Download {}%", &[&percent]);
 						crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 						break;
 					}
@@ -1925,11 +1840,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							.and_then(|m| m.as_str())
 							.map(crate::i18n::translate_backend_message)
 							.unwrap_or_else(|| crate::i18n::tr("unknown error").to_string());
-						if crate::i18n::is_indonesian() {
-							format!("Unduhan gagal: {err}")
-						} else {
-							format!("Download failed: {}", err)
-						}
+						crate::i18n::tr_fmt("Download failed: {}", &[&err])
 					};
 					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &announcement);
 					parts.conversations_parts.play_voice_btn.set_label(crate::i18n::tr("Play voice message"));
@@ -1939,11 +1850,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"media_saved" => {
 			if let Some(data) = val.get("data") {
 				let path = data.get("path").and_then(|p| p.as_str()).unwrap_or("");
-				let msg = if crate::i18n::is_indonesian() {
-					format!("File disimpan ke {path}")
-				} else {
-					format!("File saved to {}", path)
-				};
+				let msg = crate::i18n::tr_fmt("File saved to {}", &[&path]);
 				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 			}
 		}

@@ -275,11 +275,7 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 		o.clear_btn.on_click(move |_| {
 			let Some(jid) = target(&st) else { return };
 			let name = st.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-			let msg = if crate::i18n::is_indonesian() {
-				format!("Hapus semua pesan di chat dengan {name}? Chat ini akan tetap ada di daftar Anda.")
-			} else {
-				format!("Delete all messages in the chat with {name}? The chat itself will stay in your list.")
-			};
+			let msg = crate::i18n::tr_fmt("Delete all messages in the chat with {}? The chat itself will stay in your list.", &[&name]);
 			let ask = MessageDialog::builder(&dialog, &msg, crate::i18n::tr("Confirm Clear Chat"))
 				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
 				.build();
@@ -305,11 +301,7 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 			let name = st.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 			let command = if jid.ends_with("@g.us") {
 				let choices = [crate::i18n::tr("Delete chat only"), crate::i18n::tr("Delete chat and exit group")];
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Hapus chat dengan {name}?")
-				} else {
-					format!("Delete chat with {name}?")
-				};
+				let msg = crate::i18n::tr_fmt("Delete chat with {}?", &[&name]);
 				let ask =
 					SingleChoiceDialog::builder(&dialog, &msg, crate::i18n::tr("Confirm Delete"), &choices).build();
 				if ask.show_modal() != ID_OK {
@@ -321,11 +313,7 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 					_ => return,
 				}
 			} else {
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Yakin ingin menghapus chat dengan {name}?")
-				} else {
-					format!("Are you sure you want to delete chat with {name}?")
-				};
+				let msg = crate::i18n::tr_fmt("Are you sure you want to delete chat with {}?", &[&name]);
 				let ask = MessageDialog::builder(&dialog, &msg, crate::i18n::tr("Confirm Delete"))
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
 					.build();

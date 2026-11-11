@@ -49,25 +49,13 @@ impl ScheduledEntry {
 		let when = crate::i18n::translate_backend_message(&self.when);
 		match (self.failed, self.past) {
 			(false, _) => {
-				if crate::i18n::is_indonesian() {
-					format!("Dijadwalkan untuk {when}: {}", self.content())
-				} else {
-					format!("Scheduled for {when}: {}", self.content())
-				}
+				crate::i18n::tr_fmt("Scheduled for {}: {}", &[&when, &self.content()])
 			}
 			(true, true) => {
-				if crate::i18n::is_indonesian() {
-					format!("Tidak terkirim, {when}: {}", self.content())
-				} else {
-					format!("Did not send, {when}: {}", self.content())
-				}
+				crate::i18n::tr_fmt("Did not send, {}: {}", &[&when, &self.content()])
 			}
 			(true, false) => {
-				if crate::i18n::is_indonesian() {
-					format!("Tidak dapat dijadwalkan, {when}: {}", self.content())
-				} else {
-					format!("Couldn't be scheduled, {when}: {}", self.content())
-				}
+				crate::i18n::tr_fmt("Couldn't be scheduled, {}: {}", &[&when, &self.content()])
 			}
 		}
 	}
@@ -94,11 +82,7 @@ impl ScheduledList {
 		self.list_label.set_label(&match entries.len() {
 			0 => crate::i18n::tr("Scheduled messages: none").to_string(),
 			n => {
-				if crate::i18n::is_indonesian() {
-					format!("Pesan terjadwal ({n}, {pending} dari {limit} menunggu)")
-				} else {
-					format!("Scheduled messages ({n}, {pending} of {limit} waiting)")
-				}
+				crate::i18n::tr_fmt("Scheduled messages ({}, {} of {} waiting)", &[&n, &pending, &limit])
 			}
 		});
 		let any = !entries.is_empty();
@@ -149,11 +133,7 @@ pub fn show_scheduled_messages(
 	ws_tx: std::sync::mpsc::Sender<String>,
 	store: impl Fn(Option<Rc<ScheduledList>>),
 ) {
-	let title = if crate::i18n::is_indonesian() {
-		format!("Pesan terjadwal untuk {chat_name}")
-	} else {
-		format!("Scheduled messages for {chat_name}")
-	};
+	let title = crate::i18n::tr_fmt("Scheduled messages for {}", &[&chat_name]);
 	let dialog = Dialog::builder(parent, &title)
 		.with_size(520, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)

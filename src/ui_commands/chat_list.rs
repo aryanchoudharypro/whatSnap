@@ -407,7 +407,7 @@ pub(crate) fn go_to_date(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 	let say_msg =
-		if crate::i18n::is_indonesian() { format!("Membuka tanggal {date}.") } else { format!("Going to {date}.") };
+		crate::i18n::tr_fmt("Going to {}.", &[&date]);
 	say(&say_msg);
 }
 
@@ -798,21 +798,7 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		phone = formatted;
 	}
 
-	let initial_text = if crate::i18n::is_indonesian() {
-		format!(
-			"Nama: {}\nTelepon: {}\n{}Nama WhatsApp: Memuat...\nInfo/Status: Memuat...",
-			local_name,
-			phone,
-			crate::ui_commands::blocking::info_line(&s, &jid)
-		)
-	} else {
-		format!(
-			"Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...",
-			local_name,
-			phone,
-			crate::ui_commands::blocking::info_line(&s, &jid)
-		)
-	};
+	let initial_text = crate::i18n::tr_fmt("Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...", &[&local_name, &phone, &crate::ui_commands::blocking::info_line(&s, &jid)]);
 	let dlg = &parts.conversation_data_dialog;
 	dlg.info_field.set_value(&initial_text);
 	let callable = crate::ui_commands::calls::can_call(&s, &jid);
@@ -973,11 +959,7 @@ pub(crate) fn choose_disappearing_timer(state: &Rc<RefCell<AppState>>, parts: &R
 	const CHOICES: [(&str, u32); 4] = [("Off", 0), ("24 hours", 86_400), ("7 days", 604_800), ("90 days", 7_776_000)];
 	let chat_name = state.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 	let labels: Vec<&str> = CHOICES.iter().map(|(label, _)| crate::i18n::tr(label)).collect();
-	let prompt = if crate::i18n::is_indonesian() {
-		format!("Buat pesan baru di {chat_name} menghilang setelah:")
-	} else {
-		format!("Make new messages in {chat_name} disappear after:")
-	};
+	let prompt = crate::i18n::tr_fmt("Make new messages in {} disappear after:", &[&chat_name]);
 	let dialog =
 		SingleChoiceDialog::builder(&parts.frame, &prompt, crate::i18n::tr("Disappearing Messages"), &labels).build();
 	if dialog.show_modal() != wxdragon::id::ID_OK {
@@ -1122,11 +1104,7 @@ pub(crate) fn set_archived_alert(
 		};
 		(name, spoken)
 	};
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Peringatan arsip untuk {chat_name} diatur ke {spoken}.")
-	} else {
-		format!("Archived alerts for {chat_name} set to {spoken}.")
-	};
+	let msg = crate::i18n::tr_fmt("Archived alerts for {} set to {}.", &[&chat_name, &spoken]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
@@ -1353,11 +1331,7 @@ pub(crate) fn delete_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Chat {chat_name} dihapus.")
-	} else {
-		format!("Chat {chat_name} deleted.")
-	};
+	let msg = crate::i18n::tr_fmt("Chat {} deleted.", &[&chat_name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
@@ -1370,11 +1344,7 @@ pub(crate) fn delete_chat_and_leave_group(state: &Rc<RefCell<AppState>>, parts: 
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Keluar dan menghapus chat {chat_name}.")
-	} else {
-		format!("Left and deleted chat {chat_name}.")
-	};
+	let msg = crate::i18n::tr_fmt("Left and deleted chat {}.", &[&chat_name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
@@ -1401,10 +1371,6 @@ pub(crate) fn clear_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Chat {chat_name} dibersihkan.")
-	} else {
-		format!("Chat {chat_name} cleared.")
-	};
+	let msg = crate::i18n::tr_fmt("Chat {} cleared.", &[&chat_name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }

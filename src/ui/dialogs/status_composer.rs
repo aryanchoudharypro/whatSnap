@@ -89,7 +89,7 @@ fn argb_colour(colour: u32) -> Colour {
 }
 
 fn char_count_text(len: usize) -> String {
-	if crate::i18n::is_indonesian() { format!("{len} / 700 karakter") } else { format!("{len} / 700 characters") }
+	crate::i18n::tr_fmt("{} / 700 characters", &[&len])
 }
 
 pub fn show_status_composer_choice(
@@ -269,11 +269,7 @@ pub fn show_text_status_composer(
 			combo.set_selection(next as u32);
 			let (name, _) = STATUS_PALETTE[next];
 			let label = crate::i18n::tr(name);
-			let msg = if crate::i18n::is_indonesian() {
-				format!("Warna latar: {label}")
-			} else {
-				format!("Background colour: {label}")
-			};
+			let msg = crate::i18n::tr_fmt("Background colour: {}", &[&label]);
 			crate::platform::announce::announce(ann, &msg);
 			preview_fn();
 		});
@@ -289,11 +285,7 @@ pub fn show_text_status_composer(
 				color_idx.set(idx);
 				let (name, _) = STATUS_PALETTE[idx];
 				let label = crate::i18n::tr(name);
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Warna latar: {label}")
-				} else {
-					format!("Background colour: {label}")
-				};
+				let msg = crate::i18n::tr_fmt("Background colour: {}", &[&label]);
 				crate::platform::announce::announce(ann, &msg);
 				preview_fn();
 			}
@@ -311,11 +303,7 @@ pub fn show_text_status_composer(
 			combo.set_selection(next as u32);
 			let (name, _, _) = STATUS_FONTS[next];
 			let label = crate::i18n::tr(name);
-			let msg = if crate::i18n::is_indonesian() {
-				format!("Gaya font: {label}")
-			} else {
-				format!("Font style: {label}")
-			};
+			let msg = crate::i18n::tr_fmt("Font style: {}", &[&label]);
 			crate::platform::announce::announce(ann, &msg);
 			preview_fn();
 		});
@@ -331,11 +319,7 @@ pub fn show_text_status_composer(
 				font_idx.set(idx);
 				let (name, _, _) = STATUS_FONTS[idx];
 				let label = crate::i18n::tr(name);
-				let msg = if crate::i18n::is_indonesian() {
-					format!("Gaya font: {label}")
-				} else {
-					format!("Font style: {label}")
-				};
+				let msg = crate::i18n::tr_fmt("Font style: {}", &[&label]);
 				crate::platform::announce::announce(ann, &msg);
 				preview_fn();
 			}
@@ -384,11 +368,7 @@ pub fn show_text_status_composer(
 					let cur = field_emoji.get_value();
 					field_emoji.set_value(&format!("{cur}{emoji}"));
 					let desc_tr = crate::i18n::tr(desc);
-					let msg = if crate::i18n::is_indonesian() {
-						format!("{desc_tr} disisipkan")
-					} else {
-						format!("Inserted {desc_tr}")
-					};
+					let msg = crate::i18n::tr_fmt("Inserted {}", &[&desc_tr]);
 					crate::platform::announce::announce(ann_emoji, &msg);
 					preview_fn();
 				}

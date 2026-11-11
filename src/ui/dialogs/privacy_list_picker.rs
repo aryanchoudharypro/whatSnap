@@ -39,11 +39,7 @@ pub fn pick_excluded_contacts(
 	excluded: &[Contact],
 ) -> Option<Vec<String>> {
 	let localized_setting = crate::i18n::tr_str(setting);
-	let title = if crate::i18n::is_indonesian() {
-		format!("{localized_setting}: Kontak Saya Kecuali...")
-	} else {
-		format!("{localized_setting}: My Contacts Except...")
-	};
+	let title = crate::i18n::tr_fmt("{}: My Contacts Except...", &[&localized_setting]);
 	pick_contacts(parent, &title, crate::i18n::tr("Checked contacts won't be able to see it"), contacts, excluded)
 }
 
@@ -172,11 +168,7 @@ pub fn pick_with(
 		let query = search_field.get_value().to_lowercase().trim().to_string();
 		let shown = fill(&query);
 		let count = state_search.borrow().checked.len();
-		let msg = if crate::i18n::is_indonesian() {
-			format!("{shown} ditampilkan. {}", counted(&search_words, count))
-		} else {
-			format!("{shown} shown. {}", counted(&search_words, count))
-		};
+		let msg = crate::i18n::tr_fmt("{} shown. {}", &[&shown, &counted(&search_words, count)]);
 		crate::platform::announce::announce(announcer, &msg);
 	});
 	let timer_for_typing = search_timer.clone();

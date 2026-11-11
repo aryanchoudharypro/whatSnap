@@ -208,11 +208,7 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		"data": { "jid": jid, "message_id": message_id, "index": i }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let msg = if crate::i18n::is_indonesian() {
-		format!("Mengirim {}...", options[i].label)
-	} else {
-		format!("Sending {}...", options[i].label)
-	};
+	let msg = crate::i18n::tr_fmt("Sending {}...", &[&options[i].label]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
@@ -404,11 +400,7 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	};
 	let title = match name {
 		Some(name) => {
-			if crate::i18n::is_indonesian() {
-				format!("Katalog {name}")
-			} else {
-				format!("{name}'s catalogue")
-			}
+			crate::i18n::tr_fmt("{}'s catalogue", &[&name])
 		}
 		None => crate::i18n::tr("Catalogue").to_string(),
 	};

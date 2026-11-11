@@ -281,11 +281,7 @@ pub(crate) fn group_member_action(
 			);
 		}
 		MemberAction::MakeAdmin => {
-			let question = if crate::i18n::is_indonesian() {
-				format!("Jadikan {} sebagai admin untuk grup \"{}\"?", member.name, subject)
-			} else {
-				format!("Make {} an admin for \"{}\" group?", member.name, subject)
-			};
+			let question = crate::i18n::tr_fmt("Make {} an admin for \"{}\" group?", &[&member.name, &subject]);
 			if ask(&question, crate::i18n::tr("Make Group Admin"), crate::i18n::tr("Make group admin")) {
 				change("promote");
 			}
@@ -311,11 +307,7 @@ pub(crate) fn group_member_action(
 			}
 		}
 		MemberAction::Remove => {
-			let question = if crate::i18n::is_indonesian() {
-				format!("Keluarkan {} dari grup \"{}\"?", member.name, subject)
-			} else {
-				format!("Remove {} from \"{}\" group?", member.name, subject)
-			};
+			let question = crate::i18n::tr_fmt("Remove {} from \"{}\" group?", &[&member.name, &subject]);
 			if ask(&question, crate::i18n::tr("Remove Member"), crate::i18n::tr("Remove")) {
 				change("remove");
 			}
@@ -403,11 +395,7 @@ pub(crate) fn leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let spoken = if crate::i18n::is_indonesian() {
-		format!("Keluar dari grup {chat_name}.")
-	} else {
-		format!("Left group {chat_name}.")
-	};
+	let spoken = crate::i18n::tr_fmt("Left group {}.", &[&chat_name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 

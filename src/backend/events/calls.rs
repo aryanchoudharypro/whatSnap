@@ -202,24 +202,10 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						s.call_peer_name.clone()
 					};
 					let message = if t == "call_peer_battery_low" {
-						if crate::i18n::is_indonesian() {
-							format!("Baterai {name} lemah.")
-						} else {
-							format!("{name}'s battery is low.")
-						}
+						crate::i18n::tr_fmt("{}'s battery is low.", &[&name])
 					} else if data.get("interrupted").and_then(|i| i.as_bool()).unwrap_or(true) {
-						if crate::i18n::is_indonesian() {
-							format!(
-								"{name} sedang menerima panggilan telepon lain dan tidak dapat mendengar Anda sekarang."
-							)
-						} else {
-							format!("{name} is on a phone call and can't hear you right now.")
-						}
-					} else if crate::i18n::is_indonesian() {
-						format!("{name} kembali ke panggilan.")
-					} else {
-						format!("{name} is back on the call.")
-					};
+						crate::i18n::tr_fmt("{} is on a phone call and can't hear you right now.", &[&name])
+					} else { crate::i18n::tr_fmt("{} is back on the call.", &[&name]) };
 					drop(s);
 					announce_call(parts, &message, Priority::High);
 				}
@@ -287,7 +273,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 				let message = if t == "call_participant_added" {
 					let name = data.get("name").and_then(|n| n.as_str()).unwrap_or_else(|| crate::i18n::tr("Contact"));
-					if crate::i18n::is_indonesian() { format!("Memanggil {name}.") } else { format!("Ringing {name}.") }
+					crate::i18n::tr_fmt("Ringing {}.", &[&name])
 				} else {
 					data.get("message")
 						.and_then(|m| m.as_str())
@@ -561,11 +547,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						let translated_summary = crate::i18n::translate_call_kind_text(summary);
 						announce_call(parts, &format!("{translated_summary}."), Priority::High);
 					} else if was_incoming_ringing && !was_frame_shown {
-						let msg = if crate::i18n::is_indonesian() {
-							format!("Panggilan tak terjawab dari {peer_name_saved}.")
-						} else {
-							format!("Missed call from {peer_name_saved}.")
-						};
+						let msg = crate::i18n::tr_fmt("Missed call from {}.", &[&peer_name_saved]);
 						announce_call(parts, &msg, Priority::High);
 					}
 
@@ -578,11 +560,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					if was_frame_shown && was_missed {
 						let end_text = if was_connected {
 							let clock = crate::calls::helpers::format_call_duration(total_duration.as_secs());
-							if crate::i18n::is_indonesian() {
-								format!("Panggilan berakhir dengan {peer_name_saved}\r\nDurasi: {clock}")
-							} else {
-								format!("Call ended with {peer_name_saved}\r\nDuration: {clock}")
-							}
+							crate::i18n::tr_fmt("Call ended with {}\r\nDuration: {}", &[&peer_name_saved, &clock])
 						} else {
 							crate::calls::helpers::call_ended_info_text(
 								&peer_name_saved,
@@ -592,11 +570,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						};
 						let title_name =
 							crate::calls::helpers::clean_call_title_peer_name(&peer_name_saved, s.call_peer_is_saved);
-						let end_title = if crate::i18n::is_indonesian() {
-							format!("Panggilan berakhir dengan {title_name}")
-						} else {
-							format!("Call ended with {title_name}")
-						};
+						let end_title = crate::i18n::tr_fmt("Call ended with {}", &[&title_name]);
 						parts.call_parts.frame.set_title(&end_title);
 						parts.call_parts.status_label.set_label(crate::i18n::tr("Call ended"));
 						parts.call_parts.caller_info.set_value(&end_text);
@@ -783,13 +757,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let (call_hotkeys, unavailable) = crate::calls::hotkeys::start(&s.ui_tx, &s.keymap);
 					s.call_hotkeys = call_hotkeys;
 					for chord in unavailable {
-						let msg = if crate::i18n::is_indonesian() {
-							format!(
-								"Tidak dapat mendaftarkan tombol panggilan {chord}; program lain sedang menggunakannya"
-							)
-						} else {
-							format!("Could not register the call key {chord}; another program is using it")
-						};
+						let msg = crate::i18n::tr_fmt("Could not register the call key {}; another program is using it", &[&chord]);
 						announce_call(parts, &msg, Priority::High);
 					}
 					if s.settings.notifications_enabled && s.settings.call_notifications {

@@ -41,11 +41,7 @@ impl BlockedContacts {
 		self.list_label.set_label(&match entries.len() {
 			0 => crate::i18n::tr("Blocked contacts: none").to_string(),
 			n => {
-				if crate::i18n::is_indonesian() {
-					format!("Kontak diblokir ({n})")
-				} else {
-					format!("Blocked contacts ({n})")
-				}
+				crate::i18n::tr_fmt("Blocked contacts ({})", &[&n])
 			}
 		});
 		if !entries.is_empty() {
@@ -135,11 +131,7 @@ pub fn show_blocked_contacts(
 		if let Some(entry) = blocked_unblock.selected() {
 			let payload = serde_json::json!({ "action": "unblock_contact", "data": { "jid": entry.jid } });
 			let _ = ws_tx.send(payload.to_string());
-			let msg = if crate::i18n::is_indonesian() {
-				format!("Membuka blokir {}...", entry.label())
-			} else {
-				format!("Unblocking {}...", entry.label())
-			};
+			let msg = crate::i18n::tr_fmt("Unblocking {}...", &[&entry.label()]);
 			blocked_unblock.announce(&msg);
 		}
 	});

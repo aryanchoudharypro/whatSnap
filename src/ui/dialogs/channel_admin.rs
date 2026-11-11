@@ -81,17 +81,9 @@ pub fn ask_channel_details(
 	picture_btn.on_click(move |_| {
 		if let Some(path) = pick_channel_picture(&dialog) {
 			let file = std::path::Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();
-			let btn_label = if crate::i18n::is_indonesian() {
-				format!("Foto: {file} (ubah...)")
-			} else {
-				format!("Picture: {file} (change...)")
-			};
+			let btn_label = crate::i18n::tr_fmt("Picture: {} (change...)", &[&file]);
 			picture_btn.set_label(&btn_label);
-			let chosen_msg = if crate::i18n::is_indonesian() {
-				format!("Foto dipilih: {file}.")
-			} else {
-				format!("Picture chosen: {file}.")
-			};
+			let chosen_msg = crate::i18n::tr_fmt("Picture chosen: {}.", &[&file]);
 			crate::platform::announce::announce(announcer, &chosen_msg);
 			*picture_choice.borrow_mut() = Some(path);
 		}
@@ -166,11 +158,7 @@ pub fn show_channel_followers(
 		rank(&a.role).cmp(&rank(&b.role)).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
 	});
 
-	let title = if crate::i18n::is_indonesian() {
-		format!("Pengikut {channel_name}")
-	} else {
-		format!("Followers of {channel_name}")
-	};
+	let title = crate::i18n::tr_fmt("Followers of {}", &[&channel_name]);
 	let dialog = Dialog::builder(parent, &title)
 		.with_size(460, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -261,15 +249,7 @@ pub fn show_channel_followers(
 	let selected_invite = selected.clone();
 	invite_btn.on_click(move |_| {
 		let Some((jid, name)) = selected_invite() else { return };
-		let prompt = if crate::i18n::is_indonesian() {
-			format!(
-				"Undang {name} menjadi admin saluran ini? Mereka akan menerima undangan di chat Anda dengan mereka, dan menjadi admin setelah menerimanya."
-			)
-		} else {
-			format!(
-				"Invite {name} to be an admin of this channel? They'll get the invite in your chat with them, and become an admin once they accept it."
-			)
-		};
+		let prompt = crate::i18n::tr_fmt("Invite {} to be an admin of this channel? They'll get the invite in your chat with them, and become an admin once they accept it.", &[&name]);
 		let confirm = MessageDialog::builder(&dialog, &prompt, crate::i18n::tr("Make admin"))
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build();
@@ -282,11 +262,7 @@ pub fn show_channel_followers(
 	let selected_remove = selected.clone();
 	remove_btn.on_click(move |_| {
 		let Some((jid, name)) = selected_remove() else { return };
-		let prompt = if crate::i18n::is_indonesian() {
-			format!("Hapus {name} sebagai admin saluran ini?")
-		} else {
-			format!("Remove {name} as an admin of this channel?")
-		};
+		let prompt = crate::i18n::tr_fmt("Remove {} as an admin of this channel?", &[&name]);
 		let confirm = MessageDialog::builder(&dialog, &prompt, crate::i18n::tr("Remove admin"))
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build();
@@ -298,15 +274,7 @@ pub fn show_channel_followers(
 	let chosen_owner = chosen.clone();
 	owner_btn.on_click(move |_| {
 		let Some((jid, name)) = selected() else { return };
-		let prompt = if crate::i18n::is_indonesian() {
-			format!(
-				"Jadikan {name} pemilik saluran ini? Anda akan menjadi admin, dan hanya pemilik baru yang dapat membatalkannya."
-			)
-		} else {
-			format!(
-				"Make {name} the owner of this channel? You'll become an admin, and only the new owner can undo this."
-			)
-		};
+		let prompt = crate::i18n::tr_fmt("Make {} the owner of this channel? You'll become an admin, and only the new owner can undo this.", &[&name]);
 		let confirm = MessageDialog::builder(&dialog, &prompt, crate::i18n::tr("Change owner"))
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
 			.build();
@@ -372,11 +340,7 @@ pub fn show_pending_admin_invites(
 	channel_name: &str,
 	invites: Vec<(String, String)>,
 ) -> Option<(String, String)> {
-	let title = if crate::i18n::is_indonesian() {
-		format!("Undangan admin tertunda untuk {channel_name}")
-	} else {
-		format!("Pending admin invites for {channel_name}")
-	};
+	let title = crate::i18n::tr_fmt("Pending admin invites for {}", &[&channel_name]);
 	let dialog = Dialog::builder(parent, &title)
 		.with_size(420, 420)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -430,11 +394,7 @@ pub fn show_pending_admin_invites(
 	let invites_cancel = invites.clone();
 	cancel_invite_btn.on_click(move |_| {
 		let Some(invite) = list.get_selection().and_then(|i| invites_cancel.get(i as usize)).cloned() else { return };
-		let prompt = if crate::i18n::is_indonesian() {
-			format!("Batalkan undangan untuk {} agar menjadi admin saluran ini?", invite.1)
-		} else {
-			format!("Cancel the invite for {} to be an admin of this channel?", invite.1)
-		};
+		let prompt = crate::i18n::tr_fmt("Cancel the invite for {} to be an admin of this channel?", &[&invite.1]);
 		let confirm = MessageDialog::builder(&dialog, &prompt, crate::i18n::tr("Cancel invite"))
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build();

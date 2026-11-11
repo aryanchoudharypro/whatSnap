@@ -454,18 +454,10 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		if count == 1 {
-			let msg = if crate::i18n::is_indonesian() {
-				format!("Mengunduh {}", to_start[0].1)
-			} else {
-				format!("Downloading {}", to_start[0].1)
-			};
+			let msg = crate::i18n::tr_fmt("Downloading {}", &[&to_start[0].1]);
 			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		} else {
-			let msg = if crate::i18n::is_indonesian() {
-				format!("Mengunduh album berisi {count} file...")
-			} else {
-				format!("Downloading album of {} files...", count)
-			};
+			let msg = crate::i18n::tr_fmt("Downloading album of {} files...", &[&count]);
 			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		}
 	}
@@ -504,11 +496,7 @@ fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str,
 	let title = if msg.from_me {
 		crate::i18n::tr("Video you sent").to_string()
 	} else if !msg.sender_name.is_empty() {
-		if crate::i18n::is_indonesian() {
-			format!("Video dari {}", msg.sender_name)
-		} else {
-			format!("Video from {}", msg.sender_name)
-		}
+		crate::i18n::tr_fmt("Video from {}", &[&msg.sender_name])
 	} else {
 		crate::i18n::tr("Video").to_string()
 	};
@@ -528,18 +516,10 @@ fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str,
 fn announce_saved(parts: &Rc<WindowParts>, result: std::io::Result<u64>, path: &str) {
 	let text = match result {
 		Ok(_) => {
-			if crate::i18n::is_indonesian() {
-				format!("File disimpan ke {path}")
-			} else {
-				format!("File saved to {path}")
-			}
+			crate::i18n::tr_fmt("File saved to {}", &[&path])
 		}
 		Err(err) => {
-			if crate::i18n::is_indonesian() {
-				format!("Tidak dapat menyimpan file: {err}")
-			} else {
-				format!("Couldn't save the file: {err}")
-			}
+			crate::i18n::tr_fmt("Couldn't save the file: {}", &[&err])
 		}
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
@@ -648,11 +628,7 @@ pub(crate) fn download_media_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			"data": { "jid": jid, "message_id": message_id }
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
-		let msg = if crate::i18n::is_indonesian() {
-			format!("Mengunduh {filename}")
-		} else {
-			format!("Downloading {filename}")
-		};
+		let msg = crate::i18n::tr_fmt("Downloading {}", &[&filename]);
 		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 	}
 }

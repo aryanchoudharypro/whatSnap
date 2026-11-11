@@ -709,11 +709,7 @@ fn reaction_note(mine: &str) -> String {
 		"" => String::new(),
 		STATUS_LIKE => crate::i18n::tr(" You liked this.").to_string(),
 		emoji => {
-			if crate::i18n::is_indonesian() {
-				format!(" Anda bereaksi {emoji}.")
-			} else {
-				format!(" You reacted {emoji}.")
-			}
+			crate::i18n::tr_fmt(" You reacted {}.", &[&emoji])
 		}
 	}
 }
@@ -785,11 +781,7 @@ impl Viewer {
 		let (position, count) = self.position_in_group(&entry);
 		let time = whatsnap::LocalTime::from_unix(entry.timestamp).map(whatsnap::time_or_day).unwrap_or_default();
 		let who = if entry.from_me { crate::i18n::tr("My status").to_string() } else { entry.poster_name.clone() };
-		let header = if crate::i18n::is_indonesian() {
-			format!("{who}, {position} dari {count}, {time}")
-		} else {
-			format!("{who}, {position} of {count}, {time}")
-		};
+		let header = crate::i18n::tr_fmt("{}, {} of {}, {}", &[&who, &position, &count, &time]);
 		self.header.set_label(&header);
 		self.dialog.set_label(&format!("Status: {who}"));
 
@@ -1084,11 +1076,7 @@ impl Viewer {
 		);
 		self.reply_field.set_value("");
 		self.next_btn.set_focus();
-		let spoken = if crate::i18n::is_indonesian() {
-			format!("Balasan dikirim ke {}.", entry.poster_name)
-		} else {
-			format!("Reply sent to {}.", entry.poster_name)
-		};
+		let spoken = crate::i18n::tr_fmt("Reply sent to {}.", &[&entry.poster_name]);
 		crate::platform::announce::announce(self.announcer, &spoken);
 	}
 
@@ -1111,7 +1099,7 @@ impl Viewer {
 			crate::platform::announce::announce(self.announcer, crate::i18n::tr("Reaction removed."));
 		} else {
 			let msg =
-				if crate::i18n::is_indonesian() { format!("Bereaksi {emoji}.") } else { format!("Reacted {emoji}.") };
+				crate::i18n::tr_fmt("Reacted {}.", &[&emoji]);
 			crate::platform::announce::announce(self.announcer, &msg);
 		}
 	}
@@ -1128,11 +1116,7 @@ impl Viewer {
 			_ if entry.text.is_empty() => format!("{}.", kind(&entry)),
 			_ => format!("{}. {}", kind(&entry), entry.text),
 		};
-		let mut msg = if crate::i18n::is_indonesian() {
-			format!("{who}, status {position} dari {count}, dikirim {time}. {body}")
-		} else {
-			format!("{who}, status {position} of {count}, posted {time}. {body}")
-		};
+		let mut msg = crate::i18n::tr_fmt("{}, status {} of {}, posted {}. {}", &[&who, &position, &count, &time, &body]);
 		msg.push_str(&reaction_note(&entry.my_reaction));
 		crate::platform::announce::announce(self.announcer, &msg);
 	}
@@ -1175,12 +1159,8 @@ impl Viewer {
 	fn show_mute(&self, entry: &Entry) {
 		let first = entry.poster_name.split_whitespace().next().unwrap_or(&entry.poster_name).to_string();
 		let label = if entry.muted {
-			if crate::i18n::is_indonesian() { format!("&Bunyikan {first}") } else { format!("Un&mute {first}") }
-		} else if crate::i18n::is_indonesian() {
-			format!("&Bisukan {first}")
-		} else {
-			format!("&Mute {first}")
-		};
+			crate::i18n::tr_fmt("Un&mute {}", &[&first])
+		} else { crate::i18n::tr_fmt("&Mute {}", &[&first]) };
 		self.mute_btn.set_label(&label);
 	}
 
@@ -1379,11 +1359,7 @@ pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 					}
 				} else if emoji.is_empty() {
 					crate::i18n::tr("Reaction removed.").to_string()
-				} else if crate::i18n::is_indonesian() {
-					format!("Anda bereaksi {emoji}.")
-				} else {
-					format!("You reacted {emoji}.")
-				};
+				} else { crate::i18n::tr_fmt("You reacted {}.", &[&emoji]) };
 				crate::platform::announce::announce(viewer.announcer, &spoken);
 			}
 		}

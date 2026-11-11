@@ -65,11 +65,7 @@ fn show_picker(
 			.iter()
 			.map(|p| std::path::Path::new(p).file_name().unwrap_or_default().to_string_lossy().to_string())
 			.collect();
-		let sending_txt = if crate::i18n::is_indonesian() {
-			format!("Mengirim: {}", names.join(", "))
-		} else {
-			format!("Sending: {}", names.join(", "))
-		};
+		let sending_txt = crate::i18n::tr_fmt("Sending: {}", &[&names.join(", ")]);
 		let files_text = StaticText::builder(&panel).with_label(&sending_txt).build();
 		files_text.wrap(400);
 		sizer.add(&files_text, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
@@ -81,11 +77,7 @@ fn show_picker(
 	let search_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
 	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
-	let list_lbl = if crate::i18n::is_indonesian() {
-		format!("Kirim ke (maksimal {MAX_RECIPIENTS})")
-	} else {
-		format!("Send to (up to {MAX_RECIPIENTS})")
-	};
+	let list_lbl = crate::i18n::tr_fmt("Send to (up to {})", &[&MAX_RECIPIENTS]);
 	let list_label = StaticText::builder(&panel).with_label(&list_lbl).build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
@@ -174,11 +166,7 @@ fn show_picker(
 			list.set_selection(0, true);
 		}
 		s.shown = shown.into_iter().map(|t| t.jid).collect();
-		let shown_msg = if crate::i18n::is_indonesian() {
-			format!("{} ditampilkan. {}", s.shown.len(), selected_summary(s.checked.len()))
-		} else {
-			format!("{} shown. {}", s.shown.len(), selected_summary(s.checked.len()))
-		};
+		let shown_msg = crate::i18n::tr_fmt("{} shown. {}", &[&s.shown.len(), &selected_summary(s.checked.len())]);
 		crate::platform::announce::announce(announcer_search, &shown_msg);
 	});
 	let timer_for_typing = search_timer.clone();
@@ -197,30 +185,18 @@ fn show_picker(
 		if list.is_checked(idx) {
 			if s.checked.len() >= MAX_RECIPIENTS {
 				list.check(idx, false);
-				let limit_msg = if crate::i18n::is_indonesian() {
-					format!("Anda hanya dapat mengirim ke {MAX_RECIPIENTS} chat sekaligus. {label} tidak dipilih.")
-				} else {
-					format!("You can only send to {MAX_RECIPIENTS} chats at once. {label} not selected.")
-				};
+				let limit_msg = crate::i18n::tr_fmt("You can only send to {} chats at once. {} not selected.", &[&MAX_RECIPIENTS, &label]);
 				crate::platform::announce::announce(announcer_toggle, &limit_msg);
 				return;
 			}
 			if !s.checked.contains(&jid) {
 				s.checked.push(jid);
 			}
-			let sel_msg = if crate::i18n::is_indonesian() {
-				format!("{label}: dipilih. {}", selected_summary(s.checked.len()))
-			} else {
-				format!("{label}: selected. {}", selected_summary(s.checked.len()))
-			};
+			let sel_msg = crate::i18n::tr_fmt("{}: selected. {}", &[&label, &selected_summary(s.checked.len())]);
 			crate::platform::announce::announce(announcer_toggle, &sel_msg);
 		} else {
 			s.checked.retain(|j| *j != jid);
-			let unsel_msg = if crate::i18n::is_indonesian() {
-				format!("{label}: tidak dipilih. {}", selected_summary(s.checked.len()))
-			} else {
-				format!("{label}: not selected. {}", selected_summary(s.checked.len()))
-			};
+			let unsel_msg = crate::i18n::tr_fmt("{}: not selected. {}", &[&label, &selected_summary(s.checked.len())]);
 			crate::platform::announce::announce(announcer_toggle, &unsel_msg);
 		}
 	});

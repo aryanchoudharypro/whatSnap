@@ -140,11 +140,7 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect()
 			};
 			let names_joined = names.join(", ");
-			let spoken = if crate::i18n::is_indonesian() {
-				format!("Pesan diteruskan ke {names_joined}.")
-			} else {
-				format!("Message forwarded to {names_joined}.")
-			};
+			let spoken = crate::i18n::tr_fmt("Message forwarded to {}.", &[&names_joined]);
 			crate::platform::announce::announce(parts_menu.conversations_parts.messages_announcer, &spoken);
 		}
 		UNSTAR => unstar_message_at(&state_menu, &parts_menu, idx),
@@ -153,11 +149,7 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			if count == 0 {
 				return;
 			}
-			let question = if crate::i18n::is_indonesian() {
-				format!("Yakin ingin menghapus bintang dari semua {count} pesan berbintang?")
-			} else {
-				format!("Are you sure you want to unstar all {count} starred messages?")
-			};
+			let question = crate::i18n::tr_fmt("Are you sure you want to unstar all {} starred messages?", &[&count]);
 			let confirm = MessageDialog::builder(&parts_menu.frame, &question, crate::i18n::tr("Unstar All Messages"))
 				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 				.build();

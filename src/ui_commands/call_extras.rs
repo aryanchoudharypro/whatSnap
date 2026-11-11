@@ -56,11 +56,7 @@ fn people_rows(s: &AppState) -> Vec<PersonRow> {
 		.map(|p| PersonRow {
 			jid: p.jid.clone(),
 			name: p.name.clone(),
-			label: if crate::i18n::is_indonesian() {
-				format!("{}, ingin bergabung", p.name)
-			} else {
-				format!("{}, wants to join", p.name)
-			},
+			label: crate::i18n::tr_fmt("{}, wants to join", &[&p.name]),
 			waiting: true,
 			connected: false,
 		})
@@ -189,11 +185,7 @@ fn muted_by(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde
 	if name.is_empty() {
 		announce_call(parts, crate::i18n::tr("Someone in the call muted you."), Priority::High);
 	} else {
-		let msg = if crate::i18n::is_indonesian() {
-			format!("{name} membisukan Anda.")
-		} else {
-			format!("{name} muted you.")
-		};
+		let msg = crate::i18n::tr_fmt("{} muted you.", &[&name]);
 		announce_call(parts, &msg, Priority::High);
 	}
 }
@@ -346,11 +338,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"call_reaction" => {
 			let name = text(data, "name");
 			let emoji = text(data, "emoji");
-			let msg = if crate::i18n::is_indonesian() {
-				format!("{name} memberi reaksi {emoji}.")
-			} else {
-				format!("{name} reacted {emoji}.")
-			};
+			let msg = crate::i18n::tr_fmt("{} reacted {}.", &[&name, &emoji]);
 			announce_call(parts, &msg, Priority::High);
 		}
 		"call_waiting_room" => waiting_room(state, parts, data),
