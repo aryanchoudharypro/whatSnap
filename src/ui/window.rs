@@ -6683,6 +6683,7 @@ fn choose_excluded_contacts(
 							jid: jid.clone(),
 							name: String::new(),
 							phone: String::new(),
+							saved: false,
 						})
 				})
 				.collect())

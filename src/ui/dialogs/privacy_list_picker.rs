@@ -14,7 +14,7 @@ struct PickerState {
 }
 
 fn picker_rows(contacts: &[Contact], excluded: &[Contact]) -> (Vec<(String, String)>, HashSet<String>) {
-	let mut rows: Vec<(String, String)> = Vec::new();
+	let mut rows: Vec<(String, String)> = contacts.iter().map(|c| (c.jid.clone(), contact_picker_label(c))).collect();
 	let mut checked = HashSet::new();
 	for person in excluded {
 		let found = contacts
@@ -31,7 +31,6 @@ fn picker_rows(contacts: &[Contact], excluded: &[Contact]) -> (Vec<(String, Stri
 			}
 		}
 	}
-	rows.extend(contacts.iter().map(|c| (c.jid.clone(), contact_picker_label(c))));
 	(rows, checked)
 }
 
@@ -242,7 +241,7 @@ mod tests {
 	use super::*;
 
 	fn contact(jid: &str, name: &str, phone: &str) -> Contact {
-		Contact { jid: jid.to_string(), name: name.to_string(), phone: phone.to_string() }
+		Contact { jid: jid.to_string(), name: name.to_string(), phone: phone.to_string(), saved: true }
 	}
 
 	#[test]
@@ -259,7 +258,7 @@ mod tests {
 		];
 		let (rows, checked) = picker_rows(&contacts, &excluded);
 		assert_eq!(rows.len(), 4);
-		assert_eq!(rows[0].0, "9@lid");
+		assert_eq!(rows[3].0, "9@lid");
 		let want: HashSet<String> = ["911@s.whatsapp.net", "5@lid", "9@lid"].iter().map(|s| s.to_string()).collect();
 		assert_eq!(checked, want);
 	}

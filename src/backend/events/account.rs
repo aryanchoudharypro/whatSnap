@@ -95,6 +95,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 										jid,
 										name: field("name"),
 										phone: field("phone"),
+										saved: true,
 									})
 								})
 								.collect()

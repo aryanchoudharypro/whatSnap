@@ -422,7 +422,7 @@ fn choose_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: 
 		.map(|people| {
 			people
 				.iter()
-				.map(|p| Contact { jid: text(p, "jid"), name: text(p, "name"), phone: String::new() })
+				.map(|p| Contact { jid: text(p, "jid"), name: text(p, "name"), phone: String::new(), saved: false })
 				.collect()
 		})
 		.unwrap_or_default();
@@ -441,7 +441,7 @@ fn choose_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: 
 		if contacts.is_empty() {
 			for (jid, name) in &state.borrow().contacts {
 				if !jid.ends_with("@g.us") && !jid.ends_with("@broadcast") && !jid.ends_with("@newsletter") {
-					contacts.push(Contact { jid: jid.clone(), name: name.clone(), phone: String::new() });
+					contacts.push(Contact { jid: jid.clone(), name: name.clone(), phone: String::new(), saved: false });
 				}
 			}
 			contacts.sort_by(|a, b| a.name.cmp(&b.name));

@@ -38,7 +38,7 @@ func (acc *Account) handleGetContacts(conn net.Conn) {
 					continue
 				}
 				contacts = append(contacts, map[string]interface{}{
-					"jid": jid, "name": name, "phone": phone,
+					"jid": jid, "name": name, "phone": phone, "saved": saved != nil,
 					"isBusiness": isBusiness == 1, "about": about,
 					"avatarPath": avatarPath,
 				})
@@ -52,7 +52,8 @@ func (acc *Account) handleGetContacts(conn net.Conn) {
 // phone synced with a name (ContactAction), under their phone number JID.
 // WA Web's contact lists (new chat, new call, add to group) show only these
 // (isAddressBookContact); people only known by their push name, or whom the
-// phone has since removed, stay out. Nil when the store isn't ready.
+// phone has since removed, stay out. Nil when the store has no names yet;
+// then everyone is listed, marked unsaved.
 func (acc *Account) savedContactJIDs() map[string]bool {
 	if acc.wa() == nil || acc.wa().Store == nil || acc.wa().Store.Contacts == nil {
 		return nil

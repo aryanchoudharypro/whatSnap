@@ -26,6 +26,14 @@ pub(crate) fn format_phone_digits(raw_phone: &str) -> String {
 	format!("+{}", raw_phone)
 }
 
+/// WA Web lists saved contacts first, named before unnamed, each by name
+/// ignoring case; anything not in the address book follows.
+pub(crate) fn contact_sort_key(contact: &Contact) -> (bool, bool, String) {
+	let name = contact.name.trim();
+	let key = if name.is_empty() { contact.phone.as_str() } else { name };
+	(!contact.saved, name.is_empty(), key.to_lowercase())
+}
+
 pub(crate) fn contact_picker_label(contact: &Contact) -> String {
 	if contact.jid == crate::types::WHATSAPP_SERVICE_JID && contact.name.trim().is_empty() {
 		return "WhatsApp".to_string();
@@ -299,6 +307,7 @@ mod tests {
 			jid: crate::types::WHATSAPP_SERVICE_JID.to_string(),
 			name: String::new(),
 			phone: "0".to_string(),
+			saved: false,
 		};
 		assert_eq!(contact_picker_label(&unnamed), "WhatsApp");
 	}

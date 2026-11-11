@@ -443,6 +443,7 @@ pub struct Contact {
 	pub(crate) jid: String,
 	pub(crate) name: String,
 	pub(crate) phone: String,
+	pub(crate) saved: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

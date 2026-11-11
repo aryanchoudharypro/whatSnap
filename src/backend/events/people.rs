@@ -42,14 +42,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						}
 						let name = row.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
 						let phone = row.get("phone").and_then(|p| p.as_str()).unwrap_or("").to_string();
-						Some(Contact { jid, name, phone })
+						let saved = row.get("saved").and_then(|v| v.as_bool()).unwrap_or(true);
+						Some(Contact { jid, name, phone, saved })
 					})
 					.collect();
-				contacts.sort_by(|a, b| {
-					let ka = if a.name.is_empty() { &a.phone } else { &a.name };
-					let kb = if b.name.is_empty() { &b.phone } else { &b.name };
-					ka.to_lowercase().cmp(&kb.to_lowercase())
-				});
+				contacts.sort_by_cached_key(crate::ui::contact_picker::contact_sort_key);
 				let mut s = state.borrow_mut();
 				s.all_contacts = contacts;
 				// A search under way lists matching contacts too.
