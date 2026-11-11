@@ -39,7 +39,7 @@ fn announce(parts: &WindowParts, text: &str) {
 }
 
 fn plural(count: usize, one: &str, many: &str) -> String {
-	if count == 1 { format!("1 {one}") } else { format!("{count} {many}") }
+	if count == 1 { format!("1 {}", crate::i18n::tr_str(one)) } else { format!("{count} {}", crate::i18n::tr_str(many)) }
 }
 
 /// The selected messages, oldest first. An album counts as each of its
@@ -269,11 +269,7 @@ pub(crate) fn copy_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let text = msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n");
 	finish(state, parts);
 	if crate::platform::clipboard::copy_text(&text) {
-		let spoken = if crate::i18n::is_indonesian() {
-			format!("{} pesan disalin ke papan klip.", msgs.len())
-		} else {
-			format!("Copied {} to clipboard.", plural(msgs.len(), "message", "messages"))
-		};
+		let spoken = crate::i18n::tr_fmt("Copied {} to clipboard.", &[&plural(msgs.len(), "message", "messages")]);
 		announce(parts, &spoken);
 	} else {
 		announce(parts, crate::i18n::tr("Couldn't copy to clipboard."));
@@ -309,15 +305,9 @@ pub(crate) fn star_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		}
 	}
 	finish(state, parts);
-	let spoken = if crate::i18n::is_indonesian() {
-		if star {
-			format!("{} pesan dibintangi.", msgs.len())
-		} else {
-			format!("Bintang {} pesan dihapus.", msgs.len())
-		}
-	} else {
+	let spoken = {
 		let what = plural(msgs.len(), "message", "messages");
-		if star { format!("{what} starred.") } else { format!("{what} unstarred.") }
+		if star { crate::i18n::tr_fmt("{} starred.", &[&what]) } else { crate::i18n::tr_fmt("{} unstarred.", &[&what]) }
 	};
 	announce(parts, &spoken);
 }
@@ -345,15 +335,9 @@ pub(crate) fn keep_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		}
 	}
 	finish(state, parts);
-	let spoken = if crate::i18n::is_indonesian() {
-		if keep {
-			format!("{} pesan disimpan.", msgs.len())
-		} else {
-			format!("Penyimpanan {} pesan dibatalkan.", msgs.len())
-		}
-	} else {
+	let spoken = {
 		let what = plural(msgs.len(), "message", "messages");
-		if keep { format!("{what} kept.") } else { format!("{what} unkept.") }
+		if keep { crate::i18n::tr_fmt("{} kept.", &[&what]) } else { crate::i18n::tr_fmt("{} unkept.", &[&what]) }
 	};
 	announce(parts, &spoken);
 }
@@ -468,11 +452,7 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 		finish(state, parts);
 	}
 	if msgs.len() > 1 {
-		let spoken = if crate::i18n::is_indonesian() {
-			format!("{} pesan dihapus.", msgs.len())
-		} else {
-			format!("{} deleted.", plural(msgs.len(), "message", "messages"))
-		};
+		let spoken = crate::i18n::tr_fmt("{} deleted.", &[&plural(msgs.len(), "message", "messages")]);
 		announce(parts, &spoken);
 	}
 }
@@ -516,11 +496,7 @@ pub(crate) fn forward_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect()
 	};
 	let names_joined = names.join(", ");
-	let spoken = if crate::i18n::is_indonesian() {
-		format!("{} pesan diteruskan ke {names_joined}.", ids.len())
-	} else {
-		format!("{} forwarded to {names_joined}.", plural(ids.len(), "message", "messages"))
-	};
+	let spoken = crate::i18n::tr_fmt("{} forwarded to {}.", &[&plural(ids.len(), "message", "messages"), &names_joined]);
 	announce(parts, &spoken);
 }
 
@@ -570,24 +546,12 @@ pub(crate) fn save_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 			fetching += 1;
 		}
 	}
-	let mut text = if crate::i18n::is_indonesian() {
-		format!("{copied} file disimpan ke {}.", dir.display())
-	} else {
-		format!("Saved {} to {}.", plural(copied, "file", "files"), dir.display())
-	};
+	let mut text = crate::i18n::tr_fmt("Saved {} to {}.", &[&plural(copied, "file", "files"), &dir.display()]);
 	if fetching > 0 {
-		if crate::i18n::is_indonesian() {
-			text.push_str(&format!(" Mengunduh {fetching} lainnya."));
-		} else {
-			text.push_str(&format!(" Downloading {fetching} more."));
-		}
+		text.push_str(&crate::i18n::tr_fmt(" Downloading {} more.", &[&fetching]));
 	}
 	if failed > 0 {
-		if crate::i18n::is_indonesian() {
-			text.push_str(&format!(" {failed} file tidak dapat disimpan."));
-		} else {
-			text.push_str(&format!(" {} couldn't be saved.", plural(failed, "file", "files")));
-		}
+		text.push_str(&crate::i18n::tr_fmt(" {} couldn't be saved.", &[&plural(failed, "file", "files")]));
 	}
 	announce(parts, &text);
 }

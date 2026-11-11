@@ -293,11 +293,7 @@ pub(crate) fn conversation_selection_changed(idx: usize, state: &Rc<RefCell<AppS
 					whatsnap::phone::format_international(raw_phone).unwrap_or_else(|| format!("+{raw_phone}"))
 				});
 				drop(s);
-				let (call_lbl, video_lbl) = if crate::i18n::is_indonesian() {
-					(format!("Telepon {peer_name}"), format!("Panggilan video {peer_name}"))
-				} else {
-					(format!("Call {peer_name}"), format!("Video call {peer_name}"))
-				};
+				let (call_lbl, video_lbl) = (crate::i18n::tr_fmt("Call {}", &[&peer_name]), crate::i18n::tr_fmt("Video call {}", &[&peer_name]));
 				parts.conversations_parts.calls_call_btn.set_label(&call_lbl);
 				parts.conversations_parts.calls_video_btn.set_label(&video_lbl);
 				parts.conversations_parts.calls_btn_panel.layout();
@@ -977,16 +973,10 @@ pub(crate) fn choose_disappearing_timer(state: &Rc<RefCell<AppState>>, parts: &R
 		"data": { "jid": jid, "seconds": seconds }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let spoken = if crate::i18n::is_indonesian() {
-		if seconds == 0 {
-			format!("Pesan sementara dimatikan untuk {chat_name}.")
-		} else {
-			format!("Pesan sementara diatur ke {localized_label} untuk {chat_name}.")
-		}
-	} else if seconds == 0 {
-		format!("Disappearing messages turned off for {chat_name}.")
+	let spoken = if seconds == 0 {
+		crate::i18n::tr_fmt("Disappearing messages turned off for {}.", &[&chat_name])
 	} else {
-		format!("Disappearing messages set to {localized_label} for {chat_name}.")
+		crate::i18n::tr_fmt("Disappearing messages set to {} for {}.", &[&localized_label, &chat_name])
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
@@ -1015,12 +1005,7 @@ pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let msg = if crate::i18n::is_indonesian() {
-		if lock { format!("Chat {chat_name} dikunci.") } else { format!("Kunci chat {chat_name} dibuka.") }
-	} else {
-		let action_str = if lock { "Locked" } else { "Unlocked" };
-		format!("{action_str} chat {chat_name}.")
-	};
+	let msg = crate::i18n::tr_fmt(if lock { "Locked chat {}." } else { "Unlocked chat {}." }, &[&chat_name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
@@ -1047,11 +1032,7 @@ pub(crate) fn toggle_pin_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let msg = if crate::i18n::is_indonesian() {
-		if pin { format!("Chat {chat_name} disematkan.") } else { format!("Sematan chat {chat_name} dilepas.") }
-	} else {
-		format!("Chat {chat_name} {}.", if pin { "pinned" } else { "unpinned" })
-	};
+	let msg = crate::i18n::tr_fmt(if pin { "Chat {} pinned." } else { "Chat {} unpinned." }, &[&chat_name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
@@ -1077,11 +1058,7 @@ pub(crate) fn toggle_archive_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let msg = if crate::i18n::is_indonesian() {
-		if archive { format!("Chat {chat_name} diarsipkan.") } else { format!("Arsip chat {chat_name} dibatalkan.") }
-	} else {
-		format!("Chat {chat_name} {}.", if archive { "archived" } else { "unarchived" })
-	};
+	let msg = crate::i18n::tr_fmt(if archive { "Chat {} archived." } else { "Chat {} unarchived." }, &[&chat_name]);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
@@ -1127,12 +1104,9 @@ pub(crate) fn set_chat_notify(
 			whatsnap::ChatAlert::SoundOnly => crate::i18n::tr("sound only, no notification"),
 			whatsnap::ChatAlert::Off => crate::i18n::tr("off on this computer"),
 		};
-		if crate::i18n::is_indonesian() {
-			let content = if notify.hide_content { ", isi pesan disembunyikan" } else { "" };
-			format!("Notifikasi untuk {name}: {alert}{content}.")
-		} else {
-			let content = if notify.hide_content { ", message content hidden" } else { "" };
-			format!("Notifications for {name}: {alert}{content}.")
+		{
+			let content = if notify.hide_content { crate::i18n::tr(", message content hidden") } else { "" };
+			crate::i18n::tr_fmt("Notifications for {}: {}{}.", &[&name, &alert, &content])
 		}
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
@@ -1246,23 +1220,12 @@ pub(crate) fn toggle_mute_chat(
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let spoken = if crate::i18n::is_indonesian() {
-		if mute {
-			let dur = match seconds {
-				28_800 => " selama 8 jam",
-				604_800 => " selama 1 minggu",
-				_ => "",
-			};
-			format!("Notifikasi dari {chat_name} dibisukan{dur}.")
-		} else {
-			format!("Notifikasi dari {chat_name} dibunyikan.")
-		}
-	} else {
+	let spoken = {
 		let how_long = MUTE_DURATIONS.iter().find(|(_, _, s)| *s == seconds).map_or("", |(_, how_long, _)| how_long);
 		if mute {
-			format!("Notifications from {chat_name} muted{how_long}.")
+			crate::i18n::tr_fmt("Notifications from {} muted{}.", &[&chat_name, &crate::i18n::tr_str(how_long)])
 		} else {
-			format!("Notifications from {chat_name} unmuted.")
+			crate::i18n::tr_fmt("Notifications from {} unmuted.", &[&chat_name])
 		}
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
@@ -1289,14 +1252,10 @@ pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let msg = if crate::i18n::is_indonesian() {
-		if read {
-			format!("Chat {chat_name} ditandai sudah dibaca.")
-		} else {
-			format!("Chat {chat_name} ditandai belum dibaca.")
-		}
+	let msg = if read {
+		crate::i18n::tr_fmt("Chat {} marked as read.", &[&chat_name])
 	} else {
-		format!("Chat {chat_name} marked as {}.", if read { "read" } else { "unread" })
+		crate::i18n::tr_fmt("Chat {} marked as unread.", &[&chat_name])
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
