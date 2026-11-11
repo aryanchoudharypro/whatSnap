@@ -52,11 +52,17 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let timestamp = data.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
 
 				let mut s = state.borrow_mut();
-				let poster_name = s
-					.contacts
-					.get(&poster_jid)
-					.cloned()
-					.unwrap_or_else(|| if from_me { crate::i18n::tr("You").to_string() } else { poster_jid.clone() });
+				let poster_name = data
+					.get("posterName")
+					.and_then(|v| v.as_str())
+					.filter(|n| !n.is_empty())
+					.map(|n| n.to_string())
+					.unwrap_or_else(|| {
+						s.contacts
+							.get(&poster_jid)
+							.cloned()
+							.unwrap_or_else(|| if from_me { crate::i18n::tr("You").to_string() } else { poster_jid.clone() })
+					});
 				let item = StatusItem {
 					id,
 					text,
@@ -70,6 +76,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					font: data.get("font").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
 				};
 				if let Some(group) = s.status_groups.iter_mut().find(|g| g.poster_jid == poster_jid) {
+					if group.poster_name == group.poster_jid && !poster_name.is_empty() && poster_name != poster_jid {
+						group.poster_name = poster_name;
+					}
 					group.items.push(item);
 					group.all_viewed = group.items.iter().all(|it| it.viewed);
 				} else {

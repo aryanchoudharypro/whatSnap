@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"log"
 	"net"
+	"reflect"
 	"time"
+	"unsafe"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -563,4 +566,42 @@ func (acc *Account) storeHistoryStatuses(statuses []*waWeb.WebMessageInfo) {
 		stored++
 	}
 	log.Printf("History sync: %d of %d status updates stored", stored, len(statuses))
+}
+
+// Route encrypted contact status stanzas to handleEncryptedMessage.
+// whatsmeow routes <status> to handleUnencryptedMessage, dropping non-newsletters (tulir/whatsmeow#1323).
+func getNodeHandlersMap(c *whatsmeow.Client) map[string]func(context.Context, *waBinary.Node) {
+	if c == nil {
+		return nil
+	}
+	v := reflect.ValueOf(c).Elem()
+	field := v.FieldByName("nodeHandlers")
+	if !field.IsValid() {
+		return nil
+	}
+	type nodeHandler = func(context.Context, *waBinary.Node)
+	ptr := (*map[string]nodeHandler)(unsafe.Pointer(field.UnsafeAddr()))
+	if ptr == nil || *ptr == nil {
+		return nil
+	}
+	return *ptr
+}
+
+func hookStatusStanzas(c *whatsmeow.Client) {
+	handlers := getNodeHandlersMap(c)
+	if handlers == nil {
+		return
+	}
+	origStatus, okStatus := handlers["status"]
+	msgHandler, okMsg := handlers["message"]
+	if !okStatus || !okMsg {
+		return
+	}
+	handlers["status"] = func(ctx context.Context, node *waBinary.Node) {
+		if len(node.GetChildrenByTag("enc")) > 0 {
+			msgHandler(ctx, node)
+		} else {
+			origStatus(ctx, node)
+		}
+	}
 }

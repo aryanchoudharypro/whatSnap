@@ -1836,7 +1836,7 @@ func (acc *Account) eventHandler(evt interface{}) {
 			acc.applyReaction(v, reaction)
 			return
 		}
-		if v.Info.Chat.User == "status" && v.Info.Chat.Server == types.BroadcastServer {
+		if v.Info.Chat == types.StatusBroadcastJID || (v.Info.Chat.User == "status" && v.Info.Chat.Server == types.BroadcastServer) {
 			acc.handleIncomingStatus(v)
 			return
 		}
@@ -3402,13 +3402,26 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 		text = ""
 	}
 	senderJID := v.Info.Sender.ToNonAD()
-	if v.Info.IsFromMe && (senderJID.IsEmpty() || senderJID.User == "") && acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.ID != nil {
-		senderJID = acc.wa().Store.ID.ToNonAD()
-	} else if senderJID.Server == "lid" {
+	if senderJID.IsEmpty() {
 		if !v.Info.SenderAlt.IsEmpty() {
 			senderJID = v.Info.SenderAlt.ToNonAD()
-		} else if pn, err := acc.wa().Store.LIDs.GetPNForLID(context.Background(), senderJID); err == nil && !pn.IsEmpty() {
-			senderJID = pn.ToNonAD()
+		} else if v.SourceWebMsg != nil {
+			if p := v.SourceWebMsg.GetParticipant(); p != "" {
+				senderJID, _ = types.ParseJID(p)
+			} else if p := v.SourceWebMsg.GetKey().GetParticipant(); p != "" {
+				senderJID, _ = types.ParseJID(p)
+			} else if r := v.SourceWebMsg.GetKey().GetRemoteJID(); r != "" && r != "status@broadcast" {
+				senderJID, _ = types.ParseJID(r)
+			}
+		}
+	}
+	if v.Info.IsFromMe && (senderJID.IsEmpty() || senderJID.User == "") && acc.wa() != nil && acc.wa().Store != nil && acc.wa().Store.ID != nil {
+		senderJID = acc.wa().Store.ID.ToNonAD()
+	} else if senderJID.Server == types.HiddenUserServer || senderJID.Server == "lid" {
+		if !v.Info.SenderAlt.IsEmpty() {
+			senderJID = v.Info.SenderAlt.ToNonAD()
+		} else {
+			senderJID = acc.preferPN(senderJID)
 		}
 	}
 	mediaType, mimetype, filename, mediaSize := mediaInfoFromMessage(v.Message)
@@ -3421,6 +3434,9 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 		status = "sent"
 	}
 	cleanMsg := unwrapMessage(v.Message)
+	if cleanMsg == nil {
+		cleanMsg = v.Message
+	}
 	rawBytes, _ := proto.Marshal(cleanMsg)
 	if err := acc.saveMessage(StoredMessage{
 		ID: v.Info.ID, JID: "status@broadcast", SenderJID: senderJID.String(),
@@ -3432,8 +3448,12 @@ func (acc *Account) handleIncomingStatus(v *events.Message) {
 	}
 	go acc.purgeExpiredStatuses()
 	background, textColor, font := textStatusColors(rawBytes)
+	posterName := ""
+	if parsed, perr := types.ParseJID(senderJID.String()); perr == nil {
+		posterName = acc.resolveDisplayName(parsed)
+	}
 	acc.broadcastEvent("status_update", map[string]interface{}{
-		"id": v.Info.ID, "posterJid": senderJID.String(), "fromMe": v.Info.IsFromMe,
+		"id": v.Info.ID, "posterJid": senderJID.String(), "posterName": posterName, "fromMe": v.Info.IsFromMe,
 		"text": text, "mediaType": mediaType, "timestamp": ts,
 		"background": background, "textColor": textColor, "font": font,
 	})
