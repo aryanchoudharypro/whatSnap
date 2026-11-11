@@ -676,16 +676,8 @@ impl ChatMessage {
 			return if self.from_me {
 				let you = i18n::tr("You");
 				if !formatted_time.is_empty() {
-					if i18n::is_indonesian() {
-						format!("{you}: menghapus pesan ini, dikirim pukul {formatted_time}")
-					} else {
-						format!("You: deleted this message, sent at {formatted_time}")
-					}
-				} else if i18n::is_indonesian() {
-					format!("{you}: menghapus pesan ini")
-				} else {
-					"You: deleted this message".to_string()
-				}
+					i18n::tr_fmt("{}: deleted this message, sent at {}", &[&you, &formatted_time])
+				} else { i18n::tr_fmt("{}: deleted this message", &[&you]) }
 			} else {
 				let name = if !is_placeholder_name(&self.sender_name) {
 					self.sender_name.as_str()
@@ -743,15 +735,10 @@ impl ChatMessage {
 		if self.from_me {
 			let you = i18n::tr("You");
 			if !formatted_time.is_empty() {
-				if i18n::is_indonesian() {
-					format!(
-						"{you}: {body}{reply_suffix}{sep} dikirim pukul {formatted_time}, {status_title}{reactions_suffix}{edit_suffix}{star_suffix}"
-					)
-				} else {
-					format!(
-						"You: {body}{reply_suffix}{sep} sent at {formatted_time}, {status_title}{reactions_suffix}{edit_suffix}{star_suffix}"
-					)
-				}
+				i18n::tr_fmt(
+					"{}: {}{}{} sent at {}, {}{}{}{}",
+					&[&you, &body, &reply_suffix, &sep, &formatted_time, &status_title, &reactions_suffix, &edit_suffix, &star_suffix],
+				)
 			} else {
 				format!("{you}: {body}{reply_suffix}{sep} {status_title}{reactions_suffix}{edit_suffix}{star_suffix}")
 			}
@@ -913,16 +900,8 @@ impl DisplayItem {
 				if *from_me {
 					let you = i18n::tr("You");
 					if !formatted_time.is_empty() {
-						if i18n::is_indonesian() {
-							format!("{you}: [Album: {desc}], dikirim pukul {formatted_time}{reactions}")
-						} else {
-							format!("You: [Album: {desc}], sent at {formatted_time}{reactions}")
-						}
-					} else if i18n::is_indonesian() {
-						format!("{you}: [Album: {desc}]{reactions}")
-					} else {
-						format!("You: [Album: {desc}]{reactions}")
-					}
+						i18n::tr_fmt("{}: [Album: {}], sent at {}{}", &[&you, &desc, &formatted_time, &reactions])
+					} else { i18n::tr_fmt("{}: [Album: {}]{}", &[&you, &desc, &reactions]) }
 				} else {
 					let name = if !is_placeholder_name(sender_name) {
 						sender_name.as_str()
@@ -1501,12 +1480,10 @@ pub fn insert_unread_divider(messages: &mut Vec<Msg>, count: u64) {
 			false
 		})
 		.unwrap_or(messages.len());
-	let label = if i18n::is_indonesian() {
-		format!("{n} pesan belum dibaca")
-	} else if n == 1 {
-		"1 unread message".to_string()
+	let label = if n == 1 {
+		i18n::tr("1 unread message").to_string()
 	} else {
-		format!("{n} unread messages")
+		i18n::tr_fmt("{} unread messages", &[&n])
 	};
 	messages.insert(insert_at, Msg::new(ChatMessage { text: label, is_unread_divider: true, ..Default::default() }));
 }

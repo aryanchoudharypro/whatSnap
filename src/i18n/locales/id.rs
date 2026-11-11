@@ -2480,6 +2480,9 @@ pub fn translate(text: &str) -> Option<&'static str> {
 		"1 new message" => Some("1 pesan baru"),
 		"{} new messages" => Some("{} pesan baru"),
 		", {} mentions" => Some(", {} sebutan"),
+		"{}: [Album: {}], sent at {}{}" => Some("{}: [Album: {}], dikirim pukul {}{}"),
+		"{}: {}{}{} sent at {}, {}{}{}{}" => Some("{}: {}{}{} dikirim pukul {}, {}{}{}{}"),
+		"{}: deleted this message, sent at {}" => Some("{}: menghapus pesan ini, dikirim pukul {}"),
 		_ => None,
 	}
 }
