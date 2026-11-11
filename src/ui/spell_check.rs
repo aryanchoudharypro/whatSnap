@@ -466,11 +466,10 @@ fn show_fixes(field: &TextCtrl, mistake: Mistake, screen: Option<Point>) {
 	}
 	builder = builder.append_separator();
 	if !mistake.repeated {
-		let (add_lbl, ignore_lbl) = if crate::i18n::is_indonesian() {
-			(format!("&Tambahkan \"{word}\" ke Kamus"), format!("&Abaikan \"{word}\""))
-		} else {
-			(format!("&Add \"{word}\" to Dictionary"), format!("&Ignore \"{word}\""))
-		};
+		let (add_lbl, ignore_lbl) = (
+			crate::i18n::tr_fmt("&Add \"{}\" to Dictionary", &[&word]),
+			crate::i18n::tr_fmt("&Ignore \"{}\"", &[&word]),
+		);
 		builder =
 			builder.append_item(MENU_ID_ADD, &add_lbl, crate::i18n::tr("Never mark this word again")).append_item(
 				MENU_ID_IGNORE,

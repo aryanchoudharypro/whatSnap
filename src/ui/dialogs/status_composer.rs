@@ -631,17 +631,10 @@ fn build_media_status_dialog(
 		data.skip(true);
 	});
 
-	let announce_msg = if crate::i18n::is_indonesian() {
-		format!(
-			"Posting status {}. File yang dipilih: {file_info}. Ketik keterangan opsional, atau tekan Ctrl+Enter untuk memposting.",
-			if media_type == "video" { "video" } else { "foto" }
-		)
-	} else {
-		format!(
-			"Post {} status. Selected file: {file_info}. Type optional caption, or press Ctrl+Enter to post.",
-			if media_type == "video" { "video" } else { "photo" }
-		)
-	};
+	let announce_msg = crate::i18n::tr_fmt(
+		"Post {} status. Selected file: {}. Type optional caption, or press Ctrl+Enter to post.",
+		&[&crate::i18n::tr(if media_type == "video" { "video" } else { "photo" }), &file_info],
+	);
 	crate::platform::announce::announce(announcer, &announce_msg);
 
 	caption_field.set_focus();

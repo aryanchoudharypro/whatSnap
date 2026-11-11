@@ -239,15 +239,9 @@ fn show_picker(
 }
 
 fn selected_summary(count: usize) -> String {
-	if crate::i18n::is_indonesian() {
-		return match count {
-			0 => "Belum ada chat yang dipilih.".to_string(),
-			n => format!("{n} chat dipilih."),
-		};
-	}
 	match count {
-		0 => "No chats selected.".to_string(),
-		1 => "1 chat selected.".to_string(),
-		n => format!("{} chats selected.", n),
+		0 => crate::i18n::tr("No chats selected.").to_string(),
+		1 => crate::i18n::tr("1 chat selected.").to_string(),
+		n => crate::i18n::tr_fmt("{} chats selected.", &[&n]),
 	}
 }

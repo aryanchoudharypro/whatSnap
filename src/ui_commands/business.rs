@@ -26,11 +26,7 @@ impl MessageOption {
 		match self.kind.as_str() {
 			"url" => row.push_str(crate::i18n::tr(", link")),
 			"call" => {
-				if crate::i18n::is_indonesian() {
-					row.push_str(&format!(", nomor telepon {}", self.value));
-				} else {
-					row.push_str(&format!(", phone number {}", self.value));
-				}
+				row.push_str(&crate::i18n::tr_fmt(", phone number {}", &[&self.value]));
 			}
 			"copy" => row.push_str(crate::i18n::tr(", copies a code")),
 			"phone" => row.push_str(crate::i18n::tr(", only works on your phone")),
@@ -100,13 +96,9 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		}
 		rows.push(row);
 	}
-	let count = if crate::i18n::is_indonesian() {
-		format!("{} pilihan", options.len())
-	} else {
-		match options.len() {
-			1 => "1 option".to_string(),
-			n => format!("{n} options"),
-		}
+	let count = match options.len() {
+		1 => crate::i18n::tr("1 option").to_string(),
+		n => crate::i18n::tr_fmt("{} options", &[&n]),
 	};
 	let list_label = StaticText::builder(&panel)
 		.with_label(&format!("{} ({count})", if heading.is_empty() { crate::i18n::tr("Buttons") } else { &heading }))
@@ -172,12 +164,9 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 				}
 				"call" | "copy" => {
 					if crate::platform::clipboard::copy_text(&option.value) {
-						let msg = if crate::i18n::is_indonesian() {
-							let what = if option.kind == "call" { "Nomor" } else { "Kode" };
-							format!("{what} disalin: {}", option.value)
-						} else {
-							let what = if option.kind == "call" { "Number" } else { "Code" };
-							format!("{what} copied: {}", option.value)
+						let msg = {
+							let what = if option.kind == "call" { crate::i18n::tr("Number") } else { crate::i18n::tr("Code") };
+							crate::i18n::tr_fmt("{} copied: {}", &[&what, &option.value])
 						};
 						crate::platform::announce::announce(announcer, &msg);
 					}
@@ -313,15 +302,10 @@ impl Product {
 		let name = if self.name == "Unnamed product" { crate::i18n::tr("Unnamed product") } else { self.name.as_str() };
 		let mut row = name.to_string();
 		if !self.sale_price.is_empty() {
-			if crate::i18n::is_indonesian() {
-				row.push_str(&format!(", {} diskon", self.sale_price));
+			{
+				row.push_str(&crate::i18n::tr_fmt(", {} on sale", &[&self.sale_price]));
 				if !self.price.is_empty() {
-					row.push_str(&format!(", sebelumnya {}", self.price));
-				}
-			} else {
-				row.push_str(&format!(", {} on sale", self.sale_price));
-				if !self.price.is_empty() {
-					row.push_str(&format!(", was {}", self.price));
+					row.push_str(&crate::i18n::tr_fmt(", was {}", &[&self.price]));
 				}
 			}
 		} else if !self.price.is_empty() {
@@ -340,10 +324,9 @@ impl Product {
 			lines.push(format!("{}: {}", crate::i18n::tr("Price"), self.price));
 		}
 		if !self.sale_price.is_empty() {
-			let sale_dates = if crate::i18n::is_indonesian() {
-				self.sale_dates.replace(" to ", " sampai ")
-			} else {
-				self.sale_dates.clone()
+			let sale_dates = {
+				let sep = crate::i18n::tr(" to ");
+				self.sale_dates.replace(" to ", sep)
 			};
 			let dates = if sale_dates.is_empty() { String::new() } else { format!(" ({sale_dates})") };
 			lines.push(format!("{}: {}{dates}", crate::i18n::tr("Sale price"), self.sale_price));
@@ -414,12 +397,10 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let count = if crate::i18n::is_indonesian() {
-		if more { format!("Produk ({} pertama)", products.len()) } else { format!("Produk ({})", products.len()) }
-	} else if more {
-		format!("Products (first {})", products.len())
+	let count = if more {
+		crate::i18n::tr_fmt("Products (first {})", &[&products.len()])
 	} else {
-		format!("Products ({})", products.len())
+		crate::i18n::tr_fmt("Products ({})", &[&products.len()])
 	};
 	let list_label = StaticText::builder(&panel).with_label(&count).build();
 	theme::style_muted_label(&list_label);

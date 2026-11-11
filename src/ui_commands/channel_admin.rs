@@ -426,32 +426,21 @@ pub(crate) fn channel_people(parts: &Rc<WindowParts>, data: &serde_json::Value) 
 		})
 		.unwrap_or_default();
 	let people: usize = groups.iter().map(|(_, names)| names.len()).sum();
-	let summary = if crate::i18n::is_indonesian() {
-		match (text(data, "kind").as_str(), people) {
-			("votes", 0) => "Belum ada yang memilih di polling ini.".to_string(),
-			("votes", n) => format!("{n} suara"),
-			(_, 0) => "Belum ada yang bereaksi ke postingan ini.".to_string(),
-			(_, n) => format!("{n} reaksi"),
-		}
-	} else {
-		match (text(data, "kind").as_str(), people) {
-			("votes", 0) => "No one has voted in this poll yet.".to_string(),
-			("votes", 1) => "1 vote".to_string(),
-			("votes", n) => format!("{} votes", n),
-			(_, 0) => "No one has reacted to this post yet.".to_string(),
-			(_, 1) => "1 reaction".to_string(),
-			(_, n) => format!("{} reactions", n),
-		}
+	let summary = match (text(data, "kind").as_str(), people) {
+		("votes", 0) => crate::i18n::tr("No one has voted in this poll yet.").to_string(),
+		("votes", 1) => crate::i18n::tr("1 vote").to_string(),
+		("votes", n) => crate::i18n::tr_fmt("{} votes", &[&n]),
+		(_, 0) => crate::i18n::tr("No one has reacted to this post yet.").to_string(),
+		(_, 1) => crate::i18n::tr("1 reaction").to_string(),
+		(_, n) => crate::i18n::tr_fmt("{} reactions", &[&n]),
 	};
 	let raw_title = text(data, "title");
-	let title = if crate::i18n::is_indonesian() {
+	let title = {
 		if let Some(q) = raw_title.strip_prefix("Votes: ") {
-			format!("Suara: {q}")
+			crate::i18n::tr_fmt("Votes: {}", &[&q])
 		} else {
 			crate::i18n::tr_str(&raw_title)
 		}
-	} else {
-		raw_title
 	};
 	show_channel_people(&parts.frame, &title, &summary, &groups);
 }

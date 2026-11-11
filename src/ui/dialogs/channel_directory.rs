@@ -105,11 +105,7 @@ impl ChannelDirectory {
 		let loading = if !query.is_empty() {
 			crate::i18n::tr("Searching...").to_string()
 		} else if let Some((_, name)) = CATEGORIES.iter().find(|(code, _)| *code == category) {
-			if crate::i18n::is_indonesian() {
-				format!("Memuat saluran {}{place}...", crate::i18n::tr(name))
-			} else {
-				format!("Loading {name} channels{place}...")
-			}
+			crate::i18n::tr_fmt("Loading {} channels{}...", &[&crate::i18n::tr(name), &place])
 		} else { crate::i18n::tr_fmt("Loading recommended channels{}...", &[&place]) };
 		crate::platform::announce::announce(self.announcer, &loading);
 	}

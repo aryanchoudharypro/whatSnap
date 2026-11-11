@@ -169,26 +169,17 @@ pub fn show_channel_followers(
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let admins = followers.iter().filter(|f| f.role == "admin").count();
-	let summary = if crate::i18n::is_indonesian() {
-		let follower_part = format!("{} pengikut", followers.len());
-		let admin_part = match admins {
-			0 => "tidak ada admin selain pemilik".to_string(),
-			n => format!("{n} admin"),
+	let summary = {
+		let follower_part = match followers.len() {
+			1 => crate::i18n::tr("1 follower").to_string(),
+			n => crate::i18n::tr_fmt("{} followers", &[&n]),
 		};
-		format!("{follower_part} ditampilkan, {admin_part}")
-	} else {
-		format!(
-			"{} shown, {}",
-			match followers.len() {
-				1 => "1 follower".to_string(),
-				n => format!("{} followers", n),
-			},
-			match admins {
-				0 => "no admins besides the owner".to_string(),
-				1 => "1 admin".to_string(),
-				n => format!("{} admins", n),
-			}
-		)
+		let admin_part = match admins {
+			0 => crate::i18n::tr("no admins besides the owner").to_string(),
+			1 => crate::i18n::tr("1 admin").to_string(),
+			n => crate::i18n::tr_fmt("{} admins", &[&n]),
+		};
+		crate::i18n::tr_fmt("{} shown, {}", &[&follower_part, &admin_part])
 	};
 	let list_label = StaticText::builder(&panel).with_label(&summary).build();
 	theme::style_muted_label(&list_label);
@@ -349,17 +340,10 @@ pub fn show_pending_admin_invites(
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let summary = if crate::i18n::is_indonesian() {
-		match invites.len() {
-			0 => "Tidak ada undangan admin yang menunggu diterima.".to_string(),
-			n => format!("{n} undangan menunggu diterima"),
-		}
-	} else {
-		match invites.len() {
-			0 => "No admin invites are waiting to be accepted.".to_string(),
-			1 => "1 invite waiting to be accepted".to_string(),
-			n => format!("{} invites waiting to be accepted", n),
-		}
+	let summary = match invites.len() {
+		0 => crate::i18n::tr("No admin invites are waiting to be accepted.").to_string(),
+		1 => crate::i18n::tr("1 invite waiting to be accepted").to_string(),
+		n => crate::i18n::tr_fmt("{} invites waiting to be accepted", &[&n]),
 	};
 	let list_label = StaticText::builder(&panel).with_label(&summary).build();
 	theme::style_muted_label(&list_label);

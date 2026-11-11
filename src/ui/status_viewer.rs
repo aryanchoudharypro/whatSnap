@@ -1240,12 +1240,7 @@ impl Viewer {
 			self.viewers_label.set_label(crate::i18n::tr("&Viewed by: no one yet"));
 			self.viewers_list.append(crate::i18n::tr("No one has seen this status update yet."));
 		} else {
-			if crate::i18n::is_indonesian() {
-				self.viewers_label.set_label(&format!("&Dilihat oleh {count} orang"));
-			} else {
-				let noun = if count == 1 { "person" } else { "people" };
-				self.viewers_label.set_label(&format!("&Viewed by {count} {noun}"));
-			}
+			self.viewers_label.set_label(&crate::i18n::tr_fmt("&Viewed by {} {}", &[&count, &crate::i18n::tr(if count == 1 { "person" } else { "people" })]));
 			for v in &viewers {
 				let jid = text(v, "jid");
 				let name = text(v, "name");
@@ -1363,16 +1358,7 @@ pub(crate) fn on_event(t: &str, data: &serde_json::Value) -> bool {
 				&& entry.poster_jid == jid
 			{
 				viewer.show_mute(&entry);
-				let spoken = if crate::i18n::is_indonesian() {
-					if muted {
-						format!("Pembaruan status {} dibisukan.", entry.poster_name)
-					} else {
-						format!("Pembaruan status {} dibunyikan.", entry.poster_name)
-					}
-				} else {
-					let verb = if muted { "muted" } else { "unmuted" };
-					format!("{}'s status updates {verb}.", entry.poster_name)
-				};
+				let spoken = crate::i18n::tr_fmt(if muted { "{}'s status updates muted." } else { "{}'s status updates unmuted." }, &[&entry.poster_name]);
 				crate::platform::announce::announce(viewer.announcer, &spoken);
 			}
 		}
