@@ -4012,6 +4012,13 @@ pub fn bind_input_handlers(
 				data.skip(false);
 				return;
 			}
+			// Back on the chat list with a search still active, Escape
+			// clears it; the focus stays on the list.
+			if !conv_panel_hook.is_shown() && chat_list_hook.has_focus() && !chat_search_hook.get_value().is_empty() {
+				chat_search_hook.set_value("");
+				data.skip(false);
+				return;
+			}
 			// The search in the open chat closes first, back to its messages.
 			if conv_panel_hook.is_shown() && search_panel_hook.is_shown() && !state_hook.borrow().selection_mode {
 				let _ = tx_escape_hook.send(UiCommand::CloseSearch);

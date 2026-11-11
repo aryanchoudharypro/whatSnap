@@ -139,7 +139,7 @@ Type in the `Search or start a new chat` field to find chats, contacts and messa
 - A chat is found by its name or group name, the person's WhatsApp name or business name, their phone number, or "Me" for your own chat. Capitals and accents don't matter, and when you type more than one word, each word must be in the same name, in any order. The text of the messages, the last message and drafts don't find a chat.
 - With the `All chats` filter, the results have up to three parts, each with a heading: `Chats`, including archived chats, then `Contacts` who have no chat yet, then `Messages` that contain what you typed, newest first. Messages are searched once you stop typing, when you type at least two letters, or one emoji. When you reach the last message found, whatSnap loads more. Press `Enter` on a message to open its chat at that message.
 - With another filter, only the chats of that filter are searched, and the field is named after it, for example `Search unread chats`.
-- In the field, `Enter` opens the first result, and `Down Arrow` at the end of the text goes to the first result. `Up Arrow` on the first result goes back to the field. `Escape` clears the search, keeps the filter, and moves to the chat list.
+- In the field, `Enter` opens the first result, and `Down Arrow` at the end of the text goes to the first result. `Up Arrow` on the first result goes back to the field. `Escape` clears the search, keeps the filter, and moves to the chat list. After you close a chat opened from a search, `Escape` on the chat list clears the search and shows the full list.
 
 When nothing is found, the list says "No chats, contacts or messages found". When a filter has no chats, the list says so, for example "No unread chats".
 
@@ -487,7 +487,7 @@ You can't change these keys:
 - `Tab` and `Shift+Tab`: move between the controls.
 - `Up Arrow`, `Down Arrow`, `Page Up`, `Page Down`, `Home`, and `End`: move in a list.
 - `Enter`: open the selected item.
-- `Escape`: in the search field of the chat list, clear the search. In the search of the open chat, close the search. While you reply to a message, remove the quote. Otherwise, close the chat, or close a dialog.
+- `Escape`: in the search field of the chat list, clear the search. On the chat list with a search still active, clear it. In the search of the open chat, close the search. While you reply to a message, remove the quote. Otherwise, close the chat, or close a dialog.
 - `Ctrl+C` and `Ctrl+V`: copy and paste.
 - `Shift+F10` or the Applications key: open the actions menu.
 - `Ctrl+Shift+Left Arrow` and `Ctrl+Shift+Right Arrow`: move a section in the Main Navigation list.
