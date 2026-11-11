@@ -293,12 +293,10 @@ fn pick_update<'a>(parts: &Rc<WindowParts>, row: &'a Row, title: &str, prompt: &
 	let labels: Vec<String> = newest_first
 		.iter()
 		.map(|it| {
-			let views = if crate::i18n::is_indonesian() {
-				format!("{} dilihat", it.viewers)
-			} else if it.viewers == 1 {
-				"1 view".to_string()
+			let views = if it.viewers == 1 {
+				crate::i18n::tr("1 view").to_string()
 			} else {
-				format!("{} views", it.viewers)
+				crate::i18n::tr_fmt("{} views", &[&it.viewers])
 			};
 			format!("{}, {}, {}", describe(it), when(it), views)
 		})

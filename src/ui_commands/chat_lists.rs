@@ -175,12 +175,10 @@ struct ListChats {
 }
 
 fn count_chats(count: usize) -> String {
-	if crate::i18n::is_indonesian() {
-		format!("{count} chat")
-	} else if count == 1 {
-		"1 chat".to_string()
+	if count == 1 {
+		crate::i18n::tr("1 chat").to_string()
 	} else {
-		format!("{count} chats")
+		crate::i18n::tr_fmt("{} chats", &[&count])
 	}
 }
 
@@ -205,16 +203,9 @@ impl ListManager {
 		let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 		self.list.set_items(&refs);
 		*self.ids.borrow_mut() = s.chat_lists.iter().map(|l| l.id.clone()).collect();
-		self.list_label.set_label(&if crate::i18n::is_indonesian() {
-			match s.chat_lists.len() {
-				0 => "Daftar Anda: belum ada".to_string(),
-				n => format!("Daftar Anda ({n})"),
-			}
-		} else {
-			match s.chat_lists.len() {
-				0 => "Your lists: none yet".to_string(),
-				n => format!("Your lists ({n})"),
-			}
+		self.list_label.set_label(&match s.chat_lists.len() {
+			0 => crate::i18n::tr("Your lists: none yet").to_string(),
+			n => crate::i18n::tr_fmt("Your lists ({})", &[&n]),
 		});
 		let idx = previous.and_then(|id| self.ids.borrow().iter().position(|i| *i == id)).unwrap_or(previous_idx);
 		keep_selection(&self.list, idx, &[&self.rename_btn, &self.chats_btn, &self.delete_btn]);
@@ -252,16 +243,9 @@ impl ListChats {
 		let title =
 			crate::i18n::tr_fmt("Chats in {}", &[&l.name]);
 		self.dialog.set_label(&title);
-		self.list_label.set_label(&if crate::i18n::is_indonesian() {
-			match l.jids.len() {
-				0 => format!("Chat di {}: belum ada", l.name),
-				n => format!("Chat di {} ({})", l.name, n),
-			}
-		} else {
-			match l.jids.len() {
-				0 => format!("Chats in {}: none yet", l.name),
-				n => format!("Chats in {} ({})", l.name, n),
-			}
+		self.list_label.set_label(&match l.jids.len() {
+			0 => crate::i18n::tr_fmt("Chats in {}: none yet", &[&l.name]),
+			n => crate::i18n::tr_fmt("Chats in {} ({})", &[&l.name, &n]),
 		});
 		keep_selection(&self.list, previous_idx, &[&self.remove_btn]);
 		*self.jids.borrow_mut() = l.jids.clone();
@@ -513,17 +497,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"favorite_saved" => {
 			let name = chat_name(&state.borrow(), &text(data, "jid"));
 			let favorite = data.get("favorite").and_then(|f| f.as_bool()).unwrap_or(false);
-			let msg = if crate::i18n::is_indonesian() {
-				if favorite {
-					format!("{name} ditambahkan ke favorit.")
-				} else {
-					format!("{name} dihapus dari favorit.")
-				}
-			} else if favorite {
-				format!("{name} added to favorites.")
-			} else {
-				format!("{name} removed from favorites.")
-			};
+			let msg = crate::i18n::tr_fmt(if favorite { "{} added to favorites." } else { "{} removed from favorites." }, &[&name]);
 			announce(state, parts, &msg);
 		}
 		"list_saved" => {
@@ -550,13 +524,7 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 			let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(1);
 			let list = text(data, "name");
 			let who = if count > 1 { count_chats(count as usize) } else { name };
-			let msg = if crate::i18n::is_indonesian() {
-				if member { format!("{who} ditambahkan ke {list}.") } else { format!("{who} dihapus dari {list}.") }
-			} else if member {
-				format!("{who} added to {list}.")
-			} else {
-				format!("{who} removed from {list}.")
-			};
+			let msg = crate::i18n::tr_fmt(if member { "{} added to {}." } else { "{} removed from {}." }, &[&who, &list]);
 			announce(state, parts, &msg);
 		}
 		"common_groups" => show_common_groups(state, parts, data),
@@ -620,17 +588,10 @@ fn show_common_groups(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, da
 	for g in &groups {
 		list.append(&text(g, "name"));
 	}
-	let label = if crate::i18n::is_indonesian() {
-		match groups.len() {
-			0 => "Grup bersama".to_string(),
-			n => format!("{n} grup bersama"),
-		}
-	} else {
-		match groups.len() {
-			0 => "Groups in common".to_string(),
-			1 => "1 group in common".to_string(),
-			n => format!("{} groups in common", n),
-		}
+	let label = match groups.len() {
+		0 => crate::i18n::tr("Groups in common").to_string(),
+		1 => crate::i18n::tr("1 group in common").to_string(),
+		n => crate::i18n::tr_fmt("{} groups in common", &[&n]),
 	};
 	parts.conversation_data_dialog.common_groups_label.set_label(&label);
 }
