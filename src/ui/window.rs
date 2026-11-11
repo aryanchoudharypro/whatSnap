@@ -4660,18 +4660,10 @@ pub fn bind_input_handlers(
 									msg.media_path.clone()
 								};
 								if crate::copy_files_to_clipboard(&[path_to_copy]) {
-									let msg = if crate::i18n::is_indonesian() {
-										if is_voice {
-											"Pesan suara disalin ke papan klip."
-										} else {
-											"File disalin ke papan klip."
-										}
+									let msg = if is_voice {
+										crate::i18n::tr("Copied voice message to clipboard.")
 									} else {
-										if is_voice {
-											"Copied voice message to clipboard."
-										} else {
-											"Copied file to clipboard."
-										}
+										crate::i18n::tr("Copied file to clipboard.")
 									};
 									crate::platform::announce::announce(msgs_announcer_copy, msg);
 								} else {
@@ -6976,22 +6968,13 @@ fn choose_excluded_contacts(
 				Some(Err(_)) if !is_except => Ok(Vec::new()),
 				Some(Err(reason)) => {
 					let reason_tr = crate::i18n::translate_backend_message(reason);
-					if crate::i18n::is_indonesian() {
-						Err(format!(
-							"Tidak dapat memuat siapa yang dikecualikan dari {label} saat ini, sehingga tidak dapat diubah. Coba lagi nanti. ({reason_tr})"
+					Err(crate::i18n::tr_fmt(
+							"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later. ({})",
+							&[&label, &reason_tr],
 						))
-					} else {
-						Err(format!(
-							"Couldn't load who's excluded from {label} right now, so it can't be changed. Try again later. ({reason})"
-						))
-					}
 				}
 				None => {
-					if crate::i18n::is_indonesian() {
-						Err(format!("Masih memuat siapa yang dikecualikan dari {label}. Coba lagi sebentar lagi."))
-					} else {
-						Err(format!("Still loading who's excluded from {label}. Try again in a moment."))
-					}
+					Err(crate::i18n::tr_fmt("Still loading who's excluded from {}. Try again in a moment.", &[&label]))
 				}
 			}
 		};

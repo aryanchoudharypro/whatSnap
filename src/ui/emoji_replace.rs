@@ -121,27 +121,18 @@ pub fn undo_on_backspace(field: &TextCtrl) -> bool {
 }
 
 fn help_text() -> String {
-	if crate::i18n::is_indonesian() {
-		let mut text = String::from(
-			"Ganti teks menjadi emoji akan langsung mengubah karakter berikut menjadi emoji begitu huruf terakhirnya diketik. \
-			 Tekan Backspace tepat setelahnya untuk mengembalikan teks. Anda bisa menonaktifkannya di tab Chat pada Setelan.\r\n",
-		);
-		for (typed, emoji, name, example) in EMOTICONS {
-			let sent = example.replace(typed, emoji);
-			let name_id = crate::i18n::tr(name);
-			text.push_str(&format!(
-				"\r\nKetik {typed} untuk {emoji} {name_id}. Contoh: \"{example}\" menjadi \"{sent}\"."
-			));
-		}
-		return text;
-	}
-	let mut text = String::from(
-		"Replace text with emoji turns these into emoji as soon as you type their last character. \
-		 Press Backspace straight after to get the text back. You can turn it off on the Chats tab of Settings.\r\n",
-	);
+	let mut text = crate::i18n::tr(
+		"Replace text with emoji turns these into emoji as soon as you type their last character. Press Backspace straight after to get the text back. You can turn it off on the Chats tab of Settings.",
+	)
+	.to_string();
+	text.push_str("\r\n");
 	for (typed, emoji, name, example) in EMOTICONS {
 		let sent = example.replace(typed, emoji);
-		text.push_str(&format!("\r\nType {typed} for {emoji} {name}. Example: \"{example}\" becomes \"{sent}\"."));
+		text.push_str("\r\n");
+		text.push_str(&crate::i18n::tr_fmt(
+			"Type {} for {} {}. Example: \"{}\" becomes \"{}\".",
+			&[&typed, &emoji, &crate::i18n::tr(name), &example, &sent],
+		));
 	}
 	text
 }

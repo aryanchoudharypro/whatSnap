@@ -1234,11 +1234,7 @@ fn status_row_label(group: &crate::StatusGroup) -> String {
 	if group.from_me {
 		let views: i64 = if count == 1 { newest.viewers } else { 0 };
 		if views > 0 {
-			if crate::i18n::is_indonesian() {
-				parts.push(format!("{views} tayangan"));
-			} else {
-				parts.push(format!("{} view{}", views, if views == 1 { "" } else { "s" }));
-			}
+			parts.push(crate::i18n::tr_fmt(if views == 1 { "{} view" } else { "{} views" }, &[&views]));
 		}
 		return crate::i18n::tr_fmt("My status: {}", &[&parts.join(", ")]);
 	}
