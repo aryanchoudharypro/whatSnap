@@ -19,28 +19,27 @@ fn enter_key_held() -> bool {
 
 /// "1 message selected", spoken and shown as the selection changes.
 pub(crate) fn selection_text(count: usize) -> String {
-	if crate::i18n::is_indonesian() {
-		format!("{count} pesan dipilih")
+	if count == 1 {
+		crate::i18n::tr_fmt("{} message selected", &[&count])
 	} else {
-		format!("{} {} selected", count, if count == 1 { "message" } else { "messages" })
+		crate::i18n::tr_fmt("{} messages selected", &[&count])
 	}
 }
 
 fn contacts_shown_announcement(shown: usize, selected: usize) -> String {
-	if crate::i18n::is_indonesian() {
-		format!("{shown} ditampilkan. {selected} kontak dipilih.")
+	if selected == 1 {
+		crate::i18n::tr_fmt("{} shown. {} contact selected.", &[&shown, &selected])
 	} else {
-		format!("{shown} shown. {selected} contact{} selected.", if selected == 1 { "" } else { "s" })
+		crate::i18n::tr_fmt("{} shown. {} contacts selected.", &[&shown, &selected])
 	}
 }
 
 fn contact_toggled_announcement(label: &str, checked: bool, selected: usize) -> String {
-	if crate::i18n::is_indonesian() {
-		let state_str = if checked { "dipilih" } else { "tidak dipilih" };
-		format!("{label}: {state_str}. {selected} kontak dipilih.")
+	let state_str = if checked { crate::i18n::tr("selected") } else { crate::i18n::tr("not selected") };
+	if selected == 1 {
+		crate::i18n::tr_fmt("{}: {}. {} contact selected.", &[&label, &state_str, &selected])
 	} else {
-		let state_str = if checked { "selected" } else { "not selected" };
-		format!("{label}: {state_str}. {selected} contact{} selected.", if selected == 1 { "" } else { "s" })
+		crate::i18n::tr_fmt("{}: {}. {} contacts selected.", &[&label, &state_str, &selected])
 	}
 }
 
@@ -4424,11 +4423,7 @@ pub fn bind_input_handlers(
 								}
 							}
 						} else {
-							let prompt = if crate::i18n::is_indonesian() {
-								format!("Anda yakin ingin menghapus chat dengan {chat_name}?")
-							} else {
-								format!("Are you sure you want to delete chat with {chat_name}?")
-							};
+							let prompt = crate::i18n::tr_fmt("Are you sure you want to delete chat with {}?", &[&chat_name]);
 							let dialog =
 								MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Confirm Delete"))
 									.with_style(

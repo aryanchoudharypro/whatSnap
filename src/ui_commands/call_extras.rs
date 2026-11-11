@@ -131,12 +131,9 @@ pub(crate) fn person_buttons(s: &AppState, parts: &WindowParts) {
 	let can_remove = s.call_video.can_remove || s.call_video.link_admin;
 	match &person {
 		Some(p) => {
-			if crate::i18n::is_indonesian() {
-				c.mute_person_btn.set_label(&format!("Bisukan {}", p.name));
-				c.remove_person_btn.set_label(&format!("Keluarkan {}", p.name));
-			} else {
-				c.mute_person_btn.set_label(&format!("Mute {}", p.name));
-				c.remove_person_btn.set_label(&format!("Remove {}", p.name));
+			{
+				c.mute_person_btn.set_label(&crate::i18n::tr_fmt("Mute {}", &[&p.name]));
+				c.remove_person_btn.set_label(&crate::i18n::tr_fmt("Remove {}", &[&p.name]));
 			}
 		}
 		None => {
@@ -160,16 +157,10 @@ pub(crate) fn act_on_person(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let action = if remove { "remove_call_participant" } else { "mute_call_participant" };
 	send(&s, action, serde_json::json!({ "call_id": call_id, "jid": person.jid }));
 	drop(s);
-	let msg = if crate::i18n::is_indonesian() {
-		if remove {
-			format!("Mengeluarkan {} dari panggilan.", person.name)
-		} else {
-			format!("Meminta {} untuk membisukan.", person.name)
-		}
+	let msg = if remove {
+		crate::i18n::tr_fmt("Removing {} from the call.", &[&person.name])
 	} else {
-		let what = if remove { "Removing" } else { "Asking" };
-		let tail = if remove { "from the call." } else { "to mute." };
-		format!("{} {} {}", what, person.name, tail)
+		crate::i18n::tr_fmt("Asking {} to mute.", &[&person.name])
 	};
 	announce_call(parts, &msg, Priority::High);
 }

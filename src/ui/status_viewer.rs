@@ -843,13 +843,8 @@ impl Viewer {
 			self.viewers_label.set_label(crate::i18n::tr("&Viewed by"));
 			send(&self.state, "get_status_viewers", serde_json::json!({ "id": entry.id }));
 		} else {
-			if crate::i18n::is_indonesian() {
-				self.open_chat_btn.set_label(&format!("&Buka chat dengan {}", entry.poster_name));
-				self.reply_label.set_label(&format!("&Balas {}", entry.poster_name));
-			} else {
-				self.open_chat_btn.set_label(&format!("&Open chat with {}", entry.poster_name));
-				self.reply_label.set_label(&format!("&Reply to {}", entry.poster_name));
-			}
+			self.open_chat_btn.set_label(&crate::i18n::tr_fmt("&Open chat with {}", &[&entry.poster_name]));
+			self.reply_label.set_label(&crate::i18n::tr_fmt("&Reply to {}", &[&entry.poster_name]));
 			self.show_mute(&entry);
 			self.show_reaction(&entry.my_reaction);
 		}
@@ -1264,11 +1259,7 @@ impl Viewer {
 				let reaction = text(v, "reaction");
 				let mut row = format!("{}, {}", text(v, "name"), time);
 				if !reaction.is_empty() {
-					if crate::i18n::is_indonesian() {
-						row.push_str(&format!(", bereaksi {reaction}"));
-					} else {
-						row.push_str(&format!(", reacted {reaction}"));
-					}
+					row.push_str(&crate::i18n::tr_fmt(", reacted {}", &[&reaction]));
 				}
 				self.viewers_list.append(&row);
 			}

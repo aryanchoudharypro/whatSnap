@@ -1222,18 +1222,10 @@ fn status_row_label(group: &crate::StatusGroup) -> String {
 		};
 		parts.push(preview);
 	} else {
-		if crate::i18n::is_indonesian() {
-			parts.push(format!("{count} pembaruan"));
-		} else {
-			parts.push(format!("{count} updates"));
-		}
+		parts.push(crate::i18n::tr_fmt("{} updates", &[&count]));
 		let unseen = group.items.iter().filter(|it| !it.viewed).count();
 		if unseen > 0 && !group.from_me {
-			if crate::i18n::is_indonesian() {
-				parts.push(format!("{unseen} baru"));
-			} else {
-				parts.push(format!("{unseen} new"));
-			}
+			parts.push(crate::i18n::tr_fmt("{} new", &[&unseen]));
 		}
 	}
 	if !time.is_empty() {
@@ -1248,18 +1240,10 @@ fn status_row_label(group: &crate::StatusGroup) -> String {
 				parts.push(format!("{} view{}", views, if views == 1 { "" } else { "s" }));
 			}
 		}
-		if crate::i18n::is_indonesian() {
-			return format!("Status saya: {}", parts.join(", "));
-		} else {
-			return format!("My status: {}", parts.join(", "));
-		}
+		return crate::i18n::tr_fmt("My status: {}", &[&parts.join(", ")]);
 	}
 	if count == 1 && !newest.my_reaction.is_empty() {
-		if crate::i18n::is_indonesian() {
-			parts.push(format!("Anda bereaksi {}", newest.my_reaction));
-		} else {
-			parts.push(format!("you reacted {}", newest.my_reaction));
-		}
+		parts.push(crate::i18n::tr_fmt("you reacted {}", &[&newest.my_reaction]));
 	}
 	let viewed_tag = match (group.items.iter().all(|it| it.viewed), group.muted) {
 		(true, false) => crate::i18n::tr("Viewed"),

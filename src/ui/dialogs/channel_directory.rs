@@ -123,13 +123,8 @@ impl ChannelDirectory {
 		drop(s);
 		let payload = serde_json::json!({ "action": "get_similar_channels", "data": { "jid": jid } });
 		let _ = self.ws_tx.send(payload.to_string());
-		if crate::i18n::is_indonesian() {
-			self.dialog.set_label(&format!("Saluran serupa {name}"));
-			crate::platform::announce::announce(self.announcer, &format!("Memuat saluran serupa {name}..."));
-		} else {
-			self.dialog.set_label(&format!("Channels like {name}"));
-			crate::platform::announce::announce(self.announcer, &format!("Loading channels like {name}..."));
-		}
+		self.dialog.set_label(&crate::i18n::tr_fmt("Channels like {}", &[&name]));
+		crate::platform::announce::announce(self.announcer, &crate::i18n::tr_fmt("Loading channels like {}...", &[&name]));
 	}
 
 	pub fn apply(&self, data: &serde_json::Value) {

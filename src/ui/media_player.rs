@@ -301,7 +301,7 @@ impl MediaPlayer {
 		if let Some(engine) = self.engine.borrow().as_ref() {
 			engine.set_volume(value as f64 / 100.0);
 		}
-		crate::platform::announce::announce(self.announcer, &format!("Volume {value}%"));
+		crate::platform::announce::announce(self.announcer, &crate::i18n::tr_fmt("Volume {}%", &[&value]));
 	}
 
 	pub(crate) fn speak_time(&self) {
