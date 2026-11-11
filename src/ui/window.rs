@@ -4442,6 +4442,8 @@ pub fn bind_input_handlers(
 	let _conv_panel_key = parts.conversations_parts.conversation_panel;
 	let last_left_arrow =
 		std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
+	let last_right_arrow =
+		std::rc::Rc::new(std::cell::Cell::new(std::time::Instant::now() - std::time::Duration::from_secs(10)));
 	let msgs_list_ctx = parts.conversations_parts.messages_list;
 	let state_ctx = state.clone();
 	let parent_frame_ctx = parts.frame;
@@ -5428,11 +5430,26 @@ pub fn bind_input_handlers(
 						})
 					});
 					if let Some(idx) = reply_idx {
-						msgs_list_play.set_selection(idx as u32, true);
-						unsafe {
-							let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
-								windows::Win32::UI::WindowsAndMessaging::MB_OK,
-							);
+						let now = std::time::Instant::now();
+						if now.duration_since(last_right_arrow.get()) < std::time::Duration::from_millis(600) {
+							last_right_arrow.set(now - std::time::Duration::from_secs(10));
+							msgs_list_play.set_selection(idx as u32, true);
+							unsafe {
+								let _ = windows::Win32::System::Diagnostics::Debug::MessageBeep(
+									windows::Win32::UI::WindowsAndMessaging::MB_OK,
+								);
+							}
+						} else {
+							last_right_arrow.set(now);
+							let reply = match &s.display_items[idx] {
+								whatsnap::DisplayItem::Single(m) => Some(m),
+								whatsnap::DisplayItem::Album { messages, .. } => messages.first(),
+							};
+							if let Some(m) = reply {
+								let who = if m.from_me { "You" } else { m.sender_name.as_str() };
+								let said = if m.text.is_empty() { format!("{who}: media") } else { format!("{who}: {}", m.text) };
+								crate::platform::announce::announce(msgs_announcer, &said);
+							}
 						}
 						event.skip(false);
 					} else {

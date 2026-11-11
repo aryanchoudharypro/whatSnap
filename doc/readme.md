@@ -191,7 +191,8 @@ The newest message is at the bottom. When you go up, whatSnap loads older messag
 | `Shift+Enter` | Show the full text of the message in a dialog. |
 | `Left Arrow` | On a reply, read the message that it replies to. |
 | `Left Arrow` two times | On a reply, go to the message that it replies to. |
-| `Right Arrow` | Go to the next message that replies to the selected message. After going to a replied-to message with `Left Arrow` two times, this takes you back to the reply. |
+| `Right Arrow` | On a message that has replies, read the next reply to it. |
+| `Right Arrow` two times | Go to the next reply to the selected message. After going to a replied-to message with `Left Arrow` two times, this takes you back to the reply. |
 | `R` | Reply. |
 | `E` | Edit your message. |
 | `S` | Star or unstar. |
