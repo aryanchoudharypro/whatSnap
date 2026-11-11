@@ -52,7 +52,6 @@ pub fn show_album_items(
 
 	let open = Rc::new(open);
 	let save_as = Rc::new(save_as);
-	let count = labels.len();
 
 	let open_click = open.clone();
 	open_btn.on_click(move |_| {
@@ -72,25 +71,14 @@ pub fn show_album_items(
 	list.on_key_down(move |event| {
 		if let WindowEventData::Keyboard(ref key) = event {
 			let code = key.get_key_code();
-			let current = list.get_selection().map(|i| i as usize);
 			if keys::is_enter(code) {
-				if let Some(i) = current {
-					open_key(i);
+				if let Some(i) = list.get_selection() {
+					open_key(i as usize);
 				}
 				event.skip(false);
 				return;
 			}
-			let target = if keys::is_left(code) {
-				current.map(|i| i.saturating_sub(1))
-			} else if keys::is_right(code) {
-				current.map(|i| (i + 1).min(count.saturating_sub(1)))
-			} else {
-				None
-			};
 			if keys::is_left(code) || keys::is_right(code) {
-				if let Some(t) = target {
-					list.set_selection(t as u32, true);
-				}
 				event.skip(false);
 				return;
 			}
