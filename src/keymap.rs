@@ -320,7 +320,7 @@ impl Keymap {
 
 	pub fn menu_label(&self, action: usize) -> String {
 		let shortcut = self.chord_for(action).map(|c| accelerator_text(&c)).unwrap_or_default();
-		wx_utils::menu_label(ACTIONS[action].label, &shortcut)
+		wx_utils::menu_label(crate::i18n::tr(ACTIONS[action].label), &shortcut)
 	}
 
 	pub fn apply(&self, frame: &Frame) {
@@ -328,7 +328,7 @@ impl Keymap {
 		for (action, def) in ACTIONS.iter().enumerate() {
 			let Some(menu_id) = def.menu_id else { continue };
 			let shortcut = self.chord_for(action).map(|c| accelerator_text(&c)).unwrap_or_default();
-			wx_utils::set_menu_item_label(&menu_bar, menu_id, def.label, &shortcut);
+			wx_utils::set_menu_item_label(&menu_bar, menu_id, crate::i18n::tr(def.label), &shortcut);
 		}
 	}
 
@@ -366,7 +366,7 @@ impl ShortcutModel for Keymap {
 	type Action = usize;
 
 	fn tabs(&self) -> Vec<String> {
-		TABS.iter().map(|t| t.to_string()).collect()
+		TABS.iter().map(|t| crate::i18n::tr(t).to_string()).collect()
 	}
 
 	/// One keymap across every tab: the menu tabs share wx's single
@@ -381,7 +381,7 @@ impl ShortcutModel for Keymap {
 	}
 
 	fn action_name(&self, action: usize) -> String {
-		ACTIONS[action].label.replace('&', "").trim_end_matches("...").to_string()
+		crate::i18n::tr(ACTIONS[action].label).replace('&', "").trim_end_matches("...").to_string()
 	}
 
 	fn chord(&self, _tab: usize, action: usize) -> Option<KeyChord> {

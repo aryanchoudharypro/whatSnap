@@ -96,7 +96,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			}
 		}
 		"needs_login" => {
-			parts.frame.set_status_text("Status: Not logged in", 0);
+			parts.frame.set_status_text(crate::i18n::tr("Status: Not logged in"), 0);
 			parts.nav_panel.show(false);
 			parts.content_panel.show(false);
 			parts.main_panel.layout();
@@ -119,14 +119,16 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			parts.tray_icon.remove_icon();
 
 			if let Some(reason) = val.get("data").and_then(|d| d.get("reason")).and_then(|r| r.as_str()) {
-				MessageDialog::builder(
-					&parts.frame,
-					&format!("whatSnap was logged out of WhatsApp: {reason}"),
-					"Logged Out",
-				)
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-				.build()
-				.show_modal();
+				let reason_text = crate::i18n::translate_backend_message(reason);
+				let msg = if crate::i18n::is_indonesian() {
+					format!("whatSnap dikeluarkan dari WhatsApp: {reason_text}")
+				} else {
+					format!("whatSnap was logged out of WhatsApp: {reason_text}")
+				};
+				MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Logged Out"))
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+					.build()
+					.show_modal();
 			}
 		}
 		"pairing_code" => {
@@ -139,17 +141,19 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						windows::Win32::UI::WindowsAndMessaging::MB_OK,
 					);
 				}
-				crate::platform::announce::announce(
-					parts.pairing_announcer,
-					&format!("Pairing code updated: {}", code),
-				);
+				let msg = if crate::i18n::is_indonesian() {
+					format!("Kode penautan diperbarui: {code}")
+				} else {
+					format!("Pairing code updated: {code}")
+				};
+				crate::platform::announce::announce(parts.pairing_announcer, &msg);
 			}
 		}
 		"qr" => {
 			if state.borrow().is_pairing_active {
 				return true;
 			}
-			parts.qrcode_instructions.set_label("Scan this QR Code with WhatsApp:");
+			parts.qrcode_instructions.set_label(crate::i18n::tr("Scan this QR Code with WhatsApp:"));
 			parts.qrcode_reload_btn.show(false);
 			if let Some(code) = val.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()) {
 				if let Ok(qr) = qrcode::QrCode::new(code) {
@@ -176,30 +180,31 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						windows::Win32::UI::WindowsAndMessaging::MB_OK,
 					);
 				}
-				crate::platform::announce::announce(parts.qrcode_announcer, "QR code updated");
+				crate::platform::announce::announce(parts.qrcode_announcer, crate::i18n::tr("QR code updated"));
 			}
 		}
 		"qr_timeout" => {
 			if state.borrow().is_pairing_active || !parts.qr_panel.is_shown() {
 				return true;
 			}
-			parts.qrcode_instructions.set_label("QR Code expired. Click Reload to get a new code:");
+			parts.qrcode_instructions.set_label(crate::i18n::tr("QR Code expired. Click Reload to get a new code:"));
 			parts.qrcode_reload_btn.show(true);
 			parts.qrcode_reload_btn.set_focus();
 			parts.login_panel.layout();
 			crate::platform::announce::announce(
 				parts.qrcode_announcer,
-				"QR code expired. Click Reload QR Code to try again.",
+				crate::i18n::tr("QR code expired. Click Reload QR Code to try again."),
 			);
 		}
 		"error" => {
 			if let Some(msg) = val.get("data").and_then(|d| d.get("message")).and_then(|m| m.as_str()) {
-				parts.conversations_parts.play_voice_btn.set_label("Play voice message");
+				parts.conversations_parts.play_voice_btn.set_label(crate::i18n::tr("Play voice message"));
+				let translated = crate::i18n::translate_backend_message(msg);
 				// This one arrives on its own, so whatSnap is brought forward
 				// for it, and the keyboard goes back to the window afterwards.
 				let frame = windows::Win32::Foundation::HWND(parts.frame.get_handle());
 				crate::platform::focus::show_modal_and_refocus(frame, true, || {
-					MessageDialog::builder(&parts.frame, msg, "Error")
+					MessageDialog::builder(&parts.frame, &translated, crate::i18n::tr("Error"))
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 						.build()
 						.show_modal()
@@ -227,45 +232,81 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					if !mid_sync {
 						parts.frame.set_status_text(&crate::connected_status_text(&s), 0);
 					}
-					s.conn_status_text = "Status: Connected".to_string();
+					s.conn_status_text = crate::i18n::tr("Status: Connected").to_string();
 					let speak = s.conn_outage_announced || s.conn_manual_reconnect;
 					s.conn_outage_announced = false;
 					s.conn_manual_reconnect = false;
-					speak.then(|| "Connected to WhatsApp.".to_string())
+					speak.then(|| crate::i18n::tr("Connected to WhatsApp.").to_string())
 				}
 				"connecting" => {
 					let label = if message.is_empty() {
-						"Status: Connecting...".to_string()
+						crate::i18n::tr("Status: Connecting...").to_string()
 					} else {
-						format!("Status: {message} Reconnecting...")
+						let msg_tr = crate::i18n::translate_backend_message(message);
+						if crate::i18n::is_indonesian() {
+							format!("Status: {msg_tr} Menghubungkan ulang...")
+						} else {
+							format!("Status: {msg_tr} Reconnecting...")
+						}
 					};
 					parts.frame.set_status_text(&label, 0);
 					s.conn_status_text = label;
 					None
 				}
 				"offline" => {
-					let reason = if message.is_empty() { "Can't connect to WhatsApp." } else { message };
+					let reason = if message.is_empty() {
+						crate::i18n::tr("Can't connect to WhatsApp.").to_string()
+					} else {
+						crate::i18n::translate_backend_message(message)
+					};
 					let label = match retry_in {
 						Some(secs @ 1..=119) => {
-							format!("Status: Offline. {reason} Retrying in {secs} seconds.")
+							if crate::i18n::is_indonesian() {
+								format!("Status: Offline. {reason} Mencoba lagi dalam {secs} detik.")
+							} else {
+								format!("Status: Offline. {reason} Retrying in {secs} seconds.")
+							}
 						}
 						Some(secs @ 120..=7199) => {
-							format!("Status: Offline. {reason} Retrying in {} minutes.", secs.div_ceil(60))
+							let mins = secs.div_ceil(60);
+							if crate::i18n::is_indonesian() {
+								format!("Status: Offline. {reason} Mencoba lagi dalam {mins} menit.")
+							} else {
+								format!("Status: Offline. {reason} Retrying in {mins} minutes.")
+							}
 						}
 						Some(secs @ 7200..) => {
-							format!("Status: Offline. {reason} Retrying in {} hours.", secs.div_ceil(3600))
+							let hours = secs.div_ceil(3600);
+							if crate::i18n::is_indonesian() {
+								format!("Status: Offline. {reason} Mencoba lagi dalam {hours} jam.")
+							} else {
+								format!("Status: Offline. {reason} Retrying in {hours} hours.")
+							}
 						}
-						_ => format!("Status: Offline. {reason} Retrying automatically."),
+						_ => {
+							if crate::i18n::is_indonesian() {
+								format!("Status: Offline. {reason} Mencoba lagi secara otomatis.")
+							} else {
+								format!("Status: Offline. {reason} Retrying automatically.")
+							}
+						}
 					};
 					parts.frame.set_status_text(&label, 0);
 					s.conn_status_text = label;
 					let speak = !s.conn_outage_announced || s.conn_manual_reconnect;
 					s.conn_outage_announced = true;
 					s.conn_manual_reconnect = false;
-					speak.then(|| format!("{reason} whatSnap will keep trying to reconnect."))
+					speak.then(|| {
+						if crate::i18n::is_indonesian() {
+							format!("{reason} whatSnap akan terus mencoba menghubungkan kembali.")
+						} else {
+							format!("{reason} whatSnap will keep trying to reconnect.")
+						}
+					})
 				}
 				"stopped" => {
-					let label = format!("Status: {message}");
+					let msg_tr = crate::i18n::translate_backend_message(message);
+					let label = format!("Status: {msg_tr}");
 					parts.frame.set_status_text(&label, 0);
 					s.conn_status_text = label;
 					s.conn_outage_announced = true;
@@ -286,9 +327,19 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				{
 					let mut s = state.borrow_mut();
 					let label = if s.recent_sync_active && s.recent_sync_percent >= 0 {
+						let pct = s.recent_sync_percent;
+						if crate::i18n::is_indonesian() {
+							format!(
+								"Status: Terhubung (Menyinkronkan pesan lama, {pct}% selesai: {msgs_done} pesan, {chats_done} chat sejauh ini)"
+							)
+						} else {
+							format!(
+								"Status: Connected (Syncing older messages, {pct}% complete: {msgs_done} messages, {chats_done} chats so far)"
+							)
+						}
+					} else if crate::i18n::is_indonesian() {
 						format!(
-							"Status: Connected (Syncing older messages, {}% complete: {msgs_done} messages, {chats_done} chats so far)",
-							s.recent_sync_percent
+							"Status: Terhubung (Menyinkronkan riwayat... {msgs_done} pesan, {chats_done} chat sejauh ini)"
 						)
 					} else {
 						format!(
@@ -329,11 +380,15 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"history_access" => {
 			let none = val.get("data").and_then(|d| d.get("none")).and_then(|v| v.as_bool()).unwrap_or(false);
 			let msg = if none {
-				"Your phone didn't share any message history with whatSnap. New messages will still arrive."
+				crate::i18n::tr(
+					"Your phone didn't share any message history with whatSnap. New messages will still arrive.",
+				)
 			} else {
-				"Your phone shared only your recent messages with whatSnap, not your full chat history. Older messages load from your phone when you scroll to the top of a chat."
+				crate::i18n::tr(
+					"Your phone shared only your recent messages with whatSnap, not your full chat history. Older messages load from your phone when you scroll to the top of a chat.",
+				)
 			};
-			MessageDialog::builder(&parts.frame, msg, "Chat history")
+			MessageDialog::builder(&parts.frame, msg, crate::i18n::tr("Chat history"))
 				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 				.build()
 				.show_modal();
@@ -376,11 +431,16 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let err = data.get("error").and_then(|e| e.as_str()).unwrap_or("");
 					let (title, message) = if err == "no secret code configured" {
 						(
-							"Secret Code Required",
-							"No Secret Code configured.\n\nTo lock or unlock chats on linked devices, you must first create a Secret Code in WhatsApp on your primary phone:\n\n1. Open WhatsApp on your phone\n2. Go to Settings > Privacy > Chat Lock\n3. Tap 'Secret Code' and set a code.\n\nOnce set, it will sync to this device automatically.",
+							crate::i18n::tr("Secret Code Required"),
+							crate::i18n::tr(
+								"No Secret Code configured.\n\nTo lock or unlock chats on linked devices, you must first create a Secret Code in WhatsApp on your primary phone:\n\n1. Open WhatsApp on your phone\n2. Go to Settings > Privacy > Chat Lock\n3. Tap 'Secret Code' and set a code.\n\nOnce set, it will sync to this device automatically.",
+							),
 						)
 					} else {
-						("Unlock Failed", "Incorrect Secret Code.\n\nPlease check your secret code and try again.")
+						(
+							crate::i18n::tr("Unlock Failed"),
+							crate::i18n::tr("Incorrect Secret Code.\n\nPlease check your secret code and try again."),
+						)
 					};
 					let alert = MessageDialog::builder(&parts.frame, message, title)
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)

@@ -127,9 +127,21 @@ impl EmojiPanel {
 		}
 		if !query.is_empty() {
 			self.announce(&match labels.len() {
-				0 => "No emoji found.".to_string(),
-				1 => format!("1 emoji: {}", labels[0]),
-				n => format!("{} emoji.", n),
+				0 => crate::i18n::tr("No emoji found.").to_string(),
+				1 => {
+					if crate::i18n::is_indonesian() {
+						format!("1 emoji: {}", labels[0])
+					} else {
+						format!("1 emoji: {}", labels[0])
+					}
+				}
+				n => {
+					if crate::i18n::is_indonesian() {
+						format!("{n} emoji.")
+					} else {
+						format!("{n} emoji.")
+					}
+				}
 			});
 		}
 	}
@@ -181,7 +193,7 @@ impl EmojiPanel {
 
 	pub fn apply_store(&self, data: &serde_json::Value) {
 		if let Some(error) = data.get("error").and_then(|e| e.as_str()) {
-			self.announce(error);
+			self.announce(&crate::i18n::translate_backend_message(error));
 			return;
 		}
 		let text = |v: &serde_json::Value, key: &str| v.get(key).and_then(|f| f.as_str()).unwrap_or("").to_string();
@@ -195,10 +207,14 @@ impl EmojiPanel {
 						let mut label = text(p, "name");
 						let publisher = text(p, "publisher");
 						if !publisher.is_empty() {
-							label = format!("{}, by {}", label, publisher);
+							label = if crate::i18n::is_indonesian() {
+								format!("{label}, oleh {publisher}")
+							} else {
+								format!("{label}, by {publisher}")
+							};
 						}
 						if p.get("animated").and_then(|a| a.as_bool()).unwrap_or(false) {
-							label.push_str(", animated");
+							label.push_str(crate::i18n::tr(", animated"));
 						}
 						Pack { id: text(p, "id"), label }
 					})
@@ -216,7 +232,7 @@ impl EmojiPanel {
 		let id = data.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
 		if let Some(error) = data.get("error").and_then(|e| e.as_str()) {
 			if self.shown_pack().as_deref() == Some(id.as_str()) {
-				self.announce(error);
+				self.announce(&crate::i18n::translate_backend_message(error));
 			}
 			return;
 		}
@@ -250,20 +266,25 @@ impl EmojiPanel {
 		let set = self.sticker_set.get_selection().unwrap_or(FAVORITES_SET);
 		let mut s = self.state.borrow_mut();
 		let (stickers, empty) = match set {
-			FAVORITES_SET => (Some(s.favorites.clone()), "No favorite stickers yet."),
-			RECENT_SET => (Some(s.recent.clone()), "No recent stickers."),
+			FAVORITES_SET => (Some(s.favorites.clone()), crate::i18n::tr("No favorite stickers yet.")),
+			RECENT_SET => (Some(s.recent.clone()), crate::i18n::tr("No recent stickers.")),
 			_ => {
 				let pack = s.packs.get((set - FIRST_PACK_SET) as usize).map(|p| (p.id.clone(), p.label.clone()));
 				match pack {
 					Some((id, _)) if s.pack_stickers.contains_key(&id) => {
-						(s.pack_stickers.get(&id).cloned(), "This pack has no stickers.")
+						(s.pack_stickers.get(&id).cloned(), crate::i18n::tr("This pack has no stickers."))
 					}
 					Some((id, label)) => {
 						s.shown.clear();
 						drop(s);
 						self.sticker_list.clear();
 						self.send("get_sticker_pack", serde_json::json!({ "id": id }));
-						self.announce(&format!("Loading {}...", label));
+						let msg = if crate::i18n::is_indonesian() {
+							format!("Memuat {label}...")
+						} else {
+							format!("Loading {label}...")
+						};
+						self.announce(&msg);
 						return;
 					}
 					None => (None, ""),
@@ -283,8 +304,14 @@ impl EmojiPanel {
 		if say && loaded {
 			self.announce(&match labels.len() {
 				0 => empty.to_string(),
-				1 => "1 sticker.".to_string(),
-				n => format!("{} stickers.", n),
+				1 => crate::i18n::tr("1 sticker.").to_string(),
+				n => {
+					if crate::i18n::is_indonesian() {
+						format!("{n} stiker.")
+					} else {
+						format!("{n} stickers.")
+					}
+				}
 			});
 		}
 	}
@@ -304,7 +331,7 @@ pub fn show_emoji_panel(
 	stickers: bool,
 	store: impl Fn(Option<Rc<EmojiPanel>>),
 ) -> Option<PanelChoice> {
-	let dialog = Dialog::builder(parent, "Emoji and stickers")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Emoji and stickers"))
 		.with_size(480, 540)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -315,21 +342,21 @@ pub fn show_emoji_panel(
 	let emoji_page = Panel::builder(&notebook).build();
 	theme::style_content(&emoji_page);
 	let emoji_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let search_label = StaticText::builder(&emoji_page).with_label("Search emoji").build();
+	let search_label = StaticText::builder(&emoji_page).with_label(crate::i18n::tr("Search emoji")).build();
 	theme::style_muted_label(&search_label);
 	emoji_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let emoji_search = TextCtrl::builder(&emoji_page).with_style(TextCtrlStyle::ProcessEnter).build();
 	emoji_search.set_font(&theme::Fonts::body());
 	emoji_sizer.add(&emoji_search, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	let group_row = BoxSizer::builder(Orientation::Horizontal).build();
-	let group_label = StaticText::builder(&emoji_page).with_label("Group:").build();
+	let group_label = StaticText::builder(&emoji_page).with_label(crate::i18n::tr("Group:")).build();
 	let (groups, emoji) = parse_emoji();
 	let has_recent_group = RECENT_EMOJI.with(|r| !r.borrow().is_empty());
 	let mut group_names: Vec<&str> = Vec::new();
 	if has_recent_group {
-		group_names.push("Recently used");
+		group_names.push(crate::i18n::tr("Recently used"));
 	}
-	group_names.extend(groups.iter().copied());
+	group_names.extend(groups.iter().map(|g| crate::i18n::tr(g)));
 	let emoji_group =
 		ComboBox::builder(&emoji_page).with_string_choices(&group_names).with_style(ComboBoxStyle::ReadOnly).build();
 	emoji_group.set_font(&theme::Fonts::body());
@@ -340,7 +367,7 @@ pub fn show_emoji_panel(
 	let emoji_list = ListBox::builder(&emoji_page).build();
 	emoji_list.set_font(&theme::Fonts::body());
 	emoji_sizer.add(&emoji_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
-	let insert_btn = Button::builder(&emoji_page).with_label("&Insert emoji").build();
+	let insert_btn = Button::builder(&emoji_page).with_label(crate::i18n::tr("&Insert emoji")).build();
 	emoji_sizer.add(&insert_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 10);
 	emoji_page.set_sizer(emoji_sizer, true);
 
@@ -348,9 +375,9 @@ pub fn show_emoji_panel(
 	theme::style_content(&sticker_page);
 	let sticker_sizer = BoxSizer::builder(Orientation::Vertical).build();
 	let set_row = BoxSizer::builder(Orientation::Horizontal).build();
-	let set_label = StaticText::builder(&sticker_page).with_label("Stickers from:").build();
+	let set_label = StaticText::builder(&sticker_page).with_label(crate::i18n::tr("Stickers from:")).build();
 	let sticker_set = ComboBox::builder(&sticker_page)
-		.with_string_choices(&["Favorites", "Recent"])
+		.with_string_choices(&[crate::i18n::tr("Favorites"), crate::i18n::tr("Recent")])
 		.with_style(ComboBoxStyle::ReadOnly)
 		.build();
 	sticker_set.set_font(&theme::Fonts::body());
@@ -362,22 +389,23 @@ pub fn show_emoji_panel(
 	sticker_list.set_font(&theme::Fonts::body());
 	sticker_sizer.add(&sticker_list, 1, SizerFlag::Expand | SizerFlag::All, 10);
 	let sticker_buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let send_btn = Button::builder(&sticker_page).with_label("&Send sticker").build();
-	let file_btn = Button::builder(&sticker_page).with_label("Send a sticker &file (.webp)...").build();
+	let send_btn = Button::builder(&sticker_page).with_label(crate::i18n::tr("&Send sticker")).build();
+	let file_btn =
+		Button::builder(&sticker_page).with_label(crate::i18n::tr("Send a sticker &file (.webp)...")).build();
 	sticker_buttons.add(&send_btn, 0, SizerFlag::Right, 8);
 	sticker_buttons.add(&file_btn, 0, SizerFlag::empty(), 0);
 	sticker_sizer.add_sizer(&sticker_buttons, 0, SizerFlag::Left | SizerFlag::Bottom, 10);
 	sticker_page.set_sizer(sticker_sizer, true);
 
-	notebook.add_page(&emoji_page, "Emoji", !stickers, None);
-	notebook.add_page(&sticker_page, "Stickers", stickers, None);
+	notebook.add_page(&emoji_page, crate::i18n::tr("Emoji"), !stickers, None);
+	notebook.add_page(&sticker_page, crate::i18n::tr("Stickers"), stickers, None);
 	outer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
 	let announcer = StaticText::builder(&dialog).with_label("").build();
 	live_region::set_live_region(&announcer);
 	theme::style_muted_label(&announcer);
 	outer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Right, 10);
-	let close_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	outer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 10);
 	dialog.set_sizer(outer, true);
 	dialog.center();

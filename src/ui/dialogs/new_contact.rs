@@ -17,7 +17,7 @@ pub struct NewContactDialogParts {
 }
 
 pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts {
-	let dialog = Dialog::builder(parent, "New Contact")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("New Contact"))
 		.with_size(380, 320)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -26,32 +26,33 @@ pub fn build_new_contact_dialog(parent: &impl WxWidget) -> NewContactDialogParts
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let name_label = StaticText::builder(&panel).with_label("Name").build();
+	let name_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Name")).build();
 	theme::style_muted_label(&name_label);
 	sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let name_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
 	dialog_look::add_field(&sizer, &name_field, Field::Line, 0);
 
-	let surname_label = StaticText::builder(&panel).with_label("Surname").build();
+	let surname_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Surname")).build();
 	theme::style_muted_label(&surname_label);
 	sizer.add(&surname_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let surname_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
 	dialog_look::add_field(&sizer, &surname_field, Field::Line, 0);
 
-	let phone_label = StaticText::builder(&panel).with_label("Phone Number").build();
+	let phone_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Phone Number")).build();
 	theme::style_muted_label(&phone_label);
 	sizer.add(&phone_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let phone_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
 	dialog_look::add_field(&sizer, &phone_field, Field::Line, 0);
 
-	let sync_check = CheckBox::builder(&panel).with_label("Also save to my phone's WhatsApp contacts").build();
+	let sync_check =
+		CheckBox::builder(&panel).with_label(crate::i18n::tr("Also save to my phone's WhatsApp contacts")).build();
 	sync_check.set_value(true);
 	dialog_look::switch(&sync_check, theme::Palette::CONTENT_BG());
 	sizer.add(&sync_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 14);
 
-	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Create").build();
+	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Create")).build();
 	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&ok_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);

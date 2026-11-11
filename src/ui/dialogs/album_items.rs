@@ -11,7 +11,8 @@ pub fn show_album_items(
 	open: impl Fn(usize) + 'static,
 	save_as: impl Fn(usize) + 'static,
 ) {
-	let dialog = Dialog::builder(parent, title)
+	let title = crate::i18n::tr_str(title);
+	let dialog = Dialog::builder(parent, &title)
 		.with_size(420, 440)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -20,7 +21,7 @@ pub fn show_album_items(
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let list_label = StaticText::builder(&panel).with_label("Items").build();
+	let list_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Items")).build();
 	list_label.set_font(&theme::Fonts::body_strong());
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 12);
 	let list = ListBox::builder(&panel).build();
@@ -33,11 +34,11 @@ pub fn show_album_items(
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let open_btn = Button::builder(&panel).with_label("Open").build();
+	let open_btn = Button::builder(&panel).with_label(crate::i18n::tr("Open")).build();
 	dialog_look::pill_button(&open_btn, true, theme::Palette::CONTENT_BG());
-	let save_btn = Button::builder(&panel).with_label("Save as...").build();
+	let save_btn = Button::builder(&panel).with_label(crate::i18n::tr("Save as...")).build();
 	dialog_look::pill_button(&save_btn, false, theme::Palette::CONTENT_BG());
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	buttons.add(&open_btn, 0, SizerFlag::Right, 8);
 	buttons.add(&save_btn, 0, SizerFlag::Right, 8);

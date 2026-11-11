@@ -40,13 +40,13 @@ pub(crate) fn open_schedule_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
 		MessageDialog::builder(
 			&parts.frame,
-			"WhatsApp hasn't turned on scheduling messages for your account yet.",
-			"Schedule message",
+			crate::i18n::tr("WhatsApp hasn't turned on scheduling messages for your account yet."),
+			crate::i18n::tr("Schedule message"),
 		)
 		.with_style(style)
 		.build()
 		.show_modal();
-		announce(state, parts, "WhatsApp hasn't turned on scheduling messages for your account.");
+		announce(state, parts, crate::i18n::tr("WhatsApp hasn't turned on scheduling messages for your account."));
 		return;
 	}
 	if !schedulable(&s, &jid) {
@@ -54,13 +54,13 @@ pub(crate) fn open_schedule_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
 		MessageDialog::builder(
 			&parts.frame,
-			"Messages can only be scheduled in one-on-one chats and groups.",
-			"Schedule message",
+			crate::i18n::tr("Messages can only be scheduled in one-on-one chats and groups."),
+			crate::i18n::tr("Schedule message"),
 		)
 		.with_style(style)
 		.build()
 		.show_modal();
-		announce(state, parts, "Messages can only be scheduled in one-on-one chats and groups.");
+		announce(state, parts, crate::i18n::tr("Messages can only be scheduled in one-on-one chats and groups."));
 		return;
 	}
 	let text = parts.conversations_parts.message_field.get_value();
@@ -86,18 +86,18 @@ pub(crate) fn schedule_options_received(
 		let style = MessageDialogStyle::OK | MessageDialogStyle::IconWarning;
 		MessageDialog::builder(
 			&parts.frame,
-			"WhatsApp hasn't turned on scheduling messages for your account yet.",
-			"Schedule message",
+			crate::i18n::tr("WhatsApp hasn't turned on scheduling messages for your account yet."),
+			crate::i18n::tr("Schedule message"),
 		)
 		.with_style(style)
 		.build()
 		.show_modal();
-		announce(state, parts, "WhatsApp hasn't turned on scheduling messages for your account.");
+		announce(state, parts, crate::i18n::tr("WhatsApp hasn't turned on scheduling messages for your account."));
 		return;
 	}
 	let options = schedule_message::ScheduleOptions::from_json(data);
 	if options.days.is_empty() {
-		announce(state, parts, "Couldn't work out when this message can be scheduled.");
+		announce(state, parts, crate::i18n::tr("Couldn't work out when this message can be scheduled."));
 		return;
 	}
 	let Some(choice) = schedule_message::show_schedule_dialog(&parts.frame, &options, &text) else {
@@ -122,7 +122,7 @@ pub(crate) fn schedule_options_received(
 	}
 	drop(s);
 	parts.conversations_parts.message_field.set_focus();
-	announce(state, parts, "Scheduling message...");
+	announce(state, parts, crate::i18n::tr("Scheduling message..."));
 }
 
 /// "Scheduled Messages...": the open chat's scheduled messages.
@@ -132,7 +132,7 @@ pub(crate) fn show_scheduled_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<
 		let Some(jid) = s.selected_chat.clone() else { return };
 		if !schedulable(&s, &jid) {
 			drop(s);
-			announce(state, parts, "This chat has no scheduled messages.");
+			announce(state, parts, crate::i18n::tr("This chat has no scheduled messages."));
 			return;
 		}
 		let name = chat_name(&s, &jid);
@@ -164,13 +164,13 @@ pub(crate) fn scheduled_messages_received(state: &Rc<RefCell<AppState>>, data: &
 /// list's live region when it's open, and an error is shown in a box too.
 pub(crate) fn scheduled_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let ok = data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
-	let message = data.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string();
+	let message = data.get("message").and_then(|m| m.as_str()).unwrap_or("");
 	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
 	let action = data.get("action").and_then(|a| a.as_str()).unwrap_or("");
 	let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
 	if ok {
 		if !message.is_empty() {
-			announce(state, parts, &message);
+			announce(state, parts, &crate::i18n::translate_backend_message(message));
 		}
 		return;
 	}
@@ -200,18 +200,25 @@ pub(crate) fn scheduled_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 			s.draft_messages.insert(jid, text);
 		}
 	}
-	let message = if message.is_empty() { "Something went wrong.".to_string() } else { message };
+	let message = if message.is_empty() {
+		crate::i18n::tr("Something went wrong.").to_string()
+	} else {
+		crate::i18n::translate_backend_message(message)
+	};
 	let list = state.borrow().scheduled_list.clone();
 	let style = MessageDialogStyle::OK | MessageDialogStyle::IconError;
 	match list {
 		Some(list) => {
 			list.announce(&message);
-			MessageDialog::builder(&list.dialog, &message, "Scheduled messages").with_style(style).build().show_modal();
+			MessageDialog::builder(&list.dialog, &message, crate::i18n::tr("Scheduled messages"))
+				.with_style(style)
+				.build()
+				.show_modal();
 		}
 		None => {
 			let owner = windows::Win32::Foundation::HWND(parts.frame.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&parts.frame, &message, "Scheduled messages")
+				MessageDialog::builder(&parts.frame, &message, crate::i18n::tr("Scheduled messages"))
 					.with_style(style)
 					.build()
 					.show_modal()

@@ -121,6 +121,20 @@ pub fn undo_on_backspace(field: &TextCtrl) -> bool {
 }
 
 fn help_text() -> String {
+	if crate::i18n::is_indonesian() {
+		let mut text = String::from(
+			"Ganti teks menjadi emoji akan langsung mengubah karakter berikut menjadi emoji begitu huruf terakhirnya diketik. \
+			 Tekan Backspace tepat setelahnya untuk mengembalikan teks. Anda bisa menonaktifkannya di tab Chat pada Setelan.\r\n",
+		);
+		for (typed, emoji, name, example) in EMOTICONS {
+			let sent = example.replace(typed, emoji);
+			let name_id = crate::i18n::tr(name);
+			text.push_str(&format!(
+				"\r\nKetik {typed} untuk {emoji} {name_id}. Contoh: \"{example}\" menjadi \"{sent}\"."
+			));
+		}
+		return text;
+	}
 	let mut text = String::from(
 		"Replace text with emoji turns these into emoji as soon as you type their last character. \
 		 Press Backspace straight after to get the text back. You can turn it off on the Chats tab of Settings.\r\n",
@@ -133,20 +147,20 @@ fn help_text() -> String {
 }
 
 pub fn show_help(parent: &impl WxWidget) {
-	let dlg = Dialog::builder(parent, "Replace Text With Emoji")
+	let dlg = Dialog::builder(parent, crate::i18n::tr("Replace Text With Emoji"))
 		.with_size(520, 420)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	let panel = Panel::builder(&dlg).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let label = StaticText::builder(&panel).with_label("Text that turns into emoji").build();
+	let label = StaticText::builder(&panel).with_label(crate::i18n::tr("Text that turns into emoji")).build();
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 	let view = TextCtrl::builder(&panel)
 		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::Rich2)
 		.build();
 	view.set_value(&help_text());
 	sizer.add(&view, 1, SizerFlag::Expand | SizerFlag::All, 8);
-	let close_btn = Button::builder(&panel).with_id(wxdragon::id::ID_OK).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(wxdragon::id::ID_OK).with_label(crate::i18n::tr("Close")).build();
 	sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
 	panel.set_sizer(sizer, true);
 	view.on_key_down(super::keys::escape_cancels(dlg));

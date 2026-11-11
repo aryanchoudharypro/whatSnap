@@ -21,10 +21,8 @@ use crate::{
 /// toast code. Message toasts go through [`show_chat_notification`].
 pub(crate) fn show_toast_notification(title: &str, body: &str) {
 	static LAST_TOAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-	let now = std::time::SystemTime::now()
-		.duration_since(std::time::UNIX_EPOCH)
-		.map(|d| d.as_millis() as u64)
-		.unwrap_or(0);
+	let now =
+		std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
 	let last = LAST_TOAST.swap(now, std::sync::atomic::Ordering::Relaxed);
 	if now.saturating_sub(last) < 1000 {
 		return;
@@ -71,7 +69,9 @@ pub(crate) fn flush_catch_up_alerts(s: &mut AppState) {
 }
 
 pub(crate) fn show_chat_notification(s: &AppState, jid: &str, title: &str, body: &str, is_locked: bool) {
-	let can_reply = !is_locked && can_reply_from_notification(jid) && !crate::ui_commands::blocking::is_blocked(s, jid)
+	let can_reply = !is_locked
+		&& can_reply_from_notification(jid)
+		&& !crate::ui_commands::blocking::is_blocked(s, jid)
 		&& group_send_block_reason(s, jid).is_none();
 	show_chat_notification_for(jid, title, body, None, is_locked, can_reply);
 }
@@ -190,13 +190,13 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 				changed = true;
 			}
 			let label = if is_channel_readonly {
-				"Channels are read-only. Only admins can post."
+				crate::i18n::tr("Channels are read-only. Only admins can post.")
 			} else if is_group_not_member {
-				"You can't send messages to this group because you're no longer a member."
+				crate::i18n::tr("You can't send messages to this group because you're no longer a member.")
 			} else if is_group_admins_only {
-				"Only admins can send messages to this group."
+				crate::i18n::tr("Only admins can send messages to this group.")
 			} else {
-				"You cannot send messages to this chat."
+				crate::i18n::tr("You cannot send messages to this chat.")
 			};
 			if cp.message_label.get_label() != label {
 				cp.message_label.set_label(label);
@@ -278,8 +278,8 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 			cp.send_message_btn.show(has_text);
 			changed = true;
 		}
-		if cp.message_label.get_label() != "Edit message" {
-			cp.message_label.set_label("Edit message");
+		if cp.message_label.get_label() != crate::i18n::tr("Edit message") {
+			cp.message_label.set_label(crate::i18n::tr("Edit message"));
 		}
 	} else {
 		if !cp.add_attachment_btn.is_shown() {
@@ -311,9 +311,9 @@ pub(crate) fn update_composer_buttons(s: &AppState, cp: &crate::ui::conversation
 			preview.split_once(": ").map_or(preview.as_str(), |(who, _)| who)
 		} else {
 			group_send_block_reason(s, jid).unwrap_or(if jid.ends_with("@newsletter") {
-				"Type an update"
+				crate::i18n::tr("Type an update")
 			} else {
-				"Type a message"
+				crate::i18n::tr("Type a message")
 			})
 		};
 		if cp.message_label.get_label() != target_label {
@@ -394,7 +394,7 @@ pub(crate) fn open_chat_for_jid(jid: &str, state: &Rc<RefCell<AppState>>, parts:
 		parts.conversations_parts.cancel_edit_btn.show(false);
 		parts.conversations_parts.add_attachment_btn.show(true);
 		parts.conversations_parts.emoji_btn.show(true);
-		parts.conversations_parts.message_label.set_label("Type a message");
+		parts.conversations_parts.message_label.set_label(crate::i18n::tr("Type a message"));
 		parts.conversations_parts.message_field.set_value("");
 	}
 	save_composer_draft(&mut s, parts);
@@ -483,9 +483,9 @@ pub(crate) fn group_send_block_reason(s: &AppState, jid: &str) -> Option<&'stati
 	if !jid.ends_with("@g.us") {
 		None
 	} else if s.not_member_jids.contains(jid) {
-		Some("You can't send messages to this group because you're no longer a member")
+		Some(crate::i18n::tr("You can't send messages to this group because you're no longer a member"))
 	} else if s.admins_only_jids.contains(jid) && !s.admin_group_jids.contains(jid) {
-		Some("Only admins can send messages to this group")
+		Some(crate::i18n::tr("Only admins can send messages to this group"))
 	} else {
 		None
 	}
@@ -498,9 +498,9 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	let is_blocked = crate::ui_commands::blocking::is_blocked(s, jid);
 	let is_channel_readonly = jid.ends_with("@newsletter") && !crate::ui_commands::links::can_post_in_channel(s, jid);
 	let reason = if is_blocked {
-		Some("You blocked this contact. Click to unblock.")
+		Some(crate::i18n::tr("You blocked this contact. Click to unblock."))
 	} else if is_channel_readonly {
-		Some("Channels are read-only. Only admins can post updates.")
+		Some(crate::i18n::tr("Channels are read-only. Only admins can post updates."))
 	} else {
 		group_send_block_reason(s, jid)
 	};
@@ -522,8 +522,11 @@ pub(crate) fn apply_composer_access(s: &AppState, parts: &WindowParts, jid: &str
 	} else {
 		cp.blocked_banner_btn.show(false);
 		if s.editing_message_id.is_none() && s.pending_reply_preview.is_none() {
-			let label =
-				reason.unwrap_or(if jid.ends_with("@newsletter") { "Type an update" } else { "Type a message" });
+			let label = reason.unwrap_or(if jid.ends_with("@newsletter") {
+				crate::i18n::tr("Type an update")
+			} else {
+				crate::i18n::tr("Type a message")
+			});
 			if cp.message_label.get_label() != label {
 				cp.message_label.set_label(label);
 			}

@@ -20,7 +20,10 @@ pub(crate) fn open_poll_vote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	} else if m.is_event() {
 		"get_event"
 	} else {
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Not a poll or event.");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("Not a poll or event."),
+		);
 		return;
 	};
 	let payload = serde_json::json!({
@@ -47,28 +50,34 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		return;
 	}
 	if quiz && !selected.is_empty() {
-		crate::platform::announce::announce(
-			parts.conversations_parts.messages_announcer,
-			&format!("You've already answered this quiz: {}.", selected.join(", ")),
-		);
+		let joined = selected.join(", ");
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Anda sudah menjawab kuis ini: {joined}.")
+		} else {
+			format!("You've already answered this quiz: {joined}.")
+		};
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		return;
 	}
 
-	let dialog = Dialog::builder(&parts.frame, if quiz { "Answer quiz" } else { "Vote in poll" })
-		.with_size(420, 380)
-		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-		.build();
+	let dialog = Dialog::builder(
+		&parts.frame,
+		if quiz { crate::i18n::tr("Answer quiz") } else { crate::i18n::tr("Vote in poll") },
+	)
+	.with_size(420, 380)
+	.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+	.build();
 	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let hint = if quiz {
-		"Quiz, choose one answer; you can't change it afterwards"
+		crate::i18n::tr("Quiz, choose one answer; you can't change it afterwards")
 	} else if multiple {
-		"Choose one or more answers"
+		crate::i18n::tr("Choose one or more answers")
 	} else {
-		"Choose one answer"
+		crate::i18n::tr("Choose one answer")
 	};
 	let question_label = StaticText::builder(&panel).with_label(&format!("{question} ({hint})")).build();
 	question_label.set_font(&theme::Fonts::body());
@@ -101,11 +110,14 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	});
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let vote_btn = Button::builder(&panel).with_id(ID_OK).with_label(if quiz { "Answer" } else { "Vote" }).build();
+	let vote_btn = Button::builder(&panel)
+		.with_id(ID_OK)
+		.with_label(if quiz { crate::i18n::tr("Answer") } else { crate::i18n::tr("Vote") })
+		.build();
 	theme::style_primary_button(&vote_btn);
 	btn_sizer.add(&vote_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	panel.set_sizer(sizer, true);
@@ -139,7 +151,10 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		return;
 	}
 	if choice.is_empty() && selected.is_empty() {
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "No answer chosen.");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("No answer chosen."),
+		);
 		return;
 	}
 	let payload = serde_json::json!({
@@ -147,7 +162,10 @@ pub(crate) fn show_poll_vote_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 		"data": { "jid": jid, "message_id": message_id, "options": choice }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending vote...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Sending vote..."),
+	);
 }
 
 pub(crate) fn update_poll_results(
@@ -167,16 +185,54 @@ pub(crate) fn update_poll_results(
 	}
 }
 
+fn translate_event_when(when: &str) -> String {
+	if !crate::i18n::is_indonesian() || when.is_empty() {
+		return when.to_string();
+	}
+	let mut out = when.to_string();
+	for (en, id) in [
+		("Sunday", "Minggu"),
+		("Monday", "Senin"),
+		("Tuesday", "Selasa"),
+		("Wednesday", "Rabu"),
+		("Thursday", "Kamis"),
+		("Friday", "Jumat"),
+		("Saturday", "Sabtu"),
+		("January", "Januari"),
+		("February", "Februari"),
+		("March", "Maret"),
+		("April", "April"),
+		("May", "Mei"),
+		("June", "Juni"),
+		("July", "Juli"),
+		("August", "Agustus"),
+		("September", "September"),
+		("October", "Oktober"),
+		("November", "November"),
+		("December", "Desember"),
+	] {
+		out = out.replace(en, id);
+	}
+	out
+}
+
 pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	const ANSWERS: [(&str, &str); 3] = [("Going", "going"), ("Maybe", "maybe"), ("Not going", "not_going")];
 	let str_of = |k: &str| data.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
 	let (jid, message_id, name) = (str_of("jid"), str_of("message_id"), str_of("name"));
 	let (when, location, current, results) =
-		(str_of("when"), str_of("location"), str_of("response"), str_of("results"));
+		(translate_event_when(&str_of("when")), str_of("location"), str_of("response"), str_of("results"));
+	let results = if !results.is_empty() && crate::i18n::is_indonesian() {
+		let wrapped = format!("[Event] {results}");
+		let translated = crate::i18n::translate_rich_message_text(&wrapped);
+		translated.strip_prefix("Acara: ").unwrap_or(&results).to_string()
+	} else {
+		results
+	};
 	let guests_allowed = data.get("extra_guests_allowed").and_then(|v| v.as_bool()).unwrap_or(false);
 	let current_guests = data.get("extra_guests").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
 
-	let dialog = Dialog::builder(&parts.frame, "Answer event")
+	let dialog = Dialog::builder(&parts.frame, crate::i18n::tr("Answer event"))
 		.with_size(420, 360)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -196,9 +252,9 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	about_label.set_font(&theme::Fonts::body());
 	sizer.add(&about_label, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
-	let labels: Vec<&str> = ANSWERS.iter().map(|(label, _)| *label).collect();
+	let labels: Vec<&str> = ANSWERS.iter().map(|(label, _)| crate::i18n::tr(label)).collect();
 	let radio = RadioBox::builder(&panel, &labels)
-		.with_label("Your answer")
+		.with_label(crate::i18n::tr("Your answer"))
 		.with_major_dimension(1)
 		.with_style(RadioBoxStyle::SpecifyCols)
 		.build();
@@ -209,7 +265,7 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	sizer.add(&radio, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
 
 	let guests = guests_allowed.then(|| {
-		let label = StaticText::builder(&panel).with_label("Guests you're bringing").build();
+		let label = StaticText::builder(&panel).with_label(crate::i18n::tr("Guests you're bringing")).build();
 		theme::style_muted_label(&label);
 		sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 		let spin = SpinCtrl::builder(&panel).with_range(0, 20).build();
@@ -220,11 +276,11 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	});
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Send").build();
+	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Send")).build();
 	theme::style_primary_button(&ok_btn);
 	btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	panel.set_sizer(sizer, true);
@@ -251,7 +307,10 @@ pub(crate) fn show_event_rsvp_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		"data": { "jid": jid, "message_id": message_id, "response": choice, "extra_guests": extra_guests }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending your answer...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Sending your answer..."),
+	);
 }
 
 pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -261,7 +320,7 @@ pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let Some(jid) = state.borrow().selected_chat.clone() else {
 		return;
 	};
-	let dialog = Dialog::builder(&parts.frame, "Create event")
+	let dialog = Dialog::builder(&parts.frame, crate::i18n::tr("Create event"))
 		.with_size(440, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -283,21 +342,21 @@ pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		sizer.add(&ctrl, grow, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 		ctrl
 	};
-	let name_field = field("Event name", false);
-	let description_field = field("Description (optional)", true);
-	let date_field = field("Date, like 2026-10-05 (optional)", false);
-	let time_field = field("Start time, like 18:30 (optional)", false);
-	let location_field = field("Location (optional)", false);
-	let guests_check = CheckBox::builder(&panel).with_label("Allow guests").build();
+	let name_field = field(crate::i18n::tr("Event name"), false);
+	let description_field = field(crate::i18n::tr("Description (optional)"), true);
+	let date_field = field(crate::i18n::tr("Date, like 2026-10-05 (optional)"), false);
+	let time_field = field(crate::i18n::tr("Start time, like 18:30 (optional)"), false);
+	let location_field = field(crate::i18n::tr("Location (optional)"), false);
+	let guests_check = CheckBox::builder(&panel).with_label(crate::i18n::tr("Allow guests")).build();
 	guests_check.set_font(&theme::Fonts::body());
 	sizer.add(&guests_check, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let send_btn = Button::builder(&panel).with_label("Send").build();
+	let send_btn = Button::builder(&panel).with_label(crate::i18n::tr("Send")).build();
 	theme::style_primary_button(&send_btn);
 	btn_sizer.add(&send_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	btn_sizer.add(&cancel_btn, 0, SizerFlag::Right, 8);
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	panel.set_sizer(sizer, true);
@@ -311,7 +370,7 @@ pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let name_check = name_field;
 	send_btn.on_click(move |_| {
 		if name_check.get_value().trim().is_empty() {
-			MessageDialog::builder(&dlg_send, "Type a name for the event.", "Event")
+			MessageDialog::builder(&dlg_send, crate::i18n::tr("Type a name for the event."), crate::i18n::tr("Event"))
 				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 				.build()
 				.show_modal();
@@ -348,5 +407,8 @@ pub(crate) fn open_event_dialog(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	parts.conversations_parts.remove_quote_btn.show(false);
 	let payload = serde_json::json!({ "action": "send_event", "data": data });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending event...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Sending event..."),
+	);
 }

@@ -64,6 +64,38 @@ pub(super) struct ChatsEnvelope<'a> {
 	pub(super) data: Option<Vec<ChatRow<'a>>>,
 }
 
+fn translate_call_preview(text: &str) -> Option<String> {
+	let is_call = text.starts_with("Incoming voice call")
+		|| text.starts_with("Incoming video call")
+		|| text.starts_with("Incoming group voice call")
+		|| text.starts_with("Incoming group video call")
+		|| text.starts_with("Outgoing voice call")
+		|| text.starts_with("Outgoing video call")
+		|| text.starts_with("Outgoing group voice call")
+		|| text.starts_with("Outgoing group video call")
+		|| text.starts_with("Missed voice call")
+		|| text.starts_with("Missed video call")
+		|| text.starts_with("Missed group voice call")
+		|| text.starts_with("Missed group video call")
+		|| text.starts_with("Upcoming voice call")
+		|| text.starts_with("Upcoming video call")
+		|| text.starts_with("Upcoming group voice call")
+		|| text.starts_with("Upcoming group video call")
+		|| matches!(text, "Voice call" | "Video call" | "Group voice call" | "Group video call")
+		|| ((text.starts_with("Voice call, ")
+			|| text.starts_with("Video call, ")
+			|| text.starts_with("Group voice call, ")
+			|| text.starts_with("Group video call, "))
+			&& (text.contains("no answer")
+				|| text.contains("declined")
+				|| text.contains("cancelled")
+				|| text.contains("unavailable")
+				|| text.contains("failed")
+				|| text.contains("abandoned")
+				|| text.contains("on another device")));
+	is_call.then(|| translate_call_text(text))
+}
+
 pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let mut chat_list = Vec::new();
 	let mut archived_jids = std::collections::HashSet::new();
@@ -113,9 +145,13 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 					let yesterday = today.add_days(-1);
 					let num_days_ago = today.days_since(msg_date);
 					if msg_date == today {
-						local_dt.format("%I:%M %p")
+						if crate::i18n::is_indonesian() {
+							local_dt.format("%H:%M")
+						} else {
+							local_dt.format("%I:%M %p")
+						}
 					} else if msg_date == yesterday {
-						"Yesterday".to_string()
+						crate::i18n::tr("Yesterday").to_string()
 					} else if num_days_ago > 1 && num_days_ago < 7 {
 						local_dt.format("%A")
 					} else {
@@ -130,27 +166,27 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 
 			let mut tags: Vec<Cow<str>> = Vec::new();
 			if is_locked {
-				tags.push("Locked".into());
+				tags.push(crate::i18n::tr("Locked").into());
 				locked_jids.insert(jid.to_string());
 			}
 			if archived {
-				tags.push("Archived".into());
+				tags.push(crate::i18n::tr("Archived").into());
 				archived_jids.insert(jid.to_string());
 			}
 			if pinned {
-				tags.push("Pinned".into());
+				tags.push(crate::i18n::tr("Pinned").into());
 				pinned_jids.insert(jid.to_string());
 			}
 			if muted {
-				tags.push("Muted".into());
+				tags.push(crate::i18n::tr("Muted").into());
 				muted_jids.insert(jid.to_string());
 			}
 			if is_community {
-				tags.push("Community".into());
+				tags.push(crate::i18n::tr("Community").into());
 				community_jids.insert(jid.to_string());
 			}
 			if chat.is_channel {
-				tags.push("Channel".into());
+				tags.push(crate::i18n::tr("Channel").into());
 				channel_jids.insert(jid.to_string());
 				let role = &*chat.channel_role;
 				channel_roles.insert(jid.to_string(), role.to_string());
@@ -161,10 +197,15 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 				let community_name = &*chat.community_name;
 				if chat.is_announcements {
 					announcement_jids.insert(jid.to_string());
-					tags.push("Announcements".into());
+					tags.push(crate::i18n::tr("Announcements").into());
 				}
 				if !community_name.is_empty() && community_name != name {
-					tags.push(format!("In {}", community_name).into());
+					let in_comm = if crate::i18n::is_indonesian() {
+						format!("Di {community_name}")
+					} else {
+						format!("In {community_name}")
+					};
+					tags.push(in_comm.into());
 				}
 			}
 			if chat.is_admin {
@@ -184,9 +225,13 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			let name_line = if tags.is_empty() { name.clone() } else { format!("{} [{}]", name, tags.join("] [")) };
 
 			let mut unread_line = if unread == 1 {
-				"1 unread message".to_string()
+				crate::i18n::tr("1 unread message").to_string()
 			} else if unread > 1 {
-				format!("{} unread messages", unread)
+				if crate::i18n::is_indonesian() {
+					format!("{unread} pesan belum dibaca")
+				} else {
+					format!("{unread} unread messages")
+				}
 			} else {
 				String::new()
 			};
@@ -194,33 +239,40 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 			// messages that mention you, mention everyone or reply to you.
 			let mentions = if unread > 0 && jid.ends_with("@g.us") { chat.unread_mentions } else { 0 };
 			if mentions == 1 {
-				unread_line.push_str(", 1 mention");
+				unread_line.push_str(crate::i18n::tr(", 1 mention"));
 			} else if mentions > 1 {
-				unread_line.push_str(&format!(", {} mentions", mentions));
+				if crate::i18n::is_indonesian() {
+					unread_line.push_str(&format!(", {mentions} sebutan"));
+				} else {
+					unread_line.push_str(&format!(", {mentions} mentions"));
+				}
 			}
 
+			let body_raw = if preview.is_empty() {
+				String::new()
+			} else {
+				translate_call_preview(preview).unwrap_or_else(|| whatsnap::friendly_preview_text(preview))
+			};
 			let preview_line = if preview_is_reaction && !preview_reaction_emoji.is_empty() && !preview.is_empty() {
 				let who = if preview_from_me {
-					"You".to_string()
+					crate::i18n::tr("You").to_string()
 				} else if !preview_sender.is_empty() {
 					preview_sender.to_string()
 				} else {
-					"Someone".to_string()
+					crate::i18n::tr("Someone").to_string()
 				};
-				format!(
-					"{} reacted with {} to: {}",
-					who,
-					preview_reaction_emoji,
-					whatsnap::friendly_preview_text(preview)
-				)
-			} else if !preview.is_empty() {
-				let body = whatsnap::friendly_preview_text(preview);
-				if preview_from_me {
-					format!("You: {}", body)
-				} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
-					format!("{}: {}", preview_sender, body)
+				if crate::i18n::is_indonesian() {
+					format!("{who} bereaksi {preview_reaction_emoji} ke: {body_raw}")
 				} else {
-					body
+					format!("{who} reacted with {preview_reaction_emoji} to: {body_raw}")
+				}
+			} else if !preview.is_empty() {
+				if preview_from_me {
+					format!("{}{}", crate::i18n::tr("You: "), body_raw)
+				} else if !preview_sender.is_empty() && jid.ends_with("@g.us") {
+					format!("{preview_sender}: {body_raw}")
+				} else {
+					body_raw.clone()
 				}
 			} else {
 				String::new()
@@ -232,15 +284,18 @@ pub(super) fn apply_chats(chats: Vec<ChatRow>, state: &Rc<RefCell<AppState>>, pa
 				(String::new(), None, preview_line.clone())
 			} else {
 				let (icon, text) = crate::ui::chat_rows::preview_icon(preview);
-				let prefix = if preview_from_me {
-					""
-				} else {
-					preview_line.strip_suffix(&whatsnap::friendly_preview_text(preview)).unwrap_or("")
-				};
-				(prefix.to_string(), icon, text)
+				let prefix = if preview_from_me { "" } else { preview_line.strip_suffix(&body_raw).unwrap_or("") };
+				let preview_text = if icon.is_none() { body_raw } else { text };
+				(prefix.to_string(), icon, preview_text)
 			};
-			let extra: Vec<&str> =
-				tags.iter().map(|t| t.as_ref()).filter(|t| !matches!(*t, "Pinned" | "Muted" | "Locked")).collect();
+			let pinned_tag = crate::i18n::tr("Pinned");
+			let muted_tag = crate::i18n::tr("Muted");
+			let locked_tag = crate::i18n::tr("Locked");
+			let extra: Vec<&str> = tags
+				.iter()
+				.map(|t| t.as_ref())
+				.filter(|t| *t != pinned_tag && *t != muted_tag && *t != locked_tag)
+				.collect();
 			row_art.insert(
 				jid.to_string(),
 				crate::ui::chat_rows::RowArt {

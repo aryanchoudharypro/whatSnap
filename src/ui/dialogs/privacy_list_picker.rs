@@ -38,13 +38,13 @@ pub fn pick_excluded_contacts(
 	contacts: &[Contact],
 	excluded: &[Contact],
 ) -> Option<Vec<String>> {
-	pick_contacts(
-		parent,
-		&format!("{}: My Contacts Except...", setting),
-		"Checked contacts won't be able to see it",
-		contacts,
-		excluded,
-	)
+	let localized_setting = crate::i18n::tr_str(setting);
+	let title = if crate::i18n::is_indonesian() {
+		format!("{localized_setting}: Kontak Saya Kecuali...")
+	} else {
+		format!("{localized_setting}: My Contacts Except...")
+	};
+	pick_contacts(parent, &title, crate::i18n::tr("Checked contacts won't be able to see it"), contacts, excluded)
 }
 
 pub struct PickerWords<'a> {
@@ -93,21 +93,21 @@ pub fn pick_with(
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label(words.search).build();
+	let search_label = StaticText::builder(&panel).with_label(&crate::i18n::tr_str(words.search)).build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let search_field = TextCtrl::builder(&panel).build();
 	search_field.set_font(&theme::Fonts::body());
 	sizer.add(&search_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let list_label = StaticText::builder(&panel).with_label(hint).build();
+	let list_label = StaticText::builder(&panel).with_label(&crate::i18n::tr_str(hint)).build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let list = CheckListBox::builder(&panel).build();
 	list.set_font(&theme::Fonts::body());
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let select_all = CheckBox::builder(&panel).with_label("Select all").build();
+	let select_all = CheckBox::builder(&panel).with_label(crate::i18n::tr("Select all")).build();
 	sizer.add(&select_all, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let announcer = StaticText::builder(&panel).with_label("").build();
@@ -116,9 +116,9 @@ pub fn pick_with(
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let done_btn = Button::builder(&panel).with_id(ID_OK).with_label("Done").build();
+	let done_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Done")).build();
 	dialog_look::pill_button(&done_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	btn_sizer.add(&done_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
@@ -159,7 +159,7 @@ pub fn pick_with(
 		}
 	};
 	fill("");
-	let counts = (words.on.to_string(), words.one.to_string(), words.many.to_string());
+	let counts = (crate::i18n::tr_str(words.on), crate::i18n::tr_str(words.one), crate::i18n::tr_str(words.many));
 	crate::platform::announce::announce(announcer, &counted(&counts, state.borrow().checked.len()));
 
 	// Rebuilt only once typing pauses, as in the other contact pickers:
@@ -172,7 +172,12 @@ pub fn pick_with(
 		let query = search_field.get_value().to_lowercase().trim().to_string();
 		let shown = fill(&query);
 		let count = state_search.borrow().checked.len();
-		crate::platform::announce::announce(announcer, &format!("{} shown. {}", shown, counted(&search_words, count)));
+		let msg = if crate::i18n::is_indonesian() {
+			format!("{shown} ditampilkan. {}", counted(&search_words, count))
+		} else {
+			format!("{shown} shown. {}", counted(&search_words, count))
+		};
+		crate::platform::announce::announce(announcer, &msg);
 	});
 	let timer_for_typing = search_timer.clone();
 	search_field.on_text_changed(move |_| {
@@ -183,7 +188,7 @@ pub fn pick_with(
 	let state_toggle = state.clone();
 	let counts_all = counts.clone();
 	let toggle_words = counts;
-	let off = words.off.to_string();
+	let off = crate::i18n::tr_str(words.off);
 	list.on_toggled(move |event| {
 		let Some(idx) = event.get_selection() else { return };
 		let mut s = state_toggle.borrow_mut();
@@ -222,7 +227,7 @@ pub fn pick_with(
 	crate::ui::keys::escape_cancels_anywhere(dialog);
 
 	let state_done = state.clone();
-	let require_one = words.require_one.map(str::to_string);
+	let require_one = words.require_one.map(crate::i18n::tr_str);
 	done_btn.on_click(move |_| {
 		if let Some(message) = &require_one
 			&& state_done.borrow().checked.is_empty()
@@ -248,6 +253,12 @@ pub fn pick_with(
 }
 
 fn counted((on, one, many): &(String, String, String), count: usize) -> String {
+	if crate::i18n::is_indonesian() {
+		return match count {
+			0 => format!("Tidak ada {many} {on}."),
+			n => format!("{n} {many} {on}."),
+		};
+	}
 	match count {
 		0 => format!("No {} {}.", many, on),
 		1 => format!("1 {} {}.", one, on),

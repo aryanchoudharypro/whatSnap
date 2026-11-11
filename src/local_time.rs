@@ -23,6 +23,7 @@ impl Date {
 }
 
 const WEEKDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAYS_ID: [&str; 7] = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
 const MONTHS: [&str; 12] = [
 	"January",
 	"February",
@@ -36,6 +37,20 @@ const MONTHS: [&str; 12] = [
 	"October",
 	"November",
 	"December",
+];
+const MONTHS_ID: [&str; 12] = [
+	"Januari",
+	"Februari",
+	"Maret",
+	"April",
+	"Mei",
+	"Juni",
+	"Juli",
+	"Agustus",
+	"September",
+	"Oktober",
+	"November",
+	"Desember",
 ];
 
 impl LocalTime {
@@ -104,8 +119,9 @@ impl LocalTime {
 			0 => 12,
 			h => h,
 		};
-		let weekday = WEEKDAYS[self.weekday as usize % 7];
-		let month = MONTHS[(self.month as usize + 11) % 12];
+		let is_id = crate::i18n::is_indonesian();
+		let weekday = if is_id { WEEKDAYS_ID } else { WEEKDAYS }[self.weekday as usize % 7];
+		let month = if is_id { MONTHS_ID } else { MONTHS }[(self.month as usize + 11) % 12];
 		while let Some(c) = chars.next() {
 			if c != '%' {
 				out.push(c);

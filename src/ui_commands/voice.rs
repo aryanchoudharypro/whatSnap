@@ -63,7 +63,7 @@ pub(crate) fn stop_voice_preview(s: &mut AppState, parts: &Rc<WindowParts>) {
 	if let Some(merged) = s.voice_preview_merged_path.take() {
 		let _ = std::fs::remove_file(merged);
 	}
-	parts.conversations_parts.preview_voice_btn.set_label("Play preview");
+	parts.conversations_parts.preview_voice_btn.set_label(crate::i18n::tr("Play preview"));
 	parts.conversations_parts.preview_voice_btn.show(false);
 }
 
@@ -77,14 +77,20 @@ pub(crate) fn toggle_voice_preview(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		if s.is_voice_preview_playing {
 			sink.pause();
 			s.is_voice_preview_playing = false;
-			parts.conversations_parts.preview_voice_btn.set_label("Play preview");
-			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Voice preview paused.");
+			parts.conversations_parts.preview_voice_btn.set_label(crate::i18n::tr("Play preview"));
+			crate::platform::announce::announce(
+				parts.conversations_parts.messages_announcer,
+				crate::i18n::tr("Voice preview paused."),
+			);
 			return;
 		} else {
 			sink.play();
 			s.is_voice_preview_playing = true;
-			parts.conversations_parts.preview_voice_btn.set_label("Pause preview");
-			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Playing voice preview.");
+			parts.conversations_parts.preview_voice_btn.set_label(crate::i18n::tr("Pause preview"));
+			crate::platform::announce::announce(
+				parts.conversations_parts.messages_announcer,
+				crate::i18n::tr("Playing voice preview."),
+			);
 			return;
 		}
 	}
@@ -114,8 +120,11 @@ pub(crate) fn toggle_voice_preview(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		if let Some(sink) = do_seek(stream_handle, &preview_path, 0.0, 1.0) {
 			s.voice_preview_sink = Some(sink);
 			s.is_voice_preview_playing = true;
-			parts.conversations_parts.preview_voice_btn.set_label("Pause preview");
-			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Playing voice preview.");
+			parts.conversations_parts.preview_voice_btn.set_label(crate::i18n::tr("Pause preview"));
+			crate::platform::announce::announce(
+				parts.conversations_parts.messages_announcer,
+				crate::i18n::tr("Playing voice preview."),
+			);
 		}
 	}
 }
@@ -156,7 +165,7 @@ pub(crate) fn start_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 pub(crate) fn stop_recording(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
-		"Voice recording stopped. Ready to send.",
+		crate::i18n::tr("Voice recording stopped. Ready to send."),
 	);
 }
 
@@ -212,13 +221,13 @@ pub(crate) fn toggle_pause_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			if let Some(jid) = s.selected_chat.clone() {
 				crate::ui_commands::messaging::mark_paused(&mut s, &jid);
 			}
-			parts.conversations_parts.pause_resume_btn.set_label("Resume recording");
-			parts.conversations_parts.preview_voice_btn.set_label("Play preview");
+			parts.conversations_parts.pause_resume_btn.set_label(crate::i18n::tr("Resume recording"));
+			parts.conversations_parts.preview_voice_btn.set_label(crate::i18n::tr("Play preview"));
 			parts.conversations_parts.preview_voice_btn.show(true);
 			parts.conversations_parts.conversation_panel.layout();
 			crate::platform::announce::announce(
 				parts.conversations_parts.messages_announcer,
-				"Voice recording paused. Preview available.",
+				crate::i18n::tr("Voice recording paused. Preview available."),
 			);
 		}
 	}
@@ -259,18 +268,18 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 					crate::ui_commands::messaging::mark_composing(&mut s, &jid, "audio");
 				}
 				parts.conversations_parts.preview_voice_btn.show(false);
-				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+				parts.conversations_parts.pause_resume_btn.set_label(crate::i18n::tr("Pause recording"));
 				parts.conversations_parts.conversation_panel.layout();
 				crate::platform::announce::announce(
 					parts.conversations_parts.messages_announcer,
-					"Voice recording resumed.",
+					crate::i18n::tr("Voice recording resumed."),
 				);
 			}
 			Err(e) => {
 				eprintln!("[LOG UI] Failed to resume voice recording: {:?}", e);
 				crate::platform::announce::announce(
 					parts.conversations_parts.messages_announcer,
-					"Failed to resume recording.",
+					crate::i18n::tr("Failed to resume recording."),
 				);
 			}
 		}
@@ -304,19 +313,19 @@ pub(crate) fn voice_recording_ready(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 				parts.conversations_parts.view_once_voice_check.set_value(false);
 				parts.conversations_parts.view_once_voice_check.show(!in_channel);
 				parts.conversations_parts.send_voice_btn.show(true);
-				parts.conversations_parts.pause_resume_btn.set_label("Pause recording");
+				parts.conversations_parts.pause_resume_btn.set_label(crate::i18n::tr("Pause recording"));
 				parts.conversations_parts.conversation_panel.layout();
 				parts.conversations_parts.send_voice_btn.set_focus();
 				crate::platform::announce::announce(
 					parts.conversations_parts.messages_announcer,
-					"Recording voice message...",
+					crate::i18n::tr("Recording voice message..."),
 				);
 			}
 			Err(e) => {
 				eprintln!("[LOG UI] Failed to start voice recording: {:?}", e);
 				crate::platform::announce::announce(
 					parts.conversations_parts.messages_announcer,
-					"Failed to start microphone recording.",
+					crate::i18n::tr("Failed to start microphone recording."),
 				);
 			}
 		}
@@ -441,7 +450,11 @@ pub(crate) fn send_voice_message(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		});
 
 		play_notification_sound(NotificationSound::VoiceMessageSent, sounds_enabled, output_device_name);
-		let sent = if view_once { "View once voice message sent." } else { "Voice message sent." };
+		let sent = if view_once {
+			crate::i18n::tr("View once voice message sent.")
+		} else {
+			crate::i18n::tr("Voice message sent.")
+		};
 		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, sent);
 	}
 
@@ -496,7 +509,10 @@ pub(crate) fn discard_recording(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	crate::ui::chat_ui::update_composer_buttons(&state.borrow(), &parts.conversations_parts);
 	parts.conversations_parts.message_field.set_focus();
 	parts.conversations_parts.conversation_panel.layout();
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Voice recording discarded.");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Voice recording discarded."),
+	);
 }
 
 pub(crate) fn play_voice_message(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, msg_id: String) {
@@ -531,7 +547,7 @@ pub(crate) fn stop_voice_message(s: &mut AppState, parts: &WindowParts) -> bool 
 	s.audio_start_instant = None;
 	s.is_audio_paused = false;
 	let cp = &parts.conversations_parts;
-	cp.play_voice_btn.set_label("Play voice message");
+	cp.play_voice_btn.set_label(crate::i18n::tr("Play voice message"));
 	cp.audio_slider.set_value(0);
 	cp.audio_slider.show(false);
 	cp.audio_speed_btn.show(false);
@@ -569,9 +585,9 @@ pub(crate) fn seek_audio(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
 		s.is_audio_paused = was_paused;
 		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
-			"Play voice message"
+			crate::i18n::tr("Play voice message")
 		} else {
-			"Pause voice message"
+			crate::i18n::tr("Pause voice message")
 		});
 		let max_sec = (total as i32).max(1);
 		let pos = (target as i32).max(0).min(max_sec);
@@ -603,9 +619,9 @@ pub(crate) fn seek_audio_absolute(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
 		s.is_audio_paused = was_paused;
 		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
-			"Play voice message"
+			crate::i18n::tr("Play voice message")
 		} else {
-			"Pause voice message"
+			crate::i18n::tr("Pause voice message")
 		});
 		let max_sec = (total as i32).max(1);
 		let pos = (target as i32).max(0).min(max_sec);
@@ -650,9 +666,9 @@ pub(crate) fn toggle_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
 		s.is_audio_paused = was_paused;
 		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
-			"Play voice message"
+			crate::i18n::tr("Play voice message")
 		} else {
-			"Pause voice message"
+			crate::i18n::tr("Pause voice message")
 		});
 	}
 }
@@ -692,9 +708,9 @@ pub(crate) fn increase_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
 		s.is_audio_paused = was_paused;
 		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
-			"Play voice message"
+			crate::i18n::tr("Play voice message")
 		} else {
-			"Pause voice message"
+			crate::i18n::tr("Pause voice message")
 		});
 	}
 }
@@ -734,9 +750,9 @@ pub(crate) fn decrease_audio_speed(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		s.audio_start_instant = if was_paused { None } else { Some(std::time::Instant::now()) };
 		s.is_audio_paused = was_paused;
 		parts.conversations_parts.play_voice_btn.set_label(if was_paused {
-			"Play voice message"
+			crate::i18n::tr("Play voice message")
 		} else {
-			"Pause voice message"
+			crate::i18n::tr("Pause voice message")
 		});
 	}
 }

@@ -77,7 +77,9 @@ pub(crate) fn ticks_for(status: &str) -> Ticks {
 }
 
 fn short_time(ts: i64) -> String {
-	whatsnap::LocalTime::from_unix(ts).map(|t| t.format("%l:%M %p").trim().to_string()).unwrap_or_default()
+	whatsnap::LocalTime::from_unix(ts)
+		.map(|t| if crate::i18n::is_indonesian() { t.format("%H:%M") } else { t.format("%l:%M %p").trim().to_string() })
+		.unwrap_or_default()
 }
 
 fn has_picture(msg: &whatsnap::ChatMessage) -> bool {
@@ -85,7 +87,9 @@ fn has_picture(msg: &whatsnap::ChatMessage) -> bool {
 		&& !msg.text.starts_with("[View once]")
 		&& !msg.is_deleted
 		&& !msg.text.contains("deleted this message")
+		&& !msg.text.contains("menghapus pesan ini")
 		&& msg.text != "This message was deleted"
+		&& msg.text != crate::i18n::tr("This message was deleted")
 }
 
 fn sender_name(msg: &whatsnap::ChatMessage) -> String {
@@ -129,7 +133,7 @@ fn name_colour(jid: &str) -> usize {
 fn quote_of(msg: &whatsnap::ChatMessage) -> Option<(String, String)> {
 	let (sender, body) = msg.reply_parts()?;
 	let sender = match sender.as_str() {
-		"quoted message" => String::new(),
+		"quoted message" | "pesan yang dikutip" => String::new(),
 		s => s.trim_start_matches('@').to_string(),
 	};
 	let body = match preview_icon(&msg.quoted_text) {
@@ -142,18 +146,30 @@ fn quote_of(msg: &whatsnap::ChatMessage) -> Option<(String, String)> {
 pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 	match item {
 		whatsnap::DisplayItem::Single(msg) => {
-			if msg.is_date_divider || msg.is_unread_divider || msg.is_system() {
+			if msg.is_date_divider || msg.is_unread_divider {
 				return Look::Pill(msg.text.clone());
 			}
-			let deleted = msg.is_deleted || msg.body_text() == "This message was deleted";
+			if msg.is_system() {
+				return Look::Pill(crate::i18n::translate_system_message(&msg.text));
+			}
+			let deleted_text = crate::i18n::tr("This message was deleted");
+			let deleted =
+				msg.is_deleted || msg.body_text() == deleted_text || msg.body_text() == "This message was deleted";
 			let voice = !deleted && msg.is_voice();
 			let (icon, body) = if deleted {
-				let text = if msg.from_me { "You deleted this message" } else { "This message was deleted" };
+				let text = if msg.from_me {
+					crate::i18n::tr("You deleted this message")
+				} else {
+					crate::i18n::tr("This message was deleted")
+				};
 				(Some(icon::DELETED), text.to_string())
 			} else if voice {
 				let body = msg.body_text();
 				let glyph = if msg.text.starts_with("[Audio]") { icon::AUDIO } else { icon::MICROPHONE };
-				let duration = body.split_once("Duration: ").map(|(_, d)| d.to_string());
+				let duration = body
+					.split_once(crate::i18n::tr("Duration: "))
+					.or_else(|| body.split_once("Duration: "))
+					.map(|(_, d)| d.to_string());
 				(Some(glyph), duration.unwrap_or_default())
 			} else {
 				match preview_icon(&msg.text) {
@@ -169,7 +185,7 @@ pub(crate) fn look_for(item: &whatsnap::DisplayItem, is_group: bool) -> Look {
 				sender_colour: name_colour(&msg.sender_jid),
 				quote: if deleted { None } else { quote_of(msg) },
 				icon: if picture && msg.media_type != "video" { None } else { icon },
-				body: if picture && matches!(body.as_str(), "Photo" | "Video" | "Sticker") {
+				body: if picture && matches!(body.as_str(), "Photo" | "Video" | "Sticker" | "Foto" | "Stiker") {
 					String::new()
 				} else {
 					body
@@ -600,7 +616,7 @@ fn layout(dc: &impl DeviceContext, fonts: &Fonts, b: &Bubble, room: i32) -> Layo
 
 	let mut meta = String::new();
 	if b.edited {
-		meta.push_str("Edited ");
+		meta.push_str(crate::i18n::tr("Edited "));
 	}
 	meta.push_str(&b.time);
 	let meta_w = fonts.width(dc, Face::Small, &meta);
@@ -945,7 +961,7 @@ fn draw_bubble(
 		dc.draw_rectangle(inner_x - 2, y, 4, l.quote_h);
 		let text_x = inner_x + PAD;
 		let text_w = inner_w - PAD - 4;
-		let who = if who.is_empty() { "Quoted message".to_string() } else { who.clone() };
+		let who = if who.is_empty() { crate::i18n::tr("Quoted message").to_string() } else { who.clone() };
 		dc.set_font(&fonts.bold);
 		dc.set_text_foreground(bar);
 		dc.draw_text(&fonts.fit(dc, Face::Bold, &who, text_w), text_x, y + PAD / 2);

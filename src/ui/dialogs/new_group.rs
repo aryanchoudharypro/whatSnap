@@ -26,7 +26,7 @@ pub struct NewGroupDialogParts {
 }
 
 pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
-	let dialog = Dialog::builder(parent, "New group")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("New Group"))
 		.with_size(460, 560)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -35,17 +35,17 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let name_label = StaticText::builder(&panel).with_label("Group name").build();
+	let name_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Group name")).build();
 	theme::style_muted_label(&name_label);
 	sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let name_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
 	dialog_look::add_field(&sizer, &name_field, Field::Line, 0);
 
-	let contacts_label = StaticText::builder(&panel).with_label("Contacts").build();
+	let contacts_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Contacts")).build();
 	theme::style_heading(&contacts_label);
 	sizer.add(&contacts_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let search_label = StaticText::builder(&panel).with_label("Search contacts").build();
+	let search_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Search contacts")).build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let search_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
@@ -60,16 +60,16 @@ pub fn build_new_group_dialog(parent: &impl WxWidget) -> NewGroupDialogParts {
 	theme::style_muted_label(&selection_announcer);
 	sizer.add(&selection_announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let extra_label = StaticText::builder(&panel).with_label("Extra number (optional)").build();
+	let extra_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Extra number (optional)")).build();
 	theme::style_muted_label(&extra_label);
 	sizer.add(&extra_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let extra_number_field =
 		TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
 	dialog_look::add_field(&sizer, &extra_number_field, Field::Line, 0);
 
-	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label("Create group").build();
+	let ok_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Create group")).build();
 	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&ok_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);

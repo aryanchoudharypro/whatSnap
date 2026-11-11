@@ -24,10 +24,16 @@ impl MessageOption {
 			row.push_str(&self.description);
 		}
 		match self.kind.as_str() {
-			"url" => row.push_str(", link"),
-			"call" => row.push_str(&format!(", phone number {}", self.value)),
-			"copy" => row.push_str(", copies a code"),
-			"phone" => row.push_str(", only works on your phone"),
+			"url" => row.push_str(crate::i18n::tr(", link")),
+			"call" => {
+				if crate::i18n::is_indonesian() {
+					row.push_str(&format!(", nomor telepon {}", self.value));
+				} else {
+					row.push_str(&format!(", phone number {}", self.value));
+				}
+			}
+			"copy" => row.push_str(crate::i18n::tr(", copies a code")),
+			"phone" => row.push_str(crate::i18n::tr(", only works on your phone")),
 			_ => {}
 		}
 		row
@@ -35,11 +41,11 @@ impl MessageOption {
 
 	fn action(&self) -> &'static str {
 		match self.kind.as_str() {
-			"reply" => "&Send",
-			"url" => "&Open Link",
-			"call" => "&Copy Number",
-			"copy" => "&Copy Code",
-			_ => "&Send",
+			"reply" => crate::i18n::tr("&Send"),
+			"url" => crate::i18n::tr("&Open Link"),
+			"call" => crate::i18n::tr("&Copy Number"),
+			"copy" => crate::i18n::tr("&Copy Code"),
+			_ => crate::i18n::tr("&Send"),
 		}
 	}
 }
@@ -74,10 +80,11 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		return;
 	}
 
-	let dialog = Dialog::builder(&parts.frame, if heading.is_empty() { "Message buttons" } else { &heading })
-		.with_size(460, 420)
-		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-		.build();
+	let dialog =
+		Dialog::builder(&parts.frame, if heading.is_empty() { crate::i18n::tr("Message buttons") } else { &heading })
+			.with_size(460, 420)
+			.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+			.build();
 	theme::style_content(&dialog);
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
@@ -93,12 +100,16 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		}
 		rows.push(row);
 	}
-	let count = match options.len() {
-		1 => "1 option".to_string(),
-		n => format!("{n} options"),
+	let count = if crate::i18n::is_indonesian() {
+		format!("{} pilihan", options.len())
+	} else {
+		match options.len() {
+			1 => "1 option".to_string(),
+			n => format!("{n} options"),
+		}
 	};
 	let list_label = StaticText::builder(&panel)
-		.with_label(&format!("{} ({count})", if heading.is_empty() { "Buttons" } else { &heading }))
+		.with_label(&format!("{} ({count})", if heading.is_empty() { crate::i18n::tr("Buttons") } else { &heading }))
 		.build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
@@ -113,7 +124,7 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	let action_btn = Button::builder(&panel).with_id(ID_OK).with_label(options[0].action()).build();
 	theme::style_primary_button(&action_btn);
 	action_btn.enable(options[0].kind != "phone");
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	buttons.add(&action_btn, 0, SizerFlag::Right, 8);
 	buttons.add_stretch_spacer(1);
 	buttons.add(&close_btn, 0, SizerFlag::empty(), 0);
@@ -160,13 +171,22 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 					}
 				}
 				"call" | "copy" => {
-					let what = if option.kind == "call" { "Number" } else { "Code" };
 					if crate::platform::clipboard::copy_text(&option.value) {
-						crate::platform::announce::announce(announcer, &format!("{what} copied: {}", option.value));
+						let msg = if crate::i18n::is_indonesian() {
+							let what = if option.kind == "call" { "Nomor" } else { "Kode" };
+							format!("{what} disalin: {}", option.value)
+						} else {
+							let what = if option.kind == "call" { "Number" } else { "Code" };
+							format!("{what} copied: {}", option.value)
+						};
+						crate::platform::announce::announce(announcer, &msg);
 					}
 				}
 				_ => {
-					crate::platform::announce::announce(announcer, "This button only works in WhatsApp on your phone.");
+					crate::platform::announce::announce(
+						announcer,
+						crate::i18n::tr("This button only works in WhatsApp on your phone."),
+					);
 				}
 			}
 		}
@@ -188,10 +208,12 @@ pub(crate) fn show_message_options(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 		"data": { "jid": jid, "message_id": message_id, "index": i }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Sending {}...", options[i].label),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Mengirim {}...", options[i].label)
+	} else {
+		format!("Sending {}...", options[i].label)
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
 pub(crate) fn open_order_details(state: &Rc<RefCell<AppState>>, message_id: String) {
@@ -209,7 +231,10 @@ pub(crate) fn open_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		"data": { "jid": jid, "message_id": message_id.unwrap_or_default() }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Loading catalogue...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Loading catalogue..."),
+	);
 }
 
 /// Read-only text in a field a screen reader can move through line by line,
@@ -232,7 +257,7 @@ fn show_text(parts: &Rc<WindowParts>, title: &str, label: &str, text: &str) {
 	field.set_font(&theme::Fonts::body());
 	field.set_value(&text.replace("\r\n", "\n").replace('\n', "\r\n"));
 	sizer.add(&field, 1, SizerFlag::Expand | SizerFlag::All, 10);
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::Right | SizerFlag::Bottom, 10);
 	panel.set_sizer(sizer, true);
 	let outer = BoxSizer::builder(Orientation::Vertical).build();
@@ -247,10 +272,31 @@ fn show_text(parts: &Rc<WindowParts>, title: &str, label: &str, text: &str) {
 	dialog.destroy();
 }
 
+fn translate_order_text(text: &str) -> String {
+	if !crate::i18n::is_indonesian() {
+		return text.to_string();
+	}
+	text.lines()
+		.map(|line| {
+			if let Some(rest) = line.strip_prefix("Placed ") {
+				format!("Dipesan {rest}")
+			} else if let Some(rest) = line.strip_prefix("Note: ") {
+				format!("Catatan: {rest}")
+			} else if let Some(rest) = line.strip_suffix(" each") {
+				format!("{rest} per item")
+			} else {
+				line.to_string()
+			}
+		})
+		.collect::<Vec<_>>()
+		.join("\n")
+}
+
 pub(crate) fn show_order_details(parts: &Rc<WindowParts>, data: &serde_json::Value) {
-	let title = data.get("title").and_then(|t| t.as_str()).unwrap_or("Order");
-	let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
-	show_text(parts, title, "Order details", text);
+	let raw_title = data.get("title").and_then(|t| t.as_str()).unwrap_or("Order");
+	let title = if raw_title == "Order" { crate::i18n::tr("Order") } else { raw_title };
+	let text = translate_order_text(data.get("text").and_then(|t| t.as_str()).unwrap_or(""));
+	show_text(parts, title, crate::i18n::tr("Order details"), &text);
 }
 
 struct Product {
@@ -268,32 +314,46 @@ struct Product {
 
 impl Product {
 	fn row(&self) -> String {
-		let mut row = self.name.clone();
+		let name = if self.name == "Unnamed product" { crate::i18n::tr("Unnamed product") } else { self.name.as_str() };
+		let mut row = name.to_string();
 		if !self.sale_price.is_empty() {
-			row.push_str(&format!(", {} on sale", self.sale_price));
-			if !self.price.is_empty() {
-				row.push_str(&format!(", was {}", self.price));
+			if crate::i18n::is_indonesian() {
+				row.push_str(&format!(", {} diskon", self.sale_price));
+				if !self.price.is_empty() {
+					row.push_str(&format!(", sebelumnya {}", self.price));
+				}
+			} else {
+				row.push_str(&format!(", {} on sale", self.sale_price));
+				if !self.price.is_empty() {
+					row.push_str(&format!(", was {}", self.price));
+				}
 			}
 		} else if !self.price.is_empty() {
 			row.push_str(&format!(", {}", self.price));
 		}
 		if !self.availability.is_empty() {
-			row.push_str(&format!(", {}", self.availability));
+			row.push_str(&format!(", {}", crate::i18n::tr_str(&self.availability)));
 		}
 		row
 	}
 
 	fn details(&self) -> String {
-		let mut lines = vec![self.name.clone()];
+		let name = if self.name == "Unnamed product" { crate::i18n::tr("Unnamed product") } else { self.name.as_str() };
+		let mut lines = vec![name.to_string()];
 		if !self.price.is_empty() {
-			lines.push(format!("Price: {}", self.price));
+			lines.push(format!("{}: {}", crate::i18n::tr("Price"), self.price));
 		}
 		if !self.sale_price.is_empty() {
-			let dates = if self.sale_dates.is_empty() { String::new() } else { format!(" ({})", self.sale_dates) };
-			lines.push(format!("Sale price: {}{dates}", self.sale_price));
+			let sale_dates = if crate::i18n::is_indonesian() {
+				self.sale_dates.replace(" to ", " sampai ")
+			} else {
+				self.sale_dates.clone()
+			};
+			let dates = if sale_dates.is_empty() { String::new() } else { format!(" ({sale_dates})") };
+			lines.push(format!("{}: {}{dates}", crate::i18n::tr("Sale price"), self.sale_price));
 		}
 		if !self.availability.is_empty() {
-			lines.push(format!("Availability: {}", self.availability));
+			lines.push(format!("{}: {}", crate::i18n::tr("Availability"), crate::i18n::tr_str(&self.availability)));
 		}
 		if !self.description.is_empty() {
 			lines.push(String::new());
@@ -303,10 +363,10 @@ impl Product {
 			lines.push(String::new());
 		}
 		if !self.url.is_empty() {
-			lines.push(format!("Website: {}", self.url));
+			lines.push(format!("{}: {}", crate::i18n::tr("Website"), self.url));
 		}
 		if !self.retailer_id.is_empty() {
-			lines.push(format!("Item code: {}", self.retailer_id));
+			lines.push(format!("{}: {}", crate::i18n::tr("Item code"), self.retailer_id));
 		}
 		lines.join("\r\n")
 	}
@@ -343,8 +403,14 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		s.contacts.get(&business).cloned().filter(|n| !n.is_empty())
 	};
 	let title = match name {
-		Some(name) => format!("{name}'s catalogue"),
-		None => "Catalogue".to_string(),
+		Some(name) => {
+			if crate::i18n::is_indonesian() {
+				format!("Katalog {name}")
+			} else {
+				format!("{name}'s catalogue")
+			}
+		}
+		None => crate::i18n::tr("Catalogue").to_string(),
 	};
 
 	let dialog = Dialog::builder(&parts.frame, &title)
@@ -356,8 +422,13 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let count =
-		if more { format!("Products (first {})", products.len()) } else { format!("Products ({})", products.len()) };
+	let count = if crate::i18n::is_indonesian() {
+		if more { format!("Produk ({} pertama)", products.len()) } else { format!("Produk ({})", products.len()) }
+	} else if more {
+		format!("Products (first {})", products.len())
+	} else {
+		format!("Products ({})", products.len())
+	};
 	let list_label = StaticText::builder(&panel).with_label(&count).build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
@@ -368,7 +439,7 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	list.set_items(&row_refs);
 	sizer.add(&list, 3, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let details_label = StaticText::builder(&panel).with_label("Product details").build();
+	let details_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Product details")).build();
 	theme::style_muted_label(&details_label);
 	sizer.add(&details_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let details = TextCtrl::builder(&panel)
@@ -378,11 +449,11 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	sizer.add(&details, 2, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let ask_btn = Button::builder(&panel).with_label("Put Link in &Message Box").build();
+	let ask_btn = Button::builder(&panel).with_label(crate::i18n::tr("Put Link in &Message Box")).build();
 	theme::style_primary_button(&ask_btn);
-	let copy_btn = Button::builder(&panel).with_label("&Copy Link").build();
-	let site_btn = Button::builder(&panel).with_label("Open &Website").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let copy_btn = Button::builder(&panel).with_label(crate::i18n::tr("&Copy Link")).build();
+	let site_btn = Button::builder(&panel).with_label(crate::i18n::tr("Open &Website")).build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	buttons.add(&ask_btn, 0, SizerFlag::Right, 8);
 	buttons.add(&copy_btn, 0, SizerFlag::Right, 8);
 	buttons.add(&site_btn, 0, SizerFlag::Right, 8);
@@ -439,7 +510,7 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		if let Some(link) = link_copy().filter(|l| !l.is_empty())
 			&& crate::platform::clipboard::copy_text(&link)
 		{
-			crate::platform::announce::announce(announcer, "Link copied.");
+			crate::platform::announce::announce(announcer, crate::i18n::tr("Link copied."));
 		}
 	});
 	let products_site = products.clone();
@@ -460,7 +531,7 @@ pub(crate) fn show_catalog(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		message_field.set_focus();
 		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
-			"Product link is in the message box. Add your question and send.",
+			crate::i18n::tr("Product link is in the message box. Add your question and send."),
 		);
 	}
 }

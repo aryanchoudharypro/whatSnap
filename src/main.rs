@@ -2,8 +2,9 @@
 mod audio;
 mod backend;
 mod calls;
-mod countries;
+use whatsnap::countries;
 mod error;
+pub use whatsnap::i18n;
 mod keymap;
 mod media;
 mod platform;
@@ -374,7 +375,8 @@ struct AppState {
 }
 
 fn launch_request_from_args(args: impl Iterator<Item = String>) -> Option<platform::single_instance::LaunchRequest> {
-	let args: Vec<String> = args.collect();
+	let args: Vec<String> =
+		args.filter(|arg| arg != "--background" && !platform::single_instance::is_restart_flag(arg)).collect();
 	if let Some(link) =
 		args.iter().find(|arg| whatsnap::parse_whatsapp_link(arg).is_some() || platform::app_link::parse(arg).is_some())
 	{
@@ -402,6 +404,7 @@ fn launch_command(request: platform::single_instance::LaunchRequest) -> UiComman
 
 fn main() {
 	platform::crash_log::install();
+	platform::single_instance::wait_for_previous_instance(std::env::args().skip(1));
 
 	let background_start = platform::autostart::note_launch_args(std::env::args().skip(1));
 	let launch_request = launch_request_from_args(std::env::args().skip(1));
@@ -470,6 +473,7 @@ fn main() {
 	let early_settings = crate::settings::Settings::load();
 	let verbose_backend_logging = early_settings.verbose_backend_logging;
 	crate::ui::theme::set_theme(early_settings.theme);
+	crate::i18n::set_language(early_settings.language);
 
 	// One backend runs every linked account, so all of them stay online.
 	// The active one is opened first so its window fills in soonest.
@@ -485,6 +489,7 @@ fn main() {
 	platform::quit::on_backend_shutdown(backend::links::shut_down_all);
 
 	let res = wxdragon::main(move |_| {
+		crate::ui::init_wx_translations();
 		crate::ui::theme::apply_to_windows();
 		let parts = build_main_window();
 		let frame = parts.frame;
@@ -589,10 +594,10 @@ fn main() {
 				if preview_finished {
 					s.voice_preview_sink = None;
 					s.is_voice_preview_playing = false;
-					parts_timer.conversations_parts.preview_voice_btn.set_label("Play preview");
+					parts_timer.conversations_parts.preview_voice_btn.set_label(crate::i18n::tr("Play preview"));
 					crate::platform::announce::announce(
 						parts_timer.conversations_parts.messages_announcer,
-						"Voice preview finished.",
+						crate::i18n::tr("Voice preview finished."),
 					);
 				}
 			}
@@ -630,7 +635,10 @@ fn main() {
 						s.settings.sounds_enabled,
 						s.settings.output_device_name.clone(),
 					);
-					parts_timer.conversations_parts.play_voice_btn.set_label("Loading voice message...");
+					parts_timer
+						.conversations_parts
+						.play_voice_btn
+						.set_label(crate::i18n::tr("Loading voice message..."));
 					let _ = s.ui_tx.send(UiCommand::PlayVoiceMessage(next_id));
 					return;
 				}
@@ -644,7 +652,7 @@ fn main() {
 				s.playing_msg_id = None;
 				s.audio_start_instant = None;
 				s.audio_elapsed_secs = 0.0;
-				parts_timer.conversations_parts.play_voice_btn.set_label("Play voice message");
+				parts_timer.conversations_parts.play_voice_btn.set_label(crate::i18n::tr("Play voice message"));
 				parts_timer.conversations_parts.audio_slider.set_value(0);
 				parts_timer.conversations_parts.audio_slider.show(false);
 				parts_timer.conversations_parts.audio_speed_btn.show(false);
@@ -761,7 +769,7 @@ fn main() {
 				play_call_fail_sound(&mut s);
 				calls::helpers::announce_call(
 					&parts_typing_timer,
-					"No response - the call could not be answered.",
+					crate::i18n::tr("No response - the call could not be answered."),
 					Priority::High,
 				);
 			}
@@ -832,7 +840,7 @@ fn main() {
 				let label = if sync_reported {
 					connected_status_text(&s)
 				} else {
-					"Status: Connected (Syncing...)".to_string()
+					crate::i18n::tr("Status: Connected (Syncing...)").to_string()
 				};
 				parts_history_sync_timer.frame.set_status_text(&label, 0);
 				s.db_growth_status_shown = true;
@@ -1064,7 +1072,7 @@ pub(crate) fn new_app_state(
 		pending_notification_replies: Vec::new(),
 		pending_shared_files: Vec::new(),
 		conn_online: false,
-		conn_status_text: "Status: Connecting...".to_string(),
+		conn_status_text: crate::i18n::tr("Status: Connecting...").to_string(),
 		conn_outage_announced: false,
 		conn_manual_reconnect: false,
 		pending_attachments: Vec::new(),
@@ -1115,15 +1123,15 @@ pub(crate) fn new_app_state(
 
 pub(crate) fn connected_status_text(s: &AppState) -> String {
 	if let Some(pct) = s.offline_sync_percent {
-		format!("Status: Connected (Downloading messages: {pct}%)")
+		format!("{} ({pct}%)", i18n::tr("Status: Connected (Downloading messages)"))
 	} else if s.recent_sync_paused {
-		"Status: Connected (Syncing paused. Open WhatsApp on your phone to continue syncing.)".to_string()
+		i18n::tr("Status: Connected (Syncing paused. Open WhatsApp on your phone to continue syncing.)").to_string()
 	} else if s.recent_sync_active && s.recent_sync_percent >= 0 {
-		format!("Status: Connected (Syncing older messages, {}% complete)", s.recent_sync_percent)
+		format!("{} ({}%)", i18n::tr("Status: Connected (Syncing older messages)"), s.recent_sync_percent)
 	} else if s.recent_sync_active {
-		"Status: Connected (Syncing older messages)".to_string()
+		i18n::tr("Status: Connected (Syncing older messages)").to_string()
 	} else {
-		"Status: Connected".to_string()
+		i18n::tr("Status: Connected").to_string()
 	}
 }
 
@@ -1159,6 +1167,7 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::AccountStopped(id) => ui_commands::accounts::account_stopped(state, parts, &id),
 		UiCommand::FinishAccountRemoval(id) => ui_commands::accounts::finish_removal(state, &id),
 		UiCommand::ExitApp => ui_commands::misc::exit_app(state, parts),
+		UiCommand::RestartApp => ui_commands::misc::restart_app(state, parts),
 		UiCommand::NavSelected(idx) => ui_commands::chat_list::nav_selected(state, parts, idx),
 		UiCommand::FilterConversations(query) => ui_commands::chat_list::filter_conversations(state, parts, query),
 		UiCommand::SearchAllMessages => ui_commands::chat_list::search_all_messages(state),
@@ -1367,7 +1376,10 @@ pub(crate) fn handle_ui_command(cmd: UiCommand, state: &Rc<RefCell<AppState>>, p
 		UiCommand::SeekAudio(delta) => ui_commands::voice::seek_audio(state, parts, delta),
 		UiCommand::StopVoiceMessage => {
 			if ui_commands::voice::stop_voice_message(&mut state.borrow_mut(), parts) {
-				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Stopped");
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					crate::i18n::tr("Stopped"),
+				);
 			}
 		}
 		UiCommand::RefreshMessages => {}

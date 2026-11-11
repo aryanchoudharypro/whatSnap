@@ -27,9 +27,9 @@ pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	}
 	let kind = state.borrow().pending_attachment_kind;
 	let message = match kind {
-		whatsnap::AttachKind::Media => "Choose photos or videos to send",
-		whatsnap::AttachKind::Audio => "Choose audio files to send",
-		_ => "Choose files to send as documents",
+		whatsnap::AttachKind::Media => crate::i18n::tr("Choose photos or videos to send"),
+		whatsnap::AttachKind::Audio => crate::i18n::tr("Choose audio files to send"),
+		_ => crate::i18n::tr("Choose files to send as documents"),
 	};
 	let file_dialog = FileDialog::builder(&parts.frame)
 		.with_message(message)
@@ -41,7 +41,7 @@ pub(crate) fn add_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 		if !paths.is_empty() {
 			let left_out = add_to_batch(&mut state.borrow_mut(), paths);
 			announce_left_out(parts, left_out);
-			show_attachment_dialog(state, parts, "Files attached", None);
+			show_attachment_dialog(state, parts, crate::i18n::tr("Files attached"), None);
 		}
 	}
 }
@@ -62,13 +62,15 @@ fn add_to_batch(s: &mut AppState, paths: Vec<String>) -> usize {
 
 fn announce_left_out(parts: &Rc<WindowParts>, left_out: usize) {
 	if left_out > 0 {
-		crate::platform::announce::announce(
-			parts.conversations_parts.messages_announcer,
-			&format!(
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Anda dapat mengirim maksimal {MAX_BATCH_FILES} file sekaligus; {left_out} file tidak ditambahkan.")
+		} else {
+			format!(
 				"You can send up to {MAX_BATCH_FILES} files at once; {left_out} file{} weren't added.",
 				if left_out == 1 { "" } else { "s" }
-			),
-		);
+			)
+		};
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 	}
 }
 
@@ -88,10 +90,10 @@ fn show_attachment_dialog(
 		(s.pending_attachment_kind, names)
 	};
 	let heading = match kind {
-		whatsnap::AttachKind::Document => "Documents",
-		whatsnap::AttachKind::Media => "Photos and videos",
-		whatsnap::AttachKind::Audio => "Audio",
-		whatsnap::AttachKind::Pasted => "Files",
+		whatsnap::AttachKind::Document => crate::i18n::tr("Documents"),
+		whatsnap::AttachKind::Media => crate::i18n::tr("Photos and videos"),
+		whatsnap::AttachKind::Audio => crate::i18n::tr("Audio"),
+		whatsnap::AttachKind::Pasted => crate::i18n::tr("Files"),
 	};
 	let d = &parts.attachment_dialog;
 	d.attachment_info_label.set_label(&format!("{}: {}", heading, file_names.join(", ")));
@@ -183,7 +185,8 @@ pub(crate) fn send_poll(
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let sending = if correct_answer.is_some() { "Sending quiz..." } else { "Sending poll..." };
+	let sending =
+		if correct_answer.is_some() { crate::i18n::tr("Sending quiz...") } else { crate::i18n::tr("Sending poll...") };
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, sending);
 }
 
@@ -225,10 +228,12 @@ pub(crate) fn send_contacts(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
 		let count = contact_jids.len();
-		crate::platform::announce::announce(
-			parts.conversations_parts.messages_announcer,
-			&format!("Sending {} contact{}...", count, if count == 1 { "" } else { "s" }),
-		);
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Mengirim {count} kontak...")
+		} else {
+			format!("Sending {} contact{}...", count, if count == 1 { "" } else { "s" })
+		};
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 	}
 }
 
@@ -254,7 +259,13 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		let choices = whatsnap::AttachKind::paste_choices(&paths);
 		if !choices.is_empty() {
 			let labels: Vec<&str> = choices.iter().map(|(label, _)| *label).collect();
-			let dialog = SingleChoiceDialog::builder(&parts.frame, "Send as:", "Send Pasted Files", &labels).build();
+			let dialog = SingleChoiceDialog::builder(
+				&parts.frame,
+				crate::i18n::tr("Send as:"),
+				crate::i18n::tr("Send Pasted Files"),
+				&labels,
+			)
+			.build();
 			if dialog.show_modal() != wxdragon::id::ID_OK {
 				return;
 			}
@@ -278,7 +289,7 @@ pub(crate) fn paste_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 			caption = Some(typed);
 		}
 	}
-	show_attachment_dialog(state, parts, "Pasted files", caption);
+	show_attachment_dialog(state, parts, crate::i18n::tr("Pasted files"), caption);
 }
 
 pub(crate) fn discard_attachment(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -443,15 +454,19 @@ pub(crate) fn download_media(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
 		if count == 1 {
-			crate::platform::announce::announce(
-				parts.conversations_parts.messages_announcer,
-				&format!("Downloading {}", to_start[0].1),
-			);
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Mengunduh {}", to_start[0].1)
+			} else {
+				format!("Downloading {}", to_start[0].1)
+			};
+			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		} else {
-			crate::platform::announce::announce(
-				parts.conversations_parts.messages_announcer,
-				&format!("Downloading album of {} files...", count),
-			);
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Mengunduh album berisi {count} file...")
+			} else {
+				format!("Downloading album of {} files...", count)
+			};
+			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 		}
 	}
 }
@@ -487,11 +502,15 @@ fn plays_in_app(msg: &whatsnap::ChatMessage) -> bool {
 
 fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str, msg: &whatsnap::ChatMessage) {
 	let title = if msg.from_me {
-		"Video you sent".to_string()
+		crate::i18n::tr("Video you sent").to_string()
 	} else if !msg.sender_name.is_empty() {
-		format!("Video from {}", msg.sender_name)
+		if crate::i18n::is_indonesian() {
+			format!("Video dari {}", msg.sender_name)
+		} else {
+			format!("Video from {}", msg.sender_name)
+		}
 	} else {
-		"Video".to_string()
+		crate::i18n::tr("Video").to_string()
 	};
 	let choice = crate::ui::video_player::show(&parts.frame, &msg.media_path, &title, &msg.display_filename());
 	crate::platform::tray::enter_release_guard().set(true);
@@ -508,8 +527,20 @@ fn play_video(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str,
 /// announced as saved, so the user went looking for a file that never existed.
 fn announce_saved(parts: &Rc<WindowParts>, result: std::io::Result<u64>, path: &str) {
 	let text = match result {
-		Ok(_) => format!("File saved to {path}"),
-		Err(err) => format!("Couldn't save the file: {err}"),
+		Ok(_) => {
+			if crate::i18n::is_indonesian() {
+				format!("File disimpan ke {path}")
+			} else {
+				format!("File saved to {path}")
+			}
+		}
+		Err(err) => {
+			if crate::i18n::is_indonesian() {
+				format!("Tidak dapat menyimpan file: {err}")
+			} else {
+				format!("Couldn't save the file: {err}")
+			}
+		}
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
 }
@@ -528,7 +559,7 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 				if let Some(jid) = jid_opt {
 					let filename = msg.display_filename();
 					let dialog = FileDialog::builder(&parts.frame)
-						.with_message("Save file as")
+						.with_message(crate::i18n::tr("Save file as"))
 						.with_default_file(&filename)
 						.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 						.build();
@@ -556,12 +587,12 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 					.count();
 				let video_count =
 					messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
-				let (dlg_title, noun) = if photo_count > 0 && video_count == 0 {
-					("Select folder to save all photos into", "photos")
+				let (dlg_title, noun_en, noun_id) = if photo_count > 0 && video_count == 0 {
+					(crate::i18n::tr("Select folder to save all photos into"), "photos", "foto")
 				} else if video_count > 0 && photo_count == 0 {
-					("Select folder to save all videos into", "videos")
+					(crate::i18n::tr("Select folder to save all videos into"), "videos", "video")
 				} else {
-					("Select folder to save all media into", "media files")
+					(crate::i18n::tr("Select folder to save all media into"), "media files", "file media")
 				};
 				let dir_dialog = wxdragon::DirDialog::builder(&parts.frame, dlg_title, "").build();
 				if dir_dialog.show_modal() == wxdragon::id::ID_OK
@@ -588,10 +619,12 @@ pub(crate) fn save_media_as(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 							}
 						}
 					}
-					crate::platform::announce::announce(
-						parts.conversations_parts.messages_announcer,
-						&format!("Saved {} {} to folder.", saved_count, noun),
-					);
+					let ann_msg = if crate::i18n::is_indonesian() {
+						format!("{saved_count} {noun_id} disimpan ke folder.")
+					} else {
+						format!("Saved {saved_count} {noun_en} to folder.")
+					};
+					crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &ann_msg);
 				}
 			}
 		}
@@ -615,10 +648,12 @@ pub(crate) fn download_media_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			"data": { "jid": jid, "message_id": message_id }
 		});
 		let _ = state.borrow().ws_tx.send(payload.to_string());
-		crate::platform::announce::announce(
-			parts.conversations_parts.messages_announcer,
-			&format!("Downloading {}", filename),
-		);
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Mengunduh {filename}")
+		} else {
+			format!("Downloading {filename}")
+		};
+		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 	}
 }
 
@@ -649,7 +684,7 @@ pub(crate) fn save_media_message_as(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	if let (Some(jid), Some(msg)) = (jid_opt, msg_opt) {
 		let filename = msg.display_filename();
 		let dialog = FileDialog::builder(&parts.frame)
-			.with_message("Save file as")
+			.with_message(crate::i18n::tr("Save file as"))
 			.with_default_file(&filename)
 			.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 			.build();
@@ -720,9 +755,11 @@ pub(crate) fn copy_album_to_clipboard(
 	if !paths.is_empty() {
 		if copy_files_to_clipboard(&paths) {
 			let ann_text = if is_single_voice {
-				"Copied voice message to clipboard.".to_string()
+				crate::i18n::tr("Copied voice message to clipboard.").to_string()
 			} else if paths.len() == 1 {
-				"Copied file to clipboard.".to_string()
+				crate::i18n::tr("Copied file to clipboard.").to_string()
+			} else if crate::i18n::is_indonesian() {
+				format!("{} file disalin ke clipboard.", paths.len())
 			} else {
 				format!("Copied {} files to clipboard.", paths.len())
 			};
@@ -730,7 +767,7 @@ pub(crate) fn copy_album_to_clipboard(
 		} else {
 			crate::platform::announce::announce(
 				parts.conversations_parts.messages_announcer,
-				"Failed to copy file to clipboard.",
+				crate::i18n::tr("Failed to copy file to clipboard."),
 			);
 		}
 	} else {
@@ -747,7 +784,7 @@ pub(crate) fn copy_album_to_clipboard(
 		}
 		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
-			"Downloading file before copying to clipboard...",
+			crate::i18n::tr("Downloading file before copying to clipboard..."),
 		);
 	}
 }
@@ -769,9 +806,17 @@ pub(crate) fn open_album_items(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		.iter()
 		.enumerate()
 		.map(|(i, m)| {
-			let kind = if m.media_type == "video" || m.text.starts_with("[Video]") { "Video" } else { "Photo" };
-			let state_note = if m.is_media_downloaded() { "" } else { ", not downloaded" };
-			format!("{} {} of {}{}", kind, i + 1, total, state_note)
+			let is_video = m.media_type == "video" || m.text.starts_with("[Video]");
+			let num = i + 1;
+			if crate::i18n::is_indonesian() {
+				let kind = if is_video { "Video" } else { "Foto" };
+				let state_note = if m.is_media_downloaded() { "" } else { ", belum diunduh" };
+				format!("{kind} {num} dari {total}{state_note}")
+			} else {
+				let kind = if is_video { "Video" } else { "Photo" };
+				let state_note = if m.is_media_downloaded() { "" } else { ", not downloaded" };
+				format!("{kind} {num} of {total}{state_note}")
+			}
 		})
 		.collect();
 	let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();

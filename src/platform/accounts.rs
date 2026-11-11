@@ -96,7 +96,7 @@ impl Account {
 		} else if !self.phone.is_empty() {
 			format!("+{}", self.phone)
 		} else {
-			"New account".to_string()
+			crate::i18n::tr("New account").to_string()
 		}
 	}
 }
@@ -239,7 +239,7 @@ impl Registry {
 	}
 
 	pub fn display_name(&self, id: &str) -> String {
-		self.get(id).map(Account::display_name).unwrap_or_else(|| "New account".to_string())
+		self.get(id).map(Account::display_name).unwrap_or_else(|| crate::i18n::tr("New account").to_string())
 	}
 
 	/// A new account waiting to be linked, with its folder made.

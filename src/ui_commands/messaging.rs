@@ -61,7 +61,10 @@ pub(crate) fn cancel_edit(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	drop(s);
 	end_edit_mode(parts);
 	if was_editing {
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Editing cancelled.");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("Editing cancelled."),
+		);
 	}
 }
 
@@ -87,7 +90,7 @@ pub(crate) fn begin_edit_message(
 	field.set_focus();
 	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
-		"Editing message. Press Enter to save, Escape to cancel.",
+		crate::i18n::tr("Editing message. Press Enter to save, Escape to cancel."),
 	);
 }
 
@@ -110,7 +113,10 @@ fn stop_edit_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 
 pub(crate) fn remove_quote(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	clear_pending_reply(&mut state.borrow_mut(), parts);
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Quoted message removed.");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Quoted message removed."),
+	);
 	parts.conversations_parts.message_field.set_focus();
 }
 
@@ -223,7 +229,10 @@ pub(crate) fn forward_message(
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Message forwarded.");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Message forwarded."),
+	);
 }
 
 pub(crate) fn edit_message(
@@ -242,9 +251,9 @@ pub(crate) fn edit_message(
 	drop(s);
 
 	let announcement = if new_text.is_empty() {
-		"Editing cancelled - message can't be empty."
+		crate::i18n::tr("Editing cancelled - message can't be empty.")
 	} else if original.as_deref() == Some(new_text.as_str()) {
-		"Editing cancelled - no changes made."
+		crate::i18n::tr("Editing cancelled - no changes made.")
 	} else {
 		if let Some(jid) = jid {
 			let payload = serde_json::json!({
@@ -258,7 +267,7 @@ pub(crate) fn edit_message(
 			});
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 		}
-		"Message edited."
+		crate::i18n::tr("Message edited.")
 	};
 	end_edit_mode(parts);
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, announcement);
@@ -318,7 +327,7 @@ pub(crate) fn export_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	let _ = state.borrow().ws_tx.send(payload.to_string());
 	crate::platform::announce::announce(
 		parts.conversations_parts.messages_announcer,
-		"Exporting chat, this may take a while for chats with a lot of media...",
+		crate::i18n::tr("Exporting chat, this may take a while for chats with a lot of media..."),
 	);
 }
 
@@ -328,7 +337,10 @@ pub(crate) fn export_chat_text(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		"data": { "jid": jid, "dest_path": dest_path }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Exporting chat text...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Exporting chat text..."),
+	);
 }
 
 pub(crate) fn post_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, text: String) {
@@ -337,7 +349,10 @@ pub(crate) fn post_status(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		"data": { "text": text }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Posting status update...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Posting status update..."),
+	);
 }
 
 pub(crate) fn post_custom_status(
@@ -358,7 +373,10 @@ pub(crate) fn post_custom_status(
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Posting status update...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Posting status update..."),
+	);
 }
 
 pub(crate) fn open_status_composer(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -409,7 +427,10 @@ pub(crate) fn retry_selected_message(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		let _ = s.ws_tx.send(payload.to_string());
 	}
 	if !failed.is_empty() {
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Retrying send...");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("Retrying send..."),
+		);
 	}
 }
 
@@ -440,8 +461,8 @@ pub(crate) fn cancel_selected_upload(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 	let confirm = MessageDialog::builder(
 		&parts.frame,
-		"Cancel this upload? The message will be removed from the chat.",
-		"Cancel upload",
+		crate::i18n::tr("Cancel this upload? The message will be removed from the chat."),
+		crate::i18n::tr("Cancel upload"),
 	)
 	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 	.build();
@@ -468,7 +489,7 @@ pub(crate) fn request_message_resend(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		let _ = s.ws_tx.send(payload.to_string());
 		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
-			"Requested this message from your phone",
+			crate::i18n::tr("Requested this message from your phone"),
 		);
 	}
 }

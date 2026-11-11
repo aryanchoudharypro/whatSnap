@@ -113,7 +113,7 @@ pub fn empty_avatar_bitmap(side: u32) -> wxdragon::bitmap::Bitmap {
 }
 
 pub fn build_call_window() -> CallWindowParts {
-	let frame = Frame::builder().with_title("Call").with_size(Size::new(600, 580)).build();
+	let frame = Frame::builder().with_title(crate::i18n::tr("Call")).with_size(Size::new(600, 580)).build();
 	let panel = Panel::builder(&frame).build();
 	if theme::use_custom_colours() {
 		panel.set_background_color(CALL_BG);
@@ -125,7 +125,7 @@ pub fn build_call_window() -> CallWindowParts {
 	let avatar_bitmap = StaticBitmap::builder(&panel).with_bitmap(Some(avatar_bm)).build();
 	sizer.add(&avatar_bitmap, 0, SizerFlag::AlignCenterHorizontal | SizerFlag::Top | SizerFlag::Bottom, 14);
 
-	let status_label = StaticText::builder(&panel).with_label("Incoming call...").build();
+	let status_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Incoming call...")).build();
 	status_label.set_font(&theme::Fonts::heading());
 	if theme::use_custom_colours() {
 		status_label.set_foreground_color(CALL_MUTED_TEXT);
@@ -154,7 +154,7 @@ pub fn build_call_window() -> CallWindowParts {
 	caller_info.show(true);
 	// Screen readers name the box from the text just above it, so this label
 	// is what the box is announced as ("Call info"), not the status heading.
-	let caller_info_label = StaticText::builder(&panel).with_label("Call info").build();
+	let caller_info_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Call info")).build();
 	caller_info_label.set_font(&theme::Fonts::label());
 	if theme::use_custom_colours() {
 		caller_info_label.set_foreground_color(CALL_MUTED_TEXT);
@@ -172,11 +172,11 @@ pub fn build_call_window() -> CallWindowParts {
 	}
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
-	let accept_btn = Button::builder(&btn_panel).with_label("Accept call").build();
+	let accept_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Accept call")).build();
 	theme::style_primary_button(&accept_btn);
 	btn_sizer.add(&accept_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 
-	let reject_btn = Button::builder(&btn_panel).with_label("Decline call").build();
+	let reject_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Decline call")).build();
 	if theme::use_custom_colours() {
 		reject_btn.set_background_color(Colour::rgb(0xEA, 0x00, 0x38));
 		reject_btn.set_foreground_color(Colour::rgb(0xFF, 0xFF, 0xFF));
@@ -184,27 +184,27 @@ pub fn build_call_window() -> CallWindowParts {
 	}
 	btn_sizer.add(&reject_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 
-	let dismiss_btn = Button::builder(&btn_panel).with_label("Dismiss").build();
+	let dismiss_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Dismiss")).build();
 	crate::ui::owner_draw::install_tile(&dismiss_btn, CALL_BG);
 	btn_sizer.add(&dismiss_btn, 1, SizerFlag::Expand | SizerFlag::Left, 5);
 	dismiss_btn.show(false);
 
-	let mute_btn = Button::builder(&btn_panel).with_label("Mute microphone").build();
+	let mute_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Mute microphone")).build();
 	crate::ui::owner_draw::install_tile(&mute_btn, CALL_BG);
 	btn_sizer.add(&mute_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	mute_btn.show(false);
 
-	let camera_btn = Button::builder(&btn_panel).with_label("Turn camera on").build();
+	let camera_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Turn camera on")).build();
 	crate::ui::owner_draw::install_tile(&camera_btn, CALL_BG);
 	btn_sizer.add(&camera_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	camera_btn.show(false);
 
-	let screen_btn = Button::builder(&btn_panel).with_label("Share screen").build();
+	let screen_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Share screen")).build();
 	crate::ui::owner_draw::install_tile(&screen_btn, CALL_BG);
 	btn_sizer.add(&screen_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	screen_btn.show(false);
 
-	let device_settings_btn = Button::builder(&btn_panel).with_label("Device settings").build();
+	let device_settings_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Device settings")).build();
 	crate::ui::owner_draw::install_tile(&device_settings_btn, CALL_BG);
 	btn_sizer.add(&device_settings_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	device_settings_btn.show(false);
@@ -212,26 +212,28 @@ pub fn build_call_window() -> CallWindowParts {
 	// Device selectors shown inline when device settings is expanded. Screen
 	// readers name a combo from the static text just before it, so each one
 	// sits under a visible label, the way the old devices panel did.
-	let (input_device_group, input_device_combo) = device_selector(&btn_panel, &btn_sizer, "Microphone");
-	let (output_device_group, output_device_combo) = device_selector(&btn_panel, &btn_sizer, "Speaker");
-	let (camera_device_group, camera_device_combo) = device_selector(&btn_panel, &btn_sizer, "Camera");
+	let (input_device_group, input_device_combo) =
+		device_selector(&btn_panel, &btn_sizer, crate::i18n::tr("Microphone"));
+	let (output_device_group, output_device_combo) =
+		device_selector(&btn_panel, &btn_sizer, crate::i18n::tr("Speaker"));
+	let (camera_device_group, camera_device_combo) = device_selector(&btn_panel, &btn_sizer, crate::i18n::tr("Camera"));
 
-	let add_participant_btn = Button::builder(&btn_panel).with_label("Add participant").build();
+	let add_participant_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Add participant")).build();
 	crate::ui::owner_draw::install_tile(&add_participant_btn, CALL_BG);
 	btn_sizer.add(&add_participant_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	add_participant_btn.show(false);
 
-	let raise_hand_btn = Button::builder(&btn_panel).with_label("Raise hand").build();
+	let raise_hand_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Raise hand")).build();
 	crate::ui::owner_draw::install_tile(&raise_hand_btn, CALL_BG);
 	btn_sizer.add(&raise_hand_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	raise_hand_btn.show(false);
 
-	let react_btn = Button::builder(&btn_panel).with_label("React...").build();
+	let react_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("React...")).build();
 	crate::ui::owner_draw::install_tile(&react_btn, CALL_BG);
 	btn_sizer.add(&react_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	react_btn.show(false);
 
-	let leave_btn = Button::builder(&btn_panel).with_label("End call").build();
+	let leave_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("End call")).build();
 	if theme::use_custom_colours() {
 		leave_btn.set_background_color(Colour::rgb(0xEA, 0x00, 0x38));
 		leave_btn.set_foreground_color(Colour::rgb(0xFF, 0xFF, 0xFF));
@@ -240,13 +242,13 @@ pub fn build_call_window() -> CallWindowParts {
 	btn_sizer.add(&leave_btn, 1, SizerFlag::Expand | SizerFlag::Left, 5);
 	leave_btn.show(false);
 
-	let callback_btn = Button::builder(&btn_panel).with_label("Call back").build();
+	let callback_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Call back")).build();
 	theme::style_primary_button(&callback_btn);
 	crate::ui::owner_draw::install_tile(&callback_btn, CALL_BG);
 	btn_sizer.add(&callback_btn, 1, SizerFlag::Expand | SizerFlag::Right, 5);
 	callback_btn.show(false);
 
-	let close_btn = Button::builder(&btn_panel).with_label("Close").build();
+	let close_btn = Button::builder(&btn_panel).with_label(crate::i18n::tr("Close")).build();
 	crate::ui::owner_draw::install_tile(&close_btn, CALL_BG);
 	btn_sizer.add(&close_btn, 1, SizerFlag::Expand | SizerFlag::Left, 5);
 	close_btn.show(false);
@@ -257,25 +259,26 @@ pub fn build_call_window() -> CallWindowParts {
 	let people_panel = Panel::builder(&panel).build();
 	theme::style_content(&people_panel);
 	let people_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let people_label = StaticText::builder(&people_panel).with_label("People").build();
+	let people_label = StaticText::builder(&people_panel).with_label(crate::i18n::tr("People")).build();
 	people_sizer.add(&people_label, 0, SizerFlag::Left | SizerFlag::Top, 4);
 	let people_list = ListBox::builder(&people_panel).build();
 	people_sizer.add(&people_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 4);
 	let person_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let mute_person_btn = Button::builder(&people_panel).with_label("Mute").build();
+	let mute_person_btn = Button::builder(&people_panel).with_label(crate::i18n::tr("Mute")).build();
 	person_sizer.add(&mute_person_btn, 0, SizerFlag::Right, 5);
-	let remove_person_btn = Button::builder(&people_panel).with_label("Remove").build();
+	let remove_person_btn = Button::builder(&people_panel).with_label(crate::i18n::tr("Remove")).build();
 	person_sizer.add(&remove_person_btn, 0, SizerFlag::empty(), 0);
 	people_sizer.add_sizer(&person_sizer, 0, SizerFlag::All, 4);
 	mute_person_btn.show(false);
 	remove_person_btn.show(false);
 	let admit_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let let_in_btn = Button::builder(&people_panel).with_label("Let in").build();
+	let let_in_btn = Button::builder(&people_panel).with_label(crate::i18n::tr("Let in")).build();
 	admit_sizer.add(&let_in_btn, 0, SizerFlag::Right, 5);
-	let keep_out_btn = Button::builder(&people_panel).with_label("Don't let in").build();
+	let keep_out_btn = Button::builder(&people_panel).with_label(crate::i18n::tr("Don't let in")).build();
 	admit_sizer.add(&keep_out_btn, 0, SizerFlag::empty(), 0);
 	people_sizer.add_sizer(&admit_sizer, 0, SizerFlag::All, 4);
-	let approval_check = CheckBox::builder(&people_panel).with_label("Approve new participants").build();
+	let approval_check =
+		CheckBox::builder(&people_panel).with_label(crate::i18n::tr("Approve new participants")).build();
 	people_sizer.add(&approval_check, 0, SizerFlag::All, 4);
 	let_in_btn.show(false);
 	keep_out_btn.show(false);

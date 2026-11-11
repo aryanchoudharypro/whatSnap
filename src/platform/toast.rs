@@ -84,17 +84,22 @@ fn toast_xml(title: &str, body: &str, jid: &str, account: Option<&str>, is_locke
 			let reply = escape_xml(&app_link::reply_link(jid, account));
 			format!(
 				concat!(
-					r#"<input id="{input}" type="text" placeHolderContent="Type a reply"/>"#,
-					r#"<action content="Send" arguments="{reply}" activationType="background" hint-inputId="{input}"/>"#,
+					r#"<input id="{input}" type="text" placeHolderContent="{placeholder}"/>"#,
+					r#"<action content="{send}" arguments="{reply}" activationType="background" hint-inputId="{input}"/>"#,
 				),
 				input = REPLY_INPUT,
 				reply = reply,
+				placeholder = escape_xml(crate::i18n::tr("Type a reply")),
+				send = escape_xml(crate::i18n::tr("Send")),
 			)
 		} else {
 			String::new()
 		};
 		format!(
-			r#"<actions>{reply}<action content="Mark as read" arguments="{mark_read}" activationType="{background}"/></actions>"#,
+			r#"<actions>{reply}<action content="{mark_read_label}" arguments="{mark_read}" activationType="{background}"/></actions>"#,
+			reply = reply,
+			mark_read_label = escape_xml(crate::i18n::tr("Mark as read")),
+			mark_read = mark_read,
 			background = activation(false),
 		)
 	};

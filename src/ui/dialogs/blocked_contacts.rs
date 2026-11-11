@@ -39,8 +39,14 @@ impl BlockedContacts {
 		let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 		self.list.set_items(&label_refs);
 		self.list_label.set_label(&match entries.len() {
-			0 => "Blocked contacts: none".to_string(),
-			n => format!("Blocked contacts ({})", n),
+			0 => crate::i18n::tr("Blocked contacts: none").to_string(),
+			n => {
+				if crate::i18n::is_indonesian() {
+					format!("Kontak diblokir ({n})")
+				} else {
+					format!("Blocked contacts ({n})")
+				}
+			}
 		});
 		if !entries.is_empty() {
 			self.list.set_selection(previous.min(entries.len() - 1) as u32, true);
@@ -68,7 +74,7 @@ pub fn show_blocked_contacts(
 	add: impl Fn() + 'static,
 	store: impl Fn(Option<Rc<BlockedContacts>>),
 ) {
-	let dialog = Dialog::builder(parent, "Blocked Contacts")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Blocked Contacts"))
 		.with_size(460, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -78,12 +84,12 @@ pub fn show_blocked_contacts(
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let info_label = StaticText::builder(&panel)
-		.with_label("Blocked contacts will no longer be able to call you or send you messages.")
+		.with_label(crate::i18n::tr("Blocked contacts will no longer be able to call you or send you messages."))
 		.build();
 	theme::style_muted_label(&info_label);
 	sizer.add(&info_label, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let list_label = StaticText::builder(&panel).with_label("Blocked contacts").build();
+	let list_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Blocked contacts")).build();
 	list_label.set_font(&theme::Fonts::body_strong());
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 12);
 	let list = ListBox::builder(&panel).build();
@@ -96,11 +102,11 @@ pub fn show_blocked_contacts(
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 8);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let unblock_btn = Button::builder(&panel).with_label("Unblock").build();
+	let unblock_btn = Button::builder(&panel).with_label(crate::i18n::tr("Unblock")).build();
 	dialog_look::pill_button(&unblock_btn, true, theme::Palette::CONTENT_BG());
-	let add_btn = Button::builder(&panel).with_label("Block a contact...").build();
+	let add_btn = Button::builder(&panel).with_label(crate::i18n::tr("Block a contact...")).build();
 	dialog_look::pill_button(&add_btn, false, theme::Palette::CONTENT_BG());
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	buttons.add(&unblock_btn, 0, SizerFlag::Right, 8);
 	buttons.add(&add_btn, 0, SizerFlag::Right, 8);
@@ -129,7 +135,12 @@ pub fn show_blocked_contacts(
 		if let Some(entry) = blocked_unblock.selected() {
 			let payload = serde_json::json!({ "action": "unblock_contact", "data": { "jid": entry.jid } });
 			let _ = ws_tx.send(payload.to_string());
-			blocked_unblock.announce(&format!("Unblocking {}...", entry.label()));
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Membuka blokir {}...", entry.label())
+			} else {
+				format!("Unblocking {}...", entry.label())
+			};
+			blocked_unblock.announce(&msg);
 		}
 	});
 	add_btn.on_click(move |_| add());

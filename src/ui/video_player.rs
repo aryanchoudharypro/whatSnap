@@ -34,12 +34,12 @@ pub(crate) fn show(parent: &impl WxWidget, path: &str, title: &str, save_name: &
 	let player = MediaPlayer::build(&panel, &sizer, announcer);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let save_btn = Button::builder(&panel).with_label("&Save as...").build();
+	let save_btn = Button::builder(&panel).with_label(crate::i18n::tr("&Save as...")).build();
 	btn_sizer.add(&save_btn, 0, SizerFlag::Right, 8);
-	let elsewhere_btn = Button::builder(&panel).with_label("Open in &another app").build();
+	let elsewhere_btn = Button::builder(&panel).with_label(crate::i18n::tr("Open in &another app")).build();
 	btn_sizer.add(&elsewhere_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	btn_sizer.add(&close_btn, 0, SizerFlag::Left, 0);
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
@@ -114,7 +114,8 @@ pub(crate) fn show(parent: &impl WxWidget, path: &str, title: &str, save_name: &
 					unsafe {
 						let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd, cmd);
 					}
-					let announcement = if is_max { "Exit fullscreen" } else { "Fullscreen" };
+					let announcement =
+						if is_max { crate::i18n::tr("Exit fullscreen") } else { crate::i18n::tr("Fullscreen") };
 					crate::platform::announce::announce(announcer, announcement);
 				}
 				true
@@ -136,7 +137,7 @@ pub(crate) fn show(parent: &impl WxWidget, path: &str, title: &str, save_name: &
 
 pub(crate) fn save_copy(parent: &impl WxWidget, source: &str, name: &str, announcer: StaticText) {
 	let dialog = FileDialog::builder(parent)
-		.with_message("Save file as")
+		.with_message(crate::i18n::tr("Save file as"))
 		.with_default_file(name)
 		.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 		.build();
@@ -145,8 +146,20 @@ pub(crate) fn save_copy(parent: &impl WxWidget, source: &str, name: &str, announ
 	}
 	let Some(dest) = dialog.get_path() else { return };
 	let text = match std::fs::copy(source, &dest) {
-		Ok(_) => format!("File saved to {dest}"),
-		Err(err) => format!("Couldn't save the file: {err}"),
+		Ok(_) => {
+			if crate::i18n::is_indonesian() {
+				format!("File disimpan ke {dest}")
+			} else {
+				format!("File saved to {dest}")
+			}
+		}
+		Err(err) => {
+			if crate::i18n::is_indonesian() {
+				format!("Tidak dapat menyimpan file: {err}")
+			} else {
+				format!("Couldn't save the file: {err}")
+			}
+		}
 	};
 	crate::platform::announce::announce(announcer, &text);
 }

@@ -266,14 +266,15 @@ fn linked_new_account(account: &str, state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	refresh_title(state, parts);
 	// The same number linked twice would be two copies of one account.
 	if let Some((existing, name)) = duplicate {
-		MessageDialog::builder(
-			&parts.frame,
-			&format!("This phone number is already linked in whatSnap as {name}, so the new link is being removed."),
-			"Account Already Linked",
-		)
-		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-		.build()
-		.show_modal();
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Nomor telepon ini sudah ditautkan di whatSnap sebagai {name}, sehingga tautan baru ini dihapus.")
+		} else {
+			format!("This phone number is already linked in whatSnap as {name}, so the new link is being removed.")
+		};
+		MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Account Already Linked"))
+			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+			.build()
+			.show_modal();
 		if switch_to(state, parts, &existing) {
 			start_removal(state, account, true);
 		}
@@ -366,10 +367,13 @@ fn background_event(account: &str, payload: &str, state: &Rc<RefCell<AppState>>,
 				&& let Some(reason) = env.data.get("reason").and_then(|r| r.as_str())
 			{
 				let name = accounts(state).borrow().registry.display_name(account);
-				crate::ui::chat_ui::show_toast_notification(
-					whatsnap::TRAY_APP_NAME,
-					&format!("{name} was logged out of WhatsApp: {reason}"),
-				);
+				let reason_text = crate::i18n::translate_backend_message(reason);
+				let toast_body = if crate::i18n::is_indonesian() {
+					format!("{name} keluar dari WhatsApp: {reason_text}")
+				} else {
+					format!("{name} was logged out of WhatsApp: {reason_text}")
+				};
+				crate::ui::chat_ui::show_toast_notification(whatsnap::TRAY_APP_NAME, &toast_body);
 			}
 		}
 		_ => {}
@@ -443,7 +447,7 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 	let chat_name = named("chatName").or_else(|| bg.names.get(jid).cloned());
 	let sender = named("senderName").or_else(|| bg.names.get(&clean(from)).cloned()).filter(|_| !from.is_empty());
 	let title = if jid.ends_with("@g.us") {
-		chat_name.clone().unwrap_or_else(|| "New Group".to_string())
+		chat_name.clone().unwrap_or_else(|| crate::i18n::tr("New Group").to_string())
 	} else {
 		sender.clone().or(chat_name.clone()).unwrap_or_else(|| {
 			crate::ui::contact_picker::display_name_for_jid(if from.is_empty() { jid } else { from })
@@ -454,7 +458,7 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 		crate::ui::chat_ui::show_chat_notification_for(
 			jid,
 			&format!("WhatsApp ({account_name})"),
-			"New message",
+			crate::i18n::tr("New message"),
 			Some(account),
 			true,
 			false,
@@ -464,11 +468,18 @@ fn background_message(account: &str, data: &serde_json::Value, state: &Rc<RefCel
 	let previews = s.settings.notification_previews && !s.settings.chat_notify(jid).hide_content;
 	let preview = whatsnap::friendly_preview_text(text);
 	let body = match (previews, jid.ends_with("@g.us"), sender) {
-		(false, _, _) => "New message".to_string(),
+		(false, _, _) => crate::i18n::tr("New message").to_string(),
 		(true, true, Some(sender)) => format!("{sender}: {preview}"),
 		(true, _, _) => preview,
 	};
-	crate::ui::chat_ui::show_chat_notification_for(jid, &title, &body, Some(account), false, crate::ui::chat_ui::can_reply_from_notification(jid));
+	crate::ui::chat_ui::show_chat_notification_for(
+		jid,
+		&title,
+		&body,
+		Some(account),
+		false,
+		crate::ui::chat_ui::can_reply_from_notification(jid),
+	);
 }
 
 /// A call to an account that isn't on screen. With nothing else going on, the
@@ -491,17 +502,26 @@ fn background_call(
 		crate::backend::events::process_websocket_message(payload.to_string(), state, parts);
 		return;
 	}
-	let caller = data.get("caller_name").and_then(|n| n.as_str()).filter(|n| !n.is_empty()).unwrap_or("Someone");
+	let caller = data
+		.get("caller_name")
+		.and_then(|n| n.as_str())
+		.filter(|n| !n.is_empty())
+		.unwrap_or_else(|| crate::i18n::tr("Someone"));
 	let name = accounts(state).borrow().registry.display_name(account);
-	crate::ui::chat_ui::show_toast_notification(whatsnap::TRAY_APP_NAME, &format!("{caller} is calling {name}."));
+	let msg = if crate::i18n::is_indonesian() {
+		format!("{caller} menelepon {name}.")
+	} else {
+		format!("{caller} is calling {name}.")
+	};
+	crate::ui::chat_ui::show_toast_notification(whatsnap::TRAY_APP_NAME, &msg);
 }
 
 /// Why the window can't switch accounts right now, if it can't.
 fn busy(s: &AppState) -> Option<&'static str> {
 	if s.active_call_id.is_some() || s.call_placing {
-		Some("End the call before switching accounts.")
+		Some(crate::i18n::tr("End the call before switching accounts."))
 	} else if s.is_voice_recording {
-		Some("Send or cancel the voice message before switching accounts.")
+		Some(crate::i18n::tr("Send or cancel the voice message before switching accounts."))
 	} else {
 		None
 	}
@@ -554,7 +574,7 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 	let reason = busy(&state.borrow());
 	if let Some(reason) = reason {
 		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, reason);
-		MessageDialog::builder(&parts.frame, reason, "Switch Account")
+		MessageDialog::builder(&parts.frame, reason, crate::i18n::tr("Switch Account"))
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 			.build()
 			.show_modal();
@@ -633,7 +653,7 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 	parts.qrcode_dialog.show(false);
 	parts.login_panel.show(false);
 	parts.frame.show(true);
-	parts.frame.set_status_text("Status: Connecting...", 0);
+	parts.frame.set_status_text(crate::i18n::tr("Status: Connecting..."), 0);
 	let tab = state.borrow().active_tab;
 	crate::ui_commands::chat_list::nav_selected(state, parts, tab);
 	crate::ui::window::refresh_menu_bar(&state.borrow(), &parts.frame);
@@ -645,7 +665,9 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 		let _ = ws_tx.send(serde_json::json!({ "action": "hello" }).to_string());
 	}
 	let name = accounts.borrow().registry.display_name(target);
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &format!("Switched to {name}."));
+	let switched_msg =
+		if crate::i18n::is_indonesian() { format!("Beralih ke {name}.") } else { format!("Switched to {name}.") };
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &switched_msg);
 	parts.conversations_parts.conversations_list.set_focus();
 	true
 }
@@ -655,7 +677,7 @@ pub(crate) fn switch_to(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, 
 fn add_account(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let reason = busy(&state.borrow());
 	if let Some(reason) = reason {
-		MessageDialog::builder(&parts.frame, reason, "Add Account")
+		MessageDialog::builder(&parts.frame, reason, crate::i18n::tr("Add Account"))
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 			.build()
 			.show_modal();
@@ -677,7 +699,12 @@ fn add_account(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 					id
 				}
 				Err(err) => {
-					MessageDialog::builder(&parts.frame, &format!("Couldn't add an account: {err}"), "Add Account")
+					let msg = if crate::i18n::is_indonesian() {
+						format!("Tidak dapat menambahkan akun: {err}")
+					} else {
+						format!("Couldn't add an account: {err}")
+					};
+					MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Add Account"))
 						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 						.build()
 						.show_modal();
@@ -779,17 +806,21 @@ fn account_rows(a: &Accounts) -> Vec<crate::ui::dialogs::accounts::AccountRow> {
 				label.push_str(&format!(", +{}", x.phone));
 			}
 			if x.id == a.registry.active {
-				label.push_str(", on screen");
+				label.push_str(crate::i18n::tr(", on screen"));
 			} else if x.state == AccountState::Pending {
-				label.push_str(", not linked yet");
+				label.push_str(crate::i18n::tr(", not linked yet"));
 			} else if let Some(bg) = a.background.get(&x.id)
 				&& !bg.unread.is_empty()
 			{
 				let n = bg.unread.len();
-				label.push_str(&format!(", {n} unread chat{}", if n == 1 { "" } else { "s" }));
+				if crate::i18n::is_indonesian() {
+					label.push_str(&format!(", {n} chat belum dibaca"));
+				} else {
+					label.push_str(&format!(", {n} unread chat{}", if n == 1 { "" } else { "s" }));
+				}
 			}
 			if x.messages == crate::platform::accounts::MessageAlerts::Off && x.calls == CallAlerts::Off {
-				label.push_str(", notifications off");
+				label.push_str(crate::i18n::tr(", notifications off"));
 			}
 			crate::ui::dialogs::accounts::AccountRow { id: x.id.clone(), label }
 		})
@@ -857,8 +888,8 @@ fn rename(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
 	let current = accounts.borrow().registry.get(id).map(|a| a.label.clone()).unwrap_or_default();
 	let dialog = TextEntryDialog::builder(
 		&parts.frame,
-		"Name for this account in whatSnap (leave empty to use its WhatsApp name):",
-		"Rename Account",
+		crate::i18n::tr("Name for this account in whatSnap (leave empty to use its WhatsApp name):"),
+		crate::i18n::tr("Rename Account"),
 	)
 	.with_default_value(&current)
 	.build();
@@ -887,8 +918,8 @@ fn remove(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
 	if others.is_empty() {
 		MessageDialog::builder(
 			&parts.frame,
-			"This is the only account in whatSnap. To unlink it, use Account, Log Out.",
-			"Remove Account",
+			crate::i18n::tr("This is the only account in whatSnap. To unlink it, use Account, Log Out."),
+			crate::i18n::tr("Remove Account"),
 		)
 		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 		.build()
@@ -896,13 +927,21 @@ fn remove(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
 		return;
 	}
 	let question = if linked {
-		format!(
-			"Remove {name} from whatSnap?\n\nThis logs it out of WhatsApp on this computer and deletes its messages and media saved here. Your phone keeps its chats."
-		)
+		if crate::i18n::is_indonesian() {
+			format!(
+				"Hapus {name} dari whatSnap?\n\nTindakan ini akan mengeluarkan akun dari WhatsApp di komputer ini serta menghapus pesan dan media yang tersimpan di sini. Chat di ponsel Anda tetap aman."
+			)
+		} else {
+			format!(
+				"Remove {name} from whatSnap?\n\nThis logs it out of WhatsApp on this computer and deletes its messages and media saved here. Your phone keeps its chats."
+			)
+		}
+	} else if crate::i18n::is_indonesian() {
+		format!("Hapus {name} dari whatSnap?")
 	} else {
 		format!("Remove {name} from whatSnap?")
 	};
-	let answer = MessageDialog::builder(&parts.frame, &question, "Remove Account")
+	let answer = MessageDialog::builder(&parts.frame, &question, crate::i18n::tr("Remove Account"))
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
 		.build()
 		.show_modal();
@@ -926,6 +965,8 @@ fn remove(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, id: &str) {
 	if accounts.borrow().registry.get(id).is_some_and(|x| x.state != AccountState::Deleting) {
 		start_removal(state, id, linked);
 	}
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &format!("Removed {name}."));
+	let removed_msg =
+		if crate::i18n::is_indonesian() { format!("Akun {name} dihapus.") } else { format!("Removed {name}.") };
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &removed_msg);
 	refresh_title(state, parts);
 }

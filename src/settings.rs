@@ -60,6 +60,7 @@ pub struct Settings {
 	pub notification_previews: bool,
 	pub reaction_notifications: bool,
 	pub theme: crate::ui::theme::ThemeChoice,
+	pub language: crate::i18n::LanguageChoice,
 	pub group_notifications: bool,
 	pub group_sounds: bool,
 	/// Which sound new messages play, as a [`whatsnap::TONE_DEFAULT`] style
@@ -102,10 +103,11 @@ pub const NAV_UNREAD_TABS: [usize; 2] = [0, 3];
 /// reading the list or the Alt+N shortcut hears "Chats: 5 unread"; every other
 /// tab is just its name.
 pub fn nav_tab_label(tab: usize, unread_chats: usize) -> String {
+	let tab_name = crate::i18n::tr(TAB_NAMES[tab]);
 	if unread_chats > 0 && NAV_UNREAD_TABS.contains(&tab) {
-		format!("{}: {} unread", TAB_NAMES[tab], unread_chats)
+		format!("{}: {} {}", tab_name, unread_chats, crate::i18n::tr("unread"))
 	} else {
-		TAB_NAMES[tab].to_string()
+		tab_name.to_string()
 	}
 }
 
@@ -155,6 +157,7 @@ impl Default for Settings {
 			notification_previews: true,
 			reaction_notifications: true,
 			theme: Default::default(),
+			language: Default::default(),
 			group_notifications: true,
 			group_sounds: true,
 			message_tone: whatsnap::TONE_DEFAULT,
@@ -210,8 +213,11 @@ impl Settings {
 
 	/// Imports settings from a JSON backup string, verifying that it contains whatSnap settings.
 	pub fn import_json(raw: &str) -> Result<Self, String> {
-		let mut value = serde_json::from_str::<serde_json::Value>(raw).map_err(|e| format!("Invalid JSON: {e}"))?;
-		let obj = value.as_object_mut().ok_or_else(|| "Settings backup must be a JSON object".to_string())?;
+		let mut value = serde_json::from_str::<serde_json::Value>(raw)
+			.map_err(|e| format!("{}: {e}", crate::i18n::tr("Invalid JSON")))?;
+		let obj = value
+			.as_object_mut()
+			.ok_or_else(|| crate::i18n::tr("Settings backup must be a JSON object").to_string())?;
 
 		let recognized = [
 			"sounds_enabled",
@@ -225,14 +231,14 @@ impl Settings {
 			"start_maximized",
 		];
 		if !recognized.iter().any(|k| obj.contains_key(*k)) {
-			return Err("The file does not appear to contain whatSnap settings".to_string());
+			return Err(crate::i18n::tr("The file does not appear to contain whatSnap settings").to_string());
 		}
 
 		if !obj.contains_key("call_output_device_name") {
 			let inherited = obj.get("output_device_name").cloned().unwrap_or(serde_json::Value::Null);
 			obj.insert("call_output_device_name".to_string(), inherited);
 		}
-		serde_json::from_value(value).map_err(|e| format!("Failed to parse settings: {e}"))
+		serde_json::from_value(value).map_err(|e| format!("{}: {e}", crate::i18n::tr("Failed to parse settings")))
 	}
 
 	/// Alert level for `jid` as an archived chat. Chats that aren't archived

@@ -38,7 +38,8 @@ impl Kind {
 			Kind::Tone | Kind::ChatTone => {
 				entries.push((default_label.to_string(), whatsnap::TONE_DEFAULT.to_string()));
 				for tone in 2..=whatsnap::TONE_LAST {
-					entries.push((whatsnap::tone_label(tone), tone.to_string()));
+					let label = format!("{} {}", crate::i18n::tr("Alert"), tone - 1);
+					entries.push((label, tone.to_string()));
 				}
 			}
 			Kind::Ringtone | Kind::ChatRingtone => {
@@ -52,10 +53,12 @@ impl Kind {
 				}
 			}
 		}
-		entries.push(("Custom sound file".to_string(), CUSTOM.to_string()));
+		entries.push((crate::i18n::tr("Custom sound file").to_string(), CUSTOM.to_string()));
 		match self {
-			Kind::ChatTone => entries.push(("None".to_string(), whatsnap::TONE_NONE.to_string())),
-			Kind::ChatRingtone => entries.push(("None".to_string(), whatsnap::RINGTONE_NONE.to_string())),
+			Kind::ChatTone => entries.push((crate::i18n::tr("None").to_string(), whatsnap::TONE_NONE.to_string())),
+			Kind::ChatRingtone => {
+				entries.push((crate::i18n::tr("None").to_string(), whatsnap::RINGTONE_NONE.to_string()))
+			}
 			_ => {}
 		}
 		entries
@@ -101,7 +104,8 @@ impl SoundPicker {
 		combo.set_selection(0);
 		sizer.add(&combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-		let browse = Button::builder(panel).with_label(&format!("Choose {what} File...")).build();
+		let browse_label = crate::i18n::tr_str(&format!("Choose {what} File..."));
+		let browse = Button::builder(panel).with_label(&browse_label).build();
 		dialog_look::pill_button(&browse, false, theme::Palette::CONTENT_BG());
 		browse.enable(false);
 		sizer.add(&browse, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 8);
@@ -118,8 +122,8 @@ impl SoundPicker {
 		});
 		browse.on_click(move |_| {
 			let dialog = FileDialog::builder(&picker.browse)
-				.with_message("Choose a sound file")
-				.with_wildcard(sound_file::BROWSE_WILDCARD)
+				.with_message(crate::i18n::tr("Choose a sound file"))
+				.with_wildcard(crate::i18n::tr(sound_file::BROWSE_WILDCARD))
 				.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
 				.build();
 			let path = if dialog.show_modal() == ID_OK { dialog.get_path() } else { None };
@@ -152,10 +156,11 @@ impl SoundPicker {
 		self.browse.set_name(path);
 		let what = EXTRAS.with(|extras| extras.borrow().get(&self.browse.get_id()).map(|e| e.what.clone()));
 		let what = what.unwrap_or_else(|| "Sound".to_string());
+		let label_base = crate::i18n::tr_str(&format!("Choose {what} File..."));
 		let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned());
 		match name {
-			Some(name) => self.browse.set_label(&format!("Choose {what} File... ({name})")),
-			None => self.browse.set_label(&format!("Choose {what} File...")),
+			Some(name) => self.browse.set_label(&format!("{label_base} ({name})")),
+			None => self.browse.set_label(&label_base),
 		}
 		if let Some(parent) = self.browse.get_parent() {
 			parent.layout();

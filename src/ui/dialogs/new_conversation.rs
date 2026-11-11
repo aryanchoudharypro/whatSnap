@@ -18,7 +18,7 @@ pub struct NewConversationDialogParts {
 }
 
 pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationDialogParts {
-	let dialog = Dialog::builder(parent, "New Chat")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("New Chat"))
 		.with_size(440, 480)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -28,7 +28,7 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label("Search name or number").build();
+	let search_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Search name or number")).build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
@@ -44,21 +44,21 @@ pub fn build_new_conversation_dialog(parent: &impl WxWidget) -> NewConversationD
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let bg = theme::Palette::CONTENT_BG();
 
-	let new_group_btn = Button::builder(&panel).with_label("New Group").build();
+	let new_group_btn = Button::builder(&panel).with_label(crate::i18n::tr("New Group")).build();
 	dialog_look::pill_button(&new_group_btn, false, bg);
 	btn_sizer.add(&new_group_btn, 0, SizerFlag::Right, 6);
 
-	let new_contact_btn = Button::builder(&panel).with_label("New Contact").build();
+	let new_contact_btn = Button::builder(&panel).with_label(crate::i18n::tr("New Contact")).build();
 	dialog_look::pill_button(&new_contact_btn, false, bg);
 	btn_sizer.add(&new_contact_btn, 0, SizerFlag::Right, 6);
 
-	let message_meta_ai_btn = Button::builder(&panel).with_label("Message Meta AI").build();
+	let message_meta_ai_btn = Button::builder(&panel).with_label(crate::i18n::tr("Message Meta AI")).build();
 	dialog_look::pill_button(&message_meta_ai_btn, false, bg);
 	btn_sizer.add(&message_meta_ai_btn, 0, SizerFlag::Right, 6);
 
 	btn_sizer.add_stretch_spacer(1);
 
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	dialog_look::pill_button(&close_btn, false, bg);
 	btn_sizer.add(&close_btn, 0, SizerFlag::empty(), 0);
 

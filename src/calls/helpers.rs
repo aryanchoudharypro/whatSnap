@@ -37,7 +37,7 @@ pub(crate) fn join_names(names: &[&str]) -> String {
 	match names {
 		[] => String::new(),
 		[one] => one.to_string(),
-		[rest @ .., last] => format!("{} and {}", rest.join(", "), last),
+		[rest @ .., last] => format!("{} {} {}", rest.join(", "), crate::i18n::tr("and"), last),
 	}
 }
 
@@ -51,12 +51,16 @@ pub(crate) fn group_call_status_text(participants: &[CallParticipant]) -> String
 	let ringing: Vec<&str> =
 		participants.iter().filter(|p| is_ringing_state(&p.state)).map(|p| p.name.as_str()).collect();
 	match (connected.is_empty(), ringing.is_empty()) {
-		(true, true) => "In group call. No one else is here yet.".to_string(),
-		(true, false) => format!("Calling {}.", join_names(&ringing)),
-		(false, true) => format!("In group call with {}.", join_names(&connected)),
-		(false, false) => {
-			format!("In group call with {}. Ringing {}.", join_names(&connected), join_names(&ringing))
-		}
+		(true, true) => crate::i18n::tr("In group call. No one else is here yet.").to_string(),
+		(true, false) => format!("{} {}.", crate::i18n::tr("Calling"), join_names(&ringing)),
+		(false, true) => format!("{} {}.", crate::i18n::tr("In group call with"), join_names(&connected)),
+		(false, false) => format!(
+			"{} {}. {} {}.",
+			crate::i18n::tr("In group call with"),
+			join_names(&connected),
+			crate::i18n::tr("Ringing"),
+			join_names(&ringing)
+		),
 	}
 }
 
@@ -65,18 +69,18 @@ pub(crate) fn call_participant_changes(old: &[CallParticipant], new: &[CallParti
 	for p in new {
 		let before = old.iter().find(|o| o.jid == p.jid).map(|o| o.state.as_str());
 		if p.state == "connected" && before != Some("connected") {
-			changes.push(format!("{} joined the call.", p.name));
+			changes.push(format!("{} {}", p.name, crate::i18n::tr("joined the call.")));
 		} else if p.state != "connected" && before == Some("connected") {
-			changes.push(format!("{} left the call.", p.name));
+			changes.push(format!("{} {}", p.name, crate::i18n::tr("left the call.")));
 		} else if p.state == "rejected" && before != Some("rejected") {
-			changes.push(format!("{} declined the call.", p.name));
+			changes.push(format!("{} {}", p.name, crate::i18n::tr("declined the call.")));
 		} else if p.state == "invited" && before.is_some_and(is_ringing_state) {
-			changes.push(format!("{} didn't answer.", p.name));
+			changes.push(format!("{} {}", p.name, crate::i18n::tr("didn't answer.")));
 		}
 	}
 	for o in old {
 		if o.state == "connected" && !new.iter().any(|p| p.jid == o.jid) {
-			changes.push(format!("{} left the call.", o.name));
+			changes.push(format!("{} {}", o.name, crate::i18n::tr("left the call.")));
 		}
 	}
 	changes
@@ -101,7 +105,15 @@ pub(crate) fn announce_call(parts: &WindowParts, message: &str, priority: live_r
 	} else {
 		parts.conversations_parts.messages_announcer
 	};
-	live_region::announce_with_priority(label, message, priority);
+	let localized = if let Some(prefix) = message.strip_suffix(SYSTEM_AUDIO_ANNOUNCEMENT) {
+		let trimmed = prefix.trim_end();
+		let audio = crate::i18n::tr(SYSTEM_AUDIO_ANNOUNCEMENT);
+		if trimmed.is_empty() { audio.to_string() } else { format!("{} {audio}", crate::i18n::tr_str(trimmed)) }
+	} else {
+		let tr_msg = crate::i18n::tr_str(message);
+		if tr_msg != message { tr_msg } else { crate::i18n::translate_backend_message(message) }
+	};
+	live_region::announce_with_priority(label, &localized, priority);
 }
 
 pub(crate) fn format_call_duration(seconds: u64) -> String {
@@ -127,20 +139,33 @@ pub(crate) fn call_running_info_text(
 	duration_secs: u64,
 	is_reconnecting: bool,
 ) -> String {
-	let (direction, prep) = match direction {
-		CallDirection::Incoming => ("Incoming ", "from"),
-		CallDirection::Answered => ("", "with"),
-		CallDirection::Outgoing => ("Outgoing ", "to"),
-	};
-	let kind = match (direction.is_empty(), is_video) {
-		(true, true) => "Video call",
-		(true, false) => "Call",
-		(false, true) => "video call",
-		(false, false) => "call",
-	};
 	let clock = format_call_duration(duration_secs);
-	let line2 = if is_reconnecting { format!("Reconnecting... ({clock})") } else { clock };
-	format!("{direction}{kind} {prep} {peer_name}\r\n{line2}")
+	if crate::i18n::is_indonesian() {
+		let line2 = if is_reconnecting { format!("{} ({clock})", crate::i18n::tr("Reconnecting...")) } else { clock };
+		let prefix = match (direction, is_video) {
+			(CallDirection::Incoming, false) => crate::i18n::tr("Incoming call from"),
+			(CallDirection::Incoming, true) => crate::i18n::tr("Incoming video call from"),
+			(CallDirection::Answered, false) => crate::i18n::tr("Call with"),
+			(CallDirection::Answered, true) => crate::i18n::tr("Video call with"),
+			(CallDirection::Outgoing, false) => crate::i18n::tr("Outgoing call to"),
+			(CallDirection::Outgoing, true) => crate::i18n::tr("Outgoing video call to"),
+		};
+		format!("{prefix} {peer_name}\r\n{line2}")
+	} else {
+		let (direction, prep) = match direction {
+			CallDirection::Incoming => ("Incoming ", "from"),
+			CallDirection::Answered => ("", "with"),
+			CallDirection::Outgoing => ("Outgoing ", "to"),
+		};
+		let kind = match (direction.is_empty(), is_video) {
+			(true, true) => "Video call",
+			(true, false) => "Call",
+			(false, true) => "video call",
+			(false, false) => "call",
+		};
+		let line2 = if is_reconnecting { format!("Reconnecting... ({clock})") } else { clock };
+		format!("{direction}{kind} {prep} {peer_name}\r\n{line2}")
+	}
 }
 
 pub(crate) fn call_incoming_info_text(
@@ -149,18 +174,19 @@ pub(crate) fn call_incoming_info_text(
 	group: Option<&str>,
 	is_video: bool,
 ) -> String {
-	let kind = if is_video { "video call" } else { "call" };
-	let line1 = if group.is_some() {
-		format!("Incoming group {kind} from {peer_name}")
-	} else {
-		format!("Incoming {kind} from {peer_name}")
+	let prefix = match (group.is_some(), is_video) {
+		(true, false) => crate::i18n::tr("Incoming group call from"),
+		(true, true) => crate::i18n::tr("Incoming group video call from"),
+		(false, false) => crate::i18n::tr("Incoming call from"),
+		(false, true) => crate::i18n::tr("Incoming video call from"),
 	};
+	let line1 = format!("{prefix} {peer_name}");
 	let line2 = if let Some(digits) = phone_digits {
 		whatsnap::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}"))
 	} else if let Some(grp) = group {
-		format!("in {grp}")
+		format!("{} {grp}", crate::i18n::tr("in"))
 	} else {
-		"Ringing...".to_string()
+		crate::i18n::tr("Ringing...").to_string()
 	};
 	format!("{line1}\r\n{line2}")
 }
@@ -176,37 +202,42 @@ pub(crate) fn call_outgoing_info_text(
 	is_group: bool,
 	status: &str,
 ) -> String {
-	let kind = if is_video { "video call" } else { "call" };
-	let mut text = if is_group {
-		format!("Outgoing group {kind} in {peer_name}")
-	} else {
-		format!("Outgoing {kind} to {peer_name}")
+	let prefix = match (is_group, is_video) {
+		(true, false) => crate::i18n::tr("Outgoing group call in"),
+		(true, true) => crate::i18n::tr("Outgoing group video call in"),
+		(false, false) => crate::i18n::tr("Outgoing call to"),
+		(false, true) => crate::i18n::tr("Outgoing video call to"),
 	};
+	let mut text = format!("{prefix} {peer_name}");
 	let name_is_number = |digits: &str| peer_name.chars().filter(char::is_ascii_digit).eq(digits.chars());
 	if let Some(digits) = phone_digits.filter(|d| !d.is_empty() && !name_is_number(d)) {
 		text.push_str("\r\n");
 		text.push_str(&whatsnap::phone::format_international(digits).unwrap_or_else(|| format!("+{digits}")));
 	}
 	text.push_str("\r\n");
-	text.push_str(status);
+	text.push_str(&crate::i18n::tr_str(status));
 	text
 }
 
 pub(crate) fn call_ended_info_text(peer_name: &str, duration_secs: u64, reason: &str) -> String {
 	if duration_secs > 0 {
 		let clock = format_call_duration(duration_secs);
-		let status = if reason == "connection_lost" { "Call ended. Connection lost" } else { "Call ended" };
-		format!("{status} with {peer_name}\r\nDuration: {clock}")
+		let status = if reason == "connection_lost" {
+			crate::i18n::tr("Call ended. Connection lost with")
+		} else {
+			crate::i18n::tr("Call ended with")
+		};
+		format!("{status} {peer_name}\r\n{}{clock}", crate::i18n::tr("Duration: "))
 	} else {
 		let status = match reason {
-			"busy" => "Busy, on another call",
-			"declined" | "rejected" => "Call declined",
-			"connection_lost" => "Call ended. Connection lost",
-			"cancelled" => "Call cancelled",
-			"timeout" | "no_answer" => "No answer",
-			_ => "Call ended",
+			"busy" => crate::i18n::tr("Busy, on another call with"),
+			"declined" | "rejected" => crate::i18n::tr("Call declined with"),
+			"connection_lost" => crate::i18n::tr("Call ended. Connection lost with"),
+			"cancelled" => crate::i18n::tr("Call cancelled with"),
+			"timeout" | "no_answer" => crate::i18n::tr("No answer with"),
+			_ => crate::i18n::tr("Call ended with"),
 		};
-		format!("{status} with {peer_name}")
+		format!("{status} {peer_name}")
 	}
 }
 
@@ -227,9 +258,9 @@ pub(crate) fn update_call_avatar(parts: &WindowParts, jid: &str) {
 /// connected yet. `progress` is the backend's `call_progress` state.
 pub(crate) fn outgoing_call_status(progress: &str) -> Option<&'static str> {
 	match progress {
-		"calling" => Some("Calling..."),
-		"ringing" => Some("Ringing..."),
-		"connecting" => Some("Connecting..."),
+		"calling" => Some(crate::i18n::tr("Calling...")),
+		"ringing" => Some(crate::i18n::tr("Ringing...")),
+		"connecting" => Some(crate::i18n::tr("Connecting...")),
 		_ => None,
 	}
 }
@@ -435,22 +466,27 @@ pub(crate) fn incoming_call_description(
 	caller: &str,
 	group_name: Option<&str>,
 ) -> String {
-	let kind = if is_video { "video call" } else { "voice call" };
+	let prefix = match (is_group, is_video) {
+		(true, true) => crate::i18n::tr("group video call from"),
+		(true, false) => crate::i18n::tr("group voice call from"),
+		(false, true) => crate::i18n::tr("video call from"),
+		(false, false) => crate::i18n::tr("voice call from"),
+	};
 	match (is_group, group_name) {
-		(true, Some(group)) => format!("group {} from {} in {}", kind, caller, group),
-		(true, None) => format!("group {} from {}", kind, caller),
-		(false, _) => format!("{} from {}", kind, caller),
+		(true, Some(group)) => format!("{prefix} {caller} {} {group}", crate::i18n::tr("in")),
+		_ => format!("{prefix} {caller}"),
 	}
 }
 
 /// Title of the call window, which NVDA reads when it takes focus.
 pub(crate) fn call_window_title(is_group: bool, is_video: bool) -> &'static str {
-	match (is_group, is_video) {
+	let key = match (is_group, is_video) {
 		(false, false) => "Voice call",
 		(false, true) => "Video call",
 		(true, false) => "Group voice call",
 		(true, true) => "Group video call",
-	}
+	};
+	crate::i18n::tr(key)
 }
 
 /// Returns the peer's display name for title bars.
@@ -470,9 +506,9 @@ pub(crate) fn clean_call_title_peer_name(raw_name: &str, is_saved: bool) -> Stri
 	if is_saved && !is_number {
 		trimmed.to_string()
 	} else if !is_number {
-		format!("{} (Unknown contact)", trimmed)
+		format!("{trimmed} ({})", crate::i18n::tr("Unknown contact"))
 	} else {
-		"Unknown contact".to_string()
+		crate::i18n::tr("Unknown contact").to_string()
 	}
 }
 
@@ -487,17 +523,17 @@ pub(crate) fn format_call_window_title(
 	_duration_clock: Option<&str>,
 ) -> String {
 	if is_group {
-		let kind = if is_video { "Group video call" } else { "Group voice call" };
-		format!("{kind} in {peer_name}")
+		let kind = crate::i18n::tr(if is_video { "Group video call in" } else { "Group voice call in" });
+		format!("{kind} {peer_name}")
 	} else {
 		let title_name = clean_call_title_peer_name(peer_name, is_saved);
-		if is_incoming {
-			let kind = if is_video { "Incoming video call" } else { "Incoming voice call" };
-			format!("{kind} from {title_name}")
-		} else {
-			let kind = if is_video { "Video call" } else { "Voice call" };
-			format!("{kind} with {title_name}")
-		}
+		let kind = match (is_incoming, is_video) {
+			(true, true) => crate::i18n::tr("Incoming video call from"),
+			(true, false) => crate::i18n::tr("Incoming voice call from"),
+			(false, true) => crate::i18n::tr("Video call with"),
+			(false, false) => crate::i18n::tr("Voice call with"),
+		};
+		format!("{kind} {title_name}")
 	}
 }
 
@@ -512,40 +548,44 @@ pub(crate) fn format_call_window_title(
 /// [[video_calls_work_status]]), so this app never calls `AcceptVideo()` and
 /// just says so.
 pub(crate) fn peer_video_announcement(event: &str, was_on: Option<bool>, peer: Option<&str>) -> Option<String> {
-	let who = peer.unwrap_or("Someone");
+	let who = peer.unwrap_or_else(|| crate::i18n::tr("Someone"));
 	match event {
-		"on" if was_on != Some(true) => Some(format!("{} turned their camera on.", who)),
-		"off" if was_on != Some(false) => Some(format!("{} turned their camera off.", who)),
-		"upgrade_requested" => {
-			Some(format!("{} wants to switch to video. Turn on your camera (Ctrl+Shift+V) to switch to video.", who))
-		}
+		"on" if was_on != Some(true) => Some(format!("{who} {}", crate::i18n::tr("turned their camera on."))),
+		"off" if was_on != Some(false) => Some(format!("{who} {}", crate::i18n::tr("turned their camera off."))),
+		"upgrade_requested" => Some(format!(
+			"{who} {}",
+			crate::i18n::tr("wants to switch to video. Turn on your camera (Ctrl+Shift+V) to switch to video.")
+		)),
 		_ => None,
 	}
 }
 
 pub(crate) fn local_camera_announcement(on: bool) -> &'static str {
-	if on { "Camera on." } else { "Camera off." }
+	crate::i18n::tr(if on { "Camera on." } else { "Camera off." })
 }
 
 pub(crate) fn peer_screen_share_announcement(name: &str, active: bool) -> String {
-	let who = if name.is_empty() { "Someone" } else { name };
-	if active {
-		format!("{} started sharing their screen.", who)
+	let who = if name.is_empty() { crate::i18n::tr("Someone") } else { name };
+	let action = if active {
+		crate::i18n::tr("started sharing their screen.")
 	} else {
-		format!("{} stopped sharing their screen.", who)
-	}
+		crate::i18n::tr("stopped sharing their screen.")
+	};
+	format!("{who} {action}")
 }
 
 pub(crate) fn local_screen_share_announcement(sharing: bool, window: Option<&str>, camera_changed: bool) -> String {
 	let start = match window {
-		Some(title) => format!("You're sharing a window: {title}."),
-		None => "You're sharing your screen.".to_string(),
+		Some(title) => format!("{} {title}.", crate::i18n::tr("You're sharing a window:")),
+		None => crate::i18n::tr("You're sharing your screen.").to_string(),
 	};
 	match (sharing, camera_changed) {
 		(true, false) => start,
-		(true, true) => format!("{start} Camera off."),
-		(false, false) => "Stopped sharing your screen.".to_string(),
-		(false, true) => "Stopped sharing your screen. Camera on.".to_string(),
+		(true, true) => format!("{start} {}", crate::i18n::tr("Camera off.")),
+		(false, false) => crate::i18n::tr("Stopped sharing your screen.").to_string(),
+		(false, true) => {
+			format!("{} {}", crate::i18n::tr("Stopped sharing your screen."), crate::i18n::tr("Camera on."))
+		}
 	}
 }
 

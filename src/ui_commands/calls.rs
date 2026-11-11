@@ -34,6 +34,16 @@ pub(crate) struct JoinableCall {
 pub(crate) const JOIN_ROW_PREFIX: &str = "join:";
 
 pub(crate) fn joinable_call_label(s: &AppState, call: &JoinableCall) -> String {
+	if crate::i18n::is_indonesian() {
+		let kind = if call.video { crate::i18n::tr("Group video call") } else { crate::i18n::tr("Group voice call") };
+		let place = match s.contacts.get(&call.group_jid) {
+			Some(name) if !call.group_jid.is_empty() => format!(" di {}", name),
+			_ if !call.creator_name.is_empty() => format!(" dimulai oleh {}", call.creator_name),
+			_ => String::new(),
+		};
+		let people = if call.connected == 0 { String::new() } else { format!(", {} orang bergabung", call.connected) };
+		return format!("{}{}{}{}", kind, place, people, ongoing_call_suffix());
+	}
 	let kind = if call.video { "Group video call" } else { "Group voice call" };
 	let place = match s.contacts.get(&call.group_jid) {
 		Some(name) if !call.group_jid.is_empty() => format!(" in {}", name),
@@ -45,10 +55,14 @@ pub(crate) fn joinable_call_label(s: &AppState, call: &JoinableCall) -> String {
 		1 => ", 1 person in it".to_string(),
 		n => format!(", {} people in it", n),
 	};
-	format!("{}{}{}{}", kind, place, people, ONGOING_CALL_SUFFIX)
+	format!("{}{}{}{}", kind, place, people, ongoing_call_suffix())
 }
 
 pub(crate) const ONGOING_CALL_SUFFIX: &str = ". Going on now, press Enter to join";
+
+pub(crate) fn ongoing_call_suffix() -> &'static str {
+	crate::i18n::tr(ONGOING_CALL_SUFFIX)
+}
 
 pub(crate) fn joinable_call_for_chat<'a>(s: &'a AppState, jid: &str) -> Option<&'a JoinableCall> {
 	s.joinable_calls.iter().find(|c| !c.group_jid.is_empty() && c.group_jid == jid)
@@ -72,7 +86,7 @@ pub(crate) fn mark_joinable_rows(s: &AppState, parts: &WindowParts) {
 		let Some(call_id) = msg.id.strip_prefix("call:").filter(|_| msg.is_call()) else { continue };
 		let mut text = item.format_display(is_group);
 		if s.joinable_calls.iter().any(|c| c.call_id == call_id && c.group_jid == jid) {
-			text.push_str(ONGOING_CALL_SUFFIX);
+			text.push_str(ongoing_call_suffix());
 		}
 		if list.get_string(i as u32).as_deref() != Some(text.as_str()) {
 			list.set_string(i as u32, &text);
@@ -125,12 +139,12 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	};
 	let Some(call) = call else {
 		drop(s);
-		announce_call(parts, "That call has ended.", Priority::High);
+		announce_call(parts, crate::i18n::tr("That call has ended."), Priority::High);
 		return;
 	};
 	if s.active_call_id.is_some() || s.call_placing {
 		drop(s);
-		announce_call(parts, "You're already in a call.", Priority::High);
+		announce_call(parts, crate::i18n::tr("You're already in a call."), Priority::High);
 		return;
 	}
 	let msg = serde_json::json!({
@@ -155,13 +169,13 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	let c = &parts.call_parts;
 	let win_title = crate::calls::helpers::format_call_window_title(false, true, call.video, &group_name, true, None);
 	c.frame.set_title(&win_title);
-	c.status_label.set_label("Joining call...");
+	c.status_label.set_label(crate::i18n::tr("Joining call..."));
 	c.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(
 		&group_name,
 		None,
 		call.video,
 		true,
-		"Calling...",
+		crate::i18n::tr("Calling..."),
 	));
 	crate::calls::helpers::update_call_avatar(parts, &call.group_jid);
 	c.caller_info.show(true);
@@ -170,23 +184,23 @@ pub(crate) fn join_group_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	c.dismiss_btn.show(false);
 	c.callback_btn.show(false);
 	c.close_btn.show(false);
-	c.mute_btn.set_label(if s.call_start_muted { "Unmute microphone" } else { "Mute microphone" });
+	c.mute_btn.set_label(crate::i18n::tr(if s.call_start_muted { "Unmute microphone" } else { "Mute microphone" }));
 	c.mute_btn.show(true);
-	c.device_settings_btn.set_label("Device settings");
+	c.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 	c.device_settings_btn.show(true);
 	c.input_device_group.show(false);
 	c.output_device_group.show(false);
 	c.camera_device_group.show(false);
-	c.camera_btn.set_label("Turn camera on");
+	c.camera_btn.set_label(crate::i18n::tr("Turn camera on"));
 	c.camera_btn.show(false);
 	c.add_participant_btn.show(false);
 	crate::ui_commands::call_extras::hide_call_buttons(parts);
-	c.leave_btn.set_label("Leave call");
+	c.leave_btn.set_label(crate::i18n::tr("Leave call"));
 	c.leave_btn.show(true);
 	crate::calls::helpers::show_call_device_combos(&s, parts);
 	c.frame.show(true);
 	drop(s);
-	announce_call(parts, "Joining call...", Priority::High);
+	announce_call(parts, crate::i18n::tr("Joining call..."), Priority::High);
 }
 
 fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video: bool) {
@@ -214,7 +228,11 @@ fn place_call_impl(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, video
 					}
 				} else {
 					drop(s);
-					announce_call(parts, "Select a contact or call from the list first.", Priority::High);
+					announce_call(
+						parts,
+						crate::i18n::tr("Select a contact or call from the list first."),
+						Priority::High,
+					);
 					return;
 				}
 			}
@@ -250,7 +268,7 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 			drop(s);
 			announce_call(
 				parts,
-				"You are already on a call. End the current call before placing a new one.",
+				crate::i18n::tr("You are already on a call. End the current call before placing a new one."),
 				Priority::High,
 			);
 			return;
@@ -304,16 +322,21 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	let win_title = crate::calls::helpers::format_call_window_title(false, is_group, video, &name, is_saved, None);
 	parts.call_parts.frame.set_title(&win_title);
 	if is_group {
-		parts.call_parts.status_label.set_label(&format!("Starting group call in {}", name));
+		let status_lbl = if crate::i18n::is_indonesian() {
+			format!("Memulai panggilan grup di {}", name)
+		} else {
+			format!("Starting group call in {}", name)
+		};
+		parts.call_parts.status_label.set_label(&status_lbl);
 		parts.call_parts.caller_info.set_value(&crate::calls::helpers::call_outgoing_info_text(
 			&name,
 			None,
 			video,
 			true,
-			"Calling...",
+			crate::i18n::tr("Calling..."),
 		));
 	} else {
-		show_outgoing_call_status(&s, parts, "Calling...");
+		show_outgoing_call_status(&s, parts, crate::i18n::tr("Calling..."));
 	}
 	crate::calls::helpers::update_call_avatar(parts, &jid);
 	parts.call_parts.caller_info.show(true);
@@ -322,28 +345,32 @@ fn dial(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, vid
 	parts.call_parts.dismiss_btn.show(false);
 	parts.call_parts.callback_btn.show(false);
 	parts.call_parts.close_btn.show(false);
-	parts.call_parts.mute_btn.set_label(if s.call_start_muted { "Unmute microphone" } else { "Mute microphone" });
+	parts.call_parts.mute_btn.set_label(crate::i18n::tr(if s.call_start_muted {
+		"Unmute microphone"
+	} else {
+		"Mute microphone"
+	}));
 	parts.call_parts.mute_btn.show(true);
-	parts.call_parts.device_settings_btn.set_label("Device settings");
+	parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 	parts.call_parts.device_settings_btn.show(true);
 	parts.call_parts.input_device_group.show(false);
 	parts.call_parts.output_device_group.show(false);
 	parts.call_parts.camera_device_group.show(false);
-	parts.call_parts.camera_btn.set_label("Turn camera on");
+	parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera on"));
 	parts.call_parts.camera_btn.show(false);
 	hide_screen_share_controls(parts);
 	parts.call_parts.add_participant_btn.show(false);
 	crate::ui_commands::call_extras::hide_call_buttons(parts);
-	parts.call_parts.leave_btn.set_label(if is_group { "Leave call" } else { "End call" });
+	parts.call_parts.leave_btn.set_label(crate::i18n::tr(if is_group { "Leave call" } else { "End call" }));
 	parts.call_parts.leave_btn.show(true);
 	crate::calls::helpers::show_call_device_combos(&s, parts);
 	parts.call_parts.frame.show(true);
 	drop(s);
 
 	let placing_msg = match (is_group, video) {
-		(true, _) => "Placing group call...",
-		(false, true) => "Placing video call...",
-		(false, false) => "Placing call...",
+		(true, _) => crate::i18n::tr("Placing group call..."),
+		(false, true) => crate::i18n::tr("Placing video call..."),
+		(false, false) => crate::i18n::tr("Placing call..."),
 	};
 	announce_call(parts, placing_msg, Priority::High);
 }
@@ -428,7 +455,7 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 			None,
 		);
 		parts.call_parts.frame.set_title(&win_title);
-		parts.call_parts.status_label.set_label("Connecting...");
+		parts.call_parts.status_label.set_label(crate::i18n::tr("Connecting..."));
 		parts.call_parts.device_settings_btn.show(true);
 		parts.call_parts.leave_btn.show(true);
 		parts.call_parts.accept_btn.show(false);
@@ -439,9 +466,9 @@ pub(crate) fn answer_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		parts.call_parts.input_device_group.show(false);
 		parts.call_parts.output_device_group.show(false);
 		parts.call_parts.camera_device_group.show(false);
-		parts.call_parts.device_settings_btn.set_label("Device settings");
+		parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 		parts.call_parts.leave_btn.set_focus();
-		announce_call(parts, "Connecting...", Priority::High);
+		announce_call(parts, crate::i18n::tr("Connecting..."), Priority::High);
 	}
 }
 
@@ -480,7 +507,7 @@ pub(crate) fn reject_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		parts.call_parts.input_device_group.show(false);
 		parts.call_parts.output_device_group.show(false);
 		parts.call_parts.camera_device_group.show(false);
-		parts.call_parts.device_settings_btn.set_label("Device settings");
+		parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 		parts.call_parts.dismiss_btn.show(false);
 		parts.call_parts.callback_btn.show(false);
 		parts.call_parts.close_btn.show(false);
@@ -513,7 +540,7 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		parts.call_parts.input_device_group.show(false);
 		parts.call_parts.output_device_group.show(false);
 		parts.call_parts.camera_device_group.show(false);
-		parts.call_parts.device_settings_btn.set_label("Device settings");
+		parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 		s.active_call_id = None;
 		s.active_call_audio = None;
 		s.active_call_video_send = None;
@@ -533,7 +560,7 @@ pub(crate) fn leave_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		parts.call_parts.input_device_group.show(false);
 		parts.call_parts.output_device_group.show(false);
 		parts.call_parts.camera_device_group.show(false);
-		parts.call_parts.device_settings_btn.set_label("Device settings");
+		parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 		stop_call_ringing_sound(&mut s);
 	}
 }
@@ -547,14 +574,21 @@ pub(crate) fn dismiss_incoming_call(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	stop_call_ringing_sound(&mut s);
 	drop(s);
 	parts.call_parts.frame.show(false);
-	parts.conversations_parts.incoming_call_banner_label.set_label(&format!("Incoming call from {}", caller));
+	let banner_lbl = if crate::i18n::is_indonesian() {
+		format!("Panggilan masuk dari {caller}")
+	} else {
+		format!("Incoming call from {caller}")
+	};
+	parts.conversations_parts.incoming_call_banner_label.set_label(&banner_lbl);
 	parts.conversations_parts.incoming_call_banner.show(true);
 	parts.conversations_parts.panel.layout();
 	parts.frame.layout();
 	parts.conversations_parts.incoming_call_restore_btn.set_focus();
 	announce_call(
 		parts,
-		"Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen.",
+		crate::i18n::tr(
+			"Incoming call minimized and muted. Banner available at top of window to answer, decline, or reopen.",
+		),
 		live_region::Priority::High,
 	);
 }
@@ -586,8 +620,12 @@ pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 	if let Some(audio) = &s.active_call_audio {
 		let current = audio.is_muted.load(std::sync::atomic::Ordering::Relaxed);
 		audio.is_muted.store(!current, std::sync::atomic::Ordering::Relaxed);
-		let status = if !current { "Microphone muted." } else { "Microphone unmuted." };
-		parts.call_parts.mute_btn.set_label(if !current { "Unmute microphone" } else { "Mute microphone" });
+		let status = crate::i18n::tr(if !current { "Microphone muted." } else { "Microphone unmuted." });
+		parts.call_parts.mute_btn.set_label(crate::i18n::tr(if !current {
+			"Unmute microphone"
+		} else {
+			"Mute microphone"
+		}));
 		drop(s);
 		announce_call(parts, status, Priority::High);
 		let s = state.borrow();
@@ -601,8 +639,12 @@ pub(crate) fn mute_call(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 	} else if s.active_call_id.is_some() || s.call_placing || s.incoming_call_caller.is_some() {
 		s.call_start_muted = !s.call_start_muted;
 		let muted = s.call_start_muted;
-		parts.call_parts.mute_btn.set_label(if muted { "Unmute microphone" } else { "Mute microphone" });
-		let status = if muted { "Microphone muted." } else { "Microphone unmuted." };
+		parts.call_parts.mute_btn.set_label(crate::i18n::tr(if muted {
+			"Unmute microphone"
+		} else {
+			"Mute microphone"
+		}));
+		let status = crate::i18n::tr(if muted { "Microphone muted." } else { "Microphone unmuted." });
 		drop(s);
 		announce_call(parts, status, Priority::High);
 	}
@@ -615,10 +657,10 @@ pub(crate) fn toggle_call_device_settings(state: &Rc<RefCell<AppState>>, parts: 
 		c.input_device_group.show(false);
 		c.output_device_group.show(false);
 		c.camera_device_group.show(false);
-		c.device_settings_btn.set_label("Device settings");
+		c.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 		c.frame.layout();
 		c.device_settings_btn.set_focus();
-		announce_call(parts, "Audio and video settings closed.", live_region::Priority::Medium);
+		announce_call(parts, crate::i18n::tr("Audio and video settings closed."), live_region::Priority::Medium);
 	} else {
 		let s = state.borrow();
 		crate::calls::helpers::show_call_device_combos(&s, parts);
@@ -626,10 +668,10 @@ pub(crate) fn toggle_call_device_settings(state: &Rc<RefCell<AppState>>, parts: 
 		c.input_device_group.show(true);
 		c.output_device_group.show(true);
 		// camera combo visibility is handled by show_call_device_combos based on is_video
-		c.device_settings_btn.set_label("Hide device settings");
+		c.device_settings_btn.set_label(crate::i18n::tr("Hide device settings"));
 		c.frame.layout();
 		// Keep focus on device settings button, don't steal it
-		announce_call(parts, "Audio and video settings opened.", Priority::Medium);
+		announce_call(parts, crate::i18n::tr("Audio and video settings opened."), Priority::Medium);
 	}
 }
 
@@ -640,7 +682,7 @@ pub(crate) fn set_call_input_device(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	}
 	s.settings.input_device_name = name;
 	s.settings.save();
-	announce_call(parts, "Microphone changed.", Priority::High);
+	announce_call(parts, crate::i18n::tr("Microphone changed."), Priority::High);
 }
 
 pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, name: Option<String>) {
@@ -653,7 +695,7 @@ pub(crate) fn set_call_output_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		s.call_audio_out.stream = None;
 	}
 	s.settings.save();
-	announce_call(parts, "Speaker changed.", Priority::High);
+	announce_call(parts, crate::i18n::tr("Speaker changed."), Priority::High);
 }
 
 pub(crate) fn set_call_camera_device(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, name: Option<String>) {
@@ -663,7 +705,7 @@ pub(crate) fn set_call_camera_device(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	}
 	s.settings.camera_device_name = name;
 	s.settings.save();
-	announce_call(parts, "Camera changed.", Priority::High);
+	announce_call(parts, crate::i18n::tr("Camera changed."), Priority::High);
 }
 
 pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -674,21 +716,21 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		s.active_call_video_send = None;
 		s.call_video.local_camera_on = false;
 		send_call_toggle(&s, "set_video", &call_id, false);
-		parts.call_parts.camera_btn.set_label("Turn camera on");
+		parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera on"));
 		let stopped_sharing = if s.call_video.local_screen_on {
 			s.call_video.local_screen_on = false;
 			s.call_video.screen_send = None;
 			s.call_video.camera_before_share = false;
 			set_system_audio(&mut s, false);
 			send_call_toggle(&s, "set_screen_share", &call_id, false);
-			parts.call_parts.screen_btn.set_label("Share screen");
+			parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 			true
 		} else {
 			false
 		};
 		drop(s);
 		let message = if stopped_sharing {
-			"Camera off. Screen sharing stopped.".to_string()
+			crate::i18n::tr("Camera off. Screen sharing stopped.").to_string()
 		} else {
 			local_camera_announcement(false).to_string()
 		};
@@ -700,13 +742,21 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		if s.incoming_call_caller.is_some() || s.call_placing {
 			s.call_video.autostart_camera = !s.call_video.autostart_camera;
 			let on = s.call_video.autostart_camera;
-			parts.call_parts.camera_btn.set_label(if on { "Turn camera off" } else { "Turn camera on" });
+			parts.call_parts.camera_btn.set_label(crate::i18n::tr(if on {
+				"Turn camera off"
+			} else {
+				"Turn camera on"
+			}));
 			drop(s);
 			announce_call(parts, local_camera_announcement(on), Priority::High);
 			return;
 		}
 		drop(s);
-		announce_call(parts, "The camera isn't ready yet - wait for the call to connect.", Priority::High);
+		announce_call(
+			parts,
+			crate::i18n::tr("The camera isn't ready yet - wait for the call to connect."),
+			Priority::High,
+		);
 		return;
 	};
 	let was_sharing = s.call_video.local_screen_on && s.call_video.screen_send.is_none();
@@ -716,11 +766,11 @@ pub(crate) fn toggle_camera(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		s.call_video.camera_before_share = false;
 		set_system_audio(&mut s, false);
 		send_call_toggle(&s, "set_screen_share", &call_id, false);
-		parts.call_parts.screen_btn.set_label("Share screen");
+		parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 	} else {
 		send_call_toggle(&s, "set_video", &call_id, true);
 	}
-	parts.call_parts.camera_btn.set_label("Turn camera off");
+	parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera off"));
 	if !s.call_video.video_call {
 		s.call_video.video_call = true;
 		s.call_video.is_video = true;
@@ -779,14 +829,18 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		drop(s);
 		announce_call(
 			parts,
-			"Camera must be turned on to share your screen. Turn your camera on first.",
+			crate::i18n::tr("Camera must be turned on to share your screen. Turn your camera on first."),
 			Priority::High,
 		);
 		return;
 	}
 	let Some(port) = s.call_video_port else {
 		drop(s);
-		announce_call(parts, "Screen sharing isn't ready yet - wait for the call to connect.", Priority::High);
+		announce_call(
+			parts,
+			crate::i18n::tr("Screen sharing isn't ready yet - wait for the call to connect."),
+			Priority::High,
+		);
 		return;
 	};
 
@@ -795,7 +849,7 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		s.call_video.local_screen_on = false;
 		set_system_audio(&mut s, false);
 		send_call_toggle(&s, "set_screen_share", &call_id, false);
-		parts.call_parts.screen_btn.set_label("Share screen");
+		parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 		drop(s);
 		announce_call(parts, &local_screen_share_announcement(false, None, false), Priority::High);
 		return;
@@ -808,12 +862,12 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		send_call_toggle(&s, "set_screen_share", &call_id, false);
 		if camera_returns {
 			start_camera(&mut s, port);
-			parts.call_parts.camera_btn.set_label("Turn camera off");
+			parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera off"));
 		} else {
 			s.active_call_video_send = None;
 			send_call_toggle(&s, "set_video", &call_id, false);
 		}
-		parts.call_parts.screen_btn.set_label("Share screen");
+		parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 		drop(s);
 		announce_call(parts, &local_screen_share_announcement(false, None, camera_returns), Priority::High);
 		return;
@@ -839,7 +893,7 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 			"data": { "call_id": call_id, "enabled": true, "dual": true }
 		});
 		let _ = s.ws_tx.send(msg.to_string());
-		parts.call_parts.screen_btn.set_label("Stop sharing screen");
+		parts.call_parts.screen_btn.set_label(crate::i18n::tr("Stop sharing screen"));
 		if with_sound {
 			set_system_audio(&mut s, true);
 		}
@@ -860,8 +914,8 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		send_call_toggle(&s, "set_video", &call_id, true);
 	}
 	send_call_toggle(&s, "set_screen_share", &call_id, true);
-	parts.call_parts.screen_btn.set_label("Stop sharing screen");
-	parts.call_parts.camera_btn.set_label("Turn camera on");
+	parts.call_parts.screen_btn.set_label(crate::i18n::tr("Stop sharing screen"));
+	parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera on"));
 	if with_sound {
 		set_system_audio(&mut s, true);
 	}
@@ -877,9 +931,11 @@ pub(crate) fn toggle_screen_share(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 fn ask_share_sound(parts: &WindowParts) -> Option<bool> {
 	let dialog = MessageDialog::builder(
 		&parts.call_parts.frame,
-		"Share your computer's sound along with your screen? The others will hear everything it plays, \
-		 your screen reader included, while your microphone is on.",
-		"Share screen",
+		crate::i18n::tr(
+			"Share your computer's sound along with your screen? The others will hear everything it plays, \
+			 your screen reader included, while your microphone is on.",
+		),
+		crate::i18n::tr("Share screen"),
 	)
 	.with_style(
 		MessageDialogStyle::YesNo
@@ -888,7 +944,7 @@ fn ask_share_sound(parts: &WindowParts) -> Option<bool> {
 			| MessageDialogStyle::IconQuestion,
 	)
 	.build();
-	dialog.set_yes_no_labels("Share screen and sound", "Share screen only");
+	dialog.set_yes_no_labels(crate::i18n::tr("Share screen and sound"), crate::i18n::tr("Share screen only"));
 	match dialog.show_modal() {
 		id if id == wxdragon::id::ID_YES => Some(true),
 		id if id == wxdragon::id::ID_NO => Some(false),
@@ -906,14 +962,18 @@ pub(crate) fn set_system_audio(s: &mut AppState, on: bool) {
 pub(crate) fn show_screen_share_controls(s: &AppState, parts: &WindowParts) {
 	let c = &parts.call_parts;
 	let shown = s.call_video.video_call;
-	c.screen_btn.set_label(if s.call_video.local_screen_on { "Stop sharing screen" } else { "Share screen" });
+	c.screen_btn.set_label(crate::i18n::tr(if s.call_video.local_screen_on {
+		"Stop sharing screen"
+	} else {
+		"Share screen"
+	}));
 	c.screen_btn.show(shown);
 	c.frame.layout();
 }
 
 pub(crate) fn hide_screen_share_controls(parts: &WindowParts) {
 	let c = &parts.call_parts;
-	c.screen_btn.set_label("Share screen");
+	c.screen_btn.set_label(crate::i18n::tr("Share screen"));
 	c.screen_btn.show(false);
 }
 
@@ -924,7 +984,13 @@ pub(crate) fn system_audio_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	}
 	set_system_audio(&mut s, false);
 	drop(s);
-	announce_call(parts, &format!("Couldn't share your computer's sound: {reason}"), Priority::High);
+	let reason_text = crate::i18n::translate_backend_message(&reason);
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Tidak dapat membagikan suara komputer Anda: {reason_text}")
+	} else {
+		format!("Couldn't share your computer's sound: {reason_text}")
+	};
+	announce_call(parts, &msg, Priority::High);
 }
 
 /// The capture thread couldn't read the screen at all, so the share never
@@ -940,9 +1006,15 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		if let Some(call_id) = s.active_call_id.clone() {
 			send_call_toggle(&s, "set_screen_share", &call_id, false);
 		}
-		parts.call_parts.screen_btn.set_label("Share screen");
+		parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 		drop(s);
-		announce_call(parts, &format!("Couldn't share the screen: {reason}"), Priority::High);
+		let reason_text = crate::i18n::translate_backend_message(&reason);
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Tidak dapat membagikan layar: {reason_text}")
+		} else {
+			format!("Couldn't share the screen: {reason_text}")
+		};
+		announce_call(parts, &msg, Priority::High);
 		return;
 	}
 	s.active_call_video_send = None;
@@ -953,9 +1025,15 @@ pub(crate) fn screen_share_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		send_call_toggle(&s, "set_screen_share", &call_id, false);
 		send_call_toggle(&s, "set_video", &call_id, false);
 	}
-	parts.call_parts.screen_btn.set_label("Share screen");
+	parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 	drop(s);
-	announce_call(parts, &format!("Couldn't share the screen: {reason}"), Priority::High);
+	let reason_text = crate::i18n::translate_backend_message(&reason);
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Tidak dapat membagikan layar: {reason_text}")
+	} else {
+		format!("Couldn't share the screen: {reason_text}")
+	};
+	announce_call(parts, &msg, Priority::High);
 }
 
 /// The screen being shared is reaching the others as a black picture, or has
@@ -967,11 +1045,11 @@ pub(crate) fn screen_share_black(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 	}
 	announce_call(
 		parts,
-		if black {
+		crate::i18n::tr(if black {
 			"Your screen is being shared as a black picture. If your screen reader's screen curtain is on, turn it off so the others can see your screen."
 		} else {
 			"Your screen is visible to the others now."
-		},
+		}),
 		live_region::Priority::High,
 	);
 }
@@ -986,9 +1064,15 @@ pub(crate) fn camera_failed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	if let Some(call_id) = s.active_call_id.clone() {
 		send_call_toggle(&s, "set_video", &call_id, false);
 	}
-	parts.call_parts.camera_btn.set_label("Turn camera on");
+	parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera on"));
 	drop(s);
-	announce_call(parts, &format!("Couldn't start the camera: {reason}"), Priority::High);
+	let reason_text = crate::i18n::translate_backend_message(&reason);
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Tidak dapat menyalakan kamera: {reason_text}")
+	} else {
+		format!("Couldn't start the camera: {reason_text}")
+	};
+	announce_call(parts, &msg, Priority::High);
 }
 
 const MENU_CALL: i32 = 4501;
@@ -1015,16 +1099,19 @@ pub(crate) fn delete_call_at(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	let _ = s.ws_tx.send(payload.to_string());
 	s.call_logs.retain(|e| e.id != call_id);
 	crate::ui::message_display::apply_chat_filter(&mut s, parts);
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Call deleted.");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, crate::i18n::tr("Call deleted."));
 }
 
 /// Clears the whole call history after asking, with WA Web's wording.
 pub(crate) fn clear_call_log(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let confirm =
-		MessageDialog::builder(&parts.frame, "Your call history will be permanently deleted.", "Clear call log?")
-			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
-			.build();
-	confirm.set_yes_no_labels("Clear", "Cancel");
+	let confirm = MessageDialog::builder(
+		&parts.frame,
+		crate::i18n::tr("Your call history will be permanently deleted."),
+		crate::i18n::tr("Clear call log?"),
+	)
+	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
+	.build();
+	confirm.set_yes_no_labels(crate::i18n::tr("Clear"), crate::i18n::tr("Cancel"));
 	if confirm.show_modal() != wxdragon::id::ID_YES {
 		return;
 	}
@@ -1035,7 +1122,10 @@ pub(crate) fn clear_call_log(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 	if s.active_tab == 6 {
 		crate::ui::message_display::apply_chat_filter(&mut s, parts);
 	}
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Call log cleared.");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Call log cleared."),
+	);
 }
 
 const MENU_JOIN_CALL: i32 = 4505;
@@ -1046,9 +1136,17 @@ fn show_join_row_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ca
 		let Some(call) = s.joinable_calls.iter().find(|c| c.call_id == call_id) else { return };
 		call.group_jid.clone()
 	};
-	let mut builder = Menu::builder().append_item(MENU_JOIN_CALL, "&Join call", "Join this group call");
+	let mut builder = Menu::builder().append_item(
+		MENU_JOIN_CALL,
+		crate::i18n::tr("&Join call"),
+		crate::i18n::tr("Join this group call"),
+	);
 	if !group_jid.is_empty() {
-		builder = builder.append_item(MENU_OPEN_CHAT, "Open c&hat", "Open the group this call is in");
+		builder = builder.append_item(
+			MENU_OPEN_CHAT,
+			crate::i18n::tr("Open c&hat"),
+			crate::i18n::tr("Open the group this call is in"),
+		);
 	}
 	let mut menu = builder.build();
 	let state_menu = state.clone();
@@ -1077,27 +1175,35 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 	}
 
 	let mut builder = Menu::builder()
-		.append_item(MENU_CALL, "&Call", "Place a voice call")
-		.append_item(MENU_VIDEO_CALL, "&Video call", "Place a video call")
-		.append_item(MENU_OPEN_CHAT, "Open c&hat", "Open the conversation with this contact");
+		.append_item(MENU_CALL, crate::i18n::tr("&Call"), crate::i18n::tr("Place a voice call"))
+		.append_item(MENU_VIDEO_CALL, crate::i18n::tr("&Video call"), crate::i18n::tr("Place a video call"))
+		.append_item(
+			MENU_OPEN_CHAT,
+			crate::i18n::tr("Open c&hat"),
+			crate::i18n::tr("Open the conversation with this contact"),
+		);
 	if saved_contact && !jid.ends_with("@g.us") {
 		builder = builder.append_item(
 			MENU_DELETE_CONTACT,
-			"Delete &contact...",
-			"Delete this contact from your contacts and your phone's",
+			crate::i18n::tr("Delete &contact..."),
+			crate::i18n::tr("Delete this contact from your contacts and your phone's"),
 		);
 	}
 	if is_call || has_calls {
 		builder = builder.append_separator();
 	}
 	if is_call {
-		builder = builder.append_item(MENU_DELETE_CALL, "&Delete call\tDel", "Delete this call from your call log");
+		builder = builder.append_item(
+			MENU_DELETE_CALL,
+			crate::i18n::tr("&Delete call	Del"),
+			crate::i18n::tr("Delete this call from your call log"),
+		);
 	}
 	if has_calls {
 		builder = builder.append_item(
 			MENU_CLEAR_CALL_LOG,
-			"C&lear call log...",
-			"Permanently delete your whole call history",
+			crate::i18n::tr("C&lear call log..."),
+			crate::i18n::tr("Permanently delete your whole call history"),
 		);
 	}
 	let mut menu = builder.build();
@@ -1115,20 +1221,21 @@ pub(crate) fn show_calls_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 				let s = state_menu.borrow();
 				s.call_contacts.iter().find(|c| c.jid == jid).map(|c| c.name.clone()).unwrap_or_else(|| jid.clone())
 			};
-			let confirm = MessageDialog::builder(
-				&parts_menu.frame,
-				&format!("Delete {} from your contacts? They'll be removed from your phone's contacts too.", name),
-				"Delete Contact",
-			)
-			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-			.build();
-			confirm.set_yes_no_labels("Delete", "Cancel");
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Hapus {name} dari kontak Anda? Kontak ini juga akan dihapus dari kontak ponsel Anda.")
+			} else {
+				format!("Delete {} from your contacts? They'll be removed from your phone's contacts too.", name)
+			};
+			let confirm = MessageDialog::builder(&parts_menu.frame, &msg, crate::i18n::tr("Delete Contact"))
+				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+				.build();
+			confirm.set_yes_no_labels(crate::i18n::tr("Delete"), crate::i18n::tr("Cancel"));
 			if confirm.show_modal() == wxdragon::id::ID_YES {
 				let payload = serde_json::json!({ "action": "delete_contact", "data": { "jid": jid } });
 				let _ = state_menu.borrow().ws_tx.send(payload.to_string());
 				crate::platform::announce::announce(
 					parts_menu.conversations_parts.messages_announcer,
-					"Deleting contact...",
+					crate::i18n::tr("Deleting contact..."),
 				);
 			}
 		}

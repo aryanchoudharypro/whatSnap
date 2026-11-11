@@ -51,53 +51,62 @@ pub(crate) fn channel_admin_invite(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 	let text = |key: &str| data.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string();
 	let flag = |key: &str| data.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
 	let jid = text("jid");
-	let channel = Some(text("name")).filter(|n| !n.is_empty()).unwrap_or_else(|| "a channel".to_string());
+	let channel =
+		Some(text("name")).filter(|n| !n.is_empty()).unwrap_or_else(|| crate::i18n::tr("a channel").to_string());
 	let user_name = text("userName");
 	if jid.is_empty() {
 		return;
 	}
 	if flag("fromMe") {
-		let dlg = MessageDialog::builder(
-			&parts.frame,
-			&format!("You invited {} to be an admin of {}. Cancel this invite?", user_name, channel),
-			"Channel admin invite",
-		)
-		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-		.build();
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Anda mengundang {user_name} menjadi admin di {channel}. Batalkan undangan ini?")
+		} else {
+			format!("You invited {user_name} to be an admin of {channel}. Cancel this invite?")
+		};
+		let dlg = MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Channel admin invite"))
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build();
 		if dlg.show_modal() == ID_YES {
 			send(state, "revoke_channel_admin_invite", serde_json::json!({ "jid": jid, "user": text("user") }));
 		}
 		return;
 	}
 	if flag("expired") {
-		MessageDialog::builder(
-			&parts.frame,
-			&format!("This invite to be an admin of {} has expired.", channel),
-			"Channel admin invite",
-		)
-		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-		.build()
-		.show_modal();
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Undangan untuk menjadi admin di {channel} ini telah kedaluwarsa.")
+		} else {
+			format!("This invite to be an admin of {channel} has expired.")
+		};
+		MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Channel admin invite"))
+			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+			.build()
+			.show_modal();
 		return;
 	}
-	let mut body = format!("{} invited you to be an admin of the channel {}.", user_name, channel);
+	let mut body = if crate::i18n::is_indonesian() {
+		format!("{user_name} mengundang Anda menjadi admin saluran {channel}.")
+	} else {
+		format!("{user_name} invited you to be an admin of the channel {channel}.")
+	};
 	let caption = text("caption");
 	if !caption.is_empty() {
 		body.push_str(&format!("\n\n{}", caption));
 	}
-	body.push_str("\n\nAccept? As an admin you can post updates and change the channel's details.");
-	let dlg = MessageDialog::builder(&parts.frame, &body, "Channel admin invite")
+	body.push_str(crate::i18n::tr("\n\nAccept? As an admin you can post updates and change the channel's details."));
+	let dlg = MessageDialog::builder(&parts.frame, &body, crate::i18n::tr("Channel admin invite"))
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 		.build();
 	if dlg.show_modal() == ID_YES {
 		send(state, "accept_channel_admin_invite", serde_json::json!({ "jid": jid }));
-		announce(parts, "Accepting...");
+		announce(parts, crate::i18n::tr("Accepting..."));
 	}
 }
 
 pub(crate) fn channel_notice(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	if let Some(message) = data.get("message").and_then(|m| m.as_str()) {
-		announce(parts, message);
+		let translated = crate::i18n::translate_backend_message(message);
+		let localized = if translated == message { crate::i18n::tr_str(message) } else { translated };
+		announce(parts, &localized);
 	}
 }
 
@@ -132,7 +141,7 @@ pub(crate) fn create_channel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPar
 			"picture": details.picture.unwrap_or_default(),
 		}),
 	);
-	announce(parts, "Creating channel...");
+	announce(parts, crate::i18n::tr("Creating channel..."));
 }
 
 pub(crate) fn choose_manage_action(button: &Button, dialog: &Dialog, is_owner: bool) -> Option<ChannelManage> {
@@ -144,15 +153,43 @@ pub(crate) fn choose_manage_action(button: &Button, dialog: &Dialog, is_owner: b
 	const INVITE_ADMINS: i32 = 3206;
 	const PENDING_INVITES: i32 = 3207;
 	let mut builder = Menu::builder()
-		.append_item(EDIT, "&Edit name and description...", "Change the channel's name and description")
-		.append_item(PICTURE, "Change &picture...", "Choose a new picture for the channel")
-		.append_item(REMOVE_PICTURE, "&Remove picture", "Remove the channel's picture")
-		.append_item(FOLLOWERS, "&Followers and admins...", "See who follows the channel, and manage its admins");
+		.append_item(
+			EDIT,
+			crate::i18n::tr("&Edit name and description..."),
+			crate::i18n::tr("Change the channel's name and description"),
+		)
+		.append_item(
+			PICTURE,
+			crate::i18n::tr("Change &picture..."),
+			crate::i18n::tr("Choose a new picture for the channel"),
+		)
+		.append_item(
+			REMOVE_PICTURE,
+			crate::i18n::tr("&Remove picture"),
+			crate::i18n::tr("Remove the channel's picture"),
+		)
+		.append_item(
+			FOLLOWERS,
+			crate::i18n::tr("&Followers and admins..."),
+			crate::i18n::tr("See who follows the channel, and manage its admins"),
+		);
 	if is_owner {
 		builder = builder
-			.append_item(INVITE_ADMINS, "&Invite admins...", "Invite people to be admins of the channel")
-			.append_item(PENDING_INVITES, "Pe&nding admin invites...", "See and cancel admin invites not accepted yet")
-			.append_item(DELETE, "&Delete channel...", "Delete the channel for everyone");
+			.append_item(
+				INVITE_ADMINS,
+				crate::i18n::tr("&Invite admins..."),
+				crate::i18n::tr("Invite people to be admins of the channel"),
+			)
+			.append_item(
+				PENDING_INVITES,
+				crate::i18n::tr("Pe&nding admin invites..."),
+				crate::i18n::tr("See and cancel admin invites not accepted yet"),
+			)
+			.append_item(
+				DELETE,
+				crate::i18n::tr("&Delete channel..."),
+				crate::i18n::tr("Delete the channel for everyone"),
+			);
 	}
 	let mut menu = builder.build();
 	let chosen = Rc::new(Cell::new(0));
@@ -170,8 +207,10 @@ pub(crate) fn choose_manage_action(button: &Button, dialog: &Dialog, is_owner: b
 		DELETE => {
 			let confirm = MessageDialog::builder(
 				dialog,
-				"Delete this channel? It will be removed for all its followers, along with all its updates. This can't be undone.",
-				"Delete channel",
+				crate::i18n::tr(
+					"Delete this channel? It will be removed for all its followers, along with all its updates. This can't be undone.",
+				),
+				crate::i18n::tr("Delete channel"),
 			)
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
 			.build();
@@ -192,8 +231,13 @@ pub(crate) fn manage_channel(
 	match action {
 		ChannelManage::InviteAdmins => {
 			let targets = admin_invite_targets(&state.borrow());
-			let Some(choice) = show_send_to_dialog(&parts.frame, "Invite admins", targets, ADMIN_INVITE_TEXT, &[])
-			else {
+			let Some(choice) = show_send_to_dialog(
+				&parts.frame,
+				crate::i18n::tr("Invite admins"),
+				targets,
+				crate::i18n::tr(ADMIN_INVITE_TEXT),
+				&[],
+			) else {
 				return;
 			};
 			send(
@@ -201,11 +245,11 @@ pub(crate) fn manage_channel(
 				"invite_channel_admins",
 				serde_json::json!({ "jid": jid, "users": choice.jids, "caption": choice.text }),
 			);
-			announce(parts, "Sending admin invites...");
+			announce(parts, crate::i18n::tr("Sending admin invites..."));
 		}
 		ChannelManage::PendingInvites => {
 			send(state, "get_channel_pending_invites", serde_json::json!({ "jid": jid }));
-			announce(parts, "Loading pending admin invites...");
+			announce(parts, crate::i18n::tr("Loading pending admin invites..."));
 		}
 		ChannelManage::Edit => {
 			let Some(details) = ask_channel_details(&parts.frame, false, name, description) else { return };
@@ -218,24 +262,24 @@ pub(crate) fn manage_channel(
 			}
 			if data.as_object().is_some_and(|d| d.len() > 1) {
 				send(state, "update_channel", data);
-				announce(parts, "Saving...");
+				announce(parts, crate::i18n::tr("Saving..."));
 			}
 		}
 		ChannelManage::ChangePicture => {
 			let Some(path) = pick_channel_picture(&parts.frame) else { return };
 			send(state, "update_channel", serde_json::json!({ "jid": jid, "picture": path }));
-			announce(parts, "Changing the channel picture...");
+			announce(parts, crate::i18n::tr("Changing the channel picture..."));
 		}
 		ChannelManage::RemovePicture => {
 			send(state, "update_channel", serde_json::json!({ "jid": jid, "removePicture": true }));
 		}
 		ChannelManage::Followers => {
 			send(state, "get_channel_followers", serde_json::json!({ "jid": jid }));
-			announce(parts, "Loading followers...");
+			announce(parts, crate::i18n::tr("Loading followers..."));
 		}
 		ChannelManage::Delete => {
 			send(state, "delete_channel", serde_json::json!({ "jid": jid }));
-			announce(parts, "Deleting channel...");
+			announce(parts, crate::i18n::tr("Deleting channel..."));
 		}
 	}
 }
@@ -253,13 +297,20 @@ pub(crate) fn channel_created(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		s.channel_roles.insert(jid.clone(), "owner".to_string());
 	}
 	open_chat_for_jid(&jid, state, parts);
-	announce(parts, &format!("Channel {} created.", name));
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Saluran {name} dibuat.")
+	} else {
+		format!("Channel {name} created.")
+	};
+	announce(parts, &msg);
 }
 
 pub(crate) fn channel_updated(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
 	let message = data.get("message").and_then(|m| m.as_str()).unwrap_or("Channel updated.");
-	announce(parts, message);
+	let translated = crate::i18n::translate_backend_message(message);
+	let localized = if translated == message { crate::i18n::tr_str(message) } else { translated };
+	announce(parts, &localized);
 	if !jid.is_empty() {
 		send(state, "get_channel_info", serde_json::json!({ "jid": jid }));
 	}
@@ -267,7 +318,7 @@ pub(crate) fn channel_updated(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 
 pub(crate) fn channel_deleted(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("").to_string();
-	let name = state.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| "The channel".to_string());
+	let name = state.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| crate::i18n::tr("The channel").to_string());
 	if state.borrow().selected_chat.as_deref() == Some(jid.as_str()) {
 		crate::handle_ui_command(crate::UiCommand::CloseConversation, state, parts);
 	}
@@ -276,7 +327,9 @@ pub(crate) fn channel_deleted(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		s.channel_jids.remove(&jid);
 		s.channel_roles.remove(&jid);
 	}
-	announce(parts, &format!("{} was deleted.", name));
+	let msg =
+		if crate::i18n::is_indonesian() { format!("{name} telah dihapus.") } else { format!("{name} was deleted.") };
+	announce(parts, &msg);
 }
 
 pub(crate) fn channel_followers(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
@@ -295,22 +348,37 @@ pub(crate) fn channel_followers(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let (channel_name, is_owner) = {
 		let s = state.borrow();
 		(
-			s.contacts.get(&jid).cloned().unwrap_or_else(|| "channel".to_string()),
+			s.contacts.get(&jid).cloned().unwrap_or_else(|| crate::i18n::tr("channel").to_string()),
 			s.channel_roles.get(&jid).map(String::as_str) == Some("owner"),
 		)
 	};
 	match show_channel_followers(&parts.frame, &channel_name, followers, is_owner) {
 		Some(FollowerAction::InviteAdmin { jid: user, name }) => {
 			send(state, "invite_channel_admins", serde_json::json!({ "jid": jid, "users": [user], "caption": "" }));
-			announce(parts, &format!("Inviting {} to be an admin...", name));
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Mengundang {name} menjadi admin...")
+			} else {
+				format!("Inviting {name} to be an admin...")
+			};
+			announce(parts, &msg);
 		}
 		Some(FollowerAction::RemoveAdmin { jid: user, name }) => {
 			send(state, "demote_channel_admin", serde_json::json!({ "jid": jid, "user": user }));
-			announce(parts, &format!("Removing {} as admin...", name));
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Menghapus {name} sebagai admin...")
+			} else {
+				format!("Removing {name} as admin...")
+			};
+			announce(parts, &msg);
 		}
 		Some(FollowerAction::MakeOwner { jid: user, name }) => {
 			send(state, "change_channel_owner", serde_json::json!({ "jid": jid, "user": user }));
-			announce(parts, &format!("Making {} the owner...", name));
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Menjadikan {name} pemilik saluran...")
+			} else {
+				format!("Making {name} the owner...")
+			};
+			announce(parts, &msg);
 		}
 		None => {}
 	}
@@ -329,13 +397,21 @@ pub(crate) fn channel_post_menu(
 	if post.channel_pinned || state.borrow().channel_pinning {
 		builder = builder.append_item(
 			PIN,
-			if post.channel_pinned { "&Unpin post" } else { "&Pin post" },
-			"Pin or unpin this post at the top of the channel",
+			crate::i18n::tr(if post.channel_pinned { "&Unpin post" } else { "&Pin post" }),
+			crate::i18n::tr("Pin or unpin this post at the top of the channel"),
 		);
 	}
-	builder = builder.append_item(REACTIONS, "Who &reacted...", "See who reacted to this post");
+	builder = builder.append_item(
+		REACTIONS,
+		crate::i18n::tr("Who &reacted..."),
+		crate::i18n::tr("See who reacted to this post"),
+	);
 	if is_poll {
-		builder = builder.append_item(VOTERS, "Who &voted...", "See who voted for each option");
+		builder = builder.append_item(
+			VOTERS,
+			crate::i18n::tr("Who &voted..."),
+			crate::i18n::tr("See who voted for each option"),
+		);
 	}
 	let menu = builder.build();
 	let state = state.clone();
@@ -378,15 +454,34 @@ pub(crate) fn channel_people(parts: &Rc<WindowParts>, data: &serde_json::Value) 
 		})
 		.unwrap_or_default();
 	let people: usize = groups.iter().map(|(_, names)| names.len()).sum();
-	let summary = match (text(data, "kind").as_str(), people) {
-		("votes", 0) => "No one has voted in this poll yet.".to_string(),
-		("votes", 1) => "1 vote".to_string(),
-		("votes", n) => format!("{} votes", n),
-		(_, 0) => "No one has reacted to this post yet.".to_string(),
-		(_, 1) => "1 reaction".to_string(),
-		(_, n) => format!("{} reactions", n),
+	let summary = if crate::i18n::is_indonesian() {
+		match (text(data, "kind").as_str(), people) {
+			("votes", 0) => "Belum ada yang memilih di polling ini.".to_string(),
+			("votes", n) => format!("{n} suara"),
+			(_, 0) => "Belum ada yang bereaksi ke postingan ini.".to_string(),
+			(_, n) => format!("{n} reaksi"),
+		}
+	} else {
+		match (text(data, "kind").as_str(), people) {
+			("votes", 0) => "No one has voted in this poll yet.".to_string(),
+			("votes", 1) => "1 vote".to_string(),
+			("votes", n) => format!("{} votes", n),
+			(_, 0) => "No one has reacted to this post yet.".to_string(),
+			(_, 1) => "1 reaction".to_string(),
+			(_, n) => format!("{} reactions", n),
+		}
 	};
-	show_channel_people(&parts.frame, &text(data, "title"), &summary, &groups);
+	let raw_title = text(data, "title");
+	let title = if crate::i18n::is_indonesian() {
+		if let Some(q) = raw_title.strip_prefix("Votes: ") {
+			format!("Suara: {q}")
+		} else {
+			crate::i18n::tr_str(&raw_title)
+		}
+	} else {
+		raw_title
+	};
+	show_channel_people(&parts.frame, &title, &summary, &groups);
 }
 
 pub(crate) fn channel_pending_invites(
@@ -401,9 +496,15 @@ pub(crate) fn channel_pending_invites(
 		.and_then(|i| i.as_array())
 		.map(|list| list.iter().map(|i| (text(i, "jid"), text(i, "name"))).filter(|(j, _)| !j.is_empty()).collect())
 		.unwrap_or_default();
-	let channel_name = state.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| "channel".to_string());
+	let channel_name =
+		state.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| crate::i18n::tr("channel").to_string());
 	if let Some((user, name)) = show_pending_admin_invites(&parts.frame, &channel_name, invites) {
 		send(state, "revoke_channel_admin_invite", serde_json::json!({ "jid": jid, "user": user }));
-		announce(parts, &format!("Cancelling the invite for {}...", name));
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Membatalkan undangan untuk {name}...")
+		} else {
+			format!("Cancelling the invite for {name}...")
+		};
+		announce(parts, &msg);
 	}
 }

@@ -34,14 +34,21 @@ fn send(state: &Rc<RefCell<AppState>>, action: &str, jid: &str) {
 
 fn block_with_confirm(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) {
 	let name = chat_name(&state.borrow(), jid);
-	let question = format!("Block {name}? They won't be able to call you or send you messages. They won't be told.");
+	let question = if crate::i18n::is_indonesian() {
+		format!(
+			"Blokir {name}? Mereka tidak akan dapat menelepon atau mengirimi Anda pesan. Mereka tidak akan diberi tahu."
+		)
+	} else {
+		format!("Block {name}? They won't be able to call you or send you messages. They won't be told.")
+	};
+	let title = crate::i18n::tr("Block contact");
 	let dialog = state.borrow().blocked_contacts.clone();
 	let answer = match dialog {
-		Some(dialog) => MessageDialog::builder(&dialog.dialog, &question, "Block contact")
+		Some(dialog) => MessageDialog::builder(&dialog.dialog, &question, title)
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build()
 			.show_modal(),
-		None => MessageDialog::builder(&parts.frame, &question, "Block contact")
+		None => MessageDialog::builder(&parts.frame, &question, title)
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build()
 			.show_modal(),
@@ -50,18 +57,24 @@ fn block_with_confirm(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 		return;
 	}
 	send(state, "block_contact", jid);
-	announce(state, parts, &format!("Blocking {name}..."));
+	let msg = if crate::i18n::is_indonesian() { format!("Memblokir {name}...") } else { format!("Blocking {name}...") };
+	announce(state, parts, &msg);
 }
 
 pub(crate) fn toggle_block(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	if !can_block(&jid) {
-		announce(state, parts, "Only contacts can be blocked.");
+		announce(state, parts, crate::i18n::tr("Only contacts can be blocked."));
 		return;
 	}
 	if is_blocked(&state.borrow(), &jid) {
 		let name = chat_name(&state.borrow(), &jid);
 		send(state, "unblock_contact", &jid);
-		announce(state, parts, &format!("Unblocking {name}..."));
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Membuka blokir {name}...")
+		} else {
+			format!("Unblocking {name}...")
+		};
+		announce(state, parts, &msg);
 	} else {
 		block_with_confirm(state, parts, &jid);
 	}
@@ -70,7 +83,12 @@ pub(crate) fn toggle_block(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 pub(crate) fn block_picked_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	if is_blocked(&state.borrow(), &jid) {
 		let name = chat_name(&state.borrow(), &jid);
-		announce(state, parts, &format!("{name} is already blocked."));
+		let msg = if crate::i18n::is_indonesian() {
+			format!("{name} sudah diblokir.")
+		} else {
+			format!("{name} is already blocked.")
+		};
+		announce(state, parts, &msg);
 		return;
 	}
 	block_with_confirm(state, parts, &jid);
@@ -106,7 +124,7 @@ pub(crate) fn blocklist_received(state: &Rc<RefCell<AppState>>, data: &serde_jso
 
 pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let jid = data.get("jid").and_then(|j| j.as_str()).unwrap_or("");
-	let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("Contact");
+	let name = data.get("name").and_then(|n| n.as_str()).unwrap_or_else(|| crate::i18n::tr("Contact"));
 	let blocked = data.get("blocked").and_then(|b| b.as_bool()).unwrap_or(false);
 	let Some(error) = data.get("error").and_then(|e| e.as_str()).filter(|e| !e.is_empty()) else {
 		if !jid.is_empty() {
@@ -131,23 +149,38 @@ pub(crate) fn block_result(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 				crate::ui_commands::calls::apply_call_buttons(&s, parts, jid);
 			}
 		}
-		announce(state, parts, &format!("{name} {}.", if blocked { "blocked" } else { "unblocked" }));
+		let msg = if crate::i18n::is_indonesian() {
+			if blocked { format!("{name} diblokir.") } else { format!("Blokir {name} dibuka.") }
+		} else {
+			format!("{name} {}.", if blocked { "blocked" } else { "unblocked" })
+		};
+		announce(state, parts, &msg);
 		return;
 	};
-	let message = format!("Couldn't {} {name}: {error}", if blocked { "block" } else { "unblock" });
+	let err_text = crate::i18n::translate_backend_message(error);
+	let message = if crate::i18n::is_indonesian() {
+		if blocked {
+			format!("Tidak dapat memblokir {name}: {err_text}")
+		} else {
+			format!("Tidak dapat membuka blokir {name}: {err_text}")
+		}
+	} else {
+		format!("Couldn't {} {name}: {err_text}", if blocked { "block" } else { "unblock" })
+	};
+	let title = crate::i18n::tr("Error");
 	let dialog = state.borrow().blocked_contacts.clone();
 	let style = MessageDialogStyle::OK | MessageDialogStyle::IconError;
 	match dialog {
 		Some(dialog) => {
 			let owner = windows::Win32::Foundation::HWND(dialog.dialog.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&dialog.dialog, &message, "Error").with_style(style).build().show_modal()
+				MessageDialog::builder(&dialog.dialog, &message, title).with_style(style).build().show_modal()
 			});
 		}
 		None => {
 			let owner = windows::Win32::Foundation::HWND(parts.frame.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&parts.frame, &message, "Error").with_style(style).build().show_modal()
+				MessageDialog::builder(&parts.frame, &message, title).with_style(style).build().show_modal()
 			});
 		}
 	};
@@ -191,14 +224,23 @@ pub(crate) fn stop_if_blocked_jid(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 		chat_name(&s, jid)
 	};
-	let question = format!("You blocked {name}. Unblock them to message or call them?");
-	let answer = MessageDialog::builder(&parts.frame, &question, "Blocked contact")
+	let question = if crate::i18n::is_indonesian() {
+		format!("Anda memblokir {name}. Buka blokir mereka untuk mengirim pesan atau menelepon?")
+	} else {
+		format!("You blocked {name}. Unblock them to message or call them?")
+	};
+	let answer = MessageDialog::builder(&parts.frame, &question, crate::i18n::tr("Blocked contact"))
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 		.build()
 		.show_modal();
 	if answer == ID_YES {
 		send(state, "unblock_contact", jid);
-		announce(state, parts, &format!("Unblocking {name}..."));
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Membuka blokir {name}...")
+		} else {
+			format!("Unblocking {name}...")
+		};
+		announce(state, parts, &msg);
 	}
 	true
 }
@@ -219,5 +261,5 @@ pub(crate) fn stop_if_cant_send(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 }
 
 pub(crate) fn info_line(s: &AppState, jid: &str) -> &'static str {
-	if is_blocked(s, jid) { "Blocked: Yes\n" } else { "" }
+	if is_blocked(s, jid) { crate::i18n::tr("Blocked: Yes\n") } else { "" }
 }

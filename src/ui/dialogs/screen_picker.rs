@@ -9,7 +9,7 @@ use crate::{
 
 pub fn pick_share_target(parent: &impl WxWidget) -> Option<ShareChoice> {
 	let choices = share_choices();
-	let dialog = Dialog::builder(parent, "Share screen")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Share screen"))
 		.with_size(440, 420)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -18,7 +18,7 @@ pub fn pick_share_target(parent: &impl WxWidget) -> Option<ShareChoice> {
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let list_label = StaticText::builder(&panel).with_label("What to share").build();
+	let list_label = StaticText::builder(&panel).with_label(crate::i18n::tr("What to share")).build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let list = ListBox::builder(&panel).build();
@@ -28,9 +28,9 @@ pub fn pick_share_target(parent: &impl WxWidget) -> Option<ShareChoice> {
 	list.set_selection(0, true);
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let share_btn = Button::builder(&panel).with_id(ID_OK).with_label("Share").build();
+	let share_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Share")).build();
 	dialog_look::pill_button(&share_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&share_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);

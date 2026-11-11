@@ -28,6 +28,32 @@ pub mod wake;
 
 pub mod window;
 
+struct WxStdCatalogLoader;
+
+impl wxdragon::translations::TranslationsLoader for WxStdCatalogLoader {
+	fn load_catalog(&self, domain: &str, lang: &str) -> Option<std::borrow::Cow<'_, [u8]>> {
+		if (domain == "wxstd" || domain.starts_with("wxstd-")) && (lang == "id" || lang.starts_with("id_")) {
+			Some(std::borrow::Cow::Borrowed(crate::i18n::WXSTD_ID_MO))
+		} else {
+			None
+		}
+	}
+
+	fn available_translations(&self, domain: &str) -> Vec<String> {
+		if domain == "wxstd" || domain.starts_with("wxstd-") { vec!["id".to_string()] } else { Vec::new() }
+	}
+}
+
+pub(crate) fn init_wx_translations() {
+	let translations = wxdragon::translations::Translations::new();
+	if crate::i18n::is_indonesian() {
+		translations.set_loader(WxStdCatalogLoader);
+		translations.set_language_str("id");
+		let _ = translations.add_std_catalog();
+	}
+	translations.set_global();
+}
+
 /// Shows, modally, one of the dialogs that are built once and reused.
 ///
 /// wxWidgets 3.3 won't show a dialog whose return code isn't 0: it takes

@@ -68,7 +68,7 @@ pub(crate) fn fill_info_media(
 		}
 		for list in [lists.media, lists.documents, lists.links] {
 			list.clear();
-			list.append("Loading...");
+			list.append(crate::i18n::tr("Loading..."));
 		}
 		return Default::default();
 	};
@@ -229,14 +229,15 @@ impl ChatTabRows {
 /// it for each filter.
 fn chat_search_label(s: &AppState) -> &'static str {
 	if s.active_tab != 0 || s.chats_unlocked {
-		return "Search chats";
+		return crate::i18n::tr("Search chats");
 	}
-	match s.chat_filter {
+	let key = match s.chat_filter {
 		1 => "Search unread chats",
 		2 => "Search favourite chats",
 		3 => "Search group chats",
 		_ => "Search or start a new chat",
-	}
+	};
+	crate::i18n::tr(key)
 }
 
 /// The chat list's search query, ready to match chats against.
@@ -284,7 +285,7 @@ pub(crate) fn chat_row_label(s: &AppState, jid: &str) -> String {
 		Some(preview) => label.strip_suffix(preview.as_str()).and_then(|h| h.strip_suffix(" | ")).unwrap_or(label),
 		None => label,
 	};
-	format!("{head} | Draft: {draft}")
+	if crate::i18n::is_indonesian() { format!("{head} | Draf: {draft}") } else { format!("{head} | Draft: {draft}") }
 }
 
 fn contact_label(contact: &crate::Contact) -> String {
@@ -334,11 +335,11 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 			rows.push(jid, chat_row_label(s, jid), "");
 		}
 		if rows.jids.is_empty() && s.chats_unlocked {
-			rows.notice("No locked chats found");
+			rows.notice(crate::i18n::tr("No locked chats found"));
 		} else if rows.jids.is_empty() {
 			push_empty_state(s, &mut rows);
 			if rows.jids.is_empty() {
-				rows.notice("No results");
+				rows.notice(crate::i18n::tr("No results"));
 			}
 		}
 		return rows;
@@ -367,19 +368,19 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 	};
 
 	if !chats.is_empty() {
-		rows.notice("Chats");
+		rows.notice(crate::i18n::tr("Chats"));
 		for jid in &chats {
 			rows.push(jid, chat_row_label(s, jid), "");
 		}
 	}
 	if !contacts.is_empty() {
-		rows.notice("Contacts");
+		rows.notice(crate::i18n::tr("Contacts"));
 		for contact in &contacts {
 			rows.push(&contact.jid, contact_label(contact), "");
 		}
 	}
 	if !hits.is_empty() {
-		rows.notice("Messages");
+		rows.notice(crate::i18n::tr("Messages"));
 		for hit in &hits {
 			rows.push(&hit.jid, hit.label(), &hit.message_id);
 		}
@@ -387,9 +388,9 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 	if rows.jids.is_empty() {
 		let looking = query.searches_messages() && (!current || s.message_search.pending);
 		rows.notice(if looking {
-			"Looking for chats, contacts or messages\u{2026}"
+			crate::i18n::tr("Looking for chats, contacts or messages\u{2026}")
 		} else {
-			"No chats, contacts or messages found"
+			crate::i18n::tr("No chats, contacts or messages found")
 		});
 	}
 	rows
@@ -398,26 +399,31 @@ pub(crate) fn chat_tab_rows(s: &AppState) -> ChatTabRows {
 /// What WA Web's chat list says when a filter or tab has no chats.
 fn push_empty_state(s: &AppState, rows: &mut ChatTabRows) {
 	if s.chats_unlocked {
-		rows.notice("You have no locked chats");
+		rows.notice(crate::i18n::tr("You have no locked chats"));
 		return;
 	}
 	match s.active_tab {
 		0 => match s.chat_filter {
 			0 => {}
 			1 => {
-				rows.notice("No unread chats");
-				rows.notice("You're all caught up.");
+				rows.notice(crate::i18n::tr("No unread chats"));
+				rows.notice(crate::i18n::tr("You're all caught up."));
 			}
-			2 => rows.notice("No favourite chats"),
-			3 => rows.notice("No groups found"),
+			2 => rows.notice(crate::i18n::tr("No favourite chats")),
+			3 => rows.notice(crate::i18n::tr("No groups found")),
 			n => {
 				if let Some(list) = s.chat_lists.get(n - BUILT_IN_CHAT_FILTERS.len()) {
-					rows.notice(&format!("No {} chats", list.name));
+					let empty_list = if crate::i18n::is_indonesian() {
+						format!("Tidak ada chat di {}", list.name)
+					} else {
+						format!("No {} chats", list.name)
+					};
+					rows.notice(&empty_list);
 				}
 			}
 		},
-		3 => rows.notice("No archived chats"),
-		5 => rows.notice("No channels"),
+		3 => rows.notice(crate::i18n::tr("No archived chats")),
+		5 => rows.notice(crate::i18n::tr("No channels")),
 		_ => {}
 	}
 }
@@ -464,7 +470,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 	let show_locked_btn = s.active_tab == 0 && !s.locked_jids.is_empty();
 	let show_filter = s.active_tab == 0 && !s.chats_unlocked;
 	let conv = &parts.conversations_parts;
-	let btn_label = if s.chats_unlocked { "Hide Locked Chats" } else { "Locked Chats" };
+	let btn_label = crate::i18n::tr(if s.chats_unlocked { "Hide Locked Chats" } else { "Locked Chats" });
 	if conv.locked_chats_btn.get_label() != btn_label {
 		conv.locked_chats_btn.set_label(btn_label);
 	}
@@ -514,7 +520,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			let start = crate::ui_commands::status_extras::start_item(g).map(|it| it.id.clone()).unwrap_or_default();
 			(status_row_label(g), start)
 		} else {
-			("My status: No updates. Click or press Enter to add".to_string(), String::new())
+			(crate::i18n::tr("My status: No updates. Click or press Enter to add").to_string(), String::new())
 		};
 		if lower_query.is_empty() || my_label.to_lowercase().contains(&lower_query) {
 			labels.push(my_label);
@@ -538,7 +544,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			if section != Some(sec) {
 				section = Some(sec);
 				if let Some(heading) = sec.heading() {
-					labels.push(heading.to_string());
+					labels.push(crate::i18n::tr(heading).to_string());
 					filtered.push(String::new());
 					filtered_status_ids.push(String::new());
 				}
@@ -549,11 +555,11 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		}
 
 		if contacts_count == 0 && lower_query.is_empty() {
-			labels.push("Recent updates".to_string());
+			labels.push(crate::i18n::tr("Recent updates").to_string());
 			filtered.push(String::new());
 			filtered_status_ids.push(String::new());
 
-			labels.push("No recent updates from contacts".to_string());
+			labels.push(crate::i18n::tr("No recent updates from contacts").to_string());
 			filtered.push(String::new());
 			filtered_status_ids.push(String::new());
 		}
@@ -571,9 +577,9 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 		}
 		if filtered_starred_ids.is_empty() {
 			let empty_msg = if lower_query.is_empty() {
-				"No starred messages".to_string()
+				crate::i18n::tr("No starred messages").to_string()
 			} else {
-				"No results found".to_string()
+				crate::i18n::tr("No results found").to_string()
 			};
 			labels.push(empty_msg);
 			filtered.push(String::new());
@@ -615,7 +621,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				(label, format!("{}{}", crate::ui_commands::calls::JOIN_ROW_PREFIX, c.call_id), String::new())
 			})
 			.collect();
-		push_section("Going on now", ongoing);
+		push_section(crate::i18n::tr("Going on now"), ongoing);
 
 		if s.settings.show_frequent_calls {
 			let frequent: Vec<(String, String, String)> = s
@@ -624,7 +630,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				.filter(|t| matches_target(t))
 				.map(|t| (target_label(t), t.jid.clone(), String::new()))
 				.collect();
-			push_section("Frequent contacts", frequent);
+			push_section(crate::i18n::tr("Frequent contacts"), frequent);
 		}
 
 		let mut recent = Vec::new();
@@ -649,7 +655,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			let mut label = format_call_log_label(name, &entry.text, entry.from_me, entry.timestamp);
 			let mut row_jid = entry.jid.clone();
 			if s.joinable_calls.iter().any(|c| c.call_id == entry.id) {
-				label.push_str(crate::ui_commands::calls::ONGOING_CALL_SUFFIX);
+				label.push_str(crate::i18n::tr(crate::ui_commands::calls::ONGOING_CALL_SUFFIX));
 				row_jid = format!("{}{}", crate::ui_commands::calls::JOIN_ROW_PREFIX, entry.id);
 			}
 
@@ -658,7 +664,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 				recent.push((label, row_jid, entry.id.clone()));
 			}
 		}
-		push_section("Recent calls", recent);
+		push_section(crate::i18n::tr("Recent calls"), recent);
 
 		let all: Vec<(String, String, String)> = s
 			.call_contacts
@@ -666,7 +672,7 @@ pub(crate) fn apply_chat_filter(s: &mut AppState, parts: &crate::ui::window::Win
 			.filter(|t| matches_target(t))
 			.map(|t| (target_label(t), t.jid.clone(), String::new()))
 			.collect();
-		push_section("All contacts", all);
+		push_section(crate::i18n::tr("All contacts"), all);
 	} else {
 		let rows = chat_tab_rows(s);
 		filtered = rows.jids;
@@ -804,12 +810,12 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 							parts.action_open_btn.show(true);
 							need_layout = true;
 						}
-						parts.action_open_btn.set_label("Open");
+						parts.action_open_btn.set_label(crate::i18n::tr("Open"));
 						if !parts.action_save_as_btn.is_shown() {
 							parts.action_save_as_btn.show(true);
 							need_layout = true;
 						}
-						parts.action_save_as_btn.set_label("Save as");
+						parts.action_save_as_btn.set_label(crate::i18n::tr("Save as"));
 					} else {
 						if parts.action_open_btn.is_shown() {
 							parts.action_open_btn.show(false);
@@ -824,11 +830,17 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 							need_layout = true;
 						}
 						let label = if let Some(pct) = s.downloads_in_progress.get(&msg.id) {
-							format!("Cancel download ({}%)", pct)
+							if crate::i18n::is_indonesian() {
+								format!("Batalkan unduhan ({pct}%)")
+							} else {
+								format!("Cancel download ({pct}%)")
+							}
 						} else if let Some(size) = whatsnap::format_file_size(msg.media_size) {
-							format!("Download ({})", size)
+							let size =
+								if crate::i18n::is_indonesian() { size.replace(" bytes", " byte") } else { size };
+							format!("{} ({size})", crate::i18n::tr("Download"))
 						} else {
-							"Download".to_string()
+							crate::i18n::tr("Download").to_string()
 						};
 						parts.action_download_btn.set_label(&label);
 					}
@@ -860,7 +872,7 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 							parts.action_open_btn.show(true);
 							need_layout = true;
 						}
-						parts.action_open_btn.set_label("Open album");
+						parts.action_open_btn.set_label(crate::i18n::tr("Open album"));
 
 						let photo_count = valid_messages
 							.iter()
@@ -875,11 +887,11 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 							.filter(|m| m.media_type == "video" || m.text.starts_with("[Video]"))
 							.count();
 						let save_label = if photo_count > 0 && video_count == 0 {
-							"Save all photos"
+							crate::i18n::tr("Save all photos")
 						} else if video_count > 0 && photo_count == 0 {
-							"Save all videos"
+							crate::i18n::tr("Save all videos")
 						} else {
-							"Save all media"
+							crate::i18n::tr("Save all media")
 						};
 						if !parts.action_save_as_btn.is_shown() {
 							parts.action_save_as_btn.show(true);
@@ -904,14 +916,33 @@ fn update_action_buttons_inner(s: &AppState, parts: &crate::ui::conversations::C
 						let is_dl_in_progress =
 							valid_messages.iter().any(|m| s.downloads_in_progress.contains_key(&m.id));
 						let dl_label = if is_dl_in_progress {
-							format!("Downloading album ({} items remaining)", uncollected.len())
+							if crate::i18n::is_indonesian() {
+								format!("Mengunduh album ({} item tersisa)", uncollected.len())
+							} else {
+								format!("Downloading album ({} items remaining)", uncollected.len())
+							}
 						} else {
 							let total_size: i64 = uncollected.iter().map(|m| m.media_size).sum();
 							match whatsnap::format_file_size(total_size) {
 								Some(size) => {
-									format!("Download album ({} items remaining, {})", uncollected.len(), size)
+									let size = if crate::i18n::is_indonesian() {
+										size.replace(" bytes", " byte")
+									} else {
+										size
+									};
+									if crate::i18n::is_indonesian() {
+										format!("Unduh album ({} item tersisa, {size})", uncollected.len())
+									} else {
+										format!("Download album ({} items remaining, {size})", uncollected.len())
+									}
 								}
-								None => format!("Download album ({} items remaining)", uncollected.len()),
+								None => {
+									if crate::i18n::is_indonesian() {
+										format!("Unduh album ({} item tersisa)", uncollected.len())
+									} else {
+										format!("Download album ({} items remaining)", uncollected.len())
+									}
+								}
 							}
 						};
 						parts.action_download_btn.set_label(&dl_label);
@@ -948,7 +979,12 @@ fn set_shown(btn: &Button, show: bool) -> bool {
 }
 
 fn upload_cancel_label(s: &AppState, msg_id: &str) -> String {
-	format!("Cancel upload, {}% complete", s.uploads_in_progress.get(msg_id).copied().unwrap_or(0))
+	let pct = s.uploads_in_progress.get(msg_id).copied().unwrap_or(0);
+	if crate::i18n::is_indonesian() {
+		format!("Batalkan unggahan, {pct}% selesai")
+	} else {
+		format!("Cancel upload, {pct}% complete")
+	}
 }
 
 fn show_send_state_buttons(
@@ -998,7 +1034,11 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 			// No sink while a message is marked playing means playback never
 			// actually started, so present it as paused rather than "Pause".
 			let is_paused = s.audio_sink.as_ref().is_none_or(|sink| sink.is_paused() || sink.empty());
-			parts.play_voice_btn.set_label(if is_paused { "Play voice message" } else { "Pause voice message" });
+			parts.play_voice_btn.set_label(crate::i18n::tr(if is_paused {
+				"Play voice message"
+			} else {
+				"Pause voice message"
+			}));
 			if !parts.audio_slider.is_shown() {
 				parts.audio_slider.show(true);
 				parts.audio_speed_btn.show(true);
@@ -1007,7 +1047,7 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 				need_layout = true;
 			}
 		} else {
-			parts.play_voice_btn.set_label("Play voice message");
+			parts.play_voice_btn.set_label(crate::i18n::tr("Play voice message"));
 			if parts.audio_slider.is_shown() {
 				parts.audio_slider.show(false);
 				parts.audio_speed_btn.show(false);
@@ -1042,7 +1082,54 @@ pub(crate) fn refresh_voice_action_button(s: &AppState, parts: &crate::ui::conve
 }
 
 pub(crate) fn format_call_log_label(name: &str, text: &str, from_me: bool, timestamp: i64) -> String {
-	let call_desc = if text.starts_with("Incoming ") {
+	let call_desc = if crate::i18n::is_indonesian() {
+		if let Some(rest) = text.strip_prefix("Incoming ") {
+			if let Some((kind, dur)) = rest.split_once(", ") {
+				let kind_cap = if let Some(first) = kind.chars().next() {
+					format!("{}{}", first.to_uppercase(), &kind[first.len_utf8()..])
+				} else {
+					kind.to_string()
+				};
+				let kind_id = crate::i18n::translate_call_kind_text(&kind_cap);
+				let dur_id = crate::i18n::translate_call_kind_text(&format!(" {dur}")).trim_start().to_string();
+				format!("{kind_id} dari {name}, durasi {dur_id}")
+			} else {
+				let kind_cap = if let Some(first) = rest.chars().next() {
+					format!("{}{}", first.to_uppercase(), &rest[first.len_utf8()..])
+				} else {
+					rest.to_string()
+				};
+				let kind_id = crate::i18n::translate_call_kind_text(&kind_cap);
+				format!("{kind_id} masuk dari {name}")
+			}
+		} else if let Some(rest) = text.strip_prefix("Outgoing ") {
+			if let Some((kind, dur)) = rest.split_once(", ") {
+				let kind_cap = if let Some(first) = kind.chars().next() {
+					format!("{}{}", first.to_uppercase(), &kind[first.len_utf8()..])
+				} else {
+					kind.to_string()
+				};
+				let kind_id = crate::i18n::translate_call_kind_text(&kind_cap);
+				let dur_id = crate::i18n::translate_call_kind_text(&format!(" {dur}")).trim_start().to_string();
+				format!("{kind_id} keluar ke {name}, durasi {dur_id}")
+			} else {
+				let kind_cap = if let Some(first) = rest.chars().next() {
+					format!("{}{}", first.to_uppercase(), &rest[first.len_utf8()..])
+				} else {
+					rest.to_string()
+				};
+				let kind_id = crate::i18n::translate_call_kind_text(&kind_cap);
+				format!("{kind_id} keluar ke {name}")
+			}
+		} else if let Some(rest) = text.strip_prefix("Missed ") {
+			let kind_id = crate::i18n::translate_call_kind_text(&format!("Missed {rest}"));
+			format!("{kind_id} dari {name}")
+		} else {
+			let kind_id = crate::i18n::translate_call_kind_text(text);
+			let prep = if from_me { "ke" } else { "dari" };
+			format!("{kind_id} {prep} {name}")
+		}
+	} else if text.starts_with("Incoming ") {
 		let rest = &text["Incoming ".len()..];
 		if let Some((kind, dur)) = rest.split_once(", ") {
 			let kind_cap = if let Some(first) = kind.chars().next() {
@@ -1074,7 +1161,15 @@ pub(crate) fn format_call_log_label(name: &str, text: &str, from_me: bool, times
 			let msg_date = local_dt.date();
 			let today = now_dt.date();
 			let yesterday = today.add_days(-1);
-			if msg_date == today {
+			if crate::i18n::is_indonesian() {
+				if msg_date == today {
+					format!("{} {}", crate::i18n::tr("Today"), local_dt.format("%H:%M"))
+				} else if msg_date == yesterday {
+					format!("{} {}", crate::i18n::tr("Yesterday"), local_dt.format("%H:%M"))
+				} else {
+					local_dt.format("%d/%m/%Y %H:%M")
+				}
+			} else if msg_date == today {
 				format!("Today {}", local_dt.format("%I:%M %p"))
 			} else if msg_date == yesterday {
 				format!("Yesterday {}", local_dt.format("%I:%M %p"))
@@ -1140,16 +1235,24 @@ fn status_row_label(group: &crate::StatusGroup) -> String {
 		let preview = if !newest.text.is_empty() {
 			newest.text.clone()
 		} else if !newest.media_type.is_empty() {
-			"Media".to_string()
+			crate::i18n::tr("Media").to_string()
 		} else {
 			String::new()
 		};
 		parts.push(preview);
 	} else {
-		parts.push(format!("{count} updates"));
+		if crate::i18n::is_indonesian() {
+			parts.push(format!("{count} pembaruan"));
+		} else {
+			parts.push(format!("{count} updates"));
+		}
 		let unseen = group.items.iter().filter(|it| !it.viewed).count();
 		if unseen > 0 && !group.from_me {
-			parts.push(format!("{unseen} new"));
+			if crate::i18n::is_indonesian() {
+				parts.push(format!("{unseen} baru"));
+			} else {
+				parts.push(format!("{unseen} new"));
+			}
 		}
 	}
 	if !time.is_empty() {
@@ -1158,18 +1261,30 @@ fn status_row_label(group: &crate::StatusGroup) -> String {
 	if group.from_me {
 		let views: i64 = if count == 1 { newest.viewers } else { 0 };
 		if views > 0 {
-			parts.push(format!("{} view{}", views, if views == 1 { "" } else { "s" }));
+			if crate::i18n::is_indonesian() {
+				parts.push(format!("{views} tayangan"));
+			} else {
+				parts.push(format!("{} view{}", views, if views == 1 { "" } else { "s" }));
+			}
 		}
-		return format!("My status: {}", parts.join(", "));
+		if crate::i18n::is_indonesian() {
+			return format!("Status saya: {}", parts.join(", "));
+		} else {
+			return format!("My status: {}", parts.join(", "));
+		}
 	}
 	if count == 1 && !newest.my_reaction.is_empty() {
-		parts.push(format!("you reacted {}", newest.my_reaction));
+		if crate::i18n::is_indonesian() {
+			parts.push(format!("Anda bereaksi {}", newest.my_reaction));
+		} else {
+			parts.push(format!("you reacted {}", newest.my_reaction));
+		}
 	}
 	let viewed_tag = match (group.items.iter().all(|it| it.viewed), group.muted) {
-		(true, false) => "Viewed",
-		(false, false) => "New",
-		(true, true) => "Viewed, muted",
-		(false, true) => "New, muted",
+		(true, false) => crate::i18n::tr("Viewed"),
+		(false, false) => crate::i18n::tr("New"),
+		(true, true) => crate::i18n::tr("Viewed, muted"),
+		(false, true) => crate::i18n::tr("New, muted"),
 	};
 	format!("{} [{}]: {}", group.poster_name, viewed_tag, parts.join(", "))
 }

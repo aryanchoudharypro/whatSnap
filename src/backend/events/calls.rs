@@ -30,7 +30,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					) {
 						if s.call_start_muted {
 							streams.is_muted.store(true, std::sync::atomic::Ordering::Relaxed);
-							parts.call_parts.mute_btn.set_label("Unmute microphone");
+							parts.call_parts.mute_btn.set_label(crate::i18n::tr("Unmute microphone"));
 							if let Some(call_id) = &s.active_call_id {
 								let payload = serde_json::json!({
 									"action": "mute_call",
@@ -39,13 +39,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 								let _ = s.ws_tx.send(payload.to_string());
 							}
 						} else {
-							parts.call_parts.mute_btn.set_label("Mute microphone");
+							parts.call_parts.mute_btn.set_label(crate::i18n::tr("Mute microphone"));
 						}
 						s.active_call_audio = Some(streams);
 						let connected_msg = if s.call_video.is_video {
-							"Video call connected. Your camera is off."
+							crate::i18n::tr("Video call connected. Your camera is off.")
 						} else {
-							"Call connected."
+							crate::i18n::tr("Call connected.")
 						};
 						announce_call(parts, connected_msg, Priority::High);
 
@@ -87,12 +87,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.call_parts.device_settings_btn.show(true);
 						parts.call_parts.camera_btn.show(true);
 						parts.call_parts.camera_btn.set_label(if s.call_video.local_camera_on {
-							"Turn camera off"
+							crate::i18n::tr("Turn camera off")
 						} else {
-							"Turn camera on"
+							crate::i18n::tr("Turn camera on")
 						});
 						crate::ui_commands::calls::show_screen_share_controls(&s, parts);
-						parts.call_parts.leave_btn.set_label("End call");
+						parts.call_parts.leave_btn.set_label(crate::i18n::tr("End call"));
 						parts.call_parts.leave_btn.show(true);
 						parts.call_parts.add_participant_btn.show(true);
 						crate::ui_commands::call_extras::show_call_buttons(&s, parts);
@@ -105,7 +105,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 							crate::ui_commands::calls::toggle_camera(state, parts);
 						}
 					} else {
-						announce_call(parts, "Failed to start audio stream.", Priority::High);
+						announce_call(parts, crate::i18n::tr("Failed to start audio stream."), Priority::High);
 					}
 				}
 			}
@@ -184,9 +184,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				}
 				let stalled = data.get("stalled").and_then(|s| s.as_bool()).unwrap_or(false);
 				let message = if stalled {
-					"No sound is reaching you from the call. Check your internet connection."
+					crate::i18n::tr("No sound is reaching you from the call. Check your internet connection.")
 				} else {
-					"Sound from the call isn't getting through."
+					crate::i18n::tr("Sound from the call isn't getting through.")
 				};
 				announce_call(parts, message, Priority::High);
 			}
@@ -197,14 +197,26 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				let s = state.borrow();
 				if s.active_call_id.as_deref() == Some(call_id) {
 					let name = if s.call_peer_name.is_empty() {
-						"The other person".to_string()
+						crate::i18n::tr("The other person").to_string()
 					} else {
 						s.call_peer_name.clone()
 					};
 					let message = if t == "call_peer_battery_low" {
-						format!("{name}'s battery is low.")
+						if crate::i18n::is_indonesian() {
+							format!("Baterai {name} lemah.")
+						} else {
+							format!("{name}'s battery is low.")
+						}
 					} else if data.get("interrupted").and_then(|i| i.as_bool()).unwrap_or(true) {
-						format!("{name} is on a phone call and can't hear you right now.")
+						if crate::i18n::is_indonesian() {
+							format!(
+								"{name} sedang menerima panggilan telepon lain dan tidak dapat mendengar Anda sekarang."
+							)
+						} else {
+							format!("{name} is on a phone call and can't hear you right now.")
+						}
+					} else if crate::i18n::is_indonesian() {
+						format!("{name} kembali ke panggilan.")
 					} else {
 						format!("{name} is back on the call.")
 					};
@@ -245,9 +257,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					);
 					parts.call_parts.caller_info.set_value(&info);
 					parts.call_parts.caller_info.show(true);
-					parts.call_parts.status_label.set_label("Reconnecting...");
+					parts.call_parts.status_label.set_label(crate::i18n::tr("Reconnecting..."));
 					crate::audio::start_call_reconnect_tone(&mut s);
-					announce_call(parts, "Reconnecting...", Priority::High);
+					announce_call(parts, crate::i18n::tr("Reconnecting..."), Priority::High);
 				} else {
 					s.call_is_reconnecting = false;
 					s.call_connected_segment_start = Some(std::time::Instant::now());
@@ -261,9 +273,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					);
 					parts.call_parts.caller_info.set_value(&info);
 					parts.call_parts.caller_info.show(true);
-					parts.call_parts.status_label.set_label("Connected");
+					parts.call_parts.status_label.set_label(crate::i18n::tr("Connected"));
 					crate::audio::stop_call_reconnect_tone(&mut s);
-					announce_call(parts, "Reconnected.", Priority::High);
+					announce_call(parts, crate::i18n::tr("Reconnected."), Priority::High);
 				}
 			}
 		}
@@ -274,13 +286,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					return true;
 				}
 				let message = if t == "call_participant_added" {
-					let name = data.get("name").and_then(|n| n.as_str()).unwrap_or("Contact");
-					format!("Ringing {}.", name)
+					let name = data.get("name").and_then(|n| n.as_str()).unwrap_or_else(|| crate::i18n::tr("Contact"));
+					if crate::i18n::is_indonesian() { format!("Memanggil {name}.") } else { format!("Ringing {name}.") }
 				} else {
 					data.get("message")
 						.and_then(|m| m.as_str())
-						.unwrap_or("Couldn't add that person to the call.")
-						.to_string()
+						.map(crate::i18n::translate_backend_message)
+						.unwrap_or_else(|| crate::i18n::tr("Couldn't add that person to the call.").to_string())
 				};
 				announce_call(parts, &message, Priority::High);
 			}
@@ -397,7 +409,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 				if state.borrow().active_call_id.as_deref() != Some(call_id) {
 					return true;
 				}
-				let reason = data.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string();
+				let reason =
+					crate::i18n::translate_backend_message(data.get("message").and_then(|m| m.as_str()).unwrap_or(""));
 				crate::ui_commands::calls::screen_share_failed(state, parts, reason);
 			}
 		}
@@ -422,15 +435,15 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					});
 					let _ = s.ws_tx.send(msg.to_string());
 				}
-				parts.call_parts.camera_btn.set_label("Turn camera on");
-				parts.call_parts.screen_btn.set_label("Share screen");
+				parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera on"));
+				parts.call_parts.screen_btn.set_label(crate::i18n::tr("Share screen"));
 				drop(s);
 				announce_call(
 					parts,
 					if was_sharing {
-						"Couldn't share the screen on this call."
+						crate::i18n::tr("Couldn't share the screen on this call.")
 					} else {
-						"Couldn't turn the camera on for this call."
+						crate::i18n::tr("Couldn't turn the camera on for this call.")
 					},
 					Priority::High,
 				);
@@ -475,8 +488,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					.get("data")
 					.and_then(|d| d.get("message"))
 					.and_then(|m| m.as_str())
-					.unwrap_or("Failed to place call.");
-				announce_call(parts, message, Priority::High);
+					.map(crate::i18n::translate_backend_message)
+					.unwrap_or_else(|| crate::i18n::tr("Failed to place call.").to_string());
+				announce_call(parts, &message, Priority::High);
 			}
 		}
 		"call_ended" => {
@@ -526,23 +540,33 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						announce_call(
 							parts,
 							if was_connected {
-								if reason == "connection_lost" { "Call ended. Connection lost." } else { "Call ended." }
+								if reason == "connection_lost" {
+									crate::i18n::tr("Call ended. Connection lost.")
+								} else {
+									crate::i18n::tr("Call ended.")
+								}
 							} else {
 								match reason {
-									"busy" => "Busy, on another call.",
-									"declined" | "rejected" => "Call declined.",
-									"cancelled" => "Call cancelled.",
-									"timeout" | "no_answer" => "No answer.",
-									"connection_lost" => "Call ended. Connection lost.",
-									_ => "Call ended.",
+									"busy" => crate::i18n::tr("Busy, on another call."),
+									"declined" | "rejected" => crate::i18n::tr("Call declined."),
+									"cancelled" => crate::i18n::tr("Call cancelled."),
+									"timeout" | "no_answer" => crate::i18n::tr("No answer."),
+									"connection_lost" => crate::i18n::tr("Call ended. Connection lost."),
+									_ => crate::i18n::tr("Call ended."),
 								}
 							},
 							Priority::High,
 						);
 					} else if summary.contains("on another device") {
-						announce_call(parts, &format!("{}.", summary), Priority::High);
+						let translated_summary = crate::i18n::translate_call_kind_text(summary);
+						announce_call(parts, &format!("{translated_summary}."), Priority::High);
 					} else if was_incoming_ringing && !was_frame_shown {
-						announce_call(parts, &format!("Missed call from {}.", peer_name_saved), Priority::High);
+						let msg = if crate::i18n::is_indonesian() {
+							format!("Panggilan tak terjawab dari {peer_name_saved}.")
+						} else {
+							format!("Missed call from {peer_name_saved}.")
+						};
+						announce_call(parts, &msg, Priority::High);
 					}
 
 					// Only a missed call (it rang and was never answered) keeps the
@@ -554,7 +578,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					if was_frame_shown && was_missed {
 						let end_text = if was_connected {
 							let clock = crate::calls::helpers::format_call_duration(total_duration.as_secs());
-							format!("Call ended with {}\r\nDuration: {}", peer_name_saved, clock)
+							if crate::i18n::is_indonesian() {
+								format!("Panggilan berakhir dengan {peer_name_saved}\r\nDurasi: {clock}")
+							} else {
+								format!("Call ended with {peer_name_saved}\r\nDuration: {clock}")
+							}
 						} else {
 							crate::calls::helpers::call_ended_info_text(
 								&peer_name_saved,
@@ -564,8 +592,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						};
 						let title_name =
 							crate::calls::helpers::clean_call_title_peer_name(&peer_name_saved, s.call_peer_is_saved);
-						parts.call_parts.frame.set_title(&format!("Call ended with {}", title_name));
-						parts.call_parts.status_label.set_label("Call ended");
+						let end_title = if crate::i18n::is_indonesian() {
+							format!("Panggilan berakhir dengan {title_name}")
+						} else {
+							format!("Call ended with {title_name}")
+						};
+						parts.call_parts.frame.set_title(&end_title);
+						parts.call_parts.status_label.set_label(crate::i18n::tr("Call ended"));
 						parts.call_parts.caller_info.set_value(&end_text);
 						parts.call_parts.caller_info.show(true);
 						parts.call_parts.accept_btn.show(false);
@@ -575,7 +608,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						parts.call_parts.camera_btn.show(false);
 						parts.call_parts.screen_btn.show(false);
 						parts.call_parts.device_settings_btn.show(false);
-						parts.call_parts.device_settings_btn.set_label("Device settings");
+						parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 						parts.call_parts.leave_btn.show(false);
 						parts.call_parts.add_participant_btn.show(false);
 						parts.call_parts.raise_hand_btn.show(false);
@@ -624,8 +657,12 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					parts.call_parts.frame.show(false);
 					stop_call_ringing_sound(&mut s);
 					play_call_fail_sound(&mut s);
-					let message = data.get("message").and_then(|m| m.as_str()).unwrap_or("Failed to answer call.");
-					announce_call(parts, message, Priority::High);
+					let message = data
+						.get("message")
+						.and_then(|m| m.as_str())
+						.map(crate::i18n::translate_backend_message)
+						.unwrap_or_else(|| crate::i18n::tr("Failed to answer call.").to_string());
+					announce_call(parts, &message, Priority::High);
 				}
 			}
 		}
@@ -640,7 +677,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let chat_jid = data.get("chat_jid").and_then(|j| j.as_str());
 					let raw_name = data.get("caller_name").and_then(|n| n.as_str());
 					let raw_phone = data.get("caller_phone").and_then(|p| p.as_str());
-					let (name, phone_digits) = crate::calls::helpers::resolve_call_peer_name_and_phone(
+					let (resolved_name, phone_digits) = crate::calls::helpers::resolve_call_peer_name_and_phone(
 						&s.contacts,
 						&s.all_contacts,
 						caller,
@@ -648,6 +685,8 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						raw_name,
 						raw_phone,
 					);
+					let name =
+						if resolved_name == "Unknown" { crate::i18n::tr("Unknown").to_string() } else { resolved_name };
 					let is_saved = s.contacts.contains_key(caller)
 						|| chat_jid.map(|j| s.contacts.contains_key(j)).unwrap_or(false)
 						|| s.all_contacts
@@ -659,9 +698,9 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					s.call_peer_name = name.clone();
 					s.call_start_muted = s.settings.call_start_muted;
 					parts.call_parts.mute_btn.set_label(if s.call_start_muted {
-						"Unmute microphone"
+						crate::i18n::tr("Unmute microphone")
 					} else {
-						"Mute microphone"
+						crate::i18n::tr("Mute microphone")
 					});
 					s.call_connected_segment_start = None;
 					s.call_connected_duration = std::time::Duration::ZERO;
@@ -719,11 +758,11 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 						is_video,
 					));
 					parts.call_parts.caller_info.show(true);
-					parts.call_parts.mute_btn.set_label("Mute microphone");
+					parts.call_parts.mute_btn.set_label(crate::i18n::tr("Mute microphone"));
 					parts.call_parts.mute_btn.show(true);
-					parts.call_parts.camera_btn.set_label("Turn camera on");
+					parts.call_parts.camera_btn.set_label(crate::i18n::tr("Turn camera on"));
 					parts.call_parts.camera_btn.show(true);
-					parts.call_parts.device_settings_btn.set_label("Device settings");
+					parts.call_parts.device_settings_btn.set_label(crate::i18n::tr("Device settings"));
 					parts.call_parts.device_settings_btn.show(true);
 					parts.call_parts.input_device_group.show(false);
 					parts.call_parts.output_device_group.show(false);
@@ -744,16 +783,35 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 					let (call_hotkeys, unavailable) = crate::calls::hotkeys::start(&s.ui_tx, &s.keymap);
 					s.call_hotkeys = call_hotkeys;
 					for chord in unavailable {
-						announce_call(
-							parts,
-							&format!("Could not register the call key {chord}; another program is using it"),
-							Priority::High,
-						);
+						let msg = if crate::i18n::is_indonesian() {
+							format!(
+								"Tidak dapat mendaftarkan tombol panggilan {chord}; program lain sedang menggunakannya"
+							)
+						} else {
+							format!("Could not register the call key {chord}; another program is using it")
+						};
+						announce_call(parts, &msg, Priority::High);
 					}
 					if s.settings.notifications_enabled && s.settings.call_notifications {
-						let mut toast_body = description.clone();
-						toast_body[..1].make_ascii_uppercase();
-						show_toast_notification("Incoming call", &toast_body);
+						let toast_body = if crate::i18n::is_indonesian()
+							&& (description.starts_with("group ")
+								|| description.starts_with("video call ")
+								|| description.starts_with("voice call "))
+						{
+							let kind = if is_video { "Panggilan video" } else { "Panggilan suara" };
+							match (is_group, group_name.as_deref()) {
+								(true, Some(group)) => format!("{kind} grup dari {name} di {group}"),
+								(true, None) => format!("{kind} grup dari {name}"),
+								(false, _) => format!("{kind} dari {name}"),
+							}
+						} else {
+							let mut body = description.clone();
+							if let Some(first) = body.get_mut(..1) {
+								first.make_ascii_uppercase();
+							}
+							body
+						};
+						show_toast_notification(crate::i18n::tr("Incoming call"), &toast_body);
 					}
 					announce_call(parts, &win_title, Priority::High);
 					call_log(parts, &s, "incoming shown", call_id);

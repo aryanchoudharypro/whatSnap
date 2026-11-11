@@ -88,15 +88,23 @@ fn argb_colour(colour: u32) -> Colour {
 	Colour::rgb((colour >> 16) as u8, (colour >> 8) as u8, colour as u8)
 }
 
+fn char_count_text(len: usize) -> String {
+	if crate::i18n::is_indonesian() { format!("{len} / 700 karakter") } else { format!("{len} / 700 characters") }
+}
+
 pub fn show_status_composer_choice(
 	parent: &impl WxWidget,
 	state: &Rc<std::cell::RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
 ) {
-	let choices = ["Text status update...", "Photo or video status update..."];
-	let dialog =
-		SingleChoiceDialog::builder(parent, "Choose what kind of status update to post:", "Post Status", &choices)
-			.build();
+	let choices = [crate::i18n::tr("Text status update..."), crate::i18n::tr("Photo or video status update...")];
+	let dialog = SingleChoiceDialog::builder(
+		parent,
+		crate::i18n::tr("Choose what kind of status update to post:"),
+		crate::i18n::tr("Post Status"),
+		&choices,
+	)
+	.build();
 	if dialog.show_modal() != wxdragon::id::ID_OK {
 		return;
 	}
@@ -112,7 +120,7 @@ pub fn show_text_status_composer(
 	state: &Rc<std::cell::RefCell<AppState>>,
 	parts: &Rc<WindowParts>,
 ) {
-	let dialog = Dialog::builder(parent, "Post Text Status")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Post Text Status"))
 		.with_size(580, 560)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -125,7 +133,7 @@ pub fn show_text_status_composer(
 	live_region::set_live_region(&announcer);
 	sizer.add(&announcer, 0, SizerFlag::All, 0);
 
-	let prompt = StaticText::builder(&panel).with_label("&Type a status update:").build();
+	let prompt = StaticText::builder(&panel).with_label(crate::i18n::tr("&Type a status update:")).build();
 	theme::style_heading(&prompt);
 	sizer.add(&prompt, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 12);
 
@@ -137,12 +145,12 @@ pub fn show_text_status_composer(
 	sizer.add(&text_field, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
 	let count_row = BoxSizer::builder(Orientation::Horizontal).build();
-	let count_label = StaticText::builder(&panel).with_label("0 / 700 characters").build();
+	let count_label = StaticText::builder(&panel).with_label(&char_count_text(0)).build();
 	theme::style_muted_label(&count_label);
 	count_row.add(&count_label, 0, SizerFlag::Left | SizerFlag::AlignCenterVertical, 0);
 	count_row.add_stretch_spacer(1);
 
-	let emoji_btn = Button::builder(&panel).with_label("Insert &Emoji...").build();
+	let emoji_btn = Button::builder(&panel).with_label(crate::i18n::tr("Insert &Emoji...")).build();
 	dialog_look::pill_button(&emoji_btn, false, theme::Palette::CONTENT_BG());
 	count_row.add(&emoji_btn, 0, SizerFlag::AlignCenterVertical, 0);
 	sizer.add_sizer(&count_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
@@ -150,35 +158,29 @@ pub fn show_text_status_composer(
 	// Style controls row (Color & Font)
 	let style_row = BoxSizer::builder(Orientation::Horizontal).build();
 
-	let color_label = StaticText::builder(&panel).with_label("Colour:").build();
+	let color_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Colour:")).build();
 	theme::style_muted_label(&color_label);
 	style_row.add(&color_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
 
-	let color_names: Vec<&str> = STATUS_PALETTE.iter().map(|(name, _)| *name).collect();
-	let color_combo = ComboBox::builder(&panel)
-		.with_choices(color_names.iter().map(|s| s.to_string()).collect())
-		.with_style(ComboBoxStyle::ReadOnly)
-		.build();
+	let color_names: Vec<String> = STATUS_PALETTE.iter().map(|(name, _)| crate::i18n::tr(name).to_string()).collect();
+	let color_combo = ComboBox::builder(&panel).with_choices(color_names).with_style(ComboBoxStyle::ReadOnly).build();
 	color_combo.set_selection(0);
 	style_row.add(&color_combo, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
 
-	let cycle_color_btn = Button::builder(&panel).with_label("&Next Colour").build();
+	let cycle_color_btn = Button::builder(&panel).with_label(crate::i18n::tr("&Next Colour")).build();
 	dialog_look::pill_button(&cycle_color_btn, false, theme::Palette::CONTENT_BG());
 	style_row.add(&cycle_color_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 10);
 
-	let font_label = StaticText::builder(&panel).with_label("Font:").build();
+	let font_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Font:")).build();
 	theme::style_muted_label(&font_label);
 	style_row.add(&font_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
 
-	let font_names: Vec<&str> = STATUS_FONTS.iter().map(|(name, _, _)| *name).collect();
-	let font_combo = ComboBox::builder(&panel)
-		.with_choices(font_names.iter().map(|s| s.to_string()).collect())
-		.with_style(ComboBoxStyle::ReadOnly)
-		.build();
+	let font_names: Vec<String> = STATUS_FONTS.iter().map(|(name, _, _)| crate::i18n::tr(name).to_string()).collect();
+	let font_combo = ComboBox::builder(&panel).with_choices(font_names).with_style(ComboBoxStyle::ReadOnly).build();
 	font_combo.set_selection(0);
 	style_row.add(&font_combo, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 6);
 
-	let cycle_font_btn = Button::builder(&panel).with_label("Next &Font").build();
+	let cycle_font_btn = Button::builder(&panel).with_label(crate::i18n::tr("Next &Font")).build();
 	dialog_look::pill_button(&cycle_font_btn, false, theme::Palette::CONTENT_BG());
 	style_row.add(&cycle_font_btn, 0, SizerFlag::AlignCenterVertical, 0);
 
@@ -190,20 +192,21 @@ pub fn show_text_status_composer(
 	sizer.add(&preview_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let privacy_row = BoxSizer::builder(Orientation::Horizontal).build();
-	let privacy_hint = StaticText::builder(&panel).with_label("Visible to your configured status audience.").build();
+	let privacy_hint =
+		StaticText::builder(&panel).with_label(crate::i18n::tr("Visible to your configured status audience.")).build();
 	theme::style_muted_label(&privacy_hint);
 	privacy_row.add(&privacy_hint, 1, SizerFlag::AlignCenterVertical, 0);
-	let privacy_btn = Button::builder(&panel).with_label("Status &Privacy...").build();
+	let privacy_btn = Button::builder(&panel).with_label(crate::i18n::tr("Status &Privacy...")).build();
 	dialog_look::pill_button(&privacy_btn, false, theme::Palette::CONTENT_BG());
 	privacy_row.add(&privacy_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
 	sizer.add_sizer(&privacy_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_row = BoxSizer::builder(Orientation::Horizontal).build();
 	btn_row.add_stretch_spacer(1);
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	btn_row.add(&cancel_btn, 0, SizerFlag::Right, 8);
-	let post_btn = Button::builder(&panel).with_id(ID_OK).with_label("Post &Status").build();
+	let post_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Post &Status")).build();
 	dialog_look::pill_button(&post_btn, true, theme::Palette::CONTENT_BG());
 	btn_row.add(&post_btn, 0, SizerFlag::Right, 0);
 	sizer.add_sizer(&btn_row, 0, SizerFlag::Expand | SizerFlag::All, 12);
@@ -243,7 +246,7 @@ pub fn show_text_status_composer(
 				dc.draw_rounded_rectangle(0, 0, size.width, size.height, 6.0);
 				dc.set_font(&f_clone);
 				dc.set_text_foreground(Colour::rgb(0xFF, 0xFF, 0xFF));
-				let preview_text = if text.trim().is_empty() { "Preview" } else { text.trim() };
+				let preview_text = if text.trim().is_empty() { crate::i18n::tr("Preview") } else { text.trim() };
 				let (tw, th) = dc.get_text_extent(preview_text);
 				let x = ((size.width - tw) / 2).max(10);
 				let y = ((size.height - th) / 2).max(6);
@@ -265,7 +268,13 @@ pub fn show_text_status_composer(
 			color_idx.set(next);
 			combo.set_selection(next as u32);
 			let (name, _) = STATUS_PALETTE[next];
-			crate::platform::announce::announce(ann, &format!("Background colour: {name}"));
+			let label = crate::i18n::tr(name);
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Warna latar: {label}")
+			} else {
+				format!("Background colour: {label}")
+			};
+			crate::platform::announce::announce(ann, &msg);
 			preview_fn();
 		});
 	}
@@ -279,7 +288,13 @@ pub fn show_text_status_composer(
 				let idx = (sel as usize).min(STATUS_PALETTE.len() - 1);
 				color_idx.set(idx);
 				let (name, _) = STATUS_PALETTE[idx];
-				crate::platform::announce::announce(ann, &format!("Background colour: {name}"));
+				let label = crate::i18n::tr(name);
+				let msg = if crate::i18n::is_indonesian() {
+					format!("Warna latar: {label}")
+				} else {
+					format!("Background colour: {label}")
+				};
+				crate::platform::announce::announce(ann, &msg);
 				preview_fn();
 			}
 		});
@@ -295,7 +310,13 @@ pub fn show_text_status_composer(
 			font_idx.set(next);
 			combo.set_selection(next as u32);
 			let (name, _, _) = STATUS_FONTS[next];
-			crate::platform::announce::announce(ann, &format!("Font style: {name}"));
+			let label = crate::i18n::tr(name);
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Gaya font: {label}")
+			} else {
+				format!("Font style: {label}")
+			};
+			crate::platform::announce::announce(ann, &msg);
 			preview_fn();
 		});
 	}
@@ -309,7 +330,13 @@ pub fn show_text_status_composer(
 				let idx = (sel as usize).min(STATUS_FONTS.len() - 1);
 				font_idx.set(idx);
 				let (name, _, _) = STATUS_FONTS[idx];
-				crate::platform::announce::announce(ann, &format!("Font style: {name}"));
+				let label = crate::i18n::tr(name);
+				let msg = if crate::i18n::is_indonesian() {
+					format!("Gaya font: {label}")
+				} else {
+					format!("Font style: {label}")
+				};
+				crate::platform::announce::announce(ann, &msg);
 				preview_fn();
 			}
 		});
@@ -323,10 +350,13 @@ pub fn show_text_status_composer(
 		text_field.on_text_changed(move |_| {
 			crate::ui::emoji_replace::text_changed(&field, true);
 			if clamp_field(&field, STATUS_TEXT_MAX_CHARS, STATUS_TEXT_MAX_LINES) {
-				crate::platform::announce::announce(ann, "Your status update can't exceed 700 characters or 10 lines.");
+				crate::platform::announce::announce(
+					ann,
+					crate::i18n::tr("Your status update can't exceed 700 characters or 10 lines."),
+				);
 			}
 			let len = field.get_value().chars().count();
-			count.set_label(&format!("{len} / 700 characters"));
+			count.set_label(&char_count_text(len));
 			preview_fn();
 		});
 	}
@@ -337,17 +367,29 @@ pub fn show_text_status_composer(
 		let ann_emoji = announcer;
 		let preview_fn = update_preview.clone();
 		emoji_btn.on_click(move |_| {
-			let choices: Vec<String> = POPULAR_EMOJIS.iter().map(|(e, desc)| format!("{e}  {desc}")).collect();
+			let choices: Vec<String> =
+				POPULAR_EMOJIS.iter().map(|(e, desc)| format!("{e}  {}", crate::i18n::tr(desc))).collect();
 			let refs: Vec<&str> = choices.iter().map(String::as_str).collect();
-			let dlg =
-				SingleChoiceDialog::builder(&dialog_emoji, "Choose an emoji to insert:", "Insert Emoji", &refs).build();
+			let dlg = SingleChoiceDialog::builder(
+				&dialog_emoji,
+				crate::i18n::tr("Choose an emoji to insert:"),
+				crate::i18n::tr("Insert Emoji"),
+				&refs,
+			)
+			.build();
 			if dlg.show_modal() == wxdragon::id::ID_OK {
 				let sel = dlg.get_selection();
 				if sel >= 0 && (sel as usize) < POPULAR_EMOJIS.len() {
 					let (emoji, desc) = POPULAR_EMOJIS[sel as usize];
 					let cur = field_emoji.get_value();
 					field_emoji.set_value(&format!("{cur}{emoji}"));
-					crate::platform::announce::announce(ann_emoji, &format!("Inserted {desc}"));
+					let desc_tr = crate::i18n::tr(desc);
+					let msg = if crate::i18n::is_indonesian() {
+						format!("{desc_tr} disisipkan")
+					} else {
+						format!("Inserted {desc_tr}")
+					};
+					crate::platform::announce::announce(ann_emoji, &msg);
 					preview_fn();
 				}
 			}
@@ -362,7 +404,7 @@ pub fn show_text_status_composer(
 			let _ = state_p.borrow().ws_tx.send(payload.to_string());
 			crate::platform::announce::announce(
 				parts_p.conversations_parts.messages_announcer,
-				"Loading status privacy settings...",
+				crate::i18n::tr("Loading status privacy settings..."),
 			);
 		});
 	}
@@ -379,7 +421,7 @@ pub fn show_text_status_composer(
 	let do_post = Rc::new(move || {
 		let text = field_ok.get_value().trim().to_string();
 		if text.is_empty() {
-			crate::platform::announce::announce(announcer, "Status update cannot be empty.");
+			crate::platform::announce::announce(announcer, crate::i18n::tr("Status update cannot be empty."));
 			return;
 		}
 		let (_, bg) = STATUS_PALETTE[color_idx_ok.get()];
@@ -395,7 +437,7 @@ pub fn show_text_status_composer(
 		let _ = state_send.borrow().ws_tx.send(payload.to_string());
 		crate::platform::announce::announce(
 			parts_send.conversations_parts.messages_announcer,
-			"Posting status update...",
+			crate::i18n::tr("Posting status update..."),
 		);
 		diag_ok.end_modal(ID_OK);
 	});
@@ -423,7 +465,9 @@ pub fn show_text_status_composer(
 
 	crate::platform::announce::announce(
 		announcer,
-		"Post text status. Type your status update, press Next Colour or Next Font to style, or Ctrl+Enter to post.",
+		crate::i18n::tr(
+			"Post text status. Type your status update, press Next Colour or Next Font to style, or Ctrl+Enter to post.",
+		),
 	);
 
 	text_field.set_focus();
@@ -437,7 +481,7 @@ pub fn show_media_status_composer(
 	parts: &Rc<WindowParts>,
 ) {
 	let file_dialog = FileDialog::builder(parent)
-		.with_message("Choose a photo or video to post as status")
+		.with_message(crate::i18n::tr("Choose a photo or video to post as status"))
 		.with_wildcard(&whatsnap::AttachKind::Media.file_filter())
 		.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
 		.build();
@@ -465,7 +509,7 @@ fn build_media_status_dialog(
 	let file_size_str =
 		std::fs::metadata(&path).ok().and_then(|m| whatsnap::format_file_size(m.len() as i64)).unwrap_or_default();
 
-	let title = if media_type == "video" { "Post Video Status" } else { "Post Photo Status" };
+	let title = crate::i18n::tr(if media_type == "video" { "Post Video Status" } else { "Post Photo Status" });
 
 	let dialog = Dialog::builder(parent, title)
 		.with_size(520, 420)
@@ -481,7 +525,7 @@ fn build_media_status_dialog(
 	sizer.add(&announcer, 0, SizerFlag::All, 0);
 
 	let file_info = if file_size_str.is_empty() { filename.clone() } else { format!("{filename} ({file_size_str})") };
-	let file_label = StaticText::builder(&panel).with_label("Selected &file:").build();
+	let file_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Selected &file:")).build();
 	theme::style_muted_label(&file_label);
 	sizer.add(&file_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 12);
 
@@ -490,7 +534,7 @@ fn build_media_status_dialog(
 	file_field.set_value(&file_info);
 	sizer.add(&file_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 4);
 
-	let caption_label = StaticText::builder(&panel).with_label("&Caption (optional):").build();
+	let caption_label = StaticText::builder(&panel).with_label(crate::i18n::tr("&Caption (optional):")).build();
 	theme::style_muted_label(&caption_label);
 	sizer.add(&caption_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
@@ -507,21 +551,22 @@ fn build_media_status_dialog(
 	sizer.add(&caption_field, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let privacy_row = BoxSizer::builder(Orientation::Horizontal).build();
-	let privacy_hint = StaticText::builder(&panel).with_label("Visible to your configured status audience.").build();
+	let privacy_hint =
+		StaticText::builder(&panel).with_label(crate::i18n::tr("Visible to your configured status audience.")).build();
 	theme::style_muted_label(&privacy_hint);
 	privacy_row.add(&privacy_hint, 1, SizerFlag::AlignCenterVertical, 0);
 
-	let privacy_btn = Button::builder(&panel).with_label("Status &Privacy...").build();
+	let privacy_btn = Button::builder(&panel).with_label(crate::i18n::tr("Status &Privacy...")).build();
 	dialog_look::pill_button(&privacy_btn, false, theme::Palette::CONTENT_BG());
 	privacy_row.add(&privacy_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Left, 8);
 	sizer.add_sizer(&privacy_row, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_row = BoxSizer::builder(Orientation::Horizontal).build();
 	btn_row.add_stretch_spacer(1);
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	btn_row.add(&cancel_btn, 0, SizerFlag::Right, 8);
-	let post_btn = Button::builder(&panel).with_id(ID_OK).with_label("Post &Status").build();
+	let post_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Post &Status")).build();
 	dialog_look::pill_button(&post_btn, true, theme::Palette::CONTENT_BG());
 	btn_row.add(&post_btn, 0, SizerFlag::Right, 0);
 	sizer.add_sizer(&btn_row, 0, SizerFlag::Expand | SizerFlag::All, 12);
@@ -543,7 +588,7 @@ fn build_media_status_dialog(
 			let _ = state_p.borrow().ws_tx.send(payload.to_string());
 			crate::platform::announce::announce(
 				parts_p.conversations_parts.messages_announcer,
-				"Loading status privacy settings...",
+				crate::i18n::tr("Loading status privacy settings..."),
 			);
 		});
 	}
@@ -580,7 +625,7 @@ fn build_media_status_dialog(
 		}
 		crate::platform::announce::announce(
 			parts_ok.conversations_parts.messages_announcer,
-			"Posting status update...",
+			crate::i18n::tr("Posting status update..."),
 		);
 		diag_ok.end_modal(ID_OK);
 	});
@@ -606,13 +651,18 @@ fn build_media_status_dialog(
 		data.skip(true);
 	});
 
-	crate::platform::announce::announce(
-		announcer,
-		&format!(
+	let announce_msg = if crate::i18n::is_indonesian() {
+		format!(
+			"Posting status {}. File yang dipilih: {file_info}. Ketik keterangan opsional, atau tekan Ctrl+Enter untuk memposting.",
+			if media_type == "video" { "video" } else { "foto" }
+		)
+	} else {
+		format!(
 			"Post {} status. Selected file: {file_info}. Type optional caption, or press Ctrl+Enter to post.",
 			if media_type == "video" { "video" } else { "photo" }
-		),
-	);
+		)
+	};
+	crate::platform::announce::announce(announcer, &announce_msg);
 
 	caption_field.set_focus();
 	dialog.show_modal();

@@ -56,16 +56,17 @@ impl MediaPlayer {
 		column.add(&video, 1, SizerFlag::Expand | SizerFlag::Bottom, 8);
 
 		let controls = BoxSizer::builder(Orientation::Horizontal).build();
-		let position_label = StaticText::builder(&panel).with_label("&Position").build();
+		let position_label = StaticText::builder(&panel).with_label(crate::i18n::tr("&Position")).build();
 		theme::style_muted_label(&position_label);
 		let position = Slider::builder(&panel).with_min_value(0).with_max_value(1).build();
-		let time_text = StaticText::builder(&panel).with_label("0:00 of 0:00").build();
+		let initial_time = if crate::i18n::is_indonesian() { "0:00 dari 0:00" } else { "0:00 of 0:00" };
+		let time_text = StaticText::builder(&panel).with_label(initial_time).build();
 		time_text.set_font(&theme::Fonts::body());
 
-		let play_btn = Button::builder(&panel).with_label("Play").build();
-		let mute_btn = Button::builder(&panel).with_label("Mute").build();
-		let speed_btn = Button::builder(&panel).with_label("Speed 1x").build();
-		let volume_label = StaticText::builder(&panel).with_label("&Volume").build();
+		let play_btn = Button::builder(&panel).with_label(crate::i18n::tr("Play")).build();
+		let mute_btn = Button::builder(&panel).with_label(crate::i18n::tr("Mute")).build();
+		let speed_btn = Button::builder(&panel).with_label(crate::i18n::tr("Speed 1x")).build();
+		let volume_label = StaticText::builder(&panel).with_label(crate::i18n::tr("&Volume")).build();
 		theme::style_muted_label(&volume_label);
 		let volume = Slider::builder(&panel).with_min_value(0).with_max_value(100).with_value(100).build();
 
@@ -179,15 +180,15 @@ impl MediaPlayer {
 			Ok(engine) => {
 				engine.set_volume(self.volume.get_value() as f64 / 100.0);
 				engine.set_rate(SPEEDS[self.speed.get()]);
-				engine.set_muted(self.mute_btn.get_label() == "Unmute");
+				engine.set_muted(self.mute_btn.get_label() == crate::i18n::tr("Unmute"));
 				*self.engine.borrow_mut() = Some(engine);
 				if autoplay {
-					self.play_btn.set_label("Pause");
+					self.play_btn.set_label(crate::i18n::tr("Pause"));
 				}
 				self.timer.start(TICK_MS, false);
 			}
 			Err(err) => {
-				crate::platform::announce::announce(self.announcer, "The video couldn't be played.");
+				crate::platform::announce::announce(self.announcer, crate::i18n::tr("The video couldn't be played."));
 				eprintln!("Media engine failed to open {path}: {err}");
 			}
 		}
@@ -200,8 +201,8 @@ impl MediaPlayer {
 		self.length.set(0);
 		self.position.set_range(0, 1);
 		self.position.set_value(0);
-		self.time_text.set_label("0:00 of 0:00");
-		self.play_btn.set_label("Play");
+		self.time_text.set_label(if crate::i18n::is_indonesian() { "0:00 dari 0:00" } else { "0:00 of 0:00" });
+		self.play_btn.set_label(crate::i18n::tr("Play"));
 	}
 
 	/// How far the video has played, 0 to 1, while one is loaded.
@@ -224,7 +225,7 @@ impl MediaPlayer {
 		self.autoplay.set(false);
 		if let Some(engine) = self.engine.borrow().as_ref() {
 			engine.pause();
-			self.play_btn.set_label("Play");
+			self.play_btn.set_label(crate::i18n::tr("Play"));
 		}
 	}
 
@@ -235,17 +236,17 @@ impl MediaPlayer {
 				engine.seek(0.0);
 			}
 			engine.play();
-			self.play_btn.set_label("Pause");
+			self.play_btn.set_label(crate::i18n::tr("Pause"));
 		}
 	}
 
 	pub(crate) fn toggle_play(&self) {
 		if self.is_playing() {
 			self.pause();
-			crate::platform::announce::announce(self.announcer, "Paused");
+			crate::platform::announce::announce(self.announcer, crate::i18n::tr("Paused"));
 		} else {
 			self.play();
-			crate::platform::announce::announce(self.announcer, "Playing");
+			crate::platform::announce::announce(self.announcer, crate::i18n::tr("Playing"));
 		}
 	}
 
@@ -257,14 +258,21 @@ impl MediaPlayer {
 		}) else {
 			return;
 		};
-		self.mute_btn.set_label(if muted { "Unmute" } else { "Mute" });
-		crate::platform::announce::announce(self.announcer, if muted { "Muted" } else { "Sound on" });
+		self.mute_btn.set_label(if muted { crate::i18n::tr("Unmute") } else { crate::i18n::tr("Mute") });
+		crate::platform::announce::announce(
+			self.announcer,
+			if muted { crate::i18n::tr("Muted") } else { crate::i18n::tr("Sound on") },
+		);
 	}
 
 	fn next_speed(&self) {
 		let next = (self.speed.get() + 1) % SPEEDS.len();
 		self.speed.set(next);
-		let label = format!("Speed {}x", SPEEDS[next]);
+		let label = if crate::i18n::is_indonesian() {
+			format!("Kecepatan {}x", SPEEDS[next])
+		} else {
+			format!("Speed {}x", SPEEDS[next])
+		};
 		self.speed_btn.set_label(&label);
 		if let Some(engine) = self.engine.borrow().as_ref() {
 			engine.set_rate(SPEEDS[next]);
@@ -402,8 +410,8 @@ impl MediaPlayer {
 			self.position.set_value(at as i32);
 		}
 		self.show_time();
-		if changes.ended || (ended && self.play_btn.get_label() == "Pause") {
-			self.play_btn.set_label("Play");
+		if changes.ended || (ended && self.play_btn.get_label() == crate::i18n::tr("Pause")) {
+			self.play_btn.set_label(crate::i18n::tr("Play"));
 			if let Some(action) = self.on_ended.borrow().as_ref() {
 				action();
 			}
@@ -412,7 +420,11 @@ impl MediaPlayer {
 
 	fn time_label(&self) -> String {
 		let at = self.engine.borrow().as_ref().map(|e| e.position()).unwrap_or(0.0);
-		format!("{} of {}", clock(at as i32), clock(self.length.get()))
+		if crate::i18n::is_indonesian() {
+			format!("{} dari {}", clock(at as i32), clock(self.length.get()))
+		} else {
+			format!("{} of {}", clock(at as i32), clock(self.length.get()))
+		}
 	}
 
 	fn show_time(&self) {

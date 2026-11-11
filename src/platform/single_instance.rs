@@ -8,7 +8,7 @@ use std::{
 use windows::{
 	Win32::{
 		Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE},
-		System::Threading::CreateMutexW,
+		System::Threading::{CreateMutexW, OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
 		UI::WindowsAndMessaging::{AllowSetForegroundWindow, MB_ICONWARNING, MB_OK, MessageBoxW},
 	},
 	core::w,
@@ -45,6 +45,34 @@ pub enum LaunchRequest {
 }
 
 const FILES_HEADER: &str = "files\n";
+const RESTART_FLAG_PREFIX: &str = "--restart-after-pid=";
+
+pub fn is_restart_flag(arg: &str) -> bool {
+	arg.starts_with(RESTART_FLAG_PREFIX)
+}
+
+/// Waits for a restarting copy to exit and release its single-instance lock.
+pub fn wait_for_previous_instance(mut args: impl Iterator<Item = String>) {
+	let Some(pid) = args.find_map(|arg| arg.strip_prefix(RESTART_FLAG_PREFIX).and_then(|s| s.parse::<u32>().ok()))
+	else {
+		return;
+	};
+	if pid == 0 || pid == std::process::id() {
+		return;
+	}
+	unsafe {
+		if let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
+			let _ = WaitForSingleObject(handle, 20_000);
+			let _ = CloseHandle(handle);
+		}
+	}
+}
+
+pub fn spawn_restarted_copy() -> std::io::Result<()> {
+	let exe = std::env::current_exe()?;
+	std::process::Command::new(exe).arg(format!("{RESTART_FLAG_PREFIX}{}", std::process::id())).spawn()?;
+	Ok(())
+}
 
 impl LaunchRequest {
 	fn encode(&self) -> String {
@@ -102,15 +130,15 @@ pub fn acquire_or_activate_existing(request: Option<&LaunchRequest>) -> Option<I
 }
 
 fn show_unreachable_message() {
+	crate::i18n::set_language(crate::settings::Settings::load().language);
+	let text: Vec<u16> = crate::i18n::tr(
+		"whatSnap is already running, but this copy can't reach it. It may have been started as administrator. Close whatSnap in Task Manager, then start it again.",
+	)
+	.encode_utf16()
+	.chain(std::iter::once(0))
+	.collect();
 	unsafe {
-		MessageBoxW(
-			None,
-			w!(
-				"whatSnap is already running, but this copy can't reach it. It may have been started as administrator. Close whatSnap in Task Manager, then start it again."
-			),
-			w!("whatSnap"),
-			MB_OK | MB_ICONWARNING,
-		);
+		MessageBoxW(None, windows::core::PCWSTR(text.as_ptr()), w!("whatSnap"), MB_OK | MB_ICONWARNING);
 	}
 }
 

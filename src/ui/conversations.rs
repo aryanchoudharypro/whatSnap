@@ -187,7 +187,8 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 			let (sp, sps) = if preview.is_shown() { (preview.get_position(), preview.get_size()) } else { (p, ps) };
 			let (left, mid) = (sp.x + sps.width + 12, p.y + ps.height / 2);
 			let paused = clock.paused_at.is_some();
-			let previewing = preview.is_shown() && preview.get_label().starts_with("Pause");
+			let pause_lbl = crate::i18n::tr("Pause");
+			let previewing = preview.is_shown() && preview.get_label().starts_with(pause_lbl);
 			let secs = clock.elapsed().as_secs();
 			let blink = clock.elapsed().as_millis() / 500 % 2 == 0;
 			let dot = if previewing {
@@ -206,9 +207,9 @@ fn paint_composer(conversation: &Panel, parts: ComposerParts, bar: Colour) {
 			dc.set_text_foreground(theme::Palette::TEXT_PRIMARY());
 			dc.set_background_mode(BackgroundMode::Transparent);
 			let status = if previewing {
-				"  Playing preview"
+				crate::i18n::tr("  Playing preview")
 			} else if paused {
-				"  Paused"
+				crate::i18n::tr("  Paused")
 			} else {
 				""
 			};
@@ -278,8 +279,12 @@ fn paint_calls_page(page: &Panel) {
 		}
 		y += r * 2 + line;
 		for (text, font, colour) in [
-			("Calls", theme::Fonts::heading(), theme::Palette::TEXT_PRIMARY()),
-			("Pick someone on the left, then call them.", theme::Fonts::body(), theme::Palette::TEXT_MUTED()),
+			(crate::i18n::tr("Calls"), theme::Fonts::heading(), theme::Palette::TEXT_PRIMARY()),
+			(
+				crate::i18n::tr("Pick someone on the left, then call them."),
+				theme::Fonts::body(),
+				theme::Palette::TEXT_MUTED(),
+			),
 		] {
 			dc.set_font(&font);
 			dc.set_text_foreground(ink(colour));
@@ -440,17 +445,17 @@ fn fit_columns(panel: &Panel, search: &TextCtrl, list: &ListBox, conversation: &
 		dc.set_background_mode(BackgroundMode::Transparent);
 		for (text, font, colour) in [
 			(
-				"whatSnap for Windows",
+				crate::i18n::tr("whatSnap for Windows"),
 				theme::Fonts::heading(),
 				if custom { theme::Palette::TEXT_PRIMARY() } else { panel_c.get_foreground_color() },
 			),
 			(
-				"Pick a chat on the left to start messaging.",
+				crate::i18n::tr("Pick a chat on the left to start messaging."),
 				theme::Fonts::body(),
 				if custom { theme::Palette::TEXT_MUTED() } else { panel_c.get_foreground_color() },
 			),
 			(
-				"Your personal messages are end-to-end encrypted.",
+				crate::i18n::tr("Your personal messages are end-to-end encrypted."),
 				theme::Fonts::label(),
 				if custom { theme::Palette::TEXT_MUTED() } else { panel_c.get_foreground_color() },
 			),
@@ -470,7 +475,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let outer_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 	let left_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label("Search or start a new chat").build();
+	let search_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Search or start a new chat")).build();
 	theme::style_muted_label(&search_label);
 	left_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
@@ -478,22 +483,22 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		TextCtrl::builder(&panel).with_style(crate::ui::dialog_look::field_style(TextCtrlStyle::Default)).build();
 	crate::ui::dialog_look::add_field(&left_sizer, &search_field, crate::ui::dialog_look::Field::Search, 0);
 
-	let chat_filter_label = StaticText::builder(&panel).with_label("Filters").build();
+	let chat_filter_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Filters")).build();
 	theme::style_muted_label(&chat_filter_label);
 	left_sizer.add(&chat_filter_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
-	let chat_filter_combo = ComboBox::builder(&panel)
-		.with_string_choices(&crate::ui::message_display::BUILT_IN_CHAT_FILTERS)
-		.with_style(ComboBoxStyle::ReadOnly)
-		.build();
+	let chat_filter_labels: Vec<&str> =
+		crate::ui::message_display::BUILT_IN_CHAT_FILTERS.iter().map(|s| crate::i18n::tr(s)).collect();
+	let chat_filter_combo =
+		ComboBox::builder(&panel).with_string_choices(&chat_filter_labels).with_style(ComboBoxStyle::ReadOnly).build();
 	chat_filter_combo.set_font(&theme::Fonts::body());
 	chat_filter_combo.set_selection(0);
 	left_sizer.add(&chat_filter_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let new_conv_btn = Button::builder(&panel).with_label("New Chat").build();
+	let new_conv_btn = Button::builder(&panel).with_label(crate::i18n::tr("New Chat")).build();
 	theme::style_primary_button(&new_conv_btn);
 	left_sizer.add(&new_conv_btn, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let locked_chats_btn = Button::builder(&panel).with_label("Locked Chats").build();
+	let locked_chats_btn = Button::builder(&panel).with_label(crate::i18n::tr("Locked Chats")).build();
 	left_sizer.add(
 		&locked_chats_btn,
 		0,
@@ -502,7 +507,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	);
 	locked_chats_btn.show(false);
 
-	let post_media_status_btn = Button::builder(&panel).with_label("Post Photo/Video Status...").build();
+	let post_media_status_btn =
+		Button::builder(&panel).with_label(crate::i18n::tr("Post Photo/Video Status...")).build();
 	left_sizer.add(
 		&post_media_status_btn,
 		0,
@@ -511,7 +517,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	);
 	post_media_status_btn.show(false);
 
-	let status_privacy_btn = Button::builder(&panel).with_label("Status Privacy...").build();
+	let status_privacy_btn = Button::builder(&panel).with_label(crate::i18n::tr("Status Privacy...")).build();
 	left_sizer.add(
 		&status_privacy_btn,
 		0,
@@ -524,7 +530,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	theme::style_divider(&list_divider);
 	left_sizer.add(&list_divider, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
 
-	let conversations_label = StaticText::builder(&panel).with_label("Chats").build();
+	let conversations_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Chats")).build();
 	theme::style_heading(&conversations_label);
 	left_sizer.add(&conversations_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
@@ -544,12 +550,12 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	calls_page.add_stretch_spacer(1);
 	calls_page.add_spacer(calls_btn_panel.get_char_height() * 7);
 	let calls_btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let calls_call_btn = Button::builder(&calls_btn_panel).with_label("Call").build();
+	let calls_call_btn = Button::builder(&calls_btn_panel).with_label(crate::i18n::tr("Call")).build();
 	calls_call_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_tile(&calls_call_btn, theme::Palette::PANEL_BG());
 	calls_btn_sizer.add(&calls_call_btn, 0, SizerFlag::Right, 16);
 
-	let calls_video_btn = Button::builder(&calls_btn_panel).with_label("Video call").build();
+	let calls_video_btn = Button::builder(&calls_btn_panel).with_label(crate::i18n::tr("Video call")).build();
 	calls_video_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_tile(&calls_video_btn, theme::Palette::PANEL_BG());
 	calls_btn_sizer.add(&calls_video_btn, 0, SizerFlag::empty(), 0);
@@ -572,27 +578,28 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		top_btns_panel.set_background_color(header_bg);
 	}
 	let top_btns_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let conv_data_btn = Button::builder(&top_btns_panel).with_label("Conversation data").build();
+	let conv_data_btn = Button::builder(&top_btns_panel).with_label(crate::i18n::tr("Conversation data")).build();
 	conv_data_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_header(&conv_data_btn, header_bg);
 	top_btns_sizer.add(&conv_data_btn, 1, SizerFlag::Right | SizerFlag::Expand, 5);
 
-	let search_in_conv_btn = Button::builder(&top_btns_panel).with_label("Search in conversation").build();
+	let search_in_conv_btn =
+		Button::builder(&top_btns_panel).with_label(crate::i18n::tr("Search in conversation")).build();
 	search_in_conv_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&search_in_conv_btn, header_bg);
 	top_btns_sizer.add(&search_in_conv_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
 
-	let place_call_btn = Button::builder(&top_btns_panel).with_label("Call").build();
+	let place_call_btn = Button::builder(&top_btns_panel).with_label(crate::i18n::tr("Call")).build();
 	place_call_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&place_call_btn, header_bg);
 	top_btns_sizer.add(&place_call_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
 
-	let place_video_call_btn = Button::builder(&top_btns_panel).with_label("Video call").build();
+	let place_video_call_btn = Button::builder(&top_btns_panel).with_label(crate::i18n::tr("Video call")).build();
 	place_video_call_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&place_video_call_btn, header_bg);
 	top_btns_sizer.add(&place_video_call_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
 
-	let join_call_btn = Button::builder(&top_btns_panel).with_label("Join call").build();
+	let join_call_btn = Button::builder(&top_btns_panel).with_label(crate::i18n::tr("Join call")).build();
 	join_call_btn.set_font(&theme::Fonts::body());
 	theme::style_primary_button(&join_call_btn);
 	top_btns_sizer.add(&join_call_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
@@ -610,7 +617,8 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 		});
 	}
 	let icb_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let incoming_call_banner_label = StaticText::builder(&incoming_call_banner).with_label("Incoming call...").build();
+	let incoming_call_banner_label =
+		StaticText::builder(&incoming_call_banner).with_label(crate::i18n::tr("Incoming call...")).build();
 	incoming_call_banner_label.set_font(&theme::Fonts::body());
 	if theme::use_custom_colours() {
 		incoming_call_banner_label.set_foreground_color(if theme::is_dark() {
@@ -621,16 +629,18 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	}
 	icb_sizer.add(&incoming_call_banner_label, 1, SizerFlag::AlignCenterVertical | SizerFlag::Left, 12);
 
-	let incoming_call_restore_btn = Button::builder(&incoming_call_banner).with_label("Open call window").build();
+	let incoming_call_restore_btn =
+		Button::builder(&incoming_call_banner).with_label(crate::i18n::tr("Open call window")).build();
 	incoming_call_restore_btn.set_font(&theme::Fonts::body());
 	icb_sizer.add(&incoming_call_restore_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
 
-	let incoming_call_answer_btn = Button::builder(&incoming_call_banner).with_label("Answer").build();
+	let incoming_call_answer_btn = Button::builder(&incoming_call_banner).with_label(crate::i18n::tr("Answer")).build();
 	incoming_call_answer_btn.set_font(&theme::Fonts::body());
 	theme::style_primary_button(&incoming_call_answer_btn);
 	icb_sizer.add(&incoming_call_answer_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
 
-	let incoming_call_decline_btn = Button::builder(&incoming_call_banner).with_label("Decline").build();
+	let incoming_call_decline_btn =
+		Button::builder(&incoming_call_banner).with_label(crate::i18n::tr("Decline")).build();
 	incoming_call_decline_btn.set_font(&theme::Fonts::body());
 	icb_sizer.add(&incoming_call_decline_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
 
@@ -640,10 +650,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let search_panel = Panel::builder(&conversation_panel).build();
 	theme::style_content(&search_panel);
 	let search_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let search_close_btn = Button::builder(&search_panel).with_label("Close search").build();
+	let search_close_btn = Button::builder(&search_panel).with_label(crate::i18n::tr("Close search")).build();
 	crate::ui::owner_draw::install_icon_button(&search_close_btn, theme::Palette::CONTENT_BG());
 	search_sizer.add(&search_close_btn, 0, SizerFlag::Right, 5);
-	let search_conv_label = StaticText::builder(&search_panel).with_label("Search conversation").build();
+	let search_conv_label =
+		StaticText::builder(&search_panel).with_label(crate::i18n::tr("Search conversation")).build();
 	theme::style_muted_label(&search_conv_label);
 	search_sizer.add(&search_conv_label, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	let search_conv_field = TextCtrl::builder(&search_panel).with_style(TextCtrlStyle::ProcessEnter).build();
@@ -653,18 +664,19 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	search_panel.show(false);
 	conv_sizer.add(&search_panel, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 10);
 
-	let messages_label = StaticText::builder(&conversation_panel).with_label("Messages").build();
+	let messages_label = StaticText::builder(&conversation_panel).with_label(crate::i18n::tr("Messages")).build();
 	theme::style_muted_label(&messages_label);
 	messages_label.set_min_size(Size::new(1, 1));
 	conv_sizer.add(&messages_label, 0, SizerFlag::Left, 0);
 
-	let messages_list = crate::ui::message_list::MessageList::new(&conversation_panel, "Messages");
+	let messages_list = crate::ui::message_list::MessageList::new(&conversation_panel, crate::i18n::tr("Messages"));
 	messages_list.set_font(&theme::Fonts::body());
 	skip_best_size(&messages_list);
 	theme::style_chat_area(&messages_list);
 	conv_sizer.add(&messages_list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
 
-	let messages_select_list = crate::ui::message_list::MessageList::new(&conversation_panel, "Select messages");
+	let messages_select_list =
+		crate::ui::message_list::MessageList::new(&conversation_panel, crate::i18n::tr("Select messages"));
 	messages_select_list.set_checkable(true);
 	messages_select_list.set_font(&theme::Fonts::body());
 	skip_best_size(&messages_select_list);
@@ -675,14 +687,15 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let selection_bar_panel = Panel::builder(&conversation_panel).build();
 	theme::style_content(&selection_bar_panel);
 	let selection_bar_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let selection_count_label = StaticText::builder(&selection_bar_panel).with_label("0 selected").build();
+	let selection_count_label =
+		StaticText::builder(&selection_bar_panel).with_label(crate::i18n::tr("0 selected")).build();
 	theme::style_muted_label(&selection_count_label);
 	selection_bar_sizer.add(&selection_count_label, 0, SizerFlag::Left | SizerFlag::AlignCenterVertical, 5);
 	selection_bar_sizer.add_stretch_spacer(1);
 	// The buttons of WhatsApp Web's select bar, in its order; which show and
 	// which are available is decided by ui_commands::selection::update_bar.
-	let bar_button = |label: &str| {
-		let button = Button::builder(&selection_bar_panel).with_label(label).build();
+	let bar_button = |label: &'static str| {
+		let button = Button::builder(&selection_bar_panel).with_label(crate::i18n::tr(label)).build();
 		button.set_font(&theme::Fonts::body());
 		selection_bar_sizer.add(&button, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 		button
@@ -710,7 +723,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let action_spacer = StaticText::builder(&action_panel).with_size(Size::new(1, 90)).with_label("").build();
 	action_sizer.add(&action_spacer, 0, SizerFlag::Left, 0);
 
-	let play_voice_btn = Button::builder(&action_panel).with_label("Play voice message").build();
+	let play_voice_btn = Button::builder(&action_panel).with_label(crate::i18n::tr("Play voice message")).build();
 	action_sizer.add(&play_voice_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	play_voice_btn.show(false);
 
@@ -719,27 +732,28 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	action_sizer.add(&messages_announcer, 0, SizerFlag::Left, 0);
 	messages_announcer.show(false);
 
-	let read_more_btn = Button::builder(&action_panel).with_label("Read more").build();
+	let read_more_btn = Button::builder(&action_panel).with_label(crate::i18n::tr("Read more")).build();
 	action_sizer.add(&read_more_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	read_more_btn.show(false);
 
-	let action_retry_btn = Button::builder(&action_panel).with_label("Retry send").build();
+	let action_retry_btn = Button::builder(&action_panel).with_label(crate::i18n::tr("Retry send")).build();
 	action_sizer.add(&action_retry_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_retry_btn.show(false);
 
-	let action_cancel_upload_btn = Button::builder(&action_panel).with_label("Cancel upload, 0% complete").build();
+	let action_cancel_upload_btn =
+		Button::builder(&action_panel).with_label(crate::i18n::tr("Cancel upload, 0% complete")).build();
 	action_sizer.add(&action_cancel_upload_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_cancel_upload_btn.show(false);
 
-	let action_open_btn = Button::builder(&action_panel).with_label("Open").build();
+	let action_open_btn = Button::builder(&action_panel).with_label(crate::i18n::tr("Open")).build();
 	action_sizer.add(&action_open_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_open_btn.show(false);
 
-	let action_save_as_btn = Button::builder(&action_panel).with_label("Save as").build();
+	let action_save_as_btn = Button::builder(&action_panel).with_label(crate::i18n::tr("Save as")).build();
 	action_sizer.add(&action_save_as_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_save_as_btn.show(false);
 
-	let action_download_btn = Button::builder(&action_panel).with_label("Download").build();
+	let action_download_btn = Button::builder(&action_panel).with_label(crate::i18n::tr("Download")).build();
 	action_sizer.add(&action_download_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	action_download_btn.show(false);
 
@@ -773,11 +787,11 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	// emoji, label, box, attach, cancel edit, remove quote, send, record.
 	let composer_bg = theme::Palette::PANEL_BG();
 	let message_row = BoxSizer::builder(Orientation::Horizontal).build();
-	let emoji_btn = Button::builder(&conversation_panel).with_label("Emoji and stickers").build();
+	let emoji_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Emoji and stickers")).build();
 	emoji_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&emoji_btn, composer_bg);
 	message_row.add(&emoji_btn, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 4);
-	let message_label = StaticText::builder(&conversation_panel).with_label("Type a message").build();
+	let message_label = StaticText::builder(&conversation_panel).with_label(crate::i18n::tr("Type a message")).build();
 	theme::style_muted_label(&message_label);
 	if theme::use_custom_colours() {
 		message_label.set_background_color(composer_bg);
@@ -791,8 +805,9 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	message_field.set_font(&theme::Fonts::body());
 	message_field.set_min_size(Size::new(-1, message_field.get_char_height() * 2 + 6));
 	message_row.add(&message_field, 1, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
-	let blocked_banner_btn =
-		Button::builder(&conversation_panel).with_label("You blocked this contact. Click to unblock.").build();
+	let blocked_banner_btn = Button::builder(&conversation_panel)
+		.with_label(crate::i18n::tr("You blocked this contact. Click to unblock."))
+		.build();
 	blocked_banner_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_tile(&blocked_banner_btn, composer_bg);
 	message_row.add(&blocked_banner_btn, 1, SizerFlag::AlignCenterVertical | SizerFlag::Right, 12);
@@ -803,25 +818,26 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	mention_list.set_min_size(Size::new(-1, 120));
 	conv_sizer.add(&mention_list, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	mention_list.show(false);
-	let add_attachment_btn = Button::builder(&conversation_panel).with_label("Add attachment").build();
+	let add_attachment_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Add attachment")).build();
 	add_attachment_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&add_attachment_btn, composer_bg);
 	message_row.add(&add_attachment_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
-	let cancel_edit_btn = Button::builder(&conversation_panel).with_label("Cancel edit").build();
+	let cancel_edit_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Cancel edit")).build();
 	cancel_edit_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&cancel_edit_btn, composer_bg);
 	message_row.add(&cancel_edit_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
 	cancel_edit_btn.show(false);
-	let remove_quote_btn = Button::builder(&conversation_panel).with_label("Remove quote").build();
+	let remove_quote_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Remove quote")).build();
 	remove_quote_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&remove_quote_btn, composer_bg);
 	message_row.add(&remove_quote_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
 	remove_quote_btn.show(false);
-	let send_message_btn = Button::builder(&conversation_panel).with_label("Send message").build();
+	let send_message_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Send message")).build();
 	send_message_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&send_message_btn, composer_bg);
 	message_row.add(&send_message_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 2);
-	let record_voice_btn = Button::builder(&conversation_panel).with_label("Record voice message").build();
+	let record_voice_btn =
+		Button::builder(&conversation_panel).with_label(crate::i18n::tr("Record voice message")).build();
 	record_voice_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&record_voice_btn, composer_bg);
 	message_row.add(&record_voice_btn, 0, SizerFlag::AlignCenterVertical, 0);
@@ -829,7 +845,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let attachment_panel = Panel::builder(&conversation_panel).build();
 	theme::style_content(&attachment_panel);
 	let attach_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let caption_label = StaticText::builder(&attachment_panel).with_label("Caption").build();
+	let caption_label = StaticText::builder(&attachment_panel).with_label(crate::i18n::tr("Caption")).build();
 	theme::style_muted_label(&caption_label);
 	attach_sizer.add(&caption_label, 0, SizerFlag::Left | SizerFlag::Top, 5);
 	let caption_field = TextCtrl::builder(&attachment_panel).with_style(TextCtrlStyle::ProcessEnter).build();
@@ -838,35 +854,36 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	let attachment_info_label = StaticText::builder(&attachment_panel).with_label("").build();
 	theme::style_muted_label(&attachment_info_label);
 	attach_sizer.add(&attachment_info_label, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 5);
-	let add_more_btn = Button::builder(&attachment_panel).with_label("Add more files").build();
+	let add_more_btn = Button::builder(&attachment_panel).with_label(crate::i18n::tr("Add more files")).build();
 	add_more_btn.set_font(&theme::Fonts::body());
 	attach_sizer.add(&add_more_btn, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Bottom, 5);
-	let send_attachment_btn = Button::builder(&attachment_panel).with_label("Send attachment").build();
+	let send_attachment_btn = Button::builder(&attachment_panel).with_label(crate::i18n::tr("Send attachment")).build();
 	theme::style_primary_button(&send_attachment_btn);
 	attach_sizer.add(&send_attachment_btn, 0, SizerFlag::Left | SizerFlag::Bottom, 5);
 	attachment_panel.set_sizer(attach_sizer, true);
 	attachment_panel.show(false);
 	conv_sizer.add(&attachment_panel, 0, SizerFlag::Expand | SizerFlag::All, 5);
 	let upload_gauge = Gauge::builder(&conversation_panel).with_range(100).build();
-	upload_gauge.set_name("Upload progress");
+	upload_gauge.set_name(crate::i18n::tr("Upload progress"));
 	conv_sizer.add(&upload_gauge, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 10);
 	upload_gauge.show(false);
 
 	let voice_toolbar_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
-	let discard_voice_btn = Button::builder(&conversation_panel).with_label("Discard voice message").build();
+	let discard_voice_btn =
+		Button::builder(&conversation_panel).with_label(crate::i18n::tr("Discard voice message")).build();
 	discard_voice_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&discard_voice_btn, composer_bg);
 	voice_toolbar_sizer.add(&discard_voice_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	discard_voice_btn.show(false);
 
-	let pause_resume_btn = Button::builder(&conversation_panel).with_label("Pause recording").build();
+	let pause_resume_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Pause recording")).build();
 	pause_resume_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&pause_resume_btn, composer_bg);
 	voice_toolbar_sizer.add(&pause_resume_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	pause_resume_btn.show(false);
 
-	let preview_voice_btn = Button::builder(&conversation_panel).with_label("Play preview").build();
+	let preview_voice_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Play preview")).build();
 	preview_voice_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&preview_voice_btn, composer_bg);
 	voice_toolbar_sizer.add(&preview_voice_btn, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
@@ -874,7 +891,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 
 	voice_toolbar_sizer.add_stretch_spacer(1);
 
-	let view_once_voice_check = CheckBox::builder(&conversation_panel).with_label("View once").build();
+	let view_once_voice_check = CheckBox::builder(&conversation_panel).with_label(crate::i18n::tr("View once")).build();
 	view_once_voice_check.set_font(&theme::Fonts::body());
 	if theme::use_custom_colours() {
 		view_once_voice_check.set_background_color(composer_bg);
@@ -882,7 +899,7 @@ pub fn build_conversations_panel(parent: &impl WxWidget) -> ConversationsPanelPa
 	voice_toolbar_sizer.add(&view_once_voice_check, 0, SizerFlag::Right | SizerFlag::AlignCenterVertical, 5);
 	view_once_voice_check.show(false);
 
-	let send_voice_btn = Button::builder(&conversation_panel).with_label("Send voice message").build();
+	let send_voice_btn = Button::builder(&conversation_panel).with_label(crate::i18n::tr("Send voice message")).build();
 	send_voice_btn.set_font(&theme::Fonts::body());
 	crate::ui::owner_draw::install_icon_button(&send_voice_btn, composer_bg);
 	voice_toolbar_sizer.add(&send_voice_btn, 0, SizerFlag::AlignCenterVertical, 0);

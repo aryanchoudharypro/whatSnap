@@ -15,9 +15,8 @@ use crate::{
 
 fn handle_app_link(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, link: crate::platform::app_link::AppLink) {
 	match link {
-		crate::platform::app_link::AppLink::Open { jid, .. } | crate::platform::app_link::AppLink::Reply { jid, .. } => {
-			open_chat_for_jid(&jid, state, parts)
-		}
+		crate::platform::app_link::AppLink::Open { jid, .. }
+		| crate::platform::app_link::AppLink::Reply { jid, .. } => open_chat_for_jid(&jid, state, parts),
 		crate::platform::app_link::AppLink::MarkRead { jid, .. } => {
 			if state.borrow().locked_jids.contains(&jid) && !state.borrow().chats_unlocked {
 				return;
@@ -80,7 +79,7 @@ pub(crate) fn open_whatsapp_link(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 			field.set_focus();
 		}
 		WhatsAppLink::Send { phone: None, text } => {
-			send_text_to_chosen_chats(state, parts, "Send to", &text);
+			send_text_to_chosen_chats(state, parts, crate::i18n::tr("Send to"), &text);
 		}
 		WhatsAppLink::Channel { code } => {
 			let payload = serde_json::json!({
@@ -125,12 +124,22 @@ pub(crate) fn notification_reply(
 		if s.locked_jids.contains(&jid) && !s.chats_unlocked {
 			return;
 		}
-		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(&jid));
+		let name =
+			s.contacts.get(&jid).cloned().unwrap_or_else(|| crate::ui::contact_picker::display_name_for_jid(&jid));
 		if crate::ui_commands::blocking::is_blocked(&s, &jid) {
-			Some(format!("Your reply to {name} wasn't sent because you blocked them."))
+			Some(if crate::i18n::is_indonesian() {
+				format!("Balasan Anda kepada {name} tidak terkirim karena Anda memblokirnya.")
+			} else {
+				format!("Your reply to {name} wasn't sent because you blocked them.")
+			})
 		} else {
-			crate::ui::chat_ui::group_send_block_reason(&s, &jid)
-				.map(|reason| format!("Your reply to {name} wasn't sent. {reason}."))
+			crate::ui::chat_ui::group_send_block_reason(&s, &jid).map(|reason| {
+				if crate::i18n::is_indonesian() {
+					format!("Balasan Anda kepada {name} tidak terkirim. {reason}.")
+				} else {
+					format!("Your reply to {name} wasn't sent. {reason}.")
+				}
+			})
 		}
 	};
 	if let Some(refusal) = refusal {
@@ -181,8 +190,17 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	let left_out = paths.len().saturating_sub(max);
 	paths.truncate(max);
 	let title = match paths.as_slice() {
-		[one] => format!("Send {}", std::path::Path::new(one).file_name().unwrap_or_default().to_string_lossy()),
-		many => format!("Send {} files", many.len()),
+		[one] => {
+			let fname = std::path::Path::new(one).file_name().unwrap_or_default().to_string_lossy();
+			if crate::i18n::is_indonesian() { format!("Kirim {fname}") } else { format!("Send {fname}") }
+		}
+		many => {
+			if crate::i18n::is_indonesian() {
+				format!("Kirim {} file", many.len())
+			} else {
+				format!("Send {} files", many.len())
+			}
+		}
 	};
 	let targets = send_targets(&state.borrow());
 	let Some(choice) = show_send_to_dialog(&parts.frame, &title, targets, "", &paths) else { return };
@@ -194,12 +212,23 @@ pub(crate) fn share_files(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 	let names: Vec<String> =
 		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
 	drop(s);
-	let mut message = format!("Sending to {}.", names.join(", "));
+	let names_joined = names.join(", ");
+	let mut message = if crate::i18n::is_indonesian() {
+		format!("Mengirim ke {names_joined}.")
+	} else {
+		format!("Sending to {names_joined}.")
+	};
 	if left_out > 0 {
-		message.push_str(&format!(
-			" You can send up to {max} files at once; {left_out} file{} weren't sent.",
-			if left_out == 1 { "" } else { "s" }
-		));
+		if crate::i18n::is_indonesian() {
+			message.push_str(&format!(
+				" Anda dapat mengirim maksimal {max} file sekaligus; {left_out} file tidak dikirim."
+			));
+		} else {
+			message.push_str(&format!(
+				" You can send up to {max} files at once; {left_out} file{} weren't sent.",
+				if left_out == 1 { "" } else { "s" }
+			));
+		}
 	}
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &message);
 }
@@ -245,10 +274,13 @@ pub(crate) fn send_text_to_chosen_chats(
 	let names: Vec<String> =
 		choice.jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect();
 	drop(s);
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Sent to {}.", names.join(", ")),
-	);
+	let names_joined = names.join(", ");
+	let spoken = if crate::i18n::is_indonesian() {
+		format!("Terkirim ke {names_joined}.")
+	} else {
+		format!("Sent to {names_joined}.")
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
 pub(crate) fn show_group_invite_link(
@@ -257,10 +289,11 @@ pub(crate) fn show_group_invite_link(
 	group_jid: String,
 	link: String,
 ) {
-	let group_name = state.borrow().contacts.get(&group_jid).cloned().unwrap_or_else(|| "this group".to_string());
+	let group_name =
+		state.borrow().contacts.get(&group_jid).cloned().unwrap_or_else(|| crate::i18n::tr("this group").to_string());
 	let parent: &dyn WxWidget =
 		if parts.group_data_dialog.dialog.is_shown() { &parts.group_data_dialog.dialog } else { &parts.frame };
-	let dialog = Dialog::builder(parent, "Group invite link")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Group invite link"))
 		.with_size(460, 240)
 		.with_style(DialogStyle::DefaultDialogStyle)
 		.build();
@@ -269,10 +302,14 @@ pub(crate) fn show_group_invite_link(
 	crate::ui::theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let intro =
-		StaticText::builder(&panel).with_label(&format!("Anyone with this link can join {}.", group_name)).build();
+	let intro_text = if crate::i18n::is_indonesian() {
+		format!("Siapa saja yang memiliki tautan ini dapat bergabung ke {group_name}.")
+	} else {
+		format!("Anyone with this link can join {group_name}.")
+	};
+	let intro = StaticText::builder(&panel).with_label(&intro_text).build();
 	sizer.add(&intro, 0, SizerFlag::All, 10);
-	let link_label = StaticText::builder(&panel).with_label("Invite link").build();
+	let link_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Invite link")).build();
 	crate::ui::theme::style_muted_label(&link_label);
 	sizer.add(&link_label, 0, SizerFlag::Left | SizerFlag::Right, 10);
 	let link_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ReadOnly).build();
@@ -280,10 +317,10 @@ pub(crate) fn show_group_invite_link(
 	sizer.add(&link_field, 0, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let send_btn = Button::builder(&panel).with_label("Send link...").build();
-	let copy_btn = Button::builder(&panel).with_label("Copy link").build();
-	let reset_btn = Button::builder(&panel).with_label("Reset link").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let send_btn = Button::builder(&panel).with_label(crate::i18n::tr("Send link...")).build();
+	let copy_btn = Button::builder(&panel).with_label(crate::i18n::tr("Copy link")).build();
+	let reset_btn = Button::builder(&panel).with_label(crate::i18n::tr("Reset link")).build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	for button in [&send_btn, &copy_btn, &reset_btn] {
 		buttons.add(button, 0, SizerFlag::Right, 8);
 	}
@@ -312,7 +349,7 @@ pub(crate) fn show_group_invite_link(
 	let announcer_copy = announcer;
 	copy_btn.on_click(move |_| {
 		let copied = crate::copy_text(&link_copy);
-		let message = if copied { "Link copied." } else { "Couldn't copy the link." };
+		let message = if copied { crate::i18n::tr("Link copied.") } else { crate::i18n::tr("Couldn't copy the link.") };
 		crate::platform::announce::announce(announcer_copy, message);
 	});
 	let next_send = next.clone();
@@ -324,8 +361,8 @@ pub(crate) fn show_group_invite_link(
 	reset_btn.on_click(move |_| {
 		let confirm = MessageDialog::builder(
 			&dialog,
-			"Reset this group's invite link? The current link will stop working, and anyone who has it won't be able to join with it.",
-			"Reset link",
+			crate::i18n::tr("Reset this group's invite link? The current link will stop working, and anyone who has it won't be able to join with it."),
+			crate::i18n::tr("Reset link"),
 		)
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
 		.build();
@@ -344,8 +381,12 @@ pub(crate) fn show_group_invite_link(
 	let next = *next.borrow();
 	match next {
 		Next::Send => {
-			let text = format!("Follow this link to join my WhatsApp group: {}", link);
-			send_text_to_chosen_chats(state, parts, "Send invite link", &text);
+			let text = if crate::i18n::is_indonesian() {
+				format!("Ikuti tautan ini untuk bergabung ke grup WhatsApp saya: {link}")
+			} else {
+				format!("Follow this link to join my WhatsApp group: {link}")
+			};
+			send_text_to_chosen_chats(state, parts, crate::i18n::tr("Send invite link"), &text);
 		}
 		Next::Reset => {
 			let payload = serde_json::json!({
@@ -383,7 +424,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	if jid.is_empty() {
 		return;
 	}
-	let name = Some(text("name")).filter(|n| !n.is_empty()).unwrap_or_else(|| "Channel".to_string());
+	let name = Some(text("name")).filter(|n| !n.is_empty()).unwrap_or_else(|| crate::i18n::tr("Channel").to_string());
 	let followers = info.get("followers").and_then(|v| v.as_u64()).unwrap_or(0);
 	let following = flag("following");
 	let muted = flag("muted");
@@ -392,20 +433,26 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 
 	let mut details = vec![name.clone()];
 	if flag("verified") {
-		details.push("Verified channel".to_string());
+		details.push(crate::i18n::tr("Verified channel").to_string());
 	}
 	details.push(match followers {
-		1 => "1 follower".to_string(),
-		n => format!("{} followers", n),
+		1 => crate::i18n::tr("1 follower").to_string(),
+		n => {
+			if crate::i18n::is_indonesian() {
+				format!("{n} pengikut")
+			} else {
+				format!("{n} followers")
+			}
+		}
 	});
 	match text("role").as_str() {
-		"owner" => details.push("You own this channel".to_string()),
-		"admin" => details.push("You're an admin of this channel".to_string()),
-		_ if following => details.push("You follow this channel".to_string()),
-		_ => details.push("You don't follow this channel".to_string()),
+		"owner" => details.push(crate::i18n::tr("You own this channel").to_string()),
+		"admin" => details.push(crate::i18n::tr("You're an admin of this channel").to_string()),
+		_ if following => details.push(crate::i18n::tr("You follow this channel").to_string()),
+		_ => details.push(crate::i18n::tr("You don't follow this channel").to_string()),
 	}
 	if matches!(text("state").as_str(), "suspended" | "geosuspended") {
-		details.push("This channel is suspended".to_string());
+		details.push(crate::i18n::tr("This channel is suspended").to_string());
 	}
 	let role = text("role");
 	let is_owner = role == "owner";
@@ -421,7 +468,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		Some(directory) => &directory.dialog,
 		None => &parts.frame,
 	};
-	let dialog = Dialog::builder(parent, "Channel info")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Channel info"))
 		.with_size(480, 380)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -429,7 +476,7 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let panel = Panel::builder(&dialog).build();
 	crate::ui::theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let details_label = StaticText::builder(&panel).with_label("About this channel").build();
+	let details_label = StaticText::builder(&panel).with_label(crate::i18n::tr("About this channel")).build();
 	crate::ui::theme::style_muted_label(&details_label);
 	sizer.add(&details_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 10);
 	let details_field =
@@ -438,13 +485,17 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	sizer.add(&details_field, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let follow_btn = Button::builder(&panel).with_label(if following { "Unfollow" } else { "Follow" }).build();
-	let mute_btn = Button::builder(&panel).with_label(if muted { "Unmute" } else { "Mute" }).build();
-	let open_btn = Button::builder(&panel).with_label("Open channel").build();
-	let copy_btn = Button::builder(&panel).with_label("Copy link").build();
-	let similar_btn = Button::builder(&panel).with_label("Similar channels...").build();
-	let manage_btn = Button::builder(&panel).with_label("Manage channel...").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let follow_btn = Button::builder(&panel)
+		.with_label(if following { crate::i18n::tr("Unfollow") } else { crate::i18n::tr("Follow") })
+		.build();
+	let mute_btn = Button::builder(&panel)
+		.with_label(if muted { crate::i18n::tr("Unmute") } else { crate::i18n::tr("Mute") })
+		.build();
+	let open_btn = Button::builder(&panel).with_label(crate::i18n::tr("Open channel")).build();
+	let copy_btn = Button::builder(&panel).with_label(crate::i18n::tr("Copy link")).build();
+	let similar_btn = Button::builder(&panel).with_label(crate::i18n::tr("Similar channels...")).build();
+	let manage_btn = Button::builder(&panel).with_label(crate::i18n::tr("Manage channel...")).build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	for button in [&manage_btn, &follow_btn, &mute_btn, &open_btn, &copy_btn, &similar_btn] {
 		buttons.add(button, 0, SizerFlag::Right, 8);
 	}
@@ -481,8 +532,8 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		if following {
 			let confirm = MessageDialog::builder(
 				&dialog,
-				"Unfollow this channel? Its posts will be removed from whatSnap.",
-				"Unfollow channel",
+				crate::i18n::tr("Unfollow this channel? Its posts will be removed from whatSnap."),
+				crate::i18n::tr("Unfollow channel"),
 			)
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build();
@@ -511,7 +562,10 @@ pub(crate) fn show_channel_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let link_copy = link.clone();
 	copy_btn.on_click(move |_| {
 		let copied = crate::copy_text(&link_copy);
-		crate::platform::announce::announce(announcer, if copied { "Link copied." } else { "Couldn't copy the link." });
+		crate::platform::announce::announce(
+			announcer,
+			if copied { crate::i18n::tr("Link copied.") } else { crate::i18n::tr("Couldn't copy the link.") },
+		);
 	});
 	let next_manage = next.clone();
 	manage_btn.on_click(move |_| {

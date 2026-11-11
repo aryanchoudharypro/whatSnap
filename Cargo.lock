@@ -2616,6 +2616,7 @@ dependencies = [
  "live-region",
  "nnnoiseless",
  "opus",
+ "patois",
  "qrcode",
  "rodio",
  "rodio-wsola",

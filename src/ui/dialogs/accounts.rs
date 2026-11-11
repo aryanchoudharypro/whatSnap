@@ -26,7 +26,7 @@ pub enum AccountsAction {
 }
 
 pub fn show(parent: &impl WxWidget, rows: &[AccountRow], active: &str, focus: Option<&str>) -> Option<AccountsAction> {
-	let dialog = Dialog::builder(parent, "Accounts")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Accounts"))
 		.with_size(460, 400)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -36,7 +36,7 @@ pub fn show(parent: &impl WxWidget, rows: &[AccountRow], active: &str, focus: Op
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	// The label goes right before the list, so the list is named by it.
-	let list_label = StaticText::builder(&panel).with_label("Linked accounts").build();
+	let list_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Linked accounts")).build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let list = ListBox::builder(&panel).build();
@@ -44,13 +44,13 @@ pub fn show(parent: &impl WxWidget, rows: &[AccountRow], active: &str, focus: Op
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let switch_btn = Button::builder(&panel).with_id(ID_OK).with_label("&Switch").build();
+	let switch_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("&Switch")).build();
 	theme::style_primary_button(&switch_btn);
-	let add_btn = Button::builder(&panel).with_label("&Add Account...").build();
-	let rename_btn = Button::builder(&panel).with_label("Re&name...").build();
-	let notify_btn = Button::builder(&panel).with_label("N&otifications...").build();
-	let remove_btn = Button::builder(&panel).with_label("&Remove...").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let add_btn = Button::builder(&panel).with_label(crate::i18n::tr("&Add Account...")).build();
+	let rename_btn = Button::builder(&panel).with_label(crate::i18n::tr("Re&name...")).build();
+	let notify_btn = Button::builder(&panel).with_label(crate::i18n::tr("N&otifications...")).build();
+	let remove_btn = Button::builder(&panel).with_label(crate::i18n::tr("&Remove...")).build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	for btn in [&switch_btn, &add_btn, &rename_btn, &notify_btn, &remove_btn] {
 		btn_sizer.add(btn, 0, SizerFlag::Right, 8);
 	}
@@ -157,7 +157,12 @@ pub fn ask_notifications(
 	messages: MessageAlerts,
 	calls: CallAlerts,
 ) -> Option<(MessageAlerts, CallAlerts)> {
-	let dialog = Dialog::builder(parent, &format!("Notifications for {account}"))
+	let title = if crate::i18n::is_indonesian() {
+		format!("Setelan notifikasi untuk {account}")
+	} else {
+		format!("Notifications for {account}")
+	};
+	let dialog = Dialog::builder(parent, &title)
 		.with_size(440, 330)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -167,7 +172,9 @@ pub fn ask_notifications(
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let note = StaticText::builder(&panel)
-		.with_label("These apply while another account is on screen. Each chat's own notification settings still count, and the account on screen always uses the normal settings.")
+		.with_label(crate::i18n::tr(
+			"These apply while another account is on screen. Each chat's own notification settings still count, and the account on screen always uses the normal settings.",
+		))
 		.build();
 	theme::style_muted_label(&note);
 	sizer.add(&note, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
@@ -184,19 +191,19 @@ pub fn ask_notifications(
 		combo
 	};
 	let message_combo = combo(
-		"When a message comes in",
-		MESSAGE_CHOICES.iter().map(|(label, _)| *label).collect(),
+		crate::i18n::tr("When a message comes in"),
+		MESSAGE_CHOICES.iter().map(|(label, _)| crate::i18n::tr(label)).collect(),
 		MESSAGE_CHOICES.iter().position(|(_, v)| *v == messages).unwrap_or(0),
 	);
 	let call_combo = combo(
-		"When someone calls",
-		CALL_CHOICES.iter().map(|(label, _)| *label).collect(),
+		crate::i18n::tr("When someone calls"),
+		CALL_CHOICES.iter().map(|(label, _)| crate::i18n::tr(label)).collect(),
 		CALL_CHOICES.iter().position(|(_, v)| *v == calls).unwrap_or(0),
 	);
 
-	let save_btn = Button::builder(&panel).with_id(ID_OK).with_label("Save").build();
+	let save_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Save")).build();
 	dialog_look::pill_button(&save_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&save_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);

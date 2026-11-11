@@ -24,7 +24,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		close_locked_chats(state, parts);
 	}
 	parts.conversations_parts.calls_btn_panel.show(idx == 6);
-	parts.conversations_parts.search_label.set_label(if idx == 6 {
+	parts.conversations_parts.search_label.set_label(crate::i18n::tr(if idx == 6 {
 		"Search or enter phone number to place call"
 	} else if idx == 1 {
 		"Search status updates"
@@ -34,30 +34,30 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		"Search starred messages"
 	} else {
 		"Search chats"
-	});
+	}));
 	parts.conversations_parts.new_conv_btn.show(idx != 6 && idx != 2);
 	match idx {
 		0 => {
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 0;
-			parts.conversations_parts.new_conv_btn.set_label("New Chat");
+			parts.conversations_parts.new_conv_btn.set_label(crate::i18n::tr("New Chat"));
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.status_privacy_btn.show(false);
-			parts.conversations_parts.conversations_label.set_label("Chats");
+			parts.conversations_parts.conversations_label.set_label(crate::i18n::tr("Chats"));
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		1 => {
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 1;
-			parts.conversations_parts.new_conv_btn.set_label("Post Status Update...");
-			parts.conversations_parts.post_media_status_btn.set_label("Post Photo/Video Status...");
+			parts.conversations_parts.new_conv_btn.set_label(crate::i18n::tr("Post Status Update..."));
+			parts.conversations_parts.post_media_status_btn.set_label(crate::i18n::tr("Post Photo/Video Status..."));
 			parts.conversations_parts.post_media_status_btn.show(true);
 			parts.conversations_parts.status_privacy_btn.show(true);
 			parts.conversations_parts.locked_chats_btn.show(false);
 			parts.conversations_parts.chat_filter_label.show(false);
 			parts.conversations_parts.chat_filter_combo.show(false);
 			parts.conversations_parts.conversation_panel.show(false);
-			parts.conversations_parts.conversations_label.set_label("Status Updates");
+			parts.conversations_parts.conversations_label.set_label(crate::i18n::tr("Status Updates"));
 			let payload = serde_json::json!({ "action": "get_statuses" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 			apply_chat_filter(&mut state.borrow_mut(), parts);
@@ -70,7 +70,7 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.locked_chats_btn.show(false);
 			parts.conversations_parts.chat_filter_label.show(false);
 			parts.conversations_parts.chat_filter_combo.show(false);
-			parts.conversations_parts.conversations_label.set_label("Starred Messages");
+			parts.conversations_parts.conversations_label.set_label(crate::i18n::tr("Starred Messages"));
 			let payload = serde_json::json!({ "action": "get_starred_messages" });
 			let _ = state.borrow().ws_tx.send(payload.to_string());
 			apply_chat_filter(&mut state.borrow_mut(), parts);
@@ -78,29 +78,29 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		3 => {
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 3;
-			parts.conversations_parts.new_conv_btn.set_label("New Chat");
+			parts.conversations_parts.new_conv_btn.set_label(crate::i18n::tr("New Chat"));
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.status_privacy_btn.show(false);
-			parts.conversations_parts.conversations_label.set_label("Archived Chats");
+			parts.conversations_parts.conversations_label.set_label(crate::i18n::tr("Archived Chats"));
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		4 => {
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 4;
-			parts.conversations_parts.new_conv_btn.set_label("New Chat");
+			parts.conversations_parts.new_conv_btn.set_label(crate::i18n::tr("New Chat"));
 			parts.conversations_parts.post_media_status_btn.show(false);
 			parts.conversations_parts.status_privacy_btn.show(false);
-			parts.conversations_parts.conversations_label.set_label("Communities");
+			parts.conversations_parts.conversations_label.set_label(crate::i18n::tr("Communities"));
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		5 => {
 			parts.conversations_parts.panel.show(true);
 			state.borrow_mut().active_tab = 5;
-			parts.conversations_parts.new_conv_btn.set_label("Find channels...");
-			parts.conversations_parts.post_media_status_btn.set_label("Create channel...");
+			parts.conversations_parts.new_conv_btn.set_label(crate::i18n::tr("Find channels..."));
+			parts.conversations_parts.post_media_status_btn.set_label(crate::i18n::tr("Create channel..."));
 			parts.conversations_parts.post_media_status_btn.show(true);
 			parts.conversations_parts.status_privacy_btn.show(false);
-			parts.conversations_parts.conversations_label.set_label("Channels");
+			parts.conversations_parts.conversations_label.set_label(crate::i18n::tr("Channels"));
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
 		6 => {
@@ -112,9 +112,9 @@ pub(crate) fn nav_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 			parts.conversations_parts.chat_filter_label.show(false);
 			parts.conversations_parts.chat_filter_combo.show(false);
 			parts.conversations_parts.conversation_panel.show(false);
-			parts.conversations_parts.conversations_label.set_label("Recent Calls");
-			parts.conversations_parts.calls_call_btn.set_label("Call");
-			parts.conversations_parts.calls_video_btn.set_label("Video call");
+			parts.conversations_parts.conversations_label.set_label(crate::i18n::tr("Recent Calls"));
+			parts.conversations_parts.calls_call_btn.set_label(crate::i18n::tr("Call"));
+			parts.conversations_parts.calls_video_btn.set_label(crate::i18n::tr("Video call"));
 			request_call_tab_data(&state.borrow());
 			apply_chat_filter(&mut state.borrow_mut(), parts);
 		}
@@ -293,8 +293,13 @@ pub(crate) fn conversation_selection_changed(idx: usize, state: &Rc<RefCell<AppS
 					whatsnap::phone::format_international(raw_phone).unwrap_or_else(|| format!("+{raw_phone}"))
 				});
 				drop(s);
-				parts.conversations_parts.calls_call_btn.set_label(&format!("Call {}", peer_name));
-				parts.conversations_parts.calls_video_btn.set_label(&format!("Video call {}", peer_name));
+				let (call_lbl, video_lbl) = if crate::i18n::is_indonesian() {
+					(format!("Telepon {peer_name}"), format!("Panggilan video {peer_name}"))
+				} else {
+					(format!("Call {peer_name}"), format!("Video call {peer_name}"))
+				};
+				parts.conversations_parts.calls_call_btn.set_label(&call_lbl);
+				parts.conversations_parts.calls_video_btn.set_label(&video_lbl);
 				parts.conversations_parts.calls_btn_panel.layout();
 			}
 		}
@@ -343,7 +348,7 @@ pub(crate) fn set_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		if speak {
 			crate::platform::announce::announce(
 				cp.messages_announcer,
-				"Selection mode. Press Space to select a message. 0 messages selected.",
+				crate::i18n::tr("Selection mode. Press Space to select a message. 0 messages selected."),
 			);
 		}
 	} else {
@@ -365,7 +370,7 @@ pub(crate) fn set_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		cp.messages_list.show(true);
 		cp.messages_list.set_focus();
 		if speak {
-			crate::platform::announce::announce(cp.messages_announcer, "Selection mode off.");
+			crate::platform::announce::announce(cp.messages_announcer, crate::i18n::tr("Selection mode off."));
 		}
 	}
 	cp.conversation_panel.layout();
@@ -375,9 +380,12 @@ pub(crate) fn set_selection_mode(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 /// message on or after that day.
 pub(crate) fn go_to_date(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let Some(jid) = state.borrow().selected_chat.clone() else { return };
-	let dlg =
-		TextEntryDialog::builder(&parts.frame, "Date to go to, as year-month-day, like 2026-03-27:", "Go to Date")
-			.build();
+	let dlg = TextEntryDialog::builder(
+		&parts.frame,
+		crate::i18n::tr("Date to go to, as year-month-day, like 2026-03-27:"),
+		crate::i18n::tr("Go to Date"),
+	)
+	.build();
 	let answer = (dlg.show_modal() == wxdragon::id::ID_OK).then(|| dlg.get_value()).flatten();
 	dlg.destroy();
 	let Some(answer) = answer else { return };
@@ -389,7 +397,7 @@ pub(crate) fn go_to_date(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		&& (1..=31).contains(&nums[2])
 		&& nums[0] >= 2009;
 	if !valid {
-		say("That is not a date. Use year-month-day, like 2026-03-27.");
+		say(crate::i18n::tr("That is not a date. Use year-month-day, like 2026-03-27."));
 		return;
 	}
 	let date = format!("{:04}-{:02}-{:02}", nums[0], nums[1], nums[2]);
@@ -398,7 +406,9 @@ pub(crate) fn go_to_date(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>)
 		"data": { "jid": jid, "date": date, "context": crate::MESSAGE_PAGE_SIZE / 2 }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	say(&format!("Going to {}.", date));
+	let say_msg =
+		if crate::i18n::is_indonesian() { format!("Membuka tanggal {date}.") } else { format!("Going to {date}.") };
+	say(&say_msg);
 }
 
 pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -415,7 +425,7 @@ pub(crate) fn load_more_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		drop(s);
 		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
-			"This is the start of the chat.",
+			crate::i18n::tr("This is the start of the chat."),
 		);
 		return;
 	}
@@ -536,7 +546,10 @@ pub(crate) fn search_in_conversation(state: &Rc<RefCell<AppState>>, _parts: &Rc<
 
 pub(crate) fn toggle_search_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	if state.borrow().selected_chat.is_none() {
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "No chat open.");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("No chat open."),
+		);
 		return;
 	}
 	let visible = parts.conversations_parts.search_panel.is_shown();
@@ -556,9 +569,12 @@ pub(crate) fn prompt_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		(s.settings.chat_lock_hello, s.ui_tx.clone())
 	};
 	if use_hello && windows_hello::availability() == windows_hello::Availability::Ready {
-		let started = windows_hello::verify("Unlock your locked chats in whatSnap".to_string(), move |outcome| {
-			let _ = ui_tx.send(UiCommand::ChatLockHello { outcome });
-		});
+		let started = windows_hello::verify(
+			crate::i18n::tr("Unlock your locked chats in whatSnap").to_string(),
+			move |outcome| {
+				let _ = ui_tx.send(UiCommand::ChatLockHello { outcome });
+			},
+		);
 		if started {
 			return;
 		}
@@ -600,8 +616,11 @@ pub(crate) fn show_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		s.search_query.clear();
 		parts.conversations_parts.search_field.set_value("");
 		apply_chat_filter(&mut s, parts);
-		parts.conversations_parts.locked_chats_btn.set_label("Hide Locked Chats");
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats shown.");
+		parts.conversations_parts.locked_chats_btn.set_label(crate::i18n::tr("Hide Locked Chats"));
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("Locked chats shown."),
+		);
 		s.pending_locked_chat.take()
 	};
 	if let Some(jid) = pending_chat {
@@ -621,8 +640,10 @@ pub(crate) fn offer_chat_lock_hello(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 	}
 	let question = MessageDialog::builder(
 		&parts.frame,
-		"Unlock your chats faster. Next time, use Windows Hello, with your fingerprint, face or PIN, instead of typing the secret code. You can change this in Settings, Chats.\n\nTurn on Windows Hello for locked chats?",
-		"Unlock Your Chats Faster",
+		crate::i18n::tr(
+			"Unlock your chats faster. Next time, use Windows Hello, with your fingerprint, face or PIN, instead of typing the secret code. You can change this in Settings, Chats.\n\nTurn on Windows Hello for locked chats?",
+		),
+		crate::i18n::tr("Unlock Your Chats Faster"),
 	)
 	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 	.build();
@@ -639,8 +660,8 @@ pub(crate) fn offer_chat_lock_hello(state: &Rc<RefCell<AppState>>, parts: &Rc<Wi
 fn ask_secret_code(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let dlg = TextEntryDialog::builder(
 		&parts.frame,
-		"Enter your WhatsApp Secret Code configured on your phone:",
-		"Unlock Locked Chats",
+		crate::i18n::tr("Enter your WhatsApp Secret Code configured on your phone:"),
+		crate::i18n::tr("Unlock Locked Chats"),
 	)
 	.password()
 	.build();
@@ -666,9 +687,12 @@ pub(crate) fn close_locked_chats(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		if s.chats_unlocked {
 			s.chats_unlocked = false;
 			s.pending_locked_chat = None;
-			parts.conversations_parts.locked_chats_btn.set_label("Locked Chats");
+			parts.conversations_parts.locked_chats_btn.set_label(crate::i18n::tr("Locked Chats"));
 			apply_chat_filter(&mut s, parts);
-			crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Locked chats hidden.");
+			crate::platform::announce::announce(
+				parts.conversations_parts.messages_announcer,
+				crate::i18n::tr("Locked chats hidden."),
+			);
 			s.selected_chat.as_ref().is_some_and(|j| s.locked_jids.contains(j))
 		} else {
 			false
@@ -731,8 +755,8 @@ pub(crate) fn show_conversation_data(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 			parts.group_data_dialog.documents_list.clear();
 			parts.group_data_dialog.links_list.clear();
 			parts.group_data_dialog.groups_list.clear();
-			parts.group_data_dialog.groups_label.set_label("Groups in this community");
-			parts.group_data_dialog.join_group_btn.set_label("Join group");
+			parts.group_data_dialog.groups_label.set_label(crate::i18n::tr("Groups in this community"));
+			parts.group_data_dialog.join_group_btn.set_label(crate::i18n::tr("Join group"));
 			parts.group_data_dialog.notebook.set_selection(if s.community_jids.contains(jid) { GROUPS_TAB } else { 0 });
 
 			parts.group_data_dialog.photo.show(false);
@@ -774,12 +798,21 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		phone = formatted;
 	}
 
-	let initial_text = format!(
-		"Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...",
-		local_name,
-		phone,
-		crate::ui_commands::blocking::info_line(&s, &jid)
-	);
+	let initial_text = if crate::i18n::is_indonesian() {
+		format!(
+			"Nama: {}\nTelepon: {}\n{}Nama WhatsApp: Memuat...\nInfo/Status: Memuat...",
+			local_name,
+			phone,
+			crate::ui_commands::blocking::info_line(&s, &jid)
+		)
+	} else {
+		format!(
+			"Name: {}\nPhone: {}\n{}WhatsApp Name: Loading...\nAbout/Status: Loading...",
+			local_name,
+			phone,
+			crate::ui_commands::blocking::info_line(&s, &jid)
+		)
+	};
 	let dlg = &parts.conversation_data_dialog;
 	dlg.info_field.set_value(&initial_text);
 	let callable = crate::ui_commands::calls::can_call(&s, &jid);
@@ -797,7 +830,7 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	let payload = serde_json::json!({ "action": "get_common_groups", "data": { "jid": jid } });
 	let _ = s.ws_tx.send(payload.to_string());
 	dlg.common_groups_list.clear();
-	dlg.common_groups_list.append("Loading...");
+	dlg.common_groups_list.append(crate::i18n::tr("Loading..."));
 
 	let lists = InfoMediaLists { media: &dlg.media_list, documents: &dlg.documents_list, links: &dlg.links_list };
 	let (media, documents, links) = if s.selected_chat.as_deref() == Some(jid.as_str()) {
@@ -807,7 +840,7 @@ pub(crate) fn show_contact_info(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		let _ = s.ws_tx.send(payload.to_string());
 		for list in [lists.media, lists.documents, lists.links] {
 			list.clear();
-			list.append("Loading...");
+			list.append(crate::i18n::tr("Loading..."));
 		}
 		Default::default()
 	};
@@ -861,7 +894,7 @@ pub(crate) fn close_conversation(state: &Rc<RefCell<AppState>>, parts: &Rc<Windo
 		parts.conversations_parts.cancel_edit_btn.show(false);
 		parts.conversations_parts.add_attachment_btn.show(true);
 		parts.conversations_parts.emoji_btn.show(true);
-		parts.conversations_parts.message_label.set_label("Type a message");
+		parts.conversations_parts.message_label.set_label(crate::i18n::tr("Type a message"));
 		parts.conversations_parts.message_field.set_value("");
 	}
 	save_composer_draft(&mut s, parts);
@@ -939,28 +972,39 @@ pub(crate) fn release_conversation_buffers(s: &mut AppState, parts: &Rc<WindowPa
 pub(crate) fn choose_disappearing_timer(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
 	const CHOICES: [(&str, u32); 4] = [("Off", 0), ("24 hours", 86_400), ("7 days", 604_800), ("90 days", 7_776_000)];
 	let chat_name = state.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-	let labels: Vec<&str> = CHOICES.iter().map(|(label, _)| *label).collect();
-	let dialog = SingleChoiceDialog::builder(
-		&parts.frame,
-		&format!("Make new messages in {} disappear after:", chat_name),
-		"Disappearing Messages",
-		&labels,
-	)
-	.build();
+	let labels: Vec<&str> = CHOICES.iter().map(|(label, _)| crate::i18n::tr(label)).collect();
+	let prompt = if crate::i18n::is_indonesian() {
+		format!("Buat pesan baru di {chat_name} menghilang setelah:")
+	} else {
+		format!("Make new messages in {chat_name} disappear after:")
+	};
+	let dialog =
+		SingleChoiceDialog::builder(&parts.frame, &prompt, crate::i18n::tr("Disappearing Messages"), &labels).build();
 	if dialog.show_modal() != wxdragon::id::ID_OK {
 		return;
 	}
-	let Some(choice) = dialog.get_string_selection() else { return };
-	let Some(&(label, seconds)) = CHOICES.iter().find(|(l, _)| *l == choice) else { return };
+	let sel = dialog.get_selection();
+	if sel < 0 {
+		return;
+	}
+	let idx = sel as usize;
+	let Some(&(label, seconds)) = CHOICES.get(idx) else { return };
+	let localized_label = crate::i18n::tr(label);
 	let payload = serde_json::json!({
 		"action": "set_disappearing_timer",
 		"data": { "jid": jid, "seconds": seconds }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let spoken = if seconds == 0 {
-		format!("Disappearing messages turned off for {}.", chat_name)
+	let spoken = if crate::i18n::is_indonesian() {
+		if seconds == 0 {
+			format!("Pesan sementara dimatikan untuk {chat_name}.")
+		} else {
+			format!("Pesan sementara diatur ke {localized_label} untuk {chat_name}.")
+		}
+	} else if seconds == 0 {
+		format!("Disappearing messages turned off for {chat_name}.")
 	} else {
-		format!("Disappearing messages set to {} for {}.", label, chat_name)
+		format!("Disappearing messages set to {localized_label} for {chat_name}.")
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
@@ -989,11 +1033,13 @@ pub(crate) fn toggle_lock_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let action_str = if lock { "Locked" } else { "Unlocked" };
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("{} chat {}.", action_str, chat_name),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		if lock { format!("Chat {chat_name} dikunci.") } else { format!("Kunci chat {chat_name} dibuka.") }
+	} else {
+		let action_str = if lock { "Locked" } else { "Unlocked" };
+		format!("{action_str} chat {chat_name}.")
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
 pub(crate) fn toggle_pin_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, pin: bool) {
@@ -1019,10 +1065,12 @@ pub(crate) fn toggle_pin_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Chat {} {}.", chat_name, if pin { "pinned" } else { "unpinned" }),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		if pin { format!("Chat {chat_name} disematkan.") } else { format!("Sematan chat {chat_name} dilepas.") }
+	} else {
+		format!("Chat {chat_name} {}.", if pin { "pinned" } else { "unpinned" })
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
 pub(crate) fn toggle_archive_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String, archive: bool) {
@@ -1047,10 +1095,12 @@ pub(crate) fn toggle_archive_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Chat {} {}.", chat_name, if archive { "archived" } else { "unarchived" }),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		if archive { format!("Chat {chat_name} diarsipkan.") } else { format!("Arsip chat {chat_name} dibatalkan.") }
+	} else {
+		format!("Chat {chat_name} {}.", if archive { "archived" } else { "unarchived" })
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
 pub(crate) fn set_archived_alert(
@@ -1066,16 +1116,18 @@ pub(crate) fn set_archived_alert(
 		refresh_tray_tooltip(&s, parts);
 		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 		let spoken = match level {
-			whatsnap::ArchivedAlert::Silent => "silent",
-			whatsnap::ArchivedAlert::SoundOnly => "sound only",
-			whatsnap::ArchivedAlert::Full => "notify normally",
+			whatsnap::ArchivedAlert::Silent => crate::i18n::tr("silent"),
+			whatsnap::ArchivedAlert::SoundOnly => crate::i18n::tr("sound only"),
+			whatsnap::ArchivedAlert::Full => crate::i18n::tr("notify normally"),
 		};
 		(name, spoken)
 	};
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Archived alerts for {} set to {}.", chat_name, spoken),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Peringatan arsip untuk {chat_name} diatur ke {spoken}.")
+	} else {
+		format!("Archived alerts for {chat_name} set to {spoken}.")
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
 pub(crate) fn set_chat_notify(
@@ -1091,14 +1143,19 @@ pub(crate) fn set_chat_notify(
 		refresh_tray_tooltip(&s, parts);
 		let name = s.contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 		let alert = match notify.alert {
-			whatsnap::ChatAlert::Default => "as set in Settings",
-			whatsnap::ChatAlert::Full => "notification and sound",
-			whatsnap::ChatAlert::NoSound => "notification only, no sound",
-			whatsnap::ChatAlert::SoundOnly => "sound only, no notification",
-			whatsnap::ChatAlert::Off => "off on this computer",
+			whatsnap::ChatAlert::Default => crate::i18n::tr("as set in Settings"),
+			whatsnap::ChatAlert::Full => crate::i18n::tr("notification and sound"),
+			whatsnap::ChatAlert::NoSound => crate::i18n::tr("notification only, no sound"),
+			whatsnap::ChatAlert::SoundOnly => crate::i18n::tr("sound only, no notification"),
+			whatsnap::ChatAlert::Off => crate::i18n::tr("off on this computer"),
 		};
-		let content = if notify.hide_content { ", message content hidden" } else { "" };
-		format!("Notifications for {name}: {alert}{content}.")
+		if crate::i18n::is_indonesian() {
+			let content = if notify.hide_content { ", isi pesan disembunyikan" } else { "" };
+			format!("Notifikasi untuk {name}: {alert}{content}.")
+		} else {
+			let content = if notify.hide_content { ", message content hidden" } else { "" };
+			format!("Notifications for {name}: {alert}{content}.")
+		}
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
@@ -1152,7 +1209,11 @@ pub(crate) fn has_mute_durations(jid: &str) -> bool {
 pub(crate) fn mute_duration_menu(first_id: i32, on_choice: impl Fn(u64) + 'static) -> Menu {
 	let mut builder = Menu::builder();
 	for (i, (label, _, _)) in MUTE_DURATIONS.iter().enumerate() {
-		builder = builder.append_item(first_id + i as i32, label, "Mute notifications from this chat");
+		builder = builder.append_item(
+			first_id + i as i32,
+			crate::i18n::tr(label),
+			crate::i18n::tr("Mute notifications from this chat"),
+		);
 	}
 	let menu = builder.build();
 	menu.on_selected(move |evt| {
@@ -1207,11 +1268,24 @@ pub(crate) fn toggle_mute_chat(
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	let how_long = MUTE_DURATIONS.iter().find(|(_, _, s)| *s == seconds).map_or("", |(_, how_long, _)| how_long);
-	let spoken = if mute {
-		format!("Notifications from {} muted{}.", chat_name, how_long)
+	let spoken = if crate::i18n::is_indonesian() {
+		if mute {
+			let dur = match seconds {
+				28_800 => " selama 8 jam",
+				604_800 => " selama 1 minggu",
+				_ => "",
+			};
+			format!("Notifikasi dari {chat_name} dibisukan{dur}.")
+		} else {
+			format!("Notifikasi dari {chat_name} dibunyikan.")
+		}
 	} else {
-		format!("Notifications from {} unmuted.", chat_name)
+		let how_long = MUTE_DURATIONS.iter().find(|(_, _, s)| *s == seconds).map_or("", |(_, how_long, _)| how_long);
+		if mute {
+			format!("Notifications from {chat_name} muted{how_long}.")
+		} else {
+			format!("Notifications from {chat_name} unmuted.")
+		}
 	};
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
@@ -1237,10 +1311,16 @@ pub(crate) fn toggle_read_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Chat {} marked as {}.", chat_name, if read { "read" } else { "unread" }),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		if read {
+			format!("Chat {chat_name} ditandai sudah dibaca.")
+		} else {
+			format!("Chat {chat_name} ditandai belum dibaca.")
+		}
+	} else {
+		format!("Chat {chat_name} marked as {}.", if read { "read" } else { "unread" })
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
 fn remove_chat_locally(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: &str) -> String {
@@ -1273,10 +1353,12 @@ pub(crate) fn delete_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Chat {} deleted.", chat_name),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Chat {chat_name} dihapus.")
+	} else {
+		format!("Chat {chat_name} deleted.")
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
 pub(crate) fn delete_chat_and_leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
@@ -1288,10 +1370,12 @@ pub(crate) fn delete_chat_and_leave_group(state: &Rc<RefCell<AppState>>, parts: 
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Left and deleted chat {}.", chat_name),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Keluar dan menghapus chat {chat_name}.")
+	} else {
+		format!("Left and deleted chat {chat_name}.")
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }
 
 pub(crate) fn clear_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: String) {
@@ -1317,8 +1401,10 @@ pub(crate) fn clear_chat(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>,
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Chat {} cleared.", chat_name),
-	);
+	let msg = if crate::i18n::is_indonesian() {
+		format!("Chat {chat_name} dibersihkan.")
+	} else {
+		format!("Chat {chat_name} cleared.")
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &msg);
 }

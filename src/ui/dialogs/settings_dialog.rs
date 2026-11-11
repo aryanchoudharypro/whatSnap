@@ -106,6 +106,7 @@ pub struct SettingsDialogParts {
 
 	pub personalization_panel: Panel,
 	pub theme_combo: ComboBox,
+	pub language_combo: ComboBox,
 
 	pub profile_panel: Panel,
 	pub name_field: TextCtrl,
@@ -159,12 +160,12 @@ pub struct SettingsDialogParts {
 	pub cancel_btn: Button,
 }
 
-fn visibility_combo(panel: &Panel, sizer: &BoxSizer, label: &str, choices: &[(&str, &str)]) -> ComboBox {
-	let text = StaticText::builder(panel).with_label(label).build();
+fn visibility_combo(panel: &Panel, sizer: &BoxSizer, label: &str, choices: &[(&'static str, &str)]) -> ComboBox {
+	let text = StaticText::builder(panel).with_label(&crate::i18n::tr_str(label)).build();
 	text.set_font(&theme::Fonts::body());
 	sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let labels: Vec<&str> = choices.iter().map(|(l, _)| *l).collect();
+	let labels: Vec<&str> = choices.iter().map(|(l, _)| crate::i18n::tr(l)).collect();
 	let combo = ComboBox::builder(panel).with_string_choices(&labels).with_style(ComboBoxStyle::ReadOnly).build();
 	combo.set_font(&theme::Fonts::body());
 	combo.set_selection(0);
@@ -175,9 +176,10 @@ fn visibility_combo(panel: &Panel, sizer: &BoxSizer, label: &str, choices: &[(&s
 
 fn spelling_language_combo(panel: &Panel, sizer: &BoxSizer) -> ComboBox {
 	let languages = crate::ui::spell_check::languages();
-	let mut labels: Vec<&str> = vec!["Windows default"];
+	let default_label = crate::i18n::tr("Windows default");
+	let mut labels: Vec<&str> = vec![default_label];
 	labels.extend(languages.iter().map(|(_, name)| name.as_str()));
-	let text = StaticText::builder(panel).with_label("Spelling Language").build();
+	let text = StaticText::builder(panel).with_label(crate::i18n::tr("Spelling Language")).build();
 	text.set_font(&theme::Fonts::body());
 	sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 	let combo = ComboBox::builder(panel).with_string_choices(&labels).with_style(ComboBoxStyle::ReadOnly).build();
@@ -189,14 +191,14 @@ fn spelling_language_combo(panel: &Panel, sizer: &BoxSizer) -> ComboBox {
 }
 
 fn setting_switch(panel: &Panel, sizer: &BoxSizer, label: &str) -> CheckBox {
-	let check = CheckBox::builder(panel).with_label(label).build();
+	let check = CheckBox::builder(panel).with_label(&crate::i18n::tr_str(label)).build();
 	dialog_look::switch(&check, theme::Palette::CONTENT_BG());
 	sizer.add(&check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 	check
 }
 
 fn setting_button(panel: &Panel, label: &str) -> Button {
-	let btn = Button::builder(panel).with_label(label).build();
+	let btn = Button::builder(panel).with_label(&crate::i18n::tr_str(label)).build();
 	dialog_look::pill_button(&btn, false, theme::Palette::CONTENT_BG());
 	btn
 }
@@ -205,26 +207,26 @@ fn setting_button(panel: &Panel, label: &str) -> Button {
 /// "My Contacts Except...". It's named for its setting, since a screen reader
 /// reads buttons on their own.
 fn except_button(panel: &Panel, sizer: &BoxSizer, setting: &str) -> Button {
-	let btn = setting_button(panel, &format!("Choose Contacts Excluded From {}...", setting));
+	let btn = setting_button(panel, &format!("Choose Contacts Excluded From {setting}..."));
 	btn.enable(false);
 	sizer.add(&btn, 0, SizerFlag::Left | SizerFlag::Bottom, 12);
 	btn
 }
 
 fn setting_note(panel: &Panel, sizer: &BoxSizer, text: &str) {
-	let label = StaticText::builder(panel).with_label(text).build();
+	let label = StaticText::builder(panel).with_label(&crate::i18n::tr_str(text)).build();
 	theme::style_muted_label(&label);
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 6);
 }
 
 fn section_header(panel: &Panel, sizer: &BoxSizer, label: &str) {
-	let text = StaticText::builder(panel).with_label(label).build();
+	let text = StaticText::builder(panel).with_label(&crate::i18n::tr_str(label)).build();
 	text.set_font(&theme::Fonts::body_strong());
 	sizer.add(&text, 0, SizerFlag::Left | SizerFlag::Top, 12);
 }
 
 pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
-	let dialog = Dialog::builder(parent, "Settings")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Settings"))
 		.with_size(640, 720)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -358,7 +360,14 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		notify_switch("Reaction notifications: show notifications for reactions to your messages");
 	let sounds_check = notify_switch("Incoming sounds: play a sound for new messages");
 	let sound_picker = |label: &str, what: &str, kind: Kind| {
-		SoundPicker::new(&notifications_panel, &notifications_sizer, label, what, kind, "Default")
+		SoundPicker::new(
+			&notifications_panel,
+			&notifications_sizer,
+			&crate::i18n::tr_str(label),
+			what,
+			kind,
+			crate::i18n::tr("Default"),
+		)
 	};
 	let message_tone_picker = sound_picker("Message notification tone", "Message Tone", Kind::Tone);
 	let outgoing_sounds_check = notify_switch("Outgoing sounds: play sounds for messages you send");
@@ -396,6 +405,19 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		&personalization_panel,
 		&personalization_sizer,
 		"System Default follows your Windows system-wide light or dark mode setting. Light and Dark themes provide dedicated color schemes.",
+	);
+	personalization_sizer.add_spacer(12);
+	section_header(&personalization_panel, &personalization_sizer, "App Language");
+	let language_combo = visibility_combo(
+		&personalization_panel,
+		&personalization_sizer,
+		"Choose Language",
+		crate::i18n::LANGUAGE_CHOICES,
+	);
+	setting_note(
+		&personalization_panel,
+		&personalization_sizer,
+		"Choose the language for whatSnap's interface. Changes take full effect after restarting whatSnap.",
 	);
 	personalization_panel.set_sizer(personalization_sizer, true);
 
@@ -518,7 +540,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	let audio_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	section_header(&audio_panel, &audio_sizer, "Microphone");
-	let input_label = StaticText::builder(&audio_panel).with_label("Microphone (calls and voice notes)").build();
+	let input_label =
+		StaticText::builder(&audio_panel).with_label(crate::i18n::tr("Microphone (calls and voice notes)")).build();
 	input_label.set_font(&theme::Fonts::body());
 	audio_sizer.add(&input_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
 	let input_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
@@ -539,7 +562,8 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	audio_sizer.add_spacer(10);
 	section_header(&audio_panel, &audio_sizer, "Speakers");
-	let output_label = StaticText::builder(&audio_panel).with_label("Speaker for alerts and voice messages").build();
+	let output_label =
+		StaticText::builder(&audio_panel).with_label(crate::i18n::tr("Speaker for alerts and voice messages")).build();
 	output_label.set_font(&theme::Fonts::body());
 	audio_sizer.add(&output_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
 	let output_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
@@ -547,7 +571,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 	audio_sizer.add(&output_device_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
 	setting_note(&audio_panel, &audio_sizer, "Used for notification sounds, message tones and voice message playback.");
 
-	let call_output_label = StaticText::builder(&audio_panel).with_label("Speaker for calls").build();
+	let call_output_label = StaticText::builder(&audio_panel).with_label(crate::i18n::tr("Speaker for calls")).build();
 	call_output_label.set_font(&theme::Fonts::body());
 	audio_sizer.add(&call_output_label, 0, SizerFlag::Left | SizerFlag::Top, 8);
 	let call_output_device_combo = ComboBox::builder(&audio_panel).with_style(ComboBoxStyle::ReadOnly).build();
@@ -620,23 +644,23 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 	backup_panel.set_sizer(backup_sizer, true);
 
-	notebook.add_page(&general_panel, "General", true, None);
-	notebook.add_page(&account_panel, "Account", false, None);
-	notebook.add_page(&chats_panel, "Chats", false, None);
-	notebook.add_page(&notifications_panel, "Notifications", false, None);
-	notebook.add_page(&personalization_panel, "Personalization", false, None);
-	notebook.add_page(&profile_panel, "Profile", false, None);
-	notebook.add_page(&privacy_panel, "Privacy", false, None);
-	notebook.add_page(&storage_panel, "Storage & Media", false, None);
-	notebook.add_page(&audio_panel, "Input & Output", false, None);
-	notebook.add_page(&lock_panel, "Chat Lock", false, None);
-	notebook.add_page(&backup_panel, "Backup and Restore", false, None);
+	notebook.add_page(&general_panel, crate::i18n::tr("General"), true, None);
+	notebook.add_page(&account_panel, crate::i18n::tr("Account"), false, None);
+	notebook.add_page(&chats_panel, crate::i18n::tr("Chats"), false, None);
+	notebook.add_page(&notifications_panel, crate::i18n::tr("Notifications"), false, None);
+	notebook.add_page(&personalization_panel, crate::i18n::tr("Personalization"), false, None);
+	notebook.add_page(&profile_panel, crate::i18n::tr("Profile"), false, None);
+	notebook.add_page(&privacy_panel, crate::i18n::tr("Privacy"), false, None);
+	notebook.add_page(&storage_panel, crate::i18n::tr("Storage & Media"), false, None);
+	notebook.add_page(&audio_panel, crate::i18n::tr("Input & Output"), false, None);
+	notebook.add_page(&lock_panel, crate::i18n::tr("Chat Lock"), false, None);
+	notebook.add_page(&backup_panel, crate::i18n::tr("Backup and Restore"), false, None);
 
 	main_sizer.add(&notebook, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
-	let ok_btn = Button::builder(&dialog).with_id(ID_OK).with_label("Save").build();
+	let ok_btn = Button::builder(&dialog).with_id(ID_OK).with_label(crate::i18n::tr("Save")).build();
 	dialog_look::pill_button(&ok_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&main_sizer, &[&ok_btn, &cancel_btn]);
 	dialog.set_sizer(main_sizer, true);
@@ -703,6 +727,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 		share_menu_btn,
 		personalization_panel,
 		theme_combo,
+		language_combo,
 		profile_panel,
 		name_field,
 		about_field,
@@ -753,7 +778,7 @@ pub fn build_settings_dialog(parent: &impl WxWidget) -> SettingsDialogParts {
 
 pub fn set_device_combo(combo: &ComboBox, names: &[String], selected: Option<&str>) {
 	combo.clear();
-	combo.append(DEFAULT_LABEL);
+	combo.append(crate::i18n::tr(DEFAULT_LABEL));
 	for name in names {
 		combo.append(name);
 	}
@@ -762,10 +787,10 @@ pub fn set_device_combo(combo: &ComboBox, names: &[String], selected: Option<&st
 }
 
 pub fn device_combo_value(combo: &ComboBox) -> Option<String> {
-	match combo.get_string_selection() {
-		Some(label) if label != DEFAULT_LABEL => Some(label),
-		_ => None,
+	if combo.get_selection() == Some(0) {
+		return None;
 	}
+	combo.get_string_selection().filter(|label| label != DEFAULT_LABEL && label != crate::i18n::tr(DEFAULT_LABEL))
 }
 
 pub fn set_combo_from_value(combo: &ComboBox, choices: &[(&str, &str)], value: &str) {
@@ -975,6 +1000,7 @@ impl SettingsDialogParts {
 		self.spell_language_combo.set_selection(index.map_or(0, |i| i as u32 + 1));
 		let theme = serde_json::to_value(settings.theme).ok();
 		set_combo_from_value(&self.theme_combo, THEME_CHOICES, theme.as_ref().and_then(|v| v.as_str()).unwrap_or(""));
+		set_combo_from_value(&self.language_combo, crate::i18n::LANGUAGE_CHOICES, settings.language.as_str());
 	}
 
 	pub fn read_chat_settings(&self, settings: &mut crate::settings::Settings) {
@@ -1011,6 +1037,10 @@ impl SettingsDialogParts {
 			.unwrap_or_default();
 		let theme = combo_value(&self.theme_combo, THEME_CHOICES);
 		settings.theme = serde_json::from_value(serde_json::Value::String(theme)).unwrap_or_default();
+		let lang_str = combo_value(&self.language_combo, crate::i18n::LANGUAGE_CHOICES);
+		let language = crate::i18n::LanguageChoice::from_code(&lang_str);
+		settings.language = language;
+		crate::i18n::set_language(language);
 	}
 
 	pub fn show_about(&self, about: Option<(&str, i64)>) {
@@ -1024,6 +1054,10 @@ impl SettingsDialogParts {
 }
 
 pub fn combo_value(combo: &ComboBox, choices: &[(&str, &str)]) -> String {
-	let label = combo.get_string_selection().unwrap_or_default();
-	choices.iter().find(|(l, _)| *l == label).map(|(_, v)| v.to_string()).unwrap_or_else(|| choices[0].1.to_string())
+	// Match selection index directly so translated choice labels do not affect value lookup.
+	combo
+		.get_selection()
+		.and_then(|i| choices.get(i as usize))
+		.map(|(_, v)| v.to_string())
+		.unwrap_or_else(|| choices[0].1.to_string())
 }

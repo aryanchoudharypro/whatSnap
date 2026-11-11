@@ -131,38 +131,64 @@ fn nav_look(text: &str) -> (Option<char>, &str, u32) {
 
 fn nav_icon(name: &str) -> (Option<char>, &str) {
 	match name {
-		"Chats" => (Some(glyph::CHATS), "Chats"),
-		"Status" => (Some(glyph::STATUS), "Status"),
-		"Starred Messages" => (Some(glyph::STARRED), "Starred"),
-		"Archived Chats" => (Some(glyph::ARCHIVED), "Archived"),
-		"Communities" => (Some(glyph::COMMUNITIES), "Communities"),
-		"Channels" => (Some(glyph::CHANNELS), "Channels"),
-		"Calls" => (Some(glyph::CALLS), "Calls"),
+		"Chats" | "Chat" => (Some(glyph::CHATS), crate::i18n::tr("Chats")),
+		"Status" => (Some(glyph::STATUS), crate::i18n::tr("Status")),
+		"Starred Messages" | "Pesan Berbintang" => (Some(glyph::STARRED), crate::i18n::tr("Starred")),
+		"Archived Chats" | "Chat Diarsipkan" => (Some(glyph::ARCHIVED), crate::i18n::tr("Archived")),
+		"Communities" | "Komunitas" => (Some(glyph::COMMUNITIES), crate::i18n::tr("Communities")),
+		"Channels" | "Saluran" => (Some(glyph::CHANNELS), crate::i18n::tr("Channels")),
+		"Calls" | "Panggilan" => (Some(glyph::CALLS), crate::i18n::tr("Calls")),
 		other => (None, other),
 	}
 }
 
+fn matches_label(label: &str, key: &'static str) -> bool {
+	label == key || label == crate::i18n::tr(key)
+}
+
+fn matches_clean_label(clean: &str, key: &'static str) -> bool {
+	if !key.contains('&') {
+		return clean == key || clean == crate::i18n::tr(key).replace('&', "");
+	}
+	clean == key.replace('&', "") || clean == crate::i18n::tr(key).replace('&', "")
+}
+
 fn button_glyph(label: &str) -> Option<char> {
 	// Labels may carry a keyboard shortcut ("Pa&use").
-	let label = label.replace('&', "");
-	Some(match label.as_str() {
-		"Search in conversation" => glyph::SEARCH,
-		"Call" => glyph::CALLS,
-		"Video call" => glyph::VIDEO,
-		"Emoji and stickers" => glyph::EMOJI,
-		"Add attachment" | "Add more files" => glyph::ADD,
-		"Send message" | "Send voice message" => glyph::SEND,
-		"Record voice message" => glyph::MIC,
-		"Cancel edit" | "Remove quote" | "Close search" => glyph::CLOSE,
-		"Discard voice message" => glyph::DELETE,
-		"Pause recording" | "Pause preview" | "Pause" => glyph::PAUSE,
-		"Resume recording" | "Play preview" | "Resume" | "Play" => glyph::PLAY,
-		"Previous" => glyph::BACK,
-		"Next" => glyph::FORWARD,
-		"Mute" => glyph::VOLUME,
-		"Unmute" => glyph::VOLUME_OFF,
-		"Send reply" => glyph::SEND,
-		_ => return None,
+	let clean = label.replace('&', "");
+	let is = |k: &'static str| matches_clean_label(&clean, k);
+	Some(if is("Search in conversation") {
+		glyph::SEARCH
+	} else if is("Call") {
+		glyph::CALLS
+	} else if is("Video call") {
+		glyph::VIDEO
+	} else if is("Emoji and stickers") {
+		glyph::EMOJI
+	} else if is("Add attachment") || is("Add more files") {
+		glyph::ADD
+	} else if is("Send message") || is("Send voice message") || is("Send reply") {
+		glyph::SEND
+	} else if is("Record voice message") {
+		glyph::MIC
+	} else if is("Cancel edit") || is("Remove quote") || is("Close search") {
+		glyph::CLOSE
+	} else if is("Discard voice message") {
+		glyph::DELETE
+	} else if is("Pause recording") || is("Pause preview") || is("Pause") || is("Pa&use") {
+		glyph::PAUSE
+	} else if is("Resume recording") || is("Play preview") || is("Resume") || is("Res&ume") || is("Play") {
+		glyph::PLAY
+	} else if is("Previous") || is("&Previous") {
+		glyph::BACK
+	} else if is("Next") || is("&Next") {
+		glyph::FORWARD
+	} else if is("Mute") || is("&Mute") {
+		glyph::VOLUME
+	} else if is("Unmute") {
+		glyph::VOLUME_OFF
+	} else {
+		return None;
 	})
 }
 
@@ -892,7 +918,9 @@ fn paint_icon(
 	} else if pressed {
 		blob(dc, x, y, side, side, c.pressed);
 	}
-	let send = matches!(label, "Send message" | "Send voice message" | "Send reply");
+	let send = matches_label(label, "Send message")
+		|| matches_label(label, "Send voice message")
+		|| matches_label(label, "Send reply");
 	let colour = if disabled {
 		c.muted
 	} else if send && c.custom {
@@ -904,7 +932,11 @@ fn paint_icon(
 		(Some(g), Some(font)) => gdi::text(dc, font, colour, &g.to_string(), rect(0, 0, width, height), DT_CENTER),
 		_ => {
 			// No icon (the player's "Speed 1.5x"): the words, shortest form.
-			let short = label.strip_prefix("Speed ").unwrap_or(label).replace('&', "");
+			let short = label
+				.strip_prefix("Speed ")
+				.or_else(|| label.strip_prefix("Kecepatan "))
+				.unwrap_or(label)
+				.replace('&', "");
 			gdi::text(dc, fonts.body, colour, &short, rect(2, 0, width - 2, height), DT_CENTER)
 		}
 	}
@@ -919,34 +951,63 @@ enum Tone {
 }
 
 fn tile_look(label: &str) -> (Option<char>, &str, Tone) {
-	match label {
-		"Accept call" => (Some(glyph::CALLS), "Accept", Tone::Go),
-		"Reject call" => (Some(glyph::HANG_UP), "Decline", Tone::Stop),
-		"Leave call" => (Some(glyph::HANG_UP), "End", Tone::Stop),
-		"Mute microphone" => (Some(glyph::MIC), "Mute", Tone::Plain),
-		"Unmute microphone" => (Some(glyph::MIC_OFF), "Unmute", Tone::On),
-		"Turn camera on" => (Some(glyph::VIDEO), "Camera", Tone::Plain),
-		"Turn camera off" => (Some(glyph::VIDEO), "Camera", Tone::On),
-		"Share screen" => (Some(glyph::SCREEN), "Share", Tone::Plain),
-		"Stop sharing screen" => (Some(glyph::SCREEN), "Sharing", Tone::On),
-		"Add participant" => (Some(glyph::ADD_PERSON), "Add", Tone::Plain),
-		"Raise hand" => (Some(glyph::HAND), "Raise hand", Tone::Plain),
-		"Lower hand" => (Some(glyph::HAND), "Lower hand", Tone::On),
-		"React..." => (Some(glyph::EMOJI), "React", Tone::Plain),
-		"Voice call" => (Some(glyph::CALLS), "Audio", Tone::Plain),
-		"Call" => (Some(glyph::CALLS), "Voice call", Tone::Plain),
-		"Video call" => (Some(glyph::VIDEO), "Video", Tone::Plain),
-		"Edit contact" => (Some(glyph::EDIT), "Edit", Tone::Plain),
-		"Add contact" => (Some(glyph::ADD_PERSON), "Add", Tone::Plain),
-		"Delete contact" => (Some(glyph::DELETE), "Delete", Tone::Stop),
-		"Advanced chat privacy..." => (Some(glyph::LOCK), "Privacy", Tone::Plain),
-		"Add member" => (Some(glyph::ADD_PERSON), "Add", Tone::Plain),
-		"Make admin" => (Some(glyph::ADMIN), "Make admin", Tone::Plain),
-		"Dismiss as admin" => (Some(glyph::ADMIN), "Dismiss admin", Tone::On),
-		"Remove member" => (Some(glyph::REMOVE_PERSON), "Remove", Tone::Stop),
-		"Invite link..." => (Some(glyph::LINK), "Invite link", Tone::Plain),
-		"Join requests..." => (Some(glyph::COMMUNITIES), "Requests", Tone::Plain),
-		other => (None, other, Tone::Plain),
+	let is = |k: &'static str| matches_label(label, k);
+	if is("Accept call") {
+		(Some(glyph::CALLS), crate::i18n::tr("Accept"), Tone::Go)
+	} else if is("Reject call") || is("Decline call") {
+		(Some(glyph::HANG_UP), crate::i18n::tr("Decline"), Tone::Stop)
+	} else if is("Leave call") || is("End call") {
+		(Some(glyph::HANG_UP), crate::i18n::tr("End"), Tone::Stop)
+	} else if is("Mute microphone") {
+		(Some(glyph::MIC), crate::i18n::tr("Mute"), Tone::Plain)
+	} else if is("Unmute microphone") {
+		(Some(glyph::MIC_OFF), crate::i18n::tr("Unmute"), Tone::On)
+	} else if is("Turn camera on") {
+		(Some(glyph::VIDEO), crate::i18n::tr("Camera"), Tone::Plain)
+	} else if is("Turn camera off") {
+		(Some(glyph::VIDEO), crate::i18n::tr("Camera"), Tone::On)
+	} else if is("Share screen") {
+		(Some(glyph::SCREEN), crate::i18n::tr("Share"), Tone::Plain)
+	} else if is("Stop sharing screen") {
+		(Some(glyph::SCREEN), crate::i18n::tr("Sharing"), Tone::On)
+	} else if is("Add participant") {
+		(Some(glyph::ADD_PERSON), crate::i18n::tr("Add"), Tone::Plain)
+	} else if is("Raise hand") {
+		(Some(glyph::HAND), crate::i18n::tr("Raise hand"), Tone::Plain)
+	} else if is("Lower hand") {
+		(Some(glyph::HAND), crate::i18n::tr("Lower hand"), Tone::On)
+	} else if is("React...") {
+		(Some(glyph::EMOJI), crate::i18n::tr("React"), Tone::Plain)
+	} else if is("Voice call") {
+		(Some(glyph::CALLS), crate::i18n::tr("Audio"), Tone::Plain)
+	} else if is("Call") {
+		(Some(glyph::CALLS), crate::i18n::tr("Voice call"), Tone::Plain)
+	} else if is("Video call") {
+		(Some(glyph::VIDEO), crate::i18n::tr("Video"), Tone::Plain)
+	} else if is("Edit contact") {
+		(Some(glyph::EDIT), crate::i18n::tr("Edit"), Tone::Plain)
+	} else if is("Add contact") {
+		(Some(glyph::ADD_PERSON), crate::i18n::tr("Add"), Tone::Plain)
+	} else if is("Delete contact") {
+		(Some(glyph::DELETE), crate::i18n::tr("Delete"), Tone::Stop)
+	} else if is("Advanced chat privacy...") {
+		(Some(glyph::LOCK), crate::i18n::tr("Privacy"), Tone::Plain)
+	} else if is("Add member") {
+		(Some(glyph::ADD_PERSON), crate::i18n::tr("Add"), Tone::Plain)
+	} else if is("Make admin") {
+		(Some(glyph::ADMIN), crate::i18n::tr("Make admin"), Tone::Plain)
+	} else if is("Dismiss as admin") {
+		(Some(glyph::ADMIN), crate::i18n::tr("Dismiss admin"), Tone::On)
+	} else if is("Remove member") {
+		(Some(glyph::REMOVE_PERSON), crate::i18n::tr("Remove"), Tone::Stop)
+	} else if is("Invite link...") {
+		(Some(glyph::LINK), crate::i18n::tr("Invite link"), Tone::Plain)
+	} else if is("Join requests...") {
+		(Some(glyph::COMMUNITIES), crate::i18n::tr("Requests"), Tone::Plain)
+	} else if is("See member changes") {
+		(Some(glyph::COMMUNITIES), crate::i18n::tr("Member changes"), Tone::Plain)
+	} else {
+		(None, label, Tone::Plain)
 	}
 }
 
@@ -1015,7 +1076,10 @@ fn split_header(label: &str) -> (&str, &str) {
 	{
 		return (&label[..open], &label[open + 2..label.len() - 1]);
 	}
-	if (label.ends_with("is typing...") || label.ends_with("is recording audio..."))
+	if (label.ends_with("is typing...")
+		|| label.ends_with("is recording audio...")
+		|| label.ends_with("sedang mengetik...")
+		|| label.ends_with("sedang merekam audio..."))
 		&& let Some((name, status)) = label.rsplit_once(", ")
 	{
 		return (name, status);
@@ -1069,7 +1133,10 @@ fn paint_header(
 	}
 	let (name, status) = split_header(label);
 	let x = pad + size + 12;
-	let typing = status.contains("typing") || status.contains("recording");
+	let typing = status.contains("typing")
+		|| status.contains("recording")
+		|| status.contains("mengetik")
+		|| status.contains("merekam");
 	if status.is_empty() {
 		gdi::text(dc, fonts.bold, c.text, name, rect(x, 0, width - pad, height), Default::default());
 	} else {

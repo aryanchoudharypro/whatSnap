@@ -43,6 +43,41 @@ use crate::{
 	},
 };
 
+pub(super) fn capitalize_first(text: &str) -> String {
+	let mut chars = text.chars();
+	let Some(first) = chars.next() else {
+		return String::new();
+	};
+	let mut out: String = first.to_uppercase().collect();
+	out.push_str(chars.as_str());
+	out
+}
+
+pub(super) fn translate_call_text(text: &str) -> String {
+	if !crate::i18n::is_indonesian() {
+		return text.to_string();
+	}
+	if let Some(rest) = text.strip_prefix("Incoming ") {
+		if let Some((kind, suffix)) = rest.split_once(", ") {
+			let kind_id = crate::i18n::translate_call_kind_text(&capitalize_first(kind));
+			let suffix_id = crate::i18n::translate_call_kind_text(&format!(", {suffix}"));
+			return format!("{kind_id} masuk{suffix_id}");
+		}
+		let kind_id = crate::i18n::translate_call_kind_text(&capitalize_first(rest));
+		return format!("{kind_id} masuk");
+	}
+	if let Some(rest) = text.strip_prefix("Outgoing ") {
+		if let Some((kind, suffix)) = rest.split_once(", ") {
+			let kind_id = crate::i18n::translate_call_kind_text(&capitalize_first(kind));
+			let suffix_id = crate::i18n::translate_call_kind_text(&format!(", {suffix}"));
+			return format!("{kind_id} keluar{suffix_id}");
+		}
+		let kind_id = crate::i18n::translate_call_kind_text(&capitalize_first(rest));
+		return format!("{kind_id} keluar");
+	}
+	crate::i18n::translate_call_kind_text(text)
+}
+
 pub(crate) fn format_conv_data_label(
 	chat_jid: &str,
 	chat_name: &str,
@@ -55,14 +90,21 @@ pub(crate) fn format_conv_data_label(
 		let is_group = chat_jid.ends_with("@g.us");
 		if is_group {
 			let status = if is_recording {
-				format!("{} is recording audio...", sender_name)
+				if crate::i18n::is_indonesian() {
+					format!("{sender_name} sedang merekam audio...")
+				} else {
+					format!("{sender_name} is recording audio...")
+				}
+			} else if crate::i18n::is_indonesian() {
+				format!("{sender_name} sedang mengetik...")
 			} else {
-				format!("{} is typing...", sender_name)
+				format!("{sender_name} is typing...")
 			};
-			format!("{}, {}", chat_name, status)
+			format!("{chat_name}, {status}")
 		} else {
-			let status = if is_recording { "recording audio..." } else { "typing..." };
-			format!("{} ({})", chat_name, status)
+			let status =
+				if is_recording { crate::i18n::tr("recording audio...") } else { crate::i18n::tr("typing...") };
+			format!("{chat_name} ({status})")
 		}
 	} else {
 		presence_label.filter(|l| !l.is_empty()).map(|l| l.to_string()).unwrap_or_else(|| chat_name.to_string())
@@ -87,36 +129,45 @@ pub(crate) fn message_hit(s: &AppState, item: &serde_json::Value) -> Option<crat
 
 	let chat_name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
 	let sender = if from_me {
-		"You".to_string()
+		crate::i18n::tr("You").to_string()
 	} else if !sender_name.is_empty() {
 		sender_name.to_string()
 	} else {
 		chat_name.clone()
 	};
 	let body = if !text.is_empty() {
-		whatsnap::friendly_preview_text(text)
+		if media_type == "call" {
+			translate_call_text(text)
+		} else if text == "This message was deleted" {
+			crate::i18n::tr("This message was deleted").to_string()
+		} else {
+			whatsnap::friendly_preview_text(text)
+		}
 	} else if !quoted_text.is_empty() {
 		whatsnap::friendly_preview_text(quoted_text)
 	} else if !media_type.is_empty() {
 		match media_type {
-			"image" => "Photo",
-			"video" => "Video",
-			"ptt" => "Voice message",
-			"audio" => "Audio",
-			"document" => "Document",
-			"sticker" => "Sticker",
-			"contact" => "Contact",
-			"location" | "live_location" => "Location",
-			"poll" | "quiz" => "Poll",
-			_ => "Media",
+			"image" => crate::i18n::tr("Photo"),
+			"video" => crate::i18n::tr("Video"),
+			"ptt" => crate::i18n::tr("Voice message"),
+			"audio" => crate::i18n::tr("Audio"),
+			"document" => crate::i18n::tr("Document"),
+			"sticker" => crate::i18n::tr("Sticker"),
+			"contact" => crate::i18n::tr("Contact"),
+			"location" | "live_location" => crate::i18n::tr("Location"),
+			"poll" | "quiz" => crate::i18n::tr("Poll"),
+			_ => crate::i18n::tr("Media"),
 		}
 		.to_string()
 	} else {
-		"Message".to_string()
+		crate::i18n::tr("Message").to_string()
 	};
 	let date = if timestamp > 0 {
 		whatsnap::LocalTime::from_unix(timestamp)
-			.map(|local_dt| whatsnap::day_name(local_dt, "%b %e, %Y"))
+			.map(|local_dt| {
+				let fmt = if crate::i18n::is_indonesian() { "%e %b %Y" } else { "%b %e, %Y" };
+				whatsnap::day_name(local_dt, fmt)
+			})
 			.unwrap_or_default()
 	} else {
 		String::new()

@@ -19,7 +19,57 @@ fn enter_key_held() -> bool {
 
 /// "1 message selected", spoken and shown as the selection changes.
 pub(crate) fn selection_text(count: usize) -> String {
-	format!("{} {} selected", count, if count == 1 { "message" } else { "messages" })
+	if crate::i18n::is_indonesian() {
+		format!("{count} pesan dipilih")
+	} else {
+		format!("{} {} selected", count, if count == 1 { "message" } else { "messages" })
+	}
+}
+
+fn contacts_shown_announcement(shown: usize, selected: usize) -> String {
+	if crate::i18n::is_indonesian() {
+		format!("{shown} ditampilkan. {selected} kontak dipilih.")
+	} else {
+		format!("{shown} shown. {selected} contact{} selected.", if selected == 1 { "" } else { "s" })
+	}
+}
+
+fn contact_toggled_announcement(label: &str, checked: bool, selected: usize) -> String {
+	if crate::i18n::is_indonesian() {
+		let state_str = if checked { "dipilih" } else { "tidak dipilih" };
+		format!("{label}: {state_str}. {selected} kontak dipilih.")
+	} else {
+		let state_str = if checked { "selected" } else { "not selected" };
+		format!("{label}: {state_str}. {selected} contact{} selected.", if selected == 1 { "" } else { "s" })
+	}
+}
+
+fn translate_share_menu_result(text: &str) -> String {
+	if !crate::i18n::is_indonesian() {
+		return text.to_string();
+	}
+	match text {
+		"whatSnap is now in the Windows Share menu." => {
+			"whatSnap kini ada di menu Bagikan Windows.".to_string()
+		}
+		"This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again." => {
+			"Salinan whatSnap ini tidak menyertakan paket menu Bagikan. Instal ulang whatSnap lalu coba lagi."
+				.to_string()
+		}
+		"whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu." => {
+			"whatSnap tidak ditambahkan ke menu Bagikan karena diperlukan persetujuan administrator satu kali. Anda tetap dapat mengirim file lewat Kirim ke di menu Explorer."
+				.to_string()
+		}
+		_ => {
+			if let Some(reason) = text.strip_prefix("whatSnap couldn't be added to the Share menu.\n\nSigning failed: ") {
+				format!("whatSnap tidak dapat ditambahkan ke menu Bagikan.\n\nPenandatanganan gagal: {reason}")
+			} else if let Some(err) = text.strip_prefix("whatSnap couldn't be added to the Share menu.\n\n") {
+				format!("whatSnap tidak dapat ditambahkan ke menu Bagikan.\n\n{err}")
+			} else {
+				text.to_string()
+			}
+		}
+	}
 }
 
 pub(crate) fn sanitize_export_filename(name: &str) -> String {
@@ -95,13 +145,19 @@ fn wire_media_list(
 			let is_downloaded = msg.is_media_downloaded();
 			let mut menu_builder = Menu::builder();
 			if is_downloaded {
-				menu_builder = menu_builder.append_item(open_id, "&Open", "Open this file").append_item(
-					save_id,
-					"&Save as...",
-					"Save this file to a chosen location",
-				);
+				menu_builder = menu_builder
+					.append_item(open_id, crate::i18n::tr("&Open"), crate::i18n::tr("Open this file"))
+					.append_item(
+						save_id,
+						crate::i18n::tr("&Save as..."),
+						crate::i18n::tr("Save this file to a chosen location"),
+					);
 			} else {
-				menu_builder = menu_builder.append_item(download_id, "&Download", "Download this file");
+				menu_builder = menu_builder.append_item(
+					download_id,
+					crate::i18n::tr("&Download"),
+					crate::i18n::tr("Download this file"),
+				);
 			}
 			let mut popup_menu = menu_builder.build();
 
@@ -157,25 +213,30 @@ fn wire_group_member_menu(
 		let is_bot = member.jid.ends_with("@bot");
 		let mut items: Vec<(i32, String, &str, Option<MemberAction>)> = Vec::new();
 		if !member.me {
+			let msg_label = if crate::i18n::is_indonesian() {
+				format!("&Kirim pesan ke {}", member.name)
+			} else {
+				format!("&Message {}", member.name)
+			};
 			items.push((
 				4201,
-				format!("&Message {}", member.name),
-				"Open your chat with this member",
+				msg_label,
+				crate::i18n::tr("Open your chat with this member"),
 				Some(MemberAction::Message),
 			));
 			if !is_bot {
 				items.push((
 					4202,
-					"&Contact info".to_string(),
-					"See this member's info, call them, or save them as a contact",
+					crate::i18n::tr("&Contact info").to_string(),
+					crate::i18n::tr("See this member's info, call them, or save them as a contact"),
 					Some(MemberAction::Info),
 				));
 			}
 			if !member.saved && !is_bot && !member.phone_jid.is_empty() {
 				items.push((
 					4203,
-					"&Add to contacts".to_string(),
-					"Save this member as a contact",
+					crate::i18n::tr("&Add to contacts").to_string(),
+					crate::i18n::tr("Save this member as a contact"),
 					Some(MemberAction::AddContact),
 				));
 			}
@@ -184,24 +245,24 @@ fn wire_group_member_menu(
 			if !member.admin && !is_bot {
 				items.push((
 					4204,
-					"Make group &admin".to_string(),
-					"Let this member change group info and settings and manage members",
+					crate::i18n::tr("Make group &admin").to_string(),
+					crate::i18n::tr("Let this member change group info and settings and manage members"),
 					Some(MemberAction::MakeAdmin),
 				));
 			}
 			if !member.super_admin {
 				items.push((
 					4205,
-					"&Remove".to_string(),
-					"Remove this member from the group",
+					crate::i18n::tr("&Remove").to_string(),
+					crate::i18n::tr("Remove this member from the group"),
 					Some(MemberAction::Remove),
 				));
 			}
 			if member.admin && !member.super_admin && !is_bot {
 				items.push((
 					4206,
-					"&Dismiss as admin".to_string(),
-					"Make this admin an ordinary member again",
+					crate::i18n::tr("&Dismiss as admin").to_string(),
+					crate::i18n::tr("Make this admin an ordinary member again"),
 					Some(MemberAction::DismissAdmin),
 				));
 			}
@@ -209,24 +270,26 @@ fn wire_group_member_menu(
 		if !member.me && !is_bot {
 			items.push((
 				4208,
-				"&Verify security code".to_string(),
-				"Compare the security code with this member to check your chat is end-to-end encrypted",
+				crate::i18n::tr("&Verify security code").to_string(),
+				crate::i18n::tr(
+					"Compare the security code with this member to check your chat is end-to-end encrypted",
+				),
 				Some(MemberAction::VerifyCode),
 			));
 		}
 		if member.history_count > 0 {
 			items.push((
 				4209,
-				"Send message &history".to_string(),
-				"Send this new member recent messages from before they joined",
+				crate::i18n::tr("Send message &history").to_string(),
+				crate::i18n::tr("Send this new member recent messages from before they joined"),
 				Some(MemberAction::SendHistory),
 			));
 		}
 		if member.me {
 			items.push((
 				4207,
-				"Edit member &tag".to_string(),
-				"Change the tag shown next to your name in this group",
+				crate::i18n::tr("Edit member &tag").to_string(),
+				crate::i18n::tr("Change the tag shown next to your name in this group"),
 				None,
 			));
 		}
@@ -378,7 +441,7 @@ impl LoginControls {
 				self.qr_panel.show(false);
 				self.pairing_panel.show(false);
 				self.phone_panel.show(true);
-				self.login_panel.set_label("WhatsApp Login");
+				self.login_panel.set_label(crate::i18n::tr("WhatsApp Login"));
 				self.login_panel.set_size(Size::new(500, 360));
 				self.login_panel.layout();
 				self.phone_field.set_focus();
@@ -387,7 +450,7 @@ impl LoginControls {
 				self.phone_panel.show(false);
 				self.pairing_panel.show(false);
 				self.qr_panel.show(true);
-				self.login_panel.set_label("WhatsApp Login - QR Code");
+				self.login_panel.set_label(crate::i18n::tr("WhatsApp Login - QR Code"));
 				self.login_panel.set_size(Size::new(550, 560));
 				self.login_panel.layout();
 				self.qrcode_cancel_btn.set_focus();
@@ -396,7 +459,7 @@ impl LoginControls {
 				self.phone_panel.show(false);
 				self.qr_panel.show(false);
 				self.pairing_panel.show(true);
-				self.login_panel.set_label("WhatsApp Login - Pairing Code");
+				self.login_panel.set_label(crate::i18n::tr("WhatsApp Login - Pairing Code"));
 				self.login_panel.set_size(Size::new(480, 240));
 				self.login_panel.layout();
 				self.pairing_code_display.select_all();
@@ -522,7 +585,7 @@ fn show_message_text(
 	let text = state.borrow().display_items.get(idx as usize).map(|item| item.body_text());
 	let Some(text) = text else { return };
 	let text = text.replace("\r\n", "\n").replace('\n', "\r\n");
-	let dlg = Dialog::builder(parent, "Message Text")
+	let dlg = Dialog::builder(parent, crate::i18n::tr("Message Text"))
 		.with_size(480, 320)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -535,7 +598,8 @@ fn show_message_text(
 	text_view.set_value(&text);
 	dlg_sizer.add(&text_view, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
-	let close_btn = Button::builder(&dlg_panel).with_id(wxdragon::id::ID_OK).with_label("Close").build();
+	let close_btn =
+		Button::builder(&dlg_panel).with_id(wxdragon::id::ID_OK).with_label(crate::i18n::tr("Close")).build();
 	dlg_sizer.add(&close_btn, 0, SizerFlag::AlignRight | SizerFlag::All, 8);
 	dlg_panel.set_sizer(dlg_sizer, true);
 
@@ -596,7 +660,7 @@ fn reorder_go_menu(menu_bar: &MenuBar, order: &[usize]) {
 		let Some((item, menu)) = menu_bar.find_item_and_menu(id) else { continue };
 		let label = item.get_label();
 		menu.delete(id);
-		menu.insert(pos, id, &label, help, ItemKind::Normal);
+		menu.insert(pos, id, &label, crate::i18n::tr(help), ItemKind::Normal);
 	}
 }
 
@@ -694,10 +758,10 @@ fn fill_conversation_menu(menu: &Menu, entries: &[&ConversationEntry], keymap: &
 	for entry in entries {
 		match entry {
 			Item(id, Some(label), help) => {
-				menu.append(*id, label, help, ItemKind::Normal);
+				menu.append(*id, crate::i18n::tr(label), crate::i18n::tr(help), ItemKind::Normal);
 			}
 			Item(id, None, help) => {
-				menu.append(*id, &keymap.menu_label_for(*id), help, ItemKind::Normal);
+				menu.append(*id, &keymap.menu_label_for(*id), crate::i18n::tr(help), ItemKind::Normal);
 			}
 			Separator => menu.append_separator(),
 		}
@@ -752,7 +816,7 @@ pub fn build_main_window() -> WindowParts {
 	frame.set_icon(&theme::build_app_icon(32));
 	wxdragon::app::set_top_window(&frame);
 	frame.create_status_bar(1, 0, wxdragon::id::ID_ANY as i32, "status_bar");
-	frame.set_status_text("Status: Initializing...", 0);
+	frame.set_status_text(crate::i18n::tr("Status: Initializing..."), 0);
 	theme::style_content(&frame);
 
 	let main_panel = Panel::builder(&frame).build();
@@ -763,11 +827,11 @@ pub fn build_main_window() -> WindowParts {
 	theme::style_sidebar(&nav_panel);
 	nav_panel.set_min_size(Size::new(nav_panel.get_char_width() * 12 + 8, -1));
 	let nav_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let nav_label = StaticText::builder(&nav_panel).with_label("Main Navigation").build();
+	let nav_label = StaticText::builder(&nav_panel).with_label(crate::i18n::tr("Main Navigation")).build();
 	theme::style_sidebar_heading(&nav_label);
 	let tab_order = crate::settings::Settings::load().tab_order();
 	let nav_list = ListBox::builder(&nav_panel)
-		.with_choices(tab_order.iter().map(|&t| crate::settings::TAB_NAMES[t].to_string()).collect())
+		.with_choices(tab_order.iter().map(|&t| crate::i18n::tr(crate::settings::TAB_NAMES[t]).to_string()).collect())
 		.with_style(ListBoxStyle::from_bits_retain(crate::ui::chat_rows::OWNER_DRAW))
 		.build();
 	nav_list.set_font(&theme::Fonts::body());
@@ -786,34 +850,50 @@ pub fn build_main_window() -> WindowParts {
 	nav_panel.set_sizer(nav_sizer, true);
 
 	let account_menu = Menu::builder()
-		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), "Open settings")
+		.append_item(MENU_ID_SETTINGS, &default_menu_label(MENU_ID_SETTINGS), crate::i18n::tr("Open settings"))
 		.append_item(
 			MENU_ID_ACCOUNTS,
 			&default_menu_label(MENU_ID_ACCOUNTS),
-			"Switch between, add and remove WhatsApp accounts",
+			crate::i18n::tr("Switch between, add and remove WhatsApp accounts"),
 		)
 		.append_item(
 			MENU_ID_RECONNECT,
 			&default_menu_label(MENU_ID_RECONNECT),
-			"Retry connecting to WhatsApp right away",
+			crate::i18n::tr("Retry connecting to WhatsApp right away"),
 		)
-		.append_item(MENU_ID_BLOCKED_CONTACTS, "&Blocked Contacts...", "See and change who you have blocked")
-		.append_item(MENU_ID_CHECK_UPDATES, "Check for &Updates...", "See if a newer version of whatSnap is out")
+		.append_item(
+			MENU_ID_BLOCKED_CONTACTS,
+			crate::i18n::tr("&Blocked Contacts..."),
+			crate::i18n::tr("See and change who you have blocked"),
+		)
+		.append_item(
+			MENU_ID_CHECK_UPDATES,
+			crate::i18n::tr("Check for &Updates..."),
+			crate::i18n::tr("See if a newer version of whatSnap is out"),
+		)
 		.append_separator()
-		.append_item(MENU_ID_LOGOUT, "Log &Out", "Log out of WhatsApp on this device")
+		.append_item(MENU_ID_LOGOUT, crate::i18n::tr("Log &Out"), crate::i18n::tr("Log out of WhatsApp on this device"))
 		.build();
 	let go_menu = Menu::builder().build();
 	for &tab in &tab_order {
 		let (id, help) = GO_MENU_ITEMS[tab];
-		go_menu.append(id, &default_menu_label(id), help, ItemKind::Normal);
+		go_menu.append(id, &default_menu_label(id), crate::i18n::tr(help), ItemKind::Normal);
 	}
 	let chats_menu = Menu::builder()
-		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), "Start a new chat")
-		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), "Start a new group")
-		.append_item(MENU_ID_NEW_COMMUNITY, "New C&ommunity...", "Start a community to bring groups together")
+		.append_item(MENU_ID_NEW_CHAT, &default_menu_label(MENU_ID_NEW_CHAT), crate::i18n::tr("Start a new chat"))
+		.append_item(MENU_ID_NEW_GROUP, &default_menu_label(MENU_ID_NEW_GROUP), crate::i18n::tr("Start a new group"))
+		.append_item(
+			MENU_ID_NEW_COMMUNITY,
+			crate::i18n::tr("New C&ommunity..."),
+			crate::i18n::tr("Start a community to bring groups together"),
+		)
 		.append_separator()
-		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), "Search chats")
-		.append_item(MENU_ID_MANAGE_LISTS, "Manage &Lists...", "Make, rename or delete your chat lists")
+		.append_item(MENU_ID_SEARCH_GLOBAL, &default_menu_label(MENU_ID_SEARCH_GLOBAL), crate::i18n::tr("Search chats"))
+		.append_item(
+			MENU_ID_MANAGE_LISTS,
+			crate::i18n::tr("Manage &Lists..."),
+			crate::i18n::tr("Make, rename or delete your chat lists"),
+		)
 		.build();
 	let conversation_menu = Menu::builder().build();
 	fill_conversation_menu(&conversation_menu, &CONVERSATION_MENU.iter().collect::<Vec<_>>(), &Default::default());
@@ -821,19 +901,27 @@ pub fn build_main_window() -> WindowParts {
 		.append_item(
 			MENU_ID_CALL_MUTE,
 			&default_menu_label(MENU_ID_CALL_MUTE),
-			"Mute/unmute the microphone during a call",
+			crate::i18n::tr("Mute/unmute the microphone during a call"),
 		)
-		.append_item(MENU_ID_CALL_END, &default_menu_label(MENU_ID_CALL_END), "End the active call")
+		.append_item(MENU_ID_CALL_END, &default_menu_label(MENU_ID_CALL_END), crate::i18n::tr("End the active call"))
 		.append_separator()
-		.append_item(MENU_ID_CREATE_CALL_LINK, "&Create Call Link...", "Make a link anyone can use to join a call")
-		.append_item(MENU_ID_JOIN_CALL_LINK, "&Join Call Link...", "Join a call from a link someone shared")
+		.append_item(
+			MENU_ID_CREATE_CALL_LINK,
+			crate::i18n::tr("&Create Call Link..."),
+			crate::i18n::tr("Make a link anyone can use to join a call"),
+		)
+		.append_item(
+			MENU_ID_JOIN_CALL_LINK,
+			crate::i18n::tr("&Join Call Link..."),
+			crate::i18n::tr("Join a call from a link someone shared"),
+		)
 		.build();
 	let menu_bar = MenuBar::builder()
-		.append(account_menu, "&Account")
-		.append(go_menu, "&Go")
-		.append(chats_menu, "&Chats")
-		.append(conversation_menu, "C&onversation")
-		.append(call_menu, "Call&s")
+		.append(account_menu, crate::i18n::tr("&Account"))
+		.append(go_menu, crate::i18n::tr("&Go"))
+		.append(chats_menu, crate::i18n::tr("&Chats"))
+		.append(conversation_menu, crate::i18n::tr("C&onversation"))
+		.append(call_menu, crate::i18n::tr("Call&s"))
 		.build();
 	frame.set_menu_bar(menu_bar);
 
@@ -841,7 +929,7 @@ pub fn build_main_window() -> WindowParts {
 	theme::style_content(&content_panel);
 	let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let login_panel = Dialog::builder(&frame, "WhatsApp Login").with_size(500, 360).build();
+	let login_panel = Dialog::builder(&frame, crate::i18n::tr("WhatsApp Login")).with_size(500, 360).build();
 	theme::style_content(&login_panel);
 	let login_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
@@ -849,7 +937,8 @@ pub fn build_main_window() -> WindowParts {
 	let qr_panel = Panel::builder(&login_panel).build();
 	theme::style_content(&qr_panel);
 	let qr_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let qrcode_instructions = StaticText::builder(&qr_panel).with_label("Scan this QR Code with WhatsApp:").build();
+	let qrcode_instructions =
+		StaticText::builder(&qr_panel).with_label(crate::i18n::tr("Scan this QR Code with WhatsApp:")).build();
 	theme::style_heading(&qrcode_instructions);
 	let empty_bitmap = wxdragon::bitmap::Bitmap::from_rgba(&[255, 255, 255, 255], 1, 1).unwrap();
 	let qrcode_display = StaticBitmap::builder(&qr_panel)
@@ -861,11 +950,12 @@ pub fn build_main_window() -> WindowParts {
 	live_region::set_live_region(&qrcode_announcer);
 	theme::style_muted_label(&qrcode_announcer);
 
-	let qrcode_reload_btn = Button::builder(&qr_panel).with_label("Reload QR Code").build();
+	let qrcode_reload_btn = Button::builder(&qr_panel).with_label(crate::i18n::tr("Reload QR Code")).build();
 	theme::style_primary_button(&qrcode_reload_btn);
 	qrcode_reload_btn.show(false);
 
-	let qrcode_cancel_btn = Button::builder(&qr_panel).with_label("Back to Phone Number Login").build();
+	let qrcode_cancel_btn =
+		Button::builder(&qr_panel).with_label(crate::i18n::tr("Back to Phone Number Login")).build();
 	qrcode_cancel_btn.set_font(&theme::Fonts::body());
 	qr_sizer.add(&qrcode_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	qr_sizer.add(&qrcode_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
@@ -879,11 +969,11 @@ pub fn build_main_window() -> WindowParts {
 	let phone_panel = Panel::builder(&login_panel).build();
 	theme::style_content(&phone_panel);
 	let phone_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let country_label = StaticText::builder(&phone_panel).with_label("Country:").build();
+	let country_label = StaticText::builder(&phone_panel).with_label(crate::i18n::tr("Country:")).build();
 	theme::style_muted_label(&country_label);
 	let mut choices = Vec::new();
 	for &(name, _, _) in crate::countries::COUNTRIES {
-		choices.push(name.to_string());
+		choices.push(crate::i18n::translate_country_entry(name).into_owned());
 	}
 	let country_combo =
 		ComboBox::builder(&phone_panel).with_choices(choices).with_style(ComboBoxStyle::ReadOnly).build();
@@ -891,15 +981,15 @@ pub fn build_main_window() -> WindowParts {
 	country_combo.set_selection(country_idx as u32);
 	country_combo.set_font(&theme::Fonts::body());
 
-	let phone_label = StaticText::builder(&phone_panel).with_label("Enter phone number:").build();
+	let phone_label = StaticText::builder(&phone_panel).with_label(crate::i18n::tr("Enter phone number:")).build();
 	theme::style_muted_label(&phone_label);
 	let phone_field = TextCtrl::builder(&phone_panel)
 		.with_value(&format!("+{} ", crate::countries::COUNTRIES[country_idx].2))
 		.build();
 	phone_field.set_font(&theme::Fonts::body());
-	let pair_btn = Button::builder(&phone_panel).with_label("Continue").build();
+	let pair_btn = Button::builder(&phone_panel).with_label(crate::i18n::tr("Continue")).build();
 	theme::style_primary_button(&pair_btn);
-	let switch_to_qr_btn = Button::builder(&phone_panel).with_label("Connect with QR Code").build();
+	let switch_to_qr_btn = Button::builder(&phone_panel).with_label(crate::i18n::tr("Connect with QR Code")).build();
 	switch_to_qr_btn.set_font(&theme::Fonts::body());
 
 	phone_sizer.add(&country_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
@@ -915,8 +1005,9 @@ pub fn build_main_window() -> WindowParts {
 	let pairing_panel = Panel::builder(&login_panel).build();
 	theme::style_content(&pairing_panel);
 	let p_sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let pairing_instructions =
-		StaticText::builder(&pairing_panel).with_label("Enter this pairing code in WhatsApp on your phone:").build();
+	let pairing_instructions = StaticText::builder(&pairing_panel)
+		.with_label(crate::i18n::tr("Enter this pairing code in WhatsApp on your phone:"))
+		.build();
 	theme::style_heading(&pairing_instructions);
 	let pairing_code_display =
 		TextCtrl::builder(&pairing_panel).with_style(TextCtrlStyle::ReadOnly | TextCtrlStyle::Centre).build();
@@ -927,7 +1018,8 @@ pub fn build_main_window() -> WindowParts {
 
 	// No ID_CANCEL on the Back buttons: the dialog would treat a press as
 	// Cancel and hide the whole login window, which now holds all three views.
-	let pairing_cancel_btn = Button::builder(&pairing_panel).with_label("Back to Phone Number Login").build();
+	let pairing_cancel_btn =
+		Button::builder(&pairing_panel).with_label(crate::i18n::tr("Back to Phone Number Login")).build();
 	pairing_cancel_btn.set_font(&theme::Fonts::body());
 	p_sizer.add(&pairing_instructions, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
 	p_sizer.add(&pairing_code_display, 0, SizerFlag::Expand | SizerFlag::All, 10);
@@ -1067,7 +1159,7 @@ pub fn bind_input_handlers(
 	let qr_instructions_switch = parts.qrcode_instructions;
 	let qr_reload_switch = parts.qrcode_reload_btn;
 	parts.switch_to_qr_btn.on_click(move |_| {
-		qr_instructions_switch.set_label("Loading QR Code...");
+		qr_instructions_switch.set_label(crate::i18n::tr("Loading QR Code..."));
 		qr_reload_switch.show(false);
 		login_ctl_qr.switch_view(LoginView::Qr);
 		let _ = tx_qr.send(UiCommand::RequestQr);
@@ -1078,7 +1170,7 @@ pub fn bind_input_handlers(
 	let qr_instructions_cancel = parts.qrcode_instructions;
 	let qr_reload_cancel = parts.qrcode_reload_btn;
 	parts.qrcode_cancel_btn.on_click(move |_| {
-		qr_instructions_cancel.set_label("Scan this QR Code with WhatsApp:");
+		qr_instructions_cancel.set_label(crate::i18n::tr("Scan this QR Code with WhatsApp:"));
 		qr_reload_cancel.show(false);
 		login_ctl_cancel_qr.switch_view(LoginView::Phone);
 		let _ = tx_cancel_qr.send(UiCommand::CancelQr);
@@ -1090,7 +1182,7 @@ pub fn bind_input_handlers(
 	let login_p_reload = parts.login_panel;
 	let qr_cancel_reload = parts.qrcode_cancel_btn;
 	parts.qrcode_reload_btn.on_click(move |_| {
-		qr_instructions_reload.set_label("Loading new QR Code...");
+		qr_instructions_reload.set_label(crate::i18n::tr("Loading new QR Code..."));
 		qr_reload_self.show(false);
 		login_p_reload.layout();
 		qr_cancel_reload.set_focus();
@@ -1117,7 +1209,7 @@ pub fn bind_input_handlers(
 			&& keys::is_escape(key.get_key_code())
 		{
 			if login_ctl_esc.qr_panel.is_shown() {
-				qr_instructions_esc.set_label("Scan this QR Code with WhatsApp:");
+				qr_instructions_esc.set_label(crate::i18n::tr("Scan this QR Code with WhatsApp:"));
 				qr_reload_esc.show(false);
 				login_ctl_esc.switch_view(LoginView::Phone);
 				let _ = tx_esc_login.send(UiCommand::CancelQr);
@@ -1163,7 +1255,11 @@ pub fn bind_input_handlers(
 			}
 			let schedule_id = 4110;
 			let mut menu = Menu::builder()
-				.append_item(schedule_id, "&Schedule message...", "Pick a date and time for this message to be sent")
+				.append_item(
+					schedule_id,
+					crate::i18n::tr("&Schedule message..."),
+					crate::i18n::tr("Pick a date and time for this message to be sent"),
+				)
 				.build();
 			let tx_pick = tx_sched.clone();
 			menu.on_selected(move |evt| {
@@ -1279,15 +1375,15 @@ pub fn bind_input_handlers(
 				// message (a typing that never got its "stopped" fades out).
 				let fresh = s.typing_timestamps.get(jid).is_some_and(|t| t.elapsed().as_secs() < 25);
 				art.typing = match s.typing_announce_state.get(jid) {
-					Some(2) if fresh => Some("recording audio…"),
-					Some(_) if fresh => Some("typing…"),
+					Some(2) if fresh => Some(crate::i18n::tr("recording audio…")),
+					Some(_) if fresh => Some(crate::i18n::tr("typing…")),
 					_ => None,
 				};
 				// An unsent draft, in place of the last message; typing wins.
 				if art.typing.is_none()
 					&& let Some(draft) = crate::ui::message_display::shown_draft(&s, jid)
 				{
-					art.preview_prefix = "Draft: ".to_string();
+					art.preview_prefix = crate::i18n::tr("Draft: ").to_string();
 					art.preview = draft;
 					art.icon = None;
 					art.ticks = None;
@@ -1312,11 +1408,7 @@ pub fn bind_input_handlers(
 			}
 			_ if in_step && s.active_tab == 2 => {
 				if jid.is_empty() {
-					Some(crate::ui::chat_rows::RowArt {
-						title: text.to_string(),
-						heading: true,
-						..Default::default()
-					})
+					Some(crate::ui::chat_rows::RowArt { title: text.to_string(), heading: true, ..Default::default() })
 				} else if let Some(msg_id) = s.filtered_starred_message_ids.get(index)
 					&& let Some(entry) = s.starred_entries.iter().find(|e| &e.message_id == msg_id)
 				{
@@ -1330,7 +1422,7 @@ pub fn bind_input_handlers(
 							if msg_date == today {
 								local_dt.format("%I:%M %p")
 							} else if msg_date == yesterday {
-								"Yesterday".to_string()
+								crate::i18n::tr("Yesterday").to_string()
 							} else if num_days_ago > 1 && num_days_ago < 7 {
 								local_dt.format("%A")
 							} else {
@@ -1698,14 +1790,14 @@ pub fn bind_input_handlers(
 
 			// The heading never carries the clock: the duration lives in the
 			// call info box, so the heading reads the same for the whole call.
-			let status = if is_reconnecting {
-				"Reconnecting...".to_string()
+			let status = crate::i18n::tr(if is_reconnecting {
+				"Reconnecting..."
 			} else if is_group {
-				"In group call".to_string()
+				"In group call"
 			} else {
-				"Connected".to_string()
-			};
-			call_status_label.set_label(&status);
+				"Connected"
+			});
+			call_status_label.set_label(status);
 
 			let running_info =
 				crate::calls::helpers::call_running_info_text(direction, is_video, &peer_name, secs, is_reconnecting);
@@ -1821,8 +1913,8 @@ pub fn bind_input_handlers(
 	let tray_open_id = 5001;
 	let tray_exit_id = 5002;
 	let mut tray_menu = Menu::builder()
-		.append_item(tray_open_id, "&Open whatSnap", "Show the main window")
-		.append_item(tray_exit_id, "E&xit", "Quit whatSnap")
+		.append_item(tray_open_id, crate::i18n::tr("&Open whatSnap"), crate::i18n::tr("Show the main window"))
+		.append_item(tray_exit_id, crate::i18n::tr("E&xit"), crate::i18n::tr("Quit whatSnap"))
 		.build();
 	let frame_tray_menu = parts.frame;
 	let tx_tray_menu = ui_tx.clone();
@@ -2117,7 +2209,7 @@ pub fn bind_input_handlers(
 		let _ = s.ws_tx.send(serde_json::json!({"action": "reconnect"}).to_string());
 		drop(s);
 		if !online {
-			crate::platform::announce::announce(reconnect_announcer, "Reconnecting...");
+			crate::platform::announce::announce(reconnect_announcer, crate::i18n::tr("Reconnecting..."));
 		}
 	});
 
@@ -2227,7 +2319,10 @@ pub fn bind_input_handlers(
 			let _ = tx_chat_menu.send(UiCommand::ToggleSearchPanel);
 		} else if id == MENU_ID_FOCUS_MESSAGE_FIELD {
 			if !msg_field_for_menu.is_shown() {
-				crate::platform::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
+				crate::platform::announce::announce(
+					msgs_announcer_for_menu,
+					crate::i18n::tr("This chat has no message box."),
+				);
 			} else if msg_field_for_menu.has_focus() {
 				let spot = return_spot_for_menu.borrow_mut().take();
 				let chat = state_chat_menu.borrow().selected_chat.clone();
@@ -2296,11 +2391,11 @@ pub fn bind_input_handlers(
 				s.selected_chat.clone().map(|jid| {
 					let on = s.settings.toggle_chat_announce(&jid);
 					s.settings.save();
-					if on {
+					crate::i18n::tr(if on {
 						"New messages in this chat will be read aloud."
 					} else {
 						"New messages in this chat won't be read aloud."
-					}
+					})
 				})
 			};
 			if let Some(said) = said {
@@ -2308,7 +2403,10 @@ pub fn bind_input_handlers(
 			}
 		} else if id == MENU_ID_NEXT_SPELLING_ERROR {
 			if !msg_field_for_menu.is_shown() {
-				crate::platform::announce::announce(msgs_announcer_for_menu, "This chat has no message box.");
+				crate::platform::announce::announce(
+					msgs_announcer_for_menu,
+					crate::i18n::tr("This chat has no message box."),
+				);
 			} else if let Some(say) = crate::ui::spell_check::next_error(&msg_field_for_menu) {
 				crate::platform::announce::announce(msgs_announcer_for_menu, say);
 			}
@@ -2401,9 +2499,10 @@ pub fn bind_input_handlers(
 					whatsnap::DisplayItem::Album { messages, .. } => {
 						let all_starred = !messages.is_empty() && messages.iter().all(|m| m.starred);
 						let target_starred = !all_starred;
-						for m in messages.iter().filter(|m| {
-							m.starred != target_starred && crate::ui_commands::selection::can_star(&jid, m)
-						}) {
+						for m in messages
+							.iter()
+							.filter(|m| m.starred != target_starred && crate::ui_commands::selection::can_star(&jid, m))
+						{
 							let sender_jid = if m.from_me { "me".to_string() } else { m.sender_jid.clone() };
 							let _ = tx_chat_menu.send(UiCommand::StarMessage {
 								message_id: m.id.clone(),
@@ -2491,14 +2590,22 @@ pub fn bind_input_handlers(
 			let (ok, text) = match status {
 				None => (
 					false,
-					"This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again."
-						.to_string(),
+					crate::i18n::tr(
+						"This copy of whatSnap doesn't include the Share menu helper. Reinstall whatSnap and try again.",
+					)
+					.to_string(),
 				),
 				Some(status) => (
 					status.success(),
-					result_file.and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_else(|| {
-						"whatSnap couldn't be added to the Share menu. Try again, or reinstall whatSnap.".to_string()
-					}),
+					result_file
+						.and_then(|f| std::fs::read_to_string(f).ok())
+						.map(|s| translate_share_menu_result(&s))
+						.unwrap_or_else(|| {
+							crate::i18n::tr(
+								"whatSnap couldn't be added to the Share menu. Try again, or reinstall whatSnap.",
+							)
+							.to_string()
+						}),
 				),
 			};
 			running.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -2517,9 +2624,9 @@ pub fn bind_input_handlers(
 	let pending_shortcuts_backup = pending_shortcuts.clone();
 	parts.settings_dialog.backup_btn.on_click(move |_| {
 		let chooser = FileDialog::builder(&settings_dialog_backup)
-			.with_message("Backup Settings")
+			.with_message(crate::i18n::tr("Backup Settings"))
 			.with_default_file("whatsnap-settings.json")
-			.with_wildcard("JSON files (*.json)|*.json|All files (*.*)|*.*")
+			.with_wildcard(crate::i18n::tr("JSON files (*.json)|*.json|All files (*.*)|*.*"))
 			.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 			.build();
 		if chooser.show_modal() != wxdragon::id::ID_OK {
@@ -2539,19 +2646,20 @@ pub fn bind_input_handlers(
 		match current.export_json() {
 			Ok(json_data) => {
 				if let Err(e) = std::fs::write(&path, json_data) {
-					MessageDialog::builder(
-						&settings_dialog_backup,
-						&format!("Failed to write backup file:\n{}", e),
-						"Backup Failed",
-					)
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-					.build()
-					.show_modal();
+					let msg = if crate::i18n::is_indonesian() {
+						format!("Gagal menulis file cadangan:\n{e}")
+					} else {
+						format!("Failed to write backup file:\n{e}")
+					};
+					MessageDialog::builder(&settings_dialog_backup, &msg, crate::i18n::tr("Backup Failed"))
+						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+						.build()
+						.show_modal();
 				} else {
 					MessageDialog::builder(
 						&settings_dialog_backup,
-						"Your whatSnap settings were successfully backed up.",
-						"Backup Complete",
+						crate::i18n::tr("Your whatSnap settings were successfully backed up."),
+						crate::i18n::tr("Backup Complete"),
 					)
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 					.build()
@@ -2559,14 +2667,15 @@ pub fn bind_input_handlers(
 				}
 			}
 			Err(e) => {
-				MessageDialog::builder(
-					&settings_dialog_backup,
-					&format!("Failed to format settings:\n{}", e),
-					"Backup Failed",
-				)
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+				let msg = if crate::i18n::is_indonesian() {
+					format!("Gagal memformat setelan:\n{e}")
+				} else {
+					format!("Failed to format settings:\n{e}")
+				};
+				MessageDialog::builder(&settings_dialog_backup, &msg, crate::i18n::tr("Backup Failed"))
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
 			}
 		}
 	});
@@ -2576,10 +2685,11 @@ pub fn bind_input_handlers(
 	let state_restore = state.clone();
 	let pending_shortcuts_restore = pending_shortcuts.clone();
 	let frame_restore = parts.frame;
+	let tx_settings_restore = ui_tx.clone();
 	parts.settings_dialog.restore_btn.on_click(move |_| {
 		let chooser = FileDialog::builder(&settings_dialog_restore)
-			.with_message("Restore Settings")
-			.with_wildcard("JSON files (*.json)|*.json|All files (*.*)|*.*")
+			.with_message(crate::i18n::tr("Restore Settings"))
+			.with_wildcard(crate::i18n::tr("JSON files (*.json)|*.json|All files (*.*)|*.*"))
 			.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
 			.build();
 		if chooser.show_modal() != wxdragon::id::ID_OK {
@@ -2590,14 +2700,15 @@ pub fn bind_input_handlers(
 		let raw = match std::fs::read_to_string(&path) {
 			Ok(content) => content,
 			Err(e) => {
-				MessageDialog::builder(
-					&settings_dialog_restore,
-					&format!("Failed to read backup file:\n{}", e),
-					"Restore Failed",
-				)
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+				let msg = if crate::i18n::is_indonesian() {
+					format!("Gagal membaca file cadangan:\n{e}")
+				} else {
+					format!("Failed to read backup file:\n{e}")
+				};
+				MessageDialog::builder(&settings_dialog_restore, &msg, crate::i18n::tr("Restore Failed"))
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
 				return;
 			}
 		};
@@ -2605,22 +2716,23 @@ pub fn bind_input_handlers(
 		let restored = match crate::settings::Settings::import_json(&raw) {
 			Ok(settings) => settings,
 			Err(err) => {
-				MessageDialog::builder(
-					&settings_dialog_restore,
-					&format!("The selected file could not be restored:\n{}", err),
-					"Invalid Settings File",
-				)
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-				.build()
-				.show_modal();
+				let msg = if crate::i18n::is_indonesian() {
+					format!("File yang dipilih tidak dapat dipulihkan:\n{err}")
+				} else {
+					format!("The selected file could not be restored:\n{err}")
+				};
+				MessageDialog::builder(&settings_dialog_restore, &msg, crate::i18n::tr("Invalid Settings File"))
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+					.build()
+					.show_modal();
 				return;
 			}
 		};
 
 		let confirm = MessageDialog::builder(
 			&settings_dialog_restore,
-			"Restoring settings will overwrite your current settings. Do you want to continue?",
-			"Restore Settings",
+			crate::i18n::tr("Restoring settings will overwrite your current settings. Do you want to continue?"),
+			crate::i18n::tr("Restore Settings"),
 		)
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 		.build();
@@ -2629,6 +2741,10 @@ pub fn bind_input_handlers(
 		}
 
 		restored.save();
+
+		let old_effective_id = crate::i18n::is_indonesian();
+		crate::i18n::set_language(restored.language);
+		let language_changed = crate::i18n::is_indonesian() != old_effective_id;
 
 		let mut s = state_restore.borrow_mut();
 		s.settings = restored.clone();
@@ -2658,14 +2774,30 @@ pub fn bind_input_handlers(
 		}
 		drop(s);
 
-		MessageDialog::builder(
-			&settings_dialog_restore,
-			"Your whatSnap settings were successfully restored.",
-			"Restore Complete",
-		)
-		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-		.build()
-		.show_modal();
+		if language_changed {
+			let prompt = MessageDialog::builder(
+				&settings_dialog_restore,
+				crate::i18n::tr(
+					"Your whatSnap settings were successfully restored. The interface language was changed. Restart whatSnap now so the change takes full effect?",
+				),
+				crate::i18n::tr("Restore Complete"),
+			)
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build();
+			if prompt.show_modal() == wxdragon::id::ID_YES {
+				settings_dialog_restore.end_modal(wxdragon::id::ID_OK);
+				let _ = tx_settings_restore.send(UiCommand::RestartApp);
+			}
+		} else {
+			MessageDialog::builder(
+				&settings_dialog_restore,
+				crate::i18n::tr("Your whatSnap settings were successfully restored."),
+				crate::i18n::tr("Restore Complete"),
+			)
+			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+			.build()
+			.show_modal();
+		}
 	});
 
 	for control in parts.settings_dialog.privacy_controls() {
@@ -2736,6 +2868,7 @@ pub fn bind_input_handlers(
 	let dual_stream_check_ok = parts.settings_dialog.dual_stream_screen_share_check;
 	let state_settings_save = state.clone();
 	let frame_shortcuts_save = parts.frame;
+	let tx_settings_save = ui_tx.clone();
 	parts.settings_dialog.ok_btn.on_click(move |_| {
 		use crate::ui::dialogs::settings_dialog::*;
 		let mut s = state_settings_save.borrow_mut();
@@ -2744,17 +2877,18 @@ pub fn bind_input_handlers(
 				let already_except = s.privacy_settings.get(control.name).map(String::as_str) == Some(EXCEPT_VALUE);
 				if control.is_except() && !already_except && !s.privacy_list_edits.contains_key(control.name) {
 					drop(s);
-					MessageDialog::builder(
-						&settings_dialog_ok,
-						&format!(
-							"Choose the contacts excluded from {} first, with the button under it.",
-							control.label
-						),
-						"Settings",
-					)
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-					.build()
-					.show_modal();
+					let label = crate::i18n::tr(control.label);
+					let msg = if crate::i18n::is_indonesian() {
+						format!(
+							"Pilih terlebih dahulu kontak yang dikecualikan dari {label}, dengan tombol di bawahnya."
+						)
+					} else {
+						format!("Choose the contacts excluded from {label} first, with the button under it.")
+					};
+					MessageDialog::builder(&settings_dialog_ok, &msg, crate::i18n::tr("Settings"))
+						.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+						.build()
+						.show_modal();
 					if let Some(btn) = control.except_btn {
 						btn.set_focus();
 					}
@@ -2785,7 +2919,9 @@ pub fn bind_input_handlers(
 		s.settings.voice_message_noise_suppression = noise_suppression_check_ok.is_checked();
 		s.settings.dual_stream_screen_share = dual_stream_check_ok.is_checked();
 		let old_theme = s.settings.theme;
+		let old_effective_id = crate::i18n::is_indonesian();
 		settings_parts_ok.read_chat_settings(&mut s.settings);
+		let language_changed = crate::i18n::is_indonesian() != old_effective_id;
 		crate::ui::spell_check::configure(s.settings.spell_check, &s.settings.spell_language);
 		if s.settings.theme != old_theme {
 			let theme = s.settings.theme;
@@ -2884,15 +3020,35 @@ pub fn bind_input_handlers(
 		if crate::platform::autostart::is_enabled() != autostart_check_ok.is_checked() {
 			crate::platform::autostart::set_enabled(autostart_check_ok.is_checked());
 		}
+		let should_restart = if language_changed {
+			MessageDialog::builder(
+				&settings_dialog_ok,
+				crate::i18n::tr(
+					"The interface language was changed. Restart whatSnap now so the change takes full effect?",
+				),
+				crate::i18n::tr("Restart Required"),
+			)
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build()
+			.show_modal()
+				== wxdragon::id::ID_YES
+		} else {
+			false
+		};
 		settings_dialog_ok.end_modal(wxdragon::id::ID_OK);
+		if should_restart {
+			let _ = tx_settings_save.send(UiCommand::RestartApp);
+		}
 	});
 
 	let state_photo = state.clone();
 	let settings_dialog_photo = parts.settings_dialog.dialog;
 	parts.settings_dialog.change_photo_btn.on_click(move |_| {
 		let file_dialog = FileDialog::builder(&settings_dialog_photo)
-			.with_message("Choose a profile photo")
-			.with_wildcard("Pictures (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif")
+			.with_message(crate::i18n::tr("Choose a profile photo"))
+			.with_wildcard(crate::i18n::tr(
+				"Pictures (*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif)|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif",
+			))
 			.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
 			.build();
 		if file_dialog.show_modal() != wxdragon::id::ID_OK {
@@ -2904,10 +3060,14 @@ pub fn bind_input_handlers(
 	});
 	let state_photo_remove = state.clone();
 	parts.settings_dialog.remove_photo_btn.on_click(move |_| {
-		let dialog = MessageDialog::builder(&settings_dialog_photo, "Remove your profile photo?", "Profile Photo")
-			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-			.build();
-		dialog.set_yes_no_labels("Remove", "Cancel");
+		let dialog = MessageDialog::builder(
+			&settings_dialog_photo,
+			crate::i18n::tr("Remove your profile photo?"),
+			crate::i18n::tr("Profile Photo"),
+		)
+		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+		.build();
+		dialog.set_yes_no_labels(crate::i18n::tr("Remove"), crate::i18n::tr("Cancel"));
 		if dialog.show_modal() == ID_YES {
 			let payload = serde_json::json!({"action": "set_own_photo", "data": {"remove": true}});
 			let _ = state_photo_remove.borrow().ws_tx.send(payload.to_string());
@@ -3103,8 +3263,13 @@ pub fn bind_input_handlers(
 				let quiz = poll_quiz.get_value();
 				let correct_answer = if quiz {
 					let labels: Vec<&str> = options.iter().map(String::as_str).collect();
-					let choose =
-						SingleChoiceDialog::builder(&poll_dlg, "Which answer is correct?", "Quiz", &labels).build();
+					let choose = SingleChoiceDialog::builder(
+						&poll_dlg,
+						crate::i18n::tr("Which answer is correct?"),
+						crate::i18n::tr("Quiz"),
+						&labels,
+					)
+					.build();
 					if choose.show_modal() != ID_OK {
 						return;
 					}
@@ -3127,7 +3292,7 @@ pub fn bind_input_handlers(
 						windows::Win32::UI::WindowsAndMessaging::MB_OK,
 					);
 				}
-				MessageDialog::builder(&poll_dlg, problem, "Poll")
+				MessageDialog::builder(&poll_dlg, problem, crate::i18n::tr("Poll"))
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 					.build()
 					.show_modal();
@@ -3163,7 +3328,7 @@ pub fn bind_input_handlers(
 			}
 			let owner = windows::Win32::Foundation::HWND(dlg.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&dlg, "Name is required.", "Error")
+				MessageDialog::builder(&dlg, crate::i18n::tr("Name is required."), crate::i18n::tr("Error"))
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 					.build()
 					.show_modal()
@@ -3180,10 +3345,14 @@ pub fn bind_input_handlers(
 			}
 			let owner = windows::Win32::Foundation::HWND(dlg.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&dlg, "Phone number must have at least 7 digits.", "Error")
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-					.build()
-					.show_modal()
+				MessageDialog::builder(
+					&dlg,
+					crate::i18n::tr("Phone number must have at least 7 digits."),
+					crate::i18n::tr("Error"),
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal()
 			});
 			phone_field.set_focus();
 			return;
@@ -3224,10 +3393,14 @@ pub fn bind_input_handlers(
 			}
 			let owner = windows::Win32::Foundation::HWND(group_dialog.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&group_dialog, "Group name is required.", "Error")
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-					.build()
-					.show_modal()
+				MessageDialog::builder(
+					&group_dialog,
+					crate::i18n::tr("Group name is required."),
+					crate::i18n::tr("Error"),
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal()
 			});
 			name_ctrl.select_all();
 			name_ctrl.set_focus();
@@ -3273,10 +3446,14 @@ pub fn bind_input_handlers(
 			}
 			let owner = windows::Win32::Foundation::HWND(group_dialog.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&group_dialog, "At least one participant must be selected.", "Error")
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-					.build()
-					.show_modal()
+				MessageDialog::builder(
+					&group_dialog,
+					crate::i18n::tr("At least one participant must be selected."),
+					crate::i18n::tr("Error"),
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal()
 			});
 			contacts_listbox_ok.set_focus();
 			return;
@@ -3353,12 +3530,7 @@ pub fn bind_input_handlers(
 			let count = gs.checked_jids.len();
 			crate::platform::announce::announce(
 				selection_announcer_search,
-				&format!(
-					"{} shown. {} contact{} selected.",
-					gs.current_jids.len(),
-					count,
-					if count == 1 { "" } else { "s" }
-				),
+				&contacts_shown_announcement(gs.current_jids.len(), count),
 			);
 		}
 	});
@@ -3383,17 +3555,10 @@ pub fn bind_input_handlers(
 					gs.checked_jids.remove(&jid);
 				}
 				let label = contacts_listbox_toggle.get_string(idx as usize).unwrap_or_default();
-				let state_str = if checked { "selected" } else { "not selected" };
 				let count = gs.checked_jids.len();
 				crate::platform::announce::announce(
 					selection_announcer_toggle,
-					&format!(
-						"{}: {}. {} contact{} selected.",
-						label,
-						state_str,
-						count,
-						if count == 1 { "" } else { "s" }
-					),
+					&contact_toggled_announcement(&label, checked, count),
 				);
 			}
 		}
@@ -3449,12 +3614,7 @@ pub fn bind_input_handlers(
 			let count = ams.checked_jids.len();
 			crate::platform::announce::announce(
 				add_members_selection_announcer,
-				&format!(
-					"{} shown. {} contact{} selected.",
-					ams.current_jids.len(),
-					count,
-					if count == 1 { "" } else { "s" }
-				),
+				&contacts_shown_announcement(ams.current_jids.len(), count),
 			);
 		}
 	});
@@ -3479,17 +3639,10 @@ pub fn bind_input_handlers(
 					ams.checked_jids.remove(&jid);
 				}
 				let label = add_members_listbox_toggle.get_string(idx as usize).unwrap_or_default();
-				let state_str = if checked { "selected" } else { "not selected" };
 				let count = ams.checked_jids.len();
 				crate::platform::announce::announce(
 					add_members_selection_announcer_toggle,
-					&format!(
-						"{}: {}. {} contact{} selected.",
-						label,
-						state_str,
-						count,
-						if count == 1 { "" } else { "s" }
-					),
+					&contact_toggled_announcement(&label, checked, count),
 				);
 			}
 		}
@@ -3523,10 +3676,14 @@ pub fn bind_input_handlers(
 			}
 			let owner = windows::Win32::Foundation::HWND(add_members_dialog_ok.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&add_members_dialog_ok, "At least one contact must be selected.", "Error")
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-					.build()
-					.show_modal()
+				MessageDialog::builder(
+					&add_members_dialog_ok,
+					crate::i18n::tr("At least one contact must be selected."),
+					crate::i18n::tr("Error"),
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal()
 			});
 			add_members_listbox_ok.set_focus();
 			return;
@@ -3586,12 +3743,7 @@ pub fn bind_input_handlers(
 			let count = acs.checked_jids.len();
 			crate::platform::announce::announce(
 				attach_contact_selection_announcer,
-				&format!(
-					"{} shown. {} contact{} selected.",
-					acs.current_jids.len(),
-					count,
-					if count == 1 { "" } else { "s" }
-				),
+				&contacts_shown_announcement(acs.current_jids.len(), count),
 			);
 		}
 	});
@@ -3616,17 +3768,10 @@ pub fn bind_input_handlers(
 					acs.checked_jids.remove(&jid);
 				}
 				let label = attach_contact_listbox_toggle.get_string(idx as usize).unwrap_or_default();
-				let state_str = if checked { "selected" } else { "not selected" };
 				let count = acs.checked_jids.len();
 				crate::platform::announce::announce(
 					attach_contact_selection_announcer_toggle,
-					&format!(
-						"{}: {}. {} contact{} selected.",
-						label,
-						state_str,
-						count,
-						if count == 1 { "" } else { "s" }
-					),
+					&contact_toggled_announcement(&label, checked, count),
 				);
 			}
 		}
@@ -3660,10 +3805,14 @@ pub fn bind_input_handlers(
 			}
 			let owner = windows::Win32::Foundation::HWND(attach_contact_dialog_ok.get_handle());
 			crate::platform::focus::show_modal_and_refocus(owner, false, || {
-				MessageDialog::builder(&attach_contact_dialog_ok, "At least one contact must be selected.", "Error")
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-					.build()
-					.show_modal()
+				MessageDialog::builder(
+					&attach_contact_dialog_ok,
+					crate::i18n::tr("At least one contact must be selected."),
+					crate::i18n::tr("Error"),
+				)
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+				.build()
+				.show_modal()
 			});
 			attach_contact_listbox_ok.set_focus();
 			return;
@@ -3714,11 +3863,11 @@ pub fn bind_input_handlers(
 		let Some(new_pos) = crate::settings::move_tab(&mut order, pos, delta) else {
 			crate::platform::announce::announce(
 				nav_move_announcer,
-				if delta < 0 { "Cannot move left" } else { "Cannot move right" },
+				crate::i18n::tr(if delta < 0 { "Cannot move left" } else { "Cannot move right" }),
 			);
 			return;
 		};
-		let names: Vec<&str> = order.iter().map(|&t| crate::settings::TAB_NAMES[t]).collect();
+		let names: Vec<&str> = order.iter().map(|&t| crate::i18n::tr(crate::settings::TAB_NAMES[t])).collect();
 		for p in [pos, new_pos] {
 			let unread_chats = crate::ui::message_display::unread_chats_in_tab(&state_nav_move.borrow(), order[p]);
 			nav_list_move.set_string(p as u32, &crate::settings::nav_tab_label(order[p], unread_chats));
@@ -3733,10 +3882,12 @@ pub fn bind_input_handlers(
 			s.settings.save();
 		}
 		let msg = match (new_pos.checked_sub(1), names.get(new_pos + 1)) {
-			(Some(before), Some(after)) => format!("Moved between {} and {}", names[before], after),
-			(None, Some(after)) => format!("Moved before {after}"),
-			(Some(before), None) => format!("Moved after {}", names[before]),
-			(None, None) => format!("Moved {}", names[new_pos]),
+			(Some(before), Some(after)) => {
+				format!("{} {} {} {}", crate::i18n::tr("Moved between"), names[before], crate::i18n::tr("and"), after)
+			}
+			(None, Some(after)) => format!("{} {after}", crate::i18n::tr("Moved before")),
+			(Some(before), None) => format!("{} {}", crate::i18n::tr("Moved after"), names[before]),
+			(None, None) => format!("{} {}", crate::i18n::tr("Moved"), names[new_pos]),
 		};
 		crate::platform::announce::announce(nav_move_announcer, &msg);
 	});
@@ -4039,80 +4190,110 @@ pub fn bind_input_handlers(
 				if is_person {
 					menu_builder = menu_builder.append_item(
 						contact_info_id,
-						"&Contact info",
-						"See this contact's info, call them, or edit or delete the contact",
+						crate::i18n::tr("&Contact info"),
+						crate::i18n::tr("See this contact's info, call them, or edit or delete the contact"),
 					);
 				} else if is_channel {
 					menu_builder = menu_builder.append_item(
 						channel_info_id,
-						"C&hannel info",
-						"See this channel's details without opening it",
+						crate::i18n::tr("C&hannel info"),
+						crate::i18n::tr("See this channel's details without opening it"),
 					);
 				}
 
-				let pin_label = if is_pinned { "Un&pin chat" } else { "&Pin chat" };
-				let archive_label = if is_archived { "&Unarchive chat" } else { "&Archive chat" };
-				let lock_label = if is_locked { "Un&lock chat" } else { "&Lock chat" };
-				let read_label = if is_unread { "Mark as &read" } else { "Mark as &unread" };
+				let pin_label = crate::i18n::tr(if is_pinned { "Un&pin chat" } else { "&Pin chat" });
+				let archive_label = crate::i18n::tr(if is_archived { "&Unarchive chat" } else { "&Archive chat" });
+				let lock_label = crate::i18n::tr(if is_locked { "Un&lock chat" } else { "&Lock chat" });
+				let read_label = crate::i18n::tr(if is_unread { "Mark as &read" } else { "Mark as &unread" });
 
 				// WA Web has no Pin for an archived chat: unarchive it first.
 				let show_pin = !is_archived || is_pinned;
 				if show_pin {
-					menu_builder = menu_builder.append_item(pin_id, pin_label, "Pin or unpin chat");
+					menu_builder = menu_builder.append_item(pin_id, pin_label, crate::i18n::tr("Pin or unpin chat"));
 				}
 				menu_builder = menu_builder
-					.append_item(archive_id, archive_label, "Archive or unarchive chat")
-					.append_item(lock_id, lock_label, "Lock or unlock chat")
-					.append_item(read_id, read_label, "Mark chat as read or unread");
+					.append_item(archive_id, archive_label, crate::i18n::tr("Archive or unarchive chat"))
+					.append_item(lock_id, lock_label, crate::i18n::tr("Lock or unlock chat"))
+					.append_item(read_id, read_label, crate::i18n::tr("Mark chat as read or unread"));
 				if !jid.ends_with("@broadcast") {
-					let favorite_label = if is_favorite { "Remove from fa&vorites" } else { "Add to fa&vorites" };
+					let favorite_label =
+						crate::i18n::tr(if is_favorite { "Remove from fa&vorites" } else { "Add to fa&vorites" });
 					menu_builder = menu_builder
-						.append_item(favorite_id, favorite_label, "Show or stop showing this chat under Favorites")
-						.append_item(lists_id, "Add to l&ist...", "Choose which of your lists this chat is in");
+						.append_item(
+							favorite_id,
+							favorite_label,
+							crate::i18n::tr("Show or stop showing this chat under Favorites"),
+						)
+						.append_item(
+							lists_id,
+							crate::i18n::tr("Add to l&ist..."),
+							crate::i18n::tr("Choose which of your lists this chat is in"),
+						);
 				}
 				menu_builder = menu_builder
-					.append_item(export_id, "&Export chat...", "Export this chat's transcript and media")
+					.append_item(
+						export_id,
+						crate::i18n::tr("&Export chat..."),
+						crate::i18n::tr("Export this chat's transcript and media"),
+					)
 					.append_item(
 						export_text_id,
-						"Export &text only (Markdown)...",
-						"Export just the message text as a Markdown file, no media",
+						crate::i18n::tr("Export &text only (Markdown)..."),
+						crate::i18n::tr("Export just the message text as a Markdown file, no media"),
 					);
 				if is_group {
-					menu_builder = menu_builder.append_item(leave_group_id, "Leave &group...", "Leave this group");
+					menu_builder = menu_builder.append_item(
+						leave_group_id,
+						crate::i18n::tr("Leave &group..."),
+						crate::i18n::tr("Leave this group"),
+					);
 				}
 				menu_builder = menu_builder.append_item(
 					clear_id,
-					"Clea&r chat...",
-					"Delete this chat's messages, keeping the chat itself",
+					crate::i18n::tr("Clea&r chat..."),
+					crate::i18n::tr("Delete this chat's messages, keeping the chat itself"),
 				);
 				if !jid.ends_with("@newsletter") && !jid.ends_with("@broadcast") {
-					let what =
-						if is_group { "Report this group to WhatsApp" } else { "Report this contact to WhatsApp" };
-					menu_builder = menu_builder.append_item(report_id, "Re&port...", what);
+					let what = crate::i18n::tr(if is_group {
+						"Report this group to WhatsApp"
+					} else {
+						"Report this contact to WhatsApp"
+					});
+					menu_builder = menu_builder.append_item(report_id, crate::i18n::tr("Re&port..."), what);
 				}
 				if is_person {
 					menu_builder = if is_blocked {
 						menu_builder.append_item(
 							block_id,
-							"Un&block contact",
-							"Let this contact message and call you again",
+							crate::i18n::tr("Un&block contact"),
+							crate::i18n::tr("Let this contact message and call you again"),
 						)
 					} else {
 						menu_builder.append_item(
 							block_id,
-							"&Block contact...",
-							"Stop this contact messaging and calling you",
+							crate::i18n::tr("&Block contact..."),
+							crate::i18n::tr("Stop this contact messaging and calling you"),
 						)
 					};
 				}
-				menu_builder = menu_builder.append_item(delete_id, "&Delete chat...", "Delete chat history");
+				menu_builder = menu_builder.append_item(
+					delete_id,
+					crate::i18n::tr("&Delete chat..."),
+					crate::i18n::tr("Delete chat history"),
+				);
 
 				let mut popup_menu = menu_builder.build();
 
 				let mute_pos = usize::from(is_person || is_channel) + usize::from(show_pin) + 3;
 				if is_muted || !crate::ui_commands::chat_list::has_mute_durations(&jid) {
-					let label = if is_muted { "&Unmute notifications" } else { "&Mute notifications" };
-					popup_menu.insert(mute_pos, mute_id, label, "Mute or unmute notifications", ItemKind::Normal);
+					let label = crate::i18n::tr(if is_muted { "&Unmute notifications" } else { "&Mute notifications" });
+					popup_menu.insert(
+						mute_pos,
+						mute_id,
+						label,
+						crate::i18n::tr("Mute or unmute notifications"),
+						ItemKind::Normal,
+					);
 				} else {
 					let ui_tx_mute = ui_tx_chat_ctx.clone();
 					let jid_mute = jid.clone();
@@ -4123,16 +4304,16 @@ pub fn bind_input_handlers(
 					popup_menu.insert_submenu(
 						mute_pos,
 						mute_menu,
-						"&Mute notifications",
-						"Choose how long to mute this chat",
+						crate::i18n::tr("&Mute notifications"),
+						crate::i18n::tr("Choose how long to mute this chat"),
 					);
 				}
 				if !jid.ends_with("@broadcast") {
 					popup_menu.insert(
 						mute_pos + 1,
 						notify_settings_id,
-						"Notification se&ttings...",
-						"How this computer alerts you about this chat, without changing your phone",
+						crate::i18n::tr("Notification se&ttings..."),
+						crate::i18n::tr("How this computer alerts you about this chat, without changing your phone"),
 						ItemKind::Normal,
 					);
 				}
@@ -4150,13 +4331,21 @@ pub fn bind_input_handlers(
 				// outlives `append_submenu` taking ownership of the wrapper.
 				if is_archived {
 					let alert_menu = Menu::builder()
-						.append_radio_item(alert_silent_id, "&Silent", "No sound and no notification for this chat")
+						.append_radio_item(
+							alert_silent_id,
+							crate::i18n::tr("&Silent"),
+							crate::i18n::tr("No sound and no notification for this chat"),
+						)
 						.append_radio_item(
 							alert_sound_id,
-							"Sound &only",
-							"Play the message sound but show no notification",
+							crate::i18n::tr("Sound &only"),
+							crate::i18n::tr("Play the message sound but show no notification"),
 						)
-						.append_radio_item(alert_full_id, "&Notify normally", "Alert exactly like an unarchived chat")
+						.append_radio_item(
+							alert_full_id,
+							crate::i18n::tr("&Notify normally"),
+							crate::i18n::tr("Alert exactly like an unarchived chat"),
+						)
 						.build();
 					alert_menu.check_item(
 						match archived_level {
@@ -4185,8 +4374,8 @@ pub fn bind_input_handlers(
 
 					popup_menu.append_submenu(
 						alert_menu,
-						"Archived a&lerts",
-						"How this archived chat alerts you about new messages",
+						crate::i18n::tr("Archived a&lerts"),
+						crate::i18n::tr("How this archived chat alerts you about new messages"),
 					);
 				}
 
@@ -4229,20 +4418,28 @@ pub fn bind_input_handlers(
 						let _ = ui_tx_clone.send(UiCommand::ToggleReadChat { jid: jid_clone.clone(), read: is_unread });
 					} else if id == delete_id {
 						if is_group {
-							let choices: Vec<&str> = vec!["Delete chat only", "Delete chat and exit group"];
+							let choices: Vec<&str> = vec![
+								crate::i18n::tr("Delete chat only"),
+								crate::i18n::tr("Delete chat and exit group"),
+							];
+							let prompt = if crate::i18n::is_indonesian() {
+								format!("Hapus chat dengan {chat_name}?")
+							} else {
+								format!("Delete chat with {chat_name}?")
+							};
 							let dialog = SingleChoiceDialog::builder(
 								&parent_clone,
-								&format!("Delete chat with {}?", chat_name),
-								"Confirm Delete",
+								&prompt,
+								crate::i18n::tr("Confirm Delete"),
 								&choices,
 							)
 							.build();
 							if dialog.show_modal() == wxdragon::id::ID_OK {
-								match dialog.get_string_selection().as_deref() {
-									Some("Delete chat only") => {
+								match dialog.get_selection() {
+									0 => {
 										let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
 									}
-									Some("Delete chat and exit group") => {
+									1 => {
 										let _ = ui_tx_clone
 											.send(UiCommand::DeleteChatAndLeaveGroup { jid: jid_clone.clone() });
 									}
@@ -4250,54 +4447,64 @@ pub fn bind_input_handlers(
 								}
 							}
 						} else {
-							let dialog = MessageDialog::builder(
-								&parent_clone,
-								&format!("Are you sure you want to delete chat with {}?", chat_name),
-								"Confirm Delete",
-							)
-							.with_style(
-								MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
-							)
-							.build();
+							let prompt = if crate::i18n::is_indonesian() {
+								format!("Anda yakin ingin menghapus chat dengan {chat_name}?")
+							} else {
+								format!("Are you sure you want to delete chat with {chat_name}?")
+							};
+							let dialog =
+								MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Confirm Delete"))
+									.with_style(
+										MessageDialogStyle::OK
+											| MessageDialogStyle::Cancel
+											| MessageDialogStyle::IconQuestion,
+									)
+									.build();
 							if dialog.show_modal() == wxdragon::id::ID_OK {
 								let _ = ui_tx_clone.send(UiCommand::DeleteChat { jid: jid_clone.clone() });
 							}
 						}
 					} else if id == clear_id {
-						let dialog = MessageDialog::builder(
-							&parent_clone,
-							&format!(
-								"Delete all messages in the chat with {}? The chat itself will stay in your list.",
-								chat_name
-							),
-							"Confirm Clear Chat",
-						)
-						.with_style(
-							MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
-						)
-						.build();
+						let prompt = if crate::i18n::is_indonesian() {
+							format!(
+								"Hapus semua pesan di chat dengan {chat_name}? Chat ini akan tetap ada di daftar Anda."
+							)
+						} else {
+							format!(
+								"Delete all messages in the chat with {chat_name}? The chat itself will stay in your list."
+							)
+						};
+						let dialog =
+							MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Confirm Clear Chat"))
+								.with_style(
+									MessageDialogStyle::OK
+										| MessageDialogStyle::Cancel
+										| MessageDialogStyle::IconQuestion,
+								)
+								.build();
 						if dialog.show_modal() == wxdragon::id::ID_OK {
 							let _ = ui_tx_clone.send(UiCommand::ClearChat { jid: jid_clone.clone() });
 						}
 					} else if id == leave_group_id {
-						let dialog = MessageDialog::builder(
-							&parent_clone,
-							&format!("Are you sure you want to leave {}?", chat_name),
-							"Leave Group",
-						)
-						.with_style(
-							MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
-						)
-						.build();
+						let prompt = if crate::i18n::is_indonesian() {
+							format!("Anda yakin ingin keluar dari {chat_name}?")
+						} else {
+							format!("Are you sure you want to leave {chat_name}?")
+						};
+						let dialog = MessageDialog::builder(&parent_clone, &prompt, crate::i18n::tr("Leave Group"))
+							.with_style(
+								MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion,
+							)
+							.build();
 						if dialog.show_modal() == wxdragon::id::ID_OK {
 							let _ = ui_tx_clone.send(UiCommand::LeaveGroup { jid: jid_clone.clone() });
 						}
 					} else if id == export_id {
 						let default_name = format!("{}.zip", sanitize_export_filename(&chat_name));
 						let dialog = FileDialog::builder(&parent_clone)
-							.with_message("Export chat as")
+							.with_message(crate::i18n::tr("Export chat as"))
 							.with_default_file(&default_name)
-							.with_wildcard("Zip archive (*.zip)|*.zip")
+							.with_wildcard(crate::i18n::tr("Zip archive (*.zip)|*.zip"))
 							.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 							.build();
 						if dialog.show_modal() == wxdragon::id::ID_OK
@@ -4308,9 +4515,9 @@ pub fn bind_input_handlers(
 					} else if id == export_text_id {
 						let default_name = format!("{}.md", sanitize_export_filename(&chat_name));
 						let dialog = FileDialog::builder(&parent_clone)
-							.with_message("Export chat text as")
+							.with_message(crate::i18n::tr("Export chat text as"))
 							.with_default_file(&default_name)
-							.with_wildcard("Markdown file (*.md)|*.md")
+							.with_wildcard(crate::i18n::tr("Markdown file (*.md)|*.md"))
 							.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 							.build();
 						if dialog.show_modal() == wxdragon::id::ID_OK
@@ -4493,15 +4700,24 @@ pub fn bind_input_handlers(
 									msg.media_path.clone()
 								};
 								if crate::copy_files_to_clipboard(&[path_to_copy]) {
-									let msg_kind = if is_voice { "voice message" } else { "file" };
-									crate::platform::announce::announce(
-										msgs_announcer_copy,
-										&format!("Copied {} to clipboard.", msg_kind),
-									);
+									let msg = if crate::i18n::is_indonesian() {
+										if is_voice {
+											"Pesan suara disalin ke papan klip."
+										} else {
+											"File disalin ke papan klip."
+										}
+									} else {
+										if is_voice {
+											"Copied voice message to clipboard."
+										} else {
+											"Copied file to clipboard."
+										}
+									};
+									crate::platform::announce::announce(msgs_announcer_copy, msg);
 								} else {
 									crate::platform::announce::announce(
 										msgs_announcer_copy,
-										"Failed to copy file to clipboard.",
+										crate::i18n::tr("Failed to copy file to clipboard."),
 									);
 								}
 							} else {
@@ -4512,7 +4728,7 @@ pub fn bind_input_handlers(
 							if crate::copy_text(&msg.text) {
 								crate::platform::announce::announce(
 									msgs_announcer_copy,
-									"Copied message text to clipboard.",
+									crate::i18n::tr("Copied message text to clipboard."),
 								);
 							}
 						}
@@ -4691,75 +4907,119 @@ pub fn bind_input_handlers(
 			});
 
 			let mut menu_builder = Menu::builder();
-			menu_builder = menu_builder.append_item(copy_id, "&Copy\tCtrl+C", "Copy message text or file to clipboard");
+			menu_builder = menu_builder.append_item(
+				copy_id,
+				crate::i18n::tr("&Copy	Ctrl+C"),
+				crate::i18n::tr("Copy message text or file to clipboard"),
+			);
 			let can_reply = !is_deleted && (!is_channel_chat || can_post_in_channel);
 			if can_reply {
-				menu_builder = menu_builder.append_item(reply_id, "&Reply", "Reply to message");
+				menu_builder =
+					menu_builder.append_item(reply_id, crate::i18n::tr("&Reply"), crate::i18n::tr("Reply to message"));
 			}
 			if !is_deleted {
-				menu_builder =
-					menu_builder.append_item(forward_id, "&Forward...", "Forward message to another contact");
+				menu_builder = menu_builder.append_item(
+					forward_id,
+					crate::i18n::tr("&Forward..."),
+					crate::i18n::tr("Forward message to another contact"),
+				);
 				if can_edit {
-					menu_builder = menu_builder.append_item(edit_id, "&Edit", "Edit message");
+					menu_builder =
+						menu_builder.append_item(edit_id, crate::i18n::tr("&Edit"), crate::i18n::tr("Edit message"));
 				}
 			}
 			let can_delete = !is_channel_chat || can_post_in_channel || is_from_me;
 			if can_delete {
-				menu_builder = menu_builder.append_item(delete_id, "&Delete", "Delete message");
+				menu_builder =
+					menu_builder.append_item(delete_id, crate::i18n::tr("&Delete"), crate::i18n::tr("Delete message"));
 			}
 			if !is_deleted {
-				menu_builder = menu_builder.append_item(react_dialog_id, "&React...", "React to message");
+				menu_builder = menu_builder.append_item(
+					react_dialog_id,
+					crate::i18n::tr("&React..."),
+					crate::i18n::tr("React to message"),
+				);
 			}
 			let can_star_msg = match display_item {
 				Some(whatsnap::DisplayItem::Single(ref m)) => crate::ui_commands::selection::can_star(&chat_jid, m),
 				Some(whatsnap::DisplayItem::Album { ref messages, .. }) => {
-					!messages.is_empty() && messages.iter().all(|m| crate::ui_commands::selection::can_star(&chat_jid, m))
+					!messages.is_empty()
+						&& messages.iter().all(|m| crate::ui_commands::selection::can_star(&chat_jid, m))
 				}
 				_ => false,
 			};
 			if can_star_msg {
 				let is_album = matches!(display_item, Some(whatsnap::DisplayItem::Album { .. }));
 				let star_label = match (is_album, is_starred) {
-					(true, true) => "&Unstar all",
-					(true, false) => "&Star all",
-					(false, true) => "&Unstar",
-					(false, false) => "&Star",
+					(true, true) => crate::i18n::tr("&Unstar all"),
+					(true, false) => crate::i18n::tr("&Star all"),
+					(false, true) => crate::i18n::tr("&Unstar"),
+					(false, false) => crate::i18n::tr("&Star"),
 				};
-				menu_builder = menu_builder.append_item(star_id, star_label, "Star or unstar this message");
+				menu_builder =
+					menu_builder.append_item(star_id, star_label, crate::i18n::tr("Star or unstar this message"));
 			}
 			if can_retry && !is_deleted {
-				menu_builder = menu_builder.append_item(retry_id, "Retry &send", "Retry sending this message");
+				menu_builder = menu_builder.append_item(
+					retry_id,
+					crate::i18n::tr("Retry &send"),
+					crate::i18n::tr("Retry sending this message"),
+				);
 			}
 			if is_unreadable && !is_deleted {
-				menu_builder =
-					menu_builder.append_item(resend_id, "Re&quest again", "Ask your phone to send this message again");
+				menu_builder = menu_builder.append_item(
+					resend_id,
+					crate::i18n::tr("Re&quest again"),
+					crate::i18n::tr("Ask your phone to send this message again"),
+				);
 			}
 			if is_voice_msg && !is_deleted {
-				menu_builder =
-					menu_builder.append_item(save_voice_id, "&Save voice message...", "Save voice message to device");
+				menu_builder = menu_builder.append_item(
+					save_voice_id,
+					crate::i18n::tr("&Save voice message..."),
+					crate::i18n::tr("Save voice message to device"),
+				);
 			}
 			let is_poll_msg =
 				matches!(display_item, Some(whatsnap::DisplayItem::Single(ref m)) if m.is_poll() && !m.is_deleted);
 			if (is_from_me || is_poll_msg) && !is_deleted {
-				menu_builder =
-					menu_builder.append_item(info_id, "Message &Info", "View delivery info, or a poll's votes");
+				menu_builder = menu_builder.append_item(
+					info_id,
+					crate::i18n::tr("Message &Info"),
+					crate::i18n::tr("View delivery info, or a poll's votes"),
+				);
 			}
 			if is_photo_album && !is_deleted {
-				menu_builder =
-					menu_builder.append_item(copy_all_id, "Copy all p&hotos", "Copy all photos to clipboard");
+				menu_builder = menu_builder.append_item(
+					copy_all_id,
+					crate::i18n::tr("Copy all p&hotos"),
+					crate::i18n::tr("Copy all photos to clipboard"),
+				);
 			}
 			if phone_match.is_some() && !is_deleted {
 				menu_builder = menu_builder
-					.append_item(copy_number_id, "Copy Nu&mber", "Copy phone number to clipboard")
-					.append_item(message_number_id, "Message Num&ber", "Start a chat with this phone number");
+					.append_item(
+						copy_number_id,
+						crate::i18n::tr("Copy Nu&mber"),
+						crate::i18n::tr("Copy phone number to clipboard"),
+					)
+					.append_item(
+						message_number_id,
+						crate::i18n::tr("Message Num&ber"),
+						crate::i18n::tr("Start a chat with this phone number"),
+					);
 			}
 			if reportable_id.is_some() && !is_deleted {
-				menu_builder = menu_builder.append_item(report_id, "Re&port...", "Report this message to WhatsApp");
+				menu_builder = menu_builder.append_item(
+					report_id,
+					crate::i18n::tr("Re&port..."),
+					crate::i18n::tr("Report this message to WhatsApp"),
+				);
 				if is_group_chat {
 					menu_builder = menu_builder.append_item(
 						report_admins_id,
-						"Report to group &admins",
-						"Send this message to the group's admins to review",
+						crate::i18n::tr("Report to group &admins"),
+						crate::i18n::tr("Send this message to the group's admins to review"),
 					);
 				}
 			}
@@ -4782,7 +5042,11 @@ pub fn bind_input_handlers(
 			};
 			if let Some((channel_jid, post)) = channel_post {
 				let submenu = crate::ui_commands::channel_admin::channel_post_menu(&state_ctx, &channel_jid, &post);
-				popup_menu.append_submenu(submenu, "C&hannel post", "Pin this post, or see who reacted or voted");
+				popup_menu.append_submenu(
+					submenu,
+					crate::i18n::tr("C&hannel post"),
+					crate::i18n::tr("Pin this post, or see who reacted or voted"),
+				);
 			}
 
 			// Same reasoning as the archived-alerts submenu on the chat-list
@@ -4793,16 +5057,32 @@ pub fn bind_input_handlers(
 				let message_sender_id = 3101;
 				let call_sender_id = 3102;
 
+				let msg_label = if crate::i18n::is_indonesian() {
+					format!("&Kirim pesan ke {sender_name}")
+				} else {
+					format!("&Message {sender_name}")
+				};
+				let call_label = if crate::i18n::is_indonesian() {
+					format!("&Telepon {sender_name}")
+				} else {
+					format!("&Call {sender_name}")
+				};
+				let user_actions_label = if crate::i18n::is_indonesian() {
+					format!("Tindakan &pengguna untuk {sender_name}")
+				} else {
+					format!("&User actions for {sender_name}")
+				};
+
 				let sender_menu = Menu::builder()
 					.append_item(
 						message_sender_id,
-						&format!("&Message {}", sender_name),
-						"Open a one-on-one chat with this message's sender",
+						&msg_label,
+						crate::i18n::tr("Open a one-on-one chat with this message's sender"),
 					)
 					.append_item(
 						call_sender_id,
-						&format!("&Call {}", sender_name),
-						"Start a call with this message's sender",
+						&call_label,
+						crate::i18n::tr("Start a call with this message's sender"),
 					)
 					.build();
 
@@ -4820,8 +5100,8 @@ pub fn bind_input_handlers(
 
 				popup_menu.append_submenu(
 					sender_menu,
-					&format!("&User actions for {}", sender_name),
-					"Actions for this message's sender",
+					&user_actions_label,
+					crate::i18n::tr("Actions for this message's sender"),
 				);
 			}
 
@@ -4865,26 +5145,33 @@ pub fn bind_input_handlers(
 						&& !msg.is_deleted
 					{
 						let sender = if msg.from_me {
-							"You".to_string()
+							crate::i18n::tr("You").to_string()
 						} else if !msg.sender_name.is_empty() {
 							msg.sender_name.clone()
 						} else {
 							msg.sender_jid.clone()
 						};
 						let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
-							"Voice message".to_string()
+							crate::i18n::tr("Voice message").to_string()
 						} else if msg.text.is_empty() {
-							"Media".to_string()
+							crate::i18n::tr("Media").to_string()
 						} else {
 							crate::ui::chat_ui::reply_snippet(&msg.text)
 						};
 						s.pending_reply_id = Some(msg.id.clone());
 						s.pending_reply_sender =
 							Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
-						s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
+						s.pending_reply_preview = Some(if crate::i18n::is_indonesian() {
+							format!("Membalas {sender}: {preview}")
+						} else {
+							format!("Replying to {sender}: {preview}")
+						});
 
-						let status_msg =
-							format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
+						let status_msg = if crate::i18n::is_indonesian() {
+							format!("Membalas {sender}: {preview}. Ketik balasan Anda lalu tekan Enter.")
+						} else {
+							format!("Replying to {sender}: {preview}. Type your reply and press Enter.")
+						};
 						crate::platform::announce::announce(msgs_announcer_clone, &status_msg);
 						crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_ctx);
 						msg_input_field_clone.set_focus();
@@ -4920,15 +5207,16 @@ pub fn bind_input_handlers(
 						drop(s);
 
 						if !jids.is_empty() {
-							let dlg = Dialog::builder(&parent_frame_clone, "Forward Message")
+							let dlg = Dialog::builder(&parent_frame_clone, crate::i18n::tr("Forward Message"))
 								.with_size(400, 450)
 								.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 								.build();
 							let dlg_panel = Panel::builder(&dlg).build();
 							let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-							let search_label =
-								StaticText::builder(&dlg_panel).with_label("Search contacts or chats:").build();
+							let search_label = StaticText::builder(&dlg_panel)
+								.with_label(crate::i18n::tr("Search contacts or chats:"))
+								.build();
 							dlg_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
 
 							let search_ctrl = TextCtrl::builder(&dlg_panel).build();
@@ -4944,11 +5232,13 @@ pub fn bind_input_handlers(
 
 							let btn_panel = Panel::builder(&dlg_panel).build();
 							let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-							let ok_btn =
-								Button::builder(&btn_panel).with_id(wxdragon::id::ID_OK).with_label("Forward").build();
+							let ok_btn = Button::builder(&btn_panel)
+								.with_id(wxdragon::id::ID_OK)
+								.with_label(crate::i18n::tr("Forward"))
+								.build();
 							let cancel_btn = Button::builder(&btn_panel)
 								.with_id(wxdragon::id::ID_CANCEL)
-								.with_label("Cancel")
+								.with_label(crate::i18n::tr("Cancel"))
 								.build();
 							btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 5);
 							btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
@@ -5046,12 +5336,16 @@ pub fn bind_input_handlers(
 								msg.from_me && !msg.is_deleted && !msg.is_voice() && msg.edit_text().is_some();
 							let reason = if still_eligible_otherwise {
 								if in_channel {
-									"This message can no longer be edited - the 30 day edit window has passed."
+									crate::i18n::tr(
+										"This message can no longer be edited - the 30 day edit window has passed.",
+									)
 								} else {
-									"This message can no longer be edited - the 15 minute edit window has passed."
+									crate::i18n::tr(
+										"This message can no longer be edited - the 15 minute edit window has passed.",
+									)
 								}
 							} else {
-								"Message can't be edited."
+								crate::i18n::tr("Message can't be edited.")
 							};
 							crate::platform::announce::announce(msgs_announcer_clone, reason);
 						} else {
@@ -5160,7 +5454,10 @@ pub fn bind_input_handlers(
 					if let Some((_, digits)) = phone_match_clone.as_ref()
 						&& crate::copy_text(&format!("+{}", digits))
 					{
-						crate::platform::announce::announce(msgs_announcer_clone, "Copied phone number to clipboard.");
+						crate::platform::announce::announce(
+							msgs_announcer_clone,
+							crate::i18n::tr("Copied phone number to clipboard."),
+						);
 					}
 				} else if id == message_number_id {
 					if let Some((_, digits)) = phone_match_clone.as_ref() {
@@ -5174,11 +5471,15 @@ pub fn bind_input_handlers(
 					});
 					drop(s);
 					if let Some(msg) = msg_opt {
-						let dlg = Dialog::builder(&parent_frame_clone, "React to message").with_size(300, 400).build();
+						let dlg = Dialog::builder(&parent_frame_clone, crate::i18n::tr("React to message"))
+							.with_size(300, 400)
+							.build();
 						let dlg_panel = Panel::builder(&dlg).build();
 						let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-						let hint_label = StaticText::builder(&dlg_panel).with_label("Select a reaction emoji:").build();
+						let hint_label = StaticText::builder(&dlg_panel)
+							.with_label(crate::i18n::tr("Select a reaction emoji:"))
+							.build();
 						dlg_sizer.add(&hint_label, 0, SizerFlag::All, 8);
 
 						let emojis = vec![
@@ -5193,8 +5494,8 @@ pub fn bind_input_handlers(
 							"💯".to_string(),
 							"😎".to_string(),
 							"🥰".to_string(),
-							"Other emoji...".to_string(),
-							"Remove reaction".to_string(),
+							crate::i18n::tr("Other emoji...").to_string(),
+							crate::i18n::tr("Remove reaction").to_string(),
 						];
 
 						let emoji_list = ListBox::builder(&dlg_panel).with_choices(emojis.clone()).build();
@@ -5222,8 +5523,8 @@ pub fn bind_input_handlers(
 								11 => {
 									let custom_dlg = TextEntryDialog::builder(
 										&parent_ref,
-										"Enter or paste an emoji:",
-										"React with Emoji",
+										crate::i18n::tr("Enter or paste an emoji:"),
+										crate::i18n::tr("React with Emoji"),
 									)
 									.build();
 									if custom_dlg.show_modal() == wxdragon::id::ID_OK
@@ -5447,7 +5748,7 @@ pub fn bind_input_handlers(
 								whatsnap::DisplayItem::Album { messages, .. } => messages.first(),
 							};
 							if let Some(m) = reply {
-								let who = if m.from_me { "You" } else { m.sender_name.as_str() };
+								let who = if m.from_me { crate::i18n::tr("You") } else { m.sender_name.as_str() };
 								let said = if m.text.is_empty() { format!("{who}: media") } else { format!("{who}: {}", m.text) };
 								crate::platform::announce::announce(msgs_announcer, &said);
 							}
@@ -5570,7 +5871,7 @@ pub fn bind_input_handlers(
 									}
 									s.is_audio_paused = false;
 									s.audio_start_instant = Some(std::time::Instant::now());
-									play_voice_btn_space.set_label("Pause voice message");
+									play_voice_btn_space.set_label(crate::i18n::tr("Pause voice message"));
 								} else {
 									if let Some(inst) = s.audio_start_instant.take() {
 										s.audio_elapsed_secs += inst.elapsed().as_secs_f32() * s.audio_speed;
@@ -5579,7 +5880,7 @@ pub fn bind_input_handlers(
 										sink.pause();
 									}
 									s.is_audio_paused = true;
-									play_voice_btn_space.set_label("Play voice message");
+									play_voice_btn_space.set_label(crate::i18n::tr("Play voice message"));
 								}
 							} else {
 								if let Some(ref sink) = s.audio_sink {
@@ -5590,7 +5891,7 @@ pub fn bind_input_handlers(
 								s.audio_start_instant = None;
 								s.is_audio_paused = false;
 								s.playing_msg_id = Some(msg.id.clone());
-								play_voice_btn_space.set_label("Loading voice message...");
+								play_voice_btn_space.set_label(crate::i18n::tr("Loading voice message..."));
 								let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id.clone()));
 							}
 						}
@@ -5622,7 +5923,7 @@ pub fn bind_input_handlers(
 								}
 								s.is_audio_paused = false;
 								s.audio_start_instant = Some(std::time::Instant::now());
-								play_voice_btn_space.set_label("Pause voice message");
+								play_voice_btn_space.set_label(crate::i18n::tr("Pause voice message"));
 							} else {
 								if let Some(inst) = s.audio_start_instant.take() {
 									s.audio_elapsed_secs += inst.elapsed().as_secs_f32() * s.audio_speed;
@@ -5631,7 +5932,7 @@ pub fn bind_input_handlers(
 									sink.pause();
 								}
 								s.is_audio_paused = true;
-								play_voice_btn_space.set_label("Play voice message");
+								play_voice_btn_space.set_label(crate::i18n::tr("Play voice message"));
 							}
 						} else {
 							if let Some(ref sink) = s.audio_sink {
@@ -5642,7 +5943,7 @@ pub fn bind_input_handlers(
 							s.audio_start_instant = None;
 							s.is_audio_paused = false;
 							s.playing_msg_id = Some(msg.id.clone());
-							play_voice_btn_space.set_label("Loading voice message...");
+							play_voice_btn_space.set_label(crate::i18n::tr("Loading voice message..."));
 							let _ = tx_play_media.send(UiCommand::PlayVoiceMessage(msg.id.clone()));
 						}
 					}
@@ -5670,16 +5971,16 @@ pub fn bind_input_handlers(
 						&& !msg.is_deleted
 					{
 						let sender = if msg.from_me {
-							"You".to_string()
+							crate::i18n::tr("You").to_string()
 						} else if !msg.sender_name.is_empty() {
 							msg.sender_name.clone()
 						} else {
 							msg.sender_jid.clone()
 						};
 						let preview = if msg.is_audio || msg.text.starts_with("[Voice Message]") {
-							"Voice message".to_string()
+							crate::i18n::tr("Voice message").to_string()
 						} else if msg.text.is_empty() {
-							"Media".to_string()
+							crate::i18n::tr("Media").to_string()
 						} else {
 							crate::ui::chat_ui::reply_snippet(&msg.text)
 						};
@@ -5687,10 +5988,17 @@ pub fn bind_input_handlers(
 						s.pending_reply_id = Some(msg.id.clone());
 						s.pending_reply_sender =
 							Some(if msg.from_me { "me".to_string() } else { msg.sender_jid.clone() });
-						s.pending_reply_preview = Some(format!("Replying to {}: {}", sender, preview));
+						s.pending_reply_preview = Some(if crate::i18n::is_indonesian() {
+							format!("Membalas {sender}: {preview}")
+						} else {
+							format!("Replying to {sender}: {preview}")
+						});
 
-						let status_msg =
-							format!("Replying to {}: {}. Type your reply and press Enter.", sender, preview);
+						let status_msg = if crate::i18n::is_indonesian() {
+							format!("Membalas {sender}: {preview}. Ketik balasan Anda lalu tekan Enter.")
+						} else {
+							format!("Replying to {sender}: {preview}. Type your reply and press Enter.")
+						};
 						crate::platform::announce::announce(msgs_announcer, &status_msg);
 						crate::ui::chat_ui::update_composer_buttons(&s, &conv_parts_play);
 						msg_input_field.set_focus();
@@ -5724,12 +6032,16 @@ pub fn bind_input_handlers(
 								msg.from_me && !msg.is_deleted && !msg.is_voice() && msg.edit_text().is_some();
 							let reason = if still_eligible_otherwise {
 								if in_channel {
-									"This message can no longer be edited - the 30 day edit window has passed."
+									crate::i18n::tr(
+										"This message can no longer be edited - the 30 day edit window has passed.",
+									)
 								} else {
-									"This message can no longer be edited - the 15 minute edit window has passed."
+									crate::i18n::tr(
+										"This message can no longer be edited - the 15 minute edit window has passed.",
+									)
 								}
 							} else {
-								"Message can't be edited."
+								crate::i18n::tr("Message can't be edited.")
 							};
 							crate::platform::announce::announce(msgs_announcer, reason);
 						} else {
@@ -5761,7 +6073,10 @@ pub fn bind_input_handlers(
 											starred: !msg.starred,
 										});
 									} else {
-										crate::platform::announce::announce(msgs_announcer, "Message can't be starred.");
+										crate::platform::announce::announce(
+											msgs_announcer,
+											crate::i18n::tr("Message can't be starred."),
+										);
 									}
 								}
 							}
@@ -5783,7 +6098,10 @@ pub fn bind_input_handlers(
 										});
 									}
 								} else {
-									crate::platform::announce::announce(msgs_announcer, "Message can't be starred.");
+									crate::platform::announce::announce(
+										msgs_announcer,
+										crate::i18n::tr("Message can't be starred."),
+									);
 								}
 							}
 						}
@@ -5821,15 +6139,16 @@ pub fn bind_input_handlers(
 						drop(s);
 
 						if !jids.is_empty() {
-							let dlg = Dialog::builder(&parent_frame, "Forward Message")
+							let dlg = Dialog::builder(&parent_frame, crate::i18n::tr("Forward Message"))
 								.with_size(400, 450)
 								.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 								.build();
 							let dlg_panel = Panel::builder(&dlg).build();
 							let dlg_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-							let search_label =
-								StaticText::builder(&dlg_panel).with_label("Search contacts or chats:").build();
+							let search_label = StaticText::builder(&dlg_panel)
+								.with_label(crate::i18n::tr("Search contacts or chats:"))
+								.build();
 							dlg_sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top | SizerFlag::Right, 8);
 
 							let search_ctrl = TextCtrl::builder(&dlg_panel).build();
@@ -5845,11 +6164,13 @@ pub fn bind_input_handlers(
 
 							let btn_panel = Panel::builder(&dlg_panel).build();
 							let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-							let ok_btn =
-								Button::builder(&btn_panel).with_id(wxdragon::id::ID_OK).with_label("Forward").build();
+							let ok_btn = Button::builder(&btn_panel)
+								.with_id(wxdragon::id::ID_OK)
+								.with_label(crate::i18n::tr("Forward"))
+								.build();
 							let cancel_btn = Button::builder(&btn_panel)
 								.with_id(wxdragon::id::ID_CANCEL)
-								.with_label("Cancel")
+								.with_label(crate::i18n::tr("Cancel"))
 								.build();
 							btn_sizer.add(&ok_btn, 0, SizerFlag::Right, 5);
 							btn_sizer.add(&cancel_btn, 0, SizerFlag::empty(), 0);
@@ -6083,8 +6404,8 @@ pub fn bind_input_handlers(
 								let url_strs: Vec<&str> = urls.iter().map(|s| s.as_str()).collect();
 								let dialog = wxdragon::prelude::SingleChoiceDialog::builder(
 									&msgs_list_enter,
-									"Select a link to open:",
-									"Open Link",
+									crate::i18n::tr("Select a link to open:"),
+									crate::i18n::tr("Open Link"),
 									&url_strs,
 								)
 								.build();
@@ -6097,8 +6418,16 @@ pub fn bind_input_handlers(
 								let copy_num_id = 9001;
 								let msg_num_id = 9002;
 								let mut phone_menu = Menu::builder()
-									.append_item(copy_num_id, "&Copy Number", "Copy phone number to clipboard")
-									.append_item(msg_num_id, "&Message Number", "Start a chat with this phone number")
+									.append_item(
+										copy_num_id,
+										crate::i18n::tr("&Copy Number"),
+										crate::i18n::tr("Copy phone number to clipboard"),
+									)
+									.append_item(
+										msg_num_id,
+										crate::i18n::tr("&Message Number"),
+										crate::i18n::tr("Start a chat with this phone number"),
+									)
 									.build();
 								let tx_phone = tx_phone_enter.clone();
 								let msgs_announcer_phone = msgs_announcer_enter;
@@ -6108,7 +6437,7 @@ pub fn bind_input_handlers(
 										if crate::copy_text(&format!("+{}", digits)) {
 											crate::platform::announce::announce(
 												msgs_announcer_phone,
-												"Copied phone number to clipboard.",
+												crate::i18n::tr("Copied phone number to clipboard."),
 											);
 										}
 									} else if sel_id == msg_num_id {
@@ -6151,10 +6480,10 @@ pub fn bind_input_handlers(
 						}
 						s.is_audio_paused = false;
 						s.audio_start_instant = Some(std::time::Instant::now());
-						play_voice_btn_ref.set_label("Pause voice message");
+						play_voice_btn_ref.set_label(crate::i18n::tr("Pause voice message"));
 						return;
 					} else {
-						// Pause — save elapsed time (played back at the
+						// Pause: save elapsed time (played back at the
 						// current speed since the last seek/start, so the
 						// wall-clock delta must be scaled the same way the
 						// resume/tick/seek paths compute position)
@@ -6165,7 +6494,7 @@ pub fn bind_input_handlers(
 							sink.pause();
 						}
 						s.is_audio_paused = true;
-						play_voice_btn_ref.set_label("Play voice message");
+						play_voice_btn_ref.set_label(crate::i18n::tr("Play voice message"));
 						return;
 					}
 				}
@@ -6178,7 +6507,7 @@ pub fn bind_input_handlers(
 				s.audio_start_instant = None;
 				s.is_audio_paused = false;
 				s.playing_msg_id = Some(msg.id.clone());
-				play_voice_btn_ref.set_label("Loading voice message...");
+				play_voice_btn_ref.set_label(crate::i18n::tr("Loading voice message..."));
 				let _ = tx_play_btn.send(UiCommand::PlayVoiceMessage(msg.id.clone()));
 			}
 		}
@@ -6259,12 +6588,12 @@ pub fn bind_input_handlers(
 					if is_playing {
 						if let Some(ref sink) = s.audio_sink {
 							if !sink.is_paused() && !sink.empty() {
-								play_voice_btn_sel.set_label("Pause voice message");
+								play_voice_btn_sel.set_label(crate::i18n::tr("Pause voice message"));
 							} else {
-								play_voice_btn_sel.set_label("Play voice message");
+								play_voice_btn_sel.set_label(crate::i18n::tr("Play voice message"));
 							}
 						} else {
-							play_voice_btn_sel.set_label("Play voice message");
+							play_voice_btn_sel.set_label(crate::i18n::tr("Play voice message"));
 						}
 						if !audio_slider_sel.is_shown() {
 							audio_slider_sel.show(true);
@@ -6274,7 +6603,7 @@ pub fn bind_input_handlers(
 							need_layout = true;
 						}
 					} else {
-						play_voice_btn_sel.set_label("Play voice message");
+						play_voice_btn_sel.set_label(crate::i18n::tr("Play voice message"));
 						if audio_slider_sel.is_shown() {
 							audio_slider_sel.show(false);
 							audio_speed_btn_sel.show(false);
@@ -6512,16 +6841,36 @@ pub fn bind_input_handlers(
 		const ATTACH_EVENT_ID: i32 = 4206;
 		const ATTACH_STICKER_ID: i32 = 4207;
 		let mut popup_menu = Menu::builder()
-			.append_item(ATTACH_DOCUMENT_ID, "&Document", "Send any file as a document, photos at full quality")
-			.append_item(ATTACH_MEDIA_ID, "&Photos and videos", "Send photos and videos")
-			.append_item(ATTACH_AUDIO_ID, "&Audio", "Send audio files to play in the chat")
-			.append_item(ATTACH_CONTACT_ID, "&Contact", "Attach a contact from your WhatsApp contacts")
-			.append_item(ATTACH_POLL_ID, "P&oll", "Create a poll or a quiz")
-			.append_item(ATTACH_EVENT_ID, "&Event", "Create an event people can answer")
+			.append_item(
+				ATTACH_DOCUMENT_ID,
+				crate::i18n::tr("&Document"),
+				crate::i18n::tr("Send any file as a document, photos at full quality"),
+			)
+			.append_item(
+				ATTACH_MEDIA_ID,
+				crate::i18n::tr("&Photos and videos"),
+				crate::i18n::tr("Send photos and videos"),
+			)
+			.append_item(
+				ATTACH_AUDIO_ID,
+				crate::i18n::tr("&Audio"),
+				crate::i18n::tr("Send audio files to play in the chat"),
+			)
+			.append_item(
+				ATTACH_CONTACT_ID,
+				crate::i18n::tr("&Contact"),
+				crate::i18n::tr("Attach a contact from your WhatsApp contacts"),
+			)
+			.append_item(ATTACH_POLL_ID, crate::i18n::tr("P&oll"), crate::i18n::tr("Create a poll or a quiz"))
+			.append_item(
+				ATTACH_EVENT_ID,
+				crate::i18n::tr("&Event"),
+				crate::i18n::tr("Create an event people can answer"),
+			)
 			.append_item(
 				ATTACH_STICKER_ID,
-				"&Sticker",
-				"Send a favorite, recent or WhatsApp sticker, or a sticker file",
+				crate::i18n::tr("&Sticker"),
+				crate::i18n::tr("Send a favorite, recent or WhatsApp sticker, or a sticker file"),
 			)
 			.build();
 		let tx_menu = tx_attach.clone();
@@ -6660,7 +7009,7 @@ fn choose_excluded_contacts(
 	control: &crate::ui::dialogs::settings_dialog::PrivacyControl,
 ) {
 	let tell = |message: &str| {
-		MessageDialog::builder(&dialog, message, "Settings")
+		MessageDialog::builder(&dialog, message, crate::i18n::tr("Settings"))
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 			.build()
 			.show_modal();
@@ -6689,14 +7038,29 @@ fn choose_excluded_contacts(
 				})
 				.collect())
 		} else {
+			let label = crate::i18n::tr(control.label);
 			match loaded {
 				Some(Ok(list)) => Ok(list.clone()),
 				Some(Err(_)) if !is_except => Ok(Vec::new()),
-				Some(Err(reason)) => Err(format!(
-					"Couldn't load who's excluded from {} right now, so it can't be changed. Try again later. ({})",
-					control.label, reason
-				)),
-				None => Err(format!("Still loading who's excluded from {}. Try again in a moment.", control.label)),
+				Some(Err(reason)) => {
+					let reason_tr = crate::i18n::translate_backend_message(reason);
+					if crate::i18n::is_indonesian() {
+						Err(format!(
+							"Tidak dapat memuat siapa yang dikecualikan dari {label} saat ini, sehingga tidak dapat diubah. Coba lagi nanti. ({reason_tr})"
+						))
+					} else {
+						Err(format!(
+							"Couldn't load who's excluded from {label} right now, so it can't be changed. Try again later. ({reason})"
+						))
+					}
+				}
+				None => {
+					if crate::i18n::is_indonesian() {
+						Err(format!("Masih memuat siapa yang dikecualikan dari {label}. Coba lagi sebentar lagi."))
+					} else {
+						Err(format!("Still loading who's excluded from {label}. Try again in a moment."))
+					}
+				}
 			}
 		};
 		excluded.map(|excluded| (s.all_contacts.clone(), excluded))
@@ -6724,12 +7088,22 @@ fn confirm_logout(parent: &impl WxWidget, state: &Rc<std::cell::RefCell<crate::A
 		(a.registry.live_count() > 1).then(|| a.registry.display_name(&a.registry.active))
 	};
 	let question = match name {
-		Some(name) => format!(
-			"Log {name} out of WhatsApp on this computer? You'll need to scan a QR code or enter its phone number to use it in whatSnap again."
-		),
-		None => "Log out of WhatsApp on this computer? You'll need to scan a QR code or re-enter your phone number to use whatSnap again.".to_string(),
+		Some(name) => {
+			if crate::i18n::is_indonesian() {
+				format!(
+					"Keluarkan {name} dari WhatsApp di komputer ini? Anda harus memindai kode QR atau memasukkan nomor teleponnya untuk menggunakannya di whatSnap lagi."
+				)
+			} else {
+				format!(
+					"Log {name} out of WhatsApp on this computer? You'll need to scan a QR code or enter its phone number to use it in whatSnap again."
+				)
+			}
+		}
+		None => {
+			crate::i18n::tr("Log out of WhatsApp on this computer? You'll need to scan a QR code or re-enter your phone number to use whatSnap again.").to_string()
+		}
 	};
-	let dlg = MessageDialog::builder(parent, &question, "Log Out")
+	let dlg = MessageDialog::builder(parent, &question, crate::i18n::tr("Log Out"))
 		.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
 		.build();
 	if dlg.show_modal() != wxdragon::id::ID_OK {

@@ -36,8 +36,8 @@ impl ScheduledEntry {
 	fn content(&self) -> String {
 		let text = self.text.split_whitespace().collect::<Vec<_>>().join(" ");
 		let media = match self.kind.as_str() {
-			"image" => "Photo",
-			"video" => "Video",
+			"image" => crate::i18n::tr("Photo"),
+			"video" => crate::i18n::tr("Video"),
 			_ => return text,
 		};
 		if text.is_empty() { media.to_string() } else { format!("{media}: {text}") }
@@ -46,10 +46,29 @@ impl ScheduledEntry {
 	/// WA Web's "Scheduled for today at {time}", and its failure dialog's
 	/// "Your message did not send." / "Your message can't be scheduled."
 	pub fn label(&self) -> String {
+		let when = crate::i18n::translate_backend_message(&self.when);
 		match (self.failed, self.past) {
-			(false, _) => format!("Scheduled for {}: {}", self.when, self.content()),
-			(true, true) => format!("Did not send, {}: {}", self.when, self.content()),
-			(true, false) => format!("Couldn't be scheduled, {}: {}", self.when, self.content()),
+			(false, _) => {
+				if crate::i18n::is_indonesian() {
+					format!("Dijadwalkan untuk {when}: {}", self.content())
+				} else {
+					format!("Scheduled for {when}: {}", self.content())
+				}
+			}
+			(true, true) => {
+				if crate::i18n::is_indonesian() {
+					format!("Tidak terkirim, {when}: {}", self.content())
+				} else {
+					format!("Did not send, {when}: {}", self.content())
+				}
+			}
+			(true, false) => {
+				if crate::i18n::is_indonesian() {
+					format!("Tidak dapat dijadwalkan, {when}: {}", self.content())
+				} else {
+					format!("Couldn't be scheduled, {when}: {}", self.content())
+				}
+			}
 		}
 	}
 }
@@ -73,8 +92,14 @@ impl ScheduledList {
 		let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 		self.list.set_items(&label_refs);
 		self.list_label.set_label(&match entries.len() {
-			0 => "Scheduled messages: none".to_string(),
-			n => format!("Scheduled messages ({n}, {pending} of {limit} waiting)"),
+			0 => crate::i18n::tr("Scheduled messages: none").to_string(),
+			n => {
+				if crate::i18n::is_indonesian() {
+					format!("Pesan terjadwal ({n}, {pending} dari {limit} menunggu)")
+				} else {
+					format!("Scheduled messages ({n}, {pending} of {limit} waiting)")
+				}
+			}
 		});
 		let any = !entries.is_empty();
 		if any {
@@ -88,7 +113,7 @@ impl ScheduledList {
 		let had_some = !self.entries.borrow().is_empty();
 		*self.entries.borrow_mut() = entries.to_vec();
 		if had_some && !any {
-			self.announce("All scheduled messages have been sent or deleted");
+			self.announce(crate::i18n::tr("All scheduled messages have been sent or deleted"));
 		}
 	}
 
@@ -124,7 +149,12 @@ pub fn show_scheduled_messages(
 	ws_tx: std::sync::mpsc::Sender<String>,
 	store: impl Fn(Option<Rc<ScheduledList>>),
 ) {
-	let dialog = Dialog::builder(parent, &format!("Scheduled messages for {chat_name}"))
+	let title = if crate::i18n::is_indonesian() {
+		format!("Pesan terjadwal untuk {chat_name}")
+	} else {
+		format!("Scheduled messages for {chat_name}")
+	};
+	let dialog = Dialog::builder(parent, &title)
 		.with_size(520, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -134,12 +164,12 @@ pub fn show_scheduled_messages(
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let info_label = StaticText::builder(&panel)
-		.with_label("WhatsApp sends these at the time shown, even when this computer is off.")
+		.with_label(crate::i18n::tr("WhatsApp sends these at the time shown, even when this computer is off."))
 		.build();
 	theme::style_muted_label(&info_label);
 	sizer.add(&info_label, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let list_label = StaticText::builder(&panel).with_label("Scheduled messages: loading").build();
+	let list_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Scheduled messages: loading")).build();
 	list_label.set_font(&theme::Fonts::body_strong());
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 12);
 	let list = ListBox::builder(&panel).build();
@@ -152,13 +182,13 @@ pub fn show_scheduled_messages(
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 8);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let send_now_btn = Button::builder(&panel).with_label("Send now").build();
+	let send_now_btn = Button::builder(&panel).with_label(crate::i18n::tr("Send now")).build();
 	dialog_look::pill_button(&send_now_btn, true, theme::Palette::CONTENT_BG());
-	let delete_btn = Button::builder(&panel).with_label("Delete").build();
+	let delete_btn = Button::builder(&panel).with_label(crate::i18n::tr("Delete")).build();
 	dialog_look::pill_button(&delete_btn, false, theme::Palette::CONTENT_BG());
-	let copy_btn = Button::builder(&panel).with_label("Copy text").build();
+	let copy_btn = Button::builder(&panel).with_label(crate::i18n::tr("Copy text")).build();
 	dialog_look::pill_button(&copy_btn, false, theme::Palette::CONTENT_BG());
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	dialog_look::pill_button(&close_btn, false, theme::Palette::CONTENT_BG());
 	buttons.add(&send_now_btn, 0, SizerFlag::Right, 8);
 	buttons.add(&delete_btn, 0, SizerFlag::Right, 8);
@@ -195,13 +225,13 @@ pub fn show_scheduled_messages(
 			let Some(entry) = scheduled.selected() else { return };
 			if !confirm(
 				&scheduled.dialog,
-				"This message will not be sent. This action cannot be undone.",
-				"Delete scheduled message?",
+				crate::i18n::tr("This message will not be sent. This action cannot be undone."),
+				crate::i18n::tr("Delete scheduled message?"),
 			) {
 				return;
 			}
 			send(&ws_tx, "unschedule_message", &scheduled.jid, &entry.id);
-			scheduled.announce("Deleting scheduled message...");
+			scheduled.announce(crate::i18n::tr("Deleting scheduled message..."));
 		})
 	};
 	let delete_click = delete.clone();
@@ -213,24 +243,24 @@ pub fn show_scheduled_messages(
 		if !(entry.failed && entry.past)
 			&& !confirm(
 				&scheduled_send.dialog,
-				"Send this message now? It won't be sent again at the scheduled time.",
-				"Send now",
+				crate::i18n::tr("Send this message now? It won't be sent again at the scheduled time."),
+				crate::i18n::tr("Send now"),
 			) {
 			return;
 		}
 		send(&ws_tx_send, "send_scheduled_now", &scheduled_send.jid, &entry.id);
-		scheduled_send.announce("Sending...");
+		scheduled_send.announce(crate::i18n::tr("Sending..."));
 	});
 
 	let scheduled_copy = scheduled.clone();
 	copy_btn.on_click(move |_| {
 		let Some(entry) = scheduled_copy.selected() else { return };
 		if entry.text.is_empty() {
-			scheduled_copy.announce("No text to copy.");
+			scheduled_copy.announce(crate::i18n::tr("No text to copy."));
 		} else if crate::platform::clipboard::copy_text(&entry.text) {
-			scheduled_copy.announce("Message text copied to clipboard.");
+			scheduled_copy.announce(crate::i18n::tr("Message text copied to clipboard."));
 		} else {
-			scheduled_copy.announce("Couldn't copy to clipboard.");
+			scheduled_copy.announce(crate::i18n::tr("Couldn't copy to clipboard."));
 		}
 	});
 	close_btn.on_click(move |_| dialog.end_modal(ID_CANCEL));

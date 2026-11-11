@@ -49,9 +49,13 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 		"own_photo_changed" => {
 			let removed = val.get("data").and_then(|d| d.get("removed")).and_then(|r| r.as_bool()) == Some(true);
 			let parent = &parts.settings_dialog.dialog;
-			let message = if removed { "Your profile photo was removed." } else { "Your profile photo was changed." };
+			let message = if removed {
+				crate::i18n::tr("Your profile photo was removed.")
+			} else {
+				crate::i18n::tr("Your profile photo was changed.")
+			};
 			if parent.is_shown() {
-				MessageDialog::builder(parent, message, "Profile Photo")
+				MessageDialog::builder(parent, message, crate::i18n::tr("Profile Photo"))
 					.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 					.build()
 					.show_modal();
@@ -80,7 +84,7 @@ pub(super) fn handle(t: &str, val: &serde_json::Value, state: &Rc<RefCell<AppSta
 			if let Some(data) = val.get("data") {
 				let Some(name) = data.get("name").and_then(|n| n.as_str()) else { return true };
 				let list: Result<Vec<Contact>, String> = match data.get("error").and_then(|e| e.as_str()) {
-					Some(err) => Err(err.to_string()),
+					Some(err) => Err(crate::i18n::translate_backend_message(err)),
 					None => Ok(data
 						.get("entries")
 						.and_then(|e| e.as_array())

@@ -254,10 +254,14 @@ pub(super) fn apply_conversation_messages(page: MessagesPage, state: &Rc<RefCell
 			whatsnap::DisplayItem::Album { messages, .. } => messages.iter().any(|m| m.id == target_id),
 		})
 	} else if let Some(target_text) = s.search_target_text.take() {
+		let voice_tr = crate::i18n::tr("Voice message");
+		let audio_tr = crate::i18n::tr("Audio");
 		let is_generic = target_text == "[Voice Message]"
 			|| target_text == "[Audio]"
 			|| target_text == "Voice message"
+			|| target_text == voice_tr
 			|| target_text == "Audio"
+			|| target_text == audio_tr
 			|| target_text == "[Media]";
 		if is_generic {
 			None
@@ -383,11 +387,21 @@ pub(super) fn parse_conversation_messages(raw: &str) -> Option<MessagesPage> {
 	let parsed = data
 		.messages
 		.into_iter()
-		.map(|raw_msg| {
-			serde_json::from_str::<ChatMessage>(raw_msg.get()).unwrap_or_else(|e| ChatMessage {
-				text: format!("Parse error: {} for json: {}", e, raw_msg.get()),
+		.map(|raw_msg| match serde_json::from_str::<ChatMessage>(raw_msg.get()) {
+			Ok(mut msg) => {
+				if msg.is_call() {
+					msg.text = translate_call_text(&msg.text);
+				}
+				msg
+			}
+			Err(e) => ChatMessage {
+				text: if crate::i18n::is_indonesian() {
+					format!("Kesalahan penguraian: {} untuk json: {}", e, raw_msg.get())
+				} else {
+					format!("Parse error: {} for json: {}", e, raw_msg.get())
+				},
 				..Default::default()
-			})
+			},
 		})
 		.collect();
 	Some(MessagesPage {

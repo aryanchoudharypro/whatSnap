@@ -47,8 +47,8 @@ pub(crate) fn open_emoji_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 		PanelChoice::StickerFile => {
 			let file_dialog = FileDialog::builder(&parts.frame)
-				.with_message("Choose a sticker to send")
-				.with_wildcard("Stickers (*.webp)|*.webp")
+				.with_message(crate::i18n::tr("Choose a sticker to send"))
+				.with_wildcard(crate::i18n::tr("Stickers (*.webp)|*.webp"))
 				.with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
 				.build();
 			if file_dialog.show_modal() != wxdragon::id::ID_OK {
@@ -77,7 +77,7 @@ pub(crate) fn open_emoji_panel(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		}
 	};
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	announce(parts, "Sending sticker...");
+	announce(parts, crate::i18n::tr("Sending sticker..."));
 }
 
 pub(crate) fn set_favorite(state: &Rc<RefCell<AppState>>, message_id: &str, favorite: bool) {
@@ -89,5 +89,12 @@ pub(crate) fn sticker_favorite(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	let favorite = data.get("favorite").and_then(|v| v.as_bool()).unwrap_or(false);
 	let message_id = data.get("message_id").and_then(|v| v.as_str()).unwrap_or("");
 	update_loaded_message(&mut state.borrow_mut(), message_id, |m| m.sticker_favorite = favorite);
-	announce(parts, if favorite { "Added to favorite stickers." } else { "Removed from favorite stickers." });
+	announce(
+		parts,
+		if favorite {
+			crate::i18n::tr("Added to favorite stickers.")
+		} else {
+			crate::i18n::tr("Removed from favorite stickers.")
+		},
+	);
 }

@@ -58,8 +58,57 @@ fn in_window(earliest: &str, latest: &str, date: &str, time: &str) -> bool {
 	picked.as_str() >= earliest && picked.as_str() <= latest
 }
 
+fn translate_day_label(label: &str) -> String {
+	if !crate::i18n::is_indonesian() {
+		return label.to_string();
+	}
+	let mut out = label.to_string();
+	if let Some(rest) = out.strip_prefix("Today, ") {
+		out = format!("Hari ini, {rest}");
+	} else if let Some(rest) = out.strip_prefix("Tomorrow, ") {
+		out = format!("Besok, {rest}");
+	}
+	for (en, id) in [
+		("Sunday", "Minggu"),
+		("Monday", "Senin"),
+		("Tuesday", "Selasa"),
+		("Wednesday", "Rabu"),
+		("Thursday", "Kamis"),
+		("Friday", "Jumat"),
+		("Saturday", "Sabtu"),
+		("January", "Januari"),
+		("February", "Februari"),
+		("March", "Maret"),
+		("April", "April"),
+		("May", "Mei"),
+		("June", "Juni"),
+		("July", "Juli"),
+		("August", "Agustus"),
+		("September", "September"),
+		("October", "Oktober"),
+		("November", "November"),
+		("December", "Desember"),
+	] {
+		out = out.replace(en, id);
+	}
+	out
+}
+
+fn translate_window_error(err: &str) -> String {
+	if !crate::i18n::is_indonesian() {
+		return err.to_string();
+	}
+	if let Some(rest) = err.strip_prefix("Choose a time at least ")
+		&& let Some((mins, tail)) = rest.split_once(" minutes from now and no more than ")
+		&& let Some(days) = tail.strip_suffix(" days ahead.")
+	{
+		return format!("Pilih waktu minimal {mins} menit dari sekarang dan paling lambat {days} hari ke depan.");
+	}
+	crate::i18n::translate_backend_message(err)
+}
+
 fn error(parent: &Dialog, message: &str) {
-	MessageDialog::builder(parent, message, "Schedule message")
+	MessageDialog::builder(parent, message, crate::i18n::tr("Schedule message"))
 		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
 		.build()
 		.show_modal();
@@ -68,7 +117,7 @@ fn error(parent: &Dialog, message: &str) {
 /// Asks for the message and when to send it. `text` is what was in the
 /// message box.
 pub fn show_schedule_dialog(parent: &impl WxWidget, options: &ScheduleOptions, text: &str) -> Option<ScheduleChoice> {
-	let dialog = Dialog::builder(parent, "Schedule message")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Schedule message"))
 		.with_size(460, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -79,13 +128,13 @@ pub fn show_schedule_dialog(parent: &impl WxWidget, options: &ScheduleOptions, t
 
 	if options.is_group {
 		let note = StaticText::builder(&panel)
-			.with_label("Members who join after you schedule a message will not receive it.")
+			.with_label(crate::i18n::tr("Members who join after you schedule a message will not receive it."))
 			.build();
 		theme::style_muted_label(&note);
 		sizer.add(&note, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 	}
 
-	let message_label = StaticText::builder(&panel).with_label("Message").build();
+	let message_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Message")).build();
 	message_label.set_font(&theme::Fonts::body());
 	sizer.add(&message_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 	let message_field = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
@@ -93,12 +142,13 @@ pub fn show_schedule_dialog(parent: &impl WxWidget, options: &ScheduleOptions, t
 	message_field.set_value(text);
 	sizer.add(&message_field, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let date_label = StaticText::builder(&panel).with_label("Date").build();
+	let date_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Date")).build();
 	date_label.set_font(&theme::Fonts::body());
 	sizer.add(&date_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
-	let day_labels: Vec<&str> = options.days.iter().map(|(_, label)| label.as_str()).collect();
+	let day_labels: Vec<String> = options.days.iter().map(|(_, label)| translate_day_label(label)).collect();
+	let day_label_refs: Vec<&str> = day_labels.iter().map(String::as_str).collect();
 	let date_combo =
-		ComboBox::builder(&panel).with_string_choices(&day_labels).with_style(ComboBoxStyle::ReadOnly).build();
+		ComboBox::builder(&panel).with_string_choices(&day_label_refs).with_style(ComboBoxStyle::ReadOnly).build();
 	date_combo.set_font(&theme::Fonts::body());
 	let day_at = options.days.iter().position(|(value, _)| *value == options.default_date).unwrap_or(0);
 	date_combo.set_selection(day_at as u32);
@@ -108,7 +158,7 @@ pub fn show_schedule_dialog(parent: &impl WxWidget, options: &ScheduleOptions, t
 	let hours: Vec<String> = (0..24).map(|h| format!("{h:02}")).collect();
 	let minutes: Vec<String> = (0..60).map(|m| format!("{m:02}")).collect();
 
-	let hour_label = StaticText::builder(&panel).with_label("Hour").build();
+	let hour_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Hour")).build();
 	hour_label.set_font(&theme::Fonts::body());
 	sizer.add(&hour_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 	let hour_refs: Vec<&str> = hours.iter().map(String::as_str).collect();
@@ -118,7 +168,7 @@ pub fn show_schedule_dialog(parent: &impl WxWidget, options: &ScheduleOptions, t
 	hour_combo.set_selection(hours.iter().position(|h| h == default_hour).unwrap_or(9) as u32);
 	sizer.add(&hour_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let minute_label = StaticText::builder(&panel).with_label("Minute").build();
+	let minute_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Minute")).build();
 	minute_label.set_font(&theme::Fonts::body());
 	sizer.add(&minute_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 	let minute_refs: Vec<&str> = minutes.iter().map(String::as_str).collect();
@@ -128,20 +178,24 @@ pub fn show_schedule_dialog(parent: &impl WxWidget, options: &ScheduleOptions, t
 	minute_combo.set_selection(minutes.iter().position(|m| m == default_minute).unwrap_or(0) as u32);
 	sizer.add(&minute_combo, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let info = StaticText::builder(&panel)
-		.with_label(&format!(
+	let info_text = if crate::i18n::is_indonesian() {
+		let rule = translate_window_error(&options.window_error).replacen("Pilih waktu", "Waktu harus", 1);
+		format!("{} {} dari {} pesan dijadwalkan di chat ini.", rule, options.pending, options.limit)
+	} else {
+		format!(
 			"{} {} of {} messages are scheduled in this chat.",
 			options.window_error.replacen("Choose a time", "The time has to be", 1),
 			options.pending,
 			options.limit
-		))
-		.build();
+		)
+	};
+	let info = StaticText::builder(&panel).with_label(&info_text).build();
 	theme::style_muted_label(&info);
 	sizer.add(&info, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 12);
 
-	let schedule_btn = Button::builder(&panel).with_label("Schedule message").build();
+	let schedule_btn = Button::builder(&panel).with_label(crate::i18n::tr("Schedule message")).build();
 	dialog_look::pill_button(&schedule_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&schedule_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);
@@ -166,12 +220,12 @@ pub fn show_schedule_dialog(parent: &impl WxWidget, options: &ScheduleOptions, t
 			.unwrap_or_default()
 	};
 
-	let window_error = options.window_error.clone();
+	let window_error = translate_window_error(&options.window_error);
 	let (earliest, latest) = (options.earliest.clone(), options.latest.clone());
 	let (date_check, time_check) = (picked_date.clone(), picked_time.clone());
 	schedule_btn.on_click(move |_| {
 		if message_field.get_value().trim().is_empty() {
-			error(&dialog, "Type a message to schedule.");
+			error(&dialog, crate::i18n::tr("Type a message to schedule."));
 			message_field.set_focus();
 			return;
 		}

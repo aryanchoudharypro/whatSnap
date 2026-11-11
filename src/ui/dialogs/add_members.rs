@@ -25,7 +25,7 @@ pub struct AddMembersDialogParts {
 }
 
 pub fn build_add_members_dialog(parent: &impl WxWidget) -> AddMembersDialogParts {
-	let dialog = Dialog::builder(parent, "Add group members")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Add group members"))
 		.with_size(420, 520)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -34,7 +34,7 @@ pub fn build_add_members_dialog(parent: &impl WxWidget) -> AddMembersDialogParts
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label("Search contacts").build();
+	let search_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Search contacts")).build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let search_field = TextCtrl::builder(&panel).with_style(dialog_look::field_style(TextCtrlStyle::Default)).build();
@@ -49,9 +49,9 @@ pub fn build_add_members_dialog(parent: &impl WxWidget) -> AddMembersDialogParts
 	theme::style_muted_label(&selection_announcer);
 	sizer.add(&selection_announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
-	let add_btn = Button::builder(&panel).with_id(ID_OK).with_label("Add").build();
+	let add_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Add")).build();
 	dialog_look::pill_button(&add_btn, true, theme::Palette::CONTENT_BG());
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	dialog_look::pill_button(&cancel_btn, false, theme::Palette::CONTENT_BG());
 	dialog_look::button_row(&sizer, &[&add_btn, &cancel_btn]);
 	panel.set_sizer(sizer, true);

@@ -41,6 +41,25 @@ pub(crate) fn exit_app(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) 
 	crate::platform::tray::quit_app(&parts.tray_icon, &[parts.frame, parts.call_parts.frame]);
 }
 
+pub(crate) fn restart_app(_state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
+	if let Err(err) = crate::platform::single_instance::spawn_restarted_copy() {
+		use wxdragon::prelude::*;
+		let msg = if crate::i18n::is_indonesian() {
+			format!(
+				"Gagal memulai ulang whatSnap secara otomatis:\n{err}\n\nSilakan tutup lalu buka ulang aplikasi secara manual."
+			)
+		} else {
+			format!("Couldn't restart whatSnap automatically:\n{err}\n\nPlease close and reopen the app manually.")
+		};
+		MessageDialog::builder(&parts.frame, &msg, crate::i18n::tr("Restart Required"))
+			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+			.build()
+			.show_modal();
+		return;
+	}
+	crate::platform::tray::quit_app(&parts.tray_icon, &[parts.frame, parts.call_parts.frame]);
+}
+
 pub(crate) fn force_sync(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>) {
 	let _ = state.borrow().ws_tx.send(serde_json::json!({ "action": "force_sync" }).to_string());
 }

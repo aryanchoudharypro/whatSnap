@@ -82,7 +82,7 @@ pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		return;
 	}
 
-	let dialog = Dialog::builder(&parts.frame, "Lists")
+	let dialog = Dialog::builder(&parts.frame, crate::i18n::tr("Lists"))
 		.with_size(380, 420)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -90,7 +90,9 @@ pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	let panel = Panel::builder(&dialog).build();
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let label = StaticText::builder(&panel).with_label(&format!("Lists {} is in", name)).build();
+	let label_text =
+		if crate::i18n::is_indonesian() { format!("Daftar yang berisi {name}") } else { format!("Lists {name} is in") };
+	let label = StaticText::builder(&panel).with_label(&label_text).build();
 	theme::style_muted_label(&label);
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let list = CheckListBox::builder(&panel).build();
@@ -102,10 +104,10 @@ pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	list.set_selection(0, true);
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let done_btn = Button::builder(&panel).with_id(ID_OK).with_label("Done").build();
+	let done_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Done")).build();
 	theme::style_primary_button(&done_btn);
-	let new_btn = Button::builder(&panel).with_label("New List...").build();
-	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Cancel").build();
+	let new_btn = Button::builder(&panel).with_label(crate::i18n::tr("New List...")).build();
+	let cancel_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Cancel")).build();
 	btn_sizer.add(&done_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add(&new_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
@@ -140,10 +142,16 @@ pub(crate) fn choose_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 
 fn new_list(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, jid: Option<&str>, chat: &str) {
 	let prompt = match jid {
-		Some(_) => format!("Name a new list for {}:", chat),
-		None => "List name:".to_string(),
+		Some(_) => {
+			if crate::i18n::is_indonesian() {
+				format!("Beri nama daftar baru untuk {chat}:")
+			} else {
+				format!("Name a new list for {chat}:")
+			}
+		}
+		None => crate::i18n::tr("List name:").to_string(),
 	};
-	let Some(name) = ask_name(&parts.frame, &prompt, "New List", "") else { return };
+	let Some(name) = ask_name(&parts.frame, &prompt, crate::i18n::tr("New List"), "") else { return };
 	let jids: Vec<&str> = jid.into_iter().collect();
 	send(state, "create_list", serde_json::json!({ "name": name, "jids": jids }));
 }
@@ -171,7 +179,13 @@ struct ListChats {
 }
 
 fn count_chats(count: usize) -> String {
-	if count == 1 { "1 chat".to_string() } else { format!("{} chats", count) }
+	if crate::i18n::is_indonesian() {
+		format!("{count} chat")
+	} else if count == 1 {
+		"1 chat".to_string()
+	} else {
+		format!("{count} chats")
+	}
 }
 
 fn keep_selection(list: &ListBox, idx: usize, buttons: &[&Button]) {
@@ -195,9 +209,16 @@ impl ListManager {
 		let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 		self.list.set_items(&refs);
 		*self.ids.borrow_mut() = s.chat_lists.iter().map(|l| l.id.clone()).collect();
-		self.list_label.set_label(&match s.chat_lists.len() {
-			0 => "Your lists: none yet".to_string(),
-			n => format!("Your lists ({})", n),
+		self.list_label.set_label(&if crate::i18n::is_indonesian() {
+			match s.chat_lists.len() {
+				0 => "Daftar Anda: belum ada".to_string(),
+				n => format!("Daftar Anda ({n})"),
+			}
+		} else {
+			match s.chat_lists.len() {
+				0 => "Your lists: none yet".to_string(),
+				n => format!("Your lists ({n})"),
+			}
 		});
 		let idx = previous.and_then(|id| self.ids.borrow().iter().position(|i| *i == id)).unwrap_or(previous_idx);
 		keep_selection(&self.list, idx, &[&self.rename_btn, &self.chats_btn, &self.delete_btn]);
@@ -232,10 +253,19 @@ impl ListChats {
 		let labels: Vec<String> = l.jids.iter().map(|j| chat_name(s, j)).collect();
 		let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
 		self.list.set_items(&refs);
-		self.dialog.set_label(&format!("Chats in {}", l.name));
-		self.list_label.set_label(&match l.jids.len() {
-			0 => format!("Chats in {}: none yet", l.name),
-			n => format!("Chats in {} ({})", l.name, n),
+		let title =
+			if crate::i18n::is_indonesian() { format!("Chat di {}", l.name) } else { format!("Chats in {}", l.name) };
+		self.dialog.set_label(&title);
+		self.list_label.set_label(&if crate::i18n::is_indonesian() {
+			match l.jids.len() {
+				0 => format!("Chat di {}: belum ada", l.name),
+				n => format!("Chat di {} ({})", l.name, n),
+			}
+		} else {
+			match l.jids.len() {
+				0 => format!("Chats in {}: none yet", l.name),
+				n => format!("Chats in {} ({})", l.name, n),
+			}
 		});
 		keep_selection(&self.list, previous_idx, &[&self.remove_btn]);
 		*self.jids.borrow_mut() = l.jids.clone();
@@ -276,7 +306,7 @@ fn list_dialog(
 		row.add(b, 0, SizerFlag::Right, 8);
 	}
 	row.add_stretch_spacer(1);
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	row.add(&close_btn, 0, SizerFlag::empty(), 0);
 	sizer.add_sizer(&row, 0, SizerFlag::Expand | SizerFlag::All, 10);
 	panel.set_sizer(sizer, true);
@@ -326,8 +356,16 @@ fn list_keys(dialog: Dialog, list: ListBox, delete: Action, rename: Option<Actio
 }
 
 pub(crate) fn manage_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
-	let (dialog, list_label, list, announcer, buttons) =
-		list_dialog(&parts.frame, "Manage Lists", &["&Add list...", "&Rename...", "&Chats...", "&Delete"]);
+	let (dialog, list_label, list, announcer, buttons) = list_dialog(
+		&parts.frame,
+		crate::i18n::tr("Manage Lists"),
+		&[
+			crate::i18n::tr("&Add list..."),
+			crate::i18n::tr("&Rename..."),
+			crate::i18n::tr("&Chats..."),
+			crate::i18n::tr("&Delete"),
+		],
+	);
 	let [add_btn, rename_btn, chats_btn, delete_btn, _close] = buttons[..] else { return };
 	let manager = Rc::new(ListManager {
 		dialog,
@@ -345,7 +383,7 @@ pub(crate) fn manage_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 
 	let state_add = state.clone();
 	on_press(&add_btn, move || {
-		if let Some(name) = ask_name(&dialog, "List name:", "New List", "") {
+		if let Some(name) = ask_name(&dialog, crate::i18n::tr("List name:"), crate::i18n::tr("New List"), "") {
 			send(&state_add, "create_list", serde_json::json!({ "name": name, "jids": [] }));
 		}
 	});
@@ -354,7 +392,7 @@ pub(crate) fn manage_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	let rename = on_press(&rename_btn, move || {
 		let Some(id) = manager_rename.selected_id() else { return };
 		let Some(name) = list_name(&state_rename, &id) else { return };
-		if let Some(new_name) = ask_name(&dialog, "List name:", "Rename List", &name)
+		if let Some(new_name) = ask_name(&dialog, crate::i18n::tr("List name:"), crate::i18n::tr("Rename List"), &name)
 			&& new_name != name
 		{
 			send(&state_rename, "rename_list", serde_json::json!({ "id": id, "name": new_name }));
@@ -365,14 +403,15 @@ pub(crate) fn manage_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	let delete = on_press(&delete_btn, move || {
 		let Some(id) = manager_delete.selected_id() else { return };
 		let Some(name) = list_name(&state_delete, &id) else { return };
-		let confirm = MessageDialog::builder(
-			&dialog,
-			&format!("Delete the list {}? The chats in it stay as they are.", name),
-			"Delete List",
-		)
-		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-		.build();
-		confirm.set_yes_no_labels("Delete", "Cancel");
+		let msg = if crate::i18n::is_indonesian() {
+			format!("Hapus daftar {name}? Chat di dalamnya tetap ada seperti biasa.")
+		} else {
+			format!("Delete the list {}? The chats in it stay as they are.", name)
+		};
+		let confirm = MessageDialog::builder(&dialog, &msg, crate::i18n::tr("Delete List"))
+			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+			.build();
+		confirm.set_yes_no_labels(crate::i18n::tr("Delete"), crate::i18n::tr("Cancel"));
 		if confirm.show_modal() == ID_YES {
 			send(&state_delete, "delete_list", serde_json::json!({ "id": id }));
 		}
@@ -398,9 +437,9 @@ fn list_name(state: &Rc<RefCell<AppState>>, id: &str) -> Option<String> {
 
 fn show_list_chats(state: &Rc<RefCell<AppState>>, manager: &Rc<ListManager>, id: String) {
 	let Some(name) = list_name(state, &id) else { return };
-	let title = format!("Chats in {}", name);
+	let title = if crate::i18n::is_indonesian() { format!("Chat di {name}") } else { format!("Chats in {name}") };
 	let (dialog, list_label, list, announcer, buttons) =
-		list_dialog(&manager.dialog, &title, &["&Add chats...", "&Remove"]);
+		list_dialog(&manager.dialog, &title, &[crate::i18n::tr("&Add chats..."), crate::i18n::tr("&Remove")]);
 	let [add_btn, remove_btn, _close] = buttons[..] else { return };
 	let chats = Rc::new(ListChats {
 		dialog,
@@ -444,10 +483,15 @@ fn show_list_chats(state: &Rc<RefCell<AppState>>, manager: &Rc<ListManager>, id:
 			many: "chats",
 			require_one: None,
 		};
+		let title = if crate::i18n::is_indonesian() {
+			format!("Tambahkan Chat ke {name}")
+		} else {
+			format!("Add Chats to {name}")
+		};
 		let picked = crate::ui::dialogs::privacy_list_picker::pick_with(
 			&dialog,
-			&format!("Add Chats to {}", name),
-			"Check the chats to add",
+			&title,
+			crate::i18n::tr("Check the chats to add"),
 			&offered,
 			&[],
 			&words,
@@ -481,37 +525,63 @@ pub(crate) fn on_event(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, t
 		"favorite_saved" => {
 			let name = chat_name(&state.borrow(), &text(data, "jid"));
 			let favorite = data.get("favorite").and_then(|f| f.as_bool()).unwrap_or(false);
-			announce(
-				state,
-				parts,
-				&if favorite {
-					format!("{} added to favorites.", name)
+			let msg = if crate::i18n::is_indonesian() {
+				if favorite {
+					format!("{name} ditambahkan ke favorit.")
 				} else {
-					format!("{} removed from favorites.", name)
-				},
-			);
+					format!("{name} dihapus dari favorit.")
+				}
+			} else if favorite {
+				format!("{name} added to favorites.")
+			} else {
+				format!("{name} removed from favorites.")
+			};
+			announce(state, parts, &msg);
 		}
 		"list_saved" => {
 			let created = data.get("created").and_then(|c| c.as_bool()).unwrap_or(false);
-			let verb = if created { "created" } else { "renamed" };
+			let verb = if created {
+				if crate::i18n::is_indonesian() { "dibuat" } else { "created" }
+			} else if crate::i18n::is_indonesian() {
+				"diganti namanya"
+			} else {
+				"renamed"
+			};
 			let manager = state.borrow().list_manager.clone();
 			if let Some(manager) = manager.filter(|_| created) {
 				manager.select(&text(data, "id"));
 			}
-			announce(state, parts, &format!("List {} {}.", text(data, "name"), verb));
+			let list_name = text(data, "name");
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Daftar {list_name} {verb}.")
+			} else {
+				format!("List {list_name} {verb}.")
+			};
+			announce(state, parts, &msg);
 		}
-		"list_deleted" => announce(state, parts, &format!("List {} deleted.", text(data, "name"))),
+		"list_deleted" => {
+			let list_name = text(data, "name");
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Daftar {list_name} dihapus.")
+			} else {
+				format!("List {list_name} deleted.")
+			};
+			announce(state, parts, &msg);
+		}
 		"list_member_saved" => {
 			let name = chat_name(&state.borrow(), &text(data, "jid"));
 			let member = data.get("member").and_then(|m| m.as_bool()).unwrap_or(false);
 			let count = data.get("count").and_then(|c| c.as_u64()).unwrap_or(1);
 			let list = text(data, "name");
 			let who = if count > 1 { count_chats(count as usize) } else { name };
-			announce(
-				state,
-				parts,
-				&if member { format!("{} added to {}.", who, list) } else { format!("{} removed from {}.", who, list) },
-			);
+			let msg = if crate::i18n::is_indonesian() {
+				if member { format!("{who} ditambahkan ke {list}.") } else { format!("{who} dihapus dari {list}.") }
+			} else if member {
+				format!("{who} added to {list}.")
+			} else {
+				format!("{who} removed from {list}.")
+			};
+			announce(state, parts, &msg);
 		}
 		"common_groups" => show_common_groups(state, parts, data),
 		_ => {}
@@ -541,7 +611,7 @@ fn update_lists(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &s
 	if names_changed {
 		combo.clear();
 		for name in BUILT_IN_CHAT_FILTERS {
-			combo.append(name);
+			combo.append(crate::i18n::tr(name));
 		}
 		for l in &s.chat_lists {
 			combo.append(&l.name);
@@ -569,15 +639,22 @@ fn show_common_groups(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, da
 	list.clear();
 	s.common_group_jids = groups.iter().map(|g| text(g, "jid")).collect();
 	if groups.is_empty() {
-		list.append("No groups in common");
+		list.append(crate::i18n::tr("No groups in common"));
 	}
 	for g in &groups {
 		list.append(&text(g, "name"));
 	}
-	let label = match groups.len() {
-		0 => "Groups in common".to_string(),
-		1 => "1 group in common".to_string(),
-		n => format!("{} groups in common", n),
+	let label = if crate::i18n::is_indonesian() {
+		match groups.len() {
+			0 => "Grup bersama".to_string(),
+			n => format!("{n} grup bersama"),
+		}
+	} else {
+		match groups.len() {
+			0 => "Groups in common".to_string(),
+			1 => "1 group in common".to_string(),
+			n => format!("{} groups in common", n),
+		}
 	};
 	parts.conversation_data_dialog.common_groups_label.set_label(&label);
 }

@@ -222,9 +222,9 @@ pub(crate) fn update_bar(s: &AppState, cp: &crate::ui::conversations::Conversati
 	match bar.slot {
 		StarSlot::Star { enabled, unstar } => {
 			let label = match (unstar, bar.count) {
-				(true, 1) => "Unstar message",
-				(true, _) => "Unstar messages",
-				_ => "Star",
+				(true, 1) => crate::i18n::tr("Unstar message"),
+				(true, _) => crate::i18n::tr("Unstar messages"),
+				_ => crate::i18n::tr("Star"),
 			};
 			cp.selection_star_btn.set_label(label);
 			cp.selection_star_btn.enable(enabled);
@@ -232,7 +232,7 @@ pub(crate) fn update_bar(s: &AppState, cp: &crate::ui::conversations::Conversati
 			cp.selection_keep_btn.show(false);
 		}
 		StarSlot::Keep { enabled, unkeep } => {
-			cp.selection_keep_btn.set_label(if unkeep { "Unkeep" } else { "Keep" });
+			cp.selection_keep_btn.set_label(if unkeep { crate::i18n::tr("Unkeep") } else { crate::i18n::tr("Keep") });
 			cp.selection_keep_btn.enable(enabled);
 			cp.selection_keep_btn.show(true);
 			cp.selection_star_btn.show(false);
@@ -269,9 +269,14 @@ pub(crate) fn copy_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 	let text = msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n");
 	finish(state, parts);
 	if crate::platform::clipboard::copy_text(&text) {
-		announce(parts, &format!("Copied {} to clipboard.", plural(msgs.len(), "message", "messages")));
+		let spoken = if crate::i18n::is_indonesian() {
+			format!("{} pesan disalin ke papan klip.", msgs.len())
+		} else {
+			format!("Copied {} to clipboard.", plural(msgs.len(), "message", "messages"))
+		};
+		announce(parts, &spoken);
 	} else {
-		announce(parts, "Couldn't copy to clipboard.");
+		announce(parts, crate::i18n::tr("Couldn't copy to clipboard."));
 	}
 }
 
@@ -304,8 +309,17 @@ pub(crate) fn star_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		}
 	}
 	finish(state, parts);
-	let what = plural(msgs.len(), "message", "messages");
-	announce(parts, &if star { format!("{what} starred.") } else { format!("{what} unstarred.") });
+	let spoken = if crate::i18n::is_indonesian() {
+		if star {
+			format!("{} pesan dibintangi.", msgs.len())
+		} else {
+			format!("Bintang {} pesan dihapus.", msgs.len())
+		}
+	} else {
+		let what = plural(msgs.len(), "message", "messages");
+		if star { format!("{what} starred.") } else { format!("{what} unstarred.") }
+	};
+	announce(parts, &spoken);
 }
 
 pub(crate) fn keep_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -331,8 +345,17 @@ pub(crate) fn keep_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		}
 	}
 	finish(state, parts);
-	let what = plural(msgs.len(), "message", "messages");
-	announce(parts, &if keep { format!("{what} kept.") } else { format!("{what} unkept.") });
+	let spoken = if crate::i18n::is_indonesian() {
+		if keep {
+			format!("{} pesan disimpan.", msgs.len())
+		} else {
+			format!("Penyimpanan {} pesan dibatalkan.", msgs.len())
+		}
+	} else {
+		let what = plural(msgs.len(), "message", "messages");
+		if keep { format!("{what} kept.") } else { format!("{what} unkept.") }
+	};
+	announce(parts, &spoken);
 }
 
 pub(crate) fn delete_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -371,12 +394,18 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 	};
 	let admin_name = admin_msg.as_ref().filter(|_| revokable).map(|m| sender_name(state, m));
 	let title = match &admin_name {
-		Some(name) => format!("Delete message from {name}?"),
-		None if msgs.len() == 1 => "Delete message?".to_string(),
-		None => "Delete messages?".to_string(),
+		Some(name) => {
+			if crate::i18n::is_indonesian() {
+				format!("Hapus pesan dari {name}?")
+			} else {
+				format!("Delete message from {name}?")
+			}
+		}
+		None if msgs.len() == 1 => crate::i18n::tr("Delete message?").to_string(),
+		None => crate::i18n::tr("Delete messages?").to_string(),
 	};
 	let for_everyone = if revokable {
-		let dialog = MessageDialog::builder(&parts.frame, &title, "Delete")
+		let dialog = MessageDialog::builder(&parts.frame, &title, crate::i18n::tr("Delete"))
 			.with_style(
 				MessageDialogStyle::YesNo
 					| MessageDialogStyle::Cancel
@@ -384,20 +413,26 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 					| MessageDialogStyle::IconWarning,
 			)
 			.build();
-		dialog.set_yes_no_labels("Delete for everyone", "Delete for me");
+		dialog.set_yes_no_labels(crate::i18n::tr("Delete for everyone"), crate::i18n::tr("Delete for me"));
 		match dialog.show_modal() {
 			id if id == wxdragon::id::ID_YES => {
 				if let Some(name) = &admin_name {
-					let confirm = MessageDialog::builder(
-						&parts.frame,
-						&format!(
+					let confirm_text = if crate::i18n::is_indonesian() {
+						format!(
+							"Sebagai admin, Anda menghapus pesan {name} untuk semua orang di chat ini. Mereka akan melihat bahwa Anda menghapus pesan ini."
+						)
+					} else {
+						format!(
 							"As an admin, you are deleting {name}'s message for everyone in this chat. They will see that you deleted the message."
-						),
-						"Delete for everyone",
-					)
-					.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconWarning)
-					.build();
-					confirm.set_ok_cancel_labels("Delete for everyone", "Cancel");
+						)
+					};
+					let confirm =
+						MessageDialog::builder(&parts.frame, &confirm_text, crate::i18n::tr("Delete for everyone"))
+							.with_style(
+								MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconWarning,
+							)
+							.build();
+					confirm.set_ok_cancel_labels(crate::i18n::tr("Delete for everyone"), crate::i18n::tr("Cancel"));
 					if confirm.show_modal() != wxdragon::id::ID_OK {
 						return;
 					}
@@ -408,10 +443,10 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 			_ => return,
 		}
 	} else {
-		let dialog = MessageDialog::builder(&parts.frame, &title, "Delete")
+		let dialog = MessageDialog::builder(&parts.frame, &title, crate::i18n::tr("Delete"))
 			.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconWarning)
 			.build();
-		dialog.set_ok_cancel_labels("Delete for me", "Cancel");
+		dialog.set_ok_cancel_labels(crate::i18n::tr("Delete for me"), crate::i18n::tr("Cancel"));
 		if dialog.show_modal() != wxdragon::id::ID_OK {
 			return;
 		}
@@ -445,7 +480,12 @@ fn ask_delete(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, msgs: Vec<
 		finish(state, parts);
 	}
 	if msgs.len() > 1 {
-		announce(parts, &format!("{} deleted.", plural(msgs.len(), "message", "messages")));
+		let spoken = if crate::i18n::is_indonesian() {
+			format!("{} pesan dihapus.", msgs.len())
+		} else {
+			format!("{} deleted.", plural(msgs.len(), "message", "messages"))
+		};
+		announce(parts, &spoken);
 	}
 }
 
@@ -469,7 +509,8 @@ pub(crate) fn forward_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
 		(ids, crate::ui_commands::links::send_targets(&s))
 	};
-	let title = if ids.len() == 1 { "Forward message to" } else { "Forward messages to" };
+	let title =
+		if ids.len() == 1 { crate::i18n::tr("Forward message to") } else { crate::i18n::tr("Forward messages to") };
 	let Some(to_jids) = crate::ui::dialogs::send_to::show_forward_dialog(&parts.frame, title, targets) else {
 		return;
 	};
@@ -486,7 +527,13 @@ pub(crate) fn forward_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		let s = state.borrow();
 		to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect()
 	};
-	announce(parts, &format!("{} forwarded to {}.", plural(ids.len(), "message", "messages"), names.join(", ")));
+	let names_joined = names.join(", ");
+	let spoken = if crate::i18n::is_indonesian() {
+		format!("{} pesan diteruskan ke {names_joined}.", ids.len())
+	} else {
+		format!("{} forwarded to {names_joined}.", plural(ids.len(), "message", "messages"))
+	};
+	announce(parts, &spoken);
 }
 
 /// One file: a Save As box. Several: a folder, as WhatsApp Web on Windows
@@ -506,7 +553,9 @@ pub(crate) fn save_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 		crate::ui_commands::attachments::save_media_message_as(state, parts, msgs[0].id.clone());
 		return;
 	}
-	let dir_dialog = wxdragon::DirDialog::builder(&parts.frame, "Choose a folder to save the files into", "").build();
+	let dir_dialog =
+		wxdragon::DirDialog::builder(&parts.frame, crate::i18n::tr("Choose a folder to save the files into"), "")
+			.build();
 	if dir_dialog.show_modal() != wxdragon::id::ID_OK {
 		return;
 	}
@@ -533,12 +582,24 @@ pub(crate) fn save_selected(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPart
 			fetching += 1;
 		}
 	}
-	let mut text = format!("Saved {} to {}.", plural(copied, "file", "files"), dir.display());
+	let mut text = if crate::i18n::is_indonesian() {
+		format!("{copied} file disimpan ke {}.", dir.display())
+	} else {
+		format!("Saved {} to {}.", plural(copied, "file", "files"), dir.display())
+	};
 	if fetching > 0 {
-		text.push_str(&format!(" Downloading {} more.", fetching));
+		if crate::i18n::is_indonesian() {
+			text.push_str(&format!(" Mengunduh {fetching} lainnya."));
+		} else {
+			text.push_str(&format!(" Downloading {fetching} more."));
+		}
 	}
 	if failed > 0 {
-		text.push_str(&format!(" {} couldn't be saved.", plural(failed, "file", "files")));
+		if crate::i18n::is_indonesian() {
+			text.push_str(&format!(" {failed} file tidak dapat disimpan."));
+		} else {
+			text.push_str(&format!(" {} couldn't be saved.", plural(failed, "file", "files")));
+		}
 	}
 	announce(parts, &text);
 }

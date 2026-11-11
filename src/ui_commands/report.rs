@@ -16,27 +16,56 @@ fn confirm_and_report(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 	let name = chat_name(&state.borrow(), &jid);
 	let question = match (&message_id, is_group) {
 		(Some(_), false) => {
-			format!("Report this message to WhatsApp? WhatsApp receives this message. {name} won't be notified.")
+			if crate::i18n::is_indonesian() {
+				format!(
+					"Laporkan pesan ini ke WhatsApp? WhatsApp akan menerima pesan ini. {name} tidak akan diberi tahu."
+				)
+			} else {
+				format!("Report this message to WhatsApp? WhatsApp receives this message. {name} won't be notified.")
+			}
 		}
-		(Some(_), true) => {
-			"Report this message to WhatsApp? WhatsApp receives this message. The sender and the group won't be notified."
-				.to_string()
+		(Some(_), true) => crate::i18n::tr(
+			"Report this message to WhatsApp? WhatsApp receives this message. The sender and the group won't be notified.",
+		)
+		.to_string(),
+		(None, false) => {
+			if crate::i18n::is_indonesian() {
+				format!(
+					"Laporkan {name} ke WhatsApp? WhatsApp akan menerima pesan terakhir yang dikirimnya kepada Anda. Ia tidak akan diberi tahu."
+				)
+			} else {
+				format!(
+					"Report {name} to WhatsApp? WhatsApp receives the last message they sent you. They won't be notified."
+				)
+			}
 		}
-		(None, false) => format!(
-			"Report {name} to WhatsApp? WhatsApp receives the last message they sent you. They won't be notified."
-		),
-		(None, true) => format!(
-			"Report {name} to WhatsApp? WhatsApp receives the most recent message someone else sent here. The group won't be notified."
-		),
+		(None, true) => {
+			if crate::i18n::is_indonesian() {
+				format!(
+					"Laporkan {name} ke WhatsApp? WhatsApp akan menerima pesan terbaru yang dikirim orang lain di sini. Grup tidak akan diberi tahu."
+				)
+			} else {
+				format!(
+					"Report {name} to WhatsApp? WhatsApp receives the most recent message someone else sent here. The group won't be notified."
+				)
+			}
+		}
 	};
-	let also = if is_group { "Report and exit group".to_string() } else { format!("Report and block {name}") };
-	let choices: Vec<&str> = vec!["Report", also.as_str()];
-	let dialog = SingleChoiceDialog::builder(&parts.frame, &question, "Report", &choices).build();
+	let also = if is_group {
+		crate::i18n::tr("Report and exit group").to_string()
+	} else if crate::i18n::is_indonesian() {
+		format!("Laporkan dan blokir {name}")
+	} else {
+		format!("Report and block {name}")
+	};
+	let report_label = crate::i18n::tr("Report");
+	let choices: Vec<&str> = vec![report_label, also.as_str()];
+	let dialog = SingleChoiceDialog::builder(&parts.frame, &question, report_label, &choices).build();
 	if dialog.show_modal() != wxdragon::id::ID_OK {
 		return;
 	}
 	let Some(choice) = dialog.get_string_selection() else { return };
-	let extra = choice != "Report";
+	let extra = choice != report_label;
 	let payload = serde_json::json!({
 		"action": "report",
 		"data": {
@@ -47,7 +76,7 @@ fn confirm_and_report(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, ji
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Reporting...");
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, crate::i18n::tr("Reporting..."));
 }
 
 pub(crate) fn report_message(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, message_id: String) {
@@ -67,8 +96,8 @@ pub(crate) fn report_to_admins(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 	};
 	let confirm = MessageDialog::builder(
 		&parts.frame,
-		"Send this message to the group's admins to review? The sender won't be told who reported it.",
-		"Report to group admins",
+		crate::i18n::tr("Send this message to the group's admins to review? The sender won't be told who reported it."),
+		crate::i18n::tr("Report to group admins"),
 	)
 	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 	.build();
@@ -80,17 +109,27 @@ pub(crate) fn report_to_admins(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		"data": { "jid": jid, "message_ids": [message_id] }
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Sending to the admins...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Sending to the admins..."),
+	);
 }
 
 pub(crate) fn reported(parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let flag = |k: &str| data.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
-	let mut text = if data.get("admins").is_some() { "Sent to the group's admins." } else { "Reported." }.to_string();
+	let mut text = if data.get("admins").is_some() {
+		crate::i18n::tr("Sent to the group's admins.")
+	} else {
+		crate::i18n::tr("Reported.")
+	}
+	.to_string();
 	if flag("blocked") {
-		text.push_str(" Contact blocked.");
+		text.push(' ');
+		text.push_str(crate::i18n::tr("Contact blocked."));
 	}
 	if flag("left") {
-		text.push_str(" You left the group.");
+		text.push(' ');
+		text.push_str(crate::i18n::tr("You left the group."));
 	}
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &text);
 }
@@ -135,8 +174,8 @@ pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	if reports.is_empty() {
 		MessageDialog::builder(
 			&parts.group_data_dialog.dialog,
-			"No messages have been reported to the admins.",
-			"Reported messages",
+			crate::i18n::tr("No messages have been reported to the admins."),
+			crate::i18n::tr("Reported messages"),
 		)
 		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 		.build()
@@ -156,30 +195,37 @@ pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 		let text = if stored {
 			whatsnap::friendly_preview_text(&str_of(r, "text"))
 		} else {
-			"A message that isn't on this computer".to_string()
+			crate::i18n::tr("A message that isn't on this computer").to_string()
 		};
 		let sender = str_of(r, "sender_name");
 		let from = if sender.is_empty() { String::new() } else { format!("{sender}: ") };
-		lines.push(format!("{from}{text}. Reported by {}", reporters.join(", ")));
+		let reporters_joined = reporters.join(", ");
+		let row = if crate::i18n::is_indonesian() {
+			format!("{from}{text}. Dilaporkan oleh {reporters_joined}")
+		} else {
+			format!("{from}{text}. Reported by {reporters_joined}")
+		};
+		lines.push(row);
 		ids.push(stored.then(|| str_of(r, "message_id")));
 	}
 
-	let dialog = Dialog::builder(&parts.group_data_dialog.dialog, "Reported messages")
+	let dialog = Dialog::builder(&parts.group_data_dialog.dialog, crate::i18n::tr("Reported messages"))
 		.with_size(520, 400)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
 	let panel = Panel::builder(&dialog).build();
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
-	let label = StaticText::builder(&panel).with_label("Messages members reported to the admins").build();
+	let label =
+		StaticText::builder(&panel).with_label(crate::i18n::tr("Messages members reported to the admins")).build();
 	sizer.add(&label, 0, SizerFlag::All, 8);
 	let list = ListBox::builder(&panel).with_choices(lines).build();
 	list.set_selection(0_u32, true);
 	sizer.add(&list, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-	let go_btn = Button::builder(&panel).with_id(ID_OK).with_label("Go to message").build();
+	let go_btn = Button::builder(&panel).with_id(ID_OK).with_label(crate::i18n::tr("Go to message")).build();
 	btn_sizer.add(&go_btn, 0, SizerFlag::Right, 8);
 	btn_sizer.add_stretch_spacer(1);
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	btn_sizer.add(&close_btn, 0, SizerFlag::Right, 8);
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand | SizerFlag::All, 8);
 	panel.set_sizer(sizer, true);
@@ -205,7 +251,7 @@ pub(crate) fn show_reported_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<W
 	let Some(message_id) = chosen else {
 		crate::platform::announce::announce(
 			parts.conversations_parts.messages_announcer,
-			"That message isn't on this computer, so it can't be shown.",
+			crate::i18n::tr("That message isn't on this computer, so it can't be shown."),
 		);
 		return;
 	};

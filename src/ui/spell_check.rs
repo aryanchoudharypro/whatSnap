@@ -286,7 +286,9 @@ pub fn text_changed(field: &TextCtrl, announce: Option<StaticText>) {
 	}
 	let word = MISTAKES.with(|m| just_finished(&m.borrow(), &all, end));
 	if let Some(word) = word {
-		crate::platform::announce::announce(announcer, &format!("Misspelled: {word}"));
+		let msg =
+			if crate::i18n::is_indonesian() { format!("Salah eja: {word}") } else { format!("Misspelled: {word}") };
+		crate::platform::announce::announce(announcer, &msg);
 	}
 }
 
@@ -451,31 +453,39 @@ fn show_fixes(field: &TextCtrl, mistake: Mistake, screen: Option<Point>) {
 	}
 	let mut builder = Menu::builder();
 	if mistake.repeated {
-		builder = builder.append_item(MENU_ID_DELETE_REPEAT, "&Delete Repeated Word", "Delete the word said twice");
+		builder = builder.append_item(
+			MENU_ID_DELETE_REPEAT,
+			crate::i18n::tr("&Delete Repeated Word"),
+			crate::i18n::tr("Delete the word said twice"),
+		);
 	} else if fixes.is_empty() {
-		builder = builder.append_item(MENU_ID_SUGGESTION, "(No spelling suggestions)", "");
+		builder = builder.append_item(MENU_ID_SUGGESTION, crate::i18n::tr("(No spelling suggestions)"), "");
 	}
 	for (i, fix) in fixes.iter().enumerate() {
-		builder = builder.append_item(MENU_ID_SUGGESTION + i as i32, fix, "Use this spelling");
+		builder = builder.append_item(MENU_ID_SUGGESTION + i as i32, fix, crate::i18n::tr("Use this spelling"));
 	}
 	builder = builder.append_separator();
 	if !mistake.repeated {
-		builder = builder
-			.append_item(MENU_ID_ADD, &format!("&Add \"{word}\" to Dictionary"), "Never mark this word again")
-			.append_item(
+		let (add_lbl, ignore_lbl) = if crate::i18n::is_indonesian() {
+			(format!("&Tambahkan \"{word}\" ke Kamus"), format!("&Abaikan \"{word}\""))
+		} else {
+			(format!("&Add \"{word}\" to Dictionary"), format!("&Ignore \"{word}\""))
+		};
+		builder =
+			builder.append_item(MENU_ID_ADD, &add_lbl, crate::i18n::tr("Never mark this word again")).append_item(
 				MENU_ID_IGNORE,
-				&format!("&Ignore \"{word}\""),
-				"Stop marking this word until whatSnap restarts",
+				&ignore_lbl,
+				crate::i18n::tr("Stop marking this word until whatSnap restarts"),
 			);
 	}
 	let mut menu = builder
 		.append_separator()
-		.append_item(MENU_ID_UNDO, "&Undo", "")
-		.append_item(MENU_ID_CUT, "Cu&t", "")
-		.append_item(MENU_ID_COPY, "&Copy", "")
-		.append_item(MENU_ID_PASTE, "&Paste", "")
-		.append_item(MENU_ID_DELETE, "D&elete", "")
-		.append_item(MENU_ID_SELECT_ALL, "Select A&ll", "")
+		.append_item(MENU_ID_UNDO, crate::i18n::tr("&Undo"), "")
+		.append_item(MENU_ID_CUT, crate::i18n::tr("Cu&t"), "")
+		.append_item(MENU_ID_COPY, crate::i18n::tr("&Copy"), "")
+		.append_item(MENU_ID_PASTE, crate::i18n::tr("&Paste"), "")
+		.append_item(MENU_ID_DELETE, crate::i18n::tr("D&elete"), "")
+		.append_item(MENU_ID_SELECT_ALL, crate::i18n::tr("Select A&ll"), "")
 		.build();
 	if fixes.is_empty() && !mistake.repeated {
 		menu.enable_item(MENU_ID_SUGGESTION, false);
@@ -527,7 +537,7 @@ fn show_fixes(field: &TextCtrl, mistake: Mistake, screen: Option<Point>) {
 
 pub fn next_error(field: &TextCtrl) -> Option<&'static str> {
 	if !is_enabled() {
-		return Some("Spell check is off. Turn it on in Settings, on the Chats tab.");
+		return Some(crate::i18n::tr("Spell check is off. Turn it on in Settings, on the Chats tab."));
 	}
 	recheck(field);
 	let hwnd = hwnd(field);
@@ -536,7 +546,7 @@ pub fn next_error(field: &TextCtrl) -> Option<&'static str> {
 		let m = m.borrow();
 		m.iter().find(|m| m.start >= caret).or_else(|| m.first()).cloned()
 	});
-	let Some(mistake) = next else { return Some("No spelling errors") };
+	let Some(mistake) = next else { return Some(crate::i18n::tr("No spelling errors")) };
 	if !field.has_focus() {
 		field.set_focus();
 	}

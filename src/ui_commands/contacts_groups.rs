@@ -111,15 +111,20 @@ pub(crate) fn filter_group_members(state: &Rc<RefCell<AppState>>, parts: &Rc<Win
 
 pub(crate) fn prepare_contact_picker(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, mode: ContactPickerMode) {
 	if mode == ContactPickerMode::AddCallParticipant && state.borrow().active_call_id.is_none() {
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "No active call.");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("No active call."),
+		);
 		return;
 	}
 	state.borrow_mut().contact_picker_mode = mode;
 	parts.new_conv_dialog.search_field.set_value("");
 	let heading = match mode {
-		ContactPickerMode::OpenChat => "Search name or number",
-		ContactPickerMode::AddCallParticipant => "Search a contact to add to the call, then press Enter",
-		ContactPickerMode::BlockContact => "Search a contact to block, then press Enter",
+		ContactPickerMode::OpenChat => crate::i18n::tr("Search name or number"),
+		ContactPickerMode::AddCallParticipant => {
+			crate::i18n::tr("Search a contact to add to the call, then press Enter")
+		}
+		ContactPickerMode::BlockContact => crate::i18n::tr("Search a contact to block, then press Enter"),
 	};
 	parts.new_conv_dialog.search_label.set_label(heading);
 	let is_open_chat = mode == ContactPickerMode::OpenChat;
@@ -159,7 +164,10 @@ pub(crate) fn select_contact_picker_result(state: &Rc<RefCell<AppState>>, parts:
 				});
 				let _ = s.ws_tx.send(msg.to_string());
 				drop(s);
-				crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Adding to call...");
+				crate::platform::announce::announce(
+					parts.conversations_parts.messages_announcer,
+					crate::i18n::tr("Adding to call..."),
+				);
 			}
 		}
 		ContactPickerMode::BlockContact => crate::ui_commands::blocking::block_picked_contact(state, parts, jid),
@@ -202,7 +210,10 @@ pub(crate) fn update_group_settings(
 		});
 		let _ = s.ws_tx.send(msg_lock.to_string());
 
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Group settings updated.");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("Group settings updated."),
+		);
 	}
 }
 
@@ -225,7 +236,7 @@ pub(crate) fn group_member_action(
 		let confirm = MessageDialog::builder(dialog, text, title)
 			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 			.build();
-		confirm.set_yes_no_labels(yes, "Cancel");
+		confirm.set_yes_no_labels(yes, crate::i18n::tr("Cancel"));
 		confirm.show_modal() == wxdragon::id::ID_YES
 	};
 	let change = |what: &str| {
@@ -247,8 +258,10 @@ pub(crate) fn group_member_action(
 			if member.phone_jid.is_empty() {
 				MessageDialog::builder(
 					dialog,
-					"WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact.",
-					"Add Contact",
+					crate::i18n::tr(
+						"WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact.",
+					),
+					crate::i18n::tr("Add Contact"),
 				)
 				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 				.build()
@@ -257,14 +270,23 @@ pub(crate) fn group_member_action(
 			}
 			let number = member.phone_jid.split('@').next().unwrap_or_default();
 			let name = if member.name == member.phone { "" } else { member.name.as_str() };
-			open_contact_form(parts, "Add Contact", "Save", name, "", &format!("+{}", number), false);
+			open_contact_form(
+				parts,
+				crate::i18n::tr("Add Contact"),
+				crate::i18n::tr("Save"),
+				name,
+				"",
+				&format!("+{}", number),
+				false,
+			);
 		}
 		MemberAction::MakeAdmin => {
-			if ask(
-				&format!("Make {} an admin for \"{}\" group?", member.name, subject),
-				"Make Group Admin",
-				"Make group admin",
-			) {
+			let question = if crate::i18n::is_indonesian() {
+				format!("Jadikan {} sebagai admin untuk grup \"{}\"?", member.name, subject)
+			} else {
+				format!("Make {} an admin for \"{}\" group?", member.name, subject)
+			};
+			if ask(&question, crate::i18n::tr("Make Group Admin"), crate::i18n::tr("Make group admin")) {
 				change("promote");
 			}
 		}
@@ -272,20 +294,29 @@ pub(crate) fn group_member_action(
 		MemberAction::VerifyCode => crate::ui_commands::member_extras::request_security_code(state, parts, &member),
 		MemberAction::SendHistory => {
 			let count = member.history_count;
-			let what = if count == 1 { "1 recent message".to_string() } else { format!("{count} recent messages") };
-			if ask(
-				&format!(
+			let question = if crate::i18n::is_indonesian() {
+				format!(
+					"Kirim riwayat pesan ke {}?\n\n{} akan menerima {count} pesan terbaru dari grup ini.",
+					member.name, member.name
+				)
+			} else {
+				let what = if count == 1 { "1 recent message".to_string() } else { format!("{count} recent messages") };
+				format!(
 					"Send message history to {}?\n\n{} will get {} from this group.",
 					member.name, member.name, what
-				),
-				"Send Message History",
-				"Send",
-			) {
+				)
+			};
+			if ask(&question, crate::i18n::tr("Send Message History"), crate::i18n::tr("Send")) {
 				crate::ui_commands::member_extras::send_history(state, parts, &group_jid, &member);
 			}
 		}
 		MemberAction::Remove => {
-			if ask(&format!("Remove {} from \"{}\" group?", member.name, subject), "Remove Member", "Remove") {
+			let question = if crate::i18n::is_indonesian() {
+				format!("Keluarkan {} dari grup \"{}\"?", member.name, subject)
+			} else {
+				format!("Remove {} from \"{}\" group?", member.name, subject)
+			};
+			if ask(&question, crate::i18n::tr("Remove Member"), crate::i18n::tr("Remove")) {
 				change("remove");
 			}
 		}
@@ -309,7 +340,10 @@ pub(crate) fn join_community_subgroup(state: &Rc<RefCell<AppState>>, parts: &Rc<
 	});
 	let _ = s.ws_tx.send(msg.to_string());
 	drop(s);
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Joining group...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Joining group..."),
+	);
 }
 
 pub(crate) fn community_subgroup_selection_changed(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
@@ -319,7 +353,11 @@ pub(crate) fn community_subgroup_selection_changed(state: &Rc<RefCell<AppState>>
 		.get_selection()
 		.and_then(|idx| state.borrow().group_data_subgroup_joined.get(idx as usize).copied())
 		.unwrap_or(false);
-	parts.group_data_dialog.join_group_btn.set_label(if joined { "Open group" } else { "Join group" });
+	parts.group_data_dialog.join_group_btn.set_label(if joined {
+		crate::i18n::tr("Open group")
+	} else {
+		crate::i18n::tr("Join group")
+	});
 }
 
 pub(crate) fn open_group_invite(state: &Rc<RefCell<AppState>>, _parts: &Rc<WindowParts>, message_id: String) {
@@ -365,10 +403,12 @@ pub(crate) fn leave_group(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>
 		}
 	});
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(
-		parts.conversations_parts.messages_announcer,
-		&format!("Left group {}.", chat_name),
-	);
+	let spoken = if crate::i18n::is_indonesian() {
+		format!("Keluar dari grup {chat_name}.")
+	} else {
+		format!("Left group {chat_name}.")
+	};
+	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, &spoken);
 }
 
 pub(crate) fn set_member_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, label: String) {
@@ -381,7 +421,8 @@ pub(crate) fn set_member_label(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowP
 		"data": { "jid": jid, "label": label }
 	});
 	let _ = s.ws_tx.send(payload.to_string());
-	let text = if label.is_empty() { "Removing your tag..." } else { "Setting your tag..." };
+	let text =
+		if label.is_empty() { crate::i18n::tr("Removing your tag...") } else { crate::i18n::tr("Setting your tag...") };
 	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, text);
 }
 
@@ -421,14 +462,14 @@ impl ContactCard {
 pub(crate) fn show_contact_card(parts: &Rc<WindowParts>, card: Option<&ContactCard>) {
 	let info = &parts.conversation_data_dialog;
 	let saved = card.is_some_and(|c| c.saved);
-	info.contact_btn.set_label(if saved { "Edit contact" } else { "Add contact" });
+	info.contact_btn.set_label(if saved { crate::i18n::tr("Edit contact") } else { crate::i18n::tr("Add contact") });
 	info.contact_btn.enable(card.is_some());
 	info.delete_contact_btn.show(saved);
 	info.info_panel.layout();
 }
 
 pub(crate) fn open_new_contact_form(parts: &Rc<WindowParts>) {
-	open_contact_form(parts, "New Contact", "Create", "", "", "", true);
+	open_contact_form(parts, crate::i18n::tr("New Contact"), crate::i18n::tr("Create"), "", "", "", true);
 }
 
 fn open_contact_form(
@@ -456,8 +497,8 @@ pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	if card.phone.is_empty() {
 		MessageDialog::builder(
 			&parts.conversation_data_dialog.details_dialog,
-			"WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact.",
-			"Add Contact",
+			crate::i18n::tr("WhatsApp hasn't shared this person's phone number, so they can't be saved as a contact."),
+			crate::i18n::tr("Add Contact"),
 		)
 		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 		.build()
@@ -466,27 +507,35 @@ pub(crate) fn add_or_edit_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<Wind
 	}
 	let (name, surname) = card.form_names();
 	let phone = format!("+{}", card.phone);
-	let title = if card.saved { "Edit Contact" } else { "Add Contact" };
-	open_contact_form(parts, title, "Save", &name, &surname, &phone, false);
+	let title = if card.saved { crate::i18n::tr("Edit Contact") } else { crate::i18n::tr("Add Contact") };
+	open_contact_form(parts, title, crate::i18n::tr("Save"), &name, &surname, &phone, false);
 }
 
 pub(crate) fn delete_contact(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>) {
 	let Some(card) = state.borrow().conversation_data_contact.clone().filter(|c| c.saved) else { return };
 	let name = if card.full_name.is_empty() { &card.first_name } else { &card.full_name };
+	let question = if crate::i18n::is_indonesian() {
+		format!("Hapus {name} dari kontak Anda? Kontak ini juga akan dihapus dari kontak di ponsel Anda.")
+	} else {
+		format!("Delete {name} from your contacts? They'll be removed from your phone's contacts too.")
+	};
 	let confirm = MessageDialog::builder(
 		&parts.conversation_data_dialog.details_dialog,
-		&format!("Delete {} from your contacts? They'll be removed from your phone's contacts too.", name),
-		"Delete Contact",
+		&question,
+		crate::i18n::tr("Delete Contact"),
 	)
 	.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 	.build();
-	confirm.set_yes_no_labels("Delete", "Cancel");
+	confirm.set_yes_no_labels(crate::i18n::tr("Delete"), crate::i18n::tr("Cancel"));
 	if confirm.show_modal() != wxdragon::id::ID_YES {
 		return;
 	}
 	let payload = serde_json::json!({ "action": "delete_contact", "data": { "jid": card.jid } });
 	let _ = state.borrow().ws_tx.send(payload.to_string());
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Deleting contact...");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Deleting contact..."),
+	);
 }
 
 #[cfg(test)]

@@ -106,7 +106,11 @@ impl RowArt {
 			jid: jid.to_string(),
 			title: name.to_string(),
 			preview: preview.trim_start_matches(": ").to_string(),
-			ring: if jid == "me" && segments.0 == 0 { None } else { Some(tag.starts_with("New")) },
+			ring: if jid == "me" && segments.0 == 0 {
+				None
+			} else {
+				Some(tag.starts_with("New") || tag.starts_with("Baru"))
+			},
 			segments,
 			..Default::default()
 		}
@@ -117,20 +121,24 @@ impl RowArt {
 			return Self { title: text.to_string(), heading: true, ..Default::default() };
 		}
 		let jid = if jid.starts_with(crate::ui_commands::calls::JOIN_ROW_PREFIX) { "" } else { jid };
-		let (text, ongoing) = match text.strip_suffix(crate::ui_commands::calls::ONGOING_CALL_SUFFIX) {
-			Some(t) => (t, true),
-			None => (text, false),
-		};
+		let suffix = crate::ui_commands::calls::ongoing_call_suffix();
+		let (text, ongoing) =
+			match text.strip_suffix(suffix).or_else(|| text.strip_suffix(". Going on now, press Enter to join")) {
+				Some(t) => (t, true),
+				None => (text, false),
+			};
+		let looks_like_time = |t: &str| t.ends_with("AM") || t.ends_with("PM") || t.contains(':');
 		let (desc, time) = match text.rsplit_once(", ") {
-			Some((d, t)) if t.ends_with("AM") || t.ends_with("PM") => (d, t),
+			Some((d, t)) if looks_like_time(t) => (d, t),
 			_ => (text, ""),
 		};
-		let (desc, duration) = match desc.split_once(", duration ") {
+		let (desc, duration) = match desc.split_once(", duration ").or_else(|| desc.split_once(", durasi ")) {
 			Some((d, dur)) => (d, Some(dur)),
 			None => (desc, None),
 		};
-		let from_split = desc.split_once(" from ");
-		let Some((kind, name)) = from_split.or_else(|| desc.split_once(" to ")) else {
+		let from_split = desc.split_once(" from ").or_else(|| desc.split_once(" dari "));
+		let Some((kind, name)) = from_split.or_else(|| desc.split_once(" to ")).or_else(|| desc.split_once(" ke "))
+		else {
 			let mut art = Self::from_text(jid, text);
 			if let Some((name, phone)) = text.split_once(", ")
 				&& !ongoing
@@ -139,16 +147,22 @@ impl RowArt {
 				art.preview = phone.to_string();
 			}
 			if ongoing {
-				art.title =
-					text.split(" in ").nth(1).or_else(|| text.split(" started by ").nth(1)).unwrap_or(text).to_string();
+				art.title = text
+					.split(" in ")
+					.nth(1)
+					.or_else(|| text.split(" di ").nth(1))
+					.or_else(|| text.split(" started by ").nth(1))
+					.or_else(|| text.split(" dimulai oleh ").nth(1))
+					.unwrap_or(text)
+					.to_string();
 				art.title = art.title.split(", ").next().unwrap_or_default().to_string();
-				art.preview = "Going on now".to_string();
+				art.preview = crate::i18n::tr("Going on now").to_string();
 				art.icon = Some(icon::PHONE);
 			}
 			return art;
 		};
-		let missed = kind.starts_with("Missed");
-		let outgoing = kind.starts_with("Outgoing") || from_split.is_none();
+		let missed = kind.starts_with("Missed") || kind.contains("tak terjawab");
+		let outgoing = kind.starts_with("Outgoing") || kind.contains("keluar") || from_split.is_none();
 		let video = kind.to_lowercase().contains("video");
 		let mut preview = kind.trim_start_matches("Outgoing ").to_string();
 		if let Some(first) = preview.get(..1) {
@@ -159,7 +173,7 @@ impl RowArt {
 			preview.push_str(duration);
 		}
 		if ongoing {
-			preview = "Going on now".to_string();
+			preview = crate::i18n::tr("Going on now").to_string();
 		}
 		Self {
 			jid: jid.to_string(),
@@ -187,7 +201,7 @@ impl RowArt {
 		}
 		let is_group = jid.ends_with("@g.us");
 		let preview_prefix = if from_me {
-			"You: ".to_string()
+			crate::i18n::tr("You: ").to_string()
 		} else if is_group && !sender_name.is_empty() && sender_name != chat_name {
 			format!("{}: ", sender_name)
 		} else {
@@ -226,17 +240,17 @@ pub(crate) fn starred_media_preview(media_type: &str, text: &str) -> (Option<cha
 		(type_icon, text.to_string())
 	} else {
 		match media_type {
-			"image" => (Some(icon::CAMERA), "Photo".to_string()),
-			"video" => (Some(icon::VIDEO), "Video".to_string()),
-			"ptt" => (Some(icon::MICROPHONE), "Voice message".to_string()),
-			"audio" => (Some(icon::AUDIO), "Audio".to_string()),
-			"document" => (Some(icon::DOCUMENT), "Document".to_string()),
-			"sticker" => (Some(icon::STICKER), "Sticker".to_string()),
-			"poll" | "quiz" => (Some(icon::POLL), "Poll".to_string()),
-			"contact" => (Some(icon::CONTACT), "Contact".to_string()),
-			"location" | "live_location" => (Some(icon::LOCATION), "Location".to_string()),
+			"image" => (Some(icon::CAMERA), crate::i18n::tr("Photo").to_string()),
+			"video" => (Some(icon::VIDEO), crate::i18n::tr("Video").to_string()),
+			"ptt" => (Some(icon::MICROPHONE), crate::i18n::tr("Voice message").to_string()),
+			"audio" => (Some(icon::AUDIO), crate::i18n::tr("Audio").to_string()),
+			"document" => (Some(icon::DOCUMENT), crate::i18n::tr("Document").to_string()),
+			"sticker" => (Some(icon::STICKER), crate::i18n::tr("Sticker").to_string()),
+			"poll" | "quiz" => (Some(icon::POLL), crate::i18n::tr("Poll").to_string()),
+			"contact" => (Some(icon::CONTACT), crate::i18n::tr("Contact").to_string()),
+			"location" | "live_location" => (Some(icon::LOCATION), crate::i18n::tr("Location").to_string()),
 			other if !other.is_empty() => (None, other.to_string()),
-			_ => (None, "Message".to_string()),
+			_ => (None, crate::i18n::tr("Message").to_string()),
 		}
 	}
 }
@@ -659,12 +673,9 @@ fn paint_row(dc: HDC, width: i32, height: i32, art: &RowArt, fonts: &Fonts, mut 
 		line_right -= w + gap;
 	}
 	if let Some(font) = fonts.icons {
-		for (on, glyph) in [
-			(art.pinned, icon::PIN),
-			(art.muted, icon::MUTED),
-			(art.locked, icon::LOCK),
-			(art.starred, icon::STAR),
-		] {
+		for (on, glyph) in
+			[(art.pinned, icon::PIN), (art.muted, icon::MUTED), (art.locked, icon::LOCK), (art.starred, icon::STAR)]
+		{
 			if !on {
 				continue;
 			}
@@ -802,45 +813,23 @@ mod tests {
 
 	#[test]
 	fn a_starred_message_row_has_title_preview_and_star() {
-		let direct = RowArt::for_starred(
-			"123@s.whatsapp.net",
-			"Alice",
-			"Alice",
-			false,
-			"Hello there",
-			"10:30 AM",
-			None,
-		);
+		let direct =
+			RowArt::for_starred("123@s.whatsapp.net", "Alice", "Alice", false, "Hello there", "10:30 AM", None);
 		assert_eq!(direct.title, "Alice");
 		assert_eq!(direct.preview_prefix, "");
 		assert_eq!(direct.preview, "Hello there");
 		assert_eq!(direct.time, "10:30 AM");
 		assert!(direct.starred);
 
-		let group_me = RowArt::for_starred(
-			"123@g.us",
-			"Family",
-			"You",
-			true,
-			"I will arrive soon",
-			"Yesterday",
-			None,
-		);
+		let group_me = RowArt::for_starred("123@g.us", "Family", "You", true, "I will arrive soon", "Yesterday", None);
 		assert_eq!(group_me.title, "Family");
 		assert_eq!(group_me.preview_prefix, "You: ");
 		assert_eq!(group_me.preview, "I will arrive soon");
 		assert_eq!(group_me.time, "Yesterday");
 		assert!(group_me.starred);
 
-		let group_other = RowArt::for_starred(
-			"123@g.us",
-			"Family",
-			"Bob",
-			false,
-			"Cake is ready",
-			"Nov 9, 2026",
-			Some(icon::CAMERA),
-		);
+		let group_other =
+			RowArt::for_starred("123@g.us", "Family", "Bob", false, "Cake is ready", "Nov 9, 2026", Some(icon::CAMERA));
 		assert_eq!(group_other.title, "Family");
 		assert_eq!(group_other.preview_prefix, "Bob: ");
 		assert_eq!(group_other.preview, "Cake is ready");

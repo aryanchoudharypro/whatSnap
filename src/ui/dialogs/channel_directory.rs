@@ -20,16 +20,20 @@ struct Entry {
 
 impl Entry {
 	fn label(&self) -> String {
-		let mut parts = vec![if self.name.is_empty() { "Unnamed channel".to_string() } else { self.name.clone() }];
+		let mut parts =
+			vec![if self.name.is_empty() { crate::i18n::tr("Unnamed channel").to_string() } else { self.name.clone() }];
 		if self.verified {
-			parts.push("verified".to_string());
+			parts.push(crate::i18n::tr("verified").to_string());
 		}
 		parts.push(match self.followers {
-			1 => "1 follower".to_string(),
-			n => format!("{} followers", whantv_group_thousands(n)),
+			1 => crate::i18n::tr("1 follower").to_string(),
+			n => {
+				let num = whantv_group_thousands(n);
+				if crate::i18n::is_indonesian() { format!("{num} pengikut") } else { format!("{num} followers") }
+			}
 		});
 		if self.following {
-			parts.push("following".to_string());
+			parts.push(crate::i18n::tr("following").to_string());
 		}
 		if !self.description.is_empty() {
 			let short: String = self.description.chars().take(120).collect();
@@ -93,14 +97,23 @@ impl ChannelDirectory {
 		let place = COUNTRIES
 			.iter()
 			.find(|(code, _)| *code == country)
-			.map(|(_, name)| format!(" in {}", name))
+			.map(|(_, name)| {
+				let localized = crate::i18n::translate_country_name(name);
+				if crate::i18n::is_indonesian() { format!(" di {localized}") } else { format!(" in {localized}") }
+			})
 			.unwrap_or_default();
 		let loading = if !query.is_empty() {
-			"Searching...".to_string()
+			crate::i18n::tr("Searching...").to_string()
 		} else if let Some((_, name)) = CATEGORIES.iter().find(|(code, _)| *code == category) {
-			format!("Loading {} channels{}...", name, place)
+			if crate::i18n::is_indonesian() {
+				format!("Memuat saluran {}{place}...", crate::i18n::tr(name))
+			} else {
+				format!("Loading {name} channels{place}...")
+			}
+		} else if crate::i18n::is_indonesian() {
+			format!("Memuat saluran rekomendasi{place}...")
 		} else {
-			format!("Loading recommended channels{}...", place)
+			format!("Loading recommended channels{place}...")
 		};
 		crate::platform::announce::announce(self.announcer, &loading);
 	}
@@ -114,8 +127,13 @@ impl ChannelDirectory {
 		drop(s);
 		let payload = serde_json::json!({ "action": "get_similar_channels", "data": { "jid": jid } });
 		let _ = self.ws_tx.send(payload.to_string());
-		self.dialog.set_label(&format!("Channels like {}", name));
-		crate::platform::announce::announce(self.announcer, &format!("Loading channels like {}...", name));
+		if crate::i18n::is_indonesian() {
+			self.dialog.set_label(&format!("Saluran serupa {name}"));
+			crate::platform::announce::announce(self.announcer, &format!("Memuat saluran serupa {name}..."));
+		} else {
+			self.dialog.set_label(&format!("Channels like {name}"));
+			crate::platform::announce::announce(self.announcer, &format!("Loading channels like {name}..."));
+		}
 	}
 
 	pub fn apply(&self, data: &serde_json::Value) {
@@ -170,14 +188,34 @@ impl ChannelDirectory {
 		}
 		let found = labels.len();
 		let message = match (found, append) {
-			(0, false) if s.similar_to.is_some() => "No similar channels found.".to_string(),
-			(0, false) if s.query.is_empty() && !s.category.is_empty() => "No channels in this category.".to_string(),
-			(0, false) if s.query.is_empty() => "No recommended channels.".to_string(),
-			(0, false) => format!("No channels found for {}.", s.query),
-			(0, true) => "No more channels.".to_string(),
-			(1, _) => "1 channel.".to_string(),
-			(n, true) => format!("{} more channels.", n),
-			(n, false) => format!("{} channels.", n),
+			(0, false) if s.similar_to.is_some() => crate::i18n::tr("No similar channels found.").to_string(),
+			(0, false) if s.query.is_empty() && !s.category.is_empty() => {
+				crate::i18n::tr("No channels in this category.").to_string()
+			}
+			(0, false) if s.query.is_empty() => crate::i18n::tr("No recommended channels.").to_string(),
+			(0, false) => {
+				if crate::i18n::is_indonesian() {
+					format!("Tidak ada saluran untuk {}.", s.query)
+				} else {
+					format!("No channels found for {}.", s.query)
+				}
+			}
+			(0, true) => crate::i18n::tr("No more channels.").to_string(),
+			(1, _) => crate::i18n::tr("1 channel.").to_string(),
+			(n, true) => {
+				if crate::i18n::is_indonesian() {
+					format!("{n} saluran tambahan.")
+				} else {
+					format!("{n} more channels.")
+				}
+			}
+			(n, false) => {
+				if crate::i18n::is_indonesian() {
+					format!("{n} saluran.")
+				} else {
+					format!("{n} channels.")
+				}
+			}
 		};
 		drop(s);
 		self.selection_changed();
@@ -202,7 +240,7 @@ impl ChannelDirectory {
 
 	fn selection_changed(&self) {
 		let following = self.selected().is_some_and(|e| e.following);
-		self.follow_btn.set_label(if following { "Unfollow" } else { "Follow" });
+		self.follow_btn.set_label(if following { crate::i18n::tr("Unfollow") } else { crate::i18n::tr("Follow") });
 	}
 }
 
@@ -212,7 +250,7 @@ pub fn show_channel_directory(
 	similar_to: Option<(String, String)>,
 	store: impl Fn(Option<Rc<ChannelDirectory>>),
 ) {
-	let dialog = Dialog::builder(parent, "Find channels")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Find channels"))
 		.with_size(520, 560)
 		.with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
 		.build();
@@ -221,7 +259,8 @@ pub fn show_channel_directory(
 	theme::style_content(&panel);
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-	let search_label = StaticText::builder(&panel).with_label("Search channels, then press Enter").build();
+	let search_label =
+		StaticText::builder(&panel).with_label(crate::i18n::tr("Search channels, then press Enter")).build();
 	theme::style_muted_label(&search_label);
 	sizer.add(&search_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let search_field =
@@ -229,14 +268,15 @@ pub fn show_channel_directory(
 	dialog_look::add_field(&sizer, &search_field, Field::Search, 0);
 
 	let filters = BoxSizer::builder(Orientation::Horizontal).build();
-	let country_label = StaticText::builder(&panel).with_label("Country:").build();
-	let country_names: Vec<&str> = COUNTRIES.iter().map(|(_, name)| *name).collect();
+	let country_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Country:")).build();
+	let country_names: Vec<&str> =
+		COUNTRIES.iter().map(|(_, name)| crate::i18n::translate_country_name(name)).collect();
 	let country_combo =
 		ComboBox::builder(&panel).with_string_choices(&country_names).with_style(ComboBoxStyle::ReadOnly).build();
 	country_combo.set_font(&theme::Fonts::body());
-	let category_label = StaticText::builder(&panel).with_label("Category:").build();
-	let mut category_names = vec!["All (recommended)"];
-	category_names.extend(CATEGORIES.iter().map(|(_, name)| *name));
+	let category_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Category:")).build();
+	let mut category_names = vec![crate::i18n::tr("All (recommended)")];
+	category_names.extend(CATEGORIES.iter().map(|(_, name)| crate::i18n::tr(name)));
 	let category_combo =
 		ComboBox::builder(&panel).with_string_choices(&category_names).with_style(ComboBoxStyle::ReadOnly).build();
 	category_combo.set_font(&theme::Fonts::body());
@@ -247,7 +287,7 @@ pub fn show_channel_directory(
 	filters.add(&category_combo, 1, SizerFlag::empty(), 0);
 	sizer.add_sizer(&filters, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let list_label = StaticText::builder(&panel).with_label("Channels").build();
+	let list_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Channels")).build();
 	theme::style_muted_label(&list_label);
 	sizer.add(&list_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 	let list = ListBox::builder(&panel).build();
@@ -260,10 +300,10 @@ pub fn show_channel_directory(
 	sizer.add(&announcer, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-	let view_btn = Button::builder(&panel).with_label("View channel...").build();
-	let follow_btn = Button::builder(&panel).with_label("Follow").build();
-	let more_btn = Button::builder(&panel).with_label("More channels").build();
-	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label("Close").build();
+	let view_btn = Button::builder(&panel).with_label(crate::i18n::tr("View channel...")).build();
+	let follow_btn = Button::builder(&panel).with_label(crate::i18n::tr("Follow")).build();
+	let more_btn = Button::builder(&panel).with_label(crate::i18n::tr("More channels")).build();
+	let close_btn = Button::builder(&panel).with_id(ID_CANCEL).with_label(crate::i18n::tr("Close")).build();
 	for (i, button) in [&view_btn, &follow_btn, &more_btn].into_iter().enumerate() {
 		dialog_look::pill_button(button, i == 1, theme::Palette::CONTENT_BG());
 		buttons.add(button, 0, SizerFlag::Right, 6);
@@ -295,7 +335,7 @@ pub fn show_channel_directory(
 
 	let dir_search = directory.clone();
 	search_field.on_text_enter(move |_| {
-		dir_search.dialog.set_label("Find channels");
+		dir_search.dialog.set_label(crate::i18n::tr("Find channels"));
 		dir_search.request(search_field.get_value().trim(), "");
 	});
 	let dir_more = directory.clone();
@@ -335,7 +375,7 @@ pub fn show_channel_directory(
 			s.category = category;
 			s.loading = false;
 		}
-		dir_settle.dialog.set_label("Find channels");
+		dir_settle.dialog.set_label(crate::i18n::tr("Find channels"));
 		dir_settle.request("", "");
 	});
 	let settle_country = settle.clone();

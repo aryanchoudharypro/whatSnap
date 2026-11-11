@@ -1,4 +1,5 @@
 pub mod countries;
+pub mod i18n;
 pub mod local_time;
 pub mod markdown;
 pub mod phone;
@@ -112,9 +113,11 @@ pub fn format_date_divider_label(local_dt: LocalTime) -> String {
 	let day = local_dt.date();
 	let today = LocalTime::now().date();
 	if day == today {
-		"Today".to_string()
+		i18n::tr("Today").to_string()
 	} else if day == today.add_days(-1) {
-		"Yesterday".to_string()
+		i18n::tr("Yesterday").to_string()
+	} else if i18n::is_indonesian() {
+		local_dt.format("%A, %e %B %Y").replace("  ", " ")
 	} else {
 		local_dt.format("%A, %B %e, %Y")
 	}
@@ -126,9 +129,9 @@ pub fn day_name(local_dt: LocalTime, other: &str) -> String {
 	let day = local_dt.date();
 	let today = LocalTime::now().date();
 	if day == today {
-		"Today".to_string()
+		i18n::tr("Today").to_string()
 	} else if day == today.add_days(-1) {
-		"Yesterday".to_string()
+		i18n::tr("Yesterday").to_string()
 	} else {
 		local_dt.format(other).replace("  ", " ")
 	}
@@ -137,6 +140,14 @@ pub fn day_name(local_dt: LocalTime, other: &str) -> String {
 /// "today at 9:05 PM", "yesterday at 9:05 PM" or "Mar 2 at 9:05 PM", for
 /// times read inside a sentence.
 pub fn day_and_time(local_dt: LocalTime) -> String {
+	if i18n::is_indonesian() {
+		let time = local_dt.format("%H:%M");
+		let day = day_name(local_dt, "%e %b");
+		return match day.as_str() {
+			"Hari ini" | "Kemarin" => format!("{} pukul {}", day.to_lowercase(), time),
+			_ => format!("{day} pukul {time}"),
+		};
+	}
 	let time = local_dt.format("%l:%M %p").trim().to_string();
 	let day = day_name(local_dt, "%b %e");
 	match day.as_str() {
@@ -147,7 +158,11 @@ pub fn day_and_time(local_dt: LocalTime) -> String {
 
 /// Just the time for today, otherwise [`day_and_time`].
 pub fn time_or_day(local_dt: LocalTime) -> String {
-	if local_dt.date() == LocalTime::now().date() { local_dt.format("%I:%M %p") } else { day_and_time(local_dt) }
+	if local_dt.date() == LocalTime::now().date() {
+		if i18n::is_indonesian() { local_dt.format("%H:%M") } else { local_dt.format("%I:%M %p") }
+	} else {
+		day_and_time(local_dt)
+	}
 }
 
 /// Calendar-day key for a timestamp, used to decide whether two messages need
@@ -160,55 +175,74 @@ pub fn date_key(local_dt: LocalTime) -> Date {
 
 pub fn friendly_preview_text(text: &str) -> String {
 	if text.starts_with("[Voice Message]") {
-		return "Voice message".to_string();
+		return i18n::tr("Voice message").to_string();
 	}
 	if text.starts_with("[Audio]") {
-		return "Audio".to_string();
+		return i18n::tr("Audio").to_string();
 	}
 	for tag in ["[Image]", "[Photo]"] {
 		if let Some(rest) = text.strip_prefix(tag) {
 			let rest = rest.trim();
-			return if rest.is_empty() { "Photo".to_string() } else { format!("Photo: {}", rest) };
+			let photo = i18n::tr("Photo");
+			return if rest.is_empty() { photo.to_string() } else { format!("{photo}: {rest}") };
 		}
 	}
 	if let Some(rest) = text.strip_prefix("[Video] GIF") {
 		let rest = rest.trim_start_matches([':', '.', ' ']);
-		return if rest.is_empty() { "GIF".to_string() } else { format!("GIF: {}", rest) };
+		return if rest.is_empty() { "GIF".to_string() } else { format!("GIF: {rest}") };
 	}
 	if let Some(rest) = text.strip_prefix("[Video]") {
 		let rest = rest.trim();
-		return if rest.is_empty() { "Video".to_string() } else { format!("Video: {}", rest) };
+		let video = i18n::tr("Video");
+		return if rest.is_empty() { video.to_string() } else { format!("{video}: {rest}") };
 	}
 	if let Some(rest) = text.strip_prefix("[Document]") {
 		let rest = rest.trim();
-		return if rest.is_empty() { "Document".to_string() } else { format!("Document: {}", rest) };
+		let doc = i18n::tr("Document");
+		return if rest.is_empty() { doc.to_string() } else { format!("{doc}: {rest}") };
 	}
 	if let Some(rest) = text.strip_prefix("[Live Location]") {
 		let rest = rest.trim();
-		return if rest.is_empty() { "Live location".to_string() } else { format!("Live location: {}", rest) };
+		let loc = i18n::tr("Live location");
+		return if rest.is_empty() { loc.to_string() } else { format!("{loc}: {rest}") };
 	}
 	if let Some(rest) = text.strip_prefix("[Contact]") {
 		let rest = rest.trim();
-		return if rest.is_empty() { "Contact".to_string() } else { format!("Contact: {}", rest) };
+		let contact = i18n::tr("Contact");
+		return if rest.is_empty() { contact.to_string() } else { format!("{contact}: {rest}") };
 	}
 	if let Some(rest) = text.strip_prefix("[Poll]") {
 		let rest = rest.trim();
-		return if rest.is_empty() { "Poll".to_string() } else { format!("Poll: {}", rest) };
+		let poll = i18n::tr("Poll");
+		let translated = i18n::translate_rich_message_text(rest);
+		return if translated.is_empty() { poll.to_string() } else { format!("{poll}: {translated}") };
 	}
 	if let Some(rest) = text.strip_prefix("[Sticker]") {
 		let rest = rest.trim();
-		return if rest.is_empty() { "Sticker".to_string() } else { format!("Sticker: {}", rest) };
+		let sticker = i18n::tr("Sticker");
+		return if rest.is_empty() { sticker.to_string() } else { format!("{sticker}: {rest}") };
 	}
 	if let Some(rest) = text.strip_prefix("[Quiz]") {
 		let rest = rest.trim();
-		return if rest.is_empty() { "Quiz".to_string() } else { format!("Quiz: {}", rest) };
+		let quiz = i18n::tr("Quiz");
+		let translated = i18n::translate_rich_message_text(rest);
+		return if translated.is_empty() { quiz.to_string() } else { format!("{quiz}: {translated}") };
 	}
 	match text {
-		"[Location]" => "Location".to_string(),
-		"[Message deleted]" => "This message was deleted".to_string(),
-		"[Unsupported Message]" => "Message".to_string(),
+		"[Location]" => i18n::tr("Location").to_string(),
+		"[Message deleted]" | "[You deleted this message]" | "[This message was deleted]" => {
+			i18n::tr("This message was deleted").to_string()
+		}
+		"[Unsupported Message]" => {
+			if i18n::is_indonesian() {
+				"Pesan belum didukung".to_string()
+			} else {
+				"Message".to_string()
+			}
+		}
 		// Shown without *bold* / _italic_ markers, like WhatsApp Web's
 		// previews and notifications.
+		_ if text.starts_with('[') => strip_markdown_for_speech(&i18n::translate_rich_message_text(text)),
 		_ => strip_markdown_for_speech(text),
 	}
 }
@@ -469,7 +503,7 @@ impl ChatMessage {
 		Self::sanitize_filename(&raw)
 	}
 
-	/// Just the message's own content — no sender name, timestamp, status,
+	/// Just the message's own content - no sender name, timestamp, status,
 	/// reply-quote, or reaction suffixes. `format_display` builds its `body`
 	/// from this; it's also what a Shift+Enter "view/copy this message"
 	/// dialog should show, since a screen reader review field is for reading
@@ -482,12 +516,12 @@ impl ChatMessage {
 			|| self.text == "You deleted this message"
 			|| self.text == "This message was deleted";
 		if is_deleted {
-			return "This message was deleted".to_string();
+			return i18n::tr("This message was deleted").to_string();
 		}
 
 		let is_voice = self.is_audio || self.text.starts_with("[Voice Message]") || self.text.starts_with("[Audio]");
 		if is_voice {
-			let prefix = if self.text.starts_with("[Audio]") { "Audio" } else { "Voice message" };
+			let prefix = if self.text.starts_with("[Audio]") { i18n::tr("Audio") } else { i18n::tr("Voice message") };
 			let tag = if self.text.starts_with("[Audio]") { "[Audio]" } else { "[Voice Message]" };
 
 			if self.text == tag || self.text.is_empty() {
@@ -497,27 +531,29 @@ impl ChatMessage {
 				if rest.is_empty() {
 					prefix.to_string()
 				} else if rest.starts_with('(') && rest.ends_with(')') {
-					format!("{} Duration: {}", prefix, &rest[1..rest.len() - 1])
+					format!("{prefix} {}{}", i18n::tr("Duration: "), &rest[1..rest.len() - 1])
 				} else {
-					format!("{} {}", prefix, rest)
+					format!("{prefix} {rest}")
 				}
 			} else {
 				self.text.clone()
 			}
 		} else if self.text.is_empty() {
 			if self.is_document() || self.media_type == "document" {
-				format!("Document: {}", self.display_filename())
+				format!("{}: {}", i18n::tr("Document"), self.display_filename())
 			} else {
 				"[Media]".to_string()
 			}
 		} else if self.is_poll() && !self.poll_results.is_empty() {
 			let question = friendly_preview_text(&self.text);
 			let sep = if question.ends_with(['?', '!', '.']) { " " } else { ". " };
-			format!("{question}{sep}{}", self.poll_results)
+			let results = i18n::translate_rich_message_text(&self.poll_results);
+			format!("{question}{sep}{results}")
 		} else if self.is_event() && !self.poll_results.is_empty() {
-			let details = self.text.trim_end();
+			let details = i18n::translate_rich_message_text(self.text.trim_end());
 			let sep = if details.ends_with(['?', '!', '.']) { " " } else { ". " };
-			format!("{details}{sep}{}", self.poll_results)
+			let results = i18n::translate_rich_message_text(&self.poll_results);
+			format!("{details}{sep}{results}")
 		} else if self.text.starts_with('[') {
 			friendly_preview_text(&self.text)
 		} else {
@@ -530,7 +566,7 @@ impl ChatMessage {
 			return None;
 		}
 		let q_sender = if self.quoted_sender == "me" || self.quoted_sender == "You" {
-			"You".to_string()
+			i18n::tr("You").to_string()
 		} else if !is_placeholder_name(&self.quoted_sender) && !self.quoted_sender.contains('@') {
 			if self.quoted_sender.starts_with('@') {
 				self.quoted_sender.clone()
@@ -538,29 +574,33 @@ impl ChatMessage {
 				format!("@{}", self.quoted_sender)
 			}
 		} else {
-			"quoted message".to_string()
+			i18n::tr("quoted message").to_string()
 		};
 
 		let q_body = if self.quoted_text.starts_with("[Voice Message]") {
 			let rest = self.quoted_text["[Voice Message]".len()..].trim();
+			let prefix = i18n::tr("Voice message");
 			if rest.is_empty() {
-				"Voice message".to_string()
+				prefix.to_string()
 			} else if rest.starts_with('(') && rest.ends_with(')') {
-				format!("Voice message Duration: {}", &rest[1..rest.len() - 1])
+				format!("{prefix} {}{}", i18n::tr("Duration: "), &rest[1..rest.len() - 1])
 			} else {
-				format!("Voice message {}", rest)
+				format!("{prefix} {rest}")
 			}
 		} else if self.quoted_text.starts_with("[Audio]") {
 			let rest = self.quoted_text["[Audio]".len()..].trim();
+			let prefix = i18n::tr("Audio");
 			if rest.is_empty() {
-				"Audio".to_string()
+				prefix.to_string()
 			} else if rest.starts_with('(') && rest.ends_with(')') {
-				format!("Audio Duration: {}", &rest[1..rest.len() - 1])
+				format!("{prefix} {}{}", i18n::tr("Duration: "), &rest[1..rest.len() - 1])
 			} else {
-				format!("Audio {}", rest)
+				format!("{prefix} {rest}")
 			}
 		} else if self.quoted_text.is_empty() {
 			"[Media]".to_string()
+		} else if self.quoted_text.starts_with('[') {
+			friendly_preview_text(&self.quoted_text)
 		} else {
 			self.quoted_text.clone()
 		};
@@ -573,7 +613,7 @@ impl ChatMessage {
 	/// this message is not a reply.
 	pub fn reply_announcement(&self) -> Option<String> {
 		let (sender, body) = self.reply_parts()?;
-		Some(if sender == "quoted message" {
+		Some(if sender == i18n::tr("quoted message") {
 			body
 		} else {
 			// reply_parts marks names with a leading @, which a screen reader reads out.
@@ -583,20 +623,27 @@ impl ChatMessage {
 
 	/// The ", X reacted with Y" suffix for `reactions` as read on this message.
 	fn reactions_text(&self, reactions: &[ChatReaction]) -> String {
+		let is_id = i18n::is_indonesian();
 		let active: Vec<String> = reactions
 			.iter()
 			.filter(|r| !r.emoji.is_empty())
 			.map(|r| {
 				let name = if r.reactor_name == "me" || r.reactor_name == "You" || r.reactor_jid == "me" {
-					"You".to_string()
+					if is_id { "Anda".to_string() } else { "You".to_string() }
 				} else if !is_placeholder_name(&r.reactor_name) && !r.reactor_name.contains('@') {
 					r.reactor_name.clone()
 				} else if !is_placeholder_name(&self.sender_name) && !self.sender_name.contains('@') && !self.from_me {
 					self.sender_name.clone()
+				} else if is_id {
+					"Kontak".to_string()
 				} else {
 					"Contact".to_string()
 				};
-				format!("{} reacted with {}", name, r.emoji)
+				if is_id {
+					format!("{name} bereaksi {}", r.emoji)
+				} else {
+					format!("{name} reacted with {}", r.emoji)
+				}
 			})
 			.collect();
 
@@ -604,15 +651,19 @@ impl ChatMessage {
 	}
 
 	pub fn format_display(&self, _is_group: bool) -> String {
-		if self.is_date_divider || self.is_unread_divider || self.is_system() {
+		if self.is_date_divider || self.is_unread_divider {
 			return self.text.clone();
+		}
+		if self.is_system() {
+			return i18n::translate_system_message(&self.text);
 		}
 
 		let mut formatted_time = String::new();
 		if self.timestamp > 0
 			&& let Some(local_datetime) = LocalTime::from_unix(self.timestamp)
 		{
-			formatted_time = local_datetime.format("%I:%M %p");
+			formatted_time =
+				if i18n::is_indonesian() { local_datetime.format("%H:%M") } else { local_datetime.format("%I:%M %p") };
 		}
 
 		let is_deleted = self.is_deleted
@@ -623,57 +674,79 @@ impl ChatMessage {
 
 		if is_deleted {
 			return if self.from_me {
+				let you = i18n::tr("You");
 				if !formatted_time.is_empty() {
-					format!("You: deleted this message, sent at {}", formatted_time)
+					if i18n::is_indonesian() {
+						format!("{you}: menghapus pesan ini, dikirim pukul {formatted_time}")
+					} else {
+						format!("You: deleted this message, sent at {formatted_time}")
+					}
+				} else if i18n::is_indonesian() {
+					format!("{you}: menghapus pesan ini")
 				} else {
 					"You: deleted this message".to_string()
 				}
 			} else {
 				let name = if !is_placeholder_name(&self.sender_name) {
-					&self.sender_name
+					self.sender_name.as_str()
 				} else if !self.sender_jid.is_empty() {
-					&self.sender_jid
+					self.sender_jid.as_str()
 				} else {
-					"Contact"
+					i18n::tr("Contact")
 				};
 				if !formatted_time.is_empty() {
-					format!("{}: deleted this message, received at {}", name, formatted_time)
+					if i18n::is_indonesian() {
+						format!("{name}: menghapus pesan ini, diterima pukul {formatted_time}")
+					} else {
+						format!("{name}: deleted this message, received at {formatted_time}")
+					}
+				} else if i18n::is_indonesian() {
+					format!("{name}: menghapus pesan ini")
 				} else {
-					format!("{}: deleted this message", name)
+					format!("{name}: deleted this message")
 				}
 			};
 		}
 
 		let status_title = match self.status.as_str() {
-			"pending" => "Pending",
-			"uploading" => "Uploading",
-			"failed" => "Failed to send",
-			"sent" => "Sent",
-			"delivered" => "Delivered",
-			"read" => "Read",
-			"played" => "Played",
-			"" => "Sent",
+			"pending" => i18n::tr("Pending"),
+			"uploading" => i18n::tr("Uploading"),
+			"failed" => i18n::tr("Failed to send"),
+			"sent" | "" => i18n::tr("Sent"),
+			"delivered" => i18n::tr("Delivered"),
+			"read" => i18n::tr("Read"),
+			"played" => i18n::tr("Played"),
 			other => other,
 		};
 
 		let body = strip_markdown_for_speech(&self.body_text());
 
 		let reply_suffix = match self.reply_parts() {
-			Some((q_sender, q_body)) if q_sender == "quoted message" => {
-				format!(", replied to quoted message: \"{}\"", q_body)
+			Some((q_sender, q_body)) if q_sender == i18n::tr("quoted message") => {
+				if i18n::is_indonesian() {
+					format!(", membalas pesan yang dikutip: \"{q_body}\"")
+				} else {
+					format!(", replied to quoted message: \"{q_body}\"")
+				}
 			}
-			Some((q_sender, q_body)) => format!(", replied to quoted message from {}: \"{}\"", q_sender, q_body),
+			Some((q_sender, q_body)) => {
+				if i18n::is_indonesian() {
+					format!(", membalas pesan yang dikutip dari {q_sender}: \"{q_body}\"")
+				} else {
+					format!(", replied to quoted message from {q_sender}: \"{q_body}\"")
+				}
+			}
 			None => String::new(),
 		};
 
 		let reactions_suffix = self.reactions_text(&self.reactions);
 
-		let edit_suffix = if self.is_edited { ", edited" } else { "" };
+		let edit_suffix = if self.is_edited { if i18n::is_indonesian() { ", diedit" } else { ", edited" } } else { "" };
 		let star_suffix = format!(
 			"{}{}{}",
-			if self.starred { ", starred" } else { "" },
-			if self.pinned { ", pinned" } else { "" },
-			if self.kept { ", kept" } else { "" }
+			if self.starred { i18n::tr(", starred") } else { "" },
+			if self.pinned { i18n::tr(", pinned") } else { "" },
+			if self.kept { i18n::tr(", kept") } else { "" }
 		);
 		let reactions_suffix = if self.channel_stats.is_empty() {
 			reactions_suffix
@@ -684,33 +757,41 @@ impl ChatMessage {
 		let sep = if format!("{}{}", body, reply_suffix).ends_with(['?', '!']) { " ," } else { "," };
 
 		if self.from_me {
+			let you = i18n::tr("You");
 			if !formatted_time.is_empty() {
-				format!(
-					"You: {}{}{} sent at {}, {}{}{}{}",
-					body, reply_suffix, sep, formatted_time, status_title, reactions_suffix, edit_suffix, star_suffix
-				)
+				if i18n::is_indonesian() {
+					format!(
+						"{you}: {body}{reply_suffix}{sep} dikirim pukul {formatted_time}, {status_title}{reactions_suffix}{edit_suffix}{star_suffix}"
+					)
+				} else {
+					format!(
+						"You: {body}{reply_suffix}{sep} sent at {formatted_time}, {status_title}{reactions_suffix}{edit_suffix}{star_suffix}"
+					)
+				}
 			} else {
-				format!(
-					"You: {}{}{} {}{}{}{}",
-					body, reply_suffix, sep, status_title, reactions_suffix, edit_suffix, star_suffix
-				)
+				format!("{you}: {body}{reply_suffix}{sep} {status_title}{reactions_suffix}{edit_suffix}{star_suffix}")
 			}
 		} else {
 			let name = if !is_placeholder_name(&self.sender_name) {
-				&self.sender_name
+				self.sender_name.as_str()
 			} else if !self.sender_jid.is_empty() {
-				&self.sender_jid
+				self.sender_jid.as_str()
 			} else {
-				"Contact"
+				i18n::tr("Contact")
 			};
 
 			if !formatted_time.is_empty() {
-				format!(
-					"{}: {}{}{} received at {}{}{}{}",
-					name, body, reply_suffix, sep, formatted_time, reactions_suffix, edit_suffix, star_suffix
-				)
+				if i18n::is_indonesian() {
+					format!(
+						"{name}: {body}{reply_suffix}{sep} diterima pukul {formatted_time}{reactions_suffix}{edit_suffix}{star_suffix}"
+					)
+				} else {
+					format!(
+						"{name}: {body}{reply_suffix}{sep} received at {formatted_time}{reactions_suffix}{edit_suffix}{star_suffix}"
+					)
+				}
 			} else {
-				format!("{}: {}{}{}{}{}", name, body, reply_suffix, reactions_suffix, edit_suffix, star_suffix)
+				format!("{name}: {body}{reply_suffix}{reactions_suffix}{edit_suffix}{star_suffix}")
 			}
 		}
 	}
@@ -718,10 +799,12 @@ impl ChatMessage {
 	pub fn format_display_with_progress(&self, is_group: bool, progress: Option<&str>) -> String {
 		let orig = self.format_display(is_group);
 		if let Some(prog) = progress {
-			if orig.contains("Voice message") {
-				return orig.replace("Voice message", &format!("Voice message ({})", prog));
-			} else if orig.contains("Audio") {
-				return orig.replace("Audio", &format!("Audio ({})", prog));
+			let voice = i18n::tr("Voice message");
+			let audio = i18n::tr("Audio");
+			if orig.contains(voice) {
+				return orig.replace(voice, &format!("{voice} ({prog})"));
+			} else if orig.contains(audio) {
+				return orig.replace(audio, &format!("{audio} ({prog})"));
 			}
 		}
 		orig
@@ -803,11 +886,21 @@ impl DisplayItem {
 					messages.iter().filter(|m| m.media_type == "video" || m.text.starts_with("[Video]")).count();
 				let total = messages.len();
 				if photo_count > 0 && video_count == 0 {
-					format!("Album: {} photos", photo_count)
+					if i18n::is_indonesian() {
+						format!("Album: {photo_count} foto")
+					} else {
+						format!("Album: {photo_count} photos")
+					}
 				} else if video_count > 0 && photo_count == 0 {
-					format!("Album: {} videos", video_count)
+					if i18n::is_indonesian() {
+						format!("Album: {video_count} video")
+					} else {
+						format!("Album: {video_count} videos")
+					}
+				} else if i18n::is_indonesian() {
+					format!("Album: {total} media")
 				} else {
-					format!("Album: {} media items", total)
+					format!("Album: {total} media items")
 				}
 			}
 		}
@@ -819,7 +912,11 @@ impl DisplayItem {
 			DisplayItem::Album { from_me, sender_name, sender_jid, timestamp, messages, .. } => {
 				let formatted_time = if *timestamp > 0 {
 					if let Some(local_dt) = LocalTime::from_unix(*timestamp) {
-						local_dt.format("%l:%M %p").trim().to_string()
+						if i18n::is_indonesian() {
+							local_dt.format("%H:%M")
+						} else {
+							local_dt.format("%l:%M %p").trim().to_string()
+						}
 					} else {
 						String::new()
 					}
@@ -838,11 +935,13 @@ impl DisplayItem {
 				let total = messages.len();
 
 				let desc = if photo_count > 0 && video_count == 0 {
-					format!("{} photos", photo_count)
+					if i18n::is_indonesian() { format!("{photo_count} foto") } else { format!("{photo_count} photos") }
 				} else if video_count > 0 && photo_count == 0 {
-					format!("{} videos", video_count)
+					if i18n::is_indonesian() { format!("{video_count} video") } else { format!("{video_count} videos") }
+				} else if i18n::is_indonesian() {
+					format!("{total} media")
 				} else {
-					format!("{} media items", total)
+					format!("{total} media items")
 				};
 
 				let all_reactions: Vec<ChatReaction> =
@@ -852,10 +951,17 @@ impl DisplayItem {
 					None => String::new(),
 				};
 				if *from_me {
+					let you = i18n::tr("You");
 					if !formatted_time.is_empty() {
-						format!("You: [Album: {}], sent at {}{}", desc, formatted_time, reactions)
+						if i18n::is_indonesian() {
+							format!("{you}: [Album: {desc}], dikirim pukul {formatted_time}{reactions}")
+						} else {
+							format!("You: [Album: {desc}], sent at {formatted_time}{reactions}")
+						}
+					} else if i18n::is_indonesian() {
+						format!("{you}: [Album: {desc}]{reactions}")
 					} else {
-						format!("You: [Album: {}]{}", desc, reactions)
+						format!("You: [Album: {desc}]{reactions}")
 					}
 				} else {
 					let name = if !is_placeholder_name(sender_name) {
@@ -863,12 +969,18 @@ impl DisplayItem {
 					} else if !sender_jid.is_empty() {
 						sender_jid.as_str()
 					} else {
-						"Contact"
+						i18n::tr("Contact")
 					};
 					if !formatted_time.is_empty() {
-						format!("{}: [Album: {}], received at {}{}", name, desc, formatted_time, reactions)
+						if i18n::is_indonesian() {
+							format!("{name}: [Album: {desc}], diterima pukul {formatted_time}{reactions}")
+						} else {
+							format!("{name}: [Album: {desc}], received at {formatted_time}{reactions}")
+						}
+					} else if i18n::is_indonesian() {
+						format!("{name}: [Album: {desc}]{reactions}")
 					} else {
-						format!("{}: [Album: {}]{}", name, desc, reactions)
+						format!("{name}: [Album: {desc}]{reactions}")
 					}
 				}
 			}
@@ -1040,10 +1152,10 @@ impl AttachKind {
 		match self {
 			AttachKind::Media => {
 				let media: Vec<&str> = IMAGE_EXTS.iter().chain(VIDEO_EXTS).copied().collect();
-				format!("Photos and videos|{}", pattern(&media))
+				format!("{}|{}", i18n::tr("Photos and videos"), pattern(&media))
 			}
-			AttachKind::Audio => format!("Audio|{}", pattern(AUDIO_EXTS)),
-			AttachKind::Document | AttachKind::Pasted => "All files|*.*".to_string(),
+			AttachKind::Audio => format!("{}|{}", i18n::tr("Audio"), pattern(AUDIO_EXTS)),
+			AttachKind::Document | AttachKind::Pasted => format!("{}|*.*", i18n::tr("All files")),
 		}
 	}
 
@@ -1074,19 +1186,19 @@ impl AttachKind {
 		let plural = paths.len() > 1;
 		let mut choices = Vec::new();
 		if all(AUDIO_EXTS) {
-			choices.push(("Audio", AttachKind::Audio));
+			choices.push((i18n::tr("Audio"), AttachKind::Audio));
 		} else if paths.iter().all(media) {
 			let label = if all(IMAGE_EXTS) {
-				if plural { "Photos" } else { "Photo" }
+				if plural { i18n::tr("Photos") } else { i18n::tr("Photo") }
 			} else if all(VIDEO_EXTS) {
-				if plural { "Videos" } else { "Video" }
+				if plural { i18n::tr("Videos") } else { i18n::tr("Video") }
 			} else {
-				"Photos and videos"
+				i18n::tr("Photos and videos")
 			};
 			choices.push((label, AttachKind::Media));
 		}
 		if !choices.is_empty() {
-			choices.push((if plural { "Documents" } else { "Document" }, AttachKind::Document));
+			choices.push((if plural { i18n::tr("Documents") } else { i18n::tr("Document") }, AttachKind::Document));
 		}
 		choices
 	}
@@ -1099,25 +1211,25 @@ pub const POLL_MAX_OPTIONS: usize = 12;
 pub fn validate_poll(question: &str, options_text: &str) -> Result<Vec<String>, &'static str> {
 	let question = question.trim();
 	if question.is_empty() {
-		return Err("Type a question for the poll.");
+		return Err(i18n::tr("Type a question for the poll."));
 	}
 	if question.chars().count() > POLL_MAX_QUESTION_CHARS {
-		return Err("The question is too long. Polls allow up to 255 characters.");
+		return Err(i18n::tr("The question is too long. Polls allow up to 255 characters."));
 	}
 	let options: Vec<String> =
 		options_text.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
 	if options.len() < 2 {
-		return Err("A poll needs at least two options, one per line.");
+		return Err(i18n::tr("A poll needs at least two options, one per line."));
 	}
 	if options.len() > POLL_MAX_OPTIONS {
-		return Err("A poll can have at most 12 options.");
+		return Err(i18n::tr("A poll can have at most 12 options."));
 	}
 	if options.iter().any(|o| o.chars().count() > POLL_MAX_OPTION_CHARS) {
-		return Err("An option is too long. Each option allows up to 100 characters.");
+		return Err(i18n::tr("An option is too long. Each option allows up to 100 characters."));
 	}
 	for (i, o) in options.iter().enumerate() {
 		if options[..i].contains(o) {
-			return Err("Two options are the same. Each option must be different.");
+			return Err(i18n::tr("Two options are the same. Each option must be different."));
 		}
 	}
 	Ok(options)
@@ -1437,7 +1549,13 @@ pub fn insert_unread_divider(messages: &mut Vec<Msg>, count: u64) {
 			false
 		})
 		.unwrap_or(messages.len());
-	let label = if n == 1 { "1 unread message".to_string() } else { format!("{} unread messages", n) };
+	let label = if i18n::is_indonesian() {
+		format!("{n} pesan belum dibaca")
+	} else if n == 1 {
+		"1 unread message".to_string()
+	} else {
+		format!("{n} unread messages")
+	};
 	messages.insert(insert_at, Msg::new(ChatMessage { text: label, is_unread_divider: true, ..Default::default() }));
 }
 

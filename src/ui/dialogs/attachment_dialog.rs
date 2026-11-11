@@ -15,7 +15,7 @@ pub struct AttachmentDialogParts {
 }
 
 pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts {
-	let dialog = Dialog::builder(parent, "Send attachment")
+	let dialog = Dialog::builder(parent, crate::i18n::tr("Send attachment"))
 		.with_size(420, 220)
 		.with_style(DialogStyle::DefaultDialogStyle)
 		.build();
@@ -27,7 +27,7 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 	theme::style_muted_label(&attachment_info_label);
 	sizer.add(&attachment_info_label, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let caption_label = StaticText::builder(&dialog).with_label("Caption (optional)").build();
+	let caption_label = StaticText::builder(&dialog).with_label(crate::i18n::tr("Caption (optional)")).build();
 	theme::style_muted_label(&caption_label);
 	sizer.add(&caption_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
@@ -35,21 +35,21 @@ pub fn build_attachment_dialog(parent: &impl WxWidget) -> AttachmentDialogParts 
 	caption_field.set_font(&theme::Fonts::body());
 	sizer.add(&caption_field, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let view_once_check = CheckBox::builder(&dialog).with_label("&View once").build();
+	let view_once_check = CheckBox::builder(&dialog).with_label(crate::i18n::tr("&View once")).build();
 	dialog_look::switch(&view_once_check, theme::Palette::CONTENT_BG());
 	sizer.add(&view_once_check, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
-	let add_more_btn = Button::builder(&dialog).with_label("Add more files").build();
+	let add_more_btn = Button::builder(&dialog).with_label(crate::i18n::tr("Add more files")).build();
 	dialog_look::pill_button(&add_more_btn, false, theme::Palette::CONTENT_BG());
 	btn_sizer.add(&add_more_btn, 0, SizerFlag::Right, 6);
 
-	let discard_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label("Discard").build();
+	let discard_btn = Button::builder(&dialog).with_id(ID_CANCEL).with_label(crate::i18n::tr("Discard")).build();
 	dialog_look::pill_button(&discard_btn, false, theme::Palette::CONTENT_BG());
 	btn_sizer.add(&discard_btn, 0, SizerFlag::Right, 6);
 
-	let send_btn = Button::builder(&dialog).with_id(ID_OK).with_label("Send").build();
+	let send_btn = Button::builder(&dialog).with_id(ID_OK).with_label(crate::i18n::tr("Send")).build();
 	dialog_look::pill_button(&send_btn, true, theme::Palette::CONTENT_BG());
 	btn_sizer.add(&send_btn, 0, SizerFlag::empty(), 0);
 

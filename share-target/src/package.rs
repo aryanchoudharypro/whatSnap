@@ -23,6 +23,52 @@ use windows::{
 pub const PACKAGE_NAME: &str = "whatSnap.Share";
 pub const PUBLISHER: &str = "CN=whatSnap Local Share";
 
+#[link(name = "kernel32")]
+unsafe extern "system" {
+	fn GetUserDefaultUILanguage() -> u16;
+}
+
+fn settings_language_override() -> Option<bool> {
+	let base = std::env::var_os("LOCALAPPDATA")
+		.map(PathBuf::from)
+		.or_else(|| std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local")))?;
+	let text = std::fs::read_to_string(base.join("whatSnap").join("settings.json")).ok()?;
+	let bytes = text.as_bytes();
+	let needle = "\"language\"";
+	let mut pos = 0;
+	while let Some(found) = text[pos..].find(needle) {
+		let idx = pos + found;
+		pos = idx + needle.len();
+		if idx > 0 && bytes[idx - 1] == b'\\' {
+			continue;
+		}
+		let rest = text[pos..].trim_start();
+		let Some(after_colon) = rest.strip_prefix(':') else { continue };
+		let val = after_colon.trim_start();
+		if val.starts_with("\"id\"") {
+			return Some(true);
+		}
+		if val.starts_with("\"en\"") {
+			return Some(false);
+		}
+		if val.starts_with("\"system\"") {
+			return None;
+		}
+	}
+	None
+}
+
+pub(crate) fn is_indonesian() -> bool {
+	static IS_ID: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+	*IS_ID.get_or_init(|| {
+		if let Some(choice) = settings_language_override() {
+			return choice;
+		}
+		let lang_id = unsafe { GetUserDefaultUILanguage() };
+		(lang_id & 0x03ff) == 0x21
+	})
+}
+
 pub fn app_dir() -> PathBuf {
 	std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default()
 }
@@ -82,7 +128,9 @@ enum SignFailure {
 fn run_sign_as_admin() -> Result<(), SignFailure> {
 	let _ = std::fs::remove_file(sign_error_file());
 	let Ok(exe) = std::env::current_exe() else {
-		return Err(SignFailure::Failed("can't find whatSnapShare.exe".into()));
+		let msg =
+			if is_indonesian() { "tidak dapat menemukan whatSnapShare.exe" } else { "can't find whatSnapShare.exe" };
+		return Err(SignFailure::Failed(msg.into()));
 	};
 	let exe = HSTRING::from(exe.as_os_str());
 	let mut info = SHELLEXECUTEINFOW {
@@ -101,7 +149,12 @@ fn run_sign_as_admin() -> Result<(), SignFailure> {
 		}
 		if info.hProcess.is_invalid() {
 			log("Starting the administrator step gave no process to wait for");
-			return Err(SignFailure::Failed("Windows didn't start the administrator step".into()));
+			let msg = if is_indonesian() {
+				"Windows tidak menjalankan langkah administrator"
+			} else {
+				"Windows didn't start the administrator step"
+			};
+			return Err(SignFailure::Failed(msg.into()));
 		}
 		let mut code = 1u32;
 		let done = WaitForSingleObject(info.hProcess, INFINITE) == WAIT_OBJECT_0
@@ -112,8 +165,14 @@ fn run_sign_as_admin() -> Result<(), SignFailure> {
 			return Ok(());
 		}
 	}
-	let reason = std::fs::read_to_string(sign_error_file())
-		.unwrap_or_else(|_| "signing as administrator failed without saying why".to_string());
+	let reason = std::fs::read_to_string(sign_error_file()).unwrap_or_else(|_| {
+		if is_indonesian() {
+			"penandatanganan sebagai administrator gagal tanpa keterangan"
+		} else {
+			"signing as administrator failed without saying why"
+		}
+		.to_string()
+	});
 	Err(SignFailure::Failed(reason))
 }
 
@@ -175,25 +234,47 @@ pub fn enable_result_file() -> PathBuf {
 
 fn try_enable() -> Result<&'static str, String> {
 	if !unsigned_package().is_file() {
-		return Err(
-			"This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again.".into()
-		);
+		let msg = if is_indonesian() {
+			"Salinan whatSnap ini tidak menyertakan paket menu Bagikan. Instal ulang whatSnap lalu coba lagi."
+		} else {
+			"This copy of whatSnap doesn't include the Share menu package. Reinstall whatSnap and try again."
+		};
+		return Err(msg.into());
 	}
 	if needs_signing() {
 		match run_sign_as_admin() {
 			Ok(()) => {}
 			Err(SignFailure::NotApproved) => {
-				return Err("whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu.".into());
+				let msg = if is_indonesian() {
+					"whatSnap tidak ditambahkan ke menu Bagikan karena perlu persetujuan administrator satu kali. Anda masih dapat mengirim file lewat Kirim ke di menu Explorer."
+				} else {
+					"whatSnap wasn't added to the Share menu, because that needs an administrator to approve it once. You can still send files with Send to in Explorer's menu."
+				};
+				return Err(msg.into());
 			}
 			Err(SignFailure::Failed(reason)) => {
 				log(&format!("Signing failed: {reason}"));
-				return Err(format!("whatSnap couldn't be added to the Share menu.\n\nSigning failed: {reason}"));
+				let msg = if is_indonesian() {
+					format!("whatSnap tidak dapat ditambahkan ke menu Bagikan.\n\nPenandatanganan gagal: {reason}")
+				} else {
+					format!("whatSnap couldn't be added to the Share menu.\n\nSigning failed: {reason}")
+				};
+				return Err(msg);
 			}
 		}
 	}
-	register().map(|()| "whatSnap is now in the Windows Share menu.").map_err(|e| {
+	let ok_msg = if is_indonesian() {
+		"whatSnap kini ada di menu Bagikan Windows."
+	} else {
+		"whatSnap is now in the Windows Share menu."
+	};
+	register().map(|()| ok_msg).map_err(|e| {
 		log(&format!("Registering the package failed: {e}"));
-		format!("whatSnap couldn't be added to the Share menu.\n\n{e}")
+		if is_indonesian() {
+			format!("whatSnap tidak dapat ditambahkan ke menu Bagikan.\n\n{e}")
+		} else {
+			format!("whatSnap couldn't be added to the Share menu.\n\n{e}")
+		}
 	})
 }
 

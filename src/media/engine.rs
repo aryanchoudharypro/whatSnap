@@ -85,9 +85,9 @@ impl MediaEngine {
 	pub(crate) fn take_reports(&self) -> Changes {
 		let error = match self.reports.error.swap(0, Ordering::AcqRel) {
 			0 => None,
-			4 => Some("This video's format can't be played here."),
-			3 => Some("The video couldn't be decoded. The file may be damaged."),
-			_ => Some("The video couldn't be played."),
+			4 => Some(crate::i18n::tr("This video's format can't be played here.")),
+			3 => Some(crate::i18n::tr("The video couldn't be decoded. The file may be damaged.")),
+			_ => Some(crate::i18n::tr("The video couldn't be played.")),
 		};
 		Changes {
 			loaded: self.reports.loaded.swap(false, Ordering::AcqRel),

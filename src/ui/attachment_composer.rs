@@ -18,7 +18,7 @@ pub fn build_attachment_composer(parent: &impl WxWidget) -> AttachmentComposerPa
 	let attachment_info_label = StaticText::builder(&panel).with_label("").build();
 	sizer.add(&attachment_info_label, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 10);
 
-	let caption_label = StaticText::builder(&panel).with_label("Caption (optional)").build();
+	let caption_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Caption (optional)")).build();
 	sizer.add(&caption_label, 0, SizerFlag::Left | SizerFlag::Top, 10);
 
 	let caption_field = TextCtrl::builder(&panel)
@@ -28,13 +28,13 @@ pub fn build_attachment_composer(parent: &impl WxWidget) -> AttachmentComposerPa
 
 	let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
 
-	let add_more_btn = Button::builder(&panel).with_label("Add more files").build();
+	let add_more_btn = Button::builder(&panel).with_label(crate::i18n::tr("Add more files")).build();
 	btn_sizer.add(&add_more_btn, 0, SizerFlag::Right, 5);
 
-	let discard_btn = Button::builder(&panel).with_label("Discard").build();
+	let discard_btn = Button::builder(&panel).with_label(crate::i18n::tr("Discard")).build();
 	btn_sizer.add(&discard_btn, 0, SizerFlag::Right, 5);
 
-	let send_btn = Button::builder(&panel).with_label("Send").build();
+	let send_btn = Button::builder(&panel).with_label(crate::i18n::tr("Send")).build();
 	btn_sizer.add(&send_btn, 0, SizerFlag::empty(), 0);
 
 	sizer.add_sizer(&btn_sizer, 0, SizerFlag::AlignRight | SizerFlag::All, 10);

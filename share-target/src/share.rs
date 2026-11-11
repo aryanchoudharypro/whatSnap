@@ -26,7 +26,7 @@ use windows::{
 	core::{BSTR, HSTRING, Interface},
 };
 
-use crate::package::{app_dir, log};
+use crate::package::{app_dir, is_indonesian, log};
 
 enum Shared {
 	Files(Vec<PathBuf>),
@@ -60,12 +60,19 @@ pub fn handle_share_activation() -> i32 {
 			0
 		}
 		Ok(None) => {
-			let _ = operation.ReportError(&HSTRING::from("whatSnap can't send this."));
+			let msg =
+				if is_indonesian() { "whatSnap tidak dapat mengirim item ini." } else { "whatSnap can't send this." };
+			let _ = operation.ReportError(&HSTRING::from(msg));
 			1
 		}
 		Err(e) => {
 			log(&format!("Reading what was shared failed: {e}"));
-			let _ = operation.ReportError(&HSTRING::from(format!("whatSnap couldn't read what was shared: {e}")));
+			let msg = if is_indonesian() {
+				format!("whatSnap tidak dapat membaca item yang dibagikan: {e}")
+			} else {
+				format!("whatSnap couldn't read what was shared: {e}")
+			};
+			let _ = operation.ReportError(&HSTRING::from(msg));
 			1
 		}
 	}
@@ -160,7 +167,8 @@ fn save_bitmap(data: &DataPackageView, folder: &Path) -> windows::core::Result<P
 	reader.LoadAsync(size)?.join()?;
 	let mut bytes = vec![0u8; size as usize];
 	reader.ReadBytes(&mut bytes)?;
-	let path = folder.join(format!("Shared picture.{extension}"));
+	let prefix = if is_indonesian() { "Gambar dibagikan" } else { "Shared picture" };
+	let path = folder.join(format!("{prefix}.{extension}"));
 	std::fs::write(&path, &bytes)?;
 	Ok(path)
 }

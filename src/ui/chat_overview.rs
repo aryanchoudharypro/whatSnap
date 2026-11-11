@@ -37,35 +37,36 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 	let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
 	let group = is_group.then(|| {
-		let name_label = StaticText::builder(&panel).with_label("Group name").build();
+		let name_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Group name")).build();
 		sizer.add(&name_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 		let name = TextCtrl::builder(&panel).build();
 		sizer.add(&name, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
-		let desc_label = StaticText::builder(&panel).with_label("Group description").build();
+		let desc_label = StaticText::builder(&panel).with_label(crate::i18n::tr("Group description")).build();
 		sizer.add(&desc_label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 		let desc = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
 		sizer.add(&desc, 1, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
-		let save_btn = Button::builder(&panel).with_label("Save name and description").build();
+		let save_btn = Button::builder(&panel).with_label(crate::i18n::tr("Save name and description")).build();
 		sizer.add(&save_btn, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 		GroupFields { name_label, name, desc_label, desc, save_btn }
 	});
 
-	let label = StaticText::builder(&panel).with_label("Chat overview").build();
+	let label = StaticText::builder(&panel).with_label(crate::i18n::tr("Chat overview")).build();
 	sizer.add(&label, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 	let summary = TextCtrl::builder(&panel)
 		.with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::from_bits_retain(0x0020_0000))
 		.build();
 	sizer.add(&summary, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
-	let lock_chk = CheckBox::builder(&panel).with_label("Lock this chat").build();
+	let lock_chk = CheckBox::builder(&panel).with_label(crate::i18n::tr("Lock this chat")).build();
 	sizer.add(&lock_chk, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
-	let restricted_chk = CheckBox::builder(&panel).with_label("Restricted chat (changed on your phone)").build();
+	let restricted_chk =
+		CheckBox::builder(&panel).with_label(crate::i18n::tr("Restricted chat (changed on your phone)")).build();
 	restricted_chk.enable(false);
 	sizer.add(&restricted_chk, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
 
 	let rows = BoxSizer::builder(Orientation::Vertical).build();
-	let button = |text: &str| {
-		let btn = Button::builder(&panel).with_label(text).build();
+	let button = |text: &'static str| {
+		let btn = Button::builder(&panel).with_label(crate::i18n::tr(text)).build();
 		rows.add(&btn, 0, SizerFlag::Right | SizerFlag::Top, 6);
 		btn
 	};
@@ -81,7 +82,7 @@ pub fn build(notebook: &Notebook, is_group: bool) -> ChatOverviewParts {
 	let delete_btn = button("Delete chat...");
 	sizer.add_sizer(&rows, 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
 	panel.set_sizer(sizer, true);
-	notebook.add_page(&panel, "Overview", true, None);
+	notebook.add_page(&panel, crate::i18n::tr("Overview"), true, None);
 
 	ChatOverviewParts {
 		group,
@@ -127,14 +128,22 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid:
 	let a = applies(jid);
 	let mut s = state.borrow_mut();
 	let name = s.contacts.get(jid).cloned().unwrap_or_else(|| jid.to_string());
-	let kind = if jid.ends_with("@g.us") { "Group" } else { "Contact" };
+	let kind = if jid.ends_with("@g.us") { crate::i18n::tr("Group") } else { crate::i18n::tr("Contact") };
 	let locked = s.locked_jids.contains(jid);
 	let blocked = crate::ui_commands::blocking::is_blocked(&s, jid);
-	let mut lines = vec![format!("{}: {}", kind, name)];
-	lines.push(format!("Notifications: {}", if s.muted_jids.contains(jid) { "muted" } else { "on" }));
-	lines.push(format!("Locked: {}", if locked { "yes" } else { "no" }));
+	let mut lines = vec![format!("{kind}: {name}")];
+	lines.push(format!(
+		"{}: {}",
+		crate::i18n::tr("Notifications"),
+		if s.muted_jids.contains(jid) { crate::i18n::tr("muted") } else { crate::i18n::tr("on") }
+	));
+	lines.push(format!(
+		"{}: {}",
+		crate::i18n::tr("Locked"),
+		if locked { crate::i18n::tr("yes") } else { crate::i18n::tr("no") }
+	));
 	if a.block && blocked {
-		lines.push("Blocked: yes".to_string());
+		lines.push(crate::i18n::tr("Blocked: yes").to_string());
 	}
 	o.summary.set_value(&lines.join("\n"));
 	o.lock_chk.set_value(locked);
@@ -143,15 +152,19 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, o: &ChatOverviewParts, jid:
 	o.disappearing_btn.show(a.disappearing);
 	o.privacy_btn.show(a.privacy);
 	o.block_btn.show(a.block);
-	o.block_btn.set_label(if blocked { "Unblock contact" } else { "Block contact..." });
+	o.block_btn.set_label(if blocked {
+		crate::i18n::tr("Unblock contact")
+	} else {
+		crate::i18n::tr("Block contact...")
+	});
 	o.report_btn.show(a.report);
 	o.starred_btn.show(a.starred);
 	if a.starred {
 		let count = s.starred_entries.iter().filter(|e| e.jid == jid).count();
 		if count > 0 {
-			o.starred_btn.set_label(&format!("Starred messages ({})", count));
+			o.starred_btn.set_label(&format!("{} ({count})", crate::i18n::tr("Starred messages")));
 		} else {
-			o.starred_btn.set_label("Starred messages");
+			o.starred_btn.set_label(crate::i18n::tr("Starred messages"));
 		}
 	}
 	if a.privacy {
@@ -228,8 +241,7 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 		o.privacy_btn.on_click(move |_| {
 			let _ = tx.send(UiCommand::ShowChatPrivacy);
 		});
-		let (tx, nav, st, sf) =
-			(ui_tx.clone(), parts.nav_list, state.clone(), parts.conversations_parts.search_field);
+		let (tx, nav, st, sf) = (ui_tx.clone(), parts.nav_list, state.clone(), parts.conversations_parts.search_field);
 		o.starred_btn.on_click(move |_| {
 			let chat_name = target(&st).and_then(|jid| st.borrow().contacts.get(&jid).cloned());
 			dialog.end_modal(ID_CANCEL);
@@ -248,9 +260,9 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 			let name = st.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 			let default_name = format!("{}.zip", crate::ui::window::sanitize_export_filename(&name));
 			let chooser = FileDialog::builder(&dialog)
-				.with_message("Export chat as")
+				.with_message(crate::i18n::tr("Export chat as"))
 				.with_default_file(&default_name)
-				.with_wildcard("Zip archive (*.zip)|*.zip")
+				.with_wildcard(crate::i18n::tr("Zip archive (*.zip)|*.zip"))
 				.with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
 				.build();
 			if chooser.show_modal() == ID_OK
@@ -263,13 +275,14 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 		o.clear_btn.on_click(move |_| {
 			let Some(jid) = target(&st) else { return };
 			let name = st.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
-			let ask = MessageDialog::builder(
-				&dialog,
-				&format!("Delete all messages in the chat with {}? The chat itself will stay in your list.", name),
-				"Confirm Clear Chat",
-			)
-			.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
-			.build();
+			let msg = if crate::i18n::is_indonesian() {
+				format!("Hapus semua pesan di chat dengan {name}? Chat ini akan tetap ada di daftar Anda.")
+			} else {
+				format!("Delete all messages in the chat with {name}? The chat itself will stay in your list.")
+			};
+			let ask = MessageDialog::builder(&dialog, &msg, crate::i18n::tr("Confirm Clear Chat"))
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+				.build();
 			if ask.show_modal() == ID_OK {
 				let _ = tx.send(UiCommand::ClearChat { jid });
 			}
@@ -291,30 +304,31 @@ pub(crate) fn wire(parts: &WindowParts, state: &Rc<RefCell<AppState>>, ui_tx: &c
 			let Some(jid) = target(&st) else { return };
 			let name = st.borrow().contacts.get(&jid).cloned().unwrap_or_else(|| jid.clone());
 			let command = if jid.ends_with("@g.us") {
-				let choices = ["Delete chat only", "Delete chat and exit group"];
-				let ask = SingleChoiceDialog::builder(
-					&dialog,
-					&format!("Delete chat with {}?", name),
-					"Confirm Delete",
-					&choices,
-				)
-				.build();
+				let choices = [crate::i18n::tr("Delete chat only"), crate::i18n::tr("Delete chat and exit group")];
+				let msg = if crate::i18n::is_indonesian() {
+					format!("Hapus chat dengan {name}?")
+				} else {
+					format!("Delete chat with {name}?")
+				};
+				let ask =
+					SingleChoiceDialog::builder(&dialog, &msg, crate::i18n::tr("Confirm Delete"), &choices).build();
 				if ask.show_modal() != ID_OK {
 					return;
 				}
-				match ask.get_string_selection().as_deref() {
-					Some("Delete chat only") => UiCommand::DeleteChat { jid },
-					Some("Delete chat and exit group") => UiCommand::DeleteChatAndLeaveGroup { jid },
+				match ask.get_selection() {
+					0 => UiCommand::DeleteChat { jid },
+					1 => UiCommand::DeleteChatAndLeaveGroup { jid },
 					_ => return,
 				}
 			} else {
-				let ask = MessageDialog::builder(
-					&dialog,
-					&format!("Are you sure you want to delete chat with {}?", name),
-					"Confirm Delete",
-				)
-				.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
-				.build();
+				let msg = if crate::i18n::is_indonesian() {
+					format!("Yakin ingin menghapus chat dengan {name}?")
+				} else {
+					format!("Are you sure you want to delete chat with {name}?")
+				};
+				let ask = MessageDialog::builder(&dialog, &msg, crate::i18n::tr("Confirm Delete"))
+					.with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+					.build();
 				if ask.show_modal() != ID_OK {
 					return;
 				}

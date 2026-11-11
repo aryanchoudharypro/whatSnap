@@ -106,7 +106,11 @@ fn filter(candidates: &MentionCandidates, query: &str) -> Vec<MentionEntry> {
 
 fn describe(popup: &MentionPopup) -> String {
 	let entry = &popup.matches[popup.selected];
-	format!("{}, {} of {}", entry.name, popup.selected + 1, popup.matches.len())
+	if crate::i18n::is_indonesian() {
+		format!("{}, {} dari {}", entry.name, popup.selected + 1, popup.matches.len())
+	} else {
+		format!("{}, {} of {}", entry.name, popup.selected + 1, popup.matches.len())
+	}
 }
 
 fn hide_list(cp: &ConversationsPanelParts) {
@@ -188,7 +192,15 @@ pub(crate) fn refresh(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelPart
 			cp.mention_list.show(true);
 			cp.conversation_panel.layout();
 		}
-		let message = if opening { format!("Mention suggestions. {announcement}") } else { announcement };
+		let message = if opening {
+			if crate::i18n::is_indonesian() {
+				format!("Saran sebutan. {announcement}")
+			} else {
+				format!("Mention suggestions. {announcement}")
+			}
+		} else {
+			announcement
+		};
 		crate::platform::announce::announce(announcer, &message);
 	}
 }
@@ -262,7 +274,12 @@ pub(crate) fn accept(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts
 	let to = char_to_wx_pos(&text, caret.max(popup.at));
 	field.replace(from, to, &insert);
 	field.set_insertion_point(from + insert.chars().map(wx_width).sum::<i64>());
-	crate::platform::announce::announce(announcer, &format!("{} mentioned", entry.name));
+	let spoken = if crate::i18n::is_indonesian() {
+		format!("{} disebut", entry.name)
+	} else {
+		format!("{} mentioned", entry.name)
+	};
+	crate::platform::announce::announce(announcer, &spoken);
 }
 
 pub(crate) fn pick(state: &Rc<RefCell<AppState>>, cp: &ConversationsPanelParts, index: usize) {

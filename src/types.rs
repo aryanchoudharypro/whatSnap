@@ -68,6 +68,7 @@ pub enum UiCommand {
 	/// A removed account's logout took too long: stop it anyway.
 	FinishAccountRemoval(String),
 	ExitApp,
+	RestartApp,
 	NewContact {
 		name: String,
 		first_name: String,

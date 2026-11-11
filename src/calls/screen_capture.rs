@@ -64,8 +64,10 @@ pub fn share_choices() -> Vec<ShareChoice> {
 	let several = monitors.len() > 1;
 	for (i, (_, target)) in monitors.into_iter().enumerate() {
 		let label = match target {
-			ShareTarget::Monitor { width, height, .. } if several => format!("Screen {} ({width} x {height})", i + 1),
-			_ => "Entire screen".to_string(),
+			ShareTarget::Monitor { width, height, .. } if several => {
+				format!("{} {} ({width} x {height})", crate::i18n::tr("Screen"), i + 1)
+			}
+			_ => crate::i18n::tr("Entire screen").to_string(),
 		};
 		choices.push(ShareChoice { target, label, window_title: None });
 	}
@@ -85,7 +87,7 @@ pub fn share_choices() -> Vec<ShareChoice> {
 		let title = window_title(hwnd);
 		choices.push(ShareChoice {
 			target: ShareTarget::Window(hwnd.0 as isize),
-			label: format!("Window: {title}"),
+			label: format!("{}: {title}", crate::i18n::tr("Window")),
 			window_title: Some(title),
 		});
 	}
@@ -209,17 +211,17 @@ impl ScreenCapture {
 		if let ShareTarget::Window(hwnd) = target
 			&& !window_alive(hwnd)
 		{
-			crate::error::bail!("the window to share is gone");
+			crate::error::bail!("{}", crate::i18n::tr("the window to share is gone"));
 		}
 		unsafe {
 			let screen_dc = GetDC(None);
 			if screen_dc.is_invalid() {
-				crate::error::bail!("couldn't open the screen for capture");
+				crate::error::bail!("{}", crate::i18n::tr("couldn't open the screen for capture"));
 			}
 			let mem_dc = CreateCompatibleDC(Some(screen_dc));
 			if mem_dc.is_invalid() {
 				ReleaseDC(None, screen_dc);
-				crate::error::bail!("couldn't create a capture surface");
+				crate::error::bail!("{}", crate::i18n::tr("couldn't create a capture surface"));
 			}
 			let info = BITMAPINFO {
 				bmiHeader: BITMAPINFOHEADER {
@@ -239,7 +241,7 @@ impl ScreenCapture {
 				_ => {
 					let _ = DeleteDC(mem_dc);
 					ReleaseDC(None, screen_dc);
-					crate::error::bail!("couldn't allocate the capture bitmap");
+					crate::error::bail!("{}", crate::i18n::tr("couldn't allocate the capture bitmap"));
 				}
 			};
 			let previous = SelectObject(mem_dc, bitmap.into());
@@ -283,7 +285,7 @@ impl ScreenCapture {
 					)
 				};
 				if !copied.as_bool() {
-					crate::error::bail!("the screen couldn't be read");
+					crate::error::bail!("{}", crate::i18n::tr("the screen couldn't be read"));
 				}
 				((left, top), (width, height), placement)
 			}
@@ -300,11 +302,11 @@ impl ScreenCapture {
 		unsafe {
 			let mut rect = RECT::default();
 			if GetWindowRect(hwnd, &mut rect).is_err() || IsIconic(hwnd).as_bool() {
-				crate::error::bail!("the window can't be read right now");
+				crate::error::bail!("{}", crate::i18n::tr("the window can't be read right now"));
 			}
 			let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
 			if width <= 0 || height <= 0 {
-				crate::error::bail!("the window can't be read right now");
+				crate::error::bail!("{}", crate::i18n::tr("the window can't be read right now"));
 			}
 			if self.surface.as_ref().is_none_or(|surface| surface.width != width || surface.height != height) {
 				self.surface = None;
@@ -317,14 +319,14 @@ impl ScreenCapture {
 					if !bitmap.is_invalid() {
 						let _ = DeleteObject(bitmap.into());
 					}
-					crate::error::bail!("couldn't allocate a surface for the window");
+					crate::error::bail!("{}", crate::i18n::tr("couldn't allocate a surface for the window"));
 				}
 				let previous = SelectObject(dc, bitmap.into());
 				self.surface = Some(WindowSurface { dc, bitmap, previous, width, height });
 			}
 			let surface = self.surface.as_ref().expect("surface was just made");
 			if !PrintWindow(hwnd, surface.dc, PW_RENDERFULLCONTENT).as_bool() {
-				crate::error::bail!("the window couldn't be read");
+				crate::error::bail!("{}", crate::i18n::tr("the window couldn't be read"));
 			}
 			let placement = fit(width, height, self.width, self.height);
 			let _ = PatBlt(self.mem_dc, 0, 0, self.width, self.height, BLACKNESS);
@@ -342,7 +344,7 @@ impl ScreenCapture {
 				SRCCOPY,
 			);
 			if !copied.as_bool() {
-				crate::error::bail!("the window couldn't be read");
+				crate::error::bail!("{}", crate::i18n::tr("the window couldn't be read"));
 			}
 			Ok(((rect.left, rect.top), (width, height), placement))
 		}

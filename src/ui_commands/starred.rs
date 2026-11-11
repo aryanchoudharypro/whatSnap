@@ -41,7 +41,10 @@ pub(crate) fn unstar_message_at(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		}
 		crate::ui::message_display::apply_chat_filter(&mut s, parts);
 	}
-	crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "Message unstarred.");
+	crate::platform::announce::announce(
+		parts.conversations_parts.messages_announcer,
+		crate::i18n::tr("Message unstarred."),
+	);
 }
 
 pub(crate) fn copy_message_at(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, idx: usize) {
@@ -55,16 +58,19 @@ pub(crate) fn copy_message_at(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		if crate::platform::clipboard::copy_text(&entry.text) {
 			crate::platform::announce::announce(
 				parts.conversations_parts.messages_announcer,
-				"Message text copied to clipboard.",
+				crate::i18n::tr("Message text copied to clipboard."),
 			);
 		} else {
 			crate::platform::announce::announce(
 				parts.conversations_parts.messages_announcer,
-				"Couldn't copy to clipboard.",
+				crate::i18n::tr("Couldn't copy to clipboard."),
 			);
 		}
 	} else {
-		crate::platform::announce::announce(parts.conversations_parts.messages_announcer, "No text to copy.");
+		crate::platform::announce::announce(
+			parts.conversations_parts.messages_announcer,
+			crate::i18n::tr("No text to copy."),
+		);
 	}
 }
 
@@ -77,18 +83,31 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 	};
 
 	let mut builder = Menu::builder();
-	builder = builder.append_item(GO_TO, "&Go to message", "Open the chat at this message");
+	builder =
+		builder.append_item(GO_TO, crate::i18n::tr("&Go to message"), crate::i18n::tr("Open the chat at this message"));
 	if !entry.text.is_empty() {
-		builder = builder.append_item(COPY, "&Copy text\tCtrl+C", "Copy message text to clipboard");
+		builder = builder.append_item(
+			COPY,
+			crate::i18n::tr("&Copy text	Ctrl+C"),
+			crate::i18n::tr("Copy message text to clipboard"),
+		);
 	}
 	builder = builder
-		.append_item(FORWARD, "&Forward...", "Forward this message to contacts or groups")
-		.append_item(UNSTAR, "&Unstar\tDel", "Take this message off your starred messages");
+		.append_item(
+			FORWARD,
+			crate::i18n::tr("&Forward..."),
+			crate::i18n::tr("Forward this message to contacts or groups"),
+		)
+		.append_item(
+			UNSTAR,
+			crate::i18n::tr("&Unstar	Del"),
+			crate::i18n::tr("Take this message off your starred messages"),
+		);
 	if total_starred > 1 {
 		builder = builder.append_separator().append_item(
 			UNSTAR_ALL,
-			"Unstar &all...",
-			"Remove all messages from starred messages",
+			crate::i18n::tr("Unstar &all..."),
+			crate::i18n::tr("Remove all messages from starred messages"),
 		);
 	}
 	let mut menu = builder.build();
@@ -101,9 +120,11 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 		COPY => copy_message_at(&state_menu, &parts_menu, idx),
 		FORWARD => {
 			let targets = crate::ui_commands::links::send_targets(&state_menu.borrow());
-			let Some(to_jids) =
-				crate::ui::dialogs::send_to::show_forward_dialog(&parts_menu.frame, "Forward message to", targets)
-			else {
+			let Some(to_jids) = crate::ui::dialogs::send_to::show_forward_dialog(
+				&parts_menu.frame,
+				crate::i18n::tr("Forward message to"),
+				targets,
+			) else {
 				return;
 			};
 			if to_jids.is_empty() {
@@ -118,10 +139,13 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				let s = state_menu.borrow();
 				to_jids.iter().map(|jid| s.contacts.get(jid).cloned().unwrap_or_else(|| jid.clone())).collect()
 			};
-			crate::platform::announce::announce(
-				parts_menu.conversations_parts.messages_announcer,
-				&format!("Message forwarded to {}.", names.join(", ")),
-			);
+			let names_joined = names.join(", ");
+			let spoken = if crate::i18n::is_indonesian() {
+				format!("Pesan diteruskan ke {names_joined}.")
+			} else {
+				format!("Message forwarded to {names_joined}.")
+			};
+			crate::platform::announce::announce(parts_menu.conversations_parts.messages_announcer, &spoken);
 		}
 		UNSTAR => unstar_message_at(&state_menu, &parts_menu, idx),
 		UNSTAR_ALL => {
@@ -129,13 +153,14 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 			if count == 0 {
 				return;
 			}
-			let confirm = MessageDialog::builder(
-				&parts_menu.frame,
-				&format!("Are you sure you want to unstar all {} starred messages?", count),
-				"Unstar All Messages",
-			)
-			.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-			.build();
+			let question = if crate::i18n::is_indonesian() {
+				format!("Yakin ingin menghapus bintang dari semua {count} pesan berbintang?")
+			} else {
+				format!("Are you sure you want to unstar all {count} starred messages?")
+			};
+			let confirm = MessageDialog::builder(&parts_menu.frame, &question, crate::i18n::tr("Unstar All Messages"))
+				.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+				.build();
 			if confirm.show_modal() == wxdragon::id::ID_YES {
 				let all_entries = state_menu.borrow().starred_entries.clone();
 				for e in &all_entries {
@@ -158,7 +183,7 @@ pub(crate) fn show_starred_menu(state: &Rc<RefCell<AppState>>, parts: &Rc<Window
 				}
 				crate::platform::announce::announce(
 					parts_menu.conversations_parts.messages_announcer,
-					"All starred messages unstarred.",
+					crate::i18n::tr("All starred messages unstarred."),
 				);
 			}
 		}

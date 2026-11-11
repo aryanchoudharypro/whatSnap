@@ -44,28 +44,48 @@ pub(crate) fn append_message_actions(
 	}
 	let can_pin = !s.admins_only_jids.contains(jid) || s.admin_group_jids.contains(jid);
 	if m.pinned {
-		menu.append(UNPIN, "Unpi&n", "Unpin this message for everyone in the chat", ItemKind::Normal);
+		menu.append(
+			UNPIN,
+			crate::i18n::tr("Unpi&n"),
+			crate::i18n::tr("Unpin this message for everyone in the chat"),
+			ItemKind::Normal,
+		);
 	} else if can_pin {
-		menu.append(PIN, "Pi&n...", "Pin this message at the top of the chat for everyone", ItemKind::Normal);
+		menu.append(
+			PIN,
+			crate::i18n::tr("Pi&n..."),
+			crate::i18n::tr("Pin this message at the top of the chat for everyone"),
+			ItemKind::Normal,
+		);
 	}
 	if m.kept {
-		menu.append(UNKEEP, "Un&keep", "Let this message disappear like the others", ItemKind::Normal);
+		menu.append(
+			UNKEEP,
+			crate::i18n::tr("Un&keep"),
+			crate::i18n::tr("Let this message disappear like the others"),
+			ItemKind::Normal,
+		);
 	} else if m.expiring {
-		menu.append(KEEP, "&Keep in chat", "Keep this message from disappearing, for everyone", ItemKind::Normal);
+		menu.append(
+			KEEP,
+			crate::i18n::tr("&Keep in chat"),
+			crate::i18n::tr("Keep this message from disappearing, for everyone"),
+			ItemKind::Normal,
+		);
 	}
 	if m.media_type == "sticker" {
 		if m.sticker_favorite {
 			menu.append(
 				STICKER_FAVORITE,
-				"Remove from &favorite stickers",
-				"Take this sticker off your favorites",
+				crate::i18n::tr("Remove from &favorite stickers"),
+				crate::i18n::tr("Take this sticker off your favorites"),
 				ItemKind::Normal,
 			);
 		} else {
 			menu.append(
 				STICKER_FAVORITE,
-				"Add to &favorite stickers",
-				"Keep this sticker in your favorites to send it again",
+				crate::i18n::tr("Add to &favorite stickers"),
+				crate::i18n::tr("Keep this sticker in your favorites to send it again"),
 				ItemKind::Normal,
 			);
 		}
@@ -83,15 +103,23 @@ pub(crate) fn handle_message_action(
 	let target = serde_json::json!({ "jid": jid, "message_id": msg.id });
 	match id {
 		PIN => {
-			let labels: Vec<&str> = PIN_DURATIONS.iter().map(|(label, _)| *label).collect();
-			let dialog =
-				SingleChoiceDialog::builder(frame, "Keep this message pinned for:", "Pin Message", &labels).build();
+			let labels: Vec<&str> = PIN_DURATIONS.iter().map(|(label, _)| crate::i18n::tr(label)).collect();
+			let dialog = SingleChoiceDialog::builder(
+				frame,
+				crate::i18n::tr("Keep this message pinned for:"),
+				crate::i18n::tr("Pin Message"),
+				&labels,
+			)
+			.build();
 			dialog.set_selection(1);
 			if dialog.show_modal() != wxdragon::id::ID_OK {
 				return true;
 			}
 			let Some(choice) = dialog.get_string_selection() else { return true };
-			let Some(&(_, seconds)) = PIN_DURATIONS.iter().find(|(label, _)| *label == choice) else { return true };
+			let Some(&(_, seconds)) = PIN_DURATIONS.iter().find(|(label, _)| crate::i18n::tr(label) == choice.as_str())
+			else {
+				return true;
+			};
 			let mut data = target;
 			data["pin"] = true.into();
 			data["duration"] = seconds.into();
@@ -149,13 +177,13 @@ fn update_open_message(
 
 pub(crate) fn message_pinned(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let pinned = data.get("pinned").and_then(|v| v.as_bool()).unwrap_or(false);
-	let spoken = if pinned { "Message pinned." } else { "Message unpinned." };
+	let spoken = if pinned { crate::i18n::tr("Message pinned.") } else { crate::i18n::tr("Message unpinned.") };
 	update_open_message(state, parts, data, spoken, |m| m.pinned = pinned);
 }
 
 pub(crate) fn message_kept(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts>, data: &serde_json::Value) {
 	let kept = data.get("kept").and_then(|v| v.as_bool()).unwrap_or(false);
-	let spoken = if kept { "Message kept." } else { "Message unkept." };
+	let spoken = if kept { crate::i18n::tr("Message kept.") } else { crate::i18n::tr("Message unkept.") };
 	update_open_message(state, parts, data, spoken, |m| m.kept = kept);
 }
 
@@ -183,15 +211,24 @@ pub(crate) fn pinned_messages(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowPa
 		})
 		.unwrap_or_default();
 	if pins.is_empty() {
-		MessageDialog::builder(&parts.frame, "No messages are pinned in this chat.", "Pinned Messages")
-			.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-			.build()
-			.show_modal();
+		MessageDialog::builder(
+			&parts.frame,
+			crate::i18n::tr("No messages are pinned in this chat."),
+			crate::i18n::tr("Pinned Messages"),
+		)
+		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+		.build()
+		.show_modal();
 		return;
 	}
 	let labels: Vec<&str> = pins.iter().map(|(_, label)| label.as_str()).collect();
-	let dialog =
-		SingleChoiceDialog::builder(&parts.frame, "Go to a pinned message:", "Pinned Messages", &labels).build();
+	let dialog = SingleChoiceDialog::builder(
+		&parts.frame,
+		crate::i18n::tr("Go to a pinned message:"),
+		crate::i18n::tr("Pinned Messages"),
+		&labels,
+	)
+	.build();
 	if dialog.show_modal() != wxdragon::id::ID_OK {
 		return;
 	}
@@ -236,10 +273,12 @@ pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 	if data.get("restricted").and_then(|v| v.as_bool()).unwrap_or(false) {
 		MessageDialog::builder(
 			parent,
-			"Restricted chat is on in this chat. It keeps the chat on the phone that turned it on: new messages \
-			 don't come to linked devices like this one, nobody in the chat can export it or save its media \
-			 automatically, and its messages can't be used with AI features. It can only be turned off from a phone.",
-			"Restricted Chat",
+			crate::i18n::tr(
+				"Restricted chat is on in this chat. It keeps the chat on the phone that turned it on: new messages \
+				 don't come to linked devices like this one, nobody in the chat can export it or save its media \
+				 automatically, and its messages can't be used with AI features. It can only be turned off from a phone.",
+			),
+			crate::i18n::tr("Restricted Chat"),
 		)
 		.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
 		.build()
@@ -247,17 +286,25 @@ pub(crate) fn chat_privacy(state: &Rc<RefCell<AppState>>, parts: &Rc<WindowParts
 		return;
 	}
 	let enabled = data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-	let what = "When it's on, people in this chat can't export it, media isn't saved to their devices automatically, \
-	            and messages can't be used with AI features.";
 	let (question, action) = if enabled {
-		(format!("Advanced chat privacy is on in this chat. {} Turn it off?", what), "Turn off")
+		(
+			crate::i18n::tr(
+				"Advanced chat privacy is on in this chat. When it's on, people in this chat can't export it, media isn't saved to their devices automatically, and messages can't be used with AI features. Turn it off?",
+			),
+			crate::i18n::tr("Turn off"),
+		)
 	} else {
-		(format!("Advanced chat privacy is off in this chat. {} Turn it on?", what), "Turn on")
+		(
+			crate::i18n::tr(
+				"Advanced chat privacy is off in this chat. When it's on, people in this chat can't export it, media isn't saved to their devices automatically, and messages can't be used with AI features. Turn it on?",
+			),
+			crate::i18n::tr("Turn on"),
+		)
 	};
-	let dialog = MessageDialog::builder(parent, &question, "Advanced Chat Privacy")
+	let dialog = MessageDialog::builder(parent, question, crate::i18n::tr("Advanced Chat Privacy"))
 		.with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
 		.build();
-	dialog.set_yes_no_labels(action, "Cancel");
+	dialog.set_yes_no_labels(action, crate::i18n::tr("Cancel"));
 	if dialog.show_modal() == ID_YES {
 		send(state, "set_chat_privacy", serde_json::json!({ "jid": jid, "enabled": !enabled }));
 	}
